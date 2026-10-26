@@ -105,4 +105,39 @@ describe("SystemUpdatesCard", () => {
       expect(calls.some((c) => c.startsWith("POST") && c.endsWith("/system/updates/apply"))).toBe(true);
     });
   });
+
+  it("dismisses the failed-update warning", async () => {
+    const user = userEvent.setup();
+    const calls = [];
+    let failed = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path, init) => {
+        calls.push(`${init?.method || "GET"} ${path}`);
+        if (String(path).endsWith("/os-failed/clear")) {
+          failed = false;
+          return jsonResponse({ ok: true });
+        }
+        return jsonResponse({ ...UP_TO_DATE, os_update_failed: failed ? { version: "0.9.0" } : null });
+      }),
+    );
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Dismiss" }));
+    await vi.waitFor(() => {
+      expect(calls.some((c) => c.startsWith("POST") && c.endsWith("/os-failed/clear"))).toBe(true);
+      expect(screen.queryByText(/didn't start/)).toBeNull();
+    });
+  });
+
+  it("says an update is installing, with a spinner and no second install button", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ ...UP_TO_DATE, update_available: true, latest_version: "0.2.0", applying: true })),
+    );
+    renderCard();
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("Installing update…");
+    expect(status.querySelector('[data-slot="spinner"]')).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Update now/ })).toBeNull();
+  });
 });

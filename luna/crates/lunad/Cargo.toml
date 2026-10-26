@@ -39,6 +39,7 @@ bytes = "1"
 libc = "0.2"
 futures-util = "0.3"
 getrandom.workspace = true
+zeroize = "1"
 uuid.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
@@ -57,7 +58,6 @@ ml-kem = { version = "0.3.3", features = ["hazmat"] }
 ml-dsa = "0.1.1"
 # Cloud backup chunking (backup/cloud/format.rs): content-defined chunk boundaries.
 fastcdc = "3"
-zeroize = "1"
 
 [build-dependencies]
 semver.workspace = true

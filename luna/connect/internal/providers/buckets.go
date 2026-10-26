@@ -8,6 +8,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
@@ -18,6 +19,49 @@ type BucketProvisioner struct {
 	DB        *database.DB
 	Providers *Service
 	B2        *B2Client
+
+	// Now returns the current time. Nil means time.Now; tests set it to drive the retry backoff.
+	Now func() time.Time
+
+	// keepLast tracks, per device, whether the keep-last-version rule is known to be set and
+	// when it may be tried again after a failure. Guarded by keepLastMu.
+	keepLastMu sync.Mutex
+	keepLast   map[string]*keepLastState
+}
+
+// keepLastState is the in-memory record for one device's keep-last-version rule.
+type keepLastState struct {
+	done     bool      // the rule is known to be set; B2 is not asked again this process
+	inFlight bool      // a call to B2 is running now; other requests skip it rather than queue
+	failures int       // failed attempts in a row
+	retryAt  time.Time // no new attempt before this time
+}
+
+const (
+	// keepLastRetryFirst is the wait after the first failure. Each further failure doubles it,
+	// up to keepLastRetryMax, so a key without bucket-write rights costs a few B2 calls a day,
+	// not one per request.
+	keepLastRetryFirst = 5 * time.Minute
+	keepLastRetryMax   = 6 * time.Hour
+)
+
+// keepLastBackoff is the wait after the given number of failures in a row (1 = first failure).
+func keepLastBackoff(failures int) time.Duration {
+	wait := keepLastRetryFirst
+	for i := 1; i < failures; i++ {
+		wait *= 2
+		if wait >= keepLastRetryMax {
+			return keepLastRetryMax
+		}
+	}
+	return wait
+}
+
+func (p *BucketProvisioner) now() time.Time {
+	if p.Now != nil {
+		return p.Now()
+	}
+	return time.Now()
 }
 
 // DeviceBucket is the persisted mapping for a device's private B2 bucket.
@@ -59,6 +103,7 @@ func (p *BucketProvisioner) EnsureDeviceBucket(deviceID string) (*DeviceBucket, 
 	if existing, err := p.load(deviceID); err != nil {
 		return nil, err
 	} else if existing != nil {
+		p.ensureKeepLast(existing)
 		return existing, nil
 	}
 
@@ -123,6 +168,83 @@ ON CONFLICT(device_id) DO NOTHING`,
 		revokeNew()
 	}
 	return existing, nil
+}
+
+// ensureKeepLast gives a bucket provisioned before the keep-last-version rule existed that rule,
+// so an old phrase's replaced key copies are deleted a day after they are hidden. Best effort and
+// logged: a failure never blocks the backup. After a failure the bucket is not tried again until
+// an exponential backoff has passed, and while one call is talking to B2 the others skip it.
+func (p *BucketProvisioner) ensureKeepLast(b *DeviceBucket) {
+	if !p.beginKeepLast(b.DeviceID) {
+		return
+	}
+	attempted, err := p.setKeepLast(b)
+	if !attempted {
+		p.finishKeepLast(b.DeviceID, nil, false)
+		return
+	}
+	p.finishKeepLast(b.DeviceID, err, true)
+	if err != nil {
+		slog.Warn("backup bucket: could not set keep-last-version on an existing bucket", "bucket", b.BucketName, "error", err)
+	}
+}
+
+// beginKeepLast reports whether this call should ask B2 now, and marks the attempt as running.
+func (p *BucketProvisioner) beginKeepLast(deviceID string) bool {
+	p.keepLastMu.Lock()
+	defer p.keepLastMu.Unlock()
+	if p.keepLast == nil {
+		p.keepLast = map[string]*keepLastState{}
+	}
+	st := p.keepLast[deviceID]
+	if st == nil {
+		st = &keepLastState{}
+		p.keepLast[deviceID] = st
+	}
+	if st.done || st.inFlight || p.now().Before(st.retryAt) {
+		return false
+	}
+	st.inFlight = true
+	return true
+}
+
+// finishKeepLast records the outcome of an attempt started by beginKeepLast. attempted is false
+// when nothing was asked of B2 (no backup connection), so nothing is remembered and it is tried
+// again on the next request.
+func (p *BucketProvisioner) finishKeepLast(deviceID string, err error, attempted bool) {
+	p.keepLastMu.Lock()
+	defer p.keepLastMu.Unlock()
+	st := p.keepLast[deviceID]
+	st.inFlight = false
+	if !attempted {
+		return
+	}
+	if err == nil {
+		st.done = true
+		st.failures = 0
+		st.retryAt = time.Time{}
+		return
+	}
+	st.failures++
+	st.retryAt = p.now().Add(keepLastBackoff(st.failures))
+}
+
+// setKeepLast asks B2 to apply the keep-last-version rule to the bucket. attempted is false when
+// no usable backup connection exists, so B2 was never asked.
+func (p *BucketProvisioner) setKeepLast(b *DeviceBucket) (attempted bool, err error) {
+	prov, lookupErr := p.Providers.FindEnabled("backup")
+	if lookupErr != nil || prov == nil {
+		return false, nil
+	}
+	masterID, masterKey := prov.Credential("account_id", ""), prov.Credential("application_key", "")
+	if strings.TrimSpace(masterID) == "" || strings.TrimSpace(masterKey) == "" {
+		return false, nil
+	}
+	b2 := p.B2
+	if b2 == nil {
+		b2 = NewB2Client(nil)
+	}
+	return true, b2.EnsureKeepLastVersionByName(masterID, masterKey, b.BucketName)
 }
 
 // ReleaseBuckets deletes the B2 bucket and key of every Luna that matches. lunaSlot "" matches

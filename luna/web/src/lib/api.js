@@ -42,10 +42,17 @@ export function withCsrfHeaders(method, headers = {}) {
  */
 export const UNAUTHORIZED_EVENT = "luna:unauthorized";
 
+/** A page fires many requests at once; one dead session must raise one event, not one per request. */
+const UNAUTHORIZED_COALESCE_MS = 2000;
+let lastUnauthorizedAt = 0;
+
 function notifyUnauthorized(path) {
   if (typeof window === "undefined") return;
   // /auth/* answers 401 for bad logins; those never mean the session ended.
   if (String(path).startsWith("/api/v1/auth/")) return;
+  const now = Date.now();
+  if (now - lastUnauthorizedAt < UNAUTHORIZED_COALESCE_MS) return;
+  lastUnauthorizedAt = now;
   window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
 }
 
@@ -124,6 +131,25 @@ export async function putBinary(path, body, options = {}) {
 }
 
 /**
+ * An ApiError from a failed XHR, carrying the parsed body as `code` and `data`
+ * the same way `request` does.
+ * @param {XMLHttpRequest} xhr
+ */
+function xhrApiError(xhr) {
+  let message = "";
+  let code = null;
+  let data;
+  try {
+    data = JSON.parse(xhr.responseText || "{}");
+    message = data?.error || "";
+    if (typeof data?.code === "string" && data.code) code = data.code;
+  } catch {
+    data = undefined;
+  }
+  return new ApiError(xhr.status, message || `Request failed (${xhr.status})`, code, data);
+}
+
+/**
  * PUT binary with upload-byte progress (XHR). Use for large chunked uploads so
  * the bar moves while a chunk is still in flight; fetch cannot report that.
  *
@@ -185,13 +211,7 @@ export function putBinaryProgress(path, body, options = {}) {
         }
         return;
       }
-      let message = "";
-      try {
-        message = JSON.parse(xhr.responseText || "{}").error || "";
-      } catch {
-        // fall through
-      }
-      reject(new ApiError(xhr.status, message || `Request failed (${xhr.status})`));
+      reject(xhrApiError(xhr));
     };
 
     xhr.onerror = () => {
@@ -263,13 +283,7 @@ export function postFormProgress(path, formData, options = {}) {
         }
         return;
       }
-      let message = "";
-      try {
-        message = JSON.parse(xhr.responseText || "{}").error || "";
-      } catch {
-        // fall through
-      }
-      reject(new ApiError(xhr.status, message || `Request failed (${xhr.status})`));
+      reject(xhrApiError(xhr));
     };
 
     xhr.onerror = () => {

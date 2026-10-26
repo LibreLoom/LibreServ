@@ -46,6 +46,8 @@ pub enum JobError {
     UnknownKind,
     #[error("Luna is already working on a lot of copies and moves. Try again when they finish.")]
     QueueFull,
+    #[error("Luna's job queue isn't responding.")]
+    Runner,
     #[error("{0}")]
     Files(FilesError),
     #[error("{0}")]
@@ -62,7 +64,35 @@ pub enum JobError {
     Denied,
     #[error("This folder holds private items that only their owners can move.")]
     Blocked,
+    /// The name is taken at the destination. `existing_dir` says whether a
+    /// folder holds it, so the person knows which choices are possible.
+    #[error("A file or folder with this name is already there.")]
+    NameTaken { existing_dir: bool },
+    /// Keep-both was asked for a private item, which can't take a second name.
+    #[error(
+        "Luna can't keep two private items with the same name here. Choose Skip, or rename one first."
+    )]
+    KeepBothUnsupported,
+    /// The copy landed, but the originals could not go to Trash afterwards.
+    #[error(
+        "The files were copied, but Luna couldn't move the originals to Trash. Both are there now."
+    )]
+    SourceNotTrashed,
 }
+
+/// What to do when the name is already taken at the destination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnConflict {
+    /// Refuse with [`JobError::NameTaken`], so the person chooses.
+    Fail,
+    /// Save under the next free name, like `name (1).ext`.
+    KeepBoth,
+}
+
+/// Appended to a failed copy that removed its partial destination.
+const REMOVED_PARTIAL_COPY: &str = "Luna removed the partial copy.";
+/// Appended to a failed move that had only copied so far.
+const NOTHING_MOVED: &str = "Nothing was moved. Your files are still where they were.";
 
 impl From<FilesError> for JobError {
     fn from(e: FilesError) -> Self {
@@ -128,6 +158,30 @@ impl JobManager {
         to_path: &str,
         user_id: &str,
     ) -> Result<JobRow, JobError> {
+        self.enqueue_on_conflict(
+            kind,
+            from_drive,
+            from_path,
+            to_drive,
+            to_path,
+            user_id,
+            OnConflict::Fail,
+        )
+        .await
+    }
+
+    /// [`JobManager::enqueue`] with the choice for a name clash.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn enqueue_on_conflict(
+        &self,
+        kind: &str,
+        from_drive: &str,
+        from_path: &str,
+        to_drive: &str,
+        to_path: &str,
+        user_id: &str,
+        on_conflict: OnConflict,
+    ) -> Result<JobRow, JobError> {
         if kind != "copy" && kind != "move" {
             return Err(JobError::UnknownKind);
         }
@@ -151,10 +205,14 @@ impl JobManager {
                 &to_drive,
                 &to_path,
                 &user_id,
+                on_conflict,
             )
         })
         .await
-        .map_err(|e| JobError::Db(anyhow::anyhow!("job task crashed: {e}")))??;
+        .map_err(|e| {
+            tracing::error!(error = %e, "job preparation task crashed");
+            JobError::Runner
+        })??;
 
         let cancel = Arc::new(AtomicBool::new(false));
         lock_cancels(&self.cancels).insert(prepared.row.id.clone(), cancel.clone());
@@ -228,6 +286,7 @@ pub(crate) fn job_source_cap(
     crate::access::CAP_VIEW
 }
 
+#[allow(clippy::too_many_arguments)]
 fn prepare(
     conn: &Connection,
     kind: &str,
@@ -236,6 +295,7 @@ fn prepare(
     to_drive: &str,
     to_path: &str,
     user_id: &str,
+    on_conflict: OnConflict,
 ) -> Result<PreparedJob, JobError> {
     // Queue depth first — under the same lock the job row insert below
     // takes, so two enqueues can't both slip past the ceiling. `list_jobs`
@@ -295,7 +355,7 @@ fn prepare(
     // prefix is storage noise that must not leak into the destination.
     let src_root = PathBuf::from(files::drive_root(conn, from_drive)?.mount_point);
     let src_item = crate::private::item_at(&src_root, &from_real);
-    let name = files::trash_api_leaf(conn, from_drive, &from_path)?
+    let mut name = files::trash_api_leaf(conn, from_drive, &from_path)?
         .or_else(|| src_item.as_ref().map(|i| i.name().to_string()))
         .or_else(|| src.file_name().map(|s| s.to_string_lossy().into_owned()))
         .ok_or_else(|| {
@@ -332,7 +392,7 @@ fn prepare(
     }
     let dest_dir = files::dest_dir(conn, to_drive, &to_path)?;
     let to_root = PathBuf::from(files::drive_root(conn, to_drive)?.mount_point);
-    let dest_rel = crate::gallery::gallery_indexer::join_rel(
+    let mut dest_rel = crate::gallery::gallery_indexer::join_rel(
         crate::access::normalize_subject_path(&to_real).as_str(),
         &name,
     );
@@ -340,7 +400,7 @@ fn prepare(
     // keeps its disk entry; copied (or moved across drives) it gets a fresh
     // id under the destination drive's prefix.
     let mut private_root = None;
-    let dest = match &src_item {
+    let mut dest = match &src_item {
         Some(_) if kind == "move" && from_drive == to_drive => dest_dir
             .join(crate::private::disk_leaf(&src_root, &from_real).unwrap_or_else(|| name.clone())),
         Some(item) => {
@@ -367,7 +427,24 @@ fn prepare(
         || crate::private::item_at(&to_root, &dest_rel).is_some()
         || files::name_taken(&dest_dir, &name)
     {
-        return Err(JobError::Conflict);
+        match on_conflict {
+            OnConflict::Fail => {
+                return Err(JobError::NameTaken {
+                    existing_dir: crate::files::uploads::existing_kind(&dest_dir, &name) == "dir",
+                });
+            }
+            OnConflict::KeepBoth if src_item.is_some() => {
+                return Err(JobError::KeepBothUnsupported);
+            }
+            OnConflict::KeepBoth => {
+                name = crate::files::uploads::find_free_name(&dest_dir, &name);
+                dest = dest_dir.join(&name);
+                dest_rel = crate::gallery::gallery_indexer::join_rel(
+                    crate::access::normalize_subject_path(&to_real).as_str(),
+                    &name,
+                );
+            }
+        }
     }
     let user_row = db::get_user(conn, user_id)
         .map_err(JobError::Db)?
@@ -742,25 +819,61 @@ fn run_job(
                 // destination now would orphan every grant. Keep it; the
                 // source stays wherever the failed cleanup left it, which
                 // the user can remove by hand.
+                tracing::warn!(error = ?e, "a copied original could not be moved to Trash");
                 st.owned_dest = false;
                 created_private_root = false;
-                return Err(JobError::from(e));
+                return Err(JobError::SourceNotTrashed);
             }
         }
         let conn = db.lock().map_err(|_| index_busy())?;
         db::set_job_state(&conn, &prepared.row.id, "done", "").map_err(JobError::Db)
     })();
 
-    let (state, error) = match result {
+    let is_move = prepared.row.kind == "move";
+    let (state, mut error) = match result {
         Ok(()) => ("done".to_string(), String::new()),
         Err(JobError::Io(e)) if e.kind() == std::io::ErrorKind::Interrupted => {
-            ("cancelled".to_string(), String::new())
+            // Only a copy that had written its destination has a partial
+            // copy to say so about.
+            let text = if st.owned_dest && !is_move {
+                REMOVED_PARTIAL_COPY.to_string()
+            } else {
+                String::new()
+            };
+            ("cancelled".to_string(), text)
+        }
+        Err(e) if is_no_space(&e) => {
+            let label = db
+                .lock()
+                .ok()
+                .and_then(|conn| db::get_drive(&conn, &prepared.row.to_drive).ok().flatten())
+                .map(|drive| drive.label);
+            let text = match label {
+                Some(label) => format!("{label} is full. Free up some space on it and try again."),
+                None => plain_job_error(&e),
+            };
+            ("error".to_string(), text)
         }
         Err(e) => ("error".to_string(), plain_job_error(&e)),
     };
+    // A failure that removes its partial destination says what that means
+    // for the person's files.
+    if state == "error" && st.owned_dest {
+        let suffix = if is_move {
+            NOTHING_MOVED
+        } else {
+            REMOVED_PARTIAL_COPY
+        };
+        error = format!("{error} {suffix}");
+    }
     if let Ok(conn) = db.lock() {
         let _ = db::set_job_state(&conn, &prepared.row.id, &state, &error);
-        let _ = db::update_job_progress(&conn, &prepared.row.id, prepared.total, prepared.total);
+        // Only a finished job reports 100%. A failed one keeps the progress
+        // it really made.
+        if state == "done" {
+            let _ =
+                db::update_job_progress(&conn, &prepared.row.id, prepared.total, prepared.total);
+        }
     }
     if (state == "cancelled" || state == "error") && st.owned_dest {
         let _ = std::fs::remove_file(&prepared.dest);
@@ -1166,6 +1279,13 @@ fn plain_job_error(err: &JobError) -> String {
         JobError::Blocked => {
             "This folder holds private items that only their owners can move.".into()
         }
+        JobError::NameTaken { .. } => "A file or folder with this name is already there.".into(),
+        JobError::KeepBothUnsupported => {
+            "Luna can't keep two private items with the same name here. Choose Skip, or rename one first.".into()
+        }
+        JobError::SourceNotTrashed => {
+            "The files were copied, but Luna couldn't move the originals to Trash. Both are there now.".into()
+        }
         JobError::Files(FilesError::UnknownDrive) => {
             "Luna doesn't know one of these drives. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.".into()
         }
@@ -1174,13 +1294,24 @@ fn plain_job_error(err: &JobError) -> String {
         JobError::Io(e) if e.kind() == std::io::ErrorKind::NotFound => {
             "A file disappeared while Luna was copying it.".into()
         }
-        JobError::Io(e)
-            if e.to_string().contains("No space") || e.to_string().contains("no space") =>
-        {
-            "The destination drive is full.".into()
+        _ if is_no_space(err) => {
+            "The destination drive is full. Free up some space on it and try again.".into()
         }
         _ => "Luna couldn't finish this job. Check the drives and try again.".into(),
     }
+}
+
+/// Did the write run out of room on the destination drive?
+fn is_no_space(err: &JobError) -> bool {
+    let io = match err {
+        JobError::Io(e) | JobError::Files(FilesError::Io(e)) => e,
+        _ => return false,
+    };
+    matches!(
+        io.kind(),
+        std::io::ErrorKind::StorageFull | std::io::ErrorKind::QuotaExceeded
+    ) || io.to_string().contains("No space")
+        || io.to_string().contains("no space")
 }
 
 #[cfg(test)]

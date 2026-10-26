@@ -14,7 +14,7 @@ use crate::luna;
 use crate::session;
 
 /// How often to re-check Luna for remote-side changes when nothing changed locally.
-const REMOTE_POLL_INTERVAL: Duration = Duration::from_secs(5);
+const REMOTE_POLL_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncPair {

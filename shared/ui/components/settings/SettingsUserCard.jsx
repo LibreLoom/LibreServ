@@ -9,7 +9,7 @@ import { ICON_SIZE } from "../../lib/ui-tokens.js";
  *
  * @param {{ user: object|null, href?: string|((user: object) => string|null), deviceName?: string }} props
  *   href — link target for the card. Pass a string or a function of `user`
- *   (e.g. link admins only: `u => u.role === "admin" ? "/settings/users" : null`).
+ *   (e.g. link admins only: `u => u.role === "admin" ? "/settings#users" : null`).
  *   Omit or return null to render a plain div.
  *   deviceName — product noun used in the role hints ("this Luna", "this server").
  */

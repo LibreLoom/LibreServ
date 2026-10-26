@@ -603,6 +603,7 @@ func addLunaTests() {
 		Container: "host",
 		Command:   "./luna/ci.sh",
 		WorkDir:   "/repo",
-		Timeout:   45 * time.Minute,
+		// Under the gentle .ci.conf limits, cargo test alone takes about 27 minutes.
+		Timeout: 90 * time.Minute,
 	})
 }

@@ -520,7 +520,7 @@ fn install_rights(
 /// Pick the first free name in `dir` by appending ` (n)` before the extension,
 /// Nextcloud-style, so a drop box can land `report.pdf` next to a taken
 /// `report.pdf` as `report (1).pdf`.
-fn find_free_name(dir: &Path, name: &str) -> String {
+pub(crate) fn find_free_name(dir: &Path, name: &str) -> String {
     let (stem, ext) = match name.rfind('.') {
         Some(i) if i > 0 => (name[..i].to_string(), name[i..].to_string()),
         _ => (name.to_string(), String::new()),
@@ -532,6 +532,19 @@ fn find_free_name(dir: &Path, name: &str) -> String {
         n += 1;
     }
     candidate
+}
+
+/// What already holds `name` in `dir`, for a `409 exists` body: `"dir"` for a
+/// folder, `"file"` for anything else.
+pub(crate) fn existing_kind(dir: &Path, name: &str) -> &'static str {
+    if files::entry_path(dir, name)
+        .symlink_metadata()
+        .is_ok_and(|m| m.is_dir())
+    {
+        "dir"
+    } else {
+        "file"
+    }
 }
 
 fn blake3_hash_file(path: &Path) -> Result<String, std::io::Error> {

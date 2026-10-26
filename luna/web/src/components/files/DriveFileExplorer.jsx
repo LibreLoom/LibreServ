@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Download, FolderInput, HardDrive, Lock, Pencil, RotateCcw, Trash2 } from "lucide-react";
@@ -18,7 +18,6 @@ import useStrandedErrorToast from "../../hooks/useStrandedErrorToast.js";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
-import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { ActionTooltipGroup, InfoHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
@@ -34,7 +33,6 @@ import {
   postJson,
 } from "../../lib/api.js";
 import { FileSourceProvider, fileListKey, fileSourceScope, useFileSource } from "../../lib/fileSource.jsx";
-import { submitBatch } from "../../lib/submitBatch.js";
 import UploadFilesPanel from "./UploadFilesPanel.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import {
@@ -46,14 +44,13 @@ import {
 } from "../../lib/shareTree.js";
 import { CAP_MANAGE, capsBits } from "../../lib/access.js";
 import { isPresentDrive, isWritableDrive } from "../../lib/drives.js";
-import { filesFromFileList, uploadDestForFile } from "../../lib/collectUploadFiles.js";
+import { useFileOps } from "../../context/FileOpsContext.jsx";
 import { parseCreateName } from "../../lib/createName.js";
 import { renameExtensionWarning } from "../../lib/renameExtension.js";
 import { blankOfficeStub } from "../../lib/officeStubs.js";
 import {
   fileHref as defaultFileHref,
   folderHref as defaultFolderHref,
-  fmtSize,
   BACKUPS_PATH,
   isBackupsPath,
   isTrashPath,
@@ -63,13 +60,6 @@ import {
   trashDisplayName,
   TRASH_PATH,
 } from "../../lib/paths.js";
-
-/** Parallel uploads — enough for multi-select without saturating the link. */
-const UPLOAD_PARALLEL = 2;
-
-function jobBusy(job) {
-  return job.state === "running" || job.state === "queued";
-}
 
 /**
  * Icon button that downloads a file or folder (folders arrive as a zip).
@@ -100,130 +90,6 @@ DownloadButton.propTypes = {
   label: PropTypes.string.isRequired,
   kind: PropTypes.string,
 };
-
-/**
- * @typedef {{
- *   id: string,
- *   name: string,
- *   received: number,
- *   size: number,
- *   uploadId: string | null,
- *   abort: AbortController,
- * }} UploadRow
- */
-
-/**
- * Compact multi-file upload progress with per-file cancel.
- *
- * @param {{
- *   uploads: Array<{ id: string, name: string, received: number, size: number }>,
- *   onCancel: (id: string) => void,
- * }} props
- */
-export function UploadProgressList({ uploads, onCancel }) {
-  if (!uploads.length) return null;
-
-  return (
-    <Card className="mb-3" padding={false} noPopIn>
-      <ul className="m-0 p-0 list-none divide-y divide-primary/15" aria-label="Uploads in progress">
-        {uploads.map((item) => {
-          const total = Number(item.size) || 0;
-          const done = Math.min(total, Math.max(0, Number(item.received) || 0));
-          const pct = total > 0 ? Math.min(100, Math.round((100 * done) / total)) : null;
-          const sizeLine = total > 0
-            ? `${fmtSize(done)} of ${fmtSize(total)}`
-            : "Starting…";
-
-          return (
-            <li key={item.id} className="px-3 py-2.5 space-y-2" role="status" aria-live="polite">
-              <div className="flex items-center gap-2 min-w-0">
-                <span
-                  className="inline-block h-2 w-2 rounded-full surface-primary shrink-0"
-                  aria-hidden="true"
-                />
-                <span className="text-xs font-mono shrink-0">
-                  Uploading
-                </span>
-                <Spinner size="sm" decorative className="text-primary shrink-0" />
-                <span className="font-mono text-sm text-primary truncate min-w-0 flex-1">
-                  {item.name}
-                </span>
-                <span className="font-mono text-xs text-primary shrink-0 tabular-nums">
-                  {pct != null ? `${pct}%` : "…"}
-                </span>
-                <Button
-                  variant="outline"
-                  surface="secondary"
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => onCancel(item.id)}
-                >
-                  Cancel
-                </Button>
-              </div>
-              <p className="text-xs text-primary font-mono">{sizeLine}</p>
-              <div
-                className="h-1.5 rounded-pill surface-primary p-px overflow-hidden"
-                role="progressbar"
-                aria-valuenow={pct ?? 0}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-label={
-                  pct != null
-                    ? `Uploading ${item.name}, ${pct}% done`
-                    : `Uploading ${item.name}`
-                }
-              >
-                <div
-                  className="h-full rounded-pill surface-secondary motion-safe:transition-[width] motion-safe:duration-300"
-                  style={{ width: `${pct ?? 0}%` }}
-                />
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-    </Card>
-  );
-}
-
-UploadProgressList.propTypes = {
-  uploads: PropTypes.arrayOf(
-    PropTypes.shape({
-      id: PropTypes.string.isRequired,
-      name: PropTypes.string.isRequired,
-      received: PropTypes.number.isRequired,
-      size: PropTypes.number.isRequired,
-    }),
-  ).isRequired,
-  onCancel: PropTypes.func.isRequired,
-};
-
-function isAbortError(err) {
-  return (
-    err?.name === "AbortError"
-    || (typeof DOMException !== "undefined" && err instanceof DOMException && err.name === "AbortError")
-  );
-}
-
-/**
- * Run async work over items with a fixed concurrency limit.
- * @template T
- * @param {T[]} items
- * @param {number} limit
- * @param {(item: T) => Promise<void>} worker
- */
-async function mapPool(items, limit, worker) {
-  const queue = [...items];
-  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (queue.length) {
-      const next = queue.shift();
-      if (next === undefined) return;
-      await worker(next);
-    }
-  });
-  await Promise.all(runners);
-}
 
 /**
  * Full file explorer used by the Files page.
@@ -275,6 +141,7 @@ export default function DriveFileExplorer({
   const guestCaps = source.capsBits || 0;
   const queryClient = useQueryClient();
   const { addToast } = useToast();
+  const fileOps = useFileOps();
   // Private items belong to a signed-in person; link guests never make them.
   const allowPrivate = !guest;
   const [innerPath, setInnerPath] = useState("");
@@ -286,14 +153,12 @@ export default function DriveFileExplorer({
   }
 
   const [actionError, setActionError] = useState(/** @type {string|null} */ (null));
-  const [uploads, setUploads] = useState(/** @type {UploadRow[]} */ ([]));
-  const uploadsRef = useRef(/** @type {UploadRow[]} */ ([]));
   const [deletePaths, setDeletePaths] = useState(/** @type {string[]|null} */ (null));
   const [renameTarget, setRenameTarget] = useState(/** @type {{ fullPath: string, name: string, isDir: boolean }|null} */ (null));
   const [renameValue, setRenameValue] = useState("");
   const [renameWarning, setRenameWarning] = useState(/** @type {ReturnType<typeof renameExtensionWarning>} */ (null));
   const [transfer, setTransfer] = useState(/** @type {null|{ kind: "copy"|"move", paths: string[], label?: string }} */ (null));
-  const [broadenRetry, setBroadenRetry] = useState(/** @type {null|{ kind: "copy"|"move"|"restore", retry: () => Promise<unknown> }} */ (null));
+  const [broadenRetry, setBroadenRetry] = useState(/** @type {null|{ retry: () => Promise<unknown> }} */ (null));
   const [innerViewerPath, setInnerViewerPath] = useState(/** @type {string|null} */ (null));
   const viewerPath = controlledViewerPath !== undefined ? controlledViewerPath : innerViewerPath;
 
@@ -306,8 +171,10 @@ export default function DriveFileExplorer({
   const [createKind, setCreateKind] = useState(/** @type {import("../../lib/createKinds.js").CreateKind|null} */ (null));
   const [createName, setCreateName] = useState("");
   const selectedRef = useRef(/** @type {string[]} */ ([]));
-  const [restoreTarget, setRestoreTarget] = useState(/** @type {null|{ fullPath: string, displayName: string, originalPath: string }} */ (null));
+  const [restoreTarget, setRestoreTarget] = useState(/** @type {null|{ fullPath: string, displayName: string, originalPath: string, isDir?: boolean }} */ (null));
   const [restoreName, setRestoreName] = useState("");
+  const restoreCloseRef = useRef(/** @type {null|(() => void)} */ (null));
+  const [restoreWarning, setRestoreWarning] = useState(/** @type {ReturnType<typeof renameExtensionWarning>} */ (null));
   const [purgeTarget, setPurgeTarget] = useState(/** @type {null|{ paths: string[], label: string }} */ (null));
   const [emptyTrashOpen, setEmptyTrashOpen] = useState(false);
   const backupsList = useQuery({
@@ -320,61 +187,12 @@ export default function DriveFileExplorer({
   const inBackups = !guest && isBackupsPath(path);
   const bSource = useMemo(() => backupSource(driveId), [driveId]);
   const [versionsFile, setVersionsFile] = useState(/** @type {null|{ backup: object, rel: string, name: string }} */ (null));
-  // Only the signed-in owner's private items come back, so a match means "my private folder".
-  const privateMine = useQuery({
-    queryKey: ["private-backups-mine"],
-    queryFn: () => getJson("/api/v1/private-backups/mine"),
-    enabled: !guest,
-    retry: false,
-  });
-  const notBackedUpPaths = useMemo(() => {
-    const paths = new Set();
-    for (const item of privateMine.data?.items || []) {
-      if (item.drive_id !== driveId) continue;
-      if (item.drive_backups === 0 && !item.cloud_backup) {
-        paths.add((item.path || "").replace(/^\/+|\/+$/g, ""));
-      }
-    }
-    return paths;
-  }, [privateMine.data, driveId]);
-  /** True when `fullPath` is one of the owner's private folders with no backup yet. */
-  const isNotBackedUp = useCallback(
-    (fullPath) => notBackedUpPaths.has((fullPath || "").replace(/^\/+|\/+$/g, "")),
-    [notBackedUpPaths],
-  );
-
   const drivesQuery = useQuery({ queryKey: ["drives"], queryFn: getDrives, enabled: !guest });
   const availableDrives = useMemo(() => {
     const data = guest ? (propDrives || []) : (drivesQuery.data || propDrives || []);
     return data.filter(isPresentDrive);
   }, [guest, propDrives, drivesQuery.data]);
   const writableDrives = useMemo(() => availableDrives.filter(isWritableDrive), [availableDrives]);
-
-  const jobs = useQuery({
-    queryKey: ["jobs"],
-    queryFn: () => getJson("/api/v1/jobs"),
-    enabled: !guest,
-    refetchInterval: (q) => ((q.state.data || []).some(jobBusy) ? 1000 : false),
-  });
-  const prevBusyJobIds = useRef(new Set());
-  useEffect(() => {
-    const list = Array.isArray(jobs.data) ? jobs.data : [];
-    const busyIds = new Set(list.filter(jobBusy).map((job) => job.id));
-    for (const id of prevBusyJobIds.current) {
-      if (busyIds.has(id)) continue;
-      const job = list.find((row) => row.id === id);
-      if (!job) continue;
-      if (job.from_drive) {
-        queryClient.invalidateQueries({ queryKey: ["files", job.from_drive] });
-        queryClient.invalidateQueries({ queryKey: ["trash", job.from_drive] });
-      }
-      if (job.to_drive && job.to_drive !== job.from_drive) {
-        queryClient.invalidateQueries({ queryKey: ["files", job.to_drive] });
-        queryClient.invalidateQueries({ queryKey: ["trash", job.to_drive] });
-      }
-    }
-    prevBusyJobIds.current = busyIds;
-  }, [jobs.data, queryClient]);
 
   const access = useQuery({
     queryKey: ["my-access"],
@@ -419,9 +237,12 @@ export default function DriveFileExplorer({
       : "";
   // A file whose parent folder isn't browsable for this member is itself
   // the root: `?path=<file>` gets the one-entry listing, `?file=` opens it.
-  const rowFileHref = memberRows
-    ? (/** @type {string} */ d, /** @type {string} */ p) => memberFileHref(memberRows, d, p)
-    : fileHref;
+  const memberRowFileHref = useCallback(
+    (/** @type {string} */ d, /** @type {string} */ p) => memberFileHref(memberRows, d, p),
+    [memberRows],
+  );
+  // Same identity across renders, so memoized rows don't re-render with the explorer.
+  const rowFileHref = memberRows ? memberRowFileHref : fileHref;
 
   // The crumb trail inside trash reads "Trash / <where it was>" — the stat
   // endpoint reports the folder's pre-trash path ("" at the trash root).
@@ -447,122 +268,43 @@ export default function DriveFileExplorer({
     enabled: inTrash && path === TRASH_PATH,
   });
 
-  function setUploadRows(next) {
-    uploadsRef.current = next;
-    setUploads(next);
-  }
-
-  function patchUpload(id, patch) {
-    setUploadRows(
-      uploadsRef.current.map((row) => (row.id === id ? { ...row, ...patch } : row)),
-    );
-  }
-
-  function removeUpload(id) {
-    setUploadRows(uploadsRef.current.filter((row) => row.id !== id));
-  }
-
-  function invalidate(paths = [path]) {
-    // FileBrowser keys its listing on the source scope — a share token for
-    // guests, the drive id signed in — so both sides invalidate the same key.
+  /** The query keys a change to `paths` (and the folder in view) makes stale. */
+  function staleKeys(paths = [path]) {
+    // FileBrowser keys its listing on the source scope: a share token for
+    // guests, the drive id signed in. Both sides invalidate the same key.
     const folders = new Set(paths.map((p) => {
       const idx = p.lastIndexOf("/");
       return idx < 0 ? "" : p.slice(0, idx);
     }));
     folders.add(path);
-    for (const folder of folders) {
-      queryClient.invalidateQueries({ queryKey: fileListKey(source, driveId, folder) });
-    }
-    if (!guest) {
-      queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["trash", driveId] });
-      queryClient.invalidateQueries({ queryKey: ["recents"] });
-    }
+    const keys = [...folders].map((folder) => fileListKey(source, driveId, folder));
+    if (!guest) keys.push(["jobs"], ["trash", driveId], ["recents"]);
+    return keys;
   }
 
-  function cancelUpload(id) {
-    const row = uploadsRef.current.find((item) => item.id === id);
-    if (!row) return;
-    row.abort.abort();
-    if (row.uploadId) {
-      void source.cancelUpload(driveId, row.uploadId).catch(() => {});
-    }
-    removeUpload(id);
+  function invalidate(paths = [path]) {
+    for (const queryKey of staleKeys(paths)) queryClient.invalidateQueries({ queryKey });
   }
 
   /**
-   * Queue many files at once; upload a few in parallel with per-file cancel.
-   * @param {File[]} files
-   * @param {string} destFolder
+   * Hand an upload to the file task store. It keeps running (and showing in the
+   * dock) if this page goes away, and it owns every error and the success toast.
+   * @param {{ dropped: import("../../lib/collectUploadFiles.js").DroppedItems } | { files: File[] }} input
+   * @param {string} [destFolder]
    */
-  async function uploadFiles(files, destFolder) {
-    const list = filesFromFileList(files);
-    if (!list.length) return;
-    setActionError(null);
-    if (source.isFile && list.length > 1) {
-      setActionError("Choose one file to replace this file.");
-      return;
-    }
-
-    /** @type {Array<UploadRow & { file: File, destPath: string, leafName: string }>} */
-    const batch = list.map((file) => {
-      const { destPath, name } = uploadDestForFile(destFolder || "", file);
-      return {
-        id: crypto.randomUUID(),
-        name,
-        received: 0,
-        size: file.size,
-        uploadId: null,
-        abort: new AbortController(),
-        file,
-        destPath,
-        leafName: name,
-      };
+  function uploadFiles(input, destFolder) {
+    const folder = destFolder || "";
+    fileOps.startUpload({
+      source,
+      driveId,
+      destFolder: folder,
+      destLabel: folder ? pathBasename(folder) : driveLabel,
+      ...input,
     });
-
-    setUploadRows([...uploadsRef.current, ...batch.map(({ file: _f, destPath: _d, leafName: _n, ...row }) => row)]);
-
-    const touched = new Set(batch.map((item) => (item.destPath ? `${item.destPath}/x` : "x")));
-    let hadError = false;
-    let completed = 0;
-
-    await mapPool(batch, UPLOAD_PARALLEL, async (item) => {
-      const row = uploadsRef.current.find((u) => u.id === item.id) || item;
-      let lastProgressAt = 0;
-      try {
-        await source.uploadFile(driveId, item.file, item.destPath, item.leafName, {
-          signal: row.abort.signal,
-          onSession: (uploadId) => patchUpload(item.id, { uploadId }),
-          onProgress: (loaded, total) => {
-            // The browser reports progress many times a second; every report
-            // re-renders the whole explorer, so show at most ten a second.
-            const now = performance.now();
-            if (now - lastProgressAt < 100 && loaded < total) return;
-            lastProgressAt = now;
-            patchUpload(item.id, { received: Math.min(loaded, total), size: total });
-          },
-        });
-        completed += 1;
-        removeUpload(item.id);
-      } catch (err) {
-        removeUpload(item.id);
-        if (isAbortError(err) || item.abort.signal.aborted) return;
-        if (!hadError) {
-          hadError = true;
-          setActionError(apiErrorMessage(err, "Couldn't upload that file. Try again."));
-        }
-      }
-    });
-
-    invalidate([...touched]);
-    if (completed > 0) {
-      addToast({
-        type: "success",
-        message: completed === 1 ? "1 file uploaded." : `${completed} files uploaded.`,
-      });
-    }
   }
 
+  // One item moves to Trash with a toast and (on failure) an error in its modal.
+  // More than one goes to the file task card, which carries on past failures.
   const removeMutation = useMutation({
     mutationFn: async (/** @type {string[]} */ paths) => {
       for (const p of paths) {
@@ -571,10 +313,7 @@ export default function DriveFileExplorer({
     },
     // Modal dismisses via ModalCard close() so exit animation can play.
     onSuccess: (_d, paths) => {
-      addToast({
-        type: "success",
-        message: paths.length === 1 ? "Moved to Trash." : `Moved ${paths.length} items to Trash.`,
-      });
+      addToast({ type: "success", message: "Moved to Trash." });
       invalidate(paths);
     },
     onError: (err) => {
@@ -582,6 +321,18 @@ export default function DriveFileExplorer({
       setActionError(apiErrorMessage(err, "Couldn't move that to Trash. Try again."));
     },
   });
+
+  function trashPaths(/** @type {string[]} */ paths) {
+    fileOps.startRequest({
+      kind: "trash",
+      source,
+      driveId,
+      destLabel: driveLabel,
+      items: paths.map((p) => ({ name: pathBasename(p), run: () => source.remove(driveId, p) })),
+      successToast: (done) => (done === 1 ? "Moved to Trash." : `Moved ${done} items to Trash.`),
+      invalidateKeys: staleKeys(paths),
+    });
+  }
 
   const mkdirMutation = useMutation({
     mutationFn: (/** @type {string} */ fullPath) =>
@@ -664,56 +415,44 @@ export default function DriveFileExplorer({
     },
   });
 
-  const transferMutation = useMutation({
-    mutationFn: async (/** @type {{ driveId: string, path: string, confirmBroaden?: boolean, paths?: string[] }} */ { driveId: toDrive, path: toPath, confirmBroaden = false, paths = transfer?.paths || [] }) => {
-      if (!transfer) return;
-      // Guests move synchronously inside the link — no job queue.
-      if (guest) {
-        await source.move(driveId, transfer.paths, toPath);
-        queryClient.invalidateQueries({ queryKey: fileListKey(source, driveId) });
-        return;
-      }
-      await submitBatch(paths, (fromPath) => postJson("/api/v1/jobs", {
-        kind: transfer.kind,
-        from_drive: driveId,
-        from_path: fromPath,
-        to_drive: toDrive || driveId,
-        to_path: toPath,
-        ...(confirmBroaden ? { confirm_broaden: true } : {}),
-      }));
-    },
-    onSuccess: (_d, vars) => {
-      addToast({
-        type: "success",
-        message: transfer?.kind === "move"
-          ? guest ? "Moved." : "Luna is moving those files."
-          : "Luna is copying those files.",
-      });
+  // A link guest moves files synchronously inside the link. Luna's own copy and
+  // move jobs go to the file task card instead.
+  const guestTransferMutation = useMutation({
+    mutationFn: (/** @type {{ paths: string[], dest: string }} */ { paths, dest }) =>
+      source.move(driveId, paths, dest),
+    onSuccess: () => {
+      addToast({ type: "success", message: "Moved." });
       invalidate();
-      if (vars.driveId && vars.driveId !== driveId) {
-        queryClient.invalidateQueries({ queryKey: ["files", vars.driveId] });
-      }
     },
-    onError: (err, vars) => {
-      // Luna refuses to quietly widen who can open something leaving a
-      // private folder — ask first, then resubmit confirmed.
-      const detail = /** @type {any} */ (err);
-      invalidate();
-      if (detail?.code === "broadens_access") {
-        haptic("warning");
-        setBroadenRetry({ kind: transfer.kind, retry: () => transferMutation.mutateAsync({ ...vars, paths: detail.pendingItems || transfer.paths, confirmBroaden: true }) });
-        return;
-      }
+    onError: (err) => {
       haptic("error");
-      setActionError(apiErrorMessage(err, "Couldn't start that transfer. Try again."));
+      setActionError(apiErrorMessage(err, "Couldn't move those files. Try again."));
     },
   });
 
-  const internalMoveMutation = useDriveMove({
-    driveId,
-    onError: setActionError,
-    onBroaden: (retry) => setBroadenRetry({ kind: "move", retry }),
-  });
+  /** Send the picked items to the file task card as copy or move jobs. */
+  function startTransfer(/** @type {{ driveId: string, path: string }} */ dest) {
+    if (!transfer) return;
+    const toDrive = dest.driveId || driveId;
+    const toLabel = dest.path
+      ? pathBasename(dest.path)
+      : toDrive === driveId
+        ? driveLabel
+        : availableDrives.find((d) => d.id === toDrive)?.label || "";
+    fileOps.startJobs({
+      kind: transfer.kind,
+      fromDrive: driveId,
+      items: transfer.paths.map((p) => ({
+        path: p,
+        name: isTrashPath(p) ? trashDisplayName(p) : pathBasename(p),
+      })),
+      toDrive,
+      toPath: dest.path,
+      toLabel,
+    });
+  }
+
+  const internalMoveMutation = useDriveMove({ driveId, driveLabel });
 
   const shareMoveMutation = useMutation({
     mutationFn: (/** @type {{ paths: string[], dest: string }} */ { paths, dest }) =>
@@ -728,56 +467,85 @@ export default function DriveFileExplorer({
 
   // Trash's two writes: restore a whole entry, or delete it permanently.
   // Both stay top-level — the API only accepts `{trash}/{entry}` paths.
+  // One restore from the name dialog stays in its dialog (a name clash is fixed
+  // there). Restoring a selection goes to the file task card.
   const restoreMutation = useMutation({
-    mutationFn: async (/** @type {{ path: string, dest: string, confirm_broaden?: boolean }[]} */ items) => {
-      await submitBatch(items, (item) => postJson(`/api/v1/drives/${driveId}/files/restore`, item));
+    mutationFn: (/** @type {{ path: string, dest: string, confirm_broaden?: boolean }} */ item) =>
+      postJson(`/api/v1/drives/${driveId}/files/restore`, item),
+    onSuccess: (_d, item) => {
+      addToast({ type: "success", message: "Restored." });
+      invalidate([item.dest, item.path]);
     },
-    onSuccess: (_d, items) => {
-      addToast({
-        type: "success",
-        message: items.length === 1 ? "Restored." : `Restored ${items.length} items.`,
-      });
-      invalidate(items.flatMap((i) => [i.dest, i.path]));
-    },
-    onError: (err, items) => {
-      invalidate(items.flatMap((i) => [i.dest, i.path]));
+    onError: (err, item) => {
+      invalidate([item.dest, item.path]);
       if ("code" in err && err.code === "broadens_access") {
-        const pending = "pendingItems" in err && Array.isArray(err.pendingItems) ? err.pendingItems : items;
-        setBroadenRetry({ kind: "restore", retry: () => restoreMutation.mutateAsync(pending.map((item) => ({ ...item, confirm_broaden: true }))) });
+        setBroadenRetry({ retry: () => restoreMutation.mutateAsync({ ...item, confirm_broaden: true }) });
         return;
       }
       setActionError(apiErrorMessage(err, "Couldn't restore that. Try again."));
     },
   });
 
-  const purgeMutation = useMutation({
-    mutationFn: async (/** @type {string[]} */ paths) => {
-      for (const p of paths) {
-        await postJson(`/api/v1/drives/${driveId}/files/purge`, { path: p });
-      }
-    },
-    onSuccess: (_d, paths) => {
-      addToast({
-        type: "success",
-        message: paths.length === 1 ? "Deleted permanently." : `Deleted ${paths.length} items permanently.`,
-      });
-      invalidate(paths);
-    },
-    onError: (err) =>
-      setActionError(apiErrorMessage(err, "Couldn't permanently delete that. Try again.")),
-  });
+  /** Send the restore under the typed name; the folder above may be gone, lunad re-creates it. */
+  function startRestore(/** @type {() => void} */ close) {
+    if (!restoreTarget) return Promise.resolve();
+    return restoreMutation.mutateAsync({
+      path: restoreTarget.fullPath,
+      dest: joinPath(restoreDestFolder, restoreName.trim()),
+    })
+      .then(() => close())
+      .catch(() => {});
+  }
 
-  /** Purge the whole trash — the API removes every entry the caller can see. */
-  const emptyTrashMutation = useMutation({
-    mutationFn: () =>
-      postJson(`/api/v1/drives/${driveId}/files/purge`, { path: TRASH_PATH }),
-    onSuccess: () => {
-      addToast({ type: "success", message: "Trash emptied." });
-      invalidate([TRASH_PATH]);
-    },
-    onError: (err) =>
-      setActionError(apiErrorMessage(err, "Couldn't empty the trash. Try again.")),
-  });
+  function restoreMany(/** @type {{ path: string, dest: string, name: string }[]} */ items) {
+    fileOps.startRequest({
+      kind: "restore-trash",
+      source,
+      driveId,
+      destLabel: driveLabel,
+      items: items.map((item) => ({
+        name: item.name,
+        run: ({ confirmBroaden } = {}) =>
+          postJson(`/api/v1/drives/${driveId}/files/restore`, {
+            path: item.path,
+            dest: item.dest,
+            ...(confirmBroaden ? { confirm_broaden: true } : {}),
+          }),
+      })),
+      successToast: (done) => (done === 1 ? "Restored." : `Restored ${done} items.`),
+      invalidateKeys: staleKeys(items.flatMap((i) => [i.dest, i.path])),
+    });
+  }
+
+  /** Delete permanently runs on Luna, slowly for big folders, so it goes to the card. */
+  function purgePaths(/** @type {string[]} */ paths) {
+    fileOps.startRequest({
+      kind: "purge",
+      source,
+      driveId,
+      destLabel: driveLabel,
+      items: paths.map((p) => ({
+        name: trashDisplayName(p),
+        run: () => postJson(`/api/v1/drives/${driveId}/files/purge`, { path: p }),
+      })),
+      successToast: (done) => (done === 1 ? "Deleted permanently." : `Deleted ${done} items permanently.`),
+      invalidateKeys: staleKeys(paths),
+    });
+  }
+
+  /** Purge the whole trash. The API removes every entry the caller can see. */
+  function emptyTrash() {
+    fileOps.startRequest({
+      kind: "empty-trash",
+      source,
+      driveId,
+      title: driveLabel,
+      destLabel: driveLabel,
+      run: () => postJson(`/api/v1/drives/${driveId}/files/purge`, { path: TRASH_PATH }),
+      successToast: "Trash emptied.",
+      invalidateKeys: staleKeys([TRASH_PATH]),
+    });
+  }
 
   const restoreDestFolder = restoreTarget
     ? parentPath(restoreTarget.originalPath) || ""
@@ -847,7 +615,6 @@ export default function DriveFileExplorer({
         {showProtect && ctx.entry.kind === "dir" && !trashChild && (
           <ProtectButton
             label={ctx.displayName}
-            notBackedUp={isNotBackedUp(ctx.fullPath)}
             onClick={() => setProtectTarget({ path: ctx.fullPath })}
           />
         )}
@@ -872,6 +639,7 @@ export default function DriveFileExplorer({
                   fullPath: ctx.fullPath,
                   displayName: ctx.displayName,
                   originalPath: ctx.entry.original_path || "",
+                  isDir: ctx.entry.kind === "dir",
                 });
                 setRestoreName(ctx.displayName);
               }}
@@ -944,21 +712,17 @@ export default function DriveFileExplorer({
     </ActionTooltipGroup>
     );
   },
-    [access.data, driveId, guest, guestCaps, source.isFile, isAdmin, showProtect, canView, isNotBackedUp, inBackups, openVersions]);
+    [access.data, driveId, guest, guestCaps, source.isFile, isAdmin, showProtect, canView, inBackups, openVersions]);
 
   return (
     <>
-      {uploads.length > 0 && (
-        <UploadProgressList uploads={uploads} onCancel={cancelUpload} />
-      )}
-
       {!guest && !isAdmin && access.isPending ? (
         <div className="flex justify-center py-16">
           <Spinner size="sm" decorative className="text-primary" />
         </div>
       ) : !canView && folderCanUpload ? (
         <UploadFilesPanel
-          onUploadFiles={(files) => uploadFiles(files, path)}
+          onUploadFiles={(input) => uploadFiles(input, path)}
           onMovePaths={
             // Guests never hold EDIT under an upload-only link, so the only
             // in-Luna drags that can land here come from a signed-in window.
@@ -1070,7 +834,6 @@ export default function DriveFileExplorer({
               {showProtect && !trashChildFolder && (path !== "" || isAdmin) && (
                 <ProtectButton
                   label={label}
-                  notBackedUp={isNotBackedUp(path)}
                   onClick={() => setProtectTarget({ path })}
                 />
               )}
@@ -1106,19 +869,20 @@ export default function DriveFileExplorer({
               surface="secondary"
               size="sm"
               className="shrink-0"
-              loading={restoreMutation.isPending}
               onClick={() => {
                 setActionError(null);
-                restoreMutation.mutateAsync(
-                  paths.map((p) => {
-                    const row = rowsByPath.get(p);
-                    const origin = row?.entry.original_path || "";
-                    return {
-                      path: p,
-                      dest: joinPath(parentPath(origin), row?.displayName || pathBasename(p)),
-                    };
-                  }),
-                ).catch(() => {});
+                const items = paths.map((p) => {
+                  const row = rowsByPath.get(p);
+                  const origin = row?.entry.original_path || "";
+                  const name = row?.displayName || pathBasename(p);
+                  return { path: p, dest: joinPath(parentPath(origin), name), name };
+                });
+                if (items.length === 1) {
+                  const [only] = items;
+                  restoreMutation.mutateAsync({ path: only.path, dest: only.dest }).catch(() => {});
+                } else {
+                  restoreMany(items);
+                }
               }}
             >
               <RotateCcw size={14} aria-hidden="true" />
@@ -1172,27 +936,34 @@ export default function DriveFileExplorer({
         drives={writableDrives.length > 0 ? writableDrives : [{ id: driveId, label: driveLabel }]}
         initialDriveId={driveId}
         initialPath={inTrash ? "" : path}
+        movingPaths={transfer?.kind === "move" ? transfer.paths : []}
         confirmLabel={transfer?.kind === "move" ? "Start moving" : "Start copying"}
-        busy={transferMutation.isPending}
+        busy={guestTransferMutation.isPending}
         error={transfer != null ? actionError : null}
         onClose={() => {
           setActionError(null);
           setTransfer(null);
         }}
         onConfirm={(dest, close) => {
-          transferMutation.mutateAsync(dest)
-            .then(() => close())
-            .catch(() => {});
+          if (guest) {
+            guestTransferMutation.mutateAsync({ paths: transfer?.paths || [], dest: dest.path })
+              .then(() => close())
+              .catch(() => {});
+            return;
+          }
+          // The file task card owns the copy or move from here, so the picker closes.
+          startTransfer(dest);
+          close();
         }}
       />
 
       <ConfirmModal
         open={broadenRetry != null}
         variant="warning"
-        title={broadenRetry?.kind === "restore" ? "Restore outside the private folder?" : broadenRetry?.kind === "copy" ? "Copy it out of the private folder?" : "Move it out of the private folder?"}
+        title="Restore outside the private folder?"
         message="Everyone with access to the destination will be able to open it."
-        confirmLabel={broadenRetry?.kind === "restore" ? "Restore anyway" : broadenRetry?.kind === "copy" ? "Copy anyway" : "Move anyway"}
-        loading={transferMutation.isPending || internalMoveMutation.isPending || restoreMutation.isPending}
+        confirmLabel="Restore anyway"
+        loading={restoreMutation.isPending}
         overlayClassName={NESTED_OVERLAY_CLASS}
         onClose={() => setBroadenRetry(null)}
         onConfirm={() => {
@@ -1200,7 +971,6 @@ export default function DriveFileExplorer({
           broadenRetry.retry()
             .then(() => {
               setBroadenRetry(null);
-              setTransfer(null);
               setRestoreTarget(null);
             })
             .catch(() => setBroadenRetry(null));
@@ -1228,6 +998,12 @@ export default function DriveFileExplorer({
                 loading={removeMutation.isPending}
                 onClick={() => {
                   if (!deletePaths) return;
+                  if (deletePaths.length > 1) {
+                    // The card shows the progress and any item that fails.
+                    trashPaths(deletePaths);
+                    close();
+                    return;
+                  }
                   removeMutation.mutateAsync(deletePaths)
                     .then(() => close())
                     .catch(() => {});
@@ -1273,12 +1049,18 @@ export default function DriveFileExplorer({
                 loading={restoreMutation.isPending}
                 onClick={() => {
                   if (!restoreTarget) return;
-                  restoreMutation.mutateAsync([{
-                    path: restoreTarget.fullPath,
-                    dest: joinPath(restoreDestFolder, restoreName.trim()),
-                  }])
-                    .then(() => close())
-                    .catch(() => {});
+                  // Same ending check as rename; the name dialog stays open behind it.
+                  const warning = renameExtensionWarning(
+                    restoreTarget.displayName,
+                    restoreName,
+                    restoreTarget.isDir,
+                  );
+                  if (warning) {
+                    setRestoreWarning({ ...warning, confirmLabel: "Restore" });
+                    restoreCloseRef.current = close;
+                    return;
+                  }
+                  startRestore(close);
                 }}
               >
                 Restore
@@ -1288,6 +1070,21 @@ export default function DriveFileExplorer({
           </>
         )}
       </ModalCard>
+
+      <ConfirmModal
+        open={restoreWarning != null}
+        variant="warning"
+        title={restoreWarning?.title ?? ""}
+        message={restoreWarning?.message}
+        confirmLabel={restoreWarning?.confirmLabel ?? "Restore"}
+        loading={restoreMutation.isPending}
+        overlayClassName={NESTED_OVERLAY_CLASS}
+        onClose={() => !restoreMutation.isPending && setRestoreWarning(null)}
+        onConfirm={() => {
+          const close = restoreCloseRef.current ?? (() => setRestoreTarget(null));
+          startRestore(close).finally(() => setRestoreWarning(null));
+        }}
+      />
 
       <ModalCard
         open={purgeTarget != null}
@@ -1303,16 +1100,13 @@ export default function DriveFileExplorer({
               <InlinePill>{purgeTarget?.label}</InlinePill> will be
               deleted permanently. Luna cannot get it back after this.
             </p>
-            <ModalErrorNotice error={actionError} />
             <div className="mt-4 flex gap-3">
               <Button
                 variant="danger"
-                loading={purgeMutation.isPending}
                 onClick={() => {
                   if (!purgeTarget) return;
-                  purgeMutation.mutateAsync(purgeTarget.paths)
-                    .then(() => close())
-                    .catch(() => {});
+                  purgePaths(purgeTarget.paths);
+                  close();
                 }}
               >
                 Delete permanently
@@ -1337,15 +1131,12 @@ export default function DriveFileExplorer({
               Everything in Trash will be deleted permanently. Luna cannot get
               any of it back after this.
             </p>
-            <ModalErrorNotice error={actionError} />
             <div className="mt-4 flex gap-3">
               <Button
                 variant="danger"
-                loading={emptyTrashMutation.isPending}
                 onClick={() => {
-                  emptyTrashMutation.mutateAsync()
-                    .then(() => close())
-                    .catch(() => {});
+                  emptyTrash();
+                  close();
                 }}
               >
                 Empty trash

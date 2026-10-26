@@ -89,11 +89,12 @@ pub type DavHandler = dav_server::DavHandler;
 pub struct Db(
     Mutex<Connection>,
     Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    Arc<Mutex<std::collections::HashSet<String>>>,
 );
 
 impl Db {
     pub fn new(conn: Connection) -> Self {
-        Self(Mutex::new(conn), Mutex::default())
+        Self(Mutex::new(conn), Mutex::default(), Arc::default())
     }
 
     /// The drive's mutation lock. Whoever changes files or trash on a drive
@@ -103,6 +104,12 @@ impl Db {
     pub fn drive_lock(&self, drive_id: &str) -> Arc<tokio::sync::Mutex<()>> {
         let mut locks = self.1.lock().unwrap_or_else(|p| p.into_inner());
         locks.entry(drive_id.to_string()).or_default().clone()
+    }
+
+    /// Backups that are copying, or held by a restore, delete or key move, in
+    /// this database. Kept per database so two databases never block each other.
+    pub(crate) fn backup_holds(&self) -> &Arc<Mutex<std::collections::HashSet<String>>> {
+        &self.2
     }
 
     /// Never returns `Err` — the `LockResult` shape keeps existing call sites

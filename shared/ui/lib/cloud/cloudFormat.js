@@ -7,6 +7,15 @@ import { canonical, chunkId, decrypt, packId, verify } from './backupCrypto.js';
 
 export const DAMAGED = "Part of this backup can't be read. It may be damaged.";
 export const CHANGED = "A backup file doesn't match its fingerprint, so it was not used. Try again later.";
+export const NO_KEY = "Part of this backup can't be opened with the keys you have.";
+
+/** Thrown when none of the keys a reader holds can open a pack. Not the same as damage. */
+export class MissingKeyError extends Error {
+	constructor() {
+		super(NO_KEY);
+		this.name = 'MissingKeyError';
+	}
+}
 
 export const PACK_KEY_WRAP_AAD = utf8ToBytes('luna-pack-key-wrap-v1');
 export const PACK_INDEX_AAD = utf8ToBytes('luna-pack-index-v1');
@@ -163,7 +172,8 @@ export function openPackWith(bytes, idHex, unwrapKey) {
 	if (bytesToHex(packId(bytes)) !== idHex) throw new Error(CHANGED);
 	try {
 		return openPackParts(bytes, unwrapKey);
-	} catch {
+	} catch (e) {
+		if (e instanceof MissingKeyError) throw e;
 		throw new Error(DAMAGED);
 	}
 }
@@ -257,10 +267,14 @@ export function readRawTreeWith(treePackBytes, snap, unwrapKey, openTreeBytes) {
 	const sealed = pack.chunk(snap.treeHash);
 	if (!sealed) throw new Error(DAMAGED);
 	if (!sameBytes(sha256(sealed), snap.treeHash)) throw new Error(CHANGED);
+	let plain;
 	try {
-		return JSON.parse(new TextDecoder().decode(openTreeBytes(sealed)));
+		plain = openTreeBytes(sealed);
+		return JSON.parse(new TextDecoder().decode(plain));
 	} catch {
 		throw new Error(DAMAGED);
+	} finally {
+		plain?.fill(0);
 	}
 }
 
@@ -319,6 +333,43 @@ export function makePackReaderWith(getPack, unwrapKey, keep = 3) {
 		});
 		while (cache.size > keep) cache.delete(cache.keys().next().value);
 		return opening;
+	};
+}
+
+/**
+ * Opened-pack cache like makePackReaderWith, for a backup whose packs may be sealed under different
+ * key versions (a new version copies only changed chunks, so older packs keep their old key). Each
+ * pack's key is unwrapped by trying every version's key, newest first, until one opens it.
+ * @param {(idHex: string) => Promise<Uint8Array>} getPack
+ * @param {Record<number, { key: Uint8Array }>} keysByVersion the keys a reader holds, by key version
+ * @param {number} [keep=3] how many opened packs to keep, most recently used first
+ * @returns {(idHex: string) => Promise<{ scopeId: Uint8Array, chunk: (idBytes: Uint8Array) => Uint8Array | null }>}
+ *   Throws MissingKeyError when no held key opens the pack, and an error for a changed or damaged pack.
+ */
+export function makePackReaderForVersions(getPack, keysByVersion, keep = 3) {
+	const newestFirst = Object.keys(keysByVersion)
+		.map(Number)
+		.sort((a, b) => b - a)
+		.map((version) => keysByVersion[version].key);
+	return makePackReaderWith(getPack, unwrapWithAnyKey(newestFirst), keep);
+}
+
+/**
+ * The unwrap step for several keys: the first one that opens the wrapped pack key wins.
+ * AEAD fails fast on a wrong key, so a miss costs little.
+ * @param {Uint8Array[]} keys tried in order
+ * @returns {(wrapped: Uint8Array) => Uint8Array}
+ */
+function unwrapWithAnyKey(keys) {
+	return (wrapped) => {
+		for (const key of keys) {
+			try {
+				return decrypt(key, PACK_KEY_WRAP_AAD, wrapped);
+			} catch {
+				// Not this version's key. Try the next.
+			}
+		}
+		throw new MissingKeyError();
 	};
 }
 

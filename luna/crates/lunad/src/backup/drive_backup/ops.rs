@@ -42,8 +42,11 @@ pub(super) fn stop_reason(conn: &Connection, row: &ProtectionRow) -> Option<&'st
             access_list::PrivateSource::OwnItem { .. } => {
                 return Some("This folder is now a private item.");
             }
-            access_list::PrivateSource::Inside => {
+            access_list::PrivateSource::Inside { .. } => {
                 return Some("This folder is now inside a private item.");
+            }
+            access_list::PrivateSource::PrivateTrash => {
+                return Some("This folder is now in the trash.");
             }
         }
     } else if let Some(reason) = access_list::private_stop_reason(conn, row) {
@@ -75,9 +78,9 @@ const TRASH_MARK: &str = ".deleting-";
 /// Deletes a backup. Its copies on the backup drive are removed when the
 /// drive is connected; otherwise they are removed the next time it is.
 /// Refused while the backup is copying.
-pub fn delete(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<()> {
+pub fn delete(db: &crate::Db, conn: &Connection, row: &ProtectionRow) -> anyhow::Result<()> {
     // Held for the whole delete, so a run cannot start while the row goes.
-    let Some(_slot) = crate::backup::drive_backup::try_hold(&row.id) else {
+    let Some(_slot) = crate::backup::drive_backup::try_hold(db, &row.id) else {
         anyhow::bail!("This backup is copying right now. Try again in a minute.");
     };
     db::delete_protection(conn, &row.id)?;
@@ -333,6 +336,11 @@ pub fn visible_to(row: &ProtectionRow, user: &crate::auth::CurrentUser) -> bool 
 
 #[cfg(test)]
 mod tests {
+    /// A throwaway database whose only job is to own the backup holds.
+    fn holds() -> crate::Db {
+        crate::Db::new(rusqlite::Connection::open_in_memory().unwrap())
+    }
+
     use super::*;
     use crate::backup::drive_store::{MANIFEST_FORMAT, Manifest};
     use luna_core::marker::{Marker, pick_prefix};
@@ -491,7 +499,7 @@ mod tests {
         let row = protect(&conn, &src, "/Photos", &target);
         let store = Store::open(&root, &layout, &row.id).unwrap();
         let store_dir = store.root().to_path_buf();
-        delete(&conn, &row).unwrap();
+        delete(&holds(), &conn, &row).unwrap();
         assert!(!store_dir.exists());
         assert!(db::get_protection(&conn, &row.id).unwrap().is_none());
         assert!(
@@ -507,7 +515,7 @@ mod tests {
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
         let (src, _, _) = new_drive(dir.path(), &conn);
         let row = protect(&conn, &src, "/Photos", "unplugged-drive");
-        delete(&conn, &row).unwrap();
+        delete(&holds(), &conn, &row).unwrap();
         assert!(db::get_protection(&conn, &row.id).unwrap().is_none());
         assert!(
             db::get_meta(&conn, &deleted_key(&row.id))
@@ -524,9 +532,10 @@ mod tests {
         let (target, root, layout) = new_drive(dir.path(), &conn);
         let row = protect(&conn, &src, "/Photos", &target);
         let store = Store::open(&root, &layout, &row.id).unwrap();
-        let _run = crate::backup::drive_backup::RunSlot::take(&row.id).unwrap();
+        let hold_db = holds();
+        let _run = crate::backup::drive_backup::RunSlot::take(&hold_db, &row.id).unwrap();
 
-        let err = delete(&conn, &row).unwrap_err();
+        let err = delete(&hold_db, &conn, &row).unwrap_err();
         assert_eq!(
             err.to_string(),
             "This backup is copying right now. Try again in a minute."
@@ -732,12 +741,12 @@ mod tests {
     }
 
     #[test]
-    fn private_backup_stops_when_moved_inside_another_private_item() {
+    fn private_backup_stops_when_moved_inside_someone_elses_private_item() {
         let dir = tempfile::tempdir().unwrap();
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
         let (src, root, _) = new_drive(dir.path(), &conn);
         let (target, _, _) = new_drive(dir.path(), &conn);
-        crate::private::create(&root, "Vault", "u1").unwrap();
+        crate::private::create(&root, "Vault", "u2").unwrap();
         crate::private::create(&root, "Docs", "u1").unwrap();
         let row = protect_private(&conn, &src, "Docs", &target, "u1");
         on_moved(&conn, &src, "Docs", &src, "Vault/Docs");
@@ -745,7 +754,7 @@ mod tests {
         assert_eq!(after.state, "stopped");
         assert_eq!(
             after.stop_reason,
-            "This private item is now inside another private item."
+            "This folder now belongs to someone else."
         );
     }
 }

@@ -907,6 +907,7 @@ mod tests {
                 self_sealed: vec![3; 48],
                 phrase_set_at: 1,
                 last_checked_at: 1,
+                phrase_words: 0,
             },
         )
         .unwrap();

@@ -23,6 +23,7 @@ use ml_kem::{B32, DecapsulationKey768, EncapsulationKey768, Seed};
 use rand_core::{OsRng, RngCore};
 use sha2::{Digest, Sha256};
 use x25519_dalek::{PublicKey, StaticSecret};
+use zeroize::Zeroize;
 
 /// Fixed HKDF salt for deriving keys from a recovery phrase.
 const DERIVE_SALT: &[u8] = b"luna-backup-v1";
@@ -118,22 +119,10 @@ pub fn derive(entropy: &[u8], luna_id: &str) -> UserKeys {
         matches!(entropy.len(), 16 | 32),
         "recovery phrase entropy is 16 or 32 bytes"
     );
-    let mut x25519_secret = hkdf_32(entropy, Some(DERIVE_SALT), &derive_info(b"x25519", luna_id));
-    // Clamp as X25519 does, so the stored secret and its public key always agree.
-    x25519_secret[0] &= 248;
-    x25519_secret[31] &= 127;
-    x25519_secret[31] |= 64;
-    let x25519_public = PublicKey::from(&StaticSecret::from(x25519_secret)).to_bytes();
+    let x25519_secret = hkdf_32(entropy, Some(DERIVE_SALT), &derive_info(b"x25519", luna_id));
     let mlkem_seed =
         hkdf_n::<MLKEM_SEED_LEN>(entropy, Some(DERIVE_SALT), &derive_info(b"mlkem", luna_id));
-    let mlkem_public = mlkem_key(&mlkem_seed).encapsulation_key().to_bytes();
-
-    let mut seal_secret = [0u8; SEAL_SECRET_LEN];
-    seal_secret[..X25519_LEN].copy_from_slice(&x25519_secret);
-    seal_secret[X25519_LEN..].copy_from_slice(&mlkem_seed);
-    let mut seal_public = [0u8; SEAL_PUBLIC_LEN];
-    seal_public[..X25519_LEN].copy_from_slice(&x25519_public);
-    seal_public[X25519_LEN..].copy_from_slice(&mlkem_public);
+    let (seal_secret, seal_public) = seal_pair(x25519_secret, mlkem_seed);
 
     let self_key = hkdf_32(entropy, Some(DERIVE_SALT), &derive_info(b"self", luna_id));
 
@@ -147,6 +136,64 @@ pub fn derive(entropy: &[u8], luna_id: &str) -> UserKeys {
         auth_secret,
         auth_public,
     }
+}
+
+/// HKDF labels for a private scope's key pair, made from a 32-byte seed.
+const SCOPE_X25519_INFO: &[u8] = b"luna-scope-x25519-v1";
+const SCOPE_MLKEM_INFO: &[u8] = b"luna-scope-mlkem-v1";
+
+/// A sealing key pair from its two secret parts. The X25519 secret is clamped here, so the stored
+/// secret and its public key always agree.
+fn seal_pair(
+    mut x25519_secret: [u8; X25519_LEN],
+    mut mlkem_seed: [u8; MLKEM_SEED_LEN],
+) -> (SealSecret, SealPublic) {
+    x25519_secret[0] &= 248;
+    x25519_secret[31] &= 127;
+    x25519_secret[31] |= 64;
+    let x25519_public = PublicKey::from(&StaticSecret::from(x25519_secret)).to_bytes();
+    let mlkem_public = mlkem_key(&mlkem_seed).encapsulation_key().to_bytes();
+
+    let mut seal_secret = [0u8; SEAL_SECRET_LEN];
+    seal_secret[..X25519_LEN].copy_from_slice(&x25519_secret);
+    seal_secret[X25519_LEN..].copy_from_slice(&mlkem_seed);
+    let mut seal_public = [0u8; SEAL_PUBLIC_LEN];
+    seal_public[..X25519_LEN].copy_from_slice(&x25519_public);
+    seal_public[X25519_LEN..].copy_from_slice(&mlkem_public);
+    // Best effort: these are this function's own copies of the secret parts.
+    x25519_secret.zeroize();
+    mlkem_seed.zeroize();
+    (seal_secret, seal_public)
+}
+
+/// The key pair of one private scope, made from a 32-byte seed. Same layout and checks as a user's keys.
+pub fn scope_keys_from_seed(seed: &[u8; 32]) -> (SealSecret, SealPublic) {
+    let x25519_secret = hkdf_32(seed, Some(DERIVE_SALT), SCOPE_X25519_INFO);
+    let mut mlkem_seed = hkdf_n::<MLKEM_SEED_LEN>(seed, Some(DERIVE_SALT), SCOPE_MLKEM_INFO);
+    let mut x25519_secret = x25519_secret;
+    let pair = seal_pair(x25519_secret, mlkem_seed);
+    // `seal_pair` took copies of both arrays; wipe ours too.
+    x25519_secret.zeroize();
+    mlkem_seed.zeroize();
+    pair
+}
+
+/// A new random key pair for one private scope. The caller keeps only the public half and a copy
+/// sealed to the owner; the secret half is wiped once it is sealed.
+pub fn new_scope_keys() -> (SealSecret, SealPublic) {
+    let mut seed = [0u8; 32];
+    OsRng.fill_bytes(&mut seed);
+    let keys = scope_keys_from_seed(&seed);
+    // Best effort: the seed is not needed once the pair exists. The returned secret half is the
+    // caller's to wipe after sealing it. Rust may have left other copies in registers or on the
+    // stack, which this cannot reach.
+    seed.zeroize();
+    keys
+}
+
+/// The length of a sealed copy of a `msg_len`-byte message (see `seal`).
+pub const fn sealed_len(msg_len: usize) -> usize {
+    X25519_LEN + MLKEM_CT_LEN + NONCE_LEN + msg_len + TAG_LEN
 }
 
 /// Seal `msg` so only the holder of the secret half of `recipient_public` can open it.
@@ -489,6 +536,7 @@ pub fn entropy_to_phrase(entropy: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backup::cloud::private;
     use serde_json::{Value, json};
 
     const LUNA_ID: &str = "luna-test-1";
@@ -499,6 +547,57 @@ mod tests {
 
     fn hex(bytes: &[u8]) -> String {
         bytes.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    /// The scope name the private vectors use (32 hex characters, as a real scope is).
+    fn scope_vector_name() -> String {
+        "0123456789abcdef0123456789abcdef".to_string()
+    }
+
+    fn unhex(text: &str) -> Vec<u8> {
+        (0..text.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn scope_vector_opens_with_each_secret_it_names() {
+        let file: Value = serde_json::from_str(include_str!("vectors.json")).unwrap();
+        let scope = &file["scope"];
+        let owner = derive(&entropy(), LUNA_ID);
+        let scope_secret: SealSecret = unhex(scope["seal_secret"].as_str().unwrap())
+            .try_into()
+            .unwrap();
+        let secret_copy = &scope["scope_secret"];
+        let opened = open(
+            &owner.seal_secret,
+            &unhex(secret_copy["aad"].as_str().unwrap()),
+            &unhex(secret_copy["sealed"].as_str().unwrap()),
+        )
+        .unwrap();
+        assert_eq!(opened, scope_secret);
+        assert_eq!(
+            scope_keys_from_seed(&unhex(scope["seed"].as_str().unwrap()).try_into().unwrap()).0,
+            scope_secret
+        );
+
+        let pack_copy = &scope["pack_key"];
+        let pack_key = open(
+            &scope_secret,
+            &unhex(pack_copy["aad"].as_str().unwrap()),
+            &unhex(pack_copy["sealed"].as_str().unwrap()),
+        )
+        .unwrap();
+        assert_eq!(pack_key, unhex(pack_copy["msg"].as_str().unwrap()));
+        assert!(
+            open(
+                &owner.seal_secret,
+                &unhex(pack_copy["aad"].as_str().unwrap()),
+                &unhex(pack_copy["sealed"].as_str().unwrap())
+            )
+            .is_err()
+        );
     }
 
     /// Everything the JS port must reproduce, from fixed inputs.
@@ -530,7 +629,53 @@ mod tests {
         );
         let long_entropy: [u8; 32] = std::array::from_fn(|i| i as u8);
         let long_keys = derive(&long_entropy, LUNA_ID);
+        let scope_seed = [0x66u8; 32];
+        let (scope_secret, scope_public) = scope_keys_from_seed(&scope_seed);
+        let scope = scope_vector_name();
+        let scope_secret_aad = private::aad(private::SCOPE_SECRET_PURPOSE, LUNA_ID, &scope);
+        let sealed_scope_secret = seal_inner(
+            [0x71; 32],
+            [0x81; 32],
+            [0x91; NONCE_LEN],
+            &keys.seal_public,
+            &scope_secret_aad,
+            &scope_secret,
+        )
+        .unwrap();
+        let pack_key = [0xa7u8; 32];
+        let pack_aad = private::aad(private::PACK_KEY_PURPOSE, LUNA_ID, &scope);
+        let sealed_pack_key = seal_inner(
+            [0x72; 32],
+            [0x82; 32],
+            [0x92; NONCE_LEN],
+            &scope_public,
+            &pack_aad,
+            &pack_key,
+        )
+        .unwrap();
         json!({
+            "scope": {
+                "scope": scope,
+                "seed": hex(&scope_seed),
+                "seal_secret": hex(&scope_secret),
+                "seal_public": hex(&scope_public),
+                "scope_secret": {
+                    "ephemeral_secret": hex(&[0x71; 32]),
+                    "mlkem_message": hex(&[0x81; 32]),
+                    "nonce": hex(&[0x91; NONCE_LEN]),
+                    "aad": hex(&scope_secret_aad),
+                    "msg": hex(&scope_secret),
+                    "sealed": hex(&sealed_scope_secret),
+                },
+                "pack_key": {
+                    "ephemeral_secret": hex(&[0x72; 32]),
+                    "mlkem_message": hex(&[0x82; 32]),
+                    "nonce": hex(&[0x92; NONCE_LEN]),
+                    "aad": hex(&pack_aad),
+                    "msg": hex(&pack_key),
+                    "sealed": hex(&sealed_pack_key),
+                },
+            },
             "long": {
                 "entropy": hex(&long_entropy),
                 "phrase": entropy_to_phrase(&long_entropy),

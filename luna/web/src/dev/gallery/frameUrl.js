@@ -1,7 +1,7 @@
 /**
  * The frame address for a scenario. `__mock` goes in the query string, before
  * any `#hash`, because boot.js reads only `location.search`.
- * @param {string} url scenario URL, e.g. "/settings#external_services"
+ * @param {string} url scenario URL, e.g. "/settings#cloud_backup"
  * @param {string} id scenario id
  */
 export function scenarioFrameUrl(url, id) {

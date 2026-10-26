@@ -5,6 +5,8 @@ import { useSystemHealthCheck } from "../../../hooks/useSystemHealthCheck.jsx";
 import CheckMore from "../../common/CheckMore.jsx";
 import CheckStatusIcon from "../../common/CheckStatusIcon.jsx";
 import CheckStatusTag from "../../common/CheckStatusTag.jsx";
+import { SYSTEM_DISK_CHECKS, SYSTEM_DISK_HINT } from "../../../lib/needsYouChecks.js";
+import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { displayLabel, statusRank } from "../../../lib/healthChecks.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
@@ -92,7 +94,15 @@ export default function SystemChecksCard({ index = 1 }) {
                 <div className="flex items-start gap-2.5 min-w-0">
                   <CheckStatusIcon status={check.status} size="sm" className="mt-0.5" />
                   <div className="min-w-0">
-                    <div className="text-sm text-primary">{displayLabel(name, check)}</div>
+                    <div className="text-sm text-primary">
+                      {displayLabel(name, check)}
+                      {SYSTEM_DISK_CHECKS.has(name) && (
+                        <>
+                          {" "}
+                          <InfoHint content={SYSTEM_DISK_HINT} />
+                        </>
+                      )}
+                    </div>
                     {check.message && (
                       <div className="text-xs text-primary break-words">{check.message}</div>
                     )}

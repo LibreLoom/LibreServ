@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
+import { FileOpsProvider } from "../context/FileOpsContext.jsx";
 import GalleryPage, { galleryUrl, parseGalleryHash } from "./GalleryPage";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
@@ -127,6 +128,7 @@ function renderGallery({ withShortcuts = false } = {}) {
   return render(
     <ToastProvider>
     <QueryClientProvider client={client}>
+      <FileOpsProvider>
       <MemoryRouter>
         <AuthProvider>
           {withShortcuts ? (
@@ -138,10 +140,29 @@ function renderGallery({ withShortcuts = false } = {}) {
           )}
         </AuthProvider>
       </MemoryRouter>
+      </FileOpsProvider>
     </QueryClientProvider>
     </ToastProvider>,
   );
 }
+
+describe("GalleryPage photo upload", () => {
+  it("sends a dropped photo through the file operation store", async () => {
+    stubGalleryFetch({ drives: [{ id: "a", label: "Family", state: "as_is", mount_point: "/mnt/a" }] });
+    renderGallery();
+    await screen.findByRole("button", { name: /rescan/i }).catch(() => null);
+    const photo = new File(["x"], "beach.jpg", { type: "image/jpeg" });
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", { value: { files: [photo] } });
+    await act(async () => {
+      document.body.dispatchEvent(drop);
+    });
+    await waitFor(() => {
+      const calls = /** @type {any} */ (fetch).mock.calls;
+      expect(calls.some(([url, init]) => /upload/.test(String(url)) && (init?.method || "GET") !== "GET")).toBe(true);
+    });
+  });
+});
 
 describe("galleryUrl", () => {
   it("asks for favorites with true/false that lunad can parse", () => {
@@ -1084,11 +1105,13 @@ describe("GalleryPage", () => {
     render(
       <ToastProvider>
       <QueryClientProvider client={client}>
+        <FileOpsProvider>
         <MemoryRouter>
           <AuthProvider>
             <GalleryPage />
           </AuthProvider>
         </MemoryRouter>
+        </FileOpsProvider>
       </QueryClientProvider>
       </ToastProvider>,
     );

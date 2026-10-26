@@ -102,8 +102,9 @@ describe("AdminAccountsPage", () => {
     const rows = screen.getAllByText("user@example.com");
     rows[0].click();
     expect(await screen.findByTestId("account-detail")).toBeTruthy();
-    expect(screen.getByText("myluna.luna.servers.libreloom.org")).toBeTruthy();
-    expect(screen.getByText("Online")).toBeTruthy();
+    // The detail panel opens before the account has loaded, so wait for the content.
+    expect(await screen.findByText("myluna.luna.servers.libreloom.org")).toBeTruthy();
+    expect(await screen.findByText("Online")).toBeTruthy();
   });
 
   it("expands Luna details on View", async () => {
@@ -152,8 +153,9 @@ describe("AdminAccountsPage", () => {
     const rows = await screen.findAllByText("user@example.com");
     rows[0].click();
     await screen.findByTestId("luna-row-dev_1");
-    const input = screen.getByLabelText("Subdomain");
+    const input = await screen.findByLabelText("Subdomain");
     fireEvent.change(input, { target: { value: "newname" } });
+    await waitFor(() => expect(input.value).toBe("newname"));
     fireEvent.click(screen.getByRole("button", { name: /Save address/i }));
     await waitFor(() => {
       expect(adminApiMock).toHaveBeenCalledWith(

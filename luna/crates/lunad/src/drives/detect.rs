@@ -28,6 +28,10 @@ pub struct DetectedDrive {
     pub fs_type: Option<String>,
     /// True when `/proc/mounts` lists the mount as `ro` (exact option token).
     pub mount_readonly: bool,
+    /// The kernel's disk sequence number (`/sys/block/<name>/diskseq`). It changes
+    /// every time the device is plugged in, so it tells a re-plugged stick apart
+    /// from the one that was there before. `None` when unknown (and for mocks).
+    pub diskseq: Option<u64>,
 }
 
 impl DetectedDrive {
@@ -88,6 +92,7 @@ pub fn scan(sys_block: &Path, proc_mounts: &str) -> Vec<DetectedDrive> {
         let mount_point = mounted.map(|m| m.mount_point.clone());
         let fs_type = mounted.map(|m| m.fs_type.clone());
         let mount_readonly = mounted.map(|m| m.read_only).unwrap_or(false);
+        let diskseq: Option<u64> = read_trimmed(&dir.join("diskseq")).and_then(|s| s.parse().ok());
 
         // Never surface the live OS disk (or anything mounted at the system
         // root) as an adoptable drive.
@@ -104,6 +109,7 @@ pub fn scan(sys_block: &Path, proc_mounts: &str) -> Vec<DetectedDrive> {
             mount_point,
             fs_type,
             mount_readonly,
+            diskseq,
         });
     }
     drives.sort_by(|a, b| a.name.cmp(&b.name));
@@ -304,6 +310,7 @@ mod tests {
             mount_point: Some("/tmp/mock".into()),
             fs_type: Some("exfat".into()),
             mount_readonly: false,
+            diskseq: None,
         }
     }
 
@@ -391,6 +398,7 @@ mod tests {
             mount_point: None,
             fs_type: None,
             mount_readonly: false,
+            diskseq: None,
         };
         for whole in ["sda", "sdb", "vda", "nvme0n1", "nvme1n1", "mmcblk0"] {
             d.name = whole.into();

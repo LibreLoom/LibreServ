@@ -368,15 +368,15 @@ fn add_core_checks(
                 details,
             );
         }
-        Some(free) => checks
+        Some(_) => checks
             .add(
                 "disk_space",
                 "system",
                 FAILED,
-                "Luna is running out of room for accounts and settings.",
+                "Luna's own storage (its system disk) is almost full. Free some space on it, or Luna may stop working.",
                 details,
             )
-            .more(format!("Only {} is free on Luna's system disk, where it keeps accounts and settings (your files are on your drives). Contact support.", human_bytes(free))),
+            .more("This is the disk where Luna keeps its accounts and settings; your files are on your drives."),
         None => checks
             .add(
                 "disk_space",
@@ -979,6 +979,10 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
         if row.kind != crate::db::PROTECTION_DRIVE || !row.private_owner.is_empty() {
             continue;
         }
+        // A larger folder's backup holds these files, so this one is meant to stand still.
+        if crate::backup::drive_backup::covered_by(conn, &row).is_some() {
+            continue;
+        }
         let folder = folder_name(&row, &drive_label(&row.source_drive));
         let target = drive_label(&row.target_drive);
         let details = json!({
@@ -1052,6 +1056,9 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
 
     for row in crate::db::list_protections(conn).unwrap_or_default() {
         if row.kind != crate::db::PROTECTION_CLOUD || !row.private_owner.is_empty() {
+            continue;
+        }
+        if crate::backup::drive_backup::covered_by(conn, &row).is_some() {
             continue;
         }
         let folder = folder_name(&row, &drive_label(&row.source_drive));
@@ -1221,6 +1228,9 @@ fn row_needs_look(conn: &Connection, row: &crate::db::ProtectionRow, now: i64) -
     if row.state == "stopped" || row.state == "source_gone" {
         return false;
     }
+    if crate::backup::drive_backup::covered_by(conn, row).is_some() {
+        return false;
+    }
     if row.kind == crate::db::PROTECTION_DRIVE {
         return !matches!(drive_state(row, now), BackupState::Ok);
     }
@@ -1254,7 +1264,7 @@ pub fn finish_comprehensive(
         let smart_name = format!("drive_{}_smart", drive.id);
         let drive_details = json!({ "drive_id": drive.id, "drive_label": label });
 
-        if drive.state == "readonly" || drive.mount_point.is_empty() {
+        if drive.state == "readonly" {
             checks
                 .add(
                     &rw_name,
@@ -1263,7 +1273,18 @@ pub fn finish_comprehensive(
                     format!("Luna can't save new files to {label}."),
                     Some(drive_details),
                 )
-                .more("The drive is read-only, or Luna hasn't opened it.");
+                .more("The drive is read-only.");
+        } else if drive.mount_point.is_empty() {
+            // No live Luna mount (the drive was pulled out or never opened).
+            checks
+                .add(
+                    &rw_name,
+                    "drives",
+                    FAILED,
+                    format!("Luna can't open {label}."),
+                    Some(drive_details),
+                )
+                .more("Unplug it and plug it back in.");
         } else if crate::drives::probe_writable(&PathBuf::from(&drive.mount_point)).is_ok() {
             checks.add(
                 &rw_name,
@@ -1286,52 +1307,22 @@ pub fn finish_comprehensive(
 
         if smart::applicable(&drive.device) {
             let health = smart::read(&drive.device);
-            if !health.available {
-                continue;
-            }
-            let temp = health
-                .temperature_c
-                .map(|temp| format!("It's about {temp}°C."));
-            if health.overall == "passed" {
-                let worn = health.reallocated_sectors.unwrap_or(0) > 0;
-                // Worn drives keep the action on the surface — it's the
-                // part the person must not miss.
-                let msg = if worn {
-                    format!(
-                        "{label} has repaired some worn spots. Copy important files off it soon."
-                    )
-                } else {
-                    format!("{label} reported no hardware problems.")
-                };
+            if let Some((status, msg, more)) = smart_check(&label, &health) {
                 let row = checks.add(
                     &smart_name,
                     "drives",
-                    PASSED,
+                    status,
                     msg,
                     Some(json!({
                         "drive_id": drive.id,
                         "drive_label": label,
-                        "temperature_c": health.temperature_c,
-                        "reallocated_sectors": health.reallocated_sectors,
+                        "verdict": health.verdict,
+                        "signals": health.signals,
                     })),
                 );
-                if let Some(temp) = temp {
-                    row.more(temp);
+                if let Some(more) = more {
+                    row.more(more);
                 }
-            } else {
-                checks.add(
-                    &smart_name,
-                    "drives",
-                    FAILED,
-                    format!(
-                        "{label} reported a hardware problem. Copy your files somewhere else soon."
-                    ),
-                    Some(json!({
-                        "drive_id": drive.id,
-                        "drive_label": label,
-                        "overall": health.overall,
-                    })),
-                );
             }
         }
     }
@@ -1356,6 +1347,77 @@ pub fn finish_comprehensive(
         overall_pass,
         checks: checks.0,
         summary,
+    }
+}
+
+/// The SMART line for one drive as `(status, message, more)`. It reads only
+/// the drive's verdict and top signal, so it agrees with the web. `None` when
+/// there is no report or the verdict is unknown.
+pub(crate) fn smart_check(
+    label: &str,
+    h: &smart::DriveHealth,
+) -> Option<(&'static str, String, Option<String>)> {
+    use crate::drives::smart::{SignalKind, Verdict};
+    if !h.available {
+        return None;
+    }
+    let top = h.signals.first();
+    let top_kind = top.map(|s| s.kind);
+    let top_value = top.and_then(|s| s.value).unwrap_or_default();
+    match h.verdict {
+        Verdict::Unknown => None,
+        Verdict::Ok => {
+            // Ok with a signal can only be a warm temperature note.
+            let warm = top_kind == Some(SignalKind::Temperature);
+            let more = match h.temperature_c {
+                Some(t) if warm => Some(format!(
+                    "It's {t}°C, close to the {}°C it's made for.",
+                    h.temperature_max_c
+                )),
+                Some(t) => Some(format!("It's {t}°C, which is normal for a hard drive.")),
+                None => None,
+            };
+            Some((
+                PASSED,
+                format!("{label} reported no hardware problems."),
+                more,
+            ))
+        }
+        Verdict::Watch => {
+            let msg = match top_kind {
+                Some(SignalKind::ErrorLog) => format!(
+                    "{label} has logged read or write errors. Keep using it, and make sure it's backed up."
+                ),
+                Some(SignalKind::SelfTestErrors) => format!(
+                    "{label} failed a self-test. Keep using it, and make sure it's backed up."
+                ),
+                Some(SignalKind::Temperature) => {
+                    format!("{label} is running hot ({top_value}°C). Move it somewhere cooler.")
+                }
+                _ => {
+                    format!("{label} is showing wear. Keep using it, and make sure it's backed up.")
+                }
+            };
+            Some((WARNING, msg, None))
+        }
+        Verdict::Failing => {
+            let more = match top_kind {
+                Some(SignalKind::SelfCheckFailed) => Some("Its own self-check failed.".into()),
+                Some(SignalKind::WornPastLimit) => Some("It's past its maker's wear limit.".into()),
+                Some(SignalKind::PendingSectors | SignalKind::UncorrectableSectors) => {
+                    Some(format!("It can't read {top_value} spots on its disk."))
+                }
+                Some(SignalKind::ReallocatedSectors) => {
+                    Some(format!("{top_value} spots on its disk have worn out."))
+                }
+                _ => None,
+            };
+            Some((
+                FAILED,
+                format!("{label} is failing. Copy your files to another drive now."),
+                more,
+            ))
+        }
     }
 }
 
@@ -1862,7 +1924,73 @@ mod tests {
         insert_drive(&conn, "d1", "Photos", "readonly", "ext4", "sda1", "");
         let resp = comprehensive(dir.path(), &conn);
         assert!(!resp.overall_pass);
-        assert_eq!(resp.checks["drive_d1_read_write"].status, FAILED);
+        let check = &resp.checks["drive_d1_read_write"];
+        assert_eq!(check.status, FAILED);
+        assert_eq!(check.message, "Luna can't save new files to Photos.");
+        assert_eq!(check.more.as_deref(), Some("The drive is read-only."));
+    }
+
+    #[test]
+    fn comprehensive_unopened_drive_says_cant_open() {
+        let (dir, conn) = setup();
+        insert_drive(&conn, "d1", "Photos", "as_is", "ext4", "sda1", "");
+        let resp = comprehensive(dir.path(), &conn);
+        let check = &resp.checks["drive_d1_read_write"];
+        assert_eq!(check.status, FAILED);
+        assert_eq!(check.message, "Luna can't open Photos.");
+        assert_eq!(
+            check.more.as_deref(),
+            Some("Unplug it and plug it back in.")
+        );
+    }
+
+    fn judged(change: impl FnOnce(&mut smart::DriveHealth)) -> smart::DriveHealth {
+        let mut h = smart::empty(None);
+        h.available = true;
+        h.overall = "passed".into();
+        change(&mut h);
+        smart::judge(&mut h);
+        h
+    }
+
+    #[test]
+    fn smart_check_maps_verdicts() {
+        let ok = judged(|h| h.temperature_c = Some(34));
+        assert_eq!(
+            smart_check("Photos", &ok),
+            Some((
+                PASSED,
+                "Photos reported no hardware problems.".to_string(),
+                Some("It's 34°C, which is normal for a hard drive.".to_string()),
+            ))
+        );
+
+        let watch = judged(|h| h.reallocated_sectors = Some(4));
+        let (status, msg, more) = smart_check("Photos", &watch).unwrap();
+        assert_eq!(status, WARNING);
+        assert_eq!(
+            msg,
+            "Photos is showing wear. Keep using it, and make sure it's backed up."
+        );
+        assert!(more.is_none());
+
+        let failing = judged(|h| h.reallocated_sectors = Some(120));
+        let (status, msg, more) = smart_check("Photos", &failing).unwrap();
+        assert_eq!(status, FAILED);
+        assert_eq!(
+            msg,
+            "Photos is failing. Copy your files to another drive now."
+        );
+        assert_eq!(
+            more.as_deref(),
+            Some("120 spots on its disk have worn out.")
+        );
+
+        let unknown = judged(|h| h.overall = "unknown".into());
+        assert!(smart_check("Photos", &unknown).is_none());
+        let mut unavailable = smart::empty(Some("no_report"));
+        smart::judge(&mut unavailable);
+        assert!(smart_check("Photos", &unavailable).is_none());
     }
 
     #[test]

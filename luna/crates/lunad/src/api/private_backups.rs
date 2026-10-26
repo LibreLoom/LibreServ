@@ -38,6 +38,10 @@ pub fn router() -> Router<AppState> {
             "/api/v1/private-backups/old-copies",
             delete(remove_old_copies),
         )
+        .route(
+            "/api/v1/private-backups/older-versions",
+            delete(remove_older_versions),
+        )
 }
 
 #[derive(Deserialize)]
@@ -61,10 +65,11 @@ async fn item(
             "Luna can't find this folder.",
         ));
     }
+    // A folder inside a private item is private too, owned by the item's owner.
     let (private, inside, owner) = match access_list::private_source(&conn, &query.drive, &path) {
         PrivateSource::OwnItem { owner } => (true, false, owner),
-        PrivateSource::Inside => (false, true, String::new()),
-        PrivateSource::Shared => (false, false, String::new()),
+        PrivateSource::Inside { owner, .. } => (true, true, owner),
+        PrivateSource::PrivateTrash | PrivateSource::Shared => (false, false, String::new()),
     };
     Ok(Json(json!({
         "private": private,
@@ -98,7 +103,10 @@ async fn mine(State(state): State<AppState>, Extension(user): Extension<CurrentU
                     r.private_owner == user.id
                         && r.source_drive == drive.id
                         && r.state == db::PROTECTION_ACTIVE
-                        && access::normalize_subject_path(&r.source_path) == item.path
+                        && access::path_contains(
+                            &item.path,
+                            &access::normalize_subject_path(&r.source_path),
+                        )
                 })
                 .collect();
             items.push(json!({
@@ -177,7 +185,10 @@ async fn remove_owner(
             .collect()
     };
     // A copy in progress would write into the backup while it is removed.
-    if rows.iter().any(|r| drive_backup::is_running(&r.id)) {
+    if rows
+        .iter()
+        .any(|r| drive_backup::is_running(&state.db, &r.id))
+    {
         return Err(json_error(
             StatusCode::CONFLICT,
             "Luna is copying one of these backups right now. Remove them when the copy finishes.",
@@ -208,7 +219,7 @@ async fn remove_owner(
             Ok(Ok(None)) => {
                 return Err(json_error(
                     StatusCode::SERVICE_UNAVAILABLE,
-                    "Connect this Luna to Luna Connect before deleting a cloud backup. Its copies in the cloud can't be removed until then. Settings → Luna Connect.",
+                    "Connect this Luna to Luna Connect before deleting a cloud backup. Its copies in the cloud can't be removed until then. Settings → About → Advanced.",
                 ));
             }
             Ok(Err(text)) => return Err(json_error(StatusCode::SERVICE_UNAVAILABLE, text)),
@@ -223,7 +234,7 @@ async fn remove_owner(
 
     for row in &local {
         let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
-        drive_backup::delete(&conn, row).map_err(|_| {
+        drive_backup::delete(&state.db, &conn, row).map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Luna couldn't delete this backup. Try again.",
@@ -250,6 +261,21 @@ async fn remove_old_copies(
     Ok(Json(json!({ "ok": true })))
 }
 
+/// Removes the signed-in person's older private versions, kept after a phrase change, at once.
+async fn remove_older_versions(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+) -> ApiResult {
+    let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+    ops::retire_older_versions_now(&conn, &user.id, db::now_unix()).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't delete your older private versions. Try again.",
+        )
+    })?;
+    Ok(Json(json!({ "ok": true })))
+}
+
 const LOAD_FAILED: &str = "Luna couldn't load your private backups. Try again.";
 
 /// The owner's name as shown to others, or "" when they have no account here.
@@ -266,6 +292,10 @@ fn display_name(conn: &Connection, id: &str) -> String {
 fn needs_look(conn: &Connection, row: &ProtectionRow, now: i64) -> bool {
     if row.state != db::PROTECTION_ACTIVE {
         return true;
+    }
+    // A larger folder's backup holds these files, so this one is meant to stand still.
+    if drive_backup::covered_by(conn, row).is_some() {
+        return false;
     }
     if row.kind == db::PROTECTION_CLOUD {
         ops::state(row, now) != BackupState::Ok || ops::last_check_problem(conn, &row.id).is_some()
@@ -527,12 +557,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn older_versions_are_removed_at_once_and_only_the_owners_history() {
+        let f = fixture();
+        let scope = |name: &str, owner: &str, state: &str| db::PrivateScope {
+            scope: name.to_string(),
+            owner: owner.to_string(),
+            seal_public: vec![1; 32],
+            scope_public: vec![3; 32],
+            sealed_scope_secret: vec![4; 16],
+            dedup_key: vec![2; 32],
+            state: state.to_string(),
+            retire_after: 0,
+            created_at: 0,
+        };
+        {
+            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            db::insert_private_scope(&conn, &scope("owner-history", &f.owner_id, "history"))
+                .unwrap();
+            db::insert_private_scope(&conn, &scope("owner-active", &f.owner_id, "active")).unwrap();
+            db::insert_private_scope(&conn, &scope("stranger-history", &f.stranger_id, "history"))
+                .unwrap();
+        }
+
+        let before = db::now_unix();
+        let (status, body) = send(
+            &f.router,
+            "DELETE",
+            "/api/v1/private-backups/older-versions",
+            &f.owner_token,
+        )
+        .await;
+        let after = db::now_unix();
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body, serde_json::json!({ "ok": true }));
+
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        let history = db::get_private_scope(&conn, "owner-history")
+            .unwrap()
+            .unwrap();
+        assert_eq!(history.state, "old_phrase");
+        assert!((before..=after).contains(&history.retire_after));
+        assert_eq!(
+            db::get_private_scope(&conn, "owner-active")
+                .unwrap()
+                .unwrap()
+                .state,
+            "active"
+        );
+        let stranger = db::get_private_scope(&conn, "stranger-history")
+            .unwrap()
+            .unwrap();
+        assert_eq!(stranger.state, "history");
+        assert_eq!(stranger.retire_after, 0);
+    }
+
+    #[tokio::test]
     async fn old_copies_sets_retire_after_now() {
         let f = fixture();
         let scope = |name: &str, owner: &str| db::PrivateScope {
             scope: name.to_string(),
             owner: owner.to_string(),
             seal_public: vec![1; 32],
+            scope_public: vec![5; 32],
+            sealed_scope_secret: vec![6; 16],
             dedup_key: vec![2; 32],
             state: "old_phrase".to_string(),
             retire_after: 12_345,

@@ -10,7 +10,7 @@ import { lastCopyLine } from "../../lib/backupRows.js";
  *   state?: "ok" | "failing" | "stale",
  *   lastError?: string,
  *   lastOkAt?: number,
- *   staleText: string,
+ *   staleText?: string,
  *   surface?: "primary" | "secondary",
  * }} props
  */
@@ -18,7 +18,7 @@ export default function BackupStatusNotice({ state, lastError, lastOkAt, staleTe
   if (!state || state === "ok") return null;
   return (
     <PageNotice variant="warning" surface={surface}>
-      <p>{lastError || staleText}</p>
+      {(lastError || staleText) && <p>{lastError || staleText}</p>}
       <p>{lastCopyLine({ last_ok_at: lastOkAt })}</p>
     </PageNotice>
   );

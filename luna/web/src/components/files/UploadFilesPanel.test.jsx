@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import UploadFilesPanel from "./UploadFilesPanel.jsx";
 import { LUNA_DRIVE_MIME, LUNA_PATHS_MIME } from "../../lib/dnd.js";
@@ -33,7 +33,7 @@ describe("UploadFilesPanel", () => {
     const input = screen.getByLabelText("Add files");
     const picked = [file("a.txt"), file("b.txt")];
     fireEvent.change(input, { target: { files: picked } });
-    await waitFor(() => expect(onUploadFiles).toHaveBeenCalledWith(picked));
+    await waitFor(() => expect(onUploadFiles).toHaveBeenCalledWith({ files: picked }));
     expect(/** @type {HTMLInputElement} */ (input).value).toBe("");
   });
 
@@ -44,7 +44,7 @@ describe("UploadFilesPanel", () => {
     const f = file("drop.txt");
     fireEvent.drop(zone, { dataTransfer: osDrop([f]) });
     await waitFor(() => expect(onUploadFiles).toHaveBeenCalledTimes(1));
-    expect(onUploadFiles.mock.calls[0][0].map((x) => x.name)).toEqual(["drop.txt"]);
+    expect(onUploadFiles.mock.calls[0][0].dropped.files.map((x) => x.name)).toEqual(["drop.txt"]);
   });
 
   it("moves Luna's own dragged files instead of uploading them", async () => {
@@ -76,13 +76,51 @@ describe("UploadFilesPanel", () => {
     expect(fireEvent.dragOver(zone, { dataTransfer: lunaDrop(["a"], "d") })).toBe(false);
   });
 
-  it("shows the parent's error, or a plain one when the upload throws", async () => {
-    const onUploadFiles = vi.fn().mockRejectedValue(new Error("Drive is full."));
+  it("shows the parent's error and leaves upload problems to the file tasks card", async () => {
+    const onUploadFiles = vi.fn();
     const { rerender } = render(<UploadFilesPanel onUploadFiles={onUploadFiles} />);
     fireEvent.change(screen.getByLabelText("Add files"), { target: { files: [file()] } });
-    expect(await screen.findByText("Drive is full.")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     rerender(<UploadFilesPanel onUploadFiles={onUploadFiles} error="Luna is out of room." />);
     expect(screen.getByText("Luna is out of room.")).toBeInTheDocument();
+  });
+
+  it("hands a dropped folder over as entries, taken during the drop", () => {
+    const onUploadFiles = vi.fn();
+    render(<UploadFilesPanel onUploadFiles={onUploadFiles} />);
+    const zone = screen.getByText("Choose files or drop them here").parentElement;
+    const entry = { isFile: false, isDirectory: true, name: "Trip" };
+    fireEvent.drop(zone, {
+      dataTransfer: {
+        types: ["Files"],
+        files: [],
+        items: [{ kind: "file", webkitGetAsEntry: () => entry, getAsFile: () => null }],
+        getData: () => "",
+      },
+    });
+    expect(onUploadFiles).toHaveBeenCalledTimes(1);
+    expect(onUploadFiles.mock.calls[0][0].dropped.entries).toEqual([entry]);
+  });
+
+  describe("choosing a folder", () => {
+    afterEach(() => {
+      delete (/** @type {any} */ (HTMLInputElement.prototype)).webkitdirectory;
+    });
+
+    it("offers Choose a folder and passes the picked files on", () => {
+      Object.defineProperty(HTMLInputElement.prototype, "webkitdirectory", { configurable: true, writable: true, value: false });
+      const onUploadFiles = vi.fn();
+      render(<UploadFilesPanel onUploadFiles={onUploadFiles} />);
+      expect(screen.getByRole("button", { name: "Choose a folder" })).toBeInTheDocument();
+      const f = file("a.txt");
+      fireEvent.change(screen.getByLabelText("Add a folder"), { target: { files: [f] } });
+      expect(onUploadFiles).toHaveBeenCalledWith({ files: [f] });
+    });
+
+    it("hides Choose a folder when the browser cannot pick folders", () => {
+      render(<UploadFilesPanel onUploadFiles={vi.fn()} />);
+      expect(screen.queryByRole("button", { name: "Choose a folder" })).not.toBeInTheDocument();
+    });
   });
 
   it("does nothing for an empty pick and passes accept through", () => {

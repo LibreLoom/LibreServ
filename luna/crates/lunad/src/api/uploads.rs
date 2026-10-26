@@ -10,6 +10,7 @@ use crate::AppState;
 use crate::api::files::parse_range;
 use crate::api::response::json_error;
 use crate::files::uploads::{self, UploadError};
+use crate::files::{self, FilesError};
 
 const MAX_FILE_BYTES: u64 = 1024 * 1024 * 1024 * 1024; // 1 TiB
 
@@ -19,11 +20,16 @@ struct CreateBody {
     path: Option<String>,
     name: String,
     size: u64,
+    /// Set once the person has chosen what to do about a name clash. Only
+    /// "keep_both" is read here; the decision is applied at `complete`.
+    #[serde(default)]
+    on_conflict: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct CompleteQuery {
     overwrite: Option<String>,
+    keep_both: Option<String>,
     hash: Option<String>,
 }
 
@@ -62,6 +68,37 @@ async fn create(
         ));
     }
     let path = body.path.unwrap_or_default();
+    // Look before taking the bytes: a taken name needs a decision, and a drive
+    // with too little room should say so now, not after the whole upload.
+    let free_probe = {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        // A folder that doesn't exist yet can't hold a clash, so no check.
+        let dir = files::dest_dir(&conn, &body.drive_id, &path).ok();
+        if let (Some(dir), Ok(safe)) = (&dir, files::safe_name(&body.name))
+            && files::name_taken(dir, &safe)
+            && body.on_conflict.is_none()
+        {
+            return Err(name_clash(Some(uploads::existing_kind(dir, &safe))));
+        }
+        dir.or_else(|| {
+            files::drive_root(&conn, &body.drive_id)
+                .ok()
+                .map(|d| std::path::PathBuf::from(d.mount_point))
+        })
+    };
+    if let Some(space) = free_probe.and_then(|p| crate::drives::summary::disk_space(&p))
+        && space.free_bytes < body.size
+    {
+        return Err(json_error(
+            StatusCode::INSUFFICIENT_STORAGE,
+            "This drive is full. Free up some space and try again.",
+        ));
+    }
     let upload = crate::db::with_db(
         &state.db,
         || UploadError::NotFound,
@@ -138,7 +175,9 @@ async fn complete(
 ) -> Result<Json<crate::files::FileEntry>, (StatusCode, Json<Value>)> {
     check_upload_access(&state, &user, &id)?;
     let overwrite = query.overwrite.as_deref() == Some("1");
-    let (drive_id, rel, exists) = {
+    // Overwrite wins over keep-both when both are asked for.
+    let keep_both = query.keep_both.as_deref() == Some("1") && !overwrite;
+    let (drive_id, rel, exists, clash_kind) = {
         let conn = state.db.lock().map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -147,10 +186,15 @@ async fn complete(
         })?;
         let row = uploads::get_row(&conn, &id).map_err(map_upload_err)?;
         let rel = crate::gallery::gallery_indexer::join_rel(&row.path, &row.name);
-        let exists = crate::files::dest_dir(&conn, &row.drive_id, &row.path)
-            .map(|dir| crate::files::name_taken(&dir, &row.name))
-            .unwrap_or(false);
-        (row.drive_id, rel, exists)
+        let dir = crate::files::dest_dir(&conn, &row.drive_id, &row.path).ok();
+        let exists = dir
+            .as_ref()
+            .is_some_and(|dir| crate::files::name_taken(dir, &row.name));
+        let clash_kind = dir
+            .as_ref()
+            .filter(|_| exists)
+            .map(|dir| uploads::existing_kind(dir, &row.name));
+        (row.drive_id, rel, exists, clash_kind)
     };
     // Overwriting is an edit, not an upload: a drop-only member cannot
     // replace a file that is already there. Same rule as the multipart
@@ -169,8 +213,14 @@ async fn complete(
             ));
         }
     }
-    let mut entry = uploads::complete(&state.db, &id, overwrite, false, query.hash.as_deref())
-        .map_err(map_upload_err)?;
+    let mut entry = uploads::complete(&state.db, &id, overwrite, keep_both, query.hash.as_deref())
+        .map_err(|e| {
+            if is_name_clash(&e) {
+                name_clash(clash_kind)
+            } else {
+                map_upload_err(e)
+            }
+        })?;
     // Stamp the caller's real caps on the new file — the browser uses them
     // for row affordances (rename/delete/share) without a second lookup.
     if let Ok(conn) = state.db.lock() {
@@ -253,6 +303,29 @@ fn check_upload_access(
     }
 }
 
+/// The `409` for a name that is already taken. `existing_kind` says whether
+/// a `"file"` or a `"dir"` holds it, when that is known.
+pub(crate) fn name_clash(existing_kind: Option<&str>) -> (StatusCode, Json<Value>) {
+    let message = if existing_kind == Some("dir") {
+        "A folder with this name is already here. Choose another name."
+    } else {
+        "A file with this name is already here. Rename it or choose another."
+    };
+    let mut body = json!({ "error": message, "code": "exists" });
+    if let Some(kind) = existing_kind {
+        body["existing_kind"] = json!(kind);
+    }
+    (StatusCode::CONFLICT, Json(body))
+}
+
+pub(crate) fn is_name_clash(err: &UploadError) -> bool {
+    matches!(
+        err,
+        UploadError::Files(FilesError::Io(e)) | UploadError::Io(e)
+            if e.kind() == std::io::ErrorKind::AlreadyExists
+    )
+}
+
 fn map_upload_err(err: UploadError) -> (StatusCode, Json<Value>) {
     match err {
         UploadError::NotFound => {
@@ -280,20 +353,14 @@ fn map_upload_err(err: UploadError) -> (StatusCode, Json<Value>) {
         UploadError::Files(crate::files::FilesError::Io(e))
             if e.kind() == std::io::ErrorKind::AlreadyExists =>
         {
-            json_error(
-                StatusCode::CONFLICT,
-                "A file with this name is already here. Rename it or choose another.",
-            )
+            name_clash(None)
         }
         UploadError::Files(crate::files::FilesError::Io(e))
             if e.kind() == std::io::ErrorKind::NotADirectory =>
         {
             json_error(StatusCode::BAD_REQUEST, "That destination is not a folder.")
         }
-        UploadError::Io(e) if e.kind() == std::io::ErrorKind::AlreadyExists => json_error(
-            StatusCode::CONFLICT,
-            "A file with this name is already here. Rename it or choose another.",
-        ),
+        UploadError::Io(e) if e.kind() == std::io::ErrorKind::AlreadyExists => name_clash(None),
         // Access was pulled (or never held) between session open and install.
         UploadError::Denied => json_error(
             StatusCode::FORBIDDEN,
@@ -615,7 +682,9 @@ mod http_tests {
                 "/api/v1/uploads",
                 &sam_cookie,
                 &sam_csrf,
-                Body::from(r#"{"drive_id":"photos","path":"drop","name":"x.bin","size":4}"#),
+                Body::from(
+                    r#"{"drive_id":"photos","path":"drop","name":"x.bin","size":4,"on_conflict":"overwrite"}"#,
+                ),
                 &[("content-type", "application/json")],
             ))
             .await
@@ -657,5 +726,147 @@ mod http_tests {
             std::fs::read(mount.path().join("drop/x.bin")).unwrap(),
             b"old!"
         );
+    }
+
+    fn create_body(extra: &str) -> String {
+        format!(r#"{{"drive_id":"photos","path":"drop","name":"x.bin","size":4{extra}}}"#)
+    }
+
+    async fn json_of(res: axum::response::Response) -> serde_json::Value {
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        serde_json::from_slice(&body).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_taken_name_is_decided_before_the_bytes_and_kept_both_at_complete() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("drop")).unwrap();
+        std::fs::write(mount.path().join("drop/x.bin"), b"old!").unwrap();
+        let (dir, app) = test_app(mount.path());
+        let ((sam_cookie, sam_csrf, sam_id), _) = two_members(&app).await;
+        grant(&dir, &sam_id, "drop", crate::access::CAP_ALL);
+        let json_header = [("content-type", "application/json")];
+
+        // No choice yet: the session is refused with the clash named.
+        let res = app
+            .clone()
+            .oneshot(req(
+                Method::POST,
+                "/api/v1/uploads",
+                &sam_cookie,
+                &sam_csrf,
+                Body::from(create_body("")),
+                &json_header,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::CONFLICT);
+        let v = json_of(res).await;
+        assert_eq!(v["code"], "exists");
+        assert_eq!(v["existing_kind"], "file");
+
+        // With the choice made, the session opens and the bytes arrive.
+        let res = app
+            .clone()
+            .oneshot(req(
+                Method::POST,
+                "/api/v1/uploads",
+                &sam_cookie,
+                &sam_csrf,
+                Body::from(create_body(r#","on_conflict":"keep_both""#)),
+                &json_header,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let upload_id = json_of(res).await["upload_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let res = app
+            .clone()
+            .oneshot(req(
+                Method::PUT,
+                format!("/api/v1/uploads/{upload_id}"),
+                &sam_cookie,
+                &sam_csrf,
+                Body::from("new!"),
+                &[("content-range", "bytes 0-3/4")],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // A plain complete still refuses the clash, and keeps the session.
+        let res = app
+            .clone()
+            .oneshot(req(
+                Method::POST,
+                format!("/api/v1/uploads/{upload_id}/complete"),
+                &sam_cookie,
+                &sam_csrf,
+                Body::empty(),
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::CONFLICT);
+        let v = json_of(res).await;
+        assert_eq!(v["code"], "exists");
+        assert_eq!(v["existing_kind"], "file");
+
+        // Keep both lands it beside the old file, under the next free name.
+        let res = app
+            .clone()
+            .oneshot(req(
+                Method::POST,
+                format!("/api/v1/uploads/{upload_id}/complete?keep_both=1"),
+                &sam_cookie,
+                &sam_csrf,
+                Body::empty(),
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(json_of(res).await["name"], "x (1).bin");
+        assert_eq!(
+            std::fs::read(mount.path().join("drop/x.bin")).unwrap(),
+            b"old!"
+        );
+        assert_eq!(
+            std::fs::read(mount.path().join("drop/x (1).bin")).unwrap(),
+            b"new!"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_file_too_big_for_the_free_space_is_refused_up_front() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("drop")).unwrap();
+        let (dir, app) = test_app(mount.path());
+        let ((sam_cookie, sam_csrf, sam_id), _) = two_members(&app).await;
+        grant(&dir, &sam_id, "drop", crate::access::CAP_ALL);
+
+        // Just under the 1 TB limit: no drive in a test has that much free.
+        let size = MAX_FILE_BYTES - 1;
+        let body =
+            format!(r#"{{"drive_id":"photos","path":"drop","name":"huge.bin","size":{size}}}"#);
+        let res = app
+            .clone()
+            .oneshot(req(
+                Method::POST,
+                "/api/v1/uploads",
+                &sam_cookie,
+                &sam_csrf,
+                Body::from(body),
+                &[("content-type", "application/json")],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::INSUFFICIENT_STORAGE);
+        assert!(!mount.path().join("drop/huge.bin").exists());
     }
 }

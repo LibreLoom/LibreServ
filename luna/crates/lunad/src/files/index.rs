@@ -209,7 +209,7 @@ pub fn folder_totals_indexed(
         }
         let readable = include(&dir_rel);
         let mut stmt = conn
-            .prepare(
+            .prepare_cached(
                 "SELECT name, kind, size FROM index_entries WHERE drive_id = ?1 AND parent = ?2",
             )
             .ok()?;

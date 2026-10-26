@@ -101,11 +101,7 @@ Both flows ask it the same way, as two `CardButton`s: **"Could someone else have
 4. Save (§4.5). Toast: `Recovery phrase changed.`
 5. "Someone may have it" only (phase 5): an optional last step, `Delete older private versions` (§4.4).
 
-**Private items before phase 5.** Until private scopes have their own key pair (§5), private history can't move to a new phrase:
-- "No": private history retires with the 30-day grace, as today. The copy adds: "Older versions of your private items stay with your old phrase for 30 days, then Luna removes them. Your private items back up again from the start."
-- "Someone may have it": old private copies are removed **at once**. The copy adds: "Older versions of your private items can't be kept."
-
-Once phase 5 lands, both lines go away.
+**Private items.** Each private scope has its own key pair (§5), so private history moves to the new phrase like everything else: the browser re-seals every scope's secret in the same step. A scope it can't re-seal retires with the 30-day grace, and the toast says how many.
 
 ### 4.3 Get a new phrase (you lost it)
 
@@ -148,6 +144,8 @@ Order: packs the newest snapshot uses first, since current files matter most; th
 
 **Private items (phase 5):** Luna can't open private packs, so it can't move them. "Someone may have it" starts a new private scope, and its first backup packs every file still on the drive again from the source files. Older versions and deleted files that exist only in the old scope stay there, now opened by the new phrase (§5) but also by anyone who already used the old phrase. So when you still have your phrase, the flow ends with an optional step: `Delete older private versions`, which names what's lost (earlier versions and deleted files that exist only in the cloud). Skipping it keeps them, and the copy says the old phrase may still open them.
 
+**Locking.** A run, a delete, a key move step and a re-seal all take the backup's cloud lock (`cloud::run::RunSlot`). Run, delete and restore also take the `drive_backup` hold first; a move step and a re-seal take only the cloud lock and treat a held `drive_backup` hold as busy. Delete takes both, so no step or re-seal can write records for a backup being removed. A run that finds the cloud lock taken by a move or re-seal skips quietly (`CloudOutcome::busy`): nothing is recorded as a protection error and the next run retries. A move leaves snapshots under a key version with a different dedup key alone (a membership change); readers open those with their own version key. The `moving` status counts only backups whose newest reader list names the caller (Admins: every backup they can see).
+
 ### 4.5 The save
 
 One endpoint, `PUT /api/v1/cloud/phrase`:
@@ -161,7 +159,7 @@ One endpoint, `PUT /api/v1/cloud/phrase`:
 Phase 5 adds `rescoped` when the proof is the old phrase (§5).
 
 **Proof:**
-- Old phrase: the browser calls `POST /api/v1/cloud/phrase/challenge`, then signs the challenge with the **old** auth key under a new domain, `phrase-replace`. The PUT takes the challenge (`take_challenge`, single use) and verifies against the stored `auth_public`. A separate domain means a phrase-check signature can never be replayed as a replacement.
+- Old phrase: the browser calls `POST /api/v1/cloud/phrase/challenge`, then signs the challenge with the **old** auth key under a new domain, `phrase-replace`. It signs the challenge together with the new `seal_public`, `auth_public`, a hash of `self_sealed`, `exposed` and `rescoped_hash` (a SHA-256 of the `rescoped` list sorted by scope, each entry as `scope` and `sealed_scope_secret` in the canonical encoding; an empty list hashes the empty string), so a copied request can't be resent with other keys. The PUT takes the challenge (`take_challenge`, single use) and verifies against the stored `auth_public`. A separate domain means a phrase-check signature can never be replayed as a replacement.
 - Password: `auth.verify_password_for_user` (`auth.rs`). A wrong password should count toward the same lockout as a wrong sign-in; check that it does.
 
 **In one SQLite transaction:**
@@ -194,6 +192,10 @@ Phase 5 adds `rescoped` when the proof is the old phrase (§5).
 3. sends them in the PUT as `rescoped: [{ scope, sealed_scope_secret }]`.
 
 Luna stores them in the same transaction and republishes each `pscopes/<scope>` record with the new owner keys, replacing the old one. A scope the browser couldn't re-seal (missing or damaged record) retires with the 30-day grace, as today, and the toast says how many.
+
+**Memory:** a new scope's secret key is wiped (`zeroize`) right after it is sealed to the owner, and the seed and the intermediate secret parts are wiped inside `new_scope_keys` and `seal_pair`. This is best effort: copies the compiler leaves in registers or on the stack are out of reach.
+
+**Kept copy of the previous secret (30 days).** When a change is made with the old phrase and is **not** exposed, and a scope is re-sealed, Luna keeps the previous `sealed_scope_secret` and its `seal_public` in `cloud_private_kept` (one row per scope, newest previous only) for `OLD_PHRASE_GRACE` (30 days). `GET /api/v1/cloud/phrase/kept-scopes` returns the signed-in person's own unexpired copies and nobody else's. `restorePrivateFromPhrase` tries it for any scope the current copy does not open, so a restore with the old phrase still works. One rule ends it: the copy is removed when the new phrase is checked successfully (`POST /cloud/phrase/check`), when the 30 days pass (the `retire_old_phrases` sweep), or when its scope is deleted. **When exposed, nothing is kept**, and copies kept earlier are cleared, so the old phrase cannot keep opening that history. A change proven with the Luna password keeps nothing new (there is no key to re-seal with); if exposed it also clears earlier kept copies. The kept copy is never logged or returned to anyone but its owner. It lives only in Luna's database, so it does not survive losing that database.
 
 **If exposed,** Luna also starts a new scope for new data (new key pair and new dedup key); the old one stays as history. `Delete older private versions` retires the old scope with no grace.
 

@@ -2,10 +2,12 @@
 // (data: URLs), so the grid, lightbox and map show real pictures without a daemon.
 import { DEFAULT_NOW } from "./world.js";
 
+// color-scan: ignore-next-line -- fake photo pixels; an <img> data URL cannot read the page's CSS tokens
 const PALETTE = ["#9aa5b1", "#b8a99a", "#a3b8a3", "#b3a3b8", "#a3b3b8", "#b8a3a3", "#c4b88a", "#8aa0c4"];
 
 /** An inline picture: a flat colour with a label, any aspect ratio. */
 export function svgImage(label, color, w = 400, h = 300) {
+  // color-scan: ignore-next-line -- SVG inside a data URL cannot read the page's CSS tokens
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="100%" height="100%" fill="${color}"/><text x="50%" y="50%" font-family="monospace" font-size="${Math.max(14, Math.round(Math.min(w, h) / 10))}" fill="#222" text-anchor="middle" dominant-baseline="middle">${label}</text></svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }

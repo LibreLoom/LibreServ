@@ -63,6 +63,8 @@ struct ContentQuery {
 struct UploadQuery {
     path: Option<String>,
     overwrite: Option<String>,
+    /// "1" saves a clash as `name (1).ext` beside the existing file.
+    keep_both: Option<String>,
     /// Diagram saves name the last live edit in the file, same as EuroOffice
     /// `?coverage=` on an Editor.bin PUT. Absent for every other upload.
     coverage: Option<String>,
@@ -274,6 +276,9 @@ fn list_trash_view(
     }
     let drive = drive_row(state, id).map_err(map_files_err)?;
     let mut entries = files::list_trash_dir_at(&drive, rel).map_err(map_files_err)?;
+    // Trash metadata is read from the drive's own files, so do it before
+    // the global lock is taken.
+    let meta = files::trash_meta_map(std::path::Path::new(&drive.mount_point));
 
     let conn = state.db.lock().map_err(|_| {
         json_error(
@@ -281,10 +286,6 @@ fn list_trash_view(
             "Luna's index is busy. Try again.",
         )
     })?;
-    let root = files::drive_root(&conn, id)
-        .map(|d| std::path::PathBuf::from(d.mount_point))
-        .unwrap_or_default();
-    let meta = files::trash_meta_map(&root);
     let top_level = rel == files::TRASH_API_ALIAS;
     let ctx = crate::auth::InspectCtx::new(user, &conn, id);
     // Path under the trash root this listing represents ("" at the root).
@@ -915,41 +916,50 @@ fn stat_entry_sync(
         stat.children = None;
     }
 
+    // Read the drive row under the lock, then drop the lock before any drive
+    // IO. Trash never reads the index, but its root has no totals at all.
+    let totals_drive = if stat.kind == "dir" && !(in_trash && rel == files::TRASH_API_ALIAS) {
+        files::drive_root(&conn, &id).ok()
+    } else {
+        None
+    };
+    drop(conn);
+
     // Recursive totals for folders. The index answers instantly when every
     // subdir is still mtime-fresh; a bounded filesystem walk covers the rest
     // (trash is never indexed, so it always walks). Either way only the
-    // directories this user may read count toward the total.
+    // directories this user may read count toward the total. The lock is
+    // taken briefly per directory, never across the walk.
     if stat.kind == "dir" {
         let mut include = |p: &str| {
-            in_trash || crate::auth::has_cap(&user, &conn, &id, p, crate::access::CAP_VIEW)
+            in_trash
+                || state
+                    .db
+                    .lock()
+                    .map(|c| crate::auth::has_cap(&user, &c, &id, p, crate::access::CAP_VIEW))
+                    .unwrap_or(false)
         };
-        stat.totals = if in_trash {
-            if rel != files::TRASH_API_ALIAS {
-                files::folder_totals(&conn, &id, &rel, &mut include)
-                    .ok()
-                    .flatten()
-            } else {
-                None
-            }
-        } else {
-            files::drive_root(&conn, &id)
+        stat.totals = match totals_drive {
+            None => None,
+            Some(drive) if in_trash => files::folder_totals(&drive, &rel, &mut include)
                 .ok()
-                .and_then(|drive| {
-                    files::open_drive_db(&drive).ok().and_then(|index_conn| {
-                        crate::files::index::folder_totals_indexed(
-                            &index_conn,
-                            std::path::Path::new(&drive.mount_point),
-                            &id,
-                            &rel,
-                            &mut include,
-                        )
-                    })
+                .flatten(),
+            Some(drive) => files::open_drive_db(&drive)
+                .ok()
+                .and_then(|index_conn| {
+                    crate::files::index::folder_totals_indexed(
+                        &index_conn,
+                        std::path::Path::new(&drive.mount_point),
+                        &id,
+                        &rel,
+                        &mut include,
+                    )
                 })
                 .or_else(|| {
-                    files::folder_totals(&conn, &id, &rel, &mut include)
+                    files::folder_totals(&drive, &rel, &mut include)
                         .ok()
                         .flatten()
-                })
+                }),
         };
     }
     Ok(Json(stat))
@@ -1680,6 +1690,8 @@ async fn upload(
     let mut dest_rel = query_path.clone();
     check_access(&state, &user, &id, &dest_rel, crate::access::CAP_UPLOAD)?;
     let overwrite = query.overwrite.as_deref() == Some("1");
+    // Overwrite wins over keep-both when both are asked for.
+    let keep_both = query.keep_both.as_deref() == Some("1") && !overwrite;
 
     while let Some(mut field) = multipart
         .next_field()
@@ -1701,7 +1713,7 @@ async fn upload(
             Some("file") => {
                 check_access(&state, &user, &id, &dest_rel, crate::access::CAP_UPLOAD)?;
                 let original = field.file_name().unwrap_or("file").to_string();
-                let name = files::safe_name(&original).map_err(|_| {
+                let mut name = files::safe_name(&original).map_err(|_| {
                     json_error(
                         StatusCode::BAD_REQUEST,
                         "That file name can't be used. Try renaming it.",
@@ -1721,7 +1733,7 @@ async fn upload(
                     |conn| files::dest_dir_create(conn, &id, &dest_rel),
                 )
                 .map_err(map_files_err)?;
-                let dest = files::entry_path(&dir, &name);
+                let mut dest = files::entry_path(&dir, &name);
                 // Only a destination that existed — and passed the EDIT
                 // check — at this decision point may be replaced. Anything
                 // that lands between here and install_temp is covered by the
@@ -1729,22 +1741,26 @@ async fn upload(
                 // `overwrite` flag.
                 let mut may_overwrite = false;
                 if dest.exists() {
-                    if !overwrite {
-                        return Err(json_error(
-                            StatusCode::CONFLICT,
-                            "A file with this name is already here. Rename it or choose another.",
-                        ));
+                    if keep_both {
+                        // Keep both: the new file takes the next free name.
+                        name = crate::files::uploads::find_free_name(&dir, &name);
+                        dest = files::entry_path(&dir, &name);
+                    } else if !overwrite {
+                        return Err(crate::api::uploads::name_clash(Some(
+                            crate::files::uploads::existing_kind(&dir, &name),
+                        )));
+                    } else {
+                        // Overwriting is an edit, not an upload: a drop-only
+                        // member cannot replace a file that is already there.
+                        let file_rel = crate::gallery::gallery_indexer::join_rel(&dest_rel, &name);
+                        if !can_write(&state, &user, &id, &file_rel)? {
+                            return Err(json_error(
+                                StatusCode::FORBIDDEN,
+                                "You don't have permission to change this file.",
+                            ));
+                        }
+                        may_overwrite = true;
                     }
-                    // Overwriting is an edit, not an upload: a drop-only
-                    // member cannot replace a file that is already there.
-                    let file_rel = crate::gallery::gallery_indexer::join_rel(&dest_rel, &name);
-                    if !can_write(&state, &user, &id, &file_rel)? {
-                        return Err(json_error(
-                            StatusCode::FORBIDDEN,
-                            "You don't have permission to change this file.",
-                        ));
-                    }
-                    may_overwrite = true;
                 }
 
                 let rel = crate::gallery::gallery_indexer::join_rel(&dest_rel, &name);

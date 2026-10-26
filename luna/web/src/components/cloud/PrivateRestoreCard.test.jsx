@@ -77,6 +77,20 @@ describe("PrivateRestoreCard", () => {
     await waitFor(() => expect(container).toBeEmptyDOMElement());
   });
 
+  it("shows a retry when Luna cannot check whether private restore is needed", async () => {
+    getPrivateRestoreStatusMock
+      .mockRejectedValueOnce(new Error("Connect is unavailable"))
+      .mockResolvedValueOnce(STATUS);
+    const user = userEvent.setup();
+    renderCard();
+
+    expect(
+      await screen.findByText("Luna could not check whether your private items need restoring. Try again."),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("textbox", { name: "Recovery phrase" })).toBeInTheDocument();
+  });
+
   it("shows the card to a member, not only an Admin", async () => {
     mockUser = { id: "7", role: "member" };
     renderCard();
@@ -93,9 +107,12 @@ describe("PrivateRestoreCard", () => {
   it("does not show a stop button while private restore runs without cancellation support", async () => {
     /** @type {(value: { restored: number }) => void} */
     let finishRestore = () => {};
-    restorePrivateFromPhraseMock.mockImplementation(() => new Promise((resolve) => {
-      finishRestore = resolve;
-    }));
+    restorePrivateFromPhraseMock.mockImplementation((_, options) => {
+      options.onProgress?.({ processed: 1, total: 2, snapshots: 1, already_indexed: 0, skipped: 0 });
+      return new Promise((resolve) => {
+        finishRestore = resolve;
+      });
+    });
     const user = userEvent.setup();
     renderCard();
     await user.type(await screen.findByLabelText("Recovery phrase"), "one two three");
@@ -103,6 +120,7 @@ describe("PrivateRestoreCard", () => {
 
     await waitFor(() => expect(restorePrivateFromPhrase).toHaveBeenCalled());
     expect(screen.queryByRole("button", { name: "Stop restore" })).not.toBeInTheDocument();
+    expect(await screen.findByText("Restoring backup 1 of 2")).toBeInTheDocument();
 
     finishRestore({ restored: 1 });
     expect(await screen.findByText("Found 1 private version")).toBeInTheDocument();
@@ -127,10 +145,11 @@ describe("PrivateRestoreCard", () => {
     await user.click(screen.getByRole("button", { name: "Find my private items" }));
 
     await waitFor(() =>
-      expect(restorePrivateFromPhrase).toHaveBeenCalledWith("one two three", {
+      expect(restorePrivateFromPhrase).toHaveBeenCalledWith("one two three", expect.objectContaining({
         lunaId: "luna-fixture-1",
         signingPublic: "AAAA",
-      }),
+        onProgress: expect.any(Function),
+      })),
     );
     expect(await screen.findByText("Found 1 private version")).toBeInTheDocument();
     expect(field).toHaveValue("");

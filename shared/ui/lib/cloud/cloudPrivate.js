@@ -7,7 +7,9 @@ import {
 	chunkId,
 	derive,
 	open,
+	seal,
 	SEAL_PUBLIC_LEN,
+	SEAL_SECRET_LEN,
 	SIG_LEN,
 	SIG_PUBLIC_LEN,
 	sign,
@@ -22,6 +24,7 @@ export const PRIVATE_SNAPSHOT_DOMAIN = 'private-snapshot';
 export const PRIVATE_OPEN_DOMAIN = 'private-open';
 
 const PACK_KEY_PURPOSE = 'luna-private-pack-key-v1';
+const SCOPE_SECRET_PURPOSE = 'luna-private-scope-secret-v1';
 const TREE_PURPOSE = 'luna-private-tree-v1';
 const META_PURPOSE = 'luna-private-meta-v1';
 const DEDUP_PURPOSE = 'luna-private-dedup-v1';
@@ -120,6 +123,43 @@ export function openPrivateMeta(sealed, sealSecret, lunaId, scope) {
 }
 
 /**
+ * Open a scope's secret key with the owner's secret sealing key. Every private item in the scope
+ * is sealed to the scope's own key, so this is the first step of every private read (plan §5).
+ * Browser side of `open_scope_secret` in private.rs.
+ * @param {Uint8Array} sealed the record's sealed_scope_secret
+ * @param {Uint8Array} ownerSealSecret the phrase's secret sealing key
+ * @param {string} lunaId
+ * @param {string} scope
+ * @returns {Uint8Array} the scope's secret sealing key
+ */
+export function openScopeSecret(sealed, ownerSealSecret, lunaId, scope) {
+	let plain;
+	try {
+		plain = open(ownerSealSecret, privateAad(SCOPE_SECRET_PURPOSE, lunaId, scope), sealed);
+	} catch {
+		throw new Error(DAMAGED);
+	}
+	if (plain.length !== SEAL_SECRET_LEN) {
+		plain.fill(0);
+		throw new Error(DAMAGED);
+	}
+	return plain;
+}
+
+/**
+ * Seal a scope's secret key to an owner's sealing key: the re-seal step of a phrase change (plan §5).
+ * Browser side of `seal_scope_secret` in private.rs.
+ * @param {Uint8Array} scopeSecret
+ * @param {Uint8Array} ownerSealPublic the new phrase's public sealing key
+ * @param {string} lunaId
+ * @param {string} scope
+ * @returns {Uint8Array}
+ */
+export function sealScopeSecret(scopeSecret, ownerSealPublic, lunaId, scope) {
+	return seal(ownerSealPublic, privateAad(SCOPE_SECRET_PURPOSE, lunaId, scope), scopeSecret);
+}
+
+/**
  * Open a scope's sealed dedup key.
  * @param {Uint8Array} sealed
  * @param {Uint8Array} sealSecret
@@ -146,7 +186,7 @@ export function openPrivateDedup(sealed, sealSecret, lunaId, scope) {
  * @param {Uint8Array} bytes JSON {record, signature}
  * @param {Uint8Array[]} signingPublics
  * @param {string} lunaId
- * @returns {{ lunaId: string, scope: string, userId: string, sealPublic: Uint8Array, authPublic: Uint8Array, createdAt: number, sealedDedup: Uint8Array } | null}
+ * @returns {{ lunaId: string, scope: string, userId: string, sealPublic: Uint8Array, authPublic: Uint8Array, createdAt: number, scopePublic: Uint8Array, sealedScopeSecret: Uint8Array, sealedDedup: Uint8Array } | null}
  */
 export function verifyScopeRecord(bytes, signingPublics, lunaId) {
 	try {
@@ -157,8 +197,11 @@ export function verifyScopeRecord(bytes, signingPublics, lunaId) {
 		if (!Number.isSafeInteger(rec.created_at)) return null;
 		const sealPublic = hexToBytes(rec.seal_public);
 		const authPublic = hexToBytes(rec.auth_public);
+		const scopePublic = hexToBytes(rec.scope_public);
+		const sealedScopeSecret = hexToBytes(rec.sealed_scope_secret);
 		const sealedDedup = hexToBytes(rec.sealed_dedup);
 		if (sealPublic.length !== SEAL_PUBLIC_LEN || authPublic.length !== SIG_PUBLIC_LEN) return null;
+		if (scopePublic.length !== SEAL_PUBLIC_LEN) return null;
 		const sig = hexToBytes(signed.signature);
 		if (sig.length !== SIG_LEN) return null;
 		const createdAt = new Uint8Array(8);
@@ -170,6 +213,8 @@ export function verifyScopeRecord(bytes, signingPublics, lunaId) {
 			['seal_public', sealPublic],
 			['auth_public', authPublic],
 			['created_at', createdAt],
+			['scope_public', scopePublic],
+			['sealed_scope_secret', sealedScopeSecret],
 			['sealed_dedup', sealedDedup],
 		]);
 		const ok = signingPublics.some((pub) => verify(pub, SCOPE_RECORD_DOMAIN, msg, sig));
@@ -181,6 +226,8 @@ export function verifyScopeRecord(bytes, signingPublics, lunaId) {
 			sealPublic,
 			authPublic,
 			createdAt: rec.created_at,
+			scopePublic,
+			sealedScopeSecret,
 			sealedDedup,
 		};
 	} catch {
@@ -216,9 +263,10 @@ export function signPrivateOpen(authSecret, lunaId, scope, challenge) {
 }
 
 /**
- * The private scopes this recovery phrase owns on one Luna, newest first.
+ * The private scopes this recovery phrase owns on one Luna, newest first. `sealSecret` is the
+ * scope's own secret key (not the phrase's): pass it to the readers in this file.
  * @param {{ lunaId: string, entropy: Uint8Array, pscopes: Array<{ name: string, data: Uint8Array }>, signingPublics: Uint8Array[] }} input
- * @returns {Array<{ scope: string, userId: string, createdAt: number, dedupKey: Uint8Array }>}
+ * @returns {Array<{ scope: string, userId: string, createdAt: number, dedupKey: Uint8Array, sealSecret: Uint8Array }>}
  */
 export function findMyPrivateScopes({ lunaId, entropy, pscopes = [], signingPublics }) {
 	const k = derive(entropy, lunaId);
@@ -231,17 +279,22 @@ export function findMyPrivateScopes({ lunaId, entropy, pscopes = [], signingPubl
 				if (rec) break;
 			}
 			if (!rec || r.name !== rec.scope || !sameBytes(rec.sealPublic, k.sealPublic)) continue;
+			let sealSecret;
 			let dedupKey;
 			try {
-				dedupKey = openPrivateDedup(rec.sealedDedup, k.sealSecret, lunaId, rec.scope);
+				sealSecret = openScopeSecret(rec.sealedScopeSecret, k.sealSecret, lunaId, rec.scope);
+				dedupKey = openPrivateDedup(rec.sealedDedup, sealSecret, lunaId, rec.scope);
 			} catch {
+				sealSecret?.fill(0);
+				dedupKey?.fill(0);
 				continue;
 			}
-	if (scopeOf(dedupKey) !== rec.scope) {
-		dedupKey.fill(0);
-		continue;
-	}
-			found.push({ scope: rec.scope, userId: rec.userId, createdAt: rec.createdAt, dedupKey });
+			if (scopeOf(dedupKey) !== rec.scope) {
+				sealSecret.fill(0);
+				dedupKey.fill(0);
+				continue;
+			}
+			found.push({ scope: rec.scope, userId: rec.userId, createdAt: rec.createdAt, dedupKey, sealSecret });
 		}
 		return found.sort((a, b) => b.createdAt - a.createdAt);
 	} finally {
@@ -253,13 +306,12 @@ export function findMyPrivateScopes({ lunaId, entropy, pscopes = [], signingPubl
 
 /**
  * The verified private snapshots in one scope, newest first. A snapshot whose details do not open
- * with this phrase's key is left out.
- * @param {{ lunaId: string, entropy: Uint8Array, scope: string, psnapshots: Array<{ name: string, data: Uint8Array }>, signingPublics: Uint8Array[] }} input
+ * with the scope's key is left out.
+ * @param {{ lunaId: string, sealSecret: Uint8Array, scope: string, psnapshots: Array<{ name: string, data: Uint8Array }>, signingPublics: Uint8Array[] }} input
+ *   `sealSecret` is the scope's secret key (`sealSecret` from `findMyPrivateScopes`).
  * @returns {Array<object>} the verified snapshot fields, with `meta` (decoded) and `sealedMeta`
  */
-export function readPrivateSnapshots({ lunaId, entropy, scope, psnapshots = [], signingPublics }) {
-	const k = derive(entropy, lunaId);
-	try {
+export function readPrivateSnapshots({ lunaId, sealSecret, scope, psnapshots = [], signingPublics }) {
 	const out = [];
 	for (const r of psnapshots) {
 		if (!r.name.startsWith(`${scope}.`)) continue;
@@ -267,16 +319,11 @@ export function readPrivateSnapshots({ lunaId, entropy, scope, psnapshots = [], 
 		if (!snap || r.name !== `${scope}.${snap.snapshotId}`) continue;
 		let meta;
 		try {
-			meta = openPrivateMeta(snap.meta, k.sealSecret, lunaId, scope);
+			meta = openPrivateMeta(snap.meta, sealSecret, lunaId, scope);
 		} catch {
 			continue;
 		}
 		out.push({ ...snap, sealedMeta: snap.meta, meta });
 	}
 	return out.sort((a, b) => b.createdAt - a.createdAt);
-	} finally {
-		k.sealSecret.fill(0);
-		k.selfKey.fill(0);
-		k.authSecret.fill(0);
-	}
 }

@@ -1,4 +1,4 @@
-import { makePackReader, makePackReaderWith, readFile } from "@libreloom/ui/lib/cloud/cloudFormat.js";
+import { MissingKeyError, makePackReaderForVersions, makePackReaderWith, readFile } from "@libreloom/ui/lib/cloud/cloudFormat.js";
 import { privateUnwrap } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
 import { checkZipFits, buildZip } from "./zip.js";
 import { baseName, filesUnder } from "./cloudTree.js";
@@ -6,7 +6,8 @@ import { saveBlob } from "./download.js";
 
 /**
  * The pack reader and dedup key for one version. A private backup reads its packs through its own
- * private source with the private pack keys; a shared backup uses the shared source and backup keys.
+ * private source with the private pack keys; a shared backup opens each pack with whichever key
+ * version sealed it, so an older pack still opens after a new phrase starts a new version.
  * @param {import("./cloudSource.js").CloudSource} source
  * @param {import("./cloudUnlock.js").CloudBackup} backup
  * @param {import("./cloudUnlock.js").CloudVersion} version
@@ -17,8 +18,10 @@ function readerFor(source, backup, version) {
     const unwrapKey = privateUnwrap(sealSecret, privateSource.lunaId, scope);
     return { reader: makePackReaderWith(privateSource.getPack, unwrapKey), dedupKey };
   }
+  // The dedup key comes from the file's own version. Packs may be sealed under any version we hold.
   const keys = backup.keys[version.keyVersion];
-  return { reader: makePackReader(source.getPack, keys.key), dedupKey: keys.dedupKey };
+  if (!keys) throw new MissingKeyError();
+  return { reader: makePackReaderForVersions(source.getPack, backup.keys), dedupKey: keys.dedupKey };
 }
 
 /**

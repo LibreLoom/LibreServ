@@ -5,6 +5,8 @@
 //! checks each record against its own signing key before it writes anything. Luna only serves
 //! sealed records and tree packs that belong to the signed-in user's own private scopes.
 
+use std::collections::HashSet;
+
 use axum::extract::{Extension, Path, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -24,7 +26,8 @@ use crate::backup::cloud::format::Tree;
 use crate::backup::cloud::identity;
 use crate::backup::cloud::private::{PSCOPES_KIND, PSNAPSHOTS_KIND, ScopeRecord, SignedScope};
 use crate::backup::cloud::private_recover::{
-    PlainMeta, PrivateSnapshotIn, caller_scopes, caller_tree_packs, write_private_index,
+    PlainMeta, PrivateSnapshotIn, caller_scopes, caller_snapshot_ids, caller_tree_packs,
+    write_private_index,
 };
 use crate::backup::cloud::store::CloudStore;
 use crate::db;
@@ -34,13 +37,21 @@ type ApiResult = Result<Json<Value>, ApiError>;
 /// The signed-in user's sealing public key and this Luna's signing public key.
 type CallerKeys = (SealPublic, SigPublic);
 
-/// Most snapshots one private restore may send.
-const MAX_SNAPSHOTS: usize = 10_000;
+/// Each private restore request carries one tree so the daemon never buffers a scope's full index.
+const MAX_SNAPSHOTS: usize = 1;
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/cloud/restore-private", get(status).post(restore))
         .route("/api/v1/cloud/restore-private/records/{kind}", get(records))
+        .route(
+            "/api/v1/cloud/restore-private/records/{kind}/names",
+            get(record_names),
+        )
+        .route(
+            "/api/v1/cloud/restore-private/records/{kind}/{name}",
+            get(record),
+        )
         .route("/api/v1/cloud/restore-private/packs/{id}", get(pack))
 }
 
@@ -80,7 +91,7 @@ struct Parsed {
 fn not_set_up() -> ApiError {
     json_error(
         StatusCode::CONFLICT,
-        "Set up Luna Connect first, in Settings → Luna Connect.",
+        "Set up Luna Connect first, in Settings → About → Advanced.",
     )
 }
 
@@ -242,19 +253,39 @@ fn status_with(
     };
     let scopes = match caller_scopes(store, &luna_public, &caller) {
         Ok(scopes) => scopes,
-        Err(err) => {
-            tracing::warn!(error = %err, "could not list private scopes for a restore check");
-            return Ok(out);
-        }
+        Err(err) => return Err(unreachable_connect(err)),
     };
     let conn = db.lock().unwrap_or_else(|p| p.into_inner());
-    let mut needed = false;
+    let mut scope_missing = false;
     for scope in &scopes {
         if db::get_private_scope(&conn, &scope.scope)
             .map_err(read_failed)?
             .is_none()
         {
-            needed = true;
+            scope_missing = true;
+        }
+    }
+    drop(conn);
+
+    let mut needed = scope_missing;
+    if !scope_missing {
+        let remote_ids = match caller_snapshot_ids(store, &luna_public, &scopes) {
+            Ok(ids) => ids,
+            Err(err) => return Err(unreachable_connect(err)),
+        };
+        let conn = db.lock().unwrap_or_else(|p| p.into_inner());
+        for scope in &scopes {
+            let local_ids: HashSet<String> = db::private_snapshot_ids(&conn, &scope.scope)
+                .map_err(read_failed)?
+                .into_iter()
+                .collect();
+            if remote_ids
+                .iter()
+                .any(|(remote_scope, id)| remote_scope == &scope.scope && !local_ids.contains(id))
+            {
+                needed = true;
+                break;
+            }
         }
     }
     out["needed"] = json!(needed);
@@ -268,6 +299,12 @@ async fn records(
     Path(kind): Path<String>,
 ) -> ApiResult {
     valid_private_kind(&kind)?;
+    if kind != PSCOPES_KIND {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Private snapshot records are fetched one at a time.",
+        ));
+    }
     let db = state.db.clone();
     let connect = state.connect.clone();
     let user_id = user.id.clone();
@@ -280,7 +317,89 @@ async fn records(
     finish(answer)
 }
 
-/// Lists the private records of one kind that belong to the caller's scopes, sorted by name.
+async fn record_names(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+    Path(kind): Path<String>,
+) -> ApiResult {
+    valid_private_kind(&kind)?;
+    let db = state.db.clone();
+    let connect = state.connect.clone();
+    let user_id = user.id.clone();
+    let answer = tokio::task::spawn_blocking(move || -> Result<Value, ApiError> {
+        let (caller, luna_public) = load_caller(&db, &user_id)?.ok_or_else(no_phrase)?;
+        let store = connect_store(&connect, &db).ok_or_else(not_set_up)?;
+        record_names_with_store(&store, &luna_public, &caller, &kind)
+    })
+    .await;
+    finish(answer)
+}
+
+async fn record(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+    Path((kind, name)): Path<(String, String)>,
+) -> ApiResult {
+    valid_private_kind(&kind)?;
+    let db = state.db.clone();
+    let connect = state.connect.clone();
+    let user_id = user.id.clone();
+    let answer = tokio::task::spawn_blocking(move || -> Result<Value, ApiError> {
+        let (caller, luna_public) = load_caller(&db, &user_id)?.ok_or_else(no_phrase)?;
+        let store = connect_store(&connect, &db).ok_or_else(not_set_up)?;
+        record_with_store(&store, &luna_public, &caller, &kind, &name)
+    })
+    .await;
+    finish(answer)
+}
+
+/// Lists only the names of records the caller may restore. Snapshot bytes are fetched separately.
+fn record_names_with_store(
+    store: &dyn CloudStore,
+    luna_public: &SigPublic,
+    caller: &SealPublic,
+    kind: &str,
+) -> Result<Value, ApiError> {
+    valid_private_kind(kind)?;
+    let scopes = caller_scopes(store, luna_public, caller).map_err(unreachable_connect)?;
+    let mut names: Vec<String> = store
+        .list_records(kind)
+        .map_err(unreachable_connect)?
+        .into_iter()
+        .filter(|name| is_mine(name, kind, &scopes))
+        .collect();
+    names.sort();
+    Ok(json!({ "names": names }))
+}
+
+/// Returns one record only when its name belongs to one of the caller's verified scopes.
+fn record_with_store(
+    store: &dyn CloudStore,
+    luna_public: &SigPublic,
+    caller: &SealPublic,
+    kind: &str,
+    name: &str,
+) -> Result<Value, ApiError> {
+    valid_private_kind(kind)?;
+    let scopes = caller_scopes(store, luna_public, caller).map_err(unreachable_connect)?;
+    if !is_mine(name, kind, &scopes) {
+        return Err(record_missing());
+    }
+    let bytes = store
+        .get_record(kind, name)
+        .map_err(unreachable_connect)?
+        .ok_or_else(record_missing)?;
+    Ok(json!({ "name": name, "data": STANDARD.encode(bytes) }))
+}
+
+fn record_missing() -> ApiError {
+    json_error(
+        StatusCode::NOT_FOUND,
+        "That private backup could not be found.",
+    )
+}
+
+/// Lists the caller's sealed scope records. Snapshot records are fetched one at a time.
 fn records_with_store(
     store: &dyn CloudStore,
     luna_public: &SigPublic,
@@ -288,6 +407,12 @@ fn records_with_store(
     kind: &str,
 ) -> Result<Value, ApiError> {
     valid_private_kind(kind)?;
+    if kind != PSCOPES_KIND {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Private snapshot records are fetched one at a time.",
+        ));
+    }
     let scopes = caller_scopes(store, luna_public, caller).map_err(unreachable_connect)?;
     let mut names: Vec<String> = store
         .list_records(kind)
@@ -479,17 +604,29 @@ mod tests {
 
     use super::{SealPublic, SigPublic};
 
-    use super::{pack_with_store, records_with_store, status_with};
+    use super::{
+        pack_with_store, record_names_with_store, record_with_store, records_with_store,
+        status_with,
+    };
     use crate::backup::cloud::crypto;
     use crate::backup::cloud::format::SnapshotRecord;
     use crate::backup::cloud::identity::{self, Identity};
     use crate::backup::cloud::private::{
         self, PRIVATE_SNAPSHOT_DOMAIN, PSCOPES_KIND, PSNAPSHOTS_KIND,
     };
-    use crate::backup::cloud::store::{CloudStore, MemoryStore};
+    use crate::backup::cloud::store::{CloudStore, MemoryStore, StoreError, Usage};
     use crate::drives::DriveManager;
     use crate::drives::mount::shared_mock;
     use crate::{AppState, db};
+
+    #[test]
+    fn the_not_set_up_error_points_to_about_advanced() {
+        let (status, body) = super::not_set_up();
+        assert_eq!(status, StatusCode::CONFLICT);
+        let text = body.0["error"].as_str().unwrap().to_string();
+        assert!(text.contains("Settings → About → Advanced"), "{text}");
+        assert!(!text.contains("Settings → Luna Connect"), "{text}");
+    }
 
     const NOW: i64 = 1_800_000_000;
     const DEDUP_A: [u8; 32] = [3; 32];
@@ -502,6 +639,54 @@ mod tests {
         admin_id: String,
         member_id: String,
         member_token: String,
+    }
+
+    struct FailingListStore<'a> {
+        inner: &'a MemoryStore,
+        failing_kind: &'a str,
+    }
+
+    impl CloudStore for FailingListStore<'_> {
+        fn put_pack(
+            &self,
+            id: &[u8; 32],
+            scope: Option<&str>,
+            bytes: &[u8],
+        ) -> Result<(), StoreError> {
+            self.inner.put_pack(id, scope, bytes)
+        }
+
+        fn get_pack(&self, id: &[u8; 32]) -> Result<Vec<u8>, StoreError> {
+            self.inner.get_pack(id)
+        }
+
+        fn delete_pack(&self, id: &[u8; 32]) -> Result<(), StoreError> {
+            self.inner.delete_pack(id)
+        }
+
+        fn put_record(&self, kind: &str, name: &str, bytes: &[u8]) -> Result<(), StoreError> {
+            self.inner.put_record(kind, name, bytes)
+        }
+
+        fn get_record(&self, kind: &str, name: &str) -> Result<Option<Vec<u8>>, StoreError> {
+            self.inner.get_record(kind, name)
+        }
+
+        fn delete_record(&self, kind: &str, name: &str) -> Result<(), StoreError> {
+            self.inner.delete_record(kind, name)
+        }
+
+        fn list_records(&self, kind: &str) -> Result<Vec<String>, StoreError> {
+            if kind == self.failing_kind {
+                Err(StoreError::Unavailable("fixture outage".into()))
+            } else {
+                self.inner.list_records(kind)
+            }
+        }
+
+        fn usage(&self) -> Result<Usage, StoreError> {
+            self.inner.usage()
+        }
     }
 
     fn fixture() -> Fixture {
@@ -588,16 +773,23 @@ mod tests {
                 self_sealed: vec![1; 8],
                 phrase_set_at: NOW,
                 last_checked_at: NOW,
+                phrase_words: 0,
             },
         )
         .unwrap();
     }
 
     fn scope_for(owner: &str, x25519: &SealPublic, dedup: [u8; 32]) -> db::PrivateScope {
+        let scope = private::scope_of(&dedup).1;
+        let (secret, scope_public) = crypto::new_scope_keys();
+        let sealed_scope_secret =
+            private::seal_scope_secret(x25519, "luna-test", &scope, &secret).unwrap();
         db::PrivateScope {
-            scope: private::scope_of(&dedup).1,
+            scope,
             owner: owner.into(),
             seal_public: x25519.to_vec(),
+            scope_public: scope_public.to_vec(),
+            sealed_scope_secret,
             dedup_key: dedup.to_vec(),
             state: "active".into(),
             retire_after: 0,
@@ -680,6 +872,68 @@ mod tests {
     }
 
     #[test]
+    fn status_stays_needed_until_every_signed_snapshot_is_indexed() {
+        let f = fixture();
+        let id = load_identity(&f);
+        let me = crypto::derive(&[7; 16], id.luna_id());
+        set_keys(&f, &f.member_id, &me.seal_public);
+        let store = MemoryStore::new();
+        let scope = scope_for(&f.member_id, &me.seal_public, DEDUP_A);
+        private::publish_scope(&store, id.signer(), id.luna_id(), &scope, &auth_public(4)).unwrap();
+        put_private_snapshot(&store, &id, &scope.scope, "snap-1", [5; 32]);
+        put_private_snapshot(&store, &id, &scope.scope, "snap-2", [6; 32]);
+        {
+            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            db::insert_private_scope(&conn, &scope).unwrap();
+            conn.execute(
+                "INSERT INTO cloud_private_trees (snapshot_id, scope, tree) VALUES (?1, ?2, ?3)",
+                rusqlite::params!["snap-1", scope.scope, b"{}"],
+            )
+            .unwrap();
+        }
+
+        let out = status_with(&f.state.db, &f.member_id, Some(&store)).unwrap();
+        assert_eq!(out["needed"], true);
+
+        {
+            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            conn.execute(
+                "INSERT INTO cloud_private_trees (snapshot_id, scope, tree) VALUES (?1, ?2, ?3)",
+                rusqlite::params!["snap-2", scope.scope, b"{}"],
+            )
+            .unwrap();
+        }
+        let out = status_with(&f.state.db, &f.member_id, Some(&store)).unwrap();
+        assert_eq!(out["needed"], false);
+    }
+
+    #[test]
+    fn status_reports_connect_record_list_failures_instead_of_saying_nothing_is_needed() {
+        for failing_kind in [PSCOPES_KIND, PSNAPSHOTS_KIND] {
+            let f = fixture();
+            let id = load_identity(&f);
+            let me = crypto::derive(&[7; 16], id.luna_id());
+            set_keys(&f, &f.member_id, &me.seal_public);
+            let store = MemoryStore::new();
+            let scope = scope_for(&f.member_id, &me.seal_public, DEDUP_A);
+            private::publish_scope(&store, id.signer(), id.luna_id(), &scope, &auth_public(4))
+                .unwrap();
+            if failing_kind == PSNAPSHOTS_KIND {
+                let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+                db::insert_private_scope(&conn, &scope).unwrap();
+            }
+
+            let failing = FailingListStore {
+                inner: &store,
+                failing_kind,
+            };
+            let error = status_with(&f.state.db, &f.member_id, Some(&failing)).unwrap_err();
+
+            assert_eq!(error.0, StatusCode::BAD_GATEWAY);
+        }
+    }
+
+    #[test]
     fn records_only_show_the_callers_scopes() {
         let f = fixture();
         let id = load_identity(&f);
@@ -692,15 +946,46 @@ mod tests {
         private::publish_scope(&store, id.signer(), id.luna_id(), &theirs, &auth_public(5))
             .unwrap();
         put_private_snapshot(&store, &id, &mine.scope, "snap-1", [5; 32]);
+        put_private_snapshot(&store, &id, &mine.scope, "snap-3", [7; 32]);
         put_private_snapshot(&store, &id, &theirs.scope, "snap-2", [6; 32]);
         let luna_public = id.public();
 
         let out = records_with_store(&store, &luna_public, &me.seal_public, PSCOPES_KIND).unwrap();
         assert_eq!(names(&out), vec![mine.scope.clone()]);
 
-        let out =
-            records_with_store(&store, &luna_public, &me.seal_public, PSNAPSHOTS_KIND).unwrap();
-        assert_eq!(names(&out), vec![format!("{}.snap-1", mine.scope)]);
+        let refused =
+            records_with_store(&store, &luna_public, &me.seal_public, PSNAPSHOTS_KIND).unwrap_err();
+        assert_eq!(refused.0, StatusCode::BAD_REQUEST);
+
+        let names = record_names_with_store(&store, &luna_public, &me.seal_public, PSNAPSHOTS_KIND)
+            .unwrap();
+        assert_eq!(
+            names["names"],
+            json!([
+                format!("{}.snap-1", mine.scope),
+                format!("{}.snap-3", mine.scope)
+            ])
+        );
+
+        let one = record_with_store(
+            &store,
+            &luna_public,
+            &me.seal_public,
+            PSNAPSHOTS_KIND,
+            &format!("{}.snap-1", mine.scope),
+        )
+        .unwrap();
+        assert_eq!(one["name"], format!("{}.snap-1", mine.scope));
+        assert!(one["data"].as_str().is_some());
+        let refused = record_with_store(
+            &store,
+            &luna_public,
+            &me.seal_public,
+            PSNAPSHOTS_KIND,
+            &format!("{}.snap-2", theirs.scope),
+        )
+        .unwrap_err();
+        assert_eq!(refused.0, StatusCode::NOT_FOUND);
 
         let refused =
             records_with_store(&store, &luna_public, &me.seal_public, "self").unwrap_err();
@@ -840,6 +1125,29 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        let body = json!({
+            "scope": "00000000000000000000000000000000",
+            "dedup_key": STANDARD.encode([3u8; 32]),
+            "snapshots": [
+                {
+                    "snapshot_id": "snap-1",
+                    "protection_id": "p1",
+                    "record": STANDARD.encode(b"record"),
+                    "meta": { "name": "Photos", "source_drive": "drive-a", "source_path": "/Photos" },
+                    "tree": { "entries": [] },
+                },
+                {
+                    "snapshot_id": "snap-2",
+                    "protection_id": "p2",
+                    "record": STANDARD.encode(b"record"),
+                    "meta": { "name": "Photos", "source_drive": "drive-a", "source_path": "/Photos" },
+                    "tree": { "entries": [] },
+                },
+            ],
+        });
+        let body = serde_json::from_value(body).unwrap();
+        assert!(super::parse_body(body).is_err());
 
         // A scope id that is not 32 hex characters is refused too.
         let body = json!({

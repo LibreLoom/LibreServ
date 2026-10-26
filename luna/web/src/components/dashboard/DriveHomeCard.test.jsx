@@ -385,28 +385,34 @@ describe("DriveHomeCard drives that are not ready", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("sends an Admin to Files when a drive has a problem", () => {
+  it("shows an Admin that Luna can't open a drive, with a link to its card on Files", () => {
     const fetchMock = stubSummary(FULL_SUMMARY);
-    renderCard({ drive: notReady("failed"), isAdmin: true });
+    renderCard({ drive: { ...notReady("as_is"), mounted: false }, isAdmin: true });
     expect(
-      screen.getByText("Luna ran into a problem with this drive. Open Files for details."),
+      screen.getByText(/Luna can't open this drive right now, so its files and free space aren't available\./),
     ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open Files" })).toHaveAttribute("href", "/files");
+    expect(screen.getByRole("button", { name: "More about this" })).toBeInTheDocument();
+    expect(screen.getByText("Can't open")).toBeInTheDocument();
+    expect(screen.queryByText("Ready")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Files" })).toHaveAttribute("href", "/files#drive-d1");
     expect(screen.queryByRole("link", { name: "Browse files" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("tells a Member to ask an Admin when a drive has a problem, with no link", () => {
-    stubSummary(FULL_SUMMARY);
+  it("tells a Member to ask an Admin when Luna can't open a drive, with no link", () => {
+    const fetchMock = stubSummary(FULL_SUMMARY);
     renderCard({
-      drive: notReady("failed"),
+      drive: { ...notReady("readonly"), mounted: false },
       grants: [photosDropGrant],
       showSeeAllShared: true,
     });
     expect(
-      screen.getByText("Luna ran into a problem with this drive. Ask an Admin to check it."),
+      screen.getByText("Luna can't open this drive right now. Ask an Admin to check it."),
     ).toBeInTheDocument();
+    expect(screen.getByText("Can't open")).toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("shows no open button or shortcuts for an unplugged drive a Member has access to", () => {
@@ -414,6 +420,43 @@ describe("DriveHomeCard drives that are not ready", () => {
     renderCard({ drive: notReady("missing"), grants: [photosDropGrant] });
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
     expect(screen.queryByText("Folders")).not.toBeInTheDocument();
+  });
+});
+
+describe("DriveHomeCard health", () => {
+  const FAILING = {
+    available: true,
+    reason: null,
+    verdict: "failing",
+    overall: "failed",
+    signals: [{ kind: "self_check_failed", level: "failing", value: null, limit: null }],
+  };
+
+  /** @param {any} health */
+  function stubSummaryAndHealth(health) {
+    const fetchMock = vi.fn(async (url) => {
+      const path = String(url);
+      if (/\/summary$/.test(path)) return jsonResponse(FULL_SUMMARY);
+      if (/\/health$/.test(path)) return jsonResponse(health);
+      return jsonResponse({}, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("shows an Admin a Failing pill instead of Ready", async () => {
+    stubSummaryAndHealth(FAILING);
+    renderCard({ isAdmin: true });
+    expect(await screen.findByText("Failing")).toBeInTheDocument();
+    expect(screen.queryByText("Ready")).not.toBeInTheDocument();
+  });
+
+  it("never asks a Member for health", async () => {
+    const fetchMock = stubSummaryAndHealth(FAILING);
+    renderCard();
+    await screen.findByText("12 GB free");
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(["/api/v1/drives/d1/summary"]);
+    expect(screen.getByText("Ready")).toBeInTheDocument();
   });
 });
 

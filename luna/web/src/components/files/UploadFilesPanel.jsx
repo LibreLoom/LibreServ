@@ -1,18 +1,20 @@
 import { useRef, useState } from "react";
 import PropTypes from "prop-types";
-import { UploadCloud } from "lucide-react";
+import { FolderUp, UploadCloud } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
-import { apiErrorMessage } from "../../lib/api.js";
-import { filesFromDataTransfer } from "../../lib/collectUploadFiles.js";
+import { filesFromFileList, takeDropped } from "../../lib/collectUploadFiles.js";
 import { hasLunaPaths, hasOsFiles, readLunaDrive, readLunaPaths } from "../../lib/dnd.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
+/** `webkitdirectory` picks a whole folder; React's input types don't list it. */
+const FOLDER_INPUT = { webkitdirectory: "" };
+
 /**
  * @param {{
- *   onUploadFiles: (files: File[]) => void | Promise<void>,
+ *   onUploadFiles: (input: { dropped: import("../../lib/collectUploadFiles.js").DroppedItems } | { files: File[] }) => void,
  *   onMovePaths?: (paths: string[], sourceDriveId?: string) => void,
  *   busy?: boolean,
  *   error?: string | null,
@@ -31,20 +33,11 @@ export default function UploadFilesPanel({
   children,
 }) {
   const [dragOver, setDragOver] = useState(false);
-  const [localError, setLocalError] = useState(/** @type {string|null} */ (null));
   const fileInputRef = useRef(/** @type {HTMLInputElement|null} */ (null));
-  const shownError = error || localError;
-
-  /** @param {File[]} files */
-  async function handleFiles(files) {
-    if (!files.length) return;
-    setLocalError(null);
-    try {
-      await onUploadFiles(files);
-    } catch (err) {
-      setLocalError(apiErrorMessage(err, "Couldn't upload those files. Try again."));
-    }
-  }
+  const folderInputRef = useRef(/** @type {HTMLInputElement|null} */ (null));
+  const canPickFolder = typeof document !== "undefined" && "webkitdirectory" in document.createElement("input");
+  // Upload problems show in the file tasks card, not here.
+  const shownError = error;
 
   return (
     <Card title={title}>
@@ -68,14 +61,15 @@ export default function UploadFilesPanel({
           if (e.currentTarget.contains(/** @type {Node|null} */ (e.relatedTarget))) return;
           setDragOver(false);
         }}
-        onDrop={async (e) => {
+        onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
           if (busy) return;
           haptic("heavy");
-          const files = await filesFromDataTransfer(e.dataTransfer);
-          if (files.length) {
-            await handleFiles(files);
+          // Take the dropped entries now: the browser only allows it during the event.
+          const dropped = takeDropped(e.dataTransfer);
+          if (dropped.entries.length || dropped.files.length) {
+            onUploadFiles({ dropped });
             return;
           }
           if (onMovePaths && hasLunaPaths(e)) {
@@ -85,19 +79,37 @@ export default function UploadFilesPanel({
       >
         <UploadCloud size={22} aria-hidden="true" />
         <span className="text-sm">Choose files or drop them here</span>
-        <Button
-          variant="outline"
-          surface="primary"
-          size="sm"
-          type="button"
-          disabled={busy}
-          onClick={() => {
-            haptic("light");
-            fileInputRef.current?.click();
-          }}
-        >
-          Choose files
-        </Button>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <Button
+            variant="outline"
+            surface="primary"
+            size="sm"
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              haptic("light");
+              fileInputRef.current?.click();
+            }}
+          >
+            Choose files
+          </Button>
+          {canPickFolder ? (
+            <Button
+              variant="outline"
+              surface="primary"
+              size="sm"
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                haptic("light");
+                folderInputRef.current?.click();
+              }}
+            >
+              <FolderUp size={14} aria-hidden="true" />
+              Choose a folder
+            </Button>
+          ) : null}
+        </div>
         <input
           ref={fileInputRef}
           type="file"
@@ -106,12 +118,28 @@ export default function UploadFilesPanel({
           disabled={busy}
           className="hidden"
           aria-label="Add files"
-          onChange={async (e) => {
-            const files = Array.from(e.target.files || []);
+          onChange={(e) => {
+            const files = filesFromFileList(e.target.files);
             e.target.value = "";
-            await handleFiles(files);
+            if (files.length) onUploadFiles({ files });
           }}
         />
+        {canPickFolder ? (
+          <input
+            ref={folderInputRef}
+            type="file"
+            multiple
+            {...FOLDER_INPUT}
+            disabled={busy}
+            className="hidden"
+            aria-label="Add a folder"
+            onChange={(e) => {
+              const files = filesFromFileList(e.target.files);
+              e.target.value = "";
+              if (files.length) onUploadFiles({ files });
+            }}
+          />
+        ) : null}
       </div>
       {children}
     </Card>

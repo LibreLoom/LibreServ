@@ -153,9 +153,30 @@ fn fetch_one(
 
     // The tree pack must open with this key and hold the tree the record names.
     let pack_bytes = store.get_pack(&record.tree_pack_id)?;
+    // A protection's tree pack may have been sealed with any version of that protection's key.
+    // The snapshot record's own version still opens its tree and metadata below.
+    let mut held: Vec<&BackupKey> = keys
+        .iter()
+        .filter(|k| k.protection_id == record.protection_id)
+        .collect();
+    held.sort_by_key(|k| std::cmp::Reverse(k.version));
     let unwrap = |wrapped: &[u8]| -> Result<[u8; 32]> {
-        let plain = Zeroizing::new(crypto::decrypt(&tree_key, PACK_KEY_WRAP_AAD, wrapped)?);
-        <[u8; 32]>::try_from(plain.as_slice()).map_err(|_| anyhow!("pack key"))
+        for held_key in &held {
+            let Ok(key_bytes) = <[u8; 32]>::try_from(held_key.key.as_slice()) else {
+                continue;
+            };
+            let key_bytes = Zeroizing::new(key_bytes);
+            let Ok(plain) = crypto::decrypt(&key_bytes, PACK_KEY_WRAP_AAD, wrapped) else {
+                continue;
+            };
+            let plain = Zeroizing::new(plain);
+            if let Ok(pack_key) = <[u8; 32]>::try_from(plain.as_slice()) {
+                return Ok(pack_key);
+            }
+        }
+        Err(anyhow!(
+            "A backup file could not be opened with this Luna's keys."
+        ))
     };
     let Ok(pack) = format::open_pack(&pack_bytes, &record.tree_pack_id, unwrap) else {
         return Ok(None);
@@ -333,6 +354,7 @@ fn hex(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use crate::backup::cloud::identity;
+    use crate::backup::cloud::run::PACK_KEY_WRAP_AAD;
     use crate::backup::cloud::store::MemoryStore;
 
     const NOW: i64 = 1_800_000_000;
@@ -670,6 +692,31 @@ mod tests {
         );
         assert_eq!(count(&fresh, "cloud_snapshots"), 0);
         assert_eq!(count(&fresh, "cloud_packs"), 0);
+    }
+
+    #[test]
+    fn a_newer_key_that_does_not_open_the_tree_does_not_stop_the_right_one() {
+        let (_dir, id) = fixture();
+        let store = MemoryStore::new();
+        put_snapshot(&store, &id, "snap-a", id.luna_id());
+        let fresh_dir = tempfile::tempdir().unwrap();
+        let mut fresh = db::open(&fresh_dir.path().join("luna.db")).unwrap();
+
+        // Version 2 is held but wrong; version 1 is right. The newer wrong key is tried first and fails cleanly.
+        let newer_wrong = BackupKey {
+            version: 2,
+            ..backup_key([4; 32])
+        };
+        let out = rebuild_snapshot_index(
+            &mut fresh,
+            &store,
+            &id,
+            &[backup_key(TREE_KEY), newer_wrong],
+            NOW,
+        )
+        .unwrap();
+        assert_eq!(out.snapshots, 1);
+        assert_eq!(out.skipped, 0);
     }
 
     #[test]

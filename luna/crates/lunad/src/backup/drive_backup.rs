@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io::{self, ErrorKind, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
 
@@ -102,23 +102,23 @@ pub fn create(
             "A backup has to go on a different drive from the folder it copies.".into(),
         ));
     }
-    // A private item is backed up by its owner only. Inside one, the folder
-    // is not a backup source on its own.
-    let private_owner = match access_list::private_source(conn, source_drive, &norm) {
+    // A private item, or a folder inside one, is backed up by its owner only. A folder
+    // inside one is a private backup of its own, with the item's access list.
+    let source_kind = access_list::private_source(conn, source_drive, &norm);
+    let private_owner = match &source_kind {
         access_list::PrivateSource::Shared => None,
-        access_list::PrivateSource::OwnItem { owner } => {
+        access_list::PrivateSource::PrivateTrash => {
+            return Err(refuse("Items in the trash can't be backed up.".into()));
+        }
+        other => {
+            let owner = other.owner().unwrap_or_default();
             if owner != user.id {
                 return Err(refuse(format!(
                     "Only {} can back up this item.",
-                    owner_name(conn, &owner)
+                    owner_name(conn, owner)
                 )));
             }
-            Some(owner)
-        }
-        access_list::PrivateSource::Inside => {
-            return Err(refuse(
-                "Back up the private item itself, from its own shield.".into(),
-            ));
+            Some(owner.to_string())
         }
     };
 
@@ -174,8 +174,26 @@ pub fn create(
         return Ok(existing);
     }
 
+    // A backup of a parent folder already holds this folder.
+    let probe = db::ProtectionRow::probe(
+        db::PROTECTION_DRIVE,
+        source_drive,
+        &norm,
+        target_drive,
+        private_owner.as_deref().unwrap_or_default(),
+    );
+    if let Some((_, message)) = covered_by(conn, &probe) {
+        return Err(refuse(message));
+    }
+
     let access = match &private_owner {
-        Some(owner) => access_list::for_private(conn, source_drive, &norm, owner),
+        Some(owner) => {
+            let item = match &source_kind {
+                access_list::PrivateSource::Inside { item, .. } => item.as_str(),
+                _ => norm.as_str(),
+            };
+            access_list::for_private(conn, source_drive, item, owner)
+        }
         None => access_list::for_source(conn, source_drive, &norm),
     }
     .map_err(|_| db_refused())?;
@@ -247,41 +265,47 @@ pub fn run_all(db: &crate::Db, now: i64) -> bool {
     changed
 }
 
-/// Backups being copied right now. Two runs of one backup at once (the
-/// schedule and "Back up now") would both move files into `versions/`.
-static RUNNING: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
-
-/// Holds a backup's place in [`RUNNING`] until it is dropped. A run holds
-/// one while it copies; a restore or delete holds one so no run starts
-/// meanwhile.
-pub struct RunSlot(String);
+/// Holds a backup's place among the backups being copied right now. Two runs of
+/// one backup at once (the schedule and "Back up now") would both move files into
+/// `versions/`. The set lives in the [`crate::Db`], so databases never share it.
+/// A run holds a slot while it copies; a restore, delete, cloud run or key move
+/// holds one so nothing else touches the backup meanwhile. Always taken before the
+/// cloud run lock (`cloud::run::RunSlot`), and only ever tried, never waited on.
+pub struct RunSlot {
+    holds: Arc<Mutex<HashSet<String>>>,
+    id: String,
+}
 
 impl RunSlot {
-    fn take(id: &str) -> Option<Self> {
-        let mut running = RUNNING.lock().unwrap_or_else(|p| p.into_inner());
-        running.insert(id.to_string()).then(|| Self(id.to_string()))
+    fn take(db: &crate::Db, id: &str) -> Option<Self> {
+        let holds = db.backup_holds();
+        let mut running = holds.lock().unwrap_or_else(|p| p.into_inner());
+        running.insert(id.to_string()).then(|| Self {
+            holds: Arc::clone(holds),
+            id: id.to_string(),
+        })
     }
 }
 
 /// Holds the backup's slot, or returns `None` when a run or another holder
 /// already has it. While the slot is held, [`run`] refuses and
 /// [`is_running`] reports true.
-pub fn try_hold(id: &str) -> Option<RunSlot> {
-    RunSlot::take(id)
+pub fn try_hold(db: &crate::Db, id: &str) -> Option<RunSlot> {
+    RunSlot::take(db, id)
 }
 
 impl Drop for RunSlot {
     fn drop(&mut self) {
-        RUNNING
+        self.holds
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .remove(&self.0);
+            .remove(&self.id);
     }
 }
 
-/// Is this backup being copied right now, or held by a restore or delete?
-pub fn is_running(id: &str) -> bool {
-    RUNNING
+/// Is this backup being copied right now, or held by a restore, delete or key move?
+pub fn is_running(db: &crate::Db, id: &str) -> bool {
+    db.backup_holds()
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .contains(id)
@@ -294,7 +318,7 @@ fn run_inner(
     allow_mass_delete: bool,
 ) -> anyhow::Result<RunOutcome> {
     // Already running: that run records its own result.
-    let Some(_slot) = RunSlot::take(id) else {
+    let Some(_slot) = RunSlot::take(db, id) else {
         return Ok(problem_outcome(
             "This backup is already running. Its status updates when it finishes.",
         ));
@@ -317,6 +341,11 @@ fn run_inner(
             row.stop_reason.as_str()
         };
         return Ok(problem_outcome(reason));
+    }
+    // A backup of a parent folder already holds these files. This one starts again on its
+    // own if that parent backup stops or goes away.
+    if let Some((_, message)) = with_conn(db, |c| covered_by(c, &row)) {
+        return Ok(problem_outcome(&message));
     }
 
     // Step 2: the backup drive must be connected.
@@ -513,9 +542,7 @@ fn run_inner(
                 fail(
                     db,
                     id,
-                    &format!(
-                        "{target_name} is full. Free up space on it, then the backup continues."
-                    ),
+                    &format!("{target_name} is full. Free up some space on it and try again."),
                     true,
                     now,
                 )
@@ -976,6 +1003,16 @@ fn folder_name(source_path: &str, drive_label: &str) -> String {
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| drive_label.to_string())
+}
+
+/// The backup of a parent folder that has taken over `row`, and a plain sentence saying so.
+/// None when nothing covers it.
+pub fn covered_by(conn: &Connection, row: &ProtectionRow) -> Option<(ProtectionRow, String)> {
+    let parent = db::covering_protection(conn, row).ok().flatten()?;
+    let label = drive_label(conn, &parent.source_drive);
+    let folder = folder_name(&parent.source_path, &label);
+    let message = format!("Included in the backup of \"{folder}\".");
+    Some((parent, message))
 }
 
 fn backup_state(row: &ProtectionRow, now: i64) -> status::BackupState {
@@ -1569,7 +1606,7 @@ mod tests {
         let s = setup();
         write(&docs(&s).join("a.txt"), "one");
         let id = make_backup(&s);
-        let _slot = RunSlot::take(&id).unwrap();
+        let _slot = RunSlot::take(&s.db, &id).unwrap();
 
         let r = run(&s.db, &id, NOW).unwrap();
         assert_eq!(
@@ -1949,16 +1986,135 @@ mod tests {
     }
 
     #[test]
-    fn create_refuses_folder_inside_private_item() {
+    fn create_allows_folder_inside_own_private_item() {
         let s = setup();
-        fs::create_dir_all(docs(&s).join("Sub")).unwrap();
-        crate::private::create(&s.src_root, "Docs", "admin").unwrap();
+        let disk = make_private_docs(&s, "admin");
+        fs::create_dir_all(disk.join("Sub")).unwrap();
+        let conn = s.db.lock().unwrap();
+        let r = create(&conn, &s.admin, &s.src, "Docs/Sub", &s.tgt).unwrap();
+        assert_eq!(r.private_owner, "admin");
+        let list: access_list::AccessList = serde_json::from_str(&r.access_json).unwrap();
+        assert!(!list.admins, "a private backup never has Admins");
+    }
+
+    #[test]
+    fn create_refuses_folder_inside_someone_elses_private_item() {
+        let s = setup();
+        {
+            let conn = s.db.lock().unwrap();
+            crate::db::insert_user(&conn, "ann", "ann", "Ann", "", "member").unwrap();
+        }
+        crate::private::create(&s.src_root, "Docs", "ann").unwrap();
         let conn = s.db.lock().unwrap();
         let err = create(&conn, &s.admin, &s.src, "Docs/Sub", &s.tgt).unwrap_err();
+        assert_eq!(err.0, "You need Read access to this folder to back it up.");
+    }
+
+    #[test]
+    fn run_copies_a_folder_inside_a_private_item() {
+        let s = setup();
+        let disk = make_private_docs(&s, "admin");
+        write(&disk.join("top.txt"), "top");
+        write(&disk.join("Sub/a.txt"), "hello");
+        let id = {
+            let conn = s.db.lock().unwrap();
+            create(&conn, &s.admin, &s.src, "Docs/Sub", &s.tgt)
+                .unwrap()
+                .id
+        };
+        let outcome = run(&s.db, &id, NOW).unwrap();
+        assert_eq!(outcome.problem, None);
+        assert_eq!(outcome.copied, 1);
+        assert_eq!(manifest(&s, &id).private_owner.as_deref(), Some("admin"));
         assert_eq!(
-            err.0,
-            "Back up the private item itself, from its own shield."
+            fs::read_to_string(store(&s, &id).current_dir().join("a.txt")).unwrap(),
+            "hello"
         );
+    }
+
+    #[test]
+    fn a_parent_backup_takes_over_its_child_and_gives_it_back() {
+        let s = setup();
+        write(&docs(&s).join("Sub/a.txt"), "hello");
+        let (child, parent) = {
+            let conn = s.db.lock().unwrap();
+            let child = create(&conn, &s.admin, &s.src, "Docs/Sub", &s.tgt)
+                .unwrap()
+                .id;
+            let parent = create(&conn, &s.admin, &s.src, "Docs", &s.tgt).unwrap().id;
+            (child, parent)
+        };
+        // Until the parent has finished its first copy, the child is still the live copy.
+        assert_eq!(run(&s.db, &child, NOW).unwrap().problem, None);
+        assert_eq!(run(&s.db, &parent, NOW).unwrap().problem, None);
+        let covered = run(&s.db, &child, NOW).unwrap();
+        assert_eq!(
+            covered.problem.as_deref(),
+            Some("Included in the backup of \"Docs\".")
+        );
+        // The parent goes away: the child runs again.
+        {
+            let conn = s.db.lock().unwrap();
+            let row = db::get_protection(&conn, &parent).unwrap().unwrap();
+            delete(&s.db, &conn, &row).unwrap();
+        }
+        assert_eq!(run(&s.db, &child, NOW).unwrap().problem, None);
+    }
+
+    #[test]
+    fn a_stopped_parent_does_not_cover_its_child() {
+        let s = setup();
+        write(&docs(&s).join("Sub/a.txt"), "hello");
+        let (child, parent) = {
+            let conn = s.db.lock().unwrap();
+            let child = create(&conn, &s.admin, &s.src, "Docs/Sub", &s.tgt)
+                .unwrap()
+                .id;
+            let parent = create(&conn, &s.admin, &s.src, "Docs", &s.tgt).unwrap().id;
+            (child, parent)
+        };
+        run(&s.db, &parent, NOW).unwrap();
+        {
+            let conn = s.db.lock().unwrap();
+            db::set_protection_state(
+                &conn,
+                &parent,
+                db::PROTECTION_STOPPED,
+                "You stopped this backup.",
+            )
+            .unwrap();
+        }
+        assert_eq!(run(&s.db, &child, NOW).unwrap().problem, None);
+    }
+
+    #[test]
+    fn create_refuses_a_folder_a_parent_backup_already_holds() {
+        let s = setup();
+        write(&docs(&s).join("Sub/a.txt"), "hello");
+        let parent = {
+            let conn = s.db.lock().unwrap();
+            create(&conn, &s.admin, &s.src, "Docs", &s.tgt).unwrap().id
+        };
+        run(&s.db, &parent, NOW).unwrap();
+        let conn = s.db.lock().unwrap();
+        let err = create(&conn, &s.admin, &s.src, "Docs/Sub", &s.tgt).unwrap_err();
+        assert_eq!(err.0, "Included in the backup of \"Docs\".");
+    }
+
+    #[test]
+    fn a_shared_parent_does_not_cover_a_private_item_inside_it() {
+        let s = setup();
+        make_private_docs(&s, "admin");
+        let (item, parent) = {
+            let conn = s.db.lock().unwrap();
+            let item = create(&conn, &s.admin, &s.src, "Docs", &s.tgt).unwrap().id;
+            let parent = create(&conn, &s.admin, &s.src, "", &s.tgt).unwrap().id;
+            (item, parent)
+        };
+        run(&s.db, &parent, NOW).unwrap();
+        let conn = s.db.lock().unwrap();
+        let row = db::get_protection(&conn, &item).unwrap().unwrap();
+        assert!(db::covering_protection(&conn, &row).unwrap().is_none());
     }
 
     #[test]

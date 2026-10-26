@@ -41,12 +41,49 @@ function renderBrowser(props = {}) {
 }
 
 describe("FileBrowser", () => {
+  it("offers Try again and Universal Search on listing failures", async () => {
+    const seen = vi.fn();
+    window.addEventListener("luna:open-file-search", seen);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(
+        JSON.stringify({ error: "Gone.", code: "not_found" }),
+        { status: 404, headers: { "Content-Type": "application/json" } },
+      )),
+    );
+    renderBrowser();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("You can use Universal Search to try and find it.");
+    await userEvent.click(within(alert).getByRole("button", { name: "Universal Search" }));
+    expect(seen).toHaveBeenCalled();
+    window.removeEventListener("luna:open-file-search", seen);
+  });
+
+  it("shows a Try again button when the listing fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(
+        JSON.stringify({ error: "Something broke inside Luna." }),
+        { status: 500, headers: { "Content-Type": "application/json" } },
+      )),
+    );
+    renderBrowser();
+    expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("says it is still working when the listing is slow", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+    renderBrowser();
+    expect(screen.queryByText("Still working…")).not.toBeInTheDocument();
+    expect(await screen.findByText("Still working…", {}, { timeout: 3000 })).toBeInTheDocument();
+  });
+
   it("says the drive database is missing instead of asking to unplug", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response(
         JSON.stringify({
-          error: "Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again.",
+          error: "Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again. Your files stay on the drive, but items in its Trash won't show up after you add it again.",
           code: "missing_drive_db",
         }),
         { status: 500, headers: { "Content-Type": "application/json" } },
@@ -55,8 +92,9 @@ describe("FileBrowser", () => {
     renderBrowser();
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(
-      "On the Files page, remove this drive, then add it again.",
+      "items in its Trash won't show up after you add it again.",
     );
+    expect(alert).not.toHaveTextContent("No data on the drive will be lost");
     expect(alert).not.toHaveTextContent(/unplugg/i);
   });
 
@@ -241,6 +279,41 @@ describe("FileBrowser", () => {
     fireEvent.click(screen.getByLabelText("Select b.txt"));
     fireEvent.click(screen.getByRole("button", { name: /^Copy$/i }));
     expect(onCopy).toHaveBeenCalledWith(["a.txt", "b.txt"]);
+  });
+
+  it("filters by name without changing the sorted order", async () => {
+    stubListing({
+      "": [
+        { name: "b-notes.txt", kind: "file", size: 10, hidden: false },
+        { name: "zeta", kind: "dir", size: 0, hidden: false },
+        { name: "a-notes.txt", kind: "file", size: 10, hidden: false },
+        { name: "photo.jpg", kind: "file", size: 10, hidden: false },
+      ],
+    });
+    renderBrowser({ multiSelect: true });
+    expect(await screen.findByLabelText("Select a-notes.txt")).toBeInTheDocument();
+    const order = () => screen.getAllByLabelText(/^Select /).map((el) => el.getAttribute("aria-label"));
+    const all = order();
+    expect(all[0]).toBe("Select zeta");
+    fireEvent.change(screen.getByLabelText("Find in this folder"), { target: { value: "NOTES" } });
+    await waitFor(() => expect(screen.queryByLabelText("Select photo.jpg")).not.toBeInTheDocument());
+    expect(order()).toEqual(all.filter((l) => l.includes("notes")));
+  });
+
+  it("selects every row and clears the selection with Escape", async () => {
+    stubListing({
+      "": [
+        { name: "a.txt", kind: "file", size: 10, hidden: false },
+        { name: "b.txt", kind: "file", size: 10, hidden: false },
+      ],
+    });
+    renderBrowser({ multiSelect: true });
+    fireEvent.click(await screen.findByLabelText("Select a.txt"));
+    fireEvent.click(screen.getByLabelText("Select b.txt"));
+    expect(screen.getByLabelText("Select a.txt")).toBeChecked();
+    expect(screen.getByLabelText("Select b.txt")).toBeChecked();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.getByLabelText("Select a.txt")).not.toBeChecked());
   });
 
   it("calls parent action callbacks for a single row", async () => {
@@ -458,6 +531,96 @@ describe("FileBrowser", () => {
     });
     expect(await screen.findByRole("button", { name: "New folder" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Upload/i })).toBeInTheDocument();
+  });
+
+  describe("uploading", () => {
+    /** @param {boolean} supported */
+    function folderSupport(supported) {
+      Object.defineProperty(HTMLInputElement.prototype, "webkitdirectory", {
+        configurable: true,
+        writable: true,
+        value: supported ? false : undefined,
+      });
+      if (!supported) delete (/** @type {any} */ (HTMLInputElement.prototype)).webkitdirectory;
+    }
+
+    afterEach(() => {
+      delete (/** @type {any} */ (HTMLInputElement.prototype)).webkitdirectory;
+    });
+
+    it("offers Upload files and Upload a folder in a menu", async () => {
+      folderSupport(true);
+      stubListing({ "": [] });
+      renderBrowser({ multiSelect: false, enableUploadDrop: true, onUploadFiles: vi.fn() });
+      fireEvent.click(await screen.findByRole("button", { name: "Upload" }));
+      const menu = await screen.findByRole("menu", { name: "Upload" });
+      expect(within(menu).getByRole("menuitem", { name: "Upload files" })).toBeInTheDocument();
+      expect(within(menu).getByRole("menuitem", { name: "Upload a folder" })).toBeInTheDocument();
+    });
+
+    it("hands a picked folder to onUploadFiles with its relative paths", async () => {
+      folderSupport(true);
+      stubListing({ "": [] });
+      const onUploadFiles = vi.fn();
+      renderBrowser({ multiSelect: false, enableUploadDrop: true, onUploadFiles });
+      const input = await screen.findByLabelText("Add a folder");
+      expect(input).toHaveAttribute("webkitdirectory");
+      const f = new File(["x"], "a.txt");
+      Object.defineProperty(f, "webkitRelativePath", { value: "Trip/a.txt" });
+      fireEvent.change(input, { target: { files: [f] } });
+      expect(onUploadFiles).toHaveBeenCalledWith({ files: [f] }, "");
+    });
+
+    it("keeps a plain Upload button when the browser cannot pick folders", async () => {
+      folderSupport(false);
+      stubListing({ "": [] });
+      const onUploadFiles = vi.fn();
+      renderBrowser({ multiSelect: false, enableUploadDrop: true, onUploadFiles });
+      expect(await screen.findByRole("button", { name: "Upload" })).not.toHaveAttribute("aria-haspopup");
+      expect(screen.queryByLabelText("Add a folder")).not.toBeInTheDocument();
+      const f = new File(["x"], "a.txt");
+      fireEvent.change(screen.getByLabelText("Add files"), { target: { files: [f] } });
+      expect(onUploadFiles).toHaveBeenCalledWith({ files: [f] }, "");
+    });
+
+    it("takes a drop right away and passes the dropped entries on", async () => {
+      folderSupport(true);
+      stubListing({ "": [{ name: "Docs", kind: "dir", size: 0, hidden: false }] });
+      const onUploadFiles = vi.fn();
+      renderBrowser({ multiSelect: false, enableUploadDrop: true, onUploadFiles });
+      const row = (await screen.findByText("Docs")).closest("li");
+      const entry = { isFile: false, isDirectory: true, name: "Trip" };
+      fireEvent.drop(row, {
+        dataTransfer: {
+          types: ["Files"],
+          files: [],
+          items: [{ kind: "file", webkitGetAsEntry: () => entry, getAsFile: () => null }],
+          getData: () => "",
+        },
+      });
+      // No awaiting between the drop and the call: entries only work during the event.
+      expect(onUploadFiles).toHaveBeenCalledTimes(1);
+      expect(onUploadFiles.mock.calls[0][0].dropped.entries).toEqual([entry]);
+      expect(onUploadFiles.mock.calls[0][1]).toBe("Docs");
+    });
+
+    it("opens the folder picker with Shift+U", async () => {
+      folderSupport(true);
+      stubListing({ "": [] });
+      render(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <MemoryRouter>
+            <ShortcutsProvider>
+              <FileBrowser driveId="d1" driveLabel="Photos" multiSelect={false} enableUploadDrop onUploadFiles={vi.fn()} />
+            </ShortcutsProvider>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      const input = await screen.findByLabelText("Add a folder");
+      const click = vi.spyOn(/** @type {HTMLInputElement} */ (input), "click");
+      fireEvent.keyDown(document.body, { key: "U", code: "KeyU", shiftKey: true });
+      await waitFor(() => expect(click).toHaveBeenCalled());
+    });
   });
 
   it("shows folderActions in picker mode without Upload", async () => {

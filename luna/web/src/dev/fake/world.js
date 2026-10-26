@@ -7,11 +7,32 @@ export const DAY = 24 * HOUR;
 /** 2026-10-18 12:00 UTC. Scenarios that need another "now" override scenario.now. */
 export const DEFAULT_NOW = Date.UTC(2026, 9, 18, 12, 0, 0);
 
-let counter = 0;
-export const nextId = (prefix = "x") => `${prefix}${++counter}`;
+// Ids: one counter per prefix, and an id that a seed (or an earlier call) already
+// holds is never handed out again. The state is saved with the world so ids made
+// after a page reload cannot collide with ids made before it.
+let counters = {};
+let used = new Set();
+/** Marks an id you chose yourself as taken. Returns it. */
+export const claimId = (id) => { used.add(id); return id; };
+export const nextId = (prefix = "x") => {
+  let id;
+  do { counters[prefix] = (counters[prefix] || 0) + 1; id = `${prefix}${counters[prefix]}`; } while (used.has(id));
+  used.add(id);
+  return id;
+};
+export const idState = () => ({ counters: { ...counters }, used: [...used] });
+export function restoreIdState(state) {
+  counters = { ...(state?.counters || {}) };
+  used = new Set(state?.used || []);
+}
+/** Forget everything but the ids the built-in base world owns (a fresh scenario start). */
+export function resetIds() {
+  counters = {};
+  used = new Set(["u1", "d1"]);
+}
 
 export function user(over = {}) {
-  const id = over.id || nextId("u");
+  const id = over.id ? claimId(over.id) : nextId("u");
   return {
     id,
     username: over.username || `user${id}`,
@@ -23,13 +44,24 @@ export function user(over = {}) {
 }
 
 export function drive(over = {}) {
-  const id = over.id || nextId("d");
+  const id = over.id ? claimId(over.id) : nextId("d");
   return {
     id,
     label: over.label || `Drive ${id}`,
     state: "as_is",
     device: `sd${id}`,
     fs_type: "exfat",
+    mounted: true,
+    ...over,
+  };
+}
+
+/** A drive health report as lunad's drives/smart.rs sends it. The default is a healthy hard drive. */
+export function smartHealth(over = {}) {
+  return {
+    available: true, reason: null, verdict: "ok", overall: "passed", model: "WD20EZRZ", serial: "FAKE1",
+    temperature_c: 34, temperature_max_c: 60, temperature_max_source: "typical",
+    reallocated_sectors: 0, pending_sectors: 0, uncorrectable_sectors: 0, status_bits: 0, signals: [],
     ...over,
   };
 }
@@ -48,7 +80,7 @@ export function summary(id, over = {}) {
 
 export function backup(over = {}) {
   return {
-    id: nextId("b"),
+    id: over.id ? claimId(over.id) : nextId("b"),
     kind: "drive",
     source_drive: "d1",
     source_drive_name: "Photos drive",
@@ -65,13 +97,15 @@ export function backup(over = {}) {
     first_done: true,
     created_by: "u1",
     can_delete: true,
+    created_at: Math.floor(DEFAULT_NOW / 1000) - 30 * DAY,
+    private_owner: "",
     ...over,
   };
 }
 
 export function cloudBackup(over = {}) {
   return backup({
-    id: nextId("c"),
+    id: over.id ? claimId(over.id) : nextId("c"),
     kind: "cloud",
     source_name: "Documents",
     source_path: "Documents",
@@ -92,12 +126,12 @@ export function baseWorld() {
   return {
     name: "Luna",
     setup: { name: "Luna", setup_completed: true, current_step: "done", step_data: {} },
-    preflight: { healthy: true, checks: { disk: { status: "passed", message: "Plenty of space" }, network: { status: "passed", message: "Connected" } } },
-    users: [admin],
+    preflight: { healthy: true, checks: { disk_space: { status: "passed", message: "12.4 GB free on Luna's system disk." }, network: { status: "passed", message: "Connected to your router or modem, with a path to the internet." } } },
+    users: [{ ...admin }],
     sessionUserId: "u1",
     hasAdmin: true,
     connectActive: false,
-    drives: [photosDrive],
+    drives: [{ ...photosDrive }],
     detected: [],
     summaries: { d1: summary("d1", { shortcuts: ["Photos", "Documents"] }) },
     health: {},
@@ -106,12 +140,13 @@ export function baseWorld() {
     updateSource: { source: "default" },
     backups: [],
     cloudBackups: [],
-    phrase: { set: true, set_at: 0, luna_id: "luna-1", signing_public: "", check_due: false },
+    phrase: { set: true, set_at: 0, luna_id: "luna-1", signing_public: "", check_due: false, last_checked_at: 0, phrase_words: 12 },
     connect: { enabled: false },
     network: { ethernet_connected: true, has_default_route: true },
     access: [],
     albums: [],
     recents: [],
+    deletedUsers: [],
     jobs: [],
     tokens: [],
     privateSummary: { owners: [] },
@@ -120,7 +155,10 @@ export function baseWorld() {
 
 /** Builds a world: the base, then the scenario's seed function edits it. */
 export function createWorld(seed) {
+  resetIds();
   const w = baseWorld();
   if (typeof seed === "function") seed(w);
+  // Rows a seed wrote without an owner belong to whoever is signed in.
+  for (const r of w.recents) r.user_id ??= w.sessionUserId ?? "u1";
   return w;
 }

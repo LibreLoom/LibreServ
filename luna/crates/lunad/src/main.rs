@@ -461,6 +461,27 @@ async fn async_main() -> anyhow::Result<()> {
         }
     }));
 
+    // Cloud backups moving to the newest key: a few small steps every minute, only while Luna
+    // Connect is active. Steps take each backup's run lock, so they never overlap a backup.
+    let move_db = state.db.clone();
+    let move_connect = state.connect.clone();
+    bg_tasks.push(tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            ticker.tick().await;
+            let db = move_db.clone();
+            let connect = move_connect.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                let store = lunad::api::cloud_backups::connect_store(&connect, &db);
+                let store_ref = store
+                    .as_ref()
+                    .map(|s| s as &dyn lunad::backup::cloud::store::CloudStore);
+                lunad::backup::cloud::rewrap::trickle(&db, store_ref, lunad::db::now_unix());
+            })
+            .await;
+        }
+    }));
+
     let check_db = state.db.clone();
     let check_connect = state.connect.clone();
     let check_health = state.health_cache.clone();

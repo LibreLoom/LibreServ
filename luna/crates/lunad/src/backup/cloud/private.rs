@@ -1,7 +1,10 @@
 //! Private items in the cloud: scope records, sealing and signatures for private backups.
 //!
-//! A private backup is sealed to its owner's sealing key (X25519 and ML-KEM), so Luna itself never holds the owner's
-//! secret. Every sealed value binds its purpose, Luna and scope through `aad`.
+//! Each private scope has its own key pair (X25519 and ML-KEM). Pack keys, trees, metadata and the
+//! scope's dedup key are sealed to the scope's public key. The scope's secret half is sealed to its
+//! owner's sealing key (`sealed_scope_secret`), so only the owner's recovery phrase can open the scope.
+//! Luna keeps only the public half and that sealed copy, never the secret. Every sealed value binds its
+//! purpose, Luna and scope through `aad`.
 
 use anyhow::{Result, anyhow, bail};
 use rusqlite::Connection;
@@ -22,6 +25,7 @@ pub const PACK_KEY_PURPOSE: &str = "luna-private-pack-key-v1";
 pub const TREE_PURPOSE: &str = "luna-private-tree-v1";
 pub const META_PURPOSE: &str = "luna-private-meta-v1";
 pub const DEDUP_PURPOSE: &str = "luna-private-dedup-v1";
+pub const SCOPE_SECRET_PURPOSE: &str = "luna-private-scope-secret-v1";
 
 /// The associated data every private seal is bound to.
 pub fn aad(purpose: &str, luna_id: &str, scope: &str) -> Vec<u8> {
@@ -70,6 +74,33 @@ pub fn seal_dedup(
     dedup: &[u8; 32],
 ) -> Result<Vec<u8>> {
     crypto::seal(owner, &aad(DEDUP_PURPOSE, luna_id, scope), dedup)
+}
+
+/// Seal a scope's secret key to its owner's sealing key.
+pub fn seal_scope_secret(
+    owner: &SealPublic,
+    luna_id: &str,
+    scope: &str,
+    secret: &SealSecret,
+) -> Result<Vec<u8>> {
+    crypto::seal(owner, &aad(SCOPE_SECRET_PURPOSE, luna_id, scope), secret)
+}
+
+/// Open a scope's secret key with the owner's secret sealing key.
+pub fn open_scope_secret(
+    owner_secret: &SealSecret,
+    luna_id: &str,
+    scope: &str,
+    sealed: &[u8],
+) -> Result<SealSecret> {
+    let bytes = crypto::open(
+        owner_secret,
+        &aad(SCOPE_SECRET_PURPOSE, luna_id, scope),
+        sealed,
+    )?;
+    bytes
+        .try_into()
+        .map_err(|_| anyhow!("This private backup's key could not be read. It may be damaged."))
 }
 
 fn fixed<const N: usize>(bytes: Vec<u8>, what: &str) -> Result<[u8; N]> {
@@ -130,6 +161,7 @@ pub fn snapshot_record_ref(conn: &Connection, snapshot_id: &str) -> Result<(&'st
 }
 
 /// What `pscopes/<scope>` says about one owner's scope. Signed by Luna's signing key.
+/// `seal_public` and `auth_public` are the owner's; `scope_public` is the scope's own sealing key.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ScopeRecord {
     pub luna_id: String,
@@ -140,6 +172,10 @@ pub struct ScopeRecord {
     #[serde(with = "format::hex_fixed")]
     pub auth_public: SigPublic,
     pub created_at: i64,
+    #[serde(with = "format::hex_fixed")]
+    pub scope_public: SealPublic,
+    #[serde(with = "format::hex_fixed")]
+    pub sealed_scope_secret: Vec<u8>,
     #[serde(with = "format::hex_fixed")]
     pub sealed_dedup: Vec<u8>,
 }
@@ -153,6 +189,8 @@ impl ScopeRecord {
             ("seal_public", &self.seal_public[..]),
             ("auth_public", &self.auth_public[..]),
             ("created_at", &self.created_at.to_be_bytes()[..]),
+            ("scope_public", &self.scope_public[..]),
+            ("sealed_scope_secret", &self.sealed_scope_secret[..]),
             ("sealed_dedup", &self.sealed_dedup[..]),
         ])
     }
@@ -192,34 +230,41 @@ impl SignedScope {
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        serde_json::from_slice(bytes).map_err(|_| {
+        serde_json::from_slice(bytes).map_err(|e| {
+            tracing::warn!(error = %e, "could not parse a private backup's scope record");
             anyhow!("This private backup's record could not be read. It may be damaged.")
         })
     }
 }
 
-/// The owner's active scope, made if missing. A scope sealed to an older key (the owner got a new
-/// recovery phrase) is retired as `old_phrase`. Returns `(scope, true)` when a new scope was made.
+/// The owner's active scope, made if missing. A new scope gets its own key pair; the secret half is
+/// sealed to the owner and then dropped. Returns `(scope, true)` when a new scope was made.
+/// A scope is never retired because the owner's keys changed: a save retires it on purpose.
 pub fn ensure_scope(
     conn: &Connection,
+    luna_id: &str,
     owner: &str,
     owner_public: &SealPublic,
     now: i64,
 ) -> Result<(db::PrivateScope, bool)> {
     if let Some(active) = db::active_private_scope(conn, owner)? {
-        if active.seal_public.as_slice() == owner_public {
-            return Ok((active, false));
-        }
-        db::set_private_scope_state(conn, &active.scope, "old_phrase", now + OLD_PHRASE_GRACE)?;
+        return Ok((active, false));
     }
 
     let mut dedup = [0u8; 32];
     getrandom::getrandom(&mut dedup).map_err(|e| anyhow!("{e}"))?;
     let (_, scope) = scope_of(&dedup);
+    let (mut scope_secret, scope_public) = crypto::new_scope_keys();
+    let sealed = seal_scope_secret(owner_public, luna_id, &scope, &scope_secret);
+    // Best effort: only the sealed copy is kept. Other copies may remain in registers or on the stack.
+    zeroize::Zeroize::zeroize(&mut scope_secret);
+    let sealed_scope_secret = sealed?;
     let made = db::PrivateScope {
         scope,
         owner: owner.to_string(),
         seal_public: owner_public.to_vec(),
+        scope_public: scope_public.to_vec(),
+        sealed_scope_secret,
         dedup_key: dedup.to_vec(),
         state: "active".to_string(),
         retire_after: 0,
@@ -227,6 +272,98 @@ pub fn ensure_scope(
     };
     db::insert_private_scope(conn, &made)?;
     Ok((made, true))
+}
+
+/// What a phrase replacement did to the owner's private scopes.
+#[derive(Debug, Default, PartialEq)]
+pub struct Settled {
+    /// Scopes the browser re-sealed to the new phrase; their records need publishing again.
+    pub resealed: Vec<String>,
+    /// Live scopes the browser did not re-seal. They keep their 30 days, then go.
+    pub failed: usize,
+}
+
+/// Re-seals the owner's scopes to `new_public` when the browser sent them in `rescoped` (old
+/// phrase proof), and keeps history (plan §5). A scope the browser could not re-seal retires with
+/// the 30-day grace. With `exposed`, an active scope that was re-sealed becomes `history`: it is
+/// kept, and no longer new data goes into it. `old_phrase` scopes are left as they are once they
+/// are re-sealed.
+pub fn settle_scopes(
+    conn: &Connection,
+    owner: &str,
+    new_public: &SealPublic,
+    rescoped: &[(String, Vec<u8>)],
+    exposed: bool,
+    now: i64,
+) -> Result<Settled> {
+    // Every re-sealed scope must be this owner's: one bad entry refuses the whole save.
+    for (name, _) in rescoped {
+        match db::get_private_scope(conn, name)? {
+            Some(row) if row.owner == owner => {}
+            _ => bail!("A private backup in the re-seal list is not this person's."),
+        }
+    }
+    if exposed {
+        db::clear_kept_scope_secrets(conn, owner)?;
+    }
+    let mut settled = Settled::default();
+    for scope in db::list_private_scopes(conn, Some(owner))? {
+        let fresh = rescoped.iter().find(|(name, _)| *name == scope.scope);
+        match (scope.state.as_str(), fresh) {
+            // Retiring with grace already, and the browser could not re-seal it: leave it be.
+            ("old_phrase", None) => {}
+            (_, Some((_, sealed))) => {
+                // Not exposed: the old phrase may still open this scope for 30 days. Exposed: the
+                // old phrase must not, so nothing is kept (plan §5).
+                if !exposed && scope.seal_public.as_slice() != new_public.as_slice() {
+                    db::keep_scope_secret(
+                        conn,
+                        &db::KeptScopeSecret {
+                            scope: scope.scope.clone(),
+                            seal_public: scope.seal_public.clone(),
+                            sealed_scope_secret: scope.sealed_scope_secret.clone(),
+                            expires_at: now + OLD_PHRASE_GRACE,
+                        },
+                    )?;
+                }
+                db::set_private_scope_seal(conn, &scope.scope, new_public, sealed)?;
+                if exposed && scope.state == "active" {
+                    db::set_private_scope_state(conn, &scope.scope, "history", 0)?;
+                }
+                settled.resealed.push(scope.scope.clone());
+            }
+            (_, None) => {
+                db::set_private_scope_state(
+                    conn,
+                    &scope.scope,
+                    "old_phrase",
+                    now + OLD_PHRASE_GRACE,
+                )?;
+                settled.failed += 1;
+            }
+        }
+    }
+    Ok(settled)
+}
+
+/// A replacement proven with the Luna password: the browser cannot open the old scopes, so none is
+/// kept. Each live scope retires with the 30-day grace, or at once when `exposed`.
+pub fn retire_scopes_without_key(
+    conn: &Connection,
+    owner: &str,
+    exposed: bool,
+    now: i64,
+) -> Result<()> {
+    let retire_after = if exposed { now } else { now + OLD_PHRASE_GRACE };
+    if exposed {
+        db::clear_kept_scope_secrets(conn, owner)?;
+    }
+    for scope in db::list_private_scopes(conn, Some(owner))? {
+        if scope.state != "old_phrase" {
+            db::set_private_scope_state(conn, &scope.scope, "old_phrase", retire_after)?;
+        }
+    }
+    Ok(())
 }
 
 /// Put `pscopes/<scope>` on Connect. Safe to repeat: the same scope writes the same record name.
@@ -240,10 +377,13 @@ pub fn publish_scope(
     let owner_public: SealPublic = scope.seal_public.as_slice().try_into().map_err(|_| {
         anyhow!("This private backup's key is the wrong length. It may be damaged.")
     })?;
+    let scope_public: SealPublic = scope.scope_public.as_slice().try_into().map_err(|_| {
+        anyhow!("This private backup's key is the wrong length. It may be damaged.")
+    })?;
     let dedup: [u8; 32] = scope.dedup_key.as_slice().try_into().map_err(|_| {
         anyhow!("This private backup's key is the wrong length. It may be damaged.")
     })?;
-    let sealed_dedup = seal_dedup(&owner_public, luna_id, &scope.scope, &dedup)?;
+    let sealed_dedup = seal_dedup(&scope_public, luna_id, &scope.scope, &dedup)?;
     let record = ScopeRecord {
         luna_id: luna_id.to_string(),
         scope: scope.scope.clone(),
@@ -251,6 +391,8 @@ pub fn publish_scope(
         seal_public: owner_public,
         auth_public: *auth_public,
         created_at: scope.created_at,
+        scope_public,
+        sealed_scope_secret: scope.sealed_scope_secret.clone(),
         sealed_dedup,
     };
     let bytes = record.sign(signer).to_bytes();
@@ -290,6 +432,7 @@ mod tests {
 
     fn sample_scope_record(sealed_dedup: Vec<u8>) -> ScopeRecord {
         let keys = keys();
+        let (_, scope_public) = crypto::scope_keys_from_seed(&[6u8; 32]);
         ScopeRecord {
             luna_id: "luna-x".into(),
             scope: scope_of(&[9u8; 32]).1,
@@ -297,6 +440,8 @@ mod tests {
             seal_public: keys.seal_public,
             auth_public: keys.auth_public,
             created_at: 1_760_000_000,
+            scope_public,
+            sealed_scope_secret: vec![8u8; crypto::sealed_len(crypto::SEAL_SECRET_LEN)],
             sealed_dedup,
         }
     }
@@ -370,31 +515,66 @@ mod tests {
     }
 
     #[test]
-    fn ensure_scope_reuses_then_retires_on_new_key() {
+    fn unreadable_scope_record_gives_a_plain_error() {
+        let err = SignedScope::from_bytes(b"{not json")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            err,
+            "This private backup's record could not be read. It may be damaged."
+        );
+        assert!(!err.contains("TEMPDIAG"));
+        assert!(!err.contains("expected"));
+    }
+
+    #[test]
+    fn ensure_scope_reuses_and_keeps_its_scope_when_owner_keys_change() {
         let dir = tempfile::tempdir().unwrap();
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
         let first_keys = keys();
         let other_keys = crypto::derive(&[1u8; 16], "luna-x");
 
-        let (first, is_new) = ensure_scope(&conn, "owner", &first_keys.seal_public, 1_000).unwrap();
+        let (first, is_new) =
+            ensure_scope(&conn, "luna-x", "owner", &first_keys.seal_public, 1_000).unwrap();
         assert!(is_new);
         assert_eq!(first.state, "active");
+        assert_eq!(first.scope_public.len(), crypto::SEAL_PUBLIC_LEN);
 
         let (again, is_new_again) =
-            ensure_scope(&conn, "owner", &first_keys.seal_public, 2_000).unwrap();
+            ensure_scope(&conn, "luna-x", "owner", &first_keys.seal_public, 2_000).unwrap();
         assert!(!is_new_again);
         assert_eq!(again.scope, first.scope);
 
-        let now = 3_000;
-        let (fresh, is_new_fresh) =
-            ensure_scope(&conn, "owner", &other_keys.seal_public, now).unwrap();
-        assert!(is_new_fresh);
-        assert_ne!(fresh.scope, first.scope);
-        assert_eq!(fresh.state, "active");
+        // A new phrase does not retire the scope by itself: the save decides that.
+        let (same, is_new_same) =
+            ensure_scope(&conn, "luna-x", "owner", &other_keys.seal_public, 3_000).unwrap();
+        assert!(!is_new_same);
+        assert_eq!(same.scope, first.scope);
+        assert_eq!(same.state, "active");
+    }
 
-        let old = db::get_private_scope(&conn, &first.scope).unwrap().unwrap();
-        assert_eq!(old.state, "old_phrase");
-        assert_eq!(old.retire_after, now + OLD_PHRASE_GRACE);
+    #[test]
+    fn scope_secret_opens_only_with_the_owners_key() {
+        let owner = keys();
+        let other = crypto::derive(&[1u8; 16], "luna-x");
+        let (scope_secret, _) = crypto::scope_keys_from_seed(&[7u8; 32]);
+        let scope = scope_of(&[3u8; 32]).1;
+        let sealed =
+            seal_scope_secret(&owner.seal_public, "luna-x", &scope, &scope_secret).unwrap();
+        assert_eq!(
+            open_scope_secret(&owner.seal_secret, "luna-x", &scope, &sealed).unwrap(),
+            scope_secret
+        );
+        assert!(open_scope_secret(&other.seal_secret, "luna-x", &scope, &sealed).is_err());
+        assert!(
+            open_scope_secret(
+                &owner.seal_secret,
+                "luna-x",
+                &scope_of(&[4u8; 32]).1,
+                &sealed
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -428,10 +608,20 @@ mod tests {
         let signer = Signer::generate();
         let keys = keys();
         let dedup = [5u8; 32];
+        let (scope_secret, scope_public) = crypto::new_scope_keys();
+        let scope_name = scope_of(&dedup).1;
         let scope = db::PrivateScope {
-            scope: scope_of(&dedup).1,
+            scope: scope_name.clone(),
             owner: "owner".into(),
             seal_public: keys.seal_public.to_vec(),
+            scope_public: scope_public.to_vec(),
+            sealed_scope_secret: seal_scope_secret(
+                &keys.seal_public,
+                "luna-x",
+                &scope_name,
+                &scope_secret,
+            )
+            .unwrap(),
             dedup_key: dedup.to_vec(),
             state: "active".into(),
             retire_after: 0,
@@ -454,15 +644,30 @@ mod tests {
             .unwrap();
         assert_eq!(record.user_id, "owner");
         assert_eq!(record.created_at, 42);
+        assert_eq!(record.scope_public, scope_public);
+        // The dedup key opens with the scope's secret, not the owner's.
         assert_eq!(
+            open_dedup(&scope_secret, "luna-x", &scope.scope, &record.sealed_dedup).unwrap(),
+            dedup
+        );
+        assert!(
             open_dedup(
                 &keys.seal_secret,
                 "luna-x",
                 &scope.scope,
                 &record.sealed_dedup
             )
+            .is_err()
+        );
+        assert_eq!(
+            open_scope_secret(
+                &keys.seal_secret,
+                "luna-x",
+                &scope.scope,
+                &record.sealed_scope_secret
+            )
             .unwrap(),
-            dedup
+            scope_secret
         );
     }
 

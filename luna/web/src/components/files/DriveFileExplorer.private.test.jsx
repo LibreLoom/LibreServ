@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { ThemeProvider } from "@libreloom/ui/context/ThemeContext.jsx";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import { AuthProvider } from "../../context/AuthContext";
+import { FileOpsProvider } from "../../context/FileOpsContext.jsx";
 import DriveFileExplorer from "./DriveFileExplorer.jsx";
 
 const json = (data, status = 200) =>
@@ -42,9 +43,11 @@ function renderExplorer({ listing = [], mine = [], initialEntries = ["/"], path,
     <ToastProvider>
       <QueryClientProvider client={client}>
         <MemoryRouter initialEntries={initialEntries}>
-          <AuthProvider>
-            <DriveFileExplorer driveId="d1" driveLabel="Photos" isAdmin path={path} />
-          </AuthProvider>
+          <FileOpsProvider>
+            <AuthProvider>
+              <DriveFileExplorer driveId="d1" driveLabel="Photos" isAdmin path={path} />
+            </AuthProvider>
+          </FileOpsProvider>
         </MemoryRouter>
       </QueryClientProvider>
     </ToastProvider>
@@ -85,26 +88,6 @@ describe("DriveFileExplorer private folders", () => {
       expect(calls.find(([m, u]) => m === "POST" && u.endsWith("/files/mkdir"))?.[2])
         .toEqual({ path: "Taxes", private: true });
     });
-  });
-
-  it("shows Not backed up on my private folder that has no backups", async () => {
-    renderExplorer({
-      listing: [{ name: "Taxes", kind: "dir", size: 0, hidden: false }],
-      mine: [{ drive_id: "d1", path: "Taxes", name: "Taxes", drive_backups: 0, cloud_backup: false }],
-    });
-    const button = await screen.findByRole("button", { name: "Back up Taxes" });
-    expect(await within(button).findByText("Not backed up")).toBeInTheDocument();
-  });
-
-  it("does not show Not backed up once the private folder has a drive backup", async () => {
-    const calls = renderExplorer({
-      listing: [{ name: "Taxes", kind: "dir", size: 0, hidden: false }],
-      mine: [{ drive_id: "d1", path: "Taxes", name: "Taxes", drive_backups: 1, cloud_backup: false }],
-    });
-    await screen.findByRole("button", { name: "Back up Taxes" });
-    await waitFor(() => expect(calls.some(([, u]) => u.endsWith("/private-backups/mine"))).toBe(true));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(screen.queryByText("Not backed up")).not.toBeInTheDocument();
   });
 
   it("browses the Backups folder like Trash: each backup is a folder row", async () => {

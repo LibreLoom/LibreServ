@@ -16,7 +16,7 @@ use super::private::{
     self, PRIVATE_SNAPSHOT_DOMAIN, PSCOPES_KIND, PSNAPSHOTS_KIND, ScopeRecord, SignedScope,
 };
 use super::store::CloudStore;
-use crate::backup::access_list::{self, PrivateSource};
+use crate::backup::access_list;
 use crate::db;
 
 const RECOVERED_RUN: &str = "recovered";
@@ -93,6 +93,35 @@ pub fn caller_tree_packs(
     Ok(out)
 }
 
+/// The signed private snapshot identities the caller can restore from the store.
+/// Only names and IDs are retained; each signed record is fetched and dropped in turn.
+pub fn caller_snapshot_ids(
+    store: &dyn CloudStore,
+    luna_public: &SigPublic,
+    scopes: &[ScopeRecord],
+) -> Result<HashSet<(String, String)>> {
+    let mut out = HashSet::new();
+    let names = store.list_records(PSNAPSHOTS_KIND)?;
+    for scope in scopes {
+        let prefix = format!("{}.", scope.scope);
+        for name in names.iter().filter(|name| name.starts_with(&prefix)) {
+            let Some(bytes) = store.get_record(PSNAPSHOTS_KIND, name)? else {
+                continue;
+            };
+            let Ok(signed) = SignedRecord::from_bytes(&bytes) else {
+                continue;
+            };
+            let Ok(record) = signed.verify_with(luna_public, PRIVATE_SNAPSHOT_DOMAIN) else {
+                continue;
+            };
+            if name == &private::psnapshot_name(&scope.scope, &record.snapshot_id) {
+                out.insert((scope.scope.clone(), record.snapshot_id));
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// Write one recovered scope and its snapshots into the local index. Returns how many
 /// snapshots were newly written; snapshots already in the index are skipped.
 #[allow(clippy::too_many_arguments)]
@@ -121,6 +150,8 @@ pub fn write_private_index(
                 scope: scope.scope.clone(),
                 owner: caller.to_string(),
                 seal_public: scope.seal_public.to_vec(),
+                scope_public: scope.scope_public.to_vec(),
+                sealed_scope_secret: scope.sealed_scope_secret.clone(),
                 dedup_key: dedup_key.to_vec(),
                 state: "recovered".to_string(),
                 retire_after: 0,
@@ -155,10 +186,10 @@ pub fn write_private_index(
         }
 
         if db::get_protection(&tx, &snap.protection_id)?.is_none() {
-            let owned = matches!(
-                access_list::private_source(&tx, &snap.meta.source_drive, &snap.meta.source_path),
-                PrivateSource::OwnItem { ref owner } if owner == caller
-            );
+            let owned =
+                access_list::private_source(&tx, &snap.meta.source_drive, &snap.meta.source_path)
+                    .owner()
+                    == Some(caller);
             db::insert_protection(
                 &tx,
                 &db::NewProtection {
@@ -332,8 +363,16 @@ mod tests {
             .unwrap()
             .verify(&luna_public)
             .unwrap();
-        let dedup = private::open_dedup(&alice.seal_secret, LUNA_ID, scope_id, &scope.sealed_dedup)
-            .unwrap();
+        // The owner's phrase opens the scope's secret key; the scope's key opens everything else.
+        let scope_secret = private::open_scope_secret(
+            &alice.seal_secret,
+            LUNA_ID,
+            scope_id,
+            &scope.sealed_scope_secret,
+        )
+        .unwrap();
+        let dedup =
+            private::open_dedup(&scope_secret, LUNA_ID, scope_id, &scope.sealed_dedup).unwrap();
 
         let raw = fixture_record(
             &fx["private"],
@@ -345,13 +384,13 @@ mod tests {
             .verify_with(&luna_public, PRIVATE_SNAPSHOT_DOMAIN)
             .unwrap();
 
-        let unwrap = |w: &[u8]| private::open_pack_key(&alice.seal_secret, LUNA_ID, scope_id, w);
+        let unwrap = |w: &[u8]| private::open_pack_key(&scope_secret, LUNA_ID, scope_id, w);
         let tree_pack_id = unhex32(p["tree_pack_id"].as_str().unwrap());
         let pack_bytes = unhex(p["packs"][hex(&tree_pack_id)].as_str().unwrap());
         let tree_pack: OpenedPack = format::open_pack(&pack_bytes, &tree_pack_id, unwrap).unwrap();
         let tree_bytes = tree_pack.chunk(&snap.tree_hash).unwrap();
-        let tree = private::open_tree(&alice.seal_secret, LUNA_ID, scope_id, tree_bytes).unwrap();
-        let meta = private::open_meta(&alice.seal_secret, LUNA_ID, scope_id, &snap.meta).unwrap();
+        let tree = private::open_tree(&scope_secret, LUNA_ID, scope_id, tree_bytes).unwrap();
+        let meta = private::open_meta(&scope_secret, LUNA_ID, scope_id, &snap.meta).unwrap();
 
         Decrypted {
             luna_public,
@@ -393,6 +432,20 @@ mod tests {
         )
         .unwrap();
         assert_eq!(written, 1);
+        assert_eq!(count(&conn, "cloud_snapshots"), 1);
+
+        let retried = write_private_index(
+            &mut conn,
+            &d.luna_public,
+            "alice",
+            &d.alice.seal_public,
+            &d.scope,
+            &d.dedup,
+            vec![d.snapshot.clone()],
+            NOW + 1,
+        )
+        .unwrap();
+        assert_eq!(retried, 0);
         assert_eq!(count(&conn, "cloud_snapshots"), 1);
 
         let scope = db::get_private_scope(&conn, &d.scope.scope)
@@ -495,7 +548,8 @@ mod tests {
             NOW,
         )
         .unwrap();
-        let (_, is_new) = private::ensure_scope(&conn, "alice", &d.alice.seal_public, NOW).unwrap();
+        let (_, is_new) =
+            private::ensure_scope(&conn, LUNA_ID, "alice", &d.alice.seal_public, NOW).unwrap();
         assert!(is_new);
     }
 

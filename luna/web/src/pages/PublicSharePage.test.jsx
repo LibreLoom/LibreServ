@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
+import { FileOpsProvider } from "../context/FileOpsContext.jsx";
 import PublicSharePage from "./PublicSharePage";
 
 // Chunked uploads go through XHR (`putBinaryProgress`), which jsdom can't
@@ -43,11 +44,13 @@ function renderPage({ client } = {}) {
     <ToastProvider>
       <Toaster />
       <QueryClientProvider client={qc}>
-        <MemoryRouter initialEntries={["/s/abc"]}>
-          <Routes>
-            <Route path="/s/:token" element={<PublicSharePage />} />
-          </Routes>
-        </MemoryRouter>
+        <FileOpsProvider>
+          <MemoryRouter initialEntries={["/s/abc"]}>
+            <Routes>
+              <Route path="/s/:token" element={<PublicSharePage />} />
+            </Routes>
+          </MemoryRouter>
+        </FileOpsProvider>
       </QueryClientProvider>
     </ToastProvider>,
   );
@@ -70,14 +73,16 @@ function renderWithNav({ client } = {}) {
     <ToastProvider>
       <Toaster />
       <QueryClientProvider client={qc}>
-        <MemoryRouter initialEntries={["/s/abc"]}>
-          <Routes>
-            <Route
-              path="/s/:token"
-              element={<><PublicSharePage /><NavButtons /></>}
-            />
-          </Routes>
-        </MemoryRouter>
+        <FileOpsProvider>
+          <MemoryRouter initialEntries={["/s/abc"]}>
+            <Routes>
+              <Route
+                path="/s/:token"
+                element={<><PublicSharePage /><NavButtons /></>}
+              />
+            </Routes>
+          </MemoryRouter>
+        </FileOpsProvider>
       </QueryClientProvider>
     </ToastProvider>,
   );
@@ -192,6 +197,34 @@ describe("PublicSharePage", () => {
     expect(screen.queryByLabelText("Find in this folder")).not.toBeInTheDocument();
     // View-blind links never even ask for a listing.
     expect(calls.every((u) => !u.includes("/list"))).toBe(true);
+  });
+
+  it("shows a guest drop-box upload in the file task card and says it is done", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url, init = {}) => {
+      const u = String(url);
+      const method = (init.method || "GET").toUpperCase();
+      if (u.endsWith("/upload") && method === "POST") {
+        return json({ upload_id: "u1", received: 0, size: 3 });
+      }
+      if (u.includes("/complete") && method === "POST") {
+        return json({ name: "note.txt", kind: "file", size: 3 });
+      }
+      return json({ kind: "dropbox", caps: "upload", name: "Uploads" });
+    }));
+    renderPage();
+    const picker = await screen.findByLabelText("Add files");
+    fireEvent.change(picker, {
+      target: { files: [new File(["abc"], "note.txt", { type: "text/plain" })] },
+    });
+    expect(await screen.findByText("Files uploaded.")).toBeInTheDocument();
+  });
+
+  it("keeps empty files out of a drop-box upload with a plain message", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ kind: "dropbox", caps: "upload", name: "Uploads" })));
+    renderPage();
+    const picker = await screen.findByLabelText("Add files");
+    fireEvent.change(picker, { target: { files: [new File([], "empty.txt")] } });
+    expect(await screen.findByText("Luna can't add empty files.")).toBeInTheDocument();
   });
 
   it("shows upload and New controls on view+upload folder links", async () => {

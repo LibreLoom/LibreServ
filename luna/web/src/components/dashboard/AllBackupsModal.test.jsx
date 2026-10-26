@@ -193,6 +193,21 @@ describe("AllBackupsModal", () => {
     expect(await screen.findByText("Removed 2 backups")).toBeInTheDocument();
   });
 
+  it("storage-full advice names who can act: Admin sees add storage, a Member sees the neutral line", async () => {
+    const moving = { percent: 50, paused_full: true };
+    const rows = [backup({ id: "m", source_name: "Moving photos", created_by: "u1", moving })];
+    renderModal(rows);
+    expect(await screen.findByText(/add storage on Luna Connect/)).toBeInTheDocument();
+  });
+
+  it("a Member gets the neutral storage-full line", async () => {
+    auth.user = { id: "u2", role: "member" };
+    const moving = { percent: 50, paused_full: true };
+    renderModal([backup({ id: "m", source_name: "Moving photos", created_by: "u1", moving })]);
+    expect(await screen.findByText(/An Admin can free up space or add storage/)).toBeInTheDocument();
+    expect(screen.queryByText(/add storage on Luna Connect/)).not.toBeInTheDocument();
+  });
+
   it("a Member sees no Remove", async () => {
     auth.user = { id: "u2", role: "member" };
     renderModal(BACKUPS, {
@@ -237,7 +252,7 @@ describe("AllBackupsModal", () => {
 
   it("maps status to pills", () => {
     expect(backupStatus(backup()).label).toBe("Backup successful");
-    expect(backupStatus(backup({ state: "stale" })).label).toBe("Not copied in a day");
+    expect(backupStatus(backup({ state: "stale" })).label).toBe("Not backed up yet.");
     expect(backupStatus(backup({ status: "source_gone" })).label).toBe("Original is gone");
   });
 });

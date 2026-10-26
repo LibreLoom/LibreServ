@@ -31,12 +31,33 @@ function trimSlashes(value) {
 
 /** Headline for a backup that is working: when it last finished, or that it hasn't yet. */
 function backupHeadline(backup) {
+  // A late or failed backup says so here; the notice under it gives the age ("Last backed up 2 days ago.").
+  if (backup.state === "stale") return "Out of date";
+  if (backup.state === "failing") return "Last backup failed";
   if (backup.last_ok_at) {
     const ago = formatRecentAgo(backup.last_ok_at * 1000);
     return `Backed up ${ago === "Just now" ? "just now" : ago}`;
   }
   if (!backup.first_done && !backup.last_error) return "First backup in progress";
   return "Not backed up yet";
+}
+
+/** Says a bigger folder's backup already holds this one, and that this one resumes if that backup goes. */
+function CoveredNotice({ parent, thing }) {
+  return (
+    <p className="text-primary text-sm">
+      <span className="inline-flex flex-wrap items-center gap-1.5">
+        <span>
+          Included in the backup of <InlinePill>{parent.name}</InlinePill>
+        </span>
+        <InfoHint
+          surface="secondary"
+          label="Why this backup is paused"
+          content={`That backup already copies this ${thing}. If it is stopped or deleted, this one starts again by itself.`}
+        />
+      </span>
+    </p>
+  );
 }
 
 /** Absolute calendar date for a unix time in seconds, e.g. "3 March 2026" in the viewer's language. */
@@ -48,25 +69,8 @@ function formatOnDate(unixSeconds) {
   });
 }
 
-/** Shield that opens Protect. `notBackedUp` adds a text label for a folder with no backup yet. */
-export function ProtectButton({ label, onClick, notBackedUp = false }) {
-  if (notBackedUp) {
-    return (
-      <Tooltip content="Not backed up yet">
-        <Button
-          variant="ghost"
-          surface="secondary"
-          size="sm"
-          className="rounded-pill"
-          aria-label={`Back up ${label}`}
-          onClick={onClick}
-        >
-          <Shield size={ICON_SIZE.sm} aria-hidden="true" />
-          <span className="text-sm">Not backed up</span>
-        </Button>
-      </Tooltip>
-    );
-  }
+/** Shield that opens Protect. */
+export function ProtectButton({ label, onClick }) {
   return (
     <Tooltip content="Back up">
       <Button
@@ -83,8 +87,11 @@ export function ProtectButton({ label, onClick, notBackedUp = false }) {
 }
 
 /** Heading for one place copies can go: icon, name, whether it is on, and a one-line explanation. */
-/** @param {{ icon: any, title: string, hint?: any, on: boolean, children?: any }} props */
-function DestinationHeader({ icon: Icon, title, hint = null, on, children }) {
+/**
+ * `paused` is for a destination that has a backup but can't run it right now: it must not read "On".
+ * @param {{ icon: any, title: string, hint?: any, on: boolean, paused?: boolean, children?: any }} props
+ */
+function DestinationHeader({ icon: Icon, title, hint = null, on, paused = false, children }) {
   return (
     <div className="flex items-start gap-3">
       <IconCircle icon={Icon} size="sm" variant="secondary" className="shrink-0" />
@@ -94,8 +101,8 @@ function DestinationHeader({ icon: Icon, title, hint = null, on, children }) {
             {title}
             {hint}
           </h3>
-          <Pill variant={on ? "success" : "default"} className="shrink-0">
-            {on ? "On" : "Off"}
+          <Pill variant={paused ? "warning" : on ? "success" : "default"} className="shrink-0">
+            {paused ? "Paused" : on ? "On" : "Off"}
           </Pill>
         </div>
         {children}
@@ -150,15 +157,37 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
       ),
   });
   const privateItem = privateItemQuery.data;
+  // Bigger folders whose backup already holds this one, per backup drive or the cloud.
+  const coveredQuery = useQuery({
+    queryKey: ["backups", "covered", driveId, objectPath],
+    queryFn: () =>
+      getJson(
+        `/api/v1/backups/covered?drive=${encodeURIComponent(driveId)}&path=${encodeURIComponent(objectPath)}`,
+      ),
+  });
   const matchingBackups = backups.data || [];
   const driveList = drives.data || [];
-  const usedTargetIds = new Set(matchingBackups.map((b) => b.target_drive));
+  const covers = coveredQuery.data || [];
+  const driveCovers = covers.filter((c) => c.kind === "drive");
+  const cloudCover = covers.find((c) => c.kind === "cloud");
+  // A cover on a drive that already has its own backup row shows on that row instead.
+  const ownTargetIds = new Set(matchingBackups.map((b) => b.target_drive));
+  const strayDriveCovers = driveCovers.filter((c) => !ownTargetIds.has(c.target_drive));
+  const usedTargetIds = new Set([...ownTargetIds, ...driveCovers.map((c) => c.target_drive)]);
   const availableTargets = driveList.filter((d) => d.id !== driveId && !usedTargetIds.has(d.id));
   const tooFewDrives = driveList.length < 2;
-  const hasBackups = matchingBackups.length > 0;
+  const hasBackups = matchingBackups.length > 0 || driveCovers.length > 0;
   const cloudConnected = Boolean(connect.data?.connect_active);
   // Missing from older status replies: treat as on file, so only a clear false blocks backups.
   const cardOnFile = connect.data?.card_on_file !== false;
+  // Why a cloud backup can't run right now, in plain words; null when nothing stops it.
+  const cloudPausedReason = connect.isPending
+    ? null
+    : !cloudConnected
+    ? "Paused because this Luna isn't linked to Luna Connect. An Admin can add the device token in Settings → About."
+    : !cardOnFile
+      ? "Paused because Luna Connect has no payment card on file."
+      : null;
   const cloudBackup = (cloudQuery.data || []).find(
     (b) => b.source_drive === driveId && trimSlashes(b.source_path) === trimSlashes(objectPath),
   );
@@ -166,10 +195,8 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const isOthersPrivate = privateItem?.private === true && privateItem?.mine !== true;
   // The owner's own private item: keeps every control.
   const isOwnPrivate = privateItem?.private === true && privateItem?.mine === true;
-  // A folder inside a private item: back it up from the item's own shield instead.
-  const isInside = privateItem?.inside_private === true && privateItem?.private !== true;
-  const blockedCreate = isOthersPrivate || isInside;
-  const showCloudSection = !isOthersPrivate && (!isInside || Boolean(cloudBackup));
+  const blockedCreate = isOthersPrivate;
+  const showCloudSection = !isOthersPrivate;
 
   // The "Private items" row in See all backups and the private item list show these,
   // so a change made from this sheet must refresh them too.
@@ -248,9 +275,11 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     onSuccess: () => {
       addToast({ type: "success", message: "Cloud backup started." });
       setError(null);
+      queryClient.invalidateQueries({ queryKey: ["backups"] });
       queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
       refreshPrivateSummary();
     },
+    // A missing recovery phrase (409 needs_phrase) shows Luna's own message here, like any other refusal.
     onError: (err) => {
       haptic("error");
       setError(apiErrorMessage(err));
@@ -290,6 +319,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     onSuccess: () => {
       addToast({ type: "success", message: "Cloud backup deleted." });
       setDeletingCloud(null);
+      queryClient.invalidateQueries({ queryKey: ["backups"] });
       queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
       refreshPrivateSummary();
     },
@@ -341,27 +371,24 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                 "Only the owner can back up this item."
               )}
             </p>
-          ) : isInside ? (
-            <p className="text-primary text-sm">Back up the private item itself, from its own shield.</p>
+          ) : isOwnPrivate ? (
+            <>
+              <p className="text-primary text-sm">This {thingLabel} is private, so only you can back it up.</p>
+              {cloudConnected && (
+                <p className="text-primary text-sm">
+                  Its cloud copy opens only with your recovery phrase. Without the phrase, it can't be restored.
+                </p>
+              )}
+            </>
           ) : (
             <>
               <p className="text-primary text-sm">
-                Luna can keep copies of this {thingLabel} on other drives, and in the cloud, so you still have it if something goes wrong.
+                Copy this {thingLabel} to other drives plugged into Luna{cloudConnected ? " and to the cloud" : ""}, so you still have it if something goes wrong.
               </p>
-              {isOwnPrivate ? (
-                <>
-                  <p className="text-primary text-sm">
-                    Only you can back this up. Its cloud copy opens only with your recovery phrase.
-                  </p>
-                  <p className="text-primary text-sm">
-                    Private items inside aren't included. Their owners back them up separately.
-                  </p>
-                </>
-              ) : (
-                <p className="text-primary text-sm">
-                  Private items inside aren't included. Their owners back them up separately.
-                </p>
-              )}
+              <p className="text-primary text-sm">
+                Private items inside aren't backed up here. Each owner backs up their own.
+                <InfoHint content="Private items are ones someone has locked so only they can open them." />
+              </p>
             </>
           )}
         </div>
@@ -373,7 +400,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
             </DestinationHeader>
 
             {tooFewDrives && !blockedCreate ? (
-              <p className="text-sm">Needs another drive.</p>
+              <Pill variant="default" className="self-start">Needs another drive</Pill>
             ) : (
               <>
                 {matchingBackups.map((b) => (
@@ -381,15 +408,19 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                     key={b.id}
                     className="rounded-large-element surface-secondary p-4 space-y-3"
                   >
-                    {b.status === "active" ? (
+                    {b.status === "active" && b.covered_by ? (
+                      <>
+                        <LayeredPill actionLabel={b.target_drive_name}>Included in a bigger backup</LayeredPill>
+                        <CoveredNotice parent={b.covered_by} thing={thingLabel} />
+                      </>
+                    ) : b.status === "active" ? (
                       <>
                         <LayeredPill actionLabel={b.target_drive_name}>{backupHeadline(b)}</LayeredPill>
                         <BackupStatusNotice
                           state={b.state}
                           lastError={b.last_error}
                           lastOkAt={b.last_ok_at}
-                          staleText={`This ${thingLabel} hasn't been backed up in over a day.`}
-                        />
+                                                  />
                       </>
                     ) : (
                       <>
@@ -402,7 +433,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                       </>
                     )}
                     <div className="flex flex-wrap gap-2">
-                      {b.status === "active" && (!isOthersPrivate || b.can_delete) && (
+                      {b.status === "active" && !b.covered_by && (!isOthersPrivate || b.can_delete) && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -441,6 +472,14 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                         </Button>
                       )}
                     </div>
+                  </div>
+                ))}
+                {strayDriveCovers.map((c) => (
+                  <div key={c.target_drive} className="rounded-large-element surface-secondary p-4 space-y-3">
+                    <LayeredPill actionLabel={driveList.find((d) => d.id === c.target_drive)?.label || "Another drive"}>
+                      Included in a bigger backup
+                    </LayeredPill>
+                    <CoveredNotice parent={c} thing={thingLabel} />
                   </div>
                 ))}
                 {!blockedCreate && availableTargets.length > 0 && (
@@ -482,7 +521,8 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
               <DestinationHeader
                 icon={Cloud}
                 title="In the cloud"
-                on={Boolean(cloudBackup)}
+                on={(Boolean(cloudBackup) || Boolean(cloudCover)) && cloudPausedReason == null}
+                paused={Boolean(cloudBackup) && cloudPausedReason != null}
                 hint={
                   <InfoHint
                     surface="primary"
@@ -512,19 +552,38 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                 )}
               </DestinationHeader>
 
-              {cloudConnected && cloudBackup && (
+              {cloudBackup && (
                 <div className="rounded-large-element surface-secondary p-4 space-y-3">
-                  {cloudBackup.status === "active" ? (
+                  {cloudBackup.status === "active" && cloudBackup.covered_by ? (
+                    <>
+                      <LayeredPill actionLabel="Luna Connect">Included in a bigger backup</LayeredPill>
+                      <CoveredNotice parent={cloudBackup.covered_by} thing={thingLabel} />
+                    </>
+                  ) : cloudBackup.status === "active" ? (
+                    <>
+                    <LayeredPill actionLabel="Luna Connect">
+                      {cloudPausedReason ? "Paused" : backupHeadline(cloudBackup)}
+                    </LayeredPill>
+                    {cloudPausedReason && <p className="text-primary text-sm">{cloudPausedReason}</p>}
+                    {cloudBackup.source_missing === true && (
+                      <p className="text-primary text-sm">The original folder or drive isn't available right now.</p>
+                    )}
                     <BackupStatusNotice
                       state={cloudBackup.state}
                       lastError={cloudBackup.last_error}
                       lastOkAt={cloudBackup.last_ok_at}
-                      staleText="Luna copies files to the cloud every 6 hours. This cloud backup hasn't finished in over a day."
+                      staleText="Luna copies files to the cloud every 6 hours."
                     />
+                    </>
                   ) : (
-                    <p className="text-primary text-sm">
-                      {cloudBackup.stop_reason || "This cloud backup has stopped."}
-                    </p>
+                    <>
+                      <LayeredPill actionLabel="Luna Connect">
+                        {cloudBackup.status === "source_gone" ? "Original is gone" : "Stopped"}
+                      </LayeredPill>
+                      <p className="text-primary text-sm">
+                        {cloudBackup.stop_reason || "This cloud backup has stopped."}
+                      </p>
+                    </>
                   )}
                   {cloudBackup.old_phrase_copies && (
                     <p className="text-primary text-sm">
@@ -538,7 +597,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                     </p>
                   )}
                   <div className="flex flex-wrap gap-2">
-                    {cloudBackup.status === "active" && (
+                    {cloudBackup.status === "active" && !cloudBackup.covered_by && cloudPausedReason == null && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -550,7 +609,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                         Back up now
                       </Button>
                     )}
-                    {cloudBackup.status === "active" && cloudBackup.can_delete && (missingSourceId === cloudBackup.id || cloudBackup.source_missing === true) && (
+                    {cloudBackup.status === "active" && cloudPausedReason == null && cloudBackup.can_delete && (missingSourceId === cloudBackup.id || cloudBackup.source_missing === true) && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -586,7 +645,13 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                 </div>
               )}
 
-              {cloudConnected && !cloudBackup && !blockedCreate && (
+              {cloudConnected && !cloudBackup && cloudCover && (
+                <div className="rounded-large-element surface-secondary p-4">
+                  <CoveredNotice parent={cloudCover} thing={thingLabel} />
+                </div>
+              )}
+
+              {cloudConnected && !cloudBackup && !cloudCover && !blockedCreate && (
                 <Button
                   size="sm"
                   variant="secondary"

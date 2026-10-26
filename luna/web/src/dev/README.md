@@ -13,10 +13,15 @@ cd luna/web && npm run dev          # then open http://localhost:3001/__states
 
 - **Left:** every scenario, grouped by area, with a dot for pass / problem / retest.
 - **Middle:** the real app in a frame. Phone / tablet / desktop, light / dark.
-  *Reload* starts the scenario over with fresh data.
+  *Reload* starts the scenario over with fresh data. A full page load inside the frame
+  (sign-out redirect, update restart) keeps the data: the world is saved in
+  `sessionStorage`, and only Reload / "Open on its own" wipe it.
 - **Right:** what to check, a result box, and **Break things**: go offline, slow
   everything, expire the session, or make one request fail (500, 403, 409, hang,
-  empty or garbled answer). Any request with no mock shows a red banner.
+  empty or garbled answer). Any request with no mock shows a red banner, and a handler
+  that crashes shows "fake crashed: …" (a bug in the fake, never in the app).
+  Each rule shows how many requests it caught. **Sign in as** switches Admin / Member /
+  signed out for any scenario. "Recent requests" shows the answer when you click a row.
 - Keys (click outside the frame first): `j` / `k` next / previous, `p` passed,
   `f` write a problem, `r` reload.
 - Results save to `luna/web/testing/results.json` (commit it; it is the shared
@@ -46,6 +51,13 @@ at each step of a flow) · who (Admin, Member, signed out, session dies) · look
 (phone, tablet, desktop, light, dark) · hardware (full, read-only, failing,
 unplugged mid-copy).
 
+## Fault rules
+
+`METHOD /path` matches that exact path (trailing slash ignored). No method matches every
+method. `*` is a wildcard for any characters: `GET /api/v1/drives/*/files`. Add `?key=value`
+to also require query pairs. Nothing is a substring match. Scenario faults may carry
+`on: false` to be prepared but ticked on by the tester.
+
 ## Add fake endpoints
 
 `fake/world.js` holds the in-memory state; `fake/handlers/<area>.js` registers
@@ -53,8 +65,15 @@ routes (`get("/api/v1/x/:id", ({ world, params, body, user }) => …)`; throw
 errors with `fail(status, message)`). Import the file in `handlers/index.js`.
 Handlers must **change the world** so actions stick.
 
-`npm run states:coverage` lists every `/api/v1` path the app calls that still has
-no handler.
+**Answer what lunad answers.** Before changing a handler, read the matching Rust handler in
+`crates/lunad/src/api/` and copy its checks, status codes, messages and JSON. Who may do
+what comes only from `fake/policy.js` (a copy of lunad's `auth.rs` rules). Registering the
+same method + pattern twice throws, and a fixed segment beats a `:param`, so the order in
+`handlers/index.js` never matters. Jobs (`fake/jobs.js`) work like `jobs.rs`: a copy or
+cross-drive move copies first and trashes the original last; a failure removes the partial copy.
+
+`npm run states:coverage` reads the app's source (including URLs built by helpers) and lists
+every METHOD + path the app calls that the fake does not answer, or answers with another method.
 
 ## Real lunad only
 

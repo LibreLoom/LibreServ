@@ -96,7 +96,7 @@ fn require_admin(user: &CurrentUser) -> Result<(), ApiError> {
 fn not_set_up() -> ApiError {
     json_error(
         StatusCode::CONFLICT,
-        "Set up Luna Connect first, in Settings → Luna Connect.",
+        "Set up Luna Connect first, in Settings → About → Advanced.",
     )
 }
 

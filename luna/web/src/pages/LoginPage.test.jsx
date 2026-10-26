@@ -100,6 +100,18 @@ describe("LoginPage", () => {
     expect(screen.queryByText("LUNA HOME")).not.toBeInTheDocument();
   });
 
+  it("names each empty field instead of doing nothing", async () => {
+    stubFetch();
+    renderLogin();
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+    expect(await screen.findByText("Enter your username.")).toBeInTheDocument();
+    expect(screen.getByText("Enter your password.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Username", { selector: "input" }), { target: { value: "max" } });
+    expect(screen.queryByText("Enter your username.")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+    expect(screen.getByText("Enter your password.")).toBeInTheDocument();
+  });
+
   it("explains a wrong password in plain language", async () => {
     stubFetch({ loginOk: false });
     renderLogin();

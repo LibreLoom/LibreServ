@@ -14,6 +14,7 @@ import {
 	open,
 	packId,
 	phraseToEntropy,
+	scopeKeysFromSeed,
 	seal,
 	sealWith,
 	checkPublicKey,
@@ -284,3 +285,32 @@ describe('recovery phrase', () => {
 		expect(newEntropy()).not.toEqual(newEntropy());
 	});
 });
+
+describe('scope key vector (byte for byte, plan §5)', () => {
+	const scope = vectors.scope;
+	const ownerKeys = derive(hex(vectors.entropy), LUNA_ID);
+
+	it('derives the scope key pair from its seed', () => {
+		const keys = scopeKeysFromSeed(hex(scope.seed));
+		expect(bytesToHex(keys.sealSecret)).toBe(scope.seal_secret);
+		expect(bytesToHex(keys.sealPublic)).toBe(scope.seal_public);
+		expect(keys.sealPublic).toHaveLength(SEAL_PUBLIC_LEN);
+	});
+
+	it('reproduces the sealed scope secret, and the owner phrase opens it', () => {
+		const s = scope.scope_secret;
+		const sealed = sealWith(hex(s.ephemeral_secret), hex(s.mlkem_message), hex(s.nonce), ownerKeys.sealPublic, hex(s.aad), hex(s.msg));
+		expect(bytesToHex(sealed)).toBe(s.sealed);
+		expect(open(ownerKeys.sealSecret, hex(s.aad), hex(s.sealed))).toEqual(hex(s.msg));
+		expect(bytesToHex(open(ownerKeys.sealSecret, hex(s.aad), hex(s.sealed)))).toBe(scope.seal_secret);
+	});
+
+	it('reproduces the sealed pack key, which only the scope key opens', () => {
+		const s = scope.pack_key;
+		const sealed = sealWith(hex(s.ephemeral_secret), hex(s.mlkem_message), hex(s.nonce), hex(scope.seal_public), hex(s.aad), hex(s.msg));
+		expect(bytesToHex(sealed)).toBe(s.sealed);
+		expect(open(hex(scope.seal_secret), hex(s.aad), hex(s.sealed))).toEqual(hex(s.msg));
+		expect(() => open(ownerKeys.sealSecret, hex(s.aad), hex(s.sealed))).toThrow();
+	});
+});
+

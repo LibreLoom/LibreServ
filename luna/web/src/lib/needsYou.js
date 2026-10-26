@@ -1,4 +1,5 @@
 import { describeDriveHealth } from "./driveHealth.js";
+import { isUnopenable } from "./drives.js";
 import { formatBytes } from "./formatBytes.js";
 import { buildBackupItems, buildPhraseItem } from "./needsYouBackups.js";
 import { buildSystemCheckItems } from "./needsYouChecks.js";
@@ -7,9 +8,10 @@ import { buildSystemCheckItems } from "./needsYouChecks.js";
  * @typedef {{
  *   id: string,
  *   rank: number,
- *   tone: "problem" | "info",
+ *   tone: "problem" | "warning" | "info",
  *   title: Array<string | { name: string }>,
- *   detail?: string,
+ *   detail?: string | Array<string | { name: string }>,
+ *   hint?: string,
  *   action?: { label: string, ariaLabel?: string, href?: string, intent?: "open-backup" | "check-phrase", payload?: any },
  * }} NeedsYouItem
  */
@@ -18,7 +20,7 @@ import { buildSystemCheckItems } from "./needsYouChecks.js";
  * @typedef {{
  *   isAdmin: boolean,
  *   userId: string,
- *   drives: Array<{ id: string, label: string, state: string }>,
+ *   drives: Array<{ id: string, label: string, state: string, mounted?: boolean }>,
  *   drivesLoading: boolean,
  *   driveSummaries: Record<string, { mounted?: boolean, total_bytes?: number | null, free_bytes?: number | null } | undefined>,
  *   driveHealth: Record<string, object | null | undefined>,
@@ -28,6 +30,7 @@ import { buildSystemCheckItems } from "./needsYouChecks.js";
  *   connect: { device_token_error?: string } | null,
  *   network: { has_default_route?: boolean } | null,
  *   detected: any[],
+ *   now?: number,
  * }} NeedsYouInput
  */
 
@@ -39,7 +42,7 @@ const ALMOST_FULL_RATIO = 0.1;
  * Admins see drive, system, network, token and storage rows. Everyone sees
  * the backup rows they may open and the recovery phrase reminder.
  *
- * Pure: it reads only its input, never fetches, and never reads the clock.
+ * Pure: it reads only its input and never fetches. It reads the clock only when `now` is not given.
  *
  * @param {NeedsYouInput} input
  * @returns {NeedsYouItem[]}
@@ -53,7 +56,7 @@ export function buildNeedsYouItems(input) {
   const items = [];
   if (isAdmin) items.push(...buildAdminItems(input));
 
-  items.push(...buildBackupItems({ backupRows, isAdmin, userId }));
+  items.push(...buildBackupItems({ backupRows, isAdmin, userId, now: input?.now }));
   const phraseItem = buildPhraseItem({ backupRows, phrase: input?.phrase ?? null, isAdmin, userId });
   if (phraseItem) items.push(phraseItem);
 
@@ -79,16 +82,17 @@ function buildAdminItems(input) {
   for (const drive of drives) {
     if (!drive) continue;
 
-    if (drive.state === "failed") {
-      items.push(driveFailedItem(drive));
+    if (isUnopenable(drive)) {
+      items.push(driveUnopenableItem(drive));
       coveredDriveLabels.push(drive.label);
+      continue;
     }
 
     const health = driveHealth[drive.id];
     if (health != null) {
       const copy = describeDriveHealth(/** @type {any} */ (health));
-      if (copy && (copy.pill === "warning" || copy.pill === "error")) {
-        items.push(driveHealthItem(drive, copy));
+      if (copy?.needsYou) {
+        items.push(driveHealthItem(drive, copy.needsYou));
         coveredDriveLabels.push(drive.label);
       }
     }
@@ -120,33 +124,39 @@ function buildAdminItems(input) {
   return items;
 }
 
+/** Where a drive's problem is explained: its card on the Files page. */
+const whatsWrongAction = (/** @type {{ id: string }} */ drive) => ({
+  label: "See what's wrong",
+  href: `/files#drive-${drive.id}`,
+});
+
 /** @param {{ id: string, label: string }} drive
  * @returns {NeedsYouItem}
  */
-function driveFailedItem(drive) {
+function driveUnopenableItem(drive) {
   return {
-    id: `drive-failed:${drive.id}`,
-    rank: 10,
+    id: `drive-unopenable:${drive.id}`,
+    rank: 15,
     tone: "problem",
-    title: [{ name: drive.label }, " ran into a problem"],
-    detail: "Open Files to see what Luna found.",
-    action: { label: "Open Files", href: "/files" },
+    title: [{ name: drive.label }, " can't be opened"],
+    detail: "Its files and free space aren't available. Unplug it and plug it back in.",
+    action: whatsWrongAction(drive),
   };
 }
 
 /**
  * @param {{ id: string, label: string }} drive
- * @param {{ pill: string, detail: string }} copy
+ * @param {{ tone: "problem" | "warning", rank: number, title: string, detail: string }} needsYou
  * @returns {NeedsYouItem}
  */
-function driveHealthItem(drive, copy) {
+function driveHealthItem(drive, needsYou) {
   return {
     id: `drive-health:${drive.id}`,
-    rank: 30,
-    tone: "problem",
-    title: [{ name: drive.label }, copy.pill === "error" ? " needs attention" : " is working, with a warning"],
-    detail: copy.detail,
-    action: { label: "Open Files", href: "/files" },
+    rank: needsYou.rank,
+    tone: needsYou.tone,
+    title: [{ name: drive.label }, needsYou.title],
+    detail: needsYou.detail,
+    action: whatsWrongAction(drive),
   };
 }
 

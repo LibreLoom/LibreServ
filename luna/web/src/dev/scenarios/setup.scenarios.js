@@ -1,17 +1,24 @@
 import { DEFAULT_NOW } from "../fake/world.js";
 
 const ok = (message) => ({ status: "passed", message });
-const PASS = { healthy: true, checks: { disk_space: ok("Plenty of space"), network: ok("Connected"), database: ok("Working") } };
+const PASS = {
+  healthy: true,
+  checks: {
+    disk_space: ok("12.4 GB free on Luna's system disk."),
+    network: ok("Connected to your router or modem, with a path to the internet."),
+    database: ok("Accounts, sharing, and settings are readable."),
+  },
+};
 const WARN = {
   healthy: true,
-  checks: { ...PASS.checks, video_tools: { status: "warning", message: "Video previews won't work until a tool is installed.", more: "Everything else works." } },
+  checks: { ...PASS.checks, video_tools: { status: "warning", message: "Videos get no preview pictures or length.", more: "Photos shows these for each video, made with video tools that are missing. Videos can still be played and downloaded." } },
 };
 const FAIL = {
   healthy: false,
   checks: {
     ...PASS.checks,
-    disk_space: { status: "failed", message: "Luna has almost no free space left on its own storage." },
-    network: { status: "failed", message: "Luna can't reach the internet." },
+    disk_space: { status: "failed", message: "Luna's own storage (its system disk) is almost full. Free some space on it, or Luna may stop working.", more: "This is the disk where Luna keeps its accounts and settings; your files are on your drives." },
+    network: { status: "warning", message: "Luna can't reach the internet.", more: "Updates, setting the clock, and Luna Connect (remote access and cloud backup) need the internet. Luna still works on your home network; check that your router or modem is online." },
   },
 };
 
@@ -20,6 +27,7 @@ const fresh = (over = {}) => (w) => {
   w.users = [];
   w.sessionUserId = null;
   w.hasAdmin = false;
+  w.phrase = { ...w.phrase, set: false }; // a new account has no recovery phrase yet
   w.setup = { name: "Luna", setup_completed: false, current_step: "welcome", step_data: {} };
   over.setup && Object.assign(w.setup, over.setup);
   if (over.preflight) w.preflight = over.preflight;
@@ -27,7 +35,7 @@ const fresh = (over = {}) => (w) => {
 };
 
 const STEPS_CHECK = [
-  "Welcome → System check → Account → Name → Done, with a step counter",
+  "Welcome → System check → Account → Recovery phrase → Name → Done, with a step counter",
   "Back works on every step and keeps what you typed",
 ];
 
@@ -101,6 +109,7 @@ export default [
       w.users = [{ id: "u1", username: "max", display_name: "Max", role: "admin", created_at: DEFAULT_NOW / 1000 }];
       w.hasAdmin = true;
       w.sessionUserId = "u1";
+      w.phrase = { ...w.phrase, set: true };
     },
     check: ["Resumes at naming, signed in", "Finishing works"],
   },
@@ -133,7 +142,7 @@ export default [
     title: "Account step: creating the account fails",
     url: "/setup",
     seed: fresh({ setup: { current_step: "account", step_data: { preflight_passed: true } } }),
-    faults: [{ match: "POST /api/v1/auth/register", mode: "500", message: "Luna couldn't save the account." }],
+    faults: [{ match: "POST /api/v1/auth/register", mode: "500", message: "Luna couldn't do that. Try again." }],
     check: ["Message is shown next to the form", "Typed answers are kept for another try"],
   },
   {
@@ -157,8 +166,9 @@ export default [
       w.users = [{ id: "u1", username: "max", display_name: "Max", role: "admin", created_at: DEFAULT_NOW / 1000 }];
       w.hasAdmin = true;
       w.sessionUserId = "u1";
+      w.phrase = { ...w.phrase, set: true };
     },
-    faults: [{ match: "POST /api/v1/setup", mode: "500", message: "Luna couldn't finish setup." }],
+    faults: [{ match: "POST /api/v1/setup", mode: "500", message: "Luna couldn't save setup progress." }],
     check: ["The name you typed stays in the box", "An error says finishing failed and to try again"],
   },
   {
@@ -167,8 +177,75 @@ export default [
     title: "Saving progress fails between steps",
     url: "/setup",
     seed: fresh(),
-    faults: [{ match: "POST /api/v1/setup", mode: "500" }],
+    faults: [{ match: "POST /api/v1/setup", mode: "500", message: "Luna couldn't save setup progress." }],
     check: ["Pressing Begin shows 'couldn't save your setup progress'", "You stay on the same step"],
+  },
+  {
+    id: "setup/phrase-step",
+    area: "Setup",
+    title: "Recovery phrase step",
+    url: "/setup",
+    seed: (w) => {
+      fresh({ setup: { current_step: "phrase", step_data: { account_completed: true, preflight_passed: true } } })(w);
+      w.users = [{ id: "u1", username: "max", display_name: "Max", role: "admin", created_at: DEFAULT_NOW / 1000 }];
+      w.hasAdmin = true;
+      w.sessionUserId = "u1";
+    },
+    check: ["Shows a new phrase to write down, then asks you to confirm it", "Saving it moves on to naming Luna", "Copy and download both work"],
+  },
+  {
+    id: "setup/phrase-refresh",
+    area: "Setup",
+    title: "Refreshed on the recovery phrase step",
+    url: "/setup",
+    seed: (w) => {
+      fresh({ setup: { current_step: "phrase", step_data: { account_completed: true, preflight_passed: true } } })(w);
+      w.users = [{ id: "u1", username: "max", display_name: "Max", role: "admin", created_at: DEFAULT_NOW / 1000 }];
+      w.hasAdmin = true;
+      w.sessionUserId = "u1";
+    },
+    check: ["After a refresh a NEW phrase is shown, with the line about leaving the page", "The old phrase is never kept"],
+  },
+  {
+    id: "setup/phrase-identity-fails",
+    area: "Setup",
+    title: "Recovery phrase step: Luna can't set up its backup identity",
+    url: "/setup",
+    seed: (w) => {
+      fresh({ setup: { current_step: "phrase", step_data: { account_completed: true, preflight_passed: true } } })(w);
+      w.users = [{ id: "u1", username: "max", display_name: "Max", role: "admin", created_at: DEFAULT_NOW / 1000 }];
+      w.hasAdmin = true;
+      w.sessionUserId = "u1";
+    },
+    faults: [{ match: "POST /api/v1/cloud/identity", mode: "409", message: "Luna could not set up its backup identity. Try again, or contact your Admin." }],
+    check: ["The message is shown on the step, in plain words", "Nothing is saved; trying again works once the rule is off"],
+  },
+  {
+    id: "setup/phrase-save-fails",
+    area: "Setup",
+    title: "Recovery phrase step: saving fails",
+    url: "/setup",
+    seed: (w) => {
+      fresh({ setup: { current_step: "phrase", step_data: { account_completed: true, preflight_passed: true } } })(w);
+      w.users = [{ id: "u1", username: "max", display_name: "Max", role: "admin", created_at: DEFAULT_NOW / 1000 }];
+      w.hasAdmin = true;
+      w.sessionUserId = "u1";
+    },
+    faults: [{ match: "PUT /api/v1/cloud/phrase", mode: "500", message: "Luna couldn't save that. Try again." }],
+    check: ["The inline error keeps the confirm step and what you typed"],
+  },
+  {
+    id: "setup/finish-without-phrase",
+    area: "Setup",
+    title: "Naming step saved, but no recovery phrase yet",
+    url: "/setup",
+    seed: (w) => {
+      fresh({ setup: { current_step: "name", step_data: { account_completed: true, preflight_passed: true } } })(w);
+      w.users = [{ id: "u1", username: "max", display_name: "Max", role: "admin", created_at: DEFAULT_NOW / 1000 }];
+      w.hasAdmin = true;
+      w.sessionUserId = "u1";
+    },
+    check: ["Luna won't finish setup without a phrase: the wizard resumes on the recovery phrase step"],
   },
   {
     id: "setup/phone-dark",
