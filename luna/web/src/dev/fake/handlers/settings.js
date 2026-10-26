@@ -31,7 +31,7 @@ post("/api/v1/device-tokens", ({ world, user, body }) => {
 });
 get("/api/v1/device-tokens/:id/usage", ({ world, user, params }) => {
   if (!mineOf(world, user).some((t) => t.id === params.id)) return fail(404, "Luna doesn't know this access token.");
-  return world.tokenUsage?.[params.id] ?? [];
+  return (world.tokenUsage?.[params.id] ?? []).map((u) => ({ client: "", origin: "", ...u }));
 });
 del("/api/v1/device-tokens/:id", ({ world, user, params }) => {
   if (!mineOf(world, user).some((t) => t.id === params.id)) return fail(404, "Luna doesn't know this access token.");

@@ -683,6 +683,9 @@ mod http_tests {
     async fn list_jobs_records_the_list_shape() {
         // A plain admin list so the contract recorder captures GET /api/v1/jobs.
         let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("docs")).unwrap();
+        std::fs::write(mount.path().join("docs/note.txt"), b"hi").unwrap();
+        std::fs::create_dir_all(mount.path().join("Archive")).unwrap();
         let (_dir, app) = test_app(mount.path());
         let (cookie, csrf) = admin_cookie(&app).await;
         let res = app
@@ -690,7 +693,7 @@ mod http_tests {
             .oneshot(json_req(
                 Method::POST,
                 "/api/v1/jobs",
-                r#"{"kind":"copy","from_drive":"photos","from_path":"notes.txt","to_drive":"photos","to_path":"Archive"}"#,
+                r#"{"kind":"copy","from_drive":"photos","from_path":"docs/note.txt","to_drive":"photos","to_path":"Archive"}"#,
                 &cookie,
                 &csrf,
             ))

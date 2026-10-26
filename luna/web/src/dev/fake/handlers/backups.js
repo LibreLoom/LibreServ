@@ -261,7 +261,7 @@ get("/api/v1/drives/:id/backups/:bid/list", ({ world, user, params, query }) => 
   const rel = cleanRel(query.path);
   const src = fsOf(world, row.source_drive);
   const root = clean(row.source_path);
-  const folder = join(root, rel);
+  const folder = clean(join(root, rel));
   const folderNode = folder ? src.nodes[folder] : { kind: "dir" };
   const deletedHere = src.trash.filter((t) => pathContains(folder, t.original_path) && t.original_path !== folder);
   if ((!folderNode || folderNode.kind !== "dir") && !deletedHere.length) throw fail(404, "Luna couldn't find that folder in this backup.");

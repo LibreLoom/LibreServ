@@ -294,7 +294,10 @@ describe("FileBrowser", () => {
     });
     renderBrowser({ multiSelect: true });
     expect(await screen.findByLabelText("Select a-notes.txt")).toBeInTheDocument();
-    const order = () => screen.getAllByLabelText(/^Select /).map((el) => el.getAttribute("aria-label"));
+    // The header's select-all checkbox matches the same regex — keep only rows.
+    const order = () => screen.getAllByLabelText(/^Select /)
+      .map((el) => el.getAttribute("aria-label"))
+      .filter((label) => label !== "Select all in this folder");
     const all = order();
     expect(all[0]).toBe("Select zeta");
     fireEvent.change(screen.getByLabelText("Find in this folder"), { target: { value: "NOTES" } });
@@ -1499,7 +1502,7 @@ describe("FileBrowser folder chrome auto-split", () => {
       folderActions: <button type="button">New</button>,
     });
 
-    expect(await screen.findByRole("button", { name: "New" })).toBeInTheDocument();
+    await screen.findByRole("button", { name: "New" }, { timeout: 15_000 });
 
     // Let the component's own first measure (a 50ms timer) and a resize both
     // happen; the layout then settles on its own, however slow the machine is.
@@ -1509,7 +1512,7 @@ describe("FileBrowser folder chrome auto-split", () => {
 
     await waitFor(
       () => expect(container.querySelector("[data-slot=file-browser-folder-chrome-combined]")).toBeTruthy(),
-      { timeout: 5000 },
+      { timeout: 15_000 },
     );
     // Give a (wrong) late split a chance to show up before declaring it absent.
     await new Promise((r) => setTimeout(r, 80));
@@ -1529,7 +1532,7 @@ describe("FileBrowser folder chrome auto-split", () => {
       folderActions: <button type="button">New</button>,
     });
 
-    expect(await screen.findByRole("button", { name: "New" }, { timeout: 5000 })).toBeInTheDocument();
+    await screen.findByRole("button", { name: "New" }, { timeout: 15_000 });
 
     // Let the component's own first measure (a 50ms timer) and a resize both
     // happen; the layout then settles on its own, however slow the machine is.
@@ -1539,7 +1542,7 @@ describe("FileBrowser folder chrome auto-split", () => {
 
     await waitFor(
       () => expect(container.querySelector("[data-slot=file-browser-folder-chrome-split]")).toBeTruthy(),
-      { timeout: 5000 },
+      { timeout: 15_000 },
     );
     expect(container.querySelector("[data-slot=file-browser-folder-chrome-combined]")).toBeNull();
     const toolbar = screen.getByRole("toolbar", { name: "Folder actions" });

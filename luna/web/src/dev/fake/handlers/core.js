@@ -9,7 +9,7 @@ import { nextId, smartHealth, summary, user as makeUser } from "../world.js";
 import { interruptJobs } from "../jobs.js";
 import { fsOf, nowS } from "../fsmodel.js";
 
-const unmounted = (id) => ({ id, mounted: false, total_bytes: null, free_bytes: null, used_bytes: null, shortcuts: [] });
+const unmounted = (id) => ({ id, mounted: false, total_bytes: null, free_bytes: null, used_bytes: null, folders: null, files: null, shortcuts: [] });
 const healthy = () => smartHealth();
 const lastAdmin = (world, id) => world.users.filter((u) => u.role === "admin").every((u) => u.id === id);
 const DEVICE_TOKEN_REJECTED = "Luna Connect did not accept this device token. It may be mistyped, revoked, or meant for a different Luna. Open Luna on a phone or computer, then go to Settings → About → Advanced and paste a new device token.";
@@ -440,7 +440,7 @@ get("/api/v1/network/status", ({ world, user }) => {
 get("/api/v1/connect/status", ({ world, user }) => {
   const admin = isAdmin(user) || world.users.length === 0;
   const { device_code: code, device_token_error: _gone, ...rest } = world.connect;
-  const status = { connect_active: false, enabled: false, base_url: "https://connect.luna.libreloom.org", tunnel_active: false, backup_unlocked: false, paired: false, unclaimed: false, backup_sources: [], card_on_file: true, device_code: code ?? null, ...rest };
+  const status = { connect_active: false, enabled: false, base_url: "https://connect.luna.libreloom.org", tunnel_active: false, backup_unlocked: false, paired: false, unclaimed: false, backup_sources: [], card_on_file: true, device_code: code ?? null, domain: null, hostname: null, subdomain: null, ...rest };
   if (status.device_token_error) Object.assign(status, { enabled: false, paired: false, unclaimed: false, tunnel_active: false });
   delete status.device_token_error;
   if (!admin) status.backup_sources = [];

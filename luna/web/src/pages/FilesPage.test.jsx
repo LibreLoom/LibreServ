@@ -597,7 +597,9 @@ describe("FilesPage", () => {
     expect(screen.getByText(/sdmock · exFAT/i)).toBeInTheDocument();
     // Card-style collapsible + ValueDisplay rows (storage is outside)
     expect(toggle.closest("[data-slot=collapsible]")?.className).toMatch(/rounded-large-element/);
-    expect(document.querySelectorAll("[data-slot=value-display]")).toHaveLength(3);
+    // The drive's health section above adds its own ValueDisplay row, so
+    // count the rows of this panel, not the whole document.
+    expect(panel.querySelectorAll("[data-slot=value-display]")).toHaveLength(3);
   });
 
   it("shows ejected drives as Ejected without Open files or Eject safely", async () => {
@@ -1058,8 +1060,10 @@ describe("FilesPage", () => {
   it("shows a failing drive with a Failing pill and no Ready", async () => {
     stubDrivesApi({ fetch: driveFetch(D1, FAILING_HEALTH) });
     renderPage();
-    const pill = await screen.findByText(/^Failing$/);
-    expect(pill).toBeInTheDocument();
+    // The failing drive says it twice: the card's status pill and the health
+    // section's own pill.
+    const pills = await screen.findAllByText(/^Failing$/);
+    expect(pills).toHaveLength(2);
     expect(screen.queryByText(/^Ready$/)).not.toBeInTheDocument();
     expect(screen.getByText(/This drive is failing\. Copy your files to another drive now\./)).toBeInTheDocument();
     expect(screen.queryByText(/needs attention/i)).not.toBeInTheDocument();

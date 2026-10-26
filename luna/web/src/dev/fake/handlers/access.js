@@ -211,7 +211,7 @@ function myRows(w, user) {
       });
     }
   }
-  return [...rows, ...sh.withMe];
+  return [...rows, ...sh.withMe.map((r) => ({ created_by: "", ...r }))];
 }
 
 get("/api/v1/access/mine", ({ world, user }) => {

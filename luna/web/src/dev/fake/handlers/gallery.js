@@ -36,7 +36,7 @@ function albumRow(w, a) {
     locked: Boolean(a.locked),
     item_count: a.fakeCount ?? keys.length,
     cover_thumb: cover?.thumb || a.cover_thumb || "",
-    created_at: a.created_at,
+    created_at: a.created_at ?? Math.floor(Date.now() / 1000),
   };
 }
 
