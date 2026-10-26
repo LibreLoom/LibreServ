@@ -1,6 +1,10 @@
 //! Product-managed Tailscale lifecycle. The node key lives beside Luna's data,
 //! while the local API socket is private to lunad. No auth key is accepted here.
 use serde_json::{Value, json};
+use std::collections::HashSet;
+use std::io::Read;
+use std::os::fd::AsRawFd;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
@@ -8,10 +12,10 @@ use std::time::{Duration, Instant};
 
 // The managed node is a singleton per lunad process. Serializing lifecycle and
 // status commands prevents a poll from unlinking a live socket during startup.
-static LIFECYCLE: OnceLock<Mutex<()>> = OnceLock::new();
-fn lifecycle() -> std::sync::MutexGuard<'static, ()> {
+static LIFECYCLE: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+fn lifecycle() -> std::sync::MutexGuard<'static, HashSet<PathBuf>> {
     LIFECYCLE
-        .get_or_init(|| Mutex::new(()))
+        .get_or_init(|| Mutex::new(HashSet::new()))
         .lock()
         .unwrap_or_else(|e| e.into_inner())
 }
@@ -40,27 +44,118 @@ fn enabled(data: &Path) -> bool {
 }
 
 fn command(data: &Path, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("timeout")
-        .args(["-k", "1", "-s", "TERM", "2"])
-        .arg(cli())
+    let mut child = Command::new(cli())
         .arg("--socket")
         .arg(socket(data))
         .args(args)
-        .output()
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .process_group(0)
+        .spawn()
         .map_err(|e| format!("Tailscale is not installed: {e}"))?;
-    if !out.status.success() {
+    let mut stdout = child.stdout.take().unwrap();
+    let mut stderr = child.stderr.take().unwrap();
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    let mut pipes_ready = false;
+    let mut owns_child = true;
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let result = (|| -> Result<(), String> {
+        for fd in [stdout.as_raw_fd(), stderr.as_raw_fd()] {
+            // Pipes must not keep this call alive when a child inherits them.
+            if unsafe { libc::fcntl(fd, libc::F_SETFL, libc::O_NONBLOCK) } == -1 {
+                return Err(std::io::Error::last_os_error().to_string());
+            }
+        }
+        pipes_ready = true;
+        loop {
+            drain_command_pipe(&mut stdout, &mut out)?;
+            drain_command_pipe(&mut stderr, &mut err)?;
+            // Observe exit without reaping: retaining our child reserves its
+            // PID, so the process group below cannot belong to a reused PID.
+            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            if unsafe {
+                libc::waitid(
+                    libc::P_PID,
+                    child.id(),
+                    &mut info,
+                    libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+                )
+            } == -1
+            {
+                let error = std::io::Error::last_os_error();
+                if error.raw_os_error() == Some(libc::ECHILD) {
+                    owns_child = false;
+                }
+                return Err(error.to_string());
+            }
+            if info.si_signo != 0 {
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                return Err("Tailscale command timed out.".into());
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    })();
+    // We created this group and have not reaped its leader. Stop descendants
+    // too, including a helper holding stdout open after the CLI exits.
+    if owns_child {
+        unsafe { libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL) };
+    }
+    let reap_deadline = Instant::now() + Duration::from_millis(500);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Err(_) => break None,
+            Ok(None) if Instant::now() < reap_deadline => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Ok(None) => {
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
+                break None;
+            }
+        }
+    };
+    if pipes_ready {
+        let _ = drain_command_pipe(&mut stdout, &mut out);
+        let _ = drain_command_pipe(&mut stderr, &mut err);
+    }
+    if result.is_err() || !status.is_some_and(|status| status.success()) {
         return Err(format!(
-            "{} {}",
-            String::from_utf8_lossy(&out.stdout).trim(),
-            String::from_utf8_lossy(&out.stderr).trim()
+            "{} {} {}",
+            String::from_utf8_lossy(&out).trim(),
+            String::from_utf8_lossy(&err).trim(),
+            result.err().unwrap_or_default()
         )
         .trim()
         .to_string());
     }
-    if !out.stderr.is_empty() {
-        tracing::warn!(detail = %String::from_utf8_lossy(&out.stderr).trim(), "Tailscale command warning");
+    if !err.is_empty() {
+        tracing::warn!(detail = %String::from_utf8_lossy(&err).trim(), "Tailscale command warning");
     }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    Ok(String::from_utf8_lossy(&out).into_owned())
+}
+
+fn drain_command_pipe(pipe: &mut impl Read, output: &mut Vec<u8>) -> Result<(), String> {
+    let mut buf = [0; 8192];
+    // Bound both stored output and work per poll, even for a noisy helper.
+    for _ in 0..8 {
+        match pipe.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                let keep = n.min((1024 * 1024usize).saturating_sub(output.len()));
+                output.extend_from_slice(&buf[..keep]);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    Ok(())
 }
 
 fn ensure_daemon(data: &Path) -> Result<(), String> {
@@ -81,15 +176,16 @@ fn ensure_daemon(data: &Path) -> Result<(), String> {
         }
         return Ok(());
     }
+    let pid = std::fs::read_to_string(root(data).join("tailscaled.pid")).ok();
+    if pid
+        .as_deref()
+        .and_then(|p| p.trim().parse::<u32>().ok())
+        .is_some_and(|p| managed_daemon_pid(data, p))
+    {
+        return Err("Tailscale is starting but not responding yet.".into());
+    }
+    verify_socket_stopped(data)?;
     if socket(data).exists() {
-        let pid = std::fs::read_to_string(root(data).join("tailscaled.pid")).ok();
-        let alive = pid
-            .as_deref()
-            .and_then(|p| p.trim().parse::<u32>().ok())
-            .is_some_and(|p| managed_daemon_pid(data, p));
-        if alive {
-            return Err("Tailscale is starting but not responding yet.".into());
-        }
         std::fs::remove_file(socket(data)).map_err(|e| e.to_string())?;
     }
     let mut child = Command::new(daemon())
@@ -215,7 +311,7 @@ fn status_json(data: &Path, port: u16) -> Value {
         out["residual_exposure"] = json!(true);
         return out;
     }
-    if port == 0 {
+    if port == 0 && (enabled(data) || state(data).exists()) {
         out["state"] = json!("error");
         out["error"] =
             json!("Tailscale access is unavailable. Restart Luna and try connecting again.");
@@ -297,7 +393,10 @@ pub fn status(data: &Path, port: u16) -> Value {
     status_json(data, port)
 }
 pub fn connect(data: &Path, port: u16) -> Result<Value, String> {
-    let _guard = lifecycle();
+    let guard = lifecycle();
+    if guard.contains(data) {
+        return Err("Luna is shutting down.".into());
+    }
     require_proxy(port)?;
     ensure_daemon(data)?;
     std::fs::write(root(data).join("enabled"), b"1").map_err(|e| e.to_string())?;
@@ -306,9 +405,13 @@ pub fn connect(data: &Path, port: u16) -> Result<Value, String> {
         &["up", "--accept-dns=false", "--json", "--timeout=2s"],
     ) {
         Ok(raw) => raw,
-        Err(error) if save_auth_url(data, &error) => return Ok(status_json(data, port)),
+        Err(error) if save_auth_url(data, &error) => {
+            let _ = std::fs::remove_file(root(data).join("last-error"));
+            return Ok(status_json(data, port));
+        }
         Err(error) => return Err(error),
     };
+    let _ = std::fs::remove_file(root(data).join("last-error"));
     if let Ok(v) = serde_json::from_str::<Value>(&raw)
         && let Some(url) = v.get("AuthURL").and_then(Value::as_str)
     {
@@ -317,7 +420,10 @@ pub fn connect(data: &Path, port: u16) -> Result<Value, String> {
     Ok(status_json(data, port))
 }
 pub fn reconnect(data: &Path, port: u16) -> Result<Value, String> {
-    let _guard = lifecycle();
+    let guard = lifecycle();
+    if guard.contains(data) {
+        return Err("Luna is shutting down.".into());
+    }
     if !enabled(data) {
         return Err("Connect Tailscale first.".into());
     }
@@ -332,9 +438,13 @@ pub fn reconnect(data: &Path, port: u16) -> Result<Value, String> {
         &["up", "--accept-dns=false", "--json", "--timeout=2s"],
     ) {
         Ok(raw) => raw,
-        Err(error) if save_auth_url(data, &error) => return Ok(status_json(data, port)),
+        Err(error) if save_auth_url(data, &error) => {
+            let _ = std::fs::remove_file(root(data).join("last-error"));
+            return Ok(status_json(data, port));
+        }
         Err(error) => return Err(error),
     };
+    let _ = std::fs::remove_file(root(data).join("last-error"));
     if let Ok(v) = serde_json::from_str::<Value>(&raw)
         && let Some(url) = v.get("AuthURL").and_then(Value::as_str)
     {
@@ -354,7 +464,10 @@ fn save_auth_url(data: &Path, raw: &str) -> bool {
     std::fs::write(root(data).join("auth-url"), url).is_ok()
 }
 pub fn serve(data: &Path, port: u16, public: bool) -> Result<Value, String> {
-    let _guard = lifecycle();
+    let guard = lifecycle();
+    if guard.contains(data) {
+        return Err("Luna is shutting down.".into());
+    }
     serve_inner(data, port, public)
 }
 
@@ -534,6 +647,9 @@ fn remove_if_present(path: &Path) -> Result<(), String> {
     match std::fs::remove_file(path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::IsADirectory => {
+            std::fs::remove_dir(path).map_err(|e| e.to_string())
+        }
         Err(e) => Err(e.to_string()),
     }
 }
@@ -545,9 +661,8 @@ fn stop_daemon(data: &Path) -> Result<(), String> {
     let Some(pid) = pid.filter(|p| managed_daemon_pid(data, *p)) else {
         return verify_socket_stopped(data);
     };
-    let _ = Command::new("kill")
-        .args(["-KILL", &pid.to_string()])
-        .status();
+    // Only signal a PID whose executable and exact state argument we verified.
+    unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
     for _ in 0..40 {
         if !managed_daemon_pid(data, pid) && verify_socket_stopped(data).is_ok() {
             return Ok(());
@@ -558,9 +673,6 @@ fn stop_daemon(data: &Path) -> Result<(), String> {
 }
 
 fn verify_socket_stopped(data: &Path) -> Result<(), String> {
-    if !socket(data).exists() {
-        return Ok(());
-    }
     let sockets = std::fs::read_to_string("/proc/net/unix")
         .map_err(|e| format!("Could not verify Tailscale's socket stopped: {e}"))?;
     for line in sockets.lines() {
@@ -580,22 +692,39 @@ fn verify_socket_stopped(data: &Path) -> Result<(), String> {
 
 pub fn forget(data: &Path, port: u16) -> Result<Value, String> {
     let _guard = lifecycle();
-    let result = disable_inner(data, port)?;
-    if result["residual_exposure"] == true {
+    let result = disable_inner(data, port);
+    if let Ok(result) = &result
+        && result["residual_exposure"] == true
+    {
         return Err(result["error"]
             .as_str()
             .unwrap_or("Tailscale could not be stopped.")
             .to_string());
     }
+    // Even failed marker writes can be recovered from once stop is verified.
+    // Reset only clears the database, so an uncertain live identity must stay.
+    stop_daemon(data)?;
+    if let Err(error) = result {
+        tracing::warn!(%error, "Could not persist Tailscale shutdown intent; removing identity after verified stop");
+    }
+    for path in [state(data), root(data).join("enabled")] {
+        remove_if_present(&path)?;
+    }
     for path in [
-        state(data),
         socket(data),
         root(data).join("tailscaled.pid"),
         root(data).join("reset-required"),
         root(data).join("last-error"),
         root(data).join("stop-failed"),
+        root(data).join("serve-mode"),
+        root(data).join("restore-serve"),
+        root(data).join("auth-url"),
+        root(data).join("approval-url"),
+        root(data).join("approval-type"),
     ] {
-        remove_if_present(&path)?;
+        if let Err(error) = remove_if_present(&path) {
+            tracing::warn!(%error, ?path, "Could not remove old Tailscale metadata after verified stop and identity removal");
+        }
     }
     Ok(status_json(data, port))
 }
@@ -612,7 +741,10 @@ fn require_proxy(port: u16) -> Result<(), String> {
 /// Stop the old target before moving its loopback port. Restore only the
 /// exposure mode the Admin already selected, after the new listener is ready.
 pub fn prepare_proxy_move(data: &Path) -> Result<(), String> {
-    let _guard = lifecycle();
+    let guard = lifecycle();
+    if guard.contains(data) {
+        return Err("Luna is shutting down.".into());
+    }
     let was_enabled = enabled(data);
     let mode = std::fs::read_to_string(root(data).join("serve-mode"))
         .or_else(|_| std::fs::read_to_string(root(data).join("restore-serve")))
@@ -630,10 +762,21 @@ pub fn prepare_proxy_move(data: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Stop the verified managed daemon while keeping the selected mode and node
+/// identity for the next boot. The lifecycle lock also rejects queued starts.
+pub fn stop_for_shutdown(data: &Path) -> Result<(), String> {
+    let mut guard = lifecycle();
+    guard.insert(data.to_path_buf());
+    stop_daemon(data)
+}
+
 /// Restore only on startup, never on each status poll. Run off the async main
 /// thread so a missing or broken optional daemon cannot delay Luna's web app.
 pub fn restore(data: &Path, port: u16) {
-    let _guard = lifecycle();
+    let guard = lifecycle();
+    if guard.contains(data) {
+        return;
+    }
     if !enabled(data) {
         return;
     }
@@ -690,6 +833,105 @@ mod tests {
     static TEST_ENV: Mutex<()> = Mutex::new(());
 
     #[test]
+    fn shutdown_stops_verified_daemon_preserves_identity_and_rejects_starts() {
+        let _env = TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root(dir.path())).unwrap();
+        let saved = r#"{"_machinekey":"a2V5","_serve/profile":"e30="}"#;
+        std::fs::write(state(dir.path()), saved).unwrap();
+        std::fs::write(root(dir.path()).join("enabled"), "1").unwrap();
+        std::fs::write(root(dir.path()).join("serve-mode"), "public").unwrap();
+        unsafe {
+            std::env::set_var("LUNA_TAILSCALED", "/bin/sh");
+        }
+        // A disposable owned process with the exact managed state argument.
+        // read blocks on our pipe and creates no descendant process.
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "read value", "--state"])
+            .arg(state(dir.path()))
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        std::fs::write(
+            root(dir.path()).join("tailscaled.pid"),
+            child.id().to_string(),
+        )
+        .unwrap();
+        assert!(managed_daemon_pid(dir.path(), child.id()));
+        stop_for_shutdown(dir.path()).unwrap();
+        assert!(!child.wait().unwrap().success());
+        assert_eq!(std::fs::read_to_string(state(dir.path())).unwrap(), saved);
+        assert!(enabled(dir.path()));
+        assert_eq!(
+            std::fs::read_to_string(root(dir.path()).join("serve-mode")).unwrap(),
+            "public"
+        );
+        assert!(
+            connect(dir.path(), 8090)
+                .unwrap_err()
+                .contains("shutting down")
+        );
+        assert!(
+            reconnect(dir.path(), 8090)
+                .unwrap_err()
+                .contains("shutting down")
+        );
+        assert!(
+            serve(dir.path(), 8090, true)
+                .unwrap_err()
+                .contains("shutting down")
+        );
+        restore(dir.path(), 8090);
+        assert!(!managed_daemon_pid(dir.path(), child.id()));
+        unsafe {
+            std::env::remove_var("LUNA_TAILSCALED");
+        }
+    }
+
+    #[test]
+    fn native_command_deadline_and_inherited_pipes_are_bounded() {
+        let _env = TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let cli = dir.path().join("cli");
+        std::fs::write(
+            &cli,
+            "#!/bin/sh\nprintf 'partial approval'\nexec sleep 10\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o700)).unwrap();
+        unsafe {
+            std::env::set_var("LUNA_TAILSCALE_CLI", &cli);
+        }
+        let started = Instant::now();
+        let error = command(dir.path(), &["up"]).unwrap_err();
+        assert!(error.contains("partial approval"));
+        assert!(error.contains("timed out"));
+        assert!(started.elapsed() < Duration::from_secs(4));
+        // The CLI exits but its child keeps both output pipes open. Waiting
+        // for pipe EOF or joining a blocking reader would hang for ten seconds.
+        std::fs::write(&cli, "#!/bin/sh\nsleep 10 &\nprintf 'finished'\nexit 0\n").unwrap();
+        let started = Instant::now();
+        assert_eq!(command(dir.path(), &["status"]).unwrap(), "finished");
+        assert!(started.elapsed() < Duration::from_secs(2));
+        unsafe {
+            std::env::remove_var("LUNA_TAILSCALE_CLI");
+        }
+    }
+
+    #[test]
+    fn forget_recovers_from_a_failed_intent_write_after_verified_stop() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root(dir.path())).unwrap();
+        std::fs::write(root(dir.path()).join("enabled"), "1").unwrap();
+        std::fs::write(state(dir.path()), "{}").unwrap();
+        std::fs::create_dir(root(dir.path()).join("reset-required")).unwrap();
+        let forgotten = forget(dir.path(), 8090).unwrap();
+        assert_eq!(forgotten["identity_saved"], false);
+        assert!(!enabled(dir.path()));
+        assert!(!root(dir.path()).join("reset-required").exists());
+    }
+
+    #[test]
     fn failed_reset_marker_write_still_clears_enabled_intent() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(root(dir.path())).unwrap();
@@ -713,7 +955,7 @@ mod tests {
     fn teardown_does_not_kill_unverified_socket_owner() {
         let _env = TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::Builder::new()
-            .prefix("tailscale space ")
+            .prefix("tailscale café \u{005c}040 ")
             .tempdir()
             .unwrap();
         std::fs::create_dir(root(dir.path())).unwrap();
@@ -728,10 +970,15 @@ mod tests {
         unsafe {
             std::env::set_var("LUNA_TAILSCALE_CLI", dir.path().join("missing-cli"));
         }
+        assert!(ensure_daemon(dir.path()).is_err());
+        assert!(socket(dir.path()).exists());
         let off = disable(dir.path(), 8090).unwrap();
         assert_eq!(off["enabled"], false);
         assert_eq!(off["residual_exposure"], true);
         assert_eq!(off["state"], "error");
+        assert!(forget(dir.path(), 8090).is_err());
+        assert!(state(dir.path()).exists());
+        std::fs::remove_file(socket(dir.path())).unwrap();
         assert!(forget(dir.path(), 8090).is_err());
         assert!(state(dir.path()).exists());
         drop(listener);
@@ -742,12 +989,17 @@ mod tests {
     }
 
     #[test]
-    fn failed_optional_proxy_is_visible_even_when_tailscale_is_off() {
+    fn unavailable_proxy_is_only_an_error_for_an_existing_connection() {
         let dir = tempfile::tempdir().unwrap();
-        let status = status(dir.path(), 0);
-        assert_eq!(status["state"], "error");
-        assert!(!status["error"].as_str().unwrap().is_empty());
-        assert_eq!(status["enabled"], false);
+        let unused = status(dir.path(), 0);
+        assert_eq!(unused["state"], "off");
+        assert_eq!(unused["error"], "");
+        std::fs::create_dir(root(dir.path())).unwrap();
+        std::fs::write(state(dir.path()), "{}").unwrap();
+        let saved = status(dir.path(), 0);
+        assert_eq!(saved["state"], "error");
+        assert!(!saved["error"].as_str().unwrap().is_empty());
+        assert_eq!(saved["enabled"], false);
     }
 
     #[test]
@@ -803,6 +1055,40 @@ mod tests {
     }
 
     #[test]
+    fn approval_recovery_clears_old_errors_for_connect_and_reconnect() {
+        let _env = TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let cli = dir.path().join("cli");
+        let daemon = dir.path().join("daemon");
+        struct MockEnvironment;
+        impl Drop for MockEnvironment {
+            fn drop(&mut self) {
+                unsafe {
+                    std::env::remove_var("LUNA_TAILSCALE_CLI");
+                    std::env::remove_var("LUNA_TAILSCALED");
+                }
+            }
+        }
+        let _cleanup = MockEnvironment;
+        std::fs::create_dir(root(dir.path())).unwrap();
+        std::fs::write(&cli, "#!/bin/sh\ncase \"$*\" in\n *'status --json'*) echo '{\"BackendState\":\"NeedsLogin\",\"AuthURL\":\"https://login.tailscale.com/a/test\"}' ;;\n *'up '*) echo '{\"AuthURL\":\"https://login.tailscale.com/a/test\"}'; exit 1 ;;\nesac\n").unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o700)).unwrap();
+        // A short-lived disposable stub, never the real daemon from PATH.
+        std::fs::write(&daemon, "#!/bin/sh\nwhile [ $# -gt 0 ]; do if [ \"$1\" = --socket ] || [ \"$1\" = --state ]; then touch \"$2\"; fi; shift; done\n").unwrap();
+        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
+        unsafe {
+            std::env::set_var("LUNA_TAILSCALE_CLI", &cli);
+            std::env::set_var("LUNA_TAILSCALED", &daemon);
+        }
+        for operation in [connect, reconnect] {
+            std::fs::write(root(dir.path()).join("last-error"), "old restore failure").unwrap();
+            let result = operation(dir.path(), 8090).unwrap();
+            assert_eq!(result["error"], "");
+            assert_eq!(result["auth_url"], "https://login.tailscale.com/a/test");
+        }
+    }
+
+    #[test]
     fn mock_cli_exercises_userspace_connect_and_private_serve() {
         let _env = TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
@@ -818,8 +1104,15 @@ mod tests {
             std::env::set_var("LUNA_TAILSCALE_CLI", &cli);
             std::env::set_var("LUNA_TAILSCALED", &daemon);
         }
+        std::fs::create_dir(root(dir.path())).unwrap();
+        std::fs::write(root(dir.path()).join("last-error"), "old restore failure").unwrap();
         let status = connect(dir.path(), 8090).unwrap();
         assert_eq!(status["state"], "connected");
+        assert_eq!(status["error"], "");
+        assert!(!root(dir.path()).join("last-error").exists());
+        std::fs::write(root(dir.path()).join("last-error"), "old reconnect failure").unwrap();
+        let reconnected = reconnect(dir.path(), 8090).unwrap();
+        assert_eq!(reconnected["error"], "");
         assert!(status["identity_saved"].as_bool().unwrap());
         assert_eq!(status["private_url"], "");
         assert_eq!(

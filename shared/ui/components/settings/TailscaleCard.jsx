@@ -26,6 +26,7 @@ export default function TailscaleCard({
     ? "Checking"
     : {
         connected: "Connected",
+        starting: "Connecting",
         pending: "Waiting for approval",
         disconnected: "Disconnected",
         error: "Needs attention",
@@ -177,7 +178,7 @@ export default function TailscaleCard({
                 Turn off public access
               </Button>
             )}
-            {!loading && !error && !s.enabled && (
+            {!loading && s.enabled === false && (
               <Button
                 variant="primary"
                 loading={busy}

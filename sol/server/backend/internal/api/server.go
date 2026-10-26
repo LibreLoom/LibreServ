@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -118,6 +119,8 @@ type Server struct {
 	inviteBase       string
 	oidcHandler      http.Handler              // OIDC provider endpoints (discovery, authorize, token, userinfo)
 	oidcAdminHandler *handlersauth.OIDCHandler // admin API for managing OIDC clients per app
+
+	tailscaleService *network.TailscaleService
 }
 
 // ServerConfig holds configuration for creating a new Server
@@ -379,12 +382,27 @@ func (s *Server) Start() error {
 	}
 
 	s.logger.Info("Starting HTTP server", "addr", s.addr)
-	return s.httpServer.ListenAndServe()
+	listener, err := net.Listen("tcp", s.addr)
+	if err != nil {
+		if s.tailscaleService != nil {
+			s.tailscaleService.CancelRestore()
+		}
+		return err
+	}
+	if s.tailscaleService != nil {
+		s.tailscaleService.WebListenerReady(listener.Addr())
+	}
+	return s.httpServer.Serve(listener)
 }
 
 // Shutdown gracefully shuts down the server
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.Info("Shutting down HTTP server")
+	if s.tailscaleService != nil {
+		if err := s.tailscaleService.StopForShutdown(); err != nil {
+			s.logger.Error("Could not verify Tailscale stopped before releasing Sol's web listener", "error", err)
+		}
+	}
 	if s.ddnsService != nil {
 		s.ddnsService.Stop()
 	}

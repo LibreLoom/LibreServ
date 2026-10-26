@@ -106,6 +106,7 @@ func (s *Server) setupRoutes() {
 	wifiHandler := handlersnetwork.NewWifiHandler(wifi.Auto())
 	tunnelHandler := handlersnetwork.NewTunnelHandler(s.tunnelService, s.settingsService, s.connectClient)
 	tailscaleService := network.NewTailscaleService(config.Get().Server.DataDir, config.Get().Server.Port)
+	s.tailscaleService = tailscaleService
 	tailscaleHandler := handlersnetwork.NewTailscaleHandler(tailscaleService)
 	factoryResetHandler.SetTailscale(tailscaleService)
 	reportHandler := handlerssystem.NewReportHandler(s.reportService)

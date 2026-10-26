@@ -8,13 +8,14 @@ const nowSec = () => Math.floor(Date.now() / 1000);
 const b64 = (n) => btoa(String.fromCharCode(...new Uint8Array(n).fill(7)));
 
 // ── Access tokens ───────────────────────────────────────────────────────────
-get("/api/v1/device-tokens", ({ world }) => world.tokens);
-post("/api/v1/device-tokens", ({ world, body }) => {
+get("/api/v1/device-tokens", ({ world, user }) => world.tokens.filter((t) => t.user_id === user.id));
+post("/api/v1/device-tokens", ({ world, body, user }) => {
   const name = String(body.name || "").trim();
   if (!name) return fail(400, "Give the token a name.");
-  if (world.tokens.some((t) => t.name === name)) return fail(409, "You already have a token with that name.");
+  if (world.tokens.some((t) => t.user_id === user.id && t.name === name)) return fail(409, "You already have a token with that name.");
   const created = {
     id: nextId("t"),
+    user_id: user.id,
     name,
     created_at: nowSec(),
     last_used_at: null,
@@ -25,23 +26,28 @@ post("/api/v1/device-tokens", ({ world, body }) => {
   world.tokenUsage[created.id] = [];
   return { ...created, token: `lt_${"ab12".repeat(10)}` };
 });
-get("/api/v1/device-tokens/:id/usage", ({ world, params }) => world.tokenUsage?.[params.id] ?? []);
-del("/api/v1/device-tokens/:id", ({ world, params }) => {
-  if (!world.tokens.some((t) => t.id === params.id)) return fail(404, "That token is already gone.");
+get("/api/v1/device-tokens/:id/usage", ({ world, params, user }) => world.tokens.some((t) => t.id === params.id && t.user_id === user.id)
+  ? world.tokenUsage?.[params.id] ?? [] : fail(404, "That access token was not found."));
+del("/api/v1/device-tokens/:id", ({ world, params, user }) => {
+  if (!world.tokens.some((t) => t.id === params.id && t.user_id === user.id)) return fail(404, "That access token was not found.");
   world.tokens = world.tokens.filter((t) => t.id !== params.id);
   return {};
 });
 
 // ── Luna Connect device token ───────────────────────────────────────────────
-post("/api/v1/connect/device-token", ({ world, body }) => {
+post("/api/v1/connect/device-token", ({ world, body, user }) => {
+  if (world.users.length && user?.role !== "admin") return fail(403, "Only an Admin can enter a device token.");
   const token = String(body.token || "");
   if (!token) return fail(400, "Paste the device token first.");
   if (token === "bad") return fail(400, "Connect didn't accept that device token.");
+  if (user?.role !== "admin" && world.connectActive && token !== world.deviceToken) return fail(403, "This Luna already has a device token. An Admin can change it after setup.");
+  world.deviceToken = token;
   world.connect = { ...world.connect, enabled: true, connect_active: true, device_token_error: "" };
   world.connectActive = true;
   return {};
-});
-del("/api/v1/connect/device-token", ({ world }) => {
+}, { public: true });
+del("/api/v1/connect/device-token", ({ world, user }) => {
+  if (user?.role !== "admin") return fail(403, "Only an Admin can change remote access.");
   world.connect = { ...world.connect, enabled: false, connect_active: false };
   world.connectActive = false;
   return {};

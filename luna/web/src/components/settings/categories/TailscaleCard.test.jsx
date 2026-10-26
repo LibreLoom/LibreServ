@@ -34,6 +34,17 @@ describe("TailscaleCard", () => {
     postJson.mockReset();
   });
 
+  it("keeps first-connect retry available after the daemon fails to start", async () => {
+    getJson.mockResolvedValue({ installed: true, enabled: false, state: "off" });
+    postJson.mockRejectedValueOnce(new Error("Could not start Tailscale."));
+    postJson.mockResolvedValueOnce({ installed: true, enabled: true, state: "pending", auth_url: "https://login.tailscale.com/a/retry" });
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Connect Luna" }));
+    expect(await screen.findByText("Could not start Tailscale.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Connect Luna" }));
+    expect(await screen.findByRole("link", { name: "Approve Luna in Tailscale" })).toHaveAttribute("href", "https://login.tailscale.com/a/retry");
+  });
+
   it("shows browser approval while a device is pending", async () => {
     getJson.mockResolvedValue({
       installed: true,

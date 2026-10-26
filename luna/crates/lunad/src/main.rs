@@ -729,6 +729,33 @@ async fn async_main() -> anyhow::Result<()> {
                 lunad::system::staticweb::handle(uri.path())
             }));
 
+    // Own the main web listener before resuming optional remote access.
+    // Keep the proxy bound while cleaning up even if parsing/binding fails.
+    let main_listener = async {
+        let addr: SocketAddr = format!("{}:{}", cfg.host, cfg.port)
+            .parse()
+            .map_err(std::io::Error::other)?;
+        Ok::<_, std::io::Error>((addr, tokio::net::TcpListener::bind(addr).await?))
+    }
+    .await;
+    let (addr, listener) = match main_listener {
+        Ok(bound) => bound,
+        Err(error) => {
+            let data = cfg.data_dir.clone();
+            match tokio::task::spawn_blocking(move || {
+                lunad::net::tailscale::stop_for_shutdown(&data)
+            })
+            .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(stop_error)) => {
+                    tracing::error!(%stop_error, "Could not stop Tailscale after Luna's web listener failed")
+                }
+                Err(stop_error) => tracing::error!(%stop_error, "Tailscale cleanup task failed"),
+            }
+            return Err(error.into());
+        }
+    };
     if let Some(tailscale_listener) = tailscale_listener {
         let tailscale_app = app.clone().layer(axum::middleware::from_fn(
             lunad::net::tailscale_proxy::boundary,
@@ -749,15 +776,24 @@ async fn async_main() -> anyhow::Result<()> {
         lunad::net::tailscale::restore(&tailscale_data, tailscale_port);
     }));
 
-    let addr: SocketAddr = format!("{}:{}", cfg.host, cfg.port).parse()?;
-    let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, product = "Luna", "listening");
-    axum::serve(
+    let server_result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown_signal())
-    .await?;
+    .await;
+    // Keep the private proxy listener bound until the managed node is stopped.
+    let tailscale_data = cfg.data_dir.clone();
+    match tokio::task::spawn_blocking(move || {
+        lunad::net::tailscale::stop_for_shutdown(&tailscale_data)
+    })
+    .await
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::error!(%error, "Could not stop Tailscale during Luna shutdown"),
+        Err(error) => tracing::error!(%error, "Tailscale shutdown task failed"),
+    }
     // Deterministic teardown: a service stop must not leave the managed
     // cloudflared running or the supervisors ticking behind a dead listener.
     shutting_down.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -765,6 +801,7 @@ async fn async_main() -> anyhow::Result<()> {
     for task in bg_tasks {
         task.abort();
     }
+    server_result?;
     Ok(())
 }
 

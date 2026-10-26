@@ -69,6 +69,15 @@ test "$(sed -n 's/^const TailscaleVersion = "\([^"]*\)"/\1/p' "$REPO/sol/server/
 bash -c 'set -e; . "$1"; install_tailscale() { return 1; }; install_optional_tailscale; echo continued' \
     check "$REPO/sol/install.sh" | grep -Fx continued
 
+# A fresh Sol install must not require tools used only by optional packaging.
+bash -c 'set -e; . "$1"; command() {
+    if [ "$1" = -v ]; then
+        case "$2" in tar|timeout) return 1 ;; curl|openssl|sha256sum) return 0 ;; esac
+    fi
+    builtin command "$@"
+}; check_dependencies; install_optional_tailscale; echo continued-without-optional-tools' \
+    check "$REPO/sol/install.sh" | grep -Fx continued-without-optional-tools
+
 mkdir -p "$ts_test_dir/fakebin"
 cat > "$ts_test_dir/fakebin/curl" <<'MOCK'
 #!/bin/sh

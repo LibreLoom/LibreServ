@@ -1,7 +1,10 @@
 package network
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
@@ -12,6 +15,221 @@ import (
 	"testing"
 	"time"
 )
+
+func TestTailscaleShutdownRejectsLaterStartRequests(t *testing.T) {
+	dir := t.TempDir()
+	cli, calls := filepath.Join(dir, "cli"), filepath.Join(dir, "calls")
+	writeExecutable(t, cli, `echo "$*" >> "$TS_CALLS"`)
+	t.Setenv("SOL_TAILSCALE_CLI", cli)
+	t.Setenv("TS_CALLS", calls)
+	svc := NewTailscaleService(dir, 8080)
+	svc.WebListenerReady(&net.TCPAddr{IP: net.IPv4zero, Port: 8080})
+	if err := svc.StopForShutdown(); err != nil {
+		t.Fatal(err)
+	}
+	// These requests may have arrived before HTTP finishes shutting down.
+	requests := []func() (TailscaleStatus, error){svc.Connect, svc.Reconnect, func() (TailscaleStatus, error) { return svc.Serve(true) }}
+	done := make(chan error, len(requests))
+	for _, request := range requests {
+		go func() { _, err := request(); done <- err }()
+	}
+	for range requests {
+		if err := <-done; err == nil || !strings.Contains(err.Error(), "shutting down") {
+			t.Fatalf("start after shutdown: %v", err)
+		}
+	}
+	if tailscaleFileExists(calls) || tailscaleFileExists(filepath.Join(svc.dir, "enabled")) {
+		t.Fatal("shutdown request ran CLI or restored opt-in")
+	}
+}
+
+func TestTailscaleRestoreClearsOldTargetBeforeWaitingForOwnedWebListener(t *testing.T) {
+	for _, public := range []bool{false, true} {
+		t.Run(strconv.FormatBool(public), func(t *testing.T) {
+			dir := t.TempDir()
+			node := filepath.Join(dir, "tailscale")
+			if err := os.Mkdir(node, 0700); err != nil {
+				t.Fatal(err)
+			}
+			config := map[string]any{"Web": map[string]any{"sol.tail-example.ts.net:443": map[string]any{"Handlers": map[string]any{"/": map[string]string{"Proxy": "http://127.0.0.1:4444"}}}}, "AllowFunnel": map[string]bool{"sol.tail-example.ts.net:443": public}}
+			encoded, _ := json.Marshal(config)
+			store, _ := json.Marshal(map[string]string{"_machinekey": "a2V5", "_serve/profile": base64.StdEncoding.EncodeToString(encoded)})
+			state := filepath.Join(node, "tailscaled.state")
+			if err := os.WriteFile(state, store, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(node, "enabled"), []byte("1"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cli, calls := filepath.Join(dir, "cli"), filepath.Join(dir, "calls")
+			writeExecutable(t, cli, `echo "$*" >> "$TS_CALLS"
+case "$*" in
+ *"serve status --json"*) echo '{}' ;;
+ *"status --json"*) echo '{"BackendState":"Running","Self":{"DNSName":"sol.tail-example.ts.net."}}' ;;
+esac
+`)
+			t.Setenv("SOL_TAILSCALE_CLI", cli)
+			t.Setenv("SOL_TAILSCALED", filepath.Join(dir, "missing-daemon"))
+			t.Setenv("TS_CALLS", calls)
+			svc := NewTailscaleService(dir, 8080)
+			t.Cleanup(func() { svc.CancelRestore(); svc.waitForRestore() })
+			for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+				raw, _ := os.ReadFile(state)
+				if !bytes.Contains(raw, []byte("_serve/")) {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			raw, _ := os.ReadFile(state)
+			if bytes.Contains(raw, []byte("_serve/")) || !bytes.Contains(raw, []byte("_machinekey")) {
+				t.Fatal("old target not cleared safely", string(raw))
+			}
+			if tailscaleFileExists(calls) {
+				t.Fatal("daemon resumed before Sol owned its web listener")
+			}
+			// Simulate shutdown or a failed HTTP bind in this startup window.
+			if err := svc.StopForShutdown(); err != nil {
+				t.Fatal(err)
+			}
+			pending, err := os.ReadFile(filepath.Join(node, "restore-serve"))
+			wantMode := "private"
+			if public {
+				wantMode = "public"
+			}
+			if err != nil || string(pending) != wantMode {
+				t.Fatalf("lost selected mode on cancellation: %q %v", pending, err)
+			}
+			svc = NewTailscaleService(dir, 8080)
+			svc.WebListenerReady(&net.TCPAddr{IP: net.IPv4zero, Port: 9090})
+			svc.waitForRestore()
+			log, _ := os.ReadFile(calls)
+			verb := "serve --bg"
+			if public {
+				verb = "funnel --bg"
+			}
+			if !strings.Contains(string(log), verb+" --https=443 http://127.0.0.1:9090") || strings.Contains(string(log), "4444") {
+				t.Fatalf("restore used wrong mode/target: %s", log)
+			}
+			if tailscaleFileExists(filepath.Join(node, "restore-serve")) {
+				t.Fatal("completed restore retained pending mode")
+			}
+			if !tailscaleFileExists(filepath.Join(node, "enabled")) {
+				t.Fatal("restore disabled valid selected access")
+			}
+		})
+	}
+}
+
+func TestTailscaleForgetCancelsRestoreBeforeTheWebListenerIsReady(t *testing.T) {
+	dir := t.TempDir()
+	node := filepath.Join(dir, "tailscale")
+	if err := os.Mkdir(node, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, value := range map[string]string{"enabled": "1", "tailscaled.state": "{}"} {
+		if err := os.WriteFile(filepath.Join(node, name), []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("SOL_TAILSCALE_CLI", filepath.Join(dir, "missing-cli"))
+	t.Setenv("SOL_TAILSCALED", filepath.Join(dir, "missing-daemon"))
+	svc := NewTailscaleService(dir, 8080)
+	done := make(chan error, 1)
+	go func() { _, err := svc.Forget(); done <- err }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("forget waited forever for an HTTP listener")
+	}
+	if tailscaleFileExists(filepath.Join(node, "tailscaled.state")) || tailscaleFileExists(filepath.Join(node, "enabled")) {
+		t.Fatal("canceled restore retained identity or opt-in")
+	}
+}
+
+func TestTailscaleStartupRestoreKeepsStatusResponsiveAndSerializesShutdown(t *testing.T) {
+	dir := t.TempDir()
+	data := filepath.Join(dir, "data")
+	node := filepath.Join(data, "tailscale")
+	if err := os.MkdirAll(node, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(node, "enabled"), []byte("1"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	called, release := filepath.Join(dir, "called"), filepath.Join(dir, "release")
+	cli := filepath.Join(dir, "cli")
+	writeExecutable(t, cli, "echo called > \"$TS_CALLED\"\nwhile [ ! -f \"$TS_RELEASE\" ]; do sleep 0.05; done\necho '{\"BackendState\":\"Running\"}'\n")
+	t.Setenv("SOL_TAILSCALE_CLI", cli)
+	t.Setenv("SOL_TAILSCALED", filepath.Join(dir, "missing-daemon"))
+	t.Setenv("TS_CALLED", called)
+	t.Setenv("TS_RELEASE", release)
+	svc := NewTailscaleService(data, 8080)
+	svc.WebListenerReady(&net.TCPAddr{IP: net.IPv4zero, Port: 8080})
+	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0600); svc.waitForRestore() })
+	for deadline := time.Now().Add(time.Second); !tailscaleFileExists(called) && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !tailscaleFileExists(called) {
+		t.Fatal("restore did not start")
+	}
+	started := time.Now()
+	if st := svc.Status(); st.State != "starting" {
+		t.Fatalf("restore status = %#v", st)
+	}
+	if _, err := svc.Connect(); err == nil {
+		t.Fatal("connect overlapped startup restore")
+	}
+	if time.Since(started) > time.Second {
+		t.Fatal("status/connect blocked behind startup")
+	}
+	done := make(chan error, 1)
+	go func() { _, err := svc.Disable(); done <- err }()
+	select {
+	case err := <-done:
+		t.Fatalf("shutdown overlapped restore: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if err := os.WriteFile(release, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("shutdown did not finish")
+	}
+	if svc.Status().Enabled {
+		t.Fatal("shutdown was lost to startup restore")
+	}
+}
+
+func TestTailscaleStartupRestoreLogsFailure(t *testing.T) {
+	dir := t.TempDir()
+	node := filepath.Join(dir, "tailscale")
+	if err := os.Mkdir(node, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(node, "enabled"), []byte("1"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SOL_TAILSCALE_CLI", filepath.Join(dir, "missing-cli"))
+	t.Setenv("SOL_TAILSCALED", filepath.Join(dir, "missing-daemon"))
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(previous)
+	svc := NewTailscaleService(dir, 8080)
+	svc.WebListenerReady(&net.TCPAddr{IP: net.IPv4zero, Port: 8080})
+	svc.waitForRestore()
+	if !strings.Contains(logs.String(), "Could not restore Tailscale at startup") {
+		t.Fatalf("missing restore diagnostic: %s", logs.String())
+	}
+}
 
 func writeExecutable(t *testing.T, path, body string) {
 	t.Helper()
@@ -178,10 +396,11 @@ func TestTailscaleOfflineCleanupPreservesIdentityAndRejectsCorruption(t *testing
 }
 
 func TestTailscaleTeardownDoesNotKillUnverifiedSocketOwner(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "space here")
-	if err := os.Mkdir(dir, 0700); err != nil {
+	dir, err := os.MkdirTemp("", "ts café \\040 ")
+	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	svc := &TailscaleService{dir: dir}
 	t.Setenv("SOL_TAILSCALE_CLI", filepath.Join(dir, "missing-cli"))
 	listener, err := net.Listen("unix", svc.sock())
@@ -194,6 +413,9 @@ func TestTailscaleTeardownDoesNotKillUnverifiedSocketOwner(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := svc.ensureDaemon(); err == nil || !tailscaleFileExists(svc.sock()) {
+		t.Fatal("startup removed a live unverified socket", err)
+	}
 	st, err := svc.Disable()
 	if err != nil || st.Enabled || !st.ResidualExposure || st.State != "error" {
 		t.Fatalf("unverified owner => %#v, %v", st, err)
@@ -204,11 +426,74 @@ func TestTailscaleTeardownDoesNotKillUnverifiedSocketOwner(t *testing.T) {
 	if !tailscaleFileExists(filepath.Join(dir, "tailscaled.state")) {
 		t.Fatal("identity was removed")
 	}
+	if err := os.Remove(svc.sock()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Forget(); err == nil {
+		t.Fatal("unlinked live socket lost its ownership evidence")
+	}
 	if err := listener.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.Forget(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTailscaleUninstallRefusesUnverifiedListenerWithoutTrustingCLIExit(t *testing.T) {
+	dir, err := os.MkdirTemp("", "ts-uninstall-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	node := filepath.Join(dir, "tailscale")
+	if err := os.Mkdir(node, 0700); err != nil {
+		t.Fatal(err)
+	}
+	sock := filepath.Join(node, "tailscaled.sock")
+	listener, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	installer, err := filepath.Abs("../../../../install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeExecutable(t, filepath.Join(dir, "tailscale", "tailscale"), "exit 1\n")
+	removed := filepath.Join(dir, "remove-calls")
+	// Exercise the real uninstall flow, replacing ALL deletion/systemd/root
+	// operations. No system path is mutated by this regression harness.
+	run := func() error {
+		cmd := exec.Command("bash", "-c", `source "$1"
+check_root() { :; }; run_systemctl() { :; }
+log_info() { :; }; log_warn() { :; }; log_error() { :; }
+rm() { printf '%s\n' "$*" >> "$TS_REMOVALS"; }
+DATA_DIR="$2"; TAILSCALE_INSTALL_DIR="$2/tailscale"
+do_uninstall`, "check", installer, dir, removed)
+		cmd.Env = append(os.Environ(), "TS_REMOVALS="+removed)
+		return cmd.Run()
+	}
+	if err := run(); err == nil {
+		t.Fatal("uninstall accepted a live unverified listener")
+	}
+	if tailscaleFileExists(removed) {
+		t.Fatal("uninstall attempted to remove files")
+	}
+	if err := os.Remove(sock); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(); err == nil {
+		t.Fatal("uninstall accepted an unlinked live listener")
+	}
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(); err != nil {
+		t.Fatal("stopped listener prevented uninstall", err)
+	}
+	if !tailscaleFileExists(removed) {
+		t.Fatal("uninstall harness never reached its stubbed deletion")
 	}
 }
 
@@ -251,6 +536,7 @@ esac
 	t.Setenv("TS_READY", ready)
 	t.Setenv("TS_SERVED", servedMarker)
 	svc := NewTailscaleService(filepath.Join(dir, "data"), 8080)
+	svc.WebListenerReady(&net.TCPAddr{IP: net.IPv4zero, Port: 8080})
 	connected, err := svc.Connect()
 	if err != nil {
 		t.Fatal(err)

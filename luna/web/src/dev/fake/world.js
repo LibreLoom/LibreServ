@@ -122,5 +122,8 @@ export function baseWorld() {
 export function createWorld(seed) {
   const w = baseWorld();
   if (typeof seed === "function") seed(w);
+  // Scenario tokens belong to the initially signed-in user unless seeded
+  // with an explicit owner. Switching users must not transfer those tokens.
+  for (const token of w.tokens) token.user_id ??= w.sessionUserId;
   return w;
 }

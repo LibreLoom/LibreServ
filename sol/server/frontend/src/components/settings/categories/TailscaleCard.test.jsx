@@ -17,6 +17,25 @@ const response = (value) => ({ json: async () => value });
 describe("Sol Tailscale settings", () => {
   beforeEach(() => api.mockReset());
 
+  it("keeps first-connect retry available after the daemon fails to start", async () => {
+    api.mockResolvedValueOnce(response({ enabled: false, installed: true, state: "off" }));
+    api.mockRejectedValueOnce(new Error("Could not start Tailscale."));
+    api.mockResolvedValueOnce(response({ enabled: true, installed: true, state: "pending", auth_url: "https://login.tailscale.com/a/retry" }));
+    render(<TailscaleCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Connect Sol" }));
+    expect(await screen.findByText("Could not start Tailscale.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Connect Sol" }));
+    expect(await screen.findByRole("link", { name: "Approve Sol in Tailscale" })).toHaveAttribute("href", "https://login.tailscale.com/a/retry");
+  });
+
+  it("shows startup progress rather than an off or failed connection", async () => {
+    api.mockResolvedValueOnce(response({ enabled: true, installed: true, state: "starting" }));
+    render(<TailscaleCard />);
+    expect(await screen.findByText("Connecting")).toBeInTheDocument();
+    expect(screen.queryByText("Off")).not.toBeInTheDocument();
+    expect(screen.queryByText("Needs attention")).not.toBeInTheDocument();
+  });
+
   it("requires a separate private access step after connecting", async () => {
     api.mockResolvedValueOnce(
       response({ enabled: true, installed: true, state: "connected" }),

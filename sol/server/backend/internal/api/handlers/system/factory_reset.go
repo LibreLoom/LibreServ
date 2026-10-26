@@ -66,7 +66,8 @@ func (h *FactoryResetHandler) FactoryReset(w http.ResponseWriter, r *http.Reques
 	// A new setup must never inherit the old owner's Tailscale device identity.
 	if h.tailscale != nil {
 		if _, err := h.tailscale.Forget(); err != nil {
-			JSONError(w, http.StatusInternalServerError, "Sol could not turn off Tailscale before factory reset.")
+			slog.Error("Factory reset kept the old accounts because Tailscale could not be safely forgotten", "error", err)
+			JSONError(w, http.StatusInternalServerError, "Sol could not remove its Tailscale connection before reset. Restart Sol and try again.")
 			return
 		}
 	}

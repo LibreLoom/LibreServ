@@ -118,7 +118,7 @@ check_root() {
 check_dependencies() {
     local missing=()
 
-    for cmd in curl openssl sha256sum tar timeout; do
+    for cmd in curl openssl sha256sum; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
             missing+=("$cmd")
         fi
@@ -579,6 +579,10 @@ download_restic() {
 # cannot carry a node identity into another installation.
 install_tailscale() {
     local arch sha url tmp archive extracted
+    if ! command -v tar >/dev/null 2>&1; then
+        log_warn "Tailscale remote access was not installed because tar is unavailable."
+        return 1
+    fi
     case "$(uname -m)" in
         x86_64) arch="amd64"; sha="$TAILSCALE_SHA256_AMD64" ;;
         aarch64|arm64) arch="arm64"; sha="$TAILSCALE_SHA256_ARM64" ;;
@@ -980,7 +984,25 @@ tailscale_pid_matches() {
     [[ "$ts_pid" =~ ^[0-9]+$ ]] && [ "$ts_pid" -gt 1 ] && [ -r "/proc/${ts_pid}/cmdline" ] || return 1
     IFS= read -r -d '' ts_executable < "/proc/${ts_pid}/cmdline" || return 1
     [ "${ts_executable##*/}" = tailscaled ] || return 1
-    tr '\0' '\n' < "/proc/${ts_pid}/cmdline" | grep -Fxq -- "$ts_state"
+    local ts_arg ts_previous=""
+    while IFS= read -r -d '' ts_arg; do
+        if [ "$ts_arg" = "--state=$ts_state" ] || { [ "$ts_previous" = --state ] && [ "$ts_arg" = "$ts_state" ]; }; then
+            return 0
+        fi
+        ts_previous="$ts_arg"
+    done < "/proc/${ts_pid}/cmdline"
+    return 1
+}
+
+tailscale_socket_stopped() {
+    # Kernel paths contain literal spaces/UTF-8. Pass the name through the
+    # environment so awk does not reinterpret a literal backslash in it.
+    # Inspect even an unlinked pathname: its live owner can still serve traffic.
+    [ -r /proc/net/unix ] || return 1
+    TS_UNIX_SOCKET="$1" awk '
+        $4 == "00010000" && substr($0, length($0) - length(ENVIRON["TS_UNIX_SOCKET"])) == " " ENVIRON["TS_UNIX_SOCKET"] { live = 1 }
+        END { exit live ? 1 : 0 }
+    ' /proc/net/unix
 }
 
 do_uninstall() {
@@ -995,7 +1017,6 @@ do_uninstall() {
     # Stop any private or public listener before removing the product CLI.
     # Forget the remote identity after stopping it, so reinstalling cannot
     # silently restore a previously public Funnel listener.
-    local ts_cli="${TAILSCALE_INSTALL_DIR}/tailscale"
     local ts_socket="${DATA_DIR}/tailscale/tailscaled.sock"
     local ts_state="${DATA_DIR}/tailscale/tailscaled.state"
     # systemd normally stops the entire process group. If the daemon survived,
@@ -1022,19 +1043,9 @@ do_uninstall() {
             fi
         fi
     fi
-    if [ -S "$ts_socket" ]; then
-        # A reachable socket without the recorded managed PID is not ours to
-        # kill. Do not remove the client needed to diagnose that condition.
-        if [ ! -x "$ts_cli" ] || ! command -v timeout >/dev/null 2>&1; then
-            log_error "Could not verify that Tailscale stopped. Sol files were kept."
-            return 1
-        fi
-        local ts_status=0
-        timeout -k 1 3 "$ts_cli" --socket "$ts_socket" status --json >/dev/null 2>&1 || ts_status=$?
-        if [ "$ts_status" -eq 0 ] || [ "$ts_status" -eq 124 ] || [ "$ts_status" -eq 137 ]; then
-            log_error "A Tailscale service is still using Sol's connection. Sol files were kept."
-            return 1
-        fi
+    if ! tailscale_socket_stopped "$ts_socket"; then
+        log_error "Could not verify that Tailscale stopped. Sol files were kept."
+        return 1
     fi
     log_info "Forgetting Tailscale's saved remote connection"
     rm -rf "${DATA_DIR}/tailscale"

@@ -5,10 +5,12 @@ package network
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -37,23 +39,230 @@ type TailscaleStatus struct {
 }
 
 type TailscaleService struct {
-	dir         string
-	port        int
-	mu          sync.Mutex
-	mockMu      sync.Mutex
-	devScenario string
-	devPublic   bool
+	dir           string
+	port          int
+	mu            sync.Mutex
+	mockMu        sync.Mutex
+	devScenario   string
+	devPublic     bool
+	restoreDone   chan struct{}
+	listenerReady chan struct{}
+	listenerOnce  sync.Once
+	listenerError error
+	listenerPort  int
+	restoreCancel chan struct{}
+	cancelOnce    sync.Once
+	shuttingDown  bool // protected by mu; forbids restarting after shutdown
 }
 
 func NewTailscaleService(dataDir string, port int) *TailscaleService {
-	s := &TailscaleService{dir: filepath.Join(dataDir, "tailscale"), port: port}
+	s := &TailscaleService{dir: filepath.Join(dataDir, "tailscale"), port: port,
+		listenerReady: make(chan struct{}), restoreCancel: make(chan struct{})}
 	if strings.EqualFold(os.Getenv("SOL_INSECURE_DEV"), "true") {
 		s.devScenario = os.Getenv("SOL_TAILSCALE_SCENARIO")
 	}
 	if s.devScenario == "" && tailscaleFileExists(filepath.Join(s.dir, "enabled")) {
-		go func() { s.mu.Lock(); defer s.mu.Unlock(); _ = s.ensureDaemon() }()
+		// Gate mutations until this bounded restore finishes, without holding
+		// the status mutex through daemon readiness. Status remains readable.
+		s.restoreDone = make(chan struct{})
+		go func() {
+			defer close(s.restoreDone)
+			err := s.restoreForWebListener()
+			if err != nil {
+				slog.Warn("Could not restore Tailscale at startup", "error", err)
+				st, offErr := s.disableLocked()
+				if offErr != nil {
+					slog.Warn("Could not persist Tailscale shutdown after restore failure", "error", offErr)
+				}
+				if !st.ResidualExposure {
+					_ = os.WriteFile(filepath.Join(s.dir, "last-error"), []byte("Tailscale could not restore remote access. Try connecting again."), 0600)
+				}
+			}
+		}()
 	}
 	return s
+}
+
+// WebListenerReady is called by Sol only after net.Listen succeeds. Never
+// resume a saved public proxy against an unbound or different process's port.
+func (s *TailscaleService) WebListenerReady(addr net.Addr) {
+	s.listenerOnce.Do(func() {
+		tcp, ok := addr.(*net.TCPAddr)
+		if !ok || tcp.Port <= 0 || (!tcp.IP.IsUnspecified() && !tcp.IP.Equal(net.IPv4(127, 0, 0, 1))) {
+			s.listenerError = errors.New("Tailscale needs Sol's IPv4 loopback web listener")
+		} else {
+			s.listenerPort = tcp.Port
+		}
+		close(s.listenerReady)
+	})
+}
+
+func (s *TailscaleService) webPort() int {
+	if s.listenerReady != nil {
+		select {
+		case <-s.listenerReady:
+			return s.listenerPort
+		default:
+		}
+	}
+	return s.port
+}
+
+func (s *TailscaleService) CancelRestore() {
+	if s.restoreCancel != nil {
+		s.cancelOnce.Do(func() { close(s.restoreCancel) })
+	}
+}
+
+func (s *TailscaleService) requireWebListener() error {
+	if s.listenerReady == nil || s.devScenario != "" {
+		return nil
+	}
+	select {
+	case <-s.listenerReady:
+	default:
+		return errors.New("Sol's web listener is not ready")
+	}
+	return s.listenerError
+}
+
+// StopForShutdown preserves the selected mode and opt-in for the next boot,
+// but never leaves a managed public proxy forwarding after Sol releases HTTP.
+func (s *TailscaleService) StopForShutdown() error {
+	s.CancelRestore()
+	s.waitForRestore()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.shuttingDown = true
+	if s.devScenario != "" {
+		return nil
+	}
+	return s.stopDaemon()
+}
+
+func (s *TailscaleService) restoreForWebListener() error {
+	mode, err := s.savedServeMode()
+	if err != nil {
+		return err
+	}
+	if err := s.stopDaemon(); err != nil {
+		return err
+	}
+	// Retain Admin intent across a failed bind or interrupted startup, before
+	// deleting the old proxy target. Never persist the old target itself.
+	if mode != "" {
+		if err := os.WriteFile(filepath.Join(s.dir, "restore-serve"), []byte(mode), 0600); err != nil {
+			return err
+		}
+	}
+	if err := s.clearSavedServe(); err != nil {
+		return err
+	}
+	select {
+	case <-s.restoreCancel:
+		return nil
+	case <-s.listenerReady:
+	}
+	if s.listenerError != nil {
+		return s.listenerError
+	}
+	if err := s.ensureDaemon(); err != nil {
+		return err
+	}
+	if mode != "" {
+		_, err = s.serveLocked(mode == "public")
+	}
+	if err == nil {
+		err = removeTailscalePendingMode(s.dir)
+	}
+	return err
+}
+
+func removeTailscalePendingMode(dir string) error {
+	err := os.Remove(filepath.Join(dir, "restore-serve"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+// Infer the selected mode from the pinned FileStore before clearing its old
+// targets. Only one saved profile may restore managed web access automatically.
+func (s *TailscaleService) savedServeMode() (string, error) {
+	if pending, err := os.ReadFile(filepath.Join(s.dir, "restore-serve")); err == nil {
+		if string(pending) != "private" && string(pending) != "public" {
+			return "", errors.New("invalid saved Tailscale access mode")
+		}
+		return string(pending), nil
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	raw, err := os.ReadFile(filepath.Join(s.dir, "tailscaled.state"))
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return "", nil
+	}
+	var store map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &store); err != nil {
+		return "", err
+	}
+	mode := ""
+	for key, value := range store {
+		if !strings.HasPrefix(key, "_serve/") {
+			continue
+		}
+		var encoded string
+		if err := json.Unmarshal(value, &encoded); err != nil {
+			return "", err
+		}
+		config, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			return "", err
+		}
+		var saved struct {
+			Web         map[string]json.RawMessage
+			AllowFunnel map[string]bool
+		}
+		if err := json.Unmarshal(config, &saved); err != nil {
+			return "", err
+		}
+		if len(saved.Web) == 0 {
+			continue
+		}
+		if mode != "" {
+			return "", errors.New("Tailscale has multiple saved web profiles; reconnect before enabling access")
+		}
+		mode = "private"
+		for listener := range saved.Web {
+			if saved.AllowFunnel[listener] {
+				mode = "public"
+			}
+		}
+	}
+	return mode, nil
+}
+
+func (s *TailscaleService) restoring() bool {
+	if s.restoreDone == nil {
+		return false
+	}
+	select {
+	case <-s.restoreDone:
+		return false
+	default:
+		return true
+	}
+}
+
+func (s *TailscaleService) waitForRestore() {
+	if s.restoreDone != nil {
+		<-s.restoreDone
+	}
 }
 func (s *TailscaleService) cli() string {
 	if v := os.Getenv("SOL_TAILSCALE_CLI"); v != "" {
@@ -76,35 +285,40 @@ func (s *TailscaleService) daemon() string {
 	return "tailscaled"
 }
 func (s *TailscaleService) sock() string { return filepath.Join(s.dir, "tailscaled.sock") }
-func (s *TailscaleService) managedDaemonAlive() bool {
+func (s *TailscaleService) managedDaemonPID() (int, bool) {
 	b, err := os.ReadFile(filepath.Join(s.dir, "tailscaled.pid"))
 	if err != nil {
-		return false
+		return 0, false
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
 	if err != nil || pid <= 1 {
-		return false
+		return 0, false
 	}
 	cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
 	if err != nil {
-		return false
+		return 0, false
 	}
 	parts := strings.Split(string(cmdline), "\x00")
 	if len(parts) == 0 || filepath.Base(parts[0]) != filepath.Base(s.daemon()) {
-		return false
+		return 0, false
 	}
 	for i, part := range parts {
 		if part == "--state="+filepath.Join(s.dir, "tailscaled.state") || (part == "--state" && i+1 < len(parts) && parts[i+1] == filepath.Join(s.dir, "tailscaled.state")) {
-			return true
+			return pid, true
 		}
 	}
-	return false
+	return 0, false
+}
+func (s *TailscaleService) managedDaemonAlive() bool {
+	_, alive := s.managedDaemonPID()
+	return alive
 }
 func (s *TailscaleService) run(args ...string) (string, error) {
 	all := append([]string{"--socket", s.sock()}, args...)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, s.cli(), all...)
+	cmd.WaitDelay = 250 * time.Millisecond
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
@@ -194,6 +408,9 @@ func (s *TailscaleService) clearAccessIfRequired() error {
 	if err := s.clearSavedServe(); err != nil {
 		return err
 	}
+	if err := removeTailscalePendingMode(s.dir); err != nil {
+		return err
+	}
 	if err := os.Remove(filepath.Join(s.dir, "reset-required")); err != nil {
 		return err
 	}
@@ -202,6 +419,9 @@ func (s *TailscaleService) clearAccessIfRequired() error {
 	return nil
 }
 func (s *TailscaleService) ensureDaemon() error {
+	if s.shuttingDown {
+		return errors.New("Sol is shutting down")
+	}
 	if err := s.clearAccessIfRequired(); err != nil {
 		return err
 	}
@@ -212,13 +432,14 @@ func (s *TailscaleService) ensureDaemon() error {
 		_ = os.Chmod(s.sock(), 0600)
 		return nil
 	}
-	if _, err := os.Stat(s.sock()); err == nil {
-		if s.managedDaemonAlive() {
-			return fmt.Errorf("Tailscale is starting but not responding yet")
-		}
-		if err := os.Remove(s.sock()); err != nil && !os.IsNotExist(err) {
-			return err
-		}
+	if s.managedDaemonAlive() {
+		return fmt.Errorf("Tailscale is starting but not responding yet")
+	}
+	if err := s.verifySocketStopped(); err != nil {
+		return err
+	}
+	if err := os.Remove(s.sock()); err != nil && !os.IsNotExist(err) {
+		return err
 	}
 	cmd := exec.Command(s.daemon(), "--state", filepath.Join(s.dir, "tailscaled.state"), "--socket", s.sock(), "--tun=userspace-networking")
 	cmd.Stdin = nil
@@ -244,6 +465,10 @@ func (s *TailscaleService) ensureDaemon() error {
 	return fmt.Errorf("Tailscale did not start")
 }
 func (s *TailscaleService) Status() TailscaleStatus {
+	if s.restoring() {
+		return TailscaleStatus{Installed: commandExists(s.cli()) && commandExists(s.daemon()), Enabled: true,
+			IdentitySaved: tailscaleFileExists(filepath.Join(s.dir, "tailscaled.state")), State: "starting"}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.statusLocked()
@@ -314,7 +539,7 @@ func (s *TailscaleService) statusLocked() TailscaleStatus {
 	var serveConfig any
 	if raw, err = s.run("serve", "status", "--json"); err == nil {
 		if json.Unmarshal([]byte(raw), &serveConfig) == nil {
-			st.PublicURL, st.PrivateURL = configuredURLs(serveConfig, nodeURL, fmt.Sprintf("http://127.0.0.1:%d", s.port))
+			st.PublicURL, st.PrivateURL = configuredURLs(serveConfig, nodeURL, fmt.Sprintf("http://127.0.0.1:%d", s.webPort()))
 			if st.State == "connected" && ((st.ApprovalType == "funnel" && st.PublicURL != "") || (st.ApprovalType == "https" && st.PrivateURL != "")) {
 				st.ApprovalURL, st.ApprovalType = "", ""
 				_ = os.Remove(filepath.Join(s.dir, "approval-url"))
@@ -415,6 +640,7 @@ func (s *TailscaleService) up() error {
 		if start >= 0 && end >= start && json.Unmarshal([]byte(rawErr[start:end+1]), &v) == nil {
 			if auth, ok := v["AuthURL"].(string); ok && auth != "" {
 				_ = os.WriteFile(filepath.Join(s.dir, "auth-url"), []byte(auth), 0600)
+				_ = os.Remove(filepath.Join(s.dir, "last-error"))
 				return nil
 			}
 		}
@@ -426,11 +652,21 @@ func (s *TailscaleService) up() error {
 			_ = os.WriteFile(filepath.Join(s.dir, "auth-url"), []byte(auth), 0600)
 		}
 	}
+	_ = os.Remove(filepath.Join(s.dir, "last-error"))
 	return nil
 }
 func (s *TailscaleService) Connect() (TailscaleStatus, error) {
+	if s.restoring() {
+		return TailscaleStatus{}, errors.New("Tailscale is starting. Try connecting again shortly")
+	}
+	if err := s.requireWebListener(); err != nil {
+		return TailscaleStatus{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.shuttingDown {
+		return TailscaleStatus{}, errors.New("Sol is shutting down")
+	}
 	if s.devScenario != "" {
 		s.mockMu.Lock()
 		if s.devScenario == "off" {
@@ -452,8 +688,17 @@ func (s *TailscaleService) Connect() (TailscaleStatus, error) {
 	return s.statusLocked(), nil
 }
 func (s *TailscaleService) Reconnect() (TailscaleStatus, error) {
+	if s.restoring() {
+		return TailscaleStatus{}, errors.New("Tailscale is starting. Try reconnecting again shortly")
+	}
+	if err := s.requireWebListener(); err != nil {
+		return TailscaleStatus{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.shuttingDown {
+		return TailscaleStatus{}, errors.New("Sol is shutting down")
+	}
 	if s.devScenario != "" {
 		s.mockMu.Lock()
 		if s.devScenario == "off" {
@@ -491,8 +736,21 @@ func approvalURL(raw string) string {
 	return ""
 }
 func (s *TailscaleService) Serve(public bool) (TailscaleStatus, error) {
+	if s.restoring() {
+		return TailscaleStatus{}, errors.New("Tailscale is starting. Try turning on access again shortly")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.serveLocked(public)
+}
+
+func (s *TailscaleService) serveLocked(public bool) (TailscaleStatus, error) {
+	if s.shuttingDown {
+		return TailscaleStatus{}, errors.New("Sol is shutting down")
+	}
+	if err := s.requireWebListener(); err != nil {
+		return TailscaleStatus{}, err
+	}
 	if s.devScenario != "" {
 		s.mockMu.Lock()
 		if s.devScenario == "off" {
@@ -518,7 +776,7 @@ func (s *TailscaleService) Serve(public bool) (TailscaleStatus, error) {
 	if err := s.up(); err != nil {
 		return TailscaleStatus{}, err
 	}
-	target := fmt.Sprintf("http://127.0.0.1:%d", s.port)
+	target := fmt.Sprintf("http://127.0.0.1:%d", s.webPort())
 	var out string
 	var err error
 	if public {
@@ -547,6 +805,8 @@ func (s *TailscaleService) Serve(public bool) (TailscaleStatus, error) {
 	return s.statusLocked(), nil
 }
 func (s *TailscaleService) Disable() (TailscaleStatus, error) {
+	s.CancelRestore()
+	s.waitForRestore()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.disableLocked()
@@ -554,11 +814,16 @@ func (s *TailscaleService) Disable() (TailscaleStatus, error) {
 
 // StopServe removes web access while keeping the node connected to Tailscale.
 func (s *TailscaleService) StopServe() (TailscaleStatus, error) {
+	s.CancelRestore()
+	s.waitForRestore()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.devScenario != "" {
 		s.devScenario, s.devPublic = "connected", false
 		return s.mockStatusLocked(), nil
+	}
+	if err := removeTailscalePendingMode(s.dir); err != nil {
+		return TailscaleStatus{}, err
 	}
 	if _, err := s.run("serve", "reset"); err != nil {
 		return TailscaleStatus{}, err
@@ -614,16 +879,9 @@ func (s *TailscaleService) disableLocked() (TailscaleStatus, error) {
 }
 
 func (s *TailscaleService) stopDaemon() error {
-	if !s.managedDaemonAlive() {
+	pid, alive := s.managedDaemonPID()
+	if !alive {
 		return s.verifySocketStopped()
-	}
-	b, err := os.ReadFile(filepath.Join(s.dir, "tailscaled.pid"))
-	if err != nil {
-		return err
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
-	if err != nil {
-		return err
 	}
 	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && s.managedDaemonAlive() {
 		return err
@@ -640,9 +898,6 @@ func (s *TailscaleService) stopDaemon() error {
 }
 
 func (s *TailscaleService) verifySocketStopped() error {
-	if !tailscaleFileExists(s.sock()) {
-		return nil
-	}
 	entries, err := os.ReadFile("/proc/net/unix")
 	if err != nil {
 		return fmt.Errorf("could not verify the Tailscale socket stopped: %w", err)
@@ -659,6 +914,8 @@ func (s *TailscaleService) verifySocketStopped() error {
 }
 
 func (s *TailscaleService) Forget() (TailscaleStatus, error) {
+	s.CancelRestore()
+	s.waitForRestore()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.devScenario != "" {
@@ -669,15 +926,25 @@ func (s *TailscaleService) Forget() (TailscaleStatus, error) {
 		return st, nil
 	}
 	st, err := s.disableLocked()
-	if err != nil {
-		return TailscaleStatus{}, err
-	}
 	if st.ResidualExposure {
 		return st, errors.New(st.Error)
 	}
-	for _, name := range []string{"tailscaled.state", "tailscaled.pid", "tailscaled.sock", "reset-required", "last-error", "stop-failed"} {
+	// A failed intent-marker write must not prevent forgetting an identity
+	// after a separately verified stop. Never erase a live listener's state.
+	if stopErr := s.stopDaemon(); stopErr != nil {
+		return st, stopErr
+	}
+	if err != nil {
+		slog.Warn("Could not persist Tailscale shutdown intent; removing identity after verified stop", "error", err)
+	}
+	for _, name := range []string{"tailscaled.state", "enabled"} {
 		if err := os.Remove(filepath.Join(s.dir, name)); err != nil && !os.IsNotExist(err) {
 			return TailscaleStatus{}, err
+		}
+	}
+	for _, name := range []string{"tailscaled.pid", "tailscaled.sock", "restore-serve", "reset-required", "last-error", "stop-failed", "private-enabled", "approval-type", "approval-url", "auth-url"} {
+		if err := os.Remove(filepath.Join(s.dir, name)); err != nil && !os.IsNotExist(err) {
+			slog.Warn("Could not remove old Tailscale metadata after verified stop and identity removal", "file", name, "error", err)
 		}
 	}
 	return s.statusLocked(), nil
