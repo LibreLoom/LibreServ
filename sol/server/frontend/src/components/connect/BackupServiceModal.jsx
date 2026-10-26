@@ -76,7 +76,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
 
   useEffect(() => {
     const appsWithoutDestination = installedApps.filter((app) =>
-      !freshRepos.some((repo) => repo.connect_managed !== true && repo.app_id === app.id)
+      !freshRepos.some((repo) => repo.app_id === app.id)
     );
     setSelectedAppId((current) => appsWithoutDestination.some((app) => app.id === current)
       ? current

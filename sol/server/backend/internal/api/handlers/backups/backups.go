@@ -447,6 +447,13 @@ func (h *BackupHandlers) DeleteSchedule(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+func optionalRepositoryTimestamp(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	return &value
+}
+
 func (h *BackupHandlers) ListRepositories(w http.ResponseWriter, r *http.Request) {
 	repos, err := h.backupService.ListRepositories(r.Context())
 	if err != nil {
@@ -455,15 +462,15 @@ func (h *BackupHandlers) ListRepositories(w http.ResponseWriter, r *http.Request
 	}
 
 	type safeRepo struct {
-		ID             string    `json:"id"`
-		AppID          string    `json:"app_id,omitempty"`
-		IsSystem       bool      `json:"is_system"`
-		ConnectManaged bool      `json:"connect_managed"`
-		OwnershipKnown bool      `json:"connect_ownership_known"`
-		RepoType       string    `json:"repo_type"`
-		RepoPath       string    `json:"repo_path"`
-		CreatedAt      time.Time `json:"created_at"`
-		UpdatedAt      time.Time `json:"updated_at"`
+		ID             string     `json:"id"`
+		AppID          string     `json:"app_id,omitempty"`
+		IsSystem       bool       `json:"is_system"`
+		ConnectManaged bool       `json:"connect_managed"`
+		OwnershipKnown bool       `json:"connect_ownership_known"`
+		RepoType       string     `json:"repo_type"`
+		RepoPath       string     `json:"repo_path"`
+		CreatedAt      *time.Time `json:"created_at"`
+		UpdatedAt      *time.Time `json:"updated_at"`
 	}
 
 	safe := make([]safeRepo, len(repos))
@@ -476,8 +483,8 @@ func (h *BackupHandlers) ListRepositories(w http.ResponseWriter, r *http.Request
 			OwnershipKnown: repo.ConnectManagedKnown,
 			RepoType:       repo.RepoType,
 			RepoPath:       repo.RepoPath,
-			CreatedAt:      repo.CreatedAt,
-			UpdatedAt:      repo.UpdatedAt,
+			CreatedAt:      optionalRepositoryTimestamp(repo.CreatedAt),
+			UpdatedAt:      optionalRepositoryTimestamp(repo.UpdatedAt),
 		}
 	}
 
@@ -583,6 +590,10 @@ func (h *BackupHandlers) DeleteRepository(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := h.backupService.DeleteRepository(r.Context(), repoID); err != nil {
+		if errors.Is(err, storage.ErrBackupRepositoryNotFound) {
+			JSONError(w, http.StatusNotFound, "That backup destination no longer exists. Refresh the list.")
+			return
+		}
 		if errors.Is(err, storage.ErrBackupRepositoryHasBackups) {
 			JSONError(w, http.StatusConflict, "This destination still has saved backups. Delete those backups first to keep them available for restore.")
 			return

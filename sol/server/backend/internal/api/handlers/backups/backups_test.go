@@ -73,10 +73,12 @@ func TestBackupHandlersListRepositoriesReportsConnectOwnership(t *testing.T) {
 	rec := callBackupHandler(t, handler.ListRepositories, httptest.NewRequest(http.MethodGet, "/backups/repos", nil), http.StatusOK)
 	var response struct {
 		Repositories []struct {
-			ID             string `json:"id"`
-			IsSystem       bool   `json:"is_system"`
-			ConnectManaged bool   `json:"connect_managed"`
-			OwnershipKnown bool   `json:"connect_ownership_known"`
+			ID             string     `json:"id"`
+			IsSystem       bool       `json:"is_system"`
+			ConnectManaged bool       `json:"connect_managed"`
+			OwnershipKnown bool       `json:"connect_ownership_known"`
+			CreatedAt      *time.Time `json:"created_at"`
+			UpdatedAt      *time.Time `json:"updated_at"`
 		} `json:"repositories"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
@@ -93,6 +95,9 @@ func TestBackupHandlersListRepositoriesReportsConnectOwnership(t *testing.T) {
 		case "system-repo":
 			foundSystem = listed.IsSystem && !listed.ConnectManaged && listed.OwnershipKnown
 		case "unknown-repo":
+			if listed.CreatedAt != nil || listed.UpdatedAt != nil || !strings.Contains(rec.Body.String(), `"created_at":null`) || !strings.Contains(rec.Body.String(), `"updated_at":null`) {
+				t.Fatalf("unknown timestamps should be JSON null: %+v", listed)
+			}
 			if listed.OwnershipKnown {
 				t.Fatal("legacy repository owner reported as known")
 			}
@@ -101,6 +106,10 @@ func TestBackupHandlersListRepositoriesReportsConnectOwnership(t *testing.T) {
 	if !foundConnect || !foundSystem || strings.Contains(rec.Body.String(), "system-secret") {
 		t.Fatalf("repository ownership response = %+v", response.Repositories)
 	}
+	repeated := callBackupHandler(t, handler.ListRepositories, httptest.NewRequest(http.MethodGet, "/backups/repos", nil), http.StatusOK)
+	if repeated.Body.String() != rec.Body.String() {
+		t.Fatalf("unchanged repository dates or order drifted between reads: %s vs %s", rec.Body, repeated.Body)
+	}
 	callBackupHandler(t, handler.DeleteRepository,
 		requestWithJobParam(http.MethodDelete, "/backups/repos/connect-repo", "repoID", "connect-repo"),
 		http.StatusConflict,
@@ -108,6 +117,14 @@ func TestBackupHandlersListRepositoriesReportsConnectOwnership(t *testing.T) {
 	callBackupHandler(t, handler.DeleteRepository,
 		requestWithJobParam(http.MethodDelete, "/backups/repos/unknown-repo", "repoID", "unknown-repo"),
 		http.StatusConflict,
+	)
+}
+
+func TestDeleteMissingBackupRepositoryReportsNotFound(t *testing.T) {
+	handler, _, _, _ := newBackupHandlerTest(t)
+	callBackupHandler(t, handler.DeleteRepository,
+		requestWithJobParam(http.MethodDelete, "/backups/repos/missing", "repoID", "missing"),
+		http.StatusNotFound,
 	)
 }
 

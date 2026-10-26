@@ -644,7 +644,7 @@ export default function BackupsCategory() {
         </SettingsCard>
       )}
 
-      {/* A custom S3-compatible endpoint can still be on this network. */}
+      {/* Always show backup location guidance: a destination type alone does not prove its storage is off-site. */}
       {!loading && !loadError && (
         <SettingsCard icon={CloudOff} title="Keep a copy somewhere else" padding={false} index={3}>
           <SettingsRow

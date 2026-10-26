@@ -6,6 +6,7 @@ import (
 )
 
 var ErrAppBackupRepositoryExists = errors.New("an app already has a backup repository")
+var ErrBackupRepositoryNotFound = errors.New("backup repository not found")
 var ErrBackupRepositoryNotDeletable = errors.New("backup repository is managed")
 var ErrBackupRepositoryHasBackups = errors.New("backup repository still has saved backups")
 

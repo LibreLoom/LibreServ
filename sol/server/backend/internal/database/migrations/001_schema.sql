@@ -543,6 +543,8 @@ CREATE INDEX IF NOT EXISTS idx_backup_schedules_next_run ON backup_schedules(nex
 -- Backup repositories indexes
 CREATE INDEX IF NOT EXISTS idx_backup_repositories_app ON backup_repositories(app_id);
 CREATE INDEX IF NOT EXISTS idx_backup_repositories_type ON backup_repositories(repo_type);
+-- The one-per-app trigger messages are matched by storage/backup_ops.go CreateRepository.
+-- Keep their text in sync; storage/API duplicate-destination regressions exercise this contract.
 CREATE TRIGGER IF NOT EXISTS trg_backup_repositories_one_per_app_insert BEFORE INSERT ON backup_repositories WHEN NEW.app_id IS NOT NULL AND EXISTS (SELECT 1 FROM backup_repositories WHERE app_id = NEW.app_id) BEGIN SELECT RAISE(ABORT, 'app already has backup repository'); END;
 CREATE TRIGGER IF NOT EXISTS trg_backup_repositories_one_per_app_update BEFORE UPDATE OF app_id ON backup_repositories WHEN NEW.app_id IS NOT NULL AND EXISTS (SELECT 1 FROM backup_repositories WHERE app_id = NEW.app_id AND id != OLD.id) BEGIN SELECT RAISE(ABORT, 'app already has backup repository'); END;
 CREATE TRIGGER IF NOT EXISTS trg_backup_repositories_referenced_delete BEFORE DELETE ON backup_repositories WHEN EXISTS (SELECT 1 FROM backups WHERE repo_id = OLD.id) BEGIN SELECT RAISE(ABORT, 'backup repository still has saved backups'); END;

@@ -75,7 +75,7 @@ func (s *BackupService) getSystemRepository(ctx context.Context) (*BackupReposit
 	if err != nil {
 		return nil, fmt.Errorf("system repository not found: %w", err)
 	}
-	repo.setTimestamps(createdAt, updatedAt)
+	repo.applyNullableTimestamps(createdAt, updatedAt)
 	return &repo, nil
 }
 
@@ -348,6 +348,8 @@ func (s *BackupService) CreateRepository(ctx context.Context, repo *BackupReposi
 	`, repo.ID, appID, repo.RepoType, repo.RepoPath, password, credentials, repo.IsSystem, repo.ConnectManaged, isAppSpecific, repo.LimitUploadKbps, repo.LimitDownloadKbps, repo.CreatedAt, repo.UpdatedAt)
 
 	if err != nil {
+		// Keep this trigger message in sync with trg_backup_repositories_one_per_app_*
+		// in database/migrations/001_schema.sql; SQLite uses the same code for all trigger failures.
 		if strings.Contains(err.Error(), "app already has backup repository") {
 			return ErrAppBackupRepositoryExists
 		}

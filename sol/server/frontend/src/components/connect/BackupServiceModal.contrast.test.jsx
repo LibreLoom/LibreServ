@@ -35,6 +35,15 @@ describe("backup destination controls with real shared components", () => {
     expect(screen.queryByText("Shared destination")).not.toBeInTheDocument();
   });
 
+  it("does not select an app that already has a managed destination", async () => {
+    apiMock.mockImplementation((path) => Promise.resolve(new Response(JSON.stringify(path === "/apps" ? { apps: [{ id: "notes", name: "Notes" }] } : { repositories: [{ id: "managed", app_id: "notes", repo_type: "s3", repo_path: "s3:fixture", connect_managed: true, connect_ownership_known: true, created_at: null, updated_at: null }] }), { status: 200 })));
+    const user = userEvent.setup();
+    renderModal();
+    await user.click(screen.getByRole("button", { name: "Add Destination" }));
+    expect(await screen.findByText("Each app can have one backup destination. Delete its current destination before adding another.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Save destination" })).toBeDisabled();
+  });
+
   it("keeps the app load error and retry visible on the destination form", async () => {
     apiMock.mockImplementation((path) => path === "/apps" ? Promise.reject(new Error("offline")) : Promise.resolve(new Response(JSON.stringify({ repositories: [] }), { status: 200 })));
     const user = userEvent.setup();

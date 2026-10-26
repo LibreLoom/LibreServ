@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -241,6 +240,63 @@ func TestBackupRepositoryValidationAndAutoCreation(t *testing.T) {
 	}
 }
 
+func TestBackupRepositoryUnknownTimestampsStayUnknown(t *testing.T) {
+	svc, dir := newStorageService(t)
+	ctx := context.Background()
+	insertStorageApp(t, svc, "unknown-date-app", filepath.Join(dir, "apps", "unknown-date-app"))
+	known := time.Date(2026, time.October, 1, 12, 0, 0, 0, time.UTC)
+	for _, id := range []string{"known-a", "known-z", "unknown-a", "unknown-z"} {
+		var created, updated any
+		if strings.HasPrefix(id, "known-") {
+			created, updated = known, known
+		}
+		if _, err := svc.db.Exec(`INSERT INTO backup_repositories (id, repo_type, repo_path, password, connect_managed, created_at, updated_at) VALUES (?, 'local', '/tmp/disposable', 'key', 0, ?, ?)`, id, created, updated); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := svc.db.Exec(`UPDATE backup_repositories SET app_id = 'unknown-date-app', is_app_specific = 1 WHERE id = 'unknown-a'`); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"known-z", "known-a", "unknown-z", "unknown-a"}
+	for pass := 0; pass < 2; pass++ {
+		repos, err := svc.ListRepositories(ctx)
+		if err != nil || len(repos) != len(want) {
+			t.Fatalf("list = %+v, %v", repos, err)
+		}
+		for i, repo := range repos {
+			if repo.ID != want[i] {
+				t.Fatalf("list position %d = %q, want %q", i, repo.ID, want[i])
+			}
+			if strings.HasPrefix(repo.ID, "unknown-") {
+				if !repo.CreatedAt.IsZero() || !repo.UpdatedAt.IsZero() {
+					t.Fatalf("unknown dates changed on read: %+v", repo)
+				}
+			} else if !repo.CreatedAt.Equal(known) || !repo.UpdatedAt.Equal(known) {
+				t.Fatalf("known dates changed on read: %+v", repo)
+			}
+		}
+		repo, err := svc.GetRepository(ctx, "unknown-a")
+		if err != nil || !repo.CreatedAt.IsZero() || !repo.UpdatedAt.IsZero() {
+			t.Fatalf("get unknown dates = %+v, %v", repo, err)
+		}
+		repo, err = svc.GetRepositoryForApp(ctx, "unknown-date-app")
+		if err != nil || !repo.CreatedAt.IsZero() || !repo.UpdatedAt.IsZero() {
+			t.Fatalf("app unknown dates = %+v, %v", repo, err)
+		}
+	}
+	if _, err := svc.db.Exec(`DELETE FROM backup_repositories WHERE id LIKE 'known-%'`); err != nil {
+		t.Fatal(err)
+	}
+	repo, err := svc.GetDefaultRepository(ctx)
+	if err != nil || repo.ID != "unknown-z" || !repo.CreatedAt.IsZero() || !repo.UpdatedAt.IsZero() {
+		t.Fatalf("default unknown dates = %+v, %v", repo, err)
+	}
+	var nullCount int
+	if err := svc.db.QueryRow(`SELECT COUNT(*) FROM backup_repositories WHERE created_at IS NULL AND updated_at IS NULL`).Scan(&nullCount); err != nil || nullCount != 2 {
+		t.Fatalf("reads changed stored NULL dates: count=%d err=%v", nullCount, err)
+	}
+}
+
 func TestGetSystemRepositoryHandlesNullableOptionalFields(t *testing.T) {
 	svc, _ := newStorageService(t)
 	if _, err := svc.db.Exec(`
@@ -254,7 +310,7 @@ func TestGetSystemRepositoryHandlesNullableOptionalFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load system repository with nullable optional fields: %v", err)
 	}
-	if repo.ID != "legacy-system-repo" || repo.Credentials != "" || repo.CreatedAt.IsZero() || repo.UpdatedAt.IsZero() {
+	if repo.ID != "legacy-system-repo" || repo.Credentials != "" || !repo.CreatedAt.IsZero() || !repo.UpdatedAt.IsZero() {
 		t.Fatalf("system repository = %+v", repo)
 	}
 }
@@ -377,8 +433,11 @@ func TestDeleteRepositoryReportsWhenDeleteAffectedNoRows(t *testing.T) {
 	if _, err := svc.db.Exec(`CREATE TRIGGER test_ignore_backup_repository_delete BEFORE DELETE ON backup_repositories WHEN OLD.id = 'delete-race' BEGIN SELECT RAISE(IGNORE); END`); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.DeleteRepository(context.Background(), repo.ID); !errors.Is(err, sql.ErrNoRows) {
+	if err := svc.DeleteRepository(context.Background(), repo.ID); !errors.Is(err, ErrBackupRepositoryNotDeletable) {
 		t.Fatalf("delete with zero affected rows error = %v", err)
+	}
+	if _, err := svc.GetRepository(context.Background(), repo.ID); err != nil {
+		t.Fatalf("ignored delete lost the retained destination: %v", err)
 	}
 }
 
