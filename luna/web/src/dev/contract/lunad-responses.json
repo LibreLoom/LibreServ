@@ -450,6 +450,21 @@
     "phase": "string",
     "scanning": "boolean"
   },
+  "GET /api/v1/jobs": [
+    {
+      "error": "string",
+      "from_drive": "string",
+      "from_path": "string",
+      "id": "string",
+      "kind": "string",
+      "progress": "number",
+      "state": "string",
+      "to_drive": "string",
+      "to_path": "string",
+      "total": "number",
+      "user_id": "string"
+    }
+  ],
   "GET /api/v1/jobs/{id}": {
     "error": "string",
     "from_drive": "string",
@@ -567,12 +582,24 @@
       },
       "drive_tools": {
         "category": "string",
+        "details": {
+          "missing": [
+            "string"
+          ]
+        },
         "message": "string",
+        "more": "string",
         "status": "string"
       },
       "erase_tools": {
         "category": "string",
+        "details": {
+          "missing": [
+            "string"
+          ]
+        },
         "message": "string",
+        "more": "string",
         "status": "string"
       },
       "heic_tools": {
@@ -625,7 +652,13 @@
       },
       "trim_tool": {
         "category": "string",
+        "details": {
+          "missing": [
+            "string"
+          ]
+        },
         "message": "string",
+        "more": "string",
         "status": "string"
       },
       "update_signing": {
@@ -693,6 +726,14 @@
     "feed_url": "string",
     "keys": []
   },
+  "GET /api/v1/users": [
+    {
+      "display_name": "string",
+      "id": "string",
+      "role": "string",
+      "username": "string"
+    }
+  ],
   "GET /api/v1/users/directory": [
     {
       "admin": "boolean",
