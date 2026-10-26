@@ -1,6 +1,7 @@
 package apps
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -52,16 +53,24 @@ func (pm *PortManager) Init() error {
 
 	pm.usedPorts = make(map[int]string)
 
-	rows, err := pm.db.Query(`SELECT id, source, metadata FROM apps`)
+	rows, err := pm.db.Query(`SELECT id, source, metadata, status, error FROM apps`)
 	if err != nil {
 		return fmt.Errorf("failed to query installed apps for port init: %w", err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var instanceID, appID, metadataJSON string
-		if err := rows.Scan(&instanceID, &appID, &metadataJSON); err != nil {
+		var instanceID, appID, metadataJSON, status string
+		var installError sql.NullString
+		if err := rows.Scan(&instanceID, &appID, &metadataJSON, &status, &installError); err != nil {
 			pm.logger.Warn("Failed to scan app row for port init", "error", err)
+			continue
+		}
+		// Failed-install records retain an error message after handleInstallFailure
+		// releases their ports. Other error rows can come from boot recovery,
+		// where a failed ComposeUp may leave a partially running service; keep
+		// those reservations to avoid reallocating a port that may still be bound.
+		if status == string(StatusError) && installError.Valid && installError.String != "" {
 			continue
 		}
 
@@ -209,6 +218,12 @@ func (pm *PortManager) isPortFreeAtOSLocked(port int) bool {
 		return false
 	}
 	_ = listener.Close()
+	packetConn, err := net.ListenPacket("udp", addr)
+	if err != nil {
+		pm.logger.Debug("Port not available at OS level", "port", port, "protocol", "udp", "error", err)
+		return false
+	}
+	_ = packetConn.Close()
 	return true
 }
 

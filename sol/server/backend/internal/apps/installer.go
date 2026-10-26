@@ -396,9 +396,6 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 
 	manifest, err := LoadManifest(appDef.CatalogPath)
 	if err != nil {
-		if i.portManager != nil {
-			i.portManager.ReleaseAll(instanceID)
-		}
 		_ = os.RemoveAll(installPath)
 		return &InstallResult{Success: false, Error: "could not read app version information"}, fmt.Errorf("load app manifest: %w", err)
 	}

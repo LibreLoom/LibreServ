@@ -37,7 +37,7 @@ function createMockEventSource() {
     triggerOpen,
     triggerMessage,
     triggerError,
-    getClosed: () => instances.at(-1)?.closed,
+    getClosed: () => instances[instances.length - 1]?.closed,
     getCreatedCount: () => instances.length,
   };
 }

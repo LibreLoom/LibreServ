@@ -1,6 +1,8 @@
 package apps
 
 import (
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -54,6 +56,64 @@ func TestPortManagerBatchAllocation(t *testing.T) {
 	used := pm.GetUsedPorts()
 	if used[9000] != "test-1" || used[9001] != "test-1" {
 		t.Fatalf("ports not properly reserved after batch allocate: %v", used)
+	}
+}
+
+func TestPortManagerSkipsUDPBoundPort(t *testing.T) {
+	const boundPort = 19515
+	packetConn, err := net.ListenPacket("udp", fmt.Sprintf(":%d", boundPort))
+	if err != nil {
+		t.Fatalf("bind UDP fixture port: %v", err)
+	}
+	defer packetConn.Close()
+
+	pm := NewPortManager(nil, nil, 19501)
+	allocated, err := pm.Allocate(boundPort)
+	if err != nil {
+		t.Fatalf("allocate after UDP-bound port: %v", err)
+	}
+	if allocated == boundPort {
+		t.Fatalf("allocation reused UDP-bound port %d", boundPort)
+	}
+}
+
+func TestPortManagerInitHandlesInstallAndBootErrorRecords(t *testing.T) {
+	dir := t.TempDir()
+	db, err := database.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	const failedPort = 19510
+	const runningPort = 19511
+	const bootErrorPort = 19512
+	if _, err := db.SQL().Exec(`
+		INSERT INTO apps (id, name, type, source, path, status, metadata, error)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?)
+	`, "failed", "Failed fixture", "repo", "fixture", "/failed", string(StatusError), `{"web_port":19510}`, "fixture install failed",
+		"running", "Running fixture", "repo", "fixture", "/running", string(StatusRunning), `{"web_port":19511}`, nil,
+		"boot-error", "Boot error fixture", "repo", "fixture", "/boot-error", string(StatusError), `{"web_port":19512}`, nil); err != nil {
+		t.Fatal(err)
+	}
+	catalog := &Catalog{apps: map[string]*AppDefinition{
+		"fixture": {ID: "fixture", Configuration: []ConfigField{{Name: "web_port", Type: "port"}}},
+	}}
+	pm := NewPortManager(db, catalog, 19501)
+	if err := pm.Init(); err != nil {
+		t.Fatal(err)
+	}
+	used := pm.GetUsedPorts()
+	if _, reserved := used[failedPort]; reserved {
+		t.Fatalf("failed app record should not keep port %d reserved: %v", failedPort, used)
+	}
+	if owner := used[runningPort]; owner != "running" {
+		t.Fatalf("running app's port %d owner = %q; want running", runningPort, owner)
+	}
+	if owner := used[bootErrorPort]; owner != "boot-error" {
+		t.Fatalf("boot-error app's port %d owner = %q; want boot-error", bootErrorPort, owner)
 	}
 }
 

@@ -497,6 +497,7 @@ func main() {
 
 	// Start local SMTP relay — apps send to localhost, the relay forwards
 	// to the configured upstream (Connect SMTP or user-configured SMTP).
+	// SOL_SMTP_RELAY_DISABLED lets local/test servers avoid binding the SMTP port.
 	if os.Getenv("SOL_SMTP_RELAY_DISABLED") != "true" {
 		smtpRelay := email.NewRelay()
 		if err := smtpRelay.Start(); err != nil {

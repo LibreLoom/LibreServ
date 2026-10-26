@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
 func TestRunSystemSetupReportsMissingAndFailingRequiredScripts(t *testing.T) {
@@ -51,6 +53,85 @@ func TestDeploymentPortAvailabilityAllowsSameInstallReservation(t *testing.T) {
 	}
 	if pm.IsAvailableForOwner(port, "install-2") {
 		t.Fatal("a different install must not reuse another install's port")
+	}
+}
+
+func TestInstallManifestFailureReleasesUncommittedPortReservations(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, "catalog", "apps", "manifest-failure")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "manifest.yaml"), []byte("versions: ["), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	port := 0
+	for candidate := 19510; candidate <= 19519; candidate++ {
+		if candidate != 19501 {
+			probe := &PortManager{usedPorts: make(map[int]string), serverPort: 19501, logger: slog.Default()}
+			if probe.IsPortFreeAtOS(candidate) {
+				port = candidate
+				break
+			}
+		}
+	}
+	if port == 0 {
+		t.Fatal("no free fixture port in 19510–19519")
+	}
+
+	app := &AppDefinition{
+		ID:            "manifest-failure",
+		Name:          "Manifest failure fixture",
+		CatalogPath:   appDir,
+		Configuration: []ConfigField{{Name: "web_port", Label: "Web port", Type: "port", Default: port}},
+		Deployment:    DeploymentConfig{Ports: []PortMapping{{Host: port, Container: 80}}},
+	}
+	catalog := &Catalog{apps: map[string]*AppDefinition{app.ID: app}}
+	pm := &PortManager{usedPorts: make(map[int]string), serverPort: 19501, logger: slog.Default()}
+	installer := NewInstaller(catalog, nil, nil, filepath.Join(root, "installed"), nil, nil, pm)
+
+	result, err := installer.Install(context.Background(), InstallOptions{AppID: app.ID})
+	if err == nil || result.Success {
+		t.Fatalf("invalid manifest should fail before the app record is saved: result=%+v err=%v", result, err)
+	}
+	if owner, reserved := pm.usedPorts[port]; reserved {
+		t.Fatalf("pre-commit failure left port %d reserved by %q", port, owner)
+	}
+}
+
+func TestHandleInstallFailureKeepsErrorRecordAndReleasesPorts(t *testing.T) {
+	root := t.TempDir()
+	db, err := database.Open(filepath.Join(root, "apps.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	const instanceID = "fixture-install"
+	const port = 19510
+	if _, err := db.SQL().Exec(`INSERT INTO apps (id, name, type, path, status) VALUES (?, ?, ?, ?, ?)`, instanceID, "Fixture", "repo", filepath.Join(root, instanceID), string(StatusInstalling)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, instanceID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pm := &PortManager{usedPorts: map[int]string{port: instanceID}, serverPort: 19501, logger: slog.Default()}
+	installer := NewInstaller(nil, nil, db, root, nil, nil, pm)
+
+	installer.handleInstallFailure(instanceID, filepath.Join(root, instanceID), "fixture setup failed", nil)
+
+	var status, savedError string
+	if err := db.SQL().QueryRow(`SELECT status, error FROM apps WHERE id = ?`, instanceID).Scan(&status, &savedError); err != nil {
+		t.Fatal(err)
+	}
+	if status != string(StatusError) || savedError != "fixture setup failed" {
+		t.Fatalf("install failure record = status %q error %q; want retained error record", status, savedError)
+	}
+	if owner, reserved := pm.usedPorts[port]; reserved {
+		t.Fatalf("failed install left port %d reserved by %q", port, owner)
 	}
 }
 
