@@ -16,7 +16,7 @@
   "dependencies": {
     "@codemirror/lang-markdown": "^6.5.2",
     "@codemirror/language-data": "^6.5.2",
-    "@excalidraw/excalidraw": "^0.17.6",
+    "@excalidraw/excalidraw": "0.18.1",
     "@lezer/highlight": "^1.2.3",
     "@lezer/markdown": "^1.7.2",
     "@libreloom/ui": "file:../../shared/ui",
@@ -74,5 +74,21 @@
   },
   "allowScripts": {
     "esbuild@0.28.2": true
+  },
+  "overrides": {
+    "@excalidraw/excalidraw": {
+      "nanoid": "3.3.19",
+      "@excalidraw/mermaid-to-excalidraw": "2.3.0"
+    },
+    "@excalidraw/mermaid-to-excalidraw": {
+      "mermaid": "12.2.0",
+      "@mermaid-js/parser": "2.0.1",
+      "nanoid": "5.1.16"
+    },
+    "mermaid": {
+      "katex": "0.18.2",
+      "@mermaid-js/parser": "2.0.1"
+    },
+    "lodash-es": "4.18.1"
   }
 }
