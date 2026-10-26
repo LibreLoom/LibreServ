@@ -183,7 +183,7 @@ describe("useNeedsYou for an Admin", () => {
     });
     expect(result.current.items[1]).toMatchObject({
       title: [{ name: "Photos" }, " backup didn't finish"],
-      detail: "Disk full",
+      detail: ["Backup drive ", { name: "Backup drive" }, ": ", "Disk full"],
       action: { label: "Open", intent: "open-backup" },
     });
     expect(result.current.items[2]).toMatchObject({

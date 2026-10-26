@@ -32,11 +32,13 @@ function stubListing(byPath) {
 function renderBrowser(props = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={client}>
-      <MemoryRouter>
-        <FileBrowser driveId="d1" driveLabel="Photos" {...props} />
-      </MemoryRouter>
-    </QueryClientProvider>,
+    <ShortcutsProvider>
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <FileBrowser driveId="d1" driveLabel="Photos" {...props} />
+        </MemoryRouter>
+      </QueryClientProvider>
+    </ShortcutsProvider>,
   );
 }
 

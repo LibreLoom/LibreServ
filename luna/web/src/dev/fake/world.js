@@ -6,6 +6,8 @@ export const HOUR = 3600;
 export const DAY = 24 * HOUR;
 /** 2026-10-18 12:00 UTC. Scenarios that need another "now" override scenario.now. */
 export const DEFAULT_NOW = Date.UTC(2026, 9, 18, 12, 0, 0);
+/** lunad's default update feed (system/updates.rs DEFAULT_FEED_URL). */
+export const DEFAULT_FEED_URL = "https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/feeds";
 
 // Ids: one counter per prefix, and an id that a seed (or an earlier call) already
 // holds is never handed out again. The state is saved with the world so ids made
@@ -123,9 +125,10 @@ const photosDrive = drive({ id: "d1", label: "Family photos" });
 
 /** A healthy, ordinary Luna with one admin, one drive and nothing to fix. */
 export function baseWorld() {
+  const passed = (category, message) => ({ category, message, status: "passed" });
   return {
     name: "Luna",
-    setup: { name: "Luna", setup_completed: true, current_step: "done", step_data: {} },
+    setup: { name: "Luna", setup_completed: true, current_step: "done", step_data: { network_connected: true } },
     preflight: { healthy: true, checks: { disk_space: { status: "passed", message: "12.4 GB free on Luna's system disk." }, network: { status: "passed", message: "Connected to your router or modem, with a path to the internet." } } },
     users: [{ ...admin }],
     sessionUserId: "u1",
@@ -135,14 +138,38 @@ export function baseWorld() {
     detected: [],
     summaries: { d1: summary("d1", { shortcuts: ["Photos", "Documents"] }) },
     health: {},
-    systemChecks: { overall_pass: true, checks: {} },
-    updates: { update_available: false, current_version: "1.4.2" },
-    updateSource: { source: "default" },
+    systemChecks: {
+      overall_pass: true,
+      status: "ok",
+      timestamp: Math.floor(DEFAULT_NOW / 1000),
+      summary: { total_checks: 17, passed: 17, warnings: 0, failed: 0 },
+      checks: {
+        clock: passed("Clock", "Luna's clock is on time."),
+        data_path_writable: passed("Storage", "Luna can write to its data folder."),
+        database: passed("Database", "Luna's database is healthy."),
+        diagram_pack: { category: "Diagrams", message: "Diagram pack installed.", more: "", status: "passed" },
+        disk_space: { category: "Storage", message: "Plenty of room left.", status: "passed", details: { free_bytes: 30_000_000_000, free_human: "30.0 GB" } },
+        drive_tools: passed("Drive tools", "Drive tools are installed."),
+        erase_tools: passed("Erase tools", "Erase tools are installed."),
+        heic_tools: { category: "Photos", message: "iPhone photo support installed.", more: "", status: "passed", details: { missing: [] } },
+        logs_path_writable: passed("Storage", "Luna can write to its log folder."),
+        network: passed("Network", "Connected to your router or modem, with a path to the internet."),
+        ntfs_support: passed("Drive tools", "Windows-formatted drives are supported."),
+        office_pack: { category: "Documents", message: "Document pack installed.", more: "", status: "passed", details: { missing: [] } },
+        smart_tool: { category: "Drive health", message: "Drive health checks are available.", more: "", status: "passed", details: { missing: [] } },
+        trim_tool: passed("Drive health", "Drive maintenance is available."),
+        update_signing: passed("Updates", "Updates are checked against Luna's signing key."),
+        video_tools: { category: "Videos", message: "Video previews installed.", more: "", status: "passed", details: { missing: [] } },
+        whiteboard: passed("Whiteboard", "Whiteboard tools are installed."),
+      },
+    },
+    updates: { update_available: false, current_version: "1.4.2", latest_version: "1.4.2", release_notes: "", binary_name: "lunad", checksum: "", reboot_required: false },
+    updateSource: { channel: "stable", default_keys: true, defaults: { channel: "stable", feed_url: DEFAULT_FEED_URL, keys: [] }, effective_keys: [], feed_url: DEFAULT_FEED_URL, keys: [] },
     backups: [],
     cloudBackups: [],
-    phrase: { set: true, set_at: 0, luna_id: "luna-1", signing_public: "", check_due: false, last_checked_at: 0, phrase_words: 12 },
-    connect: { enabled: false },
-    network: { ethernet_connected: true, has_default_route: true },
+    phrase: { set: true, set_at: 0, luna_id: "luna-1", signing_public: "", check_due: false, last_checked_at: 0, phrase_words: 12, moving: null, old_phrase_copies: { count: 0, removed_at: null }, resealing: false },
+    connect: { enabled: false, device_code: null },
+    network: { ethernet_connected: true, wifi_connected: false, has_default_route: true },
     access: [],
     albums: [],
     recents: [],

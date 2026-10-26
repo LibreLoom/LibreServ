@@ -678,4 +678,30 @@ mod http_tests {
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
         assert!(mount.path().join("docs/note.txt").exists());
     }
+
+    #[tokio::test]
+    async fn list_jobs_records_the_list_shape() {
+        // A plain admin list so the contract recorder captures GET /api/v1/jobs.
+        let mount = tempfile::tempdir().unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (cookie, csrf) = admin_cookie(&app).await;
+        let res = app
+            .clone()
+            .oneshot(json_req(
+                Method::POST,
+                "/api/v1/jobs",
+                r#"{"kind":"copy","from_drive":"photos","from_path":"notes.txt","to_drive":"photos","to_path":"Archive"}"#,
+                &cookie,
+                &csrf,
+            ))
+            .await
+            .unwrap();
+        assert!(res.status().is_success(), "job create failed");
+        let res = app
+            .clone()
+            .oneshot(json_req(Method::GET, "/api/v1/jobs", "", &cookie, &csrf))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+    }
 }

@@ -16,11 +16,17 @@ export function isUnopenable(drive) {
 }
 
 /**
- * Drive is plugged in, listed and open (not missing, ejected, or unopenable).
+ * Drive is plugged in, listed and open (not missing, ejected, failed, or
+ * unopenable). A failed drive has mount or I/O errors, so it can't be browsed.
  * @param {{ state?: string, mounted?: boolean }} drive
  */
 export function isPresentDrive(drive) {
-  return drive.state !== "missing" && drive.state !== "ejected" && drive.mounted !== false;
+  return (
+    drive.state !== "missing"
+    && drive.state !== "ejected"
+    && drive.state !== "failed"
+    && drive.mounted !== false
+  );
 }
 
 /**

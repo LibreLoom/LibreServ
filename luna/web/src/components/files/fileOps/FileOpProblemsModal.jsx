@@ -3,7 +3,7 @@ import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { useFileOps, useFileOpsState } from "../../../context/FileOpsContext.jsx";
 import { labels, problemsTitle } from "../../../lib/fileOps/copy.js";
-import { isRunning, opById, problemItems } from "../../../lib/fileOps/selectors.js";
+import { opById, problemItems } from "../../../lib/fileOps/selectors.js";
 import FileOpItemLine from "./FileOpItemLine.jsx";
 
 const canOffer = (items, choice) =>
@@ -35,7 +35,7 @@ export default function FileOpProblemsModal({ opId, open, onClose }) {
 
   const footer = (
     <div className="space-y-2">
-      {hasClashes && isRunning(op) && <p className="text-sm">{labels.appliesToRest}</p>}
+      {hasClashes && <p className="text-sm">{labels.appliesToRest}</p>}
       <div className="flex flex-wrap gap-2">
         {showReplace && (
           <Button variant="outline" size="sm" surface="secondary" onClick={() => ops.decideAll(op.id, "replace")}>

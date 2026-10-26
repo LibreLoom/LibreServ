@@ -33,11 +33,9 @@ function albumRow(w, a) {
     id: a.id,
     home_drive_id: a.home_drive_id,
     name: a.name,
-    owner_user_id: a.owner_user_id,
     locked: Boolean(a.locked),
     item_count: a.fakeCount ?? keys.length,
     cover_thumb: cover?.thumb || a.cover_thumb || "",
-    shared: Boolean(a.shared_with?.length),
     created_at: a.created_at,
   };
 }
@@ -221,7 +219,7 @@ get("/api/v1/gallery/status", ({ world }) => {
       if (g.scanFailsAtEnd) g.last_error = "Luna couldn't read one of your drives while looking for photos.";
     }
   }
-  return { busy: Boolean(g.busy), found_count: g.found_count || 0, drive_label: g.drive_label || "", last_error: g.last_error || "" };
+  return { busy: Boolean(g.busy), scanning: Boolean(g.busy), phase: g.phase ?? (g.busy ? "scanning" : "idle"), pending: g.pending ?? 0, drive_id: null, drive_label: g.drive_label || null, found_count: g.found_count || 0, last_error: g.last_error || null };
 });
 
 post("/api/v1/gallery/rescan", ({ world, user }) => {

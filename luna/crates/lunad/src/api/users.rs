@@ -558,6 +558,54 @@ mod tests {
         assert_eq!(response.status(), axum::http::StatusCode::FORBIDDEN);
     }
 
+    #[tokio::test]
+    async fn list_users_records_the_list_shape() {
+        // A plain admin list so the contract recorder captures GET /api/v1/users.
+        let (_dir, state, admin_token, _member_token) = app_with_admin_and_member();
+        let router = axum::Router::new()
+            .merge(super::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state);
+        let response = router
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/v1/users")
+                    .header("Authorization", format!("Bearer {admin_token}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn list_users_records_the_list_shape() {
+        // A plain admin list so the contract recorder captures GET /api/v1/users.
+        let (_dir, state, admin_token, _member_token) = app_with_admin_and_member();
+        let router = axum::Router::new()
+            .merge(super::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state);
+        let response = router
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/v1/users")
+                    .header("Authorization", format!("Bearer {admin_token}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+    }
+
     // ---- the irreversible paths: edit, remove, adopt, orphans ------------
 
     struct Harness {

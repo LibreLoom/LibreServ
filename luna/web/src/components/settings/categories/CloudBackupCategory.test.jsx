@@ -183,8 +183,9 @@ describe("CloudBackupCategory", () => {
       backups: [{ ...sampleBackup, state: "stale", last_ok_at: 0 }],
     });
     renderCard();
-    expect(await screen.findByText(/This backup hasn't finished in over a day/)).toBeInTheDocument();
-    expect(screen.getByText(/Luna copies files to the cloud every 6 hours/)).toBeInTheDocument();
+    expect(await screen.findByText(/Luna copies files to the cloud every 6 hours/)).toBeInTheDocument();
+    // The status pill and the notice line both say when the last copy finished.
+    expect(screen.getAllByText("Not backed up yet.").length).toBeGreaterThan(0);
   });
 
   it("runs a backup through the new run route", async () => {

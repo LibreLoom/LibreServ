@@ -3,6 +3,7 @@ import { render, screen, within, fireEvent, waitFor } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
+import { FileOpsProvider } from "../context/FileOpsContext.jsx";
 import FilesPage, { describePeek, inspectCountLine } from "./FilesPage";
 import FileSearch from "../components/files/FileSearch";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
@@ -119,11 +120,14 @@ function renderPage(initialEntry = "/files") {
     <ToastProvider>
     <MemoryRouter initialEntries={[initialEntry]}>
       <QueryClientProvider client={client}>
-        <AuthProvider>
-          <FilesPage />
-          {/* The overlay lives in AppShell; the page only holds its button. */}
-          <FileSearch />
-        </AuthProvider>
+        {/* App mounts FileOpsProvider above the routes; FileSearch reads it. */}
+        <FileOpsProvider>
+          <AuthProvider>
+            <FilesPage />
+            {/* The overlay lives in AppShell; the page only holds its button. */}
+            <FileSearch />
+          </AuthProvider>
+        </FileOpsProvider>
       </QueryClientProvider>
     </MemoryRouter>
     </ToastProvider>

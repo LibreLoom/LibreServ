@@ -20,6 +20,8 @@ const backupOnDrive = (w) => (w.backups || []).find((b) => b?.id && b.target_dri
 const shareLinks = (w) => (w.sharing?.subjects || []).flatMap((s) => s.links || []);
 /** A link anyone can open: not turned off, no password, not expired. */
 const openLink = (w) => shareLinks(w).find((l) => l?.token && !l.disabled && !l.password && !l.expires_at) ?? null;
+/** A detected (not yet added) drive, by device name. */
+const detectedName = (w) => (w.detected || []).find((d) => d?.name)?.name ?? null;
 
 /** @param {(w: any, id: string) => string} build */
 const onDrive = (build) => ({ url: (w) => { const d = driveId(w); return d ? build(w, d) : null; } });
@@ -42,11 +44,14 @@ export const CASES = {
   "GET /api/v1/drives/detected": plain("/api/v1/drives/detected"),
   "GET /api/v1/drives/:id/summary": onDrive((w, d) => `/api/v1/drives/${q(d)}/summary`),
   "GET /api/v1/drives/:id/health": onDrive((w, d) => `/api/v1/drives/${q(d)}/health`),
+  "GET /api/v1/drives/:name/peek": { url: (w) => { const dev = detectedName(w); return dev ? `/api/v1/drives/${q(dev)}/peek` : null; } },
   // The app sends POST (FilesPage.jsx); lunad only has POST. The GET case checks the method.
   "GET /api/v1/drives/:name/inspect": { url: (w) => { const dev = (w.drives || []).find((d) => d?.device)?.device; return dev ? `/api/v1/drives/${q(dev)}/inspect` : null; } },
   "POST /api/v1/drives/:name/inspect": { url: (w) => { const dev = (w.drives || []).find((d) => d?.device)?.device; return dev ? `/api/v1/drives/${q(dev)}/inspect` : null; }, body: () => ({}) },
 
   // System
+  "GET /health": plain("/health"),
+  "GET /api/v1/health": plain("/api/v1/health"),
   "GET /api/v1/system/health/check": plain("/api/v1/system/health/check"),
   "GET /api/v1/system/updates": plain("/api/v1/system/updates"),
   "GET /api/v1/system/updates/source": plain("/api/v1/system/updates/source"),

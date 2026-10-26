@@ -50,8 +50,11 @@ describe("AddToAlbumModal", () => {
       />,
     );
 
+    const vacation = await screen.findByRole("checkbox", { name: /Vacation/i });
+    // The rows stay disabled while Luna checks what each album already holds.
+    await waitFor(() => expect(vacation).toBeEnabled());
     expect(screen.getByRole("button", { name: /^Apply$/i })).toBeDisabled();
-    fireEvent.click(await screen.findByRole("checkbox", { name: /Vacation/i }));
+    fireEvent.click(vacation);
     expect(screen.getByRole("button", { name: /^Apply$/i })).toBeEnabled();
   });
 

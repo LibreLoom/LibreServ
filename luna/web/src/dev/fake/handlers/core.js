@@ -85,7 +85,8 @@ post("/api/v1/auth/revoke-devices", ({ world }) => {
 // ── Setup ───────────────────────────────────────────────────────────────────
 get("/api/v1/setup", ({ world, user }) => {
   if (world.users.length > 0 && !user) return fail(401, "Sign in to Luna first.");
-  return world.setup;
+  const sd = world.setup?.step_data ?? {};
+  return { ...world.setup, step_data: { network_connected: sd.network_connected ?? true, ...(sd.preflight_passed !== undefined ? { preflight_passed: sd.preflight_passed } : {}) } };
 }, { public: true });
 post("/api/v1/setup", ({ world, user, body }) => {
   if (world.users.length > 0) {
@@ -102,8 +103,11 @@ post("/api/v1/setup", ({ world, user, body }) => {
     world.name = name;
     body = { ...body, name };
   }
-  world.setup = { ...world.setup, ...body };
-  if (body.setup_completed === true) world.setup = { ...world.setup, current_step: "done", step_data: {} };
+  // step_data only carries what lunad tracks (api/setup.rs); older keys are dropped.
+  const sd = { ...(body.step_data ?? {}) };
+  const stepData = { network_connected: sd.network_connected ?? true, ...(sd.preflight_passed !== undefined ? { preflight_passed: sd.preflight_passed } : {}) };
+  world.setup = { ...world.setup, ...body, step_data: stepData };
+  if (body.setup_completed === true) world.setup = { ...world.setup, current_step: "done", step_data: stepData };
   return world.setup;
 }, { public: true });
 // world.preflight can be a list of answers: each run gets the next one, the last repeats.
@@ -387,7 +391,11 @@ const updatesGate = (user) => requireAdmin(user, "Only an Admin can manage updat
 get("/api/v1/system/updates", ({ world, user }) => {
   updatesGate(user);
   const { os_update_failed: failed, ...rest } = world.updates;
-  return { ...rest, os_update_failed: failed ? (typeof failed === "object" ? failed : { version: world.updates.latest_version ?? "" }) : null };
+  return {
+    binary_name: "lunad", checksum: "", reboot_required: false, release_notes: "",
+    latest_version: rest.current_version, ...rest,
+    os_update_failed: failed ? (typeof failed === "object" ? failed : { version: world.updates.latest_version ?? "" }) : null,
+  };
 });
 post("/api/v1/system/updates/apply", ({ world, user, fake }) => {
   updatesGate(user);
@@ -425,19 +433,32 @@ post("/api/v1/system/factory-reset", ({ world, user, body }) => {
 
 // Members get the reduced answer, not a refusal.
 get("/api/v1/network/status", ({ world, user }) => {
-  if (isAdmin(user)) return world.network;
-  return { ethernet_connected: world.network.ethernet_connected, wifi_connected: false, has_default_route: world.network.has_default_route };
+  const base = { ethernet_connected: true, wifi_connected: false, has_default_route: true, ...world.network };
+  if (isAdmin(user)) return base;
+  return { ethernet_connected: base.ethernet_connected, wifi_connected: false, has_default_route: base.has_default_route };
 }, { public: true });
 get("/api/v1/connect/status", ({ world, user }) => {
   const admin = isAdmin(user) || world.users.length === 0;
-  const { device_code: _code, ...rest } = world.connect;
-  const status = { connect_active: false, enabled: false, base_url: "https://connect.luna.libreloom.org", tunnel_active: false, backup_unlocked: false, paired: false, unclaimed: false, backup_sources: [], card_on_file: true, ...rest };
+  const { device_code: code, device_token_error: _gone, ...rest } = world.connect;
+  const status = { connect_active: false, enabled: false, base_url: "https://connect.luna.libreloom.org", tunnel_active: false, backup_unlocked: false, paired: false, unclaimed: false, backup_sources: [], card_on_file: true, device_code: code ?? null, ...rest };
   if (status.device_token_error) Object.assign(status, { enabled: false, paired: false, unclaimed: false, tunnel_active: false });
+  delete status.device_token_error;
   if (!admin) status.backup_sources = [];
   return status;
 }, { public: true });
 
 // ── Dashboard data: recents, backups and private items live in files.js / backups.js ──
-get("/api/v1/cloud/phrase", ({ world }) => world.phrase);
+get("/api/v1/cloud/phrase", ({ world }) => ({
+  set: Boolean(world.phrase?.set),
+  set_at: world.phrase?.set_at ?? null,
+  luna_id: world.phrase?.luna_id || null,
+  signing_public: world.phrase?.signing_public || null,
+  check_due: Boolean(world.phrase?.check_due),
+  last_checked_at: world.phrase?.last_checked_at ?? 0,
+  phrase_words: world.phrase?.phrase_words ?? 0,
+  moving: null,
+  old_phrase_copies: world.phrase?.old_phrase_copies ?? { count: 0, removed_at: null },
+  resealing: Boolean(world.phrase?.resealing),
+}));
 
 export { DEVICE_TOKEN_REJECTED };

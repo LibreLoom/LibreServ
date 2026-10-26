@@ -334,6 +334,7 @@ export default function FullscreenEditorFrame({
           label: "Save",
           icon: Save,
           disabled: !saveReady || !hasUnsaved,
+          sub: saveLabel || undefined,
         }]
       : []),
     { value: "close", label: "Close editor", icon: X },
