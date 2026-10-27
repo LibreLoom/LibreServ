@@ -1,5 +1,7 @@
 # Luna performance review
 
+Status: every brief below shipped (spinners `5134a023`, file list `ed629e48`, gallery/engine `fb8ca0a7`, lunad locks `dfa5a8ed`, async workers and marker memo `1a97dc89`, desktop `d7eb3576`). The findings sections stay as the record of what was measured.
+
 ## What made the gallery note box lag
 
 **The biggest cost is in Luna, not the gallery.** Every icon-only button in shared/ui keeps a hidden spinner mounted, and its 8 dots animate forever. That happens even while the spinner is invisible, wrapped in two `will-change-transform` layers:

@@ -90,8 +90,17 @@ describe("CloudRestoreCard", () => {
     renderCard();
     expect(await screen.findByText("Bring back cloud backups")).toBeInTheDocument();
     expect(screen.getByText(/5 versions are in the cloud/)).toBeInTheDocument();
-    expect(screen.getByText(/0 are on Luna/)).toBeInTheDocument();
+    expect(screen.getByText(/Luna has 0 versions in its list/)).toBeInTheDocument();
     expect(screen.getByText("connect.luna.libreloom.org")).toBeInTheDocument();
+    expect(screen.getByLabelText("Recovery phrase")).toBeInTheDocument();
+  });
+
+  it("explains that matching totals can still have missing versions", async () => {
+    getRestoreStatusMock.mockResolvedValue({ ...STATUS, cloud_snapshots: 2, indexed_snapshots: 2 });
+    renderCard();
+    expect(await screen.findByText(/Some cloud backup versions are missing from Luna's list/)).toBeInTheDocument();
+    expect(screen.getByText(/2 versions are in the cloud/)).toBeInTheDocument();
+    expect(screen.getByText(/Luna has 2 versions in its list/)).toBeInTheDocument();
     expect(screen.getByLabelText("Recovery phrase")).toBeInTheDocument();
   });
 
@@ -99,7 +108,7 @@ describe("CloudRestoreCard", () => {
     getRestoreStatusMock.mockResolvedValue({ ...STATUS, cloud_snapshots: 1, indexed_snapshots: 1 });
     renderCard();
     expect(await screen.findByText(/1 version is in the cloud/)).toBeInTheDocument();
-    expect(screen.getByText(/1 is on Luna/)).toBeInTheDocument();
+    expect(screen.getByText(/Luna has 1 version in its list/)).toBeInTheDocument();
   });
 
   it("explains a missing signing key instead of the phrase form", async () => {

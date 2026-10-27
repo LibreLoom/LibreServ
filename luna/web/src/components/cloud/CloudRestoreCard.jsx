@@ -91,11 +91,11 @@ export default function CloudRestoreCard() {
     <SettingsCard icon={CloudDownload} title="Bring back cloud backups">
       <div className="space-y-3">
         <p className="text-primary text-sm">
-          Luna lost its list of cloud backups. Enter your recovery phrase to find them again.
+          Some cloud backup versions are missing from Luna&apos;s list. Enter your recovery phrase to find them again.
         </p>
         <p className="text-primary text-sm">
-          {cloudCount === 1 ? "1 version is" : `${cloudCount} versions are`} in the cloud,{" "}
-          {indexedCount === 1 ? "1 is" : `${indexedCount} are`} on Luna&apos;s list.{" "}
+          {cloudCount === 1 ? "1 version is" : `${cloudCount} versions are`} in the cloud.{" "}
+          {indexedCount === 1 ? "Luna has 1 version" : `Luna has ${indexedCount} versions`} in its list.{" "}
           <InfoHint label="What a version is" content="One saved state of a backup, from one time it ran." />
         </p>
 

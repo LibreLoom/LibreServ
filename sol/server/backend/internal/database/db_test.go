@@ -138,6 +138,8 @@ func TestReconcileSchemaRepairsOldDatabase(t *testing.T) {
 	CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 	CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, email TEXT, role TEXT DEFAULT 'user', last_login TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 	CREATE TABLE IF NOT EXISTS apps (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, source TEXT, path TEXT NOT NULL, status TEXT DEFAULT 'stopped', health_status TEXT DEFAULT 'unknown', pinned_version TEXT, error TEXT, installed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, metadata JSON, image_digest TEXT, compose_template_sha TEXT, revocation_severity TEXT, revocation_reason TEXT);
+	CREATE TABLE IF NOT EXISTS backup_repositories (id TEXT PRIMARY KEY, app_id TEXT, repo_type TEXT NOT NULL, repo_path TEXT NOT NULL, password TEXT NOT NULL, credentials TEXT, is_system BOOLEAN DEFAULT 0, limit_upload_kbps INTEGER DEFAULT 0, limit_download_kbps INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+	INSERT INTO backup_repositories (id, repo_type, repo_path, password) VALUES ('legacy-connect-or-custom', 's3', 's3:bucket', 'encrypted');
 	CREATE TABLE IF NOT EXISTS backups (id TEXT PRIMARY KEY, app_id TEXT, type TEXT NOT NULL, path TEXT NOT NULL, size INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, checksum TEXT, source TEXT DEFAULT 'local', FOREIGN KEY (app_id) REFERENCES apps(id) ON DELETE SET NULL);
 	CREATE TABLE IF NOT EXISTS routes (id TEXT PRIMARY KEY, subdomain TEXT NOT NULL, domain TEXT NOT NULL, backend TEXT NOT NULL, app_id TEXT, ssl BOOLEAN DEFAULT TRUE, enabled BOOLEAN DEFAULT TRUE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(subdomain, domain));
 	CREATE TABLE IF NOT EXISTS dns_provider_configs (id TEXT PRIMARY KEY, provider TEXT NOT NULL, domain TEXT NOT NULL, api_token TEXT NOT NULL, enabled BOOLEAN DEFAULT TRUE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
@@ -171,6 +173,7 @@ func TestReconcileSchemaRepairsOldDatabase(t *testing.T) {
 	columns := db.getExistingColumns()
 	checks := map[string][]string{
 		"backups":              {"format", "data_added", "snapshot_id", "repo_id"},
+		"backup_repositories":  {"connect_managed", "is_app_specific"},
 		"apps":                 {"revocation_revoked_at", "revocation_acknowledged_at"},
 		"users":                {"mfa_required"},
 		"routes":               {"restricted_access"},
@@ -182,6 +185,10 @@ func TestReconcileSchemaRepairsOldDatabase(t *testing.T) {
 				t.Errorf("%s.%s column missing after reconcile", table, col)
 			}
 		}
+	}
+	var ownershipUnknown int
+	if err := db.QueryRow(`SELECT connect_managed IS NULL FROM backup_repositories WHERE id = 'legacy-connect-or-custom'`).Scan(&ownershipUnknown); err != nil || ownershipUnknown != 1 {
+		t.Errorf("legacy backup repository ownership should remain unknown: null=%d, err=%v", ownershipUnknown, err)
 	}
 
 	var migrationVersion string

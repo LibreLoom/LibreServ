@@ -1,5 +1,7 @@
 # Drive health and unopenable drives: implementation spec (stream C plus 3: `dashboard/drive-unmounted`)
 
+Status: shipped 23 Oct 2026 (`5b63a6d5`, web `d0a0d757`/`919cbd3e`/`d7e36bf7`). "What the code does today" below describes the pre-fix code and stays as history; the health JSON contract is live.
+
 ## What the code does today
 
 **Why warning and failed look the same.** lunad never sends `overall: "warning"`.
