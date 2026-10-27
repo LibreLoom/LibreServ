@@ -1,5 +1,7 @@
 # States gallery feedback — plan
 
+Status: the harness rebuild and the streams landed 23–26 Oct 2026 (commits `fb8ca0a7` … `86b5161a`); kept as the record of the triage and decisions. Live harness docs: `luna/web/src/dev/README.md`.
+
 Source: the 51 `fail` notes in `luna/web/testing/results.json` (21–24 Oct 2026), plus a
 review of the whole harness in `luna/web/src/dev/`. Every note is listed below exactly once.
 When a fix lands, mark the scenario *Fixed, retest* in the gallery. Don't edit `results.json`

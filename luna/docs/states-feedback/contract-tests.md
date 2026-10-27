@@ -1,5 +1,7 @@
 # Spec: lunad response contract tests (plan item 1.8, finding 8)
 
+Status: shipped. The recorder landed as `70528ac0` (`api/contract.rs`), the web test as `2cf62a89` (`src/dev/contract/`), and `fb8ca0a7`/`934c1b62`/`86b5161a` fixed the fake, so `KNOWN_GAPS` is empty and the drift items below (the `inspect` method, the `versions` shape) are fixed — the briefs and "What I found" stay as history. The fixture format and comparison rules here still describe the shipped code.
+
 ## What I found
 
 **How `fixture.json` is made today.** `luna/crates/lunad/src/backup/cloud/fixture.rs` is `#[cfg(test)] mod fixture;`. Its `#[test] fn write_fixture()` builds a fixed value and writes it with `serde_json::to_string_pretty(..) + "\n"`. The path is `concat!(env!("CARGO_MANIFEST_DIR"), "/src/backup/cloud/fixture.json")`. The web side imports it as plain JSON (`src/lib/cloudRestore.test.js`). `luna/ci.sh` runs `cargo test --workspace` at line 35, before `npm test -- --run` at line 153. So one full `./ci run -profile luna` writes the file first and then has vitest read it.
