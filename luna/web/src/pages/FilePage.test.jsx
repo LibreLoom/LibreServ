@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -180,6 +180,10 @@ function renderFiles(path = "/files/d1") {
 }
 
 describe("FilePage", () => {
+  // The file task store restores accepted jobs from sessionStorage, so one
+  // test's running job must not leak into the next test's dock.
+  afterEach(() => sessionStorage.clear());
+
   it("shows upload control and folder contents", async () => {
     stubFilesApi({
       "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
@@ -670,7 +674,8 @@ describe("FilePage", () => {
     const dock = await screen.findByRole("region", { name: "File tasks" });
     expect(await within(dock).findByText(/Couldn't reach Luna/i)).toBeInTheDocument();
     expect(within(dock).getByRole("button", { name: "Try again" })).toBeInTheDocument();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // The picker plays its exit animation (300 ms) before it unmounts.
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.queryByText(/NetworkError/i)).not.toBeInTheDocument();
     const postJob = fetchMock.mock.calls.find(([url, init]) =>
       String(url).includes("/api/v1/jobs") && (init?.method || "GET").toUpperCase() === "POST"

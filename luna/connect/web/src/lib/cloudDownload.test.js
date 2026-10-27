@@ -5,12 +5,16 @@ import { downloadFile, downloadFolder } from "./cloudDownload.js";
 import { loadTree, unlockBackups } from "./cloudUnlock.js";
 import { ZIP_TOO_BIG } from "./zip.js";
 import { saveBlob } from "./download.js";
-import { derive, entropyToPhrase, verify } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { decrypt, derive, entropyToPhrase, verify } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { findMyPrivateScopes, openPrivateTreeBytes, privateOpenMessage, privateUnwrap } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
-import { NO_KEY, readTreeWith } from "@libreloom/ui/lib/cloud/cloudFormat.js";
+import { NO_KEY, PACK_BODY_AAD, readTreeWith } from "@libreloom/ui/lib/cloud/cloudFormat.js";
 import { openPrivateScope } from "./privateUnlock.js";
 
 vi.mock("./download.js", () => ({ saveBlob: vi.fn() }));
+vi.mock("@libreloom/ui/lib/cloud/backupCrypto.js", async (importOriginal) => {
+  const actual = /** @type {typeof import("@libreloom/ui/lib/cloud/backupCrypto.js")} */ (await importOriginal());
+  return { ...actual, decrypt: vi.fn(actual.decrypt) };
+});
 
 /** A CloudSource over the Rust fixture's records and packs. */
 function fixtureSource() {
@@ -116,6 +120,38 @@ describe("downloadFolder", () => {
     const positions = entries.map((e) => text.indexOf(e.path));
     expect(positions.every((i) => i >= 0)).toBe(true);
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+  });
+
+  it("finishes and clears the pack reader when a later pack download fails", async () => {
+    const source = fixtureSource();
+    const { backup, version, entries } = await openFixture(source);
+    const first = entries.find((entry) => entry.chunks.length > 0);
+    if (!first) throw new Error("The fixture has no file chunks.");
+    const originalGetPack = source.getPack;
+    source.getPack = vi.fn(async (idHex) => {
+      if (idHex === "zzzz") throw new Error("The backup pack could not be loaded.");
+      return originalGetPack(idHex);
+    });
+    const failed = {
+      path: "zz.txt",
+      size: 0,
+      mtime: 0,
+      chunks: [{ id: "00".repeat(32), pack: "zzzz", offset: 0, len: 0 }],
+    };
+    vi.mocked(decrypt).mockClear();
+
+    await expect(downloadFolder(source, backup, version, [first, failed], "")).rejects.toThrow(
+      "The backup pack could not be loaded.",
+    );
+    const bodyCalls = vi.mocked(decrypt).mock.calls
+      .map(([, aad], index) => (aad === PACK_BODY_AAD ? vi.mocked(decrypt).mock.results[index].value : null))
+      .filter((body) => body instanceof Uint8Array);
+    expect(bodyCalls.length).toBeGreaterThan(0);
+    for (const body of bodyCalls) {
+      expect(Array.from(body)).toEqual(new Array(body.length).fill(0));
+    }
+    expect(source.getPack.mock.calls.map(([id]) => id)).toEqual([first.chunks[0].pack, "zzzz"]);
+    expect(saveBlob).not.toHaveBeenCalled();
   });
 });
 

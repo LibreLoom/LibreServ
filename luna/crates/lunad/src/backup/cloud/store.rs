@@ -4,6 +4,8 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
@@ -16,6 +18,9 @@ pub const MAX_PACK_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_RECORD_BYTES: usize = 1024 * 1024;
 /// Largest JSON reply Luna reads from Connect.
 const MAX_JSON_REPLY_BYTES: u64 = 4 * 1024 * 1024;
+/// Restore listings stay small enough to process without retaining the full inventory.
+pub const MAX_RECORD_PAGE_SIZE: usize = 256;
+pub const RESTORE_RECORD_PAGE_SIZE: usize = 64;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Small calls: records, usage, listings.
@@ -40,6 +45,16 @@ pub struct Usage {
     pub quota_bytes: u64,
 }
 
+/// One bounded, key-ordered record-name page. `next_after` is exclusive on the next request.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct RecordPage {
+    pub names: Vec<String>,
+    pub total: u64,
+    pub next_after: Option<String>,
+    #[serde(default)]
+    pub version: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum StoreError {
     #[error("Your cloud storage is full.")]
@@ -62,6 +77,119 @@ pub trait CloudStore: Send + Sync {
     fn get_record(&self, kind: &str, name: &str) -> Result<Option<Vec<u8>>, StoreError>;
     fn delete_record(&self, kind: &str, name: &str) -> Result<(), StoreError>;
     fn list_records(&self, kind: &str) -> Result<Vec<String>, StoreError>;
+    fn list_record_page(
+        &self,
+        kind: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<RecordPage, StoreError>;
+    /// Continues a listing only while the storage inventory has the same version.
+    fn list_record_page_versioned(
+        &self,
+        kind: &str,
+        after: Option<&str>,
+        limit: usize,
+        version: Option<u64>,
+        expected_total: Option<u64>,
+    ) -> Result<RecordPage, StoreError> {
+        if version.is_some() != expected_total.is_some() || (after.is_some() && version.is_none()) {
+            return Err(StoreError::Rejected(NAME_MSG.into()));
+        }
+        let page = self.list_record_page(kind, after, limit)?;
+        if version.is_some_and(|expected| expected != page.version)
+            || expected_total.is_some_and(|expected| expected != page.total)
+            || version.is_some() != expected_total.is_some()
+        {
+            return Err(StoreError::Unavailable(
+                "The cloud backup list changed during restore. Try restoring again.".into(),
+            ));
+        }
+        Ok(page)
+    }
+    /// Lists a keyset page inside a name prefix. Implementations may override this to push the
+    /// filter into storage. The default keeps wrapper stores bounded while preserving semantics.
+    fn list_record_page_prefix(
+        &self,
+        kind: &str,
+        prefix: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<RecordPage, StoreError> {
+        validate_record_page_prefix(kind, prefix, after, limit)?;
+        let mut scan_after = None;
+        let mut expected_total = None;
+        let mut total = 0u64;
+        let mut names = Vec::with_capacity(limit.saturating_add(1));
+        let mut after_total = 0usize;
+        let mut version = None;
+        loop {
+            let page = self.list_record_page_versioned(
+                kind,
+                scan_after.as_deref(),
+                MAX_RECORD_PAGE_SIZE,
+                version,
+                expected_total,
+            )?;
+            validate_page_response(kind, scan_after.as_deref(), MAX_RECORD_PAGE_SIZE, &page)?;
+            if expected_total.is_some_and(|expected| expected != page.total) {
+                return Err(StoreError::Unavailable(
+                    "The cloud backup list changed while it was being read. Try again.".into(),
+                ));
+            }
+            expected_total = Some(page.total);
+            version = Some(page.version);
+            for name in page.names {
+                if name.starts_with(prefix) {
+                    total = total.saturating_add(1);
+                    if after.is_none_or(|cursor| name.as_str() > cursor) {
+                        after_total = after_total.saturating_add(1);
+                        if names.len() <= limit {
+                            names.push(name);
+                        }
+                    }
+                }
+            }
+            let Some(next) = page.next_after else { break };
+            scan_after = Some(next);
+        }
+        let has_more = after_total > limit;
+        if has_more {
+            names.pop();
+        }
+        let next_after = has_more.then(|| names.last().cloned()).flatten();
+        Ok(RecordPage {
+            names,
+            total,
+            next_after,
+            version: version.unwrap_or_default(),
+        })
+    }
+
+    /// Lists a prefix page and rejects a continuation from a changed inventory.
+    fn list_record_page_prefix_versioned(
+        &self,
+        kind: &str,
+        prefix: &str,
+        after: Option<&str>,
+        limit: usize,
+        version: Option<u64>,
+        expected_total: Option<u64>,
+    ) -> Result<RecordPage, StoreError> {
+        if version.is_some() != expected_total.is_some() || (after.is_some() && version.is_none()) {
+            return Err(StoreError::Rejected(NAME_MSG.into()));
+        }
+        let page = self.list_record_page_prefix(kind, prefix, after, limit)?;
+        if version.is_some_and(|expected| expected != page.version)
+            || expected_total.is_some_and(|expected| expected != page.total)
+            || version.is_some() != expected_total.is_some()
+        {
+            return Err(StoreError::Unavailable(
+                "The cloud backup list changed during restore. Try restoring again.".into(),
+            ));
+        }
+        Ok(page)
+    }
+
     fn usage(&self) -> Result<Usage, StoreError>;
 }
 
@@ -108,12 +236,15 @@ fn hex_id(id: &[u8; 32]) -> String {
 pub struct MemoryStore {
     quota_bytes: u64,
     inner: Mutex<MemoryInner>,
+    #[cfg(test)]
+    pack_reads: AtomicUsize,
 }
 
 #[derive(Default)]
 struct MemoryInner {
     packs: HashMap<[u8; 32], (Option<String>, Vec<u8>)>,
     records: BTreeMap<(String, String), Vec<u8>>,
+    inventory_version: u64,
 }
 
 impl MemoryInner {
@@ -134,7 +265,14 @@ impl MemoryStore {
         Self {
             quota_bytes,
             inner: Mutex::default(),
+            #[cfg(test)]
+            pack_reads: AtomicUsize::default(),
         }
+    }
+
+    #[cfg(test)]
+    pub fn pack_reads(&self) -> usize {
+        self.pack_reads.load(Ordering::Relaxed)
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, MemoryInner> {
@@ -163,6 +301,8 @@ impl CloudStore for MemoryStore {
     }
 
     fn get_pack(&self, id: &[u8; 32]) -> Result<Vec<u8>, StoreError> {
+        #[cfg(test)]
+        self.pack_reads.fetch_add(1, Ordering::Relaxed);
         self.lock()
             .packs
             .get(id)
@@ -187,6 +327,7 @@ impl CloudStore for MemoryStore {
             return Err(StoreError::Full);
         }
         inner.records.insert(key, bytes.to_vec());
+        inner.inventory_version = inner.inventory_version.saturating_add(1);
         Ok(())
     }
 
@@ -205,9 +346,14 @@ impl CloudStore for MemoryStore {
         if !valid_token(kind, 128) || !valid_token(name, 128) {
             return Err(StoreError::Rejected(NAME_MSG.into()));
         }
-        self.lock()
+        let mut inner = self.lock();
+        if inner
             .records
-            .remove(&(kind.to_string(), name.to_string()));
+            .remove(&(kind.to_string(), name.to_string()))
+            .is_some()
+        {
+            inner.inventory_version = inner.inventory_version.saturating_add(1);
+        }
         Ok(())
     }
 
@@ -219,6 +365,37 @@ impl CloudStore for MemoryStore {
             .filter(|(k, _)| k == kind)
             .map(|(_, n)| n.clone())
             .collect())
+    }
+
+    fn list_record_page(
+        &self,
+        kind: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<RecordPage, StoreError> {
+        validate_record_page(kind, after, limit)?;
+        let inner = self.lock();
+        let version = inner.inventory_version;
+        let total = inner.records.keys().filter(|(k, _)| k == kind).count() as u64;
+        let start = (kind.to_string(), after.unwrap_or("").to_string());
+        let mut names = inner
+            .records
+            .range(start..)
+            .filter(|((k, name), _)| k == kind && after.is_none_or(|cursor| name.as_str() > cursor))
+            .take(limit.saturating_add(1))
+            .map(|((_, name), _)| name.clone())
+            .collect::<Vec<_>>();
+        let has_more = names.len() > limit;
+        if has_more {
+            names.pop();
+        }
+        let next_after = has_more.then(|| names.last().cloned()).flatten();
+        Ok(RecordPage {
+            names,
+            total,
+            next_after,
+            version,
+        })
     }
 
     fn usage(&self) -> Result<Usage, StoreError> {
@@ -287,6 +464,76 @@ struct NamesBody {
     names: Vec<String>,
 }
 
+fn validate_record_page(kind: &str, after: Option<&str>, limit: usize) -> Result<(), StoreError> {
+    if !valid_token(kind, 128)
+        || after.is_some_and(|cursor| !valid_token(cursor, 128))
+        || limit == 0
+        || limit > MAX_RECORD_PAGE_SIZE
+    {
+        return Err(StoreError::Rejected(NAME_MSG.into()));
+    }
+    Ok(())
+}
+
+fn validate_record_page_prefix(
+    kind: &str,
+    prefix: &str,
+    after: Option<&str>,
+    limit: usize,
+) -> Result<(), StoreError> {
+    validate_record_page(kind, after, limit)?;
+    if !valid_token(prefix, 128)
+        || !prefix.ends_with('.')
+        || after.is_some_and(|cursor| !cursor.starts_with(prefix))
+    {
+        return Err(StoreError::Rejected(NAME_MSG.into()));
+    }
+    Ok(())
+}
+
+fn validate_page_response(
+    kind: &str,
+    after: Option<&str>,
+    limit: usize,
+    page: &RecordPage,
+) -> Result<(), StoreError> {
+    validate_record_page(kind, after, limit)?;
+    let mut previous = after.unwrap_or("");
+    for name in &page.names {
+        if !valid_token(name, 128) || name.as_str() <= previous {
+            return Err(StoreError::Rejected(REFUSED_MSG.into()));
+        }
+        previous = name;
+    }
+    if page.names.len() > limit
+        || (page.names.is_empty() && page.next_after.is_some())
+        || (page.next_after.is_some() && page.names.len() != limit)
+        || page.next_after.as_deref().is_some_and(|cursor| {
+            !valid_token(cursor, 128) || page.names.last().map(String::as_str) != Some(cursor)
+        })
+    {
+        return Err(StoreError::Rejected(REFUSED_MSG.into()));
+    }
+    Ok(())
+}
+
+fn validate_prefix_page_response(
+    kind: &str,
+    prefix: &str,
+    after: Option<&str>,
+    limit: usize,
+    page: &RecordPage,
+) -> Result<(), StoreError> {
+    validate_record_page_prefix(kind, prefix, after, limit)?;
+    validate_page_response(kind, after, limit, page)?;
+    if page.names.iter().any(|name| !name.starts_with(prefix))
+        || page.total < page.names.len() as u64
+    {
+        return Err(StoreError::Rejected(REFUSED_MSG.into()));
+    }
+    Ok(())
+}
+
 impl HttpStore {
     /// `base_url` is Connect's address (e.g. `https://connect.luna.libreloom.org`).
     pub fn new(base_url: &str, device_token: &str, luna_id: &str) -> Self {
@@ -311,6 +558,77 @@ impl HttpStore {
 
     fn auth(&self) -> String {
         format!("Bearer {}", self.device_token)
+    }
+
+    fn request_record_page(
+        &self,
+        kind: &str,
+        prefix: Option<&str>,
+        after: Option<&str>,
+        limit: usize,
+        version: Option<u64>,
+        expected_total: Option<u64>,
+    ) -> Result<RecordPage, StoreError> {
+        if version.is_some() != expected_total.is_some() || (after.is_some() && version.is_none()) {
+            return Err(StoreError::Rejected(NAME_MSG.into()));
+        }
+        if let Some(prefix) = prefix {
+            validate_record_page_prefix(kind, prefix, after, limit)?;
+        } else {
+            validate_record_page(kind, after, limit)?;
+        }
+        let mut query = format!("limit={limit}");
+        if let Some(prefix) = prefix {
+            query.push_str("&prefix=");
+            query.push_str(prefix);
+        }
+        if let Some(after) = after {
+            query.push_str("&after=");
+            query.push_str(after);
+        }
+        if let Some(version) = version {
+            query.push_str("&version=");
+            query.push_str(&version.to_string());
+        }
+        if let Some(total) = expected_total {
+            query.push_str("&total=");
+            query.push_str(&total.to_string());
+        }
+        let url = format!("{}?{query}", self.url(&format!("/records/{kind}")));
+        let reply = finish(
+            ureq::get(&url)
+                .config()
+                .http_status_as_error(false)
+                .timeout_global(Some(JSON_TIMEOUT))
+                .timeout_connect(Some(CONNECT_TIMEOUT))
+                .build()
+                .header("Authorization", self.auth())
+                .identify(self)
+                .call(),
+            MAX_JSON_REPLY_BYTES,
+        )?;
+        if !reply.is_success() {
+            return Err(reply.error());
+        }
+        let page = reply.json::<RecordPage>()?;
+        if let Some(expected) = version
+            && page.version != expected
+        {
+            return Err(StoreError::Unavailable(
+                "The cloud backup list changed during restore. Try restoring again.".into(),
+            ));
+        }
+        if expected_total.is_some_and(|expected| page.total != expected) {
+            return Err(StoreError::Unavailable(
+                "The cloud backup list changed during restore. Try restoring again.".into(),
+            ));
+        }
+        if let Some(prefix) = prefix {
+            validate_prefix_page_response(kind, prefix, after, limit, &page)?;
+        } else {
+            validate_page_response(kind, after, limit, &page)?;
+        }
+        Ok(page)
     }
 }
 
@@ -517,6 +835,48 @@ impl CloudStore for HttpStore {
         Ok(reply.json::<NamesBody>()?.names)
     }
 
+    fn list_record_page(
+        &self,
+        kind: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<RecordPage, StoreError> {
+        self.request_record_page(kind, None, after, limit, None, None)
+    }
+
+    fn list_record_page_versioned(
+        &self,
+        kind: &str,
+        after: Option<&str>,
+        limit: usize,
+        version: Option<u64>,
+        expected_total: Option<u64>,
+    ) -> Result<RecordPage, StoreError> {
+        self.request_record_page(kind, None, after, limit, version, expected_total)
+    }
+
+    fn list_record_page_prefix(
+        &self,
+        kind: &str,
+        prefix: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<RecordPage, StoreError> {
+        self.request_record_page(kind, Some(prefix), after, limit, None, None)
+    }
+
+    fn list_record_page_prefix_versioned(
+        &self,
+        kind: &str,
+        prefix: &str,
+        after: Option<&str>,
+        limit: usize,
+        version: Option<u64>,
+        expected_total: Option<u64>,
+    ) -> Result<RecordPage, StoreError> {
+        self.request_record_page(kind, Some(prefix), after, limit, version, expected_total)
+    }
+
     fn usage(&self) -> Result<Usage, StoreError> {
         let url = self.url("/usage");
         let reply = finish(
@@ -547,7 +907,6 @@ mod tests {
 
     const LUNA: &str = "luna-test-1";
     const TOKEN: &str = "ABCD-EFGH-JKMN-PQRS-TVWX";
-
     fn id_of(bytes: &[u8]) -> [u8; 32] {
         pack_id(bytes)
     }
@@ -555,7 +914,9 @@ mod tests {
     /// Answers one request per `(status, json body)` in order. Returns each request's
     /// head (request line and headers) plus its body length, for assertions.
     fn serve(replies: Vec<(u16, &'static str)>) -> (String, JoinHandle<Vec<String>>) {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let listener = (19600..=19619)
+            .find_map(|port| TcpListener::bind(("127.0.0.1", port)).ok())
+            .expect("an available chart 6 test port in 19600-19619");
         let base = format!("http://{}", listener.local_addr().unwrap());
         let handle = std::thread::spawn(move || {
             let mut seen = Vec::new();
@@ -622,6 +983,77 @@ mod tests {
             store.put_pack(&id, Some("Bad Scope"), bytes),
             Err(StoreError::Rejected(_))
         ));
+    }
+
+    #[test]
+    fn memory_record_pages_are_ordered_bounded_and_cursor_exclusive() {
+        let store = MemoryStore::new();
+        for name in ["beta.json", "alpha.json", "gamma.json"] {
+            store.put_record("snapshots", name, b"record").unwrap();
+        }
+        let first = store.list_record_page("snapshots", None, 2).unwrap();
+        assert_eq!(first.names, ["alpha.json", "beta.json"]);
+        assert_eq!(first.total, 3);
+        assert_eq!(first.next_after.as_deref(), Some("beta.json"));
+
+        let last = store
+            .list_record_page("snapshots", first.next_after.as_deref(), 2)
+            .unwrap();
+        assert_eq!(last.names, ["gamma.json"]);
+        assert_eq!(last.next_after, None);
+
+        let empty = store
+            .list_record_page("snapshots", Some("zzzz"), 2)
+            .unwrap();
+        assert!(empty.names.is_empty());
+        assert_eq!(empty.next_after, None);
+        let max = store
+            .list_record_page("snapshots", None, MAX_RECORD_PAGE_SIZE)
+            .unwrap();
+        assert_eq!(max.names, ["alpha.json", "beta.json", "gamma.json"]);
+        assert_eq!(max.next_after, None);
+        assert!(store.list_record_page("snapshots", None, 0).is_err());
+        assert!(
+            store
+                .list_record_page("snapshots", None, MAX_RECORD_PAGE_SIZE + 1)
+                .is_err()
+        );
+        assert!(
+            store
+                .list_record_page("snapshots", Some("../escape"), 2)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn memory_prefix_pages_are_bounded_and_reject_foreign_cursors() {
+        let store = MemoryStore::new();
+        for name in ["scope-a.1", "scope-a.2", "scope-b.1", "scope.a"] {
+            store.put_record("psnapshots", name, b"record").unwrap();
+        }
+
+        let first = store
+            .list_record_page_prefix("psnapshots", "scope-a.", None, 1)
+            .unwrap();
+        assert_eq!(first.names, ["scope-a.1"]);
+        assert_eq!(first.total, 2);
+        assert_eq!(first.next_after.as_deref(), Some("scope-a.1"));
+        let last = store
+            .list_record_page_prefix("psnapshots", "scope-a.", first.next_after.as_deref(), 1)
+            .unwrap();
+        assert_eq!(last.names, ["scope-a.2"]);
+        assert_eq!(last.total, 2);
+        assert_eq!(last.next_after, None);
+        assert!(
+            store
+                .list_record_page_prefix("psnapshots", "scope-a.", Some("scope-b.1"), 1)
+                .is_err()
+        );
+        assert!(
+            store
+                .list_record_page_prefix("psnapshots", "psnapshots", None, 1)
+                .is_err()
+        );
     }
 
     #[test]
@@ -789,6 +1221,105 @@ mod tests {
             vec!["a.json".to_string(), "b.json".to_string()]
         );
         server.join().unwrap();
+    }
+
+    #[test]
+    fn http_record_page_sends_scope_and_validates_cursor_response() {
+        let (base, server) = serve(vec![(
+            200,
+            r#"{"names":["c.json","d.json"],"total":5,"next_after":"d.json","version":9}"#,
+        )]);
+        let page = http(&base)
+            .list_record_page_versioned("snapshots", Some("b.json"), 2, Some(9), Some(5))
+            .unwrap();
+        assert_eq!(page.names, ["c.json", "d.json"]);
+        assert_eq!(page.total, 5);
+        assert_eq!(page.next_after.as_deref(), Some("d.json"));
+        let request = server.join().unwrap()[0].to_ascii_lowercase();
+        assert!(request.starts_with(
+            "get /api/v1/storage/records/snapshots?limit=2&after=b.json&version=9&total=5 http/1.1"
+        ));
+        assert!(request.contains(&format!(
+            "authorization: bearer {}",
+            TOKEN.to_ascii_lowercase()
+        )));
+        assert!(request.contains(&format!("x-luna-id: {LUNA}")));
+
+        let (base, server) = serve(vec![(
+            200,
+            r#"{"names":["c.json"],"total":5,"next_after":"d.json","version":9}"#,
+        )]);
+        assert!(
+            http(&base)
+                .list_record_page_versioned("snapshots", Some("b.json"), 2, Some(9), Some(5))
+                .is_err()
+        );
+        server.join().unwrap();
+
+        let (base, server) = serve(vec![]);
+        assert!(
+            http(&base)
+                .list_record_page("snapshots", Some("b.json"), 2)
+                .is_err()
+        );
+        assert!(server.join().unwrap().is_empty());
+    }
+
+    #[test]
+    fn http_versioned_page_carries_the_first_pages_total_and_rejects_a_changed_generation() {
+        let (base, server) = serve(vec![(
+            200,
+            r#"{"names":["c.json"],"total":5,"next_after":null,"version":9}"#,
+        )]);
+        let page = http(&base)
+            .list_record_page_versioned("snapshots", Some("b.json"), 2, Some(9), Some(5))
+            .unwrap();
+        assert_eq!(page.total, 5);
+        assert_eq!(page.version, 9);
+        let request = server.join().unwrap()[0].to_ascii_lowercase();
+        assert!(request.contains("version=9&total=5"));
+
+        let (base, server) = serve(vec![(
+            200,
+            r#"{"names":["c.json"],"total":5,"next_after":null,"version":10}"#,
+        )]);
+        assert!(
+            http(&base)
+                .list_record_page_versioned("snapshots", Some("b.json"), 2, Some(9), Some(5))
+                .is_err()
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn http_prefix_page_sends_prefix_and_checks_scoped_cursor() {
+        let (base, server) = serve(vec![(
+            200,
+            r#"{"names":["scope-a.2"],"total":2,"next_after":null,"version":7}"#,
+        )]);
+        let page = http(&base)
+            .list_record_page_prefix_versioned(
+                "psnapshots",
+                "scope-a.",
+                Some("scope-a.1"),
+                2,
+                Some(7),
+                Some(2),
+            )
+            .unwrap();
+        assert_eq!(page.names, ["scope-a.2"]);
+        let request = server.join().unwrap()[0].to_ascii_lowercase();
+        assert!(request.starts_with(
+            "get /api/v1/storage/records/psnapshots?limit=2&prefix=scope-a.&after=scope-a.1&version=7&total=2 http/1.1"
+        ));
+
+        let (base, server) = serve(vec![]);
+        assert!(
+            http(&base)
+                .list_record_page_prefix("psnapshots", "scope-a.", Some("scope-b.1"), 2)
+                .is_err()
+        );
+        assert!(server.join().unwrap().is_empty());
     }
 
     #[test]

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CloudDownload } from "lucide-react";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
@@ -27,6 +27,7 @@ export default function PrivateRestoreCard() {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const fieldRef = useRef(null);
+  const restoreAbortRef = useRef(null);
   const [words, setWords] = useState("");
   const [error, setError] = useState("");
   const [progress, setProgress] = useState(null);
@@ -37,13 +38,19 @@ export default function PrivateRestoreCard() {
     enabled: Boolean(user),
   });
 
+  useEffect(() => () => restoreAbortRef.current?.abort(), []);
+
   const restoreMutation = useMutation({
-    mutationFn: (/** @type {string} */ text) =>
-      restorePrivateFromPhrase(text, {
+    mutationFn: (/** @type {string} */ text) => {
+      const controller = new AbortController();
+      restoreAbortRef.current = controller;
+      return restorePrivateFromPhrase(text, {
         lunaId: status.data.luna_id,
         signingPublic: status.data.signing_public,
         onProgress: setProgress,
-      }),
+        signal: controller.signal,
+      });
+    },
     onSuccess: ({ restored }) => {
       setError("");
       setProgress(null);
@@ -57,10 +64,14 @@ export default function PrivateRestoreCard() {
     },
     onError: (err) => {
       setWords("");
-      setError(apiErrorMessage(err, "Could not bring back your private items. Try again."));
+      setProgress(null);
+      setError(err?.name === "AbortError"
+        ? "Restore stopped. Some private versions may already be back; you can safely try again."
+        : apiErrorMessage(err, "Could not bring back your private items. Try again."));
       // shakeElement fires the error haptic, so no separate haptic call here.
-      shakeElement(fieldRef.current);
+      if (err?.name !== "AbortError") shakeElement(fieldRef.current);
     },
+    onSettled: () => { restoreAbortRef.current = null; },
   });
 
   if (!user || status.isPending) return null;
@@ -127,6 +138,7 @@ export default function PrivateRestoreCard() {
           error={error}
           pending={restoreMutation.isPending}
           progress={progress}
+          onCancel={() => restoreAbortRef.current?.abort()}
           submitLabel="Find my private items"
           fieldRef={fieldRef}
         />

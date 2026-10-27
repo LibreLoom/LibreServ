@@ -123,6 +123,35 @@ function stubGalleryFetch({
   );
 }
 
+/**
+ * Uploads go over XHR (progress), not fetch. A fake that records every open()
+ * and answers success, so the drop only has to reach the upload queue.
+ * @returns {Array<[string, string]>} the recorded [method, url] pairs
+ */
+function stubUploadXhr() {
+  const opens = [];
+  class FakeXhr {
+    constructor() {
+      /** @type {any} */
+      this.upload = {};
+      this.onload = null;
+      this.onerror = null;
+      this.status = 200;
+      this.responseText = "{}";
+    }
+    /** @param {string} method @param {string} url */
+    open(method, url) {
+      opens.push([method, String(url)]);
+    }
+    setRequestHeader() {}
+    send() {
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+  vi.stubGlobal("XMLHttpRequest", FakeXhr);
+  return opens;
+}
+
 function renderGallery({ withShortcuts = false } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -149,17 +178,18 @@ function renderGallery({ withShortcuts = false } = {}) {
 describe("GalleryPage photo upload", () => {
   it("sends a dropped photo through the file operation store", async () => {
     stubGalleryFetch({ drives: [{ id: "a", label: "Family", state: "as_is", mount_point: "/mnt/a" }] });
+    const opens = stubUploadXhr();
     renderGallery();
     await screen.findByRole("button", { name: /rescan/i }).catch(() => null);
     const photo = new File(["x"], "beach.jpg", { type: "image/jpeg" });
     const drop = new Event("drop", { bubbles: true, cancelable: true });
     Object.defineProperty(drop, "dataTransfer", { value: { files: [photo] } });
     await act(async () => {
-      document.body.dispatchEvent(drop);
+      // The page listens on its drop zone; dropping on a child bubbles up to it.
+      screen.getByLabelText("Search photos").dispatchEvent(drop);
     });
     await waitFor(() => {
-      const calls = /** @type {any} */ (fetch).mock.calls;
-      expect(calls.some(([url, init]) => /upload/.test(String(url)) && (init?.method || "GET") !== "GET")).toBe(true);
+      expect(opens.some(([method, url]) => method !== "GET" && /upload/.test(String(url)))).toBe(true);
     });
   });
 });

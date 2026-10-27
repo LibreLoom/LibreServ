@@ -81,7 +81,10 @@ describe("DriveFileExplorer long requests", () => {
 
   it("trashes a selection in the file task card and carries on past one failure", async () => {
     const calls = renderExplorer({ listing: FILES, failing: "b.txt" });
-    fireEvent.click(await screen.findByLabelText("Select all in this folder"));
+    // The rows must be there before selecting, or the select-all ticks an
+    // empty folder and the toolbar never appears.
+    await screen.findByText("a.txt");
+    fireEvent.click(screen.getByLabelText("Select all in this folder"));
     fireEvent.click(await screen.findByRole("button", { name: "Trash" }));
     const dialog = await screen.findByRole("dialog", { name: "Move to trash?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Move to trash" }));
@@ -97,7 +100,10 @@ describe("DriveFileExplorer long requests", () => {
 
   it("deletes permanently through the card, showing one problem out of three", async () => {
     const calls = renderExplorer({ path: ".luna-trash", listing: TRASHED, failing: "17c-c.txt" });
-    fireEvent.click(await screen.findByLabelText("Select all in this folder"));
+    // The rows must be there before selecting, or the select-all ticks an
+    // empty folder and the toolbar never appears.
+    await screen.findByText("a.txt");
+    fireEvent.click(screen.getByLabelText("Select all in this folder"));
     fireEvent.click(await screen.findByRole("button", { name: "Delete permanently" }));
     const dialog = await screen.findByRole("dialog", { name: "Delete permanently?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete permanently" }));
@@ -117,7 +123,11 @@ describe("DriveFileExplorer long requests", () => {
       failing: ".luna-trash",
       failWith: "Luna couldn't reach the drive.",
     });
-    fireEvent.click(await screen.findByRole("button", { name: "Empty trash" }));
+    // The button is disabled until the trash listing arrives — click it only
+    // once Luna has counted what's inside.
+    const emptyBtn = await screen.findByRole("button", { name: "Empty trash" });
+    await waitFor(() => expect(emptyBtn).toBeEnabled());
+    fireEvent.click(emptyBtn);
     const dialog = await screen.findByRole("dialog", { name: "Empty trash?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Empty trash" }));
 

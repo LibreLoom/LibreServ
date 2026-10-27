@@ -16,10 +16,12 @@ const q = encodeURIComponent;
 
 /** A drive that is plugged in and readable. */
 const driveId = (w) => (w.drives || []).find((d) => d?.id && w.summaries?.[d.id]?.mounted !== false)?.id ?? null;
-const backupOnDrive = (w) => (w.backups || []).find((b) => b?.id && b.target_drive) ?? null;
+const backupOnDrive = (w) => (w.backups || []).find((b) => b?.id && b.target_drive && (!b.private_owner || b.private_owner === (w.sessionUserId || "u1"))) ?? null;
 const shareLinks = (w) => (w.sharing?.subjects || []).flatMap((s) => s.links || []);
 /** A link anyone can open: not turned off, no password, not expired. */
 const openLink = (w) => shareLinks(w).find((l) => l?.token && !l.disabled && !l.password && !l.expires_at) ?? null;
+/** A detected (not yet added) drive, by device name. */
+const detectedName = (w) => (w.detected || []).find((d) => d?.name)?.name ?? null;
 
 /** @param {(w: any, id: string) => string} build */
 const onDrive = (build) => ({ url: (w) => { const d = driveId(w); return d ? build(w, d) : null; } });
@@ -42,11 +44,14 @@ export const CASES = {
   "GET /api/v1/drives/detected": plain("/api/v1/drives/detected"),
   "GET /api/v1/drives/:id/summary": onDrive((w, d) => `/api/v1/drives/${q(d)}/summary`),
   "GET /api/v1/drives/:id/health": onDrive((w, d) => `/api/v1/drives/${q(d)}/health`),
+  "GET /api/v1/drives/:name/peek": { url: (w) => { const dev = detectedName(w); return dev ? `/api/v1/drives/${q(dev)}/peek` : null; } },
   // The app sends POST (FilesPage.jsx); lunad only has POST. The GET case checks the method.
   "GET /api/v1/drives/:name/inspect": { url: (w) => { const dev = (w.drives || []).find((d) => d?.device)?.device; return dev ? `/api/v1/drives/${q(dev)}/inspect` : null; } },
   "POST /api/v1/drives/:name/inspect": { url: (w) => { const dev = (w.drives || []).find((d) => d?.device)?.device; return dev ? `/api/v1/drives/${q(dev)}/inspect` : null; }, body: () => ({}) },
 
   // System
+  "GET /health": plain("/health"),
+  "GET /api/v1/health": plain("/api/v1/health"),
   "GET /api/v1/system/health/check": plain("/api/v1/system/health/check"),
   "GET /api/v1/system/updates": plain("/api/v1/system/updates"),
   "GET /api/v1/system/updates/source": plain("/api/v1/system/updates/source"),
@@ -59,7 +64,7 @@ export const CASES = {
   "GET /api/v1/drives/:id/files/stat": onDrive((w, d) => `/api/v1/drives/${q(d)}/files/stat?path=`),
   "GET /api/v1/drives/:id/files/resolve": {
     // Needs a remembered move; the fake only has one after something was renamed.
-    prepare: (w) => { const d = driveId(w); if (d) { const fs = fsOf(w, d); fs.moved = { ...fs.moved, "old-name.txt": "Documents" }; } },
+    prepare: (w) => { const d = driveId(w); if (d) { (w.moves ??= []).push({ drive_id: d, old_path: "old-name.txt", new_drive: d, new_path: "Documents" }); } },
     url: (w) => { const d = driveId(w); return d ? `/api/v1/drives/${q(d)}/files/resolve?path=${q("old-name.txt")}` : null; },
   },
   "GET /api/v1/drives/:id/files/content": { skip: "file bytes, not JSON" },
@@ -67,13 +72,35 @@ export const CASES = {
 
   // Jobs
   "GET /api/v1/jobs": plain("/api/v1/jobs"),
-  "GET /api/v1/jobs/:id": { url: (w) => { const j = (w.jobs || []).find((x) => x?.id); return j ? `/api/v1/jobs/${q(j.id)}` : null; } },
+  "GET /api/v1/jobs/:id": {
+    // Needs a job in the world; real jobs only exist after something was copied.
+    prepare: (w) => {
+      w.jobs ??= [];
+      if (!w.jobs.some((x) => x?.id)) {
+        w.jobs.push({ id: "j1", kind: "copy", state: "done", user_id: w.sessionUserId || "u1", from_drive: "d1", from_path: "Documents", to_drive: "d1", to_path: "Archive", progress: 1, total: 1, error: "" });
+      }
+    },
+    url: (w) => { const j = (w.jobs || []).find((x) => x?.id); return j ? `/api/v1/jobs/${q(j.id)}` : null; },
+  },
 
   // Backups
   "GET /api/v1/backups": plain("/api/v1/backups"),
   "GET /api/v1/backups/covered": onDrive((w, d) => `/api/v1/backups/covered?drive=${q(d)}&path=${q("Documents")}`),
   "GET /api/v1/drives/:id/backups": { url: (w) => { const b = backupOnDrive(w); return b ? `/api/v1/drives/${q(b.target_drive)}/backups` : null; } },
-  "GET /api/v1/drives/:id/backups/:bid/list": { url: (w) => { const b = backupOnDrive(w); return b ? `/api/v1/drives/${q(b.target_drive)}/backups/${q(b.id)}/list?path=` : null; } },
+  "GET /api/v1/drives/:id/backups/:bid/list": {
+    // The backup's target drive must be connected and the source folder must exist.
+    prepare: (w) => {
+      const b = backupOnDrive(w);
+      if (!b) return;
+      let d = (w.drives || []).find((x) => x?.id === b.target_drive);
+      if (!d) { d = { id: b.target_drive, label: "Backup drive", state: "as_is", device: `sd-${b.target_drive}`, fs_type: "ext4", mounted: true }; w.drives.push(d); }
+      d.state = "as_is";
+      d.mounted = true;
+      w.summaries[b.target_drive] = { id: b.target_drive, total_bytes: null, free_bytes: null, used_bytes: null, shortcuts: [], ...(w.summaries[b.target_drive] || {}), mounted: true };
+      if (b.source_path) fsOf(w, b.source_drive).nodes[b.source_path] ??= { kind: "dir" };
+    },
+    url: (w) => { const b = backupOnDrive(w); return b ? `/api/v1/drives/${q(b.target_drive)}/backups/${q(b.id)}/list?path=` : null; },
+  },
   "GET /api/v1/drives/:id/backups/:bid/versions": { url: (w) => { const b = backupOnDrive(w); return b ? `/api/v1/drives/${q(b.target_drive)}/backups/${q(b.id)}/versions?path=${q("notes.txt")}` : null; } },
   "GET /api/v1/drives/:id/backups/:bid/download": { skip: "file bytes, not JSON" },
   "GET /api/v1/cloud/backups": plain("/api/v1/cloud/backups"),
@@ -82,8 +109,8 @@ export const CASES = {
   "GET /api/v1/cloud/restore": plain("/api/v1/cloud/restore"),
   "GET /api/v1/cloud/restore/records/:kind": plain("/api/v1/cloud/restore/records/backup"),
   "GET /api/v1/cloud/restore-private": plain("/api/v1/cloud/restore-private"),
-  "GET /api/v1/cloud/restore-private/records/:kind": plain("/api/v1/cloud/restore-private/records/pscopes"),
-  "GET /api/v1/cloud/restore-private/records/:kind/names": plain("/api/v1/cloud/restore-private/records/psnapshots/names"),
+  "GET /api/v1/cloud/restore-private/records/:kind": plain("/api/v1/cloud/restore-private/records/pscopes?limit=64&processed=0"),
+  "GET /api/v1/cloud/restore-private/records/:kind/names": plain("/api/v1/cloud/restore-private/records/psnapshots/names?scope=fixture-scope&limit=64"),
   "GET /api/v1/cloud/restore-private/records/:kind/:name": plain("/api/v1/cloud/restore-private/records/psnapshots/snapshot-1"),
 
   // Private folders
@@ -108,6 +135,11 @@ export const CASES = {
   "GET /s/:token/list": { url: (w) => { const l = openLink(w); return l ? `/s/${q(l.token)}/list` : null; } },
   "GET /s/:token/stat": { url: (w) => { const l = openLink(w); return l ? `/s/${q(l.token)}/stat` : null; } },
   "GET /s/:token/respond": {
+    // Needs a link with answers on file; real answers only exist after someone responded.
+    prepare: (w) => {
+      const l = shareLinks(w).find((x) => x?.token && !x.password);
+      if (l) (l.responses ??= []).push({ id: "r1", at: 0, answers: { q_1: "Yes" }, edit_token: "edit-1" });
+    },
     url: (w) => {
       const l = shareLinks(w).find((x) => x?.token && !x.password && x.responses?.some((r) => r.edit_token));
       return l ? `/s/${q(l.token)}/respond?edit_token=${q(l.responses.find((r) => r.edit_token).edit_token)}` : null;

@@ -33,8 +33,12 @@ function readerFor(source, backup, version) {
  */
 export async function downloadFile(source, backup, version, entry) {
   const { reader, dedupKey } = readerFor(source, backup, version);
-  const blob = await readFile(entry, reader, dedupKey);
-  saveBlob(blob, baseName(entry.path));
+  try {
+    const blob = await readFile(entry, reader, dedupKey);
+    saveBlob(blob, baseName(entry.path));
+  } finally {
+    await reader.dispose();
+  }
 }
 
 /** A zip entry name must be a plain relative path: no "..", no leading "/", no backslash. */
@@ -59,19 +63,23 @@ export async function downloadFolder(source, backup, version, entries, folder) {
   checkZipFits(under.map((entry) => ({ path: relative(entry.path), size: entry.size })));
 
   const { reader, dedupKey } = readerFor(source, backup, version);
-  // Read in pack order so each 32 MiB pack is fetched once, then put the files back in tree order for the zip.
-  const packOf = (entry) => entry.chunks[0]?.pack ?? "";
-  const byPack = [...under].sort((a, b) => packOf(a).localeCompare(packOf(b)) || a.path.localeCompare(b.path));
-  const dataByPath = new Map();
-  for (const entry of byPack) {
-    dataByPath.set(entry.path, await readFile(entry, reader, dedupKey));
+  try {
+    // Read in pack order so each 32 MiB pack is fetched once, then put the files back in tree order for the zip.
+    const packOf = (entry) => entry.chunks[0]?.pack ?? "";
+    const byPack = [...under].sort((a, b) => packOf(a).localeCompare(packOf(b)) || a.path.localeCompare(b.path));
+    const dataByPath = new Map();
+    for (const entry of byPack) {
+      dataByPath.set(entry.path, await readFile(entry, reader, dedupKey));
+    }
+    const files = under.map((entry) => ({
+      path: relative(entry.path),
+      data: dataByPath.get(entry.path),
+      mtime: entry.mtime,
+    }));
+    const zip = await buildZip(files);
+    const name = folder ? baseName(folder) : backup.name;
+    saveBlob(zip, `${name}.zip`);
+  } finally {
+    await reader.dispose();
   }
-  const files = under.map((entry) => ({
-    path: relative(entry.path),
-    data: dataByPath.get(entry.path),
-    mtime: entry.mtime,
-  }));
-  const zip = await buildZip(files);
-  const name = folder ? baseName(folder) : backup.name;
-  saveBlob(zip, `${name}.zip`);
 }

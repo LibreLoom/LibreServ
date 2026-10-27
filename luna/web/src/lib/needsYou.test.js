@@ -317,6 +317,7 @@ describe("system check rows (Admin)", () => {
         tone: "problem",
         title: ["Luna's own storage"],
         detail: "Storage is nearly full.",
+        hint: "Luna keeps its own software and settings on a small built-in disk, separate from your drives.",
         action: { label: "Open system checks", href: "/settings#about" },
       },
     ]);

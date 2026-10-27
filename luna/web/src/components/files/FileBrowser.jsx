@@ -741,6 +741,11 @@ export default function FileBrowser({
     selectAllVisible();
     return true;
   }, { label: "Select everything in this folder", group: "Files", enabled: keysOn && multiSelect });
+  useShortcut("Escape", () => {
+    if (selectedPaths.length === 0) return false;
+    clearSelection();
+    return true;
+  }, { label: "Clear the selection", group: "Files", enabled: keysOn && multiSelect });
   useShortcut("Enter", () => {
     const ctx = selectedEntry();
     if (!ctx || (ctx.entry.kind !== "dir" && !canOpenEntry(ctx))) return false;

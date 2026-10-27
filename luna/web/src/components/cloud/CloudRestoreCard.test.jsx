@@ -135,8 +135,7 @@ describe("CloudRestoreCard", () => {
   it("shows a warning when metadata returns but old accounts could not all be reconnected", async () => {
     const user = userEvent.setup();
     getRestoreStatusMock
-      .mockResolvedValueOnce({ ...STATUS, relink_pending: true })
-      .mockResolvedValueOnce({ ...STATUS, needed: false, relink_pending: false });
+      .mockResolvedValueOnce({ ...STATUS, relink_pending: true });
     restoreFromPhraseMock.mockResolvedValueOnce({
       snapshots: 2,
       alreadyIndexed: 1,
@@ -156,7 +155,7 @@ describe("CloudRestoreCard", () => {
   it("keeps the retry form when relinking is still pending after all versions are indexed", async () => {
     getRestoreStatusMock.mockResolvedValue({
       ...STATUS,
-      needed: true,
+      needed: false,
       relink_pending: true,
       cloud_snapshots: 1,
       indexed_snapshots: 1,

@@ -104,13 +104,13 @@ describe("PrivateRestoreCard", () => {
     expect(screen.getByRole("button", { name: "Find my private items" })).toBeInTheDocument();
   });
 
-  it("does not show a stop button while private restore runs without cancellation support", async () => {
-    /** @type {(value: { restored: number }) => void} */
-    let finishRestore = () => {};
+  it("stops private restore and explains that completed versions can be retried", async () => {
     restorePrivateFromPhraseMock.mockImplementation((_, options) => {
       options.onProgress?.({ processed: 1, total: 2, snapshots: 1, already_indexed: 0, skipped: 0 });
-      return new Promise((resolve) => {
-        finishRestore = resolve;
+      return new Promise((_, reject) => {
+        options.signal.addEventListener("abort", () => {
+          reject(new DOMException("Restore stopped", "AbortError"));
+        }, { once: true });
       });
     });
     const user = userEvent.setup();
@@ -119,11 +119,15 @@ describe("PrivateRestoreCard", () => {
     await user.click(screen.getByRole("button", { name: "Find my private items" }));
 
     await waitFor(() => expect(restorePrivateFromPhrase).toHaveBeenCalled());
-    expect(screen.queryByRole("button", { name: "Stop restore" })).not.toBeInTheDocument();
+    const [{}, options] = restorePrivateFromPhraseMock.mock.calls[0];
+    expect(options.signal).toBeInstanceOf(AbortSignal);
     expect(await screen.findByText("Restoring backup 1 of 2")).toBeInTheDocument();
 
-    finishRestore({ restored: 1 });
-    expect(await screen.findByText("Found 1 private version")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Stop restore" }));
+    expect(await screen.findByText(
+      "Restore stopped. Some private versions may already be back; you can safely try again.",
+    )).toBeInTheDocument();
+    expect(screen.queryByText(/Found \d+ private version/)).not.toBeInTheDocument();
   });
 
   it("explains a missing signing key instead of the phrase form", async () => {

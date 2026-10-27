@@ -47,16 +47,25 @@ func CleanupOrphans(ctx context.Context, db *database.DB, st store.Store) (int64
 	for _, id := range ids {
 		// One account's storage failing must not block the others. Its row is kept, so
 		// the next run finds its blobs and tries again.
-		if err := PurgeStorage(ctx, db, st, id); err != nil {
+		removedAccount := false
+		err := PurgeStorageAnd(ctx, db, st, id, func(tx *database.Tx) error {
+			res, err := tx.Exec(`DELETE FROM accounts WHERE id = ? AND `+orphanWhere, id, cutoff)
+			if err != nil {
+				return err
+			}
+			n, err := res.RowsAffected()
+			if err == nil {
+				removedAccount = n > 0
+			}
+			return err
+		})
+		if err != nil {
 			slog.Warn("luna connect could not purge an idle account's cloud storage; will retry next run", "error", err)
 			continue
 		}
-		res, err := db.ExecContext(ctx, `DELETE FROM accounts WHERE id = ? AND `+orphanWhere, id, cutoff)
-		if err != nil {
-			return removed, err
+		if removedAccount {
+			removed++
 		}
-		n, _ := res.RowsAffected()
-		removed += n
 	}
 	if removed > 0 {
 		slog.Info("luna connect removed idle accounts", "count", removed, "grace_days", orphanGraceDays)

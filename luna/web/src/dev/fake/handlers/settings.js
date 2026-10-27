@@ -31,7 +31,7 @@ post("/api/v1/device-tokens", ({ world, user, body }) => {
 });
 get("/api/v1/device-tokens/:id/usage", ({ world, user, params }) => {
   if (!mineOf(world, user).some((t) => t.id === params.id)) return fail(404, "Luna doesn't know this access token.");
-  return world.tokenUsage?.[params.id] ?? [];
+  return (world.tokenUsage?.[params.id] ?? []).map((u) => ({ client: "", origin: "", ...u }));
 });
 del("/api/v1/device-tokens/:id", ({ world, user, params }) => {
   if (!mineOf(world, user).some((t) => t.id === params.id)) return fail(404, "Luna doesn't know this access token.");
@@ -97,7 +97,7 @@ post("/api/v1/cloud/restore", ({ world, user }) => {
   return { snapshots: r.cloud_snapshots, already_indexed: 0, skipped: 0 };
 });
 get("/api/v1/cloud/restore-private", ({ world }) => world.restorePrivate ?? { needed: false, luna_id: "luna-1", signing_public: b64(SIG_PUBLIC_LEN), scopes: 0 });
-get("/api/v1/cloud/restore-private/records/:kind", () => ({ records: [] }));
-get("/api/v1/cloud/restore-private/records/:kind/names", () => ({ names: [] }));
+get("/api/v1/cloud/restore-private/records/:kind", () => ({ records: [], scanned: 0, total: 0, next_after: null, version: 0 }));
+get("/api/v1/cloud/restore-private/records/:kind/names", () => ({ names: [], total: 0, next_after: null, version: 0 }));
 get("/api/v1/cloud/restore-private/records/:kind/:name", ({ params }) => ({ name: params.name, data: "" }));
 post("/api/v1/cloud/restore-private", ({ user }) => { restoreGate(user); return { restored: 0 }; });

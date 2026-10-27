@@ -331,7 +331,7 @@ export function apiErrorMessage(err, fallback = "Something went wrong. Try again
     }
     return err.message;
   }
-  const raw = String(err.message || err).replace(/^Error:\s*/i, "");
+  const raw = String(err.message || (typeof err === "string" ? err : "")).replace(/^Error:\s*/i, "");
   if (isNetworkFailureMessage(raw)) {
     return "Couldn't reach Luna. Check this device's connection and try again.";
   }

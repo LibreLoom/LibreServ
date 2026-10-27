@@ -161,7 +161,7 @@ describe("useBackupRows", () => {
     expect(result.current.phrase).toEqual({
       ...status,
       last_checked_at: 0,
-      admin_has_phrase: false,
+      phrase_words: 0,
       resealing: false,
       old_phrase_copies: { count: 0, removed_at: 0 },
     });

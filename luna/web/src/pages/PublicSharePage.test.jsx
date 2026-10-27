@@ -299,21 +299,25 @@ describe("PublicSharePage", () => {
 
   it("reloads the folder listing after an upload lands", async () => {
     let listCalls = 0;
+    let uploaded = false;
     const fetchMock = vi.fn(async (url, init = {}) => {
       const u = String(url);
       const method = (init.method || "GET").toUpperCase();
       if (u.includes("/list")) {
         listCalls += 1;
+        // The upload's name check lists the folder before sending, so the
+        // fresh entry only appears in listings after the upload completes.
         return json({
-          entries: listCalls === 1
-            ? []
-            : [{ name: "new.txt", kind: "file", size: 3, hidden: false }],
+          entries: uploaded
+            ? [{ name: "new.txt", kind: "file", size: 3, hidden: false }]
+            : [],
         });
       }
       if (u.endsWith("/upload") && method === "POST") {
         return json({ upload_id: "u1", received: 0, size: 3 });
       }
       if (u.includes("/complete") && method === "POST") {
+        uploaded = true;
         return json({ name: "new.txt", kind: "file", size: 3 });
       }
       return json({ kind: "folder", name: "photos", caps: "view+upload" });

@@ -2164,6 +2164,18 @@ pub fn private_snapshot_ids(conn: &Connection, scope: &str) -> anyhow::Result<Ve
     Ok(rows)
 }
 
+pub fn has_private_snapshot(
+    conn: &Connection,
+    scope: &str,
+    snapshot_id: &str,
+) -> anyhow::Result<bool> {
+    Ok(conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM cloud_private_trees WHERE scope = ?1 AND snapshot_id = ?2)",
+        params![scope, snapshot_id],
+        |row| row.get(0),
+    )?)
+}
+
 pub fn private_scope_of_snapshot(
     conn: &Connection,
     snapshot_id: &str,

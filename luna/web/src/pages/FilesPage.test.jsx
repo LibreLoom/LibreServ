@@ -3,6 +3,7 @@ import { render, screen, within, fireEvent, waitFor } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
+import { FileOpsProvider } from "../context/FileOpsContext.jsx";
 import FilesPage, { describePeek, inspectCountLine } from "./FilesPage";
 import FileSearch from "../components/files/FileSearch";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
@@ -119,11 +120,14 @@ function renderPage(initialEntry = "/files") {
     <ToastProvider>
     <MemoryRouter initialEntries={[initialEntry]}>
       <QueryClientProvider client={client}>
-        <AuthProvider>
-          <FilesPage />
-          {/* The overlay lives in AppShell; the page only holds its button. */}
-          <FileSearch />
-        </AuthProvider>
+        {/* App mounts FileOpsProvider above the routes; FileSearch reads it. */}
+        <FileOpsProvider>
+          <AuthProvider>
+            <FilesPage />
+            {/* The overlay lives in AppShell; the page only holds its button. */}
+            <FileSearch />
+          </AuthProvider>
+        </FileOpsProvider>
       </QueryClientProvider>
     </MemoryRouter>
     </ToastProvider>
@@ -593,7 +597,9 @@ describe("FilesPage", () => {
     expect(screen.getByText(/sdmock · exFAT/i)).toBeInTheDocument();
     // Card-style collapsible + ValueDisplay rows (storage is outside)
     expect(toggle.closest("[data-slot=collapsible]")?.className).toMatch(/rounded-large-element/);
-    expect(document.querySelectorAll("[data-slot=value-display]")).toHaveLength(3);
+    // The drive's health section above adds its own ValueDisplay row, so
+    // count the rows of this panel, not the whole document.
+    expect(panel.querySelectorAll("[data-slot=value-display]")).toHaveLength(3);
   });
 
   it("shows ejected drives as Ejected without Open files or Eject safely", async () => {
@@ -1054,8 +1060,10 @@ describe("FilesPage", () => {
   it("shows a failing drive with a Failing pill and no Ready", async () => {
     stubDrivesApi({ fetch: driveFetch(D1, FAILING_HEALTH) });
     renderPage();
-    const pill = await screen.findByText(/^Failing$/);
-    expect(pill).toBeInTheDocument();
+    // The failing drive says it twice: the card's status pill and the health
+    // section's own pill.
+    const pills = await screen.findAllByText(/^Failing$/);
+    expect(pills).toHaveLength(2);
     expect(screen.queryByText(/^Ready$/)).not.toBeInTheDocument();
     expect(screen.getByText(/This drive is failing\. Copy your files to another drive now\./)).toBeInTheDocument();
     expect(screen.queryByText(/needs attention/i)).not.toBeInTheDocument();

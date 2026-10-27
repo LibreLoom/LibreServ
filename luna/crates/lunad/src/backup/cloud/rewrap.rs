@@ -1010,6 +1010,15 @@ impl CloudStore for HoldProbe {
         self.note();
         self.inner.list_records(kind)
     }
+    fn list_record_page(
+        &self,
+        kind: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<crate::backup::cloud::store::RecordPage, StoreError> {
+        self.note();
+        self.inner.list_record_page(kind, after, limit)
+    }
     fn usage(&self) -> Result<super::store::Usage, StoreError> {
         self.note();
         self.inner.usage()
@@ -1091,6 +1100,14 @@ mod tests {
         }
         fn list_records(&self, kind: &str) -> Result<Vec<String>, StoreError> {
             self.inner.list_records(kind)
+        }
+        fn list_record_page(
+            &self,
+            kind: &str,
+            after: Option<&str>,
+            limit: usize,
+        ) -> Result<crate::backup::cloud::store::RecordPage, StoreError> {
+            self.inner.list_record_page(kind, after, limit)
         }
         fn usage(&self) -> Result<Usage, StoreError> {
             self.inner.usage()

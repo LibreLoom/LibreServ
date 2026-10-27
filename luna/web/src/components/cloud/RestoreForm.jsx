@@ -89,7 +89,7 @@ export default function RestoreForm({ words, onWords, onSubmit, error = "", pend
       {pending && (
         <div className="space-y-2" role="status" aria-live="polite">
           <p className="text-primary text-sm">
-            {progress?.type === "finishing"
+            {progress?.type === "finishing" || progress?.message
               ? progress.message
               : progress?.total
               ? `Restoring backup ${progress.processed} of ${progress.total}`

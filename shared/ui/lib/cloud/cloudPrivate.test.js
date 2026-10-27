@@ -20,7 +20,7 @@ import {
 } from './cloudPrivate.js';
 
 vi.mock('./backupCrypto.js', async (importOriginal) => {
-	const actual = await importOriginal();
+	const actual = /** @type {typeof import('./backupCrypto.js')} */ (await importOriginal());
 	return { ...actual, open: vi.fn(actual.open) };
 });
 
@@ -97,9 +97,8 @@ describe('cloudPrivate', () => {
 		expect(() => openPrivateMeta(sealedMeta, alice.sealSecret, lunaId, p.scope)).toThrow(DAMAGED);
 		vi.mocked(openMock).mockClear();
 		expect(() => openPrivateMeta(sealedMeta, scopeSecret, lunaId, p.scope)).not.toThrow();
-		expect(vi.mocked(openMock).mock.results[0].value).toEqual(
-			new Uint8Array(vi.mocked(openMock).mock.results[0].value.length),
-		);
+		const opened = vi.mocked(openMock).mock.results[0].value;
+		expect(Array.from(opened)).toEqual(new Array(opened.length).fill(0));
 	});
 
 	it('a re-sealed scope secret opens with the new phrase and not the old one', () => {
@@ -160,9 +159,21 @@ describe('cloudPrivate', () => {
 		expect(() => openPrivateMeta(snap.meta, scopeSecret, lunaId, 'ffffffffffffffffffffffffffffffff')).toThrow(
 			DAMAGED,
 		);
-		expect(vi.mocked(openMock).mock.results[0].value).toEqual(
-			new Uint8Array(vi.mocked(openMock).mock.results[0].value.length),
+	});
+
+	it('clears opened metadata bytes when decrypted fields are invalid', () => {
+		const scopeRecord = verifyScopeRecord(pscopes[0].data, [signingPublic], lunaId);
+		const plaintext = new TextEncoder().encode('{"name":"partial metadata"}');
+		const sealed = seal(
+			scopeRecord.scopePublic,
+			privateAad('luna-private-meta-v1', lunaId, p.scope),
+			plaintext,
 		);
+		vi.mocked(openMock).mockClear();
+
+		expect(() => openPrivateMeta(sealed, scopeSecret, lunaId, p.scope)).toThrow(DAMAGED);
+		const opened = vi.mocked(openMock).mock.results[0].value;
+		expect(Array.from(opened)).toEqual(new Array(opened.length).fill(0));
 	});
 
 	it('clears malformed opened scope and dedup keys before reporting damage', () => {
@@ -173,9 +184,8 @@ describe('cloudPrivate', () => {
 		);
 		vi.mocked(openMock).mockClear();
 		expect(() => openScopeSecret(badScopeSecret, alice.sealSecret, lunaId, p.scope)).toThrow(DAMAGED);
-		expect(vi.mocked(openMock).mock.results[0].value).toEqual(
-			new Uint8Array(vi.mocked(openMock).mock.results[0].value.length),
-		);
+		const openedScope = vi.mocked(openMock).mock.results[0].value;
+		expect(Array.from(openedScope)).toEqual(new Array(openedScope.length).fill(0));
 
 		const scopeRecord = verifyScopeRecord(pscopes[0].data, [signingPublic], lunaId);
 		const badDedup = seal(
@@ -185,9 +195,8 @@ describe('cloudPrivate', () => {
 		);
 		vi.mocked(openMock).mockClear();
 		expect(() => openPrivateDedup(badDedup, scopeSecret, lunaId, p.scope)).toThrow(DAMAGED);
-		expect(vi.mocked(openMock).mock.results[0].value).toEqual(
-			new Uint8Array(vi.mocked(openMock).mock.results[0].value.length),
-		);
+		const openedDedup = vi.mocked(openMock).mock.results[0].value;
+		expect(Array.from(openedDedup)).toEqual(new Array(openedDedup.length).fill(0));
 	});
 
 	it('readTreeWith reads the private tree and files through the private keys', async () => {
@@ -202,6 +211,7 @@ describe('cloudPrivate', () => {
 			const got = new Uint8Array(await blob.arrayBuffer());
 			expect(got).toEqual(hexToBytes(p.expected.files[entry.path]));
 		}
+		await readPack.dispose();
 	});
 
 	it('readTreeWith throws CHANGED for a flipped tree pack byte', () => {

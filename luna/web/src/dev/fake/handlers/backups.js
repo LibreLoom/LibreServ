@@ -52,13 +52,13 @@ function backupJson(world, row, user) {
   const now = nowS();
   const srcLabel = label(world, row.source_drive);
   const parent = coveringBackup(world, row);
-  const { private_owner: owner, access: _access, created_at: _c, failing_since: _f, ...rest } = row;
+  const { private_owner: owner, access: _access, created_at: _c, failing_since: _f, hard: _hard, ...rest } = row;
   return {
     ...rest,
     covered_by: parent ? { path: parent.source_path, name: folderName(parent.source_path, srcLabel) } : null,
     source_drive_name: row.source_drive_name ?? srcLabel,
     source_name: row.source_name ?? folderName(row.source_path, srcLabel),
-    ...(row.kind === "cloud" ? { next_check: (row.last_checked_at ? row.last_checked_at + 14 * 86400 : now), size: row.size ?? 0, old_phrase_copies: row.old_phrase_copies ?? null, moving: row.moving ?? null } : { target_drive_name: row.target_drive_name ?? label(world, row.target_drive) }),
+    ...(row.kind === "cloud" ? { next_check: (row.last_checked_at ? row.last_checked_at + 14 * 86400 : now), size: row.size ?? 0, old_phrase_copies: row.old_phrase_copies ?? null, moving: row.moving ?? null } : { hard: row.hard ?? false, target_drive_name: row.target_drive_name ?? label(world, row.target_drive) }),
     state: row.state ?? healthOf(row, now),
     can_delete: canDelete(world, row, user),
     private: Boolean(owner),
@@ -261,7 +261,7 @@ get("/api/v1/drives/:id/backups/:bid/list", ({ world, user, params, query }) => 
   const rel = cleanRel(query.path);
   const src = fsOf(world, row.source_drive);
   const root = clean(row.source_path);
-  const folder = join(root, rel);
+  const folder = clean(join(root, rel));
   const folderNode = folder ? src.nodes[folder] : { kind: "dir" };
   const deletedHere = src.trash.filter((t) => pathContains(folder, t.original_path) && t.original_path !== folder);
   if ((!folderNode || folderNode.kind !== "dir") && !deletedHere.length) throw fail(404, "Luna couldn't find that folder in this backup.");

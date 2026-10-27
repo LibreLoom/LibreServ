@@ -71,12 +71,21 @@ export default function CloudRestoreCard() {
       // Keep the form available when ownership relinking failed. The server persists that
       // retry state separately from snapshot counts and clears it after a successful retry.
       if (warning) {
-        queryClient.setQueryData(RESTORE_QUERY_KEY, (current) => current && ({
-          ...current,
-          needed: true,
-          relink_pending: true,
-          indexed_snapshots: Math.min(current.cloud_snapshots, current.indexed_snapshots + snapshots),
-        }));
+        queryClient.setQueryData(RESTORE_QUERY_KEY, (
+          /** @type {unknown} */ current,
+        ) => {
+          if (!current || typeof current !== "object") return current;
+          const status = /** @type {Record<string, unknown>} */ (current);
+          const cloudSnapshots = status.cloud_snapshots;
+          const indexedSnapshots = status.indexed_snapshots;
+          if (typeof cloudSnapshots !== "number" || typeof indexedSnapshots !== "number") return current;
+          return {
+            ...status,
+            needed: true,
+            relink_pending: true,
+            indexed_snapshots: Math.min(cloudSnapshots, indexedSnapshots + snapshots),
+          };
+        });
       } else {
         queryClient.invalidateQueries({ queryKey: RESTORE_QUERY_KEY });
       }
@@ -99,7 +108,8 @@ export default function CloudRestoreCard() {
     onSettled: () => { restoreAbortRef.current = null; },
   });
 
-  if (!isAdmin || restore.isPending || restore.isError || !restore.data?.needed) return null;
+  if (!isAdmin || restore.isPending || restore.isError
+      || (!restore.data?.needed && !restore.data?.relink_pending)) return null;
 
   const submit = (e) => {
     e.preventDefault();

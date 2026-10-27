@@ -30,6 +30,7 @@ keys/               # release signing keys — public raw-URL path, do not move
 - `./ci` is a custom Go binary that runs tests in containers via **Podman** (not Docker). The runner connects to Podman's Docker-compatible socket (rootless `$XDG_RUNTIME_DIR/podman/podman.sock`, then rootful, then Docker fallback) and starts `systemctl --user start podman.socket` if needed. Bind mounts use the `:z` SELinux relabel (required by Podman rootless on this SELinux-enforcing host).
 - The `./ci` launcher builds `infra/ci-source/bin/ci-<os>-<arch>` from source and **auto-rebuilds it when any `ci-source/*.go` is newer than the binary** — binaries are gitignored, edits are picked up on the next `./ci` run. Prebuild all platforms with `infra/ci-source/build.sh`.
 - Test definitions live in `infra/ci-source/internal/tests/registry.go` — `WorkDir` values are container paths under `/repo/` (e.g. `/repo/sol/server/backend`, `/repo/luna/connect`). `findRepoRoot` detects the checkout by looking for `sol/server/` + `sol/connect/`.
+- Shared caches live in `<repo>/.cache/`: Go build+module (`gocache`, `gomodcache`), apk packages (`apk`), and per-workdir warmed npm state (`npm/<slug>/node_modules` + `npm-cache`). `warmCaches` pre-populates the Go module and npm caches (bounded by the job slots) before workers start; test commands then run without their own install step.
 - The `podman-build` test uses `Container: "host"` (SELinux blocks mounting the podman socket into a container). No GitHub Actions — all CI is local.
 - There are no E2E (Playwright) tests.
 

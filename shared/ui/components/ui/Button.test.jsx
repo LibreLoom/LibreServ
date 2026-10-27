@@ -76,7 +76,8 @@ describe("Button loading", () => {
       </Button>,
     );
     const button = screen.getByRole("button", { name: "Save" });
-    const dots = () => [...button.querySelectorAll(".comet-spinner__dot")];
+    const dots = () =>
+      [...button.querySelectorAll("span")].filter((span) => span.classList.contains("comet-spinner__dot"));
     expect(dots()).toHaveLength(8);
     dots().forEach((d) => expect(d.style.animation).toBe("none"));
     const wrap = button.querySelector('[data-slot="spinner"]').parentElement;

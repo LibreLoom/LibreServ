@@ -5,17 +5,16 @@
 //! transaction, so a failure leaves nothing half-written. Recovered scopes are read-only;
 //! the next private run starts a fresh scope.
 
-use std::collections::HashSet;
-
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use rusqlite::{Connection, OptionalExtension, params};
+use zeroize::{Zeroize, Zeroizing};
 
 use super::crypto::SigPublic;
 use super::format::{SignedRecord, Tree};
 use super::private::{
     self, PRIVATE_SNAPSHOT_DOMAIN, PSCOPES_KIND, PSNAPSHOTS_KIND, ScopeRecord, SignedScope,
 };
-use super::store::CloudStore;
+use super::store::{CloudStore, RESTORE_RECORD_PAGE_SIZE, RecordPage};
 use crate::backup::access_list;
 use crate::db;
 
@@ -30,6 +29,14 @@ pub struct PlainMeta {
     pub source_path: String,
 }
 
+impl Zeroize for PlainMeta {
+    fn zeroize(&mut self) {
+        self.name.zeroize();
+        self.source_drive.zeroize();
+        self.source_path.zeroize();
+    }
+}
+
 /// One private snapshot to restore: its signed record, its details and its decrypted file list.
 #[derive(Debug, Clone)]
 pub struct PrivateSnapshotIn {
@@ -40,86 +47,304 @@ pub struct PrivateSnapshotIn {
     pub tree: Tree,
 }
 
-/// The scope records on Connect that belong to this caller. A record that fails its
-/// signature (or cannot be read) is left out, so it never reaches the index.
+impl Zeroize for PrivateSnapshotIn {
+    fn zeroize(&mut self) {
+        self.snapshot_id.zeroize();
+        self.protection_id.zeroize();
+        self.record.zeroize();
+        self.meta.zeroize();
+        self.tree.zeroize();
+    }
+}
+
+pub struct CallerScopePage {
+    pub scopes: Vec<ScopeRecord>,
+    pub records: Vec<(String, Vec<u8>)>,
+    pub page: RecordPage,
+}
+
+#[derive(Clone, Copy)]
+pub struct RestorePageRequest<'a> {
+    pub after: Option<&'a str>,
+    pub limit: usize,
+    pub version: Option<u64>,
+    pub expected_total: Option<u64>,
+    pub processed: u64,
+}
+
+/// Reads one bounded scope-name page and returns only records signed for this caller.
+/// A changed or incomplete inventory is an error so restore never silently omits scopes.
+pub fn caller_scopes_page(
+    store: &dyn CloudStore,
+    luna_public: &SigPublic,
+    caller_public: &super::crypto::SealPublic,
+    request: RestorePageRequest<'_>,
+) -> Result<CallerScopePage> {
+    if request.limit == 0
+        || request.limit > RESTORE_RECORD_PAGE_SIZE
+        || request.version.is_some() != request.expected_total.is_some()
+        || (request.after.is_some() && request.version.is_none())
+    {
+        bail!("The private scope listing page is not valid")
+    }
+    let page = store.list_record_page_versioned(
+        PSCOPES_KIND,
+        request.after,
+        request.limit,
+        request.version,
+        request.expected_total,
+    )?;
+    validate_scope_page(&page, request.after, request.limit, request.processed)?;
+    let mut scopes = Vec::with_capacity(page.names.len());
+    let mut records = Vec::with_capacity(page.names.len());
+    for name in &page.names {
+        let Some(bytes) = store.get_record(PSCOPES_KIND, name)? else {
+            bail!("Connect's private scope list changed during restore. Try again")
+        };
+        let Ok(record) =
+            SignedScope::from_bytes(&bytes).and_then(|signed| signed.verify(luna_public))
+        else {
+            continue;
+        };
+        if record.scope == *name && &record.seal_public == caller_public {
+            records.push((name.clone(), bytes));
+            scopes.push(record);
+        }
+    }
+    Ok(CallerScopePage {
+        scopes,
+        records,
+        page,
+    })
+}
+
+fn validate_scope_page(
+    page: &RecordPage,
+    after: Option<&str>,
+    limit: usize,
+    processed: u64,
+) -> Result<()> {
+    let mut previous = after.unwrap_or("");
+    for name in &page.names {
+        if name.is_empty()
+            || name.len() > 128
+            || name == "."
+            || name.contains("..")
+            || !name.bytes().all(|byte| {
+                byte.is_ascii_lowercase()
+                    || byte.is_ascii_digit()
+                    || matches!(byte, b'.' | b'_' | b'-')
+            })
+            || name.as_str() <= previous
+        {
+            bail!("Connect returned an invalid private scope listing")
+        }
+        previous = name;
+    }
+    if page.names.len() > limit
+        || page.total < processed.saturating_add(page.names.len() as u64)
+        || (page.names.is_empty() && page.next_after.is_some())
+        || (page.next_after.is_some() && page.names.len() != limit)
+        || page
+            .next_after
+            .as_deref()
+            .is_some_and(|cursor| page.names.last().map(String::as_str) != Some(cursor))
+    {
+        bail!("Connect returned an incomplete private scope listing")
+    }
+    if page.next_after.is_none() && processed.saturating_add(page.names.len() as u64) != page.total
+    {
+        bail!("Connect returned an incomplete private scope listing")
+    }
+    Ok(())
+}
+
+/// The scope records on Connect that belong to this caller. Page boundaries limit each
+/// Connect read; callers that need to process large inventories should use caller_scopes_page.
+#[cfg(test)]
 pub fn caller_scopes(
     store: &dyn CloudStore,
     luna_public: &SigPublic,
     caller_public: &super::crypto::SealPublic,
 ) -> Result<Vec<ScopeRecord>> {
     let mut out = Vec::new();
-    for name in store.list_records(PSCOPES_KIND)? {
-        let Some(bytes) = store.get_record(PSCOPES_KIND, &name)? else {
-            continue;
-        };
-        let Ok(record) = SignedScope::from_bytes(&bytes).and_then(|s| s.verify(luna_public)) else {
-            continue;
-        };
-        if &record.seal_public == caller_public {
-            out.push(record);
+    let mut after = None;
+    let mut version = None;
+    let mut total = None;
+    let mut processed = 0u64;
+    loop {
+        let result = caller_scopes_page(
+            store,
+            luna_public,
+            caller_public,
+            RestorePageRequest {
+                after: after.as_deref(),
+                limit: RESTORE_RECORD_PAGE_SIZE,
+                version,
+                expected_total: total,
+                processed,
+            },
+        )?;
+        version = Some(result.page.version);
+        total = Some(result.page.total);
+        processed = processed.saturating_add(result.page.names.len() as u64);
+        out.extend(result.scopes);
+        match result.page.next_after {
+            Some(next) => after = Some(next),
+            None => break,
         }
     }
     Ok(out)
 }
 
-/// The hex ids of the tree packs of every verified snapshot in `scopes`.
-pub fn caller_tree_packs(
+/// Whether the signed snapshot at the caller-supplied scope and ID names this tree pack.
+///
+/// This is an exact lookup: restore requests one pack per snapshot, so scanning the caller's
+/// complete snapshot inventory for every pack would make a large restore quadratic.
+pub fn caller_has_tree_pack(
     store: &dyn CloudStore,
     luna_public: &SigPublic,
-    scopes: &[ScopeRecord],
-) -> Result<HashSet<String>> {
-    let mut out = HashSet::new();
-    for scope in scopes {
-        let prefix = format!("{}.", scope.scope);
-        for name in store.list_records(PSNAPSHOTS_KIND)? {
-            if !name.starts_with(&prefix) {
-                continue;
-            }
-            let Some(bytes) = store.get_record(PSNAPSHOTS_KIND, &name)? else {
-                continue;
-            };
-            let Ok(signed) = SignedRecord::from_bytes(&bytes) else {
-                continue;
-            };
-            let Ok(record) = signed.verify_with(luna_public, PRIVATE_SNAPSHOT_DOMAIN) else {
-                continue;
-            };
-            if name != private::psnapshot_name(&scope.scope, &record.snapshot_id) {
-                continue;
-            }
-            out.insert(hex(&record.tree_pack_id));
-        }
+    caller_public: &super::crypto::SealPublic,
+    scope: &str,
+    snapshot_id: &str,
+    wanted: &[u8; 32],
+) -> Result<bool> {
+    if !valid_cloud_id(scope) || !valid_cloud_id(snapshot_id) {
+        return Ok(false);
     }
-    Ok(out)
+    let Some(scope_bytes) = store.get_record(PSCOPES_KIND, scope)? else {
+        return Ok(false);
+    };
+    let Ok(scope_record) =
+        SignedScope::from_bytes(&scope_bytes).and_then(|signed| signed.verify(luna_public))
+    else {
+        return Ok(false);
+    };
+    if scope_record.scope != scope || &scope_record.seal_public != caller_public {
+        return Ok(false);
+    }
+
+    let name = private::psnapshot_name(scope, snapshot_id);
+    let Some(snapshot_bytes) = store.get_record(PSNAPSHOTS_KIND, &name)? else {
+        return Ok(false);
+    };
+    let Ok(signed) = SignedRecord::from_bytes(&snapshot_bytes) else {
+        return Ok(false);
+    };
+    let Ok(snapshot) = signed.verify_with(luna_public, PRIVATE_SNAPSHOT_DOMAIN) else {
+        return Ok(false);
+    };
+    Ok(snapshot.luna_id == scope_record.luna_id
+        && snapshot.snapshot_id == snapshot_id
+        && &snapshot.tree_pack_id == wanted)
 }
 
-/// The signed private snapshot identities the caller can restore from the store.
-/// Only names and IDs are retained; each signed record is fetched and dropped in turn.
-pub fn caller_snapshot_ids(
+fn valid_cloud_id(value: &str) -> bool {
+    value.len() == 32
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn validate_caller_snapshot_page(
+    page: &RecordPage,
+    prefix: &str,
+    after: Option<&str>,
+    seen: u64,
+) -> Result<()> {
+    let mut previous = after.unwrap_or(prefix);
+    for name in &page.names {
+        if !name.starts_with(prefix) || name.as_str() <= previous {
+            bail!("Connect returned an invalid private snapshot listing")
+        }
+        previous = name;
+    }
+    if page.names.len() > RESTORE_RECORD_PAGE_SIZE
+        || page.total < seen.saturating_add(page.names.len() as u64)
+        || (page.names.is_empty() && page.next_after.is_some())
+        || (page.next_after.is_some() && page.names.len() != RESTORE_RECORD_PAGE_SIZE)
+        || page.next_after.as_deref().is_some_and(|cursor| {
+            !cursor.starts_with(prefix) || page.names.last().map(String::as_str) != Some(cursor)
+        })
+    {
+        bail!("Connect returned an incomplete private snapshot listing")
+    }
+    Ok(())
+}
+
+pub enum CallerSnapshotStatusError<E> {
+    Connect(anyhow::Error),
+    Local(E),
+}
+
+/// Whether the remote listing contains a verified snapshot that is not in the local index.
+/// Names are read one bounded page at a time, and each local lookup checks one ID.
+pub fn caller_has_missing_snapshot<E>(
     store: &dyn CloudStore,
     luna_public: &SigPublic,
     scopes: &[ScopeRecord],
-) -> Result<HashSet<(String, String)>> {
-    let mut out = HashSet::new();
-    let names = store.list_records(PSNAPSHOTS_KIND)?;
+    mut has_local_snapshot: impl FnMut(&str, &str) -> std::result::Result<bool, E>,
+) -> std::result::Result<bool, CallerSnapshotStatusError<E>> {
     for scope in scopes {
         let prefix = format!("{}.", scope.scope);
-        for name in names.iter().filter(|name| name.starts_with(&prefix)) {
-            let Some(bytes) = store.get_record(PSNAPSHOTS_KIND, name)? else {
-                continue;
-            };
-            let Ok(signed) = SignedRecord::from_bytes(&bytes) else {
-                continue;
-            };
-            let Ok(record) = signed.verify_with(luna_public, PRIVATE_SNAPSHOT_DOMAIN) else {
-                continue;
-            };
-            if name == &private::psnapshot_name(&scope.scope, &record.snapshot_id) {
-                out.insert((scope.scope.clone(), record.snapshot_id));
+        let mut after = None;
+        let mut version = None;
+        let mut expected_total = None;
+        let mut seen = 0u64;
+        loop {
+            let page = store
+                .list_record_page_prefix_versioned(
+                    PSNAPSHOTS_KIND,
+                    &prefix,
+                    after.as_deref(),
+                    RESTORE_RECORD_PAGE_SIZE,
+                    version,
+                    expected_total,
+                )
+                .map_err(|error| CallerSnapshotStatusError::Connect(error.into()))?;
+            validate_caller_snapshot_page(&page, &prefix, after.as_deref(), seen)
+                .map_err(CallerSnapshotStatusError::Connect)?;
+            version = Some(page.version);
+            expected_total = Some(page.total);
+            seen = seen.saturating_add(page.names.len() as u64);
+
+            for name in &page.names {
+                let bytes = listed_snapshot_record(store, name)
+                    .map_err(CallerSnapshotStatusError::Connect)?;
+                let Ok(signed) = SignedRecord::from_bytes(&bytes) else {
+                    continue;
+                };
+                let Ok(record) = signed.verify_with(luna_public, PRIVATE_SNAPSHOT_DOMAIN) else {
+                    continue;
+                };
+                if name == &private::psnapshot_name(&scope.scope, &record.snapshot_id)
+                    && !has_local_snapshot(&scope.scope, &record.snapshot_id)
+                        .map_err(CallerSnapshotStatusError::Local)?
+                {
+                    return Ok(true);
+                }
+            }
+
+            match page.next_after {
+                Some(next) => after = Some(next),
+                None => {
+                    if seen != page.total {
+                        return Err(CallerSnapshotStatusError::Connect(anyhow::anyhow!(
+                            "Connect returned an incomplete private snapshot listing"
+                        )));
+                    }
+                    break;
+                }
             }
         }
     }
-    Ok(out)
+    Ok(false)
+}
+
+fn listed_snapshot_record(store: &dyn CloudStore, name: &str) -> Result<Vec<u8>> {
+    store
+        .get_record(PSNAPSHOTS_KIND, name)?
+        .ok_or_else(|| anyhow!("Connect's private snapshot list changed during restore. Try again"))
 }
 
 /// Write one recovered scope and its snapshots into the local index. Returns how many
@@ -132,7 +357,7 @@ pub fn write_private_index(
     caller_public: &super::crypto::SealPublic,
     scope: &ScopeRecord,
     dedup_key: &[u8; 32],
-    snapshots: Vec<PrivateSnapshotIn>,
+    snapshots: &[PrivateSnapshotIn],
     now: i64,
 ) -> Result<usize> {
     if private::scope_of(dedup_key).1 != scope.scope {
@@ -161,7 +386,7 @@ pub fn write_private_index(
     }
 
     let mut written = 0;
-    for snap in &snapshots {
+    for snap in snapshots {
         let signed = SignedRecord::from_bytes(&snap.record)?;
         let record = signed.verify_with(luna_public, PRIVATE_SNAPSHOT_DOMAIN)?;
         if record.snapshot_id != snap.snapshot_id {
@@ -271,13 +496,10 @@ pub fn write_private_index(
             )?;
         }
 
+        let tree_json = Zeroizing::new(serde_json::to_vec(&snap.tree)?);
         tx.execute(
             "INSERT INTO cloud_private_trees (snapshot_id, scope, tree) VALUES (?1, ?2, ?3)",
-            params![
-                snap.snapshot_id,
-                scope.scope,
-                serde_json::to_vec(&snap.tree)?
-            ],
+            params![snap.snapshot_id, scope.scope, tree_json.as_slice()],
         )?;
         written += 1;
     }
@@ -301,6 +523,13 @@ mod tests {
 
     const NOW: i64 = 1_800_000_000;
     const LUNA_ID: &str = "luna-fixture-1";
+
+    #[test]
+    fn a_listed_private_snapshot_that_disappears_is_an_error() {
+        let store = MemoryStore::new();
+        let error = listed_snapshot_record(&store, "scope-a.snapshot-1").unwrap_err();
+        assert!(error.to_string().contains("list changed during restore"));
+    }
 
     fn fixture() -> Value {
         let text = include_str!(concat!(
@@ -417,6 +646,19 @@ mod tests {
     }
 
     #[test]
+    fn decrypted_private_snapshot_zeroize_clears_tree_and_metadata() {
+        let mut snapshot = decrypt_fixture().snapshot;
+        snapshot.zeroize();
+        assert!(snapshot.snapshot_id.is_empty());
+        assert!(snapshot.protection_id.is_empty());
+        assert!(snapshot.record.is_empty());
+        assert!(snapshot.meta.name.is_empty());
+        assert!(snapshot.meta.source_drive.is_empty());
+        assert!(snapshot.meta.source_path.is_empty());
+        assert!(snapshot.tree.entries.is_empty());
+    }
+
+    #[test]
     fn fixture_index_is_written_as_recovered() {
         let d = decrypt_fixture();
         let (_dir, mut conn) = setup();
@@ -427,7 +669,7 @@ mod tests {
             &d.alice.seal_public,
             &d.scope,
             &d.dedup,
-            vec![d.snapshot.clone()],
+            std::slice::from_ref(&d.snapshot),
             NOW,
         )
         .unwrap();
@@ -441,7 +683,7 @@ mod tests {
             &d.alice.seal_public,
             &d.scope,
             &d.dedup,
-            vec![d.snapshot.clone()],
+            std::slice::from_ref(&d.snapshot),
             NOW + 1,
         )
         .unwrap();
@@ -473,7 +715,7 @@ mod tests {
             &d.alice.seal_public,
             &d.scope,
             &[0x44; 32],
-            vec![d.snapshot.clone()],
+            std::slice::from_ref(&d.snapshot),
             NOW,
         )
         .unwrap_err();
@@ -500,7 +742,7 @@ mod tests {
             &bob.seal_public,
             &d.scope,
             &d.dedup,
-            vec![d.snapshot.clone()],
+            std::slice::from_ref(&d.snapshot),
             NOW,
         )
         .unwrap_err();
@@ -524,7 +766,7 @@ mod tests {
                 &d.alice.seal_public,
                 &d.scope,
                 &d.dedup,
-                vec![forged],
+                &[forged],
                 NOW,
             )
             .is_err()
@@ -544,7 +786,7 @@ mod tests {
             &d.alice.seal_public,
             &d.scope,
             &d.dedup,
-            vec![d.snapshot.clone()],
+            std::slice::from_ref(&d.snapshot),
             NOW,
         )
         .unwrap();
@@ -564,7 +806,7 @@ mod tests {
             &d.alice.seal_public,
             &d.scope,
             &d.dedup,
-            vec![d.snapshot.clone()],
+            std::slice::from_ref(&d.snapshot),
             NOW,
         )
         .unwrap();

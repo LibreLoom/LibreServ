@@ -361,6 +361,14 @@ mod tests {
         fn list_records(&self, kind: &str) -> Result<Vec<String>, StoreError> {
             self.inner.list_records(kind)
         }
+        fn list_record_page(
+            &self,
+            kind: &str,
+            after: Option<&str>,
+            limit: usize,
+        ) -> Result<crate::backup::cloud::store::RecordPage, StoreError> {
+            self.inner.list_record_page(kind, after, limit)
+        }
         fn usage(&self) -> Result<crate::backup::cloud::store::Usage, StoreError> {
             self.inner.usage()
         }

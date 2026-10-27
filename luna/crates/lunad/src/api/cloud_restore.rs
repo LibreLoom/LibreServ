@@ -28,7 +28,7 @@ use crate::backup::cloud::crypto;
 use crate::backup::cloud::identity::{self, Identity};
 use crate::backup::cloud::keys::{self, USERS_KIND, USERS_LIST_NAME};
 use crate::backup::cloud::recover::{self, Recovered};
-use crate::backup::cloud::store::CloudStore;
+use crate::backup::cloud::store::{CloudStore, StoreError};
 use crate::db;
 
 type ApiError = (StatusCode, Json<Value>);
@@ -51,6 +51,14 @@ const RELINK_PENDING_IDS_META: &str = "cloud_restore_relink_pending_ids";
 
 fn restore_needed(cloud_snapshots: i64, indexed_snapshots: i64, relink_pending: bool) -> bool {
     cloud_snapshots > indexed_snapshots || relink_pending
+}
+
+fn cloud_snapshot_count(store: &dyn CloudStore) -> Result<i64, StoreError> {
+    // Status needs only the provider's count. Ask for one key so the Connect response and local
+    // allocation stay bounded even when the account has a large snapshot inventory.
+    Ok(store
+        .list_record_page_versioned(SNAPSHOT_KIND, None, 1, None, None)?
+        .total as i64)
 }
 
 pub fn router() -> Router<AppState> {
@@ -163,10 +171,7 @@ async fn status(
                 "indexed_snapshots": 0,
             }));
         };
-        let cloud = store
-            .list_records(SNAPSHOT_KIND)
-            .map_err(unreachable_connect)?
-            .len() as i64;
+        let cloud = cloud_snapshot_count(&store).map_err(unreachable_connect)?;
         let conn = db.lock().unwrap_or_else(|p| p.into_inner());
         let indexed = crate::db::count_shared_cloud_snapshots(&conn).map_err(read_failed)?;
         let identity = identity::load(&conn).map_err(read_failed)?;
@@ -179,8 +184,7 @@ async fn status(
             .as_deref()
             == Some("true");
         Ok(json!({
-            // PR210 should preserve this extra recovery condition when it replaces the snapshot
-            // count comparison with ID-based detection.
+            // A pending relink remains recoverable even when snapshot counts already match.
             "needed": restore_needed(cloud, indexed, relink_pending),
             "relink_pending": relink_pending,
             "luna_id": luna_id,
@@ -473,10 +477,14 @@ fn restore_incrementally(
         context.now,
     );
     let unknown_pending_before = persist_relink_intent(context.db, context.body, &relink)?;
-    let recovered = recover::fetch_incrementally(
+    let recovered = recover::fetch_incrementally_with_existing_check(
         context.store,
         context.identity,
         context.keys,
+        |snapshot_id| {
+            let conn = context.db.lock().unwrap_or_else(|p| p.into_inner());
+            recover::already_indexed(&conn, snapshot_id)
+        },
         handle,
         progress,
     )?;
@@ -687,9 +695,9 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        KeyIn, RELINK_WARNING, RestoreBody, RestoreContext, parse_keys, records_with_store,
-        relink_proven_accounts, restore_done_event, restore_incrementally, restore_needed,
-        restore_with_store,
+        KeyIn, RELINK_WARNING, RestoreBody, RestoreContext, SNAPSHOT_KIND, parse_keys,
+        records_with_store, relink_proven_accounts, restore_done_event, restore_incrementally,
+        restore_needed, restore_with_store,
     };
     use crate::api::cloud_phrase::{CHECK_DOMAIN, issue_challenge};
     use crate::backup::cloud::crypto;
@@ -847,6 +855,8 @@ mod tests {
         inner: MemoryStore,
         db: std::sync::Arc<crate::Db>,
         probes: AtomicUsize,
+        full_list_calls: AtomicUsize,
+        page_limits: std::sync::Mutex<Vec<usize>>,
     }
 
     impl ProbeStore {
@@ -891,7 +901,17 @@ mod tests {
         }
         fn list_records(&self, kind: &str) -> Result<Vec<String>, StoreError> {
             self.probe();
+            self.full_list_calls.fetch_add(1, Ordering::SeqCst);
             self.inner.list_records(kind)
+        }
+        fn list_record_page(
+            &self,
+            kind: &str,
+            after: Option<&str>,
+            limit: usize,
+        ) -> Result<crate::backup::cloud::store::RecordPage, StoreError> {
+            self.page_limits.lock().unwrap().push(limit);
+            self.inner.list_record_page(kind, after, limit)
         }
         fn usage(&self) -> Result<Usage, StoreError> {
             self.inner.usage()
@@ -1008,12 +1028,36 @@ mod tests {
             inner,
             db: f.state.db.clone(),
             probes: AtomicUsize::new(0),
+            full_list_calls: AtomicUsize::new(0),
+            page_limits: std::sync::Mutex::new(Vec::new()),
         };
 
         let r = restore_with_store(&f.state.db, &store, &id, &f.admin_id, &body(TREE_KEY), NOW)
             .unwrap();
         assert_eq!(r.snapshots, 1);
         assert!(store.probes.load(Ordering::SeqCst) >= 1);
+    }
+
+    #[test]
+    fn status_counts_shared_snapshots_from_one_bounded_page() {
+        let f = fixture();
+        let inner = MemoryStore::new();
+        for index in 0..1000 {
+            inner
+                .put_record(SNAPSHOT_KIND, &format!("snapshot-{index:04}"), b"record")
+                .unwrap();
+        }
+        let store = ProbeStore {
+            inner,
+            db: f.state.db.clone(),
+            probes: AtomicUsize::new(0),
+            full_list_calls: AtomicUsize::new(0),
+            page_limits: std::sync::Mutex::new(Vec::new()),
+        };
+
+        assert_eq!(super::cloud_snapshot_count(&store).unwrap(), 1000);
+        assert_eq!(store.full_list_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(*store.page_limits.lock().unwrap(), [1]);
     }
 
     #[test]
