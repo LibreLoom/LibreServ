@@ -80,11 +80,6 @@
       "nanoid": "3.3.19",
       "@excalidraw/mermaid-to-excalidraw": "2.3.0"
     },
-    "@excalidraw/mermaid-to-excalidraw": {
-      "mermaid": "12.2.0",
-      "@mermaid-js/parser": "2.0.1",
-      "nanoid": "5.1.16"
-    },
     "mermaid": {
       "katex": "0.18.2",
       "@mermaid-js/parser": "2.0.1"
