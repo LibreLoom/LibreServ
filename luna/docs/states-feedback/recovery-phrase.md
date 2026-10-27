@@ -1,5 +1,7 @@
 # Recovery phrase: check modal redesign and phrase as a required setup step
 
+Status: shipped 23 Oct 2026 (lunad `bc423af0`, web `2ce3ed70`). Setup now has the phrase step and the check is rebuilt on `PhraseWordsInput`; "What's true today" below describes the pre-change code and stays as history.
+
 ## 0. What's true today
 
 **How a Luna ends up with no phrase.** Setup is Welcome → System check → Account → Name → Done, and none of those steps makes a phrase. A phrase is made only from:

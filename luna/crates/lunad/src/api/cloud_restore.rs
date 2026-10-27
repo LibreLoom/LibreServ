@@ -16,6 +16,7 @@ use base64::engine::general_purpose::STANDARD;
 use rusqlite::params;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::collections::HashSet;
 use std::convert::Infallible;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -28,7 +29,7 @@ use crate::backup::cloud::crypto;
 use crate::backup::cloud::identity::{self, Identity};
 use crate::backup::cloud::keys::{self, USERS_KIND, USERS_LIST_NAME};
 use crate::backup::cloud::recover::{self, Recovered};
-use crate::backup::cloud::store::{CloudStore, StoreError};
+use crate::backup::cloud::store::{CloudStore, RESTORE_RECORD_PAGE_SIZE, StoreError};
 use crate::db;
 
 type ApiError = (StatusCode, Json<Value>);
@@ -49,16 +50,91 @@ const RELINK_PENDING_META: &str = "cloud_restore_relink_pending";
 /// Old owner IDs remain here until proof and local relinking both succeed.
 const RELINK_PENDING_IDS_META: &str = "cloud_restore_relink_pending_ids";
 
-fn restore_needed(cloud_snapshots: i64, indexed_snapshots: i64, relink_pending: bool) -> bool {
-    cloud_snapshots > indexed_snapshots || relink_pending
+fn restore_needed(missing_snapshots: bool, relink_pending: bool) -> bool {
+    missing_snapshots || relink_pending
 }
 
-fn cloud_snapshot_count(store: &dyn CloudStore) -> Result<i64, StoreError> {
-    // Status needs only the provider's count. Ask for one key so the Connect response and local
-    // allocation stay bounded even when the account has a large snapshot inventory.
-    Ok(store
-        .list_record_page_versioned(SNAPSHOT_KIND, None, 1, None, None)?
-        .total as i64)
+fn cloud_snapshot_status(
+    store: &dyn CloudStore,
+    indexed_ids: &[String],
+) -> Result<(bool, u64), StoreError> {
+    let indexed: HashSet<&str> = indexed_ids.iter().map(String::as_str).collect();
+    let mut after: Option<String> = None;
+    let mut version = None;
+    let mut expected_total = None;
+    let mut processed = 0u64;
+    let mut has_missing = false;
+
+    loop {
+        let page = store.list_record_page_versioned(
+            SNAPSHOT_KIND,
+            after.as_deref(),
+            RESTORE_RECORD_PAGE_SIZE,
+            version,
+            expected_total,
+        )?;
+        if page.names.len() > RESTORE_RECORD_PAGE_SIZE
+            || version.is_some_and(|expected| expected != page.version)
+            || expected_total.is_some_and(|expected| expected != page.total)
+        {
+            return Err(StoreError::Unavailable(
+                "The cloud backup list changed during restore. Try restoring again.".into(),
+            ));
+        }
+        version = Some(page.version);
+        expected_total = Some(page.total);
+
+        let mut previous = after.as_deref().unwrap_or("");
+        for name in &page.names {
+            if name.as_str() <= previous {
+                return Err(StoreError::Rejected(
+                    "Luna Connect returned an invalid backup-listing order.".into(),
+                ));
+            }
+            has_missing |= !indexed.contains(name.as_str());
+            previous = name;
+        }
+        processed = processed.saturating_add(page.names.len() as u64);
+
+        if let Some(cursor) = page.next_after {
+            if page.names.len() != RESTORE_RECORD_PAGE_SIZE
+                || page.names.last().map(String::as_str) != Some(cursor.as_str())
+                || after
+                    .as_deref()
+                    .is_some_and(|previous| cursor.as_str() <= previous)
+            {
+                return Err(StoreError::Rejected(
+                    "Luna Connect returned an invalid backup-listing cursor.".into(),
+                ));
+            }
+            after = Some(cursor);
+            continue;
+        }
+
+        let total = expected_total.unwrap_or_default();
+        if processed != total {
+            return Err(StoreError::Unavailable(
+                "The cloud backup list changed during restore. Try restoring again.".into(),
+            ));
+        }
+
+        // Verify the terminal cursor too, including the empty-inventory case. This catches an
+        // insertion or deletion after the last non-empty page before status is reported.
+        let verify_after = page.names.last().map(String::as_str).or(after.as_deref());
+        let verification = store.list_record_page_versioned(
+            SNAPSHOT_KIND,
+            verify_after,
+            RESTORE_RECORD_PAGE_SIZE,
+            version,
+            expected_total,
+        )?;
+        if !verification.names.is_empty() || verification.next_after.is_some() {
+            return Err(StoreError::Unavailable(
+                "The cloud backup list changed during restore. Try restoring again.".into(),
+            ));
+        }
+        return Ok((has_missing, total));
+    }
 }
 
 pub fn router() -> Router<AppState> {
@@ -171,9 +247,14 @@ async fn status(
                 "indexed_snapshots": 0,
             }));
         };
-        let cloud = cloud_snapshot_count(&store).map_err(unreachable_connect)?;
         let conn = db.lock().unwrap_or_else(|p| p.into_inner());
-        let indexed = crate::db::count_shared_cloud_snapshots(&conn).map_err(read_failed)?;
+        let indexed_ids = crate::db::list_shared_cloud_snapshot_ids(&conn).map_err(read_failed)?;
+        drop(conn);
+        // Connect's shared snapshot listing is separate from private, scope-protected records.
+        // Read bounded, versioned pages and compare identities without retaining the cloud list.
+        let (missing_snapshots, cloud_snapshots) =
+            cloud_snapshot_status(&store, &indexed_ids).map_err(unreachable_connect)?;
+        let conn = db.lock().unwrap_or_else(|p| p.into_inner());
         let identity = identity::load(&conn).map_err(read_failed)?;
         let (luna_id, signing_public) = match &identity {
             Some(id) => (json!(id.luna_id()), json!(STANDARD.encode(id.public()))),
@@ -184,17 +265,25 @@ async fn status(
             .as_deref()
             == Some("true");
         Ok(json!({
-            // A pending relink remains recoverable even when snapshot counts already match.
-            "needed": restore_needed(cloud, indexed, relink_pending),
+            // A pending relink remains recoverable when snapshot IDs already match.
+            "needed": restore_needed(missing_snapshots, relink_pending),
             "relink_pending": relink_pending,
             "luna_id": luna_id,
             "signing_public": signing_public,
-            "cloud_snapshots": cloud,
-            "indexed_snapshots": indexed,
+            "cloud_snapshots": cloud_snapshots,
+            "indexed_snapshots": indexed_ids.len(),
         }))
     })
     .await;
     finish(answer)
+}
+
+/// Compare snapshot identities, not totals. Connect's list is already scoped to records
+/// this Luna can read; private records are never listed in this kind.
+#[cfg(test)]
+fn has_unindexed_snapshots(cloud_ids: &[String], indexed_ids: &[String]) -> bool {
+    let indexed: HashSet<&str> = indexed_ids.iter().map(String::as_str).collect();
+    cloud_ids.iter().any(|id| !indexed.contains(id.as_str()))
 }
 
 async fn records(
@@ -682,6 +771,7 @@ fn proven_old_accounts(
 
 #[cfg(test)]
 mod tests {
+    use super::has_unindexed_snapshots;
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
@@ -690,6 +780,28 @@ mod tests {
     use rusqlite::params;
     use serde_json::{Value, json};
     use tower::ServiceExt;
+
+    #[test]
+    fn restore_detection_uses_snapshot_ids() {
+        assert!(has_unindexed_snapshots(
+            &["cloud-a".into()],
+            &["local-b".into()]
+        ));
+        assert!(has_unindexed_snapshots(
+            &["cloud-a".into(), "cloud-b".into()],
+            &["cloud-a".into()]
+        ));
+        assert!(!has_unindexed_snapshots(
+            &["cloud-a".into()],
+            &["cloud-a".into(), "local-only".into()]
+        ));
+        assert!(!has_unindexed_snapshots(&[], &[]));
+        assert!(!has_unindexed_snapshots(&[], &["local-only".into()]));
+        assert!(!has_unindexed_snapshots(&["same".into()], &["same".into()]));
+        assert!(restore_needed(true, false));
+        assert!(restore_needed(false, true));
+        assert!(!restore_needed(false, false));
+    }
 
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
@@ -857,6 +969,8 @@ mod tests {
         probes: AtomicUsize,
         full_list_calls: AtomicUsize,
         page_limits: std::sync::Mutex<Vec<usize>>,
+        page_calls: AtomicUsize,
+        mutate_after_first_page: bool,
     }
 
     impl ProbeStore {
@@ -910,8 +1024,15 @@ mod tests {
             after: Option<&str>,
             limit: usize,
         ) -> Result<crate::backup::cloud::store::RecordPage, StoreError> {
+            self.probe();
             self.page_limits.lock().unwrap().push(limit);
-            self.inner.list_record_page(kind, after, limit)
+            let page = self.inner.list_record_page(kind, after, limit)?;
+            let call = self.page_calls.fetch_add(1, Ordering::SeqCst);
+            if self.mutate_after_first_page && call == 0 {
+                self.inner
+                    .put_record(SNAPSHOT_KIND, "snapshot-added", b"record")?;
+            }
+            Ok(page)
         }
         fn usage(&self) -> Result<Usage, StoreError> {
             self.inner.usage()
@@ -1030,6 +1151,8 @@ mod tests {
             probes: AtomicUsize::new(0),
             full_list_calls: AtomicUsize::new(0),
             page_limits: std::sync::Mutex::new(Vec::new()),
+            page_calls: AtomicUsize::new(0),
+            mutate_after_first_page: false,
         };
 
         let r = restore_with_store(&f.state.db, &store, &id, &f.admin_id, &body(TREE_KEY), NOW)
@@ -1039,7 +1162,7 @@ mod tests {
     }
 
     #[test]
-    fn status_counts_shared_snapshots_from_one_bounded_page() {
+    fn status_compares_ids_across_bounded_versioned_pages() {
         let f = fixture();
         let inner = MemoryStore::new();
         for index in 0..1000 {
@@ -1053,11 +1176,63 @@ mod tests {
             probes: AtomicUsize::new(0),
             full_list_calls: AtomicUsize::new(0),
             page_limits: std::sync::Mutex::new(Vec::new()),
+            page_calls: AtomicUsize::new(0),
+            mutate_after_first_page: false,
         };
 
-        assert_eq!(super::cloud_snapshot_count(&store).unwrap(), 1000);
+        let (missing, count) = super::cloud_snapshot_status(&store, &[]).unwrap();
+        assert!(missing);
+        assert_eq!(count, 1000);
         assert_eq!(store.full_list_calls.load(Ordering::SeqCst), 0);
-        assert_eq!(*store.page_limits.lock().unwrap(), [1]);
+        let page_limits = store.page_limits.lock().unwrap();
+        assert_eq!(page_limits.len(), 17); // 16 bounded pages plus terminal verification
+        assert!(
+            page_limits
+                .iter()
+                .all(|limit| *limit == super::RESTORE_RECORD_PAGE_SIZE)
+        );
+        assert!(store.probes.load(Ordering::SeqCst) >= page_limits.len());
+    }
+
+    #[test]
+    fn status_detects_same_count_replacement_and_handles_empty_inventory() {
+        let store = MemoryStore::new();
+        store
+            .put_record(SNAPSHOT_KIND, "cloud-a", b"record")
+            .unwrap();
+
+        assert_eq!(
+            super::cloud_snapshot_status(&store, &["local-b".into()]).unwrap(),
+            (true, 1),
+        );
+
+        let empty = MemoryStore::new();
+        assert_eq!(
+            super::cloud_snapshot_status(&empty, &[]).unwrap(),
+            (false, 0)
+        );
+    }
+
+    #[test]
+    fn status_rejects_inventory_changes_during_paged_identity_check() {
+        let f = fixture();
+        let inner = MemoryStore::new();
+        inner
+            .put_record(SNAPSHOT_KIND, "snapshot-a", b"record")
+            .unwrap();
+        let store = ProbeStore {
+            inner,
+            db: f.state.db.clone(),
+            probes: AtomicUsize::new(0),
+            full_list_calls: AtomicUsize::new(0),
+            page_limits: std::sync::Mutex::new(Vec::new()),
+            page_calls: AtomicUsize::new(0),
+            mutate_after_first_page: true,
+        };
+
+        let err = super::cloud_snapshot_status(&store, &[]).unwrap_err();
+        assert!(err.to_string().contains("changed during restore"));
+        assert_eq!(store.full_list_calls.load(Ordering::SeqCst), 0);
     }
 
     #[test]
@@ -1137,7 +1312,7 @@ mod tests {
             .as_deref(),
             Some("true")
         );
-        assert!(restore_needed(1, 1, true));
+        assert!(restore_needed(false, true));
         assert_eq!(owner_of(&f, "old-row"), "old-user");
         let unproven_retry = signed_body(&["old-user"], String::new());
         assert!(relink_proven_accounts(
@@ -1202,7 +1377,7 @@ mod tests {
             .as_deref(),
             Some("false")
         );
-        assert!(!restore_needed(1, 1, false));
+        assert!(!restore_needed(false, false));
     }
 
     #[test]
@@ -1234,7 +1409,7 @@ mod tests {
                 .as_deref(),
             Some("false")
         );
-        assert!(!restore_needed(1, 1, false));
+        assert!(!restore_needed(false, false));
     }
 
     #[test]
@@ -1290,7 +1465,7 @@ mod tests {
             .unwrap()
             .as_deref()
             == Some("true");
-        assert!(restore_needed(1, 1, relink_pending));
+        assert!(restore_needed(false, relink_pending));
         drop(conn);
 
         let retry_challenge = issue_challenge(&f.admin_id, NOW);
@@ -1314,7 +1489,7 @@ mod tests {
                 .as_deref(),
             Some("false")
         );
-        assert!(!restore_needed(1, 1, false));
+        assert!(!restore_needed(false, false));
     }
 
     #[test]
@@ -1364,7 +1539,7 @@ mod tests {
             == Some("true");
         drop(conn);
         assert_eq!(owner_of(&f, "old-row"), "old-user");
-        assert!(restore_needed(1, 1, relink_pending));
+        assert!(restore_needed(false, relink_pending));
 
         let retry =
             restore_with_store(&f.state.db, &store, &id, &f.admin_id, &restore, NOW).unwrap();
@@ -1410,7 +1585,7 @@ mod tests {
                 .as_deref(),
             Some("true")
         );
-        assert!(restore_needed(1, 1, true));
+        assert!(restore_needed(false, true));
     }
 
     #[test]
@@ -1439,7 +1614,7 @@ mod tests {
                 .as_deref(),
             Some("true")
         );
-        assert!(restore_needed(1, 1, true));
+        assert!(restore_needed(false, true));
     }
 
     #[test]
@@ -1478,7 +1653,7 @@ mod tests {
                 .as_deref(),
             Some("true")
         );
-        assert!(restore_needed(1, 1, true));
+        assert!(restore_needed(false, true));
     }
 
     #[test]

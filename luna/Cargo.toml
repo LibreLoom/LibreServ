@@ -41,7 +41,7 @@ dav-server = "0.11"
 uuid = { version = "1", features = ["v4"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 # Small-box profile: LTO + stripped symbols keep the single lunad binary
 # (and its resident code pages) as small as possible on 2 GiB targets.

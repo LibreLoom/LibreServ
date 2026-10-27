@@ -137,11 +137,11 @@ export default function CloudRestoreCard() {
         <p className="text-primary text-sm">
           {restore.data.relink_pending
             ? "Luna restored the backup list, but some backups are still linked to an old account. Enter your recovery phrase again to finish reconnecting them."
-            : "Luna lost its list of cloud backups. Enter your recovery phrase to find them again."}
+            : "Some cloud backup versions are missing from Luna's list. Enter your recovery phrase to find them again."}
         </p>
         <p className="text-primary text-sm">
-          {cloudCount === 1 ? "1 version is" : `${cloudCount} versions are`} in the cloud,{" "}
-          {indexedCount === 1 ? "1 is" : `${indexedCount} are`} on Luna&apos;s list.{" "}
+          {cloudCount === 1 ? "1 version is" : `${cloudCount} versions are`} in the cloud.{" "}
+          {indexedCount === 1 ? "Luna has 1 version" : `Luna has ${indexedCount} versions`} in its list.{" "}
           <InfoHint label="What a version is" content="One saved state of a backup, from one time it ran." />
         </p>
 

@@ -61,7 +61,7 @@ export default defineConfig({
     cssMinify: true,
   },
   server: {
-    port: 3000,
+    port: Number(process.env.SOL_DEV_FRONTEND_PORT || 3000),
     strictPort: true,
     host: "0.0.0.0",
     open: false,
@@ -72,7 +72,7 @@ export default defineConfig({
     },
     proxy: {
       "/api": {
-        target: "http://localhost:8080",
+        target: process.env.SOL_DEV_API_URL || "http://localhost:8080",
         changeOrigin: true,
         configure: (proxy) => {
           proxy.on("proxyReq", (proxyReq, req) => {
@@ -81,7 +81,7 @@ export default defineConfig({
         },
       },
       "/health": {
-        target: "http://localhost:8080",
+        target: process.env.SOL_DEV_API_URL || "http://localhost:8080",
         changeOrigin: true,
         configure: (proxy) => {
           proxy.on("proxyReq", (proxyReq, req) => {
@@ -91,31 +91,31 @@ export default defineConfig({
       },
       // OIDC provider endpoints — served by the backend, not the SPA.
       "/.well-known": {
-        target: "http://localhost:8080",
+        target: process.env.SOL_DEV_API_URL || "http://localhost:8080",
         changeOrigin: true,
       },
       "/authorize": {
-        target: "http://localhost:8080",
+        target: process.env.SOL_DEV_API_URL || "http://localhost:8080",
         changeOrigin: true,
       },
       "/oauth": {
-        target: "http://localhost:8080",
+        target: process.env.SOL_DEV_API_URL || "http://localhost:8080",
         changeOrigin: true,
       },
       "/userinfo": {
-        target: "http://localhost:8080",
+        target: process.env.SOL_DEV_API_URL || "http://localhost:8080",
         changeOrigin: true,
       },
       "/revoke": {
-        target: "http://localhost:8080",
+        target: process.env.SOL_DEV_API_URL || "http://localhost:8080",
         changeOrigin: true,
       },
       "/end_session": {
-        target: "http://localhost:8080",
+        target: process.env.SOL_DEV_API_URL || "http://localhost:8080",
         changeOrigin: true,
       },
       "/keys": {
-        target: "http://localhost:8080",
+        target: process.env.SOL_DEV_API_URL || "http://localhost:8080",
         changeOrigin: true,
       },
     },

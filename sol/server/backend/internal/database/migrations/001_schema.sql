@@ -148,6 +148,8 @@ CREATE TABLE IF NOT EXISTS backup_repositories (
     password TEXT NOT NULL,
     credentials TEXT,
     is_system BOOLEAN DEFAULT 0,
+    connect_managed BOOLEAN DEFAULT 0,
+    is_app_specific BOOLEAN NOT NULL DEFAULT 0,
     limit_upload_kbps INTEGER DEFAULT 0,
     limit_download_kbps INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -541,6 +543,13 @@ CREATE INDEX IF NOT EXISTS idx_backup_schedules_next_run ON backup_schedules(nex
 -- Backup repositories indexes
 CREATE INDEX IF NOT EXISTS idx_backup_repositories_app ON backup_repositories(app_id);
 CREATE INDEX IF NOT EXISTS idx_backup_repositories_type ON backup_repositories(repo_type);
+-- The one-per-app trigger messages are matched by storage/backup_ops.go CreateRepository.
+-- Keep their text in sync; storage/API duplicate-destination regressions exercise this contract.
+CREATE TRIGGER IF NOT EXISTS trg_backup_repositories_one_per_app_insert BEFORE INSERT ON backup_repositories WHEN NEW.app_id IS NOT NULL AND EXISTS (SELECT 1 FROM backup_repositories WHERE app_id = NEW.app_id) BEGIN SELECT RAISE(ABORT, 'app already has backup repository'); END;
+CREATE TRIGGER IF NOT EXISTS trg_backup_repositories_one_per_app_update BEFORE UPDATE OF app_id ON backup_repositories WHEN NEW.app_id IS NOT NULL AND EXISTS (SELECT 1 FROM backup_repositories WHERE app_id = NEW.app_id AND id != OLD.id) BEGIN SELECT RAISE(ABORT, 'app already has backup repository'); END;
+CREATE TRIGGER IF NOT EXISTS trg_backup_repositories_referenced_delete BEFORE DELETE ON backup_repositories WHEN EXISTS (SELECT 1 FROM backups WHERE repo_id = OLD.id) BEGIN SELECT RAISE(ABORT, 'backup repository still has saved backups'); END;
+CREATE TRIGGER IF NOT EXISTS trg_backups_repository_insert BEFORE INSERT ON backups WHEN NEW.repo_id IS NOT NULL AND NEW.repo_id != '' AND NOT EXISTS (SELECT 1 FROM backup_repositories WHERE id = NEW.repo_id) BEGIN SELECT RAISE(ABORT, 'backup repository does not exist'); END;
+CREATE TRIGGER IF NOT EXISTS trg_backups_repository_update BEFORE UPDATE OF repo_id ON backups WHEN NEW.repo_id IS NOT NULL AND NEW.repo_id != '' AND NOT EXISTS (SELECT 1 FROM backup_repositories WHERE id = NEW.repo_id) BEGIN SELECT RAISE(ABORT, 'backup repository does not exist'); END;
 
 -- Token revocation indexes
 CREATE UNIQUE INDEX IF NOT EXISTS idx_revoked_tokens_jti ON revoked_tokens(token_jti);

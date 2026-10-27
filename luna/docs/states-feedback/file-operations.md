@@ -1,5 +1,7 @@
 # File operation card (stream A)
 
+Status: shipped 24 Oct 2026 (`d7e36bf7` … `7ed6b535`); `ed629e48` moved copy/move into the dock. §1 ("today") describes the pre-dock code and stays as history; §2, including the strings in §2.11 that `lib/fileOps/` implements, is live documentation.
+
 Source: `plan.md` §5 stream A, plus the Max decision of 23 Oct 2026: *"the file operation card covers any file operation with length and is per-tab."* Gallery notes: `files/upload-*`, `files/copy-*`, `files/move-fails-partway`.
 
 **Preconditions (phase 1, not re-planned here):**

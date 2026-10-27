@@ -1277,6 +1277,13 @@ mod tests {
             let scope = scope_for(&f.member_id, &me.seal_public, [index as u8; 32]);
             private::publish_scope(&store, id.signer(), id.luna_id(), &scope, &auth_public(4))
                 .unwrap();
+            put_private_snapshot(
+                &store,
+                &id,
+                &scope.scope,
+                &format!("snap-{index:03}"),
+                [index as u8; 32],
+            );
         }
 
         let counted = CountPrefixPages {
