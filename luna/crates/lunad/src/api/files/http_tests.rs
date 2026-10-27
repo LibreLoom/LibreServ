@@ -2311,7 +2311,13 @@ async fn member_trash_zip_skips_foreign_origins() {
         .unwrap();
     let mut zip = zip::ZipArchive::new(std::io::Cursor::new(body)).unwrap();
     let names: Vec<String> = (0..zip.len())
-        .map(|i| zip.by_index(i).unwrap().name().to_string())
+        .map(|i| {
+            zip.by_index(i)
+                .unwrap()
+                .name()
+                .expect("ZIP entry name is valid UTF-8")
+                .to_string()
+        })
         .collect();
     assert!(
         names.iter().any(|n| n.contains("a.txt")),

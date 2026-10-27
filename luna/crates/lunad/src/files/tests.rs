@@ -918,7 +918,14 @@ fn folder_zip_includes_nested_files_and_skips_internal() {
 
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
     let mut names: Vec<String> = (0..archive.len())
-        .map(|i| archive.by_index(i).unwrap().name().to_string())
+        .map(|i| {
+            archive
+                .by_index(i)
+                .unwrap()
+                .name()
+                .expect("ZIP entry name is valid UTF-8")
+                .to_string()
+        })
         .collect();
     names.sort();
     assert!(names.iter().any(|n| n == "album/"));
@@ -946,7 +953,14 @@ fn folder_zip_skips_symlinks() {
     assert_eq!(count, 1);
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(buf.into_inner())).unwrap();
     let names: Vec<String> = (0..archive.len())
-        .map(|i| archive.by_index(i).unwrap().name().to_string())
+        .map(|i| {
+            archive
+                .by_index(i)
+                .unwrap()
+                .name()
+                .expect("ZIP entry name is valid UTF-8")
+                .to_string()
+        })
         .collect();
     assert!(names.iter().any(|n| n == "album/keep.txt"));
     assert!(

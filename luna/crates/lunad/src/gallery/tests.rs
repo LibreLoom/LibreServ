@@ -830,7 +830,13 @@ fn write_items_zip_dedupes_names_and_skips_luna_files() {
     let archive = std::fs::File::open(&zip_path).unwrap();
     let mut zip = zip::ZipArchive::new(archive).unwrap();
     let names: Vec<String> = (0..zip.len())
-        .map(|i| zip.by_index(i).unwrap().name().to_string())
+        .map(|i| {
+            zip.by_index(i)
+                .unwrap()
+                .name()
+                .expect("ZIP entry name is valid UTF-8")
+                .to_string()
+        })
         .collect();
     assert!(names.contains(&"same.jpg".to_string()));
     assert!(
