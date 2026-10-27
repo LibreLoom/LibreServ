@@ -42,7 +42,7 @@ function backupAgeState(lastBackupAt) {
   return "stale";
 }
 
-export default function BackupsCategory({ connectStatus = null }) {
+export default function BackupsCategory() {
   const { request } = useAuth();
   const { addToast } = useToast();
 
@@ -102,11 +102,11 @@ export default function BackupsCategory({ connectStatus = null }) {
       const backupsData = await backupsRes.json();
       const appsData = await appsRes.json();
       const schedulesData = await schedulesRes.json();
-      const reposData = reposRes.ok ? await reposRes.json() : { repos: [] };
+      const reposData = reposRes.ok ? await reposRes.json() : { repositories: [] };
       setBackups(backupsData.backups || []);
       setApps(appsData.apps || []);
       setSchedules(schedulesData.schedules || []);
-      setRepos(reposData.repos || []);
+      setRepos(reposData.repositories || []);
     } catch (err) {
       console.error("Failed to load data:", err);
       setLoadError(err.message);
@@ -329,6 +329,10 @@ export default function BackupsCategory({ connectStatus = null }) {
   }
 
   const heroTone = stats.protectedApps === 0 ? "warning" : stats.staleApps > 0 ? "warning" : "success";
+  const hasS3CompatibleDestination = repos.some((repo) => ["s3", "b2"].includes(repo.repo_type));
+  const hasCustomS3CompatibleDestination = repos.some((repo) => repo.connect_ownership_known === true && repo.connect_managed !== true && ["s3", "b2"].includes(repo.repo_type));
+  const hasConnectManagedDestination = repos.some((repo) => repo.connect_ownership_known === true && repo.connect_managed === true && ["s3", "b2"].includes(repo.repo_type));
+  const hasUnknownS3CompatibleDestination = repos.some((repo) => repo.connect_ownership_known !== true && ["s3", "b2"].includes(repo.repo_type));
 
   return (
     <div className="space-y-4" data-slot="backups-category">
@@ -640,22 +644,26 @@ export default function BackupsCategory({ connectStatus = null }) {
         </SettingsCard>
       )}
 
-      {/* Hide "Set up in External services" CTA once any backup destination is
-          configured: local-only repos via /backups/repos, or Cloud Backup
-          managed by Connect. Both mean there is already off-site storage. */}
-      {!loading && !loadError && repos.length === 0 && !["connected", "byo"].includes(connectStatus?.services?.backup?.state) && (
+      {/* Always show backup location guidance: a destination type alone does not prove its storage is off-site. */}
+      {!loading && !loadError && (
         <SettingsCard icon={CloudOff} title="Keep a copy somewhere else" padding={false} index={3}>
           <SettingsRow
-            label="Off-site backup storage"
-            description="Backups stored only on this device are lost if it breaks, burns, or walks away. Connect cloud storage and copies go there automatically."
+            label={hasCustomS3CompatibleDestination || hasUnknownS3CompatibleDestination ? "Check your backup location" : hasConnectManagedDestination ? "Connect backup storage" : "Off-site backup storage"}
+            description={hasCustomS3CompatibleDestination
+                ? "An S3 or B2 destination is configured. Confirm it is hosted somewhere else; a custom S3-compatible server on this network could be lost with this Sol."
+                : hasUnknownS3CompatibleDestination
+                  ? "An S3 or B2 destination is configured, but Sol can't confirm who manages it. Review External services before relying on it."
+                : hasConnectManagedDestination
+                  ? "Connect provisions this S3-compatible backup destination. Confirm with your server admin that its storage provider is hosted somewhere else."
+                : "No S3 or B2 destination is set. A folder or SFTP server on this network could be lost with this Sol; use S3 or B2, or confirm the SFTP server is somewhere else."}
             hideDivider
           >
-            <Button variant="outline" surface="secondary" size="sm" asChild>
-              <a href="#external_services">
-                Set up in External services
-                <ArrowRight size={ICON_SIZE.sm} aria-hidden="true" />
-              </a>
-            </Button>
+              <Button variant="outline" surface="secondary" size="sm" asChild>
+                <a href="#external_services">
+                  {hasS3CompatibleDestination ? "Review in External services" : "Set up in External services"}
+                  <ArrowRight size={ICON_SIZE.sm} aria-hidden="true" />
+                </a>
+              </Button>
           </SettingsRow>
         </SettingsCard>
       )}

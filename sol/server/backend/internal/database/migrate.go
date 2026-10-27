@@ -266,6 +266,8 @@ func (d *DB) reconcileSchema() error {
 				password TEXT NOT NULL,
 				credentials TEXT,
 				is_system BOOLEAN DEFAULT 0,
+				connect_managed BOOLEAN DEFAULT 0,
+				is_app_specific BOOLEAN NOT NULL DEFAULT 0,
 				limit_upload_kbps INTEGER DEFAULT 0,
 				limit_download_kbps INTEGER DEFAULT 0,
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -395,6 +397,10 @@ func (d *DB) reconcileSchema() error {
 		},
 		"backup_repositories": {
 			"is_system": `ALTER TABLE backup_repositories ADD COLUMN is_system BOOLEAN DEFAULT 0`,
+			// Leave old repository ownership unknown. A previous Connect destination
+			// is indistinguishable from an unassigned custom destination.
+			"connect_managed": `ALTER TABLE backup_repositories ADD COLUMN connect_managed BOOLEAN`,
+			"is_app_specific": `ALTER TABLE backup_repositories ADD COLUMN is_app_specific BOOLEAN NOT NULL DEFAULT 0`,
 		},
 		"updates": {
 			"backup_id": `ALTER TABLE updates ADD COLUMN backup_id TEXT`,
@@ -433,20 +439,25 @@ func (d *DB) reconcileSchema() error {
 
 	// Add missing indexes
 	missingIndexes := map[string]string{
-		"idx_backup_repositories_app":  `CREATE INDEX IF NOT EXISTS idx_backup_repositories_app ON backup_repositories(app_id)`,
-		"idx_backup_repositories_type": `CREATE INDEX IF NOT EXISTS idx_backup_repositories_type ON backup_repositories(repo_type)`,
-		"idx_api_tokens_hash":          `CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash)`,
-		"idx_api_tokens_user":          `CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id)`,
-		"idx_mfa_methods_user":         `CREATE INDEX IF NOT EXISTS idx_mfa_methods_user ON mfa_methods(user_id)`,
-		"idx_mfa_methods_user_type":    `CREATE INDEX IF NOT EXISTS idx_mfa_methods_user_type ON mfa_methods(user_id, type)`,
-		"idx_mfa_recovery_codes_user":  `CREATE INDEX IF NOT EXISTS idx_mfa_recovery_codes_user ON mfa_recovery_codes(user_id)`,
-		"idx_invite_tokens_hash":       `CREATE INDEX IF NOT EXISTS idx_invite_tokens_hash ON invite_tokens(token_hash)`,
-		"idx_invite_tokens_email":      `CREATE INDEX IF NOT EXISTS idx_invite_tokens_email ON invite_tokens(email)`,
-		"idx_oidc_clients_instance":    `CREATE INDEX IF NOT EXISTS idx_oidc_clients_instance ON oidc_clients(instance_id)`,
-		"idx_oidc_clients_client_id":   `CREATE INDEX IF NOT EXISTS idx_oidc_clients_client_id ON oidc_clients(client_id)`,
-		"idx_oidc_consent_user":        `CREATE INDEX IF NOT EXISTS idx_oidc_consent_user ON oidc_consent(user_id)`,
-		"idx_app_access_instance":      `CREATE INDEX IF NOT EXISTS idx_app_access_instance ON app_access(instance_id)`,
-		"idx_path_state_app":           `CREATE INDEX IF NOT EXISTS idx_path_state_app ON path_state(app_id)`,
+		"idx_backup_repositories_app":                `CREATE INDEX IF NOT EXISTS idx_backup_repositories_app ON backup_repositories(app_id)`,
+		"idx_backup_repositories_type":               `CREATE INDEX IF NOT EXISTS idx_backup_repositories_type ON backup_repositories(repo_type)`,
+		"idx_api_tokens_hash":                        `CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash)`,
+		"idx_api_tokens_user":                        `CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id)`,
+		"idx_mfa_methods_user":                       `CREATE INDEX IF NOT EXISTS idx_mfa_methods_user ON mfa_methods(user_id)`,
+		"idx_mfa_methods_user_type":                  `CREATE INDEX IF NOT EXISTS idx_mfa_methods_user_type ON mfa_methods(user_id, type)`,
+		"idx_mfa_recovery_codes_user":                `CREATE INDEX IF NOT EXISTS idx_mfa_recovery_codes_user ON mfa_recovery_codes(user_id)`,
+		"idx_invite_tokens_hash":                     `CREATE INDEX IF NOT EXISTS idx_invite_tokens_hash ON invite_tokens(token_hash)`,
+		"idx_invite_tokens_email":                    `CREATE INDEX IF NOT EXISTS idx_invite_tokens_email ON invite_tokens(email)`,
+		"idx_oidc_clients_instance":                  `CREATE INDEX IF NOT EXISTS idx_oidc_clients_instance ON oidc_clients(instance_id)`,
+		"idx_oidc_clients_client_id":                 `CREATE INDEX IF NOT EXISTS idx_oidc_clients_client_id ON oidc_clients(client_id)`,
+		"idx_oidc_consent_user":                      `CREATE INDEX IF NOT EXISTS idx_oidc_consent_user ON oidc_consent(user_id)`,
+		"idx_app_access_instance":                    `CREATE INDEX IF NOT EXISTS idx_app_access_instance ON app_access(instance_id)`,
+		"idx_path_state_app":                         `CREATE INDEX IF NOT EXISTS idx_path_state_app ON path_state(app_id)`,
+		"trg_backup_repositories_one_per_app_insert": `CREATE TRIGGER IF NOT EXISTS trg_backup_repositories_one_per_app_insert BEFORE INSERT ON backup_repositories WHEN NEW.app_id IS NOT NULL AND EXISTS (SELECT 1 FROM backup_repositories WHERE app_id = NEW.app_id) BEGIN SELECT RAISE(ABORT, 'app already has backup repository'); END`,
+		"trg_backup_repositories_one_per_app_update": `CREATE TRIGGER IF NOT EXISTS trg_backup_repositories_one_per_app_update BEFORE UPDATE OF app_id ON backup_repositories WHEN NEW.app_id IS NOT NULL AND EXISTS (SELECT 1 FROM backup_repositories WHERE app_id = NEW.app_id AND id != OLD.id) BEGIN SELECT RAISE(ABORT, 'app already has backup repository'); END`,
+		"trg_backup_repositories_referenced_delete":  `CREATE TRIGGER IF NOT EXISTS trg_backup_repositories_referenced_delete BEFORE DELETE ON backup_repositories WHEN EXISTS (SELECT 1 FROM backups WHERE repo_id = OLD.id) BEGIN SELECT RAISE(ABORT, 'backup repository still has saved backups'); END`,
+		"trg_backups_repository_insert":              `CREATE TRIGGER IF NOT EXISTS trg_backups_repository_insert BEFORE INSERT ON backups WHEN NEW.repo_id IS NOT NULL AND NEW.repo_id != '' AND NOT EXISTS (SELECT 1 FROM backup_repositories WHERE id = NEW.repo_id) BEGIN SELECT RAISE(ABORT, 'backup repository does not exist'); END`,
+		"trg_backups_repository_update":              `CREATE TRIGGER IF NOT EXISTS trg_backups_repository_update BEFORE UPDATE OF repo_id ON backups WHEN NEW.repo_id IS NOT NULL AND NEW.repo_id != '' AND NOT EXISTS (SELECT 1 FROM backup_repositories WHERE id = NEW.repo_id) BEGIN SELECT RAISE(ABORT, 'backup repository does not exist'); END`,
 	}
 	for idx, ddl := range missingIndexes {
 		var exists bool
@@ -720,15 +731,17 @@ func (d *DB) migrateCloudBackupConfig() {
 		}
 
 		var appIDVal interface{}
+		isAppSpecific := false
 		if appID.Valid && appID.String != "" {
 			appIDVal = appID.String
+			isAppSpecific = true
 		}
 
 		_, err := d.db.Exec(`
 			INSERT OR IGNORE INTO backup_repositories
-				(id, app_id, repo_type, repo_path, password, credentials, is_system, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-			id, appIDVal, repoType, repoPath, password, credentials, createdAt, createdAt)
+				(id, app_id, repo_type, repo_path, password, credentials, is_system, is_app_specific, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+			id, appIDVal, repoType, repoPath, password, credentials, isAppSpecific, createdAt, createdAt)
 		if err != nil {
 			slog.Error("Failed to migrate cloud_backup_config row", "id", id, "error", err)
 			skipped++

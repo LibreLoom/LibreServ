@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"gt.plainskill.net/LibreLoom/Sol/internal/database"
+	"gt.plainskill.net/LibreLoom/Sol/internal/storage"
 )
 
 func openAppsCoverageDB(t *testing.T) *database.DB {
@@ -351,6 +352,75 @@ func TestInstallerPersistenceAndFilesystemHelpers(t *testing.T) {
 	}
 	if _, err := os.Stat(installPath); !os.IsNotExist(err) {
 		t.Fatalf("install path still exists after uninstall: %v", err)
+	}
+}
+
+func TestUninstallAppPreservesRepositoryForSavedBackups(t *testing.T) {
+	m, _, _, cleanup := setupReconfigureTest(t)
+	defer cleanup()
+
+	if _, err := m.db.Exec(`
+		INSERT INTO backup_repositories (id, app_id, repo_type, repo_path, password, credentials)
+		VALUES ('uninstall-repo', 'inst-reconf', 's3', 's3:bucket/path', 'recovery-key', '{}')
+	`); err != nil {
+		t.Fatalf("insert app repository: %v", err)
+	}
+	if _, err := m.db.Exec(`
+		INSERT INTO backups (id, app_id, type, path, repo_id, format, snapshot_id)
+		VALUES ('uninstall-backup', 'inst-reconf', 'app', '/backup/record', 'uninstall-repo', 'restic', 'snapshot-1')
+	`); err != nil {
+		t.Fatalf("insert backup record: %v", err)
+	}
+	if _, err := m.db.Exec(`
+		INSERT INTO backup_repositories (id, repo_type, repo_path, password, connect_managed)
+		VALUES ('connect-default', 's3', 's3:shared/path', 'connect-key', 1)
+	`); err != nil {
+		t.Fatalf("insert shared Connect repository: %v", err)
+	}
+	if _, err := m.db.Exec(`
+		INSERT INTO backups (id, app_id, type, path, repo_id, format, snapshot_id)
+		VALUES ('connect-backup', 'inst-reconf', 'app', '/backup/connect-record', 'connect-default', 'restic', 'connect-snapshot')
+	`); err != nil {
+		t.Fatalf("insert backup on shared Connect repository: %v", err)
+	}
+
+	if err := m.UninstallApp(context.Background(), "inst-reconf"); err != nil {
+		t.Fatalf("uninstall app with saved backup: %v", err)
+	}
+	var appCount int
+	if err := m.db.QueryRow(`SELECT COUNT(*) FROM apps WHERE id = 'inst-reconf'`).Scan(&appCount); err != nil {
+		t.Fatal(err)
+	}
+	if appCount != 0 {
+		t.Fatalf("app remains after uninstall: count=%d", appCount)
+	}
+	var backupAppID, repoID, snapshotID string
+	if err := m.db.QueryRow(`SELECT COALESCE(app_id, ''), repo_id, snapshot_id FROM backups WHERE id = 'uninstall-backup'`).Scan(&backupAppID, &repoID, &snapshotID); err != nil {
+		t.Fatalf("saved backup record was not retained: %v", err)
+	}
+	if backupAppID != "" || repoID != "uninstall-repo" || snapshotID != "snapshot-1" {
+		t.Fatalf("backup restore metadata changed: app_id=%q repo_id=%q snapshot_id=%q", backupAppID, repoID, snapshotID)
+	}
+
+	backupService := storage.NewBackupService(m.db, nil, t.TempDir(), t.TempDir())
+	repo, err := backupService.GetRepository(context.Background(), repoID)
+	if err != nil || repo.Password != "recovery-key" {
+		t.Fatalf("repository needed by saved backup was not retained: repo=%+v err=%v", repo, err)
+	}
+	defaultRepo, err := backupService.GetDefaultRepository(context.Background())
+	if err != nil || defaultRepo.ID != "connect-default" {
+		t.Fatalf("shared Connect destination stopped being the default after uninstall: repo=%+v err=%v", defaultRepo, err)
+	}
+	var appSpecific int
+	if err := m.db.QueryRow(`SELECT is_app_specific FROM backup_repositories WHERE id = 'uninstall-repo'`).Scan(&appSpecific); err != nil || appSpecific != 1 {
+		t.Fatalf("retained app destination scope = %d, %v; want app-specific", appSpecific, err)
+	}
+	if _, err := m.db.Exec(`DELETE FROM backups WHERE id = 'uninstall-backup'`); err != nil {
+		t.Fatalf("delete retained app backup fixture: %v", err)
+	}
+	defaultRepo, err = backupService.GetDefaultRepository(context.Background())
+	if err != nil || defaultRepo.ID != "connect-default" {
+		t.Fatalf("former app destination was promoted after its last backup was deleted: repo=%+v err=%v", defaultRepo, err)
 	}
 }
 
