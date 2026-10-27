@@ -42,7 +42,7 @@ function ToastProbe() {
   return (
     <ul>
       {toasts.map((t) => (
-        <li key={t.id}>{t.message}</li>
+        <li key={t.id} data-tone={t.type}>{t.message}</li>
       ))}
     </ul>
   );
@@ -161,6 +161,17 @@ describe("CloudRestoreCard", () => {
     expect(getRestoreStatus).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps skipped versions visible and uses a supported informational toast", async () => {
+    restoreFromPhraseMock.mockResolvedValueOnce({ snapshots: 2, alreadyIndexed: 1, skipped: 1 });
+    const user = userEvent.setup();
+    renderCard();
+    await user.type(await screen.findByLabelText("Recovery phrase"), "one two three");
+    await user.click(screen.getByRole("button", { name: "Find my backups" }));
+
+    expect(await screen.findByText("Luna couldn't open 1 backup version.")).toBeInTheDocument();
+    expect(screen.getByText("Backup list restored with a warning").closest("li")).toHaveAttribute("data-tone", "info");
+  });
+
   it("keeps the retry form when relinking is still pending after all versions are indexed", async () => {
     getRestoreStatusMock.mockResolvedValue({
       ...STATUS,
@@ -178,7 +189,7 @@ describe("CloudRestoreCard", () => {
     /** @type {(value: { snapshots: number, alreadyIndexed: number, skipped: number }) => void} */
     let finish = () => {};
     restoreFromPhraseMock.mockImplementation((_words, _ctx, onProgress) => {
-      onProgress({ processed: 2, total: 5, snapshots: 1, already_indexed: 1, skipped: 0 });
+      onProgress({ processed: 2, total: 5, snapshots: 1, already_indexed: 1, skipped: 2 });
       return new Promise((resolve) => { finish = resolve; });
     });
     const user = userEvent.setup();
@@ -187,6 +198,7 @@ describe("CloudRestoreCard", () => {
     await user.click(screen.getByRole("button", { name: "Find my backups" }));
     expect(await screen.findByText("Restoring backup 2 of 5")).toBeInTheDocument();
     expect(screen.getByLabelText("Cloud backup restore progress")).toHaveAttribute("value", "2");
+    expect(screen.getByText("1 restored · 1 already on Luna · Luna couldn't open 2 backup versions")).toBeInTheDocument();
     finish({ snapshots: 1, alreadyIndexed: 1, skipped: 0 });
     expect(await screen.findByText("Found 2 backup versions")).toBeInTheDocument();
   });

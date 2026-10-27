@@ -27,6 +27,7 @@ export default function CloudRestoreCard() {
   const restoreAbortRef = useRef(null);
   const [words, setWords] = useState("");
   const [error, setError] = useState("");
+  const [restoreWarning, setRestoreWarning] = useState("");
   const [progress, setProgress] = useState(null);
 
   useEffect(() => () => restoreAbortRef.current?.abort(), []);
@@ -53,16 +54,20 @@ export default function CloudRestoreCard() {
         phraseSet: Boolean(phrase.data?.set),
       }, setProgress, controller.signal);
     },
-    onSuccess: ({ snapshots, alreadyIndexed, warning }) => {
+    onSuccess: ({ snapshots, alreadyIndexed, skipped, warning }) => {
       setError("");
       setProgress(null);
       setWords("");
+      const skippedWarning = skipped > 0
+        ? `Luna couldn't open ${skipped} backup ${skipped === 1 ? "version" : "versions"}.`
+        : "";
+      setRestoreWarning(skippedWarning);
       const found = snapshots + alreadyIndexed;
-      addToast(warning
+      addToast(warning || skippedWarning
         ? {
-          type: "warning",
+          type: "info",
           message: "Backup list restored with a warning",
-          description: warning,
+          duration: 10000,
         }
         : {
           type: "success",
@@ -70,7 +75,7 @@ export default function CloudRestoreCard() {
         });
       // Keep the form available when ownership relinking failed. The server persists that
       // retry state separately from snapshot counts and clears it after a successful retry.
-      if (warning) {
+      if (warning || skippedWarning) {
         queryClient.setQueryData(RESTORE_QUERY_KEY, (
           /** @type {unknown} */ current,
         ) => {
@@ -82,7 +87,7 @@ export default function CloudRestoreCard() {
           return {
             ...status,
             needed: true,
-            relink_pending: true,
+            ...(warning ? { relink_pending: true } : {}),
             indexed_snapshots: Math.min(cloudSnapshots, indexedSnapshots + snapshots),
           };
         });
@@ -115,6 +120,7 @@ export default function CloudRestoreCard() {
     e.preventDefault();
     if (!words.trim() || restoreMutation.isPending) return;
     setError("");
+    setRestoreWarning("");
     restoreMutation.mutate(words);
   };
 
@@ -134,6 +140,7 @@ export default function CloudRestoreCard() {
   return (
     <SettingsCard icon={CloudDownload} title="Bring back cloud backups">
       <div className="space-y-3">
+        {restoreWarning && <PageNotice variant="warning">{restoreWarning}</PageNotice>}
         <p className="text-primary text-sm">
           {restore.data.relink_pending
             ? "Luna restored the backup list, but some backups are still linked to an old account. Enter your recovery phrase again to finish reconnecting them."

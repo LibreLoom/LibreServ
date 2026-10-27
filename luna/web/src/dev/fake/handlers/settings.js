@@ -1,6 +1,6 @@
 // Settings and setup extras: access tokens, Luna Connect device token, cloud
 // identity and restore, private-folder cleanup.
-import { del, fail, get, post, put } from "../engine.js";
+import { del, fail, get, post, put, raw } from "../engine.js";
 import { isAdmin, requireAdmin } from "../policy.js";
 import { DEVICE_TOKEN_REJECTED } from "./core.js";
 import { nextId } from "../world.js";
@@ -90,12 +90,96 @@ get("/api/v1/cloud/restore", ({ world }) => restoreStatus(world));
 // No signed records on file: any phrase fails with "no backups open with these words".
 get("/api/v1/cloud/restore/records/:kind", ({ user }) => { restoreGate(user); return { records: [] }; });
 const restoreGate = (user) => requireAdmin(user, "Only an Admin can bring back cloud backups.");
-post("/api/v1/cloud/restore", ({ world, user }) => {
+post("/api/v1/cloud/restore", ({ world, user, signal }) => {
   restoreGate(user);
-  const r = restoreStatus(world);
-  world.restore = { ...r, needed: false, indexed_snapshots: r.cloud_snapshots };
-  return { snapshots: r.cloud_snapshots, already_indexed: 0, skipped: 0 };
+  return restoreStream(world, signal);
 });
+
+/**
+ * The fake uses lunad's progress/done/error event shapes. It advances the indexed
+ * count one version per read so AbortSignal cancellation leaves retryable work.
+ * `restoreFailureAfter` is a one-shot provider-failure hook for restore scenarios.
+ */
+function restoreStream(world, signal) {
+  const initial = restoreStatus(world);
+  const total = Math.max(0, Number(initial.cloud_snapshots) || 0);
+  const alreadyIndexed = Math.min(total, Math.max(0, Number(initial.indexed_snapshots) || 0));
+  const encoder = new TextEncoder();
+  let processed = alreadyIndexed;
+  let restored = 0;
+  let closed = false;
+  let failureAfter = Number.isInteger(world.restoreFailureAfter) ? world.restoreFailureAfter : null;
+  let removeAbort = () => {};
+
+  const frame = (controller, event) => {
+    controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+  };
+  const close = (controller) => {
+    if (closed) return;
+    closed = true;
+    removeAbort();
+    controller.close();
+  };
+
+  const stream = new ReadableStream({
+    start(controller) {
+      if (!signal) return;
+      const abort = () => {
+        if (closed) return;
+        closed = true;
+        removeAbort();
+        controller.error(new DOMException("Restore stopped", "AbortError"));
+      };
+      removeAbort = () => signal.removeEventListener("abort", abort);
+      if (signal.aborted) abort();
+      else signal.addEventListener("abort", abort, { once: true });
+    },
+    pull(controller) {
+      if (closed) return;
+      if (failureAfter !== null && restored >= failureAfter) {
+        world.restoreFailureAfter = null;
+        failureAfter = null;
+        frame(controller, {
+          type: "error",
+          message: "Luna couldn't finish restoring your backup list. Some versions may already be back; try again to continue.",
+        });
+        close(controller);
+        return;
+      }
+      if (processed < total) {
+        processed += 1;
+        restored += 1;
+        world.restore = { ...initial, needed: true, indexed_snapshots: processed };
+        frame(controller, {
+          type: "progress",
+          processed,
+          total,
+          snapshots: restored,
+          already_indexed: alreadyIndexed,
+          skipped: 0,
+        });
+        return;
+      }
+
+      const relinkPending = Boolean(initial.relink_pending);
+      world.restore = { ...initial, needed: relinkPending, indexed_snapshots: total };
+      frame(controller, {
+        type: "done",
+        snapshots: restored,
+        already_indexed: alreadyIndexed,
+        skipped: 0,
+        warning: relinkPending ? "Some backups are still linked to an old account. Try again to finish reconnecting them." : null,
+      });
+      close(controller);
+    },
+    cancel() {
+      closed = true;
+      removeAbort();
+    },
+  }, { highWaterMark: 0 });
+
+  return raw(stream, "text/event-stream");
+}
 get("/api/v1/cloud/restore-private", ({ world }) => world.restorePrivate ?? { needed: false, luna_id: "luna-1", signing_public: b64(SIG_PUBLIC_LEN), scopes: 0 });
 get("/api/v1/cloud/restore-private/records/:kind", () => ({ records: [], scanned: 0, total: 0, next_after: null, version: 0 }));
 get("/api/v1/cloud/restore-private/records/:kind/names", () => ({ names: [], total: 0, next_after: null, version: 0 }));

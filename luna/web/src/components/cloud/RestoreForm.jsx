@@ -103,7 +103,9 @@ export default function RestoreForm({ words, onWords, onSubmit, error = "", pend
           />
           {progress && (
             <p className="text-secondary text-sm">
-              {progress.snapshots} restored · {progress.already_indexed} already on Luna · {progress.skipped} could not be checked
+              {progress.snapshots} restored · {progress.already_indexed} already on Luna · {progress.skipped > 0
+                ? `Luna couldn't open ${progress.skipped} backup ${progress.skipped === 1 ? "version" : "versions"}`
+                : "No backup versions skipped"}
             </p>
           )}
         </div>
