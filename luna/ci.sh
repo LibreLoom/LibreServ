@@ -182,9 +182,9 @@ lane_web() {
 	  npm run typecheck
 	  cd "$ROOT/web"
 	  npm run build
-	  npm test -- --run
 	  npm run lint
 	  npm run typecheck
+	  npm test -- --run
 	)
 
 	echo "==> connect web"

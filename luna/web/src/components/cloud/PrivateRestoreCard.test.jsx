@@ -119,7 +119,7 @@ describe("PrivateRestoreCard", () => {
     await user.click(screen.getByRole("button", { name: "Find my private items" }));
 
     await waitFor(() => expect(restorePrivateFromPhrase).toHaveBeenCalled());
-    const [{}, options] = restorePrivateFromPhraseMock.mock.calls[0];
+    const options = restorePrivateFromPhraseMock.mock.calls[0][1];
     expect(options.signal).toBeInstanceOf(AbortSignal);
     expect(await screen.findByText("Restoring backup 1 of 2")).toBeInTheDocument();
 

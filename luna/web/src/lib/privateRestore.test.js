@@ -61,10 +61,10 @@ function secondPrivateSnapshot() {
 
 /**
  * Serve the fixture's private records and tree packs through the mocked API.
- * @param {Array<{ scope: string, seal_public: string, sealed_scope_secret: string, expires_at: number }> | undefined} kept
+ * @param {Array<{ scope: string, seal_public: string, sealed_scope_secret: string, expires_at: number }>} [kept]
  * @param {Array<{ name: string, data: string | Uint8Array }>} [snapshots]
  */
-function serveFixture(kept, snapshots = priv.records.psnapshots) {
+function serveFixture(kept = [], snapshots = priv.records.psnapshots) {
   getJsonMock.mockImplementation(async (path) => {
     if (path === KEPT_SCOPES_PATH) return { kept: kept ?? [] };
     const url = new URL(path, "http://luna.test");
@@ -439,7 +439,10 @@ describe("privateRestore", () => {
       snapshots[1].name.slice(priv.scope.length + 1),
     ]);
     const originalRecord = JSON.parse(new TextDecoder().decode(hexToBytes(priv.records.psnapshots[0].data))).record;
-    const secondRecord = JSON.parse(new TextDecoder().decode(snapshots[1].data)).record;
+    const secondRecordBytes = typeof snapshots[1].data === "string"
+      ? hexToBytes(snapshots[1].data)
+      : snapshots[1].data;
+    const secondRecord = JSON.parse(new TextDecoder().decode(secondRecordBytes)).record;
     expect(apiFetchMock.mock.calls.map(([path]) => path)).toEqual([
       `${PRIVATE_RESTORE_PATH}/packs/${priv.scope}/${priv.snapshot_id}/${originalRecord.tree_pack_id}`,
       `${PRIVATE_RESTORE_PATH}/packs/${priv.scope}/${priv.snapshot_id}/${originalRecord.tree_pack_id}`,

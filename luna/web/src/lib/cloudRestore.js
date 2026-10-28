@@ -136,9 +136,5 @@ export async function restoreFromPhrase(words, { lunaId, signingPublic, userId, 
       key.key.fill(0);
       key.dedupKey.fill(0);
     }
-    for (const scope of mine?.privateScopes ?? []) {
-      scope.sealSecret.fill(0);
-      scope.dedupKey.fill(0);
-    }
   }
 }

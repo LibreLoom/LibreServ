@@ -9,7 +9,9 @@ const originalWebSocket = window.WebSocket;
 const fakeWindow = /** @type {Window & { __lunaFake?: unknown }} */ (window);
 const originalFake = fakeWindow.__lunaFake;
 
-function startFake({ failureAfter, relinkPending = false } = {}) {
+/** @param {{ failureAfter?: number, relinkPending?: boolean }} options */
+function startFake(options = {}) {
+  const { failureAfter, relinkPending = false } = options;
   const world = createWorld();
   world.restore = {
     needed: true,

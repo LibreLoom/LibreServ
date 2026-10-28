@@ -108,7 +108,8 @@ async function requestWithRestoreSignal(signal, request) {
 
 /** @param {{ names: string[], total: number, next_after?: string | null, version?: number }} page */
 /** @param {{ scope: string, after: string | undefined, processed: number, expectedTotal: number | undefined, expectedVersion: number | undefined }} context */
-function validateRecordNamesPage(page, { scope, after, processed, expectedTotal, expectedVersion }) {
+function validateRecordNamesPage(page, context) {
+  const { scope, after, processed, expectedTotal, expectedVersion } = context;
   const prefix = `${scope}.`;
   if (!Array.isArray(page.names) || page.names.length > 64
       || !Number.isSafeInteger(page.total) || page.total < 0
@@ -150,6 +151,7 @@ async function openKeptScopes({ lunaId, entropy, pscopes, signingPublics, skip, 
   const found = [];
   try {
     for (const copy of kept) {
+      checkRestoreSignal(signal);
       if (skip.has(copy.scope)) continue;
       const record = pscopes.find((r) => r.name === copy.scope);
       if (!record) continue;
