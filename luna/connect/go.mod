@@ -5,7 +5,7 @@ go 1.27.0
 toolchain go1.27.3
 
 require (
-	github.com/go-chi/chi/v5 v5.3.2
+	github.com/go-chi/chi/v5 v5.4.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/spf13/viper v1.21.0
 	github.com/stripe/stripe-go/v76 v76.25.0
