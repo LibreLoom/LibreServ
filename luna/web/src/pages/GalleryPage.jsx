@@ -25,6 +25,8 @@ import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.j
 import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
 import usePageTitle from "../hooks/usePageTitle.js";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
+import { useFileOps } from "../context/FileOpsContext.jsx";
+import { driveSource } from "../lib/fileSource.jsx";
 import { showPageLevelError } from "../lib/modalScopedError";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import GalleryToolbar from "../components/gallery/GalleryToolbar.jsx";
@@ -64,7 +66,6 @@ import {
   getDrives,
   getJson,
   patchJson,
-  postForm,
   postJson,
   putJson,
 } from "../lib/api";
@@ -323,6 +324,7 @@ export default function GalleryPage() {
   const activeSegment = SEGMENT_IDS.includes(segment) ? segment : DEFAULT_SEGMENT;
   const [error, setError] = useState(null);
   const { addToast } = useToast();
+  const fileOps = useFileOps();
   const [q, setQ] = useState("");
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -865,6 +867,8 @@ export default function GalleryPage() {
     },
     onError: (err) => setError(apiErrorMessage(err, "Luna couldn't rescan your drives. Try again.")),
   });
+  const rescanRef = useRef(() => {});
+  rescanRef.current = () => rescan.mutate();
 
   const driveList = drives.data || [];
   const albumList = Array.isArray(albums.data) ? albums.data : [];
@@ -1197,35 +1201,33 @@ export default function GalleryPage() {
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
-  const uploadFiles = useMutation({
-    /** @param {File[]} files */
-    mutationFn: async (files) => {
+  /**
+   * Photos go through the file task card: progress, clashes and failures show
+   * there, and the toast says how many arrived.
+   * @param {File[]} files
+   */
+  const uploadFiles = useCallback(
+    (files) => {
       const writable = (drives.data || []).find(
         (d) => d.state === "as_is" && d.mount_point,
       ) || (drives.data || [])[0];
-      if (!writable?.id) throw new Error("No drive to upload to.");
-      // Prefer Photos / DCIM folders when present — upload API creates leaf path.
-      const dest = "Photos";
-      for (const file of files) {
-        const form = new FormData();
-        form.append("file", file);
-        await postForm(
-          `/api/v1/drives/${writable.id}/files/upload?path=${encodeURIComponent(dest)}`,
-          form,
-        );
+      if (!writable?.id) {
+        setError("Luna has no drive to put photos on yet.");
+        return;
       }
-    },
-    onSuccess: (_d, files) => {
-      addToast({
-        type: "success",
-        message: files.length === 1 ? "Photo uploaded." : `${files.length} photos uploaded.`,
+      fileOps.startUpload({
+        source: driveSource,
+        driveId: writable.id,
+        files,
+        kind: "gallery",
+        destFolder: "Photos",
+        destLabel: writable.label,
+        invalidateKeys: [["gallery"], ["gallery-status"]],
+        afterFinish: () => rescanRef.current(),
       });
-      queryClient.invalidateQueries({ queryKey: ["gallery"] });
-      queryClient.invalidateQueries({ queryKey: ["gallery-status"] });
-      void rescan.mutate();
     },
-    onError: (err) => setError(apiErrorMessage(err, "Luna couldn't upload those photos. Try again.")),
-  });
+    [drives.data, fileOps],
+  );
 
   async function downloadSelected(items) {
     try {
@@ -1369,7 +1371,7 @@ export default function GalleryPage() {
       const files = [...(e.dataTransfer?.files || [])].filter(
         (f) => f.type.startsWith("image/") || f.type.startsWith("video/"),
       );
-      if (files.length) uploadFiles.mutate(files);
+      if (files.length) uploadFiles(files);
     }
     const node = dropZoneRef.current || document.body;
     node.addEventListener("dragover", onDragOver);

@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildNeedsYouItems } from "./needsYou.js";
-import { describeDriveHealth } from "./driveHealth.js";
 import { formatBytes } from "./formatBytes.js";
 
 const MEMBER = { isAdmin: false, userId: "sam" };
@@ -103,12 +102,12 @@ const healthyCheck = { status: "passed" };
 function fullAdminInput(overrides = {}) {
   return emptyInput({
     drives: [
-      drive({ id: "failed-drive", label: "Old USB", state: "failed" }),
+      drive({ id: "failed-drive", label: "Old USB", mounted: false }),
       drive({ id: "worn-drive", label: "Photos drive", state: "as_is" }),
       drive({ id: "full-drive", label: "Backup drive", state: "as_is" }),
     ],
     driveHealth: {
-      "worn-drive": { available: true, overall: "passed", temperature_c: 35, reallocated_sectors: 4 },
+      "worn-drive": WEAR_HEALTH,
     },
     driveSummaries: {
       "full-drive": { mounted: true, total_bytes: 100e9, free_bytes: 5e9 },
@@ -127,74 +126,120 @@ function fullAdminInput(overrides = {}) {
 
 const ids = (items) => items.map((item) => item.id);
 
+/** What lunad sends for the two drives in the dashboard/drive-unhealthy scenario. */
+const FAILING_HEALTH = {
+  available: true,
+  reason: null,
+  verdict: "failing",
+  overall: "failed",
+  temperature_c: 55,
+  temperature_max_c: 60,
+  temperature_max_source: "typical",
+  reallocated_sectors: 120,
+  pending_sectors: 0,
+  uncorrectable_sectors: 0,
+  signals: [
+    { kind: "self_check_failed", level: "failing", value: null, limit: null },
+    { kind: "reallocated_sectors", level: "failing", value: 120, limit: 100 },
+    { kind: "temperature", level: "note", value: 55, limit: 60 },
+  ],
+};
+const WEAR_HEALTH = {
+  available: true,
+  reason: null,
+  verdict: "watch",
+  overall: "passed",
+  temperature_c: 48,
+  temperature_max_c: 60,
+  temperature_max_source: "typical",
+  reallocated_sectors: 4,
+  pending_sectors: 0,
+  uncorrectable_sectors: 0,
+  signals: [{ kind: "reallocated_sectors", level: "watch", value: 4, limit: 100 }],
+};
+const OK_HEALTH = { ...WEAR_HEALTH, verdict: "ok", reallocated_sectors: 0, signals: [] };
+
 describe("drive rows (Admin)", () => {
-  it("gives a failed drive an exact Open Files row", () => {
-    const items = buildNeedsYouItems(emptyInput({ drives: [drive({ state: "failed" })] }));
+  it("gives a drive Luna can't open an exact row that opens its card on Files", () => {
+    const items = buildNeedsYouItems(emptyInput({ drives: [drive({ mounted: false })] }));
     expect(items).toStrictEqual([
       {
-        id: "drive-failed:d1",
-        rank: 10,
+        id: "drive-unopenable:d1",
+        rank: 15,
         tone: "problem",
-        title: [{ name: "Photos" }, " ran into a problem"],
-        detail: "Open Files to see what Luna found.",
-        action: { label: "Open Files", href: "/files" },
+        title: [{ name: "Photos" }, " can't be opened"],
+        detail: "Its files and free space aren't available. Unplug it and plug it back in.",
+        action: { label: "See what's wrong", href: "/files#drive-d1" },
       },
     ]);
   });
 
-  it("gives a drive with a worn spot a warning row with the health detail", () => {
-    const health = { available: true, overall: "passed", temperature_c: 40, reallocated_sectors: 12 };
+  it("gives a read-only drive that can't be opened the same row", () => {
+    const items = buildNeedsYouItems(emptyInput({ drives: [drive({ state: "readonly", mounted: false })] }));
+    expect(ids(items)).toEqual(["drive-unopenable:d1"]);
+  });
+
+  it("gives a failing drive a problem row that says to copy files off now", () => {
     const items = buildNeedsYouItems(
-      emptyInput({ drives: [drive()], driveHealth: { d1: health } }),
+      emptyInput({ drives: [drive()], driveHealth: { d1: FAILING_HEALTH } }),
     );
     expect(items).toStrictEqual([
       {
         id: "drive-health:d1",
-        rank: 30,
+        rank: 12,
         tone: "problem",
-        title: [{ name: "Photos" }, " is working, with a warning"],
-        detail: describeDriveHealth(health).detail,
-        action: { label: "Open Files", href: "/files" },
+        title: [{ name: "Photos" }, " is failing"],
+        detail: "Its own self-check failed. Copy your files to another drive now.",
+        action: { label: "See what's wrong", href: "/files#drive-d1" },
       },
     ]);
   });
 
-  it("gives a drive that reports a failure a needs attention row", () => {
-    const health = { available: true, overall: "failed", temperature_c: null, reallocated_sectors: 0 };
+  it("gives a worn drive a warning row that says to keep using it and back it up", () => {
     const items = buildNeedsYouItems(
-      emptyInput({ drives: [drive()], driveHealth: { d1: health } }),
+      emptyInput({ drives: [drive()], driveHealth: { d1: WEAR_HEALTH } }),
     );
     expect(items).toStrictEqual([
       {
         id: "drive-health:d1",
-        rank: 30,
-        tone: "problem",
-        title: [{ name: "Photos" }, " needs attention"],
-        detail: describeDriveHealth(health).detail,
-        action: { label: "Open Files", href: "/files" },
+        rank: 70,
+        tone: "warning",
+        title: [{ name: "Photos" }, " is showing wear"],
+        detail: "4 spots on its disk have worn out. Keep using it, and make sure it's backed up.",
+        action: { label: "See what's wrong", href: "/files#drive-d1" },
       },
     ]);
   });
 
-  it("shows nothing for a healthy drive, a missing report, or an unavailable report", () => {
-    const healthy = { available: true, overall: "passed", temperature_c: 31, reallocated_sectors: 0 };
-    const unavailable = { available: false, overall: "unknown" };
-    for (const health of [healthy, null, undefined, unavailable]) {
+  it("never says needs attention or mentions smart", () => {
+    for (const health of [FAILING_HEALTH, WEAR_HEALTH]) {
+      const [item] = buildNeedsYouItems(emptyInput({ drives: [drive()], driveHealth: { d1: health } }));
+      const text = JSON.stringify(item);
+      expect(text).not.toMatch(/needs attention/i);
+      expect(text).not.toMatch(/smart/i);
+    }
+  });
+
+  it("shows nothing for a healthy drive, a missing report, or one without a hard drive report", () => {
+    const notAHardDrive = { available: false, reason: "not_a_hard_drive", verdict: "unknown", signals: [] };
+    const noReport = { available: false, reason: "no_report", verdict: "unknown", signals: [] };
+    for (const health of [OK_HEALTH, null, undefined, notAHardDrive, noReport]) {
       const items = buildNeedsYouItems(emptyInput({ drives: [drive()], driveHealth: { d1: health } }));
       expect(items).toEqual([]);
     }
   });
 
   it("ignores health data for a drive that is not in the drive list", () => {
-    const worn = { available: true, overall: "failed", reallocated_sectors: 0 };
-    expect(buildNeedsYouItems(emptyInput({ drives: [], driveHealth: { ghost: worn } }))).toEqual([
+    expect(buildNeedsYouItems(emptyInput({ drives: [], driveHealth: { ghost: FAILING_HEALTH } }))).toEqual([
       expect.objectContaining({ id: "no-drives" }),
     ]);
   });
 
-  it("gives a failed drive only the drive-failed row when it has no health data", () => {
-    const items = buildNeedsYouItems(emptyInput({ drives: [drive({ state: "failed" })] }));
-    expect(ids(items)).toEqual(["drive-failed:d1"]);
+  it("gives a drive Luna can't open only its own row, even with old health data", () => {
+    const items = buildNeedsYouItems(
+      emptyInput({ drives: [drive({ mounted: false })], driveHealth: { d1: FAILING_HEALTH } }),
+    );
+    expect(ids(items)).toEqual(["drive-unopenable:d1"]);
   });
 
   it("gives a read-only drive that is almost full a Browse files row", () => {
@@ -246,7 +291,6 @@ describe("drive rows (Admin)", () => {
       { state: "as_is", summary: { mounted: false, total_bytes: 100e9, free_bytes: 1e9 } },
       { state: "missing", summary: { mounted: true, total_bytes: 100e9, free_bytes: 1e9 } },
       { state: "as_is", summary: undefined },
-      { state: "failed", summary: { mounted: true, total_bytes: 100e9, free_bytes: 1e9 } },
     ];
     for (const { state, summary } of cases) {
       const items = buildNeedsYouItems(
@@ -271,8 +315,9 @@ describe("system check rows (Admin)", () => {
         id: "check:disk_space",
         rank: 20,
         tone: "problem",
-        title: ["Storage space"],
+        title: ["Luna's own storage"],
         detail: "Storage is nearly full.",
+        hint: "Luna keeps its own software and settings on a small built-in disk, separate from your drives.",
         action: { label: "Open system checks", href: "/settings#about" },
       },
     ]);
@@ -292,10 +337,10 @@ describe("system check rows (Admin)", () => {
     expect(items).toEqual([]);
   });
 
-  it("drops a failed save test whose drive already has a drive-failed row", () => {
+  it("drops a failed save test whose drive already has an unopenable row", () => {
     const items = buildNeedsYouItems(
       emptyInput({
-        drives: [drive({ id: "d1", label: "Photos", state: "failed" })],
+        drives: [drive({ id: "d1", label: "Photos", mounted: false })],
         systemChecks: {
           checks: {
             drive_d1_read_write: {
@@ -308,7 +353,7 @@ describe("system check rows (Admin)", () => {
         },
       }),
     );
-    expect(ids(items)).toEqual(["drive-failed:d1"]);
+    expect(ids(items)).toEqual(["drive-unopenable:d1"]);
   });
 
   it("drops a failed save test whose drive already has a drive-health row", () => {
@@ -316,7 +361,7 @@ describe("system check rows (Admin)", () => {
       emptyInput({
         drives: [drive({ id: "d1", label: "Photos", state: "as_is" })],
         driveHealth: {
-          d1: { available: true, overall: "passed", reallocated_sectors: 3 },
+          d1: WEAR_HEALTH,
         },
         systemChecks: {
           checks: {
@@ -551,14 +596,14 @@ describe("device token, no route, new drive, and no drives (Admin)", () => {
 describe("ordering", () => {
   it("sorts every Admin row by rank", () => {
     const items = buildNeedsYouItems(fullAdminInput());
-    expect(items.map((item) => item.rank)).toEqual([10, 20, 30, 40, 50, 60, 80, 90]);
+    expect(items.map((item) => item.rank)).toEqual([15, 20, 40, 50, 60, 70, 80, 90]);
     expect(ids(items)).toEqual([
-      "drive-failed:failed-drive",
+      "drive-unopenable:failed-drive",
       "check:disk_space",
-      "drive-health:worn-drive",
       "backup:drive:b1",
       "device-token",
       "no-route",
+      "drive-health:worn-drive",
       "drive-full:full-drive",
       "phrase-check",
     ]);
@@ -591,12 +636,12 @@ describe("ordering", () => {
     const items = buildNeedsYouItems(
       emptyInput({
         drives: [
-          drive({ id: "b-drive", label: "B", state: "failed" }),
-          drive({ id: "a-drive", label: "A", state: "failed" }),
+          drive({ id: "b-drive", label: "B", mounted: false }),
+          drive({ id: "a-drive", label: "A", mounted: false }),
         ],
       }),
     );
-    expect(ids(items)).toEqual(["drive-failed:a-drive", "drive-failed:b-drive"]);
+    expect(ids(items)).toEqual(["drive-unopenable:a-drive", "drive-unopenable:b-drive"]);
   });
 });
 
@@ -634,7 +679,7 @@ describe("Member view", () => {
       rank: 90,
       tone: "info",
       title: ["Check your recovery phrase"],
-      detail: "It's been a while. Make sure your recovery words still open your cloud backups.",
+      detail: "It's been a while. Make sure your recovery phrase still opens your cloud backups.",
       action: { label: "Check now", intent: "check-phrase" },
     });
   });

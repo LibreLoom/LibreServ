@@ -187,11 +187,12 @@ func TestConnectUpdateServicesAppliesBackup(t *testing.T) {
 	}
 
 	var repoType, repoPath, credentials string
+	var connectManaged bool
 	err = db.SQL().QueryRow(`
-		SELECT repo_type, repo_path, credentials
+		SELECT repo_type, repo_path, credentials, connect_managed
 		FROM backup_repositories
 		WHERE is_system = 0
-	`).Scan(&repoType, &repoPath, &credentials)
+	`).Scan(&repoType, &repoPath, &credentials, &connectManaged)
 	if err != nil {
 		t.Fatalf("failed to query backup repository: %v", err)
 	}
@@ -203,6 +204,9 @@ func TestConnectUpdateServicesAppliesBackup(t *testing.T) {
 	}
 	if credentials == "" {
 		t.Error("expected encrypted credentials to be stored")
+	}
+	if !connectManaged {
+		t.Error("expected Connect-provisioned repository to be marked as managed by Connect")
 	}
 
 	if !backupSvc.UseRestic() {

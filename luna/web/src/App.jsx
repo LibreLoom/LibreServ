@@ -5,13 +5,16 @@ import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { ThemeProvider } from"@libreloom/ui/context/ThemeContext.jsx";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { FileOpsProvider } from "./context/FileOpsContext.jsx";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 import FileSearch from "./components/files/FileSearch";
+import FileOpsDock from "./components/files/fileOps/FileOpsDock.jsx";
 import Navbar from "./components/ui/Navbar";
 import LoadingBar from "@libreloom/ui/components/common/LoadingBar.jsx";
 import RequireAdmin from "./components/auth/RequireAdmin";
+import PhraseGate from "./components/cloud/PhraseGate.jsx";
 import useRecentItemsTracker from "./hooks/useRecentItemsTracker";
 
 // One chunk per page: the first paint downloads only the page being opened.
@@ -106,14 +109,17 @@ function AppShell() {
   usePreloadPages();
   return (
     <RequireAuth>
-      <div data-slot="app-shell" className="relative flex min-h-screen flex-col surface-primary">
-        <RecentItemsTracker />
-        <LoadingBar />
-        <a href="#main-content" className="skip-link">Skip to main content</a>
-        <PageOutlet />
-        <Navbar />
-        <FileSearch />
-      </div>
+      <PhraseGate>
+        <div data-slot="app-shell" className="relative flex min-h-screen flex-col surface-primary">
+          <RecentItemsTracker />
+          <LoadingBar />
+          <a href="#main-content" className="skip-link">Skip to main content</a>
+          <PageOutlet />
+          <FileOpsDock />
+          <Navbar />
+          <FileSearch />
+        </div>
+      </PhraseGate>
     </RequireAuth>
   );
 }
@@ -131,6 +137,7 @@ export default function App() {
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <ToastProvider>
+            <FileOpsProvider>
             <ShortcutsProvider>
             <AuthProvider>
             <Suspense fallback={null}>
@@ -155,6 +162,7 @@ export default function App() {
             <Toaster />
             </AuthProvider>
             </ShortcutsProvider>
+            </FileOpsProvider>
           </ToastProvider>
         </BrowserRouter>
       </QueryClientProvider>

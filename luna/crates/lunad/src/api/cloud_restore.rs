@@ -15,6 +15,7 @@ use base64::engine::general_purpose::STANDARD;
 use rusqlite::params;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::collections::HashSet;
 
 use crate::AppState;
 use crate::api::cloud_backups::connect_store;
@@ -83,7 +84,7 @@ fn require_admin(user: &CurrentUser) -> Result<(), ApiError> {
 fn not_set_up() -> ApiError {
     json_error(
         StatusCode::CONFLICT,
-        "Set up Luna Connect first, in Settings → Luna Connect.",
+        "Set up Luna Connect first, in Settings → About → Advanced.",
     )
 }
 
@@ -150,27 +151,36 @@ async fn status(
                 "indexed_snapshots": 0,
             }));
         };
-        let cloud = store
+        // Connect only returns records this device can read. The shared "snapshots" kind
+        // excludes private snapshots, which use a separate scope-protected record kind.
+        let cloud_ids = store
             .list_records(SNAPSHOT_KIND)
-            .map_err(unreachable_connect)?
-            .len() as i64;
+            .map_err(unreachable_connect)?;
         let conn = db.lock().unwrap_or_else(|p| p.into_inner());
-        let indexed = crate::db::count_shared_cloud_snapshots(&conn).map_err(read_failed)?;
+        let indexed_ids = crate::db::list_shared_cloud_snapshot_ids(&conn).map_err(read_failed)?;
         let identity = identity::load(&conn).map_err(read_failed)?;
         let (luna_id, signing_public) = match &identity {
             Some(id) => (json!(id.luna_id()), json!(STANDARD.encode(id.public()))),
             None => (Value::Null, Value::Null),
         };
+        let needed = has_unindexed_snapshots(&cloud_ids, &indexed_ids);
         Ok(json!({
-            "needed": cloud > indexed,
+            "needed": needed,
             "luna_id": luna_id,
             "signing_public": signing_public,
-            "cloud_snapshots": cloud,
-            "indexed_snapshots": indexed,
+            "cloud_snapshots": cloud_ids.len(),
+            "indexed_snapshots": indexed_ids.len(),
         }))
     })
     .await;
     finish(answer)
+}
+
+/// Compare snapshot identities, not totals. Connect's list is already scoped to records
+/// this Luna can read; private records are never listed in this kind.
+fn has_unindexed_snapshots(cloud_ids: &[String], indexed_ids: &[String]) -> bool {
+    let indexed: HashSet<&str> = indexed_ids.iter().map(String::as_str).collect();
+    cloud_ids.iter().any(|id| !indexed.contains(id.as_str()))
 }
 
 async fn records(
@@ -352,6 +362,7 @@ fn proven_old_accounts(
 
 #[cfg(test)]
 mod tests {
+    use super::has_unindexed_snapshots;
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
@@ -360,6 +371,25 @@ mod tests {
     use rusqlite::params;
     use serde_json::{Value, json};
     use tower::ServiceExt;
+
+    #[test]
+    fn restore_detection_uses_snapshot_ids() {
+        assert!(has_unindexed_snapshots(
+            &["cloud-a".into()],
+            &["local-b".into()]
+        ));
+        assert!(has_unindexed_snapshots(
+            &["cloud-a".into(), "cloud-b".into()],
+            &["cloud-a".into()]
+        ));
+        assert!(!has_unindexed_snapshots(
+            &["cloud-a".into()],
+            &["cloud-a".into(), "local-only".into()]
+        ));
+        assert!(!has_unindexed_snapshots(&[], &[]));
+        assert!(!has_unindexed_snapshots(&[], &["local-only".into()]));
+        assert!(!has_unindexed_snapshots(&["same".into()], &["same".into()]));
+    }
 
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;

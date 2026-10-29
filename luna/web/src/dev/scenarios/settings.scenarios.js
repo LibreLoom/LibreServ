@@ -1,6 +1,19 @@
+import { SIG_PUBLIC_LEN } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { cloudBackup, DAY, DEFAULT_NOW, drive, HOUR, summary, user } from "../fake/world.js";
+import { addDir } from "../fake/handlers/files.js";
 
 const at = (s) => Math.floor(DEFAULT_NOW / 1000) - s;
+
+/** Luna's signing public key, base64, the right length for the replace flow to build keys. */
+const SIGNING_PUBLIC = btoa(String.fromCharCode(...new Uint8Array(SIG_PUBLIC_LEN).fill(7)));
+
+/** A phrase that is set and checked, with Luna's signing key present so a replacement can be built. */
+const setPhrase = (w, extra = {}) => {
+  w.connect = { enabled: true, connect_active: true, card_on_file: true };
+  w.connectActive = true;
+  w.cloudBackups = [cloudBackup()];
+  w.phrase = { set: true, set_at: at(90 * DAY), luna_id: "luna-1", signing_public: SIGNING_PUBLIC, check_due: false, last_checked_at: at(DAY), ...extra };
+};
 
 const asMember = (w) => {
   w.users.push(user({ id: "u2", username: "sam", display_name: "Sam", role: "user" }));
@@ -43,17 +56,24 @@ export default [
     title: "Private folders left by removed people",
     url: "/settings#users",
     seed: (w) => {
-      w.orphans = {
-        offline_drives: ["Old USB"],
-        owners: [
-          { user_id: "gone1", username: "alex", display_name: "Alex", total: 4, drives: [{ drive_label: "Family photos", count: 3, trash_count: 1, readonly: false }] },
-          { user_id: "gone2", username: "kit", display_name: "", total: 1, drives: [{ drive_label: "Backup drive", count: 1, trash_count: 0, readonly: true }] },
-        ],
-      };
-      w.ownerless = 2;
       withPeople(w);
+      w.deletedUsers.push(
+        { id: "gone1", username: "alex", display_name: "Alex", deleted_at: at(9 * DAY) },
+        { id: "gone2", username: "kit", display_name: "", deleted_at: at(30 * DAY) },
+      );
+      // Alex left three private folders on Family photos and one in its Trash.
+      for (let n = 1; n <= 3; n += 1) addDir(w, "d1", `Alex private ${n}`, { private: true, owner: "gone1" });
+      w.fs.d1.trash.push({ key: "1790000000-Alex old", original_path: "Alex old", trashed_at: at(5 * DAY), nodes: { "": { kind: "dir", modified: at(9 * DAY) } }, private_boundary: { path: "Alex old", owner: "gone1" } });
+      // Kit's is on a read-only drive, and Old USB is unplugged.
+      w.drives.push(drive({ id: "d2", label: "Backup drive", state: "readonly" }), drive({ id: "d3", label: "Old USB", state: "missing" }));
+      w.summaries.d2 = summary("d2");
+      w.summaries.d3 = { id: "d3", mounted: false, total_bytes: null, free_bytes: null, used_bytes: null, shortcuts: [] };
+      addDir(w, "d2", "Kit private", { private: true, owner: "gone2" });
+      // Two private folders nobody owns (they came with a drive from another Luna).
+      addDir(w, "d1", "Imported A", { private: true });
+      addDir(w, "d1", "Imported B", { private: true });
     },
-    check: ["Two removed people listed with where their folders are", "Delete is disabled for the read-only one", "A line says Old USB isn't connected", "'Give to' flow hands the 2 ownerless folders to someone"],
+    check: ["Two removed people listed with where their folders are (Alex: 3 folders and 1 item in Trash)", "Delete is disabled for the read-only one", "A line says Old USB isn't connected", "'Give to' flow hands the 2 ownerless folders to someone"],
   },
   {
     id: "settings/users-last-admin",
@@ -76,7 +96,7 @@ export default [
     title: "Removing a person fails",
     url: "/settings#users",
     seed: withPeople,
-    faults: [{ match: "DELETE /api/v1/users", mode: "409", message: "Sam is still signed in on another device." }],
+    faults: [{ match: "DELETE /api/v1/users/*", mode: "500", message: "Luna could not remove this user. Try again." }],
     check: ["The dialog shows the reason and stays open"],
   },
   // ── Edit user ─────────────────────────────────────────────────────────────
@@ -116,7 +136,7 @@ export default [
     title: "Saving fails",
     url: "/settings/users/u2",
     seed: withPeople,
-    faults: [{ match: "PATCH /api/v1/users", mode: "500" }],
+    faults: [{ match: "PATCH /api/v1/users/*", mode: "500", message: "Luna could not update users. Try again." }],
     check: ["Error shows on the page and typed changes stay"],
   },
   // ── Security (access) ─────────────────────────────────────────────────────
@@ -188,10 +208,10 @@ export default [
   {
     id: "settings/tokens-create-fails",
     area: "Settings: Security",
-    title: "Creating a token fails; duplicate name",
+    title: "Creating a token with a blank name",
     url: "/settings#security",
     seed: (w) => { w.tokens = [{ id: "t1", name: "Phone app", created_at: at(DAY), last_used_at: null, expires_at: null }]; },
-    check: ["Name 'Phone app' → 'already have a token' error inside the dialog", "An empty name is refused"],
+    check: ["An empty name is refused with \"Give this device a name between 1 and 80 characters.\" inside the dialog", "Luna allows two tokens with the same name: 'Phone app' again simply adds a second one"],
   },
   {
     id: "settings/tokens-load-fails",
@@ -203,17 +223,21 @@ export default [
   },
   // ── Cloud backup & restore ────────────────────────────────────────────────
   {
-    id: "settings/cloud-off",
+    id: "settings/connect-off",
     area: "Settings: Cloud backup",
-    title: "Connect is off",
-    url: "/settings#external_services",
-    check: ["Cloud backup explains it needs Luna Connect and where to turn it on"],
+    title: "Luna Connect is off",
+    url: "/settings",
+    check: [
+      "Cloud backup is in the sidebar, with the recovery phrase card and the line saying it needs Luna Connect",
+      "Luna Connect is not in the sidebar",
+      "Settings opens on Appearance",
+    ],
   },
   {
     id: "settings/cloud-backups",
     area: "Settings: Cloud backup",
     title: "Cloud backups: ok, source missing, check problem",
-    url: "/settings#external_services",
+    url: "/settings#cloud_backup",
     seed: (w) => {
       w.connect = { enabled: true, connect_active: true, card_on_file: true };
       w.connectActive = true;
@@ -229,7 +253,7 @@ export default [
     id: "settings/cloud-no-card",
     area: "Settings: Cloud backup",
     title: "Connect on but no payment card",
-    url: "/settings#external_services",
+    url: "/settings#cloud_backup",
     seed: (w) => { w.connect = { enabled: true, connect_active: true, card_on_file: false }; w.connectActive = true; w.cloudBackups = [cloudBackup()]; },
     check: ["Says a card is needed before backing up, and where to add it"],
   },
@@ -237,16 +261,16 @@ export default [
     id: "settings/cloud-run-fails",
     area: "Settings: Cloud backup",
     title: "Running a cloud backup fails",
-    url: "/settings#external_services",
+    url: "/settings#cloud_backup",
     seed: (w) => { w.connect = { enabled: true, connect_active: true, card_on_file: true }; w.connectActive = true; w.cloudBackups = [cloudBackup()]; },
-    faults: [{ match: "POST /api/v1/cloud/backups", mode: "500", message: "Couldn't reach the cloud." }],
+    faults: [{ match: "POST /api/v1/cloud/backups/*/run", mode: "502", message: "Luna Connect couldn't be reached. Check your internet connection and try again." }],
     check: ["Problem stays on the backup card, not a toast"],
   },
   {
     id: "settings/phrase-check-wrong",
     area: "Settings: Cloud backup",
     title: "Recovery phrase check with the wrong words",
-    url: "/settings#external_services",
+    url: "/settings#cloud_backup",
     seed: (w) => {
       w.connect = { enabled: true, connect_active: true, card_on_file: true };
       w.connectActive = true;
@@ -257,22 +281,10 @@ export default [
     check: ["Any valid-looking 12 or 24 words are refused with a plain message", "The reminder stays until a check succeeds"],
   },
   {
-    id: "settings/phrase-not-set",
-    area: "Settings: Cloud backup",
-    title: "Setting up a recovery phrase for the first time",
-    url: "/settings#external_services",
-    seed: (w) => {
-      w.connect = { enabled: true, connect_active: true, card_on_file: true };
-      w.connectActive = true;
-      w.phrase = { set: false, set_at: 0, luna_id: "", signing_public: "", check_due: false };
-    },
-    check: ["Creating the phrase shows 12 words (or 24 if chosen) once", "Confirming them marks the phrase as set"],
-  },
-  {
     id: "settings/restore-needed",
     area: "Settings: Cloud backup",
     title: "Restore: Luna lost its list of cloud backups",
-    url: "/settings#external_services",
+    url: "/settings#cloud_backup",
     seed: (w) => {
       w.connect = { enabled: true, connect_active: true, card_on_file: true };
       w.connectActive = true;
@@ -284,7 +296,7 @@ export default [
     id: "settings/restore-private-needed",
     area: "Settings: Cloud backup",
     title: "Restore: private backups list lost",
-    url: "/settings#external_services",
+    url: "/settings#cloud_backup",
     seed: (w) => {
       w.connect = { enabled: true, connect_active: true, card_on_file: true };
       w.connectActive = true;
@@ -292,19 +304,148 @@ export default [
     },
     check: ["Private restore card appears with the number of private areas", "Wrong words give the 'check each word' message"],
   },
+  {
+    id: "settings/phrase-24-words",
+    area: "Settings: Cloud backup",
+    title: "Recovery phrase check for a 24-word phrase",
+    url: "/settings#cloud_backup",
+    seed: (w) => {
+      w.connect = { enabled: true, connect_active: true, card_on_file: true };
+      w.connectActive = true;
+      w.cloudBackups = [cloudBackup()];
+      w.phrase = { ...w.phrase, phrase_words: 24, check_due: true };
+    },
+    check: ["The check shows 24 boxes and no switch between 12 and 24", "Any valid 24 words pass"],
+  },
+  {
+    id: "settings/phrase-set-check-due",
+    area: "Settings: Cloud backup",
+    title: "Recovery phrase check is due",
+    url: "/settings#cloud_backup",
+    seed: (w) => {
+      w.connect = { enabled: true, connect_active: true, card_on_file: true };
+      w.connectActive = true;
+      w.cloudBackups = [cloudBackup()];
+      w.phrase = { ...w.phrase, check_due: true };
+    },
+    check: [
+      "The recovery phrase card shows a 'Check due' pill",
+      "Check is the main button on the card",
+      "Check opens the check and accepts any 12 or 24 words",
+    ],
+  },
+  {
+    id: "settings/phrase-change",
+    area: "Settings: Cloud backup",
+    title: "Changing the phrase with the wrong old phrase",
+    url: "/settings#cloud_backup",
+    seed: (w) => { setPhrase(w); w.phraseWrong = true; },
+    check: [
+      "Change phrase asks for the current phrase first",
+      "Any 12 or 24 words are refused inline (That is not the recovery phrase set up on this Luna), and the dialog stays on the check",
+      "Nothing is saved and no toast appears",
+    ],
+  },
+  {
+    id: "settings/phrase-change-exposed",
+    area: "Settings: Cloud backup",
+    title: "Changing the phrase because someone may have it",
+    url: "/settings#cloud_backup",
+    seed: (w) => setPhrase(w),
+    check: [
+      "Current phrase is accepted, then 'Could someone else have your phrase?' appears",
+      "'Someone may have it' says the old phrase stops working right away, that Luna moves cloud backups to the new phrase over days, and what stays open until then",
+      "The Connect note appears under it, with no older-private-items line under either answer",
+      "After confirming the new phrase, the toast says 'Recovery phrase changed.' and the card shows 'Updating your cloud backups to the new phrase…'",
+      "A last step 'Delete older private versions?' names earlier versions and files deleted from the drive that exist only in the cloud, and says Cancel keeps them and the old phrase may still open them",
+      "'Delete older versions' shows the toast 'Older private versions deleted.'; Cancel closes with nothing deleted",
+    ],
+  },
+  {
+    id: "settings/phrase-lost-exposed",
+    area: "Settings: Cloud backup",
+    title: "Lost phrase that may have been found",
+    url: "/settings#cloud_backup",
+    seed: (w) => setPhrase(w),
+    check: [
+      "'Get a new phrase' confirm names the private items that can't be opened",
+      "After 'Someone may have it', the private line says Luna removes your older private items now",
+      "Asks for the Luna password, then the new phrase, then the toast 'New recovery phrase saved.'",
+    ],
+  },
+  {
+    id: "settings/phrase-lost",
+    area: "Settings: Cloud backup",
+    title: "Lost phrase, nobody else has it",
+    url: "/settings#cloud_backup",
+    seed: (w) => {
+      setPhrase(w, { old_phrase_copies: { count: 2, removed_at: at(-30 * DAY) } });
+      w.passwordWrong = true;
+    },
+    check: [
+      "Under 'Lost your recovery phrase?', 'Get a new phrase' confirm says private items backed up with the old phrase can't be opened, and shared backups stay open",
+      "'No, it's just lost' says the private line: Luna keeps them for 30 days",
+      "Asks for the Luna password; the first save is refused inline (That is not your Luna password), not with a toast, and the dialog returns to the password step with a new phrase to write down",
+      "After saving, the 'Old phrase backups' row shows with its removal date and Delete now",
+    ],
+  },
+  {
+    id: "settings/phrase-resealing",
+    area: "Settings: Cloud backup",
+    title: "Cloud backups still moving to the new phrase",
+    url: "/settings#cloud_backup",
+    seed: (w) => setPhrase(w, { resealing: true }),
+    check: [
+      "The card says 'Updating your cloud backups to the new phrase…' under the phrase row",
+      "No problem pill or toast appears while it runs",
+      "Status is re-read every few seconds and the line goes away when it finishes",
+    ],
+  },
+  {
+    id: "settings/phrase-moving",
+    area: "Settings: Cloud backup",
+    title: "Cloud backups moving to the new phrase in the background",
+    url: "/settings#cloud_backup",
+    seed: (w) => {
+      setPhrase(w);
+      w.phrase.moving = { percent: 40.9, paused_full: false };
+      w.cloudBackups = [cloudBackup({ moving: { percent: 40.9, paused_full: false } })];
+    },
+    check: [
+      "The card says 'Moving to your new phrase · 40%' under the phrase row",
+      "The cloud backup row in All backups says the same",
+      "Nothing shows a problem: no warning pill, no toast, no Needs you entry",
+    ],
+  },
+  {
+    id: "settings/phrase-moving-full",
+    area: "Settings: Cloud backup",
+    title: "Move paused because Connect storage is full",
+    url: "/settings#cloud_backup",
+    seed: (w) => {
+      setPhrase(w);
+      w.phrase.moving = { percent: 40, paused_full: true };
+      w.cloudBackups = [cloudBackup({ moving: { percent: 40, paused_full: true } })];
+    },
+    check: [
+      "The card and the backup row say Connect storage is full and the move is paused",
+      "They say nothing old was deleted and to free up space or add storage",
+      "The message stays inline: no toast and no error pill",
+    ],
+  },
   // ── Remote / Connect / About ──────────────────────────────────────────────
   {
     id: "settings/remote-off",
-    area: "Settings: About",
+    area: "Settings: Luna Connect",
     title: "Remote access off",
-    url: "/settings#external_services",
+    url: "/settings#luna_connect",
     check: ["Explains what turning it on does", "Entering a device token ('bad' is refused) turns it on"],
   },
   {
     id: "settings/remote-on",
-    area: "Settings: About",
+    area: "Settings: Luna Connect",
     title: "Remote access on",
-    url: "/settings#external_services",
+    url: "/settings#luna_connect",
     seed: (w) => { w.connect = { enabled: true, connect_active: true, card_on_file: true }; w.connectActive = true; },
     check: ["Shows it is connected", "Removing the device token turns it off after confirming"],
   },
@@ -313,7 +454,7 @@ export default [
     area: "Settings: About",
     title: "Connect rejected the device token",
     url: "/settings#about",
-    seed: (w) => { w.connect = { enabled: true, connect_active: true, device_token_error: "Luna Connect no longer accepts this device token." }; w.connectActive = true; },
+    seed: (w) => { w.connect = { enabled: false, connect_active: false, device_token_error: "Luna Connect did not accept this device token. It may be mistyped, revoked, or meant for a different Luna. Open Luna on a phone or computer, then go to Settings → About → Advanced and paste a new device token." }; w.connectActive = false; },
     check: ["Error is shown in plain words", "Replacing the token clears it"],
   },
   {
@@ -326,9 +467,10 @@ export default [
       w.systemChecks = {
         overall_pass: false,
         checks: {
-          disk_space: { status: "failed", message: "Storage space is nearly gone.", category: "storage" },
-          clock: { status: "warning", message: "The clock may be wrong.", category: "system" },
-          database: { status: "passed", message: "Working", category: "system" },
+          drive_d1_smart: { status: "failed", message: "Drive 1 is failing. Copy your files to another drive now.", category: "drives" },
+          disk_space: { status: "failed", message: "Luna's own storage (its system disk) is almost full. Free some space on it, or Luna may stop working.", more: "This is the disk where Luna keeps its accounts and settings; your files are on your drives.", category: "system" },
+          clock: { status: "warning", message: "The clock may be off.", more: "Luna sets its clock over the internet and hasn't managed to yet, so new and changed files may get wrong dates. Check that your router or modem is online, then check again in a minute.", category: "system" },
+          database: { status: "passed", message: "Luna's database is working.", category: "system" },
         },
       };
     },
@@ -364,13 +506,14 @@ export default [
     faults: [{ match: "POST /api/v1/system/factory-reset", mode: "500" }],
     check: ["Says it didn't work and nothing was erased"],
   },
-  // ── External services ─────────────────────────────────────────────────────
+  // ── Luna Connect (Admin) ──────────────────────────────────────────────────
   {
-    id: "settings/external-services",
-    area: "Settings: External services",
-    title: "External services",
-    url: "/settings#external_services",
-    check: ["Each service explains what it is for", "Page loads for an Admin"],
+    id: "settings/luna-connect-admin",
+    area: "Settings: Luna Connect",
+    title: "Luna Connect for an Admin",
+    url: "/settings#luna_connect",
+    seed: (w) => { w.connect = { enabled: true, connect_active: true, card_on_file: true }; w.connectActive = true; },
+    check: ["Luna Connect category shows for an Admin, with the remote access card", "Cloud backup is also in the sidebar, above Luna Connect"],
   },
   // ── Whole-page ────────────────────────────────────────────────────────────
   {
@@ -379,7 +522,7 @@ export default [
     title: "Member sees fewer categories",
     url: "/settings",
     seed: asMember,
-    check: ["No Users, About or External services", "/settings#users falls back to an allowed page"],
+    check: ["No Users or About, and no Cloud backup or Luna Connect while Connect is off", "/settings#users falls back to an allowed page"],
   },
   {
     id: "settings/search",

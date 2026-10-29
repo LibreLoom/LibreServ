@@ -160,7 +160,7 @@ export default [
     title: "Member with no drives and no albums",
     url: "/gallery",
     seed: (w) => { asMember(w); w.photos = []; },
-    check: ["Plain message that nothing is shared with them yet", "No Rescan or Upload offered", "No red errors"],
+    check: ["Plain message that nothing is shared with them yet", "No Rescan or Upload offered", "No error messages"],
   },
 
   // ── Filters and search ───────────────────────────────────────────────────
@@ -357,7 +357,7 @@ export default [
     title: "Moving a photo to Trash fails",
     url: "/gallery",
     seed: (w) => lib(w, 20),
-    faults: [{ match: "DELETE /api/v1/drives/d1/files", mode: "409", message: "Luna couldn't move that to Trash because the drive is read-only." }],
+    faults: [{ match: "DELETE /api/v1/drives/d1/files", mode: "409", message: "This drive is read-only right now, so Luna can't change it." }],
     check: ["Open a photo, press Trash, confirm", "The message explains the drive is read-only, in the page, not a crash", "The photo is still there"],
   },
 

@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
+import { FileOpsProvider } from "../context/FileOpsContext.jsx";
 import GalleryPage, { galleryUrl, parseGalleryHash } from "./GalleryPage";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
@@ -122,11 +123,41 @@ function stubGalleryFetch({
   );
 }
 
+/**
+ * Uploads go over XHR (progress), not fetch. A fake that records every open()
+ * and answers success, so the drop only has to reach the upload queue.
+ * @returns {Array<[string, string]>} the recorded [method, url] pairs
+ */
+function stubUploadXhr() {
+  const opens = [];
+  class FakeXhr {
+    constructor() {
+      /** @type {any} */
+      this.upload = {};
+      this.onload = null;
+      this.onerror = null;
+      this.status = 200;
+      this.responseText = "{}";
+    }
+    /** @param {string} method @param {string} url */
+    open(method, url) {
+      opens.push([method, String(url)]);
+    }
+    setRequestHeader() {}
+    send() {
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+  vi.stubGlobal("XMLHttpRequest", FakeXhr);
+  return opens;
+}
+
 function renderGallery({ withShortcuts = false } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ToastProvider>
     <QueryClientProvider client={client}>
+      <FileOpsProvider>
       <MemoryRouter>
         <AuthProvider>
           {withShortcuts ? (
@@ -138,10 +169,30 @@ function renderGallery({ withShortcuts = false } = {}) {
           )}
         </AuthProvider>
       </MemoryRouter>
+      </FileOpsProvider>
     </QueryClientProvider>
     </ToastProvider>,
   );
 }
+
+describe("GalleryPage photo upload", () => {
+  it("sends a dropped photo through the file operation store", async () => {
+    stubGalleryFetch({ drives: [{ id: "a", label: "Family", state: "as_is", mount_point: "/mnt/a" }] });
+    const opens = stubUploadXhr();
+    renderGallery();
+    await screen.findByRole("button", { name: /rescan/i }).catch(() => null);
+    const photo = new File(["x"], "beach.jpg", { type: "image/jpeg" });
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", { value: { files: [photo] } });
+    await act(async () => {
+      // The page listens on its drop zone; dropping on a child bubbles up to it.
+      screen.getByLabelText("Search photos").dispatchEvent(drop);
+    });
+    await waitFor(() => {
+      expect(opens.some(([method, url]) => method !== "GET" && /upload/.test(String(url)))).toBe(true);
+    });
+  });
+});
 
 describe("galleryUrl", () => {
   it("asks for favorites with true/false that lunad can parse", () => {
@@ -1084,11 +1135,13 @@ describe("GalleryPage", () => {
     render(
       <ToastProvider>
       <QueryClientProvider client={client}>
+        <FileOpsProvider>
         <MemoryRouter>
           <AuthProvider>
             <GalleryPage />
           </AuthProvider>
         </MemoryRouter>
+        </FileOpsProvider>
       </QueryClientProvider>
       </ToastProvider>,
     );

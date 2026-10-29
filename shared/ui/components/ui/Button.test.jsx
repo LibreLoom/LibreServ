@@ -69,6 +69,27 @@ describe("Button loading", () => {
     expect(spinnerWrap).toHaveAttribute("aria-hidden", "false");
   });
 
+  it("pauses the hidden spinner dots on idle icon buttons and runs them while loading", () => {
+    const { rerender } = render(
+      <Button size="iconSm" variant="ghost" surface="secondary" aria-label="Save">
+        <svg />
+      </Button>,
+    );
+    const button = screen.getByRole("button", { name: "Save" });
+    const dots = () => [...button.querySelectorAll(".comet-spinner__dot")];
+    expect(dots()).toHaveLength(8);
+    dots().forEach((d) => expect(d.style.animation).toBe("none"));
+    const wrap = button.querySelector('[data-slot="spinner"]').parentElement;
+    expect(wrap.className).not.toMatch(/will-change-transform/);
+    rerender(
+      <Button size="iconSm" variant="ghost" surface="secondary" loading aria-label="Save">
+        <svg />
+      </Button>,
+    );
+    dots().forEach((d) => expect(d.style.animation).not.toBe("none"));
+    expect(wrap.className).toMatch(/will-change-transform/);
+  });
+
   it("forwards ref and autoFocus to the underlying button element", () => {
     let buttonNode = null;
     render(

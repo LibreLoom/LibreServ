@@ -6,12 +6,35 @@ export const HOUR = 3600;
 export const DAY = 24 * HOUR;
 /** 2026-10-18 12:00 UTC. Scenarios that need another "now" override scenario.now. */
 export const DEFAULT_NOW = Date.UTC(2026, 9, 18, 12, 0, 0);
+/** lunad's default update feed (system/updates.rs DEFAULT_FEED_URL). */
+export const DEFAULT_FEED_URL = "https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/feeds";
 
-let counter = 0;
-export const nextId = (prefix = "x") => `${prefix}${++counter}`;
+// Ids: one counter per prefix, and an id that a seed (or an earlier call) already
+// holds is never handed out again. The state is saved with the world so ids made
+// after a page reload cannot collide with ids made before it.
+let counters = {};
+let used = new Set();
+/** Marks an id you chose yourself as taken. Returns it. */
+export const claimId = (id) => { used.add(id); return id; };
+export const nextId = (prefix = "x") => {
+  let id;
+  do { counters[prefix] = (counters[prefix] || 0) + 1; id = `${prefix}${counters[prefix]}`; } while (used.has(id));
+  used.add(id);
+  return id;
+};
+export const idState = () => ({ counters: { ...counters }, used: [...used] });
+export function restoreIdState(state) {
+  counters = { ...(state?.counters || {}) };
+  used = new Set(state?.used || []);
+}
+/** Forget everything but the ids the built-in base world owns (a fresh scenario start). */
+export function resetIds() {
+  counters = {};
+  used = new Set(["u1", "d1"]);
+}
 
 export function user(over = {}) {
-  const id = over.id || nextId("u");
+  const id = over.id ? claimId(over.id) : nextId("u");
   return {
     id,
     username: over.username || `user${id}`,
@@ -23,13 +46,24 @@ export function user(over = {}) {
 }
 
 export function drive(over = {}) {
-  const id = over.id || nextId("d");
+  const id = over.id ? claimId(over.id) : nextId("d");
   return {
     id,
     label: over.label || `Drive ${id}`,
     state: "as_is",
     device: `sd${id}`,
     fs_type: "exfat",
+    mounted: true,
+    ...over,
+  };
+}
+
+/** A drive health report as lunad's drives/smart.rs sends it. The default is a healthy hard drive. */
+export function smartHealth(over = {}) {
+  return {
+    available: true, reason: null, verdict: "ok", overall: "passed", model: "WD20EZRZ", serial: "FAKE1",
+    temperature_c: 34, temperature_max_c: 60, temperature_max_source: "typical",
+    reallocated_sectors: 0, pending_sectors: 0, uncorrectable_sectors: 0, status_bits: 0, signals: [],
     ...over,
   };
 }
@@ -41,6 +75,8 @@ export function summary(id, over = {}) {
     total_bytes: 64_000_000_000,
     free_bytes: 30_000_000_000,
     used_bytes: 34_000_000_000,
+    folders: null,
+    files: null,
     shortcuts: ["Photos", "Documents"],
     ...over,
   };
@@ -48,7 +84,7 @@ export function summary(id, over = {}) {
 
 export function backup(over = {}) {
   return {
-    id: nextId("b"),
+    id: over.id ? claimId(over.id) : nextId("b"),
     kind: "drive",
     source_drive: "d1",
     source_drive_name: "Photos drive",
@@ -65,13 +101,15 @@ export function backup(over = {}) {
     first_done: true,
     created_by: "u1",
     can_delete: true,
+    created_at: Math.floor(DEFAULT_NOW / 1000) - 30 * DAY,
+    private_owner: "",
     ...over,
   };
 }
 
 export function cloudBackup(over = {}) {
   return backup({
-    id: nextId("c"),
+    id: over.id ? claimId(over.id) : nextId("c"),
     kind: "cloud",
     source_name: "Documents",
     source_path: "Documents",
@@ -89,29 +127,55 @@ const photosDrive = drive({ id: "d1", label: "Family photos" });
 
 /** A healthy, ordinary Luna with one admin, one drive and nothing to fix. */
 export function baseWorld() {
+  const passed = (category, message) => ({ category, message, status: "passed" });
   return {
     name: "Luna",
-    setup: { name: "Luna", setup_completed: true, current_step: "done", step_data: {} },
-    preflight: { healthy: true, checks: { disk: { status: "passed", message: "Plenty of space" }, network: { status: "passed", message: "Connected" } } },
-    users: [admin],
+    setup: { name: "Luna", setup_completed: true, current_step: "done", step_data: { network_connected: true } },
+    preflight: { healthy: true, checks: { disk_space: { status: "passed", message: "12.4 GB free on Luna's system disk." }, network: { status: "passed", message: "Connected to your router or modem, with a path to the internet." } } },
+    users: [{ ...admin }],
     sessionUserId: "u1",
     hasAdmin: true,
     connectActive: false,
-    drives: [photosDrive],
+    drives: [{ ...photosDrive }],
     detected: [],
     summaries: { d1: summary("d1", { shortcuts: ["Photos", "Documents"] }) },
     health: {},
-    systemChecks: { overall_pass: true, checks: {} },
-    updates: { update_available: false, current_version: "1.4.2" },
-    updateSource: { source: "default" },
+    systemChecks: {
+      overall_pass: true,
+      status: "ok",
+      timestamp: Math.floor(DEFAULT_NOW / 1000),
+      summary: { total_checks: 17, passed: 17, warnings: 0, failed: 0 },
+      checks: {
+        clock: passed("Clock", "Luna's clock is on time."),
+        data_path_writable: passed("Storage", "Luna can write to its data folder."),
+        database: passed("Database", "Luna's database is healthy."),
+        diagram_pack: { category: "Diagrams", message: "Diagram pack installed.", more: "", status: "passed" },
+        disk_space: { category: "Storage", message: "Plenty of room left.", status: "passed", details: { free_bytes: 30_000_000_000, free_human: "30.0 GB" } },
+        drive_tools: { category: "Drive tools", message: "Drive tools are installed.", more: "", status: "passed", details: { missing: [] } },
+        erase_tools: { category: "Erase tools", message: "Erase tools are installed.", more: "", status: "passed", details: { missing: [] } },
+        heic_tools: { category: "Photos", message: "iPhone photo support installed.", more: "", status: "passed", details: { missing: [] } },
+        logs_path_writable: passed("Storage", "Luna can write to its log folder."),
+        network: passed("Network", "Connected to your router or modem, with a path to the internet."),
+        ntfs_support: passed("Drive tools", "Windows-formatted drives are supported."),
+        office_pack: { category: "Documents", message: "Document pack installed.", more: "", status: "passed", details: { missing: [] } },
+        smart_tool: { category: "Drive health", message: "Drive health checks are available.", more: "", status: "passed", details: { missing: [] } },
+        trim_tool: { category: "Drive health", message: "Drive maintenance is available.", more: "", status: "passed", details: { missing: [] } },
+        update_signing: passed("Updates", "Updates are checked against Luna's signing key."),
+        video_tools: { category: "Videos", message: "Video previews installed.", more: "", status: "passed", details: { missing: [] } },
+        whiteboard: passed("Whiteboard", "Whiteboard tools are installed."),
+      },
+    },
+    updates: { update_available: false, current_version: "1.4.2", latest_version: "1.4.2", release_notes: "", binary_name: "lunad", checksum: "", reboot_required: false },
+    updateSource: { channel: "stable", default_keys: true, defaults: { channel: "stable", feed_url: DEFAULT_FEED_URL, keys: [] }, effective_keys: [], feed_url: DEFAULT_FEED_URL, keys: [] },
     backups: [],
     cloudBackups: [],
-    phrase: { set: true, set_at: 0, luna_id: "luna-1", signing_public: "", check_due: false },
-    connect: { enabled: false },
-    network: { ethernet_connected: true, has_default_route: true },
+    phrase: { set: true, set_at: 0, luna_id: "luna-1", signing_public: "", check_due: false, last_checked_at: 0, phrase_words: 12, moving: null, old_phrase_copies: { count: 0, removed_at: null }, resealing: false },
+    connect: { enabled: false, device_code: null },
+    network: { ethernet_connected: true, wifi_connected: false, has_default_route: true },
     access: [],
     albums: [],
     recents: [],
+    deletedUsers: [],
     jobs: [],
     tokens: [],
     privateSummary: { owners: [] },
@@ -120,7 +184,10 @@ export function baseWorld() {
 
 /** Builds a world: the base, then the scenario's seed function edits it. */
 export function createWorld(seed) {
+  resetIds();
   const w = baseWorld();
   if (typeof seed === "function") seed(w);
+  // Rows a seed wrote without an owner belong to whoever is signed in.
+  for (const r of w.recents) r.user_id ??= w.sessionUserId ?? "u1";
   return w;
 }

@@ -6,8 +6,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::AppState;
-use crate::api::response::json_error;
-use crate::jobs::JobError;
+use crate::api::response::{json_error, json_error_code};
+use crate::jobs::{JobError, OnConflict};
 
 #[derive(Deserialize)]
 struct CreateJob {
@@ -21,6 +21,10 @@ struct CreateJob {
     /// destination permissions without a Luna-specific prompt.
     #[serde(default)]
     confirm_broaden: bool,
+    /// "keep_both" saves a clash under the next free name. Anything else,
+    /// or nothing, refuses the clash with `409 exists`.
+    #[serde(default)]
+    on_conflict: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -91,15 +95,21 @@ async fn create(
             ));
         }
     }
+    let on_conflict = if body.on_conflict.as_deref() == Some("keep_both") {
+        OnConflict::KeepBoth
+    } else {
+        OnConflict::Fail
+    };
     let job = state
         .job_manager
-        .enqueue(
+        .enqueue_on_conflict(
             &body.kind,
             &body.from_drive,
             body.from_path.as_deref().unwrap_or(""),
             &body.to_drive,
             body.to_path.as_deref().unwrap_or(""),
             &user.id,
+            on_conflict,
         )
         .await
         .map_err(map_job_err)?;
@@ -294,9 +304,30 @@ fn map_job_err(err: JobError) -> (StatusCode, Json<Value>) {
         {
             json_error(StatusCode::BAD_REQUEST, "Luna can't use that path.")
         }
-        JobError::QueueFull => json_error(
+        JobError::NameTaken { existing_dir } => {
+            let kind = if existing_dir { "dir" } else { "file" };
+            (
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "A file or folder with this name is already there. Choose a different destination.",
+                    "code": "exists",
+                    "existing_kind": kind,
+                })),
+            )
+        }
+        JobError::KeepBothUnsupported => json_error_code(
+            StatusCode::CONFLICT,
+            "keep_both_unsupported",
+            "Luna can't keep two private items with the same name here. Choose Skip, or rename one first.",
+        ),
+        JobError::QueueFull => json_error_code(
             StatusCode::SERVICE_UNAVAILABLE,
+            "queue_full",
             "Luna is already working on a lot of copies and moves. Try again when they finish.",
+        ),
+        JobError::Runner => json_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Luna's job queue isn't responding.",
         ),
         JobError::NotFound => json_error(StatusCode::NOT_FOUND, "Luna doesn't know this job."),
         JobError::Denied => json_error(
@@ -307,6 +338,48 @@ fn map_job_err(err: JobError) -> (StatusCode, Json<Value>) {
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't start this job. Check the drives and try again.",
         ),
+    }
+}
+
+#[cfg(test)]
+mod error_body_tests {
+    use super::*;
+
+    fn body_of(err: JobError) -> (StatusCode, Value) {
+        let (status, Json(body)) = map_job_err(err);
+        (status, body)
+    }
+
+    #[test]
+    fn name_clash_says_what_holds_the_name() {
+        let (status, body) = body_of(JobError::NameTaken { existing_dir: true });
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body["code"], "exists");
+        assert_eq!(body["existing_kind"], "dir");
+
+        let (_, body) = body_of(JobError::NameTaken {
+            existing_dir: false,
+        });
+        assert_eq!(body["existing_kind"], "file");
+    }
+
+    #[test]
+    fn queue_full_and_keep_both_carry_codes() {
+        let (status, body) = body_of(JobError::QueueFull);
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["code"], "queue_full");
+
+        let (status, body) = body_of(JobError::KeepBothUnsupported);
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body["code"], "keep_both_unsupported");
+    }
+
+    #[test]
+    fn runner_failure_is_a_503_without_a_code() {
+        let (status, body) = body_of(JobError::Runner);
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["error"], "Luna's job queue isn't responding.");
+        assert!(body.get("code").is_none());
     }
 }
 
@@ -604,5 +677,34 @@ mod http_tests {
             .unwrap();
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
         assert!(mount.path().join("docs/note.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn list_jobs_records_the_list_shape() {
+        // A plain admin list so the contract recorder captures GET /api/v1/jobs.
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(mount.path().join("docs")).unwrap();
+        std::fs::write(mount.path().join("docs/note.txt"), b"hi").unwrap();
+        std::fs::create_dir_all(mount.path().join("Archive")).unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let (cookie, csrf) = admin_cookie(&app).await;
+        let res = app
+            .clone()
+            .oneshot(json_req(
+                Method::POST,
+                "/api/v1/jobs",
+                r#"{"kind":"copy","from_drive":"photos","from_path":"docs/note.txt","to_drive":"photos","to_path":"Archive"}"#,
+                &cookie,
+                &csrf,
+            ))
+            .await
+            .unwrap();
+        assert!(res.status().is_success(), "job create failed");
+        let res = app
+            .clone()
+            .oneshot(json_req(Method::GET, "/api/v1/jobs", "", &cookie, &csrf))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
     }
 }

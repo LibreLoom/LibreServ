@@ -1,10 +1,14 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import SetupPage from "./SetupPage";
 import { AuthProvider } from "../context/AuthContext";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import { SIG_PUBLIC_LEN } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { toBase64 } from "../lib/cloudPhrase";
+
+const SIGNING_PUBLIC = toBase64(new Uint8Array(SIG_PUBLIC_LEN).map((_, i) => (i + 5) % 256));
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -34,6 +38,8 @@ function stubFetch({
   connectActive = false,
   connect = /** @type {Record<string, unknown>} */ ({}),
   me = null,
+  finishRefusal = null,
+  identityFails = false,
 } = {}) {
   return vi.fn(async (url, init) => {
     const u = String(url);
@@ -54,12 +60,18 @@ function stubFetch({
         ...connect,
       });
     }
+    if (u.includes("/api/v1/cloud/identity") && method === "POST") {
+      if (identityFails) return jsonResponse({ error: "Luna could not make its keys." }, 409);
+      return jsonResponse({ luna_id: "luna-1", signing_public: SIGNING_PUBLIC });
+    }
+    if (u.includes("/api/v1/cloud/phrase") && method === "PUT") return jsonResponse({ set: true, set_at: 1 });
     if (u.includes("/api/v1/setup/preflight")) return jsonResponse(healthyPreflight());
     if (u.includes("/api/v1/setup/fetch-mag") && method === "POST") {
       return jsonResponse({ ok: false, source: "none", attempts: 0 });
     }
     if (u.includes("/api/v1/setup") && method === "POST") {
       const body = init?.body ? JSON.parse(init.body) : {};
+      if (finishRefusal && body.setup_completed) return jsonResponse(finishRefusal.body, finishRefusal.status);
       return jsonResponse({
         name: body.name || setup.name || "Luna",
         setup_completed: body.setup_completed ?? setup.setup_completed ?? false,
@@ -129,10 +141,10 @@ describe("SetupPage", () => {
     renderSetup();
     fireEvent.click(await screen.findByRole("button", { name: /Begin setup/i }));
     expect(await screen.findByRole("heading", { name: /System check/i })).toBeTruthy();
-    expect(screen.getByText(/2\s*\/\s*5/)).toBeTruthy();
+    expect(screen.getByText(/2\s*\/\s*6/)).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
     expect(await screen.findByRole("heading", { name: /Create your account/i })).toBeTruthy();
-    expect(screen.getByText(/3\s*\/\s*5/)).toBeTruthy();
+    expect(screen.getByText(/3\s*\/\s*6/)).toBeTruthy();
     await waitFor(() => {
       const progressPosts = fetchMock.mock.calls.filter(([url, init]) => {
         return String(url).includes("/api/v1/setup") && (init?.method || "GET").toUpperCase() === "POST";
@@ -363,7 +375,7 @@ describe("SetupPage", () => {
     expect(await screen.findByRole("heading", { name: /System check/i })).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
     expect(await screen.findByRole("heading", { name: /Create your account/i })).toBeTruthy();
-    expect(screen.getByText(/3\s*\/\s*5/)).toBeTruthy();
+    expect(screen.getByText(/3\s*\/\s*6/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
     fireEvent.change(screen.getByLabelText(/Pick a username/i), { target: { value: "alex" } });
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
@@ -386,7 +398,7 @@ describe("SetupPage", () => {
     expect(await screen.findByRole("heading", { name: /System check/i })).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
     expect(await screen.findByRole("heading", { name: /Create your account/i })).toBeTruthy();
-    expect(screen.getByText(/3\s*\/\s*5/)).toBeTruthy();
+    expect(screen.getByText(/3\s*\/\s*6/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
     fireEvent.change(screen.getByLabelText(/Pick a username/i), { target: { value: "alex" } });
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
@@ -460,6 +472,98 @@ describe("SetupPage", () => {
       expect(registerCall).toBeTruthy();
       const body = JSON.parse(registerCall[1].body);
       expect(body.setup_secret).toBe("ABCD-EFGH-IJKM-NPQR-STUV");
+    });
+  });
+
+  describe("recovery phrase step", () => {
+    const ADMIN = { id: "1", username: "admin", display_name: "Admin", role: "admin" };
+    const accountDone = {
+      name: "Luna",
+      setup_completed: false,
+      current_step: "account",
+      step_data: { network_connected: true, preflight_passed: true, account_completed: true },
+    };
+
+    async function typeConfirmWords() {
+      const words = within(screen.getByRole("list")).getAllByRole("listitem").map((li) => li.textContent.trim().replace(/^\d+\.\s*/, ""));
+      fireEvent.click(screen.getByRole("button", { name: "I wrote it down" }));
+      for (const input of screen.getAllByRole("textbox")) {
+        const n = Number(input.getAttribute("aria-label").replace("Word ", ""));
+        fireEvent.change(input, { target: { value: words[n - 1] } });
+      }
+    }
+
+    it("comes after Account and before Name, and counts 4 / 6", async () => {
+      vi.stubGlobal("fetch", stubFetch({ setup: accountDone, hasAdmin: true, me: { ...ADMIN, phrase_set: false } }));
+      renderSetup();
+      expect(await screen.findByRole("heading", { name: "Write down your recovery phrase" })).toBeTruthy();
+      expect(screen.getByText(/4\s*\/\s*6/)).toBeTruthy();
+      expect(screen.queryByPlaceholderText("e.g. Family Luna")).toBeNull();
+    });
+
+    it("moves to Name after the phrase is saved, saving only phrase_set: true", async () => {
+      const fetchMock = stubFetch({ setup: accountDone, hasAdmin: true, me: { ...ADMIN, phrase_set: false } });
+      vi.stubGlobal("fetch", fetchMock);
+      renderSetup();
+      await screen.findByRole("heading", { name: "Write down your recovery phrase" });
+      await typeConfirmWords();
+      fireEvent.click(screen.getByRole("button", { name: "Save and continue" }));
+      expect(await screen.findByPlaceholderText("e.g. Family Luna")).toBeTruthy();
+      expect(screen.getByText(/5\s*\/\s*6/)).toBeTruthy();
+      const saved = fetchMock.mock.calls
+        .filter(([url, init]) => String(url).endsWith("/api/v1/setup") && (init?.method || "GET") === "POST")
+        .map(([, init]) => JSON.parse(init.body));
+      expect(saved.some((b) => b.current_step === "name" && b.step_data?.phrase_set === true)).toBe(true);
+      expect(JSON.stringify(saved)).not.toMatch(/seal_public|self_sealed/);
+    });
+
+    it("resuming on the phrase step with a phrase already saved lands on Name", async () => {
+      vi.stubGlobal(
+        "fetch",
+        stubFetch({ setup: { ...accountDone, current_step: "phrase" }, hasAdmin: true, me: { ...ADMIN, phrase_set: true } }),
+      );
+      renderSetup();
+      expect(await screen.findByPlaceholderText("e.g. Family Luna")).toBeTruthy();
+    });
+
+    it("resuming on Name without a saved phrase goes back to the phrase step", async () => {
+      vi.stubGlobal(
+        "fetch",
+        stubFetch({ setup: { ...accountDone, current_step: "name" }, hasAdmin: true, me: { ...ADMIN, phrase_set: false } }),
+      );
+      renderSetup();
+      expect(await screen.findByRole("heading", { name: "Write down your recovery phrase" })).toBeTruthy();
+    });
+
+    it("signed out on the phrase step shows the account sign-in", async () => {
+      vi.stubGlobal("fetch", stubFetch({ setup: { ...accountDone, current_step: "phrase" }, hasAdmin: true }));
+      renderSetup();
+      expect(await screen.findByRole("heading", { name: /Sign in to continue/i })).toBeTruthy();
+    });
+
+    it("shows Luna's message and Try again when the keys can't be made", async () => {
+      vi.stubGlobal("fetch", stubFetch({ setup: accountDone, hasAdmin: true, me: { ...ADMIN, phrase_set: false }, identityFails: true }));
+      renderSetup();
+      expect(await screen.findByText("Luna could not make its keys.")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    });
+
+    it("sends the person back to the phrase step when Luna refuses to finish without one", async () => {
+      vi.stubGlobal(
+        "fetch",
+        stubFetch({
+          setup: { ...accountDone, current_step: "name" },
+          hasAdmin: true,
+          me: ADMIN,
+          finishRefusal: {
+            status: 409,
+            body: { error: "Set up your recovery phrase before you finish setup.", code: "needs_phrase" },
+          },
+        }),
+      );
+      renderSetup();
+      fireEvent.click(await screen.findByRole("button", { name: /Finish setup/i }));
+      expect(await screen.findByRole("heading", { name: "Write down your recovery phrase" })).toBeTruthy();
     });
   });
 

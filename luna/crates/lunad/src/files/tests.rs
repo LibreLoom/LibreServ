@@ -918,7 +918,14 @@ fn folder_zip_includes_nested_files_and_skips_internal() {
 
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
     let mut names: Vec<String> = (0..archive.len())
-        .map(|i| archive.by_index(i).unwrap().name().to_string())
+        .map(|i| {
+            archive
+                .by_index(i)
+                .unwrap()
+                .name()
+                .expect("ZIP entry name is valid UTF-8")
+                .to_string()
+        })
         .collect();
     names.sort();
     assert!(names.iter().any(|n| n == "album/"));
@@ -946,7 +953,14 @@ fn folder_zip_skips_symlinks() {
     assert_eq!(count, 1);
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(buf.into_inner())).unwrap();
     let names: Vec<String> = (0..archive.len())
-        .map(|i| archive.by_index(i).unwrap().name().to_string())
+        .map(|i| {
+            archive
+                .by_index(i)
+                .unwrap()
+                .name()
+                .expect("ZIP entry name is valid UTF-8")
+                .to_string()
+        })
         .collect();
     assert!(names.iter().any(|n| n == "album/keep.txt"));
     assert!(
@@ -1003,7 +1017,9 @@ fn folder_totals_counts_nested_content_and_respects_the_lens() {
     std::fs::write(root.join("a/.hidden"), b"h").unwrap();
 
     let mut all = |_: &str| true;
-    let totals = folder_totals(&conn, &id, "a", &mut all).unwrap().unwrap();
+    let totals = folder_totals(&drive_root(&conn, &id).unwrap(), "a", &mut all)
+        .unwrap()
+        .unwrap();
     assert_eq!(totals.bytes, 5 + 2 + 1);
     assert_eq!(totals.files, 3);
     assert_eq!(totals.dirs, 1);
@@ -1014,7 +1030,7 @@ fn folder_totals_counts_nested_content_and_respects_the_lens() {
     // the granted folder inside still counts — an unreadable parent must
     // not hide a deeper grant.
     let mut only_b = |p: &str| p == "a/b";
-    let scoped = folder_totals(&conn, &id, "a", &mut only_b)
+    let scoped = folder_totals(&drive_root(&conn, &id).unwrap(), "a", &mut only_b)
         .unwrap()
         .unwrap();
     assert_eq!(scoped.bytes, 2);
@@ -1036,12 +1052,12 @@ fn folder_totals_counts_nested_content_and_respects_the_lens() {
 
     // Files and missing paths have no totals.
     assert!(
-        folder_totals(&conn, &id, "a/one.txt", &mut all)
+        folder_totals(&drive_root(&conn, &id).unwrap(), "a/one.txt", &mut all)
             .unwrap()
             .is_none()
     );
     assert!(matches!(
-        folder_totals(&conn, &id, "../escape", &mut all),
+        folder_totals(&drive_root(&conn, &id).unwrap(), "../escape", &mut all),
         Err(FilesError::Path(_))
     ));
 }
@@ -1061,7 +1077,9 @@ fn folder_totals_counts_a_link_but_never_follows_it() {
     std::os::unix::fs::symlink(&outside, root.join("a/far")).unwrap();
 
     let mut all = |_: &str| true;
-    let totals = folder_totals(&conn, &id, "a", &mut all).unwrap().unwrap();
+    let totals = folder_totals(&drive_root(&conn, &id).unwrap(), "a", &mut all)
+        .unwrap()
+        .unwrap();
     assert_eq!(totals.bytes, 1);
     assert_eq!(totals.files, 1);
     assert_eq!(totals.dirs, 0);
@@ -1260,7 +1278,7 @@ fn zip_and_folder_totals_also_refuse_raw_trash_names() {
     let prefix = crate::drives::drive_db::prefix_for(&root).unwrap();
     let raw = format!("{prefix}-trash");
 
-    assert!(folder_totals(&conn, &id, &raw, &mut |_| true).is_err());
+    assert!(folder_totals(&drive_root(&conn, &id).unwrap(), &raw, &mut |_| true).is_err());
     assert!(zip_plan(&conn, &id, &raw, false).is_err());
 }
 
@@ -1273,5 +1291,255 @@ fn a_full_drive_is_not_called_read_only_but_a_read_only_one_is() {
     assert_eq!(
         db::get_drive(&conn, &id).unwrap().unwrap().state,
         "readonly"
+    );
+}
+
+// ---- The web app's HTTP requests, replayed against the real router -------
+// The harness mirrors `api/files/http_tests.rs`, which keeps its own copy.
+
+const API_CLIENT: std::net::SocketAddr = std::net::SocketAddr::new(
+    std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+    54321,
+);
+
+/// The API router over one adopted drive, `photos`, rooted at `mount`.
+fn api_app(mount: &std::path::Path) -> (tempfile::TempDir, axum::Router) {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = db::open(&dir.path().join("luna.db")).unwrap();
+    let prefix = luna_core::marker::pick_prefix(mount).unwrap();
+    crate::drives::drive_db::create(
+        mount,
+        &luna_core::marker::Marker::new("photos", "Photos"),
+        &prefix,
+    )
+    .unwrap();
+    db::upsert_drive(
+        &conn,
+        "photos",
+        "Photos",
+        "as_is",
+        "ext4",
+        "sda",
+        mount.to_str().unwrap(),
+    )
+    .unwrap();
+    let drive_manager = std::sync::Arc::new(crate::drives::DriveManager::new(
+        crate::drives::mount::shared_mock(),
+        dir.path(),
+    ));
+    let state = crate::AppState::new(conn, drive_manager, dir.path());
+    let app = crate::api::router()
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::auth::guard,
+        ))
+        .with_state(state);
+    (dir, app)
+}
+
+fn api_request(
+    method: axum::http::Method,
+    uri: &str,
+    cookie: Option<&str>,
+    csrf: Option<&str>,
+    body: Option<&str>,
+) -> axum::http::Request<axum::body::Body> {
+    let mut builder = axum::http::Request::builder().method(method).uri(uri);
+    if body.is_some() {
+        builder = builder.header("content-type", "application/json");
+    }
+    if let Some(c) = cookie {
+        builder = builder.header("cookie", c);
+    }
+    if let Some(t) = csrf {
+        builder = builder.header("x-csrf-token", t);
+    }
+    let mut req = builder
+        .body(axum::body::Body::from(body.unwrap_or("").to_string()))
+        .unwrap();
+    req.extensions_mut()
+        .insert(axum::extract::ConnectInfo(API_CLIENT));
+    req
+}
+
+async fn api_send(
+    app: &axum::Router,
+    req: axum::http::Request<axum::body::Body>,
+) -> (
+    axum::http::StatusCode,
+    axum::http::HeaderMap,
+    serde_json::Value,
+) {
+    use tower::ServiceExt;
+    let res = app.clone().oneshot(req).await.unwrap();
+    let status = res.status();
+    let headers = res.headers().clone();
+    let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    let body = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+    (status, headers, body)
+}
+
+/// Registers the first user (an admin) and logs in. Returns the cookie header
+/// and the CSRF token, as the web app holds them.
+async fn api_login(app: &axum::Router) -> (String, String) {
+    let (status, _, body) = api_send(
+        app,
+        api_request(
+            axum::http::Method::POST,
+            "/api/v1/auth/register",
+            None,
+            None,
+            Some(r#"{"username":"max","display_name":"Max","password":"hunter22hunter1"}"#),
+        ),
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::OK, "register: {body}");
+    let (status, headers, body) = api_send(
+        app,
+        api_request(
+            axum::http::Method::POST,
+            "/api/v1/auth/login",
+            None,
+            None,
+            Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
+        ),
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::OK, "login: {body}");
+    let mut session = String::new();
+    let mut csrf = String::new();
+    for value in headers.get_all(axum::http::header::SET_COOKIE) {
+        let part = value.to_str().unwrap().split(';').next().unwrap_or("");
+        if part.starts_with("luna_session=") {
+            session = part.to_string();
+        } else if let Some(token) = part.strip_prefix("luna_csrf=") {
+            csrf = token.to_string();
+        }
+    }
+    (format!("{session}; luna_csrf={csrf}"), csrf)
+}
+
+/// The query value the web app builds for a path (`encodeURIComponent`, for
+/// the plain names these tests use).
+fn api_query(path: &str) -> String {
+    path.replace('%', "%25")
+        .replace('/', "%2F")
+        .replace(' ', "%20")
+}
+
+/// `DELETE /api/v1/drives/photos/files?path=…`, as `fileSource.jsx` `remove`
+/// sends it. Returns the `trash_path` the server answers with.
+async fn api_remove(app: &axum::Router, cookie: &str, csrf: &str, path: &str) -> String {
+    let uri = format!("/api/v1/drives/photos/files?path={}", api_query(path));
+    let (status, _, body) = api_send(
+        app,
+        api_request(
+            axum::http::Method::DELETE,
+            &uri,
+            Some(cookie),
+            Some(csrf),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::OK, "remove {path}: {body}");
+    body["trash_path"].as_str().unwrap().to_string()
+}
+
+/// `GET /api/v1/drives/photos/files?path=…`: the entries of a folder, trash
+/// included.
+async fn api_list(app: &axum::Router, cookie: &str, path: &str) -> Vec<serde_json::Value> {
+    let uri = format!("/api/v1/drives/photos/files?path={}", api_query(path));
+    let (status, _, body) = api_send(
+        app,
+        api_request(axum::http::Method::GET, &uri, Some(cookie), None, None),
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::OK, "list {path}: {body}");
+    body.as_array().unwrap().clone()
+}
+
+#[tokio::test]
+async fn removing_a_folder_after_trashing_one_of_its_files_keeps_both_trash_entries_whole() {
+    let mount = tempfile::tempdir().unwrap();
+    let root = mount.path();
+    std::fs::create_dir(root.join("A")).unwrap();
+    std::fs::write(root.join("A/x.txt"), b"x bytes").unwrap();
+    std::fs::write(root.join("A/y.txt"), b"y bytes").unwrap();
+    let (_dir, app) = api_app(root);
+    let (cookie, csrf) = api_login(&app).await;
+
+    let item_trash = api_remove(&app, &cookie, &csrf, "A/x.txt").await;
+    let folder_trash = api_remove(&app, &cookie, &csrf, "A").await;
+
+    assert!(!root.join("A").exists(), "A is still at its old path");
+    let entries = api_list(&app, &cookie, ".luna-trash").await;
+    assert_eq!(entries.len(), 2, "{entries:?}");
+    let item = entries
+        .iter()
+        .find(|e| e["original_path"] == "A/x.txt")
+        .unwrap_or_else(|| panic!("no entry for A/x.txt: {entries:?}"));
+    assert_eq!(item["kind"], "file");
+    let folder = entries
+        .iter()
+        .find(|e| e["original_path"] == "A")
+        .unwrap_or_else(|| panic!("no entry for A: {entries:?}"));
+    assert_eq!(folder["kind"], "dir");
+    assert_eq!(folder["original_name"], "A");
+
+    // Opening the trashed folder, as the web app does, still shows y.txt.
+    let inside = api_list(&app, &cookie, &folder_trash).await;
+    assert!(
+        inside.iter().any(|e| e["name"] == "y.txt"),
+        "y.txt missing from trashed A: {inside:?}"
+    );
+    let folder_disk = real_rel(root, &folder_trash).into_owned();
+    assert_eq!(
+        std::fs::read(root.join(&folder_disk).join("y.txt")).unwrap(),
+        b"y bytes"
+    );
+    let item_disk = real_rel(root, &item_trash).into_owned();
+    assert_eq!(std::fs::read(root.join(&item_disk)).unwrap(), b"x bytes");
+}
+
+#[tokio::test]
+async fn a_folder_and_a_file_with_one_name_removed_in_the_same_second_stay_apart() {
+    // The trash entry is `{unix seconds}-{name}`; a second entry with the same
+    // name in the same second must take the `{seconds}-{n}-{name}` form.
+    let mount = tempfile::tempdir().unwrap();
+    let root = mount.path();
+    std::fs::create_dir(root.join("A")).unwrap();
+    std::fs::write(root.join("A/x.txt"), b"x bytes").unwrap();
+    std::fs::write(root.join("A/y.txt"), b"y bytes").unwrap();
+    let (_dir, app) = api_app(root);
+    let (cookie, csrf) = api_login(&app).await;
+
+    api_remove(&app, &cookie, &csrf, "A/x.txt").await;
+    let folder_trash = api_remove(&app, &cookie, &csrf, "A").await;
+    std::fs::write(root.join("A"), b"a file named A").unwrap();
+    let file_trash = api_remove(&app, &cookie, &csrf, "A").await;
+
+    assert_ne!(folder_trash, file_trash, "two entries share one trash name");
+    let entries = api_list(&app, &cookie, ".luna-trash").await;
+    assert_eq!(entries.len(), 3, "{entries:?}");
+    let named_a: Vec<_> = entries
+        .iter()
+        .filter(|e| e["original_path"] == "A")
+        .collect();
+    assert_eq!(named_a.len(), 2, "{entries:?}");
+    assert!(named_a.iter().any(|e| e["kind"] == "dir"), "{entries:?}");
+    assert!(named_a.iter().any(|e| e["kind"] == "file"), "{entries:?}");
+
+    let folder_disk = real_rel(root, &folder_trash).into_owned();
+    assert_eq!(
+        std::fs::read(root.join(&folder_disk).join("y.txt")).unwrap(),
+        b"y bytes"
+    );
+    let file_disk = real_rel(root, &file_trash).into_owned();
+    assert_eq!(
+        std::fs::read(root.join(&file_disk)).unwrap(),
+        b"a file named A"
     );
 }

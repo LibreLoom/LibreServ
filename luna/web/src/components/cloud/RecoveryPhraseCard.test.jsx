@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 import RecoveryPhraseCard from "./RecoveryPhraseCard.jsx";
 import { toBase64 } from "../../lib/cloudPhrase";
-import { SIG_PUBLIC_LEN } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { derive, entropyToPhrase, newEntropy, phraseToEntropy, SIG_PUBLIC_LEN } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { openScopeSecret, sealScopeSecret } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
+import { fromBase64 } from "../../lib/cloudPhrase";
 
 const SIGNING_PUBLIC = new Uint8Array(SIG_PUBLIC_LEN).map((_, i) => (i + 7) % 256);
 
@@ -13,8 +16,9 @@ function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
+let mockRole = "admin";
 vi.mock("../../context/AuthContext", () => ({
-  useOptionalAuth: () => ({ user: { id: "42" } }),
+  useOptionalAuth: () => ({ user: { id: "42", role: mockRole } }),
 }));
 
 function stubStatus(status) {
@@ -28,88 +32,650 @@ function renderCard() {
     <QueryClientProvider client={client}>
       <ToastProvider>
         <RecoveryPhraseCard />
+        <Toaster />
       </ToastProvider>
     </QueryClientProvider>,
   );
 }
 
 afterEach(() => {
+  mockRole = "admin";
   vi.unstubAllGlobals();
 });
 
 describe("RecoveryPhraseCard", () => {
-  it("explains why the phrase matters and offers Set up when not set", async () => {
+  it("shows a loading line first", () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+    renderCard();
+    expect(screen.getByText("Checking your recovery phrase…")).toBeInTheDocument();
+  });
+
+  it("has no Not set up state: an unset phrase says to reload, with no Set up button", async () => {
     stubStatus({ set: false, set_at: null, luna_id: "luna-1" });
     renderCard();
 
-    expect(await screen.findByText(/Cloud backups are locked with recovery words only you know/)).toBeInTheDocument();
-    expect(screen.getByText(/^Not set\./)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Set up" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Change" })).toBeNull();
+    expect(await screen.findByText("Your recovery phrase isn't saved yet. Reload this page to set it up.")).toBeInTheDocument();
+    expect(screen.queryByText("Not set up")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Set up" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Change phrase" })).toBeNull();
   });
 
-  it("shows the date it was set with Check my words and Change when set", async () => {
-    stubStatus({ set: true, set_at: 1_700_000_000, luna_id: "luna-1" });
+  it("gives a Member no 'shared backups wait for an Admin' line", async () => {
+    mockRole = "member";
+    stubStatus({ set: false, set_at: null, luna_id: "luna-1" });
+    renderCard();
+    await screen.findByText(/Reload this page/);
+    expect(screen.queryByText(/Shared backups also wait/)).toBeNull();
+  });
+
+  it("shows Ready, the dates, and both buttons when set", async () => {
+    stubStatus({ set: true, set_at: 1_700_000_000, last_checked_at: 1_700_500_000, check_due: false, luna_id: "luna-1" });
     renderCard();
 
-    expect(await screen.findByText(/Set on /)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Check my words" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Change" })).toBeInTheDocument();
+    expect(await screen.findByText(/^Set up on .+ · Last checked /)).toBeInTheDocument();
+    expect(screen.getByText("Ready")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check my phrase" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Change phrase" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Set up" })).toBeNull();
   });
 
-  it("shows the API's own error sentence when status cannot load", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () =>
-      new Response(JSON.stringify({ error: "Luna could not read its keys." }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      })));
-    renderCard();
+  it("shows how many words the phrase has in the set line, and leaves it out while unknown", async () => {
+    stubStatus({ set: true, set_at: 1_700_000_000, last_checked_at: 1_700_500_000, luna_id: "luna-1", phrase_words: 12 });
+    const { unmount } = renderCard();
+    expect(await screen.findByText(/^12 words · Set up on .+ · Last checked /)).toBeInTheDocument();
+    unmount();
 
-    expect(await screen.findByText("Luna could not read its keys.")).toBeInTheDocument();
+    stubStatus({ set: true, set_at: 1_700_000_000, last_checked_at: 1_700_500_000, luna_id: "luna-1", phrase_words: 0 });
+    renderCard();
+    expect(await screen.findByText(/^Set up on /)).toBeInTheDocument();
   });
 
-  it("creates Luna's identity first when a fresh Luna sets up its phrase", async () => {
+  it("leaves the set-up date out of the line when the date is 0", async () => {
+    stubStatus({ set: true, set_at: 0, last_checked_at: 1_700_500_000, check_due: false, luna_id: "luna-1" });
+    renderCard();
+
+    expect(await screen.findByText(/^Last checked .+/)).toBeInTheDocument();
+    expect(screen.queryByText(/Set up on/)).toBeNull();
+    expect(screen.queryByText(/^ ·/)).toBeNull();
+  });
+
+  it("says Not checked yet when the phrase was never checked", async () => {
+    stubStatus({ set: true, set_at: 1_700_000_000, last_checked_at: 0, luna_id: "luna-1" });
+    renderCard();
+    expect(await screen.findByText(/· Not checked yet$/)).toBeInTheDocument();
+  });
+
+  it("shows Check due and makes Check my phrase the main button", async () => {
+    stubStatus({ set: true, set_at: 1_700_000_000, last_checked_at: 0, check_due: true, luna_id: "luna-1" });
+    renderCard();
+
+    expect(await screen.findByText("Check due")).toBeInTheDocument();
+    expect(screen.queryByText("Ready")).toBeNull();
+    const check = screen.getByRole("button", { name: "Check my phrase" });
+    const change = screen.getByRole("button", { name: "Change phrase" });
+    expect(check.className).not.toBe(change.className);
+  });
+
+  it("shows a plain line when status cannot load", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ error: "Luna could not read its keys." }, 500)));
+    renderCard();
+    expect(await screen.findByText("Could not load your recovery phrase. Try again later.")).toBeInTheDocument();
+  });
+
+  it("shows the old-phrase row and deletes after confirming", async () => {
     const user = userEvent.setup();
     const calls = [];
     vi.stubGlobal("fetch", vi.fn(async (path, options = {}) => {
       calls.push([String(path), options.method ?? "GET"]);
-      if (String(path) === "/api/v1/cloud/identity") {
-        return jsonResponse({ luna_id: "luna-new", signing_public: toBase64(SIGNING_PUBLIC) });
-      }
-      return jsonResponse({ set: false, set_at: null, luna_id: null });
+      return jsonResponse({
+        set: true, set_at: 1_700_000_000, luna_id: "luna-1",
+        old_phrase_copies: { count: 2, removed_at: 1_700_900_000 },
+      });
     }));
     renderCard();
 
-    await user.click(await screen.findByRole("button", { name: "Set up" }));
-
-    expect(await screen.findByRole("heading", { name: "Set up your recovery phrase" })).toBeInTheDocument();
-    expect(calls).toContainEqual(["/api/v1/cloud/identity", "POST"]);
+    expect(await screen.findByText(/^Backups made with your old phrase · removed on /)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Delete now" }));
+    expect(await screen.findByText(/Deleting them removes them from the cloud for good/)).toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: "Delete now" }).at(-1));
+    await waitFor(() => expect(calls).toContainEqual(["/api/v1/private-backups/old-copies", "DELETE"]));
   });
 
-  it("offers Get a new phrase with a warning and no request for the old words", async () => {
+  it("keeps the confirm open and shows the error when deleting old backups fails", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(async (path, options = {}) => {
+      if (options.method === "DELETE") return jsonResponse({ error: "Connect is not reachable." }, 502);
+      return jsonResponse({
+        set: true, set_at: 1_700_000_000, luna_id: "luna-1",
+        old_phrase_copies: { count: 1, removed_at: 1_700_900_000 },
+      });
+    }));
+    renderCard();
+
+    await user.click(await screen.findByRole("button", { name: "Delete now" }));
+    await user.click(screen.getAllByRole("button", { name: "Delete now" }).at(-1));
+    expect(await screen.findByText("Connect is not reachable.")).toBeInTheDocument();
+  });
+
+  it("leaves the removal date out of the old-phrase row when the date is 0", async () => {
+    stubStatus({
+      set: true, set_at: 1_700_000_000, luna_id: "luna-1",
+      old_phrase_copies: { count: 2, removed_at: 0 },
+    });
+    renderCard();
+
+    expect(await screen.findByText("Backups made with your old phrase")).toBeInTheDocument();
+    expect(screen.queryByText(/removed on/)).toBeNull();
+  });
+
+  it("hides the old-phrase row when there are no old copies", async () => {
+    stubStatus({ set: true, set_at: 1_700_000_000, luna_id: "luna-1", old_phrase_copies: { count: 0, removed_at: 0 } });
+    renderCard();
+    await screen.findByText("Ready");
+    expect(screen.queryByText(/Backups made with your old phrase/)).toBeNull();
+  });
+
+  it("offers Get a new phrase under Lost your recovery phrase? with a warning", async () => {
     const user = userEvent.setup();
     stubStatus({ set: true, set_at: 1_700_000_000, luna_id: "luna-1", signing_public: toBase64(SIGNING_PUBLIC) });
     renderCard();
 
-    expect(await screen.findByText(/Your old phrase stops working for you/)).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Lost your recovery phrase?" }));
+    expect(screen.getByText(/Private items backed up with the old phrase can't be opened anymore/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Get a new phrase" }));
 
-    expect(await screen.findByRole("heading", { name: "Set a new recovery phrase" })).toBeInTheDocument();
-    expect(screen.queryByText("Enter your current recovery words first. Then you can set new ones.")).toBeNull();
+    expect(await screen.findByRole("heading", { name: "Get a new phrase?" })).toBeInTheDocument();
+    expect(screen.getByText("Private items backed up with your old phrase can't be opened anymore.")).toBeInTheDocument();
+  });});
+
+// ── Replacing and checking the phrase ────────────────────────────────────────
+
+const SET_STATUS = {
+  set: true,
+  set_at: 1_700_000_000,
+  last_checked_at: 1_700_500_000,
+  check_due: false,
+  luna_id: "luna-1",
+  signing_public: toBase64(SIGNING_PUBLIC),
+  old_phrase_copies: { count: 0, removed_at: 0 },
+};
+const CHALLENGE = toBase64(new Uint8Array(32).map((_, i) => 100 + i));
+
+/**
+ * Routes the phrase endpoints. Each reply is [status, body] or a function of the call.
+ * `status` and `put` may be functions of the calls so far (for state that changes after a save).
+ */
+function routePhraseApi(/** @type {any} */ options = {}) {
+  const {
+    status = SET_STATUS,
+    check = [200, { ok: true }],
+    put = [200, { set: true, set_at: 1 }],
+    scopes = [200, { scopes: [] }],
+    retire = [200, { ok: true }],
+  } = options;
+  const calls = [];
+  const fetchMock = vi.fn(async (path, options = {}) => {
+    const method = options.method ?? "GET";
+    const key = `${method} ${String(path)}`;
+    const body = options.body ? JSON.parse(options.body) : null;
+    calls.push({ key, body });
+    let reply;
+    if (key === "GET /api/v1/cloud/phrase") reply = typeof status === "function" ? status(calls) : [200, status];
+    else if (key === "POST /api/v1/cloud/phrase/challenge") reply = [200, { challenge: CHALLENGE }];
+    else if (key === "POST /api/v1/cloud/phrase/check") reply = check;
+    else if (key === "PUT /api/v1/cloud/phrase") reply = typeof put === "function" ? put(calls) : put;
+    else if (key === "GET /api/v1/cloud/phrase/scopes") reply = scopes;
+    else if (key === "DELETE /api/v1/private-backups/older-versions") reply = retire;
+    else reply = [404, { error: "not in this test" }];
+    const [code, payload] = reply;
+    return jsonResponse(payload, code);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return { calls, fetchMock, puts: () => calls.filter((c) => c.key === "PUT /api/v1/cloud/phrase").map((c) => c.body) };
+}
+
+/** Pastes a phrase into the check boxes and continues. */
+async function typePhraseAndContinue(user, phrase, label = "Continue") {
+  await user.click(screen.getByLabelText("Word 1"));
+  await user.paste(phrase);
+  await user.click(screen.getByRole("button", { name: label }));
+}
+
+/** Reads the new phrase on screen, then types the three asked words to confirm it. Returns the phrase. */
+async function confirmShownPhrase(user) {
+  const words = screen.getAllByRole("listitem").map((li) => li.textContent.replace(/^\d+\./, ""));
+  await user.click(screen.getByRole("button", { name: "I wrote it down" }));
+  for (const input of screen.getAllByRole("textbox")) {
+    const n = Number(input.getAttribute("aria-label").replace("Word ", ""));
+    await user.type(input, words[n - 1]);
+  }
+  await user.click(screen.getByRole("button", { name: "Save recovery phrase" }));
+  return words.join(" ");
+}
+
+describe("RecoveryPhraseCard, change phrase", () => {
+  it("refuses a wrong current phrase inline and never sends a save", async () => {
+    const user = userEvent.setup();
+    const api = routePhraseApi({ check: [403, { error: "no" }] });
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Change phrase" }));
+    await typePhraseAndContinue(user, entropyToPhrase(newEntropy(12)));
+
+    expect(await screen.findByText(/That isn't the recovery phrase for your account/)).toBeInTheDocument();
+    expect(screen.queryByText("Could someone else have your phrase?")).toBeNull();
+    expect(api.puts()).toHaveLength(0);
+    expect(screen.queryByText("Recovery phrase changed.")).toBeNull();
   });
 
-  it("shows an error and stays put when Luna cannot create its identity", async () => {
+  it("shows the lockout message from a 429 on the check and does not retry", async () => {
     const user = userEvent.setup();
-    vi.stubGlobal("fetch", vi.fn(async (path) => {
-      if (String(path) === "/api/v1/cloud/identity") return jsonResponse({ error: "Luna could not make its keys." }, 500);
-      return jsonResponse({ set: false, set_at: null, luna_id: null });
-    }));
+    const api = routePhraseApi({ check: [429, { error: "slow down" }] });
     renderCard();
+    await user.click(await screen.findByRole("button", { name: "Change phrase" }));
+    await typePhraseAndContinue(user, entropyToPhrase(newEntropy(12)));
 
-    await user.click(await screen.findByRole("button", { name: "Set up" }));
+    expect(await screen.findByText("Too many wrong tries. Wait a few minutes, then try again.")).toBeInTheDocument();
+    expect(api.calls.filter((c) => c.key === "POST /api/v1/cloud/phrase/check")).toHaveLength(1);
+  });
 
-    expect(await screen.findByText("Luna could not make its keys.")).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "Set up your recovery phrase" })).toBeNull());
+  it("saves with an old-phrase signature and exposed false, then toasts", async () => {
+    const user = userEvent.setup();
+    const api = routePhraseApi();
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Change phrase" }));
+    await typePhraseAndContinue(user, entropyToPhrase(newEntropy(12)));
+    await user.click(await screen.findByText("No, it's only mine"));
+    await confirmShownPhrase(user);
+
+    expect(await screen.findByText("Recovery phrase changed.")).toBeInTheDocument();
+    const [put] = api.puts();
+    expect(put.proof).toBe("old_signature");
+    expect(put.exposed).toBe(false);
+    expect(put.signature).toEqual(expect.any(String));
+    expect(put).not.toHaveProperty("password");
+    expect(api.calls.map((c) => c.key)).toContain("POST /api/v1/cloud/phrase/challenge");
+  });
+
+  it("forwards exposed true when the answer is Someone may have it", async () => {
+    const user = userEvent.setup();
+    const api = routePhraseApi();
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Change phrase" }));
+    await typePhraseAndContinue(user, entropyToPhrase(newEntropy(12)));
+    await user.click(await screen.findByText("Someone may have it"));
+    await confirmShownPhrase(user);
+
+    expect(await screen.findByText("Recovery phrase changed.")).toBeInTheDocument();
+    expect(api.puts()[0].exposed).toBe(true);
+  });
+
+  it("keeps the dialog open with the refusal inline and shows no toast when the save is refused", async () => {
+    const user = userEvent.setup();
+    routePhraseApi({ put: [403, { error: "no" }] });
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Change phrase" }));
+    await typePhraseAndContinue(user, entropyToPhrase(newEntropy(12)));
+    await user.click(await screen.findByText("No, it's only mine"));
+    await confirmShownPhrase(user);
+
+    expect(await screen.findByText(/Luna did not accept your old phrase/)).toBeInTheDocument();
+    expect(screen.queryByText("Recovery phrase changed.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Save recovery phrase" })).toBeInTheDocument();
+  });
+
+  it("shows the lockout message when the save is locked out, with no toast", async () => {
+    const user = userEvent.setup();
+    routePhraseApi({ put: [429, { error: "slow down" }] });
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Change phrase" }));
+    await typePhraseAndContinue(user, entropyToPhrase(newEntropy(12)));
+    await user.click(await screen.findByText("No, it's only mine"));
+    await confirmShownPhrase(user);
+
+    expect(await screen.findByText("Too many wrong tries. Wait a few minutes, then try again.")).toBeInTheDocument();
+    expect(screen.queryByText("Recovery phrase changed.")).toBeNull();
+  });
+});
+
+describe("RecoveryPhraseCard, get a new phrase (lost)", () => {
+  it("sends the Luna password as the proof, with exposed false, then shows the old-phrase copies row", async () => {
+    const user = userEvent.setup();
+    let copies = { count: 0, removed_at: 0 };
+    const api = routePhraseApi({
+      status: () => [200, { ...SET_STATUS, old_phrase_copies: copies }],
+      put: () => {
+        copies = { count: 2, removed_at: 1_700_900_000 };
+        return [200, { set: true, set_at: 1 }];
+      },
+    });
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Lost your recovery phrase?" }));
+    await user.click(screen.getByRole("button", { name: "Get a new phrase" }));
+    await user.click(await screen.findByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByText("No, it's just lost"));
+    await user.type(screen.getByLabelText("Your Luna password"), "a long password");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await confirmShownPhrase(user);
+
+    expect(await screen.findByText("New recovery phrase saved.")).toBeInTheDocument();
+    const [put] = api.puts();
+    expect(put.proof).toBe("password");
+    expect(put.password).toBe("a long password");
+    expect(put.exposed).toBe(false);
+    expect(put).not.toHaveProperty("signature");
+    expect(await screen.findByText(/^Backups made with your old phrase · removed on /)).toBeInTheDocument();
+  });
+
+  it("sends exposed true when the answer is Someone may have it", async () => {
+    const user = userEvent.setup();
+    const api = routePhraseApi();
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Lost your recovery phrase?" }));
+    await user.click(screen.getByRole("button", { name: "Get a new phrase" }));
+    await user.click(await screen.findByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByText("Someone may have it"));
+    await user.type(screen.getByLabelText("Your Luna password"), "pw");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await confirmShownPhrase(user);
+
+    expect(await screen.findByText("New recovery phrase saved.")).toBeInTheDocument();
+    expect(api.puts()[0].exposed).toBe(true);
+  });
+
+  it("refuses a wrong password inline, with no toast", async () => {
+    const user = userEvent.setup();
+    routePhraseApi({ put: [403, { error: "no" }] });
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Lost your recovery phrase?" }));
+    await user.click(screen.getByRole("button", { name: "Get a new phrase" }));
+    await user.click(await screen.findByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByText("No, it's just lost"));
+    await user.type(screen.getByLabelText("Your Luna password"), "wrong");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await confirmShownPhrase(user);
+
+    expect(await screen.findByText("That is not your Luna password. Try again.")).toBeInTheDocument();
+    expect(screen.queryByText("New recovery phrase saved.")).toBeNull();
+  });
+
+  it("shows the lockout message when the password is locked out", async () => {
+    const user = userEvent.setup();
+    routePhraseApi({ put: [429, { error: "slow down" }] });
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Lost your recovery phrase?" }));
+    await user.click(screen.getByRole("button", { name: "Get a new phrase" }));
+    await user.click(await screen.findByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByText("No, it's just lost"));
+    await user.type(screen.getByLabelText("Your Luna password"), "pw");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await confirmShownPhrase(user);
+
+    expect(await screen.findByText("Too many wrong tries. Wait a few minutes, then try again.")).toBeInTheDocument();
+  });
+});
+
+describe("RecoveryPhraseCard, check my phrase", () => {
+  it("refuses wrong words in the check and keeps the reminder", async () => {
+    const user = userEvent.setup();
+    routePhraseApi({ check: [403, { error: "no" }], status: { ...SET_STATUS, check_due: true } });
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Check my phrase" }));
+    await typePhraseAndContinue(user, entropyToPhrase(newEntropy(12)), "Check");
+
+    expect(await screen.findByText(/That isn't the recovery phrase for your account/)).toBeInTheDocument();
+    expect(screen.getByText("Check due")).toBeInTheDocument();
+  });
+});
+
+describe("RecoveryPhraseCard, check passes", () => {
+  it("toasts that the phrase is correct, when it will be asked again, and closes the dialog", async () => {
+    const user = userEvent.setup();
+    routePhraseApi({ status: { ...SET_STATUS, phrase_words: 12 } });
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Check my phrase" }));
+    await typePhraseAndContinue(user, entropyToPhrase(newEntropy(12)), "Check");
+
+    expect(await screen.findByText("Your recovery phrase is correct.")).toBeInTheDocument();
+    expect(screen.getByText("Luna will ask you to check it again in 90 days.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByLabelText("Word 1")).toBeNull());
+  });
+
+  it("shows 24 boxes and no switch when Luna says the phrase has 24 words", async () => {
+    const user = userEvent.setup();
+    routePhraseApi({ status: { ...SET_STATUS, phrase_words: 24 } });
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Check my phrase" }));
+    expect(await screen.findAllByRole("textbox")).toHaveLength(24);
+    expect(screen.queryByRole("radio", { name: "12 words" })).toBeNull();
+  });
+
+  it("offers 'Lost your phrase?' after a refusal and opens the lost-phrase steps from it", async () => {
+    const user = userEvent.setup();
+    routePhraseApi({ check: [403, { error: "no" }] });
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Check my phrase" }));
+    await typePhraseAndContinue(user, entropyToPhrase(newEntropy(12)), "Check");
+    await user.click(await screen.findByRole("button", { name: "Lost your phrase?" }));
+
+    expect(await screen.findByRole("heading", { name: "Get a new phrase?" })).toBeInTheDocument();
+  });
+
+  it("says an expired check took too long, not that the phrase is wrong", async () => {
+    const user = userEvent.setup();
+    routePhraseApi({ check: [400, { error: "That check took too long. Start it again." }] });
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Check my phrase" }));
+    await typePhraseAndContinue(user, entropyToPhrase(newEntropy(12)), "Check");
+
+    expect(await screen.findByText("That check took too long. Start it again.")).toBeInTheDocument();
+    expect(screen.queryByText(/That isn't the recovery phrase/)).toBeNull();
+  });
+});
+
+describe("RecoveryPhraseCard, resealing", () => {
+  it("says backups are updating while status reports resealing", async () => {
+    routePhraseApi({ status: { ...SET_STATUS, resealing: true } });
+    renderCard();
+    expect(await screen.findByText("Updating your cloud backups to the new phrase…")).toBeInTheDocument();
+  });
+
+  it("does not show the line when resealing is false", async () => {
+    routePhraseApi({ status: { ...SET_STATUS, resealing: false } });
+    renderCard();
+    await screen.findByText("Ready");
+    expect(screen.queryByText("Updating your cloud backups to the new phrase…")).toBeNull();
+  });
+
+  it("polls status while resealing and stops once it is false", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let resealing = true;
+      const api = routePhraseApi({ status: () => [200, { ...SET_STATUS, resealing }] });
+      renderCard();
+      expect(await screen.findByText("Updating your cloud backups to the new phrase…")).toBeInTheDocument();
+
+      resealing = false;
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      await waitFor(() => expect(screen.queryByText("Updating your cloud backups to the new phrase…")).toBeNull());
+
+      const gets = () => api.calls.filter((c) => c.key === "GET /api/v1/cloud/phrase").length;
+      const settled = gets();
+      await act(async () => { await vi.advanceTimersByTimeAsync(20000); });
+      expect(gets()).toBe(settled);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("RecoveryPhraseCard, signing key stays in memory", () => {
+  it("never writes the phrase or the keys to browser storage during a change", async () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    const user = userEvent.setup();
+    routePhraseApi();
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Change phrase" }));
+    await typePhraseAndContinue(user, entropyToPhrase(newEntropy(12)));
+    await user.click(await screen.findByText("No, it's only mine"));
+    await confirmShownPhrase(user);
+    await screen.findByText("Recovery phrase changed.");
+    expect(setItem).not.toHaveBeenCalled();
+    setItem.mockRestore();
+  });
+});
+
+describe("RecoveryPhraseCard, private scopes on a phrase change", () => {
+  const OLD_PHRASE = entropyToPhrase(newEntropy(12));
+
+  /** A scope secret sealed to the phrase's sealing key, as Luna holds it. */
+  function sealedFor(phrase, scope, secret) {
+    const { sealPublic } = derive(phraseToEntropy(phrase), "luna-1");
+    return toBase64(sealScopeSecret(secret, sealPublic, "luna-1", scope));
+  }
+
+  it("re-seals each scope the old phrase opens to the new phrase and sends it as rescoped", async () => {
+    const user = userEvent.setup();
+    const secret = new Uint8Array(96).map((_, i) => (i * 3) % 256);
+    const api = routePhraseApi({
+      scopes: [200, { scopes: [{ scope: "scope-1", sealed_scope_secret: sealedFor(OLD_PHRASE, "scope-1", secret) }] }],
+    });
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Change phrase" }));
+    await typePhraseAndContinue(user, OLD_PHRASE);
+    await user.click(await screen.findByText("No, it's only mine"));
+    const newPhrase = await confirmShownPhrase(user);
+
+    expect(await screen.findByText("Recovery phrase changed.")).toBeInTheDocument();
+    const [put] = api.puts();
+    expect(put.rescoped).toHaveLength(1);
+    expect(put.rescoped[0].scope).toBe("scope-1");
+    const opened = openScopeSecret(
+      fromBase64(put.rescoped[0].sealed_scope_secret),
+      derive(phraseToEntropy(newPhrase), "luna-1").sealSecret,
+      "luna-1",
+      "scope-1",
+    );
+    expect(opened).toEqual(secret);
+    // The first challenge belongs to checking the old phrase. The scopes are read before the
+    // replace challenge (the last one) is asked for, so that challenge is still fresh when signed.
+    const keys = api.calls.map((c) => c.key);
+    expect(keys.indexOf("GET /api/v1/cloud/phrase/scopes")).toBeLessThan(keys.lastIndexOf("POST /api/v1/cloud/phrase/challenge"));
+    expect(keys.lastIndexOf("POST /api/v1/cloud/phrase/challenge")).toBeLessThan(keys.indexOf("PUT /api/v1/cloud/phrase"));
+  });
+
+  it("does not save when the list of scopes cannot be read", async () => {
+    const user = userEvent.setup();
+    const api = routePhraseApi({ scopes: [500, { error: "down" }] });
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Change phrase" }));
+    await typePhraseAndContinue(user, OLD_PHRASE);
+    await user.click(await screen.findByText("No, it's only mine"));
+    await confirmShownPhrase(user);
+
+    expect(await screen.findByText("Could not read your private backups. Try again.")).toBeInTheDocument();
+    expect(api.puts()).toHaveLength(0);
+  });
+
+  it("toasts how many private backups could not be kept", async () => {
+    const user = userEvent.setup();
+    routePhraseApi({ put: [200, { set: true, set_at: 1, rescope_failed: 2 }] });
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Change phrase" }));
+    await typePhraseAndContinue(user, OLD_PHRASE);
+    await user.click(await screen.findByText("No, it's only mine"));
+    await confirmShownPhrase(user);
+
+    expect(await screen.findByText("2 private backups could not be kept. Luna removes their older versions after 30 days.")).toBeInTheDocument();
+  });
+
+  it("deletes older private versions through DELETE /api/v1/private-backups/older-versions", async () => {
+    const user = userEvent.setup();
+    const api = routePhraseApi();
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Change phrase" }));
+    await typePhraseAndContinue(user, OLD_PHRASE);
+    await user.click(await screen.findByText("Someone may have it"));
+    await confirmShownPhrase(user);
+
+    expect(await screen.findByText("Delete older private versions?")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Delete older versions" }));
+    await waitFor(() =>
+      expect(api.calls.map((c) => c.key)).toContain("DELETE /api/v1/private-backups/older-versions"));
+    expect(await screen.findByText("Older private versions deleted.")).toBeInTheDocument();
+  });
+
+  it("keeps the step open and shows the error when deleting older versions fails", async () => {
+    const user = userEvent.setup();
+    routePhraseApi({ retire: [500, { error: "Luna couldn't delete your older private versions. Try again." }] });
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Change phrase" }));
+    await typePhraseAndContinue(user, OLD_PHRASE);
+    await user.click(await screen.findByText("Someone may have it"));
+    await confirmShownPhrase(user);
+    await user.click(await screen.findByRole("button", { name: "Delete older versions" }));
+
+    expect(await screen.findByText("Luna couldn't delete your older private versions. Try again.")).toBeInTheDocument();
+    expect(screen.getByText("Delete older private versions?")).toBeInTheDocument();
+  });
+});
+
+
+describe("RecoveryPhraseCard, refused password and moving advice", () => {
+  async function openLostPassword(user) {
+    await user.click(await screen.findByRole("button", { name: "Lost your recovery phrase?" }));
+    await user.click(screen.getByRole("button", { name: "Get a new phrase" }));
+    await user.click(await screen.findByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByText("No, it's just lost"));
+  }
+
+  it("goes back to the password step after a refusal and never sends that password again", async () => {
+    const user = userEvent.setup();
+    const api = routePhraseApi({ put: (calls) => (calls.filter((c) => c.key === "PUT /api/v1/cloud/phrase").length === 1 ? [403, { error: "no" }] : [200, { set: true, set_at: 1 }]) });
+    renderCard();
+    await openLostPassword(user);
+    await user.type(screen.getByLabelText("Your Luna password"), "wrong one");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    const firstPhrase = await confirmShownPhrase(user);
+
+    expect(await screen.findByText("That is not your Luna password. Try again.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Your Luna password")).toHaveValue("");
+    expect(screen.queryByRole("button", { name: "I wrote it down" })).toBeNull();
+
+    await user.type(screen.getByLabelText("Your Luna password"), "right one");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    const secondPhrase = await confirmShownPhrase(user);
+
+    expect(await screen.findByText("New recovery phrase saved.")).toBeInTheDocument();
+    const puts = api.puts();
+    expect(puts.map((p) => p.password)).toEqual(["wrong one", "right one"]);
+    expect(secondPhrase).not.toBe(firstPhrase);
+  });
+
+  it("shows the lockout message on the password step after a 429", async () => {
+    const user = userEvent.setup();
+    const api = routePhraseApi({ put: [429, { error: "slow" }] });
+    renderCard();
+    await openLostPassword(user);
+    await user.type(screen.getByLabelText("Your Luna password"), "pw");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await confirmShownPhrase(user);
+    expect(await screen.findByText("Too many wrong tries. Wait a few minutes, then try again.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Your Luna password")).toBeInTheDocument();
+    expect(api.puts()).toHaveLength(1);
+  });
+
+  it("shows the Admin advice to add storage to Admins, and a neutral line to Members", async () => {
+    const paused = { ...SET_STATUS, moving: { percent: 40, paused_full: true } };
+    routePhraseApi({ status: paused });
+    const { unmount } = renderCard();
+    expect(await screen.findByText(/Free up space or add storage on Luna Connect/)).toBeInTheDocument();
+    unmount();
+
+    mockRole = "user";
+    routePhraseApi({ status: paused });
+    renderCard();
+    expect(await screen.findByText(/Connect storage is full, so the move is paused\. Nothing old was deleted\./)).toBeInTheDocument();
+    expect(screen.queryByText(/add storage on Luna Connect/)).toBeNull();
+    expect(screen.getByText(/An Admin can free up space or add storage/)).toBeInTheDocument();
   });
 });

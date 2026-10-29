@@ -14,5 +14,6 @@ pub mod private_recover;
 pub mod private_run;
 pub mod recover;
 pub mod retention;
+pub mod rewrap;
 pub mod run;
 pub mod store;

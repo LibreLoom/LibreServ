@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Check,
@@ -7,11 +7,16 @@ import {
   File as FileIcon,
   Folder,
   FolderInput,
+  Info,
   Pencil,
   Trash2,
+  Users,
+  Zap,
 } from "lucide-react";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import CardButton from "@libreloom/ui/components/ui/CardButton.jsx";
 import AnimatedCheckbox from "@libreloom/ui/components/ui/AnimatedCheckbox.jsx";
 import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -22,7 +27,7 @@ import { joinPath } from "../../lib/paths.js";
 import FormResponseBadge from "./forms/FormResponseBadge.jsx";
 import PrivateBadge from "../private/PrivateBadge.jsx";
 import { PropertiesButton } from "./PropertiesSheet.jsx";
-import { canOpenRow, displayNameOf } from "./fileRowUtils.js";
+import { canOpenRow, displayNameOf, useIsSmUp } from "./fileRowUtils.js";
 
 /**
  * One file or folder row. Memoized: a row only re-renders when its own entry,
@@ -41,6 +46,7 @@ function FileRow({
   isPicker,
   pickerMode,
   pickSelected,
+  pickBlocked = false,
   multiSelect,
   linkNavigation,
   canDragRow,
@@ -65,6 +71,8 @@ function FileRow({
   setSize = undefined,
 }) {
   const source = useFileSource();
+  const isSmUp = useIsSmUp();
+  const [sheetOpen, setSheetOpen] = useState(false);
   const displayName = displayNameOf(entry);
   const fullPath = fileRoot ? path : joinPath(path, entry.name);
   const ctx = useMemo(
@@ -101,7 +109,7 @@ function FileRow({
       const canPick = pickerMode === "any"
         || (pickerMode === "folder" && isDir)
         || (pickerMode === "file" && entry.kind === "file");
-      if (!canPick || api.isTrash(fullPath)) return null;
+      if (!canPick || pickBlocked || api.isTrash(fullPath)) return null;
       return (
         <Button
           variant={pickSelected ? well : "outline"}
@@ -113,6 +121,23 @@ function FileRow({
         >
           {pickSelected ? <Check size={14} aria-hidden="true" /> : null}
           {pickSelected ? "Selected" : "Select"}
+        </Button>
+      );
+    }
+
+    // Phones: one lightning button opens every action, as in search results.
+    if (!isSmUp) {
+      return (
+        <Button
+          variant="outline"
+          surface={surface}
+          size="icon"
+          className="size-11"
+          aria-label={`Actions for ${displayName}`}
+          aria-haspopup="dialog"
+          onClick={() => setSheetOpen(true)}
+        >
+          <Zap size={24} aria-hidden="true" />
         </Button>
       );
     }
@@ -216,6 +241,10 @@ function FileRow({
       </ActionTooltipGroup>
     ) : null;
   }
+
+  const phoneActions = !isSmUp && !renderRowActions && !isPicker;
+  const canShareRow = hasShare && (capsBits(entry.caps || "") & CAP.SHARE) !== 0;
+  const canDownload = enableDownload && (entry.kind === "file" || isDir);
 
   const Icon = isDir ? Folder : FileIcon;
   const label = (
@@ -360,7 +389,7 @@ function FileRow({
         onMouseDown={(e) => e.stopPropagation()}
       >
         {renderActions()}
-        {!isPicker && (
+        {!isPicker && isSmUp && (
           <PropertiesButton
             label={displayName}
             onClick={() => api.openProperties(ctx)}
@@ -368,6 +397,59 @@ function FileRow({
           />
         )}
       </div>
+      {phoneActions ? (
+        <ModalCard open={sheetOpen} title={displayName} size="sm" onClose={() => setSheetOpen(false)}>
+          {({ close }) => {
+            const run = (fn) => () => {
+              close();
+              fn();
+            };
+            return (
+              <div className="grid gap-2">
+                {canShareRow && (
+                  <CardButton actionLabel="Sharing" icon={Users} align="start" className="mt-0" onClick={run(() => api.share(ctx))}>
+                    Sharing
+                  </CardButton>
+                )}
+                {hasCopy && (
+                  <CardButton actionLabel="Copy" icon={Copy} align="start" className="mt-0" onClick={run(() => api.copy([fullPath]))}>
+                    Copy
+                  </CardButton>
+                )}
+                {hasMove && (
+                  <CardButton actionLabel="Move" icon={FolderInput} align="start" className="mt-0" onClick={run(() => api.move([fullPath]))}>
+                    Move
+                  </CardButton>
+                )}
+                {hasRename && (
+                  <CardButton actionLabel="Rename" icon={Pencil} align="start" className="mt-0" onClick={run(() => api.rename(ctx))}>
+                    Rename
+                  </CardButton>
+                )}
+                {canDownload && (
+                  <CardButton
+                    actionLabel="Download"
+                    icon={Download}
+                    align="start"
+                    className="mt-0"
+                    onClick={run(() => window.location.assign(source.downloadHref(driveId, fullPath, entry.kind)))}
+                  >
+                    Download
+                  </CardButton>
+                )}
+                <CardButton actionLabel="Properties" icon={Info} align="start" className="mt-0" onClick={run(() => api.openProperties(ctx))}>
+                  Properties
+                </CardButton>
+                {hasDelete && (
+                  <CardButton variant="danger" actionLabel="Move to trash" icon={Trash2} align="start" className="mt-0 py-2" onClick={run(() => api.remove([fullPath]))}>
+                    Move to trash
+                  </CardButton>
+                )}
+              </div>
+            );
+          }}
+        </ModalCard>
+      ) : null}
     </li>
   );
 }

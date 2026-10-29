@@ -7,10 +7,12 @@ import {
 	findMyPrivateScopes,
 	openPrivateMeta,
 	openPrivateTreeBytes,
+	openScopeSecret,
 	PRIVATE_SNAPSHOT_DOMAIN,
 	privateUnwrap,
 	readPrivateSnapshots,
 	scopeOf,
+	sealScopeSecret,
 	signPrivateOpen,
 	verifyScopeRecord,
 } from './cloudPrivate.js';
@@ -21,6 +23,14 @@ const signingPublic = hexToBytes(fixture.signing_public);
 const aliceEntropy = hexToBytes(fixture.alice_entropy);
 const bobEntropy = hexToBytes(fixture.bob_entropy);
 const alice = derive(aliceEntropy, lunaId);
+const bob = derive(bobEntropy, lunaId);
+// Everything private is sealed to the scope's own key; the phrase only opens that key.
+const scopeSecret = openScopeSecret(
+	verifyScopeRecord(hexToBytes(p.records.pscopes[0].data), [hexToBytes(fixture.signing_public)], lunaId).sealedScopeSecret,
+	alice.sealSecret,
+	lunaId,
+	p.scope,
+);
 const dedupKey = hexToBytes(p.dedup_key);
 const challenge = hexToBytes(p.challenge);
 const records = (list) => list.map((r) => ({ name: r.name, data: hexToBytes(r.data) }));
@@ -59,12 +69,33 @@ describe('cloudPrivate', () => {
 		expect(verifyScopeRecord(pscopes[0].data, [signingPublic], 'other-luna')).toBeNull();
 	});
 
-	it('findMyPrivateScopes returns the fixture scope for its owner', () => {
+	it('findMyPrivateScopes returns the fixture scope for its owner, with the scope key', () => {
 		const found = findMyPrivateScopes({ lunaId, entropy: aliceEntropy, pscopes, signingPublics: [signingPublic] });
 		expect(found).toHaveLength(1);
 		expect(found[0].scope).toBe(p.scope);
 		expect(found[0].userId).toBe(p.owner_user_id);
 		expect(bytesToHex(found[0].dedupKey)).toBe(p.dedup_key);
+		expect(found[0].sealSecret).toEqual(scopeSecret);
+	});
+
+	it('openScopeSecret opens with the owner phrase only, and only for its own scope', () => {
+		const sealed = verifyScopeRecord(pscopes[0].data, [signingPublic], lunaId).sealedScopeSecret;
+		expect(openScopeSecret(sealed, alice.sealSecret, lunaId, p.scope)).toEqual(scopeSecret);
+		expect(() => openScopeSecret(sealed, bob.sealSecret, lunaId, p.scope)).toThrow(DAMAGED);
+		expect(() => openScopeSecret(sealed, alice.sealSecret, lunaId, 'ffffffffffffffffffffffffffffffff')).toThrow(DAMAGED);
+	});
+
+	it('the phrase key cannot open the snapshot details, only the scope key can', () => {
+		const sealedMeta = verifySnapshot(snapBytes, [signingPublic], lunaId, PRIVATE_SNAPSHOT_DOMAIN).meta;
+		expect(() => openPrivateMeta(sealedMeta, alice.sealSecret, lunaId, p.scope)).toThrow(DAMAGED);
+		expect(() => openPrivateMeta(sealedMeta, scopeSecret, lunaId, p.scope)).not.toThrow();
+	});
+
+	it('a re-sealed scope secret opens with the new phrase and not the old one', () => {
+		const next = derive(bobEntropy, lunaId);
+		const resealed = sealScopeSecret(scopeSecret, next.sealPublic, lunaId, p.scope);
+		expect(openScopeSecret(resealed, next.sealSecret, lunaId, p.scope)).toEqual(scopeSecret);
+		expect(() => openScopeSecret(resealed, alice.sealSecret, lunaId, p.scope)).toThrow(DAMAGED);
 	});
 
 	it('findMyPrivateScopes returns nothing for another phrase', () => {
@@ -74,7 +105,7 @@ describe('cloudPrivate', () => {
 	it('readPrivateSnapshots returns the fixture snapshot with its expected meta', () => {
 		const snaps = readPrivateSnapshots({
 			lunaId,
-			entropy: aliceEntropy,
+			sealSecret: scopeSecret,
 			scope: p.scope,
 			psnapshots,
 			signingPublics: [signingPublic],
@@ -90,6 +121,12 @@ describe('cloudPrivate', () => {
 		});
 	});
 
+	it('readPrivateSnapshots needs the scope key: the phrase key alone opens nothing', () => {
+		expect(
+			readPrivateSnapshots({ lunaId, sealSecret: alice.sealSecret, scope: p.scope, psnapshots, signingPublics: [signingPublic] }),
+		).toEqual([]);
+	});
+
 	it('verifySnapshot accepts a private snapshot only under the private domain', () => {
 		expect(verifySnapshot(snapBytes, [signingPublic], lunaId)).toBeNull();
 		expect(verifySnapshot(snapBytes, [signingPublic], lunaId, PRIVATE_SNAPSHOT_DOMAIN)).not.toBeNull();
@@ -98,7 +135,7 @@ describe('cloudPrivate', () => {
 	it('readPrivateSnapshots leaves out a snapshot that bob cannot open', () => {
 		const snaps = readPrivateSnapshots({
 			lunaId,
-			entropy: bobEntropy,
+			sealSecret: bob.sealSecret,
 			scope: p.scope,
 			psnapshots,
 			signingPublics: [signingPublic],
@@ -108,15 +145,15 @@ describe('cloudPrivate', () => {
 
 	it('openPrivateMeta throws DAMAGED with the wrong scope', () => {
 		const snap = verifySnapshot(snapBytes, [signingPublic], lunaId, PRIVATE_SNAPSHOT_DOMAIN);
-		expect(() => openPrivateMeta(snap.meta, alice.sealSecret, lunaId, 'ffffffffffffffffffffffffffffffff')).toThrow(
+		expect(() => openPrivateMeta(snap.meta, scopeSecret, lunaId, 'ffffffffffffffffffffffffffffffff')).toThrow(
 			DAMAGED,
 		);
 	});
 
 	it('readTreeWith reads the private tree and files through the private keys', async () => {
 		const snap = verifySnapshot(snapBytes, [signingPublic], lunaId, PRIVATE_SNAPSHOT_DOMAIN);
-		const unwrap = privateUnwrap(alice.sealSecret, lunaId, p.scope);
-		const tree = readTreeWith(packBytes(p.tree_pack_id), snap, unwrap, openPrivateTreeBytes(alice.sealSecret, lunaId, p.scope));
+		const unwrap = privateUnwrap(scopeSecret, lunaId, p.scope);
+		const tree = readTreeWith(packBytes(p.tree_pack_id), snap, unwrap, openPrivateTreeBytes(scopeSecret, lunaId, p.scope));
 		expect(tree.map((e) => e.path).sort()).toEqual(['b.bin', 'docs/a.txt']);
 
 		const readPack = makePackReaderWith(async (idHex) => packBytes(idHex), unwrap);
@@ -129,9 +166,9 @@ describe('cloudPrivate', () => {
 
 	it('readTreeWith throws CHANGED for a flipped tree pack byte', () => {
 		const snap = verifySnapshot(snapBytes, [signingPublic], lunaId, PRIVATE_SNAPSHOT_DOMAIN);
-		const unwrap = privateUnwrap(alice.sealSecret, lunaId, p.scope);
+		const unwrap = privateUnwrap(scopeSecret, lunaId, p.scope);
 		expect(() =>
-			readTreeWith(flipByte(packBytes(p.tree_pack_id), 60), snap, unwrap, openPrivateTreeBytes(alice.sealSecret, lunaId, p.scope)),
+			readTreeWith(flipByte(packBytes(p.tree_pack_id), 60), snap, unwrap, openPrivateTreeBytes(scopeSecret, lunaId, p.scope)),
 		).toThrow(CHANGED);
 	});
 

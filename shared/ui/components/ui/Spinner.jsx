@@ -27,6 +27,7 @@ const SIZE_PX = {
  *   size?: "sm"|"md"|"lg"|number,
  *   label?: string,
  *   decorative?: boolean,
+ *   paused?: boolean,
  *   [key: string]: any
  * }}
  */
@@ -35,6 +36,7 @@ export default function Spinner({
   size = "md",
   label = "Loading",
   decorative = false,
+  paused = false,
   ...props
 }) {
   const px = typeof size === "number" ? size : SIZE_PX[size] ?? SIZE_PX.md;
@@ -47,7 +49,13 @@ export default function Spinner({
         key={i}
         aria-hidden="true"
         className={isCenter ? "comet-spinner__center" : "comet-spinner__dot"}
-        style={isCenter ? undefined : { "--comet-i": ringIndex }}
+        style={
+          isCenter
+            ? undefined
+            : paused
+              ? { "--comet-i": ringIndex, animation: "none" }
+              : { "--comet-i": ringIndex }
+        }
       />
     );
   });
@@ -89,4 +97,5 @@ Spinner.propTypes = {
   ]),
   label: PropTypes.string,
   decorative: PropTypes.bool,
+  paused: PropTypes.bool,
 };

@@ -5,6 +5,7 @@ import { getJson, apiErrorMessage, postJson } from "../../lib/api.js";
 import { BACKUPS_PATH, fmtSize } from "../../lib/paths.js";
 import { base, downloadUrl, splitBackupPath } from "./backupsSource.js";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
+import { useFileOps } from "../../context/FileOpsContext.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
@@ -126,21 +127,23 @@ export function VersionsModal({ driveId, backup, file, onClose }) {
 }
 
 function FolderRestoreButton({ driveId, backupId, rel, label }) {
-  const queryClient = useQueryClient();
-  const { addToast } = useToast();
-  const restore = useMutation({
-    mutationFn: () => postJson(`${base(driveId, backupId)}/restore`, { path: rel }),
-    onSuccess: (data) => {
-      addToast({ type: "success", message: `Restored as ${data.name}.` });
-      queryClient.invalidateQueries({ queryKey: ["drive-backups", driveId] });
-    },
-    onError: (err) =>
-      addToast({
-        type: "error",
-        message: `Could not restore ${label}.`,
-        description: apiErrorMessage(err, "Try again."),
-      }),
-  });
+  const fileOps = useFileOps();
+  // The file task card owns the restore: it shows the wait, the result and any
+  // error, even if this list goes away.
+  function restore() {
+    let restoredName = label;
+    fileOps.startRequest({
+      kind: "restore-backup",
+      driveId,
+      title: label,
+      run: async () => {
+        const data = await postJson(`${base(driveId, backupId)}/restore`, { path: rel });
+        if (data?.name) restoredName = data.name;
+      },
+      successToast: () => `Restored as ${restoredName}.`,
+      invalidateKeys: [["drive-backups", driveId], ["files", driveId]],
+    });
+  }
   return (
     <Tooltip content="Restore to original folder">
       <Button
@@ -148,8 +151,7 @@ function FolderRestoreButton({ driveId, backupId, rel, label }) {
         surface="secondary"
         size="iconSm"
         aria-label={`Restore ${label} to original folder`}
-        disabled={restore.isPending}
-        onClick={() => restore.mutate()}
+        onClick={restore}
       >
         <RotateCcw size={ICON_SIZE.sm} />
       </Button>

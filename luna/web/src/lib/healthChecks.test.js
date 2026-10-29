@@ -3,7 +3,7 @@ import { displayLabel, labelFor, statusRank } from "./healthChecks.js";
 
 describe("healthChecks", () => {
   it("labels core checks in plain language", () => {
-    expect(labelFor("disk_space")).toBe("Storage space");
+    expect(labelFor("disk_space")).toBe("Luna's own storage");
     expect(labelFor("data_path_writable")).toBe("Luna data folder");
     expect(labelFor("database")).toBe("Accounts and settings");
     expect(labelFor("office_pack")).toBe("Documents, spreadsheets, and presentations");

@@ -11,6 +11,8 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { apiErrorMessage, deleteJson, getJson, postJson } from "../../../lib/api";
 import { formatBytes } from "../../../lib/formatBytes.js";
+import { useOptionalAuth } from "../../../context/AuthContext";
+import useConnectActive from "../../../hooks/useConnectActive";
 import BackupItem from "../../protect/BackupItem.jsx";
 import BackupStatusNotice from "../../common/BackupStatusNotice.jsx";
 import CloudRestoreCard from "../../cloud/CloudRestoreCard.jsx";
@@ -42,7 +44,7 @@ function CloudBackupRow({ backup, onRun, onRunAnyway, missingSource, onCheck, on
               lastError={backup.last_error}
               lastOkAt={backup.last_ok_at}
               surface="secondary"
-              staleText="Luna copies files to the cloud every 6 hours. This backup hasn't finished in over a day."
+              staleText="Luna copies files to the cloud every 6 hours."
             />
           ) : (
             <p>{backup.stop_reason || "This cloud backup has stopped."}</p>
@@ -100,17 +102,22 @@ export default function CloudBackupCategory() {
   // Set when a run stopped because the source looks missing; holds the backup id for "Back up anyway".
   const [missingSourceId, setMissingSourceId] = useState(null);
 
+  const auth = useOptionalAuth();
+  const isAdmin = auth?.user?.role === "admin";
+  // Members can't read /connect/status, so "linked" comes from the status everyone can read.
+  const connected = useConnectActive();
   const connect = useQuery({
     queryKey: ["connect-status"],
     queryFn: () => getJson("/api/v1/connect/status"),
+    enabled: isAdmin && connected,
   });
   const cloudQuery = useQuery({
     queryKey: ["cloud-backups"],
     queryFn: () => getJson("/api/v1/cloud/backups"),
     refetchInterval: 30_000,
+    enabled: connected,
   });
 
-  const connected = Boolean(connect.data?.connect_active);
   // Missing from older status replies: treat as on file, so only a clear false blocks backups.
   const cardOnFile = connect.data?.card_on_file !== false;
   const backups = cloudQuery.data || [];
@@ -178,6 +185,8 @@ export default function CloudBackupCategory() {
 
   return (
     <>
+      <RecoveryPhraseCard />
+
       <SettingsCard
         icon={Cloud}
         title="Cloud backup"
@@ -192,7 +201,9 @@ export default function CloudBackupCategory() {
 
         {!connected ? (
           <p className="text-primary text-sm">
-            Link this Luna to Luna Connect. Then open a drive or folder, press the shield (Back up) button, and use Back up to the cloud.
+            {isAdmin
+              ? "Cloud backup needs Luna Connect. Add your device token in Settings → About → Advanced."
+              : "Cloud backup needs Luna Connect. An Admin can turn it on."}
           </p>
         ) : backups.length === 0 ? (
           <div className="space-y-3">
@@ -247,9 +258,8 @@ export default function CloudBackupCategory() {
         )}
       </ConfirmModal>
 
-      <CloudRestoreCard />
-      <PrivateRestoreCard />
-      <RecoveryPhraseCard />
+      {connected && <CloudRestoreCard />}
+      {connected && <PrivateRestoreCard />}
     </>
   );
 }

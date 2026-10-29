@@ -164,7 +164,7 @@ export function openKeyCopy(record, sealSecret, signingPublic, lunaId, protectio
 /**
  * Everything one recovery phrase opens on one Luna.
  * @param {{ lunaId: string, entropy: Uint8Array, self: RecordEntry[], recipients: RecordEntry[], keys: RecordEntry[], pscopes?: RecordEntry[], expectSigningPublic?: Uint8Array }} input
- * @returns {{ signingPublics: Uint8Array[], userIds: string[], keys: Array<{ protectionId: string, version: number, key: Uint8Array, dedupKey: Uint8Array, userId: string }>, latestVersion: Record<string, number>, privateScopes: Array<{ scope: string, userId: string, createdAt: number, dedupKey: Uint8Array }> }}
+ * @returns {{ signingPublics: Uint8Array[], userIds: string[], keys: Array<{ protectionId: string, version: number, key: Uint8Array, dedupKey: Uint8Array, userId: string }>, latestVersion: Record<string, number>, privateScopes: Array<{ scope: string, userId: string, createdAt: number, dedupKey: Uint8Array, sealSecret: Uint8Array }> }}
  */
 export function findMyKeys({ lunaId, entropy, self, recipients, keys, pscopes = [], expectSigningPublic }) {
 	const k = derive(entropy, lunaId);

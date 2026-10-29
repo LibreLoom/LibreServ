@@ -4,6 +4,7 @@ import PropTypes from "prop-types";
 import { MoreHorizontal, Save, X } from "lucide-react";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import { apiErrorMessage } from "../../lib/api.js";
@@ -333,7 +334,7 @@ export default function FullscreenEditorFrame({
           label: "Save",
           icon: Save,
           disabled: !saveReady || !hasUnsaved,
-          note: saveLabel,
+          sub: saveLabel || undefined,
         }]
       : []),
     { value: "close", label: "Close editor", icon: X },
@@ -444,6 +445,14 @@ export default function FullscreenEditorFrame({
                   >
                     {name}
                   </span>
+                  {canWrite && saveLabel ? (
+                    <Pill
+                      variant="muted"
+                      className="shrink-0 max-w-[40%] truncate text-primary"
+                    >
+                      {saveLabel}
+                    </Pill>
+                  ) : null}
                   {/* z-[100] menu sits above the z-[80] editor overlay. */}
                   <Dropdown
                     menu

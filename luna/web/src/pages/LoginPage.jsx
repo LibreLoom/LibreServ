@@ -12,6 +12,10 @@ import usePageTitle from "../hooks/usePageTitle.js";
 
 const LOGIN_STEPS = ["form"];
 
+// One "signed out" toast per ended session. Lives outside the component so a
+// remount (or a dev double-render) of the sign-in form can't announce it twice.
+let sessionToastShown = false;
+
 function getLoginQuip() {
   const hoursSinceEpoch = Math.floor(Date.now() / 43200000);
   return loginQuips[hoursSinceEpoch % loginQuips.length];
@@ -40,9 +44,13 @@ export default function LoginPage() {
   // Landed here because the session ended mid-use (password changed,
   // signed out elsewhere) — say so instead of a silent bounce.
   useEffect(() => {
-    if (sessionEnded) {
-      addToast({ type: "info", message: "You were signed out. Sign in again to keep going." });
+    if (!sessionEnded) {
+      sessionToastShown = false;
+      return;
     }
+    if (sessionToastShown) return;
+    sessionToastShown = true;
+    addToast({ type: "info", message: "You were signed out. Sign in again to keep going." });
   }, [sessionEnded, addToast]);
 
   // Where to send the user after a successful login — the page they were
@@ -100,6 +108,8 @@ export default function LoginPage() {
     if (!password) missing.password = "Enter your password.";
     if (missing.username || missing.password) {
       setErrorStatus(null);
+      // A field that already shows its error shakes on its own only when the
+      // error first appears, so shake again by hand on every repeat click.
       for (const name of Object.keys(missing)) {
         if (fieldErrors[name]) {
           const input = e.currentTarget.querySelector(`#${name}`);
@@ -143,6 +153,7 @@ export default function LoginPage() {
               </span>
               <p className="text-primary text-sm text-center mt-2">{loginQuip}</p>
               <form
+                noValidate
                 onSubmit={handleSubmit}
                 aria-busy={loading}
                 className="flex flex-col mt-6"

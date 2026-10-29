@@ -71,7 +71,11 @@ function stubBackupApi({
   cloudRunReply = { status: 200, body: { done: true } },
   deleteReply = { status: 200, body: {} },
   privateItem = { private: false, inside_private: false, mine: false, owner_name: "" },
+  covered = [],
   onOldCopiesDelete,
+  phrase = { set: true, set_at: 1, luna_id: "luna-1", signing_public: "sig" },
+  cloudCreateReply = null,
+  onIdentity,
 } = /** @type {{
   drives?: any[],
   backups?: any[],
@@ -88,7 +92,11 @@ function stubBackupApi({
   cloudRunReply?: { status: number, body: any },
   deleteReply?: { status: number, body: any },
   privateItem?: { private: boolean, inside_private: boolean, mine: boolean, owner_name: string },
+  covered?: Array<{ kind: string, target_drive: string, path: string, name: string }>,
   onOldCopiesDelete?: (url: string) => void,
+  phrase?: any,
+  cloudCreateReply?: { status: number, body: any } | null,
+  onIdentity?: () => void,
 }} */ ({})) {
   // The cloud list changes when a backup is created or deleted, like the server's does.
   const cloud = cloudBackups.map((b) => ({ ...b }));
@@ -102,6 +110,14 @@ function stubBackupApi({
       }
       if (u.includes("/setup")) {
         return json({ setup_completed: true });
+      }
+      if (u.startsWith("/api/v1/cloud/identity") && method === "POST") {
+        onIdentity?.();
+        phrase = { ...phrase, luna_id: "luna-new", signing_public: "sig-new" };
+        return json({ luna_id: "luna-new", signing_public: "sig-new" });
+      }
+      if (u.startsWith("/api/v1/cloud/phrase")) {
+        return json(phrase);
       }
       if (u.startsWith("/api/v1/private-backups/item")) {
         return json(privateItem);
@@ -126,6 +142,7 @@ function stubBackupApi({
           const body = JSON.parse(init?.body || "{}");
           await cloudCreateGate;
           onCloudCreate?.(body);
+          if (cloudCreateReply) return json(cloudCreateReply.body, cloudCreateReply.status);
           const created = cloudBackup({
             id: "c-new",
             source_drive: body.source_drive_id,
@@ -140,6 +157,9 @@ function stubBackupApi({
       }
       if (u.includes("/api/v1/drives") && !u.includes("/detected") && !u.includes("/files") && !u.includes("/health")) {
         return json(drives);
+      }
+      if (u.startsWith("/api/v1/backups/covered")) {
+        return json(covered);
       }
       if (u.includes("/api/v1/backups/") && u.endsWith("/run")) {
         onRun?.(JSON.parse(init?.body || "{}"));
@@ -195,7 +215,7 @@ describe("ProtectSheet", () => {
     renderSheet();
     expect(await screen.findByRole("heading", { name: /Back up/ })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /On other drives/i })).toBeInTheDocument();
-    expect(screen.getByText(/Private items inside aren't included/)).toBeInTheDocument();
+    expect(screen.getByText(/Private items inside aren't backed up here/)).toBeInTheDocument();
     const choose = await screen.findByRole("button", { name: "Choose a drive" });
     // Dropdown sits on the inverted option panel (surface-primary), so it uses the card surface.
     expect(choose.className).toMatch(/surface-secondary/);
@@ -281,7 +301,7 @@ describe("ProtectSheet", () => {
     expect(
       await screen.findByText("Luna can't find the drive Backup, so photos wasn't copied."),
     ).toBeInTheDocument();
-    expect(screen.getByText("No copy yet")).toBeInTheDocument();
+    expect(screen.getByText("Not backed up yet.")).toBeInTheDocument();
   });
 
   it("says nothing extra while a backup is working", async () => {
@@ -604,7 +624,7 @@ describe("ProtectSheet", () => {
     expect(screen.queryByRole("button", { name: "Delete cloud backup" })).not.toBeInTheDocument();
   });
 
-  it("inside a private item points to the item's own shield", async () => {
+  it("a folder inside your own private item can be backed up like the item", async () => {
     stubBackupApi({
       drives: [
         { id: "d1", label: "Main", mount_point: "/mnt/main" },
@@ -613,15 +633,52 @@ describe("ProtectSheet", () => {
       backups: [],
       connect: { connect_active: true },
       cloudBackups: [],
-      privateItem: { private: false, inside_private: true, mine: false, owner_name: "" },
+      privateItem: { private: true, inside_private: true, mine: true, owner_name: "Max" },
     });
     renderSheet();
-    expect(await screen.findByText("Back up the private item itself, from its own shield.")).toBeInTheDocument();
+    expect(await screen.findByText("This folder is private, so only you can back it up.")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Choose a drive" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back up to the cloud" })).toBeInTheDocument();
+  });
+
+  it("a folder a bigger backup already holds says so and offers no backup of its own", async () => {
+    stubBackupApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+      ],
+      backups: [],
+      connect: { connect_active: true },
+      cloudBackups: [],
+      covered: [
+        { kind: "drive", target_drive: "d2", path: "family", name: "family" },
+        { kind: "cloud", target_drive: "", path: "family", name: "family" },
+      ],
+    });
+    renderSheet();
+    expect((await screen.findAllByText("family")).length).toBe(2);
+    expect(screen.getAllByText(/Included in the backup of/)).toHaveLength(2);
     expect(screen.queryByRole("button", { name: "Choose a drive" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Back up" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Back up to the cloud" })).not.toBeInTheDocument();
   });
 
+  it("an existing backup a bigger one has taken over shows a notice and no Back up now", async () => {
+    stubBackupApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+      ],
+      backups: [
+        backup({ id: "b1", target_drive: "d2", target_drive_name: "Backup", covered_by: { path: "family", name: "family" } }),
+      ],
+      cloudBackups: [],
+      covered: [{ kind: "drive", target_drive: "d2", path: "family", name: "family" }],
+    });
+    renderSheet();
+    expect(await screen.findByText(/Included in the backup of/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back up now" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete backup" })).toBeInTheDocument();
+  });
   it("owner sees both sections and the owner line", async () => {
     stubBackupApi({
       drives: [
@@ -634,8 +691,9 @@ describe("ProtectSheet", () => {
       privateItem: { private: true, inside_private: false, mine: true, owner_name: "Max" },
     });
     renderSheet();
-    expect(await screen.findByText("Only you can back this up. Its cloud copy opens only with your recovery phrase.")).toBeInTheDocument();
-    expect(screen.getByText(/Private items inside aren't included/)).toBeInTheDocument();
+    expect(await screen.findByText("This folder is private, so only you can back it up.")).toBeInTheDocument();
+    expect(screen.getByText("Its cloud copy opens only with your recovery phrase. Without the phrase, it can't be restored.")).toBeInTheDocument();
+    expect(screen.queryByText(/Private items inside/)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /On other drives/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /In the cloud/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete cloud backup" })).toBeInTheDocument();
@@ -709,12 +767,57 @@ describe("ProtectSheet", () => {
 });
 
 describe("ProtectButton", () => {
-  it("shows Not backed up beside the shield and keeps the Back up label", () => {
-    const onClick = vi.fn();
-    render(<ProtectButton label="Taxes" notBackedUp onClick={onClick} />);
-    const button = screen.getByRole("button", { name: "Back up Taxes" });
-    expect(within(button).getByText("Not backed up")).toBeInTheDocument();
-    button.click();
-    expect(onClick).toHaveBeenCalledTimes(1);
+  describe("starting a cloud backup without a phrase step", () => {
+    const connected = { connect_active: true, card_on_file: true };
+
+    it("starts the backup straight away, once", async () => {
+      const user = userEvent.setup();
+      const onCloudCreate = vi.fn();
+      stubBackupApi({ connect: connected, onCloudCreate });
+      renderSheet();
+      await user.click(await screen.findByRole("button", { name: "Back up to the cloud" }));
+      await waitFor(() => expect(onCloudCreate).toHaveBeenCalledTimes(1));
+      expect(onCloudCreate).toHaveBeenCalledWith({ source_drive_id: "d1", source_path: "photos" });
+      expect(await screen.findByText("Cloud backup started.")).toBeInTheDocument();
+    });
+
+    it("shows Luna's message inline on a 409 needs_phrase, and opens no setup", async () => {
+      const user = userEvent.setup();
+      const message = "You need a recovery phrase first. Reload this page to set one up.";
+      stubBackupApi({
+        connect: connected,
+        cloudCreateReply: { status: 409, body: { error: message, code: "needs_phrase" } },
+      });
+      renderSheet();
+      await user.click(await screen.findByRole("button", { name: "Back up to the cloud" }));
+      expect(await screen.findByText(message)).toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: "Phrase setup" })).not.toBeInTheDocument();
+      expect(screen.queryByText("Cloud backup started.")).not.toBeInTheDocument();
+    });
+
+    it("does not look up the phrase before starting", async () => {
+      const user = userEvent.setup();
+      stubBackupApi({ connect: connected });
+      renderSheet();
+      await user.click(await screen.findByRole("button", { name: "Back up to the cloud" }));
+      await screen.findByText("Cloud backup started.");
+      const paths = vi.mocked(globalThis.fetch).mock.calls.map(([url]) => String(typeof url === "string" ? url : /** @type {any} */ (url)?.url));
+      expect(paths.some((u) => u.startsWith("/api/v1/cloud/phrase") || u.startsWith("/api/v1/cloud/identity"))).toBe(false);
+    });
+
+    it("sends only one backup request on rapid clicks", async () => {
+      const user = userEvent.setup();
+      const onCloudCreate = vi.fn();
+      let release = () => {};
+      const gate = new Promise((resolve) => { release = () => resolve(null); });
+      stubBackupApi({ connect: connected, onCloudCreate, cloudCreateGate: gate });
+      renderSheet();
+      const button = await screen.findByRole("button", { name: "Back up to the cloud" });
+      await user.dblClick(button);
+      await user.click(button);
+      release();
+      await waitFor(() => expect(onCloudCreate).toHaveBeenCalledTimes(1));
+      expect(onCloudCreate).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -1,11 +1,15 @@
-import { phraseToEntropy, derive } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { derive, phraseToEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import {
   PSCOPES_KIND,
   PSNAPSHOTS_KIND,
   findMyPrivateScopes,
+  openPrivateDedup,
   openPrivateTreeBytes,
+  openScopeSecret,
   privateUnwrap,
   readPrivateSnapshots,
+  scopeOf,
+  verifyScopeRecord,
 } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
 import { readRawTreeWith } from "@libreloom/ui/lib/cloud/cloudFormat.js";
 import { apiFetch, getJson, postJson } from "./api";
@@ -13,6 +17,7 @@ import { fromBase64, toBase64 } from "./cloudPhrase";
 
 export const PRIVATE_RESTORE_QUERY_KEY = ["cloud-restore-private"];
 export const PRIVATE_RESTORE_PATH = "/api/v1/cloud/restore-private";
+export const KEPT_SCOPES_PATH = "/api/v1/cloud/phrase/kept-scopes";
 
 const NOT_FOUND_MESSAGE = "This recovery phrase doesn't open any private backups on this Luna. Check each word.";
 const PACK_FAILED_MESSAGE = "Could not download part of your private backups. Check your connection, then try again.";
@@ -29,6 +34,37 @@ export function getPrivateRestoreStatus() {
 async function fetchRecords(kind) {
   const body = await getJson(`${PRIVATE_RESTORE_PATH}/records/${kind}`);
   return (body.records ?? []).map((r) => ({ name: r.name, data: fromBase64(r.data) }));
+}
+
+/**
+ * Scopes the old phrase can still open from the copy Luna kept for 30 days after a phrase change.
+ * Used only for scopes the current copy did not open. A failed fetch just means no fallback.
+ */
+async function openKeptScopes({ lunaId, entropy, pscopes, signingPublics, skip }) {
+  let kept = [];
+  try {
+    kept = (await getJson(KEPT_SCOPES_PATH)).kept ?? [];
+  } catch {
+    return [];
+  }
+  const k = derive(entropy, lunaId);
+  const found = [];
+  for (const copy of kept) {
+    if (skip.has(copy.scope)) continue;
+    const record = pscopes.find((r) => r.name === copy.scope);
+    if (!record) continue;
+    const rec = verifyScopeRecord(record.data, signingPublics, lunaId);
+    if (!rec || rec.scope !== copy.scope) continue;
+    try {
+      const sealSecret = openScopeSecret(fromBase64(copy.sealed_scope_secret), k.sealSecret, lunaId, rec.scope);
+      const dedupKey = openPrivateDedup(rec.sealedDedup, sealSecret, lunaId, rec.scope);
+      if (scopeOf(dedupKey) !== rec.scope) continue;
+      found.push({ scope: rec.scope, userId: rec.userId, createdAt: rec.createdAt, dedupKey, sealSecret });
+    } catch {
+      continue;
+    }
+  }
+  return found;
 }
 
 /** Download one tree pack as raw bytes, reusing bytes already fetched in this run. */
@@ -57,18 +93,30 @@ export async function restorePrivateFromPhrase(words, { lunaId, signingPublic })
   ]);
 
   const scopes = findMyPrivateScopes({ lunaId, entropy, pscopes, signingPublics });
+  // After a phrase change, the old phrase no longer opens the current copy. Luna keeps the previous
+  // copy for 30 days (only when no one else could have the phrase), so try that for the rest.
+  scopes.push(
+    ...(await openKeptScopes({
+      lunaId,
+      entropy,
+      pscopes,
+      signingPublics,
+      skip: new Set(scopes.map((s) => s.scope)),
+    })),
+  );
   if (scopes.length === 0) throw new Error(NOT_FOUND_MESSAGE);
 
   // The signed snapshot record bytes, keyed by record name, so Luna gets the original signed bytes.
   const rawSnapshotRecords = new Map(psnapshots.map((r) => [r.name, r.data]));
-  const { sealSecret } = derive(entropy, lunaId);
   const packCache = new Map();
   let restored = 0;
 
   for (const found of scopes) {
+    // Each scope has its own key; the phrase opened it in findMyPrivateScopes.
+    const { sealSecret } = found;
     const views = readPrivateSnapshots({
       lunaId,
-      entropy,
+      sealSecret,
       scope: found.scope,
       psnapshots,
       signingPublics,

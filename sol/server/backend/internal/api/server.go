@@ -336,12 +336,15 @@ func NewServer(cfg ServerConfig) *Server {
 	// Setup routes
 	server.setupRoutes()
 
-	// Start DDNS service if enabled
-	server.ddnsService.Start()
-
-	// Start network report service (reads DDNS state; generate an initial report)
-	if server.reportService != nil {
-		server.reportService.Start(context.Background())
+	// Network discovery/probing can make external requests. Keep the services
+	// disabled only for isolated local fixture runs; normal startup is unchanged.
+	if os.Getenv("SOL_NETWORK_PROBES_DISABLED") != "true" {
+		server.ddnsService.Start()
+		if server.reportService != nil {
+			server.reportService.Start(context.Background())
+		}
+	} else {
+		logger.Info("network discovery and probes disabled by environment")
 	}
 
 	// Start tunnel service if enabled

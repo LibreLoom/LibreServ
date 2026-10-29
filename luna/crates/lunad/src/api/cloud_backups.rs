@@ -11,12 +11,13 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::AppState;
-use crate::api::response::json_error;
+use crate::api::response::{json_error, json_error_code};
 use crate::auth::CurrentUser;
 use crate::backup::cloud::check::{CheckReport, Sample};
 use crate::backup::cloud::crypto::Signer;
 use crate::backup::cloud::identity;
 use crate::backup::cloud::ops::{self, NOT_SET_UP};
+use crate::backup::cloud::rewrap;
 use crate::backup::cloud::run::CloudOutcome;
 use crate::backup::cloud::store::HttpStore;
 use crate::backup::drive_backup::{self, Refused};
@@ -24,6 +25,8 @@ use crate::db::{self, ProtectionRow};
 use crate::net::connect::ConnectService;
 use crate::private::{self, OwnerState};
 
+/// Machine code for "this person has no recovery phrase, so no cloud backup yet".
+const NEEDS_PHRASE_CODE: &str = "needs_phrase";
 /// How long Run and Check wait for the job before answering "not done yet".
 const RUN_WAIT: Duration = Duration::from_secs(15);
 /// Backups are checked once a day by the scheduler.
@@ -56,7 +59,7 @@ async fn list(State(state): State<AppState>, Extension(user): Extension<CurrentU
         .iter()
         .filter(|row| row.kind == db::PROTECTION_CLOUD)
         .filter(|row| ops::visible_to(row, &user))
-        .map(|row| backup_json(&conn, row, &user, now))
+        .map(|row| backup_json(&state.db, &conn, row, &user, now))
         .collect();
     Ok(Json(Value::Array(backups)))
 }
@@ -87,6 +90,18 @@ async fn create(
             return Err(json_error(
                 StatusCode::FORBIDDEN,
                 "You need Read access to this folder to back it up.",
+            ));
+        }
+        // A backup is sealed to the caller's phrase, so no phrase means no backup. This runs
+        // before anything is written or queued, so a refused request leaves nothing behind.
+        let has_phrase = db::get_user_keys(&conn, &user.id)
+            .map_err(|_| read_failed())?
+            .is_some();
+        if !has_phrase {
+            return Err(json_error_code(
+                StatusCode::CONFLICT,
+                NEEDS_PHRASE_CODE,
+                "You need a recovery phrase first. Reload this page to set one up.",
             ));
         }
     }
@@ -125,7 +140,13 @@ async fn create(
         }
     }));
     let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
-    Ok(Json(backup_json(&conn, &row, &user, db::now_unix())))
+    Ok(Json(backup_json(
+        &state.db,
+        &conn,
+        &row,
+        &user,
+        db::now_unix(),
+    )))
 }
 
 async fn remove(
@@ -145,7 +166,7 @@ async fn remove(
         ));
     }
     // A copy in progress would write into the backup while it is removed.
-    if drive_backup::is_running(&id) {
+    if drive_backup::is_running(&state.db, &id) {
         return Err(json_error(
             StatusCode::CONFLICT,
             "Luna is copying this backup right now. Delete it when the copy finishes.",
@@ -170,7 +191,7 @@ async fn remove(
         // Its copies in the cloud can only be removed through Connect.
         Ok(None) => Err(json_error(
             StatusCode::CONFLICT,
-            "Connect this Luna to Luna Connect before deleting a cloud backup. Its copies in the cloud can't be removed until then. Settings → Luna Connect.",
+            "Connect this Luna to Luna Connect before deleting a cloud backup. Its copies in the cloud can't be removed until then. Settings → About → Advanced.",
         )),
         Err(_) => Err(json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -205,7 +226,7 @@ async fn run(
         accept_missing_allowed(&conn, &row, &user, wants_accept_missing)
     };
     // A run or a check already holds the backup. Say so instead of starting another.
-    if drive_backup::is_running(&id) {
+    if drive_backup::is_running(&state.db, &id) {
         return Ok(Json(json!({
             "done": false,
             "problem": "This backup is busy right now. Try again in a minute.",
@@ -248,7 +269,7 @@ async fn check(
             return Err(not_found());
         }
     }
-    if drive_backup::is_running(&id) {
+    if drive_backup::is_running(&state.db, &id) {
         return Ok(Json(json!({
             "done": false,
             "problem": "This backup is busy right now. Try again in a minute.",
@@ -345,14 +366,23 @@ fn can_delete(conn: &Connection, row: &ProtectionRow, user: &CurrentUser) -> boo
     user.role == "admin" || (row.created_by == user.id && ops::visible_to(row, user))
 }
 
-fn backup_json(conn: &Connection, row: &ProtectionRow, user: &CurrentUser, now: i64) -> Value {
+fn backup_json(
+    db: &crate::Db,
+    conn: &Connection,
+    row: &ProtectionRow,
+    user: &CurrentUser,
+    now: i64,
+) -> Value {
     let source_label = drive_label(conn, &row.source_drive);
     let next_check = if row.last_checked_at == 0 {
         now
     } else {
         row.last_checked_at + CHECK_EVERY
     };
+    let covered_by = drive_backup::covered_by(conn, row)
+        .map(|(parent, _)| json!({ "path": parent.source_path, "name": folder_name(&parent.source_path, &source_label) }));
     json!({
+        "covered_by": covered_by,
         "id": row.id,
         "kind": row.kind,
         "source_drive": row.source_drive,
@@ -374,8 +404,10 @@ fn backup_json(conn: &Connection, row: &ProtectionRow, user: &CurrentUser, now: 
         "can_delete": can_delete(conn, row, user),
         "private": !row.private_owner.is_empty(),
         "old_phrase_copies": old_phrase_copies_json(conn, row, user),
-        "running": drive_backup::is_running(&row.id),
+        "running": drive_backup::is_running(db, &row.id),
         "notes": row.notes.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>(),
+        // `{percent, paused_full}` while older packs move to the newest recovery phrase, else null.
+        "moving": rewrap::status_json_for(conn, row, user),
     })
 }
 
@@ -403,8 +435,7 @@ fn run_answer(outcome: &CloudOutcome) -> Value {
 }
 
 /// A refusal about who may do something is 403; anything else is 400.
-/// "Back up the private item itself, from its own shield." is a 400: it says how to
-/// do the thing, not who may do it.
+/// "Included in the backup of …" is a 400: it says why nothing is needed, not who may do it.
 fn refusal_status(msg: &str) -> StatusCode {
     if msg.starts_with("You need")
         || msg.starts_with("Only an Admin")
@@ -470,6 +501,7 @@ mod tests {
         _dir: tempfile::TempDir,
         state: AppState,
         router: Router,
+        admin_id: String,
         admin_token: String,
         member_id: String,
         member_token: String,
@@ -497,6 +529,7 @@ mod tests {
         Fixture {
             admin_token: auth.issue(&admin).unwrap(),
             member_token: auth.issue(&member).unwrap(),
+            admin_id: admin.id.clone(),
             member_id: member.id.clone(),
             _dir: dir,
             state,
@@ -778,6 +811,8 @@ mod tests {
                     scope: "aa".repeat(16),
                     owner: owner.clone(),
                     seal_public: vec![0; 32],
+                    scope_public: vec![5; 32],
+                    sealed_scope_secret: vec![6; 16],
                     dedup_key: vec![0; 32],
                     state: "old_phrase".to_string(),
                     retire_after: 1_900_000_000,
@@ -853,5 +888,205 @@ mod tests {
         .await;
         assert_eq!(status, 403);
         assert_eq!(body["error"], "Only an Admin can back up a whole drive.");
+    }
+
+    /// Give `user_id` a recovery phrase's public keys, as setting one would.
+    fn give_phrase(state: &AppState, user_id: &str) {
+        let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+        db::set_user_keys(
+            &conn,
+            &db::UserKeys {
+                user_id: user_id.to_string(),
+                seal_public: vec![1; 32],
+                auth_public: vec![2; 32],
+                self_sealed: vec![3; 48],
+                phrase_set_at: 1,
+                last_checked_at: 0,
+                phrase_words: 0,
+            },
+        )
+        .unwrap();
+    }
+
+    /// A connected drive "d1" with a folder "Docs", so a backup of it can be created.
+    fn seed_drive(f: &Fixture) {
+        let root = f._dir.path().join("drive-d1");
+        std::fs::create_dir_all(&root).unwrap();
+        let prefix = luna_core::marker::pick_prefix(&root).unwrap();
+        drop(
+            crate::drives::drive_db::create(
+                &root,
+                &luna_core::marker::Marker::new("d1".to_string(), "Photos"),
+                &prefix,
+            )
+            .unwrap(),
+        );
+        std::fs::create_dir_all(root.join("Docs")).unwrap();
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        db::upsert_drive(
+            &conn,
+            "d1",
+            "Photos",
+            "as_is",
+            "ext4",
+            "d1",
+            root.to_str().unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// Let the Member read the "Docs" folder, so they may back it up.
+    fn grant_member_docs(f: &Fixture) {
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        db::insert_access_member(
+            &conn,
+            &db::AccessMemberRow {
+                id: "grant-docs".into(),
+                subject_kind: crate::access::KIND_PATH.into(),
+                drive_id: "d1".into(),
+                path: "Docs".into(),
+                album_id: String::new(),
+                user_id: f.member_id.clone(),
+                caps: crate::access::CAP_VIEW,
+                created_by: f.admin_id.clone(),
+            },
+        )
+        .unwrap();
+    }
+
+    /// Rows in the protections table, of any kind.
+    fn protection_count(state: &AppState) -> i64 {
+        let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+        conn.query_row("SELECT COUNT(*) FROM protections", [], |r| r.get(0))
+            .unwrap()
+    }
+
+    fn whole_drive_body() -> Option<&'static str> {
+        Some(r#"{"source_drive_id":"d1","source_path":""}"#)
+    }
+
+    #[tokio::test]
+    async fn admin_without_a_phrase_is_refused_before_anything_is_written() {
+        let f = fixture();
+        seed_drive(&f);
+        let (status, body) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/backups",
+            &f.admin_token,
+            whole_drive_body(),
+        )
+        .await;
+        assert_eq!(status, 409);
+        assert_eq!(body["code"], "needs_phrase");
+        assert_eq!(
+            body["error"],
+            "You need a recovery phrase first. Reload this page to set one up."
+        );
+        assert_eq!(protection_count(&f.state), 0, "no backup row was written");
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        assert!(
+            crate::backup::cloud::identity::load(&conn)
+                .unwrap()
+                .is_none(),
+            "no cloud identity was minted"
+        );
+    }
+
+    #[tokio::test]
+    async fn admin_with_a_phrase_creates_the_backup() {
+        let f = fixture();
+        seed_drive(&f);
+        give_phrase(&f.state, &f.admin_id);
+        let (status, body) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/backups",
+            &f.admin_token,
+            whole_drive_body(),
+        )
+        .await;
+        assert_eq!(status, 200, "create refused: {body}");
+        assert!(body["id"].as_str().is_some_and(|id| !id.is_empty()));
+        assert_eq!(protection_count(&f.state), 1);
+    }
+
+    #[tokio::test]
+    async fn member_without_a_phrase_is_refused_for_a_shared_folder() {
+        let f = fixture();
+        seed_drive(&f);
+        grant_member_docs(&f);
+        let (status, body) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/backups",
+            &f.member_token,
+            Some(r#"{"source_drive_id":"d1","source_path":"Docs"}"#),
+        )
+        .await;
+        assert_eq!(status, 409);
+        assert_eq!(body["code"], "needs_phrase");
+        assert_eq!(protection_count(&f.state), 0);
+    }
+
+    #[tokio::test]
+    async fn a_phrase_belonging_to_someone_else_does_not_count() {
+        let f = fixture();
+        seed_drive(&f);
+        // The Member has a phrase; the Admin asking does not.
+        give_phrase(&f.state, &f.member_id);
+        let (status, body) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/backups",
+            &f.admin_token,
+            whole_drive_body(),
+        )
+        .await;
+        assert_eq!(status, 409);
+        assert_eq!(body["code"], "needs_phrase");
+        assert_eq!(protection_count(&f.state), 0);
+    }
+
+    #[tokio::test]
+    async fn no_phrase_and_no_access_still_answers_forbidden_first() {
+        let f = fixture();
+        seed_drive(&f);
+        // The Member has neither a phrase nor access to Docs: the no-access answer comes first,
+        // so they never learn a backup of it is possible.
+        let (status, body) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/backups",
+            &f.member_token,
+            Some(r#"{"source_drive_id":"d1","source_path":"Docs"}"#),
+        )
+        .await;
+        assert_eq!(status, 403);
+        assert_eq!(
+            body["error"],
+            "You need Read access to this folder to back it up."
+        );
+        assert_eq!(protection_count(&f.state), 0);
+    }
+
+    #[tokio::test]
+    async fn member_with_a_phrase_creates_a_shared_backup_held_while_no_admin_has_one() {
+        let f = fixture();
+        seed_drive(&f);
+        grant_member_docs(&f);
+        give_phrase(&f.state, &f.member_id);
+        // No Admin has a phrase, so the backup waits with today's hold copy rather than being refused.
+        let (status, body) = send(
+            &f.router,
+            "POST",
+            "/api/v1/cloud/backups",
+            &f.member_token,
+            Some(r#"{"source_drive_id":"d1","source_path":"Docs"}"#),
+        )
+        .await;
+        assert_eq!(status, 200, "create refused: {body}");
+        assert!(body["id"].as_str().is_some_and(|id| !id.is_empty()));
+        assert_eq!(protection_count(&f.state), 1);
     }
 }

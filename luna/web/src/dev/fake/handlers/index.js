@@ -1,8 +1,8 @@
 // Importing a handler module registers its routes. One file per product area so
-// areas can grow independently — add yours here.
-// files.js goes first on purpose: its backups and private-item answers know about
-// drives and paths, and the first handler registered for a route wins.
+// areas can grow independently — add yours here. Routes are matched most-specific-first
+// and a duplicate method + pattern throws, so the order of these lines never matters.
 import "./files.js";
+import "./backups.js";
 import "./core.js";
 import "./settings.js";
 import "./gallery.js";

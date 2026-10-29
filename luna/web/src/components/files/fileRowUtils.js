@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { canViewerOpen } from "../../lib/officeConvert.js";
 import { viewerNeedsSession } from "../../lib/fileKinds.js";
 
@@ -13,4 +14,23 @@ export function canOpenRow(entry, displayName, trashView) {
   if (entry.save_failed && entry.size === 0) return false;
   if (trashView && viewerNeedsSession(displayName)) return false;
   return true;
+}
+
+const SM_UP_QUERY = "(min-width: 640px)";
+
+/** Phones get one action button; a missing matchMedia (tests) counts as desktop. */
+export function useIsSmUp() {
+  const read = () =>
+    typeof window === "undefined" || typeof window.matchMedia !== "function"
+      ? true
+      : window.matchMedia(SM_UP_QUERY).matches;
+  const [isSmUp, setIsSmUp] = useState(read);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return undefined;
+    const mq = window.matchMedia(SM_UP_QUERY);
+    const onChange = () => setIsSmUp(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return isSmUp;
 }

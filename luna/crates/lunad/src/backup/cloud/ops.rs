@@ -9,10 +9,11 @@ use crate::backup::access_list::{self, AccessList};
 use crate::backup::cloud::check;
 use crate::backup::cloud::identity;
 use crate::backup::cloud::keys;
-use crate::backup::cloud::private::snapshot_record_ref;
+use crate::backup::cloud::private::{self, snapshot_record_ref};
 use crate::backup::cloud::private_check;
 use crate::backup::cloud::private_run;
 use crate::backup::cloud::retention;
+use crate::backup::cloud::rewrap;
 use crate::backup::cloud::run::{self, CloudOutcome};
 use crate::backup::cloud::store::{CloudStore, StoreError};
 use crate::backup::drive_backup::{self, Refused};
@@ -22,7 +23,7 @@ use crate::net::connect::ConnectService;
 
 /// Shown on every cloud backup while Luna Connect is not set up for this Luna.
 pub const NOT_SET_UP: &str =
-    "Connect this Luna to Luna Connect to use cloud backups. Settings → Luna Connect.";
+    "Connect this Luna to Luna Connect to use cloud backups. Settings → About → Advanced.";
 
 const UNREACHABLE: &str = "Could not reach Luna Connect. Check your connection, then try again.";
 
@@ -126,9 +127,8 @@ pub fn create(
         .ok_or_else(save_refused)
 }
 
-/// The owner a new backup of `norm` belongs to: the item's owner for a private item, "" for a
-/// shared folder. A private item is backed up by its owner only, and a folder inside one is not
-/// a backup source on its own (same rules as `drive_backup`).
+/// The owner a new backup of `norm` belongs to: the item's owner for a private item or a folder
+/// inside one, "" for a shared folder. Only the owner may back it up (same rules as `drive_backup`).
 fn private_owner_for(
     conn: &Connection,
     user: &crate::auth::CurrentUser,
@@ -137,13 +137,15 @@ fn private_owner_for(
 ) -> Result<String, Refused> {
     match access_list::private_source(conn, source_drive, norm) {
         access_list::PrivateSource::Shared => Ok(String::new()),
-        access_list::PrivateSource::OwnItem { owner } if owner == user.id => Ok(owner),
-        access_list::PrivateSource::OwnItem { .. } => Err(Refused(
-            "Only the owner of this private item can back it up.".into(),
-        )),
-        access_list::PrivateSource::Inside => Err(Refused(
-            "Back up the private item itself, not a folder inside it.".into(),
-        )),
+        access_list::PrivateSource::PrivateTrash => {
+            Err(Refused("Items in the trash can't be backed up.".into()))
+        }
+        other => match other.owner() {
+            Some(owner) if owner == user.id => Ok(owner.to_string()),
+            _ => Err(Refused(
+                "Only the owner of this private item can back it up.".into(),
+            )),
+        },
     }
 }
 
@@ -172,7 +174,7 @@ fn check_new_backup(
             "You need Read access to this folder to back it up.".into(),
         ));
     }
-    private_owner_for(conn, user, source_drive, norm)?;
+    let owner = private_owner_for(conn, user, source_drive, norm)?;
     if crate::files::drive_root(conn, source_drive).is_err() {
         return Err(Refused(
             "Luna can't reach this drive. Check that it is connected.".into(),
@@ -192,6 +194,12 @@ fn check_new_backup(
         .map_err(|_| save_refused())?
     {
         return Ok(Some(existing));
+    }
+
+    // A backup of a parent folder already holds this folder.
+    let probe = db::ProtectionRow::probe(db::PROTECTION_CLOUD, source_drive, norm, "", &owner);
+    if let Some((_, message)) = drive_backup::covered_by(conn, &probe) {
+        return Err(Refused(message));
     }
 
     // The creator's own key copy is what lets them see this backup later, so they need a phrase.
@@ -219,9 +227,19 @@ pub fn run(
     accept_missing: bool,
     now: i64,
 ) -> CloudOutcome {
-    let Some(_slot) = drive_backup::try_hold(id) else {
+    let Some(_slot) = drive_backup::try_hold(db, id) else {
         return problem_outcome("This backup is copying right now. Try again in a minute.");
     };
+    // A backup of a parent folder already holds these files. Nothing is recorded, so this
+    // backup starts again on its own if that parent backup stops or goes away.
+    {
+        let conn = lock(db);
+        if let Some(row) = db::get_protection(&conn, id).ok().flatten()
+            && let Some((_, message)) = drive_backup::covered_by(&conn, &row)
+        {
+            return problem_outcome(&message);
+        }
+    }
     // Send the current recovery keys first. A failure does not stop the copy; it is reported here.
     let users_problem = match publish_users(db, store, connect, now) {
         Ok(()) => None,
@@ -243,6 +261,11 @@ pub fn run(
     } else {
         run::run_once(db, id, store, started_by, accept_missing, now)
     };
+    // A move or re-seal holds the backup's lock: skip quietly. Nothing is recorded, so the
+    // backup is not shown as failing, and the next run tries again.
+    if matches!(&ran, Ok(out) if out.busy) {
+        return ran.unwrap_or_default();
+    }
     let mut outcome = match ran {
         Ok(out) if out.problem.is_none() => match tidy(db, id, store, now) {
             Ok(()) => out,
@@ -382,7 +405,7 @@ fn tidy(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> anyhow::R
 
 /// Packs nothing uses any more in any scope are marked and later deleted. This
 /// also finishes the pack clean-up of backups deleted earlier.
-fn sweep(db: &crate::Db, store: &dyn CloudStore, now: i64) {
+pub(super) fn sweep(db: &crate::Db, store: &dyn CloudStore, now: i64) {
     let scopes = {
         let conn = lock(db);
         scopes_of(&conn, None)
@@ -390,6 +413,11 @@ fn sweep(db: &crate::Db, store: &dyn CloudStore, now: i64) {
     if let Err(err) = retention::retire_old_phrases(db, store, now) {
         tracing::warn!(error = %err, "could not remove old-phrase private backups");
     }
+    // Move older packs to the newest key a few steps at a time. Each step takes its backup's run
+    // lock and does nothing while the store is full. This also finishes any new record that did
+    // not reach the cloud, which has to happen before the clean-up below may delete anything.
+    rewrap::trickle(db, Some(store), now);
+    publish_pending_scopes(db, store);
     match scopes {
         Ok(scopes) => {
             for scope in scopes {
@@ -427,6 +455,259 @@ pub fn old_phrase_copies(conn: &Connection, owner: &str) -> Option<(usize, i64)>
 pub fn retire_old_phrase_now(conn: &Connection, owner: &str, now: i64) -> anyhow::Result<()> {
     for scope in db::list_private_scopes(conn, Some(owner))? {
         if scope.state == "old_phrase" {
+            db::set_private_scope_state(conn, &scope.scope, "old_phrase", now)?;
+        }
+    }
+    Ok(())
+}
+
+/// Finishes every pending re-seal of cloud backup keys, trying again while a backup is copying
+/// (a re-seal waits for it) or the store fails. Gives up after `attempts` tries, `pause` apart; the
+/// next run retries too. Returns true once nothing is pending.
+pub fn reseal_until_done(
+    db: &crate::Db,
+    store: &dyn CloudStore,
+    attempts: u32,
+    pause: std::time::Duration,
+) -> bool {
+    for attempt in 0..attempts {
+        let mut all_done = true;
+        for result in keys::reseal_pending(db, store) {
+            match result {
+                Ok(report) if report.done => {}
+                Ok(report) => {
+                    all_done = false;
+                    tracing::warn!(
+                        user = %report.user_id,
+                        busy = report.busy.len(),
+                        missing = report.missing.len(),
+                        "a cloud re-seal is waiting; it will be tried again"
+                    );
+                }
+                Err(err) => {
+                    all_done = false;
+                    tracing::warn!(error = %err, "could not re-seal cloud backup keys to the new phrase");
+                }
+            }
+        }
+        if all_done {
+            return true;
+        }
+        if attempt + 1 < attempts {
+            std::thread::sleep(pause);
+        }
+    }
+    false
+}
+
+/// Starts a run for each backup a phrase save marked to rotate, so new files are shut off from the
+/// old phrase within minutes instead of at the next scheduled run. A backup that a re-seal or move
+/// is holding is tried again a few times. A failed run is only logged: the mark stays, and the
+/// next run starts the new key version.
+pub fn run_marked(
+    db: &crate::Db,
+    store: &dyn CloudStore,
+    connect: &ConnectService,
+    backups: &[String],
+    now: i64,
+) {
+    let left = run_marked_retrying(
+        db,
+        store,
+        connect,
+        backups,
+        now,
+        MARKED_RUN_TRIES,
+        MARKED_RUN_DELAY,
+    );
+    for backup in left {
+        tracing::warn!(backup = %backup, "backup stayed busy; its run for a new phrase waits for the next run");
+    }
+}
+
+const MARKED_RUN_TRIES: u32 = 6;
+const MARKED_RUN_DELAY: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Runs each backup, trying again (up to `tries` passes, `delay` apart) for those that were busy.
+/// Returns the backups that were still busy after the last pass.
+fn run_marked_retrying(
+    db: &crate::Db,
+    store: &dyn CloudStore,
+    connect: &ConnectService,
+    backups: &[String],
+    now: i64,
+    tries: u32,
+    delay: std::time::Duration,
+) -> Vec<String> {
+    let mut pending: Vec<String> = backups.to_vec();
+    for attempt in 0..tries.max(1) {
+        if attempt > 0 {
+            std::thread::sleep(delay);
+        }
+        let mut busy = Vec::new();
+        for backup in &pending {
+            let outcome = run(db, backup, store, connect, "", false, now);
+            if outcome.busy {
+                busy.push(backup.clone());
+            } else if let Some(problem) = outcome.problem {
+                tracing::warn!(backup = %backup, problem, "could not start the run for a new phrase");
+            }
+        }
+        pending = busy;
+        if pending.is_empty() {
+            break;
+        }
+    }
+    pending
+}
+
+const SCOPE_PUBLISH_PREFIX: &str = "pscope_publish";
+
+/// Remembers that these scopes' `pscopes/<scope>` records must be sent again (after a phrase
+/// change re-sealed them). Any state counts: active, history and old-phrase scopes alike. The mark
+/// is kept until the record is in the cloud, so a failed send is retried by the next sweep.
+pub fn queue_scope_publish(conn: &Connection, scopes: &[String]) -> anyhow::Result<()> {
+    for scope in scopes {
+        // The value counts the requests, so a send that was already in flight can tell that the
+        // scope was queued again while it ran and must leave the new mark in place.
+        let key = format!("{SCOPE_PUBLISH_PREFIX}:{scope}");
+        let next = db::get_meta(conn, &key)?
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0)
+            .wrapping_add(1);
+        db::set_meta(conn, &key, &next.to_string())?;
+    }
+    Ok(())
+}
+
+/// What one pass over the pending scope records did.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct ScopePublishReport {
+    pub published: usize,
+    /// Records that could not be sent; they stay pending.
+    pub failed: usize,
+}
+
+/// Sends every pending scope record, signed under the owner's current keys. One failing scope
+/// never stops the others. A scope that no longer exists, or whose owner has no phrase, has
+/// nothing to send and is dropped from the list.
+pub fn publish_pending_scopes(db: &crate::Db, store: &dyn CloudStore) -> ScopePublishReport {
+    let mut report = ScopePublishReport::default();
+    let pending: Vec<(String, String)> = {
+        let conn = lock(db);
+        let listed = (|| -> anyhow::Result<Vec<(String, String)>> {
+            let mut stmt =
+                conn.prepare("SELECT key, value FROM meta WHERE key GLOB ?1 ORDER BY key")?;
+            let keys = stmt
+                .query_map([format!("{SCOPE_PUBLISH_PREFIX}:*")], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(keys)
+        })();
+        match listed {
+            Ok(keys) => keys,
+            Err(err) => {
+                tracing::warn!(error = %err, "could not list the private backup records to send");
+                report.failed += 1;
+                return report;
+            }
+        }
+    };
+    if pending.is_empty() {
+        return report;
+    }
+    let identity = match identity::load(&lock(db)) {
+        Ok(Some(identity)) => identity,
+        other => {
+            if let Err(err) = other {
+                tracing::warn!(error = %err, "could not load Luna's cloud identity");
+            }
+            report.failed = pending.len();
+            return report;
+        }
+    };
+    for (key, mark) in pending {
+        let scope_name = key[SCOPE_PUBLISH_PREFIX.len() + 1..].to_string();
+        // Only the mark that was read before sending is removed. If the scope was queued again
+        // meanwhile (a second phrase change), the new mark stays and the next sweep sends it.
+        let clear = || {
+            let conn = lock(db);
+            let _ = conn.execute(
+                "DELETE FROM meta WHERE key = ?1 AND value = ?2",
+                [&key, &mark],
+            );
+        };
+        let loaded = {
+            let conn = lock(db);
+            db::get_private_scope(&conn, &scope_name).and_then(|row| match row {
+                None => Ok(None),
+                Some(row) => Ok(db::get_user_keys(&conn, &row.owner)?.map(|k| (row, k))),
+            })
+        };
+        let (row, user_keys) = match loaded {
+            Ok(Some(found)) => found,
+            Ok(None) => {
+                clear();
+                continue;
+            }
+            Err(err) => {
+                tracing::warn!(error = %err, scope = %scope_name, "could not read a private backup to send");
+                report.failed += 1;
+                continue;
+            }
+        };
+        let Ok(auth_public) =
+            <super::crypto::SigPublic>::try_from(user_keys.auth_public.as_slice())
+        else {
+            tracing::warn!(scope = %scope_name, "a person's saved sign-in key is damaged");
+            report.failed += 1;
+            continue;
+        };
+        match private::publish_scope(
+            store,
+            identity.signer(),
+            identity.luna_id(),
+            &row,
+            &auth_public,
+        ) {
+            Ok(()) => {
+                clear();
+                report.published += 1;
+            }
+            Err(err) => {
+                tracing::warn!(error = %err, scope = %scope_name, "could not send a private backup record to Luna Connect");
+                report.failed += 1;
+            }
+        }
+    }
+    report
+}
+
+/// Retries [`publish_pending_scopes`] up to `attempts` times, `pause` apart, until nothing is
+/// pending. Returns true once every record is sent; the next sweep retries otherwise.
+pub fn publish_scopes_until_done(
+    db: &crate::Db,
+    store: &dyn CloudStore,
+    attempts: u32,
+    pause: std::time::Duration,
+) -> bool {
+    for attempt in 0..attempts {
+        if publish_pending_scopes(db, store).failed == 0 {
+            return true;
+        }
+        if attempt + 1 < attempts {
+            std::thread::sleep(pause);
+        }
+    }
+    false
+}
+
+/// Lets `owner`'s older private versions (kept after a phrase change) be removed by the next sweep,
+/// at once and without the 30-day grace. Only the owner's `history` scopes are affected.
+pub fn retire_older_versions_now(conn: &Connection, owner: &str, now: i64) -> anyhow::Result<()> {
+    for scope in db::list_private_scopes(conn, Some(owner))? {
+        if scope.state == "history" {
             db::set_private_scope_state(conn, &scope.scope, "old_phrase", now)?;
         }
     }
@@ -485,7 +766,11 @@ pub(crate) fn record(
 /// if Luna Connect can't be reached, nothing local is removed and the person
 /// can try again. Refuses while a run is copying.
 pub fn delete(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> anyhow::Result<()> {
-    let Some(_slot) = drive_backup::try_hold(id) else {
+    let Some(_slot) = drive_backup::try_hold(db, id) else {
+        bail!("This backup is copying right now. Try again in a minute.");
+    };
+    // Also the cloud lock, so no key move or re-seal can write records for it while it is removed.
+    let Some(_cloud_slot) = super::run::RunSlot::take(db, id) else {
         bail!("This backup is copying right now. Try again in a minute.");
     };
     let scopes = {
@@ -509,6 +794,9 @@ pub fn delete(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> any
         let conn = lock(db);
         db::delete_cloud_snapshot(&conn, &snap.id)?;
     }
+    // Its snapshots are gone, so no record upload can still be pending for it. Left behind, a
+    // marker would hold back every pack cleanup, including the one just below.
+    rewrap::forget_backup(&lock(db), id)?;
 
     // Key and recipient records are named "<backup id>.…". The kinds match
     // `keys::KEYS_KIND` and `keys::RECIPIENTS_KIND`.
@@ -527,10 +815,20 @@ pub fn delete(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> any
 
     let conn = lock(db);
     db::delete_protection(&conn, id)?;
+    rewrap::forget_backup(&conn, id)?;
     db::set_meta(&conn, &deleted_key(id), &now.to_string())?;
     conn.execute(
         "DELETE FROM backup_keys WHERE protection_id = ?1",
         params![id],
+    )?;
+    // Its reader lists and any pending rotation go too; left behind, a re-seal would look for key
+    // rows that no longer exist and never finish.
+    conn.execute(
+        "DELETE FROM meta WHERE key GLOB ?1 OR key = ?2",
+        params![
+            format!("cloud_recipients:{}:*", glob_escape(id)),
+            format!("cloud_rotate:{id}")
+        ],
     )?;
     // With no cloud backup left, no run can be refused for a card, so the marker goes too.
     if !db::list_protections(&conn)?
@@ -540,6 +838,16 @@ pub fn delete(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> any
         db::set_meta(&conn, CARD_MARKER, "")?;
     }
     Ok(())
+}
+
+/// Escape glob metacharacters so a backup id matches only itself.
+fn glob_escape(id: &str) -> String {
+    id.chars()
+        .flat_map(|c| match c {
+            '*' | '?' | '[' => vec!['[', c, ']'],
+            c => vec![c],
+        })
+        .collect()
 }
 
 fn remote_delete(store: &dyn CloudStore, kind: &str, name: &str) -> anyhow::Result<()> {
@@ -738,6 +1046,7 @@ mod tests {
                 self_sealed: vec![3; 48],
                 phrase_set_at: 1,
                 last_checked_at: 0,
+                phrase_words: 0,
             },
         )
         .unwrap();
@@ -785,6 +1094,133 @@ mod tests {
     }
 
     #[test]
+    fn after_a_delete_a_reader_can_still_be_re_sealed() {
+        let s = setup();
+        let id = make_backup(&s);
+        let store = MemoryStore::new();
+        assert_eq!(
+            run(&s.db, &id, &store, &s.connect, "", false, NOW).problem,
+            None
+        );
+        assert!(!keys::reader_versions_for_test(&lock(&s.db), "admin").is_empty());
+        delete(&s.db, &id, &store, NOW).unwrap();
+        {
+            let conn = lock(&s.db);
+            let left: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM meta WHERE key LIKE 'cloud_recipients:%' OR key LIKE 'cloud_rotate:%'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(left, 0);
+            keys::queue_reseal(&conn, "admin").unwrap();
+        }
+        let report = keys::reseal_user(&s.db, &store, "admin").unwrap();
+        assert!(report.done, "{report:?}");
+        assert!(report.missing.is_empty());
+        assert!(!keys::resealing_pending(&lock(&s.db), "admin").unwrap());
+    }
+
+    #[test]
+    fn a_reader_list_left_by_a_deleted_backup_does_not_block_a_re_seal() {
+        let s = setup();
+        let id = make_backup(&s);
+        let store = MemoryStore::new();
+        assert_eq!(
+            run(&s.db, &id, &store, &s.connect, "", false, NOW).problem,
+            None
+        );
+        delete(&s.db, &id, &store, NOW).unwrap();
+        // An older build, or a crash, left the reader list behind.
+        lock(&s.db)
+            .execute(
+                "INSERT INTO meta (key, value) VALUES (?1, ?2)",
+                params![
+                    format!("cloud_recipients:{id}:1"),
+                    r#"[{"user_id":"admin"}]"#
+                ],
+            )
+            .unwrap();
+        keys::queue_reseal(&lock(&s.db), "admin").unwrap();
+        let report = keys::reseal_user(&s.db, &store, "admin").unwrap();
+        assert!(report.done, "{report:?}");
+    }
+
+    #[test]
+    fn a_run_that_finds_a_move_or_re_seal_holding_the_backup_skips_quietly() {
+        let s = setup();
+        let id = make_backup(&s);
+        let store = MemoryStore::new();
+        let before = db::get_protection(&lock(&s.db), &id).unwrap().unwrap();
+        let slot = run::RunSlot::take(&s.db, &id).unwrap();
+        let outcome = run(&s.db, &id, &store, &s.connect, "", false, NOW);
+        assert!(outcome.busy);
+        drop(slot);
+        // Nothing was recorded: no error on the backup, and no card marker.
+        let after = db::get_protection(&lock(&s.db), &id).unwrap().unwrap();
+        assert_eq!(after.last_error, before.last_error);
+        assert_eq!(after.failing_since, before.failing_since);
+        // Once the lock is free the run goes through.
+        let outcome = run(&s.db, &id, &store, &s.connect, "", false, NOW);
+        assert!(!outcome.busy);
+        assert_eq!(outcome.problem, None);
+    }
+
+    #[test]
+    fn a_marked_run_that_finds_the_backup_busy_tries_again() {
+        let s = setup();
+        let id = make_backup(&s);
+        let store = MemoryStore::new();
+        let slot = run::RunSlot::take(&s.db, &id).unwrap();
+        let ids = vec![id.clone()];
+        let delay = std::time::Duration::from_millis(20);
+        // Still held after every try: reported as left over.
+        let left = run_marked_retrying(&s.db, &store, &s.connect, &ids, NOW, 2, delay);
+        assert_eq!(left, ids);
+        // Released while the retries wait: a later try goes through.
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(60));
+            drop(slot);
+        });
+        let left = run_marked_retrying(
+            &s.db,
+            &store,
+            &s.connect,
+            &ids,
+            NOW,
+            50,
+            std::time::Duration::from_millis(20),
+        );
+        release.join().unwrap();
+        assert!(left.is_empty(), "{left:?}");
+    }
+
+    #[test]
+    fn delete_waits_out_a_move_and_a_move_waits_out_a_run() {
+        let s = setup();
+        let id = make_backup(&s);
+        let store = MemoryStore::new();
+        {
+            let _slot = run::RunSlot::take(&s.db, &id).unwrap();
+            let err = delete(&s.db, &id, &store, NOW).unwrap_err();
+            assert!(err.to_string().contains("copying right now"));
+            assert!(db::get_protection(&lock(&s.db), &id).unwrap().is_some());
+        }
+        // While a run or delete holds the drive-backup lock, a move step does nothing.
+        let _hold = drive_backup::try_hold(&s.db, &id).unwrap();
+        assert_eq!(
+            rewrap::step(&s.db, &id, &store, NOW).unwrap(),
+            rewrap::Step::Busy
+        );
+    }
+
+    #[test]
+    fn the_not_set_up_message_points_to_about_advanced() {
+        assert!(NOT_SET_UP.contains("Settings → About → Advanced"));
+    }
+
+    #[test]
     fn whole_drive_is_admin_only() {
         let s = setup();
         let member = CurrentUser {
@@ -801,6 +1237,39 @@ mod tests {
         let s = setup();
         let first = make_backup(&s);
         assert_eq!(make_backup(&s), first);
+    }
+
+    #[test]
+    fn create_refuses_a_folder_a_parent_cloud_backup_already_holds() {
+        let s = setup();
+        fs::create_dir_all(s._dir.path().join(&s.src).join("Docs/Sub/Deeper")).unwrap();
+        let parent = make_backup(&s);
+        // Until the parent finishes its first copy, the folder can have its own backup.
+        let child = create(&s.db, &s.connect, &s.admin, &s.src, "Docs/Sub").unwrap();
+        db::record_protection_ok(&lock(&s.db), &parent, NOW, "{}").unwrap();
+        let err = create(&s.db, &s.connect, &s.admin, &s.src, "Docs/Sub/Deeper").unwrap_err();
+        assert_eq!(err.0, "Included in the backup of \"Docs\".");
+        // The child that already exists stops while the parent runs, and nothing is recorded.
+        let outcome = run(
+            &s.db,
+            &child.id,
+            &MemoryStore::new(),
+            &s.connect,
+            "",
+            false,
+            NOW,
+        );
+        assert_eq!(
+            outcome.problem.as_deref(),
+            Some("Included in the backup of \"Docs\".")
+        );
+        assert_eq!(
+            db::get_protection(&lock(&s.db), &child.id)
+                .unwrap()
+                .unwrap()
+                .last_error,
+            ""
+        );
     }
 
     #[test]
@@ -823,6 +1292,7 @@ mod tests {
                 self_sealed: vec![3; 48],
                 phrase_set_at: 2,
                 last_checked_at: 0,
+                phrase_words: 0,
             },
         )
         .unwrap();
@@ -918,6 +1388,7 @@ mod tests {
                 self_sealed: b"sealed copy".to_vec(),
                 phrase_set_at: NOW,
                 last_checked_at: 0,
+                phrase_words: 0,
             },
         )
         .unwrap();
@@ -1093,11 +1564,48 @@ mod tests {
     }
 
     #[test]
+    fn delete_forgets_pending_record_uploads_and_a_stray_marker_never_blocks_cleanup() {
+        let s = setup();
+        let id = make_backup(&s);
+        let other = "no-such-backup";
+        {
+            let conn = lock(&s.db);
+            for key in [
+                format!("rewrap_resync:{id}:snap-1"),
+                format!("cloud_move:{id}"),
+                format!("cloud_move_paused:{id}"),
+            ] {
+                db::set_meta(&conn, &key, "1:5").unwrap();
+            }
+            // A marker left by an earlier bug for a backup that is already gone.
+            db::set_meta(&conn, &format!("rewrap_resync:{other}:snap-9"), "1").unwrap();
+            // While the backup exists its own marker counts as pending.
+            assert!(rewrap::record_upload_pending(&conn).unwrap());
+        }
+        delete(&s.db, &id, &MemoryStore::new(), NOW).unwrap();
+        let conn = lock(&s.db);
+        for key in [
+            format!("rewrap_resync:{id}:snap-1"),
+            format!("cloud_move:{id}"),
+            format!("cloud_move_paused:{id}"),
+        ] {
+            assert!(db::get_meta(&conn, &key).unwrap().is_none(), "{key}");
+        }
+        // The stray marker stays, but does not hold back pack cleanup.
+        assert!(
+            db::get_meta(&conn, &format!("rewrap_resync:{other}:snap-9"))
+                .unwrap()
+                .is_some()
+        );
+        assert!(!rewrap::record_upload_pending(&conn).unwrap());
+    }
+
+    #[test]
     fn delete_refuses_while_copying() {
         let s = setup();
         let id = make_backup(&s);
         let store = MemoryStore::new();
-        let _hold = drive_backup::try_hold(&id).unwrap();
+        let _hold = drive_backup::try_hold(&s.db, &id).unwrap();
         let err = delete(&s.db, &id, &store, NOW).unwrap_err();
         assert!(err.to_string().contains("copying right now"), "{err}");
     }
@@ -1174,6 +1682,7 @@ mod tests {
             self_sealed: vec![3; 48],
             phrase_set_at: 1,
             last_checked_at: 0,
+            phrase_words: 0,
         }
     }
 
@@ -1194,6 +1703,7 @@ mod tests {
                 self_sealed: vec![3; 48],
                 phrase_set_at: 1,
                 last_checked_at: 0,
+                phrase_words: 0,
             },
         )
         .unwrap();
@@ -1266,8 +1776,12 @@ mod tests {
         db::private_snapshot_ids(&lock(db), scope).unwrap().len()
     }
 
-    fn rotate_owner_keys(s: &PrivateSetup) {
-        db::set_user_keys(&lock(&s.db), &owner_keys(8)).unwrap();
+    /// Replaces the owner's phrase the way a lost-phrase save does: the new keys are set and the
+    /// active scope keeps its 30 days.
+    fn rotate_owner_keys(s: &PrivateSetup, now: i64) {
+        let conn = lock(&s.db);
+        db::set_user_keys(&conn, &owner_keys(8)).unwrap();
+        private::retire_scopes_without_key(&conn, "owner", false, now).unwrap();
     }
 
     #[test]
@@ -1294,17 +1808,15 @@ mod tests {
     }
 
     #[test]
-    fn inside_is_refused() {
+    fn inside_is_allowed_for_the_owner_as_a_private_backup() {
         let s = private_setup();
         let disk = private_item(&s, "Docs");
         fs::create_dir_all(disk.join("Inner")).unwrap();
-        let err = create(&s.db, &s.connect, &s.owner, "drive-src", "Docs/Inner")
-            .err()
-            .unwrap();
-        assert_eq!(
-            err.0,
-            "Back up the private item itself, not a folder inside it."
-        );
+        let row = create(&s.db, &s.connect, &s.owner, "drive-src", "Docs/Inner").unwrap();
+        assert_eq!(row.private_owner, s.owner.id);
+        let list: access_list::AccessList = serde_json::from_str(&row.access_json).unwrap();
+        assert_eq!(list.users, vec![s.owner.id.clone()]);
+        assert!(!list.admins);
     }
 
     #[test]
@@ -1365,8 +1877,8 @@ mod tests {
         );
         let old = active_scope(&s.db);
 
-        rotate_owner_keys(&s);
         let t2 = NOW + DAY;
+        rotate_owner_keys(&s, t2);
         assert_eq!(
             run(&s.db, &id, &store, &s.connect, "owner", false, t2).problem,
             None
@@ -1407,8 +1919,8 @@ mod tests {
             None
         );
         let old = active_scope(&s.db);
-        rotate_owner_keys(&s);
         let t2 = NOW + DAY;
+        rotate_owner_keys(&s, t2);
         assert_eq!(
             run(&s.db, &id, &store, &s.connect, "owner", false, t2).problem,
             None
@@ -1439,8 +1951,8 @@ mod tests {
         );
         assert_eq!(old_phrase_copies(&lock(&s.db), "owner"), None);
 
-        rotate_owner_keys(&s);
         let t2 = NOW + DAY;
+        rotate_owner_keys(&s, t2);
         assert_eq!(
             run(&s.db, &id, &store, &s.connect, "owner", false, t2).problem,
             None
@@ -1485,6 +1997,251 @@ mod tests {
                 .unwrap()
                 .access_json,
             "keep-me"
+        );
+    }
+    /// Fails `put_record` for scope names listed in `fail`, while `allow` is false.
+    struct ScopeFlaky {
+        inner: MemoryStore,
+        fail: Vec<String>,
+        allow: std::sync::atomic::AtomicBool,
+    }
+
+    impl CloudStore for ScopeFlaky {
+        fn put_pack(&self, id: &[u8; 32], scope: Option<&str>, b: &[u8]) -> Result<(), StoreError> {
+            self.inner.put_pack(id, scope, b)
+        }
+        fn get_pack(&self, id: &[u8; 32]) -> Result<Vec<u8>, StoreError> {
+            self.inner.get_pack(id)
+        }
+        fn delete_pack(&self, id: &[u8; 32]) -> Result<(), StoreError> {
+            self.inner.delete_pack(id)
+        }
+        fn put_record(&self, kind: &str, name: &str, b: &[u8]) -> Result<(), StoreError> {
+            if !self.allow.load(std::sync::atomic::Ordering::SeqCst)
+                && kind == PSCOPES_KIND
+                && self.fail.iter().any(|f| f == name)
+            {
+                return Err(StoreError::Unavailable(
+                    "Could not reach Luna Connect.".into(),
+                ));
+            }
+            self.inner.put_record(kind, name, b)
+        }
+        fn get_record(&self, kind: &str, name: &str) -> Result<Option<Vec<u8>>, StoreError> {
+            self.inner.get_record(kind, name)
+        }
+        fn delete_record(&self, kind: &str, name: &str) -> Result<(), StoreError> {
+            self.inner.delete_record(kind, name)
+        }
+        fn list_records(&self, kind: &str) -> Result<Vec<String>, StoreError> {
+            self.inner.list_records(kind)
+        }
+        fn usage(&self) -> Result<Usage, StoreError> {
+            self.inner.usage()
+        }
+    }
+
+    fn scope_row(name: &str, state: &str) -> db::PrivateScope {
+        let (_, scope_public) = crypto::new_scope_keys();
+        db::PrivateScope {
+            scope: name.to_string(),
+            owner: "owner".into(),
+            seal_public: owner_keys(7).seal_public,
+            scope_public: scope_public.to_vec(),
+            sealed_scope_secret: vec![9; 40],
+            dedup_key: vec![1; 32],
+            state: state.to_string(),
+            retire_after: 0,
+            created_at: 5,
+        }
+    }
+
+    #[test]
+    fn pending_scope_records_continue_past_a_failure_and_retry_later() {
+        let p = private_setup();
+        {
+            let conn = lock(&p.db);
+            for (name, state) in [
+                ("s-bad", "active"),
+                ("s-hist", "history"),
+                ("s-old", "old_phrase"),
+            ] {
+                db::insert_private_scope(&conn, &scope_row(name, state)).unwrap();
+            }
+            queue_scope_publish(
+                &conn,
+                &[
+                    "s-bad".to_string(),
+                    "s-hist".to_string(),
+                    "s-old".to_string(),
+                ],
+            )
+            .unwrap();
+        }
+        let store = ScopeFlaky {
+            inner: MemoryStore::new(),
+            fail: vec!["s-bad".into()],
+            allow: std::sync::atomic::AtomicBool::new(false),
+        };
+        // The first scope fails; the history and old-phrase ones are still sent.
+        let report = publish_pending_scopes(&p.db, &store);
+        assert_eq!(
+            report,
+            ScopePublishReport {
+                published: 2,
+                failed: 1
+            }
+        );
+        assert!(
+            store
+                .inner
+                .get_record(PSCOPES_KIND, "s-hist")
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            store
+                .inner
+                .get_record(PSCOPES_KIND, "s-old")
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            store
+                .inner
+                .get_record(PSCOPES_KIND, "s-bad")
+                .unwrap()
+                .is_none()
+        );
+        // Only the failed one stays pending, and a later pass finishes it.
+        assert!(!publish_scopes_until_done(
+            &p.db,
+            &store,
+            2,
+            std::time::Duration::from_millis(1)
+        ));
+        store.allow.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(publish_scopes_until_done(
+            &p.db,
+            &store,
+            2,
+            std::time::Duration::from_millis(1)
+        ));
+        assert!(
+            store
+                .inner
+                .get_record(PSCOPES_KIND, "s-bad")
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            publish_pending_scopes(&p.db, &store),
+            ScopePublishReport::default()
+        );
+    }
+
+    /// Queues `scope` again while its first record is being sent, like a second phrase change.
+    struct RequeueDuringSend<'a> {
+        inner: MemoryStore,
+        db: &'a crate::Db,
+        scope: String,
+        done: std::sync::atomic::AtomicBool,
+    }
+
+    impl CloudStore for RequeueDuringSend<'_> {
+        fn put_pack(&self, id: &[u8; 32], scope: Option<&str>, b: &[u8]) -> Result<(), StoreError> {
+            self.inner.put_pack(id, scope, b)
+        }
+        fn get_pack(&self, id: &[u8; 32]) -> Result<Vec<u8>, StoreError> {
+            self.inner.get_pack(id)
+        }
+        fn delete_pack(&self, id: &[u8; 32]) -> Result<(), StoreError> {
+            self.inner.delete_pack(id)
+        }
+        fn put_record(&self, kind: &str, name: &str, b: &[u8]) -> Result<(), StoreError> {
+            if kind == PSCOPES_KIND && !self.done.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                queue_scope_publish(&lock(self.db), std::slice::from_ref(&self.scope)).unwrap();
+            }
+            self.inner.put_record(kind, name, b)
+        }
+        fn get_record(&self, kind: &str, name: &str) -> Result<Option<Vec<u8>>, StoreError> {
+            self.inner.get_record(kind, name)
+        }
+        fn delete_record(&self, kind: &str, name: &str) -> Result<(), StoreError> {
+            self.inner.delete_record(kind, name)
+        }
+        fn list_records(&self, kind: &str) -> Result<Vec<String>, StoreError> {
+            self.inner.list_records(kind)
+        }
+        fn usage(&self) -> Result<Usage, StoreError> {
+            self.inner.usage()
+        }
+    }
+
+    #[test]
+    fn a_scope_queued_again_during_a_send_is_sent_again() {
+        let p = private_setup();
+        {
+            let conn = lock(&p.db);
+            db::insert_private_scope(&conn, &scope_row("s-1", "active")).unwrap();
+            queue_scope_publish(&conn, &["s-1".to_string()]).unwrap();
+        }
+        let store = RequeueDuringSend {
+            inner: MemoryStore::new(),
+            db: &p.db,
+            scope: "s-1".into(),
+            done: std::sync::atomic::AtomicBool::new(false),
+        };
+        let report = publish_pending_scopes(&p.db, &store);
+        assert_eq!(report.published, 1);
+        // The new request survived the first send, so the next sweep sends the newer record.
+        assert!(
+            db::get_meta(&lock(&p.db), "pscope_publish:s-1")
+                .unwrap()
+                .is_some()
+        );
+        let report = publish_pending_scopes(&p.db, &store);
+        assert_eq!(report.published, 1);
+        assert!(
+            db::get_meta(&lock(&p.db), "pscope_publish:s-1")
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn pending_scope_record_for_a_missing_scope_is_dropped() {
+        let p = private_setup();
+        queue_scope_publish(&lock(&p.db), &["gone".to_string()]).unwrap();
+        let store = MemoryStore::new();
+        let report = publish_pending_scopes(&p.db, &store);
+        assert_eq!(report, ScopePublishReport::default());
+        assert!(store.get_record(PSCOPES_KIND, "gone").unwrap().is_none());
+        assert!(
+            db::get_meta(&lock(&p.db), "pscope_publish:gone")
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn pending_scope_records_wait_when_the_identity_is_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        queue_scope_publish(&conn, &["s-1".to_string()]).unwrap();
+        let db = crate::Db::new(conn);
+        let report = publish_pending_scopes(&db, &MemoryStore::new());
+        assert_eq!(
+            report,
+            ScopePublishReport {
+                published: 0,
+                failed: 1
+            }
+        );
+        assert!(
+            db::get_meta(&lock(&db), "pscope_publish:s-1")
+                .unwrap()
+                .is_some()
         );
     }
 }

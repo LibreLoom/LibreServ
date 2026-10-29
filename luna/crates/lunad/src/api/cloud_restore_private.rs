@@ -80,7 +80,7 @@ struct Parsed {
 fn not_set_up() -> ApiError {
     json_error(
         StatusCode::CONFLICT,
-        "Set up Luna Connect first, in Settings → Luna Connect.",
+        "Set up Luna Connect first, in Settings → About → Advanced.",
     )
 }
 
@@ -491,6 +491,15 @@ mod tests {
     use crate::drives::mount::shared_mock;
     use crate::{AppState, db};
 
+    #[test]
+    fn the_not_set_up_error_points_to_about_advanced() {
+        let (status, body) = super::not_set_up();
+        assert_eq!(status, StatusCode::CONFLICT);
+        let text = body.0["error"].as_str().unwrap().to_string();
+        assert!(text.contains("Settings → About → Advanced"), "{text}");
+        assert!(!text.contains("Settings → Luna Connect"), "{text}");
+    }
+
     const NOW: i64 = 1_800_000_000;
     const DEDUP_A: [u8; 32] = [3; 32];
     const DEDUP_B: [u8; 32] = [4; 32];
@@ -588,16 +597,23 @@ mod tests {
                 self_sealed: vec![1; 8],
                 phrase_set_at: NOW,
                 last_checked_at: NOW,
+                phrase_words: 0,
             },
         )
         .unwrap();
     }
 
     fn scope_for(owner: &str, x25519: &SealPublic, dedup: [u8; 32]) -> db::PrivateScope {
+        let scope = private::scope_of(&dedup).1;
+        let (secret, scope_public) = crypto::new_scope_keys();
+        let sealed_scope_secret =
+            private::seal_scope_secret(x25519, "luna-test", &scope, &secret).unwrap();
         db::PrivateScope {
-            scope: private::scope_of(&dedup).1,
+            scope,
             owner: owner.into(),
             seal_public: x25519.to_vec(),
+            scope_public: scope_public.to_vec(),
+            sealed_scope_secret,
             dedup_key: dedup.to_vec(),
             state: "active".into(),
             retire_after: 0,

@@ -5,6 +5,7 @@ import { defaultRangeExtractor, useWindowVirtualizer } from "@tanstack/react-vir
 import {
   Archive,
   Check,
+  ChevronDown,
   Copy,
   Download,
   Eye,
@@ -12,6 +13,7 @@ import {
   File as FileIcon,
   Folder,
   FolderInput,
+  FolderUp,
   Pencil,
   Search,
   SearchX,
@@ -38,6 +40,7 @@ import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import ToastContext from "@libreloom/ui/context/ToastContext.jsx";
 import { fileListKey, fileSourceScope, useFileSource } from "../../lib/fileSource.jsx";
 import { CAP, capsBits } from "../../lib/access.js";
+import { openFileSearch } from "../../lib/fileSearch.js";
 
 const UNPLUGGED_DRIVE_MESSAGE =
   "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.";
@@ -51,20 +54,28 @@ function isMissingDriveDb(error) {
     .includes("database for this drive is missing");
 }
 
+const FOLDER_GONE_MESSAGE = "This folder isn't here anymore — it may have been deleted.";
+
+/** How long a folder may load before the list says it's still working. */
+const SLOW_LISTING_MS = 1500;
+
+function isFolderGone(error) {
+  return Boolean(error) && "code" in error && error.code === "not_found"
+    && !isMissingDriveDb(error);
+}
+
 function folderListingError(error) {
   const message = String(error?.message || "");
   if (isMissingDriveDb(error)) {
     return (
       message ||
-      "Luna's database for this drive is missing, but the drive is still plugged in. Remove it on the Files page, then add it again."
+      "Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again. Your files stay on the drive, but items in its Trash won't show up after you add it again."
     );
   }
   const code = error && "code" in error ? error.code : null;
   // A missing folder was moved, renamed, or deleted — the drive is fine.
   // (Moved folders are followed before this shows; see useMovedLinkForwarding.)
-  if (code === "not_found") {
-    return "This folder isn't here anymore — it may have been deleted. Open Files to look for it.";
-  }
+  if (code === "not_found") return FOLDER_GONE_MESSAGE;
   const unplugged =
     code === "unknown_drive" ||
     message.toLowerCase().includes("drive") ||
@@ -72,7 +83,7 @@ function folderListingError(error) {
   if (unplugged) return UNPLUGGED_DRIVE_MESSAGE;
   return message || "Luna couldn't open this folder. Try again.";
 }
-import { filesFromDataTransfer, filesFromFileList } from "../../lib/collectUploadFiles.js";
+import { filesFromFileList, takeDropped } from "../../lib/collectUploadFiles.js";
 import {
   LUNA_DRIVE_MIME,
   LUNA_PATHS_MIME,
@@ -117,6 +128,19 @@ function cssEscape(value) {
   }
   return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
+
+/** `webkitdirectory` picks a whole folder; React's input types don't list it. */
+const FOLDER_INPUT = { webkitdirectory: "" };
+
+/** Folder pickers need `webkitdirectory`; a few browsers lack it. */
+function browserCanPickFolder() {
+  return typeof document !== "undefined" && "webkitdirectory" in document.createElement("input");
+}
+
+const UPLOAD_MENU_OPTIONS = [
+  { value: "files", label: "Upload files", icon: UploadCloud },
+  { value: "folder", label: "Upload a folder", icon: FolderUp },
+];
 
 const SORT_OPTIONS = [
   { value: "name-asc", label: "Name A–Z" },
@@ -219,7 +243,7 @@ function compareEntries(a, b, sortKey) {
  *   onRename?: (ctx: FileBrowserRowContext) => void,
  *   onDelete?: (paths: string[]) => void,
  *   onOpenFile?: (ctx: FileBrowserRowContext) => void,
- *   onUploadFiles?: (files: File[], destPath: string) => void | Promise<void>,
+ *   onUploadFiles?: (input: { dropped: import("../../lib/collectUploadFiles.js").DroppedItems } | { files: File[] }, destPath: string) => void,
  *   onInternalMove?: (paths: string[], destFolder: string, destDriveId?: string, sourceDriveId?: string) => void | Promise<void>,
  *   renderRowActions?: (ctx: FileBrowserRowContext) => import("react").ReactNode,
  *   renderSelectionActions?: (paths: string[], rows: FileBrowserRowContext[]) => import("react").ReactNode,
@@ -242,6 +266,7 @@ function compareEntries(a, b, sortKey) {
  *   listClassName?: string,
  *   dense?: boolean,
  *   surface?: "primary" | "secondary",
+ *   isPickBlocked?: (path: string) => boolean,
  * }} props
  */
 export default function FileBrowser({
@@ -286,6 +311,7 @@ export default function FileBrowser({
   folderActions = null,
   emptyTitle = "There's nothing here.",
   surface = "secondary",
+  isPickBlocked = undefined,
   className = "",
   listClassName = "",
   dense = false,
@@ -304,6 +330,8 @@ export default function FileBrowser({
   const springLoadTimerRef = useRef(/** @type {number|null} */ (null));
   const springLoadTargetRef = useRef(/** @type {string|null} */ (null));
   const filePicker = useRef(/** @type {HTMLInputElement|null} */ (null));
+  const folderPicker = useRef(/** @type {HTMLInputElement|null} */ (null));
+  const canPickFolder = browserCanPickFolder();
   const listRef = useRef(/** @type {HTMLUListElement|null} */ (null));
   const appliedSelectRef = useRef(/** @type {string|null} */ (null));
   const folderChromeRef = useRef(/** @type {HTMLDivElement|null} */ (null));
@@ -397,6 +425,28 @@ export default function FileBrowser({
     || (maybeFileRoot && rootStat.isPending);
   const showingStaleListing = Boolean(listing.isPlaceholderData);
 
+  // A slow listing says so after a beat; fast ones never flash it.
+  const [slowListing, setSlowListing] = useState(false);
+  useEffect(() => {
+    if (!listBusy) return undefined;
+    const id = setTimeout(() => setSlowListing(true), SLOW_LISTING_MS);
+    return () => {
+      clearTimeout(id);
+      setSlowListing(false);
+    };
+  }, [listBusy]);
+  const slowFg = surface === "primary" ? "text-secondary" : "text-primary";
+  const stillWorking = slowListing ? (
+    <div
+      data-slot="listing-slow"
+      role="status"
+      className={`flex items-center justify-center gap-2 py-6 px-3 text-center ${slowFg}`}
+    >
+      <Spinner size="sm" label="Loading folder" className={slowFg} />
+      <span className="font-mono text-base">Still working…</span>
+    </div>
+  ) : null;
+
   // Dotfile visibility is a view pref, not a permission — Luna-managed
   // `.luna-<uuid>*` names never reach the listing at all, so this only
   // unhides files the member could already open by path.
@@ -415,6 +465,16 @@ export default function FileBrowser({
     [entries, path, fileRoot],
   );
 
+  const entryPathSet = useMemo(() => new Set(entryPaths), [entryPaths]);
+  // First entry wins for a repeated path, like the linear find this replaces.
+  const entryByPath = useMemo(() => {
+    const map = new Map();
+    entries.forEach((e, i) => {
+      if (!map.has(entryPaths[i])) map.set(entryPaths[i], e);
+    });
+    return map;
+  }, [entries, entryPaths]);
+
   const [sortKey, setSortKey] = useState(readStoredSort);
   const [kindFilter, setKindFilter] = useState("all");
   const [filterText, setFilterText] = useState("");
@@ -432,19 +492,29 @@ export default function FileBrowser({
   // Folders stay grouped on top for every sort — see compareEntries.
   // Deferred: the input stays instant while a big folder re-filters behind it.
   const deferredFilterText = useDeferredValue(filterText);
+  const sortedEntries = useMemo(
+    () => [...entries].sort((a, b) => compareEntries(a, b, sortKey)),
+    [entries, sortKey],
+  );
+  const nameKeys = useMemo(
+    () => new Map(entries.map((e) => [e, displayNameOf(e).toLowerCase()])),
+    [entries],
+  );
   const visibleEntries = useMemo(() => {
     const query = deferredFilterText.trim().toLowerCase();
-    return entries
-      .filter((e) => (
-        (kindFilter === "all" || (kindFilter === "dir" ? e.kind === "dir" : e.kind !== "dir"))
-        && (!query || displayNameOf(e).toLowerCase().includes(query))
-      ))
-      .sort((a, b) => compareEntries(a, b, sortKey));
-  }, [entries, kindFilter, deferredFilterText, sortKey]);
+    return sortedEntries.filter((e) => (
+      (kindFilter === "all" || (kindFilter === "dir" ? e.kind === "dir" : e.kind !== "dir"))
+      && (!query || nameKeys.get(e).includes(query))
+    ));
+  }, [sortedEntries, nameKeys, kindFilter, deferredFilterText]);
 
   const visiblePaths = useMemo(
     () => visibleEntries.map((e) => (fileRoot ? path : joinPath(path, e.name))),
     [visibleEntries, path, fileRoot],
+  );
+  const visibleIndex = useMemo(
+    () => new Map(visiblePaths.map((p, i) => [p, i])),
+    [visiblePaths],
   );
   // Long folders mount only the rows near the viewport (the page scrolls on
   // the window). Short folders and pickers render every row.
@@ -456,6 +526,8 @@ export default function FileBrowser({
     count: virtualOn ? visibleEntries.length : 0,
     estimateSize: () => (dense ? 37 : 45),
     overscan: 12,
+    // Scrolling must not synchronously re-render the whole list on every event.
+    useFlushSync: false,
     scrollMargin,
     getItemKey: (i) => visibleEntries[i]?.name ?? i,
     initialRect: { width: 1024, height: typeof window === "undefined" ? 800 : window.innerHeight },
@@ -504,7 +576,7 @@ export default function FileBrowser({
    * @param {ScrollBehavior} [behavior]
    */
   function revealRow(rowPath, behavior = "auto") {
-    const idx = visiblePaths.indexOf(rowPath);
+    const idx = visibleIndex.get(rowPath) ?? -1;
     const find = () => listRef.current?.querySelector(`[data-file-path="${cssEscape(rowPath)}"]`);
     if (virtualOn && idx >= 0 && !find()) {
       virtualizer.scrollToIndex(idx, { align: "auto" });
@@ -523,12 +595,12 @@ export default function FileBrowser({
     setInnerSelected((prev) => prev.filter((p) => {
       const parent = parentPath(p);
       if (parent === path || (parent === "" && path === "")) {
-        return entryPaths.includes(p);
+        return entryPathSet.has(p);
       }
       // Keep selection that lives outside this folder (bulk ops across nav).
       return parent !== path;
     }));
-  }, [entryPaths, path, controlledSelected]);
+  }, [entryPathSet, path, controlledSelected]);
 
   // Link navigation (and search deep-links) change `path` without calling setPath,
   // so clear the previous folder's selection unless a fresh `select=` is pending.
@@ -562,7 +634,7 @@ export default function FileBrowser({
     }
     if (listBusy) return;
     if (appliedSelectRef.current === selectPath) return;
-    if (!entryPaths.includes(selectPath)) {
+    if (!entryPathSet.has(selectPath)) {
       appliedSelectRef.current = selectPath;
       onSelectPathApplied?.();
       return;
@@ -575,7 +647,7 @@ export default function FileBrowser({
     onSelectPathApplied?.();
     // setSelectedPaths is stable enough for this deep-link seed; listing/selectPath drive re-runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional seed-once-per-selectPath
-  }, [selectPath, entryPaths, listBusy, onSelectPathApplied]);
+  }, [selectPath, entryPathSet, listBusy, onSelectPathApplied]);
 
   const up = parentPath(path);
   const segments = path.split("/").filter(Boolean);
@@ -616,25 +688,25 @@ export default function FileBrowser({
 
   function selectedEntry() {
     if (selectedPaths.length !== 1) return null;
-    const i = visiblePaths.indexOf(selectedPaths[0]);
+    const i = visibleIndex.get(selectedPaths[0]) ?? -1;
     return i === -1 ? null : rowContext(visibleEntries[i]);
   }
 
   function moveSelection(delta, extend) {
     if (visiblePaths.length === 0) return false;
-    const current = cursorRef.current && selectedPaths.includes(cursorRef.current)
+    const current = cursorRef.current && selectedSet.has(cursorRef.current)
       ? cursorRef.current
       : selectedPaths[selectedPaths.length - 1];
-    const from = current ? visiblePaths.indexOf(current) : -1;
+    const from = current ? (visibleIndex.get(current) ?? -1) : -1;
     const index = from === -1
       ? (delta > 0 ? 0 : visiblePaths.length - 1)
       : Math.min(Math.max(from + delta, 0), visiblePaths.length - 1);
     const next = visiblePaths[index];
     cursorRef.current = next;
     haptic("selection");
-    const anchor = lastClicked && visiblePaths.includes(lastClicked) ? lastClicked : next;
+    const anchor = lastClicked && visibleIndex.has(lastClicked) ? lastClicked : next;
     if (extend && multiSelect) {
-      const [lo, hi] = [visiblePaths.indexOf(anchor), index].sort((a, b) => a - b);
+      const [lo, hi] = [visibleIndex.get(anchor), index].sort((a, b) => a - b);
       setSelectedPaths(visiblePaths.slice(lo, hi + 1));
       if (anchor === next) setLastClicked(next);
     } else {
@@ -669,6 +741,11 @@ export default function FileBrowser({
     selectAllVisible();
     return true;
   }, { label: "Select everything in this folder", group: "Files", enabled: keysOn && multiSelect });
+  useShortcut("Escape", () => {
+    if (selectedPaths.length === 0) return false;
+    clearSelection();
+    return true;
+  }, { label: "Clear the selection", group: "Files", enabled: keysOn && multiSelect });
   useShortcut("Enter", () => {
     const ctx = selectedEntry();
     if (!ctx || (ctx.entry.kind !== "dir" && !canOpenEntry(ctx))) return false;
@@ -716,6 +793,11 @@ export default function FileBrowser({
     filePicker.current.click();
     return true;
   }, { label: "Upload files", group: "Files", enabled: keysOn && enableUploadDrop });
+  useShortcut("Shift+U", () => {
+    if (!folderPicker.current) return false;
+    folderPicker.current.click();
+    return true;
+  }, { label: "Upload a folder", group: "Files", enabled: keysOn && enableUploadDrop && canPickFolder });
   const listingForbidden = Boolean(
     listing.isError
       && forbiddenState
@@ -743,6 +825,8 @@ export default function FileBrowser({
     });
   }, [hasFolderActions, showBreadcrumbs]);
 
+  // `folderActions` / `breadcrumbExtra` are JSX (new every render), so they are
+  // not deps; the observers on the container and probe catch their width changes.
   useEffect(() => {
     if (!hasFolderActions || !showBreadcrumbs) {
       return;
@@ -774,10 +858,8 @@ export default function FileBrowser({
     remeasureFolderChrome,
     driveLabel,
     path,
-    folderActions,
     enableUploadDrop,
     isPicker,
-    breadcrumbExtra,
   ]);
 
   function openFolder(folderPath, { feedback = true } = {}) {
@@ -890,9 +972,9 @@ export default function FileBrowser({
       setLastClicked(fullPath);
       return;
     }
-    if (range && lastClicked && visiblePaths.includes(lastClicked)) {
-      const a = visiblePaths.indexOf(lastClicked);
-      const b = visiblePaths.indexOf(fullPath);
+    if (range && lastClicked && visibleIndex.has(lastClicked)) {
+      const a = visibleIndex.get(lastClicked) ?? -1;
+      const b = visibleIndex.get(fullPath) ?? -1;
       if (a >= 0 && b >= 0) {
         const [lo, hi] = a < b ? [a, b] : [b, a];
         const slice = visiblePaths.slice(lo, hi + 1);
@@ -905,12 +987,12 @@ export default function FileBrowser({
     }
     if (additive) {
       setSelectedPaths(
-        selectedPaths.includes(fullPath)
+        selectedSet.has(fullPath)
           ? selectedPaths.filter((p) => p !== fullPath)
           : [...selectedPaths, fullPath],
       );
     } else {
-      setSelectedPaths(selectedPaths.includes(fullPath) && selectedPaths.length === 1 ? [] : [fullPath]);
+      setSelectedPaths(selectedSet.has(fullPath) && selectedPaths.length === 1 ? [] : [fullPath]);
     }
     setLastClicked(fullPath);
   }
@@ -941,16 +1023,16 @@ export default function FileBrowser({
     }
   }
 
-  async function handleOsDrop(event, destPath) {
+  function handleOsDrop(event, destPath) {
     event.preventDefault();
     clearSpringLoad();
     setDropTarget(null);
-    const files = await filesFromDataTransfer(event.dataTransfer);
-    if (files.length) {
+    // Entries only work while the drop event runs, so take them now; the
+    // file task store walks the folders later.
+    const dropped = takeDropped(event.dataTransfer);
+    if (dropped.entries.length || dropped.files.length) {
       haptic("heavy");
-      if (onUploadFiles) {
-        await onUploadFiles(files, destPath);
-      }
+      onUploadFiles?.({ dropped }, destPath);
     }
   }
 
@@ -962,11 +1044,11 @@ export default function FileBrowser({
       return;
     }
     haptic("rigid");
-    const paths = selectedPaths.includes(ctx.fullPath) && selectedPaths.length
+    const paths = selectedSet.has(ctx.fullPath) && selectedPaths.length
       ? selectedPaths
       : [ctx.fullPath];
     dragPathsRef.current = paths;
-    dragIndexRef.current = visiblePaths.indexOf(ctx.fullPath);
+    dragIndexRef.current = visibleIndex.get(ctx.fullPath) ?? -1;
     setLunaDragActive(true);
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData(LUNA_PATHS_MIME, JSON.stringify(paths));
@@ -981,9 +1063,9 @@ export default function FileBrowser({
     setLunaDragActive(false);
     setDropTarget(null);
     haptic("heavy");
-    const osFiles = await filesFromDataTransfer(event.dataTransfer);
-    if (osFiles.length && onUploadFiles) {
-      await onUploadFiles(osFiles, destFolder);
+    const dropped = takeDropped(event.dataTransfer);
+    if ((dropped.entries.length || dropped.files.length) && onUploadFiles) {
+      onUploadFiles({ dropped }, destFolder);
       return;
     }
     if (!onInternalMove) return;
@@ -1084,9 +1166,7 @@ export default function FileBrowser({
     if (selectedCount !== 1 || !onShare) return null;
     const fullPath = selectedPaths[0];
     const name = fullPath.split("/").pop() || fullPath;
-    const entry = entries.find(
-      (e) => (fileRoot ? path : joinPath(path, e.name)) === fullPath,
-    ) || { name, kind: "file" };
+    const entry = entryByPath.get(fullPath) || { name, kind: "file" };
     if ((capsBits(entry.caps || "") & CAP.SHARE) === 0) return null;
     return { entry, fullPath };
   })();
@@ -1177,22 +1257,82 @@ export default function FileBrowser({
             type="file"
             multiple
             className="sr-only"
-            onChange={async (e) => {
+            aria-label="Add files"
+            tabIndex={-1}
+            onChange={(e) => {
               const files = filesFromFileList(e.target.files);
               e.target.value = "";
-              if (files.length && onUploadFiles) await onUploadFiles(files, path);
+              if (files.length) onUploadFiles?.({ files }, path);
             }}
           />
-          <Button
-            variant="outline"
-            surface={surface}
-            size="sm"
-            type="button"
-            onClick={() => filePicker.current?.click()}
-          >
-            <UploadCloud size={14} aria-hidden="true" />
-            Upload
-          </Button>
+          {canPickFolder ? (
+            <input
+              ref={folderPicker}
+              type="file"
+              multiple
+              {...FOLDER_INPUT}
+              className="sr-only"
+              aria-label="Add a folder"
+              tabIndex={-1}
+              onChange={(e) => {
+                const files = filesFromFileList(e.target.files);
+                e.target.value = "";
+                if (files.length) onUploadFiles?.({ files }, path);
+              }}
+            />
+          ) : null}
+          {canPickFolder ? (
+            <Dropdown
+              menu
+              menuLabel="Upload"
+              options={UPLOAD_MENU_OPTIONS}
+              value=""
+              align="end"
+              onChange={(choice) => {
+                if (choice === "folder") folderPicker.current?.click();
+                else filePicker.current?.click();
+              }}
+              renderTrigger={({ open: isOpen, toggle, onKeyDown }) => (
+                <Button
+                  variant="outline"
+                  surface={surface}
+                  size="sm"
+                  type="button"
+                  haptic={false}
+                  aria-haspopup="menu"
+                  aria-expanded={isOpen}
+                  aria-label="Upload"
+                  onClick={() => {
+                    haptic("light");
+                    toggle();
+                  }}
+                  onKeyDown={onKeyDown}
+                >
+                  <UploadCloud size={14} aria-hidden="true" />
+                  Upload
+                  <ChevronDown
+                    size={14}
+                    aria-hidden="true"
+                    className={cn(
+                      "motion-safe:transition-transform motion-safe:duration-300",
+                      isOpen ? "rotate-180" : "rotate-0",
+                    )}
+                  />
+                </Button>
+              )}
+            />
+          ) : (
+            <Button
+              variant="outline"
+              surface={surface}
+              size="sm"
+              type="button"
+              onClick={() => filePicker.current?.click()}
+            >
+              <UploadCloud size={14} aria-hidden="true" />
+              Upload
+            </Button>
+          )}
         </>
       ) : null}
     </>
@@ -1305,6 +1445,7 @@ export default function FileBrowser({
                     <Button variant="outline" surface={surface} size="sm" type="button" tabIndex={-1}>
                       <UploadCloud size={14} aria-hidden="true" />
                       Upload
+                      {canPickFolder ? <ChevronDown size={14} aria-hidden="true" /> : null}
                     </Button>
                   ) : null}
                 </div>
@@ -1652,9 +1793,7 @@ export default function FileBrowser({
                 {renderSelectionActions?.(
                   selectedPaths,
                   selectedPaths
-                    .map((p) => entries.find(
-                      (e) => (fileRoot ? path : joinPath(path, e.name)) === p,
-                    ))
+                    .map((p) => entryByPath.get(p))
                     .filter(Boolean)
                     .map((e) => rowContext(e)),
                 )}
@@ -1755,8 +1894,10 @@ export default function FileBrowser({
         {listingForbidden ? (
           <div className="px-3 py-5">{forbiddenState}</div>
         ) : listBusy && entries.length === 0 ? (
-          <div className="h-11" aria-hidden="true" />
+          stillWorking || <div className="h-11" aria-hidden="true" />
         ) : (
+          <>
+          {showingStaleListing ? stillWorking : null}
           <ul
             ref={listRef}
             className={[
@@ -1927,6 +2068,7 @@ export default function FileBrowser({
                       isPicker={isPicker}
                       pickerMode={pickerMode}
                       pickSelected={isPicker && selectedPath === rowPath}
+                      pickBlocked={isPicker && Boolean(isPickBlocked?.(rowPath))}
                       multiSelect={multiSelect}
                       linkNavigation={linkNavigation}
                       canDragRow={!isPicker && Boolean(onInternalMove)}
@@ -1963,7 +2105,35 @@ export default function FileBrowser({
                 <TriangleAlert size={32} className="mb-3 text-error" aria-hidden="true" />
                 <p className="font-mono text-base" role="alert">
                   {folderListingError(listing.error)}
+                  {isFolderGone(listing.error) ? (
+                    <>
+                      {" You can use "}
+                      <button
+                        type="button"
+                        className={`${fg} underline decoration-accent underline-offset-2 hover:decoration-current`}
+                        onClick={() => {
+                          haptic("light");
+                          openFileSearch();
+                        }}
+                      >
+                        Universal Search
+                      </button>
+                      {" to try and find it."}
+                    </>
+                  ) : null}
                 </p>
+                {isFolderGone(listing.error) ? null : (
+                  <Button
+                    variant="outline"
+                    surface={surface}
+                    size="sm"
+                    className="mt-4"
+                    disabled={listing.isFetching}
+                    onClick={() => listing.refetch()}
+                  >
+                    Try again
+                  </Button>
+                )}
               </li>
             ) : isFiltered ? (
             <li
@@ -2001,6 +2171,7 @@ export default function FileBrowser({
             </li>
           )}
         </ul>
+          </>
       )}
         {isPicker && pickerMode === "folder" && (
           <div className={`flex flex-wrap items-center gap-2 px-3 py-3 border-t ${hairline}/20`}>
@@ -2011,7 +2182,7 @@ export default function FileBrowser({
               variant={selectedPath === path ? well : "outline"}
               surface={surface}
               size="sm"
-              disabled={isTrashPath(path)}
+              disabled={isTrashPath(path) || Boolean(isPickBlocked?.(path))}
               onClick={() => onSelect?.({
                 entry: { name: pathBasenameSafe(path) || driveLabel, kind: "dir" },
                 path: parentPath(path) || "",
@@ -2090,4 +2261,5 @@ FileBrowser.propTypes = {
   listClassName: PropTypes.string,
   dense: PropTypes.bool,
   surface: PropTypes.oneOf(["primary", "secondary"]),
+  isPickBlocked: PropTypes.func,
 };

@@ -157,7 +157,14 @@ describe("useBackupRows", () => {
     stubApi({ phrase: status });
     const { result } = renderBackupRows();
     await waitFor(() => expect(result.current.phrase).not.toBeNull());
-    expect(result.current.phrase).toEqual(status);
+    // The hook returns the normalized status: the reply's fields plus safe defaults for the rest.
+    expect(result.current.phrase).toEqual({
+      ...status,
+      last_checked_at: 0,
+      phrase_words: 0,
+      resealing: false,
+      old_phrase_copies: { count: 0, removed_at: 0 },
+    });
   });
 
   it("returns a null phrase while it loads, and still loads the backups", async () => {

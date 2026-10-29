@@ -57,7 +57,12 @@ Not covered: code comments, logs, internal docs. Dashboard greetings (pigeons, s
 
 ## Running tests
 
-Agents run tests only through the `./ci` CLI (`./ci run -profile <profile>`). Its CPU, memory and parallelism bounds are universal: they live in `.ci.conf` (default: gentle) and cap every `./ci` run on the machine together, so parallel runs queue for job slots instead of piling up. Never pass `-session` (which ignores the universal bounds for one run) unless the user says so.
+- Run tests only through `./ci run -profile <profile>`. Never run `cargo test`, `npx vitest`, `npm test`, `go test` or any other runner directly, not even to read one output value or check one test. No focused `./ci` target? Wait for the full run.
+- A full luna run takes 15–30 minutes. Start it in the background and poll its log for the `EXIT` line. Never start a second run while one is going, and a shell exit is not a result.
+- CPU, memory and parallelism bounds live in `.ci.conf` (default: gentle) and cap all `./ci` runs together. Never pass `-session` unless the user says so.
+- Test runs rewrite `luna/web/testing/results.json`, `luna/crates/lunad/src/backup/cloud/fixture.json` and `luna/web/src/dev/contract/lunad-responses.json` (the JSON shapes lunad's API tests see; written only by a full `./ci run -profile luna`). Don't hand-edit them. Keep them out of feature commits unless regenerating them, and commit them separately as `test(luna): ...` or `chore(luna): ...`. If a lunad response changes shape, fix the fake lunad (`luna/web/src/dev/fake/`) in the feature commit, or add an entry with a reason to `luna/web/src/dev/contract/known-gaps.js`.
+- A failure in a file you didn't touch: re-run once via `./ci`. Report it as flaky only if it then passes. Never skip it silently.
+- Never commit a phase or task with failing or unfinished verification without saying so in the commit body.
 
 ## Frontend (all web UIs)
 

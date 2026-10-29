@@ -26,7 +26,7 @@ use crate::files;
 /// Wraps each pack's random key under the backup key.
 pub(super) const PACK_KEY_WRAP_AAD: &[u8] = b"luna-pack-key-wrap-v1";
 /// Domain for deriving the opaque scope id that stands in for a protection.
-const SCOPE_DOMAIN: &[u8] = b"luna-scope-v1";
+pub(crate) const SCOPE_DOMAIN: &[u8] = b"luna-scope-v1";
 /// A pack is uploaded once its plain bytes reach this size.
 const PACK_FLUSH_BYTES: usize = 8 << 20;
 
@@ -49,6 +49,9 @@ pub struct CloudOutcome {
     /// True when the run was held because most of the source looks gone. A person can
     /// then choose "Back up anyway", which runs it with `accept_missing`.
     pub source_missing: bool,
+    /// True when the backup's lock was taken by another run, a key move or a re-seal. This is not
+    /// a failure: nothing is recorded, and the next scheduled run tries again.
+    pub busy: bool,
 }
 
 /// The folder on disk for a backup's logical path. A private item's disk name differs from its path.
@@ -96,7 +99,7 @@ pub fn run_once(
 }
 
 /// The run itself, reading from `root` instead of resolving the drive. Tests use this.
-fn run_with_root(
+pub(crate) fn run_with_root(
     db: &crate::Db,
     protection_id: &str,
     root: &Path,
@@ -106,10 +109,24 @@ fn run_with_root(
     now: i64,
 ) -> Result<CloudOutcome> {
     let Some(_slot) = RunSlot::take(db, protection_id) else {
-        return Ok(problem_outcome(
-            "A backup of this folder is already running. Wait for it to finish, then try again.",
-        ));
+        return Ok(busy_outcome());
     };
+
+    // Finish any re-seal owed after a phrase change. Best effort: a failure never holds this backup.
+    for result in keys::reseal_pending_holding(db, store, Some(protection_id)) {
+        match result {
+            Ok(report) if report.done => {}
+            Ok(report) => tracing::warn!(
+                user = %report.user_id,
+                missing = report.missing.len(),
+                "a cloud re-seal is waiting for older key copies; it will be retried on the next run"
+            ),
+            Err(err) => tracing::warn!(
+                error = %err,
+                "could not finish re-sealing cloud backup keys to a new phrase; it will be retried on the next run"
+            ),
+        }
+    }
 
     // Held before any run row is opened, so nothing is committed and nothing needs closing.
     // If the last copy cannot be read, the run is held too: a check that cannot run must not pass.
@@ -628,7 +645,32 @@ pub(crate) fn copy_and_commit(
         snapshot_id: Some(snapshot_id),
         problem: None,
         source_missing: false,
+        busy: false,
     })
+}
+
+/// Unwraps a pack's key with any of the backup keys a protection holds, newest version first.
+/// A pack opens with whichever version sealed it, so packs from older versions still open after a
+/// rotation. A wrong key fails the AEAD check and the next key is tried. If none opens it, the
+/// error says so, and no key bytes are included.
+pub(super) fn unwrap_newest_first(keys: &[BackupKey]) -> impl Fn(&[u8]) -> Result<[u8; 32]> + '_ {
+    let mut newest: Vec<&BackupKey> = keys.iter().collect();
+    newest.sort_by_key(|k| std::cmp::Reverse(k.version));
+    move |wrapped: &[u8]| {
+        for k in &newest {
+            let Ok(key) = <[u8; 32]>::try_from(k.key.as_slice()) else {
+                continue;
+            };
+            if let Ok(plain) = crypto::decrypt(&key, PACK_KEY_WRAP_AAD, wrapped)
+                && let Ok(pack_key) = <[u8; 32]>::try_from(plain.as_slice())
+            {
+                return Ok(pack_key);
+            }
+        }
+        Err(anyhow!(
+            "A backup file could not be opened with this Luna's keys."
+        ))
+    }
 }
 
 /// Read a snapshot's tree: fetch its tree pack, open it with `tree_key`, and decrypt the tree.
@@ -656,6 +698,17 @@ pub fn read_tree(
         ));
     }
     format::decrypt_tree(sealed, tree_key)
+}
+
+/// The outcome of a run that found the backup's lock taken. Never recorded as a protection error.
+pub(crate) fn busy_outcome() -> CloudOutcome {
+    CloudOutcome {
+        problem: Some(
+            "This backup is busy right now. Luna will try again in a few minutes.".to_string(),
+        ),
+        busy: true,
+        ..Default::default()
+    }
 }
 
 pub(crate) fn problem_outcome(message: &str) -> CloudOutcome {
@@ -709,7 +762,7 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
 }
 
 /// Lowercase hex (as the database stores pack ids) back to the 32-byte id.
-fn unhex(text: &str) -> Result<[u8; 32]> {
+pub(crate) fn unhex(text: &str) -> Result<[u8; 32]> {
     if text.len() != 64 || !text.is_ascii() {
         return Err(anyhow!("Backup pack id {text} is not valid."));
     }
@@ -742,6 +795,7 @@ mod tests {
                 self_sealed: vec![3; 48],
                 phrase_set_at: 1,
                 last_checked_at: 0,
+                phrase_words: 0,
             },
         )
         .unwrap();
@@ -777,6 +831,103 @@ mod tests {
         std::fs::write(src.join("a.bin"), random_vec(3 << 20)).unwrap();
         std::fs::write(src.join("b.bin"), random_vec(2 << 20)).unwrap();
         src
+    }
+
+    #[test]
+    fn a_marked_backup_starts_the_next_version_and_its_packs_still_open() {
+        use crate::backup::cloud::check::{self, Sample};
+
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        run_with_root(&db, "p2", &src, &store, "user-1", false, 100).unwrap();
+        let v1 = db::latest_backup_key(&lock(&db), "p2").unwrap().unwrap();
+        keys::mark_rotate(&lock(&db), "p2").unwrap();
+
+        // The next run starts version 2 with version 1's dedup key, publishes it, and clears the mark.
+        let rotated = run_with_root(&db, "p2", &src, &store, "user-1", false, 200).unwrap();
+        assert_eq!(rotated.problem, None);
+        let v2 = db::latest_backup_key(&lock(&db), "p2").unwrap().unwrap();
+        assert_eq!(v2.version, 2);
+        assert_eq!(v2.dedup_key, v1.dedup_key);
+        assert_ne!(v2.key, v1.key);
+        assert!(
+            store
+                .get_record("keys", &keys::key_record_name("p2", 2, "owner"))
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            db::get_meta(&lock(&db), "cloud_rotate:p2")
+                .unwrap()
+                .is_none()
+        );
+        // Unchanged chunks stay in version 1's packs, so the new snapshot reuses them.
+        assert!(rotated.reused_chunks > 0);
+
+        // A changed file adds a version 2 pack. Both versions' packs open for the check.
+        let mut data = std::fs::read(src.join("a.bin")).unwrap();
+        data[100] ^= 0xff;
+        std::fs::write(src.join("a.bin"), data).unwrap();
+        let changed = run_with_root(&db, "p2", &src, &store, "user-1", false, 300).unwrap();
+        assert_eq!(changed.problem, None);
+        let report = check::check(&db, "p2", &store, Sample::All, 400).unwrap();
+        assert_eq!(report.problem, None);
+
+        // With the mark gone, the next run keeps version 2.
+        run_with_root(&db, "p2", &src, &store, "user-1", false, 500).unwrap();
+        assert_eq!(
+            db::latest_backup_key(&lock(&db), "p2")
+                .unwrap()
+                .unwrap()
+                .version,
+            2
+        );
+    }
+
+    #[test]
+    fn packs_from_two_versions_open_for_a_newer_snapshot_and_wrong_keys_fail_cleanly() {
+        let scope = [5u8; 32];
+        let (v1, v2, wrong) = ([1u8; 32], [2u8; 32], [9u8; 32]);
+        let pack_sealed_with = |key: &[u8; 32]| {
+            let mut builder = PackBuilder::new(scope);
+            builder.add([7u8; 32], b"a chunk");
+            builder.finish(|pack_key| crypto::encrypt(key, PACK_KEY_WRAP_AAD, pack_key))
+        };
+        let old = pack_sealed_with(&v1);
+        let new = pack_sealed_with(&v2);
+        let row = |version: i64, key: [u8; 32]| BackupKey {
+            protection_id: "p1".into(),
+            version,
+            key: key.to_vec(),
+            dedup_key: vec![0; 32],
+            created_at: 0,
+        };
+
+        // Both versions held: each pack opens, whichever version sealed it.
+        let held = [row(1, v1), row(2, v2)];
+        let unwrap = unwrap_newest_first(&held);
+        assert!(format::open_pack(&old.bytes, &old.id, &unwrap).is_ok());
+        assert!(format::open_pack(&new.bytes, &new.id, &unwrap).is_ok());
+
+        // Only the newer version held: the older pack is refused with a clean error, not a panic.
+        let newest_only = [row(2, v2)];
+        let unwrap = unwrap_newest_first(&newest_only);
+        assert!(format::open_pack(&old.bytes, &old.id, &unwrap).is_err());
+        assert!(format::open_pack(&new.bytes, &new.id, &unwrap).is_ok());
+
+        // Wrong keys and no keys all fail cleanly.
+        let wrong_keys = [row(1, wrong), row(2, wrong)];
+        let unwrap = unwrap_newest_first(&wrong_keys);
+        assert!(format::open_pack(&old.bytes, &old.id, &unwrap).is_err());
+        assert!(format::open_pack(&new.bytes, &new.id, &unwrap).is_err());
+        let none: [BackupKey; 0] = [];
+        let unwrap = unwrap_newest_first(&none);
+        let Err(err) = format::open_pack(&old.bytes, &old.id, &unwrap) else {
+            panic!("a pack opened with no matching key");
+        };
+        assert!(err.to_string().contains("could not be opened"));
     }
 
     #[test]
@@ -916,6 +1067,7 @@ mod tests {
                 self_sealed: vec![3; 48],
                 phrase_set_at: 2,
                 last_checked_at: 0,
+                phrase_words: 0,
             },
         )
         .unwrap();

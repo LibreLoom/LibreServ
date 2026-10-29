@@ -42,7 +42,7 @@ function prefersReducedMotion() {
 /**
  * @typedef {object} ModalCardProps
  * @property {import('react').ReactNode} [title]
- * @property {import('react').ReactNode|function({close: () => void}): import('react').ReactNode} [children]
+ * @property {import('react').ReactNode | ((args: {close: () => void}) => import('react').ReactNode)} [children]
  * @property {() => void} [onClose]
  * @property {boolean} [open] Controlled visibility. When set to false, plays the exit
  *   animation then unmounts. Prefer `<ModalCard open={!!x} onClose={() => setX(null)}>`
@@ -51,7 +51,7 @@ function prefersReducedMotion() {
  * @property {boolean} [showCloseButton]
  * @property {string} [size]
  * @property {boolean} [mobileFullscreen]
- * @property {import('react').ReactNode | function({ close: () => void }): import('react').ReactNode} [footer]
+ * @property {import('react').ReactNode | ((args: {close: () => void}) => import('react').ReactNode)} [footer]
  * @property {string} [className]
  * @property {import('react').RefObject} [initialFocusRef]
  * @property {boolean} [loading] Show a skeleton body until content is ready.

@@ -172,7 +172,8 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             auth_public BLOB NOT NULL,
             self_sealed BLOB NOT NULL,
             phrase_set_at INTEGER NOT NULL,
-            last_checked_at INTEGER NOT NULL DEFAULT 0
+            last_checked_at INTEGER NOT NULL DEFAULT 0,
+            phrase_words INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS backup_keys (
             protection_id TEXT NOT NULL,
@@ -227,12 +228,20 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             scope TEXT PRIMARY KEY,
             owner TEXT NOT NULL,
             seal_public BLOB NOT NULL,
+            scope_public BLOB NOT NULL,
+            sealed_scope_secret BLOB NOT NULL,
             dedup_key BLOB NOT NULL,
             state TEXT NOT NULL DEFAULT 'active',
             retire_after INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS cloud_private_scopes_owner ON cloud_private_scopes(owner);
+        CREATE TABLE IF NOT EXISTS cloud_private_kept (
+            scope TEXT PRIMARY KEY,
+            seal_public BLOB NOT NULL,
+            sealed_scope_secret BLOB NOT NULL,
+            expires_at INTEGER NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS cloud_private_trees (
             snapshot_id TEXT PRIMARY KEY,
             scope TEXT NOT NULL,
@@ -272,6 +281,12 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
         "INTEGER NOT NULL DEFAULT 0",
     )?;
     ensure_column(&conn, "device_tokens", "expires_at", "INTEGER")?;
+    ensure_column(
+        &conn,
+        "user_keys",
+        "phrase_words",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
     crate::files::forwarding::migrate(&conn)?;
     crate::files::recents::migrate(&conn)?;
     // Legacy sharing tables — replaced by access_members/access_links.
@@ -507,6 +522,7 @@ pub fn factory_reset(conn: &Connection) -> anyhow::Result<()> {
         "cloud_snapshot_packs",
         "cloud_runs",
         "cloud_private_scopes",
+        "cloud_private_kept",
         "cloud_private_trees",
     ] {
         conn.execute(&format!("DELETE FROM {table}"), [])?;
@@ -1123,6 +1139,38 @@ pub struct ProtectionRow {
     pub notes: String,
 }
 
+impl ProtectionRow {
+    /// A backup that doesn't exist yet, to ask whether another backup would cover it.
+    pub fn probe(
+        kind: &str,
+        source_drive: &str,
+        source_path: &str,
+        target_drive: &str,
+        private_owner: &str,
+    ) -> Self {
+        Self {
+            id: String::new(),
+            kind: kind.to_string(),
+            source_drive: source_drive.to_string(),
+            source_path: source_path.to_string(),
+            target_drive: target_drive.to_string(),
+            private_owner: private_owner.to_string(),
+            created_by: String::new(),
+            created_at: 0,
+            state: PROTECTION_ACTIVE.to_string(),
+            stop_reason: String::new(),
+            access_json: String::new(),
+            last_ok_at: 0,
+            last_error: String::new(),
+            hard: false,
+            failing_since: 0,
+            last_checked_at: 0,
+            first_done: false,
+            notes: String::new(),
+        }
+    }
+}
+
 pub struct NewProtection<'a> {
     pub id: &'a str,
     pub kind: &'a str,
@@ -1217,6 +1265,45 @@ pub fn get_protection(conn: &Connection, id: &str) -> anyhow::Result<Option<Prot
         Some(row) => Ok(Some(protection_from_row(row)?)),
         None => Ok(None),
     }
+}
+
+/// The backup that has taken over `row`: the nearest backup of a parent folder of the same kind,
+/// from the same drive to the same place, with the same privacy (a shared parent never holds a
+/// private item inside it). Only a parent that is running and has finished its first copy counts,
+/// so until then the child stays the up-to-date copy. When that parent is stopped or deleted the
+/// child is no longer covered and runs again.
+pub fn covering_protection(
+    conn: &Connection,
+    row: &ProtectionRow,
+) -> anyhow::Result<Option<ProtectionRow>> {
+    let child = crate::access::normalize_subject_path(&row.source_path);
+    if child.is_empty() {
+        return Ok(None);
+    }
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT {PROTECTION_COLUMNS} FROM protections
+         WHERE kind = ?1 AND source_drive = ?2 AND target_drive = ?3 AND private_owner = ?4
+           AND state = 'active' AND first_done = 1 AND id != ?5"
+    ))?;
+    let parents = stmt
+        .query_map(
+            params![
+                row.kind,
+                row.source_drive,
+                row.target_drive,
+                row.private_owner,
+                row.id
+            ],
+            protection_from_row,
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(parents
+        .into_iter()
+        .filter(|p| {
+            let parent = crate::access::normalize_subject_path(&p.source_path);
+            parent != child && crate::access::path_contains(&parent, &child)
+        })
+        .max_by_key(|p| crate::access::normalize_subject_path(&p.source_path).len()))
 }
 
 /// Returns true when a row was removed.
@@ -1407,10 +1494,12 @@ pub struct UserKeys {
     pub self_sealed: Vec<u8>,
     pub phrase_set_at: i64,
     pub last_checked_at: i64,
+    /// 12 or 24 words; 0 when unknown (phrases made before this was stored).
+    pub phrase_words: i64,
 }
 
-const USER_KEYS_COLUMNS: &str =
-    "user_id, seal_public, auth_public, self_sealed, phrase_set_at, last_checked_at";
+const USER_KEYS_COLUMNS: &str = "user_id, seal_public, auth_public, self_sealed, phrase_set_at, \
+     last_checked_at, phrase_words";
 
 fn user_keys_from_row(r: &rusqlite::Row) -> rusqlite::Result<UserKeys> {
     Ok(UserKeys {
@@ -1420,6 +1509,7 @@ fn user_keys_from_row(r: &rusqlite::Row) -> rusqlite::Result<UserKeys> {
         self_sealed: r.get(3)?,
         phrase_set_at: r.get(4)?,
         last_checked_at: r.get(5)?,
+        phrase_words: r.get(6)?,
     })
 }
 
@@ -1437,15 +1527,16 @@ pub fn get_user_keys(conn: &Connection, user_id: &str) -> anyhow::Result<Option<
 pub fn set_user_keys(conn: &Connection, keys: &UserKeys) -> anyhow::Result<()> {
     conn.execute(
         "INSERT OR REPLACE INTO user_keys
-            (user_id, seal_public, auth_public, self_sealed, phrase_set_at, last_checked_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            (user_id, seal_public, auth_public, self_sealed, phrase_set_at, last_checked_at, phrase_words)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             keys.user_id,
             keys.seal_public,
             keys.auth_public,
             keys.self_sealed,
             keys.phrase_set_at,
-            keys.last_checked_at
+            keys.last_checked_at,
+            keys.phrase_words
         ],
     )?;
     Ok(())
@@ -1834,46 +1925,68 @@ pub fn deletable_packs(conn: &Connection, scope: &str, now: i64) -> anyhow::Resu
     Ok(rows)
 }
 
-/// A private scope: one owner's private items, sealed to that owner's key.
+/// A private scope: one owner's private items. Its items are sealed to `scope_public`, and its
+/// secret key is kept only sealed to the owner (`sealed_scope_secret`). `seal_public` is the owner's
+/// key at the time it was last sealed to, and changes when the owner's phrase is replaced.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PrivateScope {
     pub scope: String,
     pub owner: String,
     pub seal_public: Vec<u8>,
+    pub scope_public: Vec<u8>,
+    pub sealed_scope_secret: Vec<u8>,
     pub dedup_key: Vec<u8>,
     pub state: String,
     pub retire_after: i64,
     pub created_at: i64,
 }
 
-const PRIVATE_SCOPE_COLUMNS: &str =
-    "scope, owner, seal_public, dedup_key, state, retire_after, created_at";
+const PRIVATE_SCOPE_COLUMNS: &str = "scope, owner, seal_public, scope_public, sealed_scope_secret, dedup_key, state, retire_after, created_at";
 
 fn private_scope_from_row(r: &rusqlite::Row) -> rusqlite::Result<PrivateScope> {
     Ok(PrivateScope {
         scope: r.get(0)?,
         owner: r.get(1)?,
         seal_public: r.get(2)?,
-        dedup_key: r.get(3)?,
-        state: r.get(4)?,
-        retire_after: r.get(5)?,
-        created_at: r.get(6)?,
+        scope_public: r.get(3)?,
+        sealed_scope_secret: r.get(4)?,
+        dedup_key: r.get(5)?,
+        state: r.get(6)?,
+        retire_after: r.get(7)?,
+        created_at: r.get(8)?,
     })
 }
 
 pub fn insert_private_scope(conn: &Connection, s: &PrivateScope) -> anyhow::Result<()> {
     conn.execute(
-        "INSERT INTO cloud_private_scopes (scope, owner, seal_public, dedup_key, state, retire_after, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO cloud_private_scopes (scope, owner, seal_public, scope_public, sealed_scope_secret, dedup_key, state, retire_after, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             s.scope,
             s.owner,
             s.seal_public,
+            s.scope_public,
+            s.sealed_scope_secret,
             s.dedup_key,
             s.state,
             s.retire_after,
             s.created_at
         ],
+    )?;
+    Ok(())
+}
+
+/// Re-seals a scope's secret key to the owner's new sealing key. The scope's own key pair and its
+/// data stay as they are.
+pub fn set_private_scope_seal(
+    conn: &Connection,
+    scope: &str,
+    owner_public: &[u8],
+    sealed_scope_secret: &[u8],
+) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE cloud_private_scopes SET seal_public = ?2, sealed_scope_secret = ?3 WHERE scope = ?1",
+        params![scope, owner_public, sealed_scope_secret],
     )?;
     Ok(())
 }
@@ -1947,10 +2060,80 @@ pub fn delete_private_scope(conn: &Connection, scope: &str) -> anyhow::Result<()
         params![scope],
     )?;
     tx.execute(
+        "DELETE FROM cloud_private_kept WHERE scope = ?1",
+        params![scope],
+    )?;
+    tx.execute(
         "DELETE FROM cloud_private_scopes WHERE scope = ?1",
         params![scope],
     )?;
     tx.commit()?;
+    Ok(())
+}
+
+/// The previous copy of a scope's secret key, kept until `expires_at` so the old phrase can still
+/// open the scope. Replaces any copy already kept for the scope.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KeptScopeSecret {
+    pub scope: String,
+    pub seal_public: Vec<u8>,
+    pub sealed_scope_secret: Vec<u8>,
+    pub expires_at: i64,
+}
+
+pub fn keep_scope_secret(conn: &Connection, kept: &KeptScopeSecret) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO cloud_private_kept (scope, seal_public, sealed_scope_secret, expires_at)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![
+            kept.scope,
+            kept.seal_public,
+            kept.sealed_scope_secret,
+            kept.expires_at
+        ],
+    )?;
+    Ok(())
+}
+
+/// One owner's kept copies that have not expired. Only ever called with the signed-in owner.
+pub fn list_kept_scope_secrets(
+    conn: &Connection,
+    owner: &str,
+    now: i64,
+) -> anyhow::Result<Vec<KeptScopeSecret>> {
+    let mut stmt = conn.prepare(
+        "SELECT k.scope, k.seal_public, k.sealed_scope_secret, k.expires_at
+         FROM cloud_private_kept k JOIN cloud_private_scopes s ON s.scope = k.scope
+         WHERE s.owner = ?1 AND k.expires_at > ?2 ORDER BY k.scope",
+    )?;
+    let rows = stmt
+        .query_map(params![owner, now], |r| {
+            Ok(KeptScopeSecret {
+                scope: r.get(0)?,
+                seal_public: r.get(1)?,
+                sealed_scope_secret: r.get(2)?,
+                expires_at: r.get(3)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Drops every kept copy for one owner's scopes.
+pub fn clear_kept_scope_secrets(conn: &Connection, owner: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "DELETE FROM cloud_private_kept WHERE scope IN (SELECT scope FROM cloud_private_scopes WHERE owner = ?1)",
+        params![owner],
+    )?;
+    Ok(())
+}
+
+/// Drops kept copies whose 30 days are over.
+pub fn clear_expired_kept_scope_secrets(conn: &Connection, now: i64) -> anyhow::Result<()> {
+    conn.execute(
+        "DELETE FROM cloud_private_kept WHERE expires_at <= ?1",
+        params![now],
+    )?;
     Ok(())
 }
 
@@ -1987,16 +2170,16 @@ pub fn private_scope_of_snapshot(
         .optional()?)
 }
 
-/// How many of Luna's local snapshot rows are shared ones. Private snapshots live
-/// in the same table but Connect lists them under their own record kind, so they
-/// must not count when comparing against the shared list.
-pub fn count_shared_cloud_snapshots(conn: &Connection) -> anyhow::Result<i64> {
-    Ok(conn.query_row(
-        "SELECT COUNT(*) FROM cloud_snapshots
+/// IDs of Luna's indexed shared snapshots. Private snapshots live in the same table but
+/// Connect lists them under a separate, scope-protected record kind.
+pub fn list_shared_cloud_snapshot_ids(conn: &Connection) -> anyhow::Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT id FROM cloud_snapshots
          WHERE id NOT IN (SELECT snapshot_id FROM cloud_private_trees)",
-        [],
-        |r| r.get(0),
-    )?)
+    )?;
+    Ok(stmt
+        .query_map([], |row| row.get(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
 /// `commit_snapshot_tx` for a private snapshot, plus its plain tree, in one transaction.
@@ -2772,6 +2955,85 @@ mod tests {
     }
 
     #[test]
+    fn a_parent_backup_covers_only_the_same_kind_place_and_privacy() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        let add = |id: &str, kind: &str, path: &str, target: &str, owner: &str| {
+            insert_protection(
+                &conn,
+                &NewProtection {
+                    kind,
+                    target_drive: target,
+                    private_owner: owner,
+                    ..new_protection(id, "d1", path)
+                },
+            )
+            .unwrap();
+        };
+        add("parent", PROTECTION_DRIVE, "docs", "b1", "");
+        add("child", PROTECTION_DRIVE, "docs/sub", "b1", "");
+        add("other-target", PROTECTION_DRIVE, "docs/sub", "b2", "");
+        add("cloud-child", PROTECTION_CLOUD, "docs/sub", "", "");
+        add("private-child", PROTECTION_DRIVE, "docs/vault", "b1", "ann");
+        add("sibling", PROTECTION_DRIVE, "docsy", "b1", "");
+        let row = |id: &str| get_protection(&conn, id).unwrap().unwrap();
+        let covered = |id: &str| covering_protection(&conn, &row(id)).unwrap().map(|p| p.id);
+
+        // Until the parent finishes its first copy, nothing is covered.
+        assert_eq!(covered("child"), None);
+        record_protection_ok(&conn, "parent", 5, "{}").unwrap();
+        assert_eq!(covered("child"), Some("parent".to_string()));
+        // Another backup drive, the cloud, a private item and a name that only
+        // starts the same way are all separate.
+        assert_eq!(covered("other-target"), None);
+        assert_eq!(covered("cloud-child"), None);
+        assert_eq!(covered("private-child"), None);
+        assert_eq!(covered("sibling"), None);
+        // The parent itself is never covered by itself.
+        assert_eq!(covered("parent"), None);
+
+        // A stopped parent gives the child back; so does a deleted one.
+        set_protection_state(
+            &conn,
+            "parent",
+            PROTECTION_STOPPED,
+            "You stopped this backup.",
+        )
+        .unwrap();
+        assert_eq!(covered("child"), None);
+        set_protection_state(&conn, "parent", PROTECTION_ACTIVE, "").unwrap();
+        assert_eq!(covered("child"), Some("parent".to_string()));
+        delete_protection(&conn, "parent").unwrap();
+        assert_eq!(covered("child"), None);
+    }
+
+    #[test]
+    fn the_nearest_parent_backup_is_the_one_that_covers() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        for (id, path) in [("root", ""), ("mid", "a"), ("leaf", "a/b/c")] {
+            insert_protection(
+                &conn,
+                &NewProtection {
+                    target_drive: "b1",
+                    ..new_protection(id, "d1", path)
+                },
+            )
+            .unwrap();
+        }
+        record_protection_ok(&conn, "root", 5, "{}").unwrap();
+        record_protection_ok(&conn, "mid", 5, "{}").unwrap();
+        let leaf = get_protection(&conn, "leaf").unwrap().unwrap();
+        assert_eq!(
+            covering_protection(&conn, &leaf).unwrap().unwrap().id,
+            "mid"
+        );
+        // The whole-drive backup has no parent.
+        let root = get_protection(&conn, "root").unwrap().unwrap();
+        assert!(covering_protection(&conn, &root).unwrap().is_none());
+    }
+
+    #[test]
     fn protection_insert_get_list_delete() {
         let dir = tempfile::tempdir().unwrap();
         let conn = open(&dir.path().join("luna.db")).unwrap();
@@ -2998,10 +3260,18 @@ mod tests {
             self_sealed: vec![3; 48],
             phrase_set_at: 5,
             last_checked_at: 0,
+            phrase_words: 12,
         };
         set_user_keys(&conn, &keys).unwrap();
         assert_eq!(get_user_keys(&conn, "u1").unwrap(), Some(keys.clone()));
-        assert_eq!(list_user_keys(&conn).unwrap(), vec![keys]);
+        assert_eq!(list_user_keys(&conn).unwrap(), vec![keys.clone()]);
+        // A 24-word phrase round-trips too.
+        let keys24 = UserKeys {
+            phrase_words: 24,
+            ..keys.clone()
+        };
+        set_user_keys(&conn, &keys24).unwrap();
+        assert_eq!(get_user_keys(&conn, "u1").unwrap(), Some(keys24));
         delete_user_keys(&conn, "u1").unwrap();
         assert!(get_user_keys(&conn, "u1").unwrap().is_none());
         assert!(list_user_keys(&conn).unwrap().is_empty());
@@ -3239,6 +3509,8 @@ mod tests {
             scope: scope.into(),
             owner: owner.into(),
             seal_public: vec![7; 32],
+            scope_public: vec![5; 32],
+            sealed_scope_secret: vec![6; 16],
             dedup_key: vec![9; 32],
             state: "active".into(),
             retire_after: 0,
@@ -3303,7 +3575,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_snapshot_count_ignores_private_ones() {
+    fn shared_snapshot_ids_ignore_private_ones() {
         let dir = tempfile::tempdir().unwrap();
         let mut conn = open(&dir.path().join("luna.db")).unwrap();
         insert_protection(&conn, &new_protection("prot", "d1", "docs")).unwrap();
@@ -3316,11 +3588,16 @@ mod tests {
             b"{}",
         )
         .unwrap();
-        assert_eq!(count_shared_cloud_snapshots(&conn).unwrap(), 0);
+        assert!(list_shared_cloud_snapshot_ids(&conn).unwrap().is_empty());
+        insert_cloud_snapshot(&conn, &cloud_snap("shared-1", "prot", 6)).unwrap();
+        assert_eq!(
+            list_shared_cloud_snapshot_ids(&conn).unwrap(),
+            vec!["shared-1"]
+        );
         let n: i64 = conn
             .query_row("SELECT COUNT(*) FROM cloud_snapshots", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(n, 1);
+        assert_eq!(n, 2);
     }
 
     #[test]

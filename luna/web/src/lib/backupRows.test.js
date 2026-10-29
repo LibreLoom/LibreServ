@@ -133,8 +133,9 @@ describe("sortByUrgency and lastCopyLine", () => {
   });
 
   it("says when there is no good copy yet", () => {
-    expect(lastCopyLine(drive(), NOW)).toBe("No copy yet");
-    expect(lastCopyLine(cloud({ last_ok_at: NOW / 1000 - 300 }), NOW)).toBe("Last copy 5 min ago");
+    expect(lastCopyLine(drive(), NOW)).toBe("Not backed up yet.");
+    expect(lastCopyLine(cloud({ last_ok_at: NOW / 1000 - 300 }), NOW)).toBe("Last backed up 5 min ago.");
+    expect(lastCopyLine(drive({ last_ok_at: NOW / 1000 - 2 * 86400 }), NOW)).toBe("Last backed up 2 days ago.");
   });
 });
 

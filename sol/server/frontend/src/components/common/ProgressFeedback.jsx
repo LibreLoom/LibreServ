@@ -32,11 +32,9 @@ export function ProgressFeedback({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const outputRef = useRef(null);
-  const hasConnected = useRef(false);
 
   useEffect(() => {
-    if (streamUrl && !hasConnected.current) {
-      hasConnected.current = true;
+    if (streamUrl) {
       connect(streamUrl);
     }
   }, [streamUrl, connect]);
