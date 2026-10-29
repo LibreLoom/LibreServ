@@ -35,6 +35,7 @@ const SetupPage = lazy(() => import("./pages/SetupPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 const SettingsPage = lazy(loadSettingsPage);
 const PublicSharePage = lazy(() => import("./pages/PublicSharePage"));
+const RecoveryWizardPage = lazy(() => import("./pages/RecoveryWizardPage"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -142,6 +143,7 @@ export default function App() {
             <Suspense fallback={null}>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/recover" element={<RecoveryWizardPage />} />
               <Route path="/setup" element={<SetupPage />} />
               <Route path="/s/:token" element={<PublicSharePage />} />
               <Route element={<AppShell />}>

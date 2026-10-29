@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { login as loginQuips } from "../lib/greetings.jsx";
@@ -60,8 +60,6 @@ export default function LoginPage() {
   // never moves to /login. Signing in then just swaps your page back in; only
   // the real /login route needs to navigate anywhere.
   const inPlace = location.pathname !== "/login";
-
-  // TODO: in luna web website, need wizard that asks users a set of questions, then gives them a luna-recover-<device_token>.luna file (or luna-recover.luna if no device token is configured on Luna) to put onto the root of a dedicated, otherwise-empty flash drive. Luna only honours it at boot. Lunas without a device token must be supported (e.g. allow skipping the device token field).
 
   function calculateErrorHTML() {
     if (errorStatus === 401) {
@@ -186,8 +184,8 @@ export default function LoginPage() {
                   placeholder="e.g. hunter2"
                   autoComplete="current-password"
                   surface="primary"
-                  shake={errorStatus}
                   error={fieldErrors.password}
+                  shake={errorStatus}
                   loading={loading}
                 />
                 <Button
@@ -211,6 +209,9 @@ export default function LoginPage() {
                 >
                   {errorStatus && calculateErrorHTML()}
                 </div>
+                <p className="mt-5 text-center text-sm">
+                  Forgot your password? <Link className="underline decoration-accent underline-offset-4" to="/recover">Create a USB recovery file</Link> to use at startup.
+                </p>
                 </div>
               </form>
             </StepTransition>

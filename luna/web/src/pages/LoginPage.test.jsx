@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import LoginPage from "./LoginPage";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import { findContrastProblems } from "@libreloom/ui/test/contrast.js";
 
 function stubFetch({ setupCompleted = true, loginOk = true } = {}) {
   vi.stubGlobal("fetch", vi.fn(async (url, options = {}) => {
@@ -61,6 +62,15 @@ describe("LoginPage", () => {
     expect(screen.getByText("Luna")).toBeInTheDocument();
     expect(screen.getByText("Sign in to continue.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Login" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Create a USB recovery file" })).toHaveAttribute("href", "/recover");
+  });
+
+  it("keeps the recovery entry point visible and readable on its login panel", () => {
+    stubFetch();
+    renderLogin();
+    const recoveryLink = screen.getByRole("link", { name: "Create a USB recovery file" });
+    expect(recoveryLink).toBeVisible();
+    expect(findContrastProblems(screen.getByRole("main"))).toEqual([]);
   });
 
   it("logs in and returns to the page the user wanted", async () => {
@@ -100,12 +110,13 @@ describe("LoginPage", () => {
     expect(screen.queryByText("LUNA HOME")).not.toBeInTheDocument();
   });
 
-  it("names each empty field instead of doing nothing", async () => {
+  it("names each empty field and clears its message when corrected", async () => {
     stubFetch();
     renderLogin();
     fireEvent.click(screen.getByRole("button", { name: "Login" }));
     expect(await screen.findByText("Enter your username.")).toBeInTheDocument();
     expect(screen.getByText("Enter your password.")).toBeInTheDocument();
+
     fireEvent.change(screen.getByLabelText("Username", { selector: "input" }), { target: { value: "max" } });
     expect(screen.queryByText("Enter your username.")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Login" }));

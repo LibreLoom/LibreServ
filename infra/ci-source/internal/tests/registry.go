@@ -40,6 +40,7 @@ func (r *Registry) GetByIDs(ids []string) []*Test {
 func init() {
 	addGoTests()
 	addFrontendTests()
+	addSharedUIRecoveryTests()
 	addConnectWebTests()
 	addFuzzTests()
 	addSecurityTests()
@@ -291,6 +292,40 @@ func addConnectWebTests() {
 	})
 
 	DefaultRegistry.Add(&Test{
+		ID:          "luna-web-recovery-login-test",
+		Name:        "Luna Web Recovery and Login Unit Tests",
+		Description: "Run the password recovery and login page unit tests",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "cd /repo/shared/ui && npm ci --no-audit --no-fund && cd /repo/luna/web && npm ci --no-audit --no-fund && npm test -- --run src/pages/RecoveryWizardPage.test.jsx src/pages/LoginPage.test.jsx",
+		WorkDir:     "/repo/luna/web",
+		Timeout:     10 * time.Minute,
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-web-colors",
+		Name:        "Luna Web Color Scan",
+		Description: "Scan Luna web pages for hardcoded colors and surface mismatches",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "npm ci --no-audit --no-fund && node ../../shared/ui/scripts/scan-hardcoded-colors.js src/pages && node ../../shared/ui/scripts/scan-surfaces.js src/pages",
+		WorkDir:     "/repo/luna/web",
+		Timeout:     10 * time.Minute,
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-web-e2e",
+		Name:        "Luna Recovery Browser E2E",
+		Description: "Exercise recovery file creation and downloads in Chromium",
+		Type:        TestTypeUnit,
+		Container:   "mcr.microsoft.com/playwright:v1.64.1-noble",
+		Command:     "cd /repo/shared/ui && npm ci --no-audit --no-fund && cd /repo/luna/web && npm ci --no-audit --no-fund && npm run test:e2e:recovery",
+		WorkDir:     "/repo/luna/web",
+		Timeout:     10 * time.Minute,
+		Env:         []string{"PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1"},
+	})
+
+	DefaultRegistry.Add(&Test{
 		ID:          "luna-connect-web-test",
 		Name:        "Luna Connect Web Unit Tests",
 		Description: "Run Vitest unit tests for the Luna Connect web frontend",
@@ -420,6 +455,19 @@ func addConnectWebTests() {
 		Command:     "bash deploy/deploy_test.sh",
 		WorkDir:     "/repo/luna/connect",
 		Timeout:     5 * time.Minute,
+	})
+}
+
+func addSharedUIRecoveryTests() {
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-shared-ui-recovery-test",
+		Name:        "Luna Shared Recovery UI Helper Tests",
+		Description: "Test shared password byte counting and browser contrast calculations used by recovery",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "npm ci --no-audit --no-fund && npm test -- lib/passwordPolicy.test.js lib/colorContrast.test.js",
+		WorkDir:     "/repo/shared/ui",
+		Timeout:     10 * time.Minute,
 	})
 }
 

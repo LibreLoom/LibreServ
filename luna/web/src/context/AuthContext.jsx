@@ -7,9 +7,9 @@ const AuthContext = createContext(undefined);
 
 // Pages you may visit before Luna is set up. Everything else bounces to the
 // setup wizard so a fresh Luna always boots straight into setup instead of
-// an app with no account. /login stays reachable only once at least one
-// account exists (mid-setup sign-in); with zero accounts it redirects to /setup.
-const ALLOWED_DURING_SETUP = ["/setup", "/login"];
+// an app with no account. /recover also stays reachable before an account
+// exists so a recovery file can create a new Admin account at boot.
+const ALLOWED_DURING_SETUP = ["/setup", "/login", "/recover"];
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -76,7 +76,7 @@ export function AuthProvider({ children }) {
       const { me, setup: setupState, hasAdmin: adminExists } = await refresh();
       if (!alive) return;
       const needsSetup = !adminExists || Boolean(setupState && setupState.setup_completed === false);
-      if (!adminExists && !me) {
+      if (!adminExists && !me && path !== "/recover") {
         if (path !== "/setup") {
           navigateRef.current("/setup", { replace: true });
         }
