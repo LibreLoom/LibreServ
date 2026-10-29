@@ -176,10 +176,15 @@ lane_web() {
 	  npm install --no-audit --no-fund --cache /tmp/luna-npm-cache
 	  cd "$ROOT/web"
 	  npm install --no-audit --no-fund --cache /tmp/luna-npm-cache
+	  npm run scan:colors
+	  cd "$ROOT/../shared/ui"
+	  npm test
+	  npm run typecheck
+	  cd "$ROOT/web"
 	  npm run build
-	  npm test -- --run
 	  npm run lint
 	  npm run typecheck
+	  npm test -- --run
 	)
 
 	echo "==> connect web"

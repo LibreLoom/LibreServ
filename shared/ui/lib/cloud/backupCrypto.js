@@ -100,11 +100,16 @@ export function derive(entropy, lunaId) {
 	}
 	const x25519Secret = hkdf32(entropy, DERIVE_SALT, deriveInfo(utf8ToBytes('x25519'), lunaId));
 	const mlkemSeed = hkdf(sha256, entropy, DERIVE_SALT, deriveInfo(utf8ToBytes('mlkem'), lunaId), MLKEM_SEED_LEN);
-	const { sealSecret, sealPublic } = sealPairFrom(x25519Secret, mlkemSeed);
-	const selfKey = hkdf32(entropy, DERIVE_SALT, deriveInfo(utf8ToBytes('self'), lunaId));
-	const authSecret = hkdf32(entropy, DERIVE_SALT, deriveInfo(utf8ToBytes('auth'), lunaId));
-	const authPublic = signerPublic(authSecret);
-	return { sealSecret, sealPublic, selfKey, authSecret, authPublic };
+	try {
+		const { sealSecret, sealPublic } = sealPairFrom(x25519Secret, mlkemSeed);
+		const selfKey = hkdf32(entropy, DERIVE_SALT, deriveInfo(utf8ToBytes('self'), lunaId));
+		const authSecret = hkdf32(entropy, DERIVE_SALT, deriveInfo(utf8ToBytes('auth'), lunaId));
+		const authPublic = signerPublic(authSecret);
+		return { sealSecret, sealPublic, selfKey, authSecret, authPublic };
+	} finally {
+		x25519Secret.fill(0);
+		mlkemSeed.fill(0);
+	}
 }
 
 /** HKDF labels for a private scope's key pair, made from a 32-byte seed. */
@@ -120,13 +125,17 @@ const SCOPE_MLKEM_INFO = utf8ToBytes('luna-scope-mlkem-v1');
  */
 function sealPairFrom(x25519Secret, mlkemSeed) {
 	const secret = Uint8Array.from(x25519Secret);
-	// Clamp as X25519 does, so the stored secret and its public key always agree.
-	secret[0] &= 248;
-	secret[31] &= 127;
-	secret[31] |= 64;
-	const sealSecret = cat(secret, mlkemSeed);
-	const sealPublic = cat(x25519.getPublicKey(secret), mlkemKeys(mlkemSeed).publicKey);
-	return { sealSecret, sealPublic };
+	try {
+		// Clamp as X25519 does, so the stored secret and its public key always agree.
+		secret[0] &= 248;
+		secret[31] &= 127;
+		secret[31] |= 64;
+		const sealSecret = cat(secret, mlkemSeed);
+		const sealPublic = cat(x25519.getPublicKey(secret), mlkemKeys(mlkemSeed).publicKey);
+		return { sealSecret, sealPublic };
+	} finally {
+		secret.fill(0);
+	}
 }
 
 /**
@@ -138,7 +147,12 @@ export function scopeKeysFromSeed(seed) {
 	if (seed.length !== 32) throw new Error('Scope seed must be 32 bytes.');
 	const x25519Secret = hkdf32(seed, DERIVE_SALT, SCOPE_X25519_INFO);
 	const mlkemSeed = hkdf(sha256, seed, DERIVE_SALT, SCOPE_MLKEM_INFO, MLKEM_SEED_LEN);
-	return sealPairFrom(x25519Secret, mlkemSeed);
+	try {
+		return sealPairFrom(x25519Secret, mlkemSeed);
+	} finally {
+		x25519Secret.fill(0);
+		mlkemSeed.fill(0);
+	}
 }
 
 /**

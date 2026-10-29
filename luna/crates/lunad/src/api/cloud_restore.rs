@@ -6,8 +6,9 @@
 //! POSTs the plain backup keys back. The phrase never reaches Luna. Luna only serves public keys,
 //! sealed records, and the backup keys the browser has already opened and checked.
 
+use axum::body::Body;
 use axum::extract::{Extension, Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderValue, Response, StatusCode, header};
 use axum::routing::get;
 use axum::{Json, Router};
 use base64::Engine;
@@ -16,6 +17,8 @@ use rusqlite::params;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::HashSet;
+use std::convert::Infallible;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::AppState;
 use crate::api::cloud_backups::connect_store;
@@ -26,7 +29,7 @@ use crate::backup::cloud::crypto;
 use crate::backup::cloud::identity::{self, Identity};
 use crate::backup::cloud::keys::{self, USERS_KIND, USERS_LIST_NAME};
 use crate::backup::cloud::recover::{self, Recovered};
-use crate::backup::cloud::store::CloudStore;
+use crate::backup::cloud::store::{CloudStore, RESTORE_RECORD_PAGE_SIZE, StoreError};
 use crate::db;
 
 type ApiError = (StatusCode, Json<Value>);
@@ -40,6 +43,99 @@ const SNAPSHOT_KIND: &str = "snapshots";
 const MAX_KEYS: usize = 10_000;
 /// Longest old account id that may be re-linked.
 const MAX_OLD_USER_ID: usize = 128;
+/// Snapshot metadata is restored even if some backups cannot be re-linked to their current owner.
+const RELINK_WARNING: &str = "Luna restored the backup list, but some backups are still linked to an old account. Try again to finish reconnecting them.";
+/// Keep the recovery form available after snapshot metadata is restored but account relinking fails.
+const RELINK_PENDING_META: &str = "cloud_restore_relink_pending";
+/// Old owner IDs remain here until proof and local relinking both succeed.
+const RELINK_PENDING_IDS_META: &str = "cloud_restore_relink_pending_ids";
+
+fn restore_needed(missing_snapshots: bool, relink_pending: bool) -> bool {
+    missing_snapshots || relink_pending
+}
+
+fn cloud_snapshot_status(
+    store: &dyn CloudStore,
+    indexed_ids: &[String],
+) -> Result<(bool, u64), StoreError> {
+    let indexed: HashSet<&str> = indexed_ids.iter().map(String::as_str).collect();
+    let mut after: Option<String> = None;
+    let mut version = None;
+    let mut expected_total = None;
+    let mut processed = 0u64;
+    let mut has_missing = false;
+
+    loop {
+        let page = store.list_record_page_versioned(
+            SNAPSHOT_KIND,
+            after.as_deref(),
+            RESTORE_RECORD_PAGE_SIZE,
+            version,
+            expected_total,
+        )?;
+        if page.names.len() > RESTORE_RECORD_PAGE_SIZE
+            || version.is_some_and(|expected| expected != page.version)
+            || expected_total.is_some_and(|expected| expected != page.total)
+        {
+            return Err(StoreError::Unavailable(
+                "The cloud backup list changed during restore. Try restoring again.".into(),
+            ));
+        }
+        version = Some(page.version);
+        expected_total = Some(page.total);
+
+        let mut previous = after.as_deref().unwrap_or("");
+        for name in &page.names {
+            if name.as_str() <= previous {
+                return Err(StoreError::Rejected(
+                    "Luna Connect returned an invalid backup-listing order.".into(),
+                ));
+            }
+            has_missing |= !indexed.contains(name.as_str());
+            previous = name;
+        }
+        processed = processed.saturating_add(page.names.len() as u64);
+
+        if let Some(cursor) = page.next_after {
+            if page.names.len() != RESTORE_RECORD_PAGE_SIZE
+                || page.names.last().map(String::as_str) != Some(cursor.as_str())
+                || after
+                    .as_deref()
+                    .is_some_and(|previous| cursor.as_str() <= previous)
+            {
+                return Err(StoreError::Rejected(
+                    "Luna Connect returned an invalid backup-listing cursor.".into(),
+                ));
+            }
+            after = Some(cursor);
+            continue;
+        }
+
+        let total = expected_total.unwrap_or_default();
+        if processed != total {
+            return Err(StoreError::Unavailable(
+                "The cloud backup list changed during restore. Try restoring again.".into(),
+            ));
+        }
+
+        // Verify the terminal cursor too, including the empty-inventory case. This catches an
+        // insertion or deletion after the last non-empty page before status is reported.
+        let verify_after = page.names.last().map(String::as_str).or(after.as_deref());
+        let verification = store.list_record_page_versioned(
+            SNAPSHOT_KIND,
+            verify_after,
+            RESTORE_RECORD_PAGE_SIZE,
+            version,
+            expected_total,
+        )?;
+        if !verification.names.is_empty() || verification.next_after.is_some() {
+            return Err(StoreError::Unavailable(
+                "The cloud backup list changed during restore. Try restoring again.".into(),
+            ));
+        }
+        return Ok((has_missing, total));
+    }
+}
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -151,24 +247,30 @@ async fn status(
                 "indexed_snapshots": 0,
             }));
         };
-        // Connect only returns records this device can read. The shared "snapshots" kind
-        // excludes private snapshots, which use a separate scope-protected record kind.
-        let cloud_ids = store
-            .list_records(SNAPSHOT_KIND)
-            .map_err(unreachable_connect)?;
         let conn = db.lock().unwrap_or_else(|p| p.into_inner());
         let indexed_ids = crate::db::list_shared_cloud_snapshot_ids(&conn).map_err(read_failed)?;
+        drop(conn);
+        // Connect's shared snapshot listing is separate from private, scope-protected records.
+        // Read bounded, versioned pages and compare identities without retaining the cloud list.
+        let (missing_snapshots, cloud_snapshots) =
+            cloud_snapshot_status(&store, &indexed_ids).map_err(unreachable_connect)?;
+        let conn = db.lock().unwrap_or_else(|p| p.into_inner());
         let identity = identity::load(&conn).map_err(read_failed)?;
         let (luna_id, signing_public) = match &identity {
             Some(id) => (json!(id.luna_id()), json!(STANDARD.encode(id.public()))),
             None => (Value::Null, Value::Null),
         };
-        let needed = has_unindexed_snapshots(&cloud_ids, &indexed_ids);
+        let relink_pending = db::get_meta(&conn, RELINK_PENDING_META)
+            .map_err(read_failed)?
+            .as_deref()
+            == Some("true");
         Ok(json!({
-            "needed": needed,
+            // A pending relink remains recoverable when snapshot IDs already match.
+            "needed": restore_needed(missing_snapshots, relink_pending),
+            "relink_pending": relink_pending,
             "luna_id": luna_id,
             "signing_public": signing_public,
-            "cloud_snapshots": cloud_ids.len(),
+            "cloud_snapshots": cloud_snapshots,
             "indexed_snapshots": indexed_ids.len(),
         }))
     })
@@ -178,6 +280,7 @@ async fn status(
 
 /// Compare snapshot identities, not totals. Connect's list is already scoped to records
 /// this Luna can read; private records are never listed in this kind.
+#[cfg(test)]
 fn has_unindexed_snapshots(cloud_ids: &[String], indexed_ids: &[String]) -> bool {
     let indexed: HashSet<&str> = indexed_ids.iter().map(String::as_str).collect();
     cloud_ids.iter().any(|id| !indexed.contains(id.as_str()))
@@ -203,17 +306,23 @@ async fn records(
 async fn restore(
     State(state): State<AppState>,
     Extension(user): Extension<CurrentUser>,
-    Json(body): Json<RestoreBody>,
-) -> ApiResult {
+    Json(mut body): Json<RestoreBody>,
+) -> Result<Response<Body>, ApiError> {
     require_admin(&user)?;
-    parse_keys(&body, 0)?;
+    let parsed_keys = parse_keys(&body, 0);
+    for key in &mut body.keys {
+        key.key.zeroize();
+        key.dedup_key.zeroize();
+    }
+    let keys = parsed_keys?;
     let db = state.db.clone();
+    let setup_db = db.clone();
     let connect = state.connect.clone();
     let user_id = user.id.clone();
-    let answer = tokio::task::spawn_blocking(move || -> Result<Value, ApiError> {
-        let store = connect_store(&connect, &db).ok_or_else(not_set_up)?;
+    let (store, identity) = tokio::task::spawn_blocking(move || {
+        let store = connect_store(&connect, &setup_db).ok_or_else(not_set_up)?;
         let identity = {
-            let conn = db.lock().unwrap_or_else(|p| p.into_inner());
+            let conn = setup_db.lock().unwrap_or_else(|p| p.into_inner());
             identity::load(&conn).map_err(read_failed)?.ok_or_else(|| {
                 json_error(
                     StatusCode::CONFLICT,
@@ -221,42 +330,106 @@ async fn restore(
                 )
             })?
         };
-        let r = restore_with_store(&db, &store, &identity, &user_id, &body, db::now_unix())?;
-        Ok(json!({
-            "snapshots": r.snapshots,
-            "already_indexed": r.already_indexed,
-            "skipped": r.skipped,
-        }))
+        Ok::<_, ApiError>((store, identity))
     })
-    .await;
-    finish(answer)
+    .await
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna could not start the cloud backup restore. Try again.",
+        )
+    })??;
+    let (tx, rx) = tokio::sync::mpsc::channel::<String>(1);
+    tokio::task::spawn_blocking(move || {
+        let now = db::now_unix();
+        let result = restore_incrementally(
+            RestoreContext {
+                db: &db,
+                store: &store,
+                identity: &identity,
+                keys: keys.as_slice(),
+                user_id: &user_id,
+                body: &body,
+                now,
+            },
+            |snapshot| {
+                if tx.is_closed() {
+                    anyhow::bail!("restore client disconnected")
+                }
+                let conn = db.lock().unwrap_or_else(|p| p.into_inner());
+                if recover::already_indexed(&conn, &snapshot.record.snapshot_id)? {
+                    Ok(recover::RestoreDisposition::AlreadyIndexed)
+                } else {
+                    let mut conn = conn;
+                    recover::write_snapshot_for_restore(&mut conn, snapshot, now)?;
+                    Ok(recover::RestoreDisposition::Written)
+                }
+            },
+            |processed, total, counts| {
+                let event = json!({"type":"progress", "processed":processed, "total":total,
+                    "snapshots":counts.snapshots, "already_indexed":counts.already_indexed,
+                    "skipped":counts.skipped})
+                .to_string();
+                tx.blocking_send(event)
+                    .map_err(|_| anyhow::anyhow!("restore client disconnected"))
+            },
+        );
+        match result {
+            Ok((counts, relink_failed)) => {
+                let done = restore_done_event(&counts, relink_failed).to_string();
+                let _ = tx.blocking_send(done);
+            }
+            Err(err) => {
+                tracing::warn!(error = %err, "could not rebuild the cloud backup index");
+                let event = json!({"type":"error", "message":"Luna couldn't finish restoring your backup list. Some versions may already be back; try again to continue."}).to_string();
+                let _ = tx.blocking_send(event);
+            }
+        }
+    });
+    let stream = futures_util::stream::unfold(rx, |mut rx| async move {
+        rx.recv()
+            .await
+            .map(|event| (Ok::<_, Infallible>(format!("data: {event}\n\n")), rx))
+    });
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/event-stream"),
+        )
+        .header(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"))
+        .header("x-accel-buffering", HeaderValue::from_static("no"))
+        .body(Body::from_stream(stream))
+        .expect("valid restore stream response"))
 }
 
 /// Checks the keys the browser sent and turns them into backup keys.
-fn parse_keys(body: &RestoreBody, now: i64) -> Result<Vec<db::BackupKey>, ApiError> {
+fn parse_keys(body: &RestoreBody, now: i64) -> Result<Zeroizing<Vec<db::BackupKey>>, ApiError> {
     if body.keys.is_empty() || body.keys.len() > MAX_KEYS {
         return Err(unreadable_keys());
     }
-    body.keys
-        .iter()
-        .map(|k| {
-            let id_ok = !k.protection_id.is_empty()
-                && k.protection_id.len() <= 64
-                && k.protection_id
-                    .bytes()
-                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
-            if !id_ok || k.version < 1 {
-                return Err(unreadable_keys());
-            }
-            Ok(db::BackupKey {
-                protection_id: k.protection_id.clone(),
-                version: k.version,
-                key: decode_32(&k.key)?,
-                dedup_key: decode_32(&k.dedup_key)?,
-                created_at: now,
-            })
-        })
-        .collect()
+    let mut parsed = Zeroizing::new(Vec::with_capacity(body.keys.len()));
+    for key in &body.keys {
+        let id_ok = !key.protection_id.is_empty()
+            && key.protection_id.len() <= 64
+            && key
+                .protection_id
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        if !id_ok || key.version < 1 {
+            return Err(unreadable_keys());
+        }
+        let mut backup_key = Zeroizing::new(decode_32(&key.key)?);
+        let mut dedup_key = Zeroizing::new(decode_32(&key.dedup_key)?);
+        parsed.push(db::BackupKey {
+            protection_id: key.protection_id.clone(),
+            version: key.version,
+            key: std::mem::take(&mut *backup_key),
+            dedup_key: std::mem::take(&mut *dedup_key),
+            created_at: now,
+        });
+    }
+    Ok(parsed)
 }
 
 fn decode_32(s: &str) -> Result<Vec<u8>, ApiError> {
@@ -280,8 +453,237 @@ fn records_with_store(store: &dyn CloudStore, kind: &str) -> Result<Value, ApiEr
     Ok(json!({ "records": out }))
 }
 
+/// Re-link old owners when possible, but keep a completed metadata restore successful when this
+/// separate ownership repair fails. A retry is safe because snapshot writes are idempotent.
+fn relink_old_accounts(
+    conn: &rusqlite::Connection,
+    relink: &[String],
+    user_id: &str,
+) -> std::collections::HashSet<String> {
+    let mut failed = std::collections::HashSet::new();
+    for old in relink {
+        match db::get_user(conn, old) {
+            Ok(Some(_)) => continue,
+            Err(err) => {
+                tracing::warn!(error = %err, "could not check an old cloud backup owner");
+                failed.insert(old.clone());
+                continue;
+            }
+            Ok(None) => {}
+        }
+        if let Err(err) = conn.execute(
+            "UPDATE protections SET created_by = ?1 WHERE created_by = ?2",
+            params![user_id, old],
+        ) {
+            tracing::warn!(error = %err, "could not re-link an old cloud backup owner");
+            failed.insert(old.clone());
+        }
+    }
+    failed
+}
+
+#[cfg(test)]
+fn relink_proven_accounts(
+    db: &crate::Db,
+    store: &dyn CloudStore,
+    identity: &Identity,
+    user_id: &str,
+    body: &RestoreBody,
+    now: i64,
+) -> bool {
+    let relink = proven_old_accounts(store, identity, user_id, body, now);
+    finish_relink_proven_accounts(db, user_id, body, &relink, None)
+}
+
+/// Save retry intent before any snapshot is indexed. The owner IDs stored here have passed the
+/// current challenge proof; for unproven requests, only the pending flag is saved so the UI can
+/// offer a retry without treating a claimed owner ID as trusted.
+fn persist_relink_intent(
+    db: &crate::Db,
+    body: &RestoreBody,
+    proven: &[String],
+) -> anyhow::Result<bool> {
+    let has_request = body
+        .old_user_ids
+        .iter()
+        .any(|old| !old.is_empty() && old.len() <= MAX_OLD_USER_ID);
+
+    let mut conn = db.lock().unwrap_or_else(|p| p.into_inner());
+    let prior_pending = db::get_meta(&conn, RELINK_PENDING_META)?.as_deref() == Some("true");
+    let saved_ids = db::get_meta(&conn, RELINK_PENDING_IDS_META)?;
+    let mut ids_corrupt = false;
+    let mut pending_ids: std::collections::BTreeSet<String> = match saved_ids.as_deref() {
+        Some(value) => match serde_json::from_str(value) {
+            Ok(ids) => ids,
+            Err(err) => {
+                tracing::warn!(error = %err, "could not read pending cloud backup owners");
+                ids_corrupt = true;
+                std::collections::BTreeSet::new()
+            }
+        },
+        None => std::collections::BTreeSet::new(),
+    };
+    let unknown_pending_before = ids_corrupt || prior_pending && pending_ids.is_empty();
+    if !has_request {
+        return Ok(unknown_pending_before);
+    }
+
+    // A malformed saved list is unknown retry state. Keep its warning through this restore
+    // instead of replacing it with whichever account happened to be proven in this request.
+    if !ids_corrupt {
+        pending_ids.extend(proven.iter().cloned());
+    }
+    let pending_json = serde_json::to_string(&pending_ids)?;
+    let tx = conn.transaction()?;
+    db::set_meta(&tx, RELINK_PENDING_IDS_META, &pending_json)?;
+    db::set_meta(&tx, RELINK_PENDING_META, "true")?;
+    tx.commit()?;
+    Ok(unknown_pending_before)
+}
+
+/// Fetches one snapshot at a time and then attempts account repair. Progress errors happen after
+/// the snapshot write, so the pending intent must exist before the first callback can run.
+struct RestoreContext<'a> {
+    db: &'a crate::Db,
+    store: &'a dyn CloudStore,
+    identity: &'a Identity,
+    keys: &'a [db::BackupKey],
+    user_id: &'a str,
+    body: &'a RestoreBody,
+    now: i64,
+}
+
+fn restore_incrementally(
+    context: RestoreContext<'_>,
+    handle: impl FnMut(recover::PreparedSnapshot) -> anyhow::Result<recover::RestoreDisposition>,
+    progress: impl FnMut(u32, u32, &Recovered) -> anyhow::Result<()>,
+) -> anyhow::Result<(Recovered, bool)> {
+    let relink = proven_old_accounts(
+        context.store,
+        context.identity,
+        context.user_id,
+        context.body,
+        context.now,
+    );
+    let unknown_pending_before = persist_relink_intent(context.db, context.body, &relink)?;
+    let recovered = recover::fetch_incrementally_with_existing_check(
+        context.store,
+        context.identity,
+        context.keys,
+        |snapshot_id| {
+            let conn = context.db.lock().unwrap_or_else(|p| p.into_inner());
+            recover::already_indexed(&conn, snapshot_id)
+        },
+        handle,
+        progress,
+    )?;
+    let relink_failed = finish_relink_proven_accounts(
+        context.db,
+        context.user_id,
+        context.body,
+        &relink,
+        Some(unknown_pending_before),
+    );
+    Ok((recovered, relink_failed))
+}
+
+fn finish_relink_proven_accounts(
+    db: &crate::Db,
+    user_id: &str,
+    body: &RestoreBody,
+    relink: &[String],
+    unknown_pending_before: Option<bool>,
+) -> bool {
+    let has_unproven_request = body
+        .old_user_ids
+        .iter()
+        .filter(|old| !old.is_empty() && old.len() <= MAX_OLD_USER_ID)
+        .any(|old| !relink.iter().any(|proven| proven == old));
+    let mut conn = db.lock().unwrap_or_else(|p| p.into_inner());
+    let prior_pending = match db::get_meta(&conn, RELINK_PENDING_META) {
+        Ok(value) => value.as_deref() == Some("true"),
+        Err(err) => {
+            tracing::warn!(error = %err, "could not read cloud backup relink status");
+            true
+        }
+    };
+    let (saved_ids, ids_read_failed) = match db::get_meta(&conn, RELINK_PENDING_IDS_META) {
+        Ok(value) => (value, false),
+        Err(err) => {
+            tracing::warn!(error = %err, "could not read pending cloud backup owners");
+            (None, true)
+        }
+    };
+    let mut ids_corrupt = false;
+    let mut pending_ids: std::collections::BTreeSet<String> = match saved_ids.as_deref() {
+        Some(value) => match serde_json::from_str(value) {
+            Ok(ids) => ids,
+            Err(err) => {
+                tracing::warn!(error = %err, "could not read pending cloud backup owners");
+                ids_corrupt = true;
+                std::collections::BTreeSet::new()
+            }
+        },
+        None => std::collections::BTreeSet::new(),
+    };
+    // A pre-ID marker or malformed ID list has unknown owners. Keep it set rather than
+    // claiming that an unrelated request repaired accounts whose IDs are no longer present.
+    let unknown_pending = ids_read_failed
+        || ids_corrupt
+        || unknown_pending_before.unwrap_or(prior_pending && pending_ids.is_empty());
+    let relink_failures = relink_old_accounts(&conn, relink, user_id);
+    for old in &relink_failures {
+        pending_ids.insert(old.clone());
+    }
+    for old in relink {
+        if !relink_failures.contains(old) {
+            pending_ids.remove(old);
+        }
+    }
+    let relink_failed = has_unproven_request || unknown_pending || !pending_ids.is_empty();
+    let tx = match conn.transaction() {
+        Ok(tx) => tx,
+        Err(err) => {
+            tracing::warn!(error = %err, "could not save cloud backup relink status");
+            return true;
+        }
+    };
+    let pending_json = match serde_json::to_string(&pending_ids) {
+        Ok(value) => value,
+        Err(err) => {
+            tracing::warn!(error = %err, "could not encode pending cloud backup owners");
+            return true;
+        }
+    };
+    if let Err(err) = db::set_meta(&tx, RELINK_PENDING_IDS_META, &pending_json)
+        .and_then(|()| {
+            db::set_meta(
+                &tx,
+                RELINK_PENDING_META,
+                if relink_failed { "true" } else { "false" },
+            )
+        })
+        .and_then(|()| tx.commit().map_err(Into::into))
+    {
+        tracing::warn!(error = %err, "could not save cloud backup relink status");
+        return true;
+    }
+    relink_failed
+}
+
+fn restore_done_event(counts: &Recovered, relink_failed: bool) -> Value {
+    json!({
+        "type": "done",
+        "snapshots": counts.snapshots,
+        "already_indexed": counts.already_indexed,
+        "skipped": counts.skipped,
+        "warning": relink_failed.then_some(RELINK_WARNING),
+    })
+}
+
 /// Rebuilds the snapshot index from the store, then re-links backups made under old accounts.
 /// Every store read happens with the database lock free. The lock is taken only for the writes.
+#[cfg(test)]
 fn restore_with_store(
     db: &crate::Db,
     store: &dyn CloudStore,
@@ -298,21 +700,28 @@ fn restore_with_store(
             "Luna could not read its cloud backups from Luna Connect. Try again.",
         )
     };
-    let prepared = recover::fetch_recoverable(store, identity, &keys).map_err(index_failed)?;
-    let relink = proven_old_accounts(store, identity, user_id, body, now);
-    let mut conn = db.lock().unwrap_or_else(|p| p.into_inner());
-    let r = recover::write_recovered(&mut conn, prepared, now).map_err(index_failed)?;
-    // Only old accounts are re-linked. A current user's backups stay theirs.
-    for old in &relink {
-        if db::get_user(&conn, old).map_err(read_failed)?.is_some() {
-            continue;
-        }
-        conn.execute(
-            "UPDATE protections SET created_by = ?1 WHERE created_by = ?2",
-            params![user_id, old],
-        )
-        .map_err(read_failed)?;
-    }
+    let (r, _) = restore_incrementally(
+        RestoreContext {
+            db,
+            store,
+            identity,
+            keys: keys.as_slice(),
+            user_id,
+            body,
+            now,
+        },
+        |snapshot| {
+            let mut conn = db.lock().unwrap_or_else(|p| p.into_inner());
+            if recover::already_indexed(&conn, &snapshot.record.snapshot_id)? {
+                Ok(recover::RestoreDisposition::AlreadyIndexed)
+            } else {
+                recover::write_snapshot_for_restore(&mut conn, snapshot, now)?;
+                Ok(recover::RestoreDisposition::Written)
+            }
+        },
+        |_processed, _total, _progress| Ok(()),
+    )
+    .map_err(index_failed)?;
     Ok(r)
 }
 
@@ -389,17 +798,25 @@ mod tests {
         assert!(!has_unindexed_snapshots(&[], &[]));
         assert!(!has_unindexed_snapshots(&[], &["local-only".into()]));
         assert!(!has_unindexed_snapshots(&["same".into()], &["same".into()]));
+        assert!(restore_needed(true, false));
+        assert!(restore_needed(false, true));
+        assert!(!restore_needed(false, false));
     }
 
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
-    use super::{KeyIn, RestoreBody, records_with_store, restore_with_store};
+    use super::{
+        KeyIn, RELINK_WARNING, RestoreBody, RestoreContext, SNAPSHOT_KIND, parse_keys,
+        records_with_store, relink_proven_accounts, restore_done_event, restore_incrementally,
+        restore_needed, restore_with_store,
+    };
     use crate::api::cloud_phrase::{CHECK_DOMAIN, issue_challenge};
     use crate::backup::cloud::crypto;
     use crate::backup::cloud::format::{self, BackupMeta, SnapshotRecord};
     use crate::backup::cloud::identity::{self, Identity};
     use crate::backup::cloud::keys;
+    use crate::backup::cloud::recover;
     use crate::backup::cloud::store::{CloudStore, MemoryStore, StoreError, Usage};
     use crate::drives::DriveManager;
     use crate::drives::mount::shared_mock;
@@ -477,10 +894,17 @@ mod tests {
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
-        (
-            status,
-            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
-        )
+        let parsed = if let Ok(value) = serde_json::from_slice(&bytes) {
+            value
+        } else {
+            String::from_utf8_lossy(&bytes)
+                .lines()
+                .filter_map(|line| line.strip_prefix("data: "))
+                .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+                .find(|value| value["type"] == "done" || value["type"] == "error")
+                .unwrap_or(Value::Null)
+        };
+        (status, parsed)
     }
 
     /// The keys the browser would POST for one backup key and dedup key.
@@ -543,6 +967,10 @@ mod tests {
         inner: MemoryStore,
         db: std::sync::Arc<crate::Db>,
         probes: AtomicUsize,
+        full_list_calls: AtomicUsize,
+        page_limits: std::sync::Mutex<Vec<usize>>,
+        page_calls: AtomicUsize,
+        mutate_after_first_page: bool,
     }
 
     impl ProbeStore {
@@ -587,7 +1015,24 @@ mod tests {
         }
         fn list_records(&self, kind: &str) -> Result<Vec<String>, StoreError> {
             self.probe();
+            self.full_list_calls.fetch_add(1, Ordering::SeqCst);
             self.inner.list_records(kind)
+        }
+        fn list_record_page(
+            &self,
+            kind: &str,
+            after: Option<&str>,
+            limit: usize,
+        ) -> Result<crate::backup::cloud::store::RecordPage, StoreError> {
+            self.probe();
+            self.page_limits.lock().unwrap().push(limit);
+            let page = self.inner.list_record_page(kind, after, limit)?;
+            let call = self.page_calls.fetch_add(1, Ordering::SeqCst);
+            if self.mutate_after_first_page && call == 0 {
+                self.inner
+                    .put_record(SNAPSHOT_KIND, "snapshot-added", b"record")?;
+            }
+            Ok(page)
         }
         fn usage(&self) -> Result<Usage, StoreError> {
             self.inner.usage()
@@ -704,12 +1149,90 @@ mod tests {
             inner,
             db: f.state.db.clone(),
             probes: AtomicUsize::new(0),
+            full_list_calls: AtomicUsize::new(0),
+            page_limits: std::sync::Mutex::new(Vec::new()),
+            page_calls: AtomicUsize::new(0),
+            mutate_after_first_page: false,
         };
 
         let r = restore_with_store(&f.state.db, &store, &id, &f.admin_id, &body(TREE_KEY), NOW)
             .unwrap();
         assert_eq!(r.snapshots, 1);
         assert!(store.probes.load(Ordering::SeqCst) >= 1);
+    }
+
+    #[test]
+    fn status_compares_ids_across_bounded_versioned_pages() {
+        let f = fixture();
+        let inner = MemoryStore::new();
+        for index in 0..1000 {
+            inner
+                .put_record(SNAPSHOT_KIND, &format!("snapshot-{index:04}"), b"record")
+                .unwrap();
+        }
+        let store = ProbeStore {
+            inner,
+            db: f.state.db.clone(),
+            probes: AtomicUsize::new(0),
+            full_list_calls: AtomicUsize::new(0),
+            page_limits: std::sync::Mutex::new(Vec::new()),
+            page_calls: AtomicUsize::new(0),
+            mutate_after_first_page: false,
+        };
+
+        let (missing, count) = super::cloud_snapshot_status(&store, &[]).unwrap();
+        assert!(missing);
+        assert_eq!(count, 1000);
+        assert_eq!(store.full_list_calls.load(Ordering::SeqCst), 0);
+        let page_limits = store.page_limits.lock().unwrap();
+        assert_eq!(page_limits.len(), 17); // 16 bounded pages plus terminal verification
+        assert!(
+            page_limits
+                .iter()
+                .all(|limit| *limit == super::RESTORE_RECORD_PAGE_SIZE)
+        );
+        assert!(store.probes.load(Ordering::SeqCst) >= page_limits.len());
+    }
+
+    #[test]
+    fn status_detects_same_count_replacement_and_handles_empty_inventory() {
+        let store = MemoryStore::new();
+        store
+            .put_record(SNAPSHOT_KIND, "cloud-a", b"record")
+            .unwrap();
+
+        assert_eq!(
+            super::cloud_snapshot_status(&store, &["local-b".into()]).unwrap(),
+            (true, 1),
+        );
+
+        let empty = MemoryStore::new();
+        assert_eq!(
+            super::cloud_snapshot_status(&empty, &[]).unwrap(),
+            (false, 0)
+        );
+    }
+
+    #[test]
+    fn status_rejects_inventory_changes_during_paged_identity_check() {
+        let f = fixture();
+        let inner = MemoryStore::new();
+        inner
+            .put_record(SNAPSHOT_KIND, "snapshot-a", b"record")
+            .unwrap();
+        let store = ProbeStore {
+            inner,
+            db: f.state.db.clone(),
+            probes: AtomicUsize::new(0),
+            full_list_calls: AtomicUsize::new(0),
+            page_limits: std::sync::Mutex::new(Vec::new()),
+            page_calls: AtomicUsize::new(0),
+            mutate_after_first_page: true,
+        };
+
+        let err = super::cloud_snapshot_status(&store, &[]).unwrap_err();
+        assert!(err.to_string().contains("changed during restore"));
+        assert_eq!(store.full_list_calls.load(Ordering::SeqCst), 0);
     }
 
     #[test]
@@ -732,6 +1255,447 @@ mod tests {
 
         assert_eq!(owner_of(&f, "old-row"), f.admin_id);
         assert_eq!(owner_of(&f, "mine-row"), f.member_id);
+    }
+
+    #[test]
+    fn relink_failure_keeps_metadata_restore_complete_and_reports_warning() {
+        let f = fixture();
+        let id = load_identity(&f);
+        let store = MemoryStore::new();
+        put_snapshot(&store, &id, "snap-a");
+        let old_auth = crypto::Signer::from_seed([5u8; 32]);
+        publish_old_user(&store, &id, "old-user", &old_auth);
+        insert_old_row(&f);
+        {
+            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            conn.execute_batch(
+                "CREATE TRIGGER fail_old_account_relink
+                 BEFORE UPDATE OF created_by ON protections
+                 WHEN OLD.created_by = 'old-user'
+                 BEGIN SELECT RAISE(ABORT, 'injected relink failure'); END;",
+            )
+            .unwrap();
+        }
+
+        let challenge = issue_challenge(&f.admin_id, NOW);
+        let signature = STANDARD.encode(old_auth.sign(CHECK_DOMAIN, &challenge));
+        let restore = signed_body(&["old-user"], signature);
+        let keys = parse_keys(&restore, NOW).unwrap();
+        let counts = recover::fetch_incrementally(
+            &store,
+            &id,
+            keys.as_slice(),
+            |snapshot| {
+                let mut conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+                recover::write_snapshot_for_restore(&mut conn, snapshot, NOW)?;
+                Ok(recover::RestoreDisposition::Written)
+            },
+            |_processed, _total, _counts| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(counts.snapshots, 1);
+
+        let relink_failed =
+            relink_proven_accounts(&f.state.db, &store, &id, &f.admin_id, &restore, NOW);
+        let event = restore_done_event(&counts, relink_failed);
+
+        assert!(relink_failed);
+        assert_eq!(event["type"], "done");
+        assert_eq!(event["snapshots"], 1);
+        assert_eq!(event["warning"], RELINK_WARNING);
+        assert_eq!(
+            db::get_meta(
+                &f.state.db.lock().unwrap_or_else(|p| p.into_inner()),
+                super::RELINK_PENDING_META,
+            )
+            .unwrap()
+            .as_deref(),
+            Some("true")
+        );
+        assert!(restore_needed(false, true));
+        assert_eq!(owner_of(&f, "old-row"), "old-user");
+        let unproven_retry = signed_body(&["old-user"], String::new());
+        assert!(relink_proven_accounts(
+            &f.state.db,
+            &store,
+            &id,
+            &f.admin_id,
+            &unproven_retry,
+            NOW,
+        ));
+        assert_eq!(
+            db::get_meta(
+                &f.state.db.lock().unwrap_or_else(|p| p.into_inner()),
+                super::RELINK_PENDING_META,
+            )
+            .unwrap()
+            .as_deref(),
+            Some("true")
+        );
+        {
+            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            assert!(recover::already_indexed(&conn, "snap-a").unwrap());
+            conn.execute_batch("DROP TRIGGER fail_old_account_relink;")
+                .unwrap();
+        }
+
+        let retry_challenge = issue_challenge(&f.admin_id, NOW);
+        let retry_signature = STANDARD.encode(old_auth.sign(CHECK_DOMAIN, &retry_challenge));
+        let retry_body = signed_body(&["old-user"], retry_signature);
+        let retry_keys = parse_keys(&retry_body, NOW).unwrap();
+        let retry = recover::fetch_incrementally(
+            &store,
+            &id,
+            retry_keys.as_slice(),
+            |snapshot| {
+                let mut conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+                if recover::already_indexed(&conn, &snapshot.record.snapshot_id)? {
+                    Ok(recover::RestoreDisposition::AlreadyIndexed)
+                } else {
+                    recover::write_snapshot_for_restore(&mut conn, snapshot, NOW)?;
+                    Ok(recover::RestoreDisposition::Written)
+                }
+            },
+            |_processed, _total, _counts| Ok(()),
+        )
+        .unwrap();
+        assert_eq!((retry.snapshots, retry.already_indexed), (0, 1));
+        let retry_relink_failed =
+            relink_proven_accounts(&f.state.db, &store, &id, &f.admin_id, &retry_body, NOW);
+        assert!(!retry_relink_failed);
+        assert_eq!(
+            restore_done_event(&retry, retry_relink_failed)["warning"],
+            Value::Null
+        );
+        assert_eq!(owner_of(&f, "old-row"), f.admin_id);
+        assert_eq!(
+            db::get_meta(
+                &f.state.db.lock().unwrap_or_else(|p| p.into_inner()),
+                super::RELINK_PENDING_META,
+            )
+            .unwrap()
+            .as_deref(),
+            Some("false")
+        );
+        assert!(!restore_needed(false, false));
+    }
+
+    #[test]
+    fn successful_proven_relink_clears_its_own_retry_intent() {
+        let f = fixture();
+        let id = load_identity(&f);
+        let store = MemoryStore::new();
+        put_snapshot(&store, &id, "snap-a");
+        let old_auth = crypto::Signer::from_seed([5u8; 32]);
+        publish_old_user(&store, &id, "old-user", &old_auth);
+        insert_old_row(&f);
+
+        let challenge = issue_challenge(&f.admin_id, NOW);
+        let signature = STANDARD.encode(old_auth.sign(CHECK_DOMAIN, &challenge));
+        let restore = signed_body(&["old-user"], signature);
+        let recovered =
+            restore_with_store(&f.state.db, &store, &id, &f.admin_id, &restore, NOW).unwrap();
+
+        assert_eq!((recovered.snapshots, recovered.already_indexed), (1, 0));
+        assert_eq!(owner_of(&f, "old-row"), f.admin_id);
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_IDS_META).unwrap(),
+            Some("[]".to_string())
+        );
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_META)
+                .unwrap()
+                .as_deref(),
+            Some("false")
+        );
+        assert!(!restore_needed(false, false));
+    }
+
+    #[test]
+    fn failed_final_progress_keeps_proven_owner_retryable_after_snapshot_write() {
+        let f = fixture();
+        let id = load_identity(&f);
+        let store = MemoryStore::new();
+        put_snapshot(&store, &id, "snap-a");
+        let old_auth = crypto::Signer::from_seed([5u8; 32]);
+        publish_old_user(&store, &id, "old-user", &old_auth);
+        insert_old_row(&f);
+
+        let challenge = issue_challenge(&f.admin_id, NOW);
+        let signature = STANDARD.encode(old_auth.sign(CHECK_DOMAIN, &challenge));
+        let restore = signed_body(&["old-user"], signature);
+        let keys = parse_keys(&restore, NOW).unwrap();
+        let disconnected = restore_incrementally(
+            RestoreContext {
+                db: &f.state.db,
+                store: &store,
+                identity: &id,
+                keys: keys.as_slice(),
+                user_id: &f.admin_id,
+                body: &restore,
+                now: NOW,
+            },
+            |snapshot| {
+                let mut conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+                recover::write_snapshot_for_restore(&mut conn, snapshot, NOW)?;
+                Ok(recover::RestoreDisposition::Written)
+            },
+            |_processed, total, counts| {
+                assert_eq!(total, 1);
+                assert_eq!(counts.snapshots, 1);
+                anyhow::bail!("restore client disconnected after the final snapshot")
+            },
+        );
+
+        assert!(disconnected.is_err());
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        assert!(recover::already_indexed(&conn, "snap-a").unwrap());
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_IDS_META).unwrap(),
+            Some(r#"["old-user"]"#.to_string())
+        );
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_META)
+                .unwrap()
+                .as_deref(),
+            Some("true")
+        );
+        let relink_pending = db::get_meta(&conn, super::RELINK_PENDING_META)
+            .unwrap()
+            .as_deref()
+            == Some("true");
+        assert!(restore_needed(false, relink_pending));
+        drop(conn);
+
+        let retry_challenge = issue_challenge(&f.admin_id, NOW);
+        let retry_signature = STANDARD.encode(old_auth.sign(CHECK_DOMAIN, &retry_challenge));
+        let retry = restore_with_store(
+            &f.state.db,
+            &store,
+            &id,
+            &f.admin_id,
+            &signed_body(&["old-user"], retry_signature),
+            NOW,
+        )
+        .unwrap();
+
+        assert_eq!((retry.snapshots, retry.already_indexed), (0, 1));
+        assert_eq!(owner_of(&f, "old-row"), f.admin_id);
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_META)
+                .unwrap()
+                .as_deref(),
+            Some("false")
+        );
+        assert!(!restore_needed(false, false));
+    }
+
+    #[test]
+    fn failed_progress_keeps_retry_marker_without_trusting_an_unproven_owner() {
+        let f = fixture();
+        let id = load_identity(&f);
+        let store = MemoryStore::new();
+        put_snapshot(&store, &id, "snap-a");
+        insert_old_row(&f);
+        let restore = signed_body(&["old-user"], String::new());
+        let keys = parse_keys(&restore, NOW).unwrap();
+
+        let disconnected = restore_incrementally(
+            RestoreContext {
+                db: &f.state.db,
+                store: &store,
+                identity: &id,
+                keys: keys.as_slice(),
+                user_id: &f.admin_id,
+                body: &restore,
+                now: NOW,
+            },
+            |snapshot| {
+                let mut conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+                recover::write_snapshot_for_restore(&mut conn, snapshot, NOW)?;
+                Ok(recover::RestoreDisposition::Written)
+            },
+            |_processed, _total, _counts| anyhow::bail!("restore client disconnected"),
+        );
+
+        assert!(disconnected.is_err());
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        assert!(recover::already_indexed(&conn, "snap-a").unwrap());
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_IDS_META).unwrap(),
+            Some("[]".to_string())
+        );
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_META)
+                .unwrap()
+                .as_deref(),
+            Some("true")
+        );
+        let relink_pending = db::get_meta(&conn, super::RELINK_PENDING_META)
+            .unwrap()
+            .as_deref()
+            == Some("true");
+        drop(conn);
+        assert_eq!(owner_of(&f, "old-row"), "old-user");
+        assert!(restore_needed(false, relink_pending));
+
+        let retry =
+            restore_with_store(&f.state.db, &store, &id, &f.admin_id, &restore, NOW).unwrap();
+        assert_eq!((retry.snapshots, retry.already_indexed), (0, 1));
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_IDS_META).unwrap(),
+            Some("[]".to_string())
+        );
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_META)
+                .unwrap()
+                .as_deref(),
+            Some("true")
+        );
+    }
+
+    #[test]
+    fn malformed_relink_ids_keep_a_warning_without_blocking_snapshot_restore() {
+        let f = fixture();
+        let id = load_identity(&f);
+        let store = MemoryStore::new();
+        put_snapshot(&store, &id, "snap-a");
+        {
+            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            db::set_meta(&conn, super::RELINK_PENDING_IDS_META, "not-json").unwrap();
+        }
+        let restore = signed_body(&["old-user"], String::new());
+
+        let recovered =
+            restore_with_store(&f.state.db, &store, &id, &f.admin_id, &restore, NOW).unwrap();
+
+        assert_eq!((recovered.snapshots, recovered.already_indexed), (1, 0));
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        assert!(recover::already_indexed(&conn, "snap-a").unwrap());
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_IDS_META).unwrap(),
+            Some("[]".to_string())
+        );
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_META)
+                .unwrap()
+                .as_deref(),
+            Some("true")
+        );
+        assert!(restore_needed(false, true));
+    }
+
+    #[test]
+    fn missing_account_proof_keeps_relink_retry_available() {
+        let f = fixture();
+        let id = load_identity(&f);
+        let store = MemoryStore::new();
+        let restore = signed_body(&["old-user"], String::new());
+
+        assert!(relink_proven_accounts(
+            &f.state.db,
+            &store,
+            &id,
+            &f.admin_id,
+            &restore,
+            NOW,
+        ));
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_IDS_META).unwrap(),
+            Some("[]".to_string())
+        );
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_META)
+                .unwrap()
+                .as_deref(),
+            Some("true")
+        );
+        assert!(restore_needed(false, true));
+    }
+
+    #[test]
+    fn partial_account_proof_keeps_relink_retry_available() {
+        let f = fixture();
+        let id = load_identity(&f);
+        let store = MemoryStore::new();
+        let old_auth = crypto::Signer::from_seed([5u8; 32]);
+        publish_old_user(&store, &id, "old-user-a", &old_auth);
+        {
+            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            insert_protection(&conn, "old-row", "/Old", "old-user-a");
+        }
+
+        let challenge = issue_challenge(&f.admin_id, NOW);
+        let signature = STANDARD.encode(old_auth.sign(CHECK_DOMAIN, &challenge));
+        let restore = signed_body(&["old-user-a", "old-user-b"], signature);
+        assert!(relink_proven_accounts(
+            &f.state.db,
+            &store,
+            &id,
+            &f.admin_id,
+            &restore,
+            NOW,
+        ));
+
+        assert_eq!(owner_of(&f, "old-row"), f.admin_id);
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_IDS_META).unwrap(),
+            Some("[]".to_string())
+        );
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_META)
+                .unwrap()
+                .as_deref(),
+            Some("true")
+        );
+        assert!(restore_needed(false, true));
+    }
+
+    #[test]
+    fn a_retry_with_a_different_account_set_keeps_earlier_pending_owner() {
+        let f = fixture();
+        let id = load_identity(&f);
+        let store = MemoryStore::new();
+        let first = signed_body(&["old-user-a"], String::new());
+        assert!(relink_proven_accounts(
+            &f.state.db,
+            &store,
+            &id,
+            &f.admin_id,
+            &first,
+            NOW,
+        ));
+
+        let new_auth = crypto::Signer::from_seed([6u8; 32]);
+        publish_old_user(&store, &id, "old-user-b", &new_auth);
+        let challenge = issue_challenge(&f.admin_id, NOW);
+        let signature = STANDARD.encode(new_auth.sign(CHECK_DOMAIN, &challenge));
+        let retry = signed_body(&["old-user-b"], signature);
+        assert!(relink_proven_accounts(
+            &f.state.db,
+            &store,
+            &id,
+            &f.admin_id,
+            &retry,
+            NOW,
+        ));
+
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_IDS_META).unwrap(),
+            Some("[]".to_string())
+        );
+        assert_eq!(
+            db::get_meta(&conn, super::RELINK_PENDING_META)
+                .unwrap()
+                .as_deref(),
+            Some("true")
+        );
     }
 
     #[test]

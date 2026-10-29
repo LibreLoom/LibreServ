@@ -281,6 +281,7 @@ describe('recovery phrase', () => {
 	it('makes 16 random bytes', () => {
 		expect(newEntropy()).toHaveLength(16);
 		expect(newEntropy(24)).toHaveLength(32);
+		// @ts-expect-error Invalid word counts are rejected by newEntropy at runtime.
 		expect(() => newEntropy(18)).toThrow('12 or 24');
 		expect(newEntropy()).not.toEqual(newEntropy());
 	});

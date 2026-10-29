@@ -7,16 +7,18 @@
 //! backup key are restored from it. Packs the index does not know are never deleted, so they are
 //! left alone.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 use anyhow::{Result, anyhow};
 use rusqlite::{Connection, OptionalExtension, params};
+use zeroize::Zeroizing;
 
 use super::crypto;
 use super::format::{self, BackupMeta, SignedRecord, SnapshotRecord};
 use super::identity::Identity;
-use super::run;
-use super::store::CloudStore;
+use super::run::PACK_KEY_WRAP_AAD;
+use super::store::{CloudStore, RESTORE_RECORD_PAGE_SIZE, RecordPage};
 use crate::backup::access_list::AccessList;
 use crate::db::{self, BackupKey, SnapshotInsert};
 
@@ -34,15 +36,6 @@ pub struct Recovered {
     pub skipped: u32,
 }
 
-/// Records fetched and checked from Connect, ready to write. Built without a database connection,
-/// so the network work can finish before any database lock is taken.
-pub struct Prepared {
-    /// Records that could not be read, verified, opened, or matched to a backup key.
-    pub skipped: u32,
-    /// Snapshots that passed every check.
-    pub snapshots: Vec<PreparedSnapshot>,
-}
-
 /// One snapshot's fetched and decrypted parts.
 pub struct PreparedSnapshot {
     /// The signed record bytes, kept as the index's copy of the snapshot.
@@ -52,10 +45,10 @@ pub struct PreparedSnapshot {
     pub tree_pack_size: i64,
     /// The scope tag of this snapshot's packs.
     pub scope: String,
-    pub tree: format::Tree,
-    pub meta: BackupMeta,
+    pub tree: Zeroizing<format::Tree>,
+    pub meta: Zeroizing<BackupMeta>,
     /// The backup key this snapshot was opened with.
-    pub key: BackupKey,
+    pub key: Zeroizing<BackupKey>,
 }
 
 /// Rebuild the snapshot index from the snapshot records on the store.
@@ -67,54 +60,165 @@ pub fn rebuild_snapshot_index(
     keys: &[BackupKey],
     now: i64,
 ) -> Result<Recovered> {
-    let prepared = fetch_recoverable(store, identity, keys)?;
-    write_recovered(conn, prepared, now)
+    let conn = RefCell::new(conn);
+    fetch_incrementally_with_existing_check(
+        store,
+        identity,
+        keys,
+        |snapshot_id| {
+            let conn = conn.borrow();
+            already_indexed(&conn, snapshot_id)
+        },
+        |snapshot| {
+            let mut conn_ref = conn.borrow_mut();
+            let conn: &mut Connection = &mut conn_ref;
+            if already_indexed(conn, &snapshot.record.snapshot_id)? {
+                Ok(RestoreDisposition::AlreadyIndexed)
+            } else {
+                write_snapshot_for_restore(conn, snapshot, now)?;
+                Ok(RestoreDisposition::Written)
+            }
+        },
+        |_processed, _total, _counts| Ok(()),
+    )
 }
 
-/// Fetch, verify and decrypt every snapshot record on the store. Makes no database changes.
-pub fn fetch_recoverable(
+/// Fetch and verify one snapshot at a time, handing it to the caller for an independent write.
+/// Only one bounded name page is held at a time. Each tree pack (bounded by the store's per-pack
+/// limit) and decrypted tree are dropped before the next snapshot; chunk data packs are indexed
+/// from tree references but never fetched. The callback reports completed records, including records that could not be verified.
+pub enum RestoreDisposition {
+    Written,
+    AlreadyIndexed,
+}
+
+pub fn fetch_incrementally(
     store: &dyn CloudStore,
     identity: &Identity,
     keys: &[BackupKey],
-) -> Result<Prepared> {
-    let names = store
-        .list_records(SNAPSHOT_KIND)
-        .map_err(|e| anyhow!("{e}"))?;
-    let mut out = Prepared {
-        skipped: 0,
-        snapshots: Vec::new(),
-    };
-    for name in names {
-        let bytes = match store.get_record(SNAPSHOT_KIND, &name) {
-            Ok(Some(bytes)) => bytes,
-            _ => {
-                out.skipped += 1;
-                continue;
-            }
-        };
-        match fetch_one(store, identity, keys, bytes) {
-            Some(snapshot) => out.snapshots.push(snapshot),
-            None => out.skipped += 1,
+    handle: impl FnMut(PreparedSnapshot) -> Result<RestoreDisposition>,
+    progress: impl FnMut(u32, u32, &Recovered) -> Result<()>,
+) -> Result<Recovered> {
+    fetch_incrementally_with_existing_check(store, identity, keys, |_| Ok(false), handle, progress)
+}
+
+/// Like `fetch_incrementally`, but checks the signed snapshot ID against the local index before
+/// fetching its tree pack. The write callback should still check again to cover concurrent restores.
+pub fn fetch_incrementally_with_existing_check(
+    store: &dyn CloudStore,
+    identity: &Identity,
+    keys: &[BackupKey],
+    mut already_indexed: impl FnMut(&str) -> Result<bool>,
+    mut handle: impl FnMut(PreparedSnapshot) -> Result<RestoreDisposition>,
+    mut progress: impl FnMut(u32, u32, &Recovered) -> Result<()>,
+) -> Result<Recovered> {
+    let mut out = Recovered::default();
+    let mut after: Option<String> = None;
+    let mut processed = 0u64;
+    let mut total = 0u32;
+    let mut expected_total = None;
+    let mut inventory_version = None;
+    loop {
+        let page = store
+            .list_record_page_versioned(
+                SNAPSHOT_KIND,
+                after.as_deref(),
+                RESTORE_RECORD_PAGE_SIZE,
+                inventory_version,
+                expected_total,
+            )
+            .map_err(|e| anyhow!("{e}"))?;
+        if expected_total.is_some_and(|expected| expected != page.total) {
+            return Err(anyhow!(
+                "The cloud backup list changed during restore. Try restoring again."
+            ));
         }
+        expected_total = Some(page.total);
+        inventory_version = Some(page.version);
+        validate_restore_page(&page, after.as_deref(), processed)?;
+        total = total.max(page.total.min(u64::from(u32::MAX)) as u32);
+        for name in &page.names {
+            let bytes = store
+                .get_record(SNAPSHOT_KIND, name)
+                .map_err(|e| anyhow!("{e}"))?;
+            let Some(bytes) = bytes else {
+                return Err(anyhow!(
+                    "The cloud backup list changed during restore. Try restoring again."
+                ));
+            };
+            let snapshot = fetch_one(store, identity, keys, bytes, &mut already_indexed)?;
+            match snapshot {
+                FetchOutcome::Prepared(snapshot) => match handle(*snapshot)? {
+                    RestoreDisposition::AlreadyIndexed => out.already_indexed += 1,
+                    RestoreDisposition::Written => out.snapshots += 1,
+                },
+                FetchOutcome::AlreadyIndexed => out.already_indexed += 1,
+                FetchOutcome::Skipped => out.skipped += 1,
+            }
+            processed = processed.saturating_add(1);
+            let done = processed.min(u64::from(u32::MAX)) as u32;
+            progress(done, total.max(done), &out)?;
+        }
+        let Some(next_after) = page.next_after else {
+            let verify_after = page.names.last().map(String::as_str).or(after.as_deref());
+            let verification = store
+                .list_record_page_versioned(
+                    SNAPSHOT_KIND,
+                    verify_after,
+                    RESTORE_RECORD_PAGE_SIZE,
+                    inventory_version,
+                    expected_total,
+                )
+                .map_err(|e| anyhow!("{e}"))?;
+            validate_restore_page(&verification, verify_after, processed)?;
+            if verification.total != page.total || !verification.names.is_empty() {
+                return Err(anyhow!(
+                    "The cloud backup list changed during restore. Try restoring again."
+                ));
+            }
+            break;
+        };
+        after = Some(next_after);
     }
     Ok(out)
 }
 
-/// Write fetched snapshots into the index. Snapshots already indexed are counted and left alone.
-pub fn write_recovered(conn: &mut Connection, prepared: Prepared, now: i64) -> Result<Recovered> {
-    let mut out = Recovered {
-        skipped: prepared.skipped,
-        ..Recovered::default()
-    };
-    for snapshot in prepared.snapshots {
-        if already_indexed(conn, &snapshot.record.snapshot_id)? {
-            out.already_indexed += 1;
-        } else {
-            write_snapshot(conn, snapshot, now)?;
-            out.snapshots += 1;
-        }
+enum FetchOutcome {
+    Prepared(Box<PreparedSnapshot>),
+    AlreadyIndexed,
+    Skipped,
+}
+
+fn validate_restore_page(page: &RecordPage, after: Option<&str>, processed: u64) -> Result<()> {
+    if page.names.len() > RESTORE_RECORD_PAGE_SIZE {
+        return Err(anyhow!(
+            "Luna Connect returned an oversized backup-listing page."
+        ));
     }
-    Ok(out)
+    let mut previous = after.unwrap_or("");
+    for name in &page.names {
+        if name.as_str() <= previous {
+            return Err(anyhow!(
+                "Luna Connect returned an invalid backup-listing order."
+            ));
+        }
+        previous = name;
+    }
+    if let Some(cursor) = page.next_after.as_deref() {
+        if page.names.len() != RESTORE_RECORD_PAGE_SIZE
+            || page.names.last().map(String::as_str) != Some(cursor)
+            || after.is_some_and(|previous| cursor <= previous)
+        {
+            return Err(anyhow!(
+                "Luna Connect returned an invalid backup-listing cursor."
+            ));
+        }
+    } else if processed.saturating_add(page.names.len() as u64) != page.total {
+        return Err(anyhow!(
+            "Luna Connect ended the backup listing before all records were returned. Try restoring again."
+        ));
+    }
+    Ok(())
 }
 
 /// Check one record and fetch its tree. `None` means the record is skipped.
@@ -123,55 +227,101 @@ fn fetch_one(
     identity: &Identity,
     keys: &[BackupKey],
     bytes: Vec<u8>,
-) -> Option<PreparedSnapshot> {
-    let signed = SignedRecord::from_bytes(&bytes).ok()?;
-    let record = signed.verify(&identity.public()).ok()?;
+    already_indexed: &mut impl FnMut(&str) -> Result<bool>,
+) -> Result<FetchOutcome> {
+    let Some(signed) = SignedRecord::from_bytes(&bytes).ok() else {
+        return Ok(FetchOutcome::Skipped);
+    };
+    let Some(record) = signed.verify(&identity.public()).ok() else {
+        return Ok(FetchOutcome::Skipped);
+    };
     if record.luna_id != identity.luna_id() {
-        return None;
+        return Ok(FetchOutcome::Skipped);
     }
-    let key = keys.iter().find(|k| {
+    let Some(key) = keys.iter().find(|k| {
         k.protection_id == record.protection_id && k.version == i64::from(record.key_version)
-    })?;
-    let tree_key = <[u8; 32]>::try_from(key.key.as_slice()).ok()?;
-    let dedup_key = <[u8; 32]>::try_from(key.dedup_key.as_slice()).ok()?;
+    }) else {
+        return Ok(FetchOutcome::Skipped);
+    };
+    let Ok(tree_key) = <[u8; 32]>::try_from(key.key.as_slice()) else {
+        return Ok(FetchOutcome::Skipped);
+    };
+    let tree_key = Zeroizing::new(tree_key);
+    let Ok(dedup_key) = <[u8; 32]>::try_from(key.dedup_key.as_slice()) else {
+        return Ok(FetchOutcome::Skipped);
+    };
+    let dedup_key = Zeroizing::new(dedup_key);
+
+    if already_indexed(&record.snapshot_id)? {
+        return Ok(FetchOutcome::AlreadyIndexed);
+    }
 
     // The tree pack must open with this key and hold the tree the record names.
-    let pack_bytes = store.get_pack(&record.tree_pack_id).ok()?;
-    // The pack opens with whichever version of this protection sealed it. The tree is still read
-    // below with the record's own version key.
-    let held: Vec<BackupKey> = keys
+    let pack_bytes = store.get_pack(&record.tree_pack_id)?;
+    // A protection's tree pack may have been sealed with any version of that protection's key.
+    // The snapshot record's own version still opens its tree and metadata below.
+    let mut held: Vec<&BackupKey> = keys
         .iter()
         .filter(|k| k.protection_id == record.protection_id)
-        .cloned()
         .collect();
-    let unwrap = run::unwrap_newest_first(&held);
-    let pack = format::open_pack(&pack_bytes, &record.tree_pack_id, &unwrap).ok()?;
+    held.sort_by_key(|k| std::cmp::Reverse(k.version));
+    let unwrap = |wrapped: &[u8]| -> Result<[u8; 32]> {
+        for held_key in &held {
+            let Ok(key_bytes) = <[u8; 32]>::try_from(held_key.key.as_slice()) else {
+                continue;
+            };
+            let key_bytes = Zeroizing::new(key_bytes);
+            let Ok(plain) = crypto::decrypt(&key_bytes, PACK_KEY_WRAP_AAD, wrapped) else {
+                continue;
+            };
+            let plain = Zeroizing::new(plain);
+            if let Ok(pack_key) = <[u8; 32]>::try_from(plain.as_slice()) {
+                return Ok(pack_key);
+            }
+        }
+        Err(anyhow!(
+            "A backup file could not be opened with this Luna's keys."
+        ))
+    };
+    let Ok(pack) = format::open_pack(&pack_bytes, &record.tree_pack_id, unwrap) else {
+        return Ok(FetchOutcome::Skipped);
+    };
     let sealed = match pack.chunk(&record.tree_hash) {
         Some(sealed) if format::sha256(sealed) == record.tree_hash => sealed,
-        _ => return None,
+        _ => return Ok(FetchOutcome::Skipped),
     };
-    let tree = format::decrypt_tree(sealed, &tree_key).ok()?;
-    let meta = format::decrypt_meta(&record.meta, &tree_key).ok()?;
+    let Ok(tree) = format::decrypt_tree(sealed, &tree_key) else {
+        return Ok(FetchOutcome::Skipped);
+    };
+    let tree = Zeroizing::new(tree);
+    let Ok(meta) = format::decrypt_meta(&record.meta, &tree_key) else {
+        return Ok(FetchOutcome::Skipped);
+    };
+    let meta = Zeroizing::new(meta);
 
     // The pack's scope tag is derived from the dedup key, so a wrong dedup key cannot match it.
     let expected_scope = hex(&crypto::chunk_id(&dedup_key, b"luna-scope-v1")[..16]);
     let scope = hex(&pack.scope_id()[..16]);
     if scope != expected_scope {
-        return None;
+        return Ok(FetchOutcome::Skipped);
     }
-    Some(PreparedSnapshot {
+    Ok(FetchOutcome::Prepared(Box::new(PreparedSnapshot {
         record_bytes: bytes,
         tree_pack_size: pack_bytes.len() as i64,
         scope,
         record,
         tree,
         meta,
-        key: key.clone(),
-    })
+        key: Zeroizing::new(key.clone()),
+    })))
 }
 
 /// Write one prepared snapshot, its packs, chunks, protection row and backup key in one transaction.
-fn write_snapshot(conn: &mut Connection, snapshot: PreparedSnapshot, now: i64) -> Result<()> {
+pub(crate) fn write_snapshot_for_restore(
+    conn: &mut Connection,
+    snapshot: PreparedSnapshot,
+    now: i64,
+) -> Result<()> {
     let PreparedSnapshot {
         record_bytes,
         record,
@@ -206,11 +356,11 @@ fn write_snapshot(conn: &mut Connection, snapshot: PreparedSnapshot, now: i64) -
     // Keep an existing protection row and key as they are; restore them only when missing.
     if db::get_protection(&tx, &record.protection_id)?.is_none() {
         // Older records can leave the starter empty, so fall back to the first Admin.
-        let created_by = if meta.started_by.is_empty() {
+        let created_by = Zeroizing::new(if meta.started_by.is_empty() {
             db::first_admin(&tx)?.map(|u| u.id).unwrap_or_default()
         } else {
             meta.started_by.clone()
-        };
+        });
         db::insert_protection(
             &tx,
             &db::NewProtection {
@@ -220,7 +370,7 @@ fn write_snapshot(conn: &mut Connection, snapshot: PreparedSnapshot, now: i64) -
                 source_path: &meta.source_path,
                 target_drive: "",
                 private_owner: "",
-                created_by: &created_by,
+                created_by: created_by.as_str(),
                 created_at: record.created_at,
             },
         )?;
@@ -292,7 +442,7 @@ fn backup_key_exists(conn: &Connection, protection_id: &str, version: i64) -> Re
     Ok(found.is_some())
 }
 
-fn already_indexed(conn: &Connection, snapshot_id: &str) -> Result<bool> {
+pub(crate) fn already_indexed(conn: &Connection, snapshot_id: &str) -> Result<bool> {
     let found: Option<i64> = conn
         .query_row(
             "SELECT 1 FROM cloud_snapshots WHERE id = ?1",
@@ -313,6 +463,8 @@ mod tests {
     use crate::backup::cloud::identity;
     use crate::backup::cloud::run::PACK_KEY_WRAP_AAD;
     use crate::backup::cloud::store::MemoryStore;
+    use std::cell::{Cell, RefCell};
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     const NOW: i64 = 1_800_000_000;
     const DEDUP_KEY: [u8; 32] = [3; 32];
@@ -339,6 +491,386 @@ mod tests {
             dedup_key: DEDUP_KEY.to_vec(),
             created_at: NOW,
         }
+    }
+
+    #[test]
+    fn incremental_restore_keeps_only_one_tree_and_retry_finishes_partial_writes() {
+        let (_dir, identity) = fixture();
+        let store = MemoryStore::new();
+        // Exercise a larger listing while still proving that only the current snapshot reaches
+        // the write callback. The provider names sort with the failed record second.
+        for n in 1..=128 {
+            put_snapshot(
+                &store,
+                &identity,
+                &format!("snapshot-{n:03}"),
+                identity.luna_id(),
+            );
+        }
+        let db_dir = tempfile::tempdir().unwrap();
+        let conn = RefCell::new(db::open(&db_dir.path().join("restore.db")).unwrap());
+        let key = backup_key(TREE_KEY);
+        let mut processed = Vec::new();
+        let first = fetch_incrementally_with_existing_check(
+            &store,
+            &identity,
+            std::slice::from_ref(&key),
+            |snapshot_id| already_indexed(&conn.borrow(), snapshot_id),
+            |snapshot| {
+                if snapshot.record.snapshot_id == "snapshot-002" {
+                    anyhow::bail!("injected failure after one committed snapshot")
+                }
+                let mut conn = conn.borrow_mut();
+                if already_indexed(&conn, &snapshot.record.snapshot_id)? {
+                    Ok(RestoreDisposition::AlreadyIndexed)
+                } else {
+                    write_snapshot_for_restore(&mut conn, snapshot, NOW)?;
+                    Ok(RestoreDisposition::Written)
+                }
+            },
+            |done, total, _| {
+                processed.push((done, total));
+                Ok(())
+            },
+        );
+        assert!(first.is_err());
+        assert_eq!(processed, vec![(1, 128)]);
+        assert_eq!(
+            db::list_cloud_snapshots(&conn.borrow(), "p1")
+                .unwrap()
+                .len(),
+            1
+        );
+        let pack_reads_before_retry = store.pack_reads();
+
+        let recovered = fetch_incrementally_with_existing_check(
+            &store,
+            &identity,
+            &[key],
+            |snapshot_id| already_indexed(&conn.borrow(), snapshot_id),
+            |snapshot| {
+                let mut conn = conn.borrow_mut();
+                if already_indexed(&conn, &snapshot.record.snapshot_id)? {
+                    Ok(RestoreDisposition::AlreadyIndexed)
+                } else {
+                    write_snapshot_for_restore(&mut conn, snapshot, NOW)?;
+                    Ok(RestoreDisposition::Written)
+                }
+            },
+            |_done, _total, _| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(recovered.snapshots, 127);
+        assert_eq!(recovered.already_indexed, 1);
+        assert_eq!(
+            store.pack_reads() - pack_reads_before_retry,
+            127,
+            "retry must not download the tree pack for an already indexed snapshot"
+        );
+        assert_eq!(
+            db::list_cloud_snapshots(&conn.borrow(), "p1")
+                .unwrap()
+                .len(),
+            128
+        );
+    }
+
+    struct FailSecondListingPage<'a> {
+        inner: &'a MemoryStore,
+        calls: AtomicUsize,
+        truncate_terminal: bool,
+        missing_record: Option<String>,
+    }
+
+    impl CloudStore for FailSecondListingPage<'_> {
+        fn put_pack(
+            &self,
+            id: &[u8; 32],
+            scope: Option<&str>,
+            bytes: &[u8],
+        ) -> std::result::Result<(), super::super::store::StoreError> {
+            self.inner.put_pack(id, scope, bytes)
+        }
+        fn get_pack(
+            &self,
+            id: &[u8; 32],
+        ) -> std::result::Result<Vec<u8>, super::super::store::StoreError> {
+            self.inner.get_pack(id)
+        }
+        fn delete_pack(
+            &self,
+            id: &[u8; 32],
+        ) -> std::result::Result<(), super::super::store::StoreError> {
+            self.inner.delete_pack(id)
+        }
+        fn put_record(
+            &self,
+            kind: &str,
+            name: &str,
+            bytes: &[u8],
+        ) -> std::result::Result<(), super::super::store::StoreError> {
+            self.inner.put_record(kind, name, bytes)
+        }
+        fn get_record(
+            &self,
+            kind: &str,
+            name: &str,
+        ) -> std::result::Result<Option<Vec<u8>>, super::super::store::StoreError> {
+            if self.missing_record.as_deref() == Some(name) {
+                return Ok(None);
+            }
+            self.inner.get_record(kind, name)
+        }
+        fn delete_record(
+            &self,
+            kind: &str,
+            name: &str,
+        ) -> std::result::Result<(), super::super::store::StoreError> {
+            self.inner.delete_record(kind, name)
+        }
+        fn list_records(
+            &self,
+            kind: &str,
+        ) -> std::result::Result<Vec<String>, super::super::store::StoreError> {
+            self.inner.list_records(kind)
+        }
+        fn list_record_page(
+            &self,
+            kind: &str,
+            after: Option<&str>,
+            limit: usize,
+        ) -> std::result::Result<super::super::store::RecordPage, super::super::store::StoreError>
+        {
+            assert!(limit <= RESTORE_RECORD_PAGE_SIZE);
+            if self.truncate_terminal {
+                let mut page = self.inner.list_record_page(kind, after, limit)?;
+                page.names.truncate(1);
+                page.next_after = None;
+                return Ok(page);
+            }
+            if kind == SNAPSHOT_KIND && self.calls.fetch_add(1, Ordering::SeqCst) == 1 {
+                return Err(super::super::store::StoreError::Unavailable(
+                    "The listing page failed.".into(),
+                ));
+            }
+            self.inner.list_record_page(kind, after, limit)
+        }
+        fn usage(
+            &self,
+        ) -> std::result::Result<super::super::store::Usage, super::super::store::StoreError>
+        {
+            self.inner.usage()
+        }
+    }
+
+    #[test]
+    fn listing_failure_and_cancelled_page_retry_without_losing_or_duplicating_snapshots() {
+        let (_dir, identity) = fixture();
+        let store = MemoryStore::new();
+        for n in 1..=128 {
+            put_snapshot(
+                &store,
+                &identity,
+                &format!("snapshot-{n:03}"),
+                identity.luna_id(),
+            );
+        }
+        let db_dir = tempfile::tempdir().unwrap();
+        let mut conn = db::open(&db_dir.path().join("restore-page-failure.db")).unwrap();
+        let key = backup_key(TREE_KEY);
+        let broken = FailSecondListingPage {
+            inner: &store,
+            calls: AtomicUsize::new(0),
+            truncate_terminal: false,
+            missing_record: None,
+        };
+        let first = fetch_incrementally(
+            &broken,
+            &identity,
+            std::slice::from_ref(&key),
+            |snapshot| {
+                write_snapshot_for_restore(&mut conn, snapshot, NOW)?;
+                Ok(RestoreDisposition::Written)
+            },
+            |_done, _total, _| Ok(()),
+        );
+        assert!(
+            first.is_err(),
+            "a failed page must fail the restore visibly"
+        );
+        assert_eq!(db::list_cloud_snapshots(&conn, "p1").unwrap().len(), 64);
+
+        let cancelled = fetch_incrementally(
+            &store,
+            &identity,
+            std::slice::from_ref(&key),
+            |snapshot| {
+                if already_indexed(&conn, &snapshot.record.snapshot_id)? {
+                    Ok(RestoreDisposition::AlreadyIndexed)
+                } else {
+                    write_snapshot_for_restore(&mut conn, snapshot, NOW)?;
+                    Ok(RestoreDisposition::Written)
+                }
+            },
+            |processed, _, _| {
+                if processed == 64 {
+                    anyhow::bail!("restore stopped between pages")
+                }
+                Ok(())
+            },
+        );
+        assert!(cancelled.is_err());
+        assert_eq!(db::list_cloud_snapshots(&conn, "p1").unwrap().len(), 64);
+
+        let recovered = fetch_incrementally(
+            &store,
+            &identity,
+            &[key],
+            |snapshot| {
+                if already_indexed(&conn, &snapshot.record.snapshot_id)? {
+                    Ok(RestoreDisposition::AlreadyIndexed)
+                } else {
+                    write_snapshot_for_restore(&mut conn, snapshot, NOW)?;
+                    Ok(RestoreDisposition::Written)
+                }
+            },
+            |_done, _total, _| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(recovered.snapshots, 64);
+        assert_eq!(recovered.already_indexed, 64);
+        assert_eq!(db::list_cloud_snapshots(&conn, "p1").unwrap().len(), 128);
+    }
+
+    #[test]
+    fn truncated_terminal_page_fails_before_reporting_a_successful_restore() {
+        let (_dir, identity) = fixture();
+        let store = MemoryStore::new();
+        for n in 1..=4 {
+            put_snapshot(
+                &store,
+                &identity,
+                &format!("snapshot-{n:03}"),
+                identity.luna_id(),
+            );
+        }
+        let broken = FailSecondListingPage {
+            inner: &store,
+            calls: AtomicUsize::new(0),
+            truncate_terminal: true,
+            missing_record: None,
+        };
+        let handled = Cell::new(0);
+        let result = fetch_incrementally(
+            &broken,
+            &identity,
+            &[backup_key(TREE_KEY)],
+            |_| {
+                handled.set(handled.get() + 1);
+                Ok(RestoreDisposition::Written)
+            },
+            |_done, _total, _| Ok(()),
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            handled.get(),
+            0,
+            "validate a terminal page before writing it"
+        );
+    }
+
+    #[test]
+    fn changed_inventory_aborts_instead_of_skipping_new_earlier_names_and_retry_finds_them() {
+        let (_dir, identity) = fixture();
+        let store = MemoryStore::new();
+        for n in 1..=128 {
+            put_snapshot(
+                &store,
+                &identity,
+                &format!("snapshot-{n:03}"),
+                identity.luna_id(),
+            );
+        }
+        let db_dir = tempfile::tempdir().unwrap();
+        let mut conn = db::open(&db_dir.path().join("restore-changing-inventory.db")).unwrap();
+        let key = backup_key(TREE_KEY);
+        let mut inserted = false;
+        let changed = fetch_incrementally(
+            &store,
+            &identity,
+            std::slice::from_ref(&key),
+            |snapshot| {
+                write_snapshot_for_restore(&mut conn, snapshot, NOW)?;
+                if !inserted {
+                    inserted = true;
+                    store.delete_record(SNAPSHOT_KIND, "snapshot-128").unwrap();
+                    put_snapshot(&store, &identity, "snapshot-000-new", identity.luna_id());
+                }
+                Ok(RestoreDisposition::Written)
+            },
+            |_done, _total, _| Ok(()),
+        );
+        assert!(changed.is_err(), "a changed inventory must request a retry");
+        assert_eq!(db::list_cloud_snapshots(&conn, "p1").unwrap().len(), 64);
+
+        let recovered = fetch_incrementally(
+            &store,
+            &identity,
+            &[key],
+            |snapshot| {
+                if already_indexed(&conn, &snapshot.record.snapshot_id)? {
+                    Ok(RestoreDisposition::AlreadyIndexed)
+                } else {
+                    write_snapshot_for_restore(&mut conn, snapshot, NOW)?;
+                    Ok(RestoreDisposition::Written)
+                }
+            },
+            |_done, _total, _| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(recovered.snapshots, 64);
+        assert_eq!(recovered.already_indexed, 64);
+        assert_eq!(db::list_cloud_snapshots(&conn, "p1").unwrap().len(), 128);
+    }
+
+    #[test]
+    fn listed_snapshot_disappearing_before_fetch_fails_without_reporting_completion() {
+        let (_dir, identity) = fixture();
+        let store = MemoryStore::new();
+        for n in 1..=2 {
+            put_snapshot(
+                &store,
+                &identity,
+                &format!("snapshot-{n:03}"),
+                identity.luna_id(),
+            );
+        }
+        let missing = FailSecondListingPage {
+            inner: &store,
+            calls: AtomicUsize::new(0),
+            truncate_terminal: false,
+            missing_record: Some("snapshot-001".into()),
+        };
+        let reported = Cell::new(0);
+        let result = fetch_incrementally(
+            &missing,
+            &identity,
+            &[backup_key(TREE_KEY)],
+            |_| Ok(RestoreDisposition::Written),
+            |processed, _, _| {
+                reported.set(processed);
+                Ok(())
+            },
+        );
+        assert!(
+            result.is_err(),
+            "a listed record that vanished must fail visibly"
+        );
+        assert_eq!(
+            reported.get(),
+            0,
+            "the missing record must not count as skipped"
+        );
     }
 
     /// Write one snapshot of an empty tree the way a backup run does.

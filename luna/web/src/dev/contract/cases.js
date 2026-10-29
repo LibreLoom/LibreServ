@@ -109,7 +109,9 @@ export const CASES = {
   "GET /api/v1/cloud/restore": plain("/api/v1/cloud/restore"),
   "GET /api/v1/cloud/restore/records/:kind": plain("/api/v1/cloud/restore/records/backup"),
   "GET /api/v1/cloud/restore-private": plain("/api/v1/cloud/restore-private"),
-  "GET /api/v1/cloud/restore-private/records/:kind": plain("/api/v1/cloud/restore-private/records/backup"),
+  "GET /api/v1/cloud/restore-private/records/:kind": plain("/api/v1/cloud/restore-private/records/pscopes?limit=64&processed=0"),
+  "GET /api/v1/cloud/restore-private/records/:kind/names": plain("/api/v1/cloud/restore-private/records/psnapshots/names?scope=8ca9e163c0c3fd681bb4b62fcac2d8f0&limit=64"),
+  "GET /api/v1/cloud/restore-private/records/:kind/:name": plain("/api/v1/cloud/restore-private/records/psnapshots/8ca9e163c0c3fd681bb4b62fcac2d8f0.fedcba9876543210fedcba9876543210"),
 
   // Private folders
   "GET /api/v1/private-backups/summary": plain("/api/v1/private-backups/summary"),

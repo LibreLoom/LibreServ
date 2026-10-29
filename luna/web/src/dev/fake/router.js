@@ -7,7 +7,7 @@
 
 /** A non-200 or custom-header answer. Plain return values mean 200 JSON. */
 export class Res {
-  /** @type {string | Uint8Array | Blob | undefined} file contents, set by raw() */
+  /** @type {string | Uint8Array | Blob | ReadableStream<Uint8Array> | undefined} file or event-stream body, set by raw() */
   bytes = undefined;
 
   /** @param {number} status @param {any} body @param {Record<string, string>} [headers] */
@@ -21,7 +21,7 @@ export const json = (body, status = 200) => new Res(status, body);
 export const fail = (status, error, code, extra = {}) =>
   new Res(status, { error, ...(code ? { code } : {}), ...extra });
 export const empty = (status = 204) => new Res(status, undefined);
-/** A non-JSON answer (file contents): `bytes` is a string, Uint8Array or Blob. */
+/** A non-JSON answer (file contents or a streamed response body). */
 export const raw = (bytes, type = "application/octet-stream", status = 200, headers = {}) => {
   const res = new Res(status, undefined, { "Content-Type": type, ...headers });
   res.bytes = bytes;

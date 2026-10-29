@@ -98,9 +98,11 @@ export function createIdentity() {
   return postJson("/api/v1/cloud/identity", {});
 }
 
-/** POST: `{ challenge }` (base64, 32 bytes, single-use). */
-export function requestChallenge() {
-  return postJson(`${PHRASE_PATH}/challenge`, {});
+/** POST: `{ challenge }` (base64, 32 bytes, single-use).
+ * @param {{ signal?: AbortSignal }} [options]
+ */
+export function requestChallenge(options = {}) {
+  return postJson(`${PHRASE_PATH}/challenge`, {}, options);
 }
 
 /** POST: `{ ok: true }` when the signature proves the phrase. */
@@ -118,13 +120,21 @@ export function savePhrase(body) {
  * auth key that `entropy` derives, under `domain`. Returns the base64 signature.
  * @param {Uint8Array} entropy 16 or 32 bytes of phrase entropy (12 or 24 words)
  * @param {string} lunaId
- * @param {string} [domain]
+ * @param {string | AbortSignal} [domainOrSignal] A signing domain, or an abort signal for restore cancellation.
  * @returns {Promise<string>}
  */
-export async function signFreshChallenge(entropy, lunaId, domain = CHECK_DOMAIN) {
-  const { authSecret } = derive(entropy, lunaId);
-  const { challenge } = await requestChallenge();
-  return toBase64(sign(authSecret, domain, fromBase64(challenge)));
+export async function signFreshChallenge(entropy, lunaId, domainOrSignal = CHECK_DOMAIN) {
+  const keys = derive(entropy, lunaId);
+  const domain = typeof domainOrSignal === "string" ? domainOrSignal : CHECK_DOMAIN;
+  const signal = typeof domainOrSignal === "string" ? undefined : domainOrSignal;
+  try {
+    const { challenge } = signal ? await requestChallenge({ signal }) : await requestChallenge();
+    return toBase64(sign(keys.authSecret, domain, fromBase64(challenge)));
+  } finally {
+    keys.sealSecret.fill(0);
+    keys.selfKey.fill(0);
+    keys.authSecret.fill(0);
+  }
 }
 
 /**
@@ -179,9 +189,15 @@ function compareBytes(a, b) {
  * @returns {Promise<string>} base64 signature
  */
 export async function signReplacement(entropy, lunaId, body) {
-  const { authSecret } = derive(entropy, lunaId);
-  const { challenge } = await requestChallenge();
-  return toBase64(sign(authSecret, REPLACE_DOMAIN, replaceMessage(fromBase64(challenge), body)));
+  const keys = derive(entropy, lunaId);
+  try {
+    const { challenge } = await requestChallenge();
+    return toBase64(sign(keys.authSecret, REPLACE_DOMAIN, replaceMessage(fromBase64(challenge), body)));
+  } finally {
+    keys.sealSecret.fill(0);
+    keys.selfKey.fill(0);
+    keys.authSecret.fill(0);
+  }
 }
 
 /**
@@ -224,27 +240,37 @@ export async function resealScopes(oldEntropy, lunaId, newSealPublic, newSealSec
     throw new Error(unreadable);
   }
   if (!reply || !Array.isArray(reply.scopes)) throw new Error(unreadable);
-  const oldSealSecret = derive(oldEntropy, lunaId).sealSecret;
+  const keys = derive(oldEntropy, lunaId);
+  const oldSealSecret = keys.sealSecret;
   const out = [];
-  for (const entry of reply.scopes) {
-    let scopeSecret;
-    try {
-      scopeSecret = openScopeSecret(fromBase64(entry.sealed_scope_secret), oldSealSecret, lunaId, entry.scope);
-    } catch {
-      continue;
+  try {
+    for (const entry of reply.scopes) {
+      let scopeSecret;
+      try {
+        scopeSecret = openScopeSecret(fromBase64(entry.sealed_scope_secret), oldSealSecret, lunaId, entry.scope);
+      } catch {
+        continue;
+      }
+      const sealed = sealScopeSecret(scopeSecret, newSealPublic, lunaId, entry.scope);
+      // Self-check: the new phrase must open what we are about to send, and get the same secret back.
+      let reopened;
+      try {
+        reopened = openScopeSecret(sealed, newSealSecret, lunaId, entry.scope);
+      } catch {
+        reopened = null;
+      }
+      const matches = Boolean(reopened && bytesEqual(reopened, scopeSecret));
+      scopeSecret.fill(0);
+      reopened?.fill(0);
+      if (!matches) throw new Error(RESEAL_CHECK_FAILED);
+      out.push({ scope: entry.scope, sealed_scope_secret: toBase64(sealed) });
     }
-    const sealed = sealScopeSecret(scopeSecret, newSealPublic, lunaId, entry.scope);
-    // Self-check: the new phrase must open what we are about to send, and get the same secret back.
-    let reopened;
-    try {
-      reopened = openScopeSecret(sealed, newSealSecret, lunaId, entry.scope);
-    } catch {
-      reopened = null;
-    }
-    if (!reopened || !bytesEqual(reopened, scopeSecret)) throw new Error(RESEAL_CHECK_FAILED);
-    out.push({ scope: entry.scope, sealed_scope_secret: toBase64(sealed) });
+    return out;
+  } finally {
+    keys.sealSecret.fill(0);
+    keys.selfKey.fill(0);
+    keys.authSecret.fill(0);
   }
-  return out;
 }
 
 /**
@@ -256,22 +282,32 @@ export async function resealScopes(oldEntropy, lunaId, newSealPublic, newSealSec
  */
 export async function buildReplaceBody({ proof, exposed, newPhrase, lunaId, userId, signingPublic }) {
   const newEntropy = phraseToEntropy(newPhrase);
-  /** @type {Record<string, any>} */
-  const body = {
-    ...buildPhraseBody(newEntropy, { lunaId, userId, signingPublic }),
-    exposed: Boolean(exposed),
-  };
-  if ("oldEntropy" in proof) {
-    // Re-seal before signing: the challenge is single use and expires after five minutes.
-    const newKeys = derive(newEntropy, lunaId);
-    body.rescoped = await resealScopes(proof.oldEntropy, lunaId, newKeys.sealPublic, newKeys.sealSecret);
-    body.proof = "old_signature";
-    body.signature = await signReplacement(proof.oldEntropy, lunaId, /** @type {any} */ (body));
-  } else {
-    body.proof = "password";
-    body.password = proof.password;
+  try {
+    /** @type {Record<string, any>} */
+    const body = {
+      ...buildPhraseBody(newEntropy, { lunaId, userId, signingPublic }),
+      exposed: Boolean(exposed),
+    };
+    if ("oldEntropy" in proof) {
+      // Re-seal before signing: the challenge is single use and expires after five minutes.
+      const newKeys = derive(newEntropy, lunaId);
+      try {
+        body.rescoped = await resealScopes(proof.oldEntropy, lunaId, newKeys.sealPublic, newKeys.sealSecret);
+      } finally {
+        newKeys.sealSecret.fill(0);
+        newKeys.selfKey.fill(0);
+        newKeys.authSecret.fill(0);
+      }
+      body.proof = "old_signature";
+      body.signature = await signReplacement(proof.oldEntropy, lunaId, /** @type {any} */ (body));
+    } else {
+      body.proof = "password";
+      body.password = proof.password;
+    }
+    return body;
+  } finally {
+    newEntropy.fill(0);
   }
-  return body;
 }
 
 /**
@@ -322,14 +358,19 @@ export function buildPhraseBody(entropy, { lunaId, userId, signingPublic }) {
     ["user_id", encoder.encode(userId)],
     ["purpose", encoder.encode("signing-public")],
   ]);
-  const body = {
-    seal_public: toBase64(keys.sealPublic),
-    auth_public: toBase64(keys.authPublic),
-    self_sealed: toBase64(encrypt(keys.selfKey, aad, signingBytes)),
-    // Lets the check show exactly the right number of boxes. Luna keeps it; Connect never gets it.
-    words: entropy.length === 32 ? 24 : 12,
-  };
-  return body;
+  try {
+    return {
+      seal_public: toBase64(keys.sealPublic),
+      auth_public: toBase64(keys.authPublic),
+      self_sealed: toBase64(encrypt(keys.selfKey, aad, signingBytes)),
+      // Lets the check show exactly the right number of boxes. Luna keeps it; Connect never gets it.
+      words: entropy.length === 32 ? 24 : 12,
+    };
+  } finally {
+    keys.sealSecret.fill(0);
+    keys.selfKey.fill(0);
+    keys.authSecret.fill(0);
+  }
 }
 
 /**

@@ -153,7 +153,7 @@ function unwrapWithBackupKey(backupKey) {
  * @param {Uint8Array} bytes the whole pack
  * @param {string} idHex the pack id, lowercase hex (SHA-256 of bytes)
  * @param {Uint8Array} backupKey
- * @returns {{ scopeId: Uint8Array, chunk: (idBytes: Uint8Array) => Uint8Array | null }}
+ * @returns {{ scopeId: Uint8Array, chunk: (idBytes: Uint8Array) => Uint8Array | null, dispose: () => void }}
  *   chunk returns the plain bytes of one chunk, or null if this pack does not hold it.
  */
 export function openPack(bytes, idHex, backupKey) {
@@ -166,7 +166,7 @@ export function openPack(bytes, idHex, backupKey) {
  * @param {Uint8Array} bytes the whole pack
  * @param {string} idHex the pack id, lowercase hex (SHA-256 of bytes)
  * @param {(wrapped: Uint8Array) => Uint8Array} unwrapKey returns the 32-byte pack key; throws if it cannot
- * @returns {{ scopeId: Uint8Array, chunk: (idBytes: Uint8Array) => Uint8Array | null }}
+ * @returns {{ scopeId: Uint8Array, chunk: (idBytes: Uint8Array) => Uint8Array | null, dispose: () => void }}
  */
 export function openPackWith(bytes, idHex, unwrapKey) {
 	if (bytesToHex(packId(bytes)) !== idHex) throw new Error(CHANGED);
@@ -187,38 +187,61 @@ function openPackParts(bytes, unwrapKey) {
 	const wrapped = sliceChecked(bytes, pos, wrappedLen);
 	pos += wrappedLen;
 	const packKey = unwrapKey(wrapped);
-	if (packKey.length !== KEY_LEN) throw new Error(DAMAGED);
+	let index = null;
+	let body = null;
+	let opened = false;
+	try {
+		if (packKey.length !== KEY_LEN) throw new Error(DAMAGED);
 
-	const indexLen = u32At(bytes, pos);
-	pos += 4;
-	const sealedIndex = sliceChecked(bytes, pos, indexLen);
-	pos += indexLen;
-	const index = decrypt(packKey, PACK_INDEX_AAD, sealedIndex);
-	const body = decrypt(packKey, PACK_BODY_AAD, bytes.slice(pos));
+		const indexLen = u32At(bytes, pos);
+		pos += 4;
+		const sealedIndex = sliceChecked(bytes, pos, indexLen);
+		pos += indexLen;
+		index = decrypt(packKey, PACK_INDEX_AAD, sealedIndex);
+		body = decrypt(packKey, PACK_BODY_AAD, bytes.slice(pos));
 
-	if (index.length < INDEX_HEADER_LEN) throw new Error(DAMAGED);
-	const scopeId = index.slice(0, ID_LEN);
-	const count = u32At(index, ID_LEN);
-	if (index.length !== INDEX_HEADER_LEN + count * INDEX_ENTRY_LEN) throw new Error(DAMAGED);
+		if (index.length < INDEX_HEADER_LEN) throw new Error(DAMAGED);
+		const scopeId = index.slice(0, ID_LEN);
+		const count = u32At(index, ID_LEN);
+		if (index.length !== INDEX_HEADER_LEN + count * INDEX_ENTRY_LEN) throw new Error(DAMAGED);
 
-	/** @type {Map<string, { offset: number, len: number }>} */
-	const entries = new Map();
-	for (let i = 0; i < count; i++) {
-		const at = INDEX_HEADER_LEN + i * INDEX_ENTRY_LEN;
-		const id = bytesToHex(index.slice(at, at + ID_LEN));
-		const offset = u64At(index, at + ID_LEN);
-		const len = u32At(index, at + ID_LEN + 8);
-		if (offset + len > body.length) throw new Error(DAMAGED);
-		entries.set(id, { offset, len });
+		/** @type {Map<string, { offset: number, len: number }>} */
+		const entries = new Map();
+		for (let i = 0; i < count; i++) {
+			const at = INDEX_HEADER_LEN + i * INDEX_ENTRY_LEN;
+			const id = bytesToHex(index.slice(at, at + ID_LEN));
+			const offset = u64At(index, at + ID_LEN);
+			const len = u32At(index, at + ID_LEN + 8);
+			if (offset + len > body.length) throw new Error(DAMAGED);
+			entries.set(id, { offset, len });
+		}
+
+		index.fill(0);
+		opened = true;
+		let disposed = false;
+		const pack = {
+			scopeId,
+			chunk(idBytes) {
+				if (disposed) throw new Error(DAMAGED);
+				const entry = entries.get(bytesToHex(idBytes));
+				return entry ? body.slice(entry.offset, entry.offset + entry.len) : null;
+			},
+			dispose() {
+				if (disposed) return;
+				disposed = true;
+				body.fill(0);
+				entries.clear();
+				scopeId.fill(0);
+			},
+		};
+		return pack;
+	} finally {
+		packKey.fill(0);
+		if (!opened) {
+			index?.fill(0);
+			body?.fill(0);
+		}
 	}
-
-	return {
-		scopeId,
-		chunk(idBytes) {
-			const entry = entries.get(bytesToHex(idBytes));
-			return entry ? body.slice(entry.offset, entry.offset + entry.len) : null;
-		},
-	};
 }
 
 /**
@@ -264,13 +287,25 @@ export function readTreeWith(treePackBytes, snap, unwrapKey, openTreeBytes) {
  */
 export function readRawTreeWith(treePackBytes, snap, unwrapKey, openTreeBytes) {
 	const pack = openPackWith(treePackBytes, snap.treePackId, unwrapKey);
-	const sealed = pack.chunk(snap.treeHash);
-	if (!sealed) throw new Error(DAMAGED);
-	if (!sameBytes(sha256(sealed), snap.treeHash)) throw new Error(CHANGED);
 	try {
-		return JSON.parse(new TextDecoder().decode(openTreeBytes(sealed)));
-	} catch {
-		throw new Error(DAMAGED);
+		const sealed = pack.chunk(snap.treeHash);
+		if (!sealed) throw new Error(DAMAGED);
+		try {
+			if (!sameBytes(sha256(sealed), snap.treeHash)) throw new Error(CHANGED);
+			let plain;
+			try {
+				plain = openTreeBytes(sealed);
+				return JSON.parse(new TextDecoder().decode(plain));
+			} catch {
+				throw new Error(DAMAGED);
+			} finally {
+				plain?.fill(0);
+			}
+		} finally {
+			sealed.fill(0);
+		}
+	} finally {
+		pack.dispose();
 	}
 }
 
@@ -294,12 +329,15 @@ function parseTreeEntry(e) {
 	};
 }
 
+/** @typedef {{ scopeId: Uint8Array, chunk: (idBytes: Uint8Array) => Uint8Array | null, release: () => void }} PackLease */
+/** @typedef {((idHex: string) => Promise<PackLease>) & { dispose: () => Promise<void> }} PackReader */
+
 /**
  * Opened-pack cache, so one pack (up to 64 MiB) is not fetched again for every chunk.
  * @param {(idHex: string) => Promise<Uint8Array>} getPack
  * @param {Uint8Array} backupKey
  * @param {number} [keep=3] how many opened packs to keep, most recently used first
- * @returns {(idHex: string) => Promise<{ scopeId: Uint8Array, chunk: (idBytes: Uint8Array) => Uint8Array | null }>}
+ * @returns {PackReader}
  */
 export function makePackReader(getPack, backupKey, keep = 3) {
 	return makePackReaderWith(getPack, unwrapWithBackupKey(backupKey), keep);
@@ -310,26 +348,111 @@ export function makePackReader(getPack, backupKey, keep = 3) {
  * @param {(idHex: string) => Promise<Uint8Array>} getPack
  * @param {(wrapped: Uint8Array) => Uint8Array} unwrapKey
  * @param {number} [keep=3] how many opened packs to keep, most recently used first
- * @returns {(idHex: string) => Promise<{ scopeId: Uint8Array, chunk: (idBytes: Uint8Array) => Uint8Array | null }>}
+ * @returns {PackReader}
  */
 export function makePackReaderWith(getPack, unwrapKey, keep = 3) {
-	/** @type {Map<string, Promise<ReturnType<typeof openPackWith>>>} */
+	/** @typedef {{ opening: Promise<ReturnType<typeof openPackWith>>, leases: number, evicted: boolean, disposeStarted: boolean, disposed: Promise<void>, resolveDisposed: () => void }} CacheEntry */
+	/** @type {Map<string, CacheEntry>} */
 	const cache = new Map();
-	return async (idHex) => {
-		const hit = cache.get(idHex);
-		if (hit) {
-			cache.delete(idHex);
-			cache.set(idHex, hit);
-			return hit;
-		}
-		const opening = getPack(idHex).then((bytes) => openPackWith(bytes, idHex, unwrapKey));
-		cache.set(idHex, opening);
-		opening.catch(() => {
-			if (cache.get(idHex) === opening) cache.delete(idHex);
-		});
-		while (cache.size > keep) cache.delete(cache.keys().next().value);
-		return opening;
+	/** @type {Set<CacheEntry>} */
+	const entries = new Set();
+	/** @type {boolean} */
+	let disposed = false;
+	/** @type {Promise<void> | undefined} */
+	let disposal;
+	/** @param {CacheEntry} entry */
+	const disposeWhenUnused = (entry) => {
+		if (!entry.evicted || entry.leases !== 0 || entry.disposeStarted) return;
+		entry.disposeStarted = true;
+		entry.opening
+			.then((pack) => pack.dispose())
+			.catch(() => {})
+			.finally(() => {
+				entries.delete(entry);
+				entry.resolveDisposed();
+			});
 	};
+	const evictOldest = () => {
+		const id = cache.keys().next().value;
+		if (id === undefined) return;
+		const entry = cache.get(id);
+		cache.delete(id);
+		if (!entry) return;
+		entry.evicted = true;
+		disposeWhenUnused(entry);
+	};
+	/** @type {PackReader} */
+	const reader = Object.assign(
+		/** @param {string} idHex */
+		async (idHex) => {
+			if (disposed) throw new Error(DAMAGED);
+			let entry = cache.get(idHex);
+			if (entry) {
+				cache.delete(idHex);
+				cache.set(idHex, entry);
+			} else {
+				/** @type {() => void} */
+				let resolveDisposed = () => {};
+				/** @type {Promise<void>} */
+				const disposedPromise = new Promise((resolve) => {
+					resolveDisposed = () => resolve();
+				});
+				entry = {
+					opening: getPack(idHex).then((bytes) => openPackWith(bytes, idHex, unwrapKey)),
+					leases: 0,
+					evicted: false,
+					disposeStarted: false,
+					disposed: disposedPromise,
+					resolveDisposed,
+				};
+				cache.set(idHex, entry);
+				entries.add(entry);
+				entry.opening.catch(() => {
+					if (cache.get(idHex) === entry) cache.delete(idHex);
+				});
+			}
+			entry.leases++;
+			while (cache.size > keep) evictOldest();
+			let pack;
+			try {
+				pack = await entry.opening;
+			} catch (error) {
+				entry.leases--;
+				disposeWhenUnused(entry);
+				throw error;
+			}
+			let released = false;
+			return {
+				scopeId: pack.scopeId,
+				chunk(idBytes) {
+					if (released) throw new Error(DAMAGED);
+					return pack.chunk(idBytes);
+				},
+				release() {
+					if (released) return;
+					released = true;
+					entry.leases--;
+					disposeWhenUnused(entry);
+				},
+			};
+		},
+		{
+			dispose() {
+				if (!disposal) {
+					disposed = true;
+					const pending = [...entries];
+					cache.clear();
+					for (const entry of pending) {
+						entry.evicted = true;
+						disposeWhenUnused(entry);
+					}
+					disposal = Promise.all(pending.map((entry) => entry.disposed)).then(() => {});
+				}
+				return disposal;
+			},
+		},
+	);
+	return reader;
 }
 
 /**
@@ -339,7 +462,7 @@ export function makePackReaderWith(getPack, unwrapKey, keep = 3) {
  * @param {(idHex: string) => Promise<Uint8Array>} getPack
  * @param {Record<number, { key: Uint8Array }>} keysByVersion the keys a reader holds, by key version
  * @param {number} [keep=3] how many opened packs to keep, most recently used first
- * @returns {(idHex: string) => Promise<{ scopeId: Uint8Array, chunk: (idBytes: Uint8Array) => Uint8Array | null }>}
+ * @returns {PackReader}
  *   Throws MissingKeyError when no held key opens the pack, and an error for a changed or damaged pack.
  */
 export function makePackReaderForVersions(getPack, keysByVersion, keep = 3) {
@@ -372,7 +495,7 @@ function unwrapWithAnyKey(keys) {
 /**
  * One file's bytes as a Blob. Each chunk is checked against its id before it is used.
  * @param {{ size: number, chunks: Array<{ id: string, pack: string, len: number }> }} entry
- * @param {(idHex: string) => Promise<{ chunk: (idBytes: Uint8Array) => Uint8Array | null }>} readPack
+ * @param {(idHex: string) => Promise<{ chunk: (idBytes: Uint8Array) => Uint8Array | null, release?: () => void, dispose?: () => void }>} readPack
  * @param {Uint8Array} dedupKey
  * @returns {Promise<Blob>}
  */
@@ -380,14 +503,28 @@ export async function readFile(entry, readPack, dedupKey) {
 	/** @type {BlobPart[]} */
 	const parts = [];
 	let total = 0;
-	for (const chunk of entry.chunks) {
-		const pack = await readPack(chunk.pack);
-		const bytes = pack.chunk(hexToBytes(chunk.id));
-		if (!bytes || bytes.length !== chunk.len) throw new Error(DAMAGED);
-		if (bytesToHex(chunkId(dedupKey, bytes)) !== chunk.id) throw new Error(CHANGED);
-		parts.push(new Uint8Array(bytes));
-		total += bytes.length;
+	try {
+		for (const chunk of entry.chunks) {
+			const pack = await readPack(chunk.pack);
+			let bytes;
+			try {
+				bytes = pack.chunk(hexToBytes(chunk.id));
+				if (!bytes || bytes.length !== chunk.len) throw new Error(DAMAGED);
+				if (bytesToHex(chunkId(dedupKey, bytes)) !== chunk.id) throw new Error(CHANGED);
+				parts.push(new Uint8Array(bytes));
+				total += bytes.length;
+			} finally {
+				bytes?.fill(0);
+				if (pack.release) pack.release();
+				else pack.dispose?.();
+			}
+		}
+		if (total !== entry.size) throw new Error(DAMAGED);
+		const blob = new Blob(parts);
+		return blob;
+	} finally {
+		for (const part of parts) {
+			if (part instanceof Uint8Array) part.fill(0);
+		}
 	}
-	if (total !== entry.size) throw new Error(DAMAGED);
-	return new Blob(parts);
 }

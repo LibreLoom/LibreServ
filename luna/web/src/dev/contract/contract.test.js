@@ -129,7 +129,8 @@ function errorsFor(id) {
 function assertNoDrift(id, errors) {
   const key = normalizeKey(...splitId(id));
   const left = errors.filter((e) => {
-    const at = KNOWN_GAPS.findIndex((g) => g.key === key && (g.path === e.path || g.path === "*"));
+    const at = KNOWN_GAPS.findIndex((g) => g.key === key
+      && (g.path === e.path || (g.path === "*" && !realByKey.has(key))));
     if (at < 0) return true;
     usedGaps.add(at);
     return false;
@@ -161,6 +162,12 @@ describe("fake lunad matches lunad's response shapes", () => {
     const [method, pattern] = splitId(id);
     const key = normalizeKey(method, pattern);
     if (!realByKey.has(key) && !methodsByPath.has(key.slice(method.length + 1))) {
+      const gap = KNOWN_GAPS.findIndex((item) => item.key === key && item.path === "*");
+      if (gap >= 0) {
+        usedGaps.add(gap);
+        it.skip(`${key}: ${KNOWN_GAPS[gap].reason}`, () => {});
+        continue;
+      }
       it.todo(`${key}: no lunad test records this response yet`);
       continue;
     }

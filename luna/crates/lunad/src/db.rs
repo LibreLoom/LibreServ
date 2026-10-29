@@ -1567,6 +1567,13 @@ pub struct BackupKey {
     pub created_at: i64,
 }
 
+impl zeroize::Zeroize for BackupKey {
+    fn zeroize(&mut self) {
+        self.key.zeroize();
+        self.dedup_key.zeroize();
+    }
+}
+
 pub fn insert_backup_key(conn: &Connection, k: &BackupKey) -> anyhow::Result<()> {
     conn.execute(
         "INSERT INTO backup_keys (protection_id, version, key, dedup_key, created_at)
@@ -2155,6 +2162,18 @@ pub fn private_snapshot_ids(conn: &Connection, scope: &str) -> anyhow::Result<Ve
         .query_map(params![scope], |r| r.get(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
+}
+
+pub fn has_private_snapshot(
+    conn: &Connection,
+    scope: &str,
+    snapshot_id: &str,
+) -> anyhow::Result<bool> {
+    Ok(conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM cloud_private_trees WHERE scope = ?1 AND snapshot_id = ?2)",
+        params![scope, snapshot_id],
+        |row| row.get(0),
+    )?)
 }
 
 pub fn private_scope_of_snapshot(

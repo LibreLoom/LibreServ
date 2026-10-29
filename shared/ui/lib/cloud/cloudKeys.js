@@ -154,8 +154,12 @@ export function openKeyCopy(record, sealSecret, signingPublic, lunaId, protectio
 	if (!verify(signingPublic, 'key-copy', msg, sig)) return null;
 	try {
 		const plain = open(sealSecret, aad, sealed);
-		if (plain.length !== 2 * KEY_LEN) return null;
-		return { key: plain.slice(0, KEY_LEN), dedupKey: plain.slice(KEY_LEN) };
+		try {
+			if (plain.length !== 2 * KEY_LEN) return null;
+			return { key: plain.slice(0, KEY_LEN), dedupKey: plain.slice(KEY_LEN) };
+		} finally {
+			plain.fill(0);
+		}
 	} catch {
 		return null;
 	}
@@ -168,81 +172,87 @@ export function openKeyCopy(record, sealSecret, signingPublic, lunaId, protectio
  */
 export function findMyKeys({ lunaId, entropy, self, recipients, keys, pscopes = [], expectSigningPublic }) {
 	const k = derive(entropy, lunaId);
-	const decoder = new TextDecoder();
-	const selfByName = new Map(self.map((r) => [r.name, r.data]));
-	const keyByName = new Map(keys.map((r) => [r.name, r.data]));
+	try {
+		const decoder = new TextDecoder();
+		const selfByName = new Map(self.map((r) => [r.name, r.data]));
+		const keyByName = new Map(keys.map((r) => [r.name, r.data]));
 
-	// Candidate user ids come from the recipient lists and the private scope records. A person's id
-	// can change after Luna loses its database, so no current id is assumed. Nothing here is trusted
-	// until a signature checks.
-	const candidates = new Set();
-	for (const r of recipients) {
-		try {
-			const users = JSON.parse(decoder.decode(r.data)).users;
-			if (Array.isArray(users)) for (const u of users) if (typeof u === 'string') candidates.add(u);
-		} catch {
-			// Unreadable record: skipped for now.
+		// Candidate user ids come from the recipient lists and the private scope records. A person's id
+		// can change after Luna loses its database, so no current id is assumed. Nothing here is trusted
+		// until a signature checks.
+		const candidates = new Set();
+		for (const r of recipients) {
+			try {
+				const users = JSON.parse(decoder.decode(r.data)).users;
+				if (Array.isArray(users)) for (const u of users) if (typeof u === 'string') candidates.add(u);
+			} catch {
+				// Unreadable record: skipped for now.
+			}
 		}
-	}
-	for (const r of pscopes) {
-		try {
-			const uid = JSON.parse(decoder.decode(r.data)).record?.user_id;
-			if (typeof uid === 'string') candidates.add(uid);
-		} catch {
-			// Unreadable record: skipped for now.
+		for (const r of pscopes) {
+			try {
+				const uid = JSON.parse(decoder.decode(r.data)).record?.user_id;
+				if (typeof uid === 'string') candidates.add(uid);
+			} catch {
+				// Unreadable record: skipped for now.
+			}
 		}
-	}
 
-	/** @type {Uint8Array[]} */
-	let signingPublics = [];
-	for (const uid of candidates) {
-		const data = selfByName.get(userRecordPart(uid));
-		if (!data) continue;
-		const publicKey = openSelfRecord(k.selfKey, lunaId, uid, data);
-		if (publicKey && !signingPublics.some((p) => sameBytes(p, publicKey))) signingPublics.push(publicKey);
-	}
-	// No signing key is not an error yet: a phrase can still open private scopes, which are checked
-	// below. NO_BACKUPS is thrown only when nothing at all opens.
-	if (expectSigningPublic && signingPublics.length > 0) {
-		const expected = expectSigningPublic;
-		signingPublics = signingPublics.filter((p) => sameBytes(p, expected));
-		if (signingPublics.length === 0) throw new Error(SIGNING_MISMATCH);
-	}
-
-	/** @type {Record<string, number>} */
-	const latestVersion = {};
-	/** @type {Array<{ protectionId: string, version: number, key: Uint8Array, dedupKey: Uint8Array, userId: string }>} */
-	const found = [];
-	/** @type {string[]} */
-	const userIds = [];
-	for (const r of recipients) {
-		const parsed = parseRecipientsName(r.name);
-		if (!parsed) continue;
-		const { protectionId, version } = parsed;
-		let users = null;
-		for (const pub of signingPublics) {
-			users = verifyRecipients(r.data, pub, lunaId, protectionId, version);
-			if (users) break;
-		}
-		if (!users) continue;
-		latestVersion[protectionId] = Math.max(latestVersion[protectionId] ?? 0, version);
-
-		for (const uid of users) {
-			const data = keyByName.get(`${protectionId}.${version}.${userRecordPart(uid)}`);
+		/** @type {Uint8Array[]} */
+		let signingPublics = [];
+		for (const uid of candidates) {
+			const data = selfByName.get(userRecordPart(uid));
 			if (!data) continue;
-			let opened = null;
+			const publicKey = openSelfRecord(k.selfKey, lunaId, uid, data);
+			if (publicKey && !signingPublics.some((p) => sameBytes(p, publicKey))) signingPublics.push(publicKey);
+		}
+		// No signing key is not an error yet: a phrase can still open private scopes, which are checked
+		// below. NO_BACKUPS is thrown only when nothing at all opens.
+		if (expectSigningPublic && signingPublics.length > 0) {
+			const expected = expectSigningPublic;
+			signingPublics = signingPublics.filter((p) => sameBytes(p, expected));
+			if (signingPublics.length === 0) throw new Error(SIGNING_MISMATCH);
+		}
+
+		/** @type {Record<string, number>} */
+		const latestVersion = {};
+		/** @type {Array<{ protectionId: string, version: number, key: Uint8Array, dedupKey: Uint8Array, userId: string }>} */
+		const found = [];
+		/** @type {string[]} */
+		const userIds = [];
+		for (const r of recipients) {
+			const parsed = parseRecipientsName(r.name);
+			if (!parsed) continue;
+			const { protectionId, version } = parsed;
+			let users = null;
 			for (const pub of signingPublics) {
-				opened = openKeyCopy(data, k.sealSecret, pub, lunaId, protectionId, version, uid);
-				if (opened) break;
+				users = verifyRecipients(r.data, pub, lunaId, protectionId, version);
+				if (users) break;
 			}
-			if (opened) {
-				found.push({ protectionId, version, key: opened.key, dedupKey: opened.dedupKey, userId: uid });
-				if (!userIds.includes(uid)) userIds.push(uid);
-				break;
+			if (!users) continue;
+			latestVersion[protectionId] = Math.max(latestVersion[protectionId] ?? 0, version);
+
+			for (const uid of users) {
+				const data = keyByName.get(`${protectionId}.${version}.${userRecordPart(uid)}`);
+				if (!data) continue;
+				let opened = null;
+				for (const pub of signingPublics) {
+					opened = openKeyCopy(data, k.sealSecret, pub, lunaId, protectionId, version, uid);
+					if (opened) break;
+				}
+				if (opened) {
+					found.push({ protectionId, version, key: opened.key, dedupKey: opened.dedupKey, userId: uid });
+					if (!userIds.includes(uid)) userIds.push(uid);
+					break;
+				}
 			}
 		}
+		const privateScopes = findMyPrivateScopes({ lunaId, entropy, pscopes, signingPublics });
+		if (found.length === 0 && privateScopes.length === 0) throw new Error(NO_BACKUPS);
+		return { signingPublics, userIds, keys: found, latestVersion, privateScopes };
+	} finally {
+		k.sealSecret.fill(0);
+		k.selfKey.fill(0);
+		k.authSecret.fill(0);
 	}
-	const privateScopes = findMyPrivateScopes({ lunaId, entropy, pscopes, signingPublics });
-	if (found.length === 0 && privateScopes.length === 0) throw new Error(NO_BACKUPS);
-	return { signingPublics, userIds, keys: found, latestVersion, privateScopes };
 }

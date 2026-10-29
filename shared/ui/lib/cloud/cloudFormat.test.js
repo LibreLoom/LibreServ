@@ -1,17 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 import fixture from '../../../../luna/crates/lunad/src/backup/cloud/fixture.json';
 import {
 	CHANGED,
 	DAMAGED,
 	MissingKeyError,
 	NO_KEY,
+	PACK_BODY_AAD,
+	PACK_INDEX_AAD,
 	PACK_KEY_WRAP_AAD,
 	decryptMeta,
 	makePackReader,
 	makePackReaderForVersions,
 	openPack,
+	openPackWith,
 	readFile,
+	readRawTreeWith,
 	readTree,
 	verifySnapshot,
 } from './cloudFormat.js';
@@ -19,7 +24,7 @@ import { decrypt } from './backupCrypto.js';
 
 // Count decrypt calls so the ordering test can see which key is tried first. Otherwise passthrough.
 vi.mock('./backupCrypto.js', async (importOriginal) => {
-	const actual = await importOriginal();
+	const actual = /** @type {typeof import('./backupCrypto.js')} */ (await importOriginal());
 	return { ...actual, decrypt: vi.fn(actual.decrypt) };
 });
 
@@ -86,9 +91,65 @@ describe('cloudFormat', () => {
 	it('openPack opens the data pack, throws CHANGED for a flipped byte and DAMAGED for the wrong key', () => {
 		const pack = openPack(dataPack, dataPackHex, backupKey);
 		expect(bytesToHex(pack.scopeId).slice(0, 32)).toBe(fixture.scope_tag);
+		pack.dispose();
 
 		expect(() => openPack(flipByte(dataPack, 10), dataPackHex, backupKey)).toThrow(CHANGED);
 		expect(() => openPack(dataPack, dataPackHex, new Uint8Array(32).fill(0x33))).toThrow(DAMAGED);
+	});
+
+	it('clears an unwrapped pack key after opening or rejecting a pack', () => {
+		const openedKeys = [];
+		const unwrap = (wrapped) => {
+			const key = decrypt(backupKey, PACK_KEY_WRAP_AAD, wrapped);
+			openedKeys.push(key);
+			return key;
+		};
+
+		openPackWith(dataPack, dataPackHex, unwrap);
+		expect(openedKeys).toHaveLength(1);
+		const openedKey = openedKeys[0];
+		expect(Array.from(openedKey)).toEqual(new Array(openedKey.length).fill(0));
+
+		const damagedPack = dataPack.slice();
+		damagedPack[damagedPack.length - 1] ^= 1;
+		const damagedKeys = [];
+		expect(() =>
+			openPackWith(damagedPack, bytesToHex(sha256(damagedPack)), (wrapped) => {
+				const key = decrypt(backupKey, PACK_KEY_WRAP_AAD, wrapped);
+				damagedKeys.push(key);
+				return key;
+			}),
+		).toThrow(DAMAGED);
+		expect(damagedKeys).toHaveLength(1);
+		const damagedKey = damagedKeys[0];
+		expect(Array.from(damagedKey)).toEqual(new Array(damagedKey.length).fill(0));
+	});
+
+	it('clears decrypted pack index and body on disposal and on open failure', () => {
+		vi.mocked(decrypt).mockClear();
+		const pack = openPack(dataPack, dataPackHex, backupKey);
+		const outputs = vi.mocked(decrypt).mock.results.map((result) => result.value);
+		const index = outputs[vi.mocked(decrypt).mock.calls.findIndex(([, aad]) => aad === PACK_INDEX_AAD)];
+		const body = outputs[vi.mocked(decrypt).mock.calls.findIndex(([, aad]) => aad === PACK_BODY_AAD)];
+		expect(Array.from(index)).toEqual(new Array(index.length).fill(0));
+		expect(body.some((byte) => byte !== 0)).toBe(true);
+		const scopeId = pack.scopeId;
+		pack.dispose();
+		pack.dispose();
+		expect(Array.from(body)).toEqual(new Array(body.length).fill(0));
+		expect(Array.from(scopeId)).toEqual(new Array(scopeId.length).fill(0));
+		expect(() => pack.chunk(new Uint8Array(32))).toThrow(DAMAGED);
+
+		vi.mocked(decrypt).mockClear();
+		const damagedPack = dataPack.slice();
+		damagedPack[damagedPack.length - 1] ^= 1;
+		expect(() => openPackWith(damagedPack, bytesToHex(sha256(damagedPack)), (wrapped) =>
+			decrypt(backupKey, PACK_KEY_WRAP_AAD, wrapped),
+		)).toThrow(DAMAGED);
+		const failedIndex = vi.mocked(decrypt).mock.results[
+			vi.mocked(decrypt).mock.calls.findIndex(([, aad]) => aad === PACK_INDEX_AAD)
+		].value;
+		expect(Array.from(failedIndex)).toEqual(new Array(failedIndex.length).fill(0));
 	});
 
 	it('readTree lists docs/a.txt and b.bin', () => {
@@ -96,6 +157,18 @@ describe('cloudFormat', () => {
 		const tree = readTree(treePack, snap, backupKey);
 		const paths = tree.map((e) => e.path).sort();
 		expect(paths).toEqual(['b.bin', 'docs/a.txt']);
+	});
+
+	it('clears opened tree bytes after parsing the tree', () => {
+		const snap = verifySnapshot(snapBytes, [signingPublic], lunaId);
+		const plaintext = new TextEncoder().encode('{"entries":[]}');
+		readRawTreeWith(
+			treePack,
+			snap,
+			(wrapped) => decrypt(backupKey, PACK_KEY_WRAP_AAD, wrapped),
+			() => plaintext,
+		);
+		expect(Array.from(plaintext)).toEqual(new Array(plaintext.length).fill(0));
 	});
 
 	it('readFile returns the expected bytes, and CHANGED with the wrong dedup key', async () => {
@@ -124,17 +197,96 @@ describe('cloudFormat', () => {
 		const a = await reader(dataPackHex);
 		const b = await reader(dataPackHex);
 		expect(calls).toBe(1);
-		expect(a).toBe(b);
+		expect(a).not.toBe(b);
+		a.release();
+		b.release();
+		await reader.dispose();
+	});
+
+	it('reader disposal clears cached plaintext and waits for outstanding leases', async () => {
+		vi.mocked(decrypt).mockClear();
+		const reader = makePackReader(async (idHex) => hexToBytes(fixture.packs[idHex]), backupKey);
+		const lease = await reader(dataPackHex);
+		const bodyIndex = vi.mocked(decrypt).mock.calls.findIndex(([, aad]) => aad === PACK_BODY_AAD);
+		const body = vi.mocked(decrypt).mock.results[bodyIndex].value;
+		const cleanup = reader.dispose();
+		expect(body.some((byte) => byte !== 0)).toBe(true);
+		lease.release();
+		await cleanup;
+		expect(Array.from(body)).toEqual(new Array(body.length).fill(0));
+		await expect(reader(dataPackHex)).rejects.toThrow(DAMAGED);
+	});
+
+	it('zeroes evicted packs after outstanding readers release them, including in-flight opens', async () => {
+		vi.mocked(decrypt).mockClear();
+		const snap = verifySnapshot(snapBytes, [signingPublic], lunaId);
+		if (!snap) throw new Error('the fixture snapshot did not verify');
+		const dataChunk = readTree(treePack, snap, backupKey)
+			.flatMap((entry) => entry.chunks)
+			.find((chunk) => chunk.pack === dataPackHex);
+		if (!dataChunk) throw new Error('the fixture tree has no chunk in the data pack');
+		const dataChunkId = hexToBytes(dataChunk.id);
+		// Tree discovery opens the tree pack; observe only plaintext opened by the reader below.
+		vi.mocked(decrypt).mockClear();
+		const reader = makePackReader(
+			async (idHex) => hexToBytes(fixture.packs[idHex]),
+			backupKey,
+			1,
+		);
+		const first = await reader(dataPackHex);
+		const secondReader = await reader(dataPackHex);
+		let bodyIndex = vi.mocked(decrypt).mock.calls.findIndex(([, aad]) => aad === PACK_BODY_AAD);
+		let firstBody = vi.mocked(decrypt).mock.results[bodyIndex].value;
+		const second = await reader(treePackHex);
+		const firstChunk = first.chunk(dataChunkId);
+		expect(firstChunk).not.toBeNull();
+		firstChunk?.fill(0);
+		expect(firstBody.some((byte) => byte !== 0)).toBe(true);
+		first.release();
+		expect(firstBody.some((byte) => byte !== 0)).toBe(true);
+		const secondChunk = secondReader.chunk(dataChunkId);
+		expect(secondChunk).not.toBeNull();
+		secondChunk?.fill(0);
+		secondReader.release();
+		second.release();
+		await reader.dispose();
+		expect(Array.from(firstBody)).toEqual(new Array(firstBody.length).fill(0));
+
+		vi.mocked(decrypt).mockClear();
+		/** @type {((bytes: Uint8Array) => void) | undefined} */
+		let resolveFirst;
+		const delayedReader = makePackReader(
+			(idHex) =>
+				idHex === dataPackHex
+					? new Promise((resolve) => {
+							resolveFirst = resolve;
+						})
+					: Promise.resolve(hexToBytes(fixture.packs[idHex])),
+			backupKey,
+			1,
+		);
+		const pendingFirst = delayedReader(dataPackHex);
+		const secondReady = await delayedReader(treePackHex);
+		if (!resolveFirst) throw new Error('the first pack did not start loading');
+		resolveFirst(hexToBytes(fixture.packs[dataPackHex]));
+		const firstReady = await pendingFirst;
+		bodyIndex = vi.mocked(decrypt).mock.calls.map(([, aad]) => aad).lastIndexOf(PACK_BODY_AAD);
+		firstBody = vi.mocked(decrypt).mock.results[bodyIndex].value;
+		expect(firstBody.some((byte) => byte !== 0)).toBe(true);
+		firstReady.release();
+		secondReady.release();
+		await delayedReader.dispose();
+		expect(Array.from(firstBody)).toEqual(new Array(firstBody.length).fill(0));
 	});
 
 	describe('makePackReaderForVersions', () => {
 		beforeEach(() => {
-			decrypt.mockClear();
+			vi.mocked(decrypt).mockClear();
 		});
 
 		/** The keys tried to unwrap a pack key, in order. Index and body decrypts are left out. */
 		const unwrapKeysTried = () =>
-			decrypt.mock.calls.filter(([, aad]) => aad === PACK_KEY_WRAP_AAD).map(([key]) => key);
+			vi.mocked(decrypt).mock.calls.filter(([, aad]) => aad === PACK_KEY_WRAP_AAD).map(([key]) => key);
 
 		/** Read every file of the fixture through a reader, and compare to the fixture's bytes. */
 		async function expectFixtureFiles(reader) {
@@ -223,7 +375,26 @@ describe('cloudFormat', () => {
 			const a = await reader(dataPackHex);
 			const b = await reader(dataPackHex);
 			expect(calls).toBe(1);
-			expect(a).toBe(b);
+			const snap = verifySnapshot(snapBytes, [signingPublic], lunaId);
+			if (!snap) throw new Error('the fixture snapshot did not verify');
+			const dataChunk = readTree(treePack, snap, backupKey)
+				.flatMap((entry) => entry.chunks)
+				.find((chunk) => chunk.pack === dataPackHex);
+			if (!dataChunk) throw new Error('the fixture tree has no chunk in the data pack');
+			const dataChunkId = hexToBytes(dataChunk.id);
+			const aBytes = a.chunk(dataChunkId);
+			const bBytes = b.chunk(dataChunkId);
+			expect(aBytes).not.toBeNull();
+			expect(bBytes).toEqual(aBytes);
+			aBytes?.fill(0);
+			bBytes?.fill(0);
+			a.release();
+			expect(() => a.chunk(dataChunkId)).toThrow(DAMAGED);
+			const bAfterRelease = b.chunk(dataChunkId);
+			expect(bAfterRelease).not.toBeNull();
+			bAfterRelease?.fill(0);
+			b.release();
+			await reader.dispose();
 		});
 	});
 });

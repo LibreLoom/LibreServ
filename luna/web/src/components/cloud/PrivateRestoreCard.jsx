@@ -1,8 +1,9 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CloudDownload } from "lucide-react";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { shakeElement } from "@libreloom/ui/utils/shake.js";
@@ -26,8 +27,10 @@ export default function PrivateRestoreCard() {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const fieldRef = useRef(null);
+  const restoreAbortRef = useRef(null);
   const [words, setWords] = useState("");
   const [error, setError] = useState("");
+  const [progress, setProgress] = useState(null);
 
   const status = useQuery({
     queryKey: PRIVATE_RESTORE_QUERY_KEY,
@@ -35,14 +38,22 @@ export default function PrivateRestoreCard() {
     enabled: Boolean(user),
   });
 
+  useEffect(() => () => restoreAbortRef.current?.abort(), []);
+
   const restoreMutation = useMutation({
-    mutationFn: (/** @type {string} */ text) =>
-      restorePrivateFromPhrase(text, {
+    mutationFn: (/** @type {string} */ text) => {
+      const controller = new AbortController();
+      restoreAbortRef.current = controller;
+      return restorePrivateFromPhrase(text, {
         lunaId: status.data.luna_id,
         signingPublic: status.data.signing_public,
-      }),
+        onProgress: setProgress,
+        signal: controller.signal,
+      });
+    },
     onSuccess: ({ restored }) => {
       setError("");
+      setProgress(null);
       setWords("");
       addToast({
         type: "success",
@@ -53,18 +64,46 @@ export default function PrivateRestoreCard() {
     },
     onError: (err) => {
       setWords("");
-      setError(apiErrorMessage(err, "Could not bring back your private items. Try again."));
+      setProgress(null);
+      setError(err?.name === "AbortError"
+        ? "Restore stopped. Some private versions may already be back; you can safely try again."
+        : apiErrorMessage(err, "Could not bring back your private items. Try again."));
       // shakeElement fires the error haptic, so no separate haptic call here.
-      shakeElement(fieldRef.current);
+      if (err?.name !== "AbortError") shakeElement(fieldRef.current);
     },
+    onSettled: () => { restoreAbortRef.current = null; },
   });
 
-  if (!user || status.isPending || status.isError || !status.data?.needed) return null;
+  if (!user || status.isPending) return null;
+
+  if (status.isError) {
+    return (
+      <SettingsCard icon={CloudDownload} title="Bring back your private items">
+        <PageNotice variant="warning">
+          <div className="space-y-3">
+            <p>Luna could not check whether your private items need restoring. Try again.</p>
+            <Button
+              variant="outline"
+              surface="primary"
+              size="sm"
+              disabled={status.isFetching}
+              onClick={() => status.refetch()}
+            >
+              Try again
+            </Button>
+          </div>
+        </PageNotice>
+      </SettingsCard>
+    );
+  }
+
+  if (!status.data?.needed) return null;
 
   const submit = (e) => {
     e.preventDefault();
     if (!words.trim() || restoreMutation.isPending) return;
     setError("");
+    setProgress(null);
     restoreMutation.mutate(words);
   };
 
@@ -98,6 +137,8 @@ export default function PrivateRestoreCard() {
           onSubmit={submit}
           error={error}
           pending={restoreMutation.isPending}
+          progress={progress}
+          onCancel={() => restoreAbortRef.current?.abort()}
           submitLabel="Find my private items"
           fieldRef={fieldRef}
         />

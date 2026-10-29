@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CloudDownload } from "lucide-react";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
@@ -24,8 +24,13 @@ export default function CloudRestoreCard() {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const fieldRef = useRef(null);
+  const restoreAbortRef = useRef(null);
   const [words, setWords] = useState("");
   const [error, setError] = useState("");
+  const [restoreWarning, setRestoreWarning] = useState("");
+  const [progress, setProgress] = useState(null);
+
+  useEffect(() => () => restoreAbortRef.current?.abort(), []);
 
   const restore = useQuery({
     queryKey: RESTORE_QUERY_KEY,
@@ -39,38 +44,83 @@ export default function CloudRestoreCard() {
   });
 
   const restoreMutation = useMutation({
-    mutationFn: (/** @type {string} */ text) =>
-      restoreFromPhrase(text, {
+    mutationFn: (/** @type {string} */ text) => {
+      const controller = new AbortController();
+      restoreAbortRef.current = controller;
+      return restoreFromPhrase(text, {
         lunaId: restore.data.luna_id,
         signingPublic: restore.data.signing_public,
         userId: String(user.id),
         phraseSet: Boolean(phrase.data?.set),
-      }),
-    onSuccess: ({ snapshots }) => {
+      }, setProgress, controller.signal);
+    },
+    onSuccess: ({ snapshots, alreadyIndexed, skipped, warning }) => {
       setError("");
+      setProgress(null);
       setWords("");
-      addToast({
-        type: "success",
-        message: snapshots === 1 ? "Found 1 backup version" : `Found ${snapshots} backup versions`,
-      });
-      queryClient.invalidateQueries({ queryKey: RESTORE_QUERY_KEY });
+      const skippedWarning = skipped > 0
+        ? `Luna couldn't open ${skipped} backup ${skipped === 1 ? "version" : "versions"}.`
+        : "";
+      setRestoreWarning(skippedWarning);
+      const found = snapshots + alreadyIndexed;
+      addToast(warning || skippedWarning
+        ? {
+          type: "info",
+          message: "Backup list restored with a warning",
+          duration: 10000,
+        }
+        : {
+          type: "success",
+          message: found === 1 ? "Found 1 backup version" : `Found ${found} backup versions`,
+        });
+      // Keep the form available when ownership relinking failed. The server persists that
+      // retry state separately from snapshot counts and clears it after a successful retry.
+      if (warning || skippedWarning) {
+        queryClient.setQueryData(RESTORE_QUERY_KEY, (
+          /** @type {unknown} */ current,
+        ) => {
+          if (!current || typeof current !== "object") return current;
+          const status = /** @type {Record<string, unknown>} */ (current);
+          const cloudSnapshots = status.cloud_snapshots;
+          const indexedSnapshots = status.indexed_snapshots;
+          if (typeof cloudSnapshots !== "number" || typeof indexedSnapshots !== "number") return current;
+          return {
+            ...status,
+            needed: true,
+            ...(warning ? { relink_pending: true } : {}),
+            indexed_snapshots: Math.min(cloudSnapshots, indexedSnapshots + snapshots),
+          };
+        });
+      } else {
+        queryClient.invalidateQueries({ queryKey: RESTORE_QUERY_KEY });
+      }
       queryClient.invalidateQueries({ queryKey: PHRASE_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
     },
     onError: (err) => {
       setWords("");
-      setError(apiErrorMessage(err, "Could not bring back your cloud backups. Try again."));
-      // shakeElement fires the error haptic, so no separate haptic call here.
-      shakeElement(fieldRef.current);
+      setProgress(null);
+      setError(err?.name === "AbortError"
+        ? "Restore stopped. Some backup versions may already be back; you can safely try again."
+        : apiErrorMessage(err, "Could not bring back your cloud backups. Try again."));
+      queryClient.invalidateQueries({ queryKey: RESTORE_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
+      if (err?.name !== "AbortError") {
+        // shakeElement fires the error haptic, so no separate haptic call here.
+        shakeElement(fieldRef.current);
+      }
     },
+    onSettled: () => { restoreAbortRef.current = null; },
   });
 
-  if (!isAdmin || restore.isPending || restore.isError || !restore.data?.needed) return null;
+  if (!isAdmin || restore.isPending || restore.isError
+      || (!restore.data?.needed && !restore.data?.relink_pending)) return null;
 
   const submit = (e) => {
     e.preventDefault();
     if (!words.trim() || restoreMutation.isPending) return;
     setError("");
+    setRestoreWarning("");
     restoreMutation.mutate(words);
   };
 
@@ -90,8 +140,11 @@ export default function CloudRestoreCard() {
   return (
     <SettingsCard icon={CloudDownload} title="Bring back cloud backups">
       <div className="space-y-3">
+        {restoreWarning && <PageNotice variant="warning">{restoreWarning}</PageNotice>}
         <p className="text-primary text-sm">
-          Some cloud backup versions are missing from Luna&apos;s list. Enter your recovery phrase to find them again.
+          {restore.data.relink_pending
+            ? "Luna restored the backup list, but some backups are still linked to an old account. Enter your recovery phrase again to finish reconnecting them."
+            : "Some cloud backup versions are missing from Luna's list. Enter your recovery phrase to find them again."}
         </p>
         <p className="text-primary text-sm">
           {cloudCount === 1 ? "1 version is" : `${cloudCount} versions are`} in the cloud.{" "}
@@ -105,6 +158,8 @@ export default function CloudRestoreCard() {
           onSubmit={submit}
           error={error}
           pending={restoreMutation.isPending}
+          progress={progress}
+          onCancel={() => restoreAbortRef.current?.abort()}
           submitLabel="Find my backups"
           fieldRef={fieldRef}
         />

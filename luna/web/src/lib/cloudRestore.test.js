@@ -3,13 +3,14 @@ import { derive, entropyToPhrase, SIG_PUBLIC_LEN, sign } from "@libreloom/ui/lib
 import { NO_BACKUPS, SIGNING_MISMATCH } from "@libreloom/ui/lib/cloud/cloudKeys.js";
 import { hexToBytes } from "@noble/hashes/utils.js";
 import fixture from "../../../crates/lunad/src/backup/cloud/fixture.json";
-import { getJson, postJson } from "./api";
+import { apiFetch, getJson, postJson } from "./api";
 import { savePhrase, toBase64 } from "./cloudPhrase";
 import { getRestoreStatus, restoreFromPhrase, RESTORE_PATH } from "./cloudRestore";
 
 vi.mock("./api", () => ({
   getJson: vi.fn(),
   postJson: vi.fn(),
+  apiFetch: vi.fn(),
 }));
 
 vi.mock("./cloudPhrase", async (importOriginal) => ({
@@ -19,24 +20,33 @@ vi.mock("./cloudPhrase", async (importOriginal) => ({
 
 const getJsonMock = vi.mocked(getJson);
 const postJsonMock = vi.mocked(postJson);
+const apiFetchMock = vi.mocked(apiFetch);
 const savePhraseMock = vi.mocked(savePhrase);
+let postedRestoreBody = null;
 
 const hex = (value) => toBase64(hexToBytes(value));
 
 const CHALLENGE = new Uint8Array(32).fill(5);
 
-/** Answer the challenge request; every other POST gets the restore result. */
+/** Answer the challenge request. */
 function servePosts() {
   postJsonMock.mockImplementation(async (path) => {
     if (path.endsWith("/challenge")) return { challenge: toBase64(CHALLENGE) };
-    return { snapshots: 1, already_indexed: 0, skipped: 0 };
+    return {};
+  });
+  apiFetchMock.mockImplementation(async (_path, options) => {
+    postedRestoreBody = JSON.parse(options.body);
+    const events = [
+      { type: "progress", processed: 1, total: 1, snapshots: 1, already_indexed: 0, skipped: 0 },
+      { type: "done", snapshots: 1, already_indexed: 0, skipped: 0 },
+    ].map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
+    return new Response(events, { headers: { "Content-Type": "text/event-stream" } });
   });
 }
 
 /** The body sent to POST /api/v1/cloud/restore. */
 function restoreBody() {
-  const call = postJsonMock.mock.calls.find(([path]) => path === RESTORE_PATH);
-  return call?.[1];
+  return postedRestoreBody;
 }
 
 /** Serve the Rust fixture's record lists the way lunad's GET endpoints do. */
@@ -58,6 +68,7 @@ const CTX = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  postedRestoreBody = null;
   servePosts();
   savePhraseMock.mockResolvedValue({});
   serveFixtureRecords();
@@ -102,6 +113,18 @@ describe("restoreFromPhrase", () => {
     expect(restoreBody().signature).toBe(expected);
   });
 
+  it("reports streamed progress and rejects a provider failure after partial progress", async () => {
+    const phrase = entropyToPhrase(hexToBytes(fixture.alice_entropy));
+    const onProgress = vi.fn();
+    apiFetchMock.mockResolvedValueOnce(new Response(
+      'data: {"type":"progress","processed":2,"total":8,"snapshots":1,"already_indexed":1,"skipped":0}\n\n' +
+      'data: {"type":"error","message":"Connect stopped responding. Try again."}\n\n',
+      { headers: { "Content-Type": "text/event-stream" } },
+    ));
+    await expect(restoreFromPhrase(phrase, CTX, onProgress)).rejects.toThrow("Connect stopped responding. Try again.");
+    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ processed: 2, total: 8 }));
+  });
+
   it("still restores without a signature when the challenge fails", async () => {
     const phrase = entropyToPhrase(hexToBytes(fixture.alice_entropy));
     postJsonMock.mockImplementation(async (path) => {
@@ -124,6 +147,23 @@ describe("restoreFromPhrase", () => {
     savePhraseMock.mockClear();
     await restoreFromPhrase(phrase, { ...CTX, phraseSet: true });
     expect(savePhraseMock).not.toHaveBeenCalled();
+  });
+
+  it("saves a missing phrase and returns a relink warning after metadata restore completes", async () => {
+    const phrase = entropyToPhrase(hexToBytes(fixture.alice_entropy));
+    const warning = "Luna restored the backup list, but some backups are still linked to an old account. Try again to finish reconnecting them.";
+    apiFetchMock.mockResolvedValueOnce(new Response(
+      `data: ${JSON.stringify({ type: "done", snapshots: 1, already_indexed: 2, skipped: 0, warning })}\n\n`,
+      { headers: { "Content-Type": "text/event-stream" } },
+    ));
+
+    await expect(restoreFromPhrase(phrase, { ...CTX, phraseSet: false })).resolves.toEqual({
+      snapshots: 1,
+      alreadyIndexed: 2,
+      skipped: 0,
+      warning,
+    });
+    expect(savePhraseMock).toHaveBeenCalledTimes(1);
   });
 
   it("explains when saving the phrase fails after the backups came back", async () => {

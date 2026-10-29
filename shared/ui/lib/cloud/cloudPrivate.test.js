@@ -1,14 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import fixture from '../../../../luna/crates/lunad/src/backup/cloud/fixture.json';
 import { CHANGED, DAMAGED, makePackReaderWith, readFile, readTreeWith, verifySnapshot } from './cloudFormat.js';
-import { derive } from './backupCrypto.js';
+import { derive, open as openMock, seal, SIG_LEN } from './backupCrypto.js';
 import {
 	findMyPrivateScopes,
+	openPrivateDedup,
 	openPrivateMeta,
 	openPrivateTreeBytes,
 	openScopeSecret,
 	PRIVATE_SNAPSHOT_DOMAIN,
+	privateAad,
 	privateUnwrap,
 	readPrivateSnapshots,
 	scopeOf,
@@ -16,6 +18,11 @@ import {
 	signPrivateOpen,
 	verifyScopeRecord,
 } from './cloudPrivate.js';
+
+vi.mock('./backupCrypto.js', async (importOriginal) => {
+	const actual = /** @type {typeof import('./backupCrypto.js')} */ (await importOriginal());
+	return { ...actual, open: vi.fn(actual.open) };
+});
 
 const lunaId = fixture.luna_id;
 const p = fixture.private;
@@ -88,7 +95,10 @@ describe('cloudPrivate', () => {
 	it('the phrase key cannot open the snapshot details, only the scope key can', () => {
 		const sealedMeta = verifySnapshot(snapBytes, [signingPublic], lunaId, PRIVATE_SNAPSHOT_DOMAIN).meta;
 		expect(() => openPrivateMeta(sealedMeta, alice.sealSecret, lunaId, p.scope)).toThrow(DAMAGED);
+		vi.mocked(openMock).mockClear();
 		expect(() => openPrivateMeta(sealedMeta, scopeSecret, lunaId, p.scope)).not.toThrow();
+		const opened = vi.mocked(openMock).mock.results[0].value;
+		expect(Array.from(opened)).toEqual(new Array(opened.length).fill(0));
 	});
 
 	it('a re-sealed scope secret opens with the new phrase and not the old one', () => {
@@ -145,9 +155,48 @@ describe('cloudPrivate', () => {
 
 	it('openPrivateMeta throws DAMAGED with the wrong scope', () => {
 		const snap = verifySnapshot(snapBytes, [signingPublic], lunaId, PRIVATE_SNAPSHOT_DOMAIN);
+		vi.mocked(openMock).mockClear();
 		expect(() => openPrivateMeta(snap.meta, scopeSecret, lunaId, 'ffffffffffffffffffffffffffffffff')).toThrow(
 			DAMAGED,
 		);
+	});
+
+	it('clears opened metadata bytes when decrypted fields are invalid', () => {
+		const scopeRecord = verifyScopeRecord(pscopes[0].data, [signingPublic], lunaId);
+		const plaintext = new TextEncoder().encode('{"name":"partial metadata"}');
+		const sealed = seal(
+			scopeRecord.scopePublic,
+			privateAad('luna-private-meta-v1', lunaId, p.scope),
+			plaintext,
+		);
+		vi.mocked(openMock).mockClear();
+
+		expect(() => openPrivateMeta(sealed, scopeSecret, lunaId, p.scope)).toThrow(DAMAGED);
+		const opened = vi.mocked(openMock).mock.results[0].value;
+		expect(Array.from(opened)).toEqual(new Array(opened.length).fill(0));
+	});
+
+	it('clears malformed opened scope and dedup keys before reporting damage', () => {
+		const badScopeSecret = seal(
+			alice.sealPublic,
+			privateAad('luna-private-scope-secret-v1', lunaId, p.scope),
+			new Uint8Array(31).fill(1),
+		);
+		vi.mocked(openMock).mockClear();
+		expect(() => openScopeSecret(badScopeSecret, alice.sealSecret, lunaId, p.scope)).toThrow(DAMAGED);
+		const openedScope = vi.mocked(openMock).mock.results[0].value;
+		expect(Array.from(openedScope)).toEqual(new Array(openedScope.length).fill(0));
+
+		const scopeRecord = verifyScopeRecord(pscopes[0].data, [signingPublic], lunaId);
+		const badDedup = seal(
+			scopeRecord.scopePublic,
+			privateAad('luna-private-dedup-v1', lunaId, p.scope),
+			new Uint8Array(31).fill(2),
+		);
+		vi.mocked(openMock).mockClear();
+		expect(() => openPrivateDedup(badDedup, scopeSecret, lunaId, p.scope)).toThrow(DAMAGED);
+		const openedDedup = vi.mocked(openMock).mock.results[0].value;
+		expect(Array.from(openedDedup)).toEqual(new Array(openedDedup.length).fill(0));
 	});
 
 	it('readTreeWith reads the private tree and files through the private keys', async () => {
@@ -162,6 +211,7 @@ describe('cloudPrivate', () => {
 			const got = new Uint8Array(await blob.arrayBuffer());
 			expect(got).toEqual(hexToBytes(p.expected.files[entry.path]));
 		}
+		await readPack.dispose();
 	});
 
 	it('readTreeWith throws CHANGED for a flipped tree pack byte', () => {
@@ -174,7 +224,7 @@ describe('cloudPrivate', () => {
 
 	it('signPrivateOpen signs the fixture challenge the same way as the Rust side', () => {
 		const sig = signPrivateOpen(alice.authSecret, lunaId, p.scope, challenge);
-		expect(sig).toHaveLength(64);
+		expect(sig).toHaveLength(SIG_LEN);
 		expect(bytesToHex(sig)).toBe(p.open_signature);
 	});
 });

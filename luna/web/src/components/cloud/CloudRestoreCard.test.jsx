@@ -42,7 +42,7 @@ function ToastProbe() {
   return (
     <ul>
       {toasts.map((t) => (
-        <li key={t.id}>{t.message}</li>
+        <li key={t.id} data-tone={t.type}>{t.message}</li>
       ))}
     </ul>
   );
@@ -135,10 +135,84 @@ describe("CloudRestoreCard", () => {
         signingPublic: "AAAA",
         userId: "42",
         phraseSet: true,
-      }),
+      }, expect.any(Function), expect.any(AbortSignal)),
     );
     expect(await screen.findByText("Found 3 backup versions")).toBeInTheDocument();
     expect(field).toHaveValue("");
+  });
+
+  it("shows a warning when metadata returns but old accounts could not all be reconnected", async () => {
+    const user = userEvent.setup();
+    getRestoreStatusMock
+      .mockResolvedValueOnce({ ...STATUS, relink_pending: true });
+    restoreFromPhraseMock.mockResolvedValueOnce({
+      snapshots: 2,
+      alreadyIndexed: 1,
+      skipped: 0,
+      warning: "Some backups are still linked to an old account. Try again to finish reconnecting them.",
+    });
+    renderCard();
+    await user.type(await screen.findByLabelText("Recovery phrase"), "one two three");
+    await user.click(screen.getByRole("button", { name: "Find my backups" }));
+    expect(await screen.findByText("Backup list restored with a warning")).toBeInTheDocument();
+    expect(screen.getByText(/still linked to an old account/)).toBeInTheDocument();
+    expect(screen.getByText(/Luna has 2 versions in its list/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Recovery phrase")).toBeInTheDocument();
+    expect(getRestoreStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps skipped versions visible and uses a supported informational toast", async () => {
+    restoreFromPhraseMock.mockResolvedValueOnce({ snapshots: 2, alreadyIndexed: 1, skipped: 1 });
+    const user = userEvent.setup();
+    renderCard();
+    await user.type(await screen.findByLabelText("Recovery phrase"), "one two three");
+    await user.click(screen.getByRole("button", { name: "Find my backups" }));
+
+    expect(await screen.findByText("Luna couldn't open 1 backup version.")).toBeInTheDocument();
+    expect(screen.getByText("Backup list restored with a warning").closest("li")).toHaveAttribute("data-tone", "info");
+  });
+
+  it("keeps the retry form when relinking is still pending after all versions are indexed", async () => {
+    getRestoreStatusMock.mockResolvedValue({
+      ...STATUS,
+      needed: false,
+      relink_pending: true,
+      cloud_snapshots: 1,
+      indexed_snapshots: 1,
+    });
+    renderCard();
+    expect(await screen.findByText(/restored the backup list, but some backups are still linked/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Recovery phrase")).toBeInTheDocument();
+  });
+
+  it("shows the server's incremental restore progress while work is running", async () => {
+    /** @type {(value: { snapshots: number, alreadyIndexed: number, skipped: number }) => void} */
+    let finish = () => {};
+    restoreFromPhraseMock.mockImplementation((_words, _ctx, onProgress) => {
+      onProgress({ processed: 2, total: 5, snapshots: 1, already_indexed: 1, skipped: 2 });
+      return new Promise((resolve) => { finish = resolve; });
+    });
+    const user = userEvent.setup();
+    renderCard();
+    await user.type(await screen.findByLabelText("Recovery phrase"), "one two three");
+    await user.click(screen.getByRole("button", { name: "Find my backups" }));
+    expect(await screen.findByText("Restoring backup 2 of 5")).toBeInTheDocument();
+    expect(screen.getByLabelText("Cloud backup restore progress")).toHaveAttribute("value", "2");
+    expect(screen.getByText("1 restored · 1 already on Luna · Luna couldn't open 2 backup versions")).toBeInTheDocument();
+    finish({ snapshots: 1, alreadyIndexed: 1, skipped: 0 });
+    expect(await screen.findByText("Found 2 backup versions")).toBeInTheDocument();
+  });
+
+  it("lets the Admin stop the streamed restore and explains that retry is safe", async () => {
+    restoreFromPhraseMock.mockImplementation((_words, _ctx, _onProgress, signal) => new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(new DOMException("Restore stopped", "AbortError")), { once: true });
+    }));
+    const user = userEvent.setup();
+    renderCard();
+    await user.type(await screen.findByLabelText("Recovery phrase"), "one two three");
+    await user.click(screen.getByRole("button", { name: "Find my backups" }));
+    await user.click(await screen.findByRole("button", { name: "Stop restore" }));
+    expect(await screen.findByText(/Restore stopped\. Some backup versions may already be back/)).toBeInTheDocument();
   });
 
   it("shows the error message when the restore fails", async () => {

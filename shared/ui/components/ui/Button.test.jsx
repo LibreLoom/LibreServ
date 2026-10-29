@@ -76,7 +76,10 @@ describe("Button loading", () => {
       </Button>,
     );
     const button = screen.getByRole("button", { name: "Save" });
-    const dots = () => [...button.querySelectorAll(".comet-spinner__dot")];
+    // Preserve the span type for the inline animation style assertions below.
+    const dots = () => /** @type {HTMLSpanElement[]} */ (
+      Array.from(button.querySelectorAll("span.comet-spinner__dot"))
+    );
     expect(dots()).toHaveLength(8);
     dots().forEach((d) => expect(d.style.animation).toBe("none"));
     const wrap = button.querySelector('[data-slot="spinner"]').parentElement;
