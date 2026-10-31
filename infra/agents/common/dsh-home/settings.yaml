@@ -5,6 +5,8 @@
 #
 # Models: plainskill-coder (default agent model) and plainskill-flash.
 # Both are OpenAI-compatible via ai-proxy (https://ai.plainskill.net/v1).
+# Model list regenerated from the live proxy GET /v1/models (2026-10-31, 184
+# models); the full list below matches the other dsh profiles on this host.
 # Routing (2026-08-20): hyper primary (deepseek-v4-flash-0731) → airouter
 # fallback. Hyper handles the nightly agent's subagent concurrency (4+
 # parallel) — airouter's 3-parallel limit caused 429s that killed runs.
@@ -19,11 +21,765 @@ llm-pi-ai:
       api: openai-completions
       baseURL: https://ai.plainskill.net/v1
       models:
+        - id: bge-m3
+          contextWindow: 8192
+          maxTokens: 8192
+          reasoningEfforts: false
+        - id: codestral-embed-2505-mistral
+          contextWindow: 8192
+          maxTokens: 8192
+          reasoningEfforts: false
+        - id: codestral-embed-2505-vibe
+          contextWindow: 8192
+          maxTokens: 8192
+          reasoningEfforts: false
+        - id: codestral-embed-mistral
+          contextWindow: 8192
+          maxTokens: 8192
+          reasoningEfforts: false
+        - id: codestral-embed-vibe
+          contextWindow: 8192
+          maxTokens: 8192
+          reasoningEfforts: false
+        - id: codestral-latest-mistral
+          contextWindow: 256000
+          maxTokens: 256000
+          reasoningEfforts: false
+        - id: codestral-latest-vibe
+          contextWindow: 256000
+          maxTokens: 256000
+          reasoningEfforts: false
+        - id: codestral-mistral
+          contextWindow: 256000
+          maxTokens: 256000
+          reasoningEfforts: false
+        - id: codestral-vibe
+          contextWindow: 256000
+          maxTokens: 256000
+          reasoningEfforts: false
+        - id: deepseek-v4-1-flash-1017-mistral
+          contextWindow: 1048576
+          maxTokens: 1048576
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: deepseek-v4-1-flash-1017-vibe
+          contextWindow: 1048576
+          maxTokens: 1048576
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: deepseek-v4-flash-deepseek
+          contextWindow: 1000000
+          maxTokens: 393216
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+            max: max
+            xhigh: xhigh
+        - id: deepseek-v4-flash-neuralwatt
+          contextWindow: 1048560
+          maxTokens: 393216
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+        - id: deepseek-v4-flash-vision-exp
+          contextWindow: 1000000
+          maxTokens: 393216
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+            max: max
+            xhigh: xhigh
+        - id: deepseek-v4-pro
+          contextWindow: 1000000
+          maxTokens: 393216
+          reasoningEfforts:
+            low: low
+            medium: medium
+            high: high
+            max: max
+            xhigh: xhigh
+        - id: gemma-4-31b
+          contextWindow: 262128
+          maxTokens: 16384
+          reasoningEfforts: false
+        - id: glm-5-2-mistral
+          contextWindow: 1048576
+          maxTokens: 1048576
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: glm-5-2-vibe
+          contextWindow: 1048576
+          maxTokens: 1048576
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: glm-5.2
+          contextWindow: 1048560
+          maxTokens: 1048560
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+        - id: glm-5.2-fast
+          contextWindow: 1048560
+          maxTokens: 1048560
+          reasoningEfforts: false
+        - id: glm-5.2-flex
+          contextWindow: 1048560
+          maxTokens: 1048560
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+        - id: glm-5.2-short
+          contextWindow: 199984
+          maxTokens: 32000
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+        - id: glm-5.2-short-fast
+          contextWindow: 199984
+          maxTokens: 32000
+          reasoningEfforts: false
+        - id: glm-5.2-short-fast-flex
+          contextWindow: 199984
+          maxTokens: 32000
+          reasoningEfforts: false
+        - id: glm-5.2-short-flex
+          contextWindow: 199984
+          maxTokens: 32000
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+        - id: glm-5.3
+          contextWindow: 1048560
+          maxTokens: 1048560
+          reasoningEfforts:
+            low: low
+            high: high
+            max: max
+        - id: glm-5.3-flash
+          contextWindow: 1048560
+          maxTokens: 1048560
+          reasoningEfforts:
+            low: low
+            high: high
+            max: max
+        - id: glm-5.3-flash-flex
+          contextWindow: 1048560
+          maxTokens: 1048560
+          reasoningEfforts:
+            low: low
+            high: high
+            max: max
+        - id: glm-5.3-flex
+          contextWindow: 1048560
+          maxTokens: 1048560
+          reasoningEfforts:
+            low: low
+            high: high
+            max: max
+        - id: kimi-k2.7
+          contextWindow: 262128
+          maxTokens: 262128
+          reasoningEfforts: false
+        - id: kimi-k2.7-code-fast
+          contextWindow: 262128
+          maxTokens: 262128
+          reasoningEfforts: false
+        - id: kimi-k2.7-code-flex
+          contextWindow: 262128
+          maxTokens: 262128
+          reasoningEfforts: false
+        - id: kimi-k3
+          contextWindow: 1048560
+          maxTokens: 1048560
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+        - id: kimi-k3-fast
+          contextWindow: 1048560
+          maxTokens: 1048560
+          reasoningEfforts: false
+        - id: kimi-k3-flex
+          contextWindow: 1048560
+          maxTokens: 1048560
+          reasoningEfforts:
+            'off': null
+            low: low
+            high: high
+            max: max
+        - id: labs-leanstral-1-5-mistral
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: labs-leanstral-1-5-vibe
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: labs-leanstral-mistral
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: labs-leanstral-vibe
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: magistral-medium-latest-mistral
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: magistral-medium-latest-vibe
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: magistral-small-mistral
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: magistral-small-vibe
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: ministral-14b-2512-mistral
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts: false
+        - id: ministral-14b-2512-vibe
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts: false
+        - id: ministral-14b-mistral
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts: false
+        - id: ministral-14b-vibe
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts: false
+        - id: ministral-3b-2512-mistral
+          contextWindow: 131072
+          maxTokens: 131072
+          reasoningEfforts: false
+        - id: ministral-3b-2512-vibe
+          contextWindow: 131072
+          maxTokens: 131072
+          reasoningEfforts: false
+        - id: ministral-3b-mistral
+          contextWindow: 131072
+          maxTokens: 131072
+          reasoningEfforts: false
+        - id: ministral-3b-vibe
+          contextWindow: 131072
+          maxTokens: 131072
+          reasoningEfforts: false
+        - id: ministral-8b-2512-mistral
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts: false
+        - id: ministral-8b-2512-vibe
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts: false
+        - id: ministral-8b-mistral
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts: false
+        - id: ministral-8b-vibe
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts: false
+        - id: mistral-code-fim-latest-mistral
+          contextWindow: 256000
+          maxTokens: 256000
+          reasoningEfforts: false
+        - id: mistral-code-fim-latest-vibe
+          contextWindow: 256000
+          maxTokens: 256000
+          reasoningEfforts: false
+        - id: mistral-code-latest-mistral
+          contextWindow: 256000
+          maxTokens: 256000
+          reasoningEfforts: false
+        - id: mistral-code-latest-vibe
+          contextWindow: 256000
+          maxTokens: 256000
+          reasoningEfforts: false
+        - id: mistral-embed-2312-mistral
+          contextWindow: 8192
+          maxTokens: 8192
+          reasoningEfforts: false
+        - id: mistral-embed-2312-vibe
+          contextWindow: 8192
+          maxTokens: 8192
+          reasoningEfforts: false
+        - id: mistral-embed-mistral
+          contextWindow: 8192
+          maxTokens: 8192
+          reasoningEfforts: false
+        - id: mistral-embed-vibe
+          contextWindow: 8192
+          maxTokens: 8192
+          reasoningEfforts: false
+        - id: mistral-image-mistral
+          contextWindow: 0
+          maxTokens: 0
+          reasoningEfforts: false
+        - id: mistral-image-vibe
+          contextWindow: 0
+          maxTokens: 0
+          reasoningEfforts: false
+        - id: mistral-large-2512-mistral
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts: false
+        - id: mistral-large-2512-vibe
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts: false
+        - id: mistral-large-4-0-mistral
+          contextWindow: 1048576
+          maxTokens: 1048576
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-large-4-0-vibe
+          contextWindow: 1048576
+          maxTokens: 1048576
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-large-4-mistral
+          contextWindow: 1048576
+          maxTokens: 1048576
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-large-4-vibe
+          contextWindow: 1048576
+          maxTokens: 1048576
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-large-latest-mistral
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts: false
+        - id: mistral-large-latest-vibe
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts: false
+        - id: mistral-medium-2604-mistral
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-medium-2604-vibe
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-medium-3-5-mistral
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-medium-3-5-vibe
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-medium-3-mistral
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-medium-3-vibe
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-medium-base-mistral
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-medium-base-vibe
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-medium-mistral
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-medium-vibe
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-moderation-2603-mistral
+          contextWindow: 131072
+          maxTokens: 131072
+          reasoningEfforts: false
+        - id: mistral-moderation-2603-vibe
+          contextWindow: 131072
+          maxTokens: 131072
+          reasoningEfforts: false
+        - id: mistral-ocr-2512-mistral
+          contextWindow: 16384
+          maxTokens: 16384
+          reasoningEfforts: false
+        - id: mistral-ocr-2512-vibe
+          contextWindow: 16384
+          maxTokens: 16384
+          reasoningEfforts: false
+        - id: mistral-ocr-3-0-mistral
+          contextWindow: 16384
+          maxTokens: 16384
+          reasoningEfforts: false
+        - id: mistral-ocr-3-0-vibe
+          contextWindow: 16384
+          maxTokens: 16384
+          reasoningEfforts: false
+        - id: mistral-ocr-3-mistral
+          contextWindow: 16384
+          maxTokens: 16384
+          reasoningEfforts: false
+        - id: mistral-ocr-3-vibe
+          contextWindow: 16384
+          maxTokens: 16384
+          reasoningEfforts: false
+        - id: mistral-ocr-4-1-mistral
+          contextWindow: 16384
+          maxTokens: 16384
+          reasoningEfforts: false
+        - id: mistral-ocr-4-1-vibe
+          contextWindow: 16384
+          maxTokens: 16384
+          reasoningEfforts: false
+        - id: mistral-ocr-4-mistral
+          contextWindow: 16384
+          maxTokens: 16384
+          reasoningEfforts: false
+        - id: mistral-ocr-4-vibe
+          contextWindow: 16384
+          maxTokens: 16384
+          reasoningEfforts: false
+        - id: mistral-ocr-latest-mistral
+          contextWindow: 16384
+          maxTokens: 16384
+          reasoningEfforts: false
+        - id: mistral-ocr-latest-vibe
+          contextWindow: 16384
+          maxTokens: 16384
+          reasoningEfforts: false
+        - id: mistral-small-2603-mistral
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-small-2603-vibe
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-small-mistral
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-small-vibe
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-vibe-cli-latest-mistral
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-vibe-cli-latest-vibe
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-vibe-cli-with-tools-mistral
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-vibe-cli-with-tools-vibe
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-vibe-mistral
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: mistral-vibe-vibe
+          contextWindow: 262144
+          maxTokens: 262144
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: nw-deepseek-v4-flash-flex
+          contextWindow: 1048560
+          maxTokens: 393216
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+        - id: nw-deepseek-v4-flash-speed
+          contextWindow: 1048560
+          maxTokens: 393216
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+        - id: nw-deepseek-v4.1-flash
+          contextWindow: 1048560
+          maxTokens: 393216
+          reasoningEfforts:
+            'off': null
+            low: low
+            high: high
+            xhigh: xhigh
+            max: max
+        - id: nw-deepseek-v4.1-flash-flex
+          contextWindow: 1048560
+          maxTokens: 393216
+          reasoningEfforts:
+            'off': null
+            low: low
+            high: high
+            xhigh: xhigh
+            max: max
+        - id: nw-deepseek-v4.1-flash-speed
+          contextWindow: 1048560
+          maxTokens: 393216
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+            max: max
+            xhigh: xhigh
+        - id: nw-flash
+          contextWindow: 1048560
+          maxTokens: 393216
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+            max: max
+            xhigh: xhigh
+        - id: nw-flash-flex
+          contextWindow: 1048560
+          maxTokens: 393216
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+            max: max
+            xhigh: xhigh
+        - id: nw-kimi-k3-fast
+          contextWindow: 1048560
+          maxTokens: 1048560
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+            max: max
+        - id: nw-kimi-k3-flex
+          contextWindow: 1048560
+          maxTokens: 1048560
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+            max: max
+        - id: nw-large
+          contextWindow: 1048560
+          maxTokens: 1048560
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+            max: max
+            xhigh: xhigh
+        - id: nw-large-flex
+          contextWindow: 1048560
+          maxTokens: 1048560
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+            max: max
+            xhigh: xhigh
+        - id: nw-mimo-v2.6-pro
+          contextWindow: 1048560
+          maxTokens: 393216
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+            max: max
+        - id: nw-mimo-v2.6-pro-flex
+          contextWindow: 1048560
+          maxTokens: 393216
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+            max: max
+        - id: nw-small
+          contextWindow: 262128
+          maxTokens: 131072
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+            max: max
+            xhigh: xhigh
+        - id: nw-small-flex
+          contextWindow: 262128
+          maxTokens: 131072
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+            max: max
+            xhigh: xhigh
+        - id: or-gemini-3.1-flash-lite
+          contextWindow: 1048576
+          maxTokens: 65536
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
+            high: high
+            max: max
+            xhigh: xhigh
+        - id: or-gemini-3.1-pro-preview
+          contextWindow: 1048576
+          maxTokens: 65536
+          reasoningEfforts:
+            low: low
+            medium: medium
+            high: high
+            max: max
+            xhigh: xhigh
+        - id: or-glm-5.3-flash
+          contextWindow: 1048576
+          maxTokens: 131072
+          reasoningEfforts:
+            low: low
+            high: high
+            max: max
         - id: plainskill-coder
           contextWindow: 1048576
-          maxTokens: 384000
+          maxTokens: 1048576
           reasoningEfforts:
-            off: null
+            low: low
+            high: high
+            max: max
+        - id: plainskill-decider
+          contextWindow: 128000
+          maxTokens: 0
+          reasoningEfforts: false
+        - id: plainskill-decider-omni
+          contextWindow: 66000
+          maxTokens: 0
+          reasoningEfforts: false
+        - id: plainskill-decisions-flash
+          contextWindow: 1048576
+          maxTokens: 131072
+          reasoningEfforts:
+            low: low
+            high: high
+            max: max
+        - id: plainskill-decisions-ultra
+          contextWindow: 1048576
+          maxTokens: 65536
+          reasoningEfforts:
+            low: low
+            medium: medium
+            high: high
+            max: max
+            xhigh: xhigh
+        - id: plainskill-decisions-vision
+          contextWindow: 1048576
+          maxTokens: 65536
+          reasoningEfforts:
+            'off': null
             low: low
             medium: medium
             high: high
@@ -31,15 +787,259 @@ llm-pi-ai:
             xhigh: xhigh
         - id: plainskill-flash
           contextWindow: 1048576
-          maxTokens: 384000
+          maxTokens: 1048576
           reasoningEfforts:
-            off: null
+            'off': null
+            high: high
+        - id: plainskill-ultra
+          contextWindow: 1048576
+          maxTokens: 1048576
+          reasoningEfforts:
             low: low
-            medium: medium
             high: high
             max: max
+        - id: plainskill-vision
+          contextWindow: 1048576
+          maxTokens: 1048576
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: qwen-3.8-27b
+          contextWindow: 262128
+          maxTokens: 131072
+          reasoningEfforts:
+            'off': null
+            low: low
+            medium: medium
             xhigh: xhigh
-
+        - id: qwen-3.8-27b-flex
+          contextWindow: 262128
+          maxTokens: 131072
+          reasoningEfforts:
+            'off': null
+            high: high
+        - id: qwen3.6-35b
+          contextWindow: 262128
+          maxTokens: 262128
+          reasoningEfforts: false
+        - id: qwen3.6-35b-fast
+          contextWindow: 262128
+          maxTokens: 262128
+          reasoningEfforts: false
+        - id: qwen3.6-35b-flex
+          contextWindow: 262128
+          maxTokens: 262128
+          reasoningEfforts: false
+        - id: voxtral-mini-2602-mistral
+          contextWindow: 16384
+          maxTokens: 16384
+          reasoningEfforts: false
+        - id: voxtral-mini-2602-vibe
+          contextWindow: 16384
+          maxTokens: 16384
+          reasoningEfforts: false
+        - id: voxtral-mini-latest-mistral
+          contextWindow: 16384
+          maxTokens: 16384
+          reasoningEfforts: false
+        - id: voxtral-mini-latest-vibe
+          contextWindow: 16384
+          maxTokens: 16384
+          reasoningEfforts: false
+        - id: voxtral-mini-realtime-2602-mistral
+          contextWindow: 32768
+          maxTokens: 32768
+          reasoningEfforts: false
+        - id: voxtral-mini-realtime-2602-vibe
+          contextWindow: 32768
+          maxTokens: 32768
+          reasoningEfforts: false
+        - id: voxtral-mini-realtime-latest-mistral
+          contextWindow: 32768
+          maxTokens: 32768
+          reasoningEfforts: false
+        - id: voxtral-mini-realtime-latest-vibe
+          contextWindow: 32768
+          maxTokens: 32768
+          reasoningEfforts: false
+        - id: voxtral-mini-transcribe-3-0-mistral
+          contextWindow: 65536
+          maxTokens: 65536
+          reasoningEfforts: false
+        - id: voxtral-mini-transcribe-3-0-vibe
+          contextWindow: 65536
+          maxTokens: 65536
+          reasoningEfforts: false
+        - id: voxtral-mini-transcribe-3-mistral
+          contextWindow: 65536
+          maxTokens: 65536
+          reasoningEfforts: false
+        - id: voxtral-mini-transcribe-3-vibe
+          contextWindow: 65536
+          maxTokens: 65536
+          reasoningEfforts: false
+        - id: voxtral-mini-transcribe-realtime-2602-mistral
+          contextWindow: 32768
+          maxTokens: 32768
+          reasoningEfforts: false
+        - id: voxtral-mini-transcribe-realtime-2602-vibe
+          contextWindow: 32768
+          maxTokens: 32768
+          reasoningEfforts: false
+        - id: voxtral-mini-transcribe-realtime-3-0-mistral
+          contextWindow: 65536
+          maxTokens: 65536
+          reasoningEfforts: false
+        - id: voxtral-mini-transcribe-realtime-3-0-vibe
+          contextWindow: 65536
+          maxTokens: 65536
+          reasoningEfforts: false
+        - id: voxtral-mini-transcribe-realtime-3-mistral
+          contextWindow: 65536
+          maxTokens: 65536
+          reasoningEfforts: false
+        - id: voxtral-mini-transcribe-realtime-3-vibe
+          contextWindow: 65536
+          maxTokens: 65536
+          reasoningEfforts: false
+        - id: voxtral-mini-tts-2603-mistral
+          contextWindow: 4096
+          maxTokens: 4096
+          reasoningEfforts: false
+        - id: voxtral-mini-tts-2603-vibe
+          contextWindow: 4096
+          maxTokens: 4096
+          reasoningEfforts: false
+        - id: voxtral-mini-tts-3-0-mistral
+          contextWindow: 4096
+          maxTokens: 4096
+          reasoningEfforts: false
+        - id: voxtral-mini-tts-3-0-vibe
+          contextWindow: 4096
+          maxTokens: 4096
+          reasoningEfforts: false
+        - id: voxtral-mini-tts-3-mistral
+          contextWindow: 4096
+          maxTokens: 4096
+          reasoningEfforts: false
+        - id: voxtral-mini-tts-3-vibe
+          contextWindow: 4096
+          maxTokens: 4096
+          reasoningEfforts: false
+        - id: voxtral-mini-tts-latest-mistral
+          contextWindow: 4096
+          maxTokens: 4096
+          reasoningEfforts: false
+        - id: voxtral-mini-tts-latest-vibe
+          contextWindow: 4096
+          maxTokens: 4096
+          reasoningEfforts: false
+        - id: voxtral-small-2507-mistral
+          contextWindow: 32768
+          maxTokens: 32768
+          reasoningEfforts: false
+        - id: voxtral-small-2507-vibe
+          contextWindow: 32768
+          maxTokens: 32768
+          reasoningEfforts: false
+        - id: voxtral-small-mistral
+          contextWindow: 32768
+          maxTokens: 32768
+          reasoningEfforts: false
+        - id: voxtral-small-transcribe-3-0-mistral
+          contextWindow: 65536
+          maxTokens: 65536
+          reasoningEfforts: false
+        - id: voxtral-small-transcribe-3-0-vibe
+          contextWindow: 65536
+          maxTokens: 65536
+          reasoningEfforts: false
+        - id: voxtral-small-transcribe-3-mistral
+          contextWindow: 65536
+          maxTokens: 65536
+          reasoningEfforts: false
+        - id: voxtral-small-transcribe-3-vibe
+          contextWindow: 65536
+          maxTokens: 65536
+          reasoningEfforts: false
+        - id: voxtral-small-vibe
+          contextWindow: 32768
+          maxTokens: 32768
+          reasoningEfforts: false
+        - id: whisper-1
+          contextWindow: 65536
+          maxTokens: 65536
+          reasoningEfforts: false
+        - id: zai-glm-5-2-mistral
+          contextWindow: 1048576
+          maxTokens: 1048576
+          reasoningEfforts:
+            low: low
+            high: high
+            max: max
+        - id: zai-glm-5-2-vibe
+          contextWindow: 1048576
+          maxTokens: 1048576
+          reasoningEfforts:
+            low: low
+            high: high
+            max: max
+        - id: zai-glm-5-3-flash-mistral
+          contextWindow: 1048576
+          maxTokens: 1048576
+          reasoningEfforts:
+            low: low
+            high: high
+            max: max
+        - id: zai-glm-5-3-flash-vibe
+          contextWindow: 1048576
+          maxTokens: 1048576
+          reasoningEfforts:
+            low: low
+            high: high
+            max: max
+        - id: zai-glm-5-3-mistral
+          contextWindow: 1048576
+          maxTokens: 1048576
+          reasoningEfforts:
+            low: low
+            high: high
+            max: max
+        - id: zai-glm-5-3-vibe
+          contextWindow: 1048576
+          maxTokens: 1048576
+          reasoningEfforts:
+            low: low
+            high: high
+            max: max
+        - id: zai-glm-5-mistral
+          contextWindow: 1048576
+          maxTokens: 1048576
+          reasoningEfforts:
+            low: low
+            high: high
+            max: max
+        - id: zai-glm-5-vibe
+          contextWindow: 1048576
+          maxTokens: 1048576
+          reasoningEfforts:
+            low: low
+            high: high
+            max: max
+        - id: zai-glm-latest-mistral
+          contextWindow: 1048576
+          maxTokens: 1048576
+          reasoningEfforts:
+            low: low
+            high: high
+            max: max
+        - id: zai-glm-latest-vibe
+          contextWindow: 1048576
+          maxTokens: 1048576
+          reasoningEfforts:
+            low: low
+            high: high
+            max: max
 agent-default-model:
   provider: ai-proxy
   model: plainskill-flash
