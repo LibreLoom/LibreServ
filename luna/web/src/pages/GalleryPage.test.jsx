@@ -7,6 +7,8 @@ import { AuthProvider } from "../context/AuthContext";
 import { FileOpsProvider } from "../context/FileOpsContext.jsx";
 import GalleryPage, {
   downloadErrorMessage,
+  downloadFailureDescription,
+  GalleryDownloadError,
   galleryUrl,
   openDownloadFile,
   parseGalleryHash,
@@ -339,15 +341,29 @@ describe("GalleryPage", () => {
       expect(message).toBe("Select fewer photos and try again.");
     });
 
+    it("names a failed download when the response is not JSON", async () => {
+      const message = await downloadErrorMessage(new Response("offline", { status: 503 }));
+      expect(message).toBe("Luna couldn't prepare that download. Try again.");
+    });
+  });
+
+  describe("cancelDownloadResponse", () => {
     it("cancels a response body when its download cannot be used", async () => {
       const cancel = vi.fn();
       await cancelDownloadResponse({ body: { cancel } });
       expect(cancel).toHaveBeenCalledOnce();
     });
+  });
 
-    it("names a failed download when the response is not JSON", async () => {
-      const message = await downloadErrorMessage(new Response("offline", { status: 503 }));
-      expect(message).toBe("Luna couldn't prepare that download. Try again.");
+  describe("downloadFailureDescription", () => {
+    it("keeps server errors regardless of their wording", () => {
+      const message = "You don't have permission to download one of these photos.";
+      expect(downloadFailureDescription(new GalleryDownloadError(message))).toBe(message);
+    });
+
+    it("names the chosen save location when it runs out of space", () => {
+      expect(downloadFailureDescription(new DOMException("Full", "QuotaExceededError")))
+        .toBe("Luna couldn't save the file. Check that the chosen save location has enough space.");
     });
   });
 

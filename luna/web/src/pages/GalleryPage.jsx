@@ -134,17 +134,19 @@ async function abortDownloadFile(writable) {
   }
 }
 
-function downloadFailureDescription(error) {
+export class GalleryDownloadError extends Error {}
+
+export function downloadFailureDescription(error) {
+  if (error instanceof GalleryDownloadError) return error.message;
   if (error?.name === "NotAllowedError" || error?.name === "SecurityError") {
     return "Luna couldn't open a save location. Try the download again.";
   }
   if (error?.name === "QuotaExceededError") {
-    return "Luna couldn't save the file. Check that the selected drive has enough space.";
+    return "Luna couldn't save the file. Check that the chosen save location has enough space.";
   }
   if (error?.name === "TypeError") {
     return "Luna couldn't save the file. Check this Luna's connection and try again.";
   }
-  if (error instanceof Error && error.message.startsWith("Luna ")) return error.message;
   return "Luna couldn't save the selected photos. Try again.";
 }
 
@@ -1354,12 +1356,12 @@ export default function GalleryPage() {
         }),
       });
       if (!res.ok) {
-        throw new Error(await downloadErrorMessage(res));
+        throw new GalleryDownloadError(await downloadErrorMessage(res));
       }
       const contentType = res.headers.get("Content-Type")?.split(";", 1)[0].trim().toLowerCase();
       if (contentType !== "application/zip") {
         await cancelDownloadResponse(res);
-        throw new Error("Luna returned an invalid download. Try again.");
+        throw new GalleryDownloadError("Luna returned an invalid download. Try again.");
       }
       if (writable) {
         await saveDownloadResponse(res, GALLERY_DOWNLOAD_FILENAME, writable);
