@@ -4,7 +4,7 @@
 //   world.gallery       { busy, scanForever, scanMs, found_count, drive_label, last_error,
 //                         failAfter, cameras, facets, dupes }
 //   world.albums        album rows; world.albumItems[id] = photo keys in it
-import { del, fail, get, patch, post, put } from "../engine.js";
+import { del, fail, get, patch, post, put, raw } from "../engine.js";
 import { nextId } from "../world.js";
 import { makePhotos, photoKey } from "../photos.js";
 
@@ -279,7 +279,31 @@ del("/api/v1/gallery/favorites", ({ world, body }) => {
   return {};
 });
 
-// The zip download answers 404 so the page falls back to one download per photo.
-post("/api/v1/gallery/download", () => fail(404, "No zip download in the state gallery."));
+post("/api/v1/gallery/download", ({ world, body }) => {
+  const g = state(world);
+  const denied = mayFail(g);
+  if (denied) return denied;
+  if (!Array.isArray(body?.items) || body.items.length === 0) {
+    return fail(400, "Choose at least one photo to download.");
+  }
+  if (body.items.length > 200) {
+    return fail(400, "You can download up to 200 photos at once. Select fewer and try again.");
+  }
+  const available = new Set(world.photos.map((photo) => `${photo.drive_id}\0${photo.path}`));
+  const selected = body.items.filter(
+    (item) => available.has(`${item.drive_id}\0${item.path}`),
+  );
+  if (selected.length === 0) {
+    return fail(400, "None of those photos could be downloaded.");
+  }
+  return raw(
+    Uint8Array.from([0x50, 0x4b, 0x05, 0x06, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+    "application/zip",
+    200,
+    {
+      "Content-Disposition": 'attachment; filename="photos.zip"',
+    },
+  );
+});
 
 get("/api/v1/gallery/preview", ({ query }) => ({ ok: true, path: query.path }));

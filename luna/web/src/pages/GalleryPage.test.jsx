@@ -5,7 +5,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import { FileOpsProvider } from "../context/FileOpsContext.jsx";
-import GalleryPage, { galleryUrl, parseGalleryHash } from "./GalleryPage";
+import GalleryPage, {
+  downloadErrorMessage,
+  galleryUrl,
+  openDownloadFile,
+  parseGalleryHash,
+  saveDownloadResponse,
+  cancelDownloadResponse,
+} from "./GalleryPage";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
 
@@ -276,6 +283,72 @@ describe("parseGalleryHash", () => {
 describe("GalleryPage", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/gallery");
+  });
+
+  describe("saveDownloadResponse", () => {
+    it("writes the response as it arrives when file streaming is supported", async () => {
+      const writes = [];
+      const close = vi.fn();
+      vi.stubGlobal("showSaveFilePicker", vi.fn(async (options) => {
+        expect(options.suggestedName).toBe("photos.zip");
+        return {
+          createWritable: async () => ({
+            write: async (chunk) => writes.push(chunk),
+            close,
+            abort: vi.fn(),
+          }),
+        };
+      }));
+
+      const writable = await openDownloadFile("photos.zip");
+      await saveDownloadResponse(new Response("zip contents"), "photos.zip", writable);
+
+      expect(new TextDecoder().decode(writes[0])).toBe("zip contents");
+      expect(close).toHaveBeenCalledOnce();
+    });
+
+    it("stops reading and aborts the file when writing fails", async () => {
+      const failure = new DOMException("Disk full", "QuotaExceededError");
+      const cancel = vi.fn().mockResolvedValue(undefined);
+      const abort = vi.fn().mockResolvedValue(undefined);
+      const close = vi.fn();
+      const response = new Response(new ReadableStream({
+        start(controller) { controller.enqueue(new Uint8Array([1])); },
+        cancel,
+      }));
+      vi.stubGlobal("showSaveFilePicker", vi.fn(async () => ({
+        createWritable: async () => ({ write: vi.fn().mockRejectedValue(failure), abort, close }),
+      })));
+      const writable = await openDownloadFile("photos.zip");
+
+      await expect(saveDownloadResponse(response, "photos.zip", writable)).rejects.toBe(failure);
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(abort).toHaveBeenCalledOnce();
+      expect(close).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("downloadErrorMessage", () => {
+    it("keeps the server's plain-language error", async () => {
+      const message = await downloadErrorMessage(
+        new Response(JSON.stringify({ error: "Select fewer photos and try again." }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      expect(message).toBe("Select fewer photos and try again.");
+    });
+
+    it("cancels a response body when its download cannot be used", async () => {
+      const cancel = vi.fn();
+      await cancelDownloadResponse({ body: { cancel } });
+      expect(cancel).toHaveBeenCalledOnce();
+    });
+
+    it("names a failed download when the response is not JSON", async () => {
+      const message = await downloadErrorMessage(new Response("offline", { status: 503 }));
+      expect(message).toBe("Luna couldn't prepare that download. Try again.");
+    });
   });
 
   afterEach(() => {
