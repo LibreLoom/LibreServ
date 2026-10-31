@@ -320,12 +320,12 @@ export default [
     check: ["Select 5 photos and press Favorite", "An error says some could not be added", "Favorites tab holds exactly 2 of them", "Library hearts match Favorites"],
   },
   {
-    id: "gallery/download-fallback",
+    id: "gallery/download",
     area: "Photos",
     title: "Download selected photos",
     url: "/gallery",
     seed: (w) => lib(w, 20),
-    check: ["Select 3, Download: the browser starts one download per photo (no zip in the fake)", "No error banner appears"],
+    check: ["Select 3 photos and press Download", "One photos.zip file is saved", "No error banner appears"],
   },
   {
     id: "gallery/lightbox-first",
