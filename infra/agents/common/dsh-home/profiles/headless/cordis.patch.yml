@@ -41,7 +41,7 @@
         abortGraceMs: 2000
         verbose: false
 
-# Plainskill AI Proxy provider. Lives here, not in a settings.yaml: dsh imports a
+# ai-proxy provider. Lives here, not in a settings.yaml: dsh imports a
 # legacy settings.yaml only after the loader settles, so the first run in a fresh
 # DSH_HOME resolved the stock deepseek-official route and died on
 # MISSING_CREDENTIAL before the import landed. A patch entry is active from boot.
@@ -66,7 +66,7 @@
   config:
     providers:
       ai-proxy:
-        displayName: Plainskill AI Proxy
+        displayName: ai-proxy
         apiKeyEnv: AI_PROXY_API_KEY
         api: openai-completions
         baseURL: https://ai.plainskill.net/v1
