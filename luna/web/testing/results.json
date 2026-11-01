@@ -7,8 +7,16 @@
     "theme": "scenario default"
   },
   "auth/member": {
+    "status": "pass",
     "note": "in /settings/users/u1, the text on the blocked card is childish. \"This screen is for admins. Members can use folders and albums shared with them...\" is not what we need. \"This page is only for Admins. Members can only edit their own user settings.\" is much better copy.",
-    "at": "2026-10-21T02:28:14.284Z",
+    "at": "2026-10-29T04:02:16.766Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "auth/member-needs-phrase": {
+    "status": "fail",
+    "note": "Card doesn't smoothly resize when you switch between word counts. There are also a few layout issues. I'd also like to mention that the user is not required to have a recovery phrase — it's only for cloud backup, so this gate should never be used. Simply a setup wizard when the user chooses to cloud backup.",
+    "at": "2026-10-29T04:04:02.349Z",
     "viewport": "desktop",
     "theme": "scenario default",
     "faults": [],
@@ -16,213 +24,77 @@
     "latency": 0,
     "lastRequests": [
       {
-        "t": 1792324801431,
-        "method": "GET",
-        "path": "/api/v1/me/recents",
+        "t": 1793246537157,
+        "method": "POST",
+        "path": "/api/v1/cloud/identity",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"luna_id\":\"luna-1\",\"signing_public\":\"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBw==\"}"
       },
       {
-        "t": 1792324801430,
-        "method": "GET",
-        "path": "/api/v1/me/access",
+        "t": 1793246537157,
+        "method": "POST",
+        "path": "/api/v1/cloud/identity",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"luna_id\":\"luna-1\",\"signing_public\":\"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBw==\"}"
       },
       {
-        "t": 1792324801429,
-        "method": "GET",
-        "path": "/api/v1/cloud/phrase",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801429,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801429,
-        "method": "GET",
-        "path": "/api/v1/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801428,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/summary",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800732,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800271,
+        "t": 1793246537109,
         "method": "GET",
         "path": "/api/v1/auth/status",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"has_admin\":true,\"connect_active\":false}"
       },
       {
-        "t": 1792324800271,
+        "t": 1793246537109,
         "method": "GET",
         "path": "/api/v1/setup",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"name\":\"Luna\",\"setup_completed\":true,\"current_step\":\"done\",\"step_data\":{\"network_connected\":true}}"
       },
       {
-        "t": 1792324800271,
+        "t": 1793246537109,
         "method": "GET",
         "path": "/api/v1/auth/status",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"has_admin\":true,\"connect_active\":false}"
       },
       {
-        "t": 1792324800271,
+        "t": 1793246537109,
         "method": "GET",
         "path": "/api/v1/setup",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"name\":\"Luna\",\"setup_completed\":true,\"current_step\":\"done\",\"step_data\":{\"network_connected\":true}}"
       },
       {
-        "t": 1792324800173,
+        "t": 1793246537106,
         "method": "GET",
         "path": "/api/v1/auth/me",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"id\":\"u2\",\"username\":\"sam\",\"display_name\":\"Sam\",\"role\":\"user\",\"phrase_set\":false}"
       },
       {
-        "t": 1792324800170,
+        "t": 1793246537105,
         "method": "GET",
         "path": "/api/v1/auth/me",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"id\":\"u2\",\"username\":\"sam\",\"display_name\":\"Sam\",\"role\":\"user\",\"phrase_set\":false}"
       }
     ]
   },
   "auth/session-dies-mid-use": {
+    "status": "pass",
     "note": "\"You were signed out\" popups spawn twice.",
-    "at": "2026-10-21T02:29:44.661Z",
+    "at": "2026-10-29T04:04:10.405Z",
     "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324814257,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324814249,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324814049,
-        "method": "POST",
-        "path": "/api/v1/auth/login",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324809535,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=Photos%2F2024",
-        "status": 401,
-        "note": ""
-      },
-      {
-        "t": 1792324808475,
-        "method": "GET",
-        "path": "/api/v1/auth/me",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324808475,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=Photos%2F2024",
-        "status": 401,
-        "note": ""
-      },
-      {
-        "t": 1792324803429,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324803429,
-        "method": "GET",
-        "path": "/api/v1/private-backups/mine",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324803429,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324803429,
-        "method": "GET",
-        "path": "/api/v1/private-backups/item?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324803428,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324803427,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=Photos",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324803102,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800687,
-        "method": "GET",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800687,
-        "method": "GET",
-        "path": "/api/v1/system/updates",
-        "status": 200,
-        "note": ""
-      }
-    ]
+    "theme": "scenario default"
   },
   "auth/signed-in-admin": {
     "status": "pass",
@@ -232,113 +104,11 @@
     "theme": "scenario default"
   },
   "auth/signed-out": {
+    "status": "pass",
     "note": "If one of the fields is empty and I click sign in, it does not error at that field with a clear message, rather, the log in button does nothing. We need to clearly error any empty fields, including if both fail.",
-    "at": "2026-10-21T02:21:51.899Z",
+    "at": "2026-10-29T04:01:49.957Z",
     "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324976107,
-        "method": "POST",
-        "path": "/api/v1/auth/login",
-        "status": 401,
-        "note": ""
-      },
-      {
-        "t": 1792324975332,
-        "method": "POST",
-        "path": "/api/v1/auth/login",
-        "status": 401,
-        "note": ""
-      },
-      {
-        "t": 1792324966013,
-        "method": "POST",
-        "path": "/api/v1/auth/login",
-        "status": 0,
-        "note": "offline"
-      },
-      {
-        "t": 1792324965468,
-        "method": "POST",
-        "path": "/api/v1/auth/login",
-        "status": 0,
-        "note": "offline"
-      },
-      {
-        "t": 1792324964751,
-        "method": "POST",
-        "path": "/api/v1/auth/login",
-        "status": 0,
-        "note": "offline"
-      },
-      {
-        "t": 1792324811026,
-        "method": "POST",
-        "path": "/api/v1/auth/login",
-        "status": 401,
-        "note": ""
-      },
-      {
-        "t": 1792324810249,
-        "method": "POST",
-        "path": "/api/v1/auth/login",
-        "status": 401,
-        "note": ""
-      },
-      {
-        "t": 1792324809100,
-        "method": "POST",
-        "path": "/api/v1/auth/login",
-        "status": 401,
-        "note": ""
-      },
-      {
-        "t": 1792324800035,
-        "method": "GET",
-        "path": "/api/v1/auth/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800035,
-        "method": "GET",
-        "path": "/api/v1/setup",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800035,
-        "method": "GET",
-        "path": "/api/v1/auth/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800034,
-        "method": "GET",
-        "path": "/api/v1/setup",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800023,
-        "method": "GET",
-        "path": "/api/v1/auth/me",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800022,
-        "method": "GET",
-        "path": "/api/v1/auth/me",
-        "status": 200,
-        "note": ""
-      }
-    ]
+    "theme": "scenario default"
   },
   "auth/signed-out-deep-link": {
     "status": "pass",
@@ -357,129 +127,21 @@
   "dashboard/backup-failed": {
     "status": "pass",
     "note": "",
-    "at": "2026-10-21T02:44:56.663Z",
+    "at": "2026-10-29T04:06:17.131Z",
     "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324801273,
-        "method": "GET",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801272,
-        "method": "GET",
-        "path": "/api/v1/system/updates",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801272,
-        "method": "GET",
-        "path": "/api/v1/drives/d2/health",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801272,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/health",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801271,
-        "method": "GET",
-        "path": "/api/v1/cloud/phrase",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801271,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801271,
-        "method": "GET",
-        "path": "/api/v1/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801271,
-        "method": "GET",
-        "path": "/api/v1/system/health/check",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801270,
-        "method": "GET",
-        "path": "/api/v1/connect/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801270,
-        "method": "GET",
-        "path": "/api/v1/network/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801270,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801269,
-        "method": "GET",
-        "path": "/api/v1/drives/d2/summary",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801269,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/summary",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800656,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800315,
-        "method": "GET",
-        "path": "/api/v1/auth/status",
-        "status": 200,
-        "note": ""
-      }
-    ]
+    "theme": "scenario default"
   },
   "dashboard/backup-source-missing": {
+    "status": "pass",
     "note": "\"Needs another drive.\" should be in a pill: On other drives\nOff\nCopies this folder onto other drives plugged into Luna.\n\nNeeds another drive.\n\nUnlike the good details in On other drive backup sections, I see no such detail for the cloud backup:\nIn the cloud\n\nOn\nLink this Luna to Luna Connect. Then you can copy any folder or a whole drive off-site.",
-    "at": "2026-10-21T02:45:00.668Z",
+    "at": "2026-10-29T04:06:34.290Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/backup-stale": {
+    "status": "pass",
     "note": "We need to shrink the size of the body text in the needs you row by 1 whateverunit.\n\nWe also say \"in a day\", \"last copy 2 days ago\", and \"hasn't been backed up in over a day\" to describe the same backup. PICK ONE DAMMIT!\n\nIf it hasn't been backed up in 2 days, then it hasn't been backed up in 2 days. Not 1 day. We're also missing a period after 2 days ago: \nBack up\n\nLuna can keep copies of this folder on other drives, and in the cloud, so you still have it if something goes wrong.\n\nPrivate items inside aren't included. Their owners back them up separately.\n\nOn other drives\nOn\nCopies this folder onto other drives plugged into Luna.\n\nBacked up 2 days ago\nBackup drive\nThis folder hasn't been backed up in over a day.\n\nLast copy 2 days ago",
-    "at": "2026-10-21T02:44:52.189Z",
+    "at": "2026-10-29T04:06:11.422Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
@@ -491,8 +153,9 @@
     "theme": "scenario default"
   },
   "dashboard/check-overdue": {
-    "note": "\"Check my words\" modal is poorly composed. \n\n1. \"Check my phase\" is better title than current. \n2. UI is lazy. We need to redesign the modal entirely as a first-class UI for recovery phrase verification.",
-    "at": "2026-10-21T02:49:49.426Z",
+    "status": "fail",
+    "note": "the placeholder n box #1 is unnecessary. ",
+    "at": "2026-10-29T04:08:12.150Z",
     "viewport": "desktop",
     "theme": "scenario default",
     "faults": [],
@@ -500,109 +163,124 @@
     "latency": 0,
     "lastRequests": [
       {
-        "t": 1806537896848,
+        "t": 1793246891325,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1806537891828,
+        "t": 1793246886324,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1806537886814,
+        "t": 1793246881323,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1806537881797,
+        "t": 1793246876322,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1806537876783,
+        "t": 1793246871321,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1806537871763,
+        "t": 1793246866320,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1806537866737,
+        "t": 1793246861320,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1806537861717,
+        "t": 1793246856319,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1806537856703,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1806537851690,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1806537846678,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1806537841666,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1806537841284,
+        "t": 1793246856309,
         "method": "GET",
         "path": "/api/v1/system/health/check",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"overall_pass\":true,\"status\":\"ok\",\"timestamp\":1792324800,\"summary\":{\"total_checks\":17,\"passed\":17,\"warnings\":0,\"failed\":0},\"checks\":{\"clock\":{\"category\":\"Clock\",\"message\":\"Luna's clock is on time.\",\"status\":\"passed\"},\"data_path_writable\":{\"category\":\"Storage\",\"message\":\"Luna can write to its data folder.\",\"status\":\"passed\"},\"database\":{\"category\":\"Database\",\"message\":\"Luna's database is healthy.\",\"status\":\"passed\"},\"diagram_pack\":{\"category\":\"Diagrams\",\"message\":\"Diagram pack installed.\",\"more\":\"\",\"status\":\"passed\"},\"disk_space\":{\"category\":\"Storage\",\"message\":\"Plenty of room left.\",\"status\":\"passed\",\"details\":{\"free_bytes\":30000000000,\"free_human\":\"30.0 GB\"}},\"drive_tools\":{\"category\":\"Drive tools\",\"message\":\"Drive tools are installed.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"erase_tools\":{\"category\":\"Erase tools\",\"message\":\"Erase tools are installed.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"heic_tools\":{\"category\":\"Photos\",\"message\":\"iPhone photo support installed.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"logs_path_writable\":{\"category\":\"Storage\",\"message\":\"Luna can write to its log folder.\",\"status\":\"passed\"},\"network\":{\"category\":\"Network\",\"message\":\"Connected to your router or modem, with a path to the internet.\",\"status\":\"passed\"},\"ntfs_support\":{\"category\":\"Drive tools\",\"message\":\"Windows-formatted drives are supported.\",\"status\":\"passed\"},\"office_pack\":{\"category\":\"Documents\",\"message\":\"Document pack installed.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"smart_tool\":{\"category\":\"Drive health\",\"message\":\"Drive health checks are available.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"trim_tool\":{\"category\":\"Drive health\",\"message\":\"Drive maintenance is available.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"update_signing\":{\"category\":\"Updates\",\"message\":\"Updates are checked against Luna's signing key.\",\"status\":\"passed\"},\"video_tools\":{\"category\":\"Videos\",\"message\":\"Video previews installed.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"whiteboard\":{\"category\":\"Whiteboard\",\"message\":\"Whiteboard tools are installed.\",\"status\":\"passed\"}}}"
       },
       {
-        "t": 1806537841265,
+        "t": 1793246856309,
         "method": "GET",
         "path": "/api/v1/drives/d1/summary",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"id\":\"d1\",\"mounted\":true,\"total_bytes\":64000000000,\"free_bytes\":30000000000,\"used_bytes\":34000000000,\"folders\":null,\"files\":null,\"shortcuts\":[\"Photos\",\"Documents\"]}"
       },
       {
-        "t": 1806537836652,
+        "t": 1793246851317,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793246846316,
+        "method": "GET",
+        "path": "/api/v1/drives/detected",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793246841315,
+        "method": "GET",
+        "path": "/api/v1/drives/detected",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793246836314,
+        "method": "GET",
+        "path": "/api/v1/drives/detected",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793246831314,
+        "method": "GET",
+        "path": "/api/v1/drives/detected",
+        "status": 200,
+        "note": "",
+        "body": "[]"
       }
     ]
   },
