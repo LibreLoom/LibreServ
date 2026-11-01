@@ -29,7 +29,7 @@ If 1.7 hasn't landed, `upload-slow` (a) stays open after this stream.
 | 11 | Restore a folder/file from a drive backup (row action) | `components/files/backupsView.jsx` → `BackupRowActions` `restore` mutation → `POST /api/v1/drives/{id}/backups/{bid}/restore` | `copy_tree` in `spawn_blocking`, no progress | Button `loading` | Error toast | Toast | **Yes** |
 | 12 | Restore a file version from a backup | `backupsView.jsx` → `VersionsModal` `restore` | Same endpoint | Button `loading` in the modal | PageNotice in the modal | Toast `"Restored as …"` | No. The open modal owns it (AGENTS toast rules). |
 | 13 | Folder download (zip) | `<a href={source.downloadHref(…)}>` in `DriveFileExplorer.jsx` `DownloadButton`, `FileRow.jsx`, `FileBrowser.jsx` (`d` shortcut, selection bar) | `GET …/files/content?download=1` → `serve_folder_zip` **builds the whole zip into a temp file before it sends headers** | **None.** The click seems to do nothing for a while. | An error such as `"That folder has too many files…"` arrives as a JSON body that the browser downloads or shows | Browser download bar | **Yes**, last and deferrable (R2 + F8) |
-| 14 | Gallery "download selected" | `GalleryPage.jsx` → `downloadSelected` → `POST /api/v1/gallery/download` → `res.blob()` | The whole zip goes **into memory** | None | Silently falls back to one link per photo | n/a | Not in this stream. Logged as follow-up (needs the same prepare step as 13). |
+| 14 | Gallery "download selected" | `GalleryPage.jsx` → `downloadSelected` → `POST /api/v1/gallery/download` → `saveDownloadResponse` | Streamed to a file the person picks (`showSaveFilePicker`); `res.blob()` only where the browser has no picker | None | Error toast naming the failure (no save location, no space, connection, server message); **no per-photo fallback**. Over 200 photos is refused up front. | Browser download or the chosen file | No, and not planned |
 | 15 | Editor saves, form pictures, office sessions | `saveFile`, `uploadFormPicture`, … | n/a | Editors own their save state | n/a | n/a | No |
 | 16 | Cloud restore / private restore | `CloudRestoreCard.jsx`, `PrivateRestoreCard.jsx` | n/a | Their own stateful cards | n/a | n/a | No. Settings and recovery flows, not file explorer work. |
 
@@ -748,7 +748,6 @@ Self-check rules for every brief: never run tests. Frontend agents may run only 
 
 ## 6. Out of scope (logged)
 
-- **Gallery "download selected" zip into memory:** needs R2's prepare pattern for `/api/v1/gallery/download`.
 - **Signing out while uploads run:** this stream adds no in-app guard. Rows fail with a sign-in error and can be retried.
 - **Editor saves, form pictures, cloud and private restore:** they keep their own state.
 
