@@ -9,6 +9,7 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { shakeElement } from "@libreloom/ui/utils/shake.js";
 import FormInput from "../components/common/forms/FormInput";
 import usePageTitle from "../hooks/usePageTitle.js";
+import { postJson, apiErrorMessage } from "../lib/api";
 
 const LOGIN_STEPS = ["form"];
 
@@ -28,6 +29,11 @@ export default function LoginPage() {
   const location = useLocation();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [recovering, setRecovering] = useState(false);
+  const [recoveryFile, setRecoveryFile] = useState(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [recoveryMessage, setRecoveryMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorStatus, setErrorStatus] = useState(null);
   const [fieldErrors, setFieldErrors] = useState(/** @type {{ username?: string, password?: string }} */ ({}));
@@ -132,10 +138,32 @@ export default function LoginPage() {
     }
   }
 
+  async function handleRecovery(e) {
+    e.preventDefault();
+    setRecoveryMessage("");
+    if (!recoveryFile || recoveryFile.size > 4096) { setRecoveryMessage("Choose a valid recovery file."); return; }
+    if (newPassword !== confirmation) { setRecoveryMessage("The passwords do not match."); return; }
+    setLoading(true);
+    try {
+      let file;
+      try { file = JSON.parse(await recoveryFile.text()); }
+      catch { throw new Error("Choose a valid recovery file."); }
+      if (!file || file.version !== 1 || typeof file.secret !== "string") throw new Error("Choose a valid recovery file.");
+      const result = await postJson("/api/v1/auth/recover-password", { secret: file.secret, new_password: newPassword });
+      setRecoveryFile(null);
+      setNewPassword("");
+      setConfirmation("");
+      setRecovering(false);
+      addToast({ type: "success", message: "Password changed. Sign in with your new password.", description: result.warning || undefined });
+    } catch (err) {
+      setRecoveryMessage(apiErrorMessage(err, "Could not use that recovery file. Try again."));
+    } finally { setLoading(false); }
+  }
+
   return (
     <main
       data-slot="login-page"
-      className="fixed inset-0 grid place-items-center surface-primary px-4"
+      className="fixed inset-0 grid place-items-center overflow-y-auto surface-primary px-4 py-6"
       id="main-content"
       tabIndex={-1}
     >
@@ -149,10 +177,18 @@ export default function LoginPage() {
             <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
             <StepTransition step="form" order={LOGIN_STEPS}>
               <span className="text-primary font-mono text-xl font-normal block text-center">
-                Sign in to continue.
+                {recovering ? "Recover your password." : "Sign in to continue."}
               </span>
-              <p className="text-primary text-sm text-center mt-2">{loginQuip}</p>
-              <form
+              <p className="text-primary text-sm text-center mt-2">{recovering ? "Choose the recovery file saved for your Admin account." : loginQuip}</p>
+              {recovering ? <form onSubmit={handleRecovery} className="rounded-large-element p-4 surface-primary flex flex-col mt-6">
+                <label htmlFor="recovery-file">Recovery file</label>
+                <input className="my-3 w-full" id="recovery-file" type="file" accept=".json,application/json" onChange={(e) => setRecoveryFile(e.target.files?.[0] || null)} />
+                <FormInput label="New password" name="new-password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} autoComplete="new-password" hint="At least 12 characters, including a letter and a number." surface="primary" />
+                <FormInput label="Confirm new password" name="confirm-password" type="password" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} autoComplete="new-password" surface="primary" />
+                {recoveryMessage && <p role="alert">{recoveryMessage}</p>}
+                <Button type="submit" variant="secondary" surface="primary" loading={loading}>Change password</Button>
+                <Button type="button" variant="ghost" surface="primary" onClick={() => { setRecovering(false); setRecoveryFile(null); setNewPassword(""); setConfirmation(""); setRecoveryMessage(""); }}>Back to sign in</Button>
+              </form> : <form
                 noValidate
                 onSubmit={handleSubmit}
                 aria-busy={loading}
@@ -210,10 +246,11 @@ export default function LoginPage() {
                   {errorStatus && calculateErrorHTML()}
                 </div>
                 <p className="mt-5 text-center text-sm">
+                  <Button type="button" variant="ghost" surface="primary" onClick={() => setRecovering(true)}>Use a recovery file</Button><br />
                   Forgot your password? <Link className="underline decoration-accent underline-offset-4" to="/recover">Create a USB recovery file</Link> to use at startup.
                 </p>
                 </div>
-              </form>
+              </form>}
             </StepTransition>
           </div>
         </Card>

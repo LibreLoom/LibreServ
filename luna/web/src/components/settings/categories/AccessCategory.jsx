@@ -396,7 +396,29 @@ function ProfileCard() {
 export default function AccessCategory() {
   const { addToast } = useToast();
   const queryClient = useQueryClient();
-  const { endSession } = useOptionalAuth() || {};
+  const { endSession, user } = useOptionalAuth() || {};
+  const [recoveryError, setRecoveryError] = useState("");
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  async function downloadRecovery() {
+    setRecoveryError("");
+    setRecoveryBusy(true);
+    try {
+      const data = await postJson("/api/v1/auth/recovery-file", {});
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: "application/json" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "luna-password-recovery.json";
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+      addToast({ type: "success", message: "Recovery file downloaded." });
+    } catch (err) {
+      setRecoveryError(apiErrorMessage(err));
+    } finally {
+      setRecoveryBusy(false);
+    }
+  }
   const [error, setError] = useState(null);
   const [tokenError, setTokenError] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -476,6 +498,13 @@ export default function AccessCategory() {
     <div className="space-y-4">
 
       <ProfileCard />
+
+      {user?.role === "admin" && <SettingsCard icon={Shield} title="Password recovery file" padding={false}>
+        <SettingsRow label="Download a recovery file" description="Anyone with this file can change your Admin password. Store it safely. It works once; a new file replaces your old one." stack hideDivider>
+          <Button loading={recoveryBusy} onClick={downloadRecovery}>Download recovery file</Button>
+          {recoveryError && <p role="alert">{recoveryError}</p>}
+        </SettingsRow>
+      </SettingsCard>}
 
       <SettingsCard icon={Globe2} title="Browsers" padding={false} index={0}>
         <SettingsRow

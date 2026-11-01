@@ -827,6 +827,7 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
     ) && uses_session_cookie(&headers)
         && !path.starts_with("/api/v1/auth/login")
         && !path.starts_with("/api/v1/auth/register")
+        && path != "/api/v1/auth/recover-password"
         && !csrf_valid(&headers)
     {
         return json_error(

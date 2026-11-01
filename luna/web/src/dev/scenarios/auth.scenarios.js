@@ -19,6 +19,13 @@ export default [
     check: ["Sign-in form shows in place at /", "Wrong password shows a clear message (type: wrong)", "Right password returns to the page you were on"],
   },
   {
+    id: "auth/password-recovery",
+    area: "Sign-in",
+    title: "Recover an Admin password",
+    url: "/settings#security",
+    check: ["Download a recovery file from Settings", "Sign out, upload the file and choose a new password", "The file cannot be used twice"],
+  },
+  {
     id: "auth/signed-out-deep-link",
     area: "Sign-in",
     title: "Signed out, opened a deep link",

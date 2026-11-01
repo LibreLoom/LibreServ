@@ -3,6 +3,8 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use base64::Engine;
+use rusqlite::OptionalExtension;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -28,11 +30,229 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/auth/register", post(register))
         .route("/api/v1/auth/login", post(login))
+        .route("/api/v1/auth/recovery-file", post(create_recovery_file))
+        .route("/api/v1/auth/recover-password", post(recover_password))
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/auth/revoke-sessions", post(revoke_sessions))
         .route("/api/v1/auth/revoke-devices", post(revoke_devices))
         .route("/api/v1/auth/me", get(me).patch(update_me))
         .route("/api/v1/auth/status", get(status))
+}
+
+#[derive(Deserialize)]
+struct RecoveryBody {
+    secret: String,
+    new_password: String,
+}
+
+async fn create_recovery_file(
+    State(state): State<AppState>,
+    current: Option<Extension<CurrentUser>>,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    let Some(Extension(user)) = current else {
+        return Err(json_error(
+            StatusCode::UNAUTHORIZED,
+            "Sign in to Luna first.",
+        ));
+    };
+    if user.role != "admin" {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an Admin can create a recovery file.",
+        ));
+    }
+    let mut bytes = [0u8; 32];
+    getrandom::getrandom(&mut bytes).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Could not create a recovery file.",
+        )
+    })?;
+    let secret = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
+    let digest = blake3::hash(secret.as_bytes()).to_hex().to_string();
+    let mut conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Could not create a recovery file.",
+        )
+    })?;
+    let tx = conn.transaction().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Could not create a recovery file.",
+        )
+    })?;
+    let still_admin: bool = tx
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM users WHERE id = ?1 AND role = 'admin')",
+            [&user.id],
+            |row| row.get(0),
+        )
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Could not create a recovery file.",
+            )
+        })?;
+    if !still_admin {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an Admin can create a recovery file.",
+        ));
+    }
+    tx.execute(
+        "DELETE FROM password_recovery_files WHERE user_id = ?1",
+        [&user.id],
+    )
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Could not create a recovery file.",
+        )
+    })?;
+    tx.execute(
+        "INSERT INTO password_recovery_files (token_hash, user_id) VALUES (?1, ?2)",
+        rusqlite::params![digest, user.id],
+    )
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Could not create a recovery file.",
+        )
+    })?;
+    tx.commit().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Could not create a recovery file.",
+        )
+    })?;
+    let mut response = Json(json!({"version": 1, "secret": secret})).into_response();
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        header::HeaderValue::from_static("no-store"),
+    );
+    Ok(response)
+}
+
+async fn recover_password(
+    State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
+    headers: HeaderMap,
+    Json(body): Json<RecoveryBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if !state
+        .login_limiter
+        .allow(&client_ip(&addr, &headers).to_string())
+    {
+        return Err(json_error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many tries. Wait a few minutes and try again.",
+        ));
+    }
+    if body.secret.len() != 43
+        || !body
+            .secret
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "That recovery file is invalid or has already been used.",
+        ));
+    }
+    crate::password::validate_password(&body.new_password)
+        .map_err(|e| json_error(StatusCode::BAD_REQUEST, e.message()))?;
+    let digest = blake3::hash(body.secret.as_bytes()).to_hex().to_string();
+    {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Could not change your password.",
+            )
+        })?;
+        let exists: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM password_recovery_files p JOIN users u ON u.id = p.user_id WHERE p.token_hash = ?1 AND u.role = 'admin')", [&digest], |row| row.get(0))
+            .map_err(|_| json_error(StatusCode::INTERNAL_SERVER_ERROR, "Could not change your password."))?;
+        if !exists {
+            return Err(json_error(
+                StatusCode::BAD_REQUEST,
+                "That recovery file is invalid or has already been used.",
+            ));
+        }
+    }
+    let password = body.new_password;
+    let (hash, breach_unavailable) = tokio::task::spawn_blocking(move || {
+        let breach = crate::hibp::check_password_breach(&password);
+        if breach == crate::hibp::BreachCheck::Breached {
+            return Err(json_error(
+                StatusCode::BAD_REQUEST,
+                crate::hibp::BREACHED_PASSWORD_MESSAGE,
+            ));
+        }
+        let hash = auth::hash_password(&password).map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Could not change your password.",
+            )
+        })?;
+        Ok((hash, breach == crate::hibp::BreachCheck::Unavailable))
+    })
+    .await
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Could not change your password.",
+        )
+    })??;
+    let mut conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Could not change your password.",
+        )
+    })?;
+    let tx = conn.transaction().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Could not change your password.",
+        )
+    })?;
+    let user_id: Option<String> = tx.query_row("SELECT p.user_id FROM password_recovery_files p JOIN users u ON u.id = p.user_id WHERE p.token_hash = ?1 AND u.role = 'admin'", [&digest], |row| row.get(0))
+        .optional().map_err(|_| json_error(StatusCode::INTERNAL_SERVER_ERROR, "Could not change your password."))?;
+    let Some(user_id) = user_id else {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "That recovery file is invalid or has already been used.",
+        ));
+    };
+    crate::db::set_user_password_hash(&tx, &user_id, &hash)
+        .and_then(|_| crate::db::bump_user_token_version(&tx, &user_id))
+        .and_then(|_| crate::db::revoke_device_tokens_for_user(&tx, &user_id))
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Could not change your password.",
+            )
+        })?;
+    tx.execute(
+        "DELETE FROM password_recovery_files WHERE token_hash = ?1",
+        [&digest],
+    )
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Could not change your password.",
+        )
+    })?;
+    tx.commit().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Could not change your password.",
+        )
+    })?;
+    let mut response = json!({"ok": true});
+    if breach_unavailable {
+        response["warning"] = json!(crate::hibp::BREACH_CHECK_UNAVAILABLE_MESSAGE);
+    }
+    Ok(Json(response))
 }
 
 #[derive(Deserialize)]
@@ -684,6 +904,98 @@ mod tests {
     }
 
     const FIRST_USER: &str = r#"{"username":"max","password":"hunter22hunter1"}"#;
+
+    #[tokio::test]
+    async fn recovery_file_is_admin_only_hashed_and_single_use() {
+        let (_dir, state) = state();
+        let admin = state
+            .auth
+            .register("max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        let (_, old_session) = state.auth.login("max", "hunter22hunter1").unwrap();
+        let member = state
+            .auth
+            .register("sam", "Sam", "hunter22hunter1", "user")
+            .unwrap();
+        let current = |u: &crate::db::UserRow| {
+            Extension(CurrentUser {
+                id: u.id.clone(),
+                username: u.username.clone(),
+                role: u.role.clone(),
+            })
+        };
+        assert_eq!(
+            create_recovery_file(State(state.clone()), Some(current(&member)))
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::FORBIDDEN
+        );
+        let response = create_recovery_file(State(state.clone()), Some(current(&admin)))
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let file: Value = serde_json::from_slice(&bytes).unwrap();
+        let first_secret = file["secret"].as_str().unwrap().to_string();
+        let replacement = create_recovery_file(State(state.clone()), Some(current(&admin)))
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(replacement.into_body(), 4096)
+            .await
+            .unwrap();
+        let file: Value = serde_json::from_slice(&bytes).unwrap();
+        let secret = file["secret"].as_str().unwrap().to_string();
+        let old = recover_password(
+            State(state.clone()),
+            ConnectInfo(addr("127.0.0.1")),
+            HeaderMap::new(),
+            Json(RecoveryBody {
+                secret: first_secret,
+                new_password: "replacement123".into(),
+            }),
+        )
+        .await;
+        assert_eq!(old.unwrap_err().0, StatusCode::BAD_REQUEST);
+        let weak = recover_password(
+            State(state.clone()),
+            ConnectInfo(addr("127.0.0.1")),
+            HeaderMap::new(),
+            Json(RecoveryBody {
+                secret: secret.clone(),
+                new_password: "short".into(),
+            }),
+        )
+        .await;
+        assert_eq!(weak.unwrap_err().0, StatusCode::BAD_REQUEST);
+        {
+            let conn = state.db.lock().unwrap();
+            let stored: String = conn
+                .query_row("SELECT token_hash FROM password_recovery_files", [], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            assert_ne!(stored, secret);
+            assert_eq!(stored, blake3::hash(secret.as_bytes()).to_hex().to_string());
+        }
+        let recover = || {
+            recover_password(
+                State(state.clone()),
+                ConnectInfo(addr("127.0.0.1")),
+                HeaderMap::new(),
+                Json(RecoveryBody {
+                    secret: secret.clone(),
+                    new_password: "replacement123".into(),
+                }),
+            )
+        };
+        assert!(recover().await.is_ok());
+        assert_eq!(recover().await.unwrap_err().0, StatusCode::BAD_REQUEST);
+        assert!(state.auth.verify(&old_session).is_err());
+        assert!(state.auth.login("max", "hunter22hunter1").is_err());
+        assert!(state.auth.login("max", "replacement123").is_ok());
+    }
 
     #[tokio::test]
     async fn first_user_is_open_on_lan_and_closed_elsewhere() {

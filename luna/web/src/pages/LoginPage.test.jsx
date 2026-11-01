@@ -73,6 +73,19 @@ describe("LoginPage", () => {
     expect(findContrastProblems(screen.getByRole("main"))).toEqual([]);
   });
 
+  it("offers a readable recovery form and rejects mismatched passwords", () => {
+    stubFetch();
+    renderLogin();
+    fireEvent.click(screen.getByRole("button", { name: "Use a recovery file" }));
+    expect(screen.getByLabelText("Recovery file")).toBeInTheDocument();
+    expect(findContrastProblems(screen.getByRole("main"))).toEqual([]);
+    fireEvent.change(screen.getByLabelText("Recovery file"), { target: { files: [new File(['{}'], "recovery.json")] } });
+    fireEvent.change(screen.getByLabelText("New password"), { target: { value: "replacement123" } });
+    fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "different1234" } });
+    fireEvent.click(screen.getByRole("button", { name: "Change password" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("The passwords do not match.");
+  });
+
   it("logs in and returns to the page the user wanted", async () => {
     stubFetch();
     renderLogin();

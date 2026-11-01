@@ -3,6 +3,8 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import AccessCategory from "./AccessCategory.jsx";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import * as authContext from "../../../context/AuthContext";
+import { findContrastProblems } from "@libreloom/ui/test/contrast.js";
 
 function stubFetch(tokens = []) {
   vi.stubGlobal("fetch", vi.fn(async (url, init) => {
@@ -48,6 +50,15 @@ describe("AccessCategory", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("shows the recovery file action to an Admin", async () => {
+    vi.spyOn(authContext, "useOptionalAuth").mockReturnValue(/** @type {any} */ ({ user: { id: "1", username: "max", display_name: "Max", role: "admin" } }));
+    const { container } = renderAccess();
+    expect(await screen.findByRole("button", { name: "Download recovery file" })).toBeVisible();
+    expect(screen.getByText(/a new file replaces your old one/i)).toBeVisible();
+    expect(findContrastProblems(container)).toEqual([]);
   });
 
   it("shows browser sign-out without bulk app revoke", async () => {

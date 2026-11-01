@@ -283,6 +283,11 @@ async fn update(
                     ));
                 }
                 check_recovery_admin_kept(&conn, &id)?;
+                conn.execute(
+                    "DELETE FROM password_recovery_files WHERE user_id = ?1",
+                    [&id],
+                )
+                .map_err(|_| map_err(AuthError::Db(anyhow::anyhow!("db"))))?;
             }
             crate::db::set_user_role(&conn, &id, &role)
                 .map_err(|_| map_err(AuthError::Db(anyhow::anyhow!("db"))))?;

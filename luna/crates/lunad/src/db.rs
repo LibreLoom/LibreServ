@@ -81,6 +81,10 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             updated_at INTEGER NOT NULL,
             token_version INTEGER NOT NULL DEFAULT 0
         );
+        CREATE TABLE IF NOT EXISTS password_recovery_files (
+            token_hash TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE
+        );
         CREATE TABLE IF NOT EXISTS access_members (
             id TEXT PRIMARY KEY,
             subject_kind TEXT NOT NULL,

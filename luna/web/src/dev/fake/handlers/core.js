@@ -32,12 +32,34 @@ get("/api/v1/auth/status", ({ world }) => ({ has_admin: world.users.length > 0 &
 
 post("/api/v1/auth/login", ({ world, body }) => {
   const u = world.users.find((x) => x.username === String(body.username ?? "").trim().toLowerCase());
-  if (!u || body.password === "wrong" || !body.password) return fail(401, "That username or password is wrong.");
+  if (!u || body.password === "wrong" || !body.password || (u.password && body.password !== u.password)) return fail(401, "That username or password is wrong.");
   world.sessionUserId = u.id;
   return { ok: true, ...userJson(u) };
 }, { public: true });
 
 post("/api/v1/auth/logout", ({ world }) => { world.sessionUserId = null; return { ok: true }; }, { public: true });
+
+post("/api/v1/auth/recovery-file", ({ world, user }) => {
+  if (!user) return fail(401, "Sign in to Luna first.");
+  if (!isAdmin(user)) return fail(403, "Only an Admin can create a recovery file.");
+  const secret = crypto.randomUUID().replaceAll("-", "") + "fakeSecret1";
+  world.passwordRecoveryFiles ??= [];
+  world.passwordRecoveryFiles = world.passwordRecoveryFiles.filter((item) => item.userId !== user.id);
+  world.passwordRecoveryFiles.push({ secret, userId: user.id });
+  return { version: 1, secret };
+}, { public: true });
+
+post("/api/v1/auth/recover-password", ({ world, body }) => {
+  const file = world.passwordRecoveryFiles?.find((item) => item.secret === body.secret);
+  const owner = world.users.find((u) => u.id === file?.userId && u.role === "admin");
+  if (!owner) return fail(400, "That recovery file is invalid or has already been used.");
+  const bad = badPassword(body.new_password);
+  if (bad) return bad;
+  world.passwordRecoveryFiles = world.passwordRecoveryFiles.filter((item) => item !== file);
+  owner.password = body.new_password;
+  world.sessionUserId = null;
+  return { ok: true };
+}, { public: true });
 
 post("/api/v1/auth/register", ({ world, user, body }) => {
   const hasUsers = world.users.length > 0;
@@ -196,6 +218,7 @@ patch("/api/v1/users/:id", ({ world, user, params, body }) => {
     if (role !== target.role) {
       if (user.id === target.id && role !== "admin") return fail(400, "You can't take away your own admin rights.");
       if (target.role === "admin" && lastAdmin(world, target.id)) return fail(400, "Luna needs at least one Admin. Make someone else an Admin first.");
+      if (target.role === "admin" && role !== "admin") world.passwordRecoveryFiles = (world.passwordRecoveryFiles || []).filter((item) => item.userId !== target.id);
       target.role = role;
     }
   }
