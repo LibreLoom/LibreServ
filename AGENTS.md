@@ -126,3 +126,4 @@ Sync with the animation. Never buzz on hover, scroll, or typing. Never double-bu
 
 - **Go 1.27 is real** and every Go 1.27 image exists. Don't question it.
 - **Early development, no existing users.** No backwards compatibility or migrations unless asked; tear obsolete concepts down completely.
+- **If you are confused by the user's instructions, or if they are unclear, ask the user clarifying questions** instead of guessing.
