@@ -44,7 +44,6 @@ post("/api/v1/auth/recovery-file", ({ world, user }) => {
   if (!isAdmin(user)) return fail(403, "Only an Admin can create a recovery file.");
   const secret = crypto.randomUUID().replaceAll("-", "") + "fakeSecret1";
   world.passwordRecoveryFiles ??= [];
-  world.passwordRecoveryFiles = world.passwordRecoveryFiles.filter((item) => item.userId !== user.id);
   world.passwordRecoveryFiles.push({ secret, userId: user.id });
   return { version: 1, secret };
 }, { public: true });

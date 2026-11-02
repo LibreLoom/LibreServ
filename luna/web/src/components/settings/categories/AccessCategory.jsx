@@ -412,7 +412,7 @@ export default function AccessCategory() {
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 30000);
-      addToast({ type: "success", message: "Recovery file downloaded." });
+      addToast({ type: "success", message: "Recovery file created. Check that it was saved safely." });
     } catch (err) {
       setRecoveryError(apiErrorMessage(err));
     } finally {
@@ -500,7 +500,7 @@ export default function AccessCategory() {
       <ProfileCard />
 
       {user?.role === "admin" && <SettingsCard icon={Shield} title="Password recovery file" padding={false}>
-        <SettingsRow label="Download a recovery file" description="Anyone with this file can change your Admin password. Store it safely. It works once; a new file replaces your old one." stack hideDivider>
+        <SettingsRow label="Download a recovery file" description="Anyone with this file can change your Admin password. Store it safely. Each file works once. Older files still work until used." stack hideDivider>
           <Button loading={recoveryBusy} onClick={downloadRecovery}>Download recovery file</Button>
           {recoveryError && <p role="alert">{recoveryError}</p>}
         </SettingsRow>

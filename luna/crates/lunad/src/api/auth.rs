@@ -101,16 +101,6 @@ async fn create_recovery_file(
         ));
     }
     tx.execute(
-        "DELETE FROM password_recovery_files WHERE user_id = ?1",
-        [&user.id],
-    )
-    .map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Could not create a recovery file.",
-        )
-    })?;
-    tx.execute(
         "INSERT INTO password_recovery_files (token_hash, user_id) VALUES (?1, ?2)",
         rusqlite::params![digest, user.id],
     )
@@ -952,12 +942,12 @@ mod tests {
             ConnectInfo(addr("127.0.0.1")),
             HeaderMap::new(),
             Json(RecoveryBody {
-                secret: first_secret,
+                secret: first_secret.clone(),
                 new_password: "replacement123".into(),
             }),
         )
         .await;
-        assert_eq!(old.unwrap_err().0, StatusCode::BAD_REQUEST);
+        assert!(old.is_ok());
         let weak = recover_password(
             State(state.clone()),
             ConnectInfo(addr("127.0.0.1")),
@@ -972,9 +962,11 @@ mod tests {
         {
             let conn = state.db.lock().unwrap();
             let stored: String = conn
-                .query_row("SELECT token_hash FROM password_recovery_files", [], |r| {
-                    r.get(0)
-                })
+                .query_row(
+                    "SELECT token_hash FROM password_recovery_files WHERE token_hash = ?1",
+                    [blake3::hash(secret.as_bytes()).to_hex().to_string()],
+                    |r| r.get(0),
+                )
                 .unwrap();
             assert_ne!(stored, secret);
             assert_eq!(stored, blake3::hash(secret.as_bytes()).to_hex().to_string());

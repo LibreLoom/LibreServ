@@ -57,7 +57,7 @@ describe("AccessCategory", () => {
     vi.spyOn(authContext, "useOptionalAuth").mockReturnValue(/** @type {any} */ ({ user: { id: "1", username: "max", display_name: "Max", role: "admin" } }));
     const { container } = renderAccess();
     expect(await screen.findByRole("button", { name: "Download recovery file" })).toBeVisible();
-    expect(screen.getByText(/a new file replaces your old one/i)).toBeVisible();
+    expect(screen.getByText(/older files still work until used/i)).toBeVisible();
     expect(findContrastProblems(container)).toEqual([]);
   });
 
