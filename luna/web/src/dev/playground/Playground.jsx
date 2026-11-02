@@ -317,8 +317,14 @@ function Controls({ world, onToggleExpanded }) {
 
       <Card title="Other tasks">
         <Group label="Trash">
-          <Button size="sm" onClick={() => startRequest("trash", ["a.jpg", "b.jpg", "c.jpg"])}>
-            Move 3 items to Trash
+          <Button size="sm" onClick={() => startRequest("trash", ["a.jpg"])}>
+            Move 1 item to Trash
+          </Button>
+          <Button size="sm" onClick={() => startRequest("trash", ["a.jpg", "b.jpg"])}>
+            Move 2 items to Trash
+          </Button>
+          <Button size="sm" onClick={() => startRequest("trash", ["a.jpg", "b.jpg", "c.jpg", "d.jpg"])}>
+            Move 4 items (counted)
           </Button>
           <Button size="sm" onClick={() => startRequest("restore-trash", ["a.jpg", "b.jpg"])}>
             Put back 2 items
@@ -327,9 +333,28 @@ function Controls({ world, onToggleExpanded }) {
             Delete permanently
           </Button>
         </Group>
+        <p className="text-sm">
+          One to three items are named; four or more are counted. The meta line says how far
+          along the batch is.
+        </p>
         <Group label="A task that fails">
           <Button size="sm" onClick={() => startRequest("trash", ["a.jpg"], { fails: true })}>
             Move to Trash, then fail
+          </Button>
+        </Group>
+        <Group label="A task that is stopped">
+          <Button
+            size="sm"
+            onClick={() => {
+              startRequest("trash", ["a.jpg", "b.jpg", "c.jpg"], { ms: 3000 });
+              // Stop it a moment later, so the card has something to stop.
+              setTimeout(() => {
+                const op = store.getState().ops[0];
+                if (op) store.cancel(op.id);
+              }, 600);
+            }}
+          >
+            Start, then cancel
           </Button>
         </Group>
         <Group label="One long task">
