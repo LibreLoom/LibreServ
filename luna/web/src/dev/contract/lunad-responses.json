@@ -582,24 +582,12 @@
       },
       "drive_tools": {
         "category": "string",
-        "details": {
-          "missing": [
-            "string"
-          ]
-        },
         "message": "string",
-        "more": "string",
         "status": "string"
       },
       "erase_tools": {
         "category": "string",
-        "details": {
-          "missing": [
-            "string"
-          ]
-        },
         "message": "string",
-        "more": "string",
         "status": "string"
       },
       "heic_tools": {
@@ -652,13 +640,7 @@
       },
       "trim_tool": {
         "category": "string",
-        "details": {
-          "missing": [
-            "string"
-          ]
-        },
         "message": "string",
-        "more": "string",
         "status": "string"
       },
       "update_signing": {
@@ -668,13 +650,7 @@
       },
       "video_tools": {
         "category": "string",
-        "details": {
-          "missing": [
-            "string"
-          ]
-        },
         "message": "string",
-        "more": "string",
         "status": "string"
       },
       "whiteboard": {
@@ -725,6 +701,19 @@
     ],
     "feed_url": "string",
     "keys": []
+  },
+  "GET /api/v1/tailscale/status": {
+    "approval_type?": "string",
+    "approval_url": "string",
+    "auth_url": "string",
+    "control_server": "string",
+    "enabled": "boolean",
+    "error": "string",
+    "identity_saved": "boolean",
+    "installed": "boolean",
+    "private_url": "string",
+    "public_url": "string",
+    "state": "string"
   },
   "GET /api/v1/users": [
     {
