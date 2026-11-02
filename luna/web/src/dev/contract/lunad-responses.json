@@ -158,7 +158,15 @@
   "GET /api/v1/backups": [
     {
       "can_delete": "boolean",
-      "covered_by": "null",
+      "covered_by": {
+        "$oneOf": [
+          "null",
+          {
+            "name": "string",
+            "path": "string"
+          }
+        ]
+      },
       "created_by": "string",
       "first_done": "boolean",
       "hard": "boolean",
@@ -582,29 +590,35 @@
       },
       "drive_tools": {
         "category": "string",
+        "details?": {
+          "missing": [
+            "string"
+          ]
+        },
         "message": "string",
+        "more?": "string",
         "status": "string"
       },
       "erase_tools": {
         "category": "string",
-        "details": {
+        "details?": {
           "missing": [
             "string"
           ]
         },
         "message": "string",
-        "more": "string",
+        "more?": "string",
         "status": "string"
       },
       "heic_tools": {
         "category": "string",
-        "details": {
+        "details?": {
           "missing": [
             "string"
           ]
         },
         "message": "string",
-        "more": "string",
+        "more?": "string",
         "status": "string"
       },
       "logs_path_writable": {
@@ -615,18 +629,11 @@
       "network": {
         "category": "string",
         "message": "string",
-        "more": "string",
         "status": "string"
       },
       "ntfs_support": {
         "category": "string",
-        "details": {
-          "missing": [
-            "string"
-          ]
-        },
         "message": "string",
-        "more": "string",
         "status": "string"
       },
       "office_pack": {
@@ -640,20 +647,31 @@
         "more": "string",
         "status": "string"
       },
+      "os_update_tools?": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
       "smart_tool": {
         "category": "string",
-        "details": {
+        "details?": {
           "missing": [
             "string"
           ]
         },
         "message": "string",
-        "more": "string",
+        "more?": "string",
         "status": "string"
       },
       "trim_tool": {
         "category": "string",
+        "details?": {
+          "missing": [
+            "string"
+          ]
+        },
         "message": "string",
+        "more?": "string",
         "status": "string"
       },
       "update_signing": {
@@ -663,13 +681,7 @@
       },
       "video_tools": {
         "category": "string",
-        "details": {
-          "missing": [
-            "string"
-          ]
-        },
         "message": "string",
-        "more": "string",
         "status": "string"
       },
       "whiteboard": {
