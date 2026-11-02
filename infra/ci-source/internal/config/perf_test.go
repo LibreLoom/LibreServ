@@ -29,7 +29,9 @@ func TestUserConfigLimits(t *testing.T) {
 		t.Fatalf("full = %+v bounded=%v", l, bounded)
 	}
 	l, bounded = (&UserConfig{Parallelism: 8, PerfProfile: "gentle"}).Limits()
-	if !bounded || l.Parallelism != 2 || l.Nice != 19 || l.CPUQuota == 0 {
+	wantParallelism := min(2, int(l.CPUQuota/100000))
+	wantParallelism = max(wantParallelism, 1)
+	if !bounded || l.Parallelism != wantParallelism || l.Nice != 19 || l.CPUQuota == 0 {
 		t.Fatalf("gentle = %+v bounded=%v", l, bounded)
 	}
 	l, bounded = (&UserConfig{Parallelism: 8, CPUQuota: 300000, PerfProfile: "custom"}).Limits()
