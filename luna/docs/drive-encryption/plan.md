@@ -34,6 +34,8 @@ One partition, one container, ext4 inside. The partition label carries the drive
 
 **Fix the LUKS2 profile now** even though nothing reads it yet: single cipher `aes-xts-plain64`, 512-bit key, `argon2id`, no `dm-integrity`, 512-byte sectors. Once drives exist in the wild, changing this breaks every future reader.
 
+**No post-quantum layer here, deliberately.** See §4a.
+
 ## 4. Keys
 
 LUKS2 has eight independent keyslots, which maps onto the requirements directly:
@@ -49,6 +51,20 @@ No custom key-wrapping code — `cryptsetup luksAddKey` does the second slot, an
 - **After unlock, no key is kept in userspace at all.** The volume key lives in the kernel's dm-crypt, which is not swappable and is wiped by `luksClose` or power loss. R4 holds more cleanly than holding a key in a process.
 - **Argon2id memory must be lowered.** LUKS2 defaults to 1 GiB, which OOM-kills on a 2 GiB Wyse ([docs](https://man7.org/linux/man-pages/man8/cryptsetup-luksFormat.8.html), [writeup](https://sleeplessbeastie.eu/2021/07/05/how-to-open-luks2-encrypted-volume-on-a-low-memory-device/)). `budget.rs` already caps single allocations at an eighth of free RAM — pick the cost from `budget::meminfo()` at format time and record it in the header.
 - **`RLIMIT_CORE = 0` at startup.** dm-crypt keys aren't in the daemon's address space, but the passphrase passes through it. `sandbox.rs` sets no-core-dumps for children; the daemon itself does not.
+
+### 4a. Post-quantum: not applicable here, and that is correct
+
+Luna already ships hybrid post-quantum crypto for cloud backup — X25519 + ML-KEM-768 for sealing, Ed25519 + ML-DSA-65 for signing (`backup/cloud/crypto.rs`). It is reasonable to ask why drives don't get the same treatment. The answer is that the two problems are not the same shape.
+
+**What quantum computers actually break is asymmetric crypto** — key agreement and signatures. Shor's algorithm kills X25519 and Ed25519 outright, which is why cloud backup needs ML-KEM and ML-DSA alongside them: a backup sealed today might be opened by an attacker in 2040, and the sealed copy holds the ciphertext that attacker would harvest now.
+
+**Symmetric crypto survives with a smaller key.** Grover's algorithm gives a quadratic speedup on brute force, so AES-256 keeps roughly 128 bits of security — still far out of reach ([analysis](https://arxiv.org/pdf/2502.02445)). LUKS2's `aes-xts-plain64` with a 512-bit key is AES-256, which is exactly the size that survives. There is no asymmetric step anywhere in unlocking a drive: Argon2id turns a password into a key, and AES does the rest. Nothing for Shor's algorithm to attack.
+
+**So the drive is already post-quantum-safe in the way that matters**, and adding ML-KEM would mean inventing a container format — because LUKS2 has no post-quantum cipher option, and `cryptsetup` only speaks the ciphers the kernel's dm-crypt provides. That would cost the entire advantage of using LUKS2: a standard format, a well-tested implementation, and a reader that is tractable to write.
+
+**The one thing to actually watch** is the recovery phrase. If it is 12 words (128 bits), Grover's halving brings it to ~64 bits of effective security against a quantum brute-force — uncomfortably low for something protecting a whole drive. **Use 24 words (256 bits)** for the drive recovery keyslot, which leaves ~128 bits. That is the concrete post-quantum decision in this plan, and it costs nothing but a longer phrase.
+
+**Not doing:** ML-KEM wrapping of the volume key, ML-DSA signatures on the header, or a custom container. If LUKS2 gains post-quantum ciphers later, drives can be re-encrypted then — which is a reason to keep the format standard, not to invent one now.
 
 ## 5. Luna side
 
