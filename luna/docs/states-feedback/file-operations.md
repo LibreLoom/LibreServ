@@ -264,9 +264,14 @@ Item = {
 |---|---|
 | Something running | `Working on your files` |
 | Nothing running, problems left | `Some files need you` |
-| Collapsed summary (mono) | `{n} running · {pct}%`, plus ` · {n} need you` when there are problems. A single upload operation reads `Uploading {n} files · {pct}%`. |
+| Nothing running, nothing wrong | `Finished`, or `Stopped` when the only task was cancelled |
+| Collapsed summary (mono) | `{n} running · {pct}%`, plus ` · {n} need you` when there are problems. A single upload operation reads `Uploading {n} files · {pct}%`. When everything has finished it says what finished: `3 files uploaded`, `Moved 2 items to Trash`. |
 | Expand / collapse button aria | `Show details` / `Hide details` |
-| Close button (only when nothing runs) aria | `Close` |
+
+**There is no card-wide close button.** One X that dropped every row could hide a
+failure nobody had read yet, and it could not be undone. A finished operation
+clears itself after 4 s; a failed one stays until it is retried or removed. A
+single row is still cleared with its own `Clear`.
 
 **Operation status line, while running → when done**
 

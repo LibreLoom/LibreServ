@@ -73,7 +73,6 @@ export const labels = {
   clearFailed: "Clear failed",
   showDetails: "Show details",
   hideDetails: "Hide details",
-  close: "Close",
   appliesToRest: "Applies to the rest of this upload too.",
   dockRegion: "File tasks",
 };

@@ -52,7 +52,19 @@ describe("FileOpsDock", () => {
     expect(screen.getByText("Some files need you")).toBeTruthy();
     // A problem opens the card on its own, so its row is up without a click.
     expect(screen.getByRole("button", { name: "Replace" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
+  });
+
+  it("has no way to dismiss the whole card", () => {
+    // One X that dropped every row could hide a failure nobody had read yet,
+    // and it was irreversible. A finished row still clears itself, and an
+    // answered problem still closes, so nothing is stuck.
+    renderWithOps(<FileOpsDock />, [
+      { id: "op2", kind: "upload", state: "waiting", destLabel: "Inbox", items: [fileClash("c1", "a.txt")] },
+    ]);
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+    // The row's own controls are still there.
+    expect(screen.getByRole("button", { name: "Replace" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
   });
 
   it("says what finished instead of claiming files need you", () => {

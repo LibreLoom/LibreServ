@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { AnimatePresence, MotionConfig, motion as Motion } from "motion/react";
-import { ChevronDown, ChevronUp, X } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
-import { useFileOps, useFileOpsState } from "../../../context/FileOpsContext.jsx";
+import { useFileOpsState } from "../../../context/FileOpsContext.jsx";
 import { labels } from "../../../lib/fileOps/copy.js";
 import {
   DOCK_EXIT,
@@ -53,7 +53,6 @@ function startsExpanded() {
  *   the collapse transition on demand; the app leaves both unset.
  */
 export default function FileOpsDock({ expanded: expandedProp, onExpandedChange }) {
-  const store = useFileOps();
   const ops = useFileOpsState(visibleOps);
   const info = useFileOpsState(dockInfo);
   const [expandedState, setExpandedState] = useState(startsExpanded);
@@ -88,10 +87,6 @@ export default function FileOpsDock({ expanded: expandedProp, onExpandedChange }
     if (info.problemCount > lastProblems.current) setExpanded(true);
     lastProblems.current = info.problemCount;
   }, [info.problemCount, setExpanded]);
-
-  const closeAll = () => {
-    for (const op of ops) store.dismiss(op.id);
-  };
 
   return (
     <MotionConfig reducedMotion="user">
@@ -149,17 +144,6 @@ export default function FileOpsDock({ expanded: expandedProp, onExpandedChange }
                     )}
                   </Motion.span>
                 </Button>
-                {info.runningCount === 0 && (
-                  <Button
-                    variant="ghost"
-                    size="iconSm"
-                    surface="secondary"
-                    aria-label={labels.close}
-                    onClick={closeAll}
-                  >
-                    <X size={ICON_SIZE.md} aria-hidden="true" />
-                  </Button>
-                )}
               </div>
               <AnimatePresence initial={false}>
                 {expanded && (
