@@ -428,7 +428,7 @@ func (r *Runner) runTest(ctx context.Context, t *tests.Test, fuzzDuration time.D
 	// "host" container = run the command directly on the host (no container).
 	// Used for tests like podman-build that need host-level tools (podman) and
 	// can't usefully run inside a container (e.g. SELinux blocks socket mounts).
-	if t.Container == "host" {
+	if t.Container == tests.ContainerHost {
 		return r.runHostTest(ctx, t)
 	}
 
@@ -651,6 +651,17 @@ func (r *Runner) pullImageIfNeeded(ctx context.Context, imageRef string) error {
 		return nil
 	}
 
+	// Images under LocalImagePrefix are built from this repo's Containerfiles
+	// rather than pulled: they carry toolchains no registry publishes (Luna's
+	// Rust + Node + Android + GTK set). Built once per run, then reused.
+	if name, ok := localImageName(imageRef); ok {
+		if err := r.buildLocalImage(ctx, name, imageRef); err != nil {
+			return err
+		}
+		r.pulledImages[imageRef] = true
+		return nil
+	}
+
 	r.outputChan <- OutputLine{
 		TestID: "",
 		Type:   OutputStatus,
@@ -667,6 +678,56 @@ func (r *Runner) pullImageIfNeeded(ctx context.Context, imageRef string) error {
 
 	r.pulledImages[imageRef] = true
 	return nil
+}
+
+// localImageName returns the image directory name for a local image reference
+// (see tests.LocalImagePrefix).
+func localImageName(imageRef string) (string, bool) {
+	name, ok := strings.CutPrefix(imageRef, tests.LocalImagePrefix)
+	if !ok || name == "" || strings.Contains(name, "/") {
+		return "", false
+	}
+	return name, true
+}
+
+// buildLocalImage builds a repo-defined image with podman when it is missing.
+// The image is tagged exactly as the test names it, so a second run reuses it
+// and a rebuild only happens after `podman rmi` (or a fresh machine).
+func (r *Runner) buildLocalImage(ctx context.Context, name, imageRef string) error {
+	if _, _, err := r.cli.ImageInspectWithRaw(ctx, imageRef); err == nil {
+		return nil
+	}
+
+	dir := filepath.Join(r.repoPath, "infra", "ci-source", "images", name)
+	containerfile := filepath.Join(dir, "Containerfile")
+	if _, err := os.Stat(containerfile); err != nil {
+		return fmt.Errorf("local image %q: no Containerfile at %s", imageRef, containerfile)
+	}
+
+	r.outputChan <- OutputLine{
+		TestID: "",
+		Type:   OutputStatus,
+		Line:   fmt.Sprintf("building image %s (first run only)...", imageRef),
+	}
+
+	cmd := exec.CommandContext(ctx, "podman", "build", "--layers",
+		"--tag", imageRef, "--file", containerfile, dir)
+	cmd.Env = os.Environ()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("build local image %q: %w\n%s", imageRef, err, tailLines(string(out), 40))
+	}
+	return nil
+}
+
+// tailLines returns the last n lines of s, so a failed build reports the
+// useful end of its log instead of the whole thing.
+func tailLines(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuration time.Duration) (string, error) {
@@ -732,6 +793,18 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 
 	hostConfig := &container.HostConfig{
 		Binds: binds,
+	}
+
+	// A repo-built image runs as the invoking user, not root. Two reasons:
+	// root ignores the permission bits, so tests that make a directory
+	// unwritable (lunad's read-only drive handling) would silently pass a write
+	// they must refuse; and rootless podman maps container root to a subuid that
+	// cannot write the host user's build artifacts. keep-id is what makes the
+	// mapping right — setting Config.User alone maps to a subuid.
+	if _, ok := localImageName(t.Container); ok {
+		hostConfig.UsernsMode = "keep-id"
+		env = append(env, "HOME=/tmp")
+		config.Env = env
 	}
 
 	// Apply resource limits if configured
