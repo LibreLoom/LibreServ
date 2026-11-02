@@ -57,7 +57,7 @@ Not covered: code comments, logs, internal docs. Dashboard greetings (pigeons, s
 
 ## Running tests
 
-- **After an edit, run `./ci check`.** It prints the static checks (format, vet, lint, typecheck, colour scan) that the current diff can affect, and stops. `./ci check -r` runs them; `./ci check -f` widens to every check. This is the inner loop — it is seconds, not minutes, and it catches a broken edit without running product logic.
+- **After an edit, run `./ci check`.** It prints the static checks (format, vet, lint, typecheck, colour scan) that the current diff can affect, and stops. `./ci check -r` runs them; `./ci check -f` widens to every check; add `--host` to run them on the host instead of in containers (faster, but it uses whatever toolchain the machine has). This is the inner loop — it is seconds, not minutes, and it catches a broken edit without running product logic.
 - **Tests are the unattended pass, not the inner loop.** Run them through `./ci run --profile <profile>` when asked to verify a change properly (or when a release needs it). Never run `cargo test`, `npx vitest`, `npm test`, `go test` or any other runner directly, not even to read one output value or check one test. No focused `./ci` target? Wait for the full run.
 - Flags are `-x` for one letter, `--long` for more: `./ci run -p quick`, `./ci check -r`.
 - A full luna run takes 15–30 minutes. Start it in the background and poll its log for the `EXIT` line. Never start a second run while one is going, and a shell exit is not a result.

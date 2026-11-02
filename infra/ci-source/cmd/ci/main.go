@@ -37,11 +37,14 @@ func main() {
 	cpus := runCmd.Float64("cpus", 0, "Cap CPU use to this many cores (0 = no cap)")
 	memory := runCmd.String("memory", "", "Cap memory, e.g. 8G or 4096M (empty = no cap)")
 
+	runHost := runCmd.Bool("host", false, "Run tests on the host instead of in containers (faster, unpinned toolchain)")
+
 	checkCmd := flag.NewFlagSet("check", flag.ExitOnError)
 	checkFull := checkCmd.Bool("full", false, "Every check, not just the ones the diff can affect")
 	checkFullShort := checkCmd.Bool("f", false, "Shorthand for --full")
 	checkRun := checkCmd.Bool("run", false, "Run the selected checks (default: list them only)")
 	checkRunShort := checkCmd.Bool("r", false, "Shorthand for --run")
+	checkHost := checkCmd.Bool("host", false, "Run on the host instead of in containers (faster, unpinned toolchain)")
 
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -53,10 +56,10 @@ func main() {
 			listPerfProfiles()
 		case "run":
 			runCmd.Parse(os.Args[2:])
-			runCLI(*profileName, *testIDs, *parallel, *fuzzDuration, *failFast, *outputDir, *session, *perf, *cpus, *memory, flagSet(runCmd, "parallel") || flagSet(runCmd, "j"))
+			runCLI(*profileName, *testIDs, *parallel, *fuzzDuration, *failFast, *outputDir, *session, *perf, *cpus, *memory, flagSet(runCmd, "parallel") || flagSet(runCmd, "j"), *runHost)
 		case "check":
 			checkCmd.Parse(os.Args[2:])
-			runCheck(*checkFull || *checkFullShort, *checkRun || *checkRunShort)
+			runCheck(*checkFull || *checkFullShort, *checkRun || *checkRunShort, *checkHost)
 		case "help", "-h", "--help":
 			printHelp()
 		default:
@@ -93,12 +96,14 @@ Commands:
 Check Flags:
   -f, --full          Every check, not just the ones the diff can affect
   -r, --run           Run the selection (default: print it and stop)
+      --host          Run on the host instead of in containers (faster)
 
 Check Examples:
   ci check                     # Dry run: what checks this diff can affect
   ci check -r                  # Run them
   ci check -f                  # Dry run: every check
   ci check -f -r               # Run every check
+  ci check -r --host           # Run them on the host (fastest)
 
 Run Flags:
   -p, --profile <name>  Run tests for a profile (quick, sol, luna, full, etc.)
@@ -112,6 +117,8 @@ Run Flags:
       --cpus <n>        With --session: cap CPU use to n cores
       --memory <size>   With --session: cap memory, e.g. 8G
   -j, --parallel <n>    With --session: parallel containers
+      --host            Run on the host instead of in containers (faster,
+                        unpinned toolchain; for the inner loop)
 
 Examples:
   ci                           # Launch TUI
@@ -154,9 +161,10 @@ type runOpts struct {
 	parallel     int
 	parallelSet  bool
 	verbose      bool
+	host         bool
 }
 
-func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, failFast bool, outputDir string, session bool, perf string, cpus float64, memory string, parallelSet bool) {
+func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, failFast bool, outputDir string, session bool, perf string, cpus float64, memory string, parallelSet, host bool) {
 	var testsToRun []string
 
 	if profileName != "" {
@@ -192,6 +200,7 @@ func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, fail
 		parallel:     parallel,
 		parallelSet:  parallelSet,
 		verbose:      true,
+		host:         host,
 	})
 }
 
@@ -250,7 +259,7 @@ func runTests(testsToRun []string, opts runOpts) {
 		executor.Cancel()
 	}()
 
-	go executor.Execute("", testsToRun, parallel, opts.failFast, fuzzDur, limits.CPUQuota, limits.MemoryLimit, limits.Nice, universal)
+	go executor.Execute("", testsToRun, parallel, opts.failFast, fuzzDur, limits.CPUQuota, limits.MemoryLimit, limits.Nice, universal, opts.host)
 
 	passed := 0
 	failed := 0
@@ -374,7 +383,7 @@ func flagSet(fs *flag.FlagSet, name string) bool {
 // Default is a dry run: it prints what it would run and stops, so the selection
 // is visible before anything costs time. --run executes it, --full widens the
 // selection from "what this diff can reach" to every check.
-func runCheck(full, run bool) {
+func runCheck(full, run, host bool) {
 	root, err := findRepoRoot()
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -429,7 +438,7 @@ func runCheck(full, run bool) {
 	}
 	fmt.Println()
 
-	runTests(ids, runOpts{fuzzDuration: "5m", parallel: 4})
+	runTests(ids, runOpts{fuzzDuration: "5m", parallel: 4, host: host})
 }
 
 // changedPaths returns the repo-relative paths of everything not committed,

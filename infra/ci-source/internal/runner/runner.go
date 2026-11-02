@@ -42,6 +42,7 @@ type Runner struct {
 	containersMu      sync.RWMutex
 	skippedTests      map[string]bool
 	skippedMu         sync.RWMutex
+	hostMode          bool // set from RunOptions.Host for the length of a run
 }
 
 type OutputLine struct {
@@ -73,6 +74,11 @@ type RunOptions struct {
 	// Parallelism shared slots, so concurrent ci runs together stay in bounds.
 	// Otherwise the limits cover this run alone.
 	Universal bool
+	// Host runs every test on the host instead of in its container. It is
+	// much faster (no image pull, no mount, no container start) and is meant
+	// for the inner loop; it gives up the pinned toolchain, so it is opt-in
+	// and never the default. A test that already needs the host is unaffected.
+	Host bool
 }
 
 func NewRunner(cfg *config.Config) (*Runner, error) {
@@ -176,6 +182,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) *RunSummary {
 	r.cpuQuota = opts.CPUQuota
 	r.memoryLimit = opts.MemoryLimit
 	r.nice = opts.Nice
+	r.hostMode = opts.Host
 
 	// The limits cover the whole run (or the whole machine, when universal), so
 	// each job gets an equal share. Never plan for more jobs than the CPU budget
@@ -202,7 +209,11 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) *RunSummary {
 	// profile into one cachable pass per module, and gives every node test
 	// workdir one warmed npm install instead of a cold install per test.
 	// Warms run in parallel, bounded by the same job slots as the tests.
-	r.warmCaches(ctx, testList)
+	// Host mode runs everything directly, so there is nothing to warm: the
+	// caches it would populate are the container-side ones.
+	if !r.hostMode {
+		r.warmCaches(ctx, testList)
+	}
 
 	summary := &RunSummary{
 		StartTime: time.Now(),
@@ -346,6 +357,35 @@ func (r *Runner) throttleHostCmd(cmd *exec.Cmd) (warning string) {
 // for tests whose Container is the sentinel "host". Used by podman-build,
 // which needs the host podman binary and can't reach a mounted socket under
 // SELinux. Output is captured (not streamed live) and replayed on completion.
+// hostCommand rewrites the container paths a test command names (/cache) to
+// the runner's real cache dir, for host execution. Without this, a lint that
+// writes --cache-location /cache/... fails on the host.
+func (r *Runner) hostCommand(command string) string {
+	cacheDir := filepath.Join(r.repoPath, ".cache")
+	return strings.ReplaceAll(command, "/cache/", cacheDir+"/")
+}
+
+// hostEnv rewrites a test's container-path env vars for host execution.
+func (r *Runner) hostEnv(env []string) []string {
+	cacheDir := filepath.Join(r.repoPath, ".cache")
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		key, val, ok := strings.Cut(kv, "=")
+		if !ok {
+			out = append(out, kv)
+			continue
+		}
+		if strings.HasPrefix(val, "/cache") {
+			val = cacheDir + strings.TrimPrefix(val, "/cache")
+		}
+		if strings.HasPrefix(val, "/repo") {
+			val = r.repoPath + strings.TrimPrefix(val, "/repo")
+		}
+		out = append(out, key+"="+val)
+	}
+	return out
+}
+
 func (r *Runner) runHostTest(ctx context.Context, t *tests.Test) *tests.TestResult {
 	result := &tests.TestResult{
 		TestID:    t.ID,
@@ -363,7 +403,7 @@ func (r *Runner) runHostTest(ctx context.Context, t *tests.Test) *tests.TestResu
 		defer cancel()
 	}
 
-	guarded := hostCommand(t.Command, r.lifeline.hostPath())
+	guarded := hostCommand(r.hostCommand(t.Command), r.lifeline.hostPath())
 	cmd := exec.CommandContext(testCtx, guarded[0], guarded[1:]...)
 	// Its own process group, so a timeout or a dead ci stops everything the
 	// test started, not just the shell.
@@ -379,7 +419,10 @@ func (r *Runner) runHostTest(ctx context.Context, t *tests.Test) *tests.TestResu
 			cmd.Dir = filepath.Join(r.repoPath, t.WorkDir)
 		}
 	}
-	cmd.Env = append(os.Environ(), t.Env...)
+	// Tests declare container paths (/cache, /repo). On the host those are the
+	// runner's real cache dir and the checkout, so rewrite them; otherwise a
+	// Go test dies with "could not create module cache: mkdir /cache".
+	cmd.Env = append(os.Environ(), r.hostEnv(t.Env)...)
 	if warning := r.throttleHostCmd(cmd); warning != "" {
 		r.outputChan <- OutputLine{TestID: t.ID, Type: OutputStatus, Line: warning}
 	}
@@ -428,7 +471,8 @@ func (r *Runner) runTest(ctx context.Context, t *tests.Test, fuzzDuration time.D
 	// "host" container = run the command directly on the host (no container).
 	// Used for tests like podman-build that need host-level tools (podman) and
 	// can't usefully run inside a container (e.g. SELinux blocks socket mounts).
-	if t.Container == tests.ContainerHost {
+	// RunOptions.Host extends that to every test for a fast inner loop.
+	if t.Container == tests.ContainerHost || r.hostMode {
 		return r.runHostTest(ctx, t)
 	}
 
