@@ -61,24 +61,27 @@ async fn search(
     let busy = || {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna's index is busy. Try again.",
+            "Luna could not search every drive. Try again.",
         )
     };
 
     let work_state = state.clone();
     let work_user = user.clone();
-    let (hits, truncated) = tokio::task::spawn_blocking(move || {
+    let (hits, truncated, incomplete) = tokio::task::spawn_blocking(move || {
         let parsed = NameQuery::new(&raw);
         if parsed.is_empty() {
-            return Ok((Vec::new(), false));
+            return Ok((Vec::new(), false, false));
         }
         let drives = {
             let conn = work_state.db.lock().map_err(|_| ())?;
             indexable_drives(&conn, false)
         };
-        let candidates = search_all(&drives, &parsed, kind);
+        let (candidates, incomplete) = search_all(&drives, &parsed, kind).map_err(|e| {
+            tracing::warn!(error = %e, "search failed");
+        })?;
         let conn = work_state.db.lock().map_err(|_| ())?;
-        Ok::<_, ()>(visible_hits(&conn, &work_user, candidates, limit))
+        let (hits, truncated) = visible_hits(&conn, &work_user, candidates, limit);
+        Ok::<_, ()>((hits, truncated, incomplete))
     })
     .await
     .map_err(|_| busy())?
@@ -92,6 +95,7 @@ async fn search(
         "close_only": close_only,
         // More visible matches exist than `limit` returned.
         "truncated": truncated,
+        "incomplete": incomplete,
         "scan": {
             "scanning": status.scanning,
             "drives_total": status.drives_total,
@@ -134,13 +138,8 @@ fn visible_hits(
     candidates: Vec<Candidate>,
     limit: usize,
 ) -> (Vec<Value>, bool) {
-    let admin = user.role == "admin";
-    // One grants lookup for the whole pass, not one per candidate.
-    let grants = if admin {
-        Vec::new()
-    } else {
-        crate::db::list_access_members_for_user(conn, &user.id).unwrap_or_default()
-    };
+    // Admins also need explicit grants inside another user's private folder.
+    let grants = crate::db::list_access_members_for_user(conn, &user.id).unwrap_or_default();
     // One lookup per drive for the whole pass, not one per candidate.
     let mut mounts: HashMap<String, Option<String>> = HashMap::new();
     let mut roots: HashMap<String, Option<PathBuf>> = HashMap::new();
@@ -476,6 +475,106 @@ mod tests {
         let (got, truncated) = visible_hits(&conn, &admin, ranked, 3);
         assert_eq!(got.len(), 3);
         assert!(!truncated);
+    }
+
+    #[test]
+    fn member_finds_granted_match_beyond_old_candidate_limits() {
+        use crate::files::search::{DriveRef, KindFilter, search_all};
+        use crate::files::search_rank::Query;
+        let (dir, conn, member) = member_setup();
+        let root = dir.path().join("drive");
+        std::fs::create_dir(&root).unwrap();
+        let prefix = luna_core::marker::pick_prefix(&root).unwrap();
+        let drive = crate::drives::drive_db::create(
+            &root,
+            &luna_core::marker::Marker::new("d1", "D"),
+            &prefix,
+        )
+        .unwrap();
+        // Insert the inaccessible matches first, so the granted row crosses
+        // both the old 300-candidate and 1500-row cutoffs.
+        for i in 0..1601 {
+            let parent = if i == 1600 { "shared" } else { "hidden-area" };
+            drive.execute("INSERT INTO index_entries (drive_id,parent,name,kind,size,modified,hidden) VALUES ('d1',?1,?2,'file',1,1,0)", rusqlite::params![parent, format!("budget {i:04}.txt")]).unwrap();
+        }
+        drop(drive);
+        crate::db::insert_access_member(
+            &conn,
+            &crate::db::AccessMemberRow {
+                id: "g1".into(),
+                subject_kind: crate::access::KIND_PATH.into(),
+                drive_id: "d1".into(),
+                path: "shared".into(),
+                album_id: String::new(),
+                user_id: "u1".into(),
+                caps: crate::access::CAP_VIEW,
+                created_by: "a".into(),
+            },
+        )
+        .unwrap();
+        let drives = [DriveRef {
+            id: "d1".into(),
+            mount: root,
+        }];
+        let (candidates, incomplete) =
+            search_all(&drives, &Query::new("budget"), KindFilter::All).unwrap();
+        let (hits, truncated) = visible_hits(&conn, &member, candidates, 60);
+        assert!(!incomplete);
+        assert!(!truncated);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0]["path"], "shared/budget 1600.txt");
+    }
+
+    #[test]
+    fn admin_sees_only_private_items_they_are_granted() {
+        let (dir, conn, _) = member_setup();
+        let root = dir.path().join("drive");
+        std::fs::create_dir(&root).unwrap();
+        let prefix = luna_core::marker::pick_prefix(&root).unwrap();
+        crate::drives::drive_db::create(&root, &luna_core::marker::Marker::new("d1", "D"), &prefix)
+            .unwrap();
+        crate::db::upsert_drive(
+            &conn,
+            "d1",
+            "D",
+            "as_is",
+            "ext4",
+            "d1",
+            root.to_str().unwrap(),
+        )
+        .unwrap();
+        crate::db::insert_user(&conn, "owner", "owner", "owner", "unused", "user").unwrap();
+        crate::db::insert_user(&conn, "a", "admin", "admin", "unused", "admin").unwrap();
+        std::fs::create_dir(root.join("Private")).unwrap();
+        crate::private::privatize(&root, "Private", "owner").unwrap();
+        let admin = crate::auth::CurrentUser {
+            id: "a".into(),
+            username: "admin".into(),
+            role: "admin".into(),
+        };
+        let hits = vec![candidate(
+            "d1",
+            "Private",
+            "notes.txt",
+            "file",
+            Tier::Prefix,
+        )];
+        assert!(visible_hits(&conn, &admin, hits.clone(), 10).0.is_empty());
+        crate::db::insert_access_member(
+            &conn,
+            &crate::db::AccessMemberRow {
+                id: "g1".into(),
+                subject_kind: crate::access::KIND_PATH.into(),
+                drive_id: "d1".into(),
+                path: "Private/notes.txt".into(),
+                album_id: String::new(),
+                user_id: "a".into(),
+                caps: crate::access::CAP_VIEW,
+                created_by: "owner".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(visible_hits(&conn, &admin, hits, 10).0.len(), 1);
     }
 
     #[test]

@@ -419,6 +419,7 @@ export default [
   // ── Search ────────────────────────────────────────────────────────────────
   {
     id: "files/search-results", area: A, title: "Search finds a few files", url: "/files",
+    seed: (w) => { demo(w); },
     check: ["Press / or use the search button, type: notes", "Matching letters are underlined", "Each hit shows where it lives", "Enter opens the folder with the file highlighted"],
   },
   {

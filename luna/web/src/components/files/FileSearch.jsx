@@ -29,6 +29,7 @@ import {
 } from "../../lib/fileSearch.js";
 import { apiErrorMessage, deleteJson, getDrives, getJson } from "../../lib/api";
 import { parentPath, pathBasename } from "../../lib/paths";
+import { isImageFile } from "../../lib/fileKinds.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { useFileOps } from "../../context/FileOpsContext.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
@@ -163,6 +164,12 @@ export default function FileSearch() {
 
   const trimmed = typed.trim();
   const search = useFileSearch(trimmed, { enabled: present && !isClosing, kind });
+
+  const groups = [
+    { label: "Folders", hits: search.hits.filter((hit) => hit.kind === "dir") },
+    { label: "Files", hits: search.hits.filter((hit) => hit.kind !== "dir" && !isImageFile(hit.name)) },
+    { label: "Photos", hits: search.hits.filter((hit) => hit.kind !== "dir" && isImageFile(hit.name)) },
+  ].filter((group) => group.hits.length > 0);
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives, enabled: present });
   const labels = Object.fromEntries((drives.data || []).map((d) => [d.id, d.label]));
@@ -559,7 +566,13 @@ export default function FileSearch() {
 
               {search.isLoading && <SearchSkeleton />}
 
-              {search.active && !search.isLoading && !search.isError && search.hits.length === 0 && (
+              {search.incomplete && !search.isError && (
+                <PageNotice variant="warning" className="mb-3">
+                  Luna could not check every match. Type more of the name to narrow your search.
+                </PageNotice>
+              )}
+
+              {search.active && !search.isLoading && !search.isError && !search.incomplete && search.hits.length === 0 && (
                 search.scan?.scanning ? (
                   <EmptyState
                     className="mt-1"
@@ -593,28 +606,32 @@ export default function FileSearch() {
                     className="grid grid-cols-[minmax(0,1fr)] gap-2"
                     onKeyDown={handleListKeyDown}
                   >
-                    {search.hits.map((item, index) => (
-                      <Fragment key={`${item.drive_id}:${item.path}`}>
-                        {!search.closeOnly && item.match === "close" && search.hits[index - 1]?.match !== "close" && (
-                          <li
-                            role="presentation"
-                            className="file-search-row-enter px-1 pt-2 text-xs font-mono text-primary"
-                          >
-                            Similar names
-                          </li>
-                        )}
-                        <FileSearchRow
-                          item={item}
-                          query={search.q}
-                          driveLabel={labels[item.drive_id] || "A drive"}
-                          isAdmin={user?.role === "admin"}
-                          memberAccess={memberAccess.data}
-                          index={index}
-                          onNavigate={beginClose}
-                          onShare={shareHit}
-                          onCopy={copyHit}
-                          onTrash={trashHit}
-                        />
+                    {groups.map((group) => (
+                      <Fragment key={group.label}>
+                        <li role="presentation" className="px-1 pt-2 text-xs font-mono text-primary">
+                          {group.label}
+                        </li>
+                        {group.hits.map((item, index) => (
+                          <Fragment key={`${item.drive_id}:${item.path}`}>
+                            {!search.closeOnly && item.match === "close" && group.hits[index - 1]?.match !== "close" && (
+                              <li role="presentation" className="file-search-row-enter px-1 pt-2 text-xs font-mono text-primary">
+                                Similar names
+                              </li>
+                            )}
+                            <FileSearchRow
+                              item={item}
+                              query={search.q}
+                              driveLabel={labels[item.drive_id] || "A drive"}
+                              isAdmin={user?.role === "admin"}
+                              memberAccess={memberAccess.data}
+                              index={index}
+                              onNavigate={beginClose}
+                              onShare={shareHit}
+                              onCopy={copyHit}
+                              onTrash={trashHit}
+                            />
+                          </Fragment>
+                        ))}
                       </Fragment>
                     ))}
                   </ul>

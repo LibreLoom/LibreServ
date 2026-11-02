@@ -87,41 +87,41 @@ pub struct Candidate {
     pub rank: Rank,
 }
 
-/// Fewer exact matches than this on a drive and the close-match step runs.
-const CLOSE_BELOW: usize = 20;
 /// Most rows the index returns to the ranker per step.
-const CANDIDATE_LIMIT: i64 = 1500;
-/// Most ranked candidates kept per drive.
-const PER_DRIVE: usize = 300;
+const PAGE_SIZE: i64 = 256;
+/// Maximum rows examined per search step and drive. If exceeded the caller
+/// must say the answer may be incomplete, including when no visible hit exists.
+const ROW_BUDGET: i64 = 8192;
 
 /// Search every drive at once; candidates come back best first.
-pub fn search_all(drives: &[DriveRef], query: &Query, kind: KindFilter) -> Vec<Candidate> {
-    let mut all: Vec<Candidate> = std::thread::scope(|scope| {
+pub fn search_all(
+    drives: &[DriveRef],
+    query: &Query,
+    kind: KindFilter,
+) -> anyhow::Result<(Vec<Candidate>, bool)> {
+    let (mut all, incomplete) = std::thread::scope(|scope| {
         let handles: Vec<_> = drives
             .iter()
             .map(|drive| {
                 scope.spawn(move || {
-                    let conn = match crate::drives::drive_db::open(&drive.mount) {
-                        Ok(conn) => conn,
-                        Err(e) => {
-                            tracing::warn!(drive = %drive.id, error = %e, "search skipped a drive");
-                            return Vec::new();
-                        }
-                    };
-                    search_drive(&conn, &drive.id, query, kind).unwrap_or_else(|e| {
-                        tracing::warn!(drive = %drive.id, error = %e, "search failed on a drive");
-                        Vec::new()
-                    })
+                    let conn = crate::drives::drive_db::open(&drive.mount)?;
+                    search_drive_bounded(&conn, &drive.id, query, kind)
                 })
             })
             .collect();
-        handles
-            .into_iter()
-            .flat_map(|h| h.join().unwrap_or_default())
-            .collect()
-    });
+        let mut all = Vec::new();
+        let mut incomplete = false;
+        for handle in handles {
+            let (hits, limited) = handle
+                .join()
+                .map_err(|_| anyhow::anyhow!("search worker failed"))??;
+            all.extend(hits);
+            incomplete |= limited;
+        }
+        Ok::<_, anyhow::Error>((all, incomplete))
+    })?;
     sort_candidates(&mut all);
-    all
+    Ok((all, incomplete))
 }
 
 fn sort_candidates(all: &mut [Candidate]) {
@@ -142,112 +142,109 @@ pub fn search_drive(
     query: &Query,
     kind: KindFilter,
 ) -> anyhow::Result<Vec<Candidate>> {
-    let mut seen: HashSet<(String, String)> = HashSet::new();
-    let mut out: Vec<Candidate> = Vec::new();
-
-    let mut take = |rows: Vec<SearchHit>, out: &mut Vec<Candidate>| {
-        for hit in rows {
-            if !seen.insert((hit.parent.clone(), hit.name.clone())) {
-                continue;
-            }
-            if let Some(rank) = search_rank::rank(query, &hit.name, hit.kind == "dir") {
-                out.push(Candidate { hit, rank });
-            }
-        }
-    };
-
-    let exact_rows = match search_rank::fts_match(query, true) {
-        Some(m) => fts_rows(conn, drive_id, &m, kind)?,
-        // Every word is under 3 letters, which the index can't look up:
-        // fall back to names that start with what was typed.
-        None => prefix_rows(conn, drive_id, query, kind)?,
-    };
-    let saturated = exact_rows.len() as i64 >= CANDIDATE_LIMIT;
-    take(exact_rows, &mut out);
-    if saturated {
-        // A common query can fill the limit with weaker matches; names that
-        // start with what was typed must still make it to the ranker.
-        take(prefix_rows(conn, drive_id, query, kind)?, &mut out);
-    }
-
-    if out.len() < CLOSE_BELOW
-        && let Some(m) = search_rank::fts_match(query, false)
-    {
-        take(fts_rows(conn, drive_id, &m, kind)?, &mut out);
-    }
-
-    out.sort_by(|a, b| a.rank.cmp(&b.rank));
-    out.truncate(PER_DRIVE);
-    Ok(out)
+    Ok(search_drive_bounded(conn, drive_id, query, kind)?.0)
 }
 
-fn fts_rows(
-    conn: &Connection,
-    drive_id: &str,
-    match_expr: &str,
-    kind: KindFilter,
-) -> anyhow::Result<Vec<SearchHit>> {
-    let sql = format!(
-        "SELECT index_entries.parent, index_entries.name, index_entries.kind,
-                index_entries.size, index_entries.modified
-         FROM index_fts
-         JOIN index_entries ON index_entries.rowid = index_fts.rowid
-         WHERE index_fts MATCH ?1
-           AND index_entries.hidden = 0
-           AND index_entries.drive_id = ?2
-           {}
-         ORDER BY bm25(index_fts)
-         LIMIT ?3",
-        kind.clause()
-    );
-    let mut stmt = conn.prepare_cached(&sql)?;
-    let rows = stmt
-        .query_map(params![match_expr, drive_id, CANDIDATE_LIMIT], |row| {
-            row_hit(drive_id, row)
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(rows)
-}
-
-fn prefix_rows(
+/// Each lookup reads stable rowid-ordered pages under a fixed per-drive budget.
+/// Ranking happens after collection; exhausting a budget means neither the
+/// order nor the existence of omitted visible matches is known.
+fn search_drive_bounded(
     conn: &Connection,
     drive_id: &str,
     query: &Query,
     kind: KindFilter,
-) -> anyhow::Result<Vec<SearchHit>> {
+) -> anyhow::Result<(Vec<Candidate>, bool)> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    let mut incomplete = false;
+    let exact = search_rank::fts_match(query, true);
+    {
+        let mut take = |expr: Option<&str>| -> anyhow::Result<()> {
+            let mut after = 0_i64;
+            let mut examined = 0_i64;
+            loop {
+                // One extra row distinguishes an exactly full budget from overflow.
+                let size = PAGE_SIZE.min(ROW_BUDGET + 1 - examined);
+                let rows = candidate_page(conn, drive_id, query, kind, expr, after, size)?;
+                if rows.is_empty() {
+                    break;
+                }
+                let count = rows.len() as i64;
+                for (rowid, hit) in rows {
+                    if examined == ROW_BUDGET {
+                        incomplete = true;
+                        return Ok(());
+                    }
+                    examined += 1;
+                    after = rowid;
+                    if seen.insert((hit.parent.clone(), hit.name.clone()))
+                        && let Some(rank) = search_rank::rank(query, &hit.name, hit.kind == "dir")
+                    {
+                        out.push(Candidate { hit, rank });
+                    }
+                }
+                if count < size {
+                    break;
+                }
+            }
+            Ok(())
+        };
+        take(exact.as_deref())?;
+        // Close matching must not depend on the number of inaccessible names.
+        if let Some(close) = search_rank::fts_match(query, false) {
+            take(Some(&close))?;
+        }
+    }
+    out.sort_by(|a, b| a.rank.cmp(&b.rank));
+    Ok((out, incomplete))
+}
+
+fn candidate_page(
+    conn: &Connection,
+    drive_id: &str,
+    query: &Query,
+    kind: KindFilter,
+    expr: Option<&str>,
+    after: i64,
+    limit: i64,
+) -> anyhow::Result<Vec<(i64, SearchHit)>> {
     let escaped = query
         .norm
         .replace('\\', "\\\\")
         .replace('%', "\\%")
         .replace('_', "\\_");
     let pattern = format!("{escaped}%");
-    let sql = format!(
-        "SELECT parent, name, kind, size, modified
-         FROM index_entries
-         WHERE hidden = 0 AND drive_id = ?2 AND name LIKE ?1 ESCAPE '\\'
-           {}
-         ORDER BY name COLLATE NOCASE
-         LIMIT ?3",
-        kind.clause().replace("index_entries.", "")
-    );
+    let sql = if expr.is_some() {
+        format!(
+            "SELECT index_entries.rowid, index_entries.parent, index_entries.name, index_entries.kind, index_entries.size, index_entries.modified FROM index_fts JOIN index_entries ON index_entries.rowid = index_fts.rowid WHERE index_fts MATCH ?1 AND index_entries.hidden = 0 AND index_entries.drive_id = ?2 AND index_entries.rowid > ?3 {} ORDER BY index_entries.rowid LIMIT ?4",
+            kind.clause()
+        )
+    } else {
+        format!(
+            "SELECT index_entries.rowid, index_entries.parent, index_entries.name, index_entries.kind, index_entries.size, index_entries.modified FROM index_entries WHERE index_entries.name LIKE ?1 ESCAPE '\\' AND index_entries.hidden = 0 AND index_entries.drive_id = ?2 AND index_entries.rowid > ?3 {} ORDER BY index_entries.rowid LIMIT ?4",
+            kind.clause()
+        )
+    };
     let mut stmt = conn.prepare_cached(&sql)?;
     let rows = stmt
-        .query_map(params![pattern, drive_id, CANDIDATE_LIMIT], |row| {
-            row_hit(drive_id, row)
-        })?
+        .query_map(
+            params![expr.unwrap_or(&pattern), drive_id, after, limit],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    SearchHit {
+                        drive_id: drive_id.into(),
+                        parent: row.get(1)?,
+                        name: row.get(2)?,
+                        kind: row.get(3)?,
+                        size: row.get(4)?,
+                        modified: row.get(5)?,
+                    },
+                ))
+            },
+        )?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
-}
-
-fn row_hit(drive_id: &str, row: &rusqlite::Row<'_>) -> rusqlite::Result<SearchHit> {
-    Ok(SearchHit {
-        drive_id: drive_id.to_string(),
-        parent: row.get(0)?,
-        name: row.get(1)?,
-        kind: row.get(2)?,
-        size: row.get(3)?,
-        modified: row.get(4)?,
-    })
 }
 
 #[cfg(test)]
@@ -461,6 +458,28 @@ mod tests {
     }
 
     #[test]
+    fn work_budget_reports_incomplete_even_when_matches_are_omitted() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = drive_conn(dir.path());
+        for i in 0..=ROW_BUDGET {
+            conn.execute("INSERT INTO index_entries (drive_id,parent,name,kind,size,modified,hidden) VALUES ('d1','',?1,'file',1,1,0)", params![format!("budget {i:05}.txt")]).unwrap();
+        }
+        let (_, incomplete) =
+            search_drive_bounded(&conn, "d1", &Query::new("budget"), KindFilter::All).unwrap();
+        assert!(incomplete);
+    }
+
+    #[test]
+    fn search_all_reports_an_unreadable_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let drives = [DriveRef {
+            id: "missing".into(),
+            mount: dir.path().join("missing"),
+        }];
+        assert!(search_all(&drives, &Query::new("budget"), KindFilter::All).is_err());
+    }
+
+    #[test]
     fn search_all_merges_drives_in_rank_order() {
         let dir = tempfile::tempdir().unwrap();
         let a = dir.path().join("a");
@@ -501,7 +520,7 @@ mod tests {
                 mount: b,
             },
         ];
-        let got = search_all(&drives, &Query::new("budget"), KindFilter::All);
+        let (got, _) = search_all(&drives, &Query::new("budget"), KindFilter::All).unwrap();
         let order: Vec<(&str, &str)> = got
             .iter()
             .map(|c| (c.hit.drive_id.as_str(), c.hit.name.as_str()))
