@@ -205,6 +205,9 @@ export default function Gallery() {
           />
           <Button variant="outline" surface="primary" size="sm" onClick={() => setFrameKey((k) => k + 1)}>Reload (fresh data)</Button>
           <a className="text-sm underline" href={frameSrc} target="_blank" rel="noreferrer">Open on its own</a>
+          <a className="text-sm underline" href="/__playground" target="_blank" rel="noreferrer">
+            File card playground
+          </a>
         </div>
         <form onSubmit={goToPath} className="flex items-center gap-2">
           <input

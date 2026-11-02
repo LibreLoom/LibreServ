@@ -28,6 +28,23 @@ cd luna/web && npm run dev          # then open http://localhost:3001/__states
   progress record). A problem also stores the faults and the last 15 requests.
 - Hot reload keeps working inside the frame, so fix → look → mark *Fixed, retest*.
 
+## Play with one component
+
+`/__playground` (linked from the gallery) is a bench for the **file operation
+card** alone. It mounts the real store and the real card against its own small
+fake lunad, with a page behind them and a knob for every way an operation can go
+wrong: drive full, offline, no permission, Luna busy, a retrying connection, a
+name already taken, a full job queue, a private folder, a file the browser can't
+read, and empty folders. Speed and theme are knobs too, so a 4 GB upload takes
+two seconds and the phone width is one window resize away.
+
+Under the buttons is a readout of the raw store state, so a wrong word on the
+card can be traced to the state that produced it. `fakeSource.test.js` drives
+that fake through the real store and asserts the state each knob promises, so a
+knob that stops working fails a test instead of quietly showing the wrong thing.
+
+It is a bench, not a scenario: nothing it does is recorded in `results.json`.
+
 ## Add scenarios
 
 Create `src/dev/scenarios/<area>.scenarios.js` (picked up automatically):
