@@ -279,6 +279,9 @@ get("/api/v1/drives", ({ world, user }) => world.drives
       // Device node and OS mount path are server plumbing.
       device: admin ? d.device : "", mount_point: admin ? (d.mount_point ?? `/mnt/${d.id}`) : "",
       mounted: d.mounted !== false && world.summaries[d.id]?.mounted !== false,
+      encrypted: Boolean(d.encrypted),
+      locked: Boolean(d.locked),
+      converting: Boolean(d.converting),
       writable: admin || hasWriteOnDrive(world, user, d.id),
       caps: capsToStr(capsOnPath(world, user, d.id, "")),
     };
@@ -334,7 +337,14 @@ post("/api/v1/drives/:name/adopt", ({ world, user, params, body }) => {
   const found = findDetected(world, params.name);
   world.detected = world.detected.filter((d) => d.name !== params.name);
   const id = nextId("d");
-  const row = { id, label, state: "as_is", device: params.name, fs_type: found.fs_type || "ext4", mount_point: `/mnt/${id}` };
+  const encrypted = Boolean(body.encrypted);
+  if (encrypted && !String(body.password ?? "").trim()) return fail(400, "Enter a password for this drive.");
+  const row = {
+    id, label, state: "as_is", device: params.name,
+    // An encrypted drive is always ext4 inside its container.
+    fs_type: encrypted ? "ext4" : (found.fs_type || "ext4"),
+    mount_point: `/mnt/${id}`, encrypted, locked: false, converting: false,
+  };
   world.drives.push(row);
   world.summaries[id] = summary(id, { shortcuts: [] });
   return { id, label, state: row.state, fs_type: row.fs_type, device: row.device, mount_point: row.mount_point, writable: true, caps: "full+share" };
@@ -359,6 +369,74 @@ get("/api/v1/drives/:id/health", ({ world, user, params }) => {
   if (!world.drives.some((d) => d.id === params.id)) return fail(404, "Luna doesn't know this drive.");
   return Object.hasOwn(world.health, params.id) ? world.health[params.id] : healthy();
 });
+// ── Encryption ──────────────────────────────────────────────────────────────
+// Unlocking is open to anyone who can read the drive; encrypting and
+// decrypting are Admin-only, matching the server.
+const findDrive = (world, id) => {
+  const d = world.drives.find((x) => x.id === id);
+  if (!d) throw fail(404, "Luna doesn't know this drive.");
+  return d;
+};
+
+get("/api/v1/drives/:id/encryption", ({ world, user, params }) => {
+  const d = findDrive(world, params.id);
+  if (!isAdmin(user) && !hasDriveAccess(world, user, d.id)) return fail(403, "You don't have access to this drive.");
+  const present = d.state !== "missing" && d.state !== "ejected";
+  // Only ext4 can be converted in place; the reason is what the page shows.
+  const canEncrypt = !d.encrypted && present && d.fs_type === "ext4";
+  return {
+    drive_id: d.id,
+    label: d.label,
+    encrypted: Boolean(d.encrypted),
+    unlocked: Boolean(d.encrypted) && !d.locked,
+    converting: Boolean(d.converting),
+    interrupted: Boolean(d.interrupted),
+    present,
+    fs_type: d.fs_type,
+    can_encrypt: canEncrypt,
+    cannot_encrypt_reason: canEncrypt || d.encrypted ? "" : "Luna can only encrypt ext4 drives in place. To encrypt this one, copy its files to a new encrypted drive.",
+  };
+});
+
+post("/api/v1/drives/:id/unlock", ({ world, user, params, body }) => {
+  const d = findDrive(world, params.id);
+  if (!isAdmin(user) && !hasDriveAccess(world, user, d.id)) return fail(403, "You don't have access to this drive.");
+  if (!d.encrypted) return fail(400, "This drive isn't encrypted, so it doesn't need a password.");
+  if (!String(body.password ?? "").length) return fail(401, "That password didn't work.");
+  d.locked = false;
+  d.interrupted = false;
+  return { ok: true };
+});
+
+post("/api/v1/drives/:id/lock", ({ world, user, params }) => {
+  const d = findDrive(world, params.id);
+  if (!isAdmin(user) && !hasDriveAccess(world, user, d.id)) return fail(403, "You don't have access to this drive.");
+  if (!d.encrypted) return fail(400, "This drive isn't encrypted, so there's nothing to lock.");
+  d.locked = true;
+  return { ok: true };
+});
+
+post("/api/v1/drives/:id/encrypt", ({ world, user, params, body }) => {
+  driveGate(user);
+  const d = findDrive(world, params.id);
+  if (d.encrypted) return fail(400, "This drive is already encrypted.");
+  if (d.fs_type !== "ext4") return fail(400, "Luna can only encrypt ext4 drives in place. To encrypt this one, copy its files to a new encrypted drive.");
+  if (!String(body.password ?? "").length) return fail(400, "Enter a password for this drive.");
+  d.encrypted = true;
+  d.locked = true;
+  return { ok: true, started: true };
+});
+
+post("/api/v1/drives/:id/decrypt", ({ world, user, params, body }) => {
+  driveGate(user);
+  const d = findDrive(world, params.id);
+  if (!d.encrypted) return fail(400, "This drive isn't encrypted, so there's nothing to decrypt.");
+  if (!String(body.password ?? "").length) return fail(401, "That password didn't work.");
+  d.encrypted = false;
+  d.locked = false;
+  return { ok: true, started: true };
+});
+
 get("/api/v1/drives/:id/summary", ({ world, user, params }) => {
   const id = params.id;
   if (!world.drives.some((d) => d.id === id)) return fail(404, "Luna doesn't know this drive.");

@@ -79,6 +79,11 @@ assert_file_has "$BUILD" 'ip link set lo up' "luna-network-up must ensure lo int
 assert_file_has "$BUILD" 'for svc in devfs dmesg mdev hwdrivers fsck root localmount;' \
 	"sysinit must enable Alpine hwdrivers coldplug and mount fstab before boot"
 assert_file_has "$BUILD" 'modules-load.d/luna-input.conf' "rootfs must ship keyboard module list"
+assert_file_has "$BUILD" 'modules-load.d/luna-crypt.conf' \
+	"rootfs must load device-mapper modules or encrypted drives cannot be unlocked"
+assert_file_has "$BUILD" 'dm-crypt' "rootfs must load dm-crypt for encrypted drives"
+assert_file_has "$BUILD" 'cryptsetup' "rootfs must ship cryptsetup to open encrypted drives"
+assert_file_has "$BUILD" 'resize2fs' "rootfs must ship resize2fs to convert drives in place"
 assert_file_has "$BUILD" 'luna-input-up' "rootfs must ship keyboard / HID bring-up script"
 assert_file_has "$BUILD" 'usbhid' "rootfs must load usbhid for USB keyboards"
 assert_file_has "$BUILD" 'hid-generic' "rootfs must load hid-generic"

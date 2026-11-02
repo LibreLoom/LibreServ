@@ -54,6 +54,10 @@ export function drive(over = {}) {
     device: `sd${id}`,
     fs_type: "exfat",
     mounted: true,
+    // Encryption is off for every drive until someone turns it on.
+    encrypted: false,
+    locked: false,
+    converting: false,
     ...over,
   };
 }

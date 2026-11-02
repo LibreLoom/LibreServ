@@ -112,6 +112,15 @@ pub fn is_esp_like(info: &FsInfo) -> bool {
     fat && info.size_bytes > 0 && info.size_bytes < 64 * 1024 * 1024
 }
 
+/// A LUKS container is a candidate drive, not an unreadable one. It is
+/// deliberately excluded from [`is_writable_type`]: there is no filesystem to
+/// mount until the container is opened, so treating it as a filesystem would
+/// make `peek` try to mount it read-only and report "Can't open" for a
+/// perfectly good encrypted drive.
+pub fn is_luks_type(fs: &str) -> bool {
+    crate::drives::luks::is_luks_type(fs)
+}
+
 /// Prefer a real data partition over the whole-disk ISO9660 view of an isohybrid USB.
 pub fn pick_mount_source(disk: &str, parts: &[FsInfo]) -> MountChoice {
     let data: Vec<&FsInfo> = parts
@@ -122,6 +131,19 @@ pub fn pick_mount_source(disk: &str, parts: &[FsInfo]) -> MountChoice {
         return MountChoice {
             name: best.name.clone(),
             fs_type: best.fs_type.clone(),
+            needs_erase: false,
+        };
+    }
+    // An encrypted drive: nothing to mount, but nothing to erase either. It is
+    // the largest such partition that matters, matching the data-partition rule.
+    if let Some(luks) = parts
+        .iter()
+        .filter(|p| is_luks_type(&p.fs_type) && !is_esp_like(p))
+        .max_by_key(|p| p.size_bytes)
+    {
+        return MountChoice {
+            name: luks.name.clone(),
+            fs_type: luks.fs_type.clone(),
             needs_erase: false,
         };
     }

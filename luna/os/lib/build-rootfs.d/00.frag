@@ -48,6 +48,7 @@ apk add --root "$ROOTFS" --initdb --keys-dir /etc/apk/keys --arch "$ARCH" $APK_C
     linux-firmware-none linux-firmware-rtl_nic linux-firmware-e100 \
     avahi acpid \
     e2fsprogs e2fsprogs-extra exfatprogs \
+    cryptsetup device-mapper \
     smartmontools syslinux util-linux \
     grub \
     dhcpcd ca-certificates ssl_client pciutils curl \
@@ -59,8 +60,10 @@ for _p in alpine-base openrc linux-lts grub chrony ffmpeg; do
 done
 # Every helper program lunad shells out to must be in the image. An OS update
 # needs tune2fs and e2label (Alpine ships them in e2fsprogs-extra); without them
-# the update fails after the new system is already written.
-for _b in acpid tune2fs e2label e2fsck grub-editenv mkfs.exfat wipefs sfdisk partprobe blkid blockdev smartctl ffmpeg ffprobe heif-dec curl timeout logrotate findmnt; do
+# the update fails after the new system is already written. cryptsetup,
+# resize2fs and mkfs.ext4 are what encrypted drives are built and converted
+# with — a Luna without them cannot unlock a drive it already owns.
+for _b in acpid tune2fs e2label e2fsck grub-editenv mkfs.exfat wipefs sfdisk partprobe blkid blockdev smartctl ffmpeg ffprobe heif-dec curl timeout logrotate findmnt cryptsetup resize2fs mkfs.ext4 dumpe2fs; do
     _have=0
     for _d in sbin usr/sbin bin usr/bin; do
         if [ -e "$ROOTFS/$_d/$_b" ] || [ -L "$ROOTFS/$_d/$_b" ]; then _have=1; break; fi

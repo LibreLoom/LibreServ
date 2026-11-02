@@ -251,6 +251,13 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
     )?;
     // Thin upgrade path for boxes that already had an older CREATE.
     ensure_column(&conn, "drives", "mount_point", "TEXT NOT NULL DEFAULT ''")?;
+    // Encryption. `encrypted` is a property of the drive on disk; `locked` is
+    // whether its container is open right now, which is false after every boot
+    // because the key only ever lived in the kernel. `converting` marks a drive
+    // held exclusively by an in-place conversion.
+    ensure_column(&conn, "drives", "encrypted", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(&conn, "drives", "locked", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(&conn, "drives", "converting", "INTEGER NOT NULL DEFAULT 0")?;
     // Legacy eMMC photos table (pre on-drive .lunagallery) — drop if present.
     let _ = conn.execute_batch("DROP TABLE IF EXISTS photos;");
     ensure_column(
@@ -336,6 +343,48 @@ pub struct DriveRow {
     pub fs_type: String,
     pub device: String,
     pub mount_point: String,
+    /// The drive on disk is a LUKS2 container. A property of the drive, not of
+    /// the session: it stays true while the drive is locked.
+    pub encrypted: bool,
+    /// The container is not open, so there is nothing mounted and no files can
+    /// be read. False after every boot — the key only ever lived in the kernel.
+    pub locked: bool,
+    /// An in-place conversion holds this drive exclusively.
+    pub converting: bool,
+}
+
+impl DriveRow {
+    /// The drive is present and healthy, but its container is not open.
+    pub fn is_locked(&self) -> bool {
+        self.encrypted && self.locked
+    }
+
+    /// Files can be read right now: present, mounted, not locked, and not
+    /// mid-conversion.
+    pub fn is_readable(&self) -> bool {
+        !self.mount_point.is_empty()
+            && self.state != "missing"
+            && self.state != "ejected"
+            && !self.locked
+            && !self.converting
+    }
+}
+
+const DRIVE_COLS: &str =
+    "id, label, state, fs_type, device, mount_point, encrypted, locked, converting";
+
+fn drive_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DriveRow> {
+    Ok(DriveRow {
+        id: row.get(0)?,
+        label: row.get(1)?,
+        state: row.get(2)?,
+        fs_type: row.get(3)?,
+        device: row.get(4)?,
+        mount_point: row.get(5)?,
+        encrypted: row.get::<_, i64>(6)? != 0,
+        locked: row.get::<_, i64>(7)? != 0,
+        converting: row.get::<_, i64>(8)? != 0,
+    })
 }
 
 pub fn now_unix() -> i64 {
@@ -362,36 +411,17 @@ fn ensure_column(conn: &Connection, table: &str, column: &str, decl: &str) -> an
 }
 
 pub fn list_drives(conn: &Connection) -> anyhow::Result<Vec<DriveRow>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT id, label, state, fs_type, device, mount_point FROM drives ORDER BY label, id",
-    )?;
-    let rows = stmt.query_map([], |row| {
-        Ok(DriveRow {
-            id: row.get(0)?,
-            label: row.get(1)?,
-            state: row.get(2)?,
-            fs_type: row.get(3)?,
-            device: row.get(4)?,
-            mount_point: row.get(5)?,
-        })
-    })?;
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT {DRIVE_COLS} FROM drives ORDER BY label, id"
+    ))?;
+    let rows = stmt.query_map([], drive_from_row)?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
 pub fn get_drive(conn: &Connection, id: &str) -> anyhow::Result<Option<DriveRow>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT id, label, state, fs_type, device, mount_point FROM drives WHERE id = ?1",
-    )?;
-    let mut rows = stmt.query_map(params![id], |row| {
-        Ok(DriveRow {
-            id: row.get(0)?,
-            label: row.get(1)?,
-            state: row.get(2)?,
-            fs_type: row.get(3)?,
-            device: row.get(4)?,
-            mount_point: row.get(5)?,
-        })
-    })?;
+    let mut stmt =
+        conn.prepare_cached(&format!("SELECT {DRIVE_COLS} FROM drives WHERE id = ?1"))?;
+    let mut rows = stmt.query_map(params![id], drive_from_row)?;
     Ok(rows.next().transpose()?)
 }
 
@@ -440,6 +470,42 @@ pub fn set_drive_state(conn: &Connection, id: &str, state: &str) -> anyhow::Resu
     conn.execute(
         "UPDATE drives SET state = ?2, updated_at = ?3 WHERE id = ?1",
         params![id, state, now_unix()],
+    )?;
+    Ok(())
+}
+
+/// Record whether the drive's container is open. Locking also clears the mount
+/// point: a locked drive has nothing mounted, and leaving a stale path behind
+/// would let a file operation reach an empty directory and blame the drive.
+pub fn set_drive_locked(conn: &Connection, id: &str, locked: bool) -> anyhow::Result<()> {
+    if locked {
+        conn.execute(
+            "UPDATE drives SET locked = 1, mount_point = '', updated_at = ?2 WHERE id = ?1",
+            params![id, now_unix()],
+        )?;
+    } else {
+        conn.execute(
+            "UPDATE drives SET locked = 0, updated_at = ?2 WHERE id = ?1",
+            params![id, now_unix()],
+        )?;
+    }
+    Ok(())
+}
+
+/// Mark a drive as encrypted (or not) and, for a fresh format, unlocked.
+pub fn set_drive_encrypted(conn: &Connection, id: &str, encrypted: bool) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE drives SET encrypted = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, if encrypted { 1 } else { 0 }, now_unix()],
+    )?;
+    Ok(())
+}
+
+/// Hold the drive exclusively for a conversion, or release it.
+pub fn set_drive_converting(conn: &Connection, id: &str, converting: bool) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE drives SET converting = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, if converting { 1 } else { 0 }, now_unix()],
     )?;
     Ok(())
 }

@@ -232,6 +232,20 @@ pwm-lpss
 pwm-lpss-pci
 MODS
 
+# Device-mapper and dm-crypt: without these, `cryptsetup luksOpen` on an
+# encrypted drive fails with "device-mapper: reload ioctl failed" on a cold
+# boot, so an encrypted drive could never be unlocked after a power-on.
+cat > "$ROOTFS/etc/modules-load.d/luna-crypt.conf" <<'MODS'
+# Order matters: dm-mod provides the mapper, dm-crypt the target, and the
+# cipher/IV modules are loaded on demand by the kernel once dm-crypt is up.
+dm-mod
+dm-crypt
+# aes-xts-plain64 lives here; loading it up front avoids a first-unlock stall.
+aes-x86_64
+xts
+sha256
+MODS
+
 cat > "$ROOTFS/usr/local/bin/luna-input-up" <<'INIT'
 #!/bin/sh
 set -eu

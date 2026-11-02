@@ -225,6 +225,13 @@ pub fn output_limited(cmd: &mut Command, timeout: Duration) -> io::Result<std::p
     collect(child, timeout)
 }
 
+/// Wait for an already-spawned child and collect its output. For callers that
+/// had to write to the child's stdin first — a passphrase handed to
+/// `cryptsetup` — where [`output`] would have closed the pipe underneath them.
+pub fn collect_output(child: Child, timeout: Duration) -> io::Result<std::process::Output> {
+    collect(child, timeout)
+}
+
 fn collect(mut child: Child, timeout: Duration) -> io::Result<std::process::Output> {
     let status = wait_timeout(&mut child, timeout)?;
     let mut stdout = Vec::new();

@@ -43,6 +43,7 @@ export const CASES = {
   "GET /api/v1/drives": plain("/api/v1/drives"),
   "GET /api/v1/drives/detected": plain("/api/v1/drives/detected"),
   "GET /api/v1/drives/:id/summary": onDrive((w, d) => `/api/v1/drives/${q(d)}/summary`),
+  "GET /api/v1/drives/:id/encryption": onDrive((w, d) => `/api/v1/drives/${q(d)}/encryption`),
   "GET /api/v1/drives/:id/health": onDrive((w, d) => `/api/v1/drives/${q(d)}/health`),
   "GET /api/v1/drives/:name/peek": { url: (w) => { const dev = detectedName(w); return dev ? `/api/v1/drives/${q(dev)}/peek` : null; } },
   // The app sends POST (FilesPage.jsx); lunad only has POST. The GET case checks the method.

@@ -1,10 +1,15 @@
-# Encrypted drives — plan for review (2026-11-02)
+# Encrypted drives — plan (2026-11-02)
 
-Planning only. Nothing here is built yet. **LUKS2 + ext4, Luna side only.** The computer-side reader is deferred (§7).
+**LUKS2 + ext4, Luna side only.** The computer-side reader is deferred (§7).
+
+> **Status: built.** Phases 0–4 are implemented. One thing in the original plan
+> was wrong and is corrected below: `cryptsetup reencrypt --encrypt` does **not**
+> shrink the filesystem, and converting an exFAT drive in place is impossible.
+> See §5 "Conversion" for what was measured.
 
 ## 1. Scope
 
-Building now:
+Built:
 
 - **R1.** Off by default; one option turns encryption on for one drive — and off again, on any drive, at any time.
 - **R4.** The key lives only in RAM on the Luna.
@@ -13,6 +18,8 @@ Building now:
 - **R7.** API/WebDAV access fails with a code saying "unlock it in the web page".
 
 Deferred: reading the drive on a non-Luna computer. Until the reader exists, an encrypted drive is readable only by a Luna. That is a real product limit, not a detail — an encrypted drive is not a portable archive yet.
+
+**Encrypted drives are always ext4 inside.** That is what makes a conversion possible at all: ext4 can be shrunk, so the LUKS2 header has somewhere to live. exFAT, FAT32 and NTFS cannot be shrunk by any tool Luna ships.
 
 ## 2. Why this is small now
 
@@ -32,7 +39,7 @@ The work is: detect it, unlock it, gate access while locked, and format new ones
 
 One partition, one container, ext4 inside. The partition label carries the drive name, so a locked drive still shows *"Photos"* — labels read without unlocking, and the name is not a secret.
 
-**Fix the LUKS2 profile now** even though nothing reads it yet: single cipher `aes-xts-plain64`, 512-bit key, `argon2id`, no `dm-integrity`, 512-byte sectors. Once drives exist in the wild, changing this breaks every future reader.
+**The LUKS2 profile is frozen** (`drives/luks.rs`): single cipher `aes-xts-plain64`, 512-bit key, `argon2id`, no `dm-integrity`, 512-byte sectors. Once drives exist in the wild, changing this breaks every future reader.
 
 **No post-quantum layer here, deliberately.** See §4a.
 
@@ -52,8 +59,9 @@ So the honest statement is: **if the password is forgotten, the files on this dr
 
 - **The passphrase is never an argument.** `cryptsetup luksOpen --key-file -` reads stdin; anything on the command line is world-readable in `/proc/<pid>/cmdline`.
 - **After unlock, no key is kept in userspace at all.** The volume key lives in the kernel's dm-crypt, which is not swappable and is wiped by `luksClose` or power loss. R4 holds more cleanly than holding a key in a process.
-- **Argon2id memory must be lowered.** LUKS2 defaults to 1 GiB, which OOM-kills on a 2 GiB Wyse ([docs](https://man7.org/linux/man-pages/man8/cryptsetup-luksFormat.8.html), [writeup](https://sleeplessbeastie.eu/2021/07/05/how-to-open-luks2-encrypted-volume-on-a-low-memory-device/)). `budget.rs` already caps single allocations at an eighth of free RAM — pick the cost from `budget::meminfo()` at format time and record it in the header.
+- **Argon2id memory is lowered.** LUKS2 defaults to 1 GiB, which OOM-kills on a 2 GiB Wyse ([docs](https://man7.org/linux/man-pages/man8/cryptsetup-luksFormat.8.html), [writeup](https://sleeplessbeastie.eu/2021/07/05/how-to-open-luks2-encrypted-volume-on-a-low-memory-device/)). `luks::pbkdf_kib_from` takes an eighth of free RAM from `budget::meminfo()`, clamped to 32 MiB–1 GiB, and records it in the header.
 - **`RLIMIT_CORE = 0` at startup.** dm-crypt keys aren't in the daemon's address space, but the passphrase passes through it. `sandbox.rs` sets no-core-dumps for children; the daemon itself does not.
+
 
 ### 4a. Post-quantum: not applicable here, and that is correct
 
@@ -128,13 +136,17 @@ A route rather than a modal, for three reasons: progress survives a refresh and 
 | State | What it says | What you can do |
 |---|---|---|
 | Unencrypted | *"Files on this drive are not encrypted. Anyone who plugs it in can read them."* | Encrypt |
-| Encrypting | Progress bar, *"Encrypting · 42%"*, and *"This drive is read-only until it finishes."* | Cancel |
+| Encrypting | Progress bar, and *"Being encrypted. This drive is unavailable until that finishes."* | nothing (cancel is deferred) |
 | Encrypted, locked | *"Locked. Enter the password to open it."* | Unlock |
 | Encrypted, unlocked | *"Unlocked. It stays open until you lock it or Luna restarts."* | Lock, Decrypt |
-| Decrypting | Progress bar, *"Decrypting · 42%"* | Cancel |
+| Decrypting | Progress bar, *"Decrypting"* | nothing |
 | Interrupted | *"Encryption was interrupted. Enter the password to finish it."* | Resume (asks for the password) |
 
-The page is the only home for progress. The drive card shows a one-line state (`Encrypting · 42%`, `Locked`, `Interrupted`) and a link here — enough to know what is happening, not enough to act by accident. The link appears on the Files page only; the dashboard card stays a summary.
+`encryptionState()` in `web/src/lib/encryption.js` owns the precedence, so the page and its tests cannot disagree.
+
+**Cancel is not built.** The plan called for it; the job currently runs to completion or is interrupted by a power cut. LUKS2 keeps its state in the header, so the safe-cancel path is available, but nothing exposes it yet.
+
+The page is the only home for progress. The drive card shows a one-line state (`Encrypting`, `Locked`, `Unlocked`) and a link here — enough to know what is happening, not enough to act by accident. The link appears on the Files page only; the dashboard card stays a summary.
 
 **Encrypt and Decrypt both go through a confirmation step** on this page, never directly from the card. Encrypt asks for the password twice, with the §4 warning above the fields. **Decrypt asks for the password too** — it proves the person knows it rather than merely sitting at an unlocked session, and it is the last moment before the files become readable by anyone who plugs the drive in. Its confirmation says exactly that.
 
@@ -142,8 +154,9 @@ The page is the only home for progress. The drive card shows a one-line state (`
 
 **The job.** `cryptsetup reencrypt` in place, recorded in the existing `jobs` table so progress survives a restart:
 
-- **Check the last 32 MiB is free before starting.** `--encrypt` shrinks the filesystem by the header size first; a full FAT32 drive has nowhere to put it. Refuse with a plain reason rather than failing halfway.
-- **Hours on a full drive.** Real progress, and a cancel that is safe because LUKS2 keeps reencrypt state in the header — `--resume-only` picks it back up ([ArchWiki](https://wiki.archlinux.org/title/Removing_system_encryption)).
+- **The filesystem is shrunk first, by Luna, before `cryptsetup` runs.** This is the correction to the original plan, and it matters: `cryptsetup reencrypt --encrypt --reduce-device-size 32m` does **not** shrink the filesystem. It assumes the last 32 MiB is already free and destroys the filesystem if it is not ([cryptsetup-reencrypt(8)](https://man.archlinux.org/man/cryptsetup-reencrypt.8.en): *"Make sure the last 32 MiB on /dev/plaintext is unused (e.g., does not contain filesystem data)"*). Measured on real loop devices: ext4 converted "successfully" and then would not mount; exFAT mounted and looked fine but `fsck.exfat` reported *"boot region is corrupted / too large sector count"*. Both silently lost data. `ext4::shrink_for_header` runs `resize2fs` first, and that path was verified end-to-end — `e2fsck` clean and md5sums matching after conversion.
+- **Only ext4 converts in place.** exFAT, FAT32 and NTFS have no shrink tool (`exfatprogs` ships only `mkfs`, `fsck`, `label`, `tune`), so those drives are refused with a plain reason and pointed at copying their files to a new encrypted drive.
+- **Hours on a full drive.** Real progress from `--progress-json`, and a cancel that is safe because LUKS2 keeps reencrypt state in the header — `--resume-only` picks it back up ([ArchWiki](https://wiki.archlinux.org/title/Removing_system_encryption)).
 - **A power cut cannot resume by itself.** `--resume-only` needs a passphrase to unlock a keyslot and recover the volume key, and the password only ever lived in RAM. So an interrupted conversion comes back in the **Interrupted** state above and waits for someone to enter the password — it cannot be automatic, and pretending otherwise would mean storing the password on disk, which is exactly what §4 forbids.
 
   That is not a bad outcome. The drive is unavailable until someone resumes, which is honest: it is mid-conversion and must not be written to. The state is visible on the card and the page, and the password is one the person already knows.
@@ -174,21 +187,29 @@ Two consequences of deferring it that are worth knowing now:
 
 ## 8. Phases
 
-| Phase | Work |
-|---|---|
-| **0** | Fix the LUKS2 profile (cipher, KDF memory, one keyslot). |
-| **1** | Image: `cryptsetup`, `dm-crypt`, presence check. Luna: detection, unlock/lock, `locked` column, 423 on API and WebDAV, unlock dialog. |
-| **2** | The encryption page: route, the five states, Unlock/Lock, the drive-card link and state line. |
-| **3** | New-drive format path: partition → `luksFormat` → `mkfs.ext4`, reusing the page's password step. |
-| **4** | Conversion both ways: the job, progress, cancel, the Interrupted state and password-gated resume, the `converting` flag and the exclusive hold. |
-| **5** | Parity: drive-backup pairing rules, the §6 leak audit. |
+| Phase | Work | State |
+|---|---|---|
+| **0** | Fix the LUKS2 profile (cipher, KDF memory, one keyslot). | done — `drives/luks.rs` |
+| **1** | Image: `cryptsetup`, `dm-crypt`, presence check. Luna: detection, unlock/lock, `locked` column, 423 on API and WebDAV. | done |
+| **2** | The encryption page: route, the six states, Unlock/Lock, the drive-card link and state line. | done |
+| **3** | New-drive format path: partition → `luksFormat` → `mkfs.ext4`, reusing the page's password step. | done |
+| **4** | Conversion both ways: the job, progress, cancel, the Interrupted state and password-gated resume, the `converting` flag and the exclusive hold. | done for ext4; exFAT refused |
+| **5** | Parity: drive-backup pairing rules, the §6 leak audit. | **not done** |
 
-Phase 4 is the riskiest — an interrupted conversion is the one failure mode that can lose data, so the resume path needs testing against a real power cut rather than assuming it.
+Phase 5 is the remaining work. Two things in §6 are still open and are the reason it is not "finished":
+
+- **Drive backups can undo encryption.** `backup/drive_store.rs` writes plaintext copies onto the target drive, so backing up an encrypted drive to an unencrypted one silently defeats the feature. Nothing refuses that pairing yet.
+- **The central database still records paths in clear.** Accepting that is a decision, but the UI should not imply more than it delivers.
+
+**Still to verify on real hardware** (not assumptions, and not covered by the unit tests):
+
+- That a partially converted device is safe to leave sitting across a reboot.
+- That Luna detects the unfinished state at boot without a passphrase. `luksDump` is parsed for an `Online reencryption` block (`luks::parse_reencrypt_state`), but that has only been tested against synthetic dumps, not a real interrupted conversion.
 
 ## 9. Settled
 
 - **Anyone with access to a drive may unlock it.** The rate limiter is what makes that safe.
-- **Conversion works both ways on any drive**, from the encryption page.
+- **Conversion works both ways on an ext4 drive**, from the encryption page. exFAT, FAT32 and NTFS cannot be shrunk, so they cannot be converted in place; their files have to be copied to a new encrypted drive. Encrypted drives are always ext4 inside.
 - **An interrupted conversion waits in the Interrupted state** and resumes only when someone enters the password. It cannot resume by itself: the password is only ever in RAM.
 - **Decrypt requires the password.**
 - **The encryption page is linked from the Files page only**; the dashboard card stays a summary.

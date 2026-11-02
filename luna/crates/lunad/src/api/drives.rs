@@ -25,6 +25,12 @@ struct DriveJson {
     writable: bool,
     /// The requesting user's capabilities on the drive root, server-stamped.
     caps: String,
+    /// The drive on disk is a LUKS2 container.
+    encrypted: bool,
+    /// Its container is not open, so there is nothing to browse.
+    locked: bool,
+    /// An in-place conversion holds the drive.
+    converting: bool,
 }
 
 #[derive(Serialize)]
@@ -51,6 +57,8 @@ struct InspectEntryJson {
 #[derive(Serialize)]
 struct PeekJson {
     readable: bool,
+    /// An encrypted Luna drive whose password has not been entered.
+    locked: bool,
     fs_type: Option<String>,
     /// The drive was set up by a Luna before.
     has_marker: bool,
@@ -77,6 +85,8 @@ struct InspectionJson {
     needs_erase: bool,
     readable: bool,
     writable: bool,
+    /// An encrypted Luna drive that needs its password before it can be added.
+    locked: bool,
 }
 
 /// Home-dashboard snapshot for one adopted drive. Space is `statvfs`;
@@ -99,6 +109,12 @@ struct AdoptBody {
     label: String,
     #[serde(default)]
     erase: bool,
+    /// Set up this drive as a new encrypted drive. Destructive, like `erase`,
+    /// and needs `password`.
+    #[serde(default)]
+    encrypted: bool,
+    #[serde(default)]
+    password: String,
 }
 
 pub fn router() -> Router<AppState> {
@@ -143,8 +159,9 @@ async fn list(
             .map(|d| {
                 let id = d.id.clone();
                 let mut json: DriveJson = d.into();
-                // Checked before Members' mount path is blanked below.
-                json.mounted = state.drive_manager.mount_is_live(&json.mount_point);
+                // Checked before Members' mount path is blanked below. A
+                // locked drive has nothing mounted, whatever the row says.
+                json.mounted = !json.locked && state.drive_manager.mount_is_live(&json.mount_point);
                 json.writable = admin || crate::auth::has_write_on_drive(&user, &conn, &id);
                 json.caps =
                     crate::access::caps_to_str(crate::auth::caps_on_path(&user, &conn, &id, ""));
@@ -289,6 +306,7 @@ async fn peek(
     sample.truncate(5);
     Ok(Json(PeekJson {
         readable: peek.readable,
+        locked: peek.locked,
         fs_type: peek.fs_type,
         has_marker: peek.has_marker,
         needs_erase: peek.needs_erase,
@@ -344,6 +362,7 @@ async fn inspect(
         needs_erase: inspection.needs_erase,
         readable: inspection.readable,
         writable: inspection.writable,
+        locked: inspection.locked,
     }))
 }
 
@@ -371,11 +390,26 @@ async fn adopt(
     // async worker so a slow disk can't stall unrelated requests.
     let (manager, db) = (state.drive_manager.clone(), state.db.clone());
     let erase = body.erase;
+    let encrypted = body.encrypted;
+    let password = body.password;
+    if encrypted && password.is_empty() {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Enter a password for this drive.",
+        ));
+    }
     let row = tokio::task::spawn_blocking(move || {
         crate::db::with_db(
             &db,
             || anyhow::anyhow!("db lock poisoned"),
-            |conn| manager.adopt(conn, &device, &label, erase),
+            |conn| {
+                if encrypted {
+                    // A new encrypted drive is always a fresh format.
+                    manager.adopt_encrypted(conn, &device, &label, &password)
+                } else {
+                    manager.adopt(conn, &device, &label, erase)
+                }
+            },
         )
     })
     .await
@@ -828,6 +862,9 @@ impl From<crate::db::DriveRow> for DriveJson {
             mounted: false,
             writable: false,
             caps: String::new(),
+            encrypted: d.encrypted,
+            locked: d.locked,
+            converting: d.converting,
         }
     }
 }

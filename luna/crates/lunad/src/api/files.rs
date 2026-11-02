@@ -2221,6 +2221,16 @@ pub(crate) fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
             "unknown_drive",
             "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.",
         ),
+        // 423 Locked is the honest status: the drive is there, and the client
+        // should ask for a password rather than retry. The UI keys off `code`.
+        FilesError::Locked => {
+            json_error_code(StatusCode::LOCKED, "drive_locked", files::DRIVE_LOCKED_MSG)
+        }
+        FilesError::Converting => json_error_code(
+            StatusCode::LOCKED,
+            "drive_converting",
+            files::DRIVE_CONVERTING_MSG,
+        ),
         // The drive is adopted and mounted, but its on-drive database could not
         // be rebuilt (read-only, or no space).
         FilesError::MissingDriveDb => json_error_code(

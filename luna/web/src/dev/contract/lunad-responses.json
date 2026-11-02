@@ -309,10 +309,13 @@
   "GET /api/v1/drives": [
     {
       "caps": "string",
+      "converting": "boolean",
       "device": "string",
+      "encrypted": "boolean",
       "fs_type": "string",
       "id": "string",
       "label": "string",
+      "locked": "boolean",
       "mount_point": "string",
       "mounted": "boolean",
       "state": "string",
@@ -403,6 +406,18 @@
     ],
     "total_bytes": "null|number",
     "used_bytes": "null|number"
+  },
+  "GET /api/v1/drives/{}/encryption": {
+    "can_encrypt": "boolean",
+    "cannot_encrypt_reason": "string",
+    "converting": "boolean",
+    "drive_id": "string",
+    "encrypted": "boolean",
+    "fs_type": "string",
+    "interrupted": "boolean",
+    "label": "string",
+    "present": "boolean",
+    "unlocked": "boolean"
   },
   "GET /api/v1/forms/responses": {
     "responses": [
