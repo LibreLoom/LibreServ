@@ -38,14 +38,17 @@ One partition, one container, ext4 inside. The partition label carries the drive
 
 ## 4. Keys
 
-LUKS2 has eight independent keyslots, which maps onto the requirements directly:
+**One keyslot, one password. No recovery path.**
 
-| Keyslot | Opened by | Purpose |
-|---|---|---|
-| 0 | the drive password | normal unlock |
-| 1 | a 24-word BIP39 recovery phrase | forgotten password |
+| Keyslot | Opened by |
+|---|---|
+| 0 | the drive password |
 
-No custom key-wrapping code — `cryptsetup luksAddKey` does the second slot, and the phrase reuses the cloud backup wordlist (`phrase_to_entropy` / `entropy_to_phrase`).
+`luksFormat` makes a random 512-bit volume key and wraps it in keyslot 0 under the password the user types. The password does not encrypt anything itself — it unwraps the volume key. We never handle the volume key directly, so there is no custom key-wrapping code.
+
+**Why no second keyslot.** The obvious candidate is a recovery key, and it does not survive scrutiny. A random string written on paper and a password written on paper are the same artifact with the same failure mode: whoever finds the paper opens the drive, and whoever loses it has nothing. A separate slot only adds one real property — it survives a password change — and the answer to that is "if you change the password, change the paper." There is no scenario where the second slot earns its keep, and it would drag in the cloud recovery phrase, which is per-user and bound to the Luna id (§4b).
+
+So the honest statement is: **if the password is forgotten, the files on this drive are gone. Nobody can recover them, including us.** That is what a locked safe is. The safety mechanism is making the person read that before the format runs — see §5.
 
 - **The passphrase is never an argument.** `cryptsetup luksOpen --key-file -` reads stdin; anything on the command line is world-readable in `/proc/<pid>/cmdline`.
 - **After unlock, no key is kept in userspace at all.** The volume key lives in the kernel's dm-crypt, which is not swappable and is wiped by `luksClose` or power loss. R4 holds more cleanly than holding a key in a process.
@@ -62,9 +65,17 @@ Luna already ships hybrid post-quantum crypto for cloud backup — X25519 + ML-K
 
 **So the drive is already post-quantum-safe in the way that matters**, and adding ML-KEM would mean inventing a container format — because LUKS2 has no post-quantum cipher option, and `cryptsetup` only speaks the ciphers the kernel's dm-crypt provides. That would cost the entire advantage of using LUKS2: a standard format, a well-tested implementation, and a reader that is tractable to write.
 
-**The one thing to actually watch** is the recovery phrase. If it is 12 words (128 bits), Grover's halving brings it to ~64 bits of effective security against a quantum brute-force — uncomfortably low for something protecting a whole drive. **Use 24 words (256 bits)** for the drive recovery keyslot, which leaves ~128 bits. That is the concrete post-quantum decision in this plan, and it costs nothing but a longer phrase.
-
 **Not doing:** ML-KEM wrapping of the volume key, ML-DSA signatures on the header, or a custom container. If LUKS2 gains post-quantum ciphers later, drives can be re-encrypted then — which is a reason to keep the format standard, not to invent one now.
+
+### 4b. The cloud recovery phrase is not usable here
+
+Worth recording, because it is the obvious thing to reach for and it does not work.
+
+- **It is per-user, and a drive is per-household.** `user_keys` is keyed by `user_id`, and the phrase is derived in the browser and never reaches Luna. "The drive's phrase" is not a thing that exists — it would be one person's phrase, and it would leave with them.
+- **Its derivation is bound to the Luna id.** `derive_info` mixes `luna_id` into every HKDF label, deliberately, so one Luna's sealed copies cannot be opened by another. For a drive that is exactly backwards: the point of a recovery path is that it works on a *replacement* Luna.
+- **It is a key-derivation seed, not a passphrase.** Cloud backup derives X25519 + ML-KEM + signing keys from it. LUKS2 wants a byte string for Argon2id. Making the same words do both jobs means two unrelated derivations behind one artifact, and a confusing error when someone types them into the wrong dialog.
+
+Reusing it would also change the cloud flows, which are currently built entirely around cloud backup. Not worth it for a recovery path we are not building.
 
 ## 5. Luna side
 
@@ -106,6 +117,17 @@ One global handler, not a check on every page: a `drive_locked` response anywher
 
 **No idle auto-lock in v1** — gallery indexing, cloud backup and search indexing run against the mount, and an idle timer would kill them mid-run.
 
+### Turning encryption on
+
+The password is chosen here, because `luksFormat` is the only moment it can be. The dialog, in order:
+
+1. **What this does.** *"Files on this drive are scrambled. Luna needs the password to open them."*
+2. **The warning, unmissable, before anything else.** *"If you forget this password, the files on this drive are gone. Nobody can recover them, including us."* Not a hint, not a footnote — a line the person has to read before the field appears.
+3. **Password, twice.** A confirmation field, because a typo here destroys the drive. No strength meter that invites a weak password by scoring it green; a minimum length and a plain sentence about what makes it strong.
+4. **Format.** `sfdisk` → `luksFormat` → `mkfs.ext4` → adopt as normal.
+
+Two things the dialog must not do: offer a "recover later" path that does not exist, and describe the drive as portable before the reader ships (§7).
+
 ### Image and new drives
 
 - `cryptsetup` is **not in the image today** (no package, and `dm_crypt` is not in the module set). Add the package, `dm-mod` and `dm-crypt` to `modules-load.d`, and extend the existing "every helper program lunad needs is present" check in `00.frag`.
@@ -130,15 +152,14 @@ Two consequences of deferring it that are worth knowing now:
 
 | Phase | Work |
 |---|---|
-| **0** | Fix the LUKS2 profile. Decide the recovery phrase and who may unlock (§9). |
+| **0** | Fix the LUKS2 profile. Decide who may unlock (§9). |
 | **1** | Image: `cryptsetup`, `dm-crypt`, presence check. Luna: detection, unlock/lock, `locked` column, 423 on API and WebDAV, unlock dialog. |
-| **2** | New-drive format path: partition → `luksFormat` → `mkfs.ext4`. Recovery-phrase keyslot. |
+| **2** | New-drive format path: partition → `luksFormat` → `mkfs.ext4`, with the setup dialog from §5. |
 | **3** | Parity: drive-backup pairing rules, the §6 leak audit. |
 
 Conversion of an existing drive is `cryptsetup reencrypt`, which works in place but is hours on a full drive and needs the last 32 MiB free. **Leave it out of v1** — encryption on new drives only.
 
 ## 9. Decisions I need from you
 
-1. **Recovery phrase: yes or no?** A second keyslot, so cheap to add. Without one, a forgotten password destroys the files.
-2. **Who may unlock?** Admin only (my recommendation), or anyone with access to the drive?
-3. **Existing drives, or new ones only?** I recommend new ones only for v1.
+1. **Who may unlock?** Admin only (my recommendation), or anyone with access to the drive?
+2. **Existing drives, or new ones only?** I recommend new ones only for v1.
