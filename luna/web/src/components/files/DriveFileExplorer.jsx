@@ -279,7 +279,12 @@ export default function DriveFileExplorer({
     }));
     folders.add(path);
     const keys = [...folders].map((folder) => fileListKey(source, driveId, folder));
-    if (!guest) keys.push(["jobs"], ["trash", driveId], ["recents"]);
+    // Trash is its own listing (`["files", <scope>, ".luna-trash"]`), not the
+    // parent of the path that changed — deleting `Documents` changes the
+    // drive root and `Documents`, never the trash dir. Name it explicitly or
+    // Trash keeps serving the rows it cached before the delete for the whole
+    // staleTime, and the folder that was just trashed looks permanently gone.
+    if (!guest) keys.push(fileListKey(source, driveId, TRASH_PATH), ["jobs"], ["recents"]);
     return keys;
   }
 
@@ -609,12 +614,19 @@ export default function DriveFileExplorer({
       : (rowCaps & CAP.EDIT) !== 0;
     const rowCanShare = !guest && !trashChild && (rowCaps & CAP.SHARE) !== 0;
 
-    /** @type {{ key: string, label: string, icon: any, danger?: boolean, run: () => void }[]} */
+    /**
+     * `label` is the visible card text on the phone sheet; `aria` is the
+     * button's accessible name in the row, which is not always the same words
+     * (the share button reads "Sharing for X", the trash buttons put the verb
+     * on the name). Both are user-facing copy and both are asserted by tests.
+     * @type {{ key: string, label: string, aria: string, icon: any, danger?: boolean, href?: string, run: () => void }[]}
+     */
     const actions = [];
     if (rowCanShare) {
       actions.push({
         key: "share",
         label: "Share",
+        aria: `Sharing for ${ctx.displayName}`,
         icon: Users,
         run: () => setAccessTarget({ path: ctx.fullPath }),
       });
@@ -623,6 +635,7 @@ export default function DriveFileExplorer({
       actions.push({
         key: "protect",
         label: "Back up",
+        aria: `Back up ${ctx.displayName}`,
         icon: Shield,
         run: () => setProtectTarget({ path: ctx.fullPath }),
       });
@@ -631,7 +644,12 @@ export default function DriveFileExplorer({
       actions.push({
         key: "download",
         label: "Download",
+        aria: `Download ${ctx.displayName}`,
         icon: Download,
+        // A download is a navigation, not an action: keep it a real link so
+        // middle-click, "Save link as", and the browser's own download UI all
+        // work. Everything else here is a button.
+        href: source.downloadHref(driveId, ctx.fullPath, ctx.entry.kind),
         run: () => window.location.assign(source.downloadHref(driveId, ctx.fullPath, ctx.entry.kind)),
       });
     }
@@ -639,6 +657,7 @@ export default function DriveFileExplorer({
       actions.push({
         key: "restore",
         label: "Restore",
+        aria: `Restore ${ctx.displayName}`,
         icon: RotateCcw,
         run: () => {
           setActionError(null);
@@ -656,6 +675,7 @@ export default function DriveFileExplorer({
       actions.push({
         key: "copy",
         label: "Copy",
+        aria: `Copy ${ctx.displayName}`,
         icon: Copy,
         run: () => setTransfer({ kind: "copy", paths: [ctx.fullPath], label: ctx.displayName }),
       });
@@ -664,6 +684,7 @@ export default function DriveFileExplorer({
       actions.push({
         key: "move",
         label: "Move",
+        aria: `Move ${ctx.displayName}`,
         icon: FolderInput,
         run: () => setTransfer({ kind: "move", paths: [ctx.fullPath], label: ctx.displayName }),
       });
@@ -671,6 +692,7 @@ export default function DriveFileExplorer({
         actions.push({
           key: "rename",
           label: "Rename",
+          aria: `Rename ${ctx.displayName}`,
           icon: Pencil,
           run: () => {
             setActionError(null);
@@ -682,6 +704,9 @@ export default function DriveFileExplorer({
       actions.push({
         key: "delete",
         label: trashChild ? "Delete permanently" : "Move to trash",
+        aria: trashChild
+          ? `Delete ${ctx.displayName} permanently`
+          : `Move ${ctx.displayName} to trash`,
         icon: Trash2,
         danger: true,
         run: () => (trashChild
@@ -699,17 +724,31 @@ export default function DriveFileExplorer({
     return (
       <ActionTooltipGroup>
         <div className="flex items-center gap-0.5 flex-wrap justify-end">
-          {actions.map(({ key, label, icon: Icon, run }) => (
+          {actions.map(({ key, label, aria, icon: Icon, href, run }) => (
             <Tooltip key={key} content={label}>
-              <Button
-                variant="ghost"
-                surface="secondary"
-                size="iconSm"
-                aria-label={`${label} ${ctx.displayName}`}
-                onClick={run}
-              >
-                <Icon size={ICON_SIZE.sm} />
-              </Button>
+              {href ? (
+                <Button
+                  variant="ghost"
+                  surface="secondary"
+                  size="iconSm"
+                  asChild
+                  aria-label={aria}
+                >
+                  <a href={href}>
+                    <Icon size={ICON_SIZE.sm} />
+                  </a>
+                </Button>
+              ) : (
+                <Button
+                  variant="ghost"
+                  surface="secondary"
+                  size="iconSm"
+                  aria-label={aria}
+                  onClick={run}
+                >
+                  <Icon size={ICON_SIZE.sm} />
+                </Button>
+              )}
             </Tooltip>
           ))}
         </div>

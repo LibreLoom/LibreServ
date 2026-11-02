@@ -325,7 +325,13 @@ func addConnectWebTests() {
 		Description: "Run the password recovery and login page unit tests",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "cd /repo/shared/ui && npm ci --no-audit --no-fund && cd /repo/luna/web && npm ci --no-audit --no-fund && npm test -- --run src/pages/RecoveryWizardPage.test.jsx src/pages/LoginPage.test.jsx",
+		// No npm install: warmCaches already provides this workdir's shared
+		// node_modules (runner.go binds .cache/npm/<slug>/node_modules over
+		// it). Installing here raced the lint, typecheck and colour tests on
+		// that same shared dir — `npm ci` deletes node_modules first, so the
+		// others died with "eslint: not found" / "tsc: not found" instead of
+		// checking anything.
+		Command:     "npm test -- --run src/pages/RecoveryWizardPage.test.jsx src/pages/LoginPage.test.jsx",
 		WorkDir:     "/repo/luna/web",
 		Timeout:     10 * time.Minute,
 	})
@@ -380,7 +386,10 @@ func addConnectWebTests() {
 		Description: "Exercise recovery file creation and downloads in Chromium",
 		Type:        TestTypeUnit,
 		Container:   "mcr.microsoft.com/playwright:v1.64.1-noble",
-		Command:     "cd /repo/shared/ui && npm ci --no-audit --no-fund && cd /repo/luna/web && npm ci --no-audit --no-fund && npm run test:e2e:recovery",
+		// No npm install, for the same reason as the recovery-login test above:
+		// warmCaches provides the shared node_modules, and `npm ci` here would
+		// delete it under the lint/typecheck/colour runs sharing that dir.
+		Command:     "npm run test:e2e:recovery",
 		WorkDir:     "/repo/luna/web",
 		Timeout:     10 * time.Minute,
 		Env:         []string{"PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1"},
@@ -531,7 +540,10 @@ func addSharedUIRecoveryTests() {
 		Description: "Test shared password byte counting and browser contrast calculations used by recovery",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm ci --no-audit --no-fund && npm test -- lib/passwordPolicy.test.js lib/colorContrast.test.js",
+		// No npm install: warmCaches provides this workdir's shared
+		// node_modules. `npm ci` here deleted it under the luna/web tests that
+		// bind the same cache dir.
+		Command:     "npm test -- lib/passwordPolicy.test.js lib/colorContrast.test.js",
 		WorkDir:     "/repo/shared/ui",
 		Timeout:     10 * time.Minute,
 	})

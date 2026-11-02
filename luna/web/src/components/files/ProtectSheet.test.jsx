@@ -634,9 +634,12 @@ describe("ProtectSheet", () => {
       connect: { connect_active: true },
       cloudBackups: [],
       privateItem: { private: true, inside_private: true, mine: true, owner_name: "Max" },
+      // The private item's own backup never holds this folder (db::covering_protection).
+      covered: [],
     });
     renderSheet();
     expect(await screen.findByText("This folder is private, so only you can back it up.")).toBeInTheDocument();
+    expect(screen.queryByText(/Included in the backup of/)).not.toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Choose a drive" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Back up to the cloud" })).toBeInTheDocument();
   });

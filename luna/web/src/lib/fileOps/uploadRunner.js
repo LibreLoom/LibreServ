@@ -6,7 +6,7 @@
 import { walkDropped } from "../collectUploadFiles.js";
 import { joinPath, parentPath } from "../paths.js";
 import { classifyError, existsDecision, isAbort } from "./errors.js";
-import { text } from "./copy.js";
+import { folderBlocked, text } from "./copy.js";
 
 export const UPLOAD_PARALLEL = 3;
 
@@ -62,12 +62,6 @@ export function createUploadRunner(env) {
     const droppedCount = dropped ? (dropped.entries?.length || 0) + (dropped.files?.length || 0) : 0;
     const count = files ? files.length : droppedCount;
 
-    if (op.source.isFile && count > 1) {
-      env.patchOp(op, { error: text.singleFileLink, state: "failed" });
-      env.settle(op);
-      return;
-    }
-
     // The name shown in the pill: a lone file, or the folder that was dropped.
     if (files && files.length) {
       const firstSegments = new Set(files.map((f) => String(f.webkitRelativePath || "").split("/")[0]));
@@ -85,6 +79,16 @@ export function createUploadRunner(env) {
       } else {
         op.title = dropped.files[0].name;
       }
+    }
+
+    // A dropped folder counts as one entry but holds many files, and the walk
+    // only finds that out later. A single-file link has room for one file, so
+    // refuse it now instead of starting an upload that can't finish.
+    const droppedFolder = Boolean(dropped?.entries?.some((e) => e?.isDirectory));
+    if (op.source.isFile && (count > 1 || droppedFolder)) {
+      env.patchOp(op, { error: text.singleFileLink, state: "failed" });
+      env.settle(op);
+      return;
     }
 
     if (files) {
@@ -166,26 +170,84 @@ export function createUploadRunner(env) {
     void makeFolders(op, item, relPath);
   }
 
+  /**
+   * What is already at `path`: "file", "dir", or undefined when it isn't there
+   * (or the source can't be asked). lunad answers 409 "A folder with this name
+   * is already here." for a *file* of that name too, so its words can't tell
+   * the two apart — asking the folder can.
+   */
+  async function kindAt(/** @type {any} */ op, /** @type {string} */ path) {
+    if (typeof op.source.stat !== "function") return undefined;
+    try {
+      const stat = await op.source.stat(op.driveId, path);
+      return stat?.kind === "dir" ? "dir" : "file";
+    } catch {
+      return undefined;
+    }
+  }
+
   async function makeFolders(/** @type {any} */ op, /** @type {any} */ item, /** @type {string} */ relPath) {
     const parts = relPath.split("/").filter(Boolean);
     let path = op.destFolder;
+    // How many levels this call actually created, so the card can count
+    // folders instead of files when a drop held no files at all.
+    let made = 0;
+    const stop = () => {
+      env.patchItem(op, item, { state: "cancelled", foldersMade: made });
+      env.settle(op);
+    };
     try {
       for (const part of parts) {
+        // Cancelling stops the levels that are left. A folder already made
+        // stays, because Luna has it and nothing here can take it back.
+        if (item.state === "cancelled") {
+          stop();
+          return;
+        }
         path = joinPath(path, part);
         try {
           await op.source.mkdir(op.driveId, path);
+          made += 1;
         } catch (err) {
           const e = /** @type {any} */ (err);
-          // "Already there" is what we wanted.
-          if (e?.status === 409 || /already/i.test(String(e?.message || ""))) continue;
-          throw err;
+          const taken = e?.status === 409 || /already/i.test(String(e?.message || ""));
+          if (!taken) throw err;
+          // A folder of that name is what we wanted. A file of that name is
+          // not: the folder can't be made through it, and saying it was made
+          // would be untrue.
+          if ((await kindAt(op, path)) === "file") {
+            env.patchItem(op, item, {
+              state: "failed",
+              error: folderBlocked(item.name, part),
+              retryable: true,
+              offline: false,
+              foldersMade: made,
+            });
+            env.notify(op, "error");
+            env.settle(op);
+            return;
+          }
         }
       }
+      if (item.state === "cancelled") {
+        stop();
+        return;
+      }
       env.noteFolder(op, parentPath(path) ?? "");
-      env.patchItem(op, item, { state: "done" });
+      env.patchItem(op, item, { state: "done", foldersMade: made });
     } catch (err) {
+      if (isAbort(err) || item.state === "cancelled") {
+        stop();
+        return;
+      }
       const c = classifyError(err, op.kind);
-      env.patchItem(op, item, { state: "failed", error: c.message, retryable: c.retryable, offline: c.offline });
+      env.patchItem(op, item, {
+        state: "failed",
+        error: c.message,
+        retryable: c.retryable,
+        offline: c.offline,
+        foldersMade: made,
+      });
       env.notify(op, "error");
     }
     env.settle(op);
@@ -385,6 +447,9 @@ export function createUploadRunner(env) {
           env.patchItem(op, it, { state: "cancelled" });
           it.abort?.abort();
         } else if (it.state === "queued") {
+          env.patchItem(op, it, { state: "cancelled" });
+        } else if (it.state === "running" && it.isDir) {
+          // A folder being made: makeFolders checks this before its next level.
           env.patchItem(op, it, { state: "cancelled" });
         } else if (it.state === "needs-decision") {
           endSession(op, it);

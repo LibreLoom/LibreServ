@@ -42,6 +42,10 @@ export function opProgress(op) {
   if (op.indeterminate) return null;
   if (op.bytesTotal > 0) return Math.min(100, (op.bytesDone / op.bytesTotal) * 100);
   if (op.itemsTotal > 0) return Math.min(100, (op.itemsDone / op.itemsTotal) * 100);
+  // Nothing to measure: a drop of empty folders uploads no bytes and has no
+  // file total. A bar stuck at 0% would say it hadn't started; a moving bar
+  // says "working, no percentage to give".
+  if ((op.kind === "upload" || op.kind === "gallery") && op.foldersDone > 0) return null;
   return 0;
 }
 

@@ -132,6 +132,13 @@ function cssEscape(value) {
 /** `webkitdirectory` picks a whole folder; React's input types don't list it. */
 const FOLDER_INPUT = { webkitdirectory: "" };
 
+/**
+ * The picker hands back a flat list of files, so an empty folder inside the
+ * picked one never reaches us. Say so at the choice — short, because the menu
+ * truncates a second line — and explain it where a pick came back empty.
+ */
+const PICK_FOLDER_NOTE = "Skips empty folders";
+
 /** Folder pickers need `webkitdirectory`; a few browsers lack it. */
 function browserCanPickFolder() {
   return typeof document !== "undefined" && "webkitdirectory" in document.createElement("input");
@@ -139,7 +146,7 @@ function browserCanPickFolder() {
 
 const UPLOAD_MENU_OPTIONS = [
   { value: "files", label: "Upload files", icon: UploadCloud },
-  { value: "folder", label: "Upload a folder", icon: FolderUp },
+  { value: "folder", label: "Upload a folder", icon: FolderUp, sub: PICK_FOLDER_NOTE },
 ];
 
 const SORT_OPTIONS = [
@@ -1278,8 +1285,19 @@ export default function FileBrowser({
               tabIndex={-1}
               onChange={(e) => {
                 const files = filesFromFileList(e.target.files);
+                // Reset so picking the same folder again fires `change` again.
                 e.target.value = "";
-                if (files.length) onUploadFiles?.({ files }, path);
+                if (files.length) {
+                  onUploadFiles?.({ files }, path);
+                  return;
+                }
+                // An empty folder (or one holding only empty folders) gives the
+                // picker nothing to hand over. Say so instead of doing nothing.
+                addToast?.({
+                  type: "info",
+                  message: "That folder has no files in it.",
+                  description: "The folder picker can't copy empty folders. Drag the folder in instead.",
+                });
               }}
             />
           ) : null}
@@ -1290,6 +1308,11 @@ export default function FileBrowser({
               options={UPLOAD_MENU_OPTIONS}
               value=""
               align="end"
+              // The folder row carries a second line ("Skips empty folders"),
+              // which would otherwise join the item's accessible name — a
+              // screen reader would read the explanation as part of the
+              // action. Name the action; leave the line as the description.
+              optionProps={(option) => (option.sub ? { "aria-label": option.label } : undefined)}
               onChange={(choice) => {
                 if (choice === "folder") folderPicker.current?.click();
                 else filePicker.current?.click();

@@ -132,8 +132,15 @@ describe("AddToAlbumModal", () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole("checkbox", { name: /test/i }));
-    fireEvent.click(screen.getByRole("button", { name: /^Apply$/i }));
+    // The rows stay disabled until the modal knows what each album already
+    // holds, and a click on a disabled row is dropped — so wait for the row
+    // itself, not just for it to exist.
+    const row = await screen.findByRole("checkbox", { name: /test/i });
+    await waitFor(() => expect(row).toBeEnabled());
+    fireEvent.click(row);
+    const apply = screen.getByRole("button", { name: /^Apply$/i });
+    await waitFor(() => expect(apply).toBeEnabled());
+    fireEvent.click(apply);
 
     expect(onApply).toHaveBeenCalledTimes(1);
     const [changes, close] = onApply.mock.calls[0];

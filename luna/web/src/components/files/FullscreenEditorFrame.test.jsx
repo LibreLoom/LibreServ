@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
@@ -226,7 +226,12 @@ describe("FullscreenEditorFrame desktop rail", () => {
     const saveButton = screen.getByRole("button", { name: "Save" });
     expect(saveButton).toBeEnabled();
 
-    saveButton.focus();
+    // Tooltip opens on *keyboard* focus only — mouse focus must never pop a
+    // hint — and it decides that from the last input modality, so a bare
+    // .focus() is deliberately not enough. Press a key first, as a person
+    // tabbing to the button would.
+    fireEvent.keyDown(document, { key: "Tab" });
+    act(() => saveButton.focus());
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Unsaved");
   });
 });

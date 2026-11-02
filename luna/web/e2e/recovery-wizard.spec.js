@@ -6,20 +6,29 @@ const PASSWORD = "recoveryPassword123";
 const DEVICE_TOKEN = "ABCD-EFGH-JKLM-NPQR";
 
 async function expectReadableText(locator) {
-  const colors = await locator.evaluate((element) => {
-    const surface = element.closest(".surface-primary, .surface-secondary");
-    const ownBackground = getComputedStyle(element).backgroundColor;
-    const ownChannels = ownBackground.match(/[\d.]+/g) ?? [];
-    const hasOpaqueBackground = ownChannels.length === 3 || Number(ownChannels[3]) >= 1;
-    if (!hasOpaqueBackground && !surface) throw new Error("Text has no opaque background surface to compare against");
-    return {
-      foreground: getComputedStyle(element).color,
-      background: ownBackground,
-      backdrop: hasOpaqueBackground ? null : getComputedStyle(surface).backgroundColor,
-    };
-  });
-  const ratio = contrastRatio(colors.foreground, colors.background, colors.backdrop ?? undefined);
-  expect(ratio).toBeGreaterThanOrEqual(4.5);
+  const read = () =>
+    locator.evaluate((element) => {
+      const surface = element.closest(".surface-primary, .surface-secondary");
+      const ownBackground = getComputedStyle(element).backgroundColor;
+      const ownChannels = ownBackground.match(/[\d.]+/g) ?? [];
+      const hasOpaqueBackground = ownChannels.length === 3 || Number(ownChannels[3]) >= 1;
+      if (!hasOpaqueBackground && !surface) throw new Error("Text has no opaque background surface to compare against");
+      return {
+        foreground: getComputedStyle(element).color,
+        background: ownBackground,
+        backdrop: hasOpaqueBackground ? null : getComputedStyle(surface).backgroundColor,
+      };
+    });
+  // `html` crossfades its theme variables over 1500ms (index.css), so a color
+  // read while that runs is an interpolated grey and the ratio against it is
+  // meaningless. Poll until the pair settles on its final values instead of
+  // measuring one arbitrary frame of the crossfade.
+  await expect
+    .poll(async () => {
+      const colors = await read();
+      return contrastRatio(colors.foreground, colors.background, colors.backdrop ?? undefined);
+    }, { timeout: 5000 })
+    .toBeGreaterThanOrEqual(4.5);
 }
 
 async function fillPassword(page, password = PASSWORD) {

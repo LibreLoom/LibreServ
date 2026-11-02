@@ -854,7 +854,7 @@ async fn oversized_multipart_path_field_is_refused() {
 }
 
 #[tokio::test]
-async fn list_without_drive_database_names_the_missing_database() {
+async fn list_without_drive_database_rebuilds_it_and_lists_the_files() {
     let mount = tempfile::tempdir().unwrap();
     std::fs::write(mount.path().join("photo.jpg"), b"jpeg").unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -909,25 +909,24 @@ async fn list_without_drive_database_names_the_missing_database() {
         .unwrap();
     http.extensions_mut().insert(ConnectInfo(CLIENT));
     let res = call(&app, http).await;
-    assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    // The drive is here and its files are here; only Luna's own bookkeeping
+    // went missing. Luna rebuilds that instead of sending the person off to
+    // remove and re-add a drive that is working fine.
+    assert_eq!(res.status(), StatusCode::OK);
     let body = axum::body::to_bytes(res.into_body(), 1 << 20)
         .await
         .unwrap();
-    let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(value["code"], "missing_drive_db");
-    let message = value["error"].as_str().unwrap();
+    let entries: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(
-        message.contains("database for this drive is missing"),
-        "{message}"
+        entries
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["name"] == "photo.jpg"),
+        "the drive's files still list: {entries}"
     );
-    assert!(
-        message.contains("On the Files page, remove this drive, then add it again."),
-        "{message}"
-    );
-    assert!(
-        !message.to_ascii_lowercase().contains("unplug"),
-        "{message}"
-    );
+    // And the microdb is back on the drive, so the next request is a plain open.
+    assert!(crate::drives::drive_db::find_db_file(mount.path()).is_some());
 }
 
 #[cfg(unix)]
@@ -1516,6 +1515,149 @@ async fn trash_browses_like_a_folder() {
     )
     .await;
     assert_ne!(res.status(), 200);
+}
+
+/// Trashing a file inside a folder, then trashing the folder itself, must
+/// leave BOTH entries in the trash. `delete_to_trash` drops every grant at or
+/// under the trashed path, so the folder's own origin grant dies with it — the
+/// listing must still find the entry it just moved (and the file trashed from
+/// inside it) instead of hiding both behind a caps check on an origin that no
+/// longer has any grants.
+#[tokio::test]
+async fn trashing_a_folder_that_held_a_trashed_file_keeps_both_in_trash() {
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(mount.path().join("Documents/Taxes")).unwrap();
+    std::fs::write(mount.path().join("Documents/notes.txt"), b"shopping").unwrap();
+    std::fs::write(mount.path().join("Documents/readme.md"), b"# hi").unwrap();
+    std::fs::write(mount.path().join("Documents/Taxes/2025 return.pdf"), b"pdf").unwrap();
+    let (_dir, app) = test_app(mount.path());
+    let (cookie, csrf) = admin_cookie(&app).await;
+
+    // 1. Trash a file inside the folder.
+    let file_trash = delete_path(&app, &cookie, &csrf, "Documents%2Fnotes.txt").await;
+    assert!(file_trash.starts_with(".luna-trash/"));
+
+    // 2. Trash the folder that held it.
+    let folder_trash = delete_path(&app, &cookie, &csrf, "Documents").await;
+    assert!(folder_trash.starts_with(".luna-trash/"));
+    assert_ne!(file_trash, folder_trash);
+
+    // 3. The drive root no longer lists the folder.
+    let res = get_files(&app, &cookie, &csrf, "").await;
+    assert_eq!(res.status(), 200);
+    let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    let root: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(
+        !root
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["name"] == "Documents"),
+        "Documents should be gone from the drive root: {root}"
+    );
+
+    // 4. Both entries are in the trash, each with its own provenance.
+    let res = get_files(&app, &cookie, &csrf, ".luna-trash").await;
+    assert_eq!(res.status(), 200);
+    let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    let entries: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let entries = entries.as_array().unwrap();
+    assert_eq!(
+        entries.len(),
+        2,
+        "both trashed items must list: {entries:?}"
+    );
+
+    let folder = entries
+        .iter()
+        .find(|e| e["original_path"] == "Documents")
+        .unwrap_or_else(|| panic!("trashed folder missing from the trash listing: {entries:?}"));
+    assert_eq!(folder["kind"], "dir");
+    assert_eq!(folder["original_name"], "Documents");
+
+    let file = entries
+        .iter()
+        .find(|e| e["original_path"] == "Documents/notes.txt")
+        .unwrap_or_else(|| panic!("trashed file missing from the trash listing: {entries:?}"));
+    assert_eq!(file["kind"], "file");
+    assert_eq!(file["original_name"], "notes.txt");
+
+    // 5. The trashed folder still opens and keeps its children under their
+    // real names, so a restore puts the whole tree back.
+    let res = get_files(&app, &cookie, &csrf, &folder_trash).await;
+    assert_eq!(res.status(), 200);
+    let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    let kids: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let names: Vec<&str> = kids
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, vec!["Taxes", "readme.md"], "children: {names:?}");
+}
+
+/// A drive whose on-drive microdb went missing still shows its Trash. The
+/// trash directory is found by the `.luna-<uuid>` prefix that microdb names,
+/// so a plain "no marker → error" would answer with an empty trash and say the
+/// person's deleted files are gone. Luna rebuilds the microdb under the same
+/// id and prefix instead, and the entries come back — with no provenance, so
+/// each falls back to its on-disk name.
+#[tokio::test]
+async fn a_drive_whose_microdb_went_missing_still_shows_its_trash() {
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(mount.path().join("Documents")).unwrap();
+    std::fs::write(mount.path().join("Documents/notes.txt"), b"shopping").unwrap();
+    let (_dir, app) = test_app(mount.path());
+    let (cookie, csrf) = admin_cookie(&app).await;
+
+    // A real trashed entry, with its provenance recorded.
+    let trash_path = delete_path(&app, &cookie, &csrf, "Documents%2Fnotes.txt").await;
+    let entry = trash_path.rsplit('/').next().unwrap().to_string();
+
+    // The microdb file is what went missing; the drive, its files and its
+    // trash directory all stay exactly where they were.
+    let prefix = crate::drives::drive_db::prefix_for(mount.path()).unwrap();
+    std::fs::remove_file(
+        mount
+            .path()
+            .join(luna_core::marker::marker_file_name(&prefix)),
+    )
+    .unwrap();
+    assert!(
+        crate::drives::drive_db::find_db_file(mount.path()).is_none(),
+        "the marker really is gone"
+    );
+
+    // Trash still lists the entry, under its original name.
+    let res = get_files(&app, &cookie, &csrf, ".luna-trash").await;
+    assert_eq!(res.status(), 200);
+    let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    let entries: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let row = entries
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["name"] == entry.as_str())
+        .unwrap_or_else(|| panic!("{entry} should still be listed: {entries}"));
+    assert_eq!(row["original_name"], "notes.txt");
+
+    // And the microdb came back under the prefix the trash still carries, so
+    // the next delete lands in the same trash directory rather than a new one.
+    assert_eq!(
+        crate::drives::drive_db::prefix_for(mount.path()).as_deref(),
+        Some(prefix.as_str())
+    );
+    let res = get_files(&app, &cookie, &csrf, "Documents").await;
+    assert_eq!(res.status(), 200, "the drive browses again");
 }
 
 #[tokio::test]

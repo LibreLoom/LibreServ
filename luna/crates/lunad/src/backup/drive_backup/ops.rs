@@ -35,15 +35,22 @@ fn connected_target(conn: &Connection, drive_id: &str) -> Option<(PathBuf, Layou
 
 pub(super) fn stop_reason(conn: &Connection, row: &ProtectionRow) -> Option<&'static str> {
     if row.private_owner.is_empty() {
-        // A shared folder must not drift into a private item.
+        // A shared backup must not drift into a private item: its access list is
+        // shared, so copying private files into it would hand them to everyone on
+        // that list. A private folder of its own is fine — that is a separate
+        // backup, made by the owner, with the item's access list.
         let norm = crate::access::normalize_subject_path(&row.source_path);
         match access_list::private_source(conn, &row.source_drive, &norm) {
             access_list::PrivateSource::Shared => {}
             access_list::PrivateSource::OwnItem { .. } => {
-                return Some("This folder is now a private item.");
+                return Some(
+                    "This folder is now a private item, so only its owner can back it up.",
+                );
             }
             access_list::PrivateSource::Inside { .. } => {
-                return Some("This folder is now inside a private item.");
+                return Some(
+                    "This folder is now inside a private item, so only its owner can back it up.",
+                );
             }
             access_list::PrivateSource::PrivateTrash => {
                 return Some("This folder is now in the trash.");
@@ -689,7 +696,7 @@ mod tests {
         crate::private::create(&root, "Docs", "u1").unwrap();
         assert_eq!(
             stop_reason(&conn, &row),
-            Some("This folder is now a private item.")
+            Some("This folder is now a private item, so only its owner can back it up.")
         );
     }
 
@@ -704,7 +711,7 @@ mod tests {
         crate::private::create(&root, "Docs", "u1").unwrap();
         assert_eq!(
             stop_reason(&conn, &row),
-            Some("This folder is now inside a private item.")
+            Some("This folder is now inside a private item, so only its owner can back it up.")
         );
     }
 

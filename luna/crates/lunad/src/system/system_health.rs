@@ -1221,14 +1221,12 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
 
 /// Whether a backup row needs someone's attention. Mirrors the warnings the drive and cloud
 /// loops raise: a stopped or gone row is final, and a drive or cloud row that is failing or
-/// out of date needs a look.
+/// out of date needs a look. Only private rows reach this, and a private folder is never held
+/// by a bigger backup, so it always answers for itself.
 fn row_needs_look(conn: &Connection, row: &crate::db::ProtectionRow, now: i64) -> bool {
     use crate::backup::drive_backup::state as drive_state;
     use crate::backup::status::BackupState;
     if row.state == "stopped" || row.state == "source_gone" {
-        return false;
-    }
-    if crate::backup::drive_backup::covered_by(conn, row).is_some() {
         return false;
     }
     if row.kind == crate::db::PROTECTION_DRIVE {

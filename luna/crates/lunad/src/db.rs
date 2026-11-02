@@ -1268,14 +1268,19 @@ pub fn get_protection(conn: &Connection, id: &str) -> anyhow::Result<Option<Prot
 }
 
 /// The backup that has taken over `row`: the nearest backup of a parent folder of the same kind,
-/// from the same drive to the same place, with the same privacy (a shared parent never holds a
-/// private item inside it). Only a parent that is running and has finished its first copy counts,
-/// so until then the child stays the up-to-date copy. When that parent is stopped or deleted the
+/// from the same drive to the same place. A shared parent's backup holds a shared folder inside
+/// it, but a private folder is always its own backup: it ignores every parent backup, the private
+/// item's included. Only a parent that is running and has finished its first copy counts, so
+/// until then the child stays the up-to-date copy. When that parent is stopped or deleted the
 /// child is no longer covered and runs again.
 pub fn covering_protection(
     conn: &Connection,
     row: &ProtectionRow,
 ) -> anyhow::Result<Option<ProtectionRow>> {
+    // A private folder is never covered by a bigger backup, so it always runs on its own.
+    if !row.private_owner.is_empty() {
+        return Ok(None);
+    }
     let child = crate::access::normalize_subject_path(&row.source_path);
     if child.is_empty() {
         return Ok(None);
@@ -2995,6 +3000,21 @@ mod tests {
         add("cloud-child", PROTECTION_CLOUD, "docs/sub", "", "");
         add("private-child", PROTECTION_DRIVE, "docs/vault", "b1", "ann");
         add("sibling", PROTECTION_DRIVE, "docsy", "b1", "");
+        // A private item and a folder inside it, both owned by the same person.
+        add(
+            "private-parent",
+            PROTECTION_DRIVE,
+            "docs/secret",
+            "b1",
+            "ann",
+        );
+        add(
+            "inside-private",
+            PROTECTION_DRIVE,
+            "docs/secret/inner",
+            "b1",
+            "ann",
+        );
         let row = |id: &str| get_protection(&conn, id).unwrap().unwrap();
         let covered = |id: &str| covering_protection(&conn, &row(id)).unwrap().map(|p| p.id);
 
@@ -3011,6 +3031,13 @@ mod tests {
         // The parent itself is never covered by itself.
         assert_eq!(covered("parent"), None);
 
+        // A private folder is its own backup, so even a finished backup of the
+        // private item it sits in never covers it.
+        record_protection_ok(&conn, "private-parent", 5, "{}").unwrap();
+        assert_eq!(covered("inside-private"), None);
+        // A shared parent never holds a private item either.
+        assert_eq!(covered("private-parent"), None);
+
         // A stopped parent gives the child back; so does a deleted one.
         set_protection_state(
             &conn,
@@ -3024,6 +3051,42 @@ mod tests {
         assert_eq!(covered("child"), Some("parent".to_string()));
         delete_protection(&conn, "parent").unwrap();
         assert_eq!(covered("child"), None);
+    }
+
+    #[test]
+    fn a_private_folder_is_never_covered_by_a_parent_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        let add = |id: &str, kind: &str, path: &str, target: &str, owner: &str| {
+            insert_protection(
+                &conn,
+                &NewProtection {
+                    kind,
+                    target_drive: target,
+                    private_owner: owner,
+                    ..new_protection(id, "d1", path)
+                },
+            )
+            .unwrap();
+        };
+        // The private item "Diary" and a folder inside it, both Ann's.
+        add("diary", PROTECTION_DRIVE, "Diary", "b1", "ann");
+        add("diary-2025", PROTECTION_DRIVE, "Diary/2025", "b1", "ann");
+        // The same shape, shared: no owner on either row.
+        add("docs", PROTECTION_DRIVE, "Docs", "b1", "");
+        add("docs-sub", PROTECTION_DRIVE, "Docs/Sub", "b1", "");
+        let row = |id: &str| get_protection(&conn, id).unwrap().unwrap();
+        let covered = |id: &str| covering_protection(&conn, &row(id)).unwrap().map(|p| p.id);
+
+        record_protection_ok(&conn, "diary", 5, "{}").unwrap();
+        record_protection_ok(&conn, "docs", 5, "{}").unwrap();
+
+        // A private folder runs on its own, even with the item's backup finished.
+        assert_eq!(covered("diary-2025"), None);
+        // A shared folder inside a shared parent is still covered.
+        assert_eq!(covered("docs-sub"), Some("docs".to_string()));
+        // The private item itself is never covered by itself either.
+        assert_eq!(covered("diary"), None);
     }
 
     #[test]
