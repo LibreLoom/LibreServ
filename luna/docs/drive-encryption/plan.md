@@ -115,28 +115,38 @@ One global handler, not a check on every page: a `drive_locked` response anywher
 
 **Anyone with access to the drive may unlock it.** If a person can read the drive's files, they already have everything the password protects, so withholding the unlock button buys nothing — the password is shared the way a house key is. It does mean a Member with a live session can guess, so the endpoint keeps the `login_limiter` rate-limit pattern: per user, per drive, five tries then a wait. A Member who has no access never sees the dialog, because `drive_root()` refuses them before `locked` is consulted.
 
-**No idle auto-lock in v1** — gallery indexing, cloud backup and search indexing run against the mount, and an idle timer would kill them mid-run. There is an explicit **Lock** action on the drive card for the person who wants it.
+**No idle auto-lock in v1** — gallery indexing, cloud backup and search indexing run against the mount, and an idle timer would kill them mid-run. Locking is an explicit action on the encryption page (§5).
 
-### Turning encryption on and off — where the options live
+### Encryption mode — one place per drive
 
-Both directions are drive-card actions, because that is where every other per-drive operation already is (`FilesPage.jsx` → `AdoptedCard`, beside `Eject safely` and `Remove`).
+Not buttons beside Eject. Encryption is a long, irreversible operation, so it gets a **destination of its own**: `/files/:id/encryption`, reachable from the drive card.
 
-**Turning it on.** A new **Encrypt** button on an unencrypted, ready drive. It opens a dialog that explains what will happen and asks for the password twice, with the warning from §4 unmissable before the fields appear. Then a job runs with progress, and the drive is read-only to everyone else until it finishes.
+A route rather than a modal, for three reasons: progress survives a refresh and a navigation; it is a place you return to rather than a dialog you dismiss; and it can hold the state, the history and the actions together instead of scattering them.
 
-**Turning it off.** A **Decrypt** button on an encrypted, unlocked drive, in the same place. Same shape: confirm, password, job, progress. A locked drive shows **Unlock** there instead, and Decrypt only appears once it is unlocked.
+**What the page shows**, in one column:
 
-**Both are Admin-only**, matching Remove and Eject. A Member can use an encrypted drive but cannot change whether it is encrypted.
+| State | What it says | What you can do |
+|---|---|---|
+| Unencrypted | *"Files on this drive are not encrypted. Anyone who plugs it in can read them."* | Encrypt |
+| Encrypting | Progress bar, *"Encrypting · 42%"*, and *"This drive is read-only until it finishes."* | Cancel |
+| Encrypted, locked | *"Locked. Enter the password to open it."* | Unlock |
+| Encrypted, unlocked | *"Unlocked. It stays open until you lock it or Luna restarts."* | Lock, Decrypt |
+| Decrypting | Progress bar, *"Decrypting · 42%"* | Cancel |
+| Interrupted | *"Encryption was interrupted. Nothing is lost — resume to finish."* | Resume |
 
-**The conversion job.** `cryptsetup reencrypt` does the work in place, but it is not a background task you can fire and forget:
+The page is the only home for progress. The drive card shows a one-line state (`Encrypting · 42%`, `Locked`) and a link here — enough to know what is happening, not enough to act by accident.
 
-- It needs the last 32 MiB free on the device, so **check that before starting** and refuse with a plain reason rather than failing halfway.
-- It runs for hours on a full drive. It must be a real job — the existing `jobs` table, progress, and a cancel that is safe to resume ([ArchWiki](https://wiki.archlinux.org/title/Removing_system_encryption) documents `--resume-only`).
-- The drive must be **exclusively held** for the duration. `Db::drive_lock` already serializes per-drive writes, and `begin_closing` already stops `reconcile` touching a drive mid-operation — a conversion takes both, plus a `converting` flag that `drive_root` refuses the way it refuses `locked`.
-- **A power cut mid-conversion is recoverable but not silent.** LUKS2 keeps the reencrypt state in the header, so it resumes rather than corrupts — but the drive must come back up showing "Encryption was interrupted. Resume it." rather than looking normal.
+**Encrypt and Decrypt both go through a confirmation step** on this page, never directly from the card. Encrypt asks for the password twice, with the §4 warning above the fields. Decrypt says plainly that the files will be readable by anyone who plugs the drive in.
 
-**Encrypting an unencrypted drive needs somewhere to put the header.** `reencrypt --encrypt` shrinks the filesystem by the header size first, which means the filesystem must be one Luna can resize — ext4 and exFAT both can, but a full FAT32 drive has no room. Check, then refuse plainly.
+**Blocking the drive while it runs.** Conversion holds the drive exclusively: `Db::drive_lock` for per-drive writes, `begin_closing` so `reconcile` leaves it alone, and a `converting` flag that `drive_root()` refuses the way it refuses `locked` — same 423, different message (*"This drive is being encrypted. It will be available when that finishes."*). Browse, uploads, WebDAV, gallery indexing and backups all stop for the duration, because they all go through `drive_root()`.
 
-**Decrypting is the same job reversed**, and it is the more dangerous direction: it leaves the files in the clear, so the confirmation has to say that in those words.
+**The job.** `cryptsetup reencrypt` in place, recorded in the existing `jobs` table so progress survives a restart:
+
+- **Check the last 32 MiB is free before starting.** `--encrypt` shrinks the filesystem by the header size first; a full FAT32 drive has nowhere to put it. Refuse with a plain reason rather than failing halfway.
+- **Hours on a full drive.** Real progress, and a cancel that is safe because LUKS2 keeps reencrypt state in the header — `--resume-only` picks it back up ([ArchWiki](https://wiki.archlinux.org/title/Removing_system_encryption)).
+- **A power cut is recoverable but must not be silent.** The drive comes back in the Interrupted state above, not looking normal. This is the one failure mode in the plan that can lose data, so phase 4 tests it against a real power cut rather than assuming it.
+
+**Admin-only**, matching Remove and Eject. A Member can use an encrypted drive and unlock it, but cannot change whether it is encrypted.
 
 ### Image and new drives
 
@@ -163,14 +173,16 @@ Two consequences of deferring it that are worth knowing now:
 | Phase | Work |
 |---|---|
 | **0** | Fix the LUKS2 profile (cipher, KDF memory, one keyslot). |
-| **1** | Image: `cryptsetup`, `dm-crypt`, presence check. Luna: detection, unlock/lock, `locked` column, 423 on API and WebDAV, unlock dialog, Lock action. |
-| **2** | New-drive format path: partition → `luksFormat` → `mkfs.ext4`, with the setup dialog from §4. |
-| **3** | Conversion both ways: Encrypt/Decrypt on the drive card, the job with progress and resume, the `converting` flag. |
-| **4** | Parity: drive-backup pairing rules, the §6 leak audit. |
+| **1** | Image: `cryptsetup`, `dm-crypt`, presence check. Luna: detection, unlock/lock, `locked` column, 423 on API and WebDAV, unlock dialog. |
+| **2** | The encryption page: route, the six states, Unlock/Lock, the drive-card link and state line. |
+| **3** | New-drive format path: partition → `luksFormat` → `mkfs.ext4`, reusing the page's password step. |
+| **4** | Conversion both ways: the job, progress, cancel/resume, the `converting` flag and the exclusive hold. |
+| **5** | Parity: drive-backup pairing rules, the §6 leak audit. |
 
-Phase 3 is the riskiest — an interrupted conversion is the one failure mode that can lose data, so it needs the resume path tested against a real power-cut rather than assumed.
+Phase 4 is the riskiest — an interrupted conversion is the one failure mode that can lose data, so it needs the resume path tested against a real power cut rather than assumed.
 
 ## 9. Decisions I need from you
 
-1. **What happens to a drive that is mid-conversion when Luna restarts?** Resume automatically, or wait for someone to press Resume? I lean toward waiting, so a person sees why the drive is unavailable.
+1. **What happens to a drive that is mid-conversion when Luna restarts?** Resume automatically, or wait on the Interrupted state for someone to press Resume? I lean toward waiting, so a person sees why the drive is unavailable.
 2. **Does Decrypt need the password, or is being an Admin on an unlocked drive enough?** Asking proves the person knows it; skipping it is one less step for someone who just unlocked it.
+3. **Should the encryption page be linked from the dashboard drive card too**, or only from the Files page?
