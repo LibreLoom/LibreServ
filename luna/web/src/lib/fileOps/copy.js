@@ -381,9 +381,13 @@ export function decisionButtons(op, item) {
 
 // -- Overflow and problems modal --------------------------------------------
 
-/** @param {number} count */
+/**
+ * The words on the "there are more of these" control. The arrow is drawn by
+ * the component as a real icon, so this is only the text.
+ * @param {number} count
+ */
 export function moreProblems(count) {
-  return `${count} more ${n(count, "problem", "problems")} →`;
+  return `${count} more ${n(count, "problem", "problems")}`;
 }
 
 /** @param {string} kind */

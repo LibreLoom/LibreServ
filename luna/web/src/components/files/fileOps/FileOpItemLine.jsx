@@ -3,7 +3,7 @@ import { AnimatePresence, motion as Motion } from "motion/react";
 import { AlertTriangle, CircleAlert, X } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
-import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import { Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { useFileOps } from "../../../context/FileOpsContext.jsx";
 import { cancelUploadAria, decisionButtons, decisionText, failedText, itemPercent, labels, text } from "../../../lib/fileOps/copy.js";
@@ -11,7 +11,17 @@ import { EXIT, ITEM_EXIT, ITEM_HIDDEN, ITEM_SHOWN, SPRING } from "../../../lib/f
 import FileOpParts from "./FileOpParts.jsx";
 import FileOpProgress from "./FileOpProgress.jsx";
 
-/** A name clash that needs an answer. */
+/**
+ * A name clash that needs an answer.
+ *
+ * A button that needs explaining is its own term: the label carries a dotted
+ * underline and the explanation opens from the button itself. The old shape
+ * put a little ⓘ beside each button, which broke the row into
+ * button-icon-button-icon and read as five things instead of three.
+ *
+ * `Tooltip` wraps its child in a span, so the Button stays the only control —
+ * `TermHint` would have put a <button> inside a <button>.
+ */
 function DecisionLine({ op, item }) {
   const ops = useFileOps();
   const buttons = decisionButtons(op, item);
@@ -24,9 +34,28 @@ function DecisionLine({ op, item }) {
         </span>
       </p>
       <div className="flex flex-wrap items-center gap-2">
-        {buttons.map((button) => (
-          <span key={button.choice} className="inline-flex items-center gap-1">
+        {buttons.map((button) =>
+          button.hint ? (
+            <Tooltip
+              key={button.choice}
+              surface="primary"
+              content={button.hint}
+              popupClassName="max-w-xs rounded-large-element px-3 py-1.5 text-xs leading-snug"
+            >
+              <Button
+                variant="outline"
+                size="sm"
+                surface="primary"
+                onClick={() => ops.decide(op.id, item.id, button.choice)}
+              >
+                <span className="underline decoration-dotted decoration-2 underline-offset-4">
+                  {button.label}
+                </span>
+              </Button>
+            </Tooltip>
+          ) : (
             <Button
+              key={button.choice}
               variant="outline"
               size="sm"
               surface="primary"
@@ -34,9 +63,8 @@ function DecisionLine({ op, item }) {
             >
               {button.label}
             </Button>
-            {button.hint && <InfoHint surface="primary" content={button.hint} label={`About ${button.label}`} />}
-          </span>
-        ))}
+          ),
+        )}
       </div>
     </div>
   );

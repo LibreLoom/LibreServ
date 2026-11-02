@@ -39,8 +39,8 @@ describe("selectors", () => {
     const { item, moreCount } = inlineProblem(op);
     expect(item.name).toBe("f0.txt");
     expect(moreCount).toBe(14);
-    expect(moreProblems(moreCount)).toBe("14 more problems →");
-    expect(moreProblems(1)).toBe("1 more problem →");
+    expect(moreProblems(moreCount)).toBe("14 more problems");
+    expect(moreProblems(1)).toBe("1 more problem");
   });
 
   it("builds the dock header and collapsed summary", () => {

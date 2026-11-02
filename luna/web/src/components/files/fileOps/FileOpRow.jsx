@@ -1,7 +1,7 @@
 import { useState } from "react";
 import PropTypes from "prop-types";
 import { AnimatePresence, motion as Motion } from "motion/react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, ChevronRight } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { useFileOps } from "../../../context/FileOpsContext.jsx";
@@ -189,6 +189,7 @@ export default function FileOpRow({ op }) {
           >
             <Button variant="ghost" size="sm" surface="primary" onClick={() => setModalOpen(true)}>
               {moreProblems(moreCount)}
+              <ChevronRight size={ICON_SIZE.sm} aria-hidden="true" />
             </Button>
           </Motion.div>
         )}

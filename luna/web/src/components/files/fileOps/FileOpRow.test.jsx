@@ -34,11 +34,21 @@ describe("FileOpRow", () => {
     row([{ ...base, state: "waiting", items }]);
     expect(screen.getByText("f0.txt")).toBeTruthy();
     expect(screen.queryByText("f1.txt")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "14 more problems →" }));
+    fireEvent.click(screen.getByRole("button", { name: "14 more problems" }));
     expect(screen.getByText("Problems with this upload")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Replace all" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Keep both for all" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip all" })).toBeTruthy();
+  });
+
+  it("draws a real icon on the more-problems control", () => {
+    // It used to end in a literal "→" character, which renders in the body
+    // font at body weight and reads as stray punctuation.
+    const items = Array.from({ length: 4 }, (_, i) => fileClash(`i${i}`, `f${i}.txt`));
+    const { container } = row([{ ...base, state: "waiting", items }]);
+    const more = screen.getByRole("button", { name: "3 more problems" });
+    expect(more.querySelector("svg")).toBeTruthy();
+    expect(container.textContent).not.toContain("→");
   });
 
   it("offers no Replace for a folder clash", () => {

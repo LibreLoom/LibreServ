@@ -30,6 +30,29 @@ describe("FileOpItemLine", () => {
     }
   });
 
+  it("puts each explanation on its button, not a separate info icon", () => {
+    // A little ⓘ between the buttons broke the row into button-icon-button and
+    // read as five things instead of three. The button itself is the term now.
+    const { container } = line([{ ...base, state: "waiting", items: [fileClash("i1", "a.txt")] }]);
+    expect(container.querySelector("[data-slot='info-hint']")).toBeNull();
+    // Every button is still exactly one button — no control nested in another.
+    for (const label of ["Replace", "Keep both", "Skip"]) {
+      expect(screen.getAllByRole("button", { name: label })).toHaveLength(1);
+    }
+    expect(container.querySelectorAll("button button")).toHaveLength(0);
+    // Replace and Keep both carry a definition; Skip has nothing to explain.
+    expect(container.querySelectorAll("[data-slot='tooltip']")).toHaveLength(2);
+    expect(container.querySelectorAll("span.underline")).toHaveLength(2);
+  });
+
+  it("opens a button's explanation from the button itself", async () => {
+    line([{ ...base, state: "waiting", items: [fileClash("i1", "a.txt")] }]);
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "Replace" }), { pointerType: "mouse" });
+    expect((await screen.findByRole("tooltip")).textContent).toBe(
+      "The file that's there now is overwritten.",
+    );
+  });
+
   it("answers through the store", () => {
     const { store } = line([{ ...base, state: "waiting", items: [fileClash("i1", "a.txt")] }]);
     expect(() => fireEvent.click(screen.getByRole("button", { name: "Skip" }))).not.toThrow();
