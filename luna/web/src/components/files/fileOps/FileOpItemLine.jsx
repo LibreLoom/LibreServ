@@ -103,7 +103,7 @@ function FailedLine({ op, item }) {
             </Motion.span>
           )}
         </AnimatePresence>
-        <Button variant="ghost" size="sm" surface="primary" onClick={() => ops.cancel(op.id, item.id)}>
+        <Button variant="outline" size="sm" surface="primary" onClick={() => ops.cancel(op.id, item.id)}>
           {labels.remove}
         </Button>
       </div>

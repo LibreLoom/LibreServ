@@ -113,7 +113,7 @@ export default function FileOpProblemsModal({ opId, open, onClose }) {
               exit={{ opacity: 0, scale: 0.9, transition: EXIT }}
               transition={SPRING}
             >
-              <Button variant="ghost" size="sm" surface="secondary" onClick={() => ops.clearFailed(op.id)}>
+              <Button variant="outline" size="sm" surface="secondary" onClick={() => ops.clearFailed(op.id)}>
                 {labels.clearFailed}
               </Button>
             </Motion.span>

@@ -79,6 +79,21 @@ describe("FileOpItemLine", () => {
     expect(screen.getByRole("button", { name: "Remove" })).toBeTruthy();
   });
 
+  it("gives the Remove button a body", () => {
+    // It was a ghost: bare text with no chrome, sitting beside outlined
+    // buttons, so it read as a label rather than something you could press.
+    line([
+      {
+        ...base,
+        state: "partial",
+        items: [{ id: "i1", name: "locked.pdf", state: "failed", retryable: true, error: null }],
+      },
+    ]);
+    const remove = screen.getByRole("button", { name: "Remove" });
+    expect(remove.getAttribute("data-variant")).toBe("outline");
+    expect(screen.getByRole("button", { name: "Try again" }).getAttribute("data-variant")).toBe("outline");
+  });
+
   it("shows Luna's own words for a failed copy and no Try again when it can't be retried", () => {
     line([
       {

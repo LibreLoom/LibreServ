@@ -187,7 +187,7 @@ export default function FileOpRow({ op }) {
             transition={SPRING}
             className="overflow-hidden"
           >
-            <Button variant="ghost" size="sm" surface="primary" onClick={() => setModalOpen(true)}>
+            <Button variant="outline" size="sm" surface="primary" onClick={() => setModalOpen(true)}>
               {moreProblems(moreCount)}
               <ChevronRight size={ICON_SIZE.sm} aria-hidden="true" />
             </Button>
