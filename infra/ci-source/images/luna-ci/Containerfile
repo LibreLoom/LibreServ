@@ -27,12 +27,13 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
       musl-tools binutils file xz-utils unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Node for the web, connect/web and quick-start lanes. 24, not 26: foliate-js
-# (the epub reader) needs Object.groupBy, which arrived in Node 21, so 20
-# crashed five epub tests; and Node 26 adds a `localStorage` global that is
-# undefined without --localstorage-file and shadows jsdom's, breaking every
-# test that calls localStorage.clear(). 24 has groupBy and no such global.
-RUN curl --proto '=https' --tlsv1.2 -fsSL https://deb.nodesource.com/setup_24.x | bash - \
+# Node for the web, connect/web and quick-start lanes. 26 is the current LTS.
+# Two things this needs from the test setup, both already in place:
+#   - foliate-js (the epub reader) calls Object.groupBy, which arrived in 21.
+#   - Node 26 adds a `localStorage` global that is undefined without
+#     --localstorage-file and shadows jsdom's; each package's test setup swaps
+#     in an in-memory Storage when it doesn't work.
+RUN curl --proto '=https' --tlsv1.2 -fsSL https://deb.nodesource.com/setup_26.x | bash - \
     && apt-get install -y -qq --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
