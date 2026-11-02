@@ -5,7 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -32,6 +34,13 @@ func main() {
 	cpus := runCmd.Float64("cpus", 0, "Cap CPU use to this many cores (0 = no cap)")
 	memory := runCmd.String("memory", "", "Cap memory, e.g. 8G or 4096M (empty = no cap)")
 
+	checkCmd := flag.NewFlagSet("check", flag.ExitOnError)
+	checkChanged := checkCmd.Bool("changed", false, "Only the checks a git diff can affect")
+	checkRun := checkCmd.Bool("run", false, "Also run the affected tests, not just the static checks")
+	checkSecurity := checkCmd.Bool("security", false, "Include the slow static analysis (staticcheck, gosec, govulncheck)")
+	checkAll := checkCmd.Bool("all", false, "Every check, ignoring -changed")
+	checkList := checkCmd.Bool("list", false, "Print the selected tests and exit without running")
+
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "list":
@@ -43,6 +52,9 @@ func main() {
 		case "run":
 			runCmd.Parse(os.Args[2:])
 			runCLI(*profileName, *testIDs, *parallel, *fuzzDuration, *failFast, *outputDir, *session, *perf, *cpus, *memory, flagSet(runCmd, "parallel"))
+		case "check":
+			checkCmd.Parse(os.Args[2:])
+			runCheck(*checkChanged, *checkRun, *checkSecurity, *checkAll, *checkList)
 		case "help", "-h", "--help":
 			printHelp()
 		default:
@@ -73,7 +85,15 @@ Commands:
   profiles  List all test profiles
   perf      List performance profiles (how hard a run may push this machine)
   run       Run tests non-interactively (use flags)
+  check     Fast static checks (format, vet, lint, typecheck, colours)
   help      Show this help message
+
+Check Flags:
+  -changed            Only the checks the current diff can affect (default: all)
+  -run                Also run the affected tests, not just the static checks
+  -security           Include staticcheck, gosec and govulncheck (slow)
+  -all                Every check, ignoring -changed
+  -list               Print the selection and exit without running
 
 Run Flags:
   -profile <name>     Run tests for a profile (quick, sol, luna, full, etc.)
@@ -98,7 +118,11 @@ Examples:
   ci run -profile quick -session -perf balanced   # This run only, ignoring the universal bounds
   ci run -profile luna -session -cpus 4 -memory 8G
   ci list                      # List all tests
-  ci profiles                  # List all profiles`)
+  ci profiles                  # List all profiles
+  ci check                     # Fast checks over everything (about a minute)
+  ci check -changed            # Only what your diff can break
+  ci check -changed -run       # ...plus the tests it can break
+  ci check -changed -security  # ...plus staticcheck, gosec, govulncheck`)
 }
 
 func listTests() {
@@ -114,6 +138,20 @@ func listProfiles() {
 		fmt.Printf("  %-12s %s\n", p.Name, p.Description)
 		fmt.Printf("              Tests: %v\n\n", p.TestIDs)
 	}
+}
+
+// runOpts carries the `ci run` flags through to the executor.
+type runOpts struct {
+	fuzzDuration string
+	failFast     bool
+	outputDir    string
+	session      bool
+	perf         string
+	cpus         float64
+	memory       string
+	parallel     int
+	parallelSet  bool
+	verbose      bool
 }
 
 func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, failFast bool, outputDir string, session bool, perf string, cpus float64, memory string, parallelSet bool) {
@@ -141,24 +179,42 @@ func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, fail
 		os.Exit(1)
 	}
 
-	fuzzDur, err := time.ParseDuration(fuzzDuration)
+	runTests(testsToRun, runOpts{
+		fuzzDuration: fuzzDuration,
+		failFast:     failFast,
+		outputDir:    outputDir,
+		session:      session,
+		perf:         perf,
+		cpus:         cpus,
+		memory:       memory,
+		parallel:     parallel,
+		parallelSet:  parallelSet,
+		verbose:      true,
+	})
+}
+
+// runTests executes the given test IDs under the universal bounds and exits
+// non-zero if any failed. verbose prints the per-run banner (parallelism,
+// limits); `ci check` leaves it out to keep the inner loop quiet.
+func runTests(testsToRun []string, opts runOpts) {
+	fuzzDur, err := time.ParseDuration(opts.fuzzDuration)
 	if err != nil {
-		fmt.Printf("Error: Invalid fuzz duration '%s': %v\n", fuzzDuration, err)
+		fmt.Printf("Error: Invalid fuzz duration '%s': %v\n", opts.fuzzDuration, err)
 		os.Exit(1)
 	}
 
-	limits, universal, err := resolveLimits(session, perf, cpus, memory, parallel, parallelSet)
+	limits, universal, err := resolveLimits(opts.session, opts.perf, opts.cpus, opts.memory, opts.parallel, opts.parallelSet)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
-	parallel = limits.Parallelism
+	parallel := limits.Parallelism
 
 	cfg := config.DefaultConfig
 	cfg.Parallelism = parallel
-	cfg.FailFast = failFast
+	cfg.FailFast = opts.failFast
 	cfg.FuzzDuration = fuzzDur
-	cfg.OutputDir = outputDir
+	cfg.OutputDir = opts.outputDir
 
 	executor, err := runner.NewExecutor(&cfg)
 	if err != nil {
@@ -170,16 +226,18 @@ func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, fail
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	fmt.Printf("Running %d tests: %v\n", len(testsToRun), testsToRun)
-	fmt.Printf("Parallel: %d, Fail-fast: %v\n", parallel, failFast)
-	if limits.CPUQuota > 0 || limits.MemoryLimit > 0 || limits.Nice > 0 {
-		scope := "this session only"
-		if universal {
-			scope = "shared by all ci runs on this machine"
+	if opts.verbose {
+		fmt.Printf("Running %d tests: %v\n", len(testsToRun), testsToRun)
+		fmt.Printf("Parallel: %d, Fail-fast: %v\n", parallel, opts.failFast)
+		if limits.CPUQuota > 0 || limits.MemoryLimit > 0 || limits.Nice > 0 {
+			scope := "this session only"
+			if universal {
+				scope = "shared by all ci runs on this machine"
+			}
+			fmt.Printf("Limits (%s): %s\n", scope, describeLimits(limits))
 		}
-		fmt.Printf("Limits (%s): %s\n", scope, describeLimits(limits))
+		fmt.Println()
 	}
-	fmt.Println()
 
 	startTime := time.Now()
 	results := make(map[string]*tests.TestResult)
@@ -190,7 +248,7 @@ func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, fail
 		executor.Cancel()
 	}()
 
-	go executor.Execute("", testsToRun, parallel, failFast, fuzzDur, limits.CPUQuota, limits.MemoryLimit, limits.Nice, universal)
+	go executor.Execute("", testsToRun, parallel, opts.failFast, fuzzDur, limits.CPUQuota, limits.MemoryLimit, limits.Nice, universal)
 
 	passed := 0
 	failed := 0
@@ -235,8 +293,8 @@ done:
 	fmt.Printf("Results: %d passed, %d failed, %d skipped in %v\n", passed, failed, skipped, duration)
 	fmt.Printf("=============================\n")
 
-	if outputDir != "" && len(results) > 0 {
-		writeResults(results, outputDir, duration)
+	if opts.outputDir != "" && len(results) > 0 {
+		writeResults(results, opts.outputDir, duration)
 	}
 
 	if failed > 0 {
@@ -300,6 +358,149 @@ func flagSet(fs *flag.FlagSet, name string) bool {
 		}
 	})
 	return set
+}
+
+// runCheck is the fast inner loop: the static checks (format, vet, lint,
+// typecheck, colour scan) that catch a broken edit without compiling test
+// binaries or running product logic. With -run it adds the affected tests.
+//
+// It is deliberately not a profile. A profile is a fixed answer to a question
+// whose answer changes with the diff; -changed derives the selection from the
+// paths git reports, so a one-line edit runs the handful of checks that can
+// actually fail because of it.
+func runCheck(changed, withRun, security, all, listOnly bool) {
+	root, err := findRepoRoot()
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	var scope []*tests.Test
+	var scopeNote string
+
+	if changed {
+		paths, err := changedPaths(root)
+		if err != nil {
+			fmt.Printf("Error: reading changed files: %v\n", err)
+			os.Exit(1)
+		}
+		scope = tests.TestsForPaths(paths)
+		if len(paths) == 0 {
+			scopeNote = "no changed files; checking everything"
+		} else {
+			scopeNote = fmt.Sprintf("%d changed file(s)", len(paths))
+			for _, p := range paths {
+				fmt.Printf("  changed: %s\n", p)
+			}
+		}
+	} else {
+		scope = tests.DefaultRegistry.List()
+		scopeNote = "all files"
+	}
+
+	selected := tests.FilterChecks(scope, !security)
+	if all {
+		selected = tests.FilterChecks(tests.DefaultRegistry.List(), !security)
+		scopeNote = "all files"
+	}
+
+	if withRun {
+		// Everything the diff touches, checks and tests alike: the point of
+		// -run is "did I break anything nearby", not "is the whole suite green".
+		selected = scope
+		if all {
+			selected = tests.DefaultRegistry.List()
+		}
+	}
+
+	if len(selected) == 0 {
+		fmt.Printf("No checks matched (%s). Nothing to do.\n", scopeNote)
+		return
+	}
+
+	ids := make([]string, 0, len(selected))
+	for _, t := range selected {
+		ids = append(ids, t.ID)
+	}
+
+	kind := "checks"
+	if withRun {
+		kind = "tests and checks"
+	}
+	fmt.Printf("%s (%s): %d %s\n", strings.ToUpper(kind[:1])+kind[1:], scopeNote, len(ids), kind)
+	for _, t := range selected {
+		fmt.Printf("  %s\n", t.ID)
+	}
+
+	if listOnly {
+		return
+	}
+	fmt.Println()
+
+	runTests(ids, runOpts{fuzzDuration: "5m", parallel: 4})
+}
+
+// changedPaths returns the repo-relative paths of everything not committed,
+// including untracked files, plus whatever the branch adds on top of its
+// upstream. Uncommitted work is what an agent is about to check, so it is the
+// primary source; the upstream diff catches a branch that is already committed.
+func changedPaths(root string) ([]string, error) {
+	seen := make(map[string]bool)
+	var paths []string
+
+	add := func(out []byte) {
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || seen[line] {
+				continue
+			}
+			seen[line] = true
+			paths = append(paths, line)
+		}
+	}
+
+	// Tracked changes, staged and unstaged, against HEAD.
+	if out, err := gitOutput(root, "diff", "--name-only", "HEAD"); err == nil {
+		add(out)
+	}
+	// Untracked files, which `git diff` never reports.
+	if out, err := gitOutput(root, "ls-files", "--others", "--exclude-standard"); err == nil {
+		add(out)
+	}
+	// Committed work on this branch that the upstream does not have.
+	if out, err := gitOutput(root, "diff", "--name-only", "@{upstream}...HEAD"); err == nil {
+		add(out)
+	}
+
+	return tests.NormalizePaths(root, paths), nil
+}
+
+func gitOutput(root string, args ...string) ([]byte, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = root
+	return cmd.Output()
+}
+
+// findRepoRoot walks up from the working directory looking for the checkout,
+// so `ci check` works from any subdirectory.
+func findRepoRoot() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	dir := cwd
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "sol", "server")); err == nil {
+			if _, err := os.Stat(filepath.Join(dir, "sol", "connect")); err == nil {
+				return dir, nil
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("could not find the repo root (looked for sol/server/ and sol/connect/)")
+		}
+		dir = parent
+	}
 }
 
 // resolveLimits picks the bounds for a run. By default these are the universal

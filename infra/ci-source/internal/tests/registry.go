@@ -253,7 +253,9 @@ func addFrontendTests() {
 		Description: "Run ESLint on frontend code",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm run lint",
+		// --cache turns a repeat lint from ~43s into ~1s (measured); the file
+		// lives in the runner's shared /cache mount so it survives runs.
+		Command:     "npm run lint -- --cache --cache-location /cache/eslint/frontend-lint.cache",
 		WorkDir:     "/repo/sol/server/frontend",
 		Timeout:     10 * time.Minute,
 	})
@@ -297,7 +299,7 @@ func addFrontendTests() {
 		Description: "Run tsc --noEmit to validate types across JSX files",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm run typecheck",
+		Command:     "npm run typecheck -- --incremental --tsBuildInfoFile /cache/tsc/frontend-typecheck.tsbuildinfo",
 		WorkDir:     "/repo/sol/server/frontend",
 		Timeout:     10 * time.Minute,
 	})
@@ -310,7 +312,9 @@ func addConnectWebTests() {
 		Description: "Run ESLint on the Luna Connect web frontend",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm run lint",
+		// --cache turns a repeat lint from ~43s into ~1s (measured); the file
+		// lives in the runner's shared /cache mount so it survives runs.
+		Command:     "npm run lint -- --cache --cache-location /cache/eslint/luna-connect-web-lint.cache",
 		WorkDir:     "/repo/luna/connect/web",
 		Timeout:     10 * time.Minute,
 	})
@@ -341,6 +345,33 @@ func addConnectWebTests() {
 		Command: "node ../../shared/ui/scripts/scan-hardcoded-colors.js src/pages && node ../../shared/ui/scripts/scan-surfaces.js src/pages",
 		WorkDir: "/repo/luna/web",
 		Timeout: 10 * time.Minute,
+	})
+
+	// Luna web is the largest web app in the repo and had no lint or typecheck in
+	// CI at all: only its colour scan and two test files ran. Both are fast
+	// (24s and 15s) and both currently pass.
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-web-lint",
+		Name:        "Luna Web ESLint",
+		Description: "Lint the Luna web frontend",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		// --cache turns a repeat lint from ~43s into ~1s (measured); the file
+		// lives in the runner's shared /cache mount so it survives runs.
+		Command:     "npm run lint -- --cache --cache-location /cache/eslint/luna-web-lint.cache",
+		WorkDir:     "/repo/luna/web",
+		Timeout:     10 * time.Minute,
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-web-typecheck",
+		Name:        "Luna Web TypeScript Check",
+		Description: "Typecheck the Luna web frontend",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "npm run typecheck -- --incremental --tsBuildInfoFile /cache/tsc/luna-web-typecheck.tsbuildinfo",
+		WorkDir:     "/repo/luna/web",
+		Timeout:     10 * time.Minute,
 	})
 
 	DefaultRegistry.Add(&Test{
@@ -394,7 +425,7 @@ func addConnectWebTests() {
 		Description: "Type-check the Luna Connect web frontend (JSDoc via tsc)",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm run typecheck",
+		Command:     "npm run typecheck -- --incremental --tsBuildInfoFile /cache/tsc/luna-connect-web-typecheck.tsbuildinfo",
 		WorkDir:     "/repo/luna/connect/web",
 		Timeout:     10 * time.Minute,
 	})
@@ -416,7 +447,9 @@ func addConnectWebTests() {
 		Description: "Run ESLint on the Connect admin frontend",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm run lint",
+		// --cache turns a repeat lint from ~43s into ~1s (measured); the file
+		// lives in the runner's shared /cache mount so it survives runs.
+		Command:     "npm run lint -- --cache --cache-location /cache/eslint/connect-web-admin-lint.cache",
 		WorkDir:     "/repo/sol/connect/web/admin",
 		Timeout:     10 * time.Minute,
 	})
@@ -427,7 +460,7 @@ func addConnectWebTests() {
 		Description: "Run tsc --noEmit on the Connect admin frontend",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm run typecheck",
+		Command:     "npm run typecheck -- --incremental --tsBuildInfoFile /cache/tsc/connect-web-admin-typecheck.tsbuildinfo",
 		WorkDir:     "/repo/sol/connect/web/admin",
 		Timeout:     10 * time.Minute,
 	})
@@ -449,7 +482,9 @@ func addConnectWebTests() {
 		Description: "Run ESLint on the Connect customer frontend",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm run lint",
+		// --cache turns a repeat lint from ~43s into ~1s (measured); the file
+		// lives in the runner's shared /cache mount so it survives runs.
+		Command:     "npm run lint -- --cache --cache-location /cache/eslint/connect-web-customer-lint.cache",
 		WorkDir:     "/repo/sol/connect/web/customer",
 		Timeout:     10 * time.Minute,
 	})
@@ -460,7 +495,7 @@ func addConnectWebTests() {
 		Description: "Run tsc --noEmit on the Connect customer frontend",
 		Type:        TestTypeUnit,
 		Container:   "node:20-alpine",
-		Command:     "npm run typecheck",
+		Command:     "npm run typecheck -- --incremental --tsBuildInfoFile /cache/tsc/connect-web-customer-typecheck.tsbuildinfo",
 		WorkDir:     "/repo/sol/connect/web/customer",
 		Timeout:     10 * time.Minute,
 	})

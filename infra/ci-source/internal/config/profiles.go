@@ -77,7 +77,7 @@ var (
 
 	// lunaTests is the Luna gate: luna/ci.sh plus the web unit, browser and
 	// color checks.
-	lunaTests = []string{"luna-web-recovery-login-test", "luna-shared-ui-recovery-test", "luna-web-colors", "luna-web-e2e", "luna-ci"}
+	lunaTests = []string{"luna-web-recovery-login-test", "luna-shared-ui-recovery-test", "luna-web-colors", "luna-web-lint", "luna-web-typecheck", "luna-web-e2e", "luna-ci"}
 
 	// releaseTests is the release and ci tools' own tests that need no long
 	// builds; releaseSlowTests is the multi-minute builds only the release
