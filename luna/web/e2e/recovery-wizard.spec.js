@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { Buffer } from "node:buffer";
 import { readFile } from "node:fs/promises";
 import { contrastRatio } from "../../../shared/ui/lib/colorContrast.js";
 
