@@ -18,12 +18,14 @@ function deviceTokenInput() {
 
 describe("RecoveryWizardPage", () => {
   let clicked;
+  let clickedAnchor;
   let createObjectURL;
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.spyOn(window, "setTimeout").mockImplementation(() => 0);
-    clicked = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function () {
-      clicked.anchor = this;
+    vi.spyOn(window, "setTimeout").mockImplementation(() => /** @type {ReturnType<typeof window.setTimeout>} */ (/** @type {unknown} */ (0)));
+    clickedAnchor = undefined;
+    clicked = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(/** @this {HTMLAnchorElement} */ function () {
+      clickedAnchor = this;
     });
     createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:recovery");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
@@ -37,7 +39,7 @@ describe("RecoveryWizardPage", () => {
     fillPasswords();
     fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
     expect(clicked).toHaveBeenCalledOnce();
-    expect(clicked.anchor.download).toBe("luna-recover-abcdefghjk1mnpqr.luna");
+    expect(clickedAnchor.download).toBe("luna-recover-abcdefghjk1mnpqr.luna");
     expect(await createObjectURL.mock.calls[0][0].text()).toBe('{"user":"u-sam","password":"recoveryPassword123"}');
     expect(screen.getByRole("status")).toHaveTextContent("recovery file downloaded");
   });
@@ -47,8 +49,8 @@ describe("RecoveryWizardPage", () => {
     fireEvent.click(screen.getByLabelText("This Luna has a device token"));
     fillPasswords();
     fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
-    expect(clicked.anchor.download).toBe("luna-recover.luna");
-    expect(clicked.anchor.href).toBe("blob:recovery");
+    expect(clickedAnchor.download).toBe("luna-recover.luna");
+    expect(clickedAnchor.href).toBe("blob:recovery");
     expect(await createObjectURL.mock.calls[0][0].text()).toBe('{"user":"g-admin","password":"recoveryPassword123"}');
   });
 
