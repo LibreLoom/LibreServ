@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
-import { MoreHorizontal, Save, X } from "lucide-react";
+import { Save, X } from "lucide-react";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
-import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import { useSmoothResize } from "@libreloom/ui/hooks/useSmoothResize.js";
 import { apiErrorMessage } from "../../lib/api.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
@@ -16,10 +16,20 @@ import DocumentLoadingScreen from "./DocumentLoadingScreen.jsx";
 import SlowLoadNotice from "./SlowLoadNotice.jsx";
 import { EditorLoadingContext } from "./editorLoadingContext.js";
 
-/** Under this age the save indicator reads "Saved just now". */
-const RECENT_SAVE_MS = 90_000;
-
 const MD_UP_QUERY = "(min-width: 768px)";
+
+/**
+ * The save pill resizes with `useSmoothResize`, which writes its own inline
+ * width transition and so can't be switched off with a `motion-safe:` class.
+ * Read the preference here instead and skip the animation when it's on.
+ */
+function prefersReducedMotion() {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
 
 /**
  * jsdom has no layout CSS, so the chrome picks one branch via matchMedia —
@@ -47,18 +57,18 @@ function useIsMdUp() {
 /**
  * The standardized fullscreen editor shell: a portaled overlay with a
  * book-spine rail on desktop (filename down the left edge, Save + Close
- * pinned to the bottom) or a thin topbar + "···" menu on mobile. It owns
- * all the editor chrome — save button state machine, the "Document
- * Unsaved" guard modal, save-and-close, `beforeunload`, and capture-phase
- * Escape — so every editor gets identical behavior.
+ * pinned to the bottom) or a thin topbar on mobile (filename, save status,
+ * Close). It owns all the editor chrome — save button state machine, the
+ * "Document Unsaved" guard modal, save-and-close, `beforeunload`, and
+ * capture-phase Escape — so every editor gets identical behavior.
  *
  * The child editor plugs in through a render prop receiving the save
  * contract:
  *   - `onRegisterSave(fn)` — register the save thunk once a writable
  *     session is up (null to unregister). Save stays disabled until then.
  *   - `onSaveStateChange(hasUnsaved)` — report dirty state. `false` means
- *     "everything is saved" and stamps the "Saved just now" indicator, so
- *     only call it on a real save, not on initial load.
+ *     "everything is saved" and clears any save error, so only call it on
+ *     a real save, not on initial load.
  *   - `requestClose()` — the guarded close path (dirty → guard modal).
  *
  * `sessionKey` should change when a different file/editor mounts inside
@@ -93,7 +103,6 @@ export default function FullscreenEditorFrame({
   // session is up and reports dirty/saved via onSaveStateChange.
   const [saveReady, setSaveReady] = useState(false);
   const [hasUnsaved, setHasUnsaved] = useState(false);
-  const [savedAt, setSavedAt] = useState(/** @type {number | null} */ (null));
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const saveFnRef = useRef(/** @type {(() => Promise<unknown>) | null} */ (null));
@@ -102,17 +111,14 @@ export default function FullscreenEditorFrame({
   const [confirmClose, setConfirmClose] = useState(false);
   const confirmCloseRef = useRef(false);
   confirmCloseRef.current = confirmClose;
-  // Mobile chrome: the compact top bar's "···" menu. The ref mirrors the
-  // state so the window capture-phase Escape handler can yield to the
-  // menu's own document listener, same as the guard modal above.
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuOpenRef = useRef(false);
-  menuOpenRef.current = menuOpen;
-  // Desktop shows a left rail, mobile a thin bar + dropdown — jsdom has no
-  // layout, so the branch is chosen by matchMedia (see useIsMdUp).
+  // Desktop shows a left rail, mobile a thin bar — jsdom has no layout, so
+  // the branch is chosen by matchMedia (see useIsMdUp).
   const isMdUp = useIsMdUp();
-  // Re-render once so "Saved just now" rolls over to the clock time.
-  const [clockNow, setClockNow] = useState(() => Date.now());
+  // The mobile save pill animates its width between the three states. The
+  // hook writes the width itself, so it is turned off under reduced motion
+  // rather than with a `motion-safe:` class.
+  const savePillRef = useRef(/** @type {HTMLSpanElement | null} */ (null));
+  useSmoothResize(savePillRef, { x: !prefersReducedMotion() });
   const closeRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
   const cancelRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
   // Tracks whether this session already claimed initial focus — keeps the
@@ -153,11 +159,9 @@ export default function FullscreenEditorFrame({
     saveFnRef.current = null;
     setSaveReady(false);
     setHasUnsaved(false);
-    setSavedAt(null);
     setSaving(false);
     setSaveError("");
     setConfirmClose(false);
-    setMenuOpen(false);
     setMounted(false);
     setLoaders({});
   }
@@ -185,10 +189,10 @@ export default function FullscreenEditorFrame({
 
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
-        // While the guard modal or the mobile options menu is open it owns
-        // Escape — this is a window capture listener and would otherwise eat
-        // the keypress before their document listeners see it.
-        if (confirmCloseRef.current || menuOpenRef.current) return;
+        // While the guard modal is open it owns Escape — this is a window
+        // capture listener and would otherwise eat the keypress before the
+        // modal's document listener sees it.
+        if (confirmCloseRef.current) return;
         // Any other open dialog owns Escape too — without this the frame
         // would close the editor out from under the modal, or stack the
         // unsaved-changes guard on top.
@@ -254,8 +258,6 @@ export default function FullscreenEditorFrame({
     } else {
       setHasUnsaved(false);
       setSaveError("");
-      setSavedAt(Date.now());
-      setClockNow(Date.now());
     }
   }, []);
 
@@ -263,14 +265,6 @@ export default function FullscreenEditorFrame({
     saveFnRef.current = save || null;
     setSaveReady(Boolean(save));
   }, []);
-
-  useEffect(() => {
-    if (savedAt == null) return undefined;
-    const remaining = RECENT_SAVE_MS - (clockNow - savedAt);
-    if (remaining <= 0) return undefined;
-    const timer = setTimeout(() => setClockNow(Date.now()), remaining);
-    return () => clearTimeout(timer);
-  }, [savedAt, clockNow]);
 
   /** Run the registered save thunk. Returns true on success. */
   async function runSave() {
@@ -291,6 +285,9 @@ export default function FullscreenEditorFrame({
         );
         return false;
       }
+      // Every successful save announces itself once, here — a plain Save says
+      // so just like save-and-close, and closing adds no second toast.
+      addToast({ type: "success", message: "Changes saved." });
       return true;
     } catch (err) {
       haptic("error");
@@ -307,43 +304,22 @@ export default function FullscreenEditorFrame({
     // The user may have cancelled the modal while the save was in flight —
     // respect that and keep editing instead of closing underneath them.
     if (!confirmCloseRef.current) return;
-    addToast({ type: "success", message: "Changes saved." });
+    // runSave already announced the save; closing needs no second toast.
     setConfirmClose(false);
     onClose();
   }
 
+  // Exactly three save states — the file is either saved or it isn't, so
+  // there is no "just now" window and no clock time. A failed save is not a
+  // fourth state: its message takes the pill's place until the next save
+  // clears it, the same way the rail's tooltip shows it.
   const saveLabel = saving
     ? "Saving…"
     : saveError
       ? saveError
       : hasUnsaved
-        ? "Unsaved changes"
-        : savedAt != null
-          ? clockNow - savedAt < RECENT_SAVE_MS
-            ? "Saved just now"
-            : `Saved ${new Date(savedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
-          : "";
-
-  // Mobile chrome menu items — Save only exists in writable sessions; it is
-  // disabled (annotated with the last-saved state) when there is nothing to
-  // save, same rule as the desktop rail button.
-  const menuItems = [
-    ...(canWrite
-      ? [{
-          value: "save",
-          label: "Save",
-          icon: Save,
-          disabled: !saveReady || !hasUnsaved,
-          sub: saveLabel || undefined,
-        }]
-      : []),
-    { value: "close", label: "Close editor", icon: X },
-  ];
-
-  function runMenuItem(value) {
-    if (value === "save") void runSave();
-    else if (value === "close") requestClose();
-  }
+        ? "Unsaved"
+        : "Saved";
 
   return (
     <>
@@ -406,7 +382,7 @@ export default function FullscreenEditorFrame({
                         disabled={!saveReady || !hasUnsaved}
                         onClick={() => void runSave()}
                         aria-label="Save"
-                        tooltip={saveLabel || "Save"}
+                        tooltip={saveLabel}
                       >
                         <Save size={ICON_SIZE.xl} aria-hidden="true" />
                       </Button>
@@ -429,9 +405,10 @@ export default function FullscreenEditorFrame({
                   </div>
                 </div>
               ) : (
-                /* Mobile bar: one thin strip — filename plus a "···" menu
-                   holding Close and Save, so the editor keeps ~95% of the
-                   viewport height. */
+                /* Mobile bar: one thin strip — filename, save status, Close —
+                   so the editor keeps ~95% of the viewport height. There is
+                   no menu: the status pill already says whether the file is
+                   saved, and closing is one tap. */
                 <div
                   data-slot="editor-topbar"
                   // Same rule as the rail — a chrome click must not pull
@@ -445,42 +422,34 @@ export default function FullscreenEditorFrame({
                   >
                     {name}
                   </span>
-                  {canWrite && saveLabel ? (
-                    <Pill
-                      variant="muted"
-                      className="shrink-0 max-w-[40%] truncate text-primary"
+                  {canWrite ? (
+                    /* The wrapper is the animated box: useSmoothResize pins
+                       its width, so the pill fills it (w-full) and the width
+                       transition moves the pill's own background. It stays
+                       capped at 40% of the bar, and the text truncates when
+                       the filename needs the room. */
+                    <span
+                      ref={savePillRef}
+                      data-slot="save-status"
+                      className="inline-flex min-w-0 max-w-[40%] shrink-0 overflow-hidden"
                     >
-                      {saveLabel}
-                    </Pill>
+                      <Pill variant="muted" className="w-full min-w-0 text-primary">
+                        <span className="min-w-0 truncate">{saveLabel}</span>
+                      </Pill>
+                    </span>
                   ) : null}
-                  {/* z-[100] menu sits above the z-[80] editor overlay. */}
-                  <Dropdown
-                    menu
-                    menuLabel="Editor options"
-                    options={menuItems}
-                    value=""
-                    align="end"
-                    open={menuOpen}
-                    onOpenChange={setMenuOpen}
-                    onChange={runMenuItem}
-                    renderTrigger={({ open, toggle, onKeyDown }) => (
-                      <Button
-                        ref={closeRef}
-                        variant="ghost"
-                        surface="secondary"
-                        size="iconSm"
-                        smoothResize={false}
-                        haptic={false}
-                        aria-haspopup="menu"
-                        aria-expanded={open}
-                        aria-label="Editor options"
-                        onClick={toggle}
-                        onKeyDown={onKeyDown}
-                      >
-                        <MoreHorizontal size={ICON_SIZE.lg} aria-hidden="true" />
-                      </Button>
-                    )}
-                  />
+                  <Button
+                    ref={closeRef}
+                    variant="ghost"
+                    surface="secondary"
+                    size="iconSm"
+                    smoothResize={false}
+                    haptic="light"
+                    onClick={requestClose}
+                    aria-label="Close editor"
+                  >
+                    <X size={ICON_SIZE.lg} aria-hidden="true" />
+                  </Button>
                 </div>
               )}
               <div className="relative flex min-h-0 min-w-0 flex-1 flex-col surface-primary">

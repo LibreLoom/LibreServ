@@ -36,7 +36,7 @@ Status: shipped 23 Oct 2026 (`5b63a6d5`, web `d0a0d757`/`919cbd3e`/`d7e36bf7`). 
   - Below that is normal, with no signal.
   - So 48°C is normal and 55°C is warm. That answers "Is 48C too hot?".
 - **Reallocated:** 1–99 is watch; `REALLOCATED_FAILING = 100` or more is failing. 100 is Luna's own line, not a SMART standard; say so in a code comment.
-- **Pending or uncorrectable above 0:** failing. The drive could not read those spots, so files there may already be damaged.
+- **Pending or uncorrectable above 0:** failing. The drive could not read those blocks, so files there may already be damaged.
 
 ---
 
@@ -136,8 +136,8 @@ Signals are sorted failing first, then watch, then note, with the table order ke
      - **Failing** → FAILED `"{label} is failing. Copy your files to another drive now."`. More, by top kind:
        - `self_check_failed`: `"Its own self-check failed."`
        - `worn_past_limit`: `"It's past its maker's wear limit."`
-       - `pending_sectors` or `uncorrectable_sectors`: `"It can't read {n} spots on its disk."`
-       - `reallocated_sectors`: `"{n} spots on its disk have worn out."`
+       - `pending_sectors` or `uncorrectable_sectors`: `"It can't read {n} blocks on its disk."`
+       - `reallocated_sectors`: `"{n} blocks on its disk have worn out."`
 
 **Rust unit tests to add:**
 - In `smart.rs`, each with a realistic smartctl text block:
@@ -221,10 +221,10 @@ Signals are sorted failing first, then watch, then note, with the table order ke
    - Failing: tone `"problem"`, rank 12, title `" is failing"`. Detail by top signal:
      - `self_check_failed`: `Its own self-check failed. Copy your files to another drive now.`
      - `worn_past_limit`: `It's past its maker's wear limit. Copy your files to another drive now.`
-     - `pending_sectors` or `uncorrectable_sectors`: `It can't read {n} spots on its disk. Copy your files to another drive now.`
-     - `reallocated_sectors`: `{n} spots on its disk have worn out. Copy your files to another drive now.`
+     - `pending_sectors` or `uncorrectable_sectors`: `It can't read {n} blocks on its disk. Copy your files to another drive now.`
+     - `reallocated_sectors`: `{n} blocks on its disk have worn out. Copy your files to another drive now.`
    - Watch: tone `"warning"`, rank 70.
-     - `reallocated_sectors`: title ` is showing wear`, detail `{n} spots on its disk have worn out. Keep using it, and make sure it's backed up.`
+     - `reallocated_sectors`: title ` is showing wear`, detail `{n} blocks on its disk have worn out. Keep using it, and make sure it's backed up.`
      - `worn_in_past`: title ` is showing wear`, detail `It went past its maker's wear limit once. Keep using it, and make sure it's backed up.`
      - `error_log`: title ` has logged errors`, detail `It recorded errors while reading or writing. Keep using it, and make sure it's backed up.`
      - `self_test_errors`: title ` failed a self-test`, detail `Its own test found a problem. Keep using it, and make sure it's backed up.`
@@ -242,12 +242,12 @@ Signals are sorted failing first, then watch, then note, with the table order ke
      - Hint, normal: `Hard drives get warm while they work. {source}`
      - Hint, warm: `Close to its limit. {source} Keep air moving around it.`
      - Hint, hot: `Above its limit. {source} Heat wears a drive out faster.`
-   - Replaced spots (if `reallocated_sectors != null`):
-     - Label `Replaced spots`.
+   - Replaced blocks (if `reallocated_sectors != null`):
+     - Label `Replaced blocks`.
      - Hint: `Parts of the disk that wore out. The drive moved their data to spare space. A few is a warning sign, and the number usually grows. Luna treats 100 or more as failing.`
      - Value: `None`, `{n} · showing wear` or `{n} · too many`.
-   - Unreadable spots (pending + uncorrectable, if either is non-null):
-     - Label `Unreadable spots`.
+   - Unreadable blocks (pending + uncorrectable, if either is non-null):
+     - Label `Unreadable blocks`.
      - Hint: `Parts of the disk the drive couldn't read. Files stored there may already be damaged.`
      - Value: `None` or `{n} · failing`.
    - Rows only when the signal is present:

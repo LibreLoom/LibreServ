@@ -92,7 +92,7 @@ Greeting and `TipPill`. The drive picker modal and the Dashboard's `InspectModal
 - New render tests: each Needs you item; zone absent when nothing applies; Admin vs Member (Member sees only own backup failures, no pills); Member drive card with shortcuts + See all shared items; storage omitted when not returned; warnings-only `SystemHealthPill`.
 - Move the problem/reminder tests from `BackupsCard.test.jsx` to the new zone.
 - Copy follows the plain-language rules in the root `AGENTS.md`. Shared primitives already fire haptics.
-- `npm run scan:colors`, then `./ci run -profile luna`.
+- `npm run scan:colors`, then `./ci run -p luna`.
 
 ## Decisions recorded 2026-10-18 (implementation)
 

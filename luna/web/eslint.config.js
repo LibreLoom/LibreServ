@@ -51,4 +51,11 @@ export default defineConfig([
     files: ["scripts/**/*.js", "vite.config.js", "eslint.config.js"],
     languageOptions: { globals: globals.node },
   },
+  {
+    // Playwright specs run in Node, not the browser: they read files and build
+    // Buffers. Without this the whole web lane dies at `npm run lint`, which
+    // sits before `npm test` in luna/ci.sh, so no web test ever ran.
+    files: ["e2e/**/*.js"],
+    languageOptions: { globals: globals.node },
+  },
 ]);

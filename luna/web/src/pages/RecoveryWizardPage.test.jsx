@@ -21,10 +21,13 @@ describe("RecoveryWizardPage", () => {
   let createObjectURL;
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.spyOn(window, "setTimeout").mockImplementation(() => 0);
-    clicked = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function () {
-      clicked.anchor = this;
-    });
+    // The wizard schedules a revoke; nothing here waits on it.
+    vi.spyOn(window, "setTimeout").mockImplementation(() => /** @type {any} */ (0));
+    clicked = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+      /** @this {HTMLAnchorElement} */ function () {
+        clicked.anchor = this;
+      },
+    );
     createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:recovery");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
   });

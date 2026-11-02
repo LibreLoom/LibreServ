@@ -24,22 +24,24 @@ import (
 func main() {
 	runCmd := flag.NewFlagSet("run", flag.ExitOnError)
 	profileName := runCmd.String("profile", "", "Profile to run")
+	runCmd.StringVar(profileName, "p", "", "Shorthand for --profile")
 	testIDs := runCmd.String("tests", "", "Comma-separated test IDs")
+	runCmd.StringVar(testIDs, "t", "", "Shorthand for --tests")
 	parallel := runCmd.Int("parallel", 4, "Parallel containers")
+	runCmd.IntVar(parallel, "j", 4, "Shorthand for --parallel")
 	fuzzDuration := runCmd.String("fuzz", "5m", "Fuzz duration")
 	failFast := runCmd.Bool("fail-fast", false, "Stop on first failure")
 	outputDir := runCmd.String("output", "", "Output directory for results")
-	session := runCmd.Bool("session", false, "Ignore the universal bounds in .ci.conf; use -perf/-cpus/-memory/-parallel for this run only")
-	perf := runCmd.String("perf", "", "Performance profile for this session (full, balanced, gentle, custom); needs -session")
+	session := runCmd.Bool("session", false, "Ignore the universal bounds in .ci.conf; use --perf/--cpus/--memory/--parallel for this run only")
+	perf := runCmd.String("perf", "", "Performance profile for this session (full, balanced, gentle, custom); needs --session")
 	cpus := runCmd.Float64("cpus", 0, "Cap CPU use to this many cores (0 = no cap)")
 	memory := runCmd.String("memory", "", "Cap memory, e.g. 8G or 4096M (empty = no cap)")
 
 	checkCmd := flag.NewFlagSet("check", flag.ExitOnError)
-	checkChanged := checkCmd.Bool("changed", false, "Only the checks a git diff can affect")
-	checkRun := checkCmd.Bool("run", false, "Also run the affected tests, not just the static checks")
-	checkSecurity := checkCmd.Bool("security", false, "Include the slow static analysis (staticcheck, gosec, govulncheck)")
-	checkAll := checkCmd.Bool("all", false, "Every check, ignoring -changed")
-	checkList := checkCmd.Bool("list", false, "Print the selected tests and exit without running")
+	checkFull := checkCmd.Bool("full", false, "Every check, not just the ones the diff can affect")
+	checkFullShort := checkCmd.Bool("f", false, "Shorthand for --full")
+	checkRun := checkCmd.Bool("run", false, "Run the selected checks (default: list them only)")
+	checkRunShort := checkCmd.Bool("r", false, "Shorthand for --run")
 
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -51,10 +53,10 @@ func main() {
 			listPerfProfiles()
 		case "run":
 			runCmd.Parse(os.Args[2:])
-			runCLI(*profileName, *testIDs, *parallel, *fuzzDuration, *failFast, *outputDir, *session, *perf, *cpus, *memory, flagSet(runCmd, "parallel"))
+			runCLI(*profileName, *testIDs, *parallel, *fuzzDuration, *failFast, *outputDir, *session, *perf, *cpus, *memory, flagSet(runCmd, "parallel") || flagSet(runCmd, "j"))
 		case "check":
 			checkCmd.Parse(os.Args[2:])
-			runCheck(*checkChanged, *checkRun, *checkSecurity, *checkAll, *checkList)
+			runCheck(*checkFull || *checkFullShort, *checkRun || *checkRunShort)
 		case "help", "-h", "--help":
 			printHelp()
 		default:
@@ -89,40 +91,40 @@ Commands:
   help      Show this help message
 
 Check Flags:
-  -changed            Only the checks the current diff can affect (default: all)
-  -run                Also run the affected tests, not just the static checks
-  -security           Include staticcheck, gosec and govulncheck (slow)
-  -all                Every check, ignoring -changed
-  -list               Print the selection and exit without running
+  -f, --full          Every check, not just the ones the diff can affect
+  -r, --run           Run the selection (default: print it and stop)
+
+Check Examples:
+  ci check                     # Dry run: what checks this diff can affect
+  ci check -r                  # Run them
+  ci check -f                  # Dry run: every check
+  ci check -f -r               # Run every check
 
 Run Flags:
-  -profile <name>     Run tests for a profile (quick, sol, luna, full, etc.)
-  -tests <id,...>     Run specific test IDs (comma-separated)
-  -fuzz <duration>    Fuzz test duration (default: 5m)
-  -fail-fast          Stop on first failure
-  -output <dir>       Output directory for results (JSON)
-  -session            Ignore the universal bounds in .ci.conf; the flags below
-                      then bound this run alone (none = unbounded)
-  -perf <name>        With -session: full, balanced, gentle, custom
-  -cpus <n>           With -session: cap CPU use to n cores
-  -memory <size>      With -session: cap memory, e.g. 8G
-  -parallel <n>       With -session: parallel containers
+  -p, --profile <name>  Run tests for a profile (quick, sol, luna, full, etc.)
+  -t, --tests <id,...>  Run specific test IDs (comma-separated)
+      --fuzz <dur>      Fuzz test duration (default: 5m)
+      --fail-fast       Stop on first failure
+      --output <dir>    Output directory for results (JSON)
+      --session         Ignore the universal bounds in .ci.conf; the flags
+                        below then bound this run alone (none = unbounded)
+      --perf <name>     With --session: full, balanced, gentle, custom
+      --cpus <n>        With --session: cap CPU use to n cores
+      --memory <size>   With --session: cap memory, e.g. 8G
+  -j, --parallel <n>    With --session: parallel containers
 
 Examples:
   ci                           # Launch TUI
-  ci run -profile quick        # Run quick profile
-  ci run -tests go-test,go-vet # Run specific tests
-  ci run -profile sol    # LibreServ release gate (no Luna/Connect)
-  ci run -profile luna         # Luna (luna/ci.sh on the host)
-  ci run -profile full         # Run full profile
-  ci run -profile quick -session -perf balanced   # This run only, ignoring the universal bounds
-  ci run -profile luna -session -cpus 4 -memory 8G
+  ci run --profile quick       # Run quick profile
+  ci run -p quick              # Same
+  ci run --tests go-test,go-vet
+  ci run -p sol                # LibreServ release gate (no Luna/Connect)
+  ci run -p luna               # Luna (luna/ci.sh in its container)
+  ci run -p full               # Run full profile
+  ci run -p quick --session --perf balanced   # This run only, unbounded
+  ci run -p luna --session --cpus 4 --memory 8G
   ci list                      # List all tests
-  ci profiles                  # List all profiles
-  ci check                     # Fast checks over everything (about a minute)
-  ci check -changed            # Only what your diff can break
-  ci check -changed -run       # ...plus the tests it can break
-  ci check -changed -security  # ...plus staticcheck, gosec, govulncheck`)
+  ci profiles                  # List all profiles`)
 }
 
 func listTests() {
@@ -362,13 +364,17 @@ func flagSet(fs *flag.FlagSet, name string) bool {
 
 // runCheck is the fast inner loop: the static checks (format, vet, lint,
 // typecheck, colour scan) that catch a broken edit without compiling test
-// binaries or running product logic. With -run it adds the affected tests.
+// binaries or running product logic.
 //
 // It is deliberately not a profile. A profile is a fixed answer to a question
-// whose answer changes with the diff; -changed derives the selection from the
+// whose answer changes with the diff; the default selection is derived from the
 // paths git reports, so a one-line edit runs the handful of checks that can
 // actually fail because of it.
-func runCheck(changed, withRun, security, all, listOnly bool) {
+//
+// Default is a dry run: it prints what it would run and stops, so the selection
+// is visible before anything costs time. --run executes it, --full widens the
+// selection from "what this diff can reach" to every check.
+func runCheck(full, run bool) {
 	root, err := findRepoRoot()
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -378,43 +384,32 @@ func runCheck(changed, withRun, security, all, listOnly bool) {
 	var scope []*tests.Test
 	var scopeNote string
 
-	if changed {
+	if full {
+		scope = tests.DefaultRegistry.List()
+		scopeNote = "all files (--full)"
+	} else {
 		paths, err := changedPaths(root)
 		if err != nil {
 			fmt.Printf("Error: reading changed files: %v\n", err)
 			os.Exit(1)
 		}
-		scope = tests.TestsForPaths(paths)
 		if len(paths) == 0 {
-			scopeNote = "no changed files; checking everything"
-		} else {
-			scopeNote = fmt.Sprintf("%d changed file(s)", len(paths))
-			for _, p := range paths {
-				fmt.Printf("  changed: %s\n", p)
-			}
+			// Nothing changed: there is nothing to check, and saying so is
+			// more useful than quietly running the whole suite.
+			fmt.Println("No changed files. Nothing to check.")
+			return
 		}
-	} else {
-		scope = tests.DefaultRegistry.List()
-		scopeNote = "all files"
-	}
-
-	selected := tests.FilterChecks(scope, !security)
-	if all {
-		selected = tests.FilterChecks(tests.DefaultRegistry.List(), !security)
-		scopeNote = "all files"
-	}
-
-	if withRun {
-		// Everything the diff touches, checks and tests alike: the point of
-		// -run is "did I break anything nearby", not "is the whole suite green".
-		selected = scope
-		if all {
-			selected = tests.DefaultRegistry.List()
+		scope = tests.TestsForPaths(paths)
+		scopeNote = fmt.Sprintf("%d changed file(s)", len(paths))
+		for _, p := range paths {
+			fmt.Printf("  changed: %s\n", p)
 		}
 	}
 
+	selected := tests.FilterChecks(scope, true)
 	if len(selected) == 0 {
-		fmt.Printf("No checks matched (%s). Nothing to do.\n", scopeNote)
+		fmt.Printf("\nNo checks match these changes (%s).\n", scopeNote)
+		fmt.Println("Run `ci check --full` to see every check.")
 		return
 	}
 
@@ -423,16 +418,13 @@ func runCheck(changed, withRun, security, all, listOnly bool) {
 		ids = append(ids, t.ID)
 	}
 
-	kind := "checks"
-	if withRun {
-		kind = "tests and checks"
-	}
-	fmt.Printf("%s (%s): %d %s\n", strings.ToUpper(kind[:1])+kind[1:], scopeNote, len(ids), kind)
+	fmt.Printf("\n%d check(s) affected (%s):\n", len(ids), scopeNote)
 	for _, t := range selected {
-		fmt.Printf("  %s\n", t.ID)
+		fmt.Printf("  %-32s %s\n", t.ID, t.Name)
 	}
 
-	if listOnly {
+	if !run {
+		fmt.Printf("\nDry run. Add --run to execute them.\n")
 		return
 	}
 	fmt.Println()

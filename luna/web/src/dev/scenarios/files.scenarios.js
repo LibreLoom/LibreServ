@@ -491,7 +491,7 @@ export default [
   },
 
   // ── Editors ───────────────────────────────────────────────────────────────
-  { id: "files/edit-text-save", area: A, title: "Edit and save a text file", url: open("notes.txt"), seed: viewerSamples, check: ["Type something: 'unsaved' indicator shows", "Save (button and Ctrl+S) → 'Saved just now'", "Close and reopen: change is there", "Autosave kicks in after a pause"] },
+  { id: "files/edit-text-save", area: A, title: "Edit and save a text file", url: open("notes.txt"), seed: viewerSamples, check: ["Type something: 'unsaved' indicator shows", "Save (button and Ctrl+S) → 'Saved'", "Close and reopen: change is there", "Autosave kicks in after a pause"] },
   {
     id: "files/edit-text-conflict", area: A, title: "Save conflict (file changed meanwhile)", url: open("notes.txt"), seed: viewerSamples,
     faults: [{ match: "POST /api/v1/drives/d1/files/upload", mode: "409", code: "exists", message: "A file with this name is already here. Rename it or choose another." }],

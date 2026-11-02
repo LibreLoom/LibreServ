@@ -288,7 +288,7 @@ export default function RecoveryPhraseCard() {
           </SettingsRow>
         )}
         <div className="px-4 py-3">
-          <CollapsibleSection title="Lost your recovery phrase?" surface="secondary">
+          <CollapsibleSection title="Lost your recovery phrase?" mono pill surface="secondary">
             <p className="mb-3 text-primary text-sm">
               Get a new phrase without the old one. Private items backed up with the old phrase can't be opened anymore. Your shared cloud backups stay open to you.
             </p>

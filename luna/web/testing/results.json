@@ -118,11 +118,135 @@
     "theme": "scenario default"
   },
   "dashboard/albums-many": {
-    "status": "pass",
-    "note": "",
-    "at": "2026-10-21T03:25:57.997Z",
+    "note": "drop \"album\" from share album button.",
+    "at": "2026-11-01T22:12:52.140Z",
     "viewport": "desktop",
-    "theme": "scenario default"
+    "theme": "scenario default",
+    "faults": [],
+    "offline": false,
+    "latency": 0,
+    "lastRequests": [
+      {
+        "t": 1793571171343,
+        "method": "GET",
+        "path": "/api/v1/gallery/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"busy\":false,\"scanning\":false,\"phase\":\"idle\",\"pending\":0,\"drive_id\":null,\"drive_label\":null,\"found_count\":0,\"last_error\":null}"
+      },
+      {
+        "t": 1793571166126,
+        "method": "GET",
+        "path": "/api/v1/gallery?limit=80&offset=0&album_id=a0&album_home=d1",
+        "status": 200,
+        "note": "",
+        "body": "{\"items\":[],\"has_more\":false,\"next_offset\":0,\"total\":0}"
+      },
+      {
+        "t": 1793571163342,
+        "method": "GET",
+        "path": "/api/v1/gallery/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"busy\":false,\"scanning\":false,\"phase\":\"idle\",\"pending\":0,\"drive_id\":null,\"drive_label\":null,\"found_count\":0,\"last_error\":null}"
+      },
+      {
+        "t": 1793571155341,
+        "method": "GET",
+        "path": "/api/v1/gallery/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"busy\":false,\"scanning\":false,\"phase\":\"idle\",\"pending\":0,\"drive_id\":null,\"drive_label\":null,\"found_count\":0,\"last_error\":null}"
+      },
+      {
+        "t": 1793571149336,
+        "method": "GET",
+        "path": "/api/v1/gallery?limit=80&offset=0",
+        "status": 200,
+        "note": "",
+        "body": "{\"items\":[{\"drive_id\":\"d1\",\"path\":\"Photos/IMG_0001.jpg\",\"name\":\"IMG_0001.jpg\",\"kind\":\"photo\",\"size\":2000000,\"width\":4000,\"height\":3000,\"taken_at\":1792324800,\"thumb\":\"data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22600%22%20height%3D%22600%22%20viewBox%3D%220%200%20600%20600%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%239aa5b1%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22monospace%22%20font-size%3D%2260%22%20fill%3D%22%23222%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%3E4000%C3%973000%3C%2Ftext%3E%3C%2Fsvg%3E\",\"content\":\"data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22600%22%20height%3D%22600%22%20viewBox%3D%220%200%20600%20600%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%239aa5b1%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22monospace%22%20font-size%3D%2260%22%20fill%3D%22%23222%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%3E4000%C3%973000%3C%2Ftext%3E%3C%2Fsvg%3E\",\"favorited\":true,\"camera_make\":\"Canon\",\"camera_model\":\"EOS R6\",\"lens\":\"RF 24-70mm f/2.8\",\"iso\":100,\"focal_mm\":24,\"flash\":true,\"lat\":48.8584,\"lon\":2.2945,\"private\":false},{\"drive_id\":\"d1\",\"path\":\"Photos/IMG_0002.jpg\",\"name\":\"IMG_0002.jpg\",\"kind\":\"photo\",\"size\":2150000,\"width\":4000,\"height\":3000,\"taken_at\":1791028800,\"thumb\":\"data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22600%22%20height%3D%22600%22%20viewBox%3D%220%200%20600%20600%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23b8a99a%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22monospace%22%20font-size%3D%2260%22%20fill%3D%22%23222%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%3E4000%C3%973000%3C%2Ftext%3E%3C%2Fsvg%3E\",\"content\":\"data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22600%22%20height%3D%22600%22%20viewBox%3D%220%200%20600%20600%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23b8a99a%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22monospace%22%20font-size%3D%2260%22%20fill%3D%22%23222%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%3E4000%C3%973000%3C%2Ftext%3E%3C%2Fsvg%3E\",\"favorited\":false,\"camera_make\":\"Apple\",\"camera_model\":\"iPhone 15\",\"lens\":\"iPhone 15 back camera 6.8mm f/1.6\",\"iso\":200,\"focal_mm\":34,\"flash\":false,\"private\":false},{\"drive_id\":\"d1\",\"path\":\"Photos/IMG_0003.jpg\",\"name\":\"IMG_0003.jpg\",\"kind\":\"photo\",\"size\":2300000,\"width\":3000,\"height\":4000,\"taken_at\":1789732800,\"thumb\":\"data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22600%22%20height%3D%22600%22%20viewBox%3D%220%200%20600%20600%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23a3b8a3%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22monospace%22%20font-size%3D%2260%22%20fill%3D%22%23222%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%3E3000%C3%974000%3C%2Ftext%3E%3C%2Fsvg%3E\",\"content\":\"data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22600%22%20height%3D%22600%22%20viewBox%3D%220%200%20600%20600%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23a3b8a3%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22monospace%22%20font-size%3D%2260%22%20fill%3D%22%23222%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%3E3000%C3%974000%3C%2Ftext%3E%3C%2Fsvg%3E\",\"favorited\":false,\"camera_make\":\"Sony\",\"camera_model\":\"A7 IV\",\"lens\":\"FE 35mm f/1.8\",\"iso\":300,\"focal_mm\":44,\"flash\":false,\"private\":false},{\"drive_id\":\"d1\",\"path\":\"Photos/IMG_0004.heic\",\"name\":\"IMG_0004.heic\",\"kind\":\"photo\",\"size\":2450000,\"width\":4000,\"height\":3000,\"taken_at\":1788436800,\"thumb\":\""
+      },
+      {
+        "t": 1793571147489,
+        "method": "GET",
+        "path": "/api/v1/gallery/albums",
+        "status": 200,
+        "note": "",
+        "body": "[{\"id\":\"a0\",\"home_drive_id\":\"d1\",\"name\":\"Album 1\",\"locked\":false,\"item_count\":0,\"cover_thumb\":\"\",\"created_at\":1792324800},{\"id\":\"a1\",\"home_drive_id\":\"d1\",\"name\":\"Album 2\",\"locked\":false,\"item_count\":7,\"cover_thumb\":\"\",\"created_at\":1792238400},{\"id\":\"a2\",\"home_drive_id\":\"d1\",\"name\":\"Album 3\",\"locked\":false,\"item_count\":14,\"cover_thumb\":\"\",\"created_at\":1792152000},{\"id\":\"a3\",\"home_drive_id\":\"d1\",\"name\":\"Album 4\",\"locked\":false,\"item_count\":21,\"cover_thumb\":\"\",\"created_at\":1792065600},{\"id\":\"a4\",\"home_drive_id\":\"d1\",\"name\":\"Album 5\",\"locked\":false,\"item_count\":28,\"cover_thumb\":\"\",\"created_at\":1791979200},{\"id\":\"a5\",\"home_drive_id\":\"d1\",\"name\":\"Album 6\",\"locked\":false,\"item_count\":35,\"cover_thumb\":\"\",\"created_at\":1791892800},{\"id\":\"a6\",\"home_drive_id\":\"d1\",\"name\":\"Album 7\",\"locked\":false,\"item_count\":42,\"cover_thumb\":\"\",\"created_at\":1791806400},{\"id\":\"a7\",\"home_drive_id\":\"d1\",\"name\":\"Album 8\",\"locked\":false,\"item_count\":49,\"cover_thumb\":\"\",\"created_at\":1791720000},{\"id\":\"a8\",\"home_drive_id\":\"d1\",\"name\":\"Album 9\",\"locked\":false,\"item_count\":56,\"cover_thumb\":\"\",\"created_at\":1791633600}]"
+      },
+      {
+        "t": 1793571147489,
+        "method": "GET",
+        "path": "/api/v1/gallery/places?limit=80&offset=0",
+        "status": 200,
+        "note": "",
+        "body": "[{\"key\":\"48.9,2.3\",\"label\":\"Near 48.9, 2.3\",\"count\":10,\"lat\":48.8584,\"lon\":2.2945,\"cover_thumb\":\"data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22600%22%20height%3D%22600%22%20viewBox%3D%220%200%20600%20600%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%239aa5b1%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22monospace%22%20font-size%3D%2260%22%20fill%3D%22%23222%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%3E4000%C3%973000%3C%2Ftext%3E%3C%2Fsvg%3E\"},{\"key\":\"35.7,139.7\",\"label\":\"Near 35.7, 139.7\",\"count\":10,\"lat\":35.6598,\"lon\":139.7466,\"cover_thumb\":\"data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22600%22%20height%3D%22600%22%20viewBox%3D%220%200%20600%20600%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23b3a3b8%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22monospace%22%20font-size%3D%2260%22%20fill%3D%22%23222%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%3E4000%C3%973000%3C%2Ftext%3E%3C%2Fsvg%3E\"}]"
+      },
+      {
+        "t": 1793571147327,
+        "method": "GET",
+        "path": "/api/v1/gallery?limit=80&offset=0&to=1792306799&month_day=10-18",
+        "status": 200,
+        "note": "",
+        "body": "{\"items\":[],\"has_more\":false,\"next_offset\":0,\"total\":0}"
+      },
+      {
+        "t": 1793571147324,
+        "method": "GET",
+        "path": "/api/v1/gallery?limit=80&offset=0",
+        "status": 200,
+        "note": "",
+        "body": "{\"items\":[{\"drive_id\":\"d1\",\"path\":\"Photos/IMG_0001.jpg\",\"name\":\"IMG_0001.jpg\",\"kind\":\"photo\",\"size\":2000000,\"width\":4000,\"height\":3000,\"taken_at\":1792324800,\"thumb\":\"data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22600%22%20height%3D%22600%22%20viewBox%3D%220%200%20600%20600%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%239aa5b1%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22monospace%22%20font-size%3D%2260%22%20fill%3D%22%23222%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%3E4000%C3%973000%3C%2Ftext%3E%3C%2Fsvg%3E\",\"content\":\"data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22600%22%20height%3D%22600%22%20viewBox%3D%220%200%20600%20600%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%239aa5b1%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22monospace%22%20font-size%3D%2260%22%20fill%3D%22%23222%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%3E4000%C3%973000%3C%2Ftext%3E%3C%2Fsvg%3E\",\"favorited\":true,\"camera_make\":\"Canon\",\"camera_model\":\"EOS R6\",\"lens\":\"RF 24-70mm f/2.8\",\"iso\":100,\"focal_mm\":24,\"flash\":true,\"lat\":48.8584,\"lon\":2.2945,\"private\":false},{\"drive_id\":\"d1\",\"path\":\"Photos/IMG_0002.jpg\",\"name\":\"IMG_0002.jpg\",\"kind\":\"photo\",\"size\":2150000,\"width\":4000,\"height\":3000,\"taken_at\":1791028800,\"thumb\":\"data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22600%22%20height%3D%22600%22%20viewBox%3D%220%200%20600%20600%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23b8a99a%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22monospace%22%20font-size%3D%2260%22%20fill%3D%22%23222%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%3E4000%C3%973000%3C%2Ftext%3E%3C%2Fsvg%3E\",\"content\":\"data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22600%22%20height%3D%22600%22%20viewBox%3D%220%200%20600%20600%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23b8a99a%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22monospace%22%20font-size%3D%2260%22%20fill%3D%22%23222%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%3E4000%C3%973000%3C%2Ftext%3E%3C%2Fsvg%3E\",\"favorited\":false,\"camera_make\":\"Apple\",\"camera_model\":\"iPhone 15\",\"lens\":\"iPhone 15 back camera 6.8mm f/1.6\",\"iso\":200,\"focal_mm\":34,\"flash\":false,\"private\":false},{\"drive_id\":\"d1\",\"path\":\"Photos/IMG_0003.jpg\",\"name\":\"IMG_0003.jpg\",\"kind\":\"photo\",\"size\":2300000,\"width\":3000,\"height\":4000,\"taken_at\":1789732800,\"thumb\":\"data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22600%22%20height%3D%22600%22%20viewBox%3D%220%200%20600%20600%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23a3b8a3%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22monospace%22%20font-size%3D%2260%22%20fill%3D%22%23222%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%3E3000%C3%974000%3C%2Ftext%3E%3C%2Fsvg%3E\",\"content\":\"data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22600%22%20height%3D%22600%22%20viewBox%3D%220%200%20600%20600%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23a3b8a3%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22monospace%22%20font-size%3D%2260%22%20fill%3D%22%23222%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%3E3000%C3%974000%3C%2Ftext%3E%3C%2Fsvg%3E\",\"favorited\":false,\"camera_make\":\"Sony\",\"camera_model\":\"A7 IV\",\"lens\":\"FE 35mm f/1.8\",\"iso\":300,\"focal_mm\":44,\"flash\":false,\"private\":false},{\"drive_id\":\"d1\",\"path\":\"Photos/IMG_0004.heic\",\"name\":\"IMG_0004.heic\",\"kind\":\"photo\",\"size\":2450000,\"width\":4000,\"height\":3000,\"taken_at\":1788436800,\"thumb\":\""
+      },
+      {
+        "t": 1793571147320,
+        "method": "GET",
+        "path": "/api/v1/gallery/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"busy\":false,\"scanning\":false,\"phase\":\"idle\",\"pending\":0,\"drive_id\":null,\"drive_label\":null,\"found_count\":0,\"last_error\":null}"
+      },
+      {
+        "t": 1793571146356,
+        "method": "GET",
+        "path": "/api/v1/drives/detected",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793571141355,
+        "method": "GET",
+        "path": "/api/v1/drives/detected",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793571136332,
+        "method": "GET",
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793571136331,
+        "method": "GET",
+        "path": "/api/v1/system/updates",
+        "status": 200,
+        "note": "",
+        "body": "{\"binary_name\":\"lunad\",\"checksum\":\"\",\"reboot_required\":false,\"release_notes\":\"\",\"latest_version\":\"1.4.2\",\"update_available\":false,\"current_version\":\"1.4.2\",\"os_update_failed\":null}"
+      },
+      {
+        "t": 1793571136331,
+        "method": "GET",
+        "path": "/api/v1/cloud/phrase",
+        "status": 200,
+        "note": "",
+        "body": "{\"set\":true,\"set_at\":0,\"luna_id\":\"luna-1\",\"signing_public\":null,\"check_due\":false,\"last_checked_at\":0,\"phrase_words\":12,\"moving\":null,\"old_phrase_copies\":{\"count\":0,\"removed_at\":null},\"resealing\":false}"
+      }
+    ]
   },
   "dashboard/backup-failed": {
     "status": "pass",
@@ -153,7 +277,6 @@
     "theme": "scenario default"
   },
   "dashboard/check-overdue": {
-    "status": "fail",
     "note": "the placeholder n box #1 is unnecessary. ",
     "at": "2026-10-29T04:08:12.150Z",
     "viewport": "desktop",
@@ -284,6 +407,13 @@
       }
     ]
   },
+  "dashboard/check-paste-file": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-01T21:57:05.614Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
   "dashboard/cloud-check-problem": {
     "status": "pass",
     "note": "",
@@ -294,137 +424,152 @@
   "dashboard/connect-403": {
     "status": "pass",
     "note": "",
-    "at": "2026-10-21T03:27:11.188Z",
+    "at": "2026-11-01T22:13:42.540Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/connect-token-error": {
-    "note": "When I open the Change the device token card, the Luna Connect no longer accepts this device token. message is confusing when I don't see anything typed into the device token box.This could be a mock bug, though.",
-    "at": "2026-10-21T03:07:07.087Z",
-    "viewport": "desktop",
+    "note": "no needs you row exists. the card layout in the cloud backup settings section is broken btw, they are missing padding between them. structure this one like all the other categories.\n\nlost your recovery phrase should use the pill variant of collapsiblesection btw",
+    "at": "2026-11-01T22:10:01.145Z",
+    "viewport": "phone",
     "theme": "scenario default",
     "faults": [],
     "offline": false,
     "latency": 0,
     "lastRequests": [
       {
-        "t": 1792324847556,
-        "method": "GET",
-        "path": "/api/v1/network/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324842521,
-        "method": "GET",
-        "path": "/api/v1/network/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324837505,
-        "method": "GET",
-        "path": "/api/v1/network/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324832492,
-        "method": "GET",
-        "path": "/api/v1/network/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324827480,
-        "method": "GET",
-        "path": "/api/v1/network/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324822454,
-        "method": "GET",
-        "path": "/api/v1/network/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324817442,
-        "method": "GET",
-        "path": "/api/v1/network/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324812423,
-        "method": "GET",
-        "path": "/api/v1/network/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324807416,
+        "t": 1793570927323,
         "method": "GET",
         "path": "/api/v1/auth/status",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"has_admin\":true,\"connect_active\":false}"
       },
       {
-        "t": 1792324807415,
-        "method": "GET",
-        "path": "/api/v1/setup",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324807415,
-        "method": "GET",
-        "path": "/api/v1/system/updates/source",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324805893,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800844,
+        "t": 1793570923473,
         "method": "GET",
         "path": "/api/v1/me/recents",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324800844,
+        "t": 1793570923473,
         "method": "GET",
         "path": "/api/v1/system/updates",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"binary_name\":\"lunad\",\"checksum\":\"\",\"reboot_required\":false,\"release_notes\":\"\",\"latest_version\":\"1.4.2\",\"update_available\":false,\"current_version\":\"1.4.2\",\"os_update_failed\":null}"
       },
       {
-        "t": 1792324800844,
+        "t": 1793570923473,
+        "method": "GET",
+        "path": "/api/v1/cloud/phrase",
+        "status": 200,
+        "note": "",
+        "body": "{\"set\":true,\"set_at\":0,\"luna_id\":\"luna-1\",\"signing_public\":null,\"check_due\":false,\"last_checked_at\":0,\"phrase_words\":12,\"moving\":null,\"old_phrase_copies\":{\"count\":0,\"removed_at\":null},\"resealing\":false}"
+      },
+      {
+        "t": 1793570923473,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793570923472,
+        "method": "GET",
+        "path": "/api/v1/backups",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793570923472,
+        "method": "GET",
+        "path": "/api/v1/system/health/check",
+        "status": 200,
+        "note": "",
+        "body": "{\"overall_pass\":true,\"status\":\"ok\",\"timestamp\":1792324800,\"summary\":{\"total_checks\":17,\"passed\":17,\"warnings\":0,\"failed\":0},\"checks\":{\"clock\":{\"category\":\"Clock\",\"message\":\"Luna's clock is on time.\",\"status\":\"passed\"},\"data_path_writable\":{\"category\":\"Storage\",\"message\":\"Luna can write to its data folder.\",\"status\":\"passed\"},\"database\":{\"category\":\"Database\",\"message\":\"Luna's database is healthy.\",\"status\":\"passed\"},\"diagram_pack\":{\"category\":\"Diagrams\",\"message\":\"Diagram pack installed.\",\"more\":\"\",\"status\":\"passed\"},\"disk_space\":{\"category\":\"Storage\",\"message\":\"Plenty of room left.\",\"status\":\"passed\",\"details\":{\"free_bytes\":30000000000,\"free_human\":\"30.0 GB\"}},\"drive_tools\":{\"category\":\"Drive tools\",\"message\":\"Drive tools are installed.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"erase_tools\":{\"category\":\"Erase tools\",\"message\":\"Erase tools are installed.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"heic_tools\":{\"category\":\"Photos\",\"message\":\"iPhone photo support installed.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"logs_path_writable\":{\"category\":\"Storage\",\"message\":\"Luna can write to its log folder.\",\"status\":\"passed\"},\"network\":{\"category\":\"Network\",\"message\":\"Connected to your router or modem, with a path to the internet.\",\"status\":\"passed\"},\"ntfs_support\":{\"category\":\"Drive tools\",\"message\":\"Windows-formatted drives are supported.\",\"status\":\"passed\"},\"office_pack\":{\"category\":\"Documents\",\"message\":\"Document pack installed.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"smart_tool\":{\"category\":\"Drive health\",\"message\":\"Drive health checks are available.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"trim_tool\":{\"category\":\"Drive health\",\"message\":\"Drive maintenance is available.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"update_signing\":{\"category\":\"Updates\",\"message\":\"Updates are checked against Luna's signing key.\",\"status\":\"passed\"},\"video_tools\":{\"category\":\"Videos\",\"message\":\"Video previews installed.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"whiteboard\":{\"category\":\"Whiteboard\",\"message\":\"Whiteboard tools are installed.\",\"status\":\"passed\"}}}"
+      },
+      {
+        "t": 1793570923472,
+        "method": "GET",
+        "path": "/api/v1/connect/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"connect_active\":false,\"enabled\":false,\"base_url\":\"https://connect.luna.libreloom.org\",\"tunnel_active\":false,\"backup_unlocked\":false,\"paired\":false,\"unclaimed\":false,\"backup_sources\":[],\"card_on_file\":true,\"device_code\":null,\"domain\":null,\"hostname\":null,\"subdomain\":null}"
+      },
+      {
+        "t": 1793570923472,
+        "method": "GET",
+        "path": "/api/v1/network/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"ethernet_connected\":true,\"wifi_connected\":false,\"has_default_route\":true}"
+      },
+      {
+        "t": 1793570923472,
+        "method": "GET",
+        "path": "/api/v1/drives/detected",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793570923472,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/summary",
+        "status": 200,
+        "note": "",
+        "body": "{\"id\":\"d1\",\"mounted\":true,\"total_bytes\":64000000000,\"free_bytes\":30000000000,\"used_bytes\":34000000000,\"folders\":null,\"files\":null,\"shortcuts\":[\"Photos\",\"Documents\"]}"
+      },
+      {
+        "t": 1793570923472,
         "method": "GET",
         "path": "/api/v1/drives/d1/health",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"available\":true,\"reason\":null,\"verdict\":\"ok\",\"overall\":\"passed\",\"model\":\"WD20EZRZ\",\"serial\":\"FAKE1\",\"temperature_c\":34,\"temperature_max_c\":60,\"temperature_max_source\":\"typical\",\"reallocated_sectors\":0,\"pending_sectors\":0,\"uncorrectable_sectors\":0,\"status_bits\":0,\"signals\":[]}"
+      },
+      {
+        "t": 1793570923174,
+        "method": "GET",
+        "path": "/api/v1/drives",
+        "status": 200,
+        "note": "",
+        "body": "[{\"id\":\"d1\",\"label\":\"Family photos\",\"state\":\"as_is\",\"fs_type\":\"exfat\",\"device\":\"sdd1\",\"mount_point\":\"/mnt/d1\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"}]"
+      },
+      {
+        "t": 1793570923097,
+        "method": "GET",
+        "path": "/api/v1/auth/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"has_admin\":true,\"connect_active\":false}"
+      },
+      {
+        "t": 1793570923097,
+        "method": "GET",
+        "path": "/api/v1/setup",
+        "status": 200,
+        "note": "",
+        "body": "{\"name\":\"Luna\",\"setup_completed\":true,\"current_step\":\"done\",\"step_data\":{\"network_connected\":true}}"
       }
     ]
-  },
-  "dashboard/drive-failed": {
-    "status": "pass",
-    "note": "",
-    "at": "2026-10-21T02:57:15.313Z",
-    "viewport": "desktop",
-    "theme": "scenario default"
   },
   "dashboard/drive-full": {
     "status": "pass",
     "note": "",
-    "at": "2026-10-21T03:00:30.901Z",
+    "at": "2026-11-01T22:01:08.115Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "dashboard/drive-hot": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-01T22:01:01.232Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
@@ -436,8 +581,8 @@
     "theme": "scenario default"
   },
   "dashboard/drive-unhealthy": {
-    "note": "Both report high temperatures. The user is told only \"This drive needs attention\nThe drive reported a problem. Copy your files somewhere else and don't use it for new photos. It's about 48°C.\"\n\nNothing useful, unless it's the temperature, but how am I supposed to know? Nothing says \"It's about 48 C, which is too hot for most drives to safely operate.\" Is 48C too hot? IDK!\n\nOh, and both drives say they need attention and the scenario says only one should.",
-    "at": "2026-10-21T03:00:11.726Z",
+    "note": "switch spots -> blocks\n\nalso change these instructions to instead say to use a computer to copy over all the files",
+    "at": "2026-11-01T22:00:52.431Z",
     "viewport": "desktop",
     "theme": "scenario default",
     "faults": [],
@@ -445,354 +590,144 @@
     "latency": 0,
     "lastRequests": [
       {
-        "t": 1792324970531,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324970519,
+        "t": 1793570447679,
         "method": "GET",
         "path": "/api/v1/drives",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[{\"id\":\"d1\",\"label\":\"Drive 1\",\"state\":\"as_is\",\"fs_type\":\"exfat\",\"device\":\"sdd1\",\"mount_point\":\"/mnt/d1\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"},{\"id\":\"d2\",\"label\":\"Drive 2\",\"state\":\"as_is\",\"fs_type\":\"exfat\",\"device\":\"sdd2\",\"mount_point\":\"/mnt/d2\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"}]"
       },
       {
-        "t": 1792324965513,
+        "t": 1793570447629,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324965499,
+        "t": 1793570442679,
         "method": "GET",
         "path": "/api/v1/drives",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[{\"id\":\"d1\",\"label\":\"Drive 1\",\"state\":\"as_is\",\"fs_type\":\"exfat\",\"device\":\"sdd1\",\"mount_point\":\"/mnt/d1\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"},{\"id\":\"d2\",\"label\":\"Drive 2\",\"state\":\"as_is\",\"fs_type\":\"exfat\",\"device\":\"sdd2\",\"mount_point\":\"/mnt/d2\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"}]"
       },
       {
-        "t": 1792324960500,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324960483,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324955487,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324955445,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324950473,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324950432,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324950102,
+        "t": 1793570442630,
         "method": "GET",
         "path": "/api/v1/cloud/backups",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324950102,
+        "t": 1793570442629,
         "method": "GET",
         "path": "/api/v1/backups?drive=&path=",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324945461,
+        "t": 1793570442629,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324945416,
+        "t": 1793570437678,
         "method": "GET",
         "path": "/api/v1/drives",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[{\"id\":\"d1\",\"label\":\"Drive 1\",\"state\":\"as_is\",\"fs_type\":\"exfat\",\"device\":\"sdd1\",\"mount_point\":\"/mnt/d1\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"},{\"id\":\"d2\",\"label\":\"Drive 2\",\"state\":\"as_is\",\"fs_type\":\"exfat\",\"device\":\"sdd2\",\"mount_point\":\"/mnt/d2\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"}]"
       },
       {
-        "t": 1792324940420,
+        "t": 1793570437628,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793570432677,
+        "method": "GET",
+        "path": "/api/v1/drives",
+        "status": 200,
+        "note": "",
+        "body": "[{\"id\":\"d1\",\"label\":\"Drive 1\",\"state\":\"as_is\",\"fs_type\":\"exfat\",\"device\":\"sdd1\",\"mount_point\":\"/mnt/d1\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"},{\"id\":\"d2\",\"label\":\"Drive 2\",\"state\":\"as_is\",\"fs_type\":\"exfat\",\"device\":\"sdd2\",\"mount_point\":\"/mnt/d2\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"}]"
+      },
+      {
+        "t": 1793570432627,
+        "method": "GET",
+        "path": "/api/v1/drives/detected",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793570427677,
+        "method": "GET",
+        "path": "/api/v1/drives",
+        "status": 200,
+        "note": "",
+        "body": "[{\"id\":\"d1\",\"label\":\"Drive 1\",\"state\":\"as_is\",\"fs_type\":\"exfat\",\"device\":\"sdd1\",\"mount_point\":\"/mnt/d1\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"},{\"id\":\"d2\",\"label\":\"Drive 2\",\"state\":\"as_is\",\"fs_type\":\"exfat\",\"device\":\"sdd2\",\"mount_point\":\"/mnt/d2\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"}]"
+      },
+      {
+        "t": 1793570427627,
+        "method": "GET",
+        "path": "/api/v1/drives/detected",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793570422676,
+        "method": "GET",
+        "path": "/api/v1/drives",
+        "status": 200,
+        "note": "",
+        "body": "[{\"id\":\"d1\",\"label\":\"Drive 1\",\"state\":\"as_is\",\"fs_type\":\"exfat\",\"device\":\"sdd1\",\"mount_point\":\"/mnt/d1\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"},{\"id\":\"d2\",\"label\":\"Drive 2\",\"state\":\"as_is\",\"fs_type\":\"exfat\",\"device\":\"sdd2\",\"mount_point\":\"/mnt/d2\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"}]"
+      },
+      {
+        "t": 1793570422626,
+        "method": "GET",
+        "path": "/api/v1/drives/detected",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793570417675,
+        "method": "GET",
+        "path": "/api/v1/drives",
+        "status": 200,
+        "note": "",
+        "body": "[{\"id\":\"d1\",\"label\":\"Drive 1\",\"state\":\"as_is\",\"fs_type\":\"exfat\",\"device\":\"sdd1\",\"mount_point\":\"/mnt/d1\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"},{\"id\":\"d2\",\"label\":\"Drive 2\",\"state\":\"as_is\",\"fs_type\":\"exfat\",\"device\":\"sdd2\",\"mount_point\":\"/mnt/d2\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"}]"
       }
     ]
   },
   "dashboard/drive-unmounted": {
+    "status": "pass",
     "note": "It says it's healthy & ready, the only indication is that \"Storage will show once Luna can read this drive.\" and nothing on the dashboard page. Clearly, someone did not put thought into this state.",
-    "at": "2026-10-21T03:02:01.563Z",
+    "at": "2026-11-01T22:01:48.818Z",
     "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324864283,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324864269,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324859270,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324859242,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324854249,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324854221,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324854088,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324854088,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324849217,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324849206,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324844183,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324844183,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324839139,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324839139,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324834110,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      }
-    ]
+    "theme": "scenario default"
   },
   "dashboard/drives-fail": {
+    "status": "pass",
     "note": "It just doesn't load in.",
-    "at": "2026-10-21T03:27:36.150Z",
+    "at": "2026-11-01T22:14:04.251Z",
     "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [
-      {
-        "id": "2e7wwe",
-        "on": true,
-        "match": "GET /api/v1/drives",
-        "mode": "500"
-      }
-    ],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324813527,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 500,
-        "note": "fault: 500"
-      },
-      {
-        "t": 1792324812517,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 500,
-        "note": "fault: 500"
-      },
-      {
-        "t": 1792324807504,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 500,
-        "note": "fault: 500"
-      },
-      {
-        "t": 1792324806487,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 500,
-        "note": "fault: 500"
-      },
-      {
-        "t": 1792324801471,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 500,
-        "note": "fault: 500"
-      },
-      {
-        "t": 1792324801169,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 500,
-        "note": "fault: 500"
-      },
-      {
-        "t": 1792324800430,
-        "method": "GET",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800429,
-        "method": "GET",
-        "path": "/api/v1/system/updates",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800429,
-        "method": "GET",
-        "path": "/api/v1/cloud/phrase",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800429,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800429,
-        "method": "GET",
-        "path": "/api/v1/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800429,
-        "method": "GET",
-        "path": "/api/v1/system/health/check",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800429,
-        "method": "GET",
-        "path": "/api/v1/connect/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800429,
-        "method": "GET",
-        "path": "/api/v1/network/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800429,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 500,
-        "note": "fault: 500"
-      }
-    ]
+    "theme": "scenario default"
   },
   "dashboard/everything-wrong": {
-    "note": "\"Photos backup didn't finish\n\nDrive full.\"\n\nWhat drive?",
-    "at": "2026-10-21T03:19:32.675Z",
+    "note": "the card doesn't smoothly expand when you slick show x more or show fewer. fix.",
+    "at": "2026-11-01T22:11:45.311Z",
     "viewport": "phone",
     "theme": "scenario default",
     "faults": [],
@@ -800,109 +735,124 @@
     "latency": 0,
     "lastRequests": [
       {
-        "t": 1792325274775,
+        "t": 1793571104789,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[{\"name\":\"sdb\",\"model\":\"USB stick\",\"size_bytes\":16000000000,\"removable\":true,\"usb\":true,\"mount_point\":null,\"fs_type\":\"fat32\",\"read_only\":false}]"
       },
       {
-        "t": 1792325269762,
+        "t": 1793571099788,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[{\"name\":\"sdb\",\"model\":\"USB stick\",\"size_bytes\":16000000000,\"removable\":true,\"usb\":true,\"mount_point\":null,\"fs_type\":\"fat32\",\"read_only\":false}]"
       },
       {
-        "t": 1792325264740,
+        "t": 1793571094787,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[{\"name\":\"sdb\",\"model\":\"USB stick\",\"size_bytes\":16000000000,\"removable\":true,\"usb\":true,\"mount_point\":null,\"fs_type\":\"fat32\",\"read_only\":false}]"
       },
       {
-        "t": 1792325259711,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325254692,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325249651,
-        "method": "GET",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325249651,
-        "method": "GET",
-        "path": "/api/v1/system/updates",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325249650,
-        "method": "GET",
-        "path": "/api/v1/drives/d2/health",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325249650,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/health",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325249650,
-        "method": "GET",
-        "path": "/api/v1/cloud/phrase",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325249649,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325249648,
-        "method": "GET",
-        "path": "/api/v1/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325249648,
+        "t": 1793571094770,
         "method": "GET",
         "path": "/api/v1/system/health/check",
-        "status": 200,
-        "note": ""
+        "status": 503,
+        "note": "",
+        "body": "{\"overall_pass\":false,\"checks\":{\"drive_d1_smart\":{\"status\":\"failed\",\"message\":\"Drive 1 is failing. Copy your files to another drive now.\",\"category\":\"drives\"},\"disk_space\":{\"status\":\"failed\",\"message\":\"Luna's own storage (its system disk) is almost full. Free some space on it, or Luna may stop working.\",\"more\":\"This is the disk where Luna keeps its accounts and settings; your files are on your drives.\",\"category\":\"system\"}}}"
       },
       {
-        "t": 1792325249648,
+        "t": 1793571094770,
         "method": "GET",
-        "path": "/api/v1/connect/status",
+        "path": "/api/v1/drives/d2/summary",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"id\":\"d2\",\"mounted\":true,\"total_bytes\":64000000000,\"free_bytes\":1000000000,\"used_bytes\":63000000000,\"folders\":null,\"files\":null,\"shortcuts\":[\"Photos\",\"Documents\"]}"
       },
       {
-        "t": 1792325249648,
+        "t": 1793571094769,
         "method": "GET",
-        "path": "/api/v1/network/status",
+        "path": "/api/v1/drives/d1/summary",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"id\":\"d1\",\"mounted\":true,\"total_bytes\":64000000000,\"free_bytes\":30000000000,\"used_bytes\":10000000000,\"folders\":null,\"files\":null,\"shortcuts\":[\"Photos\",\"Documents\"]}"
+      },
+      {
+        "t": 1793571089781,
+        "method": "GET",
+        "path": "/api/v1/drives/detected",
+        "status": 200,
+        "note": "",
+        "body": "[{\"name\":\"sdb\",\"model\":\"USB stick\",\"size_bytes\":16000000000,\"removable\":true,\"usb\":true,\"mount_point\":null,\"fs_type\":\"fat32\",\"read_only\":false}]"
+      },
+      {
+        "t": 1793571084780,
+        "method": "GET",
+        "path": "/api/v1/drives/detected",
+        "status": 200,
+        "note": "",
+        "body": "[{\"name\":\"sdb\",\"model\":\"USB stick\",\"size_bytes\":16000000000,\"removable\":true,\"usb\":true,\"mount_point\":null,\"fs_type\":\"fat32\",\"read_only\":false}]"
+      },
+      {
+        "t": 1793571079779,
+        "method": "GET",
+        "path": "/api/v1/drives/detected",
+        "status": 200,
+        "note": "",
+        "body": "[{\"name\":\"sdb\",\"model\":\"USB stick\",\"size_bytes\":16000000000,\"removable\":true,\"usb\":true,\"mount_point\":null,\"fs_type\":\"fat32\",\"read_only\":false}]"
+      },
+      {
+        "t": 1793571074778,
+        "method": "GET",
+        "path": "/api/v1/drives/detected",
+        "status": 200,
+        "note": "",
+        "body": "[{\"name\":\"sdb\",\"model\":\"USB stick\",\"size_bytes\":16000000000,\"removable\":true,\"usb\":true,\"mount_point\":null,\"fs_type\":\"fat32\",\"read_only\":false}]"
+      },
+      {
+        "t": 1793571069776,
+        "method": "GET",
+        "path": "/api/v1/drives/detected",
+        "status": 200,
+        "note": "",
+        "body": "[{\"name\":\"sdb\",\"model\":\"USB stick\",\"size_bytes\":16000000000,\"removable\":true,\"usb\":true,\"mount_point\":null,\"fs_type\":\"fat32\",\"read_only\":false}]"
+      },
+      {
+        "t": 1793571064775,
+        "method": "GET",
+        "path": "/api/v1/drives/detected",
+        "status": 200,
+        "note": "",
+        "body": "[{\"name\":\"sdb\",\"model\":\"USB stick\",\"size_bytes\":16000000000,\"removable\":true,\"usb\":true,\"mount_point\":null,\"fs_type\":\"fat32\",\"read_only\":false}]"
+      },
+      {
+        "t": 1793571059774,
+        "method": "GET",
+        "path": "/api/v1/drives/detected",
+        "status": 200,
+        "note": "",
+        "body": "[{\"name\":\"sdb\",\"model\":\"USB stick\",\"size_bytes\":16000000000,\"removable\":true,\"usb\":true,\"mount_point\":null,\"fs_type\":\"fat32\",\"read_only\":false}]"
+      },
+      {
+        "t": 1793571054773,
+        "method": "GET",
+        "path": "/api/v1/drives/detected",
+        "status": 200,
+        "note": "",
+        "body": "[{\"name\":\"sdb\",\"model\":\"USB stick\",\"size_bytes\":16000000000,\"removable\":true,\"usb\":true,\"mount_point\":null,\"fs_type\":\"fat32\",\"read_only\":false}]"
+      },
+      {
+        "t": 1793571049771,
+        "method": "GET",
+        "path": "/api/v1/drives/detected",
+        "status": 200,
+        "note": "",
+        "body": "[{\"name\":\"sdb\",\"model\":\"USB stick\",\"size_bytes\":16000000000,\"removable\":true,\"usb\":true,\"mount_point\":null,\"fs_type\":\"fat32\",\"read_only\":false}]"
       }
     ]
   },
@@ -921,343 +871,154 @@
     "theme": "scenario default"
   },
   "dashboard/member-calm": {
+    "status": "pass",
     "note": "I can see a drive that suposedly hasn't been shared me. Once again, could be a mock bug, but check it.",
-    "at": "2026-10-21T03:26:29.195Z",
+    "at": "2026-11-01T22:13:13.326Z",
     "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324801189,
-        "method": "GET",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801188,
-        "method": "GET",
-        "path": "/api/v1/me/access",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801187,
-        "method": "GET",
-        "path": "/api/v1/cloud/phrase",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801187,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801187,
-        "method": "GET",
-        "path": "/api/v1/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801186,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/summary",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800226,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800032,
-        "method": "GET",
-        "path": "/api/v1/auth/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800032,
-        "method": "GET",
-        "path": "/api/v1/setup",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800032,
-        "method": "GET",
-        "path": "/api/v1/auth/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800032,
-        "method": "GET",
-        "path": "/api/v1/setup",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800027,
-        "method": "GET",
-        "path": "/api/v1/auth/me",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800024,
-        "method": "GET",
-        "path": "/api/v1/auth/me",
-        "status": 200,
-        "note": ""
-      }
-    ]
+    "theme": "scenario default"
   },
   "dashboard/member-with-problems": {
+    "status": "pass",
     "note": "Yea definite fumble.\nWelcome! The pigeon is ready when you are,\nsam\nNeeds you\nPhotos backup didn't finish\n\nDrive full.\n\nOpen\n2 backups need a look\n\nSee all backups\nYour folders\nFamily photos\nProblem\nLuna ran into a problem with this drive. Ask an Admin to check it.\n\nNothing shared with you yet\n\nAsk an Admin to share a folder, drive, or album with you.",
-    "at": "2026-10-21T03:27:01.633Z",
+    "at": "2026-11-01T22:13:36.254Z",
     "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324812071,
-        "method": "GET",
-        "path": "/api/v1/connect/status",
-        "status": 403,
-        "note": ""
-      },
-      {
-        "t": 1792324811013,
-        "method": "GET",
-        "path": "/api/v1/private-backups/item?drive=d1&path=Photos",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324811013,
-        "method": "GET",
-        "path": "/api/v1/connect/status",
-        "status": 403,
-        "note": ""
-      },
-      {
-        "t": 1792324811013,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=Photos",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800395,
-        "method": "GET",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800395,
-        "method": "GET",
-        "path": "/api/v1/me/access",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800394,
-        "method": "GET",
-        "path": "/api/v1/cloud/phrase",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800394,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800394,
-        "method": "GET",
-        "path": "/api/v1/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800087,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800022,
-        "method": "GET",
-        "path": "/api/v1/auth/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800022,
-        "method": "GET",
-        "path": "/api/v1/setup",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800022,
-        "method": "GET",
-        "path": "/api/v1/auth/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800022,
-        "method": "GET",
-        "path": "/api/v1/setup",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800019,
-        "method": "GET",
-        "path": "/api/v1/auth/me",
-        "status": 200,
-        "note": ""
-      }
-    ]
+    "theme": "scenario default"
   },
   "dashboard/network-error": {
     "status": "pass",
     "note": "",
-    "at": "2026-10-21T03:27:18.108Z",
+    "at": "2026-11-01T22:13:59.841Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/new-drive-found": {
-    "note": "Add SanDisk Ultra\n\nLuna couldn't look at this drive safely. Make sure it's plugged in and try again.\n\nSeems like mock is bugged.",
-    "at": "2026-10-21T03:02:37.117Z",
-    "viewport": "desktop",
+    "note": "For whatever reason I get this after I add it: Luna couldn't finish closing SanDisk Ultra.\n\nUnplug it, wait a few seconds, and plug it back in.\n\nstill possibly a mock bug.",
+    "at": "2026-11-01T22:02:57.860Z",
+    "viewport": "phone",
     "theme": "scenario default",
     "faults": [],
     "offline": false,
     "latency": 0,
     "lastRequests": [
       {
-        "t": 1792324834656,
+        "t": 1793570568942,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d2&path=",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793570568907,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793570538900,
+        "method": "GET",
+        "path": "/api/v1/drives/d2/backups",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793570538900,
+        "method": "GET",
+        "path": "/api/v1/backups/covered?drive=d2&path=",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793570538900,
+        "method": "GET",
+        "path": "/api/v1/private-backups/item?drive=d2&path=",
+        "status": 200,
+        "note": "",
+        "body": "{\"private\":false,\"inside_private\":false,\"mine\":false,\"owner_name\":\"\"}"
+      },
+      {
+        "t": 1793570538900,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d2&path=",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793570538896,
+        "method": "GET",
+        "path": "/api/v1/drives/d2/files?path=",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793570538569,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": "",
+        "body": "{\"ok\":true}"
+      },
+      {
+        "t": 1793570535023,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324834656,
+        "t": 1793570535022,
         "method": "GET",
         "path": "/api/v1/drives",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[{\"id\":\"d1\",\"label\":\"Family photos\",\"state\":\"as_is\",\"fs_type\":\"exfat\",\"device\":\"sdd1\",\"mount_point\":\"/mnt/d1\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"},{\"id\":\"d2\",\"label\":\"SanDisk Ultra\",\"state\":\"as_is\",\"fs_type\":\"ntfs\",\"device\":\"sdb\",\"mount_point\":\"/mnt/d2\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"}]"
       },
       {
-        "t": 1792324829638,
+        "t": 1793570530021,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324829637,
+        "t": 1793570530021,
         "method": "GET",
         "path": "/api/v1/drives",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[{\"id\":\"d1\",\"label\":\"Family photos\",\"state\":\"as_is\",\"fs_type\":\"exfat\",\"device\":\"sdd1\",\"mount_point\":\"/mnt/d1\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"},{\"id\":\"d2\",\"label\":\"SanDisk Ultra\",\"state\":\"as_is\",\"fs_type\":\"ntfs\",\"device\":\"sdb\",\"mount_point\":\"/mnt/d2\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"}]"
       },
       {
-        "t": 1792324826543,
-        "method": "GET",
-        "path": "/api/v1/drives/sdb/peek",
-        "status": 501,
-        "note": "NO MOCK HANDLER"
-      },
-      {
-        "t": 1792324825504,
-        "method": "GET",
-        "path": "/api/v1/drives/sdb/peek",
-        "status": 501,
-        "note": "NO MOCK HANDLER"
-      },
-      {
-        "t": 1792324824583,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324824582,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324819544,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324819543,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324819071,
+        "t": 1793570525289,
         "method": "POST",
         "path": "/api/v1/drives/sdb/release",
-        "status": 501,
-        "note": "NO MOCK HANDLER"
+        "status": 404,
+        "note": "",
+        "body": "{\"error\":\"Luna can't see a drive with that name.\"}"
       },
       {
-        "t": 1792324814495,
+        "t": 1793570525053,
         "method": "GET",
-        "path": "/api/v1/drives/detected",
+        "path": "/api/v1/drives/d2/summary",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"id\":\"d2\",\"mounted\":true,\"total_bytes\":64000000000,\"free_bytes\":30000000000,\"used_bytes\":34000000000,\"folders\":null,\"files\":null,\"shortcuts\":[]}"
       },
       {
-        "t": 1792324814494,
+        "t": 1793570525053,
         "method": "GET",
-        "path": "/api/v1/drives",
+        "path": "/api/v1/drives/d2/health",
         "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324813770,
-        "method": "POST",
-        "path": "/api/v1/drives/sdb/inspect",
-        "status": 501,
-        "note": "NO MOCK HANDLER"
-      },
-      {
-        "t": 1792324810488,
-        "method": "GET",
-        "path": "/api/v1/drives/sdb/peek",
-        "status": 501,
-        "note": "NO MOCK HANDLER"
+        "note": "",
+        "body": "{\"available\":true,\"reason\":null,\"verdict\":\"ok\",\"overall\":\"passed\",\"model\":\"WD20EZRZ\",\"serial\":\"FAKE1\",\"temperature_c\":34,\"temperature_max_c\":60,\"temperature_max_source\":\"typical\",\"reallocated_sectors\":0,\"pending_sectors\":0,\"uncorrectable_sectors\":0,\"status_bits\":0,\"signals\":[]}"
       }
     ]
   },
@@ -1271,125 +1032,9 @@
   "dashboard/no-internet": {
     "status": "pass",
     "note": "",
-    "at": "2026-10-21T03:05:49.241Z",
-    "viewport": "desktop",
+    "at": "2026-11-01T22:08:23.872Z",
+    "viewport": "phone",
     "theme": "scenario default"
-  },
-  "dashboard/no-phrase": {
-    "note": "Absolutely nothing. I'm also not quite sure why this would be a setting in \"Security / Devices\".\n\nThis scenario should just... not be able to happen lol. ",
-    "at": "2026-10-21T02:56:37.633Z",
-    "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792325204334,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325199324,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325194309,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325189295,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325184275,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325179247,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325174209,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325169170,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325168962,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/summary",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325168921,
-        "method": "GET",
-        "path": "/api/v1/system/health/check",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325164129,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325159103,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325154082,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325149063,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792325144052,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      }
-    ]
   },
   "dashboard/phone-dark": {
     "status": "pass",
@@ -1399,120 +1044,11 @@
     "theme": "scenario default"
   },
   "dashboard/recents-many": {
+    "status": "pass",
     "note": "Something can appear twice in the list:\nRecents\nDocuments\nFamily photos\nJust now\nReport 1.pdf\nFamily photos · Documents\nJust now\nDocuments\nFamily photos\nJust now\n\nLikely a bug that only happens in the harness. Fix it nonetheless.",
-    "at": "2026-10-21T03:25:29.531Z",
+    "at": "2026-11-01T22:12:15.542Z",
     "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324848545,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324843523,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324838508,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324833490,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324828473,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324823423,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324818406,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324813403,
-        "method": "GET",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324812009,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324810401,
-        "method": "GET",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324809266,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324806951,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files/content?path=Documents%2FReport%201.pdf",
-        "status": 404,
-        "note": ""
-      },
-      {
-        "t": 1792324806950,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files/content?path=Documents%2FReport%201.pdf",
-        "status": 404,
-        "note": ""
-      },
-      {
-        "t": 1792324806736,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files/resolve?path=Documents%2FReport%201.pdf",
-        "status": 404,
-        "note": ""
-      },
-      {
-        "t": 1792324806480,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      }
-    ]
+    "theme": "scenario default"
   },
   "dashboard/recents-none": {
     "status": "pass",
@@ -1529,466 +1065,403 @@
     "theme": "scenario default"
   },
   "dashboard/system-check-failed": {
-    "note": "It's unclear what \"Storage space\" is gone. Is it a drive? What if I don't even know Luna has internal storage!",
-    "at": "2026-10-21T03:07:49.191Z",
-    "viewport": "desktop",
+    "status": "fail",
+    "note": "It's not possible for the user to do anything about this. That needs to be fixed.",
+    "at": "2026-11-01T22:10:33.964Z",
+    "viewport": "phone",
     "theme": "scenario default",
     "faults": [],
     "offline": false,
     "latency": 0,
     "lastRequests": [
       {
-        "t": 1792324840581,
+        "t": 1793571032054,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324835572,
+        "t": 1793571027053,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324830550,
+        "t": 1793571022052,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324825541,
+        "t": 1793571017051,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324820532,
+        "t": 1793571012050,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324815524,
+        "t": 1793571007050,
         "method": "GET",
         "path": "/api/v1/drives/detected",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324810513,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324805503,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800465,
+        "t": 1793571002034,
         "method": "GET",
         "path": "/api/v1/me/recents",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324800465,
+        "t": 1793571002034,
         "method": "GET",
         "path": "/api/v1/system/updates",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"binary_name\":\"lunad\",\"checksum\":\"\",\"reboot_required\":false,\"release_notes\":\"\",\"latest_version\":\"1.4.2\",\"update_available\":false,\"current_version\":\"1.4.2\",\"os_update_failed\":null}"
       },
       {
-        "t": 1792324800465,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/health",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800465,
+        "t": 1793571002033,
         "method": "GET",
         "path": "/api/v1/cloud/phrase",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"set\":true,\"set_at\":0,\"luna_id\":\"luna-1\",\"signing_public\":null,\"check_due\":false,\"last_checked_at\":0,\"phrase_words\":12,\"moving\":null,\"old_phrase_copies\":{\"count\":0,\"removed_at\":null},\"resealing\":false}"
       },
       {
-        "t": 1792324800465,
+        "t": 1793571002033,
         "method": "GET",
         "path": "/api/v1/cloud/backups",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324800465,
+        "t": 1793571002033,
         "method": "GET",
         "path": "/api/v1/backups",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324800464,
+        "t": 1793571002033,
         "method": "GET",
         "path": "/api/v1/system/health/check",
+        "status": 503,
+        "note": "",
+        "body": "{\"overall_pass\":false,\"checks\":{\"disk_space\":{\"status\":\"failed\",\"message\":\"Luna's own storage (its system disk) is almost full. Free some space on it, or Luna may stop working.\",\"more\":\"This is the disk where Luna keeps its accounts and settings; your files are on your drives.\",\"category\":\"system\"},\"clock\":{\"status\":\"warning\",\"message\":\"The clock may be off.\",\"more\":\"Luna sets its clock over the internet and hasn't managed to yet, so new and changed files may get wrong dates. Check that your router or modem is online, then check again in a minute.\",\"category\":\"system\"},\"video_tools\":{\"status\":\"warning\",\"message\":\"Videos get no preview pictures or length.\",\"more\":\"Photos shows these for each video, made with video tools that are missing. Videos can still be played and downloaded.\",\"category\":\"features\"}}}"
+      },
+      {
+        "t": 1793571002033,
+        "method": "GET",
+        "path": "/api/v1/connect/status",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"connect_active\":false,\"enabled\":false,\"base_url\":\"https://connect.luna.libreloom.org\",\"tunnel_active\":false,\"backup_unlocked\":false,\"paired\":false,\"unclaimed\":false,\"backup_sources\":[],\"card_on_file\":true,\"device_code\":null,\"domain\":null,\"hostname\":null,\"subdomain\":null}"
+      },
+      {
+        "t": 1793571002033,
+        "method": "GET",
+        "path": "/api/v1/network/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"ethernet_connected\":true,\"wifi_connected\":false,\"has_default_route\":true}"
+      },
+      {
+        "t": 1793571002032,
+        "method": "GET",
+        "path": "/api/v1/drives/detected",
+        "status": 200,
+        "note": "",
+        "body": "[]"
       }
     ]
   },
   "dashboard/update-applying": {
-    "note": "Doesn't say anything is installing. Just no button.",
-    "at": "2026-10-21T03:05:40.990Z",
-    "viewport": "desktop",
+    "note": "all i see is this lol Luna couldn't save your setup progress. Check your connection and try again.\n\ni think every error in the setup gets swallowed as this btw.\n\nthis scenario is kinda stuck trying to load setup btw. not sure what's going on w/ that.",
+    "at": "2026-11-01T22:08:02.278Z",
+    "viewport": "phone",
     "theme": "scenario default",
     "faults": [],
     "offline": false,
     "latency": 0,
     "lastRequests": [
       {
-        "t": 1792324820175,
-        "method": "GET",
-        "path": "/api/v1/network/status",
+        "t": 1793570860457,
+        "method": "POST",
+        "path": "/api/v1/setup/fetch-mag",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{}"
       },
       {
-        "t": 1792324815157,
-        "method": "GET",
-        "path": "/api/v1/network/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324810129,
-        "method": "GET",
-        "path": "/api/v1/network/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324805125,
-        "method": "GET",
-        "path": "/api/v1/auth/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324805125,
+        "t": 1793570860454,
         "method": "GET",
         "path": "/api/v1/setup",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"name\":\"Luna\",\"setup_completed\":true,\"current_step\":\"done\",\"step_data\":{\"network_connected\":true}}"
       },
       {
-        "t": 1792324805124,
+        "t": 1793570860454,
         "method": "GET",
-        "path": "/api/v1/system/updates/source",
+        "path": "/api/v1/auth/status",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"has_admin\":true,\"connect_active\":false}"
       },
       {
-        "t": 1792324800388,
+        "t": 1793570860452,
         "method": "GET",
-        "path": "/api/v1/me/recents",
+        "path": "/api/v1/setup",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"name\":\"Luna\",\"setup_completed\":true,\"current_step\":\"done\",\"step_data\":{\"network_connected\":true}}"
       },
       {
-        "t": 1792324800388,
+        "t": 1793570860452,
         "method": "GET",
-        "path": "/api/v1/system/updates",
+        "path": "/api/v1/auth/status",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"has_admin\":true,\"connect_active\":false}"
       },
       {
-        "t": 1792324800388,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/health",
+        "t": 1793570860420,
+        "method": "POST",
+        "path": "/api/v1/setup/fetch-mag",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{}"
       },
       {
-        "t": 1792324800388,
+        "t": 1793570860413,
         "method": "GET",
-        "path": "/api/v1/cloud/phrase",
+        "path": "/api/v1/setup",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"name\":\"Luna\",\"setup_completed\":true,\"current_step\":\"done\",\"step_data\":{\"network_connected\":true}}"
       },
       {
-        "t": 1792324800387,
+        "t": 1793570860413,
         "method": "GET",
-        "path": "/api/v1/cloud/backups",
+        "path": "/api/v1/auth/status",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"has_admin\":true,\"connect_active\":false}"
       },
       {
-        "t": 1792324800387,
+        "t": 1793570860413,
         "method": "GET",
-        "path": "/api/v1/backups",
+        "path": "/api/v1/setup",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"name\":\"Luna\",\"setup_completed\":true,\"current_step\":\"done\",\"step_data\":{\"network_connected\":true}}"
       },
       {
-        "t": 1792324800387,
+        "t": 1793570860413,
         "method": "GET",
-        "path": "/api/v1/system/health/check",
+        "path": "/api/v1/auth/status",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"has_admin\":true,\"connect_active\":false}"
       },
       {
-        "t": 1792324800387,
-        "method": "GET",
-        "path": "/api/v1/connect/status",
+        "t": 1793570860389,
+        "method": "POST",
+        "path": "/api/v1/setup/fetch-mag",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{}"
       },
       {
-        "t": 1792324800387,
+        "t": 1793570860382,
         "method": "GET",
-        "path": "/api/v1/network/status",
+        "path": "/api/v1/setup",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"name\":\"Luna\",\"setup_completed\":true,\"current_step\":\"done\",\"step_data\":{\"network_connected\":true}}"
+      },
+      {
+        "t": 1793570860382,
+        "method": "GET",
+        "path": "/api/v1/auth/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"has_admin\":true,\"connect_active\":false}"
+      },
+      {
+        "t": 1793570860382,
+        "method": "GET",
+        "path": "/api/v1/setup",
+        "status": 200,
+        "note": "",
+        "body": "{\"name\":\"Luna\",\"setup_completed\":true,\"current_step\":\"done\",\"step_data\":{\"network_connected\":true}}"
+      },
+      {
+        "t": 1793570860382,
+        "method": "GET",
+        "path": "/api/v1/auth/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"has_admin\":true,\"connect_active\":false}"
       }
     ]
   },
   "dashboard/update-available": {
-    "note": "Starting the update closes the modal, then s ends me to the login page. Nothing resembling progress or status or anything. It does send a \"Installing update. Luna will restart in a moment.\" toast, though, which could be sufficient if progress or status is too hard.",
-    "at": "2026-10-21T03:04:48.902Z",
-    "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324830551,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324825536,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324820527,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324815521,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324810509,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324805498,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800461,
-        "method": "GET",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800461,
-        "method": "GET",
-        "path": "/api/v1/system/updates",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800461,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/health",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800461,
-        "method": "GET",
-        "path": "/api/v1/cloud/phrase",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800460,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800460,
-        "method": "GET",
-        "path": "/api/v1/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800460,
-        "method": "GET",
-        "path": "/api/v1/system/health/check",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800460,
-        "method": "GET",
-        "path": "/api/v1/connect/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800460,
-        "method": "GET",
-        "path": "/api/v1/network/status",
-        "status": 200,
-        "note": ""
-      }
-    ]
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-01T22:03:26.257Z",
+    "viewport": "phone",
+    "theme": "scenario default"
   },
   "dashboard/update-failed": {
-    "note": "No dismiss button on the warning. ",
-    "at": "2026-10-21T03:05:16.475Z",
-    "viewport": "desktop",
+    "note": "The last system update didn't start, so Luna went back to the previous version. Version 1.5.0 wasn't installed.\n\nTry again\n\npoor layout on this card. mainly the info button between the two other buttons. use a termdefiner instead on the try again text.",
+    "at": "2026-11-01T22:06:27.150Z",
+    "viewport": "phone",
     "theme": "scenario default",
     "faults": [],
     "offline": false,
     "latency": 0,
     "lastRequests": [
       {
-        "t": 1792324825497,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324820471,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324815451,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324810419,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324805400,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800375,
-        "method": "GET",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800375,
-        "method": "GET",
-        "path": "/api/v1/system/updates",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800375,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/health",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800375,
-        "method": "GET",
-        "path": "/api/v1/cloud/phrase",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800375,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800375,
-        "method": "GET",
-        "path": "/api/v1/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800375,
-        "method": "GET",
-        "path": "/api/v1/system/health/check",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800374,
-        "method": "GET",
-        "path": "/api/v1/connect/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800374,
+        "t": 1793570784361,
         "method": "GET",
         "path": "/api/v1/network/status",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"ethernet_connected\":true,\"wifi_connected\":false,\"has_default_route\":true}"
       },
       {
-        "t": 1792324800374,
+        "t": 1793570779360,
         "method": "GET",
-        "path": "/api/v1/drives/detected",
+        "path": "/api/v1/network/status",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"ethernet_connected\":true,\"wifi_connected\":false,\"has_default_route\":true}"
+      },
+      {
+        "t": 1793570774359,
+        "method": "GET",
+        "path": "/api/v1/network/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"ethernet_connected\":true,\"wifi_connected\":false,\"has_default_route\":true}"
+      },
+      {
+        "t": 1793570769359,
+        "method": "GET",
+        "path": "/api/v1/network/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"ethernet_connected\":true,\"wifi_connected\":false,\"has_default_route\":true}"
+      },
+      {
+        "t": 1793570764357,
+        "method": "GET",
+        "path": "/api/v1/network/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"ethernet_connected\":true,\"wifi_connected\":false,\"has_default_route\":true}"
+      },
+      {
+        "t": 1793570759356,
+        "method": "GET",
+        "path": "/api/v1/network/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"ethernet_connected\":true,\"wifi_connected\":false,\"has_default_route\":true}"
+      },
+      {
+        "t": 1793570754354,
+        "method": "GET",
+        "path": "/api/v1/network/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"ethernet_connected\":true,\"wifi_connected\":false,\"has_default_route\":true}"
+      },
+      {
+        "t": 1793570749346,
+        "method": "GET",
+        "path": "/api/v1/network/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"ethernet_connected\":true,\"wifi_connected\":false,\"has_default_route\":true}"
+      },
+      {
+        "t": 1793570744345,
+        "method": "GET",
+        "path": "/api/v1/network/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"ethernet_connected\":true,\"wifi_connected\":false,\"has_default_route\":true}"
+      },
+      {
+        "t": 1793570739344,
+        "method": "GET",
+        "path": "/api/v1/network/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"ethernet_connected\":true,\"wifi_connected\":false,\"has_default_route\":true}"
+      },
+      {
+        "t": 1793570734343,
+        "method": "GET",
+        "path": "/api/v1/network/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"ethernet_connected\":true,\"wifi_connected\":false,\"has_default_route\":true}"
+      },
+      {
+        "t": 1793570729342,
+        "method": "GET",
+        "path": "/api/v1/network/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"ethernet_connected\":true,\"wifi_connected\":false,\"has_default_route\":true}"
+      },
+      {
+        "t": 1793570729315,
+        "method": "GET",
+        "path": "/api/v1/system/health/check",
+        "status": 200,
+        "note": "",
+        "body": "{\"overall_pass\":true,\"status\":\"ok\",\"timestamp\":1792324800,\"summary\":{\"total_checks\":17,\"passed\":17,\"warnings\":0,\"failed\":0},\"checks\":{\"clock\":{\"category\":\"Clock\",\"message\":\"Luna's clock is on time.\",\"status\":\"passed\"},\"data_path_writable\":{\"category\":\"Storage\",\"message\":\"Luna can write to its data folder.\",\"status\":\"passed\"},\"database\":{\"category\":\"Database\",\"message\":\"Luna's database is healthy.\",\"status\":\"passed\"},\"diagram_pack\":{\"category\":\"Diagrams\",\"message\":\"Diagram pack installed.\",\"more\":\"\",\"status\":\"passed\"},\"disk_space\":{\"category\":\"Storage\",\"message\":\"Plenty of room left.\",\"status\":\"passed\",\"details\":{\"free_bytes\":30000000000,\"free_human\":\"30.0 GB\"}},\"drive_tools\":{\"category\":\"Drive tools\",\"message\":\"Drive tools are installed.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"erase_tools\":{\"category\":\"Erase tools\",\"message\":\"Erase tools are installed.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"heic_tools\":{\"category\":\"Photos\",\"message\":\"iPhone photo support installed.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"logs_path_writable\":{\"category\":\"Storage\",\"message\":\"Luna can write to its log folder.\",\"status\":\"passed\"},\"network\":{\"category\":\"Network\",\"message\":\"Connected to your router or modem, with a path to the internet.\",\"status\":\"passed\"},\"ntfs_support\":{\"category\":\"Drive tools\",\"message\":\"Windows-formatted drives are supported.\",\"status\":\"passed\"},\"office_pack\":{\"category\":\"Documents\",\"message\":\"Document pack installed.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"smart_tool\":{\"category\":\"Drive health\",\"message\":\"Drive health checks are available.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"trim_tool\":{\"category\":\"Drive health\",\"message\":\"Drive maintenance is available.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"update_signing\":{\"category\":\"Updates\",\"message\":\"Updates are checked against Luna's signing key.\",\"status\":\"passed\"},\"video_tools\":{\"category\":\"Videos\",\"message\":\"Video previews installed.\",\"more\":\"\",\"status\":\"passed\",\"details\":{\"missing\":[]}},\"whiteboard\":{\"category\":\"Whiteboard\",\"message\":\"Whiteboard tools are installed.\",\"status\":\"passed\"}}}"
+      },
+      {
+        "t": 1793570724342,
+        "method": "GET",
+        "path": "/api/v1/network/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"ethernet_connected\":true,\"wifi_connected\":false,\"has_default_route\":true}"
+      },
+      {
+        "t": 1793570719341,
+        "method": "GET",
+        "path": "/api/v1/network/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"ethernet_connected\":true,\"wifi_connected\":false,\"has_default_route\":true}"
       }
     ]
   },
@@ -2348,120 +1821,11 @@
     "theme": "scenario default"
   },
   "files/create-collision": {
+    "status": "pass",
     "note": "In Names cannot include / or \\. Use a short name instead., \"Use a short name instead.\" is BS and can be dropped from the message.",
-    "at": "2026-10-21T03:44:44.223Z",
-    "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324860598,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324860598,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324835386,
-        "method": "POST",
-        "path": "/api/v1/drives/d1/files/create",
-        "status": 409,
-        "note": ""
-      },
-      {
-        "t": 1792324830561,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324830561,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324827885,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324824832,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files/content?path=Documents%2Fnote.txt",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324824831,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files/content?path=Documents%2Fnote.txt",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324824579,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324824211,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324824211,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=Documents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324824188,
-        "method": "POST",
-        "path": "/api/v1/drives/d1/files/create",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324812724,
-        "method": "POST",
-        "path": "/api/v1/drives/d1/files/mkdir",
-        "status": 409,
-        "note": ""
-      },
-      {
-        "t": 1792324800517,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800517,
-        "method": "GET",
-        "path": "/api/v1/private-backups/mine",
-        "status": 200,
-        "note": ""
-      }
-    ]
+    "at": "2026-11-01T22:19:33.009Z",
+    "viewport": "phone",
+    "theme": "scenario default"
   },
   "files/deep-nesting": {
     "status": "pass",
@@ -2471,8 +1835,9 @@
     "theme": "scenario default"
   },
   "files/delete-to-trash": {
+    "status": "fail",
     "note": "Deleting a folder when an item inside of it was trashed causes it to be silently permanently deleted. This is a critical issue if real. The folder is not sent to trash and appears to be permanently deleted rather than being deleted properly.",
-    "at": "2026-10-22T03:00:27.000Z",
+    "at": "2026-11-02T02:19:35.919Z",
     "viewport": "desktop",
     "theme": "scenario default",
     "faults": [],
@@ -2480,115 +1845,131 @@
     "latency": 0,
     "lastRequests": [
       {
-        "t": 1792324950515,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
+        "t": 1793585971415,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"ok\":true}"
       },
       {
-        "t": 1792324950515,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324920486,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324920486,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324904451,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324904451,
+        "t": 1793585966033,
         "method": "GET",
         "path": "/api/v1/drives/d1/files?path=",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[{\"name\":\"Photos\",\"kind\":\"dir\",\"size\":0,\"modified\":1792324800,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"Music\",\"kind\":\"dir\",\"size\":0,\"modified\":1792324800,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"holiday.mp4\",\"kind\":\"file\",\"size\":52000000,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"book.epub\",\"kind\":\"file\",\"size\":800000,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"backup.bin\",\"kind\":\"file\",\"size\":9000000,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"}]"
       },
       {
-        "t": 1792324904369,
+        "t": 1793585965991,
         "method": "DELETE",
-        "path": "/api/v1/drives/d1/files?path=Photos",
+        "path": "/api/v1/drives/d1/files?path=Documents",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"ok\":true,\"trash_path\":\".luna-trash/1792324815-Documents\"}"
       },
       {
-        "t": 1792324900863,
+        "t": 1793585961981,
         "method": "POST",
         "path": "/api/v1/me/recents",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"ok\":true}"
       },
       {
-        "t": 1792324899385,
+        "t": 1793585958267,
         "method": "GET",
-        "path": "/api/v1/jobs",
+        "path": "/api/v1/drives/d1/files/stat?path=.luna-trash",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"name\":\"Trash\",\"kind\":\"dir\",\"size\":0,\"modified\":1792324807,\"hidden\":false,\"writable\":true,\"caps\":\"none\"}"
       },
       {
-        "t": 1792324899385,
+        "t": 1793585958266,
         "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=Photos",
+        "path": "/api/v1/drives/d1/files?path=.luna-trash",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[{\"name\":\"1792324804-notes.txt\",\"kind\":\"file\",\"size\":39,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\",\"original_path\":\"Documents/notes.txt\",\"original_name\":\"notes.txt\"}]"
       },
       {
-        "t": 1792324899298,
+        "t": 1793585957188,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/files?path=",
+        "status": 200,
+        "note": "",
+        "body": "[{\"name\":\"Photos\",\"kind\":\"dir\",\"size\":0,\"modified\":1792324800,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"Documents\",\"kind\":\"dir\",\"size\":0,\"modified\":1792324800,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"Music\",\"kind\":\"dir\",\"size\":0,\"modified\":1792324800,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"holiday.mp4\",\"kind\":\"file\",\"size\":52000000,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"book.epub\",\"kind\":\"file\",\"size\":800000,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"backup.bin\",\"kind\":\"file\",\"size\":9000000,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"}]"
+      },
+      {
+        "t": 1793585957186,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": "",
+        "body": "{\"ok\":true}"
+      },
+      {
+        "t": 1793585955017,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/files?path=Documents",
+        "status": 200,
+        "note": "",
+        "body": "[{\"name\":\"Taxes\",\"kind\":\"dir\",\"size\":0,\"modified\":1792324800,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"readme.md\",\"kind\":\"file\",\"size\":102,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"budget.csv\",\"kind\":\"file\",\"size\":52,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"}]"
+      },
+      {
+        "t": 1793585954974,
         "method": "DELETE",
-        "path": "/api/v1/drives/d1/files?path=Photos%2F2025",
+        "path": "/api/v1/drives/d1/files?path=Documents%2Fnotes.txt",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"ok\":true,\"trash_path\":\".luna-trash/1792324804-notes.txt\"}"
       },
       {
-        "t": 1792324897211,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324895955,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324894184,
+        "t": 1793585950717,
         "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=Photos%2F2025",
+        "path": "/api/v1/drives/d1/health",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"available\":true,\"reason\":null,\"verdict\":\"ok\",\"overall\":\"passed\",\"model\":\"WD20EZRZ\",\"serial\":\"FAKE1\",\"temperature_c\":34,\"temperature_max_c\":60,\"temperature_max_source\":\"typical\",\"reallocated_sectors\":0,\"pending_sectors\":0,\"uncorrectable_sectors\":0,\"status_bits\":0,\"signals\":[]}"
       },
       {
-        "t": 1792324894058,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
+        "t": 1793585950716,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/backups",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793585950716,
+        "method": "GET",
+        "path": "/api/v1/backups/covered?drive=d1&path=",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793585950716,
+        "method": "GET",
+        "path": "/api/v1/private-backups/item?drive=d1&path=",
+        "status": 200,
+        "note": "",
+        "body": "{\"private\":false,\"inside_private\":false,\"mine\":false,\"owner_name\":\"\"}"
+      },
+      {
+        "t": 1793585950716,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": "",
+        "body": "[]"
       }
     ]
   },
   "files/drive-database-missing": {
-    "note": "Need to add \"No data on the drive will be lost.\"\n\nto the end of the missing db error",
-    "at": "2026-10-22T02:49:57.032Z",
+    "status": "fail",
+    "note": "Can we do something about that trash line? Is there no way to automaticallyadopt trashed files? I bet we can do it, even if they will have no place to restore to — we just need to handle that.",
+    "at": "2026-11-01T22:24:17.244Z",
     "viewport": "desktop",
     "theme": "scenario default",
     "faults": [],
@@ -2596,115 +1977,138 @@
     "latency": 0,
     "lastRequests": [
       {
-        "t": 1792324830689,
+        "t": 1793571843337,
         "method": "GET",
         "path": "/api/v1/cloud/backups",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324830689,
+        "t": 1793571843336,
         "method": "GET",
         "path": "/api/v1/backups?drive=d1&path=",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324801687,
+        "t": 1793571813336,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793571813335,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d1&path=",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793571783335,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793571783334,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d1&path=",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793571754334,
         "method": "GET",
         "path": "/api/v1/drives/d1/files?path=",
         "status": 500,
-        "note": "fault: 500"
+        "note": "",
+        "body": "{\"error\":\"Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again. Your files stay on the drive, but items in its Trash won't show up after you add it again.\",\"code\":\"missing_drive_db\"}"
       },
       {
-        "t": 1792324800611,
+        "t": 1793571753280,
         "method": "GET",
-        "path": "/api/v1/jobs",
+        "path": "/api/v1/drives/d1/health",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"available\":true,\"reason\":null,\"verdict\":\"ok\",\"overall\":\"passed\",\"model\":\"WD20EZRZ\",\"serial\":\"FAKE1\",\"temperature_c\":34,\"temperature_max_c\":60,\"temperature_max_source\":\"typical\",\"reallocated_sectors\":0,\"pending_sectors\":0,\"uncorrectable_sectors\":0,\"status_bits\":0,\"signals\":[]}"
       },
       {
-        "t": 1792324800611,
-        "method": "GET",
-        "path": "/api/v1/private-backups/mine",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800611,
+        "t": 1793571753280,
         "method": "GET",
         "path": "/api/v1/drives/d1/backups",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324800610,
+        "t": 1793571753280,
+        "method": "GET",
+        "path": "/api/v1/backups/covered?drive=d1&path=",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793571753279,
         "method": "GET",
         "path": "/api/v1/private-backups/item?drive=d1&path=",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"private\":false,\"inside_private\":false,\"mine\":false,\"owner_name\":\"\"}"
       },
       {
-        "t": 1792324800610,
+        "t": 1793571753279,
         "method": "GET",
         "path": "/api/v1/cloud/backups",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324800610,
+        "t": 1793571753279,
         "method": "GET",
         "path": "/api/v1/connect/status",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"connect_active\":false,\"enabled\":false,\"base_url\":\"https://connect.luna.libreloom.org\",\"tunnel_active\":false,\"backup_unlocked\":false,\"paired\":false,\"unclaimed\":false,\"backup_sources\":[],\"card_on_file\":true,\"device_code\":null,\"domain\":null,\"hostname\":null,\"subdomain\":null}"
       },
       {
-        "t": 1792324800610,
+        "t": 1793571753279,
         "method": "GET",
         "path": "/api/v1/backups?drive=d1&path=",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324800609,
+        "t": 1793571753278,
         "method": "GET",
         "path": "/api/v1/drives/d1/files?path=",
         "status": 500,
-        "note": "fault: 500"
-      },
-      {
-        "t": 1792324800196,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800100,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800098,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800097,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"error\":\"Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again. Your files stay on the drive, but items in its Trash won't show up after you add it again.\",\"code\":\"missing_drive_db\"}"
       }
     ]
   },
+  "files/drive-healthy-details": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-01T22:25:02.571Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
   "files/empty-drive": {
-    "note": "Likely mock bug, but uploading file does not work.",
-    "at": "2026-10-21T03:36:50.219Z",
+    "status": "fail",
+    "note": "@plainskill needs to review the new file operations card.",
+    "at": "2026-11-01T22:16:15.923Z",
     "viewport": "desktop",
     "theme": "scenario default",
     "faults": [],
@@ -2712,232 +2116,145 @@
     "latency": 0,
     "lastRequests": [
       {
-        "t": 1792324830766,
+        "t": 1793571368809,
         "method": "GET",
         "path": "/api/v1/cloud/backups",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324830765,
+        "t": 1793571368801,
         "method": "GET",
         "path": "/api/v1/backups?drive=d1&path=",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324828444,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324822426,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324822426,
+        "t": 1793571361560,
         "method": "GET",
         "path": "/api/v1/drives/d1/files?path=",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[{\"name\":\"2026-10-29-201434.jpg\",\"kind\":\"file\",\"size\":175946,\"modified\":1792324809,\"hidden\":false,\"caps\":\"full+share\"}]"
       },
       {
-        "t": 1792324822391,
-        "method": "POST",
-        "path": "/api/v1/drives/d1/files/upload?path=",
+        "t": 1793571361508,
+        "method": "DELETE",
+        "path": "/api/v1/drives/d1/files?path=airships2-exportedproject-backup.bundle",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"ok\":true,\"trash_path\":\".luna-trash/1792324913-airships2-exportedproject-backup.bundle\"}"
       },
       {
-        "t": 1792324806268,
+        "t": 1793571357593,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/files?path=",
+        "status": 200,
+        "note": "",
+        "body": "[{\"name\":\"2026-10-29-201434.jpg\",\"kind\":\"file\",\"size\":175946,\"modified\":1792324809,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"airships2-exportedproject-backup.bundle\",\"kind\":\"file\",\"size\":7581594,\"modified\":1792324866,\"hidden\":false,\"caps\":\"full+share\"}]"
+      },
+      {
+        "t": 1793571357591,
         "method": "POST",
         "path": "/api/v1/me/recents",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"ok\":true}"
       },
       {
-        "t": 1792324805084,
+        "t": 1793571356328,
         "method": "GET",
         "path": "/api/v1/drives/d1/files/stat?path=.luna-trash",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"name\":\"Trash\",\"kind\":\"dir\",\"size\":0,\"modified\":1792324907,\"hidden\":false,\"writable\":true,\"caps\":\"none\"}"
       },
       {
-        "t": 1792324805082,
+        "t": 1793571356327,
         "method": "GET",
         "path": "/api/v1/drives/d1/files?path=.luna-trash",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324800692,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800692,
-        "method": "GET",
-        "path": "/api/v1/private-backups/mine",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800692,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800691,
-        "method": "GET",
-        "path": "/api/v1/private-backups/item?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800691,
+        "t": 1793571338808,
         "method": "GET",
         "path": "/api/v1/cloud/backups",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324800691,
+        "t": 1793571338800,
         "method": "GET",
-        "path": "/api/v1/connect/status",
+        "path": "/api/v1/backups?drive=d1&path=",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793571314419,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/files?path=",
+        "status": 200,
+        "note": "",
+        "body": "[{\"name\":\"2026-10-29-201434.jpg\",\"kind\":\"file\",\"size\":175946,\"modified\":1792324809,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"airships2-exportedproject-backup.bundle\",\"kind\":\"file\",\"size\":7581594,\"modified\":1792324866,\"hidden\":false,\"caps\":\"full+share\"}]"
+      },
+      {
+        "t": 1793571314109,
+        "method": "POST",
+        "path": "/api/v1/drives/d1/files/upload?path=",
+        "status": 200,
+        "note": "",
+        "body": "{\"name\":\"airships2-exportedproject-backup.bundle\",\"kind\":\"file\",\"size\":7581594,\"modified\":1792324866,\"hidden\":false,\"caps\":\"full+share\"}"
+      },
+      {
+        "t": 1793571314086,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/files?path=",
+        "status": 200,
+        "note": "",
+        "body": "[{\"name\":\"2026-10-29-201434.jpg\",\"kind\":\"file\",\"size\":175946,\"modified\":1792324809,\"hidden\":false,\"caps\":\"full+share\"}]"
+      },
+      {
+        "t": 1793571308799,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793571308798,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d1&path=",
+        "status": 200,
+        "note": "",
+        "body": "[]"
       }
     ]
   },
   "files/failing-drive": {
+    "status": "pass",
     "note": "As mentioned in an earlier scenario, our reporting of drive issues is massively inadequate.",
-    "at": "2026-10-22T02:50:41.129Z",
+    "at": "2026-11-01T22:24:24.982Z",
     "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324838242,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324838221,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324833225,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324833210,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324828216,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324828199,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324823203,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324823188,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324818194,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324818178,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324813175,
-        "method": "GET",
-        "path": "/api/v1/drives/detected",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324813175,
-        "method": "GET",
-        "path": "/api/v1/private-backups/item?drive=&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324813174,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324813174,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/summary",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324813174,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/health",
-        "status": 200,
-        "note": ""
-      }
-    ]
+    "theme": "scenario default"
   },
   "files/full-drive": {
     "status": "pass",
     "note": "",
     "at": "2026-10-21T03:49:03.414Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "files/health-unknown": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-01T22:24:51.021Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
@@ -3073,255 +2390,23 @@
     ]
   },
   "files/listing-error": {
+    "status": "pass",
     "note": "No try again button is visible.",
-    "at": "2026-10-22T02:52:37.628Z",
+    "at": "2026-11-01T22:25:23.232Z",
     "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [
-      {
-        "id": "9uam37",
-        "on": true,
-        "match": "GET /api/v1/drives/d1/files",
-        "mode": "500",
-        "message": "Something broke inside Luna."
-      }
-    ],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324801642,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=",
-        "status": 500,
-        "note": "fault: 500"
-      },
-      {
-        "t": 1792324800555,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800555,
-        "method": "GET",
-        "path": "/api/v1/private-backups/mine",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800555,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800554,
-        "method": "GET",
-        "path": "/api/v1/private-backups/item?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800554,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800554,
-        "method": "GET",
-        "path": "/api/v1/connect/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800553,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800552,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=",
-        "status": 500,
-        "note": "fault: 500"
-      },
-      {
-        "t": 1792324800215,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800135,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800131,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800130,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800035,
-        "method": "GET",
-        "path": "/api/v1/auth/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800035,
-        "method": "GET",
-        "path": "/api/v1/setup",
-        "status": 200,
-        "note": ""
-      }
-    ]
+    "theme": "scenario default"
   },
   "files/listing-slow": {
+    "status": "pass",
     "note": "No \"Still working [Loading Spinner]\" placeholder appears within the file browser during the loading time in this scenario. Need to add it when loading is taking a while.",
-    "at": "2026-10-22T02:52:11.893Z",
+    "at": "2026-11-01T22:25:15.302Z",
     "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [
-      {
-        "id": "ty8ovl",
-        "on": true,
-        "match": "GET /api/v1/drives/d1/files",
-        "mode": "slow:7000"
-      }
-    ],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324860563,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324860562,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324830527,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324830526,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800466,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800466,
-        "method": "GET",
-        "path": "/api/v1/private-backups/mine",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800466,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800466,
-        "method": "GET",
-        "path": "/api/v1/private-backups/item?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800466,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800466,
-        "method": "GET",
-        "path": "/api/v1/connect/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800466,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800465,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=",
-        "status": 200,
-        "note": "fault: slow:7000"
-      },
-      {
-        "t": 1792324800103,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800063,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800061,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      }
-    ]
+    "theme": "scenario default"
   },
   "files/long-names": {
+    "status": "fail",
     "note": "Unrelated to the actual test, but instead of trying to display all action buttons for a file in one mobile row, we need to copy the way universal search does it with the lighting button.",
-    "at": "2026-10-21T03:39:42.279Z",
+    "at": "2026-11-01T22:17:25.057Z",
     "viewport": "phone",
     "theme": "scenario default",
     "faults": [],
@@ -3329,227 +2414,133 @@
     "latency": 0,
     "lastRequests": [
       {
-        "t": 1792324860831,
+        "t": 1793571445004,
         "method": "GET",
         "path": "/api/v1/cloud/backups",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324860831,
+        "t": 1793571445003,
         "method": "GET",
         "path": "/api/v1/backups?drive=d1&path=",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324830821,
+        "t": 1793571414955,
         "method": "GET",
-        "path": "/api/v1/cloud/backups",
+        "path": "/api/v1/drives/d1/health",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"available\":true,\"reason\":null,\"verdict\":\"ok\",\"overall\":\"passed\",\"model\":\"WD20EZRZ\",\"serial\":\"FAKE1\",\"temperature_c\":34,\"temperature_max_c\":60,\"temperature_max_source\":\"typical\",\"reallocated_sectors\":0,\"pending_sectors\":0,\"uncorrectable_sectors\":0,\"status_bits\":0,\"signals\":[]}"
       },
       {
-        "t": 1792324830821,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324829741,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files/stat?path=Long%2FFolder%20with%20a%20name%20that%20keeps%20going%20Folder%20with%20a%20name%20that%20keeps%20going%20Folder%20with%20a%20name%20that%20keeps%20going%20Folder%20with%20a%20name%20that%20keeps%20going%20Folder%20with%20a%20name%20that%20keeps%20going",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324817817,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files/stat?path=Long%2FAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%20very-long-name-very-long-name-very-long-name-very-long-name-very-long-name-very-long-name-very-long-name-very-long-name-very-long-name-very-long-name-very-long-name-very-long-name-very-long-name-very-long-name-.txt",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800742,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800741,
-        "method": "GET",
-        "path": "/api/v1/private-backups/mine",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800741,
+        "t": 1793571414954,
         "method": "GET",
         "path": "/api/v1/drives/d1/backups",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324800741,
+        "t": 1793571414954,
+        "method": "GET",
+        "path": "/api/v1/backups/covered?drive=d1&path=",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793571414954,
         "method": "GET",
         "path": "/api/v1/private-backups/item?drive=d1&path=",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"private\":false,\"inside_private\":false,\"mine\":false,\"owner_name\":\"\"}"
       },
       {
-        "t": 1792324800741,
+        "t": 1793571414954,
         "method": "GET",
         "path": "/api/v1/cloud/backups",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324800741,
+        "t": 1793571414954,
         "method": "GET",
         "path": "/api/v1/connect/status",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"connect_active\":false,\"enabled\":false,\"base_url\":\"https://connect.luna.libreloom.org\",\"tunnel_active\":false,\"backup_unlocked\":false,\"paired\":false,\"unclaimed\":false,\"backup_sources\":[],\"card_on_file\":true,\"device_code\":null,\"domain\":null,\"hostname\":null,\"subdomain\":null}"
       },
       {
-        "t": 1792324800741,
+        "t": 1793571414954,
         "method": "GET",
         "path": "/api/v1/backups?drive=d1&path=",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324800740,
+        "t": 1793571414952,
         "method": "GET",
         "path": "/api/v1/drives/d1/files?path=Long",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[{\"name\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA very-long-name-very-long-name-very-long-name-very-long-name-very-long-name-very-long-name-very-long-name-very-long-name-very-long-name-very-long-name-very-long-name-very-long-name-very-long-name-very-long-name-.txt\",\"kind\":\"file\",\"size\":1,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"Folder with a name that keeps going Folder with a name that keeps going Folder with a name that keeps going Folder with a name that keeps going Folder with a name that keeps going\",\"kind\":\"dir\",\"size\":0,\"modified\":1792324800,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.jpg\",\"kind\":\"file\",\"size\":1200,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"}]"
       },
       {
-        "t": 1792324800317,
+        "t": 1793571414656,
         "method": "POST",
         "path": "/api/v1/me/recents",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"ok\":true}"
+      },
+      {
+        "t": 1793571414627,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": "",
+        "body": "{\"ok\":true}"
+      },
+      {
+        "t": 1793571414626,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": "",
+        "body": "{\"ok\":true}"
+      },
+      {
+        "t": 1793571414625,
+        "method": "GET",
+        "path": "/api/v1/drives",
+        "status": 200,
+        "note": "",
+        "body": "[{\"id\":\"d1\",\"label\":\"Family photos\",\"state\":\"as_is\",\"fs_type\":\"exfat\",\"device\":\"sdd1\",\"mount_point\":\"/mnt/d1\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"}]"
+      },
+      {
+        "t": 1793571414562,
+        "method": "GET",
+        "path": "/api/v1/auth/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"has_admin\":true,\"connect_active\":false}"
       }
     ]
   },
   "files/missing-folder": {
+    "status": "pass",
     "note": "Fail. Instead of \"Open Files to look for it.\" We can say \"You can use Universal Search to try and find it.\" but have the uni search menu actually open when you click on that.",
-    "at": "2026-10-21T03:42:32.868Z",
-    "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324860446,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324860446,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324830432,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324830432,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801492,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files/resolve?path=Gone%2FForever",
-        "status": 404,
-        "note": ""
-      },
-      {
-        "t": 1792324801427,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=Gone%2FForever",
-        "status": 404,
-        "note": ""
-      },
-      {
-        "t": 1792324800364,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800364,
-        "method": "GET",
-        "path": "/api/v1/private-backups/mine",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800364,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800364,
-        "method": "GET",
-        "path": "/api/v1/private-backups/item?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800364,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800364,
-        "method": "GET",
-        "path": "/api/v1/connect/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800364,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800363,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=Gone%2FForever",
-        "status": 404,
-        "note": ""
-      },
-      {
-        "t": 1792324800140,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      }
-    ]
+    "at": "2026-11-01T22:19:03.150Z",
+    "viewport": "phone",
+    "theme": "scenario default"
   },
   "files/move-fails-partway": {
     "note": "Silent failure. Source deleted. Critical issue. Can fix as part of stateful file operation card revamp.",
@@ -3914,120 +2905,11 @@
     ]
   },
   "files/moved-link": {
+    "status": "pass",
     "note": "1 mock bug, it sends us to Drive not found\n\nLuna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in. instead of the current folder.",
-    "at": "2026-10-21T03:43:19.580Z",
-    "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324801658,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801578,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files/resolve?path=Old%20place",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801491,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=Old%20place",
-        "status": 404,
-        "note": ""
-      },
-      {
-        "t": 1792324800436,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800435,
-        "method": "GET",
-        "path": "/api/v1/private-backups/mine",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800435,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800435,
-        "method": "GET",
-        "path": "/api/v1/private-backups/item?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800435,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800435,
-        "method": "GET",
-        "path": "/api/v1/connect/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800435,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800434,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=Old%20place",
-        "status": 404,
-        "note": ""
-      },
-      {
-        "t": 1792324800131,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800063,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800061,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800060,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      }
-    ]
+    "at": "2026-11-01T22:19:14.769Z",
+    "viewport": "phone",
+    "theme": "scenario default"
   },
   "files/one-file": {
     "status": "pass",
@@ -4181,236 +3063,142 @@
     "theme": "scenario default"
   },
   "files/rename-while-open": {
-    "note": "The toast (notice) is not visible.",
-    "at": "2026-10-21T03:45:37.339Z",
-    "viewport": "desktop",
+    "note": "The toast (notice) is not visible. Still.\n\nAdditionally, we need the unsaved changes, saved just now, etc pill to animate between states. it should smoothly resize. smoothly drop in and out. etc.\n\nI would also like to note that it actually doesn't need to spawn in and out. the file is either saved or not saved, so we can simply alternate between three states: Saved Unsaved and Saving...\n\nwith a smoothly resizing pill, though!",
+    "at": "2026-11-01T22:21:38.012Z",
+    "viewport": "phone",
     "theme": "scenario default",
     "faults": [],
     "offline": false,
     "latency": 0,
     "lastRequests": [
       {
-        "t": 1792324801505,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files/content?path=Documents%2Fnotes.txt",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801505,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files/content?path=Documents%2Fnotes.txt",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801108,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801108,
-        "method": "GET",
-        "path": "/api/v1/private-backups/mine",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801108,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801107,
-        "method": "GET",
-        "path": "/api/v1/private-backups/item?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801107,
+        "t": 1793571683611,
         "method": "GET",
         "path": "/api/v1/cloud/backups",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324801107,
-        "method": "GET",
-        "path": "/api/v1/connect/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324801107,
+        "t": 1793571683610,
         "method": "GET",
         "path": "/api/v1/backups?drive=d1&path=",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324801104,
+        "t": 1793571653610,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793571653609,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d1&path=",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793571623609,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793571623608,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d1&path=",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793571612009,
         "method": "GET",
         "path": "/api/v1/drives/d1/files?path=Documents",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[{\"name\":\"Taxes\",\"kind\":\"dir\",\"size\":0,\"modified\":1792324800,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"notes.txt\",\"kind\":\"file\",\"size\":38,\"modified\":1792324818,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"readme.md\",\"kind\":\"file\",\"size\":102,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"budget.csv\",\"kind\":\"file\",\"size\":52,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"}]"
       },
       {
-        "t": 1792324800411,
+        "t": 1793571612007,
         "method": "POST",
-        "path": "/api/v1/me/recents",
+        "path": "/api/v1/drives/d1/files/upload?path=Documents&overwrite=1",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"name\":\"notes.txt\",\"kind\":\"file\",\"size\":38,\"modified\":1792324818,\"hidden\":false,\"caps\":\"full+share\"}"
       },
       {
-        "t": 1792324800152,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800149,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800147,
+        "t": 1793571593759,
         "method": "GET",
-        "path": "/api/v1/drives",
+        "path": "/api/v1/drives/d1/files/content?path=Documents%2Fnotes.txt",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "(file contents)"
       },
       {
-        "t": 1792324800021,
+        "t": 1793571593759,
         "method": "GET",
-        "path": "/api/v1/auth/status",
+        "path": "/api/v1/drives/d1/files/content?path=Documents%2Fnotes.txt",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "(file contents)"
+      },
+      {
+        "t": 1793571593502,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/health",
+        "status": 200,
+        "note": "",
+        "body": "{\"available\":true,\"reason\":null,\"verdict\":\"ok\",\"overall\":\"passed\",\"model\":\"WD20EZRZ\",\"serial\":\"FAKE1\",\"temperature_c\":34,\"temperature_max_c\":60,\"temperature_max_source\":\"typical\",\"reallocated_sectors\":0,\"pending_sectors\":0,\"uncorrectable_sectors\":0,\"status_bits\":0,\"signals\":[]}"
+      },
+      {
+        "t": 1793571593502,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/backups",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793571593502,
+        "method": "GET",
+        "path": "/api/v1/backups/covered?drive=d1&path=",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793571593501,
+        "method": "GET",
+        "path": "/api/v1/private-backups/item?drive=d1&path=",
+        "status": 200,
+        "note": "",
+        "body": "{\"private\":false,\"inside_private\":false,\"mine\":false,\"owner_name\":\"\"}"
+      },
+      {
+        "t": 1793571593501,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": "",
+        "body": "[]"
       }
     ]
   },
   "files/thousands": {
+    "status": "pass",
     "note": "holy shit the lag i can barely type this feedback. oh and while we're at it we need a luna-wide performance review including frontend, backend, and companions.",
-    "at": "2026-10-21T03:38:27.096Z",
+    "at": "2026-11-01T22:16:54.064Z",
     "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324831908,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324831908,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800722,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800718,
-        "method": "GET",
-        "path": "/api/v1/private-backups/mine",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800718,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800718,
-        "method": "GET",
-        "path": "/api/v1/private-backups/item?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800718,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800718,
-        "method": "GET",
-        "path": "/api/v1/connect/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800718,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800705,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=Big",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800273,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800210,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800208,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800207,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800089,
-        "method": "GET",
-        "path": "/api/v1/auth/status",
-        "status": 200,
-        "note": ""
-      }
-    ]
+    "theme": "scenario default"
   },
   "files/trash-empty": {
     "status": "pass",
@@ -4426,237 +3214,159 @@
     "viewport": "desktop",
     "theme": "scenario default"
   },
-  "files/trash-restore-conflict": {
-    "note": "Missing warning when changing file extension. Regular rename handles this properly.",
-    "at": "2026-10-22T02:54:47.597Z",
+  "files/trash-empty-slow": {
+    "status": "fail",
+    "note": "New unified file operations bar needs review from @plainskill",
+    "at": "2026-11-02T02:19:09.922Z",
     "viewport": "desktop",
     "theme": "scenario default",
-    "faults": [],
+    "faults": [
+      {
+        "hits": 0,
+        "id": "c3txe2",
+        "on": true,
+        "match": "POST /api/v1/drives/d1/files/purge",
+        "mode": "slow:6000"
+      }
+    ],
     "offline": false,
     "latency": 0,
     "lastRequests": [
       {
-        "t": 1792324830520,
+        "t": 1793585948597,
         "method": "GET",
-        "path": "/api/v1/cloud/backups",
+        "path": "/api/v1/drives/d1/health",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"available\":true,\"reason\":null,\"verdict\":\"ok\",\"overall\":\"passed\",\"model\":\"WD20EZRZ\",\"serial\":\"FAKE1\",\"temperature_c\":34,\"temperature_max_c\":60,\"temperature_max_source\":\"typical\",\"reallocated_sectors\":0,\"pending_sectors\":0,\"uncorrectable_sectors\":0,\"status_bits\":0,\"signals\":[]}"
       },
       {
-        "t": 1792324830512,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324817653,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324817653,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=.luna-trash",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324817608,
-        "method": "POST",
-        "path": "/api/v1/drives/d1/files/restore",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324806928,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324806928,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=.luna-trash",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324806859,
-        "method": "POST",
-        "path": "/api/v1/drives/d1/files/restore",
-        "status": 409,
-        "note": ""
-      },
-      {
-        "t": 1792324800452,
+        "t": 1793585948596,
         "method": "GET",
         "path": "/api/v1/drives/d1/files/stat?path=.luna-trash",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"name\":\"Trash\",\"kind\":\"dir\",\"size\":0,\"modified\":1792324800,\"hidden\":false,\"writable\":true,\"caps\":\"none\"}"
       },
       {
-        "t": 1792324800452,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800452,
-        "method": "GET",
-        "path": "/api/v1/private-backups/mine",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800452,
+        "t": 1793585948596,
         "method": "GET",
         "path": "/api/v1/drives/d1/backups",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324800451,
+        "t": 1793585948596,
+        "method": "GET",
+        "path": "/api/v1/backups/covered?drive=d1&path=",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793585948596,
         "method": "GET",
         "path": "/api/v1/private-backups/item?drive=d1&path=",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"private\":false,\"inside_private\":false,\"mine\":false,\"owner_name\":\"\"}"
       },
       {
-        "t": 1792324800451,
+        "t": 1793585948596,
         "method": "GET",
         "path": "/api/v1/cloud/backups",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324800451,
+        "t": 1793585948595,
         "method": "GET",
         "path": "/api/v1/connect/status",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"connect_active\":false,\"enabled\":false,\"base_url\":\"https://connect.luna.libreloom.org\",\"tunnel_active\":false,\"backup_unlocked\":false,\"paired\":false,\"unclaimed\":false,\"backup_sources\":[],\"card_on_file\":true,\"device_code\":null,\"domain\":null,\"hostname\":null,\"subdomain\":null}"
+      },
+      {
+        "t": 1793585948595,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d1&path=",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793585948594,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/files?path=.luna-trash",
+        "status": 200,
+        "note": "",
+        "body": "[{\"name\":\"17674160-junk 0.txt\",\"kind\":\"file\",\"size\":4200,\"modified\":1791547200,\"hidden\":false,\"caps\":\"full+share\",\"original_path\":\"junk 0.txt\",\"original_name\":\"junk 0.txt\"},{\"name\":\"17863438-junk 1.txt\",\"kind\":\"file\",\"size\":4200,\"modified\":1791547200,\"hidden\":false,\"caps\":\"full+share\",\"original_path\":\"junk 1.txt\",\"original_name\":\"junk 1.txt\"},{\"name\":\"17257463-junk 2.txt\",\"kind\":\"file\",\"size\":4200,\"modified\":1791547200,\"hidden\":false,\"caps\":\"full+share\",\"original_path\":\"junk 2.txt\",\"original_name\":\"junk 2.txt\"},{\"name\":\"17990221-junk 3.txt\",\"kind\":\"file\",\"size\":4200,\"modified\":1791547200,\"hidden\":false,\"caps\":\"full+share\",\"original_path\":\"junk 3.txt\",\"original_name\":\"junk 3.txt\"},{\"name\":\"17431305-junk 4.txt\",\"kind\":\"file\",\"size\":4200,\"modified\":1791547200,\"hidden\":false,\"caps\":\"full+share\",\"original_path\":\"junk 4.txt\",\"original_name\":\"junk 4.txt\"},{\"name\":\"17825350-junk 5.txt\",\"kind\":\"file\",\"size\":4200,\"modified\":1791547200,\"hidden\":false,\"caps\":\"full+share\",\"original_path\":\"junk 5.txt\",\"original_name\":\"junk 5.txt\"},{\"name\":\"17671305-junk 6.txt\",\"kind\":\"file\",\"size\":4200,\"modified\":1791547200,\"hidden\":false,\"caps\":\"full+share\",\"original_path\":\"junk 6.txt\",\"original_name\":\"junk 6.txt\"},{\"name\":\"17455103-junk 7.txt\",\"kind\":\"file\",\"size\":4200,\"modified\":1791547200,\"hidden\":false,\"caps\":\"full+share\",\"original_path\":\"junk 7.txt\",\"original_name\":\"junk 7.txt\"},{\"name\":\"17898066-junk 8.txt\",\"kind\":\"file\",\"size\":4200,\"modified\":1791547200,\"hidden\":false,\"caps\":\"full+share\",\"original_path\":\"junk 8.txt\",\"original_name\":\"junk 8.txt\"},{\"name\":\"17827144-junk 9.txt\",\"kind\":\"file\",\"size\":4200,\"modified\":1791547200,\"hidden\":false,\"caps\":\"full+share\",\"original_path\":\"junk 9.txt\",\"original_name\":\"junk 9.txt\"},{\"name\":\"17445675-junk 10.txt\",\"kind\":\"file\",\"size\":4200,\"modified\":1791547200,\"hidden\":false,\"caps\":\"full+share\",\"original_path\":\"junk 10.txt\",\"original_name\":\"junk 10.txt\"},{\"name\":\"17749415-junk 11.txt\",\"kind\":\"file\",\"size\":4200,\"modified\":1791547200,\"hidden\":false,\"caps\":\"full+share\",\"original_path\":\"junk 11.txt\",\"original_name\":\"junk 11.txt\"}]"
+      },
+      {
+        "t": 1793585948274,
+        "method": "GET",
+        "path": "/api/v1/drives",
+        "status": 200,
+        "note": "",
+        "body": "[{\"id\":\"d1\",\"label\":\"Family photos\",\"state\":\"as_is\",\"fs_type\":\"exfat\",\"device\":\"sdd1\",\"mount_point\":\"/mnt/d1\",\"mounted\":true,\"writable\":true,\"caps\":\"full+share\"}]"
+      },
+      {
+        "t": 1793585948228,
+        "method": "GET",
+        "path": "/api/v1/auth/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"has_admin\":true,\"connect_active\":false}"
+      },
+      {
+        "t": 1793585948228,
+        "method": "GET",
+        "path": "/api/v1/setup",
+        "status": 200,
+        "note": "",
+        "body": "{\"name\":\"Luna\",\"setup_completed\":true,\"current_step\":\"done\",\"step_data\":{\"network_connected\":true}}"
+      },
+      {
+        "t": 1793585948228,
+        "method": "GET",
+        "path": "/api/v1/auth/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"has_admin\":true,\"connect_active\":false}"
+      },
+      {
+        "t": 1793585948228,
+        "method": "GET",
+        "path": "/api/v1/setup",
+        "status": 200,
+        "note": "",
+        "body": "{\"name\":\"Luna\",\"setup_completed\":true,\"current_step\":\"done\",\"step_data\":{\"network_connected\":true}}"
+      },
+      {
+        "t": 1793585948225,
+        "method": "GET",
+        "path": "/api/v1/auth/me",
+        "status": 200,
+        "note": "",
+        "body": "{\"id\":\"u1\",\"username\":\"max\",\"display_name\":\"Max\",\"role\":\"admin\",\"phrase_set\":true}"
       }
     ]
   },
-  "files/trash-restore-folder-gone": {
-    "note": "Restore is not possible. Tree is not recreated.",
-    "at": "2026-10-22T02:55:26.505Z",
+  "files/trash-restore-conflict": {
+    "status": "pass",
+    "note": "Missing warning when changing file extension. Regular rename handles this properly.",
+    "at": "2026-11-01T22:34:03.239Z",
     "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324830434,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324830434,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324812751,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324812750,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=.luna-trash",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324812709,
-        "method": "POST",
-        "path": "/api/v1/drives/d1/files/restore",
-        "status": 404,
-        "note": ""
-      },
-      {
-        "t": 1792324811383,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324811383,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=.luna-trash",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324811339,
-        "method": "POST",
-        "path": "/api/v1/drives/d1/files/restore",
-        "status": 404,
-        "note": ""
-      },
-      {
-        "t": 1792324800383,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files/stat?path=.luna-trash",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800383,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800383,
-        "method": "GET",
-        "path": "/api/v1/private-backups/mine",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800383,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800383,
-        "method": "GET",
-        "path": "/api/v1/private-backups/item?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800383,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800382,
-        "method": "GET",
-        "path": "/api/v1/connect/status",
-        "status": 200,
-        "note": ""
-      }
-    ]
+    "theme": "scenario default"
+  },
+  "files/trash-restore-folder-gone": {
+    "status": "pass",
+    "note": "Restore is not possible. Tree is not recreated.",
+    "at": "2026-11-02T02:19:06.351Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
   },
   "files/trash-with-items": {
     "status": "pass",
@@ -4666,8 +3376,8 @@
     "theme": "scenario default"
   },
   "files/unicode-emoji": {
-    "note": "In mobile editor frame, the Save detail beside the save button, i.e. \"Saved just now\", needs to be in a pill.",
-    "at": "2026-10-21T03:40:56.610Z",
+    "note": "remove the saved status from the dropdown menu\n## Page Feedback: /files/d1?path=Odd&file=%D8%B9%D8%B1%D8%A8%D9%89.txt\n**Viewport:** 390×800\n\n### 1. <DriveFileExplorer> <FileViewer> <FullscreenEditorFrame> <Dropdown> <Button> <Ellipsis> icon\n**Location:** .inline-flex > .relative > .inline-flex > svg\n**Source:** @fs/home/plainskill/Projects/LibreServ/shared/ui/components/ui/Button.jsx:103:23\n**React:** <DriveFileExplorer> <FileViewer> <FullscreenEditorFrame> <Dropdown> <Button> <Ellipsis>\n**Feedback:** the dropdown this thing opens. drop it from here.",
+    "at": "2026-11-01T22:18:46.126Z",
     "viewport": "phone",
     "theme": "scenario default",
     "faults": [],
@@ -4675,199 +3385,133 @@
     "latency": 0,
     "lastRequests": [
       {
-        "t": 1792324860466,
+        "t": 1793571505886,
         "method": "GET",
         "path": "/api/v1/cloud/backups",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324860466,
+        "t": 1793571505885,
         "method": "GET",
         "path": "/api/v1/backups?drive=d1&path=",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324833114,
+        "t": 1793571504450,
         "method": "GET",
-        "path": "/api/v1/jobs",
+        "path": "/api/v1/drives/d1/files/content?path=Odd%2F%D8%B9%D8%B1%D8%A8%D9%89.txt",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "(file contents)"
       },
       {
-        "t": 1792324833114,
+        "t": 1793571504448,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/files/content?path=Odd%2F%D8%B9%D8%B1%D8%A8%D9%89.txt",
+        "status": 200,
+        "note": "",
+        "body": "(file contents)"
+      },
+      {
+        "t": 1793571504446,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": "",
+        "body": "{\"ok\":true}"
+      },
+      {
+        "t": 1793571498415,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": "",
+        "body": "{\"ok\":true}"
+      },
+      {
+        "t": 1793571475885,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793571475884,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d1&path=",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793571462688,
         "method": "GET",
         "path": "/api/v1/drives/d1/files?path=Odd",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[{\"name\":\"日本語のファイル.txt\",\"kind\":\"file\",\"size\":12,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"Ünïcödé résumé.docx\",\"kind\":\"file\",\"size\":19,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"🌈 holiday 🏖️.jpg\",\"kind\":\"file\",\"size\":18,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"عربى.txt\",\"kind\":\"file\",\"size\":11,\"modified\":1792324817,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"a&b #1 %20 ?.txt\",\"kind\":\"file\",\"size\":16,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"  leading space.txt\",\"kind\":\"file\",\"size\":19,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"trailing dot.\",\"kind\":\"file\",\"size\":13,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"quote's \\\"double\\\".txt\",\"kind\":\"file\",\"size\":20,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"é (combining).txt\",\"kind\":\"file\",\"size\":18,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"📁 Ordner\",\"kind\":\"dir\",\"size\":0,\"modified\":1792324800,\"hidden\":false,\"caps\":\"full+share\"}]"
       },
       {
-        "t": 1792324833064,
+        "t": 1793571462685,
         "method": "POST",
         "path": "/api/v1/drives/d1/files/upload?path=Odd&overwrite=1",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"name\":\"عربى.txt\",\"kind\":\"file\",\"size\":11,\"modified\":1792324817,\"hidden\":false,\"caps\":\"full+share\"}"
       },
       {
-        "t": 1792324830447,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324830447,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324826810,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files/content?path=Odd%2Fe%CC%81%20(combining).txt",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324826809,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files/content?path=Odd%2Fe%CC%81%20(combining).txt",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324826808,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324818154,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324814855,
+        "t": 1793571450196,
         "method": "GET",
         "path": "/api/v1/drives/d1/files/content?path=Odd%2F%D8%B9%D8%B1%D8%A8%D9%89.txt",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "(file contents)"
       },
       {
-        "t": 1792324814855,
+        "t": 1793571450195,
         "method": "GET",
         "path": "/api/v1/drives/d1/files/content?path=Odd%2F%D8%B9%D8%B1%D8%A8%D9%89.txt",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "(file contents)"
       },
       {
-        "t": 1792324814485,
+        "t": 1793571449838,
         "method": "POST",
         "path": "/api/v1/me/recents",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"ok\":true}"
       },
       {
-        "t": 1792324811274,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
+        "t": 1793571448330,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/files?path=Odd%2F%F0%9F%93%81%20Ordner",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793571445855,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/health",
+        "status": 200,
+        "note": "",
+        "body": "{\"available\":true,\"reason\":null,\"verdict\":\"ok\",\"overall\":\"passed\",\"model\":\"WD20EZRZ\",\"serial\":\"FAKE1\",\"temperature_c\":34,\"temperature_max_c\":60,\"temperature_max_source\":\"typical\",\"reallocated_sectors\":0,\"pending_sectors\":0,\"uncorrectable_sectors\":0,\"status_bits\":0,\"signals\":[]}"
       }
     ]
   },
   "files/unplugged-at-start": {
-    "note": "Cannot test member wording. Will also note that in the card, this is bound in width aggressively despite the plentiful x space available, causing it to be three lines instead of two.",
-    "at": "2026-10-21T03:50:49.225Z",
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-01T22:22:31.229Z",
     "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324800703,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800290,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800094,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800089,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800089,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800019,
-        "method": "GET",
-        "path": "/api/v1/auth/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800019,
-        "method": "GET",
-        "path": "/api/v1/setup",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800018,
-        "method": "GET",
-        "path": "/api/v1/auth/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800018,
-        "method": "GET",
-        "path": "/api/v1/setup",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800013,
-        "method": "GET",
-        "path": "/api/v1/auth/me",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800011,
-        "method": "GET",
-        "path": "/api/v1/auth/me",
-        "status": 200,
-        "note": ""
-      }
-    ]
+    "theme": "scenario default"
   },
   "files/unplugged-mid-browse": {
     "status": "pass",
@@ -4877,8 +3521,9 @@
     "theme": "scenario default"
   },
   "files/upload-duplicate": {
-    "note": "As part of the stateful upload card revamp, we must offer the options to Replace, Keep both, and Skip within the corresponding row on the uploads card. As of right now, no options are shown. \n\nWe also must start supporting uploading entire folders, and we need to be careful to smoothly handle folders that are part problematic, continuing to process non-problematic files even if a problematic one is encounter. This should show in the form of parallel execution, with the progress still being shown and advancing while the decision is offered, and, if multiple files need decisions, we should have something that says \"14 more problems ->\" or similar.",
-    "at": "2026-10-22T04:23:28.541Z",
+    "status": "fail",
+    "note": "@plainskill needs to review all possible states of the new stateful file ops card",
+    "at": "2026-11-02T02:27:52.709Z",
     "viewport": "desktop",
     "theme": "scenario default",
     "faults": [],
@@ -4886,235 +3531,133 @@
     "latency": 0,
     "lastRequests": [
       {
-        "t": 1792324980918,
+        "t": 1793586453195,
         "method": "GET",
         "path": "/api/v1/cloud/backups",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324980865,
+        "t": 1793586453185,
         "method": "GET",
         "path": "/api/v1/backups?drive=d1&path=",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[]"
       },
       {
-        "t": 1792324950873,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324950851,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324920854,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324920838,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324890831,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324890786,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324877208,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324877208,
+        "t": 1793586439179,
         "method": "GET",
         "path": "/api/v1/drives/d1/files?path=Documents",
         "status": 200,
-        "note": ""
+        "note": "",
+        "body": "[{\"name\":\"Taxes\",\"kind\":\"dir\",\"size\":0,\"modified\":1792324800,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"notes.txt\",\"kind\":\"file\",\"size\":39,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"readme.md\",\"kind\":\"file\",\"size\":102,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"budget.csv\",\"kind\":\"file\",\"size\":52,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"}]"
       },
       {
-        "t": 1792324877208,
+        "t": 1793586423185,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793586423182,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d1&path=",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793586093129,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/health",
+        "status": 200,
+        "note": "",
+        "body": "{\"available\":true,\"reason\":null,\"verdict\":\"ok\",\"overall\":\"passed\",\"model\":\"WD20EZRZ\",\"serial\":\"FAKE1\",\"temperature_c\":34,\"temperature_max_c\":60,\"temperature_max_source\":\"typical\",\"reallocated_sectors\":0,\"pending_sectors\":0,\"uncorrectable_sectors\":0,\"status_bits\":0,\"signals\":[]}"
+      },
+      {
+        "t": 1793586093128,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/backups",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793586093128,
+        "method": "GET",
+        "path": "/api/v1/backups/covered?drive=d1&path=",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793586093128,
+        "method": "GET",
+        "path": "/api/v1/private-backups/item?drive=d1&path=",
+        "status": 200,
+        "note": "",
+        "body": "{\"private\":false,\"inside_private\":false,\"mine\":false,\"owner_name\":\"\"}"
+      },
+      {
+        "t": 1793586093128,
+        "method": "GET",
+        "path": "/api/v1/cloud/backups",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793586093128,
+        "method": "GET",
+        "path": "/api/v1/connect/status",
+        "status": 200,
+        "note": "",
+        "body": "{\"connect_active\":false,\"enabled\":false,\"base_url\":\"https://connect.luna.libreloom.org\",\"tunnel_active\":false,\"backup_unlocked\":false,\"paired\":false,\"unclaimed\":false,\"backup_sources\":[],\"card_on_file\":true,\"device_code\":null,\"domain\":null,\"hostname\":null,\"subdomain\":null}"
+      },
+      {
+        "t": 1793586093128,
+        "method": "GET",
+        "path": "/api/v1/backups?drive=d1&path=",
+        "status": 200,
+        "note": "",
+        "body": "[]"
+      },
+      {
+        "t": 1793586093127,
+        "method": "GET",
+        "path": "/api/v1/drives/d1/files?path=Documents",
+        "status": 200,
+        "note": "",
+        "body": "[{\"name\":\"Taxes\",\"kind\":\"dir\",\"size\":0,\"modified\":1792324800,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"notes.txt\",\"kind\":\"file\",\"size\":39,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"readme.md\",\"kind\":\"file\",\"size\":102,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"},{\"name\":\"budget.csv\",\"kind\":\"file\",\"size\":52,\"modified\":1792321200,\"hidden\":false,\"caps\":\"full+share\"}]"
+      },
+      {
+        "t": 1793586092836,
         "method": "POST",
-        "path": "/api/v1/drives/d1/files/upload?path=Documents%2FDownloads",
-        "status": 404,
-        "note": ""
+        "path": "/api/v1/me/recents",
+        "status": 200,
+        "note": "",
+        "body": "{\"ok\":true}"
       },
       {
-        "t": 1792324860802,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
+        "t": 1793586092817,
+        "method": "POST",
+        "path": "/api/v1/me/recents",
         "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324860765,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324856879,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324856878,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=Documents",
-        "status": 200,
-        "note": ""
+        "note": "",
+        "body": "{\"ok\":true}"
       }
     ]
   },
   "files/upload-fails": {
+    "status": "pass",
     "note": "The error is toasted, not shown in the upload card as it should be. As noted in another feedback, I want a more stateful-style revamp of the upload card so it's persistent through navigation in the current tab. ",
-    "at": "2026-10-22T04:18:56.872Z",
+    "at": "2026-11-02T02:21:32.309Z",
     "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [
-      {
-        "id": "mekang",
-        "on": true,
-        "match": "POST /api/v1/drives/d1/files/upload",
-        "mode": "500",
-        "message": "Luna couldn't write to the drive."
-      }
-    ],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324950765,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324950765,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324920743,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324920743,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324806565,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324806565,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=Documents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324806564,
-        "method": "POST",
-        "path": "/api/v1/drives/d1/files/upload?path=Documents",
-        "status": 500,
-        "note": "fault: 500"
-      },
-      {
-        "t": 1792324800675,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800675,
-        "method": "GET",
-        "path": "/api/v1/private-backups/mine",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800675,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800675,
-        "method": "GET",
-        "path": "/api/v1/private-backups/item?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800675,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800674,
-        "method": "GET",
-        "path": "/api/v1/connect/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800674,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800673,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=Documents",
-        "status": 200,
-        "note": ""
-      }
-    ]
+    "theme": "scenario default"
   },
   "files/upload-folder": {
     "note": "Folder uploads aren't supported properly yet.",
@@ -5602,126 +4145,10 @@
     "theme": "scenario default"
   },
   "files/upload-slow": {
-    "note": "Progress bar did not move. Leaving the page with the upload running did not ask first, but I saw the file uploaded toast anyway, and the file successfully. Here's what needs to change:\n\na) Figure out why the progress bar isn't moving. Could be an issue with the test harness.\nb) We will make the uploads panel universal through the file explorer. When I navigate away and back (only on the same tab) I should still have the same uploads running the whole time, and I should be able to see all my running uploads in the card. \n\nc) Looks to me like I can, in fact, close/destroy the tab while an upload is running with no warning. Address.",
-    "at": "2026-10-22T04:16:21.141Z",
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-02T02:21:18.432Z",
     "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [
-      {
-        "id": "yj5viy",
-        "on": true,
-        "match": "POST /api/v1/drives/d1/files/upload",
-        "mode": "slow:15000"
-      }
-    ],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324937325,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324937215,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324907302,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324907190,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324877261,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324877171,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324852275,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324852275,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=Documents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324848395,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324847162,
-        "method": "GET",
-        "path": "/api/v1/private-backups/mine",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324847162,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324847161,
-        "method": "GET",
-        "path": "/api/v1/private-backups/item?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324847161,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324847161,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324847159,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      }
-    ]
+    "theme": "scenario default"
   }
 }

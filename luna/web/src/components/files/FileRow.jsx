@@ -62,6 +62,7 @@ function FileRow({
   hasDelete,
   enableDownload,
   renderRowActions,
+  renderRowSheetActions = undefined,
   folderHref,
   fileHref,
   api,
@@ -104,6 +105,26 @@ function FileRow({
     : {};
 
   function renderActions() {
+    // Phones get one lightning button that opens every action, as in search
+    // results. This must come before renderRowActions: the explorer supplies
+    // its own action row, and on a phone that row is a wall of buttons that
+    // squeezes the file name down to nothing.
+    if (!isSmUp && !isPicker) {
+      return (
+        <Button
+          variant="outline"
+          surface={surface}
+          size="icon"
+          className="size-11"
+          aria-label={`Actions for ${displayName}`}
+          aria-haspopup="dialog"
+          onClick={() => setSheetOpen(true)}
+        >
+          <Zap size={24} aria-hidden="true" />
+        </Button>
+      );
+    }
+
     if (renderRowActions) return renderRowActions(ctx);
     if (isPicker) {
       const canPick = pickerMode === "any"
@@ -121,23 +142,6 @@ function FileRow({
         >
           {pickSelected ? <Check size={14} aria-hidden="true" /> : null}
           {pickSelected ? "Selected" : "Select"}
-        </Button>
-      );
-    }
-
-    // Phones: one lightning button opens every action, as in search results.
-    if (!isSmUp) {
-      return (
-        <Button
-          variant="outline"
-          surface={surface}
-          size="icon"
-          className="size-11"
-          aria-label={`Actions for ${displayName}`}
-          aria-haspopup="dialog"
-          onClick={() => setSheetOpen(true)}
-        >
-          <Zap size={24} aria-hidden="true" />
         </Button>
       );
     }
@@ -242,7 +246,10 @@ function FileRow({
     ) : null;
   }
 
-  const phoneActions = !isSmUp && !renderRowActions && !isPicker;
+  // Phones always get the lightning sheet, including rows whose actions come
+  // from renderRowActions (the explorer). Those actions are still the ones
+  // shown — inside the sheet, not crammed into the row.
+  const phoneActions = !isSmUp && !isPicker;
   const canShareRow = hasShare && (capsBits(entry.caps || "") & CAP.SHARE) !== 0;
   const canDownload = enableDownload && (entry.kind === "file" || isDir);
 
@@ -404,6 +411,10 @@ function FileRow({
               close();
               fn();
             };
+            // Rows that bring their own actions (the explorer) show those in
+            // the sheet as labeled cards: the same actions, just not crammed
+            // into the row. Everything else uses the built-in set below.
+            if (renderRowSheetActions) return renderRowSheetActions(ctx, close);
             return (
               <div className="grid gap-2">
                 {canShareRow && (

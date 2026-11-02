@@ -320,9 +320,10 @@ get("/api/v1/drives/:name/peek", ({ world, user, params }) => {
     folders, files: sample.length - folders, sample: sample.slice(0, 5),
   };
 });
-post("/api/v1/drives/:name/release", ({ user, params, world }) => {
+// Idempotent like lunad's release_foreign: a drive that was never inspected, was
+// already let go, or is no longer detected (adopt removed it) is still a success.
+post("/api/v1/drives/:name/release", ({ user }) => {
   driveGate(user);
-  findDetected(world, params.name);
   return { ok: true };
 });
 post("/api/v1/drives/:name/adopt", ({ world, user, params, body }) => {
@@ -439,10 +440,12 @@ get("/api/v1/network/status", ({ world, user }) => {
 }, { public: true });
 get("/api/v1/connect/status", ({ world, user }) => {
   const admin = isAdmin(user) || world.users.length === 0;
-  const { device_code: code, device_token_error: _gone, ...rest } = world.connect;
+  const { device_code: code, ...rest } = world.connect;
   const status = { connect_active: false, enabled: false, base_url: "https://connect.luna.libreloom.org", tunnel_active: false, backup_unlocked: false, paired: false, unclaimed: false, backup_sources: [], card_on_file: true, device_code: code ?? null, domain: null, hostname: null, subdomain: null, ...rest };
+  // lunad sends device_token_error only when the saved token is unusable (serde skips None),
+  // and the dashboard's "Needs you" row is built from it (lib/needsYou.js).
   if (status.device_token_error) Object.assign(status, { enabled: false, paired: false, unclaimed: false, tunnel_active: false });
-  delete status.device_token_error;
+  else delete status.device_token_error;
   if (!admin) status.backup_sources = [];
   return status;
 }, { public: true });

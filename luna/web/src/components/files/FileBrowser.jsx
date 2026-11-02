@@ -246,6 +246,7 @@ function compareEntries(a, b, sortKey) {
  *   onUploadFiles?: (input: { dropped: import("../../lib/collectUploadFiles.js").DroppedItems } | { files: File[] }, destPath: string) => void,
  *   onInternalMove?: (paths: string[], destFolder: string, destDriveId?: string, sourceDriveId?: string) => void | Promise<void>,
  *   renderRowActions?: (ctx: FileBrowserRowContext) => import("react").ReactNode,
+ *   renderRowSheetActions?: (ctx: FileBrowserRowContext, close: () => void) => import("react").ReactNode,
  *   renderSelectionActions?: (paths: string[], rows: FileBrowserRowContext[]) => import("react").ReactNode,
  *   enableDownload?: boolean,
  *   enableUploadDrop?: boolean,
@@ -294,6 +295,7 @@ export default function FileBrowser({
   onUploadFiles,
   onInternalMove,
   renderRowActions,
+  renderRowSheetActions,
   renderSelectionActions,
   enableDownload = true,
   enableUploadDrop = false,
@@ -2084,6 +2086,7 @@ export default function FileBrowser({
                       hasDelete={Boolean(onDelete)}
                       enableDownload={enableDownload}
                       renderRowActions={renderRowActions}
+                      renderRowSheetActions={renderRowSheetActions}
                       folderHref={folderHref}
                       fileHref={fileHref}
                       api={rowApi}
@@ -2241,6 +2244,7 @@ FileBrowser.propTypes = {
   onUploadFiles: PropTypes.func,
   onInternalMove: PropTypes.func,
   renderRowActions: PropTypes.func,
+  renderRowSheetActions: PropTypes.func,
   renderSelectionActions: PropTypes.func,
   enableDownload: PropTypes.bool,
   enableUploadDrop: PropTypes.bool,

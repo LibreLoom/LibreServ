@@ -186,7 +186,8 @@ describe("RecoveryPhraseCard", () => {
 
     expect(await screen.findByRole("heading", { name: "Get a new phrase?" })).toBeInTheDocument();
     expect(screen.getByText("Private items backed up with your old phrase can't be opened anymore.")).toBeInTheDocument();
-  });});
+  });
+});
 
 // ── Replacing and checking the phrase ────────────────────────────────────────
 

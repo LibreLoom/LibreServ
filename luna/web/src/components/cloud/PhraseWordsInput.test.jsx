@@ -105,9 +105,10 @@ describe("PhraseWordsInput", () => {
     expect(screen.getByLabelText("Word 2")).toHaveFocus();
   });
 
-  it("shows the hint only in box 1", () => {
+  it("shows no placeholder in any box", () => {
     render(<Harness />);
-    expect(screen.getByLabelText("Word 1")).toHaveAttribute("placeholder", "Type or paste");
-    expect(screen.getByLabelText("Word 2")).not.toHaveAttribute("placeholder");
+    for (const box of screen.getAllByRole("textbox")) {
+      expect(box).not.toHaveAttribute("placeholder");
+    }
   });
 });

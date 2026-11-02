@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Download, FolderInput, HardDrive, Lock, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { Copy, Download, FolderInput, HardDrive, Lock, Pencil, RotateCcw, Shield, Trash2, Users } from "lucide-react";
 import PropTypes from "prop-types";
 import FileBrowser from "./FileBrowser.jsx";
 import { BackupRowActions, VersionsModal } from "./backupsView.jsx";
@@ -19,6 +19,7 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import CardButton from "@libreloom/ui/components/ui/CardButton.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { ActionTooltipGroup, InfoHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
@@ -580,8 +581,12 @@ export default function DriveFileExplorer({
 
   // Stable identity so FileBrowser's memoized rows only re-render when one of
   // these inputs changes, not on every explorer render.
-  const renderRowActions = useCallback((ctx) => {
-    if (inBackups) return <BackupRowActions driveId={driveId} ctx={ctx} onVersions={openVersions} />;
+  //
+  // One action list, rendered two ways: icon buttons in the row on wider
+  // screens, and labeled cards in the phone sheet. A phone row that tried to
+  // show every icon squeezed the file name to nothing.
+  const rowActionsFor = useCallback((ctx) => {
+    if (inBackups) return null;
     // Same action row as any folder, with trash deltas. The Trash row
     // itself (the drive-root entry that opens trash) behaves like a
     // folder: share, protect, download, copy, properties. Items INSIDE
@@ -603,116 +608,139 @@ export default function DriveFileExplorer({
       ? (guestCaps & CAP.EDIT) !== 0 && !source.isFile
       : (rowCaps & CAP.EDIT) !== 0;
     const rowCanShare = !guest && !trashChild && (rowCaps & CAP.SHARE) !== 0;
+
+    /** @type {{ key: string, label: string, icon: any, danger?: boolean, run: () => void }[]} */
+    const actions = [];
+    if (rowCanShare) {
+      actions.push({
+        key: "share",
+        label: "Share",
+        icon: Users,
+        run: () => setAccessTarget({ path: ctx.fullPath }),
+      });
+    }
+    if (showProtect && ctx.entry.kind === "dir" && !trashChild) {
+      actions.push({
+        key: "protect",
+        label: "Back up",
+        icon: Shield,
+        run: () => setProtectTarget({ path: ctx.fullPath }),
+      });
+    }
+    if (canView) {
+      actions.push({
+        key: "download",
+        label: "Download",
+        icon: Download,
+        run: () => window.location.assign(source.downloadHref(driveId, ctx.fullPath, ctx.entry.kind)),
+      });
+    }
+    if (trashChild && ctx.path === TRASH_PATH) {
+      actions.push({
+        key: "restore",
+        label: "Restore",
+        icon: RotateCcw,
+        run: () => {
+          setActionError(null);
+          setRestoreTarget({
+            fullPath: ctx.fullPath,
+            displayName: ctx.displayName,
+            originalPath: ctx.entry.original_path || "",
+            isDir: ctx.entry.kind === "dir",
+          });
+          setRestoreName(ctx.displayName);
+        },
+      });
+    }
+    if (!guest) {
+      actions.push({
+        key: "copy",
+        label: "Copy",
+        icon: Copy,
+        run: () => setTransfer({ kind: "copy", paths: [ctx.fullPath], label: ctx.displayName }),
+      });
+    }
+    if (rowCanEdit && !trashRoot) {
+      actions.push({
+        key: "move",
+        label: "Move",
+        icon: FolderInput,
+        run: () => setTransfer({ kind: "move", paths: [ctx.fullPath], label: ctx.displayName }),
+      });
+      if (!trashChild) {
+        actions.push({
+          key: "rename",
+          label: "Rename",
+          icon: Pencil,
+          run: () => {
+            setActionError(null);
+            setRenameTarget({ fullPath: ctx.fullPath, name: ctx.displayName, isDir: ctx.entry.kind === "dir" });
+            setRenameValue(ctx.displayName);
+          },
+        });
+      }
+      actions.push({
+        key: "delete",
+        label: trashChild ? "Delete permanently" : "Move to trash",
+        icon: Trash2,
+        danger: true,
+        run: () => (trashChild
+          ? setPurgeTarget({ paths: [ctx.fullPath], label: ctx.displayName })
+          : setDeletePaths([ctx.fullPath])),
+      });
+    }
+    return actions;
+  }, [access.data, driveId, guest, guestCaps, source, isAdmin, showProtect, canView, inBackups]);
+
+  const renderRowActions = useCallback((ctx) => {
+    if (inBackups) return <BackupRowActions driveId={driveId} ctx={ctx} onVersions={openVersions} />;
+    const actions = rowActionsFor(ctx);
+    if (!actions) return null;
     return (
-    <ActionTooltipGroup>
-      <div className="flex items-center gap-0.5 flex-wrap justify-end">
-        {rowCanShare && (
-          <ShareButton
-            label={ctx.displayName}
-            onClick={() => setAccessTarget({ path: ctx.fullPath })}
-          />
-        )}
-        {showProtect && ctx.entry.kind === "dir" && !trashChild && (
-          <ProtectButton
-            label={ctx.displayName}
-            onClick={() => setProtectTarget({ path: ctx.fullPath })}
-          />
-        )}
-        {canView && (
-          <DownloadButton
-            driveId={driveId}
-            path={ctx.fullPath}
-            kind={ctx.entry.kind}
-            label={ctx.displayName}
-          />
-        )}
-        {trashChild && ctx.path === TRASH_PATH && (
-          <Tooltip content="Restore">
-            <Button
-              variant="ghost"
-              surface="secondary"
-              size="iconSm"
-              aria-label={`Restore ${ctx.displayName}`}
-              onClick={() => {
-                setActionError(null);
-                setRestoreTarget({
-                  fullPath: ctx.fullPath,
-                  displayName: ctx.displayName,
-                  originalPath: ctx.entry.original_path || "",
-                  isDir: ctx.entry.kind === "dir",
-                });
-                setRestoreName(ctx.displayName);
-              }}
-            >
-              <RotateCcw size={ICON_SIZE.sm} />
-            </Button>
-          </Tooltip>
-        )}
-        {!guest && (
-          <Tooltip content="Copy">
-            <Button
-              variant="ghost"
-              surface="secondary"
-              size="iconSm"
-              aria-label={`Copy ${ctx.displayName}`}
-              onClick={() => setTransfer({ kind: "copy", paths: [ctx.fullPath], label: ctx.displayName })}
-            >
-              <Copy size={ICON_SIZE.sm} />
-            </Button>
-          </Tooltip>
-        )}
-        {rowCanEdit && !trashRoot && (
-          <>
-            <Tooltip content="Move">
+      <ActionTooltipGroup>
+        <div className="flex items-center gap-0.5 flex-wrap justify-end">
+          {actions.map(({ key, label, icon: Icon, run }) => (
+            <Tooltip key={key} content={label}>
               <Button
                 variant="ghost"
                 surface="secondary"
                 size="iconSm"
-                aria-label={`Move ${ctx.displayName}`}
-                onClick={() => setTransfer({ kind: "move", paths: [ctx.fullPath], label: ctx.displayName })}
+                aria-label={`${label} ${ctx.displayName}`}
+                onClick={run}
               >
-                <FolderInput size={ICON_SIZE.sm} />
+                <Icon size={ICON_SIZE.sm} />
               </Button>
             </Tooltip>
-            {!trashChild && (
-              <Tooltip content="Rename">
-                <Button
-                  variant="ghost"
-                  surface="secondary"
-                  size="iconSm"
-                  aria-label={`Rename ${ctx.displayName}`}
-                  onClick={() => {
-                    setActionError(null);
-                    setRenameTarget({ fullPath: ctx.fullPath, name: ctx.displayName, isDir: ctx.entry.kind === "dir" });
-                    setRenameValue(ctx.displayName);
-                  }}
-                >
-                  <Pencil size={ICON_SIZE.sm} />
-                </Button>
-              </Tooltip>
-            )}
-            <Tooltip content={trashChild ? "Delete permanently" : "Move to trash"}>
-              <Button
-                variant="ghost"
-                surface="secondary"
-                size="iconSm"
-                aria-label={trashChild
-                  ? `Delete ${ctx.displayName} permanently`
-                  : `Move ${ctx.displayName} to trash`}
-                onClick={() => (trashChild
-                  ? setPurgeTarget({ paths: [ctx.fullPath], label: ctx.displayName })
-                  : setDeletePaths([ctx.fullPath]))}
-              >
-                <Trash2 size={ICON_SIZE.sm} />
-              </Button>
-            </Tooltip>
-          </>
-        )}
-      </div>
-    </ActionTooltipGroup>
+          ))}
+        </div>
+      </ActionTooltipGroup>
     );
-  },
-    [access.data, driveId, guest, guestCaps, source.isFile, isAdmin, showProtect, canView, inBackups, openVersions]);
+  }, [rowActionsFor, inBackups, driveId, openVersions]);
+
+  // The phone sheet: the same actions as labeled cards.
+  const renderRowSheetActions = useCallback((ctx, close) => {
+    if (inBackups) return <BackupRowActions driveId={driveId} ctx={ctx} onVersions={openVersions} />;
+    const actions = rowActionsFor(ctx);
+    if (!actions) return null;
+    return (
+      <div className="grid gap-2">
+        {actions.map(({ key, label, icon: Icon, danger, run }) => (
+          <CardButton
+            key={key}
+            variant={danger ? "danger" : "default"}
+            actionLabel={label}
+            icon={Icon}
+            align="start"
+            className="mt-0"
+            onClick={() => { close(); run(); }}
+          >
+            {label}
+          </CardButton>
+        ))}
+      </div>
+    );
+  }, [rowActionsFor, inBackups, driveId, openVersions]);
+
 
   return (
     <>
@@ -891,6 +919,7 @@ export default function DriveFileExplorer({
           );
         } : undefined}
         renderRowActions={renderRowActions}
+        renderRowSheetActions={renderRowSheetActions}
       />
       </FileSourceProvider>
       )}
