@@ -3,7 +3,7 @@
 // straight to useFileOpsState (it compares by reference); use the `select*`
 // helpers below that are memoized on the ops array.
 
-import { dockHeaderTitle, dockSummary } from "./copy.js";
+import { dockHeaderTitle, dockSummary, finishedText } from "./copy.js";
 
 /** @typedef {import("./store.js").Op} Op */
 /** @typedef {import("./store.js").Item} Item */
@@ -58,6 +58,12 @@ export function dockInfo(state) {
     const shown = ops.filter((o) => o.shown);
     const running = shown.filter(isRunning);
     const problems = shown.reduce((sum, o) => sum + problemItems(o).length, 0);
+    // Ended with nothing left to answer: done, and only waiting to be
+    // dismissed. Counting these separately is what stops a finished upload
+    // from announcing that files need you.
+    const finished = shown.filter(
+      (o) => !isRunning(o) && o.endedAt != null && problemItems(o).length === 0,
+    );
     const known = running.filter((o) => !o.indeterminate);
     const pct = known.length
       ? known.reduce((sum, o) => sum + (opProgress(o) || 0), 0) / known.length
@@ -71,14 +77,24 @@ export function dockInfo(state) {
       visible: shown.length > 0,
       runningCount: running.length,
       problemCount: problems,
+      finishedCount: finished.length,
       pct,
       title: "",
       summary: "",
       /** True when a new problem appeared since the previous state (the dock opens itself). */
       hasProblems: problems > 0,
     };
-    info.title = shown.length ? dockHeaderTitle({ running: running.length, problems }) : "";
-    info.summary = dockSummary({ running: running.length, problems, pct, singleUpload });
+    info.title = shown.length
+      ? dockHeaderTitle({ running: running.length, problems, finished: finished.length })
+      : "";
+    info.summary = dockSummary({
+      running: running.length,
+      problems,
+      finished: finished.length,
+      finishedLabel: finished.length === 1 ? finishedText(finished[0]) : "",
+      pct,
+      singleUpload,
+    });
     return info;
   });
 }

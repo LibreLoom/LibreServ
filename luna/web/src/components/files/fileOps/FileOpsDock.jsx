@@ -1,55 +1,80 @@
 import { useEffect, useRef, useState } from "react";
+import PropTypes from "prop-types";
+import { AnimatePresence, MotionConfig, motion as Motion } from "motion/react";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import SlideCollapse, { SLIDE_COLLAPSE_MS } from "@libreloom/ui/components/common/SlideCollapse.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { useFileOps, useFileOpsState } from "../../../context/FileOpsContext.jsx";
 import { labels } from "../../../lib/fileOps/copy.js";
+import {
+  DOCK_EXIT,
+  DOCK_HIDDEN,
+  DOCK_SHOWN,
+  DOCK_SPRING,
+  ROW_EXIT,
+  ROW_HIDDEN,
+  ROW_SHOWN,
+  SPRING,
+} from "../../../lib/fileOps/motion.js";
 import { dockInfo, visibleOps } from "../../../lib/fileOps/selectors.js";
 import FileOpRow from "./FileOpRow.jsx";
 
-/** Desktop opens expanded, phones start collapsed. */
-function startsExpanded() {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return true;
-  return window.matchMedia("(min-width: 1280px)").matches;
-}
-
 /**
- * Rows that just left the store stay for one exit animation, so they slide away.
- * @param {import("../../../lib/fileOps/store.js").Op[]} ops
+ * The card always starts collapsed. It is a status surface over a page someone
+ * is using, so it earns its space by being opened — and a finished operation
+ * shouldn't unfold a panel they then have to close.
  */
-function useLeavingRows(ops) {
-  const seen = useRef(/** @type {Map<string, import("../../../lib/fileOps/store.js").Op>} */ (new Map()));
-  const [leaving, setLeaving] = useState(/** @type {import("../../../lib/fileOps/store.js").Op[]} */ ([]));
-
-  useEffect(() => {
-    const now = new Set(ops.map((o) => o.id));
-    const gone = [...seen.current.values()].filter((o) => !now.has(o.id));
-    seen.current = new Map(ops.map((o) => [o.id, o]));
-    if (!gone.length) return undefined;
-    setLeaving((list) => [...list, ...gone.filter((g) => !list.some((l) => l.id === g.id))]);
-    const timer = setTimeout(
-      () => setLeaving((list) => list.filter((l) => !gone.some((g) => g.id === l.id))),
-      SLIDE_COLLAPSE_MS + 50,
-    );
-    return () => clearTimeout(timer);
-  }, [ops]);
-
-  return leaving.filter((l) => !ops.some((o) => o.id === l.id));
+function startsExpanded() {
+  return false;
 }
 
 /**
  * The file task card: every running or troubled file operation of this tab,
  * above the navbar on every in-app page. Renders nothing when there is none.
+ *
+ * Motion is the whole point of this component's shape. Three things it has to
+ * get right, and did not before:
+ *
+ * 1. **The card leaves as a card.** It used to return `null` the moment the
+ *    last operation went, so the card vanished between frames. Now the outer
+ *    `AnimatePresence` keeps it mounted for its exit.
+ * 2. **The header keeps its words while leaving.** `dockInfo` recomputes from
+ *    the operations, so an empty list gives an empty title — which is what
+ *    made the card collapse to a blank bar, then disappear. `held` keeps the
+ *    last real header for the length of the exit.
+ * 3. **Rows collapse vertically.** They used to be wrapped in `SlideCollapse`,
+ *    which animates `grid-template-columns`: in a vertical stack that squeezes
+ *    a row's width instead of its height, so a leaving row never gave its
+ *    space back. Each row now animates its own height.
+ *
+ * @param {{ expanded?: boolean, onExpandedChange?: (open: boolean) => void }} props
+ *   `expanded` makes the open state controlled. The playground uses it to fire
+ *   the collapse transition on demand; the app leaves both unset.
  */
-export default function FileOpsDock() {
+export default function FileOpsDock({ expanded: expandedProp, onExpandedChange }) {
   const store = useFileOps();
   const ops = useFileOpsState(visibleOps);
   const info = useFileOpsState(dockInfo);
-  const leaving = useLeavingRows(ops);
-  const [expanded, setExpanded] = useState(startsExpanded);
+  const [expandedState, setExpandedState] = useState(startsExpanded);
+  const controlled = expandedProp !== undefined;
+  const expanded = controlled ? expandedProp : expandedState;
+  const setExpanded = (/** @type {boolean | ((open: boolean) => boolean)} */ next) => {
+    const value = typeof next === "function" ? next(expanded) : next;
+    if (!controlled) setExpandedState(value);
+    onExpandedChange?.(value);
+  };
   const lastProblems = useRef(0);
+
+  // The last header that had words in it. Read only while the card is leaving,
+  // because that is exactly when `info` has nothing left to say.
+  const held = useRef({ title: "", summary: "" });
+  const title = info.title || held.current.title;
+  const summary = info.summary || held.current.summary;
+
+  useEffect(() => {
+    if (info.title) held.current = { title: info.title, summary: info.summary };
+  }, [info.title, info.summary]);
 
   // Open by itself when a new problem shows up.
   useEffect(() => {
@@ -57,60 +82,120 @@ export default function FileOpsDock() {
     lastProblems.current = info.problemCount;
   }, [info.problemCount]);
 
-  if (!info.visible && leaving.length === 0) return null;
-
   const closeAll = () => {
     for (const op of ops) store.dismiss(op.id);
   };
 
   return (
-    <div
-      role="region"
-      aria-label={labels.dockRegion}
-      data-slot="file-ops-dock"
-      className="fixed inset-x-3 bottom-24 z-40 xl:inset-x-auto xl:right-6 xl:bottom-28 xl:w-[400px]"
-    >
-      <Card padding={false}>
-        <div className="flex items-center gap-2 p-3">
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-mono text-sm">{info.title}</p>
-            {!expanded && info.summary && <p className="truncate font-mono text-xs">{info.summary}</p>}
-          </div>
-          <Button
-            variant="ghost"
-            size="iconSm"
-            surface="secondary"
-            aria-label={expanded ? labels.hideDetails : labels.showDetails}
-            aria-expanded={expanded}
-            onClick={() => setExpanded((open) => !open)}
+    <MotionConfig reducedMotion="user">
+      <AnimatePresence>
+        {info.visible && (
+          <Motion.div
+            key="file-ops-dock"
+            role="region"
+            aria-label={labels.dockRegion}
+            data-slot="file-ops-dock"
+            initial={DOCK_HIDDEN}
+            animate={DOCK_SHOWN}
+            exit={DOCK_EXIT}
+            transition={DOCK_SPRING}
+            className="fixed inset-x-3 bottom-24 z-40 xl:inset-x-auto xl:right-6 xl:bottom-28 xl:w-[400px]"
           >
-            {expanded ? (
-              <ChevronDown size={ICON_SIZE.md} aria-hidden="true" />
-            ) : (
-              <ChevronUp size={ICON_SIZE.md} aria-hidden="true" />
-            )}
-          </Button>
-          {info.runningCount === 0 && (
-            <Button variant="ghost" size="iconSm" surface="secondary" aria-label={labels.close} onClick={closeAll}>
-              <X size={ICON_SIZE.md} aria-hidden="true" />
-            </Button>
-          )}
-        </div>
-        {expanded && (
-          <div className="max-h-[60vh] space-y-2 overflow-y-auto px-3 pb-3">
-            {ops.map((op) => (
-              <SlideCollapse key={op.id} show>
-                <FileOpRow op={op} />
-              </SlideCollapse>
-            ))}
-            {leaving.map((op) => (
-              <SlideCollapse key={op.id} show={false}>
-                <FileOpRow op={op} />
-              </SlideCollapse>
-            ))}
-          </div>
+            <Card padding={false} noPopIn noHeightAnim className="border-2 border-accent">
+              <div className="flex items-center gap-2 p-3">
+                <div className="min-w-0 flex-1">
+                  <Motion.p layout="position" className="truncate font-mono text-sm">
+                    {title}
+                  </Motion.p>
+                  <AnimatePresence initial={false}>
+                    {!expanded && summary && (
+                      <Motion.p
+                        key="summary"
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={SPRING}
+                        className="overflow-hidden"
+                      >
+                        <span className="block truncate font-mono text-xs">{summary}</span>
+                      </Motion.p>
+                    )}
+                  </AnimatePresence>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="iconSm"
+                  surface="secondary"
+                  aria-label={expanded ? labels.hideDetails : labels.showDetails}
+                  aria-expanded={expanded}
+                  onClick={() => setExpanded((open) => !open)}
+                >
+                  <Motion.span
+                    animate={{ rotate: expanded ? 0 : 180 }}
+                    transition={SPRING}
+                    className="flex"
+                  >
+                    {expanded ? (
+                      <ChevronDown size={ICON_SIZE.md} aria-hidden="true" />
+                    ) : (
+                      <ChevronUp size={ICON_SIZE.md} aria-hidden="true" />
+                    )}
+                  </Motion.span>
+                </Button>
+                {info.runningCount === 0 && (
+                  <Button
+                    variant="ghost"
+                    size="iconSm"
+                    surface="secondary"
+                    aria-label={labels.close}
+                    onClick={closeAll}
+                  >
+                    <X size={ICON_SIZE.md} aria-hidden="true" />
+                  </Button>
+                )}
+              </div>
+              <AnimatePresence initial={false}>
+                {expanded && (
+                  <Motion.div
+                    key="rows"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={SPRING}
+                    className="overflow-hidden"
+                  >
+                    <div className="max-h-[60vh] overflow-y-auto px-3 pb-3">
+                      <AnimatePresence initial={false}>
+                        {ops.map((op) => (
+                          <Motion.div
+                            key={op.id}
+                            initial={ROW_HIDDEN}
+                            animate={ROW_SHOWN}
+                            exit={ROW_EXIT}
+                            transition={SPRING}
+                            className="overflow-hidden"
+                          >
+                            {/* The gap lives inside the animated height, so a
+                                collapsed row leaves no hole behind it. */}
+                            <div className="pb-2">
+                              <FileOpRow op={op} />
+                            </div>
+                          </Motion.div>
+                        ))}
+                      </AnimatePresence>
+                    </div>
+                  </Motion.div>
+                )}
+              </AnimatePresence>
+            </Card>
+          </Motion.div>
         )}
-      </Card>
-    </div>
+      </AnimatePresence>
+    </MotionConfig>
   );
 }
+
+FileOpsDock.propTypes = {
+  expanded: PropTypes.bool,
+  onExpandedChange: PropTypes.func,
+};

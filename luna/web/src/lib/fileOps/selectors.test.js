@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { dockSummary, moreProblems, opStatus, plain } from "./copy.js";
+import { dockHeaderTitle, dockSummary, moreProblems, opMeta, opStatus, plain } from "./copy.js";
 import { classifyError } from "./errors.js";
 import { dockInfo, inlineProblem, opProgress, problemItems, visibleOps } from "./selectors.js";
 import { createFileOpsStore } from "./store.js";
@@ -63,7 +63,28 @@ describe("selectors", () => {
     const needs = stateOf([{ id: "c", kind: "upload", state: "waiting", items: [clash("c1", "z")] }]);
     info = dockInfo(needs);
     expect(info.title).toBe("Some files need you");
-    expect(info.summary).toBe("1 need you");
+    expect(info.summary).toBe("1 needs you");
+
+    // Finished, with nothing to answer: the card says so rather than
+    // announcing that files need you.
+    const done = stateOf([
+      {
+        id: "d",
+        kind: "upload",
+        state: "done",
+        endedAt: 1,
+        itemsTotal: 3,
+        itemsDone: 3,
+        items: [
+          { id: "x", name: "a", state: "done" },
+          { id: "y", name: "b", state: "done" },
+          { id: "z", name: "c", state: "done" },
+        ],
+      },
+    ]);
+    info = dockInfo(done);
+    expect(info.title).toBe("Finished");
+    expect(info.summary).toBe("3 files uploaded");
 
     expect(dockInfo(stateOf([])).visible).toBe(false);
   });
@@ -100,8 +121,47 @@ describe("copy and errors", () => {
     expect(opStatus({ kind: "copy", state: "running", title: "a.txt", itemsTotal: 1, destLabel: "Backup" })[1]).toEqual({ pill: "a.txt" });
   });
 
-  it("collapses the summary when nothing runs", () => {
-    expect(dockSummary({ running: 0, problems: 0, pct: null })).toBe("");
+  it("collapses the summary when nothing runs and nothing finished", () => {
+    expect(dockSummary({ running: 0, problems: 0, finished: 0, pct: null })).toBe("");
+  });
+
+  it("says what finished instead of claiming files need you", () => {
+    // The old header had only two states, so a finished upload announced
+    // "Some files need you". These are the three real states.
+    expect(dockHeaderTitle({ running: 1, problems: 0, finished: 0 })).toBe("Working on your files");
+    expect(dockHeaderTitle({ running: 0, problems: 2, finished: 0 })).toBe("Some files need you");
+    expect(dockHeaderTitle({ running: 0, problems: 0, finished: 1 })).toBe("Finished");
+    // A problem outranks a finish: something still needs an answer.
+    expect(dockHeaderTitle({ running: 0, problems: 1, finished: 1 })).toBe("Some files need you");
+  });
+
+  it("names what finished in the collapsed summary", () => {
+    expect(dockSummary({ running: 0, problems: 0, finished: 1, finishedLabel: "3 files uploaded", pct: null }))
+      .toBe("3 files uploaded");
+    expect(dockSummary({ running: 0, problems: 0, finished: 2, pct: null })).toBe("2 finished");
+    expect(dockSummary({ running: 0, problems: 1, finished: 0, pct: null })).toBe("1 needs you");
+    expect(dockSummary({ running: 0, problems: 2, finished: 0, pct: null })).toBe("2 need you");
+  });
+
+  it("names the items a batch is moving, not just how many", () => {
+    const items = (names) => names.map((name, i) => ({ id: `i${i}`, name, state: "running" }));
+    // "Moving 3 items to Trash" tells you nothing about what is going.
+    expect(plain(opStatus({ kind: "trash", state: "running", items: items(["a.jpg"]) })))
+      .toBe("Moving a.jpg to Trash");
+    expect(plain(opStatus({ kind: "trash", state: "running", items: items(["a.jpg", "b.jpg"]) })))
+      .toBe("Moving a.jpg and b.jpg to Trash");
+    expect(plain(opStatus({ kind: "trash", state: "running", items: items(["a.jpg", "b.jpg", "c.jpg"]) })))
+      .toBe("Moving a.jpg, b.jpg and c.jpg to Trash");
+    // Past three, a list is worse than a count.
+    expect(plain(opStatus({ kind: "trash", state: "running", items: items(["a", "b", "c", "d"]) })))
+      .toBe("Moving 4 items to Trash");
+    expect(plain(opStatus({ kind: "purge", state: "running", items: items(["a.jpg", "b.jpg"]) })))
+      .toBe("Deleting a.jpg and b.jpg permanently");
+    expect(plain(opStatus({ kind: "restore-trash", state: "running", items: items(["a.jpg", "b.jpg"]) })))
+      .toBe("Putting back a.jpg and b.jpg");
+    // A batch has no bytes, so the meta line says how far along it is instead.
+    expect(opMeta({ kind: "trash", state: "running", itemsTotal: 5, itemsDone: 2, items: [] }))
+      .toBe("2 of 5 done");
   });
 
   it("classifies errors", () => {

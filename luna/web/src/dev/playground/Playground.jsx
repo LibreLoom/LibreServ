@@ -115,11 +115,16 @@ function AppBehind() {
 
 /**
  * Every way to start an operation on the card.
- * @param {{ world: ReturnType<typeof createFakeWorld> }} props
+ * @param {{ world: ReturnType<typeof createFakeWorld>, onToggleExpanded: () => void }} props
  */
-function Controls({ world }) {
+function Controls({ world, onToggleExpanded }) {
   const store = useFileOps();
   const { addToast } = useToast();
+
+  const clearCard = () => {
+    for (const op of store.getState().ops) store.dismiss(op.id);
+    addToast({ type: "success", message: "Cleared the card." });
+  };
 
   const uploadFiles = (files) =>
     store.startUpload({ source: world.source, driveId: "d1", ...DEST, files });
@@ -376,6 +381,82 @@ function Controls({ world }) {
         </Group>
       </Card>
 
+      <Card title="Every transition, one at a time">
+        <p className="text-sm">
+          Each button fires the one change it names, so a transition can be watched on its own
+          instead of hunted for inside a real upload.
+        </p>
+        <Group label="The card">
+          <Button size="sm" onClick={() => uploadFiles([fakeFile("notes.txt", 240_000)])}>
+            Card pops in
+          </Button>
+          <Button size="sm" onClick={clearCard}>
+            Card pops out
+          </Button>
+          <Button size="sm" onClick={onToggleExpanded}>
+            Collapse / expand
+          </Button>
+        </Group>
+        <Group label="A row">
+          <Button size="sm" onClick={() => uploadFiles([fakeFile("a.txt", 120_000)])}>
+            Row arrives
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              const op = store.getState().ops.find((o) => o.shown);
+              if (op) store.dismiss(op.id);
+            }}
+          >
+            Row leaves
+          </Button>
+        </Group>
+        <Group label="A line inside a row">
+          <Button
+            size="sm"
+            onClick={() => {
+              const op = store.getState().ops[0];
+              if (op) store.retry(op.id);
+            }}
+          >
+            Failure → running
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              const op = store.getState().ops[0];
+              const item = op?.items.find((i) => i.state === "failed");
+              if (op && item) store.cancel(op.id, item.id);
+            }}
+          >
+            Failure leaves
+          </Button>
+        </Group>
+        <Group label="A clash">
+          <Button size="sm" onClick={() => seed("b.txt", "file")}>
+            Seed b.txt
+          </Button>
+          <Button size="sm" onClick={() => uploadFiles([fakeFile("b.txt", 90_000)])}>
+            Upload into it
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              const op = store.getState().ops.find((o) => o.items.some((i) => i.state === "needs-decision"));
+              const item = op?.items.find((i) => i.state === "needs-decision");
+              if (op && item) store.decide(op.id, item.id, "keep_both");
+            }}
+          >
+            Clash → running
+          </Button>
+        </Group>
+        <Group label="The problems list">
+          <Button size="sm" onClick={manyClashes}>
+            Fill it with 6 clashes
+          </Button>
+        </Group>
+      </Card>
+
       <Card title="Behind the card">
         <StateReadout />
       </Card>
@@ -393,6 +474,7 @@ function PlaygroundBody({ world }) {
   const [jobs, setJobs] = useState("ok");
   const [speed, setSpeed] = useState("normal");
   const [theme, setTheme] = useState("light");
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     world.setBehaviour({ upload });
@@ -461,14 +543,14 @@ function PlaygroundBody({ world }) {
           </div>
         </Card>
 
-        <Controls world={world} />
+        <Controls world={world} onToggleExpanded={() => setExpanded((open) => !open)} />
       </div>
 
       <div className="min-h-[400px] min-w-0 grow overflow-hidden rounded-large-element border-2 border-accent">
         <AppBehind />
       </div>
 
-      <FileOpsDock />
+      <FileOpsDock expanded={expanded} onExpandedChange={setExpanded} />
     </div>
   );
 }

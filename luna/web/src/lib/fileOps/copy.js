@@ -20,6 +20,40 @@ const pill = (text) => ({ pill: String(text) });
 
 const n = (count, one, many) => (count === 1 ? one : many);
 
+/**
+ * What a batch did, naming the items when there are few enough to name.
+ *
+ * "Moving 3 items to Trash" tells you nothing about what is going. A person
+ * about to lose three things should see which three, so up to `NAMES_SHOWN`
+ * are listed by name and the rest are counted. The names sit inside the
+ * sentence — `Moving ` + names + ` to Trash` — because that is how it reads
+ * aloud; a colon would turn it into a log line.
+ *
+ * @param {string} before e.g. "Moving "
+ * @param {string} after e.g. " to Trash"
+ * @param {any[]} items
+ * @returns {Parts}
+ */
+export function batchLine(before, after, items) {
+  const names = items.map((i) => i.name).filter(Boolean);
+  const total = items.length;
+  if (total === 0) return [`${before}these items${after}`];
+  if (names.length === total && total <= NAMES_SHOWN) {
+    /** @type {Parts} */
+    const parts = [before];
+    names.forEach((name, i) => {
+      if (i > 0) parts.push(i === names.length - 1 ? " and " : ", ");
+      parts.push(pill(name));
+    });
+    parts.push(after);
+    return parts;
+  }
+  return [`${before}${total} ${n(total, "item", "items")}${after}`];
+}
+
+/** How many names a batch line lists before it counts the rest instead. */
+export const NAMES_SHOWN = 3;
+
 // -- Fixed labels ------------------------------------------------------------
 
 export const labels = {
@@ -47,6 +81,7 @@ export const labels = {
 export const dockTitle = {
   working: "Working on your files",
   needsYou: "Some files need you",
+  done: "Finished",
 };
 
 export const text = {
@@ -100,19 +135,36 @@ export function jobGone(kind) {
 
 // -- Dock header -------------------------------------------------------------
 
-/** @param {{ running: number, problems: number }} s */
+/**
+ * The header. Three states, not two: something is still running, something
+ * needs an answer or failed, or everything finished. The old version had only
+ * "running" and "needs you", so a finished upload that was merely waiting to
+ * be dismissed announced "Some files need you" — a lie, and part of why the
+ * card felt unreliable.
+ *
+ * @param {{ running: number, problems: number, finished: number }} s
+ */
 export function dockHeaderTitle(s) {
-  return s.running > 0 ? dockTitle.working : dockTitle.needsYou;
+  if (s.running > 0) return dockTitle.working;
+  if (s.problems > 0) return dockTitle.needsYou;
+  if (s.finished > 0) return dockTitle.done;
+  return dockTitle.working;
 }
 
 /**
  * Collapsed summary (mono). A lone upload operation reads `Uploading {n} files · {pct}%`.
- * @param {{ running: number, problems: number, pct: number|null, singleUpload?: { files: number }|null }} s
+ * @param {{ running: number, problems: number, finished: number, finishedLabel?: string, pct: number|null, singleUpload?: { files: number }|null }} s
  */
 export function dockSummary(s) {
   const pct = s.pct == null ? "" : ` · ${Math.round(s.pct)}%`;
   const need = s.problems > 0 ? ` · ${s.problems} need you` : "";
-  if (s.running === 0) return s.problems > 0 ? `${s.problems} need you` : "";
+  if (s.running === 0) {
+    if (s.problems > 0) return `${s.problems} ${n(s.problems, "needs", "need")} you`;
+    // One finished thing can say what it did; several can only be counted.
+    if (s.finishedLabel) return s.finishedLabel;
+    if (s.finished > 0) return `${s.finished} finished`;
+    return "";
+  }
   if (s.singleUpload) {
     return `Uploading ${s.singleUpload.files} ${n(s.singleUpload.files, "file", "files")}${pct}${need}`;
   }
@@ -186,22 +238,22 @@ export function opStatus(op) {
       return [`Couldn't ${base} `, ...subject, " to ", pill(folder)];
     }
     case "trash":
-      if (running) return [`Moving ${total} items to Trash`];
-      if (state === "done") return [`Moved ${total} items to Trash`];
+      if (running) return batchLine("Moving ", " to Trash", op.items);
+      if (state === "done") return batchLine("Moved ", " to Trash", op.items);
       if (partial) return [`Moved ${done} of ${total} items to Trash`];
       return [`Couldn't move ${total} items to Trash`];
     case "restore-trash":
-      if (running) return [`Putting back ${total} items`];
-      if (state === "done") return [`Put back ${total} items`];
+      if (running) return batchLine("Putting back ", "", op.items);
+      if (state === "done") return batchLine("Put back ", "", op.items);
       if (partial) return [`Put back ${done} of ${total} items`];
       return [`Couldn't put back ${total} items`];
     case "purge":
       if (running) {
         return total > 1 || !name
-          ? [`Deleting ${total} items permanently`]
+          ? batchLine("Deleting ", " permanently", op.items)
           : ["Deleting ", pill(name), " permanently"];
       }
-      if (state === "done") return ["Deleted permanently"];
+      if (state === "done") return total > 1 ? batchLine("Deleted ", " permanently", op.items) : ["Deleted permanently"];
       if (partial) return [`Deleted ${done} of ${total} items permanently`];
       return ["Couldn't delete permanently"];
     case "empty-trash":
@@ -240,6 +292,16 @@ export function opMeta(op) {
     if (!op.bytesTotal) return text.starting;
     const pct = Math.round(Math.min(100, (op.bytesDone / op.bytesTotal) * 100));
     return `${pct}% · ${fmtSize(op.bytesDone)} of ${fmtSize(op.bytesTotal)}`;
+  }
+  // A batch (trash, restore, purge) has no bytes to report, but "which one is
+  // it on" is the thing you want to know: 2 of 5 says it is working, and how
+  // much is left.
+  const batchTotal = op.itemsTotal ?? op.items?.length ?? 0;
+  if (batchTotal > 1) {
+    const done = op.itemsDone ?? 0;
+    if (op.state === "running" || op.state === "preparing" || op.state === "partial") {
+      return `${done} of ${batchTotal} done`;
+    }
   }
   return "";
 }
@@ -327,6 +389,49 @@ export function problemsTitle(kind) {
   if (kind === "copy") return "Problems with this copy";
   if (kind === "move") return "Problems with this move";
   return "Problems with this task";
+}
+
+// -- What just finished ------------------------------------------------------
+
+/**
+ * One short line saying what a finished operation did, for the collapsed
+ * summary. Only used when a single operation has finished and nothing needs an
+ * answer, so it can afford to be specific: "3 files uploaded", "Moved 2 items
+ * to Trash", "Family photos.zip ready".
+ *
+ * @param {any} op
+ * @returns {string}
+ */
+export function finishedText(op) {
+  const done = op.itemsDone ?? 0;
+  const total = op.itemsTotal ?? 0;
+  const folders = op.foldersDone ?? 0;
+  switch (op.kind) {
+    case "upload":
+      if (done === 0 && folders > 0) return `${folders} ${n(folders, "folder", "folders")} made`;
+      return `${done} ${n(done, "file", "files")} uploaded`;
+    case "gallery":
+      if (done === 0 && folders > 0) return `${folders} ${n(folders, "folder", "folders")} made`;
+      return `${done} ${n(done, "photo", "photos")} uploaded`;
+    case "copy":
+      return total === 1 && op.title ? `Copied ${op.title}` : `${done} items copied`;
+    case "move":
+      return total === 1 && op.title ? `Moved ${op.title}` : `${done} items moved`;
+    case "trash":
+      return total === 1 ? "Moved to Trash" : `${done} items moved to Trash`;
+    case "restore-trash":
+      return total === 1 ? "Put back" : `${done} items put back`;
+    case "purge":
+      return total === 1 ? "Deleted permanently" : `${done} items deleted permanently`;
+    case "empty-trash":
+      return "Trash emptied";
+    case "restore-backup":
+      return `Restored ${op.title || "the backup"}`;
+    case "zip":
+      return `${op.title || "The folder"}.zip ready`;
+    default:
+      return "Finished";
+  }
 }
 
 // -- Success toasts (plain text, one per operation) -------------------------
