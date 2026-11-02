@@ -29,8 +29,9 @@ function formatWhen(unixSeconds) {
 }
 
 /** Von Restorff — current cost stands out from pricing details. */
-function MonthlyCostHighlight({ amount }) {
+function MonthlyCostHighlight({ amount, creditCents = 0 }) {
   const formatted = Number(amount || 0).toFixed(2);
+  const credit = Number(creditCents || 0);
   return (
     <section
       className="rounded-large-element border-2 border-accent bg-accent/10 text-foreground px-5 py-4"
@@ -42,6 +43,11 @@ function MonthlyCostHighlight({ amount }) {
       </p>
       <p className="font-mono text-3xl mt-1">${formatted}</p>
       <p className="text-sm mt-2">Estimated from your average storage so far.</p>
+      {credit > 0 && (
+        <p className="text-sm mt-2" data-testid="backup-credit">
+          You have ${(credit / 100).toFixed(2)} in credit. It comes off your next bill.
+        </p>
+      )}
     </section>
   );
 }
@@ -275,7 +281,7 @@ export function BackupsTab({ me, lunas, paired, onRefresh, setError, error }) {
     <VerifyHumanCard
       account={me}
       loading={busy}
-      description="Add a payment card so we can store a cloud backup. It costs $8 per terabyte each month."
+      description="Add a payment card so we can store a cloud backup. It costs $8 per terabyte each month, at least $3 a month once you store something."
       buttonLabel="Add a payment card"
       onConfirm={async (paymentMethodId, setupIntentId) => {
         setError("");
@@ -359,7 +365,7 @@ export function BackupsTab({ me, lunas, paired, onRefresh, setError, error }) {
           </div>
         </CardHeader>
         <CardContent className="space-y-5">
-          <MonthlyCostHighlight amount={me.estimated_month} />
+          <MonthlyCostHighlight amount={me.estimated_month} creditCents={me.credit_balance_cents} />
           <BackupPricingTable />
           <Separator />
           <CancelPaymentSection

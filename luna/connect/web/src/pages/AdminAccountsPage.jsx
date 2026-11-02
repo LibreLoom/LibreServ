@@ -7,7 +7,7 @@ import { Input } from "../components/ui/input.jsx";
 import { PaginationControls } from "../components/ui/pagination.jsx";
 import TokenReveal from "../components/TokenReveal.jsx";
 import { adminApi } from "../context/AdminAuthContext.jsx";
-import { ChevronDown, ChevronUp, ExternalLink, RefreshCw, Search, Shield, Trash2, Users, X } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, RefreshCw, Search, Shield, Trash2, Users, Wallet, X } from "lucide-react";
 
 function formatWhen(unix) {
   if (!unix) return "—";
@@ -16,6 +16,111 @@ function formatWhen(unix) {
   } catch {
     return "—";
   }
+}
+
+function dollars(cents) {
+  return `$${(Number(cents || 0) / 100).toFixed(2)}`;
+}
+
+/**
+ * CreditSection — money we owe this account, and the way to add more. A credit
+ * is how we make a wrong bill right, so every movement needs a reason and the
+ * ledger is shown alongside the balance.
+ */
+function CreditSection({ accountId, credits, onChanged }) {
+  const [amount, setAmount] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const balance = credits?.balance_cents || 0;
+  const entries = credits?.entries || [];
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError("");
+    const cents = Math.round(Number(amount) * 100);
+    if (!Number.isFinite(cents) || cents <= 0) {
+      setError("Enter an amount greater than zero.");
+      return;
+    }
+    if (!reason.trim()) {
+      setError("Say why this credit is being added.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await adminApi(`/admin/accounts/${encodeURIComponent(accountId)}/credits`, {
+        method: "POST",
+        body: JSON.stringify({ amount_cents: cents, reason: reason.trim() }),
+      });
+      onChanged(res.credits);
+      setAmount("");
+      setReason("");
+    } catch (err) {
+      setError(err.message || "Could not add that credit.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section data-testid="account-credits" aria-labelledby="account-credits-heading">
+      <h3 id="account-credits-heading" className="font-mono text-sm mb-2 flex items-center gap-2">
+        <Wallet className="h-4 w-4" /> Credit
+      </h3>
+      <p className="text-sm text-muted-foreground mb-3">
+        Credit is spent on this account&apos;s next invoice.
+      </p>
+      <dl className="space-y-2 text-sm">
+        <div className="flex justify-between gap-4">
+          <dt className="text-muted-foreground">Balance</dt>
+          <dd className="font-mono" data-testid="credit-balance">{dollars(balance)}</dd>
+        </div>
+      </dl>
+
+      <form onSubmit={submit} className="mt-4 space-y-2">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="w-28">
+            <label htmlFor="credit-amount" className="block text-xs text-muted-foreground mb-1">Amount (USD)</label>
+            <Input
+              id="credit-amount"
+              inputMode="decimal"
+              placeholder="5.00"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          </div>
+          <div className="flex-1 min-w-[12rem]">
+            <label htmlFor="credit-reason" className="block text-xs text-muted-foreground mb-1">Reason</label>
+            <Input
+              id="credit-reason"
+              placeholder="Billed twice in October"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
+          </div>
+          <Button type="submit" loading={busy}>Add credit</Button>
+        </div>
+        {error && <p className="text-sm text-error">{error}</p>}
+      </form>
+
+      {entries.length > 0 && (
+        <ul className="mt-4 divide-y divide-border rounded-large-element border border-border overflow-hidden">
+          {entries.map((entry) => (
+            <li key={entry.id} className="flex items-start justify-between gap-3 px-3 py-2">
+              <div className="min-w-0">
+                <p className="text-sm break-words">{entry.reason}</p>
+                <p className="text-xs text-muted-foreground font-mono">{formatWhen(entry.created_at)}</p>
+              </div>
+              <p className={`font-mono text-sm shrink-0 ${entry.direction === "credit" ? "text-success" : "text-foreground"}`}>
+                {entry.direction === "credit" ? "+" : "−"}{dollars(entry.amount_cents)}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
 }
 
 function kindLabel(kind) {
@@ -490,6 +595,12 @@ export default function AdminAccountsPage() {
                     )}
                   </section>
 
+
+                  <CreditSection
+                    accountId={detail.id}
+                    credits={detail.credits}
+                    onChanged={(credits) => setDetail((d) => (d ? { ...d, credits } : d))}
+                  />
 
                   <section className="rounded-large-element border border-error/30 bg-error/10 p-4">
                     <h3 className="font-mono text-sm mb-2 flex items-center gap-2 text-error">

@@ -67,11 +67,58 @@ func EgressOverageGB(avgStorageBytes, egressBytes int64) int64 {
 	return over / BytesPerGB
 }
 
-// EstimateMonthUSD estimates storage + egress overage for UI (average so far).
+// EstimateMonthUSD estimates the month's bill for UI (average so far): storage
+// plus egress overage, with the monthly minimum applied. It is the same
+// arithmetic the meters bill, so the number shown is the number charged.
 func EstimateMonthUSD(avgStorageBytes, egressBytes int64) float64 {
-	storage := EstimateUSD(avgStorageBytes)
-	overGB := EgressOverageGB(avgStorageBytes, egressBytes)
-	return storage + float64(overGB)*DollarsPerEgressGB
+	return float64(MonthMills(avgStorageBytes, egressBytes)) / float64(MillsPerDollar)
+}
+
+// MonthMills is a month's bill in thousandths of a cent: storage at the
+// metered quantity, plus egress overage, floored at the monthly minimum once
+// anything is stored. Egress alone never triggers the floor — an account with
+// nothing stored is not billed.
+func MonthMills(avgStorageBytes, egressBytes int64) int64 {
+	if avgStorageBytes <= 0 {
+		return 0
+	}
+	storageGB, overGB := MeteredQuantities(avgStorageBytes, egressBytes)
+	return storageGB*MillsPerGBStorage + overGB*MillsPerGBEgress
+}
+
+// MeteredQuantities returns the two quantities reported to Stripe for a month,
+// with the minimum applied across both meters.
+//
+// The minimum is on the month's whole bill: total = max($3, storage + egress).
+// Stripe bills each meter on its own, so the top-up is carried on the storage
+// meter — storage is raised until storage + egress reaches the minimum, and
+// never lowered below what the account actually stores:
+//
+//	storageMills = max(realStorageMills, minimum − egressMills)
+//
+// Above the minimum this is just the real storage. Below it, the top-up makes
+// up the difference. When egress overage alone already exceeds the minimum the
+// top-up goes negative and storage bills at its real size — the account pays
+// its actual egress plus its actual (small) storage, which is what "at least
+// the minimum, otherwise what you used" means.
+//
+// This uses the raw GB count, not UsageQuantityGB: that function floors storage
+// on its own, which would put egress on top of the minimum instead of counting
+// toward it.
+func MeteredQuantities(avgStorageBytes, egressBytes int64) (storageGB, overGB int64) {
+	if avgStorageBytes <= 0 {
+		return 0, 0
+	}
+	overGB = EgressOverageGB(avgStorageBytes, egressBytes)
+	storageGB = avgStorageBytes / BytesPerGB
+
+	// Round the top-up up so the total never lands below the minimum.
+	if need := MinimumMonthlyMills - overGB*MillsPerGBEgress; need > 0 {
+		if topUp := (need + MillsPerGBStorage - 1) / MillsPerGBStorage; storageGB < topUp {
+			storageGB = topUp
+		}
+	}
+	return storageGB, overGB
 }
 
 // SampleStorage records the current stored size (the account's stored packs and
@@ -250,7 +297,14 @@ func ReportUsage(db *database.DB) {
 			slog.Warn("skip meter event: not a stripe customer id")
 			continue
 		}
-		storageGB := UsageQuantityGB(u.AvgStorageBytes)
+		// Egress is only billed when its meter is configured. When it is not,
+		// overage is not charged and must not count toward the minimum either,
+		// or the top-up would silently absorb a cost we never bill.
+		billedEgress := u.EgressBytes
+		if egressMeter == "" {
+			billedEgress = 0
+		}
+		storageGB, overGB := MeteredQuantities(u.AvgStorageBytes, billedEgress)
 		ident := fmt.Sprintf("%s-storage-%s-%d", u.CustomerID, period, now)
 		_, err := meterevent.New(&stripe.BillingMeterEventParams{
 			EventName:  stripe.String(storageMeter),
@@ -268,7 +322,6 @@ func ReportUsage(db *database.DB) {
 		if egressMeter == "" {
 			continue
 		}
-		overGB := EgressOverageGB(u.AvgStorageBytes, u.EgressBytes)
 		eident := fmt.Sprintf("%s-egress-%s-%d", u.CustomerID, period, now)
 		_, err = meterevent.New(&stripe.BillingMeterEventParams{
 			EventName:  stripe.String(egressMeter),
