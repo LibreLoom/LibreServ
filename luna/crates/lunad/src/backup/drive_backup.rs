@@ -68,9 +68,9 @@ fn owner_of(row: &ProtectionRow) -> Option<String> {
 
 /// Start a drive backup of `source_path` on `source_drive` onto
 /// `target_drive` for `user`. Permission rules (plan §2): Read on the source,
-/// Write on the target drive, Admin for a whole drive; never a source inside
-/// a private item (phase 4), never onto its own drive. One backup per object
-/// per destination: an existing one is returned as is.
+/// Write on the target drive, Admin for a whole drive; a private item or a
+/// folder inside one is the owner's to back up, never onto its own drive. One
+/// backup per object per destination: an existing one is returned as is.
 pub fn create(
     conn: &Connection,
     user: &crate::auth::CurrentUser,
@@ -1995,6 +1995,30 @@ mod tests {
         assert_eq!(r.private_owner, "admin");
         let list: access_list::AccessList = serde_json::from_str(&r.access_json).unwrap();
         assert!(!list.admins, "a private backup never has Admins");
+    }
+
+    #[test]
+    fn a_private_folder_inside_a_private_item_runs_beside_the_items_backup() {
+        let s = setup();
+        let disk = make_private_docs(&s, "admin");
+        write(&disk.join("Sub/a.txt"), "hello");
+        let (item, inner) = {
+            let conn = s.db.lock().unwrap();
+            let item = create(&conn, &s.admin, &s.src, "Docs", &s.tgt).unwrap().id;
+            let inner = create(&conn, &s.admin, &s.src, "Docs/Sub", &s.tgt)
+                .unwrap()
+                .id;
+            (item, inner)
+        };
+        // The item's backup finishes first; the folder inside it is still its own backup.
+        assert_eq!(run(&s.db, &item, NOW).unwrap().problem, None);
+        let outcome = run(&s.db, &inner, NOW).unwrap();
+        assert_eq!(outcome.problem, None);
+        assert_eq!(outcome.copied, 1);
+        let conn = s.db.lock().unwrap();
+        let row = db::get_protection(&conn, &inner).unwrap().unwrap();
+        assert!(db::covering_protection(&conn, &row).unwrap().is_none());
+        assert_eq!(row.private_owner, "admin");
     }
 
     #[test]

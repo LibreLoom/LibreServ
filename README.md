@@ -115,9 +115,9 @@ excuses.
 
 ```bash
 ./ci                              # interactive TUI; picks tests for your changes
-./ci run -profile sol       # Sol release gate: backend + frontend, no Luna
-./ci run -profile luna            # Luna only (Rust, web, desktop, mobile)
-./ci run -profile full            # everything
+./ci run -p sol             # Sol release gate: backend + frontend, no Luna
+./ci run -p luna            # Luna only (Rust, web, desktop, mobile)
+./ci run -p full            # everything
 ```
 
 `./ci` is a local Go runner that executes tests in Podman containers (no Docker,

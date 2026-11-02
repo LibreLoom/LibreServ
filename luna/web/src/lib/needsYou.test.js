@@ -205,7 +205,7 @@ describe("drive rows (Admin)", () => {
         rank: 70,
         tone: "warning",
         title: [{ name: "Photos" }, " is showing wear"],
-        detail: "4 spots on its disk have worn out. Keep using it, and make sure it's backed up.",
+        detail: "4 blocks on its disk have worn out. Keep using it, and make sure it's backed up.",
         action: { label: "See what's wrong", href: "/files#drive-d1" },
       },
     ]);

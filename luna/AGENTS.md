@@ -48,7 +48,7 @@ luna/
 
 ### Verification
 
-- Run `./ci run -profile luna` from the repo root; it runs `luna/ci.sh` across the daemon, OS scripts, desktop, mobile, and web.
+- Run `./ci run -p luna` from the repo root; it runs `luna/ci.sh` across the daemon, OS scripts, desktop, mobile, and web.
 - Run permission-based read-only-drive tests as a non-root user. Root bypasses the Unix permission restrictions those tests use.
 
 ### Luna Connect web (`connect/web`)

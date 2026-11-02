@@ -265,7 +265,7 @@ func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	go m.executor.Execute("", testIDs, limits.Parallelism, m.settings.FailFast, m.settings.FuzzDuration, limits.CPUQuota, limits.MemoryLimit, limits.Nice, universal)
+	go m.executor.Execute("", testIDs, limits.Parallelism, m.settings.FailFast, m.settings.FuzzDuration, limits.CPUQuota, limits.MemoryLimit, limits.Nice, universal, false)
 
 	return m, tickCmd()
 }

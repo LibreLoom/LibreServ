@@ -1080,11 +1080,20 @@ export default function SetupPage() {
     savingRef.current = true;
     try {
       await saveProgress(nextStep, data);
-    } catch {
+    } catch (err) {
+      // One retry covers a blip. If it fails again, say what Luna actually
+      // said: a 4xx here is a real refusal (bad step, full disk), not a
+      // connection problem, and "check your connection" would be a lie.
       try {
         await saveProgress(nextStep, data);
-      } catch {
-        setSaveError("Luna couldn't save your setup progress. Check your connection and try again.");
+      } catch (retryErr) {
+        const status = retryErr?.status ?? err?.status;
+        const said = retryErr?.message || err?.message;
+        setSaveError(
+          status && status >= 400 && status < 500 && said
+            ? said
+            : "Luna couldn't save your setup progress. Check your connection and try again.",
+        );
         savingRef.current = false;
         return;
       }

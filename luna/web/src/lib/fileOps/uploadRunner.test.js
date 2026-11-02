@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../api.js";
-import { text } from "./copy.js";
+import { folderBlocked, opMeta, opStatus, plain, text } from "./copy.js";
 import { createFileOpsStore } from "./store.js";
 import { UPLOAD_PARALLEL } from "./uploadRunner.js";
 
@@ -304,6 +304,134 @@ describe("upload runner: folders", () => {
     await tick();
     await tick();
     expect(listDir.mock.calls.map((c) => c[1]).sort()).toEqual(["Inbox", "Inbox/Docs"]);
+  });
+
+  it("keeps every level of a deep path, and makes the parents of an empty leaf", async () => {
+    const source = fakeSource();
+    const { store } = harness();
+    store.startUpload({
+      source,
+      driveId: "d",
+      destFolder: "Inbox",
+      dropped: {
+        entries: [dirEntry("Trip", [dirEntry("Empty", [dirEntry("Deeper", [])])])],
+        files: [],
+      },
+    });
+    await tick();
+    await tick();
+    // The leaf is the only folder reported, so its parents must come with it.
+    expect(source.mkdir.mock.calls.map((c) => c[1])).toEqual([
+      "Inbox/Trip",
+      "Inbox/Trip/Empty",
+      "Inbox/Trip/Empty/Deeper",
+    ]);
+    const op = store.getState().ops[0];
+    expect(op.state).toBe("done");
+    expect(op.items.map((i) => [i.name, i.isDir, i.state])).toEqual([
+      ["Deeper", true, "done"],
+    ]);
+  });
+
+  it("says a folder wasn't made when a file has its name, instead of calling it done", async () => {
+    // lunad answers 409 "A folder with this name is already here." for a file
+    // of that name too, so the runner has to ask what is really there.
+    const mkdir = vi.fn(async (_d, path) => {
+      if (path === "Inbox/Docs") throw exists("file");
+      return {};
+    });
+    const stat = vi.fn(async (_d, path) => (path === "Inbox/Docs" ? { kind: "file" } : { kind: "dir" }));
+    const source = fakeSource({ mkdir, stat });
+    const { store } = harness();
+    store.startUpload({
+      source,
+      driveId: "d",
+      destFolder: "Inbox",
+      dropped: { entries: [dirEntry("Docs", [])], files: [] },
+    });
+    await tick();
+    await tick();
+    const op = store.getState().ops[0];
+    const item = op.items.find((i) => i.isDir);
+    expect(item.state).toBe("failed");
+    expect(item.error).toBe(folderBlocked("Docs", "Docs"));
+    expect(item.retryable).toBe(true);
+    expect(op.state).toBe("failed");
+  });
+
+  it("treats a 409 for a folder that is really there as success", async () => {
+    const mkdir = vi.fn(async () => {
+      throw exists("dir");
+    });
+    const stat = vi.fn(async () => ({ kind: "dir" }));
+    const source = fakeSource({ mkdir, stat });
+    const { store } = harness();
+    store.startUpload({
+      source,
+      driveId: "d",
+      destFolder: "Inbox",
+      dropped: { entries: [dirEntry("Docs", [])], files: [] },
+    });
+    await tick();
+    await tick();
+    expect(store.getState().ops[0].state).toBe("done");
+    expect(store.getState().ops[0].items[0].state).toBe("done");
+  });
+
+  it("counts folders in the card when the drop held only empty folders", async () => {
+    const source = fakeSource();
+    const { store } = harness();
+    store.startUpload({
+      source,
+      driveId: "d",
+      destFolder: "Inbox",
+      destLabel: "Inbox",
+      dropped: { entries: [dirEntry("Trip", [dirEntry("Photos", [])])], files: [] },
+    });
+    await tick();
+    await tick();
+    const op = store.getState().ops[0];
+    expect(op.itemsTotal).toBe(0);
+    // Trip holds only the empty Photos, so the walk reports Photos alone and
+    // making it creates both levels: Inbox/Trip and Inbox/Trip/Photos.
+    expect(op.foldersDone).toBe(2);
+    expect(plain(opStatus(op))).toBe("Made 2 folders in Inbox");
+    expect(opMeta(op)).toBe("2 folders made");
+  });
+
+  it("cancelling stops the folder levels that are left", async () => {
+    const mkdir = vi.fn(async () => {
+      throw new DOMException("Aborted", "AbortError");
+    });
+    const source = fakeSource({ mkdir });
+    const { store } = harness();
+    const id = store.startUpload({
+      source,
+      driveId: "d",
+      destFolder: "Inbox",
+      dropped: { entries: [dirEntry("Trip", [dirEntry("Photos", [])])], files: [] },
+    });
+    await tick();
+    store.cancel(id);
+    await tick();
+    const op = store.getState().ops[0];
+    expect(op.state).toBe("cancelled");
+    expect(op.items.every((i) => i.state === "cancelled")).toBe(true);
+  });
+
+  it("refuses a dropped folder on a single-file link before walking it", async () => {
+    const source = fakeSource({ isFile: true });
+    const { store } = harness();
+    store.startUpload({
+      source,
+      driveId: "token",
+      dropped: { entries: [dirEntry("Trip", [fileEntry("a.txt"), fileEntry("b.txt")])], files: [] },
+    });
+    await tick();
+    const op = store.getState().ops[0];
+    expect(op.state).toBe("failed");
+    expect(op.error).toBe(text.singleFileLink);
+    expect(source.uploadFile).not.toHaveBeenCalled();
   });
 });
 

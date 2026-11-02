@@ -36,7 +36,6 @@ function matchesFor(value) {
  *   onPrev?: () => void,
  *   onNext?: () => void,
  *   enterSubmits?: boolean,
- *   placeholder?: string,
  *   enterKeyHint?: "next" | "done",
  *   inputRef?: (el: HTMLInputElement | null) => void,
  *   describedById?: string,
@@ -53,7 +52,6 @@ export function WordBox({
   onPrev,
   onNext,
   enterSubmits = false,
-  placeholder,
   enterKeyHint = "next",
   inputRef,
   describedById,
@@ -197,7 +195,6 @@ export function WordBox({
               autoCorrect="off"
               spellCheck={false}
               enterKeyHint={enterKeyHint}
-              placeholder={placeholder}
               className={cn(
                 "w-full min-w-0 rounded-pill surface-primary border px-3 py-2 pr-9 text-sm outline-none motion-safe:transition-colors",
                 state === "invalid" ? "border-error" : "border-transparent focus:border-accent",
@@ -263,7 +260,6 @@ WordBox.propTypes = {
   onPrev: PropTypes.func,
   onNext: PropTypes.func,
   enterSubmits: PropTypes.bool,
-  placeholder: PropTypes.string,
   enterKeyHint: PropTypes.oneOf(["next", "done"]),
   inputRef: PropTypes.func,
   describedById: PropTypes.string,
@@ -386,7 +382,6 @@ export default function PhraseWordsInput({
             onNext={i < count - 1 ? () => goTo(i + 1) : undefined}
             enterSubmits={i === count - 1 || allComplete}
             enterKeyHint={i === count - 1 ? "done" : "next"}
-            placeholder={i === 0 ? "Type or paste" : undefined}
             describedById={lineId}
             forceInvalid={strict && word !== "" && !WORD_SET.has(word)}
             inputRef={(el) => {

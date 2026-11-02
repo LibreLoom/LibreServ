@@ -179,7 +179,7 @@ function EditorSession({
   const isDirty =
     sync.hydrated && baseline != null && sync.serialize() !== baseline;
   // Report dirty upward; the clean report happens inside save() so the
-  // frame's "Saved just now" stamp only fires on a real save, not on load.
+  // frame's "Saved" pill only shows after a real save, not on load.
   useEffect(() => {
     if (isDirty && canWrite) onSaveStateChange(true);
   }, [isDirty, canWrite, onSaveStateChange]);

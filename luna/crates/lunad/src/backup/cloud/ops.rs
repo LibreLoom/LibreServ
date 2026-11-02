@@ -57,7 +57,8 @@ fn problem_outcome(message: &str) -> CloudOutcome {
 
 /// Start a cloud backup of `source_path` on `source_drive` for `user`. Same
 /// rules as a drive backup for who may start one (plan §2): Read on the
-/// source, Admin for a whole drive, never a source inside a private item.
+/// source, Admin for a whole drive, and a private item or a folder inside one
+/// is the owner's to back up.
 /// One cloud backup per folder: an existing one is returned as is.
 pub fn create(
     db: &crate::Db,

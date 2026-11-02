@@ -847,7 +847,7 @@ describe("FileViewer fullscreen office overlay", () => {
     expect(saveBtn).toBeEnabled();
     expect(saveBtn.className).toContain("surface-primary");
     saveBtn.focus();
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Unsaved changes");
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Unsaved");
 
     fireEvent.click(saveBtn);
     await waitFor(() => expect(runSave).toHaveBeenCalledTimes(1));
@@ -1040,7 +1040,7 @@ describe("FileViewer fullscreen office overlay", () => {
     expect(document.querySelector('[data-slot="editor-topbar"]')).not.toBeInTheDocument();
   });
 
-  it("uses a compact bar plus an options menu on mobile viewports", async () => {
+  it("uses a compact bar with a save status pill and Close on mobile viewports", async () => {
     // Same convention as UsersPage.test.jsx — matchMedia decides the chrome.
     vi.stubGlobal("matchMedia", (query) => ({
       matches: !String(query).includes("min-width: 768px"),
@@ -1063,55 +1063,25 @@ describe("FileViewer fullscreen office overlay", () => {
     expect(topbar).toBeInTheDocument();
     expect(within(/** @type {HTMLElement} */ (topbar)).getByText("report.docx")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Editor options" }));
-    const menu = await screen.findByRole("menu", { name: "Editor options" });
-
-    // Save is present but disabled while there is nothing to save.
-    expect(within(menu).getByRole("menuitem", { name: /^Save/ })).toBeDisabled();
+    // The bar holds the status pill and one Close button — no options menu.
+    expect(screen.queryByRole("button", { name: "Editor options" })).not.toBeInTheDocument();
+    const status = document.querySelector('[data-slot="save-status"]');
+    expect(status).toBeInTheDocument();
+    expect(status).toHaveTextContent("Saved");
 
     // Once the session registers its save thunk and reports unsaved edits,
-    // Save is enabled and the item annotates the last-saved state.
+    // the pill says so.
     act(() => officeMocks.editorProps.onRegisterSave(vi.fn(async () => {})));
     act(() => officeMocks.editorProps.onSaveStateChange(true));
-    expect(within(menu).getByRole("menuitem", { name: /^Save/ })).toBeEnabled();
-    expect(within(menu).getByText("Unsaved changes")).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="save-status"]')).toHaveTextContent("Unsaved");
 
     // Close still funnels through the unsaved-changes guard.
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Close editor" }));
+    fireEvent.click(within(/** @type {HTMLElement} */ (topbar)).getByRole("button", { name: "Close editor" }));
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByText("Document unsaved")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Close anyway" }));
     expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it("closes the mobile menu on Escape without closing the editor", async () => {
-    vi.stubGlobal("matchMedia", (query) => ({
-      matches: !String(query).includes("min-width: 768px"),
-      media: query,
-      onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      dispatchEvent: () => false,
-    }));
-    const onClose = vi.fn();
-    render(
-      <FileViewer open driveId="d1" path="docs/report.docx" onClose={onClose} />,
-    );
-    await findFullscreenOverlay();
-
-    fireEvent.click(screen.getByRole("button", { name: "Editor options" }));
-    expect(await screen.findByRole("menu", { name: "Editor options" })).toBeInTheDocument();
-
-    // The menu owns Escape while open; the editor stays mounted.
-    fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() => {
-      expect(screen.queryByRole("menu", { name: "Editor options" })).not.toBeInTheDocument();
-    });
-    expect(onClose).not.toHaveBeenCalled();
-    expect(document.querySelector('[data-slot="file-viewer-overlay"]')).toBeInTheDocument();
   });
 });
 

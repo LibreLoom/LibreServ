@@ -11,7 +11,7 @@ luna/     Luna, the file box: crates/lunad (Rust daemon), crates/luna-core, web/
           desktop/ (GTK 4), mobile/ (Android), connect/ (cloud companion), os/
 shared/ui @libreloom/ui — shared React components for both product webs
 infra/    ci-source/ (CI runner), agents/ (repo bots), docs/ (release process)
-ci        CI launcher: ./ci (interactive), ./ci run -profile full | sol | luna
+ci        CI launcher: ./ci (interactive), ./ci check (fast), ./ci run -p full|sol|luna
 release     release tool launcher: ./release (both products; builds infra/ci-source/cmd/release)
 keys/     release minisign PUBLIC keys
 .claude/  Claude Code cloud setup script copy + SessionStart hook
@@ -57,10 +57,12 @@ Not covered: code comments, logs, internal docs. Dashboard greetings (pigeons, s
 
 ## Running tests
 
-- Run tests only through `./ci run -profile <profile>`. Never run `cargo test`, `npx vitest`, `npm test`, `go test` or any other runner directly, not even to read one output value or check one test. No focused `./ci` target? Wait for the full run.
+- **After an edit, run `./ci check`.** It prints the static checks (format, vet, lint, typecheck, colour scan) that the current diff can affect, and stops. `./ci check -r` runs them; `./ci check -f` widens to every check; add `--host` to run them on the host instead of in containers (faster, but it uses whatever toolchain the machine has). This is the inner loop — it is seconds, not minutes, and it catches a broken edit without running product logic.
+- **Tests are the unattended pass, not the inner loop.** Run them through `./ci run --profile <profile>` when asked to verify a change properly (or when a release needs it). Never run `cargo test`, `npx vitest`, `npm test`, `go test` or any other runner directly, not even to read one output value or check one test. No focused `./ci` target? Wait for the full run.
+- Flags are `-x` for one letter, `--long` for more: `./ci run -p quick`, `./ci check -r`.
 - A full luna run takes 15–30 minutes. Start it in the background and poll its log for the `EXIT` line. Never start a second run while one is going, and a shell exit is not a result.
-- CPU, memory and parallelism bounds live in `.ci.conf` (default: gentle) and cap all `./ci` runs together. Never pass `-session` unless the user says so.
-- Test runs rewrite `luna/web/testing/results.json`, `luna/crates/lunad/src/backup/cloud/fixture.json` and `luna/web/src/dev/contract/lunad-responses.json` (the JSON shapes lunad's API tests see; written only by a full `./ci run -profile luna`). Don't hand-edit them. Keep them out of feature commits unless regenerating them, and commit them separately as `test(luna): ...` or `chore(luna): ...`. If a lunad response changes shape, fix the fake lunad (`luna/web/src/dev/fake/`) in the feature commit, or add an entry with a reason to `luna/web/src/dev/contract/known-gaps.js`.
+- CPU, memory and parallelism bounds live in `.ci.conf` (default: gentle) and cap all `./ci` runs together. Never pass `--session` unless the user says so.
+- Test runs rewrite `luna/web/testing/results.json`, `luna/crates/lunad/src/backup/cloud/fixture.json` and `luna/web/src/dev/contract/lunad-responses.json` (the JSON shapes lunad's API tests see; written only by a full `./ci run -p luna`). Don't hand-edit them. Keep them out of feature commits unless regenerating them, and commit them separately as `test(luna): ...` or `chore(luna): ...`. If a lunad response changes shape, fix the fake lunad (`luna/web/src/dev/fake/`) in the feature commit, or add an entry with a reason to `luna/web/src/dev/contract/known-gaps.js`.
 - A failure in a file you didn't touch: re-run once via `./ci`. Report it as flaky only if it then passes. Never skip it silently.
 - Never commit a phase or task with failing or unfinished verification without saying so in the commit body.
 
@@ -124,3 +126,4 @@ Sync with the animation. Never buzz on hover, scroll, or typing. Never double-bu
 
 - **Go 1.27 is real** and every Go 1.27 image exists. Don't question it.
 - **Early development, no existing users.** No backwards compatibility or migrations unless asked; tear obsolete concepts down completely.
+- **If you are confused by the user's instructions, or if they are unclear, ask the user clarifying questions** instead of guessing.

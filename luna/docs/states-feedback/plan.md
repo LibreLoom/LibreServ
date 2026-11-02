@@ -119,7 +119,7 @@ After phase 1, retest every scenario whose note says "mock bug" / "harness": `ba
 | `files/rename-while-open` | The toast doesn't show: find out why (z-order under the viewer, or not fired). |
 | `files/trash-restore-conflict` | Restore-with-new-name warns on an extension change, the same as rename. |
 | `files/trash-restore-folder-gone` | Restoring when the original folder is gone recreates the folders above it (lunad and fake). |
-| `files/unicode-emoji` | Phone editor: "Saved just now" in a pill. |
+| `files/unicode-emoji` | Phone editor: "Saved" in a pill. |
 | `files/unplugged-at-start` | Card text is boxed too narrow (three lines instead of two): drop the max-width. Member wording: retest with 1.11. |
 | `files/protect-inside-private` | Done in `29c9b3e8`: a folder inside a private item backs up as private. Retest. |
 

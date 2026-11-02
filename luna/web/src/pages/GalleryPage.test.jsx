@@ -756,6 +756,32 @@ describe("GalleryPage", () => {
     expect(await screen.findByRole("button", { name: /^Trip/ })).toBeInTheDocument();
   });
 
+  it("opens the share sheet from the album's Share button, which reads just Share", async () => {
+    window.history.replaceState(null, "", "/gallery#albums");
+    stubGalleryFetch({
+      albums: [{ id: "al1", home_drive_id: "a", name: "Trip", item_count: 2 }],
+    });
+    const user = userEvent.setup();
+    renderGallery();
+
+    await user.click(await screen.findByRole("button", { name: /^Trip/ }));
+    await waitFor(() => {
+      expect(window.location.hash).toBe("#albums/a/al1");
+    });
+
+    const chrome = /** @type {HTMLElement} */ (
+      document.querySelector("[data-slot=gallery-detail-chrome]")
+    );
+    const share = within(chrome).getByRole("button", { name: "Share album" });
+    // Visible label is just "Share"; the album name is not repeated in the
+    // accessible name because this bar holds one album only.
+    expect(share).toHaveTextContent(/^Share$/);
+    expect(within(chrome).queryByRole("button", { name: "Share" })).toBeNull();
+
+    await user.click(share);
+    expect(await screen.findByRole("heading", { name: "Sharing" })).toBeInTheDocument();
+  });
+
   it("steps back out of a day view to the full library", async () => {
     window.history.replaceState(null, "", "/gallery#library");
     stubGalleryFetch();
@@ -1450,7 +1476,7 @@ describe("GalleryPage", () => {
     renderGallery();
 
     expect(await screen.findByText("Vacation")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Share album" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Share album Vacation" })).toBeInTheDocument();
     const deleteBtn = screen.getByRole("button", { name: "Delete album Vacation" });
     expect(deleteBtn.className).toMatch(/shrink-0/);
     await user.click(deleteBtn);
@@ -1536,7 +1562,7 @@ describe("GalleryPage", () => {
     ).toBe(true);
   });
 
-  it("opens the share sheet when clicking Share album", async () => {
+  it("opens the share sheet when clicking Share on an album card", async () => {
     const album = {
       id: "alb-share",
       home_drive_id: "a",
@@ -1613,13 +1639,27 @@ describe("GalleryPage", () => {
     renderGallery();
 
     expect(await screen.findByText("Shared Moments")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Share album" }));
+    await user.click(screen.getByRole("button", { name: "Share album Shared Moments" }));
 
     expect(await screen.findByRole("heading", { name: "Sharing" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "People" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Links" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /New link/i })).toBeInTheDocument();
     expect(await screen.findByText(/Can view \+ add photos/)).toBeInTheDocument();
+  });
+
+  it("labels the album card's button Share but keeps the album in its accessible name", async () => {
+    stubGalleryFetch({
+      albums: [{ id: "alb-label", home_drive_id: "a", name: "Summer", item_count: 3 }],
+    });
+    window.history.replaceState(null, "", "/gallery#albums");
+    renderGallery();
+
+    expect(await screen.findByText("Summer")).toBeInTheDocument();
+    const share = screen.getByRole("button", { name: "Share album Summer" });
+    // The visible label lost "album"; the accessible name keeps it so the
+    // card's other buttons stay distinguishable.
+    expect(share).toHaveTextContent(/^Share$/);
   });
 
   it("shows a dismissable On this day pill that opens a filter view", async () => {

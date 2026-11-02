@@ -171,6 +171,15 @@ function nextBatch(reader) {
  * Paths are relative to the drop, with the dropped folder's own name first:
  * `Photos/2024/a.jpg`.
  *
+ * Aborting stops the walk where it is: nothing already read is reported after
+ * the signal fires, and no further folder is entered.
+ *
+ * A picked folder (`dropped.files`) arrives as a flat list of files with
+ * `webkitRelativePath`. That list can never mention an empty folder — the
+ * browser doesn't send one — so the picker creates only the folders its files
+ * live in. A drop (`dropped.entries`) can see them, and reports each through
+ * `onDir`.
+ *
  * @param {DroppedItems} dropped
  * @param {{
  *   onFile: (file: File, relPath: string) => void,
@@ -187,13 +196,18 @@ export async function walkDropped(dropped, { onFile, onDir, onError, signal }) {
     if (signal?.aborted) return;
     try {
       if (entry.isFile) {
-        onFile(await fileOf(/** @type {FileSystemFileEntry} */ (entry)), rel);
+        const file = await fileOf(/** @type {FileSystemFileEntry} */ (entry));
+        // Reading a file takes a moment; a cancel that lands meanwhile must
+        // not still hand it to the upload queue.
+        if (signal?.aborted) return;
+        onFile(file, rel);
       } else if (entry.isDirectory) {
         const reader = /** @type {FileSystemDirectoryEntry} */ (entry).createReader();
         let count = 0;
         for (;;) {
           if (signal?.aborted) return;
           const batch = await nextBatch(reader);
+          if (signal?.aborted) return;
           if (!batch.length) break;
           count += batch.length;
           for (const child of batch) await walk(child, rel);

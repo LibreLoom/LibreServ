@@ -39,6 +39,11 @@ export function AuthProvider({ children }) {
   // A /auth/me that FAILS (network blip, 5xx) is treated as "unknown" and the
   // current user is kept, so a transient error can't silently log someone out.
   // Only a clean 200 with a null body (not signed in) clears the user.
+  //
+  // Returns what it learned. `unreachable: true` means every request failed —
+  // exactly what a Luna restarting after an update looks like. Nothing was
+  // learned then: the previous state is kept and the other fields are null, so
+  // callers must never read them as "no admin, no setup".
   const refresh = useCallback(async () => {
     let me = null;
     let meFailed = false;
@@ -47,10 +52,21 @@ export function AuthProvider({ children }) {
     } catch {
       meFailed = true;
     }
+    let setupFailed = false;
+    let statusFailed = false;
     const [setupState, authStatus] = await Promise.all([
-      getJson("/api/v1/setup").catch(() => null),
-      getJson("/api/v1/auth/status").catch(() => null),
+      getJson("/api/v1/setup").catch(() => { setupFailed = true; return null; }),
+      getJson("/api/v1/auth/status").catch(() => { statusFailed = true; return null; }),
     ]);
+
+    // Luna unreachable: every request failed, which is what a restart after an
+    // update looks like. That is NOT a fresh Luna — reading it as one would
+    // send the user to the setup wizard and make a restart look like lost
+    // setup. Keep the state we already have and say nothing was learned.
+    if (meFailed && setupFailed && statusFailed) {
+      return { me: null, setup: null, hasAdmin: null, unreachable: true };
+    }
+
     if (!meFailed) setUser(me || null);
 
     // If authStatus succeeded, use has_admin.
@@ -63,7 +79,7 @@ export function AuthProvider({ children }) {
     setHasAdmin(adminExists);
     const effectiveSetup = setupState || (!adminExists ? { setup_completed: false } : null);
     if (effectiveSetup) setSetup(effectiveSetup);
-    return { me: me || null, setup: effectiveSetup, hasAdmin: adminExists };
+    return { me: me || null, setup: effectiveSetup, hasAdmin: adminExists, unreachable: false };
   }, []);
 
   // Startup-only: restore the session (or send a fresh Luna to the wizard)
@@ -73,8 +89,17 @@ export function AuthProvider({ children }) {
     let alive = true;
     const path = location.pathname;
     (async () => {
-      const { me, setup: setupState, hasAdmin: adminExists } = await refresh();
+      const { me, setup: setupState, hasAdmin: adminExists, unreachable } = await refresh();
       if (!alive) return;
+      // Luna never answered (a restart after an update, or no connection). We
+      // know nothing about this Luna, so do not move the user anywhere: the
+      // page they are on shows its own "can't reach Luna" state and recovers
+      // when Luna is back. Sending them to /setup would say a working Luna
+      // had lost its setup.
+      if (unreachable) {
+        setLoading(false);
+        return;
+      }
       const needsSetup = !adminExists || Boolean(setupState && setupState.setup_completed === false);
       if (!adminExists && !me && path !== "/recover") {
         if (path !== "/setup") {

@@ -58,6 +58,20 @@ export const text = {
   offline: "Couldn't reach Luna. Check this device's connection and try again.",
 };
 
+/**
+ * Why an empty folder wasn't made: a file already has one of the names it
+ * needs. The failed row already shows the folder's own name as a pill, so this
+ * continues that sentence — and names the file in the way when it isn't the
+ * folder itself (a folder three levels down can be blocked by its parent).
+ * @param {string} folder the folder that wasn't made
+ * @param {string} blocking the file name that is in the way
+ */
+export function folderBlocked(folder, blocking) {
+  return folder === blocking
+    ? "couldn't be made: a file with that name is already there."
+    : `couldn't be made: a file named ${blocking} is already there.`;
+}
+
 /** Fallbacks that name the action that failed. */
 export const failedFallback = {
   upload: "Luna couldn't upload this file. Try again.",
@@ -127,6 +141,24 @@ export function opStatus(op) {
   switch (op.kind) {
     case "upload":
     case "gallery": {
+      // A folder holding only empty folders has no files to count. Say what
+      // was made instead of "Uploaded 0 files". The folders land in the
+      // destination, not inside the dropped folder — that one is made too.
+      const folders = op.foldersDone || 0;
+      const foldersFailed = (op.items || []).filter((i) => i.isDir && i.state === "failed").length;
+      if (state === "done" && total === 0 && folders > 0) {
+        return [`Made ${folders} ${n(folders, "folder", "folders")} in `, pill(folder)];
+      }
+      // Every file arrived but a folder didn't: "Uploaded 1 of 1" would read
+      // as finished, so name what is missing instead.
+      if (partial && foldersFailed > 0 && done === total) {
+        const where = op.rootFolder && name ? name : folder;
+        return [
+          `Uploaded ${done} ${n(done, "file", "files")} in `,
+          pill(where),
+          `; ${foldersFailed} ${n(foldersFailed, "folder", "folders")} couldn't be made`,
+        ];
+      }
       if (name && (op.rootFolder || total <= 1)) {
         if (running) return ["Uploading ", pill(name)];
         if (state === "done") return ["Uploaded ", pill(name)];
@@ -196,6 +228,11 @@ export function opMeta(op) {
   if (op.kind === "upload" || op.kind === "gallery") {
     if (op.walking) return `Counting files… ${op.itemsTotal ?? 0} found`;
     const total = op.itemsTotal ?? 0;
+    // Nothing to measure: the upload was empty folders only.
+    if (total === 0 && !op.bytesTotal) {
+      const folders = op.foldersDone || 0;
+      return folders > 0 ? `${folders} ${n(folders, "folder", "folders")} made` : "";
+    }
     return `${op.itemsDone ?? 0} of ${total} files · ${fmtSize(op.bytesDone)} of ${fmtSize(op.bytesTotal)}`;
   }
   if (op.kind === "copy" || op.kind === "move") {
@@ -296,13 +333,21 @@ export function problemsTitle(kind) {
 
 /**
  * @param {any} op
- * @param {number} done number that succeeded
+ * @param {number} done number of files that succeeded
  * @returns {string|null}
  */
 export function successToast(op, done) {
-  if (done <= 0) return null;
   const name = op.title || "";
   const dest = op.destLabel || "";
+  if (done <= 0) {
+    // A folder holding only empty folders uploads no files, but it did make
+    // folders on the drive — say that rather than stay silent.
+    const folders = op.foldersDone || 0;
+    if (folders > 0 && (op.kind === "upload" || op.kind === "gallery") && op.state !== "failed") {
+      return `Made ${folders} ${n(folders, "folder", "folders")}.`;
+    }
+    return null;
+  }
   switch (op.kind) {
     case "upload":
       return `${done} ${n(done, "file", "files")} uploaded.`;

@@ -76,6 +76,16 @@ describe("selectors", () => {
     expect(opProgress(state.ops[0])).toBe(25);
     expect(opProgress(state.ops[1])).toBeNull();
   });
+
+  it("gives a moving bar for a drop of empty folders, which has no bytes to measure", () => {
+    const state = stateOf([
+      // The store derives `foldersDone` from what each folder item made, so
+      // the count lives on the item, not on the op.
+      { id: "a", kind: "upload", state: "running", items: [{ id: "i", name: "Photos", isDir: true, state: "done", foldersMade: 2 }] },
+    ]);
+    expect(state.ops[0].foldersDone).toBe(2);
+    expect(opProgress(state.ops[0])).toBeNull();
+  });
 });
 
 describe("copy and errors", () => {

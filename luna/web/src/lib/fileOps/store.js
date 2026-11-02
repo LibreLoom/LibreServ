@@ -36,6 +36,7 @@ export const INVALIDATE_GAP_MS = 1000;
  *   state: "queued"|"uploading"|"finishing"|"submitting"|"running"|"done"|"skipped"|"needs-decision"|"failed"|"cancelled",
  *   error: string|null, retryable: boolean, decision: Decision|null,
  *   isDir?: boolean,
+ *   foldersMade?: number,
  *   offline?: boolean,
  *   retrying?: boolean,
  *   waitingForQueue?: boolean,
@@ -58,6 +59,7 @@ export const INVALIDATE_GAP_MS = 1000;
  *   walking: boolean,
  *   bytesDone: number, bytesTotal: number,
  *   itemsDone: number, itemsTotal: number|null,
+ *   foldersDone: number,
  *   policy: null|"replace"|"keep_both"|"skip",
  *   items: Item[],
  *   error: string|null,
@@ -176,8 +178,14 @@ export function createFileOpsStore({
     let bytesDone = 0;
     let total = 0;
     let done = 0;
+    let foldersDone = 0;
     for (const item of op.items) {
-      if (item.isDir) continue;
+      if (item.isDir) {
+        // A folder-only drop uploads no bytes, so the card counts folders
+        // instead of saying "0 of 0 files".
+        foldersDone += item.foldersMade || 0;
+        continue;
+      }
       if (item.state === "skipped" || item.state === "cancelled") continue;
       total += 1;
       bytesTotal += item.size || 0;
@@ -192,6 +200,7 @@ export function createFileOpsStore({
     op.bytesDone = bytesDone;
     op.itemsDone = done;
     op.itemsTotal = op.indeterminate ? null : total;
+    op.foldersDone = foldersDone;
   }
 
   function flush() {
@@ -245,6 +254,7 @@ export function createFileOpsStore({
       bytesTotal: 0,
       itemsDone: 0,
       itemsTotal: 0,
+      foldersDone: 0,
       policy: null,
       items: [],
       error: null,

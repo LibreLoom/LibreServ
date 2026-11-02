@@ -609,11 +609,18 @@
       "network": {
         "category": "string",
         "message": "string",
+        "more": "string",
         "status": "string"
       },
       "ntfs_support": {
         "category": "string",
+        "details": {
+          "missing": [
+            "string"
+          ]
+        },
         "message": "string",
+        "more": "string",
         "status": "string"
       },
       "office_pack": {
