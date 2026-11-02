@@ -54,7 +54,8 @@ describe("FileOpRow", () => {
   it("offers no Replace for a folder clash", () => {
     row([{ ...base, state: "waiting", items: [folderClash("i1", "Photos")] }]);
     expect(screen.queryByRole("button", { name: "Replace" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "More problems →" })).toBeNull();
+    // One problem is shown inline; there is no "more" control to offer.
+    expect(screen.queryByRole("button", { name: /more problem/ })).toBeNull();
   });
 
   it("shows Try again for an item that failed offline", () => {

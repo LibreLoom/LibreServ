@@ -27,7 +27,7 @@ const MAX_ACTIVE_LINES = 3;
 
 /**
  * One operation inside the dock: status line, meter, the files being sent,
- * and at most one problem (the oldest) with "N more problems →" behind it.
+ * and at most one problem (the oldest) with "N more problems" behind it.
  *
  * Everything below the status line is conditional, so each piece animates its
  * own height in and out rather than appearing between frames. The row stacks
