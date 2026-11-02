@@ -582,13 +582,7 @@
       },
       "drive_tools": {
         "category": "string",
-        "details": {
-          "missing": [
-            "string"
-          ]
-        },
         "message": "string",
-        "more": "string",
         "status": "string"
       },
       "erase_tools": {
@@ -621,11 +615,18 @@
       "network": {
         "category": "string",
         "message": "string",
+        "more": "string",
         "status": "string"
       },
       "ntfs_support": {
         "category": "string",
+        "details": {
+          "missing": [
+            "string"
+          ]
+        },
         "message": "string",
+        "more": "string",
         "status": "string"
       },
       "office_pack": {
@@ -652,13 +653,7 @@
       },
       "trim_tool": {
         "category": "string",
-        "details": {
-          "missing": [
-            "string"
-          ]
-        },
         "message": "string",
-        "more": "string",
         "status": "string"
       },
       "update_signing": {

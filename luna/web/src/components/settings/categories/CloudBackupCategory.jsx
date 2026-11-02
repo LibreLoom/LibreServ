@@ -185,62 +185,67 @@ export default function CloudBackupCategory() {
 
   return (
     <>
-      <RecoveryPhraseCard />
+      <div className="space-y-4" data-slot="cloud-backup-category">
+        <RecoveryPhraseCard />
 
-      <SettingsCard
-        icon={Cloud}
-        title="Cloud backup"
-        headerActions={
-          <InfoHint
-            label="What cloud backup means"
-            content="An off-site copy of your latest files, kept with Luna Connect. It keeps the latest copy, plus about one older copy from each of the last day, week and month. Cloud backup costs $8 per terabyte each month."
-          />
-        }
-      >
-        {error && <PageNotice variant="error" className="mb-3">{error}</PageNotice>}
+        <SettingsCard
+          icon={Cloud}
+          title="Cloud backup"
+          headerActions={
+            <InfoHint
+              label="What cloud backup means"
+              content="An off-site copy of your latest files, kept with Luna Connect. It keeps the latest copy, plus about one older copy from each of the last day, week and month. Cloud backup costs $8 per terabyte each month."
+            />
+          }
+        >
+          {error && <PageNotice variant="error" className="mb-3">{error}</PageNotice>}
 
-        {!connected ? (
-          <p className="text-primary text-sm">
-            {isAdmin
-              ? "Cloud backup needs Luna Connect. Add your device token in Settings → About → Advanced."
-              : "Cloud backup needs Luna Connect. An Admin can turn it on."}
-          </p>
-        ) : backups.length === 0 ? (
-          <div className="space-y-3">
-            {!cardOnFile && (
-              <p className="text-primary text-sm">
-                Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>. Cloud backup can start after that.
-              </p>
-            )}
+          {!connected ? (
             <p className="text-primary text-sm">
-              Nothing is backed up to the cloud yet. Open a drive or folder, press the shield (Back up) button, then use Back up to the cloud.
+              {isAdmin
+                ? "Cloud backup needs Luna Connect. Add your device token in Settings → About → Advanced."
+                : "Cloud backup needs Luna Connect. An Admin can turn it on."}
             </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {!cardOnFile && (
+          ) : backups.length === 0 ? (
+            <div className="space-y-3">
+              {!cardOnFile && (
+                <p className="text-primary text-sm">
+                  Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>. Cloud backup can start after that.
+                </p>
+              )}
               <p className="text-primary text-sm">
-                Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>. Backups stay paused until then.
+                Nothing is backed up to the cloud yet. Open a drive or folder, press the shield (Back up) button, then use Back up to the cloud.
               </p>
-            )}
-            <p className="text-primary text-sm">
-              Luna copies the latest files every 6 hours. Cloud backup costs $8 per terabyte each month.
-            </p>
-            {backups.map((backup) => (
-              <CloudBackupRow
-                key={backup.id}
-                backup={backup}
-                busy={busy}
-                missingSource={missingSourceId === backup.id || backup.source_missing === true}
-                onRun={(b) => runBackup.mutate({ id: b.id })}
-                onRunAnyway={(b) => runBackup.mutate({ id: b.id, acceptMissing: true })}
-                onCheck={(b) => checkBackup.mutate(b.id)}
-                onDelete={(b) => setDeleting(b)}
-              />
-            ))}
-          </div>
-        )}
-      </SettingsCard>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {!cardOnFile && (
+                <p className="text-primary text-sm">
+                  Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>. Backups stay paused until then.
+                </p>
+              )}
+              <p className="text-primary text-sm">
+                Luna copies the latest files every 6 hours. Cloud backup costs $8 per terabyte each month.
+              </p>
+              {backups.map((backup) => (
+                <CloudBackupRow
+                  key={backup.id}
+                  backup={backup}
+                  busy={busy}
+                  missingSource={missingSourceId === backup.id || backup.source_missing === true}
+                  onRun={(b) => runBackup.mutate({ id: b.id })}
+                  onRunAnyway={(b) => runBackup.mutate({ id: b.id, acceptMissing: true })}
+                  onCheck={(b) => checkBackup.mutate(b.id)}
+                  onDelete={(b) => setDeleting(b)}
+                />
+              ))}
+            </div>
+          )}
+        </SettingsCard>
+
+        {connected && <CloudRestoreCard />}
+        {connected && <PrivateRestoreCard />}
+      </div>
 
       <ConfirmModal
         open={deleting != null}
@@ -257,9 +262,6 @@ export default function CloudBackupCategory() {
           </p>
         )}
       </ConfirmModal>
-
-      {connected && <CloudRestoreCard />}
-      {connected && <PrivateRestoreCard />}
     </>
   );
 }

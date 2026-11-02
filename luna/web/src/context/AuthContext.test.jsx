@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
@@ -262,5 +263,136 @@ describe("AuthProvider endSession", () => {
     // The tab stays put; RequireAuth is what shows the sign-in form in place.
     expect(screen.getByText("AT /settings")).toBeInTheDocument();
     expect(screen.queryByText("LOGIN ROUTE")).not.toBeInTheDocument();
+  });
+});
+
+describe("AuthProvider when Luna is unreachable", () => {
+  const json = (body, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+
+  // What a Luna restarting after an update looks like: every request fails.
+  function allRequestsFail() {
+    return vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+  }
+
+  function renderApp() {
+    return render(
+      <MemoryRouter initialEntries={["/"]}>
+        <AuthProvider>
+          <Routes>
+            <Route path="/" element={<div>LUNA HOME</div>} />
+            <Route path="/setup" element={<div>SETUP WIZARD</div>} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>
+    );
+  }
+
+  it("starts on the page it was on, not the setup wizard, when every request fails", async () => {
+    vi.stubGlobal("fetch", allRequestsFail());
+
+    function Probe() {
+      const { loading, setup, hasAdmin } = useAuth();
+      const { pathname } = useLocation();
+      return (
+        <div>
+          <span>{`AT ${pathname}`}</span>
+          <span>{loading ? "LOADING" : "READY"}</span>
+          <span>{`SETUP ${setup ? setup.setup_completed : "UNKNOWN"}`}</span>
+          <span>{`ADMIN ${hasAdmin === null ? "UNKNOWN" : hasAdmin}`}</span>
+        </div>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <AuthProvider>
+          <Probe />
+          <Routes>
+            <Route path="/" element={null} />
+            <Route path="/setup" element={<div>SETUP WIZARD</div>} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>
+    );
+
+    // Wait for the bootstrap to finish, then check it moved nobody anywhere
+    // and invented no state: a restart is not a fresh Luna.
+    expect(await screen.findByText("READY")).toBeInTheDocument();
+    expect(screen.getByText("AT /")).toBeInTheDocument();
+    expect(screen.queryByText("SETUP WIZARD")).not.toBeInTheDocument();
+    expect(screen.getByText("SETUP UNKNOWN")).toBeInTheDocument();
+    expect(screen.getByText("ADMIN UNKNOWN")).toBeInTheDocument();
+  });
+
+  it("keeps the setup state it already had when a later refresh finds Luna unreachable", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      const u = String(url);
+      if (u.endsWith("/api/v1/auth/me")) return json(null, 401);
+      if (u.endsWith("/api/v1/auth/status")) return json({ has_admin: true });
+      if (u.endsWith("/api/v1/setup")) return json({ name: "Luna", setup_completed: true });
+      return json({}, 404);
+    }));
+
+    function Probe() {
+      const { setup, hasAdmin, loading, refresh } = useAuth();
+      const [last, setLast] = useState(null);
+      if (loading) return null;
+      return (
+        <div>
+          <span>{`SETUP ${setup ? setup.setup_completed : "UNKNOWN"}`}</span>
+          <span>{`ADMIN ${hasAdmin === null ? "UNKNOWN" : hasAdmin}`}</span>
+          <span>{`LAST ${last ? (last.unreachable ? "UNREACHABLE" : "ANSWERED") : "NONE"}`}</span>
+          <button type="button" onClick={async () => setLast(await refresh())}>REFRESH</button>
+        </div>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("SETUP true")).toBeInTheDocument();
+    expect(screen.getByText("ADMIN true")).toBeInTheDocument();
+
+    // Luna restarts: every request now fails. The known state must survive.
+    vi.stubGlobal("fetch", allRequestsFail());
+    fireEvent.click(screen.getByText("REFRESH"));
+    expect(await screen.findByText("LAST UNREACHABLE")).toBeInTheDocument();
+    expect(screen.getByText("SETUP true")).toBeInTheDocument();
+    expect(screen.getByText("ADMIN true")).toBeInTheDocument();
+  });
+
+  it("still sends a fresh Luna to setup when /auth/status says there is no Admin", async () => {
+    // Only /auth/status answers — the other two fail. One real answer is
+    // enough to know this is a fresh Luna, so the wizard is correct here.
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      const u = String(url);
+      if (u.endsWith("/api/v1/auth/status")) return json({ has_admin: false });
+      throw new TypeError("Failed to fetch");
+    }));
+    renderApp();
+    expect(await screen.findByText("SETUP WIZARD")).toBeInTheDocument();
+    expect(screen.queryByText("LUNA HOME")).not.toBeInTheDocument();
+  });
+
+  it("infers an existing Admin when only /auth/status is unreachable", async () => {
+    // The fallback from before this fix: a completed setup means an account
+    // exists, so a failed /auth/status must not read as a fresh Luna.
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      const u = String(url);
+      if (u.endsWith("/api/v1/auth/me")) return json(null, 401);
+      if (u.endsWith("/api/v1/setup")) return json({ name: "Luna", setup_completed: true });
+      throw new TypeError("Failed to fetch");
+    }));
+    renderApp();
+    expect(await screen.findByText("LUNA HOME")).toBeInTheDocument();
+    expect(screen.queryByText("SETUP WIZARD")).not.toBeInTheDocument();
   });
 });

@@ -116,6 +116,83 @@ describe("collectUploadFiles", () => {
     expect(onDir).toHaveBeenCalledWith("Empty");
   });
 
+  it("walkDropped reports a nested empty folder even when its parent has files", async () => {
+    const onDir = vi.fn();
+    const onFile = vi.fn();
+    const root = dirEntry("Trip", [
+      [fileEntry("a.txt"), dirEntry("Photos", [])],
+      [dirEntry("Empty", [[dirEntry("Deeper", [])]])],
+    ]);
+    await walkDropped({ entries: [root], files: [] }, { onFile, onDir });
+    // Only a folder with no children at all is reported. `Trip/Empty` holds
+    // `Deeper`, so it isn't one — but `Deeper`'s own path carries `Empty`,
+    // and `makeFolders` makes every level of it.
+    expect(onDir.mock.calls.map((c) => c[0])).toEqual(["Trip/Photos", "Trip/Empty/Deeper"]);
+    expect(onFile.mock.calls.map((c) => c[1])).toEqual(["Trip/a.txt"]);
+  });
+
+  it("walkDropped stops a file it was already reading when cancelled", async () => {
+    const controller = new AbortController();
+    const onFile = vi.fn();
+    // The read finishes only after the abort, like a big file on a slow disk.
+    const slow = {
+      isFile: true,
+      isDirectory: false,
+      name: "big.iso",
+      file: (ok) => {
+        controller.abort();
+        ok(new File(["x"], "big.iso"));
+      },
+    };
+    await walkDropped(
+      { entries: [dirEntry("Trip", [[slow]])], files: [] },
+      { onFile, signal: controller.signal },
+    );
+    expect(onFile).not.toHaveBeenCalled();
+  });
+
+  it("walkDropped enters no folder after the abort", async () => {
+    const controller = new AbortController();
+    const onFile = vi.fn();
+    const onDir = vi.fn();
+    let reads = 0;
+    /** @type {any} */
+    const root = {
+      isFile: false,
+      isDirectory: true,
+      name: "Trip",
+      createReader: () => {
+        const batches = [[fileEntry("a.txt"), dirEntry("Photos", [])], []];
+        return {
+          readEntries: (ok) => {
+            reads += 1;
+            controller.abort();
+            ok(batches.shift());
+          },
+        };
+      },
+    };
+    await walkDropped({ entries: [root], files: [] }, { onFile, onDir, signal: controller.signal });
+    expect(reads).toBe(1);
+    expect(onFile).not.toHaveBeenCalled();
+    expect(onDir).not.toHaveBeenCalled();
+  });
+
+  it("a picked folder never reports an empty folder, because the browser can't", async () => {
+    // `webkitdirectory` hands over a flat list of files. An empty folder
+    // inside the picked one leaves no trace in it at all.
+    const picked = ["Trip/a.txt", "Trip/Lisbon/notes.txt"].map((rel) => {
+      const file = new File(["x"], rel.split("/").pop());
+      Object.defineProperty(file, "webkitRelativePath", { value: rel });
+      return file;
+    });
+    const onDir = vi.fn();
+    const onFile = vi.fn();
+    await walkDropped({ entries: [], files: picked }, { onFile, onDir });
+    expect(onFile.mock.calls.map((c) => c[1])).toEqual(["Trip/a.txt", "Trip/Lisbon/notes.txt"]);
+    expect(onDir).not.toHaveBeenCalled();
+  });
+
   it("walkDropped keeps going when one entry can't be read", async () => {
     const onFile = vi.fn();
     const onError = vi.fn();

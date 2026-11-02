@@ -126,38 +126,57 @@ export default function NeedsYou({ items, onAction }) {
   if (!items || items.length === 0) return null;
 
   const hiddenCount = Math.max(0, items.length - VISIBLE_LIMIT);
-  const visible = expanded ? items : items.slice(0, VISIBLE_LIMIT);
 
   return (
     <section aria-label="Needs you">
       <Card title="Needs you">
-        <ul id={listId} className="flex flex-col gap-3">
-          {visible.map((item) => {
+        {/* Row spacing is padding INSIDE each row's clipped body, not a gap on
+            the list: a folded row then contributes exactly zero height, so the
+            card grows and shrinks through it instead of jumping. Top padding
+            (not bottom) keeps the card from gaining a trailing gap. */}
+        <ul id={listId} className="flex flex-col">
+          {items.map((item, index) => {
             const Icon = item.tone === "info" ? Info : TriangleAlert;
             const iconTone =
               item.tone === "problem" ? "text-error" : item.tone === "warning" ? "text-warning" : "text-info";
+            // Rows past the fold stay mounted so the card can animate through
+            // them. A folded row is inert and aria-hidden, so it is out of the
+            // tab order and out of the list a screen reader hears until
+            // "Show N more" reveals it.
+            const folded = !expanded && index >= VISIBLE_LIMIT;
             return (
               <li
                 key={item.id}
                 data-tone={item.tone}
-                className="surface-primary rounded-large-element p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                aria-hidden={folded || undefined}
+                inert={folded || undefined}
+                className={cn(
+                  "grid motion-safe:transition-[grid-template-rows,opacity] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)]",
+                  folded ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100",
+                )}
               >
-                <div className="flex min-w-0 items-start gap-3">
-                  <Icon
-                    size={ICON_SIZE.lg}
-                    className={cn("mt-0.5 shrink-0", iconTone)}
-                    aria-hidden="true"
-                  />
-                  <div className="min-w-0 space-y-1">
-                    <Title segments={item.title} hint={item.hint} />
-                    {item.detail && <Detail detail={item.detail} />}
+                <div className="min-h-0 overflow-hidden">
+                  <div className={index > 0 ? "pt-3" : undefined}>
+                    <div className="surface-primary rounded-large-element p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <Icon
+                          size={ICON_SIZE.lg}
+                          className={cn("mt-0.5 shrink-0", iconTone)}
+                          aria-hidden="true"
+                        />
+                        <div className="min-w-0 space-y-1">
+                          <Title segments={item.title} hint={item.hint} />
+                          {item.detail && <Detail detail={item.detail} />}
+                        </div>
+                      </div>
+                      {item.action && (
+                        <div className="shrink-0">
+                          <RowAction item={item} onAction={onAction} />
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-                {item.action && (
-                  <div className="shrink-0">
-                    <RowAction item={item} onAction={onAction} />
-                  </div>
-                )}
               </li>
             );
           })}

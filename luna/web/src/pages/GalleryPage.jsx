@@ -1821,12 +1821,13 @@ export default function GalleryPage() {
                   variant="secondary"
                   surface="primary"
                   size="sm"
+                  aria-label="Share album"
                   onClick={() => {
                     setError(null);
                     setShareAlbum(albumView);
                   }}
                 >
-                  <Share2 size={14} /> Share album
+                  <Share2 size={14} /> Share
                 </Button>
               </>
             )}
@@ -2662,9 +2663,10 @@ function AlbumsPanel({
                   variant="outline"
                   size="sm"
                   className="min-w-0 flex-1"
+                  aria-label={`Share album ${album.name}`}
                   onClick={() => onShare(album)}
                 >
-                  <Share2 size={14} /> Share album
+                  <Share2 size={14} /> Share
                 </Button>
                 <Button
                   variant="ghost"

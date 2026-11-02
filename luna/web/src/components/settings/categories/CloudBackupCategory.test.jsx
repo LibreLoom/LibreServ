@@ -13,11 +13,18 @@ const json = (body) =>
   new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 
 /** Routes the cloud API calls the card makes; anything else gets an empty object. */
-function stubApi({ connected = true, cardOnFile = true, backups = [], runResponse = /** @type {any} */ ({ done: true }) } = {}) {
+function stubApi({
+  connected = true,
+  cardOnFile = true,
+  backups = [],
+  runResponse = /** @type {any} */ ({ done: true }),
+  phrase = /** @type {any} */ ({ set: false }),
+} = {}) {
   const fetchMock = vi.fn(async (url, options = {}) => {
     const method = options.method || "GET";
     if (url === "/api/v1/auth/status") return json({ has_admin: true, connect_active: connected });
     if (url === "/api/v1/connect/status") return json({ connect_active: connected, card_on_file: cardOnFile });
+    if (url === "/api/v1/cloud/phrase" && method === "GET") return json(phrase);
     if (url === "/api/v1/cloud/backups" && method === "GET") return json(backups);
     if (/\/run(\?|$)/.test(url) && method === "POST") return json(runResponse);
     if (url.endsWith("/check") && method === "POST") return json({ done: true });
@@ -68,6 +75,57 @@ describe("CloudBackupCategory", () => {
     const phrase = await screen.findByText("Recovery phrase");
     const list = await screen.findByText("Cloud backup");
     expect(phrase.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("stacks its cards in one spaced wrapper, like the other settings categories", async () => {
+    stubApi({ connected: true, backups: [sampleBackup] });
+    renderCard();
+    await screen.findByRole("heading", { name: "Cloud backup" });
+
+    const wrapper = document.querySelector("[data-slot='cloud-backup-category']");
+    expect(wrapper).toBeTruthy();
+    // Same wrapper the sibling categories use (About, Devices, Appearance).
+    expect(wrapper.className).toMatch(/\bspace-y-4\b/);
+
+    // Both cards live inside it, in order, and nothing else does.
+    const cards = Array.from(wrapper.children);
+    expect(cards.length).toBe(2);
+    for (const card of cards) expect(card.getAttribute("data-settings-item")).toBe("card");
+    expect(wrapper.children[0].textContent).toMatch(/Recovery phrase/);
+    expect(wrapper.children[1].textContent).toMatch(/Cloud backup/);
+  });
+
+  it("keeps the delete confirmation out of the card layout wrapper", async () => {
+    stubApi({ connected: true, backups: [sampleBackup] });
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete cloud backup?" });
+    expect(dialog).toBeInTheDocument();
+
+    // The modal portals to body, so it must not land inside the spaced wrapper —
+    // and the wrapper still holds only its cards, so the gap never wraps a modal.
+    const wrapper = document.querySelector("[data-slot='cloud-backup-category']");
+    expect(wrapper).toBeTruthy();
+    expect(wrapper.contains(dialog)).toBe(false);
+    expect(wrapper.children.length).toBe(2);
+  });
+
+  it("puts the lost-phrase section in the pill variant, like the other categories", async () => {
+    stubApi({
+      connected: true,
+      backups: [sampleBackup],
+      phrase: { set: true, set_at: 1_700_000_000, last_checked_at: 1_700_500_000, luna_id: "luna-1", phrase_words: 12 },
+    });
+    renderCard();
+
+    const toggle = await screen.findByRole("button", { name: "Lost your recovery phrase?" });
+    // Mono: the toggle label wears the heading face, as in Update source and Open source licenses.
+    expect(toggle.className).toMatch(/\bfont-mono\b/);
+    // Pill: only the pill variant puts an outline on the section wrapper.
+    const section = toggle.closest("[data-slot='collapsible']");
+    expect(section).toBeTruthy();
+    expect(section.className).toMatch(/\brounded-large-element\b/);
+    expect(section.className).toMatch(/\bborder\b/);
   });
 
   it("does not include the Luna Connect card", async () => {

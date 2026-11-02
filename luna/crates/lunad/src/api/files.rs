@@ -275,6 +275,17 @@ fn list_trash_view(
         check_trash_item(state, user, id, rel)?;
     }
     let drive = drive_row(state, id).map_err(map_files_err)?;
+    // Trash is found by the `.luna-<uuid>` prefix the drive's microdb names, so
+    // a drive whose microdb went missing would list an empty trash and say
+    // there is nothing in it while the person's deleted files sit right there.
+    // Rebuild it first (the same repair "remove this drive, then add it again"
+    // does), then read the real directory.
+    crate::db::with_db(
+        &state.db,
+        || FilesError::UnknownDrive,
+        |conn| files::ensure_drive_db(conn, id),
+    )
+    .map_err(map_files_err)?;
     let mut entries = files::list_trash_dir_at(&drive, rel).map_err(map_files_err)?;
     // Trash metadata is read from the drive's own files, so do it before
     // the global lock is taken.
@@ -2210,7 +2221,8 @@ pub(crate) fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
             "unknown_drive",
             "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.",
         ),
-        // The drive is adopted and mounted. Only its on-drive database is gone.
+        // The drive is adopted and mounted, but its on-drive database could not
+        // be rebuilt (read-only, or no space).
         FilesError::MissingDriveDb => json_error_code(
             StatusCode::INTERNAL_SERVER_ERROR,
             "missing_drive_db",

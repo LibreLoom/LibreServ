@@ -206,10 +206,14 @@ Item = {
   - `UploadFilesPanel` gets the same two buttons: `Choose files`, `Choose a folder`.
 - **Walker** (`walkDropped(dropped, { onFile, onDir, onError })`):
   - It's an async loop over `readEntries` batches. Each entry has its own try/catch, so one bad entry never stops the walk.
-  - It reports empty folders through `onDir`.
-  - For picker input it uses `file.webkitRelativePath`.
+  - It reports empty folders through `onDir`. Only a folder with **no children at all** is reported; a folder holding only empty folders is not, but its leaf's path carries it, and `makeFolders` makes every level of the path.
+  - Aborting (cancelling the operation) stops the walk where it is: a file already being read is dropped instead of queued, and no further folder is entered.
+  - For picker input it uses `file.webkitRelativePath`. The picker hands over a **flat list of files**, so an empty folder inside the picked one leaves no trace: the picker cannot copy it. The code says so instead of pretending — the menu item reads `Skips empty folders`, the panel prints the same line under `Choose a folder`, and a pick that comes back with no files says `That folder has no files in it.` Dragging the folder does copy empty folders.
 - **Problem folders:** a bad file becomes a failed row. Every other file continues.
-- **A file in the way:** if a file sits where a folder should go, every file under it gets lunad's `That destination is not a folder.` These are grouped through "N more problems →".
+- **A file in the way:** lunad answers `409` with the *folder* wording for a file of that name too, so the runner asks `stat` what is really there. A folder is success; a file fails the row with `couldn't be made: a file named {name} is already there.` Every file under it then gets lunad's `That destination is not a folder.` These are grouped through "N more problems →".
+- **Folder-only drops:** a folder holding only empty folders uploads no bytes, so the card counts folders — `Made 2 folders in Documents`, meta `2 folders made`, a moving bar rather than one stuck at 0%, and the success toast `Made 2 folders.` It never says `0 of 0 files`.
+- **Cancel:** a folder being made stops before its next level. Folders already created stay (Luna has them and nothing here can take them back), and the row says `Cancelled`.
+- **Single-file share links:** a dropped folder is refused up front with `Choose one file to replace this file.` — the walk would otherwise find many files after the operation had already started.
 - **Junk files:** no silent skipping of OS junk files. If lunad refuses a name, its message shows in the row.
 
 ### 2.9 Toasts, haptics, errors

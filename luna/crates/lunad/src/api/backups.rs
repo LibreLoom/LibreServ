@@ -609,6 +609,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_private_folder_is_not_covered_by_the_private_items_backup() {
+        let f = fixture();
+        let owner_only = format!(r#"{{"users":["{}"],"admins":false}}"#, f.member_id);
+        // The private item and a folder inside it, both the member's.
+        seed_owned(
+            &f.state,
+            "diary",
+            "diary",
+            &owner_only,
+            &f.member_id,
+            &f.member_id,
+        );
+        seed_owned(
+            &f.state,
+            "diary-2025",
+            "diary/2025",
+            &owner_only,
+            &f.member_id,
+            &f.member_id,
+        );
+        {
+            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            db::record_protection_ok(&conn, "diary", 5, &owner_only).unwrap();
+        }
+
+        let (status, body) = send(
+            &f.router,
+            "GET",
+            "/api/v1/backups?drive=d1&path=diary/2025",
+            &f.member_token,
+            None,
+        )
+        .await;
+        assert_eq!(status, axum::http::StatusCode::OK);
+        let row = body
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["id"] == "diary-2025")
+            .expect("the owner sees the folder's backup");
+        assert_eq!(
+            row["covered_by"],
+            Value::Null,
+            "a private folder is its own backup"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_shared_folder_is_still_covered_by_its_shared_parents_backup() {
+        let f = fixture();
+        let member_only = format!(r#"{{"users":["{}"],"admins":false}}"#, f.member_id);
+        seed(&f.state, "docs", "docs", &member_only, &f.member_id);
+        seed(&f.state, "docs-sub", "docs/sub", &member_only, &f.member_id);
+        {
+            let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+            db::record_protection_ok(&conn, "docs", 5, &member_only).unwrap();
+        }
+
+        let (status, body) = send(
+            &f.router,
+            "GET",
+            "/api/v1/backups?drive=d1&path=docs/sub",
+            &f.member_token,
+            None,
+        )
+        .await;
+        assert_eq!(status, axum::http::StatusCode::OK);
+        let row = body
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["id"] == "docs-sub")
+            .expect("the member sees the folder's backup");
+        assert_eq!(row["covered_by"]["path"], "docs");
+    }
+
+    #[tokio::test]
     async fn admin_can_delete_a_deleted_owners_private_backup_but_not_a_live_owners() {
         let f = fixture();
         let owner_only = format!(r#"{{"users":["{}"],"admins":false}}"#, f.member_id);
@@ -769,9 +846,7 @@ mod tests {
             StatusCode::BAD_REQUEST
         );
         assert_eq!(
-            super::refusal_status(
-                "This folder is inside a private item, so it can't be backed up here."
-            ),
+            super::refusal_status("Items in the trash can't be backed up."),
             StatusCode::BAD_REQUEST
         );
         assert_eq!(

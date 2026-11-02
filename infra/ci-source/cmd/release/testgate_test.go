@@ -20,7 +20,7 @@ func TestCIGateRunsProfilesUnlimitedAndReportsFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	all := strings.Join(lines, "\n")
-	if !strings.Contains(all, "args: run -profile sol -session") || !strings.Contains(all, "args: run -profile release -session") {
+	if !strings.Contains(all, "args: run --profile sol --session") || !strings.Contains(all, "args: run --profile release --session") {
 		t.Fatalf("ci must run each profile with -session, got:\n%s", all)
 	}
 
@@ -29,7 +29,7 @@ func TestCIGateRunsProfilesUnlimitedAndReportsFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `profile "bad"`) {
 		t.Fatalf("want failure naming the profile, got %v", err)
 	}
-	if strings.Contains(strings.Join(lines, "\n"), "-profile release") {
+	if strings.Contains(strings.Join(lines, "\n"), "--profile release") {
 		t.Fatal("a failed profile must stop the gate")
 	}
 	if !strings.Contains(strings.Join(lines, "\n"), "Broken") {

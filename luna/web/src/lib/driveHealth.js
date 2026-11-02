@@ -88,9 +88,9 @@ export function describeDriveHealth(health) {
       needsYou: { tone: "problem", rank: 12, title: " is failing", detail: failingDetail(top) },
       rows: buildRows(health, signals),
       steps: [
-        "Plug in another drive with enough free space and add it to Luna.",
-        "Open this drive, tick Select all, choose Copy, and pick the new drive.",
-        "When the copy is done, remove this drive from Luna and stop using it.",
+        "Unplug this drive from Luna and plug it into a computer.",
+        "Copy all the files off it to the computer.",
+        "When the copy is done, stop using this drive.",
       ],
     };
   }
@@ -147,9 +147,9 @@ function failingDetail(top) {
       return `It's past its maker's wear limit. ${COPY_NOW}`;
     case "pending_sectors":
     case "uncorrectable_sectors":
-      return `It can't read ${n} spots on its disk. ${COPY_NOW}`;
+      return `It can't read ${n} blocks on its disk. ${COPY_NOW}`;
     case "reallocated_sectors":
-      return `${n} spots on its disk have worn out. ${COPY_NOW}`;
+      return `${n} blocks on its disk have worn out. ${COPY_NOW}`;
     default:
       return COPY_NOW;
   }
@@ -197,7 +197,7 @@ function watchCopy(top, health) {
         pill: "Showing wear",
         summary: WATCH_SUMMARY,
         title: " is showing wear",
-        detail: `${top?.value} spots on its disk have worn out. ${KEEP_AND_BACK_UP}`,
+        detail: `${top?.value} blocks on its disk have worn out. ${KEEP_AND_BACK_UP}`,
       };
   }
 }
@@ -247,9 +247,9 @@ function buildRows(health, signals) {
     let value = "None";
     if (n > 0) value = `${n} · ${level === "failing" ? "too many" : "showing wear"}`;
     rows.push({
-      key: "replaced-spots",
-      label: "Replaced spots",
-      hint: "Parts of the disk that wore out. The drive moved their data to spare space. A few is a warning sign, and the number usually grows. Luna treats 100 or more as failing.",
+      key: "replaced-blocks",
+      label: "Replaced blocks",
+      hint: "Blocks of the disk that wore out. The drive moved their data to spare space. A few is a warning sign, and the number usually grows. Luna treats 100 or more as failing.",
       value,
     });
   }
@@ -257,9 +257,9 @@ function buildRows(health, signals) {
   if (health.pending_sectors != null || health.uncorrectable_sectors != null) {
     const n = (health.pending_sectors ?? 0) + (health.uncorrectable_sectors ?? 0);
     rows.push({
-      key: "unreadable-spots",
-      label: "Unreadable spots",
-      hint: "Parts of the disk the drive couldn't read. Files stored there may already be damaged.",
+      key: "unreadable-blocks",
+      label: "Unreadable blocks",
+      hint: "Blocks of the disk the drive couldn't read. Files stored there may already be damaged.",
       value: n > 0 ? `${n} · failing` : "None",
     });
   }

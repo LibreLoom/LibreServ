@@ -18,7 +18,6 @@ import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
-import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { getJson, postJson, apiErrorMessage } from "../../../lib/api";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 
@@ -245,19 +244,19 @@ export default function SystemUpdatesCard({ index = 0 }) {
                   <Button
                     variant="secondary"
                     surface="primary"
+                    tooltip="Installs the same update again and restarts Luna."
                     onClick={() => {
                       setRetrying(true);
                       setShowUpdateModal(true);
                     }}
                     disabled={updating}
                   >
-                    Try again
+                    {/* Same dotted-underline affordance as a TermHint: the
+                        explanation hangs off this label, not a separate ⓘ. */}
+                    <span className="underline decoration-dotted decoration-2 underline-offset-4">
+                      Try again
+                    </span>
                   </Button>
-                  <InfoHint
-                    surface="primary"
-                    label="More about trying again"
-                    content="Installs the same update again and restarts Luna."
-                  />
                   <Button
                     variant="outline"
                     surface="primary"
