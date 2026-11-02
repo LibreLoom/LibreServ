@@ -696,6 +696,19 @@
     },
     "timestamp": "number"
   },
+  "GET /api/v1/system/storage": {
+    "free_bytes": "number",
+    "items": [
+      {
+        "bytes": "number",
+        "id": "string",
+        "label": "string",
+        "removable": "boolean"
+      }
+    ],
+    "total_bytes": "number",
+    "used_bytes": "number"
+  },
   "GET /api/v1/system/updates": {
     "binary_name": "string",
     "checksum": "string",
@@ -1040,6 +1053,12 @@
   "POST /api/v1/system/factory-reset": {
     "message": "string",
     "ok": "boolean"
+  },
+  "POST /api/v1/system/storage/cleanup": {
+    "cleared": [
+      "string"
+    ],
+    "freed_bytes": "number"
   },
   "POST /api/v1/system/updates/os-failed/clear": {
     "ok": "boolean"
