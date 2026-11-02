@@ -967,7 +967,7 @@ mod tests {
                 .await
                 .unwrap();
         }
-        revoke_recovery_files(State(state.clone()), Some(current(&admin)))
+        let _ = revoke_recovery_files(State(state.clone()), Some(current(&admin)))
             .await
             .unwrap();
         let conn = state.db.lock().unwrap();
