@@ -163,10 +163,30 @@ fn search_drive_bounded(
     query: &Query,
     kind: KindFilter,
 ) -> anyhow::Result<(Vec<Candidate>, bool)> {
+    search_drive_with_limits(
+        conn,
+        drive_id,
+        query,
+        kind,
+        ROW_BUDGET,
+        Some(std::time::Duration::from_secs(2)),
+    )
+}
+
+fn search_drive_with_limits(
+    conn: &Connection,
+    drive_id: &str,
+    query: &Query,
+    kind: KindFilter,
+    row_budget: i64,
+    timeout: Option<std::time::Duration>,
+) -> anyhow::Result<(Vec<Candidate>, bool)> {
     // SQLite can spend work inside MATCH before yielding a row. Interrupt long
     // queries as well as bounding rows; incomplete results are labelled above.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-    conn.progress_handler(1000, Some(move || std::time::Instant::now() >= deadline));
+    if let Some(timeout) = timeout {
+        let deadline = std::time::Instant::now() + timeout;
+        conn.progress_handler(1000, Some(move || std::time::Instant::now() >= deadline));
+    }
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     let mut incomplete = false;
@@ -177,7 +197,7 @@ fn search_drive_bounded(
             let mut examined = 0_i64;
             loop {
                 // One extra row distinguishes an exactly full budget from overflow.
-                let size = PAGE_SIZE.min(ROW_BUDGET + 1 - examined);
+                let size = PAGE_SIZE.min(row_budget + 1 - examined);
                 let rows = match candidate_page(conn, drive_id, query, kind, expr, after, size) {
                     Err(e) if e.downcast_ref::<rusqlite::Error>().is_some_and(|err| matches!(err, rusqlite::Error::SqliteFailure(code, _) if code.code == rusqlite::ErrorCode::OperationInterrupted)) => {
                         incomplete = true;
@@ -190,7 +210,7 @@ fn search_drive_bounded(
                 }
                 let count = rows.len() as i64;
                 for (rowid, hit) in rows {
-                    if examined == ROW_BUDGET {
+                    if examined == row_budget {
                         incomplete = true;
                         return Ok(());
                     }
@@ -508,6 +528,30 @@ mod tests {
         }
         let (_, incomplete) =
             search_drive_bounded(&conn, "d1", &Query::new("budget"), KindFilter::All).unwrap();
+        assert!(incomplete);
+    }
+
+    #[test]
+    fn row_budget_distinguishes_exact_limit_from_an_omitted_match() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = drive_conn(dir.path());
+        for i in 0..3 {
+            conn.execute("INSERT INTO index_entries (drive_id,parent,name,kind,size,modified,hidden) VALUES ('d1','',?1,'file',1,1,0)", params![format!("budget {i}.txt")]).unwrap();
+        }
+        let query = Query::new("budget");
+        let (exact, incomplete) =
+            search_drive_with_limits(&conn, "d1", &query, KindFilter::All, 3, None).unwrap();
+        assert_eq!(exact.len(), 3);
+        assert!(!incomplete);
+        conn.execute("INSERT INTO index_entries (drive_id,parent,name,kind,size,modified,hidden) VALUES ('d1','',?1,'file',1,1,0)", params!["budget visible.txt"]).unwrap();
+        let (limited, incomplete) =
+            search_drive_with_limits(&conn, "d1", &query, KindFilter::All, 3, None).unwrap();
+        assert_eq!(limited.len(), 3);
+        assert!(
+            limited
+                .iter()
+                .all(|candidate| candidate.hit.name != "budget visible.txt")
+        );
         assert!(incomplete);
     }
 
