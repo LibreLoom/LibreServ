@@ -6,7 +6,7 @@ Planning only. Nothing here is built yet. **LUKS2 + ext4, Luna side only.** The 
 
 Building now:
 
-- **R1.** Off by default; one option turns encryption on for one drive.
+- **R1.** Off by default; one option turns encryption on for one drive — and off again, on any drive, at any time.
 - **R4.** The key lives only in RAM on the Luna.
 - **R5.** Someone unlocks the drive after Luna boots.
 - **R6.** Web UI access to a locked drive opens an unlock dialog.
@@ -113,20 +113,30 @@ Add `is_luks_type()` and handle it explicitly in `choice_for`, `peek` and `inspe
 
 One global handler, not a check on every page: a `drive_locked` response anywhere opens the dialog for that drive. On success, invalidate the failed queries rather than replaying them. Copy: title `Unlock Photos`, field `Password`, under it *"This drive stays unlocked until you lock it or Luna restarts."*, wrong password shakes with *"That password didn't work."*, five wrong gets *"Too many wrong tries. Wait a few minutes, then try again."*
 
-**Admin only, v1**, on the same rate-limiter pattern as `login_limiter`. A Member with a live session could otherwise sit and guess.
+**Anyone with access to the drive may unlock it.** If a person can read the drive's files, they already have everything the password protects, so withholding the unlock button buys nothing — the password is shared the way a house key is. It does mean a Member with a live session can guess, so the endpoint keeps the `login_limiter` rate-limit pattern: per user, per drive, five tries then a wait. A Member who has no access never sees the dialog, because `drive_root()` refuses them before `locked` is consulted.
 
-**No idle auto-lock in v1** — gallery indexing, cloud backup and search indexing run against the mount, and an idle timer would kill them mid-run.
+**No idle auto-lock in v1** — gallery indexing, cloud backup and search indexing run against the mount, and an idle timer would kill them mid-run. There is an explicit **Lock** action on the drive card for the person who wants it.
 
-### Turning encryption on
+### Turning encryption on and off — where the options live
 
-The password is chosen here, because `luksFormat` is the only moment it can be. The dialog, in order:
+Both directions are drive-card actions, because that is where every other per-drive operation already is (`FilesPage.jsx` → `AdoptedCard`, beside `Eject safely` and `Remove`).
 
-1. **What this does.** *"Files on this drive are scrambled. Luna needs the password to open them."*
-2. **The warning, unmissable, before anything else.** *"If you forget this password, the files on this drive are gone. Nobody can recover them, including us."* Not a hint, not a footnote — a line the person has to read before the field appears.
-3. **Password, twice.** A confirmation field, because a typo here destroys the drive. No strength meter that invites a weak password by scoring it green; a minimum length and a plain sentence about what makes it strong.
-4. **Format.** `sfdisk` → `luksFormat` → `mkfs.ext4` → adopt as normal.
+**Turning it on.** A new **Encrypt** button on an unencrypted, ready drive. It opens a dialog that explains what will happen and asks for the password twice, with the warning from §4 unmissable before the fields appear. Then a job runs with progress, and the drive is read-only to everyone else until it finishes.
 
-Two things the dialog must not do: offer a "recover later" path that does not exist, and describe the drive as portable before the reader ships (§7).
+**Turning it off.** A **Decrypt** button on an encrypted, unlocked drive, in the same place. Same shape: confirm, password, job, progress. A locked drive shows **Unlock** there instead, and Decrypt only appears once it is unlocked.
+
+**Both are Admin-only**, matching Remove and Eject. A Member can use an encrypted drive but cannot change whether it is encrypted.
+
+**The conversion job.** `cryptsetup reencrypt` does the work in place, but it is not a background task you can fire and forget:
+
+- It needs the last 32 MiB free on the device, so **check that before starting** and refuse with a plain reason rather than failing halfway.
+- It runs for hours on a full drive. It must be a real job — the existing `jobs` table, progress, and a cancel that is safe to resume ([ArchWiki](https://wiki.archlinux.org/title/Removing_system_encryption) documents `--resume-only`).
+- The drive must be **exclusively held** for the duration. `Db::drive_lock` already serializes per-drive writes, and `begin_closing` already stops `reconcile` touching a drive mid-operation — a conversion takes both, plus a `converting` flag that `drive_root` refuses the way it refuses `locked`.
+- **A power cut mid-conversion is recoverable but not silent.** LUKS2 keeps the reencrypt state in the header, so it resumes rather than corrupts — but the drive must come back up showing "Encryption was interrupted. Resume it." rather than looking normal.
+
+**Encrypting an unencrypted drive needs somewhere to put the header.** `reencrypt --encrypt` shrinks the filesystem by the header size first, which means the filesystem must be one Luna can resize — ext4 and exFAT both can, but a full FAT32 drive has no room. Check, then refuse plainly.
+
+**Decrypting is the same job reversed**, and it is the more dangerous direction: it leaves the files in the clear, so the confirmation has to say that in those words.
 
 ### Image and new drives
 
@@ -152,14 +162,15 @@ Two consequences of deferring it that are worth knowing now:
 
 | Phase | Work |
 |---|---|
-| **0** | Fix the LUKS2 profile. Decide who may unlock (§9). |
-| **1** | Image: `cryptsetup`, `dm-crypt`, presence check. Luna: detection, unlock/lock, `locked` column, 423 on API and WebDAV, unlock dialog. |
-| **2** | New-drive format path: partition → `luksFormat` → `mkfs.ext4`, with the setup dialog from §5. |
-| **3** | Parity: drive-backup pairing rules, the §6 leak audit. |
+| **0** | Fix the LUKS2 profile (cipher, KDF memory, one keyslot). |
+| **1** | Image: `cryptsetup`, `dm-crypt`, presence check. Luna: detection, unlock/lock, `locked` column, 423 on API and WebDAV, unlock dialog, Lock action. |
+| **2** | New-drive format path: partition → `luksFormat` → `mkfs.ext4`, with the setup dialog from §4. |
+| **3** | Conversion both ways: Encrypt/Decrypt on the drive card, the job with progress and resume, the `converting` flag. |
+| **4** | Parity: drive-backup pairing rules, the §6 leak audit. |
 
-Conversion of an existing drive is `cryptsetup reencrypt`, which works in place but is hours on a full drive and needs the last 32 MiB free. **Leave it out of v1** — encryption on new drives only.
+Phase 3 is the riskiest — an interrupted conversion is the one failure mode that can lose data, so it needs the resume path tested against a real power-cut rather than assumed.
 
 ## 9. Decisions I need from you
 
-1. **Who may unlock?** Admin only (my recommendation), or anyone with access to the drive?
-2. **Existing drives, or new ones only?** I recommend new ones only for v1.
+1. **What happens to a drive that is mid-conversion when Luna restarts?** Resume automatically, or wait for someone to press Resume? I lean toward waiting, so a person sees why the drive is unavailable.
+2. **Does Decrypt need the password, or is being an Admin on an unlocked drive enough?** Asking proves the person knows it; skipping it is one less step for someone who just unlocked it.
