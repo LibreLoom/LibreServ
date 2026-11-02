@@ -1,176 +1,153 @@
 # Encrypted drives — plan for review (2026-11-02)
 
-Planning only. Nothing here is built yet.
+Planning only. Nothing here is built yet. **Revised for LUKS2 + ext4**, reader shipped from the docs site.
 
 ## 1. Requirements
 
 - **R1.** Off by default; one option turns encryption on for one drive.
-- **R2.** An encrypted drive carries `/blocks` and a reader app per desktop OS.
-- **R3.** The reader takes a password and shows the files on a non-Luna computer.
+- **R3.** A reader app takes a password and shows the files on a non-Luna computer.
 - **R4.** The key lives only in RAM on the Luna.
 - **R5.** Someone unlocks the drive after Luna boots.
 - **R6.** Web UI access to a locked drive opens an unlock dialog.
 - **R7.** API/WebDAV access fails with a code saying "unlock it in the web page".
 
-## 2. The architecture choice
+R2 (`/blocks` on the drive) is **dropped** — a LUKS2 volume is one encrypted device with no filesystem outside it, so there is nowhere to put files. The reader comes from a downloads page instead.
 
-Three different things get called "encrypted drive". They are not variations on one design.
+## 2. What this buys, and what it costs
 
-| | **A. Whole-disk (LUKS)** | **B. File-level vault + FUSE** | **C. File-level, no mount** |
-|---|---|---|---|
-| On the drive | LUKS2 container | Normal filesystem; `blocks/` holds ciphertext | Same as B |
-| R2 (`/blocks` + reader) | **No** — a LUKS volume is a raw device, not files | Yes | Yes |
-| R3 (read on a laptop) | Needs a LUKS2+ext4 reader for Windows/macOS. Nothing good exists | Yes, our own reader | Yes |
-| Luna's file layer | **Unchanged** — marker, microdb, trash, thumbs, private, backups, WebDAV all work | Needs a FUSE server | Rewrite every call site |
-| Effort | Small | Large | Very large |
+**Buys:** Luna's entire file layer is unchanged. Marker, microdb, trash, thumbnails, private items, jobs, drive backups, WebDAV, the path jail — all keep working, because once unlocked the mount is an ordinary ext4 filesystem. No FUSE server, no new file abstraction, no SQLite-on-FUSE problem. The drive microdb moves inside the container for free, so a stolen drive reveals nothing at all — not even file names.
 
-**Recommendation: B.** The only option satisfying R2 and R3, and it leaves Luna's file layer intact — the difference between "a big feature" and "a rewrite". A is the cheap fallback if R2/R3 turn out optional. B's cost sits in one place: **a FUSE server**. Everything above it keeps working because it still sees a normal directory tree.
+**Costs:** the drive is unreadable without our reader app, on every OS, forever. And the reader is now the dominant piece of work, not Luna.
 
-## 3. What an encrypted drive looks like
+## 3. Layout
 
 ```
-/blocks/
-  header.json          public: format version, vault id, drive id, label,
-                       Argon2id params + salt, the wrapped vault key
-  tree/<dir-id>.dir    one encrypted directory record per folder
-  data/<file-id>.dat   one encrypted container per file
-  state.db.enc         the drive's own database (index, photos, trash, albums)
-access.exe             Windows reader
-access.app             macOS reader (the bare `access` binary lives inside it)
-access.appimage        Linux reader
+/dev/sdb1                 LUKS2 container (aes-xts-plain64, 512-bit key, argon2id)
+  └─ /dev/mapper/luna-vault-<drive-id>    opened only while unlocked
+       └─ ext4                            mounted at mounts/drives/<drive-id>
+            ├─ .luna-<uuid>.sqlite3       marker + microdb, now encrypted
+            ├─ photos/ …
+            └─ .luna-<uuid>-trash/ …
 ```
 
-`header.json` is the only plaintext file, and holds only what Luna needs to say *"this is a locked drive called Photos"* before anyone unlocks. The label is not a secret — it is already in the clear on every Luna drive.
+One partition, one container, ext4 inside. The partition label carries the drive name (`cryptsetup config --label`), so a locked drive still shows *"Photos"* in the UI — labels are readable without unlocking, and the name is not a secret.
 
-**Why not reuse the cloud pack layout for `data/`.** That format batches chunks into 32 MiB packs and seals the index beside the body — right for an archive uploaded once, wrong for a live filesystem, where every write would repack and FUSE needs reads at an offset. So `data/<file-id>.dat` is a fixed-block container: 1 MiB blocks, each keyed by the vault key, file id and block index, with an encrypted header holding the block table and size. File names exist only inside the directory records. ~1,500 lines with tests plus a `vectors.json` — the same shape as `backup/cloud/format.rs`.
+**LUKS2 parameters are fixed and minimal**, so the reader has one shape to parse: single cipher `aes-xts-plain64`, 512-bit key, `argon2id`, no `dm-integrity`, sector size 512. Anything else is a format the reader refuses rather than guesses.
 
 ## 4. Keys
 
-```
-password ──Argon2id(salt, m, t)──► KEK ──XChaCha20-Poly1305──► vault key (32 random bytes)
-recovery phrase ──BIP39 entropy──► KEK' ─────────────────────► vault key (second copy)
-```
+LUKS2 has **eight keyslots**, each independent, each with its own KDF parameters. That maps onto the requirements directly:
 
-- The **vault key** is random, made once, never leaves RAM after unlock.
-- `header.json` holds the salt, the Argon2id parameters and one or two wrapped copies of the vault key. No password, no verifier — nothing that lets a guess be tested faster than Argon2id allows.
-- The **recovery phrase** is optional and is the same 24-word BIP39 phrase the cloud backup uses. Shown once, never stored. Without it, a forgotten password means the files are gone — the UI must say so before it starts.
+| Keyslot | Opened by | Purpose |
+|---|---|---|
+| 0 | the drive password | normal unlock |
+| 1 | a 24-word BIP39 recovery phrase | forgotten password |
 
-**RAM only, and what that means.** R4 holds only if the key never reaches a disk. Build and test that: not in `luna.db`, not in the drive microdb, not in a temp file; `zeroize` on lock and drop; `mlock` the 32 bytes so a page never lands in swap. And **`RLIMIT_CORE = 0` at startup** — a crash today can write a core file containing the key. `sandbox.rs` sets no-core-dumps for children; the daemon itself does not.
+- No custom key-wrapping code: `cryptsetup luksAddKey` and `luksChangeKey` do it, and the recovery phrase is just a second passphrase. The phrase uses the same wordlist and entropy handling as cloud backup (`phrase_to_entropy` / `entropy_to_phrase`).
+- **The passphrase is never an argument.** `cryptsetup luksOpen --key-file -` reads it from stdin; anything on the command line is world-readable in `/proc/<pid>/cmdline`.
+- **After unlock, no passphrase is kept at all.** The volume key lives in the kernel's dm-crypt, which is not swappable and is wiped by `luksClose` or power loss. That satisfies R4 more cleanly than holding a key in userspace.
+- **Argon2id memory must be lowered.** LUKS2 defaults to 1 GiB, which OOM-kills on a 2 GiB Wyse ([cryptsetup docs](https://man7.org/linux/man-pages/man8/cryptsetup-luksFormat.8.html), [low-memory writeup](https://sleeplessbeastie.eu/2021/07/05/how-to-open-luks2-encrypted-volume-on-a-low-memory-device/)). `budget.rs` already caps single allocations at an eighth of free RAM. Pick the memory cost once at format time from `budget::meminfo()`, record it in the header, and every reader honours whatever is recorded.
+- **`RLIMIT_CORE = 0` at startup.** dm-crypt keys aren't in the daemon's address space, but the passphrase passes through it. `sandbox.rs` sets no-core-dumps for children; the daemon itself does not.
 
-## 5. How Luna uses it
+## 5. Luna side
 
-Each encrypted drive gets two mounts: the drive's own filesystem at `mounts/drives/<id>` as today, and the FUSE view at `mounts/vaults/<id>` only while unlocked. `drives.mount_point` becomes the **FUSE path**, because that is what every caller means by "the drive root"; the outer path moves to a new `vaults` table that `eject`, `remove` and `reconcile` consult. That is the one invasive change to `drives/mod.rs` — about a dozen call sites, all in one file.
+### Detection — the part that needs care
 
-**Do not add a `locked` drive state.** `state` is a string compared against `"as_is"` in ~15 places, and a locked drive is still present and healthy. Add a `locked` column and a `DriveJson` field instead:
+`blkid` reports a LUKS partition as `crypto_LUKS`, which is **not** in `is_writable_type`. So today `pick_mount_source` skips it, and `peek` falls through to mounting it read-only, which fails — the UI would say *"Can't open"* for a perfectly good drive.
+
+Add `is_luks_type()` and handle it explicitly in `choice_for`, `peek` and `inspect`:
+
+- a `crypto_LUKS` partition is a candidate, never `needs_erase`
+- `peek` does not mount it; it reads the label and reports `locked: true`
+- the Add-drive card says *"This is an encrypted Luna drive. Add it, then enter its password."*
+- a drive with no marker and no LUKS is unchanged
+
+### Unlock, lock, mount
+
+| When | What happens |
+|---|---|
+| Boot | `reconcile` sees the LUKS partition, records the drive as `locked`, does not open it |
+| Unlock | `luksOpen` → `mount -t ext4` at `mounts/drives/<id>` → existing adopt/reconcile continues normally |
+| Lock | flush, `umount`, `luksClose`, mark `locked` |
+| Eject / remove | lock first, then release the device |
+| Power off | nothing to do — the key was only ever in the kernel |
+
+`mount_point` keeps its meaning. The only new state is a `locked` column.
+
+**Do not add a `locked` drive state.** `state` is a string compared against `"as_is"` in ~15 places, and a locked drive is still present and healthy. Instead:
 
 - `files::drive_root()` — the one function every file operation already goes through — filters `locked` and returns `FilesError::Locked`
 - `map_files_err` turns that into **HTTP 423**, `code: "drive_locked"`, *"This drive is locked. An Admin can unlock it in Luna's web page."*
 - `dav_handler_for` gets the same check, so Finder/Explorer show a real error rather than an empty folder
 - the drive card shows a `Locked` pill before it considers `isUnopenable`
 
-| When | What happens |
-|---|---|
-| Boot | `reconcile` mounts the **outer** filesystem, reads `header.json`, marks the drive locked, does not mount the vault |
-| Unlock | Argon2id, unwrap the key, mount FUSE, decrypt `state.db.enc` to tmpfs, mark unlocked |
-| Lock | Flush, unmount FUSE, zeroize the key, mark locked |
-| Eject / remove | Lock first, then unmount the outer filesystem |
-| Power off | Nothing to do — the key was only ever in RAM |
+### The unlock dialog (R6)
 
-**No idle auto-lock in v1.** Gallery indexing, cloud backup and search indexing run against the mount; an idle timer would kill them mid-run and produce "failed" rows nobody caused. Lock on eject, remove and reboot only.
+One global handler, not a check on every page: a `drive_locked` response anywhere opens the dialog for that drive. On success, invalidate the failed queries rather than replaying them. Copy: title `Unlock Photos`, field `Password`, under it *"This drive stays unlocked until you lock it or Luna restarts."*, wrong password shakes with *"That password didn't work."*, five wrong gets *"Too many wrong tries. Wait a few minutes, then try again."*
 
-**The unlock dialog (R6).** One global handler, not a check on every page: a `drive_locked` response anywhere opens the dialog for that drive. On success, invalidate the failed queries rather than replaying them. Copy: title `Unlock Photos`, field `Password`, under it *"This drive stays unlocked until you lock it or Luna restarts."*, wrong password shakes with *"That password didn't work."*, five wrong gets *"Too many wrong tries. Wait a few minutes, then try again."*
+**Admin only, v1**, on the same rate-limiter pattern as `login_limiter`. A Member with a live session could otherwise sit and guess.
 
-**Admin only, v1.** A Member with a live session could otherwise sit and guess a password on a drive they can already partly reach. Same rate-limiter pattern as `login_limiter`. Loosening later is a policy change, not a redesign.
+**No idle auto-lock in v1** — gallery indexing, cloud backup and search indexing run against the mount, and an idle timer would kill them mid-run.
 
-## 6. What still leaks — decide this now
+### Image
 
-This is where the feature's promise goes false if it is skipped.
+`cryptsetup` is **not in the image today** (no package, and `dm_crypt` is not in the module set). Add the package, `dm-mod` and `dm-crypt` to `modules-load.d`, and extend the existing "every helper program lunad needs is present" check in `00.frag` to include `cryptsetup`.
 
-**The drive microdb.** `.luna-<uuid>.sqlite3` holds `index_entries.name`, `photos.path`, `file_hashes.path`, `albums`, `trash_meta.original_path`. Left on the outer filesystem, a stolen drive hands over the whole tree in plaintext. It must live **inside** the vault.
+### New drives
 
-But SQLite on FUSE is a known way to corrupt a database — it wants POSIX locks, `fsync` ordering and atomic rename. Rather than prove that, keep it **out of the vault's filesystem**: at unlock, decrypt `state.db.enc` into a tmpfs file and open it there; at lock, re-encrypt it back. The microdb is a cache by design, so this fits and is *less* wear. Cost: a power cut can lose recent album and trash metadata — worth a short flush interval and the existing "saving…" state.
+`format_data_usb` currently writes one FAT/exFAT partition. For an encrypted drive: `sfdisk` (already used), `cryptsetup luksFormat` on the partition, `mkfs.ext4` inside it (e2fsprogs is already in the image), then adopt as normal.
 
-**The central database.** `luna.db` is on the Luna's own disk, which this feature does not encrypt, and it records paths in the clear: `user_recents.path` (every file a person opened), `path_moves` (where files went), `access_members`/`access_links.path` (which folders are shared), `protections.source_path` (what is backed up), `jobs.from_path`/`to_path` (what was moved).
+## 6. The reader — the real work
 
-So the honest claim is **"someone who steals the Luna can see what files you have, but not what is in them."** Three ways forward:
+A small static binary (`crates/luna-access`) that takes a drive path, asks for the password, serves a tiny embedded web UI on `127.0.0.1` and opens the browser. Read-only in v1.
 
-1. **Accept it and say it** once, in the setup dialog. Cheapest, and true.
-2. **Forbid sharing, protection and jobs on encrypted drives in v1.** Clean claim, but removes a lot of the product.
-3. **Encrypt those columns.** Correct, and invasive: grants would be unreadable while locked, so the UI could only say "3 people have access" with no paths.
+What it has to implement:
 
-**Recommendation: 1 for v1, 3 as a follow-up.** This decision changes the size of the project.
+1. **LUKS2 header** — 16 KiB header, JSON metadata area, binary keyslot area. Parse the JSON, find a keyslot, read its KDF parameters.
+2. **Argon2id** to derive the keyslot key.
+3. **AF merge** — LUKS2 stores keyslot material anti-forensically split across stripes and must be merged back. This is the fiddly part; it is documented but easy to get subtly wrong.
+4. **AES-XTS** decryption with the sector tweak.
+5. **ext4 read-only** — there is a real crate for this ([ext4-view](https://docs.rs/ext4-view)).
 
-**Other leaks to close:**
+Steps 1–4 are ours; there is no mature cross-platform LUKS2 crate to lean on. Budget **3–5k lines plus tests**, and treat it as the project's critical path rather than an afterthought.
 
-- **Drive backups.** `backup/drive_store.rs` writes plaintext copies onto the target drive — backing up an encrypted drive to an unencrypted one silently undoes the feature. Refuse that pairing or seal the backup with the source vault key.
+**It must be verified against real volumes, not against itself.** A round-trip test with our own code proves nothing. CI should create a volume with real `cryptsetup`, write a known tree, and require the reader to reproduce it byte for byte — including a wrong-password case and a corrupted-header case. If the reader has a bug, the drive is unreadable, and there is no second implementation to fall back on.
+
+**Distribution.** Build from `desktop/packaging/{windows,appimage,macos}`, which already cross-builds all three from Linux, sign with the existing minisign key (`keys/luna.minisign.pub`), and publish on the docs site. The app refuses a LUKS2 header it does not understand — *"This drive was made by a newer Luna. Get the latest access app from …"* — rather than guessing.
+
+**The gap the downloads page leaves:** a drive and no internet is a dead drive. One cheap mitigation, if you want it: a small second FAT32 partition on the drive holding the reader binaries. They are public binaries, so nothing is lost, and it recovers the `/blocks` convenience without touching the encryption. Worth deciding now because it changes the partition layout.
+
+## 7. What still leaks
+
+- **The central database.** `luna.db` is on the Luna's own disk, which this does not encrypt, and it records paths in the clear: `user_recents.path`, `path_moves`, `access_members`/`access_links.path`, `protections.source_path`, `jobs.from_path`/`to_path`. So the honest claim is **"a stolen Luna shows what files you have, not what is in them."** Accepting and saying that is cheap; encrypting those columns touches grants and protections and makes them unreadable while locked. **Recommendation: accept for v1.**
+- **Drive backups.** `backup/drive_store.rs` writes plaintext copies onto the target drive — backing up an encrypted drive to an unencrypted one silently undoes the feature. Refuse that pairing, or require the target to be encrypted too.
+- **The drive label** is readable while locked. That is deliberate (the UI needs it) and should be stated in the setup dialog.
 - **Zip downloads** build a temp file in `/tmp` (a 32 MB tmpfs — RAM, and too small for a big folder). Fine, but check the size limit before the vault is involved.
-- **The reader app** parses bytes from a drive that may be hostile. Panic-free and bounds-checked, like the parsers in `sandbox.rs`.
 
-## 7. Reusing the cloud backup mechanism
-
-The answer is "the primitives, not the layout".
-
-| Piece | Reuse? | Why |
-|---|---|---|
-| XChaCha20-Poly1305 + `canonical` AAD | **Yes** | Same primitive, same helper, same discipline |
-| Argon2id | **Yes** | Already a dependency |
-| BIP39 phrase | **Yes**, for the optional recovery key | Already used for cloud phrases |
-| JS port + `vectors.json` discipline | **Yes** | The reader needs a JS implementation; `shared/ui/lib/cloud/backupCrypto.js` proved the pattern |
-| Content-defined chunking | **No** | Built for archival; a live filesystem wants fixed blocks |
-| Pack format | **No** | Immutable uploads; every write would repack |
-| Hybrid seal (X25519 + ML-KEM) | **No** | Sealing needs a recipient key *pair*; here the opener has a password |
-| Signing identity, signed records | **No** | No second party to convince; the AEAD tag proves password and integrity |
-
-So: a new `crates/luna-vault` holds the format and keys with `vectors.json`; `shared/ui/lib/vault/` holds the JS port tested against the same vectors; `lunad`, the FUSE layer and the reader all use the crate.
-
-## 8. The reader app
-
-A small static binary (`crates/luna-access`, ~3–5 MB) that takes a drive path (or finds `blocks/` beside itself), asks for the password, serves a tiny embedded web UI on `127.0.0.1` and opens the browser. The UI reuses the JS port, so there is one crypto implementation to get right and the binary is only a file server. Reuses `desktop/packaging/{windows,appimage,macos}`, which already cross-builds all three from Linux.
-
-**Read-only in v1.** Reading is the whole story you described; writing needs the same crash-safety work twice over.
-
-**Version skew.** Old drives carry old readers. The app refuses an unknown `header.json` version — *"This drive was made by a newer Luna. Get the latest access app from …"* — rather than guessing.
-
-**A drive plugged into a different Luna.** Today an unrecognised drive is offered "Add drive", which would write a `.luna` marker into `blocks/`. `peek`/`inspect` must recognise `blocks/header.json` first and offer *"This is an encrypted Luna drive. Add it, then enter its password."*
-
-## 9. Turning encryption on for an existing drive
-
-Every byte is rewritten, so it is a job with progress:
-
-1. Ask for the password twice, and the recovery key (or an explicit "no recovery key" confirmation).
-2. Check free space up front — the vault needs room beside the plaintext. **Require it rather than discovering it halfway.**
-3. Lock the drive to other users for the duration (a `converting` flag that `drive_root` refuses like `locked`).
-4. Copy into `blocks/`, verify each file by reading it back, then delete the plaintext.
-5. Write `header.json` **last**, so a crash leaves a plaintext drive with a `blocks/` folder Luna ignores — never a vault missing files.
-
-Turning it off is the same in reverse. Both need a cancel that leaves the original intact.
-
-## 10. Phases
+## 8. Phases
 
 | Phase | Work | Why here |
 |---|---|---|
-| **0** | Decide §6 and §12. Write the format as a spec with test vectors. | Everything depends on it, cheap to change now |
-| **1** | `crates/luna-vault`: keys, header, directory records, file containers, tests, `vectors.json`. No Luna integration. | Foundation, testable alone, needed by the reader |
-| **2** | JS port against the same vectors, then `crates/luna-access` read-only, packaged for three OSes. | Proves the format is portable and delivers R3 before the hard part |
-| **3** | Luna: `vaults` table, `locked` column, unlock/lock, FUSE server, `drive_root` gate, 423 on API and WebDAV, unlock dialog. | The big one; everything above it already works |
-| **4** | Conversion jobs with progress and cancel. | Needs 3 to have somewhere to put the result |
-| **5** | Parity: gallery without inotify, office, cloud backup, drive-backup pairing, the §6 leak audit. | The long tail, where the security claim gets verified |
+| **0** | Fix the LUKS2 profile (cipher, KDF memory, keyslots) and write it down. Decide the second-partition question in §6. | Everything depends on it, cheap to change now |
+| **1** | Image: `cryptsetup`, `dm-crypt`, the presence check. Luna: detection, unlock/lock, `locked` column, 423 on API and WebDAV, unlock dialog. | Delivers R1, R4–R7. Testable with real `cryptsetup` |
+| **2** | New-drive format path (partition → luksFormat → mkfs.ext4) and the recovery-phrase keyslot. | Needs 1 |
+| **3** | `crates/luna-access`: header, Argon2id, AF merge, AES-XTS, ext4, against real cryptsetup volumes. | The critical path; start it early in parallel if possible |
+| **4** | Package and sign the reader for three OSes; downloads page. | Delivers R3 |
+| **5** | Parity: drive-backup pairing rules, the §7 leak audit, conversion of existing drives. | The long tail |
 
-Phase 3 is the schedule risk. Phases 1–2 are bounded and demonstrable on their own.
+Conversion of an existing drive is `cryptsetup reencrypt --encrypt`, which works in place, but it is hours on a full drive and needs the last 32 MiB free. **Recommend leaving it out of v1** and offering encryption on new drives only.
 
-## 11. What could kill it
+## 9. What could kill it
 
-- **FUSE speed on a 2 GiB Wyse over USB 2.0.** Every read costs a userspace decrypt. Thumbnails are already a background job, so photos are probably fine; video streaming and large copies are the ones to measure. **Gate phase 3 on a benchmark** against the same drive unencrypted, and be willing to fall back to A if it is bad.
-- **SQLite on FUSE.** Avoided by design in §6, but any path that opens the microdb through the mount instead of the tmpfs copy reintroduces it.
-- **Dirty-write loss on power cut.** `ram_cache` already has the vocabulary ("saving…", failed saves). Use it rather than inventing a second notion of "saved".
-- **The `access` name.** Your list has both `access` and `access.appimage` — the same Linux program twice. See §12.
-- **Image size.** `fuse` must be in the kernel module set and `/dev/fuse` present. The image build already checks that every helper program is present; this needs the equivalent for the module.
+- **The reader.** It is the only way to read the drive and there is no fallback implementation. Underbudgeting it is the main risk in this plan.
+- **ext4 inside a container on USB.** ext4 assumes a device that reports write failures honestly. On a cheap stick pulled mid-write, the journal can leave the filesystem needing repair — and there is no `fsck` on a laptop. Mitigate with `data=ordered` and a sync-on-lock, and be honest in the UI about safe removal.
+- **Argon2id memory on a 2 GiB box**, competing with the gallery indexer for RAM at exactly the wrong moment.
+- **`cryptsetup` as root** on a device node that a member can influence. It parses an attacker-supplied header; run it through `sandbox::hardened` like the other parsers.
 
-## 12. Decisions I need from you
+## 10. Decisions I need from you
 
-1. **Names or just contents?** Must a stolen Luna hide *which* files you have, or only what is in them? That is §6 — "accept and document" versus "encrypt the path columns".
-2. **Reader: read-only, or read and write?** Read-only is much smaller and covers what you described.
-3. **Recovery key: yes or no?** Without one, a forgotten password destroys the files.
-4. **Who may unlock?** Admin only (my recommendation), or anyone with access to the drive?
-5. **The four names.** Is `access` a separate Linux binary from `access.appimage`, or the macOS bundle's inner binary?
-6. **Existing drives, or new ones only?** Converting a full 1 TB drive is hours and needs the free space up front. Restricting v1 to drives added after this ships removes the riskiest job.
+1. **Second partition with the reader binaries?** Recovers the drive-in-a-drawer case cheaply. Changes the layout, so decide before phase 0.
+2. **Recovery phrase: yes or no?** It is a second keyslot, so it is cheap to add — but without one, a forgotten password destroys the files.
+3. **Who may unlock?** Admin only (my recommendation), or anyone with access to the drive?
+4. **Reader: read-only, or read and write?** Read-only is much smaller and covers what you described.
+5. **Existing drives, or new ones only?** I recommend new ones only for v1.
