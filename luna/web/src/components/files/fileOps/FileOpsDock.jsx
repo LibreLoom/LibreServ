@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import PropTypes from "prop-types";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, MotionConfig, motion as Motion } from "motion/react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
@@ -48,30 +47,14 @@ function startsExpanded() {
  *    a row's width instead of its height, so a leaving row never gave its
  *    space back. Each row now animates its own height.
  *
- * @param {{ expanded?: boolean, onExpandedChange?: (open: boolean) => void }} props
- *   `expanded` makes the open state controlled. The playground uses it to fire
- *   the collapse transition on demand; the app leaves both unset.
+ * The open state is this component's own, and only the chevron changes it.
+ * Nothing else may unfold the card: not a new problem, not a caller, not a
+ * prop. Someone reading the page decides when the details appear.
  */
-export default function FileOpsDock({ expanded: expandedProp, onExpandedChange }) {
+export default function FileOpsDock() {
   const ops = useFileOpsState(visibleOps);
   const info = useFileOpsState(dockInfo);
-  const [expandedState, setExpandedState] = useState(startsExpanded);
-  const controlled = expandedProp !== undefined;
-  const expanded = controlled ? expandedProp : expandedState;
-  // Stable, so the effect below can depend on it honestly instead of silencing
-  // the lint. `expanded` is read through a ref for the same reason.
-  const expandedRef = useRef(expanded);
-  expandedRef.current = expanded;
-  const setExpanded = useCallback(
-    (/** @type {boolean | ((open: boolean) => boolean)} */ next) => {
-      const value = typeof next === "function" ? next(expandedRef.current) : next;
-      if (!controlled) setExpandedState(value);
-      onExpandedChange?.(value);
-    },
-    [controlled, onExpandedChange],
-  );
-  const lastProblems = useRef(0);
-
+  const [expanded, setExpanded] = useState(startsExpanded);
   // The last header that had words in it. Read only while the card is leaving,
   // because that is exactly when `info` has nothing left to say.
   const held = useRef({ title: "", summary: "" });
@@ -81,12 +64,6 @@ export default function FileOpsDock({ expanded: expandedProp, onExpandedChange }
   useEffect(() => {
     if (info.title) held.current = { title: info.title, summary: info.summary };
   }, [info.title, info.summary]);
-
-  // Open by itself when a new problem shows up.
-  useEffect(() => {
-    if (info.problemCount > lastProblems.current) setExpanded(true);
-    lastProblems.current = info.problemCount;
-  }, [info.problemCount, setExpanded]);
 
   return (
     <MotionConfig reducedMotion="user">
@@ -155,7 +132,7 @@ export default function FileOpsDock({ expanded: expandedProp, onExpandedChange }
                     transition={SPRING}
                     className="overflow-hidden"
                   >
-                    <div className="max-h-[60vh] overflow-y-auto px-3 pb-3">
+                    <div className="max-h-[60vh] overflow-y-auto px-3">
                       <AnimatePresence initial={false}>
                         {ops.map((op) => (
                           <Motion.div
@@ -166,9 +143,11 @@ export default function FileOpsDock({ expanded: expandedProp, onExpandedChange }
                             transition={SPRING}
                             className="overflow-hidden"
                           >
-                            {/* The gap lives inside the animated height, so a
-                                collapsed row leaves no hole behind it. */}
-                            <div className="pb-2">
+                            {/* The gap is inside the animated height, so a
+                                collapsed row leaves no hole behind it. It
+                                matches the header's padding, so the space
+                                above, between and below rows is all 12px. */}
+                            <div className="pb-3">
                               <FileOpRow op={op} />
                             </div>
                           </Motion.div>
@@ -185,8 +164,3 @@ export default function FileOpsDock({ expanded: expandedProp, onExpandedChange }
     </MotionConfig>
   );
 }
-
-FileOpsDock.propTypes = {
-  expanded: PropTypes.bool,
-  onExpandedChange: PropTypes.func,
-};

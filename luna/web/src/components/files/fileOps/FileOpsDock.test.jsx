@@ -50,8 +50,41 @@ describe("FileOpsDock", () => {
       { id: "op2", kind: "upload", state: "waiting", destLabel: "Inbox", items: [fileClash("c1", "a.txt")] },
     ]);
     expect(screen.getByText("Some files need you")).toBeTruthy();
-    // A problem opens the card on its own, so its row is up without a click.
+    // A problem does not unfold the card. The header says something is wrong;
+    // the chevron is how you look.
+    expect(screen.queryByRole("button", { name: "Replace" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
     expect(screen.getByRole("button", { name: "Replace" })).toBeTruthy();
+  });
+
+  it("stays collapsed even when a problem is already waiting", () => {
+    // A new problem used to open the card by itself. Nothing may do that now:
+    // someone reading the page decides when the details appear.
+    renderWithOps(<FileOpsDock />, [
+      { id: "op1", kind: "upload", state: "waiting", destLabel: "Inbox", items: [fileClash("c1", "a.txt")] },
+    ]);
+    expect(screen.getByRole("button", { name: "Show details" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Replace" })).toBeNull();
+    expect(screen.getByText("Some files need you")).toBeTruthy();
+  });
+
+  it("insets the rows by the same amount on every edge", () => {
+    // The header pads 12px; the rows sat 12px from the top but 20px from the
+    // bottom and 8px apart, which read as a mistake. One value, all edges.
+    const { container } = renderWithOps(<FileOpsDock />, [
+      upload,
+      { id: "op9", kind: "upload", state: "waiting", destLabel: "Inbox", items: [fileClash("c9", "z.txt")] },
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    const header = container.querySelector("[data-slot='card'] > div");
+    const scroller = container.querySelector(".overflow-y-auto");
+    const row = container.querySelector("[data-slot='file-op-row']");
+    expect(header.className).toContain("p-3");
+    // The scroller must not add its own bottom padding: the last row's own
+    // gap is the card's bottom edge.
+    expect(scroller.className).toContain("px-3");
+    expect(scroller.className).not.toContain("pb-");
+    expect(row.parentElement.className).toBe("pb-3");
   });
 
   it("has no way to dismiss the whole card", () => {
@@ -62,7 +95,8 @@ describe("FileOpsDock", () => {
       { id: "op2", kind: "upload", state: "waiting", destLabel: "Inbox", items: [fileClash("c1", "a.txt")] },
     ]);
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
-    // The row's own controls are still there.
+    // The row's own controls are still there once you look.
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
     expect(screen.getByRole("button", { name: "Replace" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
   });
