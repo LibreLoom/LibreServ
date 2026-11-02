@@ -22,7 +22,7 @@ luna-feed = { path = "../luna-feed" }
 mime_guess.workspace = true
 notify.workspace = true
 rand_core.workspace = true
-rusqlite.workspace = true
+rusqlite = { workspace = true, features = ["hooks"] }
 serde.workspace = true
 serde_json.workspace = true
 sha1.workspace = true

@@ -165,10 +165,12 @@ export default function FileSearch() {
   const trimmed = typed.trim();
   const search = useFileSearch(trimmed, { enabled: present && !isClosing, kind });
 
+  const remaining = search.hits.slice(1);
   const groups = [
-    { label: "Folders", hits: search.hits.filter((hit) => hit.kind === "dir") },
-    { label: "Files", hits: search.hits.filter((hit) => hit.kind !== "dir" && !isImageFile(hit.name)) },
-    { label: "Photos", hits: search.hits.filter((hit) => hit.kind !== "dir" && isImageFile(hit.name)) },
+    { label: "Best match", hits: search.hits.slice(0, 1) },
+    { label: "Folders", hits: remaining.filter((hit) => hit.kind === "dir") },
+    { label: "Files", hits: remaining.filter((hit) => hit.kind !== "dir" && !isImageFile(hit.name)) },
+    { label: "Photos", hits: remaining.filter((hit) => hit.kind !== "dir" && isImageFile(hit.name)) },
   ].filter((group) => group.hits.length > 0);
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives, enabled: present });

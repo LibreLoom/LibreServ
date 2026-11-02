@@ -154,6 +154,10 @@ fn search_drive_bounded(
     query: &Query,
     kind: KindFilter,
 ) -> anyhow::Result<(Vec<Candidate>, bool)> {
+    // SQLite can spend work inside MATCH before yielding a row. Interrupt long
+    // queries as well as bounding rows; incomplete results are labelled above.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    conn.progress_handler(1000, Some(move || std::time::Instant::now() >= deadline));
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     let mut incomplete = false;
@@ -165,7 +169,13 @@ fn search_drive_bounded(
             loop {
                 // One extra row distinguishes an exactly full budget from overflow.
                 let size = PAGE_SIZE.min(ROW_BUDGET + 1 - examined);
-                let rows = candidate_page(conn, drive_id, query, kind, expr, after, size)?;
+                let rows = match candidate_page(conn, drive_id, query, kind, expr, after, size) {
+                    Err(e) if e.downcast_ref::<rusqlite::Error>().is_some_and(|err| matches!(err, rusqlite::Error::SqliteFailure(code, _) if code.code == rusqlite::ErrorCode::OperationInterrupted)) => {
+                        incomplete = true;
+                        return Ok(());
+                    }
+                    result => result?,
+                };
                 if rows.is_empty() {
                     break;
                 }
@@ -189,11 +199,16 @@ fn search_drive_bounded(
             }
             Ok(())
         };
-        take(exact.as_deref())?;
-        // Close matching must not depend on the number of inaccessible names.
-        if let Some(close) = search_rank::fts_match(query, false) {
-            take(Some(&close))?;
-        }
+        let result = take(exact.as_deref()).and_then(|()| {
+            // Close matching must not depend on the number of inaccessible names.
+            if let Some(close) = search_rank::fts_match(query, false) {
+                take(Some(&close))
+            } else {
+                Ok(())
+            }
+        });
+        conn.progress_handler(0, None::<fn() -> bool>);
+        result?;
     }
     out.sort_by(|a, b| a.rank.cmp(&b.rank));
     Ok((out, incomplete))
@@ -216,7 +231,7 @@ fn candidate_page(
     let pattern = format!("{escaped}%");
     let sql = if expr.is_some() {
         format!(
-            "SELECT index_entries.rowid, index_entries.parent, index_entries.name, index_entries.kind, index_entries.size, index_entries.modified FROM index_fts JOIN index_entries ON index_entries.rowid = index_fts.rowid WHERE index_fts MATCH ?1 AND index_entries.hidden = 0 AND index_entries.drive_id = ?2 AND index_entries.rowid > ?3 {} ORDER BY index_entries.rowid LIMIT ?4",
+            "SELECT index_entries.rowid, index_entries.parent, index_entries.name, index_entries.kind, index_entries.size, index_entries.modified FROM index_fts JOIN index_entries ON index_entries.rowid = index_fts.rowid WHERE index_fts MATCH ?1 AND index_entries.hidden = 0 AND index_entries.drive_id = ?2 AND index_fts.rowid > ?3 {} ORDER BY index_fts.rowid LIMIT ?4",
             kind.clause()
         )
     } else {
@@ -455,6 +470,24 @@ mod tests {
 
         forget_dir_tree(&conn, "d1", "docs").unwrap();
         assert!(names(&conn, "new name", KindFilter::All).is_empty());
+    }
+
+    #[test]
+    fn fts_page_uses_fts_rowid_order_without_a_sort() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = drive_conn(dir.path());
+        let mut stmt = conn.prepare("EXPLAIN QUERY PLAN SELECT index_entries.rowid FROM index_fts JOIN index_entries ON index_entries.rowid=index_fts.rowid WHERE index_fts MATCH ?1 AND index_entries.hidden=0 AND index_entries.drive_id=?2 AND index_fts.rowid>?3 ORDER BY index_fts.rowid LIMIT ?4").unwrap();
+        let plan = stmt
+            .query_map(params!["\"bud\"", "d1", 0, 256], |row| {
+                row.get::<_, String>(3)
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(
+            !plan.iter().any(|line| line.contains("TEMP B-TREE")),
+            "{plan:?}"
+        );
     }
 
     #[test]

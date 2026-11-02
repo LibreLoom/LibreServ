@@ -132,7 +132,22 @@ describe("FileSearch", () => {
     await screen.findByRole("link", { name: "Open budget.txt" });
     const list = /** @type {HTMLElement} */ (document.querySelector('[data-slot="file-search-list"]'));
     const labels = Array.from(list.children).map((child) => child.getAttribute("role") === "presentation" ? child.textContent : child.querySelector('[data-slot="file-search-link"]')?.getAttribute("aria-label"));
-    expect(labels).toEqual(["Folders", "Open budget", "Files", "Open budget.txt", "Photos", "Open budget.jpg"]);
+    expect(labels).toEqual(["Best match", "Open budget.jpg", "Folders", "Open budget", "Files", "Open budget.txt"]);
+  });
+
+  it("keeps the highest-ranked file as the default before a weaker folder", async () => {
+    renderSearch([
+      { drive_id: "d1", path: "report.txt", parent: "", name: "report.txt", kind: "file", size: 0, modified: 0, match: "name" },
+      { drive_id: "d1", path: "reports", parent: "", name: "reports", kind: "dir", size: 0, modified: 0, match: "close" },
+    ]);
+    await openSearchOverlay();
+    const input = screen.getByRole("textbox", { name: "Search for a file" });
+    fireEvent.change(input, { target: { value: "report" } });
+    const best = await screen.findByRole("link", { name: "Open report.txt" });
+    const list = /** @type {HTMLElement} */ (document.querySelector('[data-slot="file-search-list"]'));
+    expect(list.querySelector('[data-slot="file-search-link"]')).toBe(best);
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument());
   });
 
   it("closes on Escape and restores focus to the header button", async () => {
