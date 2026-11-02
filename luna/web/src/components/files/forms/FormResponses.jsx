@@ -21,6 +21,19 @@ import { cn } from "@libreloom/ui/lib/utils.js";
 /** Summaries list this many text answers before pointing at the table. */
 const SUMMARY_ITEMS = 8;
 
+/** @typedef {import("./questionTypes.js").FormQuestion} FormQuestion */
+/** @typedef {import("../../../lib/formDocument.js").FormResponse} FormResponse */
+
+/**
+ * A table column: a current question, or a removed one that still has answers.
+ * @typedef {{
+ *   id: string,
+ *   label: string,
+ *   type: string,
+ *   question: FormQuestion | null,
+ * }} ResponseColumn
+ */
+
 /**
  * The builder's Responses tab: a count, per-question summaries (bars for
  * choice-ish types, lists for text), an individual-responses table where a
@@ -32,8 +45,8 @@ const SUMMARY_ITEMS = 8;
  * @param {{
  *   driveId?: string,
  *   formPath: string,
- *   questions: object[],
- *   responses: object[],
+ *   questions: FormQuestion[],
+ *   responses: FormResponse[],
  *   loading?: boolean,
  *   error?: string | null,
  *   canDelete?: boolean,
@@ -66,6 +79,7 @@ export default function FormResponses({
   // Columns: current questions in order, then any answered ids that no
   // longer have a question (deleted ones keep their data visible).
   const knownIds = new Set(questions.map((q) => q.id));
+  /** @type {string[]} */
   const orphanIds = [];
   for (const rec of responses) {
     const answers = rec && typeof rec.answers === "object" ? rec.answers : null;
@@ -73,6 +87,7 @@ export default function FormResponses({
       if (!knownIds.has(id) && !orphanIds.includes(id)) orphanIds.push(id);
     }
   }
+  /** @type {ResponseColumn[]} */
   const columns = [
     ...questions.map((q) => ({
       id: q.id,
@@ -91,7 +106,7 @@ export default function FormResponses({
 
   function exportCsv() {
     const csv = responsesToCsv(columns, responses, (col, value) =>
-      formatAnswer(col.question, value, "\n"),
+      formatAnswer(/** @type {ResponseColumn} */ (col).question, value, "\n"),
     );
     const stem = (pathBasename(formPath) || "form").replace(/\.lunaform$/i, "");
     const blob = new Blob([csv], { type: "text/csv" });

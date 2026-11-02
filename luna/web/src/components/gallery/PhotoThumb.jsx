@@ -7,15 +7,48 @@ import PrivateBadge from "../private/PrivateBadge.jsx";
 const LONG_PRESS_MS = 450;
 
 /**
+ * One gallery photo as lunad lists it (`member_photo_json` in
+ * `crates/lunad/src/api/gallery.rs`), plus the client-side `content` and
+ * `download` URLs a caller may attach. Every field is optional because the
+ * grid, the lightbox and the public album link each receive a subset.
+ *
+ * @typedef {{
+ *   drive_id?: string,
+ *   path?: string,
+ *   name?: string,
+ *   kind?: string,
+ *   size?: number,
+ *   width?: number,
+ *   height?: number,
+ *   taken_at?: number|null,
+ *   thumb?: string,
+ *   content?: string,
+ *   download?: string,
+ *   favorited?: boolean,
+ *   private?: boolean,
+ *   lat?: number,
+ *   lon?: number,
+ *   place_label?: string,
+ *   camera_make?: string,
+ *   camera_model?: string,
+ *   lens?: string,
+ *   iso?: number,
+ *   focal_mm?: number,
+ *   flash?: number,
+ *   duration_secs?: number,
+ * }} GalleryPhoto
+ */
+
+/**
  * Dense edge-to-edge photo cell for the timeline grid.
  *
  * @param {{
- *   photo: object,
- *   onOpen?: (photo: object) => void,
- *   onToggle?: (photo: object, opts?: { range?: boolean }) => void,
- *   onLongPress?: (photo: object) => void,
- *   onDragSelectStart?: (photo: object) => void,
- *   onDragSelectEnter?: (photo: object) => void,
+ *   photo: GalleryPhoto,
+ *   onOpen?: (photo: GalleryPhoto) => void,
+ *   onToggle?: (photo: GalleryPhoto, opts?: { range?: boolean }) => void,
+ *   onLongPress?: (photo: GalleryPhoto) => void,
+ *   onDragSelectStart?: (photo: GalleryPhoto) => void,
+ *   onDragSelectEnter?: (photo: GalleryPhoto) => void,
  *   selected?: boolean,
  *   selectMode?: boolean,
  *   index?: number,

@@ -14,7 +14,6 @@ import FileOpsDock from "./components/files/fileOps/FileOpsDock.jsx";
 import Navbar from "./components/ui/Navbar";
 import LoadingBar from "@libreloom/ui/components/common/LoadingBar.jsx";
 import RequireAdmin from "./components/auth/RequireAdmin";
-import PhraseGate from "./components/cloud/PhraseGate.jsx";
 import useRecentItemsTracker from "./hooks/useRecentItemsTracker";
 
 // One chunk per page: the first paint downloads only the page being opened.
@@ -109,17 +108,15 @@ function AppShell() {
   usePreloadPages();
   return (
     <RequireAuth>
-      <PhraseGate>
-        <div data-slot="app-shell" className="relative flex min-h-screen flex-col surface-primary">
-          <RecentItemsTracker />
-          <LoadingBar />
-          <a href="#main-content" className="skip-link">Skip to main content</a>
-          <PageOutlet />
-          <FileOpsDock />
-          <Navbar />
-          <FileSearch />
-        </div>
-      </PhraseGate>
+      <div data-slot="app-shell" className="relative flex min-h-screen flex-col surface-primary">
+        <RecentItemsTracker />
+        <LoadingBar />
+        <a href="#main-content" className="skip-link">Skip to main content</a>
+        <PageOutlet />
+        <FileOpsDock />
+        <Navbar />
+        <FileSearch />
+      </div>
     </RequireAuth>
   );
 }

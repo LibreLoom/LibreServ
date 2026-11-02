@@ -160,5 +160,9 @@ Max: "the file operation card covers any file operation with length and is per-t
 with subagents. The defaults below were taken because the questions were not answered, so Max can overrule them:
 
 1. `dashboard/no-phrase`: the recovery phrase becomes a required setup step, so a Luna can't be without one.
+   **Overruled 2 Nov 2026.** A phrase only opens cloud backups, which are off until someone turns them on,
+   so nothing may block the app on one. The setup step, the app-wide gate and lunad's `needs_phrase` on
+   finishing setup are all gone; the phrase is asked for when someone turns on cloud backup, and the
+   Settings card shows a `Not set up` state until then. See `recovery-phrase.md` §1, decisions A and B.
 2. Stream order: A (file operation card) → C → D → B. The perf frontend work lands after A, because both touch the file list.
 3. Contract fixtures (1.8) are generated from lunad's API tests.

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Cloud, HardDrive, Shield } from "lucide-react";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
-import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
+import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
@@ -13,12 +13,14 @@ import IconCircle from "@libreloom/ui/components/ui/IconCircle.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { InfoHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { deleteJson, getDrives, getJson, postJson, apiErrorMessage } from "../../lib/api";
+import { getPhraseStatus, PHRASE_QUERY_KEY } from "../../lib/cloudPhrase";
 import { formatRecentAgo } from "../../lib/recentItems.js";
 import { useAnimatedHeight } from "@libreloom/ui/hooks/useAnimatedHeight.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import BackupStatusNotice from "../common/BackupStatusNotice.jsx";
+import PhraseSetupModal from "../cloud/PhraseSetupModal.jsx";
 
 function pathKey(value) {
   return value || "";
@@ -125,6 +127,8 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   // Set when a cloud run stopped because the source looks missing; holds the backup id for "Back up anyway".
   const [missingSourceId, setMissingSourceId] = useState(null);
   const [confirmingOldCopies, setConfirmingOldCopies] = useState(false);
+  // Open while "Back up to the cloud" waits for a recovery phrase the person doesn't have yet.
+  const [settingUpPhrase, setSettingUpPhrase] = useState(false);
   const objectPath = pathKey(path);
 
   const { outerRef: cloudOuterRef, innerRef: cloudInnerRef } = useAnimatedHeight();
@@ -148,6 +152,15 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     queryFn: () => getJson("/api/v1/cloud/backups"),
     refetchInterval: 30_000,
   });
+  // A cloud backup is sealed to the caller's phrase, so "Back up to the cloud" asks for one
+  // first when there isn't one yet. Only a clear "not set" opens the dialog: while the status
+  // is still loading (or failed) the backup is tried, and a 409 needs_phrase opens it instead.
+  const phraseQuery = useQuery({
+    queryKey: PHRASE_QUERY_KEY,
+    queryFn: getPhraseStatus,
+    retry: false,
+  });
+  const noPhrase = phraseQuery.data?.set === false;
 
   const privateItemQuery = useQuery({
     queryKey: ["private-item", driveId, objectPath],
@@ -279,9 +292,13 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
       queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
       refreshPrivateSummary();
     },
-    // A missing recovery phrase (409 needs_phrase) shows Luna's own message here, like any other refusal.
     onError: (err) => {
       haptic("error");
+      // No phrase yet (409 needs_phrase): ask for one here rather than sending the person elsewhere.
+      if (/** @type {any} */ (err)?.code === "needs_phrase") {
+        setSettingUpPhrase(true);
+        return;
+      }
       setError(apiErrorMessage(err));
     },
   });
@@ -659,7 +676,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                   fullWidth
                   loading={createCloud.isPending}
                   disabled={createCloud.isPending}
-                  onClick={() => createCloud.mutate()}
+                  onClick={() => (noPhrase ? setSettingUpPhrase(true) : createCloud.mutate())}
                 >
                   Back up to the cloud
                 </Button>
@@ -669,6 +686,19 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
           )}
         </div>
       </ModalCard>
+
+      {settingUpPhrase && (
+        <PhraseSetupModal
+          open
+          overlayClassName={NESTED_OVERLAY_CLASS}
+          onClose={() => setSettingUpPhrase(false)}
+          // The phrase is saved, so the backup the person asked for can start now.
+          onSaved={() => {
+            setSettingUpPhrase(false);
+            createCloud.mutate();
+          }}
+        />
+      )}
 
       <ConfirmModal
         open={deleting != null}

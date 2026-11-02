@@ -216,7 +216,8 @@ All decided 2026-10-20:
 
 ## 7. Around the card
 
-- **Phrase before the first cloud backup.** In `ProtectSheet`, "Back up to the cloud" with no phrase opens `RecoveryPhraseSetup` inline and creates the backup after the phrase is saved. Server side, `POST /api/v1/cloud/backups` refuses with 409 `needs_phrase` when the caller has none, so the held-without-phrase state can't be created. Shared backups started by a Member while no Admin has a phrase still wait, with today's copy.
+- **Phrase before the first cloud backup.** In `ProtectSheet`, "Back up to the cloud" with no phrase opens the phrase setup in a dialog and creates the backup after the phrase is saved. Server side, `POST /api/v1/cloud/backups` refuses with 409 `needs_phrase` when the caller has none, so the held-without-phrase state can't be created. Shared backups started by a Member while no Admin has a phrase still wait, with today's copy.
+  - **Built 2 Nov 2026** as `PhraseSetupModal`, which also backs the Settings card's `Set up` button. It is the only place a phrase is asked for; nothing in setup asks for one.
 - **Dashboard.** With the gate in place, `dashboard/no-phrase` can't happen for new backups. Drop the scenario. The `check-phrase` intent opens the redesigned check.
 - **Copy fixes.** `NO_PHRASE` stays "Settings → Cloud backup", which becomes true. Say "phrase", never "words", for the phrase itself (AGENTS.md wall of shame). Shipped copy to fix:
   - `RecoveryPhraseCheck.jsx`: "Check my words", "Type your recovery words…", "Could not check your words…", "Your words match…"
@@ -247,7 +248,7 @@ Each phase ships on its own and leaves Luna working.
 
 Fix the gallery's `#` URL bug (§1) first, or none of these load their seed.
 
-- `settings/phrase-member-not-set`: a Member, Connect on, no phrase. The card shows; with no Admin phrase it adds the shared-backups line.
+- `settings/phrase-not-set`: Connect on, no phrase. The card shows `Not set up` with a `Set up` button (shipped 2 Nov 2026).
 - `settings/connect-off`: neither Cloud backup nor Luna Connect in the sidebar.
 - `settings/phrase-set-check-due`: pill `Check due`, check is the primary action.
 - `settings/phrase-change`: old phrase, then "I want a new phrase", then the new phrase. A wrong old phrase is refused.
@@ -257,5 +258,5 @@ Fix the gallery's `#` URL bug (§1) first, or none of these load their seed.
 - `settings/phrase-moving-full`: Connect storage fills mid-move. The move pauses and says what to do; nothing old is deleted.
 - `settings/phrase-lost`: the confirm names what's lost, needs the password, then shows the old-phrase copies row.
 - `settings/phrase-resealing`: right after a save, the card says "Updating your cloud backups to the new phrase…" until the re-seal job finishes.
-- `files/cloud-backup-no-phrase`: "Back up to the cloud" opens setup first.
+- `files/protect-cloud-no-phrase`: "Back up to the cloud" opens the phrase dialog first, then starts the backup (shipped 2 Nov 2026).
 - Drop `dashboard/no-phrase` (§7).

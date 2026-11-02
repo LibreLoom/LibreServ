@@ -11,6 +11,43 @@
 
 import { CollabSocket } from "../office/collabSocket.js";
 
+/**
+ * A peer in the room, as lunad sends it. Same wire shape the Yjs providers
+ * read, so the typedef lives with them (`PeerInfo` in collabDocSync).
+ * @typedef {import("../collabDocSync.js").PeerInfo} CollabPeer
+ */
+
+/**
+ * The payload a diagram puts on the wire. Draw.io's embed diff patch is
+ * opaque to Luna — the hub stores and fans it out without reading it.
+ * @typedef {{ kind?: string, patch?: unknown, checksum?: unknown }} DiagramOpPayload
+ */
+
+/**
+ * One event from the collab hub (`ServerEvent` in
+ * `crates/lunad/src/office/collab.rs`). Every field is optional because this
+ * is JSON off a socket: a hub from a newer lunad may send events this client
+ * doesn't know, and `_onMessage` ignores them.
+ * @typedef {{
+ *   type?: string,
+ *   peer_id?: number,
+ *   peer?: CollabPeer,
+ *   peers?: CollabPeer[],
+ *   seq?: number,
+ *   payload?: DiagramOpPayload,
+ *   catchup?: CollabEvent[],
+ *   can_write?: boolean,
+ *   granted?: boolean,
+ *   size?: number | null,
+ *   message?: string,
+ * }} CollabEvent
+ */
+
+/**
+ * A remote patch ready for the editor, with the sequence it arrived at.
+ * @typedef {{ seq: number | undefined, patch: unknown, checksum: unknown }} PendingPatch
+ */
+
 /** Remember this many applied seqs — the hub backlog is smaller. */
 const APPLIED_CAP = 512;
 /** A save election that never answers must not wedge autosave. */
@@ -31,13 +68,13 @@ export function patchFingerprint(patch) {
  * A reconnect's catchup includes those, and draw.io cell inserts are not
  * safe to apply twice.
  *
- * @param {object[]} events
+ * @param {CollabEvent[]} events
  * @param {{ selfPeerId?: number | null, appliedSeqs?: Set<number> | number[], sentFingerprints?: Set<string> | string[] }} scope
  */
 export function patchesToApply(events, { selfPeerId = null, appliedSeqs, sentFingerprints } = {}) {
   const seen = appliedSeqs instanceof Set ? appliedSeqs : new Set(appliedSeqs || []);
   const sent = sentFingerprints instanceof Set ? sentFingerprints : new Set(sentFingerprints || []);
-  /** @type {{ seq: number | undefined, patch: unknown, checksum: unknown }[]} */
+  /** @type {PendingPatch[]} */
   const out = [];
   for (const ev of events || []) {
     if (!ev || ev.type !== "op" || ev.payload?.kind !== "patch" || ev.payload.patch == null) {
@@ -78,9 +115,9 @@ export class DiagramCollab {
    *   url?: string,
    *   socket?: any,
    *   canWrite?: boolean,
-   *   onUpdate?: (snap: { peers: object[], selfPeerId: number | null, canWrite: boolean }) => void,
-   *   onRemotePatch?: (patch: { seq: number | undefined, patch: unknown, checksum: unknown }) => void,
-   *   onPeerSaved?: (msg: object) => void,
+   *   onUpdate?: (snap: { peers: CollabPeer[], selfPeerId: number | null, canWrite: boolean }) => void,
+   *   onRemotePatch?: (patch: PendingPatch) => void,
+   *   onPeerSaved?: (msg: CollabEvent) => void,
    * }} opts
    */
   constructor({
@@ -97,7 +134,7 @@ export class DiagramCollab {
     this.onUpdate = onUpdate;
     this.onRemotePatch = onRemotePatch;
     this.onPeerSaved = onPeerSaved;
-    /** @type {object[]} */
+    /** @type {CollabPeer[]} */
     this.peers = [];
     /** @type {number | null} */
     this.selfPeerId = null;
@@ -262,7 +299,7 @@ export class DiagramCollab {
     });
   }
 
-  /** @param {object} msg */
+  /** @param {CollabEvent} msg */
   _onMessage(msg) {
     if (!msg || typeof msg !== "object") return;
     if (msg.type === "welcome") {
@@ -321,7 +358,7 @@ export class DiagramCollab {
   /**
    * Hand a remote patch to the editor. It is not applied, and not part of
    * the save, until `confirmApplied`.
-   * @param {{ seq: number | undefined, patch: unknown, checksum: unknown }} patch
+   * @param {PendingPatch} patch
    */
   _deliver(patch) {
     if (typeof patch.seq === "number") this.outstanding.add(patch.seq);

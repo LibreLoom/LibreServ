@@ -69,10 +69,24 @@ function describe(freq, hour, day) {
 }
 
 /**
+ * A saved automatic-backup schedule, as returned by `/backups/schedules`
+ * (mirrors `storage.BackupSchedule` in the backend).
+ *
+ * @typedef {object} BackupSchedule
+ * @property {string} id
+ * @property {string} [app_id]
+ * @property {string} [type]
+ * @property {string} cron_expr
+ * @property {boolean} enabled
+ * @property {{ stop_before_backup?: boolean }} [options]
+ * @property {number} retention
+ */
+
+/**
  * Automatic-backup schedule editor. Modal-only: pass the app and (optionally)
  * its existing schedule; calls onSaved after a successful save or delete.
  *
- * @param {{ appId: string, appName?: string, existingSchedule?: object|null, onClose: () => void, onSaved: () => void }} props
+ * @param {{ appId: string, appName?: string, existingSchedule?: BackupSchedule|null, onClose: () => void, onSaved: () => void }} props
  */
 export default function ScheduleForm({ appId, appName, existingSchedule = null, onClose, onSaved }) {
   const { request } = useAuth();

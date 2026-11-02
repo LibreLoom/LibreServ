@@ -13,7 +13,7 @@ import { removeRecentItem } from "../lib/recentItems";
  * `[]` while everything is where the link says.
  *
  * @param {{ path: string, viewerPath: string | null, selectPath: string,
- *   listingMissing: boolean, entries: object[] | undefined }} args
+ *   listingMissing: boolean, entries: { name?: string }[] | undefined }} args
  * @returns {string[]}
  */
 export function missingLinkTargets({ path, viewerPath, selectPath, listingMissing, entries }) {

@@ -383,6 +383,15 @@ export default [
     check: ["Documents shows a cloud backup row with last backed up time", "Photos offers to start one", "Older versions option asks first"],
   },
   {
+    id: "files/protect-cloud-no-phrase", area: A, title: "Cloud backup before any recovery phrase", url: "/files/d1",
+    seed: (w) => { demo(w); w.connect = { enabled: true, card_on_file: true }; w.connectActive = true; w.phrase = { ...w.phrase, set: false }; },
+    check: [
+      "Photos offers 'Back up to the cloud'",
+      "Pressing it asks for a recovery phrase first, in a dialog, instead of failing",
+      "Saving the phrase starts the cloud backup and toasts 'Cloud backup started.'",
+    ],
+  },
+  {
     id: "files/protect-cloud-no-card", area: A, title: "Cloud backup, no payment card", url: "/files/d1",
     seed: (w) => { demo(w); w.connect = { enabled: true, card_on_file: false }; w.connectActive = true; },
     check: ["Says a card is needed, and where to add it"],

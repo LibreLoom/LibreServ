@@ -67,10 +67,34 @@ function fromB64(b64) {
  */
 
 /**
+ * One peer in the room, as the hub reports it (`welcome.peers`,
+ * `peer_join.peer`). `color` is the presence dot's background.
+ * @typedef {object} PeerInfo
+ * @property {number} peer_id
+ * @property {string} username
+ * @property {string} [color]
+ */
+
+/**
+ * One frame from the hub (`ServerEvent` in lunad's collab module). Every
+ * field is optional because the kind is carried in `type`; the handler
+ * narrows on it.
+ * @typedef {object} CollabFrame
+ * @property {string} [type]
+ * @property {number} [peer_id]
+ * @property {PeerInfo} [peer]
+ * @property {PeerInfo[]} [peers]
+ * @property {CollabFrame[]} [catchup]
+ * @property {{ k?: string, d?: string }} [cursor]
+ * @property {{ k?: string, d?: string }} [payload]
+ * @property {number} [count]
+ */
+
+/**
  * The slice of CollabSocket this provider needs — structurally satisfied by
  * CollabSocket and by test fakes.
  * @typedef {object} CollabSocketLike
- * @property {((msg: object) => void) | null} onMessage
+ * @property {((msg: CollabFrame) => void) | null} onMessage
  * @property {((status: string) => void) | null} onStatus
  * @property {boolean} _closed
  * @property {() => void} connect
@@ -85,7 +109,7 @@ export class CollabDocSync {
    * @param {{
    *   driveId: string,
    *   path: string,
-   *   onPeers?: (peers: object[]) => void,
+   *   onPeers?: (peers: PeerInfo[]) => void,
    *   onStatus?: (status: string) => void,
    *   onPeerSaved?: (peerId: number) => void,
    *   onFormResponse?: (msg: { count?: number }) => void,
@@ -111,7 +135,7 @@ export class CollabDocSync {
     this.ydoc = new Y.Doc();
     this.ytext = this.ydoc.getText("file");
     this.awareness = new Awareness(this.ydoc);
-    /** @type {Map<number, object>} peer_id → PeerInfo */
+    /** @type {Map<number, PeerInfo>} peer_id → PeerInfo */
     this.peers = new Map();
     this.peerId = null;
     this._onPeers = onPeers;
@@ -228,7 +252,7 @@ export class CollabDocSync {
 
   /**
    * Peers besides ourselves, for the "editing with …" strip.
-   * @returns {object[]}
+   * @returns {PeerInfo[]}
    */
   otherPeers() {
     return [...this.peers.values()].filter((p) => p.peer_id !== this.peerId);

@@ -3,6 +3,9 @@
 const SIZE_UNITS = ["B", "KB", "MB", "GB"];
 const NAME_ORDER = { numeric: true, sensitivity: "base" };
 
+/** @typedef {{ path: string, size: number, mtime: number, chunks: Array<{ id: string, pack: string, offset: number, len: number }> }} TreeEntry */
+/** @typedef {TreeEntry & { name: string }} TreeFile */
+
 /** Parent folder of a path ("" for top level). */
 export function parentFolder(path) {
   const idx = path.lastIndexOf("/");
@@ -20,9 +23,9 @@ export function baseName(path) {
  * Files: the entries themselves plus `name`.
  * Both lists are sorted by name.
  *
- * @param {Array<{ path: string, size: number, mtime: number, chunks: Array }>} entries
+ * @param {TreeEntry[]} entries
  * @param {string} folder
- * @returns {{ folders: Array<{ name: string, path: string, size: number, files: number }>, files: Array<object> }}
+ * @returns {{ folders: Array<{ name: string, path: string, size: number, files: number }>, files: TreeFile[] }}
  */
 export function listFolder(entries, folder) {
   const prefix = folder ? `${folder}/` : "";

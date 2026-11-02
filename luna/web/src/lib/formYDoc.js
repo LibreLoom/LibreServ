@@ -35,6 +35,56 @@ import {
   serializeFormDocument,
 } from "./formDocument.js";
 
+/**
+ * The question shape is shared with the builder UI — one definition, so a
+ * field added there reaches the doc adapter too.
+ *
+ * @typedef {import("../components/files/forms/questionTypes.js").FormQuestion} FormQuestion
+ * @typedef {import("../components/files/forms/questionTypes.js").QuestionConfig} QuestionConfig
+ * @typedef {import("../components/files/forms/questionTypes.js").QuestionLogic} QuestionLogic
+ */
+
+/**
+ * A question as the builder or the file hands it over: the shared shape plus
+ * the record version the doc stores alongside it.
+ * @typedef {FormQuestion & { v?: number }} QuestionInput
+ */
+
+/**
+ * A `.lunaform` document. Every field is optional because it comes off the
+ * drive: `parseFormDocument` fills the gaps, and unknown top-level keys ride
+ * along in `passthrough` so a newer Luna's fields survive a save here.
+ *
+ * @typedef {{
+ *   version?: number,
+ *   title?: string,
+ *   description?: string,
+ *   settings?: Record<string, unknown>,
+ *   questions?: FormQuestion[],
+ *   [key: string]: any,
+ * }} FormDoc
+ */
+
+/**
+ * A partial question from the builder. `config: { options: null }` drops the
+ * option list when a type change stops taking choices; `logic: null` clears
+ * skip logic. Every field is optional — only what is present gets written.
+ *
+ * @typedef {{
+ *   label?: string,
+ *   help?: string,
+ *   imageAlt?: string,
+ *   type?: string,
+ *   required?: boolean,
+ *   image?: string,
+ *   config?: QuestionConfig | null,
+ *   logic?: QuestionLogic | null,
+ * }} QuestionPatch
+ */
+
+/** The config fields `patchFormQuestion` copies straight onto the map. */
+const CONFIG_PATCH_KEYS = /** @type {const} */ (["allowOther", "min", "max"]);
+
 const QUESTION_KEYS = ["v", "id", "type", "label", "help", "required", "image", "imageAlt", "config", "logic"];
 const CONFIG_KEYS = ["options", "allowOther", "min", "max"];
 const SETTING_KEYS = ["responseLimit", "allowEdits", "collecting", "thankYou", "closeOn", "maxResponses"];
@@ -171,7 +221,7 @@ function buildConfig(src) {
 /**
  * A fresh question map — writes only, never reads, so it is safe before
  * the map is inserted into the document.
- * @param {object} question
+ * @param {QuestionInput} question
  */
 export function buildQuestion(question) {
   const src = isObject(question) ? question : {};
@@ -281,7 +331,7 @@ function readSettings(settings) {
 /**
  * Replace the shared map with `doc`.
  * @param {Y.Doc} ydoc
- * @param {object} doc
+ * @param {FormDoc} doc
  */
 export function writeForm(ydoc, doc) {
   const map = formMap(ydoc);
@@ -515,7 +565,7 @@ export function moveFormQuestion(ydoc, from, to) {
  * `config` sets allowOther/min/max; options have their own functions.
  * @param {Y.Doc} ydoc
  * @param {string} id
- * @param {object} patch
+ * @param {QuestionPatch} patch
  */
 export function patchFormQuestion(ydoc, id, patch) {
   const map = questionMap(ydoc, id);
@@ -538,7 +588,7 @@ export function patchFormQuestion(ydoc, id, patch) {
       const config = configMap(map);
       // `options: null` drops the list (a type change away from choices).
       if (patch.config.options === null) config.delete("options");
-      for (const key of ["allowOther", "min", "max"]) {
+      for (const key of CONFIG_PATCH_KEYS) {
         if (!(key in patch.config)) continue;
         const value = patch.config[key];
         if (key === "allowOther" ? value === true : typeof value === "number" && Number.isFinite(value)) {

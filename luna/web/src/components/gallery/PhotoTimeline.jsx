@@ -8,6 +8,8 @@ import PhotoThumb from "./PhotoThumb.jsx";
 import { photoSelectionKey } from "../../hooks/useMultiSelect.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
+/** @typedef {import("./PhotoThumb.jsx").GalleryPhoto} GalleryPhoto */
+
 /** @param {number|null|undefined} ts */
 export function dayKey(ts) {
   if (!ts) return "undated";
@@ -207,18 +209,18 @@ function daySectionEqual(prev, next) {
  * Date-grouped infinite photo grid.
  *
  * @param {{
- *   photos: object[],
+ *   photos: GalleryPhoto[],
  *   hasMore?: boolean,
  *   loadingMore?: boolean,
  *   onLoadMore?: () => void,
- *   onOpen?: (photo: object) => void,
+ *   onOpen?: (photo: GalleryPhoto) => void,
  *   selectMode?: boolean,
  *   selectedKeys?: Set<string>,
- *   onToggle?: (photo: object, opts?: { range?: boolean }) => void,
- *   onLongPress?: (photo: object) => void,
+ *   onToggle?: (photo: GalleryPhoto, opts?: { range?: boolean }) => void,
+ *   onLongPress?: (photo: GalleryPhoto) => void,
  *   onDayClick?: (day: string, label: string) => void,
- *   onSelectDay?: (photos: object[]) => void,
- *   onDeselectDay?: (photos: object[]) => void,
+ *   onSelectDay?: (photos: GalleryPhoto[]) => void,
+ *   onDeselectDay?: (photos: GalleryPhoto[]) => void,
  *   columns?: 3|4|5|6,
  * }} props
  */

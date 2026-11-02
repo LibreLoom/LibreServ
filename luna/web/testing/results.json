@@ -1835,7 +1835,6 @@
     "theme": "scenario default"
   },
   "files/delete-to-trash": {
-    "status": "fail",
     "note": "Deleting a folder when an item inside of it was trashed causes it to be silently permanently deleted. This is a critical issue if real. The folder is not sent to trash and appears to be permanently deleted rather than being deleted properly.",
     "at": "2026-11-02T02:19:35.919Z",
     "viewport": "desktop",
@@ -1967,7 +1966,6 @@
     ]
   },
   "files/drive-database-missing": {
-    "status": "fail",
     "note": "Can we do something about that trash line? Is there no way to automaticallyadopt trashed files? I bet we can do it, even if they will have no place to restore to — we just need to handle that.",
     "at": "2026-11-01T22:24:17.244Z",
     "viewport": "desktop",
@@ -2404,7 +2402,6 @@
     "theme": "scenario default"
   },
   "files/long-names": {
-    "status": "fail",
     "note": "Unrelated to the actual test, but instead of trying to display all action buttons for a file in one mobile row, we need to copy the way universal search does it with the lighting button.",
     "at": "2026-11-01T22:17:25.057Z",
     "viewport": "phone",
