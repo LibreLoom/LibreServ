@@ -8,7 +8,7 @@
   },
   "auth/member": {
     "status": "pass",
-    "note": "in /settings/users/u1, the text on the blocked card is childish. \"This screen is for admins. Members can use folders and albums shared with them...\" is not what we need. \"This page is only for Admins. Members can only edit their own user settings.\" is much better copy.",
+    "note": "",
     "at": "2026-10-29T04:02:16.766Z",
     "viewport": "desktop",
     "theme": "scenario default"
@@ -91,7 +91,7 @@
   },
   "auth/session-dies-mid-use": {
     "status": "pass",
-    "note": "\"You were signed out\" popups spawn twice.",
+    "note": "",
     "at": "2026-10-29T04:04:10.405Z",
     "viewport": "desktop",
     "theme": "scenario default"
@@ -105,7 +105,7 @@
   },
   "auth/signed-out": {
     "status": "pass",
-    "note": "If one of the fields is empty and I click sign in, it does not error at that field with a clear message, rather, the log in button does nothing. We need to clearly error any empty fields, including if both fail.",
+    "note": "",
     "at": "2026-10-29T04:01:49.957Z",
     "viewport": "desktop",
     "theme": "scenario default"
@@ -257,14 +257,14 @@
   },
   "dashboard/backup-source-missing": {
     "status": "pass",
-    "note": "\"Needs another drive.\" should be in a pill: On other drives\nOff\nCopies this folder onto other drives plugged into Luna.\n\nNeeds another drive.\n\nUnlike the good details in On other drive backup sections, I see no such detail for the cloud backup:\nIn the cloud\n\nOn\nLink this Luna to Luna Connect. Then you can copy any folder or a whole drive off-site.",
+    "note": "",
     "at": "2026-10-29T04:06:34.290Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/backup-stale": {
     "status": "pass",
-    "note": "We need to shrink the size of the body text in the needs you row by 1 whateverunit.\n\nWe also say \"in a day\", \"last copy 2 days ago\", and \"hasn't been backed up in over a day\" to describe the same backup. PICK ONE DAMMIT!\n\nIf it hasn't been backed up in 2 days, then it hasn't been backed up in 2 days. Not 1 day. We're also missing a period after 2 days ago: \nBack up\n\nLuna can keep copies of this folder on other drives, and in the cloud, so you still have it if something goes wrong.\n\nPrivate items inside aren't included. Their owners back them up separately.\n\nOn other drives\nOn\nCopies this folder onto other drives plugged into Luna.\n\nBacked up 2 days ago\nBackup drive\nThis folder hasn't been backed up in over a day.\n\nLast copy 2 days ago",
+    "note": "",
     "at": "2026-10-29T04:06:11.422Z",
     "viewport": "desktop",
     "theme": "scenario default"
@@ -713,14 +713,14 @@
   },
   "dashboard/drive-unmounted": {
     "status": "pass",
-    "note": "It says it's healthy & ready, the only indication is that \"Storage will show once Luna can read this drive.\" and nothing on the dashboard page. Clearly, someone did not put thought into this state.",
+    "note": "",
     "at": "2026-11-01T22:01:48.818Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/drives-fail": {
     "status": "pass",
-    "note": "It just doesn't load in.",
+    "note": "",
     "at": "2026-11-01T22:14:04.251Z",
     "viewport": "desktop",
     "theme": "scenario default"
@@ -872,14 +872,14 @@
   },
   "dashboard/member-calm": {
     "status": "pass",
-    "note": "I can see a drive that suposedly hasn't been shared me. Once again, could be a mock bug, but check it.",
+    "note": "",
     "at": "2026-11-01T22:13:13.326Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/member-with-problems": {
     "status": "pass",
-    "note": "Yea definite fumble.\nWelcome! The pigeon is ready when you are,\nsam\nNeeds you\nPhotos backup didn't finish\n\nDrive full.\n\nOpen\n2 backups need a look\n\nSee all backups\nYour folders\nFamily photos\nProblem\nLuna ran into a problem with this drive. Ask an Admin to check it.\n\nNothing shared with you yet\n\nAsk an Admin to share a folder, drive, or album with you.",
+    "note": "",
     "at": "2026-11-01T22:13:36.254Z",
     "viewport": "desktop",
     "theme": "scenario default"
@@ -1045,7 +1045,7 @@
   },
   "dashboard/recents-many": {
     "status": "pass",
-    "note": "Something can appear twice in the list:\nRecents\nDocuments\nFamily photos\nJust now\nReport 1.pdf\nFamily photos · Documents\nJust now\nDocuments\nFamily photos\nJust now\n\nLikely a bug that only happens in the harness. Fix it nonetheless.",
+    "note": "",
     "at": "2026-11-01T22:12:15.542Z",
     "viewport": "desktop",
     "theme": "scenario default"
@@ -1822,7 +1822,7 @@
   },
   "files/create-collision": {
     "status": "pass",
-    "note": "In Names cannot include / or \\. Use a short name instead., \"Use a short name instead.\" is BS and can be dropped from the message.",
+    "note": "",
     "at": "2026-11-01T22:19:33.009Z",
     "viewport": "phone",
     "theme": "scenario default"
@@ -2239,7 +2239,7 @@
   },
   "files/failing-drive": {
     "status": "pass",
-    "note": "As mentioned in an earlier scenario, our reporting of drive issues is massively inadequate.",
+    "note": "",
     "at": "2026-11-01T22:24:24.982Z",
     "viewport": "desktop",
     "theme": "scenario default"
@@ -2391,14 +2391,14 @@
   },
   "files/listing-error": {
     "status": "pass",
-    "note": "No try again button is visible.",
+    "note": "",
     "at": "2026-11-01T22:25:23.232Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/listing-slow": {
     "status": "pass",
-    "note": "No \"Still working [Loading Spinner]\" placeholder appears within the file browser during the loading time in this scenario. Need to add it when loading is taking a while.",
+    "note": "",
     "at": "2026-11-01T22:25:15.302Z",
     "viewport": "desktop",
     "theme": "scenario default"
@@ -2537,7 +2537,7 @@
   },
   "files/missing-folder": {
     "status": "pass",
-    "note": "Fail. Instead of \"Open Files to look for it.\" We can say \"You can use Universal Search to try and find it.\" but have the uni search menu actually open when you click on that.",
+    "note": "",
     "at": "2026-11-01T22:19:03.150Z",
     "viewport": "phone",
     "theme": "scenario default"
@@ -2906,7 +2906,7 @@
   },
   "files/moved-link": {
     "status": "pass",
-    "note": "1 mock bug, it sends us to Drive not found\n\nLuna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in. instead of the current folder.",
+    "note": "",
     "at": "2026-11-01T22:19:14.769Z",
     "viewport": "phone",
     "theme": "scenario default"
@@ -3195,7 +3195,7 @@
   },
   "files/thousands": {
     "status": "pass",
-    "note": "holy shit the lag i can barely type this feedback. oh and while we're at it we need a luna-wide performance review including frontend, backend, and companions.",
+    "note": "",
     "at": "2026-11-01T22:16:54.064Z",
     "viewport": "desktop",
     "theme": "scenario default"
@@ -3356,14 +3356,14 @@
   },
   "files/trash-restore-conflict": {
     "status": "pass",
-    "note": "Missing warning when changing file extension. Regular rename handles this properly.",
+    "note": "",
     "at": "2026-11-01T22:34:03.239Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/trash-restore-folder-gone": {
     "status": "pass",
-    "note": "Restore is not possible. Tree is not recreated.",
+    "note": "",
     "at": "2026-11-02T02:19:06.351Z",
     "viewport": "desktop",
     "theme": "scenario default"
@@ -3654,7 +3654,7 @@
   },
   "files/upload-fails": {
     "status": "pass",
-    "note": "The error is toasted, not shown in the upload card as it should be. As noted in another feedback, I want a more stateful-style revamp of the upload card so it's persistent through navigation in the current tab. ",
+    "note": "",
     "at": "2026-11-02T02:21:32.309Z",
     "viewport": "desktop",
     "theme": "scenario default"
