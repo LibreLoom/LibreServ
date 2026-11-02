@@ -159,11 +159,8 @@ export function baseWorld() {
         erase_tools: { category: "Erase tools", message: "Erase tools are installed.", status: "passed" },
         heic_tools: { category: "Photos", message: "iPhone photo support installed.", more: "", status: "passed", details: { missing: [] } },
         logs_path_writable: passed("Storage", "Luna can write to its log folder."),
-        // lunad sends `more` on this row whenever it is a warning (no route,
-        // no address, no connection), so the key belongs to the shape even
-        // though the passing message carries no explanation.
-        network: { category: "Network", message: "Connected to your router or modem, with a path to the internet.", more: "", status: "passed" },
-        ntfs_support: { category: "Drive tools", message: "Luna can open drives formatted as NTFS, the format Windows uses for its own drives.", more: "", status: "passed", details: { missing: [] } },
+        network: { category: "Network", message: "Connected to your router or modem, with a path to the internet.", status: "passed" },
+        ntfs_support: { category: "Drive tools", message: "Luna can open drives formatted as NTFS, the format Windows uses for its own drives.", status: "passed" },
         office_pack: { category: "Documents", message: "Document pack installed.", more: "", status: "passed", details: { missing: [] } },
         smart_tool: { category: "Drive health", message: "Drive health checks are available.", more: "", status: "passed", details: { missing: [] } },
         trim_tool: { category: "Drive health", message: "Luna can run its weekly SSD (solid-state drive) upkeep.", status: "passed" },

@@ -210,7 +210,7 @@ mod tests {
                 state.clone(),
                 crate::auth::guard,
             ))
-            .with_state(state);
+            .with_state(state.clone());
         let response = router
             .oneshot(
                 axum::http::Request::builder()
@@ -229,6 +229,98 @@ mod tests {
         assert_eq!(v["overall_pass"], true);
         assert!(v["checks"]["database"].is_object());
         assert!(v["checks"]["disk_space"].is_object());
+
+        // The contract recorder sees the host's warning response above. Also
+        // record a passing response so optional warning-only fields such as
+        // `more` and `details` stay optional in the generated contract.
+        let tools_dir = dir.path().join("tools");
+        std::fs::create_dir_all(&tools_dir).unwrap();
+        for name in [
+            "ffmpeg",
+            "ffprobe",
+            "heif-dec",
+            "blkid",
+            "mount",
+            "umount",
+            "wipefs",
+            "sfdisk",
+            "mkfs.exfat",
+            "smartctl",
+            "fstrim",
+            "grub-editenv",
+            "findfs",
+        ] {
+            let path = tools_dir.join(name);
+            std::fs::write(&path, "#!/bin/sh\n").unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        }
+        let probes = crate::system::system_health::Probes {
+            clock: crate::system::system_health::ClockReading {
+                now_unix: db::now_unix(),
+                synced: Some(true),
+            },
+            network: Some(crate::net::NetworkStatus {
+                ethernet_connected: true,
+                wifi_interface: None,
+                wifi_connected: false,
+                has_default_route: true,
+                ipv4: vec!["192.168.1.20".into()],
+                interfaces: vec![],
+            }),
+            connect: None,
+            usable_update_keys: 1,
+            default_update_keys: true,
+            on_luna_os: true,
+            path_dirs: vec![tools_dir],
+            kernel_ntfs: true,
+            whiteboard_editor: true,
+            whiteboard_fonts: true,
+        };
+        let passing = {
+            let conn = state.db.lock().unwrap();
+            let mut preflight =
+                crate::system::system_health::run_preflight(&state.data_dir, &conn, &probes);
+            preflight
+                .checks
+                .extend(crate::system::system_health::backup_checks(
+                    &conn,
+                    db::now_unix(),
+                ));
+            let drives = db::list_drives(&conn).unwrap_or_default();
+            crate::system::system_health::finish_comprehensive(preflight, drives)
+        };
+        state.health_cache.set(passing);
+
+        let router = axum::Router::new()
+            .merge(super::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state);
+        let response = router
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/v1/system/health/check")
+                    .header("Authorization", format!("Bearer {token}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), 256 * 1024)
+            .await
+            .unwrap();
+        let passing: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        for name in ["erase_tools", "video_tools"] {
+            assert_eq!(passing["checks"][name]["status"], "passed");
+            assert!(passing["checks"][name].get("more").is_none());
+            assert!(passing["checks"][name].get("details").is_none());
+        }
     }
 
     #[tokio::test]
