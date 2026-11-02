@@ -81,17 +81,14 @@ export default function SegmentedControl({
           className={cn(
             "relative z-10 flex items-center justify-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-pill min-w-0",
             "text-xs font-medium transition-[color,background-color] ease-[var(--motion-easing-standard)]",
-            disabled
-              ? cn(idleTextClass, "opacity-50 cursor-not-allowed")
-              : value === optValue
-                ? selectedTextClass
-                : idleTextClass
+            value === optValue ? selectedTextClass : idleTextClass,
+            disabled && cn("cursor-not-allowed", value !== optValue && "opacity-50")
           )}
           style={{ transitionDuration: "var(--motion-duration-short2)" }}
           role="radio"
           // The selected button sits on the sliding indicator, a sibling —
           // say so for the contrast check (shared/ui/test/contrast.js).
-          data-contrast-surface={value === optValue && !disabled ? (onPrimary ? "secondary" : "primary") : undefined}
+          data-contrast-surface={value === optValue ? (onPrimary ? "secondary" : "primary") : undefined}
           aria-checked={value === optValue}
           aria-disabled={disabled || undefined}
           aria-label={label}

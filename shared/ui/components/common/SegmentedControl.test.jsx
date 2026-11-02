@@ -101,4 +101,13 @@ describe("SegmentedControl", () => {
     const label = btn.querySelector("span");
     expect(label).toHaveClass("truncate", "text-center", "w-full");
   });
+
+  it("keeps a locked selected option readable on its indicator", () => {
+    render(<SegmentedControl options={[{ value: "a", label: "A", disabled: true }]} value="a" onChange={vi.fn()} surface="secondary" />);
+    const selected = screen.getByRole("radio", { name: "A" });
+    expect(selected).toHaveAttribute("aria-disabled", "true");
+    expect(selected).toHaveAttribute("data-contrast-surface", "primary");
+    expect(selected).toHaveClass("text-secondary");
+    expect(selected).not.toHaveClass("opacity-50");
+  });
 });
