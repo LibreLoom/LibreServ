@@ -281,7 +281,7 @@ function EditorSession({
     /** @type {"loading" | "ready" | "error"} */ ("loading"),
   );
   const [error, setError] = useState("");
-  const [peers, setPeers] = useState(/** @type {object[]} */ ([]));
+  const [peers, setPeers] = useState(/** @type {import("../collabDocSync.js").PeerInfo[]} */ ([]));
   const [connStatus, setConnStatus] = useState("connecting");
   const [initialData, setInitialData] = useState(/** @type {object | null} */ (null));
   const [editorReady, setEditorReady] = useState(false);
@@ -391,7 +391,11 @@ function EditorSession({
       ? mod.reconcileElements(api.getSceneElements(), elements, api.getAppState())
       : elements;
     const known = api.getFiles() || {};
-    const missing = Object.values(files).filter((f) => f && !known[f.id]);
+    // readScene hands back plain objects (it just JSON-parses what the doc
+    // holds); the canvas only accepts files excalidraw wrote.
+    const missing = Object.values(
+      /** @type {Record<string, import("@excalidraw/excalidraw/types").BinaryFileData>} */ (files),
+    ).filter((f) => f && !known[f.id]);
     if (missing.length) api.addFiles(missing);
     isApplyingSceneRef.current = true;
     try {

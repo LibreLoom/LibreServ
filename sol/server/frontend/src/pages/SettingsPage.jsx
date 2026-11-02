@@ -351,7 +351,7 @@ export default function SettingsPage() {
             user={user}
             categories={visibleCategories(isAdmin)}
             memberHint="Some settings require an administrator."
-            userHref={(u) => `/users/${u.id}`}
+            userHref={(/** @type {{ id: string }} */ u) => `/users/${u.id}`}
             deviceName="this server"
             activeCategory={activeCategory}
             onCategoryChange={handleCategoryChange}
@@ -405,7 +405,7 @@ export default function SettingsPage() {
               user={user}
               categories={visibleCategories(isAdmin)}
               memberHint="Some settings require an administrator."
-              userHref={(u) => `/users/${u.id}`}
+              userHref={(/** @type {{ id: string }} */ u) => `/users/${u.id}`}
               deviceName="this server"
               activeCategory={activeCategory}
               onCategoryChange={handleCategoryChange}

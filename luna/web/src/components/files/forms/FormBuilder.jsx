@@ -179,7 +179,7 @@ function BuilderSession({
   const [tab, setTab] = useState(/** @type {"questions" | "responses"} */ ("questions"));
   // "sheet" opens the Sharing sheet; "link" goes straight to a new responses link.
   const [sharing, setSharing] = useState(/** @type {false | "sheet" | "link"} */ (false));
-  const [peers, setPeers] = useState(/** @type {object[]} */ ([]));
+  const [peers, setPeers] = useState(/** @type {import("../collabDocSync.js").PeerInfo[]} */ ([]));
   const [connStatus, setConnStatus] = useState(solo ? "open" : "connecting");
   const [focusHere, setFocusHere] = useState(/** @type {{ id: string, name: string }[]} */ ([]));
   /** Pending warn-and-allow confirmation for edits that touch answered data. */

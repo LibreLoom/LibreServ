@@ -85,7 +85,7 @@ let OriginalImage;
 function mockImageLoader(behavior = "load") {
   OriginalImage = globalThis.Image;
   // @ts-expect-error test mock
-  globalThis.Image = vi.fn(function MockImage() {
+  globalThis.Image = vi.fn(/** @this {any} */ function MockImage() {
     /** @type {(() => void) | null} */
     this.onload = null;
     /** @type {(() => void) | null} */

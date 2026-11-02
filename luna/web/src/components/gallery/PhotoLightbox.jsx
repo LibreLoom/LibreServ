@@ -30,6 +30,8 @@ import { cn } from "@libreloom/ui/lib/utils.js";
 
 const PhotoInfoPanel = lazy(() => import("./PhotoInfoPanel.jsx"));
 
+/** @typedef {import("./PhotoThumb.jsx").GalleryPhoto} GalleryPhoto */
+
 /** Match `fullscreen-overlay-out` duration in index.css. */
 const FULLSCREEN_EXIT_MS = 250;
 /** Breathing room between panes so neighbors peek in like a carousel. */
@@ -74,7 +76,7 @@ export const ABOVE_LIGHTBOX_OVERLAY_CLASS = "z-[90]";
 
 /**
  * Prefer gallery preview for HEIC when available; otherwise drive content URL.
- * @param {object} photo
+ * @param {GalleryPhoto} photo
  * @param {{ contentSrc?: string }} [opts]
  */
 export function resolveDisplaySrc(photo, opts = {}) {
@@ -88,7 +90,7 @@ export function resolveDisplaySrc(photo, opts = {}) {
 }
 
 /**
- * @param {object} photo
+ * @param {GalleryPhoto} photo
  * @param {{ downloadSrc?: string }} [opts]
  */
 export function resolveDownloadSrc(photo, opts = {}) {
@@ -102,21 +104,21 @@ export function resolveDownloadSrc(photo, opts = {}) {
  * Immersive full-screen photo/video viewer.
  *
  * @param {{
- *   photos: object[],
+ *   photos: GalleryPhoto[],
  *   index?: number,
  *   photoKey?: string,
  *   mode?: "owner"|"guest",
  *   contentSrc?: string,
  *   downloadSrc?: string,
- *   srcFor?: (photo: object) => string,
+ *   srcFor?: (photo: GalleryPhoto) => string,
  *   open?: boolean,
  *   onClose: () => void,
  *   onIndexChange: (index: number) => void,
- *   onFavorite?: (photo: object) => void,
- *   onShare?: (photo: object) => void,
- *   onAlbum?: (photo: object) => void,
- *   onTrash?: (photo: object) => void,
- *   onSetCover?: (photo: object) => void,
+ *   onFavorite?: (photo: GalleryPhoto) => void,
+ *   onShare?: (photo: GalleryPhoto) => void,
+ *   onAlbum?: (photo: GalleryPhoto) => void,
+ *   onTrash?: (photo: GalleryPhoto) => void,
+ *   onSetCover?: (photo: GalleryPhoto) => void,
  *   slideshow?: boolean,
  *   onSlideshowChange?: (on: boolean) => void,
  *   favoriting?: boolean,
@@ -472,6 +474,7 @@ export default function PhotoLightbox({
   }, { label: "Play or pause the video", group: "Photos", enabled: viewingVideo, allowInModal: true });
 
   const syncTrack = useCallback(
+    /** @param {number} [fromLayout] */
     (fromLayout) => {
       if (gestureRef.current) return;
       const target = live.current.index;

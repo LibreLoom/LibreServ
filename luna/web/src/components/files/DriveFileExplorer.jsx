@@ -249,7 +249,7 @@ export default function DriveFileExplorer({
   // endpoint reports the folder's pre-trash path ("" at the trash root).
   const trashStat = useQuery({
     queryKey: ["file-stat", fileSourceScope(source, driveId), path],
-    queryFn: () => source.stat(driveId, path),
+    queryFn: () => /** @type {Promise<import("./FileBrowser.jsx").FileStat>} */ (source.stat(driveId, path)),
     enabled: inTrash,
   });
   const trashedFrom = trashStat.data?.trashed_from;

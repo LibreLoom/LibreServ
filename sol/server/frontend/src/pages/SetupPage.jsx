@@ -939,6 +939,7 @@ export default function SetupPage() {
     setStep(STEP.WELCOME);
   }, []);
 
+  /** @type {(nextStep: string, subStep?: string, stepData?: Record<string, any>) => Promise<void>} */
   const advanceStep = useCallback(async (nextStep, subStep, stepData) => {
     const data = stepData || progressRef.current.stepData || {};
     progressRef.current = { step: nextStep, subStep: subStep || "", stepData: data };

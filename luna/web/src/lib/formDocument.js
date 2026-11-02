@@ -47,6 +47,22 @@ function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+ * One stored response — a line in the responses JSONL, latest-wins. `at` is
+ * when it was last written; `sent_at` when it was first sent (edits keep it).
+ * Fields are optional because the file comes off the drive: a newer Luna may
+ * write fields this version doesn't know, and a torn line is skipped whole.
+ *
+ * @typedef {{
+ *   id?: string,
+ *   at?: number,
+ *   sent_at?: number,
+ *   deleted?: boolean,
+ *   edit_token?: string,
+ *   answers?: Record<string, unknown>,
+ * }} FormResponse
+ */
+
 const SETTING_DEFAULTS = {
   responseLimit: "unlimited",
   allowEdits: true,
@@ -184,7 +200,7 @@ export function newEditToken() {
  * append-only and hand-inspectable, so a torn line shouldn't kill the rest.
  *
  * @param {string} text
- * @returns {object[]}
+ * @returns {FormResponse[]}
  */
 export function parseResponsesJsonl(text) {
   return String(text || "")
@@ -207,8 +223,8 @@ export function parseResponsesJsonl(text) {
  * response. Order follows first submission, not last edit. The server
  * already sends this shape; running it again is harmless.
  *
- * @param {object[]} records
- * @returns {object[]}
+ * @param {FormResponse[]} records
+ * @returns {FormResponse[]}
  */
 export function latestResponses(records) {
   const order = [];
@@ -254,7 +270,7 @@ function csvCell(value) {
  * keeps its column (keyed by id, so renames don't orphan data).
  *
  * @param {{ id: string, label: string }[]} columns
- * @param {object[]} responses latest-wins records
+ * @param {FormResponse[]} responses latest-wins records
  * @param {(column: object, value: unknown) => string} formatValue
  * @returns {string}
  */

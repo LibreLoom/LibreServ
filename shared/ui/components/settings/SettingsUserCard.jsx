@@ -5,9 +5,21 @@ import { InfoHint } from "../../components/ui/Tooltip.jsx";
 import { ICON_SIZE } from "../../lib/ui-tokens.js";
 
 /**
+ * The signed-in person, as the settings rail needs them. Both products pass
+ * their own user object; only these fields are read here.
+ *
+ * @typedef {{
+ *   id?: string,
+ *   username?: string,
+ *   display_name?: string,
+ *   role?: string,
+ * }} SettingsUser
+ */
+
+/**
  * Signed-in user summary at the top of the settings sidebar.
  *
- * @param {{ user: object|null, href?: string|((user: object) => string|null), deviceName?: string }} props
+ * @param {{ user: SettingsUser|null, href?: string|((user: SettingsUser) => string|null), deviceName?: string }} props
  *   href — link target for the card. Pass a string or a function of `user`
  *   (e.g. link admins only: `u => u.role === "admin" ? "/settings#users" : null`).
  *   Omit or return null to render a plain div.

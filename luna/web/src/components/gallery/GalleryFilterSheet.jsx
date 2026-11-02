@@ -40,6 +40,32 @@ export const SAVED_FILTERS_KEY = "luna.photos.savedFilters";
  *   timePreset?: ""|"morning"|"afternoon"|"evening"|"night",
  * }} GalleryFilters */
 
+/**
+ * A place marker as `/api/v1/gallery/places` returns it (`PlaceMarker` in
+ * `crates/lunad/src/gallery/mod.rs`).
+ *
+ * @typedef {{ key: string, id?: string, label: string, lat: number, lon: number, cover_thumb?: string }} GalleryPlace
+ */
+
+/**
+ * `/api/v1/gallery/filter-facets` (`FilterFacets` in
+ * `crates/lunad/src/gallery/mod.rs`). The older `lens`/`extensions`/`iso`/
+ * `focal`/`flash` spellings are still read below as fallbacks.
+ *
+ * @typedef {{
+ *   cameras?: Array<{ make: string, model: string, count: number }>,
+ *   lenses?: Array<{ lens: string, count: number }|string>,
+ *   lens?: Array<{ name?: string, label?: string }|string>,
+ *   formats?: Array<{ ext: string, count: number }|string>,
+ *   extensions?: Array<{ name?: string, ext?: string }|string>,
+ *   iso_range?: { min: number, max: number },
+ *   focal_range?: { min: number, max: number },
+ *   iso?: boolean,
+ *   focal?: boolean,
+ *   flash?: boolean,
+ * }} GalleryFacets
+ */
+
 export const EMPTY_FILTERS = /** @type {GalleryFilters} */ ({
   dateFrom: "",
   dateTo: "",
@@ -336,7 +362,7 @@ const sectionClass = "space-y-3 rounded-large-element surface-primary p-4";
  *   onClose: () => void,
  *   onApply: (filters: GalleryFilters) => void,
  *   onOpenDates?: () => void,
- *   places?: object[],
+ *   places?: GalleryPlace[],
  *   focusSection?: ""|"when"|"where"|"camera"|"look"|string,
  * }} props
  */
@@ -351,7 +377,7 @@ function GalleryFilterSheet({
 }) {
   const [draft, setDraft] = useState(() => ({ ...EMPTY_FILTERS, ...value }));
   const [cameras, setCameras] = useState(/** @type {Array<{make:string,model:string,count:number}>} */ ([]));
-  const [facets, setFacets] = useState(/** @type {object|null} */ (null));
+  const [facets, setFacets] = useState(/** @type {GalleryFacets|null} */ (null));
   const [saved, setSaved] = useState(readSavedFilters);
   const [saveName, setSaveName] = useState("");
   const [justCleared, setJustCleared] = useState(false);

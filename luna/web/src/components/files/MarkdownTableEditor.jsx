@@ -103,7 +103,12 @@ function singleLine(ta) {
 /**
  * One cell: rendered Markdown, or — for the cell with the caret — an
  * auto-growing textarea over the same text.
- * @param {{ controller: object, snap: object, r: number, c: number }} props
+ * @param {{
+ *   controller: import("./markdownTables.js").TableController,
+ *   snap: import("./markdownTables.js").TableSnapshot,
+ *   r: number,
+ *   c: number,
+ * }} props
  */
 function Cell({ controller, snap, r, c }) {
   const editing = snap.editing?.r === r && snap.editing?.c === c;
@@ -179,7 +184,8 @@ function Cell({ controller, snap, r, c }) {
   };
 
   const Tag = r === 0 ? "th" : "td";
-  const align = snap.model.align[c] || undefined;
+  // The model stores alignment as free text; the parser only ever emits these.
+  const align = /** @type {"left"|"center"|"right"|undefined} */ (snap.model.align[c] || undefined);
   return (
     <Tag
       scope={r === 0 ? "col" : undefined}

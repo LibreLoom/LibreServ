@@ -28,6 +28,16 @@ import { shakeElement } from "@libreloom/ui/utils/shake.js";
 
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // a year
 
+/** @typedef {import("./questionTypes.js").FormQuestion} FormQuestion */
+
+/**
+ * A response this browser kept for later editing. Only the fields the
+ * responder reads and writes — `answers` is keyed by question id. `at` is
+ * optional because a record stored by an older Luna may not carry one;
+ * `formatSentAt` already falls back to "Sent earlier".
+ * @typedef {{ id: string, edit_token?: string, at?: number, answers: Record<string, unknown> }} StoredResponse
+ */
+
 function cookieName(kind, token) {
   return `lunaform_${kind}_${token}`;
 }
@@ -59,20 +69,22 @@ const MAX_STORED_RESPONSES = 50;
  * `{id, edit_token?, at, answers}` — `edit_token` only exists when the form
  * allowed changes at send time. This is the source of truth for "answered";
  * the `done` cookie is only a second layer for the responseLimit gate.
+ * @param {string} token
+ * @returns {StoredResponse[]}
  */
 function readStoredResponses(token) {
   try {
     const raw = localStorage.getItem(storageName(token));
     const parsed = raw ? JSON.parse(raw) : null;
     if (Array.isArray(parsed)) {
-      return parsed.filter(
+      return /** @type {StoredResponse[]} */ (parsed.filter(
         (r) =>
           r &&
           typeof r === "object" &&
           typeof r.id === "string" &&
           r.answers &&
           typeof r.answers === "object",
-      );
+      ));
     }
   } catch {
     // private browsing etc — treat as fresh
@@ -80,7 +92,12 @@ function readStoredResponses(token) {
   return [];
 }
 
-/** Upsert one response record by id, oldest first; returns the new array (null if storage failed). */
+/**
+ * Upsert one response record by id, oldest first; returns the new array (null if storage failed).
+ * @param {string} token
+ * @param {StoredResponse} entry
+ * @returns {StoredResponse[] | null}
+ */
 function saveStoredResponse(token, entry) {
   try {
     const next = readStoredResponses(token).filter((r) => r.id !== entry.id);
@@ -102,7 +119,11 @@ function formatSentAt(at) {
     : "Sent earlier";
 }
 
-/** "Coming?: Yes" — the first answered question, so entries are tellable apart. */
+/**
+ * "Coming?: Yes" — the first answered question, so entries are tellable apart.
+ * @param {StoredResponse} entry
+ * @param {FormQuestion[]} questions
+ */
 function responsePreview(entry, questions) {
   for (const q of questions) {
     const value = entry.answers ? entry.answers[q.id] : undefined;
@@ -658,9 +679,9 @@ StageCard.propTypes = {
 
 /**
  * @param {{
- *   responses: object[],
- *   questions: object[],
- *   onPick: (entry: object) => void,
+ *   responses: StoredResponse[],
+ *   questions: FormQuestion[],
+ *   onPick: (entry: StoredResponse) => void,
  *   onBack: () => void,
  * }} props
  */
@@ -796,7 +817,7 @@ ChoicePill.propTypes = {
  * Mounted fresh for every response opened (keyed by session), so nothing
  * typed for one response leaks into another.
  * @param {{
- *   question: object,
+ *   question: FormQuestion,
  *   value: unknown,
  *   error?: string,
  *   token: string,

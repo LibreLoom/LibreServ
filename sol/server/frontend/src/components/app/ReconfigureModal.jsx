@@ -47,11 +47,21 @@ function AdvancedContent({ show, advancedFields, config, handleFieldChange, erro
 }
 
 /**
+ * An installed app, as the reconfigure modal needs it.
+ *
+ * @typedef {object} InstalledApp
+ * @property {string} id - Installed instance id (used for the config endpoint).
+ * @property {string} app_id - Catalog id of the app (used to load its schema).
+ * @property {string} name - Display name.
+ * @property {Record<string, any>} [config] - Current configuration values, keyed by field name.
+ */
+
+/**
  * @param {object} props
- * @param {object} props.app - The installed app object (must have id, app_id, name, config)
+ * @param {InstalledApp} props.app - The installed app object (must have id, app_id, name, config)
  * @param {() => void} props.onClose - Called when the modal should close
  * @param {(path: string, options?: object) => Promise<Response>} props.request - Authenticated request function from useAuth
- * @param {(updatedApp: object) => void} props.onSuccess - Called with the updated app data after successful reconfigure
+ * @param {(updatedApp: InstalledApp) => void} props.onSuccess - Called with the updated app data after successful reconfigure
  */
 export default function ReconfigureModal({ app, onClose, request, onSuccess }) {
   const [catalogApp, setCatalogApp] = useState(null);

@@ -74,15 +74,46 @@ export function levenshteinDistance(firstInput, secondInput) {
 }
 
 /**
+ * A known route the 404 page can suggest. `match` overrides the path that is
+ * scored, so an alias ("/pictures") scores on behalf of its real route.
+ *
+ * @typedef {{
+ *   to: string,
+ *   label: string,
+ *   match?: string,
+ *   icon?: import("react").ComponentType<any>,
+ *   adminOnly?: boolean,
+ *   aliases?: string[],
+ * }} KnownPage
+ */
+
+/**
+ * A {@link KnownPage} plus how far the attempted path was from it.
+ * `score` 0 means a prefix match; otherwise it counts letters off.
+ * `lettersOff` is Infinity when the typed segment is too short to guess from.
+ *
+ * @typedef {KnownPage & {
+ *   candidatePath: string,
+ *   candidateSegment: string,
+ *   isPathPrefix: boolean,
+ *   isTypedPrefixOfCandidate: boolean,
+ *   isCandidatePrefixOfTyped: boolean,
+ *   lettersOff: number,
+ *   score: number,
+ *   isClose: boolean,
+ * }} ScoredPage
+ */
+
+/**
  * Score known routes for "close enough" suggestions against the attempted
  * path. Returns a sorted array of scored candidates (best match first).
  * Pure: identical inputs always yield identical output.
  *
  * @param {string} normalizedPathname - Already-normalized pathname
  *   (see {@link normalizePathname}).
- * @param {Array<{ to: string, label: string, match?: string }>} knownPages -
- *   Routes to match. `match` overrides the path that is scored (aliases).
- * @returns {Array<object>} Scored candidates with match metadata, sorted
+ * @param {KnownPage[]} knownPages - Routes to match. `match` overrides the
+ *   path that is scored (aliases).
+ * @returns {ScoredPage[]} Scored candidates with match metadata, sorted
  *   best-first.
  */
 export function scoreKnownPages(normalizedPathname, knownPages) {
@@ -177,9 +208,9 @@ export function pickStableQuip(attemptedPath, quips) {
  * Keep only the best-scoring close match per destination, so a route and
  * its aliases never suggest the same page twice.
  *
- * @param {Array<object>} scored - Output of {@link scoreKnownPages}.
+ * @param {ScoredPage[]} scored - Output of {@link scoreKnownPages}.
  * @param {number} [limit=2] - Maximum suggestions.
- * @returns {Array<object>} Distinct close matches tied for the best score.
+ * @returns {ScoredPage[]} Distinct close matches tied for the best score.
  */
 export function bestDistinctMatches(scored, limit = 2) {
   const close = scored.filter((match) => match.isClose);

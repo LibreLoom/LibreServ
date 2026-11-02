@@ -1073,35 +1073,39 @@ export default function SetupPage() {
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
 
-  const advanceStep = useCallback(async (nextStep, stepData) => {
-    const data = stepData || progressRef.current.stepData || {};
-    progressRef.current = { step: nextStep, stepData: data };
-    setSaveError(null);
-    savingRef.current = true;
-    try {
-      await saveProgress(nextStep, data);
-    } catch (err) {
-      // One retry covers a blip. If it fails again, say what Luna actually
-      // said: a 4xx here is a real refusal (bad step, full disk), not a
-      // connection problem, and "check your connection" would be a lie.
+  const advanceStep = useCallback(
+    /** @param {string} nextStep @param {Record<string, unknown>} [stepData] */
+    async (nextStep, stepData) => {
+      const data = stepData || progressRef.current.stepData || {};
+      progressRef.current = { step: nextStep, stepData: data };
+      setSaveError(null);
+      savingRef.current = true;
       try {
         await saveProgress(nextStep, data);
-      } catch (retryErr) {
-        const status = retryErr?.status ?? err?.status;
-        const said = retryErr?.message || err?.message;
-        setSaveError(
-          status && status >= 400 && status < 500 && said
-            ? said
-            : "Luna couldn't save your setup progress. Check your connection and try again.",
-        );
+      } catch (err) {
+        // One retry covers a blip. If it fails again, say what Luna actually
+        // said: a 4xx here is a real refusal (bad step, full disk), not a
+        // connection problem, and "check your connection" would be a lie.
+        try {
+          await saveProgress(nextStep, data);
+        } catch (retryErr) {
+          const status = retryErr?.status ?? err?.status;
+          const said = retryErr?.message || err?.message;
+          setSaveError(
+            status && status >= 400 && status < 500 && said
+              ? said
+              : "Luna couldn't save your setup progress. Check your connection and try again.",
+          );
+          savingRef.current = false;
+          return;
+        }
+      } finally {
         savingRef.current = false;
-        return;
       }
-    } finally {
-      savingRef.current = false;
-    }
-    setStep(nextStep);
-  }, [saveProgress]);
+      setStep(nextStep);
+    },
+    [saveProgress],
+  );
 
   const handleBegin = useCallback(() => {
     const data = { ...(progressRef.current.stepData || {}), network_connected: true };

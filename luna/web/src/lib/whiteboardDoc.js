@@ -23,6 +23,33 @@ import * as Y from "yjs";
 import { WHITEBOARD_SOURCE } from "./whiteboardFile.js";
 
 /**
+ * One canvas element. Excalidraw owns the full shape; the adapter only reads
+ * the id and the two fields its version check compares, so everything else
+ * rides along untouched.
+ *
+ * @typedef {{ id?: string, version?: number, versionNonce?: number, [key: string]: any }} SceneElement
+ */
+
+/**
+ * An embedded image (Excalidraw's BinaryFileData). `mimeType` and `dataURL`
+ * are what the canvas needs to draw it back.
+ *
+ * @typedef {{ id?: string, mimeType?: string, dataURL?: string, [key: string]: any }} SceneFile
+ */
+
+/**
+ * A scene as the editor hands it over or reads it back. Every part is
+ * optional: the editor sends partial frames, and a file off the drive may
+ * predate a key. `appState` is keyed by {@link PERSISTED_APP_STATE_KEYS}.
+ *
+ * @typedef {{
+ *   elements?: SceneElement[] | readonly SceneElement[],
+ *   appState?: Record<string, any>,
+ *   files?: Record<string, SceneFile>,
+ * }} Scene
+ */
+
+/**
  * Scene-level appState keys that belong in the file. Everything else —
  * selection, scroll, zoom, collaborators, editing element — is per-client
  * UI state and must not sync or persist. Mirrors the subset upstream's
@@ -105,7 +132,7 @@ function isObject(value) {
 /**
  * Keep only the persisted appState slice. Unknown/missing keys are dropped;
  * anything unserializable is dropped rather than breaking the write.
- * @param {object | null | undefined} appState
+ * @param {Record<string, any> | null | undefined} appState
  */
 export function persistedAppState(appState) {
   const out = {};
@@ -128,7 +155,7 @@ export function persistedAppState(appState) {
  * the create-kind file is valid from byte zero, and a hand-made empty or
  * corrupt file should open as a blank canvas, not an error screen.
  * @param {string} content
- * @returns {{ elements: object[], appState: object, files: Record<string, object> }}
+ * @returns {Required<Scene>}
  */
 export function parseSceneText(content) {
   const empty = { elements: [], appState: {}, files: {} };
@@ -201,7 +228,7 @@ function isStaleElement(cached, version, versionNonce) {
  * when they actually changed.
  *
  * @param {Y.Doc} ydoc
- * @param {{ elements?: object[] | readonly object[], appState?: object, files?: Record<string, object> }} scene
+ * @param {Scene} scene
  * @returns {boolean} true if any document mutation was applied
  */
 export function applySceneToYDoc(ydoc, scene) {
@@ -375,6 +402,7 @@ export function syncSceneCache(ydoc) {
  * missing from it (a concurrent-insert race) appends after, sorted by id
  * so every peer resolves the same layout.
  * @param {Y.Doc} ydoc
+ * @returns {Required<Scene>}
  */
 export function readScene(ydoc) {
   const elements = elementsMap(ydoc);

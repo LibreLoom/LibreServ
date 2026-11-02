@@ -31,6 +31,51 @@ import {
  * }} QuestionType
  */
 
+/**
+ * Per-type settings on a question. `options` is the editor's list — `null`
+ * clears it when the type stops taking options. `optionIds` only exists while
+ * the builder reads the doc (never serialized).
+ *
+ * @typedef {{
+ *   options?: string[] | null,
+ *   optionIds?: string[],
+ *   allowOther?: boolean,
+ *   min?: number | null,
+ *   max?: number | null,
+ * }} QuestionConfig
+ */
+
+/**
+ * Skip rule: show this question only when an earlier answer equals `equals`.
+ * @typedef {{ questionId?: string, equals?: unknown }} QuestionLogic
+ */
+
+/**
+ * One question in a `.lunaform` document. Every field is optional on purpose:
+ * the document is JSON from the drive, `parseFormDocument` only guarantees the
+ * entries are objects, and a form written by a newer Luna carries fields this
+ * version doesn't know — they pass through untouched.
+ *
+ * @typedef {{
+ *   id?: string,
+ *   type?: string,
+ *   label?: string,
+ *   help?: string,
+ *   required?: boolean,
+ *   image?: string,
+ *   imageAlt?: string,
+ *   config?: QuestionConfig,
+ *   logic?: QuestionLogic,
+ * }} FormQuestion
+ */
+
+/**
+ * The bit of a stored response the summaries read. Deliberately looser than
+ * `FormResponse` in `formDocument.js`: a summary only needs the answers, and
+ * callers hand it records from tests and from the drive alike.
+ * @typedef {{ answers?: Record<string, unknown> }} AnsweredRecord
+ */
+
 /** @type {Record<string, QuestionType>} */
 export const QUESTION_TYPES = {
   short_text: {
@@ -184,8 +229,8 @@ export function answerOptions(question) {
  * Skip this question when an earlier answer matches `logic`. A trigger that
  * is itself skipped never fires — the condition can't be met.
  *
- * @param {object} question
- * @param {object[]} questions in display order
+ * @param {FormQuestion} question
+ * @param {FormQuestion[]} questions in display order
  * @param {Record<string, unknown>} answers
  */
 export function isQuestionSkipped(question, questions, answers) {
@@ -236,8 +281,8 @@ export function formatAnswer(question, value, separator = ", ") {
  * per option (options with zero answers still show); text-ish types get the
  * list of answers.
  *
- * @param {object} question
- * @param {object[]} responses latest-wins records
+ * @param {FormQuestion} question
+ * @param {AnsweredRecord[]} responses latest-wins records
  */
 export function summarizeAnswers(question, responses) {
   const info = typeInfo(question?.type);
