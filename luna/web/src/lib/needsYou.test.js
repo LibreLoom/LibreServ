@@ -113,7 +113,14 @@ function fullAdminInput(overrides = {}) {
       "full-drive": { mounted: true, total_bytes: 100e9, free_bytes: 5e9 },
     },
     systemChecks: {
-      checks: { disk_space: { status: "failed", category: "storage", message: "Storage is nearly full." } },
+      checks: {
+        drive_d3_read_write: {
+          status: "failed",
+          category: "drives",
+          message: "Luna can't save new files to Backup drive.",
+          details: { drive_label: "Backup drive" },
+        },
+      },
     },
     backupRows: [failingDriveRow(), healthyCloudRow()],
     phrase: { check_due: true },
@@ -306,21 +313,34 @@ describe("system check rows (Admin)", () => {
     const items = buildNeedsYouItems(
       emptyInput({
         systemChecks: {
-          checks: { disk_space: { status: "failed", category: "storage", message: "Storage is nearly full." } },
+          checks: { clock: { status: "failed", category: "system", message: "The clock is wrong." } },
         },
       }),
     );
     expect(items).toStrictEqual([
       {
-        id: "check:disk_space",
+        id: "check:clock",
         rank: 20,
         tone: "problem",
-        title: ["Luna's own storage"],
-        detail: "Storage is nearly full.",
-        hint: "Luna keeps its own software and settings on a small built-in disk, separate from your drives.",
+        title: ["Clock"],
+        detail: "The clock is wrong.",
         action: { label: "Open system checks", href: "/settings#about" },
       },
     ]);
+  });
+
+  it("gives a failure nobody can fix no row at all", () => {
+    const items = buildNeedsYouItems(
+      emptyInput({
+        systemChecks: {
+          checks: {
+            disk_space: { status: "failed", category: "system", message: "Luna's own storage is almost full." },
+            database: { status: "failed", category: "system", message: "Signing in may not work." },
+          },
+        },
+      }),
+    );
+    expect(items).toEqual([]);
   });
 
   it("shows no system row for a warning or a passed check", () => {
@@ -437,70 +457,37 @@ describe("system check rows (Admin)", () => {
     expect(ids(items)).toEqual([]);
   });
 
-  it("drops a failed network check when the no-route row is shown", () => {
+  it("drops the clock row when the no-route row already says the internet is down", () => {
     const items = buildNeedsYouItems(
       emptyInput({
         network: { has_default_route: false },
-        systemChecks: { checks: { network: { status: "failed", message: "No route." } } },
+        systemChecks: {
+          checks: { clock: { status: "failed", message: "The clock is wrong." } },
+        },
       }),
     );
     expect(ids(items)).toEqual(["no-route"]);
   });
 
-  it("keeps a failed network check when the route is up", () => {
+  it("keeps the clock row when the route is up", () => {
     const items = buildNeedsYouItems(
       emptyInput({
         network: { has_default_route: true },
-        systemChecks: { checks: { network: { status: "failed", message: "Network is slow." } } },
+        systemChecks: {
+          checks: { clock: { status: "failed", message: "The clock is wrong." } },
+        },
       }),
     );
     expect(items).toStrictEqual([
       {
-        id: "check:network",
+        id: "check:clock",
         rank: 20,
         tone: "problem",
-        title: ["Network"],
-        detail: "Network is slow.",
+        title: ["Clock"],
+        detail: "The clock is wrong.",
         action: { label: "Open system checks", href: "/settings#about" },
       },
     ]);
-  });
-
-  it("keeps a failed network check when the route state is unknown", () => {
-    for (const network of [null, {}, { has_default_route: undefined }]) {
-      const items = buildNeedsYouItems(
-        emptyInput({
-          network,
-          systemChecks: { checks: { network: { status: "failed", message: "No route." } } },
-        }),
-      );
-      expect(ids(items)).toEqual(["check:network"]);
-    }
-  });
-
-  it("drops failed connect and remote access checks when the device token row is shown", () => {
-    const items = buildNeedsYouItems(
-      emptyInput({
-        connect: { device_token_error: "Token was revoked." },
-        systemChecks: {
-          checks: {
-            connect: { status: "failed", message: "Connect is offline." },
-            remote_access: { status: "failed", message: "Remote access is off." },
-          },
-        },
-      }),
-    );
-    expect(ids(items)).toEqual(["device-token"]);
-  });
-
-  it("keeps a failed connect check when there is no device token row", () => {
-    const items = buildNeedsYouItems(
-      emptyInput({
-        connect: { device_token_error: "   " },
-        systemChecks: { checks: { connect: { status: "failed", message: "Connect is offline." } } },
-      }),
-    );
-    expect(ids(items)).toEqual(["check:connect"]);
   });
 
   it("leaves backup-category checks to the backup rows", () => {
@@ -599,7 +586,7 @@ describe("ordering", () => {
     expect(items.map((item) => item.rank)).toEqual([15, 20, 40, 50, 60, 70, 80, 90]);
     expect(ids(items)).toEqual([
       "drive-unopenable:failed-drive",
-      "check:disk_space",
+      "check:drive_d3_read_write",
       "backup:drive:b1",
       "device-token",
       "no-route",
@@ -613,7 +600,16 @@ describe("ordering", () => {
     const items = buildNeedsYouItems(
       emptyInput({
         drives: [],
-        systemChecks: { checks: { disk_space: { status: "failed", category: "storage", message: "Full." } } },
+        systemChecks: {
+          checks: {
+            drive_d3_read_write: {
+              status: "failed",
+              category: "drives",
+              message: "Luna can't save new files to Backup drive.",
+              details: { drive_label: "Backup drive" },
+            },
+          },
+        },
         backupRows: [failingDriveRow(), healthyCloudRow()],
         phrase: { check_due: true },
         connect: { device_token_error: "Revoked." },
@@ -622,7 +618,7 @@ describe("ordering", () => {
       }),
     );
     expect(ids(items)).toEqual([
-      "check:disk_space",
+      "check:drive_d3_read_write",
       "backup:drive:b1",
       "device-token",
       "no-route",

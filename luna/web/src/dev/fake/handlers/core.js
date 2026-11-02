@@ -381,6 +381,23 @@ const checkGate = (user) => requireAdmin(user, "Only an Admin can check Luna's s
 get("/api/v1/system/health/check", ({ world, user }) => { checkGate(user); return json(world.systemChecks, world.systemChecks.overall_pass ? 200 : 503); });
 post("/api/v1/system/health/check/refresh", ({ world, user }) => { checkGate(user); return json(world.systemChecks, world.systemChecks.overall_pass ? 200 : 503); });
 
+// What is using Luna's own disk. `world.storage` holds the rows; clearing the
+// removable ones drops them and reports what that freed, the way lunad does.
+const storageGate = (user) => requireAdmin(user, "Only an Admin can manage Luna's storage.");
+get("/api/v1/system/storage", ({ world, user }) => {
+  storageGate(user);
+  return json(world.storage, 200);
+});
+post("/api/v1/system/storage/cleanup", ({ world, user }) => {
+  storageGate(user);
+  const removable = world.storage.items.filter((item) => item.removable && item.bytes > 0);
+  const freed = removable.reduce((sum, item) => sum + item.bytes, 0);
+  world.storage.items = world.storage.items.filter((item) => !removable.includes(item));
+  world.storage.free_bytes += freed;
+  world.storage.used_bytes = Math.max(0, world.storage.used_bytes - freed);
+  return json({ freed_bytes: freed, cleared: removable.map((item) => item.id) }, 200);
+});
+
 const bootTime = Date.now();
 const healthBody = ({ world }) => ({
   status: "ok", product: "Luna", version: world.updates.current_version,

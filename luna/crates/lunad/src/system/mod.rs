@@ -8,6 +8,7 @@ pub mod recovery_drive;
 #[cfg(test)]
 mod runtime_perf;
 pub mod staticweb;
+pub mod storage;
 pub mod system_health;
 mod update_host;
 pub mod updates;

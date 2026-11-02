@@ -6,16 +6,16 @@ import { AlertTriangle, ChevronDown } from "lucide-react";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import { useSystemHealthCheck } from "../../hooks/useSystemHealthCheck.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
-import { SYSTEM_DISK_CHECKS, SYSTEM_DISK_HINT, warningChecks } from "../../lib/needsYouChecks.js";
+import { SYSTEM_DISK_CHECKS, SYSTEM_DISK_HINT, pillChecks } from "../../lib/needsYouChecks.js";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import CheckStatusIcon from "./CheckStatusIcon.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 /**
- * SystemHealthPill — warning health checks (a feature that won't work) as a
- * compact dashboard header pill, mirroring Sol's CriticalIssues pattern.
- * Failed checks are not listed here: they are rows in Needs you. With no
- * warnings the pill renders nothing.
+ * SystemHealthPill — the dashboard header's health pill: every warning (a
+ * feature that won't work) plus the failed checks nobody can act on, which
+ * have no Needs you row of their own. Failed checks with a real fix are rows
+ * in Needs you, not here. With nothing to show the pill renders nothing.
  */
 export default function SystemHealthPill() {
   const { data, isLoading, error } = useSystemHealthCheck();
@@ -26,7 +26,7 @@ export default function SystemHealthPill() {
   const buttonRef = useRef(null);
   const portalRef = useRef(null);
 
-  const issues = useMemo(() => warningChecks(data), [data]);
+  const issues = useMemo(() => pillChecks(data), [data]);
 
   const updatePosition = useCallback(() => {
     if (buttonRef.current) {
@@ -95,7 +95,18 @@ export default function SystemHealthPill() {
   const count = issues.length;
   if (count === 0) return null;
 
-  const countText = `${count} warning${count !== 1 ? "s" : ""}`;
+  const failed = issues.filter((check) => check.status === "failed").length;
+  const warned = count - failed;
+  // A failed check outranks a warning, so the pill takes the error tint and
+  // counts the failures; the warnings are still listed inside.
+  const countText =
+    failed > 0
+      ? `${failed} problem${failed !== 1 ? "s" : ""}`
+      : `${warned} warning${warned !== 1 ? "s" : ""}`;
+  const foundText =
+    failed > 0 && warned > 0
+      ? `${failed} problem${failed !== 1 ? "s" : ""} and ${warned} warning${warned !== 1 ? "s" : ""} found`
+      : `${countText} found`;
 
   return (
     <div className="relative" ref={containerRef} data-slot="system-health-pill" data-header-item>
@@ -112,7 +123,7 @@ export default function SystemHealthPill() {
         aria-haspopup="dialog"
         aria-label={`${countText}. Click to view details.`}
       >
-        <Pill variant="warning" className="hover:brightness-110">
+        <Pill variant={failed > 0 ? "error" : "warning"} className="hover:brightness-110">
           <AlertTriangle size={ICON_SIZE.xs} strokeWidth={2.5} aria-hidden="true" />
           <span className="font-medium">{countText}</span>
           <ChevronDown
@@ -132,7 +143,7 @@ export default function SystemHealthPill() {
             ref={portalRef}
             data-slot="system-health-dropdown"
             role="dialog"
-            aria-label="System health warnings"
+            aria-label="System health problems"
             style={{ position: "absolute", top: position.top, left: position.left }}
             className={cn(
               "surface-secondary ring-inset ring-2 ring-accent",
@@ -142,10 +153,8 @@ export default function SystemHealthPill() {
           >
             <div className="px-4 py-3 border-b border-primary/10">
               <div className="flex items-center gap-2">
-                <CheckStatusIcon status="warning" size="sm" />
-                <span className="font-mono text-sm text-primary">
-                  {countText} found
-                </span>
+                <CheckStatusIcon status={failed > 0 ? "failed" : "warning"} size="sm" />
+                <span className="font-mono text-sm text-primary">{foundText}</span>
               </div>
             </div>
             <ul className="py-2">
@@ -156,7 +165,7 @@ export default function SystemHealthPill() {
                   style={isClosing ? undefined : { animationDelay: `${i * 45}ms` }}
                 >
                   <div className="px-4 py-2 flex items-start gap-2">
-                    <CheckStatusIcon status="warning" size="sm" className="mt-0.5" />
+                    <CheckStatusIcon status={check.status} size="sm" className="mt-0.5" />
                     <div className="min-w-0">
                       <div className="text-sm text-primary font-medium">
                         {check.label}

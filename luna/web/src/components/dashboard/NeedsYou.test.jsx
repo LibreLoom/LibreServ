@@ -506,8 +506,8 @@ describe("NeedsYou", () => {
     it("shows an info hint next to a row that has one", () => {
       renderZone([
         problem({
-          id: "check:disk_space",
-          title: ["Storage space"],
+          id: "check:clock",
+          title: ["Clock"],
           hint: "Luna keeps its own software and settings on a small built-in disk, separate from your drives.",
         }),
       ]);

@@ -5,6 +5,7 @@ import { useSystemHealthCheck } from "../../../hooks/useSystemHealthCheck.jsx";
 import CheckMore from "../../common/CheckMore.jsx";
 import CheckStatusIcon from "../../common/CheckStatusIcon.jsx";
 import CheckStatusTag from "../../common/CheckStatusTag.jsx";
+import StorageBreakdown from "./StorageBreakdown.jsx";
 import { SYSTEM_DISK_CHECKS, SYSTEM_DISK_HINT } from "../../../lib/needsYouChecks.js";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { displayLabel, statusRank } from "../../../lib/healthChecks.js";
@@ -106,6 +107,7 @@ export default function SystemChecksCard({ index = 1 }) {
                     {check.message && (
                       <div className="text-xs text-primary break-words">{check.message}</div>
                     )}
+                    {name === "disk_space" && <StorageBreakdown />}
                     {check.more && <CheckMore text={check.more} />}
                   </div>
                 </div>

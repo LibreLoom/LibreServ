@@ -11,7 +11,6 @@ import { buildSystemCheckItems } from "./needsYouChecks.js";
  *   tone: "problem" | "warning" | "info",
  *   title: Array<string | { name: string }>,
  *   detail?: string | Array<string | { name: string }>,
- *   hint?: string,
  *   action?: { label: string, ariaLabel?: string, href?: string, intent?: "open-backup" | "check-phrase", payload?: any },
  * }} NeedsYouItem
  */
@@ -113,7 +112,6 @@ function buildAdminItems(input) {
       systemChecks: input.systemChecks ?? null,
       coveredDriveLabels,
       noRouteShown,
-      tokenShown,
     }),
   );
 

@@ -224,6 +224,28 @@ describe("DashboardPage", () => {
       expect(screen.queryByText(/Everything looks good/i)).not.toBeInTheDocument();
     });
 
+    it("shows the pill for a failed check that has no Needs you row", async () => {
+      const fetchMock = stubDashboardFetch({
+        systemChecks: {
+          overall_pass: false,
+          checks: {
+            disk_space: {
+              status: "failed",
+              message: "Luna's own storage (its system disk) is almost full.",
+              category: "system",
+            },
+          },
+        },
+      });
+      renderDashboard();
+      await screen.findByText("Family photos");
+      await waitForRequests(fetchMock, ADMIN_REQUESTS);
+      expect(
+        await screen.findByRole("button", { name: /^1 problem\./ }),
+      ).toBeInTheDocument();
+      expect(document.querySelector("[data-slot=system-health-pill]")).not.toBeNull();
+    });
+
     it("shows no warning pill when the only system problem is a failed check", async () => {
       const fetchMock = stubDashboardFetch({ systemChecks: FAILED_CHECKS });
       renderDashboard();

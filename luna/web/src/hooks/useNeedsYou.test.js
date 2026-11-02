@@ -291,20 +291,34 @@ describe("useNeedsYou for an Admin", () => {
     stubFetch(
       adminRoutes({
         "/api/v1/system/health/check": answer({
-          checks: { disk_space: { status: "failed", message: "Low space", category: "storage" } },
+          checks: { clock: { status: "failed", message: "The clock is wrong.", category: "system" } },
         }),
       }),
     );
 
     const { result } = renderNeedsYou();
 
-    await waitFor(() => expect(ids(result)).toEqual(["check:disk_space"]));
+    await waitFor(() => expect(ids(result)).toEqual(["check:clock"]));
     expect(result.current.items[0]).toMatchObject({
       rank: 20,
-      title: ["Luna's own storage"],
-      detail: "Low space",
+      title: ["Clock"],
+      detail: "The clock is wrong.",
       action: { label: "Open system checks", href: "/settings#about" },
     });
+  });
+
+  it("shows no row for a failure nobody can act on", async () => {
+    stubFetch(
+      adminRoutes({
+        "/api/v1/system/health/check": answer({
+          checks: { disk_space: { status: "failed", message: "Low space", category: "system" } },
+        }),
+      }),
+    );
+
+    const { result } = renderNeedsYou();
+    await settle(result);
+    expect(ids(result)).toEqual([]);
   });
 
   it("treats a 403 from Connect as no Connect status, without an error", async () => {

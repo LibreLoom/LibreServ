@@ -275,7 +275,7 @@ describe("Needs you on the dashboard", () => {
       const fetchMock = stubDashboardFetch({
         systemChecks: {
           checks: {
-            disk_space: { status: "failed", message: "Low space on the Luna data drive.", category: "storage" },
+            clock: { status: "failed", message: "The clock is wrong.", category: "system" },
           },
         },
       });
@@ -283,8 +283,8 @@ describe("Needs you on the dashboard", () => {
       await settle(fetchMock, ADMIN_QUERIES);
       const zone = needsYouZone();
       const row = within(zone).getByRole("listitem");
-      expect(within(row).getByText("Luna's own storage")).toBeInTheDocument();
-      expect(within(row).getByText("Low space on the Luna data drive.")).toBeInTheDocument();
+      expect(within(row).getByText("Clock")).toBeInTheDocument();
+      expect(within(row).getByText("The clock is wrong.")).toBeInTheDocument();
       expect(within(zone).getByRole("link", { name: "Open system checks" })).toHaveAttribute(
         "href",
         "/settings#about",
@@ -305,12 +305,30 @@ describe("Needs you on the dashboard", () => {
       expect(visibleWarningPill()).toHaveLength(1);
     });
 
-    it("keeps the failed check in Needs you and leaves only the warning in the header pill", async () => {
+    it("puts a failure with no row in the header pill, next to the warning", async () => {
       const fetchMock = stubDashboardFetch({
         systemChecks: {
           checks: {
-            disk_space: { status: "failed", message: "Low space on the Luna data drive.", category: "storage" },
-            clock: { status: "warning", message: "The clock is a few minutes behind.", category: "system" },
+            disk_space: { status: "failed", message: "Low space on the Luna data drive.", category: "system" },
+            video_tools: { status: "warning", message: "Videos get no previews.", category: "features" },
+          },
+        },
+      });
+      renderDashboard();
+      await settle(fetchMock, ADMIN_QUERIES);
+      // No row: there is no fix to offer.
+      expect(screen.queryByRole("region", { name: "Needs you" })).not.toBeInTheDocument();
+      // The pill takes the failure, and counts it above the warning.
+      const pill = screen.getByRole("button", { name: /^1 problem\./ });
+      expect(pill).toBeInTheDocument();
+    });
+
+    it("keeps a failed check with a real fix in Needs you and leaves the warning in the pill", async () => {
+      const fetchMock = stubDashboardFetch({
+        systemChecks: {
+          checks: {
+            clock: { status: "failed", message: "The clock is wrong.", category: "system" },
+            video_tools: { status: "warning", message: "Videos get no previews.", category: "features" },
           },
         },
       });
@@ -321,8 +339,7 @@ describe("Needs you on the dashboard", () => {
       const zone = needsYouZone();
       const rows = within(zone).getAllByRole("listitem");
       expect(rows).toHaveLength(1);
-      expect(within(rows[0]).getByText("Luna's own storage")).toBeInTheDocument();
-      expect(within(zone).queryByText("Clock")).not.toBeInTheDocument();
+      expect(within(rows[0]).getByText("Clock")).toBeInTheDocument();
     });
 
     it("leaves out a failed backup check and a failed drive wear check, which have their own rows", async () => {
@@ -348,12 +365,12 @@ describe("Needs you on the dashboard", () => {
       expect(screen.queryByRole("region", { name: "Needs you" })).not.toBeInTheDocument();
     });
 
-    it("leaves out the network check while the no internet row covers it", async () => {
+    it("leaves out the clock row while the no internet row covers it", async () => {
       const fetchMock = stubDashboardFetch({
         network: { ethernet_connected: true, has_default_route: false },
         systemChecks: {
           checks: {
-            network: { status: "failed", message: "Luna can't see a network connection.", category: "network" },
+            clock: { status: "failed", message: "The clock is wrong.", category: "system" },
           },
         },
       });
@@ -362,14 +379,14 @@ describe("Needs you on the dashboard", () => {
       const zone = needsYouZone();
       expect(within(zone).getAllByRole("listitem")).toHaveLength(1);
       expect(within(zone).getByText("Luna can't reach the internet")).toBeInTheDocument();
-      expect(within(zone).queryByText("Network")).not.toBeInTheDocument();
+      expect(within(zone).queryByText("Clock")).not.toBeInTheDocument();
     });
 
-    it("shows the network check when the internet route is fine", async () => {
+    it("shows the clock row when the internet route is fine", async () => {
       const fetchMock = stubDashboardFetch({
         systemChecks: {
           checks: {
-            network: { status: "failed", message: "Luna can't see a network connection.", category: "network" },
+            clock: { status: "failed", message: "The clock is wrong.", category: "system" },
           },
         },
       });
@@ -377,48 +394,26 @@ describe("Needs you on the dashboard", () => {
       await settle(fetchMock, ADMIN_QUERIES);
       const zone = needsYouZone();
       const row = within(zone).getByRole("listitem");
-      expect(within(row).getByText("Network")).toBeInTheDocument();
-      expect(within(row).getByText("Luna can't see a network connection.")).toBeInTheDocument();
-    });
-
-    it("leaves out Luna Connect and remote access checks while the device token row covers them", async () => {
-      const fetchMock = stubDashboardFetch({
-        connect: { enabled: true, device_token_error: "The device token was not accepted." },
-        systemChecks: {
-          checks: {
-            connect: { status: "failed", message: "Luna Connect can't be reached.", category: "network" },
-            remote_access: { status: "failed", message: "Remote access is off.", category: "network" },
-          },
-        },
-      });
-      renderDashboard();
-      await settle(fetchMock, ADMIN_QUERIES);
-      const zone = needsYouZone();
-      const rows = within(zone).getAllByRole("listitem");
-      expect(rows).toHaveLength(1);
-      expect(within(rows[0]).getByText("Luna Connect needs a new device token")).toBeInTheDocument();
-      expect(within(zone).queryByText("Remote access")).not.toBeInTheDocument();
-    });
-
-    it("shows a failed Luna Connect check when no device token row is shown", async () => {
-      const fetchMock = stubDashboardFetch({
-        connect: { enabled: true },
-        systemChecks: {
-          checks: {
-            connect: { status: "failed", message: "Luna Connect can't be reached.", category: "network" },
-          },
-        },
-      });
-      renderDashboard();
-      await settle(fetchMock, ADMIN_QUERIES);
-      const zone = needsYouZone();
-      const row = within(zone).getByRole("listitem");
-      expect(within(row).getByText("Luna Connect")).toBeInTheDocument();
-      expect(within(row).getByText("Luna Connect can't be reached.")).toBeInTheDocument();
-      expect(within(zone).getByRole("link", { name: "Open system checks" })).toHaveAttribute(
+      expect(within(row).getByText("Clock")).toBeInTheDocument();
+      expect(within(row).getByText("The clock is wrong.")).toBeInTheDocument();
+      expect(within(row).getByRole("link", { name: "Open system checks" })).toHaveAttribute(
         "href",
         "/settings#about",
       );
+    });
+
+    it("shows no row for a failure nobody can act on", async () => {
+      const fetchMock = stubDashboardFetch({
+        systemChecks: {
+          checks: {
+            disk_space: { status: "failed", message: "Luna's own storage is almost full.", category: "system" },
+            database: { status: "failed", message: "Signing in may not work.", category: "system" },
+          },
+        },
+      });
+      renderDashboard();
+      await settle(fetchMock, ADMIN_QUERIES);
+      expect(screen.queryByRole("region", { name: "Needs you" })).not.toBeInTheDocument();
     });
 
     it("shows a failed save test on its own row only when the drive has no row of its own", async () => {

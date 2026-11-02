@@ -53,6 +53,11 @@ export const CASES = {
   "GET /health": plain("/health"),
   "GET /api/v1/health": plain("/api/v1/health"),
   "GET /api/v1/system/health/check": plain("/api/v1/system/health/check"),
+  "GET /api/v1/system/storage": plain("/api/v1/system/storage"),
+  "POST /api/v1/system/storage/cleanup": {
+    url: () => "/api/v1/system/storage/cleanup",
+    body: () => ({}),
+  },
   "GET /api/v1/system/updates": plain("/api/v1/system/updates"),
   "GET /api/v1/system/updates/source": plain("/api/v1/system/updates/source"),
   "GET /api/v1/network/status": plain("/api/v1/network/status"),

@@ -26,6 +26,8 @@ pub fn router() -> Router<AppState> {
             "/api/v1/system/health/check/refresh",
             post(comprehensive_check),
         )
+        .route("/api/v1/system/storage", get(storage))
+        .route("/api/v1/system/storage/cleanup", post(storage_cleanup))
 }
 
 async fn health() -> Json<Value> {
@@ -82,6 +84,56 @@ async fn comprehensive_check(
     Ok((
         status,
         Json(serde_json::to_value(result).unwrap_or(json!({}))),
+    ))
+}
+
+/// What is using Luna's own disk, biggest first.
+async fn storage(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_admin(&user)?;
+    let dir = state.data_dir.clone();
+    let report = tokio::task::spawn_blocking(move || crate::system::storage::report(&dir))
+        .await
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't look at its own storage.",
+            )
+        })?;
+    Ok(Json(serde_json::to_value(report).unwrap_or(json!({}))))
+}
+
+/// Clear what Luna can make again — copies of documents no editor has open,
+/// and update downloads from installs that never finished.
+async fn storage_cleanup(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_admin(&user)?;
+    let live = state.office_docs.live_keys().await;
+    let dir = state.data_dir.clone();
+    let result = tokio::task::spawn_blocking(move || crate::system::storage::cleanup(&dir, &live))
+        .await
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't clear space. Try again.",
+            )
+        })?;
+    // The disk-space check just changed, so the next read must not be cached.
+    state.health_cache.invalidate();
+    Ok(Json(serde_json::to_value(result).unwrap_or(json!({}))))
+}
+
+fn require_admin(user: &crate::auth::CurrentUser) -> Result<(), (StatusCode, Json<Value>)> {
+    if user.role == "admin" {
+        return Ok(());
+    }
+    Err(json_error(
+        StatusCode::FORBIDDEN,
+        "Only an Admin can manage Luna's storage.",
     ))
 }
 
@@ -256,6 +308,138 @@ mod tests {
             .oneshot(
                 axum::http::Request::builder()
                     .uri("/api/v1/system/health/check")
+                    .header("Authorization", format!("Bearer {token}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::FORBIDDEN);
+    }
+
+    /// Admin router + token for the storage routes.
+    async fn admin_app() -> (tempfile::TempDir, axum::Router, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = AppState::new(conn, drive_manager, dir.path());
+        let auth = state.auth.clone();
+        let user = auth
+            .register("Max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        let token = auth.issue(&user).unwrap();
+        let router = axum::Router::new()
+            .merge(super::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state);
+        (dir, router, token)
+    }
+
+    #[tokio::test]
+    async fn storage_names_what_is_using_the_disk() {
+        let (dir, router, token) = admin_app().await;
+        std::fs::create_dir_all(dir.path().join("eurooffice/sdkjs")).unwrap();
+        std::fs::write(
+            dir.path().join("eurooffice/sdkjs/sdk-all-min.js"),
+            vec![0u8; 64 * 1024],
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("office_bundles/key-a")).unwrap();
+        std::fs::write(
+            dir.path().join("office_bundles/key-a/Editor.bin"),
+            vec![1u8; 8192],
+        )
+        .unwrap();
+
+        let response = router
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/v1/system/storage")
+                    .header("Authorization", format!("Bearer {token}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 256 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(v["total_bytes"].as_u64().unwrap() > 0);
+        let items = v["items"].as_array().unwrap();
+        let office = items
+            .iter()
+            .find(|i| i["id"] == "office_pack")
+            .expect("office pack row");
+        assert_eq!(office["removable"], false);
+        assert!(office["bytes"].as_u64().unwrap() >= 64 * 1024);
+        let temporary = items
+            .iter()
+            .find(|i| i["id"] == "temporary")
+            .expect("temporary files row");
+        assert_eq!(temporary["removable"], true);
+    }
+
+    #[tokio::test]
+    async fn storage_cleanup_clears_temporary_files_and_says_how_much() {
+        let (dir, router, token) = admin_app().await;
+        std::fs::create_dir_all(dir.path().join("office_bundles/key-a")).unwrap();
+        std::fs::write(
+            dir.path().join("office_bundles/key-a/Editor.bin"),
+            vec![1u8; 8192],
+        )
+        .unwrap();
+
+        let response = router
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/system/storage/cleanup")
+                    .header("Authorization", format!("Bearer {token}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(v["freed_bytes"].as_u64().unwrap() >= 8192);
+        assert_eq!(v["cleared"][0], "temporary");
+        assert!(!dir.path().join("office_bundles/key-a").exists());
+    }
+
+    #[tokio::test]
+    async fn storage_rejects_member() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = AppState::new(conn, drive_manager, dir.path());
+        let auth = state.auth.clone();
+        let _admin = auth
+            .register("Max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        let member = auth
+            .register("Jamie", "Jamie", "hunter22hunter1", "user")
+            .unwrap();
+        let token = auth.issue(&member).unwrap();
+        let router = axum::Router::new()
+            .merge(super::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state);
+        let response = router
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/v1/system/storage")
                     .header("Authorization", format!("Bearer {token}"))
                     .body(axum::body::Body::empty())
                     .unwrap(),
