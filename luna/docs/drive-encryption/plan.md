@@ -132,10 +132,9 @@ A route rather than a modal, for three reasons: progress survives a refresh and 
 | Encrypted, locked | *"Locked. Enter the password to open it."* | Unlock |
 | Encrypted, unlocked | *"Unlocked. It stays open until you lock it or Luna restarts."* | Lock, Decrypt |
 | Decrypting | Progress bar, *"Decrypting · 42%"* | Cancel |
+| Interrupted | *"Encryption was interrupted. Enter the password to finish it."* | Resume (asks for the password) |
 
-There is no Interrupted state to sit in. A conversion interrupted by a power cut **resumes by itself** when Luna starts — see below.
-
-The page is the only home for progress. The drive card shows a one-line state (`Encrypting · 42%`, `Locked`) and a link here — enough to know what is happening, not enough to act by accident. The link appears on the Files page only; the dashboard card stays a summary.
+The page is the only home for progress. The drive card shows a one-line state (`Encrypting · 42%`, `Locked`, `Interrupted`) and a link here — enough to know what is happening, not enough to act by accident. The link appears on the Files page only; the dashboard card stays a summary.
 
 **Encrypt and Decrypt both go through a confirmation step** on this page, never directly from the card. Encrypt asks for the password twice, with the §4 warning above the fields. **Decrypt asks for the password too** — it proves the person knows it rather than merely sitting at an unlocked session, and it is the last moment before the files become readable by anyone who plugs the drive in. Its confirmation says exactly that.
 
@@ -145,12 +144,11 @@ The page is the only home for progress. The drive card shows a one-line state (`
 
 - **Check the last 32 MiB is free before starting.** `--encrypt` shrinks the filesystem by the header size first; a full FAT32 drive has nowhere to put it. Refuse with a plain reason rather than failing halfway.
 - **Hours on a full drive.** Real progress, and a cancel that is safe because LUKS2 keeps reencrypt state in the header — `--resume-only` picks it back up ([ArchWiki](https://wiki.archlinux.org/title/Removing_system_encryption)).
-- **A power cut resumes automatically.** On startup, before the drive is offered for use, Luna checks the LUKS2 header for unfinished reencrypt state and restarts the job with `--resume-only`. The drive shows `Encrypting · 12%` (or `Decrypting`) from boot — not a special state, and not a normal-looking drive. Nothing is lost, and nobody has to notice and press anything.
+- **A power cut cannot resume by itself.** `--resume-only` needs a passphrase to unlock a keyslot and recover the volume key, and the password only ever lived in RAM. So an interrupted conversion comes back in the **Interrupted** state above and waits for someone to enter the password — it cannot be automatic, and pretending otherwise would mean storing the password on disk, which is exactly what §4 forbids.
 
-  Two consequences worth being explicit about:
+  That is not a bad outcome. The drive is unavailable until someone resumes, which is honest: it is mid-conversion and must not be written to. The state is visible on the card and the page, and the password is one the person already knows.
 
-  - **It resumes without the password.** The reencrypt state in the header is enough to continue; the volume key is already in the keyslot material and `cryptsetup` handles it. That is fine — the operation was authorised by whoever started it.
-  - **The drive stays unavailable until it finishes**, which on a large drive can be hours after a power cut. The card says so and the page shows real progress, so it reads as "still working" rather than "broken". That is the cost of resuming automatically, and it is the right trade: the alternative is a drive that looks normal while half-converted.
+  **What to check before relying on this:** that `--resume-only` on a *partially converted* device is safe to leave sitting across a reboot, and that Luna can detect the unfinished state at boot without a passphrase (the LUKS2 header records it, so `luksDump` should say so). Both are phase 4 tests, not assumptions.
 
 **Admin-only**, matching Remove and Eject. A Member can use an encrypted drive and unlock it, but cannot change whether it is encrypted.
 
@@ -182,16 +180,16 @@ Two consequences of deferring it that are worth knowing now:
 | **1** | Image: `cryptsetup`, `dm-crypt`, presence check. Luna: detection, unlock/lock, `locked` column, 423 on API and WebDAV, unlock dialog. |
 | **2** | The encryption page: route, the five states, Unlock/Lock, the drive-card link and state line. |
 | **3** | New-drive format path: partition → `luksFormat` → `mkfs.ext4`, reusing the page's password step. |
-| **4** | Conversion both ways: the job, progress, cancel, boot-time auto-resume, the `converting` flag and the exclusive hold. |
+| **4** | Conversion both ways: the job, progress, cancel, the Interrupted state and password-gated resume, the `converting` flag and the exclusive hold. |
 | **5** | Parity: drive-backup pairing rules, the §6 leak audit. |
 
-Phase 4 is the riskiest — an interrupted conversion is the one failure mode that can lose data, so the auto-resume path needs testing against a real power cut rather than assuming it.
+Phase 4 is the riskiest — an interrupted conversion is the one failure mode that can lose data, so the resume path needs testing against a real power cut rather than assuming it.
 
 ## 9. Settled
 
 - **Anyone with access to a drive may unlock it.** The rate limiter is what makes that safe.
 - **Conversion works both ways on any drive**, from the encryption page.
-- **An interrupted conversion resumes automatically at boot.**
+- **An interrupted conversion waits in the Interrupted state** and resumes only when someone enters the password. It cannot resume by itself: the password is only ever in RAM.
 - **Decrypt requires the password.**
 - **The encryption page is linked from the Files page only**; the dashboard card stays a summary.
 - **No recovery path.** One keyslot, one password, and the warning says what that means.
