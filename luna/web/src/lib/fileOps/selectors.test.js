@@ -133,6 +133,9 @@ describe("copy and errors", () => {
     expect(dockHeaderTitle({ running: 0, problems: 0, finished: 1 })).toBe("Finished");
     // A problem outranks a finish: something still needs an answer.
     expect(dockHeaderTitle({ running: 0, problems: 1, finished: 1 })).toBe("Some files need you");
+    // A cancelled operation is not finished work; say it stopped instead.
+    expect(dockHeaderTitle({ running: 0, problems: 0, finished: 1, cancelled: 1 })).toBe("Stopped");
+    expect(dockHeaderTitle({ running: 0, problems: 0, finished: 2, cancelled: 1 })).toBe("Finished");
   });
 
   it("names what finished in the collapsed summary", () => {

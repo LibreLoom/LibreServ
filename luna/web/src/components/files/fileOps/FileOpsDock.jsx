@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { AnimatePresence, MotionConfig, motion as Motion } from "motion/react";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
@@ -59,11 +59,18 @@ export default function FileOpsDock({ expanded: expandedProp, onExpandedChange }
   const [expandedState, setExpandedState] = useState(startsExpanded);
   const controlled = expandedProp !== undefined;
   const expanded = controlled ? expandedProp : expandedState;
-  const setExpanded = (/** @type {boolean | ((open: boolean) => boolean)} */ next) => {
-    const value = typeof next === "function" ? next(expanded) : next;
-    if (!controlled) setExpandedState(value);
-    onExpandedChange?.(value);
-  };
+  // Stable, so the effect below can depend on it honestly instead of silencing
+  // the lint. `expanded` is read through a ref for the same reason.
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
+  const setExpanded = useCallback(
+    (/** @type {boolean | ((open: boolean) => boolean)} */ next) => {
+      const value = typeof next === "function" ? next(expandedRef.current) : next;
+      if (!controlled) setExpandedState(value);
+      onExpandedChange?.(value);
+    },
+    [controlled, onExpandedChange],
+  );
   const lastProblems = useRef(0);
 
   // The last header that had words in it. Read only while the card is leaving,
@@ -80,7 +87,7 @@ export default function FileOpsDock({ expanded: expandedProp, onExpandedChange }
   useEffect(() => {
     if (info.problemCount > lastProblems.current) setExpanded(true);
     lastProblems.current = info.problemCount;
-  }, [info.problemCount]);
+  }, [info.problemCount, setExpanded]);
 
   const closeAll = () => {
     for (const op of ops) store.dismiss(op.id);

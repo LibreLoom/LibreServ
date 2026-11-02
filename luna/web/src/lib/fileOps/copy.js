@@ -82,6 +82,7 @@ export const dockTitle = {
   working: "Working on your files",
   needsYou: "Some files need you",
   done: "Finished",
+  stopped: "Stopped",
 };
 
 export const text = {
@@ -142,12 +143,14 @@ export function jobGone(kind) {
  * be dismissed announced "Some files need you" — a lie, and part of why the
  * card felt unreliable.
  *
- * @param {{ running: number, problems: number, finished: number }} s
+ * @param {{ running: number, problems: number, finished: number, cancelled?: number }} s
  */
 export function dockHeaderTitle(s) {
   if (s.running > 0) return dockTitle.working;
   if (s.problems > 0) return dockTitle.needsYou;
-  if (s.finished > 0) return dockTitle.done;
+  // A cancelled operation is not "Finished": saying so would claim work that
+  // didn't happen. "Stopped" covers cancel and dismiss alike.
+  if (s.finished > 0) return s.cancelled > 0 && s.cancelled === s.finished ? dockTitle.stopped : dockTitle.done;
   return dockTitle.working;
 }
 

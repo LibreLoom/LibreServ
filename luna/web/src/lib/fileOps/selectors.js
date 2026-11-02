@@ -64,6 +64,9 @@ export function dockInfo(state) {
     const finished = shown.filter(
       (o) => !isRunning(o) && o.endedAt != null && problemItems(o).length === 0,
     );
+    // A cancelled operation is among the finished ones, but it must not be
+    // announced as finished work.
+    const cancelled = finished.filter((o) => o.state === "cancelled").length;
     const known = running.filter((o) => !o.indeterminate);
     const pct = known.length
       ? known.reduce((sum, o) => sum + (opProgress(o) || 0), 0) / known.length
@@ -78,6 +81,7 @@ export function dockInfo(state) {
       runningCount: running.length,
       problemCount: problems,
       finishedCount: finished.length,
+      cancelledCount: cancelled,
       pct,
       title: "",
       summary: "",
@@ -85,7 +89,7 @@ export function dockInfo(state) {
       hasProblems: problems > 0,
     };
     info.title = shown.length
-      ? dockHeaderTitle({ running: running.length, problems, finished: finished.length })
+      ? dockHeaderTitle({ running: running.length, problems, finished: finished.length, cancelled })
       : "";
     info.summary = dockSummary({
       running: running.length,
