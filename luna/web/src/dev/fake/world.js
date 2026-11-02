@@ -154,15 +154,12 @@ export function baseWorld() {
         // Passing checks omit details and more, matching lunad.
         drive_tools: { category: "Drive tools", message: "Luna can add and eject drives.", status: "passed" },
         erase_tools: { category: "Erase tools", message: "Erase tools are installed.", status: "passed" },
-        heic_tools: { category: "Photos", message: "iPhone photo support installed.", more: "", status: "passed", details: { missing: [] } },
+        heic_tools: { category: "Photos", message: "iPhone photo support installed.", status: "passed" },
         logs_path_writable: passed("Storage", "Luna can write to its log folder."),
-        // lunad sends `more` on this row whenever it is a warning (no route,
-        // no address, no connection), so the key belongs to the shape even
-        // though the passing message carries no explanation.
-        network: { category: "Network", message: "Connected to your router or modem, with a path to the internet.", more: "", status: "passed" },
-        ntfs_support: { category: "Drive tools", message: "Luna can open drives formatted as NTFS, the format Windows uses for its own drives.", more: "", status: "passed", details: { missing: [] } },
-        office_pack: { category: "Documents", message: "Document pack installed.", more: "", status: "passed", details: { missing: [] } },
-        smart_tool: { category: "Drive health", message: "Drive health checks are available.", more: "", status: "passed", details: { missing: [] } },
+        network: { category: "Network", message: "Connected to your router or modem, with a path to the internet.", status: "passed" },
+        ntfs_support: { category: "Drive tools", message: "Luna can open drives formatted as NTFS, the format Windows uses for its own drives.", status: "passed" },
+        office_pack: { category: "Documents", message: "Document pack installed.", status: "passed" },
+        smart_tool: { category: "Drive health", message: "Drive health checks are available.", status: "passed" },
         trim_tool: { category: "Drive health", message: "Luna can run its weekly SSD (solid-state drive) upkeep.", status: "passed" },
         update_signing: passed("Updates", "Updates are checked against Luna's signing key."),
         video_tools: { category: "Videos", message: "Video previews installed.", status: "passed" },

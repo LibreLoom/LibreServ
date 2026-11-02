@@ -590,23 +590,29 @@
       },
       "drive_tools": {
         "category": "string",
-        "message": "string",
-        "status": "string"
-      },
-      "erase_tools": {
-        "category": "string",
-        "message": "string",
-        "status": "string"
-      },
-      "heic_tools": {
-        "category": "string",
-        "details": {
+        "details?": {
           "missing": [
             "string"
           ]
         },
         "message": "string",
-        "more": "string",
+        "more?": "string",
+        "status": "string"
+      },
+      "erase_tools": {
+        "category": "string",
+        "details?": {
+          "missing": [
+            "string"
+          ]
+        },
+        "message": "string",
+        "more?": "string",
+        "status": "string"
+      },
+      "heic_tools": {
+        "category": "string",
+        "message": "string",
         "status": "string"
       },
       "logs_path_writable": {
@@ -617,45 +623,43 @@
       "network": {
         "category": "string",
         "message": "string",
-        "more": "string",
         "status": "string"
       },
       "ntfs_support": {
         "category": "string",
-        "details": {
-          "missing": [
-            "string"
-          ]
-        },
         "message": "string",
-        "more": "string",
         "status": "string"
       },
       "office_pack": {
         "category": "string",
-        "details": {
+        "details?": {
           "missing": [
             "string"
           ]
         },
         "message": "string",
-        "more": "string",
+        "more?": "string",
+        "status": "string"
+      },
+      "os_update_tools?": {
+        "category": "string",
+        "message": "string",
         "status": "string"
       },
       "smart_tool": {
         "category": "string",
-        "details": {
+        "message": "string",
+        "status": "string"
+      },
+      "trim_tool": {
+        "category": "string",
+        "details?": {
           "missing": [
             "string"
           ]
         },
         "message": "string",
-        "more": "string",
-        "status": "string"
-      },
-      "trim_tool": {
-        "category": "string",
-        "message": "string",
+        "more?": "string",
         "status": "string"
       },
       "update_signing": {
@@ -716,19 +720,6 @@
     ],
     "feed_url": "string",
     "keys": []
-  },
-  "GET /api/v1/tailscale/status": {
-    "approval_type?": "string",
-    "approval_url": "string",
-    "auth_url": "string",
-    "control_server": "string",
-    "enabled": "boolean",
-    "error": "string",
-    "identity_saved": "boolean",
-    "installed": "boolean",
-    "private_url": "string",
-    "public_url": "string",
-    "state": "string"
   },
   "GET /api/v1/users": [
     {
