@@ -216,14 +216,19 @@ export default function PhraseWriteDown({
               : "12 words are enough for most people."}
           </p>
         </div>
-        <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {words.map((word, i) => (
-            <li key={i} className="flex items-center gap-2 rounded-pill surface-primary px-3 py-2 text-sm">
-              <span className="w-5 text-right text-xs font-mono">{i + 1}.</span>
-              <InlinePill>{word}</InlinePill>
-            </li>
-          ))}
-        </ol>
+        {/* Columns follow the card's own width, not the window's: these cards are
+            narrower than the page on a wide screen, and three columns of words in one
+            wrap onto two lines each. */}
+        <div className="@container">
+          <ol className="grid grid-cols-2 gap-2 @md:grid-cols-3">
+            {words.map((word, i) => (
+              <li key={i} className="flex items-center gap-2 rounded-pill surface-primary px-3 py-2 text-sm">
+                <span className="w-5 shrink-0 text-right text-xs font-mono">{i + 1}.</span>
+                <InlinePill>{word}</InlinePill>
+              </li>
+            ))}
+          </ol>
+        </div>
         {error && <InlineError>{error}</InlineError>}
         <div className="flex flex-wrap justify-end gap-2">
           <Button variant="outline" surface={surface} size="sm" onClick={printWords}>
