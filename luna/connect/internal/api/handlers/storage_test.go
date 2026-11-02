@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -90,6 +91,22 @@ func (s *countingStore) Put(accountID, deviceID, relPath string, r io.Reader) (i
 func (s *countingStore) Delete(accountID, deviceID, relPath string) error {
 	s.deletes++
 	return s.Store.Delete(accountID, deviceID, relPath)
+}
+
+type gatedRecordStore struct {
+	store.Store
+	started chan struct{}
+	release chan struct{}
+	putErr  error
+}
+
+func (s *gatedRecordStore) Put(accountID, deviceID, relPath string, r io.Reader) (int64, string, error) {
+	close(s.started)
+	<-s.release
+	if s.putErr != nil {
+		return 0, "local", s.putErr
+	}
+	return s.Store.Put(accountID, deviceID, relPath, r)
 }
 
 // signMove returns the X-Luna-Sig and X-Luna-Ts headers a Luna sends to move to a
@@ -198,7 +215,7 @@ func TestStorageLunaIsolation(t *testing.T) {
 }
 
 func TestStorageRecords(t *testing.T) {
-	h, _, tok := storageFixture(t, "records", 0)
+	h, d, tok := storageFixture(t, "records", 0)
 	for _, name := range []string{"beta.json", "alpha.json"} {
 		rec := storageDo(t, h, http.MethodPut, "/records/snapshot/"+name, tok, "luna1", []byte("v1"), nil)
 		if rec.Code != http.StatusOK {
@@ -225,9 +242,286 @@ func TestStorageRecords(t *testing.T) {
 	if del.Code != http.StatusNoContent {
 		t.Fatalf("delete %d", del.Code)
 	}
+	var queued int
+	if err := d.DB.QueryRow(`SELECT COUNT(*) FROM storage_pending_deletes WHERE path = ?`, store.StorageRecordPath("snapshot", "alpha.json")).Scan(&queued); err != nil {
+		t.Fatal(err)
+	}
+	if queued != 1 {
+		t.Fatalf("pending record deletes %d, want 1", queued)
+	}
 	again := storageDo(t, h, http.MethodDelete, "/records/snapshot/alpha.json", tok, "luna1", nil, nil)
 	if again.Code != http.StatusNoContent {
 		t.Fatalf("second delete should be idempotent, got %d", again.Code)
+	}
+	if err := d.DB.QueryRow(`SELECT COUNT(*) FROM storage_pending_deletes WHERE path = ?`, store.StorageRecordPath("snapshot", "alpha.json")).Scan(&queued); err != nil {
+		t.Fatal(err)
+	}
+	if queued != 1 {
+		t.Fatalf("pending record deletes after retry %d, want 1", queued)
+	}
+}
+
+func TestStorageRecordPagesUseKeysetCursorsAndReauthorizeEveryRequest(t *testing.T) {
+	h, d, tok := storageFixture(t, "pages", 0)
+	for _, name := range []string{"gamma.json", "alpha.json", "beta.json"} {
+		if rec := storageDo(t, h, http.MethodPut, "/records/snapshots/"+name, tok, "luna1", []byte("v"), nil); rec.Code != http.StatusOK {
+			t.Fatalf("put %s: %d %s", name, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := storageDo(t, h, http.MethodPut, "/records/other-kind/alpha.json", tok, "luna1", []byte("v"), nil); rec.Code != http.StatusOK {
+		t.Fatalf("put other kind: %d %s", rec.Code, rec.Body.String())
+	}
+	decodePage := func(rec *httptest.ResponseRecorder) (names []string, total int, next string, version uint64) {
+		t.Helper()
+		var body struct {
+			Names     []string `json:"names"`
+			Total     int      `json:"total"`
+			NextAfter string   `json:"next_after"`
+			Version   uint64   `json:"version"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode page: %v (%s)", err, rec.Body.String())
+		}
+		return body.Names, body.Total, body.NextAfter, body.Version
+	}
+	page := storageDo(t, h, http.MethodGet, "/records/snapshots?limit=1", tok, "luna1", nil, nil)
+	if page.Code != http.StatusOK {
+		t.Fatalf("first page %d %s", page.Code, page.Body.String())
+	}
+	firstNames, firstTotal, firstCursor, inventoryVersion := decodePage(page)
+	if strings.Join(firstNames, ",") != "alpha.json" || firstTotal != 3 || firstCursor != "alpha.json" {
+		t.Fatalf("unexpected first page: %v total=%d cursor=%q", firstNames, firstTotal, firstCursor)
+	}
+	// Same-count replacement changes the version even though page totals remain equal.
+	if rec := storageDo(t, h, http.MethodDelete, "/records/snapshots/beta.json", tok, "luna1", nil, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete beta: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := storageDo(t, h, http.MethodPut, "/records/snapshots/zeta.json", tok, "luna1", []byte("v"), nil); rec.Code != http.StatusOK {
+		t.Fatalf("insert zeta: %d %s", rec.Code, rec.Body.String())
+	}
+	stale := storageDo(t, h, http.MethodGet, "/records/snapshots?limit=1&after=alpha.json&version="+strconv.FormatUint(inventoryVersion, 10)+"&total=3", tok, "luna1", nil, nil)
+	if stale.Code != http.StatusConflict {
+		t.Fatalf("same-count inventory replacement should expire its cursor, got %d %s", stale.Code, stale.Body.String())
+	}
+	var traversed []string
+	cursor := ""
+	version := uint64(0)
+	for {
+		path := "/records/snapshots?limit=1"
+		if cursor != "" {
+			path += "&after=" + cursor + "&version=" + strconv.FormatUint(version, 10) + "&total=3"
+		}
+		rec := storageDo(t, h, http.MethodGet, path, tok, "luna1", nil, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("retry page %q: %d %s", cursor, rec.Code, rec.Body.String())
+		}
+		names, _, next, pageVersion := decodePage(rec)
+		if cursor == "" {
+			version = pageVersion
+		} else if pageVersion != version {
+			t.Fatalf("version changed during retry: got %d want %d", pageVersion, version)
+		}
+		traversed = append(traversed, names...)
+		if next == "" {
+			break
+		}
+		cursor = next
+	}
+	if strings.Join(traversed, ",") != "alpha.json,gamma.json,zeta.json" {
+		t.Fatalf("retry traversal duplicated or omitted names: %v", traversed)
+	}
+	empty := storageDo(t, h, http.MethodGet, "/records/snapshots?limit=1&after=zzzz&version="+strconv.FormatUint(version, 10)+"&total=3", tok, "luna1", nil, nil)
+	if names, _, next, _ := decodePage(empty); empty.Code != http.StatusOK || len(names) != 0 || next != "" {
+		t.Fatalf("past-end cursor should return an empty terminal page: status=%d names=%v next=%q", empty.Code, names, next)
+	}
+
+	for _, path := range []string{
+		"/records/snapshots?limit=0",
+		"/records/snapshots?limit=257",
+		"/records/snapshots?limit=1&after=..%2Fescape",
+		"/records/snapshots?limit=1&limit=2",
+		"/records/snapshots?limit=1&version=-1",
+		"/records/snapshots?limit=1&version=1&version=2",
+		"/records/snapshots?limit=1&total=3",
+	} {
+		rec := storageDo(t, h, http.MethodGet, path, tok, "luna1", nil, nil)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("invalid page request %q returned %d", path, rec.Code)
+		}
+	}
+	secondDevice := addStorageDevice(t, d, "pages", tok)
+	for _, path := range []string{"/records/snapshots?limit=1", "/records/snapshots?limit=1&after=alpha.json"} {
+		rec := storageDo(t, h, http.MethodGet, path, secondDevice, "luna1", nil, nil)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("non-owner page request %q returned %d", path, rec.Code)
+		}
+	}
+}
+
+func TestRecordPagesWaitForPutAndRejectThePreviousInventory(t *testing.T) {
+	h, d, tok := storageFixture(t, "pageputlock", 0)
+	if rec := storageDo(t, h, http.MethodPut, "/records/snapshots/one.json", tok, "luna1", []byte("old"), nil); rec.Code != http.StatusOK {
+		t.Fatalf("initial put %d %s", rec.Code, rec.Body.String())
+	}
+	first := storageDo(t, h, http.MethodGet, "/records/snapshots?limit=1", tok, "luna1", nil, nil)
+	var before struct {
+		Total   uint64 `json:"total"`
+		Version uint64 `json:"version"`
+	}
+	if first.Code != http.StatusOK || json.Unmarshal(first.Body.Bytes(), &before) != nil || before.Total != 1 {
+		t.Fatalf("initial inventory page %d %s", first.Code, first.Body.String())
+	}
+
+	gated := &gatedRecordStore{Store: d.Store, started: make(chan struct{}), release: make(chan struct{})}
+	d.Store = gated
+	h = storageRouter(d)
+	putDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		putDone <- storageDo(t, h, http.MethodPut, "/records/snapshots/one.json", tok, "luna1", []byte("new"), nil)
+	}()
+	<-gated.started // Put holds the inventory row lock before touching object bytes.
+
+	pageDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		path := "/records/snapshots?limit=1&after=one.json&version=" + strconv.FormatUint(before.Version, 10) + "&total=1"
+		pageDone <- storageDo(t, h, http.MethodGet, path, tok, "luna1", nil, nil)
+	}()
+	select {
+	case rec := <-pageDone:
+		t.Fatalf("page accepted an inventory while its record write was pending: %d %s", rec.Code, rec.Body.String())
+	case <-time.After(75 * time.Millisecond):
+	}
+	close(gated.release)
+	if rec := <-putDone; rec.Code != http.StatusOK {
+		t.Fatalf("replacement put %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := <-pageDone; rec.Code != http.StatusConflict {
+		t.Fatalf("old continuation should be rejected after replacement, got %d %s", rec.Code, rec.Body.String())
+	}
+	current := storageDo(t, h, http.MethodGet, "/records/snapshots?limit=1", tok, "luna1", nil, nil)
+	var after struct {
+		Version uint64 `json:"version"`
+	}
+	if current.Code != http.StatusOK || json.Unmarshal(current.Body.Bytes(), &after) != nil || after.Version == before.Version {
+		t.Fatalf("new page did not expose a new generation: before=%d response=%d %s", before.Version, current.Code, current.Body.String())
+	}
+}
+
+func TestFailedRecordPutStillInvalidatesItsPages(t *testing.T) {
+	h, d, tok := storageFixture(t, "failedpageput", 0)
+	if rec := storageDo(t, h, http.MethodPut, "/records/snapshots/one.json", tok, "luna1", []byte("old"), nil); rec.Code != http.StatusOK {
+		t.Fatalf("initial put %d %s", rec.Code, rec.Body.String())
+	}
+	first := storageDo(t, h, http.MethodGet, "/records/snapshots?limit=1", tok, "luna1", nil, nil)
+	var before struct {
+		Total   uint64 `json:"total"`
+		Version uint64 `json:"version"`
+	}
+	if first.Code != http.StatusOK || json.Unmarshal(first.Body.Bytes(), &before) != nil {
+		t.Fatalf("initial inventory page %d %s", first.Code, first.Body.String())
+	}
+	gated := &gatedRecordStore{Store: d.Store, started: make(chan struct{}), release: make(chan struct{}), putErr: io.ErrUnexpectedEOF}
+	d.Store = gated
+	h = storageRouter(d)
+	putDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		putDone <- storageDo(t, h, http.MethodPut, "/records/snapshots/one.json", tok, "luna1", []byte("partial"), nil)
+	}()
+	<-gated.started
+	close(gated.release)
+	if rec := <-putDone; rec.Code != http.StatusBadRequest {
+		t.Fatalf("failed replacement put %d %s", rec.Code, rec.Body.String())
+	}
+	path := "/records/snapshots?limit=1&after=one.json&version=" + strconv.FormatUint(before.Version, 10) + "&total=" + strconv.FormatUint(before.Total, 10)
+	stale := storageDo(t, h, http.MethodGet, path, tok, "luna1", nil, nil)
+	if stale.Code != http.StatusConflict {
+		t.Fatalf("failed write should invalidate old pages, got %d %s", stale.Code, stale.Body.String())
+	}
+}
+
+func TestRecordRowFailureStillPublishesTheObjectChangeGeneration(t *testing.T) {
+	h, d, tok := storageFixture(t, "recordrowfailure", 0)
+	if rec := storageDo(t, h, http.MethodPut, "/records/snapshots/one.json", tok, "luna1", []byte("old"), nil); rec.Code != http.StatusOK {
+		t.Fatalf("initial put %d %s", rec.Code, rec.Body.String())
+	}
+	first := storageDo(t, h, http.MethodGet, "/records/snapshots?limit=1", tok, "luna1", nil, nil)
+	var before struct {
+		Total   uint64 `json:"total"`
+		Version uint64 `json:"version"`
+	}
+	if first.Code != http.StatusOK || json.Unmarshal(first.Body.Bytes(), &before) != nil {
+		t.Fatalf("initial inventory page %d %s", first.Code, first.Body.String())
+	}
+	if _, err := d.DB.Exec(`CREATE TRIGGER fail_storage_record_update BEFORE UPDATE ON storage_records
+BEGIN SELECT RAISE(ABORT, 'test row failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	failed := storageDo(t, h, http.MethodPut, "/records/snapshots/one.json", tok, "luna1", []byte("new-bytes"), nil)
+	if failed.Code != http.StatusInternalServerError {
+		t.Fatalf("row failure should be reported, got %d %s", failed.Code, failed.Body.String())
+	}
+	_, _ = d.DB.Exec(`DROP TRIGGER fail_storage_record_update`)
+	path := "/records/snapshots?limit=1&after=one.json&version=" + strconv.FormatUint(before.Version, 10) + "&total=" + strconv.FormatUint(before.Total, 10)
+	stale := storageDo(t, h, http.MethodGet, path, tok, "luna1", nil, nil)
+	if stale.Code != http.StatusConflict {
+		t.Fatalf("row failure after object replacement must invalidate old pages, got %d %s", stale.Code, stale.Body.String())
+	}
+	current := storageDo(t, h, http.MethodGet, "/records/snapshots/one.json", tok, "luna1", nil, nil)
+	if current.Code != http.StatusOK || current.Body.String() != "new-bytes" {
+		t.Fatalf("object write outcome changed unexpectedly: %d %q", current.Code, current.Body.String())
+	}
+}
+
+func TestStorageRecordPagesCanBeBoundedToAValidatedPrefix(t *testing.T) {
+	h, d, tok := storageFixture(t, "prefixpages", 0)
+	for _, name := range []string{"scope-a.1", "scope-a.2", "scope-b.1", "scope-ax.1"} {
+		if rec := storageDo(t, h, http.MethodPut, "/records/psnapshots/"+name, tok, "luna1", []byte("v"), nil); rec.Code != http.StatusOK {
+			t.Fatalf("put %s: %d %s", name, rec.Code, rec.Body.String())
+		}
+	}
+	request := func(path string) (names []string, total int, next string, version uint64, status int) {
+		t.Helper()
+		rec := storageDo(t, h, http.MethodGet, path, tok, "luna1", nil, nil)
+		var body struct {
+			Names     []string `json:"names"`
+			Total     int      `json:"total"`
+			NextAfter string   `json:"next_after"`
+			Version   uint64   `json:"version"`
+		}
+		if rec.Code == http.StatusOK {
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decode page: %v (%s)", err, rec.Body.String())
+			}
+		}
+		return body.Names, body.Total, body.NextAfter, body.Version, rec.Code
+	}
+	first, total, cursor, version, status := request("/records/psnapshots?limit=1&prefix=scope-a.")
+	if status != http.StatusOK || strings.Join(first, ",") != "scope-a.1" || total != 2 || cursor != "scope-a.1" {
+		t.Fatalf("first scoped page: status=%d names=%v total=%d cursor=%q", status, first, total, cursor)
+	}
+	last, total, cursor, lastVersion, status := request("/records/psnapshots?limit=1&prefix=scope-a.&after=scope-a.1&version=" + strconv.FormatUint(version, 10) + "&total=2")
+	if status != http.StatusOK || strings.Join(last, ",") != "scope-a.2" || total != 2 || cursor != "" || lastVersion != version {
+		t.Fatalf("last scoped page: status=%d names=%v total=%d cursor=%q", status, last, total, cursor)
+	}
+	for _, path := range []string{
+		"/records/psnapshots?limit=1&prefix=scope-a",
+		"/records/psnapshots?limit=1&prefix=scope-a.&after=scope-b.1",
+		"/records/psnapshots?limit=1&prefix=scope-a.&prefix=scope-b.",
+	} {
+		_, _, _, _, status := request(path)
+		if status != http.StatusBadRequest {
+			t.Errorf("invalid scoped page %q returned %d", path, status)
+		}
+	}
+	secondDevice := addStorageDevice(t, d, "prefixpages", tok)
+	for _, path := range []string{
+		"/records/psnapshots?limit=1&prefix=scope-a.",
+		"/records/psnapshots?limit=1&prefix=scope-a.&after=scope-a.1",
+	} {
+		rec := storageDo(t, h, http.MethodGet, path, secondDevice, "luna1", nil, nil)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("non-owner scoped page request %q returned %d", path, rec.Code)
+		}
 	}
 }
 
@@ -361,16 +655,16 @@ func TestStorageIdentityRecordSetsSigningKey(t *testing.T) {
 	if got != keyHex {
 		t.Fatalf("signing key %q, want %q", got, keyHex)
 	}
-	// A key that is not 64 hex characters is refused and no signing key is stored.
+	// A bad key is rejected before the Luna id is claimed.
 	if rec := storageDo(t, h, http.MethodPut, "/records/identity/public", tok, "luna2", []byte("not-a-key"), nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad key %d", rec.Code)
 	}
-	var stored string
-	if err := d.DB.QueryRow(`SELECT signing_public FROM luna_ids WHERE luna_id = ?`, "luna2").Scan(&stored); err != nil {
+	var rows int
+	if err := d.DB.QueryRow(`SELECT COUNT(*) FROM luna_ids WHERE luna_id = ?`, "luna2").Scan(&rows); err != nil {
 		t.Fatal(err)
 	}
-	if stored != "" {
-		t.Fatalf("bad key was stored as %q", stored)
+	if rows != 0 {
+		t.Fatalf("invalid key claimed luna2: rows=%d", rows)
 	}
 }
 

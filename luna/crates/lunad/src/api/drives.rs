@@ -17,6 +17,9 @@ struct DriveJson {
     fs_type: String,
     device: String,
     mount_point: String,
+    /// False when Luna can't open the drive: its Luna mount is missing, so
+    /// files and free space aren't available. Members get it too.
+    mounted: bool,
     /// The requesting user can write somewhere on this drive (a grant) —
     /// drag-and-drop targets only offer writable roots.
     writable: bool,
@@ -140,6 +143,8 @@ async fn list(
             .map(|d| {
                 let id = d.id.clone();
                 let mut json: DriveJson = d.into();
+                // Checked before Members' mount path is blanked below.
+                json.mounted = state.drive_manager.mount_is_live(&json.mount_point);
                 json.writable = admin || crate::auth::has_write_on_drive(&user, &conn, &id);
                 json.caps =
                     crate::access::caps_to_str(crate::auth::caps_on_path(&user, &conn, &id, ""));
@@ -657,7 +662,7 @@ async fn drive_summary(
         )
     };
 
-    if mount_point.is_empty() {
+    if !state.drive_manager.mount_is_live(&mount_point) {
         return Ok(Json(DriveSummaryJson {
             id,
             mounted: false,
@@ -672,7 +677,10 @@ async fn drive_summary(
 
     let root = std::path::PathBuf::from(mount_point);
     let space = if can_see_space {
-        crate::drives::summary::disk_space(&root)
+        let probe = root.clone();
+        tokio::task::spawn_blocking(move || crate::drives::summary::disk_space(&probe))
+            .await
+            .unwrap_or(None)
     } else {
         None
     };
@@ -817,6 +825,7 @@ impl From<crate::db::DriveRow> for DriveJson {
             fs_type: d.fs_type,
             device: d.device,
             mount_point: d.mount_point,
+            mounted: false,
             writable: false,
             caps: String::new(),
         }
@@ -826,6 +835,93 @@ impl From<crate::db::DriveRow> for DriveJson {
 #[cfg(test)]
 mod tests {
     use crate::db;
+
+    /// A state whose drive manager uses `mock`, with one drive `d1` at
+    /// `mount_point` and an Admin to ask as.
+    fn app_with_mount(
+        mock: &std::sync::Arc<crate::drives::mount::MockMounter>,
+        dir: &std::path::Path,
+        mount_point: &str,
+    ) -> (crate::AppState, String) {
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let drive_manager =
+            std::sync::Arc::new(crate::drives::DriveManager::new(mock.clone(), dir));
+        let state = crate::AppState::new(conn, drive_manager, dir);
+        {
+            let conn = state.db.lock().unwrap();
+            db::upsert_drive(&conn, "d1", "Photos", "as_is", "ext4", "sdz", mount_point).unwrap();
+        }
+        let admin = state
+            .auth
+            .register("Max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        let token = state.auth.issue(&admin).unwrap();
+        (state, token)
+    }
+
+    async fn get_json(state: &crate::AppState, token: &str, uri: &str) -> serde_json::Value {
+        let router = axum::Router::new()
+            .merge(super::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state.clone());
+        let response = tower::ServiceExt::oneshot(
+            router,
+            axum::http::Request::builder()
+                .uri(uri)
+                .header("Authorization", format!("Bearer {token}"))
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn list_reports_dead_luna_mount_as_unmounted() {
+        use crate::drives::mount::Mounter;
+        let dir = tempfile::tempdir().unwrap();
+        let mock = crate::drives::mount::shared_mock();
+        let mount = dir.path().join("mounts/drives/d1");
+        let mount_str = mount.to_str().unwrap().to_string();
+        let (state, token) = app_with_mount(&mock, dir.path(), &mount_str);
+        let before = get_json(&state, &token, "/api/v1/drives").await;
+        assert_eq!(before[0]["mounted"], false);
+        mock.mount("/dev/sdz", &mount, false).unwrap();
+        let after = get_json(&state, &token, "/api/v1/drives").await;
+        assert_eq!(after[0]["mounted"], true);
+    }
+
+    #[tokio::test]
+    async fn summary_dead_mount_has_no_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mock = crate::drives::mount::shared_mock();
+        let mount = dir.path().join("mounts/drives/d1");
+        // An empty folder left behind, on the system disk: not a live mount.
+        std::fs::create_dir_all(&mount).unwrap();
+        let (state, token) = app_with_mount(&mock, dir.path(), mount.to_str().unwrap());
+        let summary = get_json(&state, &token, "/api/v1/drives/d1/summary").await;
+        assert_eq!(summary["mounted"], false);
+        assert!(summary["total_bytes"].is_null());
+        assert!(summary["free_bytes"].is_null());
+        assert!(summary["used_bytes"].is_null());
+    }
+
+    #[tokio::test]
+    async fn fixture_paths_outside_luna_mounts_stay_mounted() {
+        let dir = tempfile::tempdir().unwrap();
+        let mock = crate::drives::mount::shared_mock();
+        let (state, token) = app_with_mount(&mock, dir.path(), "/mnt/d1");
+        let list = get_json(&state, &token, "/api/v1/drives").await;
+        assert_eq!(list[0]["mounted"], true);
+    }
 
     /// Build a state + router pair with one adopted drive and a member who
     /// can see it (a grant), so the drives list reaches the per-user fields.
@@ -1029,6 +1125,7 @@ mod tests {
             mount_point: None,
             fs_type: Some("ext4".into()),
             mount_readonly: false,
+            diskseq: None,
         };
         let row = drive_manager
             .adopt(&conn, &device, "Photos", false)

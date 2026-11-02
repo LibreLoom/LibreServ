@@ -33,6 +33,7 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
  *   open?: boolean,
  *   busy?: boolean,
  *   error?: string | null,
+ *   movingPaths?: string[],
  * }} props
  */
 export default function FolderPickerModal({
@@ -46,6 +47,7 @@ export default function FolderPickerModal({
   open = true,
   busy = false,
   error = null,
+  movingPaths = [],
 }) {
   const queryClient = useQueryClient();
   const source = useFileSource();
@@ -105,6 +107,11 @@ export default function FolderPickerModal({
   const drive = rooted
     ? (memberDrives.find((d) => d.id === browseDriveId) || null)
     : (activeDrives.find((d) => d.id === browseDriveId) || activeDrives[0] || drives[0]);
+
+  // Moving a folder into itself can't work: nothing at or below the items
+  // being moved (on their own drive) is offered as a destination.
+  const isInsideMoved = (p) => browseDriveId === initialDriveId
+    && movingPaths.some((moving) => pathContains(moving, p));
 
   /** Capability bits for `p` on the browsed drive (member mode only). */
   const capsAt = (p) => (isAdmin
@@ -253,6 +260,7 @@ export default function FolderPickerModal({
               enableUploadDrop={false}
               dense
               surface="primary"
+              isPickBlocked={movingPaths.length > 0 ? isInsideMoved : undefined}
               folderActions={isTrashPath(path) || (rooted && !canWriteAt(path)) ? null
                 : <NewItemMenu ids={["folder"]} onPick={openCreateFolder} surface="primary" />}
             />
@@ -260,12 +268,18 @@ export default function FolderPickerModal({
             <p className="text-primary text-sm">No drives available. Make sure your drive is plugged in — if it already is, try unplugging it and plugging it back in.</p>
           )}
 
+          {isInsideMoved(path) ? (
+            <p className="mt-3 text-primary text-sm" data-slot="move-into-itself">
+              You can't move something into itself. Choose another folder.
+            </p>
+          ) : null}
+
           <div className="mt-4 flex flex-wrap gap-3">
             <Button
               variant="primary"
               surface="secondary"
               loading={busy}
-              disabled={!drive || isTrashPath(picked)
+              disabled={!drive || isTrashPath(picked) || isInsideMoved(picked)
                 || (rooted && (!root || !canWriteAt(picked)))}
               onClick={() => onConfirm({ driveId: drive.id, path: picked }, close)}
             >
@@ -313,4 +327,5 @@ FolderPickerModal.propTypes = {
   open: PropTypes.bool,
   busy: PropTypes.bool,
   error: PropTypes.string,
+  movingPaths: PropTypes.arrayOf(PropTypes.string),
 };

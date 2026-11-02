@@ -211,8 +211,9 @@ describe("buildSystemCheckItems", () => {
         id: "check:disk_space",
         rank: 20,
         tone: "problem",
-        title: ["Storage space"],
+        title: ["Luna's own storage"],
         detail: "Less than 1 GB free.",
+        hint: "Luna keeps its own software and settings on a small built-in disk, separate from your drives.",
         action: { label: "Open system checks", href: "/settings#about" },
       },
     ]);

@@ -1485,8 +1485,27 @@ func (m *Manager) UninstallApp(ctx context.Context, instanceID string) error {
 		m.metricsCache.RemoveApp(instanceID)
 	}
 
-	_, err := m.db.Exec(`DELETE FROM apps WHERE id = ?`, instanceID)
-	return err
+	// Keep repository credentials and ownership metadata needed by saved backup
+	// records. The app foreign key on backup_repositories would otherwise cascade
+	// into the repository delete guard and block uninstall.
+	tx, err := m.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin app uninstall cleanup: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE backup_repositories
+		SET app_id = NULL, is_app_specific = 1
+		WHERE app_id = ?
+		  AND EXISTS (SELECT 1 FROM backups WHERE backups.repo_id = backup_repositories.id)
+	`, instanceID); err != nil {
+		return fmt.Errorf("preserve repositories for saved backups: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM apps WHERE id = ?`, instanceID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // CleanupStaleInstallations removes apps stuck in "installing" or "error" state for too long

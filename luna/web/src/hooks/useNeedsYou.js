@@ -5,6 +5,7 @@ import { buildNeedsYouItems } from "../lib/needsYou.js";
 import { withDevMockDetected } from "../lib/devMockDrives.js";
 import useBackupRows from "./useBackupRows.js";
 import { useSystemHealthCheck } from "./useSystemHealthCheck.jsx";
+import { driveHealthQueryOptions } from "./useDriveHealth.js";
 
 /** A drive Luna can browse: as is, or read only. */
 function isReady(drive) {
@@ -62,7 +63,7 @@ export default function useNeedsYou() {
 
   const summaryQueries = useQueries({
     queries: driveList.map((drive) => {
-      const ready = isReady(drive);
+      const ready = isReady(drive) && drive.mounted !== false;
       return {
         queryKey: ["drive-summary", drive.id],
         queryFn: () => getJson(`/api/v1/drives/${drive.id}/summary`),
@@ -73,12 +74,7 @@ export default function useNeedsYou() {
     }),
   });
   const healthQueries = useQueries({
-    queries: driveList.map((drive) => ({
-      queryKey: ["drive-health", drive.id],
-      queryFn: () => getJson(`/api/v1/drives/${drive.id}/health`),
-      retry: false,
-      enabled: isAdmin && drive.state === "as_is",
-    })),
+    queries: driveList.map((drive) => driveHealthQueryOptions(drive, isAdmin)),
   });
 
   /** @type {Record<string, any>} */

@@ -1,35 +1,50 @@
 import { describe, expect, it, vi } from "vitest";
-import { act, renderHook } from "@testing-library/react";
+import { renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import useDriveMove from "./useDriveMove.js";
 
-const api = vi.hoisted(() => ({ postJson: vi.fn() }));
-const toasts = vi.hoisted(() => ({ addToast: vi.fn() }));
-vi.mock("../lib/api", async (original) => ({ ...(await original()), postJson: api.postJson }));
-vi.mock("@libreloom/ui/context/ToastContext.jsx", () => ({ useToast: () => toasts }));
+const ops = vi.hoisted(() => ({ startJobs: vi.fn(() => "op1") }));
+vi.mock("../context/FileOpsContext.jsx", () => ({ useFileOps: () => ops }));
 
-function renderMove(onBroaden) {
-  const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
-  return renderHook(() => useDriveMove({ driveId: "d1", onBroaden }), {
+function renderMove(options = {}, drives = undefined) {
+  const client = new QueryClient();
+  if (drives) client.setQueryData(["drives"], drives);
+  return renderHook(() => useDriveMove({ driveId: "d1", driveLabel: "Photos", ...options }), {
     wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
   });
 }
 
-describe("useDriveMove privacy confirmation", () => {
-  it("retries only items that have not already been submitted", async () => {
-    api.postJson.mockReset().mockResolvedValueOnce({ id: "first" })
-      .mockRejectedValueOnce(Object.assign(new Error("Confirm access"), { code: "broadens_access" }))
-      .mockResolvedValue({ id: "next" });
-    const onBroaden = vi.fn();
-    const { result } = renderMove(onBroaden);
-    await act(async () => {
-      await result.current.mutateAsync({ paths: ["Private/Nested", "Private/file.txt", "Private/other.txt"], destDriveId: "d2" }).catch(() => {});
+describe("useDriveMove", () => {
+  it("hands every path to the file task store as one move", () => {
+    ops.startJobs.mockClear();
+    const { result } = renderMove();
+    result.current.mutate({ paths: ["a/one.txt", "two.txt"], destFolder: "Trips/2024" });
+    expect(ops.startJobs).toHaveBeenCalledWith({
+      kind: "move",
+      fromDrive: "d1",
+      items: [
+        { path: "a/one.txt", name: "one.txt" },
+        { path: "two.txt", name: "two.txt" },
+      ],
+      toDrive: "d1",
+      toPath: "Trips/2024",
+      toLabel: "2024",
     });
-    expect(onBroaden).toHaveBeenCalledOnce();
-    await act(async () => { await onBroaden.mock.calls[0][0](); });
-    expect(api.postJson.mock.calls.map(([, body]) => body.from_path)).toEqual([
-      "Private/Nested", "Private/file.txt", "Private/file.txt", "Private/other.txt",
-    ]);
-    expect(api.postJson.mock.calls.slice(2).every(([, body]) => body.confirm_broaden === true)).toBe(true);
+  });
+
+  it("names the other drive when a drop lands at its top level", () => {
+    ops.startJobs.mockClear();
+    const { result } = renderMove({}, [{ id: "d2", label: "Spare Drive" }]);
+    result.current.mutate({ paths: ["x.txt"], destDriveId: "d2", fromDriveId: "d3" });
+    expect(ops.startJobs).toHaveBeenCalledWith(
+      expect.objectContaining({ fromDrive: "d3", toDrive: "d2", toPath: "", toLabel: "Spare Drive" }),
+    );
+  });
+
+  it("uses the drive's own label at its top level", () => {
+    ops.startJobs.mockClear();
+    const { result } = renderMove();
+    result.current.mutate({ paths: ["x.txt"], destFolder: "" });
+    expect(ops.startJobs).toHaveBeenCalledWith(expect.objectContaining({ toLabel: "Photos" }));
   });
 });

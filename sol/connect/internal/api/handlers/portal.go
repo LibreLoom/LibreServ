@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -986,15 +987,13 @@ func (h *PortalHandler) GetPlans(w http.ResponseWriter, r *http.Request) {
 func (h *PortalHandler) GetUsage(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 
-	var deviceID string
-	err := h.db.QueryRowContext(r.Context(),
-		"SELECT id FROM devices WHERE account_id = $1 AND is_active = TRUE LIMIT 1", accountID).Scan(&deviceID)
-	if err == sql.ErrNoRows {
+	deviceID, err := h.activeDeviceID(r.Context(), accountID)
+	if errors.Is(err, errNoActiveDevice) {
 		JSON(w, http.StatusOK, map[string]any{"message": "no devices linked to this account"})
 		return
 	}
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "could not retrieve usage")
+		respondDeviceLookupError(w, r, err)
 		return
 	}
 
@@ -1023,10 +1022,8 @@ func (h *PortalHandler) GetUsage(w http.ResponseWriter, r *http.Request) {
 func (h *PortalHandler) GetBilling(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 
-	var deviceID string
-	err := h.db.QueryRowContext(r.Context(),
-		"SELECT id FROM devices WHERE account_id = $1 AND is_active = TRUE LIMIT 1", accountID).Scan(&deviceID)
-	if err == sql.ErrNoRows {
+	deviceID, err := h.activeDeviceID(r.Context(), accountID)
+	if errors.Is(err, errNoActiveDevice) {
 		JSON(w, http.StatusOK, map[string]any{
 			"credit_balance_cents": 0,
 			"invoices":             []any{},
@@ -1035,7 +1032,7 @@ func (h *PortalHandler) GetBilling(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "could not retrieve billing")
+		respondDeviceLookupError(w, r, err)
 		return
 	}
 
@@ -1134,15 +1131,20 @@ func (h *PortalHandler) activeSubscriptionInfo(ctx context.Context, deviceID str
 }
 
 // deviceOwnedBy verifies the device exists and belongs to the given account.
+// A missing row and a foreign owner are distinct refusals; a database failure
+// is returned as-is so callers can tell it apart from either.
 func (h *PortalHandler) deviceOwnedBy(ctx context.Context, deviceID, accountID string) error {
 	var owner string
 	err := h.db.QueryRowContext(ctx,
 		"SELECT account_id FROM devices WHERE id = $1", deviceID).Scan(&owner)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errDeviceNotFound
+	}
 	if err != nil {
-		return err
+		return fmt.Errorf("look up device owner: %w", err)
 	}
 	if owner != accountID {
-		return fmt.Errorf("device %s belongs to account %s, not %s", deviceID, owner, accountID)
+		return fmt.Errorf("%w: device %s belongs to account %s, not %s", errDeviceNotOwned, deviceID, owner, accountID)
 	}
 	return nil
 }
@@ -1175,10 +1177,10 @@ func (h *PortalHandler) Subscribe(w http.ResponseWriter, r *http.Request) {
 
 	deviceID := req.DeviceID
 	if deviceID == "" {
-		err := h.db.QueryRowContext(r.Context(),
-			"SELECT id FROM devices WHERE account_id = $1 AND is_active = TRUE LIMIT 1", accountID).Scan(&deviceID)
+		var err error
+		deviceID, err = h.activeDeviceID(r.Context(), accountID)
 		if err != nil {
-			JSONError(w, http.StatusBadRequest, "no device linked to your account")
+			respondDeviceLookupError(w, r, err)
 			return
 		}
 	}
@@ -1187,7 +1189,7 @@ func (h *PortalHandler) Subscribe(w http.ResponseWriter, r *http.Request) {
 	// devices — a caller-supplied device_id that belongs to another account
 	// must not change that account's plan.
 	if err := h.deviceOwnedBy(r.Context(), deviceID, accountID); err != nil {
-		JSONError(w, http.StatusBadRequest, "that device is not on your account")
+		respondDeviceLookupError(w, r, err)
 		return
 	}
 
@@ -1220,11 +1222,9 @@ func (h *PortalHandler) Subscribe(w http.ResponseWriter, r *http.Request) {
 func (h *PortalHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 
-	var deviceID string
-	err := h.db.QueryRowContext(r.Context(),
-		"SELECT id FROM devices WHERE account_id = $1 AND is_active = TRUE LIMIT 1", accountID).Scan(&deviceID)
+	deviceID, err := h.activeDeviceID(r.Context(), accountID)
 	if err != nil {
-		JSONError(w, http.StatusBadRequest, "no device linked to your account")
+		respondDeviceLookupError(w, r, err)
 		return
 	}
 
@@ -1263,11 +1263,9 @@ func (h *PortalHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 func (h *PortalHandler) ResumeSubscription(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 
-	var deviceID string
-	err := h.db.QueryRowContext(r.Context(),
-		"SELECT id FROM devices WHERE account_id = $1 AND is_active = TRUE LIMIT 1", accountID).Scan(&deviceID)
+	deviceID, err := h.activeDeviceID(r.Context(), accountID)
 	if err != nil {
-		JSONError(w, http.StatusBadRequest, "no device linked to your account")
+		respondDeviceLookupError(w, r, err)
 		return
 	}
 
@@ -1320,10 +1318,10 @@ func (h *PortalHandler) ChangePlan(w http.ResponseWriter, r *http.Request) {
 
 	deviceID := req.DeviceID
 	if deviceID == "" {
-		err := h.db.QueryRowContext(r.Context(),
-			"SELECT id FROM devices WHERE account_id = $1 AND is_active = TRUE LIMIT 1", accountID).Scan(&deviceID)
+		var err error
+		deviceID, err = h.activeDeviceID(r.Context(), accountID)
 		if err != nil {
-			JSONError(w, http.StatusBadRequest, "no device linked to your account")
+			respondDeviceLookupError(w, r, err)
 			return
 		}
 	}
@@ -1331,7 +1329,7 @@ func (h *PortalHandler) ChangePlan(w http.ResponseWriter, r *http.Request) {
 	// A plan change reaches another account's subscription and Stripe price
 	// otherwise — the target device must belong to the signed-in account.
 	if err := h.deviceOwnedBy(r.Context(), deviceID, accountID); err != nil {
-		JSONError(w, http.StatusBadRequest, "that device is not on your account")
+		respondDeviceLookupError(w, r, err)
 		return
 	}
 
@@ -1548,8 +1546,12 @@ func (h *PortalHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Req
 	// when no device is active yet.
 	refID := req.DeviceID
 	if refID == "" {
-		_ = h.db.QueryRowContext(r.Context(),
-			"SELECT id FROM devices WHERE account_id = $1 AND is_active = TRUE LIMIT 1", accountID).Scan(&refID)
+		activeID, err := h.activeDeviceID(r.Context(), accountID)
+		if err != nil && !errors.Is(err, errNoActiveDevice) {
+			respondDeviceLookupError(w, r, err)
+			return
+		}
+		refID = activeID
 		if refID == "" {
 			refID = accountID // no device yet — link to the account
 		}
@@ -1562,7 +1564,7 @@ func (h *PortalHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Req
 	// this account's own id, so it stays allowed.
 	if refID != accountID {
 		if err := h.deviceOwnedBy(r.Context(), refID, accountID); err != nil {
-			JSONError(w, http.StatusBadRequest, "that device is not on your account")
+			respondDeviceLookupError(w, r, err)
 			return
 		}
 	}

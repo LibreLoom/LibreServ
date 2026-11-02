@@ -13,7 +13,7 @@ import sharedFonts from "../../shared/ui/vite/sharedFonts.js";
 // mutations. Requests that sent no Origin (curl, device tokens) stay
 // Origin-less, since lunad passes those through untouched.
 const lunaProxy = (extra = {}) => ({
-  target: "http://localhost:8090",
+  target: process.env.VITE_LUNAD_TARGET || "http://localhost:8090",
   changeOrigin: false,
   configure: (proxy) => {
     proxy.on("proxyReq", (proxyReq, req) => {
@@ -110,7 +110,7 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
-    dedupe: ["react", "react-dom", "react-router-dom", "lucide-react", "@noble/ciphers", "@noble/curves", "@noble/hashes", "@scure/bip39"],
+    dedupe: ["react", "react-dom", "react-router-dom", "lucide-react", "@noble/ciphers", "@noble/curves", "@noble/hashes", "@noble/post-quantum", "@scure/bip39"],
   },
   publicDir: "public",
   build: {
@@ -148,6 +148,10 @@ export default defineConfig({
     host: "0.0.0.0",
     open: false,
     allowedHosts: true,
+    // The state gallery's results file is data the dev server writes itself.
+    // Watching it lets @tailwindcss/vite (which scans every non-ignored file
+    // for class names) answer each save with a silent full-reload of every page.
+    watch: { ignored: ["**/testing/results.json"] },
     fs: {
       // Repo root: serves the symlinked @libreloom/ui package (shared/ui/)
       allow: ["../.."],

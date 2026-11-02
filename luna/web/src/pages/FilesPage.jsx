@@ -30,6 +30,9 @@ import useReleaseInspectedDrive from "../hooks/useReleaseInspectedDrive.js";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
 import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
+import { isUnopenable } from "../lib/drives.js";
+import useDriveHealth from "../hooks/useDriveHealth.js";
+import DriveHealthDetails from "../components/files/DriveHealthDetails.jsx";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
 import { CAP, KIND_ALBUM, capsHint, capsLabel, hasCap, sharedItemAction, sharedItemHref } from "../lib/access.js";
 import { memberAccessRoots } from "../lib/shareTree.js";
@@ -348,14 +351,18 @@ function DetectedCard({ drive, onOpen }) {
   );
 }
 
+const CANT_OPEN_MESSAGE =
+  "Luna can't open this drive right now, so its files and free space aren't available.";
+const CANT_OPEN_HINT =
+  "Luna knows this drive but couldn't open it. This can happen after it was pulled out without Eject, or when the drive has a problem. Unplug it, wait a few seconds, and plug it back in. If that doesn't help, the drive may be failing.";
+
 function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect }) {
-  const ready = drive.state === "as_is" || drive.state === "readonly";
-  const health = useQuery({
-    queryKey: ["drive-health", drive.id],
-    queryFn: () => getJson(`/api/v1/drives/${drive.id}/health`),
-    enabled: !!showHealth && drive.state === "as_is",
-    retry: false,
-  });
+  const location = useLocation();
+  const cardRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const unopenable = isUnopenable(drive);
+  // Ready means Luna can open it: the storage bar, Browse and the other drive actions apply.
+  const ready = (drive.state === "as_is" || drive.state === "readonly") && !unopenable;
+  const health = useDriveHealth(drive, !!showHealth);
   const summary = useQuery({
     queryKey: ["drive-summary", drive.id],
     queryFn: () => getJson(`/api/v1/drives/${drive.id}/summary`),
@@ -364,51 +371,76 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect 
     refetchInterval: ready ? 60_000 : false,
   });
   const copy = showHealth && health.data ? describeDriveHealth(health.data) : null;
+  const showSummary = copy && ["failing", "watch", "unknown"].includes(copy.verdict);
   const statusMessage = driveStatusMessage(drive);
+  const hashId = `drive-${drive.id}`;
+  const targeted = location.hash === `#${hashId}`;
+
+  // The dashboard links to #drive-{id}. The drives load after the page does, so the
+  // browser's own hash scrolling can't find the card; do it once it shows.
+  const scrolledFor = useRef("");
+  useEffect(() => {
+    if (!targeted || scrolledFor.current === location.key || !cardRef.current) return;
+    scrolledFor.current = location.key;
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    cardRef.current.scrollIntoView?.({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "start",
+    });
+  }, [targeted, location.key]);
 
   return (
-    <Card icon={HardDrive} title={drive.label} headerActions={<DriveStatusPill drive={drive} />}>
-      {statusMessage ? (
-        <p className="text-primary text-sm">{statusMessage}</p>
-      ) : null}
-      {ready ? (
-        <div className={statusMessage ? "mt-3 space-y-3" : "space-y-3"}>
-          <DriveStorageBar summary={summary} />
-          <AdoptedDriveDetails drive={drive} />
+    <div id={hashId} ref={cardRef} className="scroll-mt-4 h-full">
+      <Card
+        className="h-full"
+        icon={HardDrive}
+        title={drive.label}
+        headerActions={<DriveStatusPill drive={drive} health={health.data} />}
+      >
+        {statusMessage ? (
+          <p className="text-primary text-sm">
+            {statusMessage}
+            {unopenable ? <> <InfoHint content={CANT_OPEN_HINT} /></> : null}
+          </p>
+        ) : null}
+        {showSummary ? (
+          <p className={`text-primary text-sm${statusMessage ? " mt-2" : ""}`}>
+            {copy.summary}
+            {copy.hint ? <> <InfoHint content={copy.hint} /></> : null}
+          </p>
+        ) : null}
+        {ready ? (
+          <div className={statusMessage || showSummary ? "mt-3 space-y-3" : "space-y-3"}>
+            <DriveStorageBar summary={summary} />
+            {copy ? <DriveHealthDetails health={health.data} defaultOpen={targeted} /> : null}
+            <AdoptedDriveDetails drive={drive} />
+          </div>
+        ) : null}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {ready && (
+            <Button size="sm" variant="primary" asChild>
+              <Link to={`/files/${drive.id}`}>Browse files</Link>
+            </Button>
+          )}
+          {showHealth && ready && (
+            <Button size="sm" variant="outline" onClick={() => onEject(drive)}>
+              Eject safely
+            </Button>
+          )}
+          {showHealth && (
+            <Button size="sm" variant="accent" onClick={() => onRemove(drive)}>
+              Remove
+            </Button>
+          )}
+          {onShare && ready && (
+            <ShareButton label={drive.label} onClick={() => onShare(drive)} />
+          )}
+          {onProtect && ready && (
+            <ProtectButton label={drive.label} onClick={() => onProtect(drive)} />
+          )}
         </div>
-      ) : null}
-      {copy && (
-        <div className="mt-3">
-          <Pill variant={copy.pill}>{copy.title}</Pill>
-          {copy.detail ? (
-            <p className="text-primary text-xs mt-2">{copy.detail}</p>
-          ) : null}
-        </div>
-      )}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {ready && (
-          <Button size="sm" variant="primary" asChild>
-            <Link to={`/files/${drive.id}`}>Browse files</Link>
-          </Button>
-        )}
-        {showHealth && ready && (
-          <Button size="sm" variant="outline" onClick={() => onEject(drive)}>
-            Eject safely
-          </Button>
-        )}
-        {showHealth && (
-          <Button size="sm" variant="accent" onClick={() => onRemove(drive)}>
-            Remove
-          </Button>
-        )}
-        {onShare && ready && (
-          <ShareButton label={drive.label} onClick={() => onShare(drive)} />
-        )}
-        {onProtect && ready && (
-          <ProtectButton label={drive.label} onClick={() => onProtect(drive)} />
-        )}
-      </div>
-    </Card>
+      </Card>
+    </div>
   );
 }
 
@@ -416,7 +448,7 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect 
 function driveStatusMessage(drive) {
   if (drive.state === "missing") return "Unplugged. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.";
   if (drive.state === "ejected") return "Ejected. Plug it back in to use files again.";
-  if (drive.state === "failed") return "This drive ran into a problem. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.";
+  if (isUnopenable(drive)) return CANT_OPEN_MESSAGE;
   if (drive.state === "readonly") {
     return "Read only — Luna cannot save here. Usually a filesystem issue, or a write-lock switch on the stick.";
   }

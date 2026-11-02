@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,6 +13,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -33,6 +36,23 @@ type ScriptExecutor struct {
 	serverCtx     ServerContext
 }
 
+func newScriptCommand(ctx context.Context, path, configFile string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, path, configFile)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return os.ErrProcessDone
+		}
+		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		if errors.Is(err, syscall.ESRCH) {
+			return os.ErrProcessDone
+		}
+		return err
+	}
+	cmd.WaitDelay = 2 * time.Second
+	return cmd
+}
+
 func NewScriptExecutorWithCatalog(logger *slog.Logger, runtimeClient *podman.Client, basePath, catalogPath string) *ScriptExecutor {
 	return &ScriptExecutor{
 		logger:        logger,
@@ -40,6 +60,13 @@ func NewScriptExecutorWithCatalog(logger *slog.Logger, runtimeClient *podman.Cli
 		basePath:      basePath,
 		catalogPath:   catalogPath,
 	}
+}
+
+func scriptContextError(ctx context.Context) string {
+	if ctx.Err() == context.DeadlineExceeded {
+		return "The action took too long and was stopped."
+	}
+	return "The action was stopped."
 }
 
 func (e *ScriptExecutor) SetServerContext(ctx ServerContext) {
@@ -184,7 +211,7 @@ func (e *ScriptExecutor) ExecuteAt(ctx context.Context, instanceID, scriptPath, 
 	}
 	defer os.Remove(configFile)
 
-	cmd := exec.CommandContext(ctx, validatedPath, configFile)
+	cmd := newScriptCommand(ctx, validatedPath, configFile)
 	cmd.Dir = installPath
 
 	var stdout, stderr bytes.Buffer
@@ -251,7 +278,12 @@ func (e *ScriptExecutor) ExecuteWithTimeout(ctx context.Context, instanceID, scr
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	return e.ExecuteAt(ctx, instanceID, scriptPath, installPath, options)
+	result, err := e.ExecuteAt(ctx, instanceID, scriptPath, installPath, options)
+	if ctx.Err() == context.DeadlineExceeded && result != nil {
+		result.Success = false
+		result.Error = "The action took too long and was stopped."
+	}
+	return result, err
 }
 
 // validateExposedInfo ensures script output's exposed_info has valid structure:
@@ -292,7 +324,7 @@ func (e *ScriptExecutor) StreamExecuteAt(ctx context.Context, instanceID, script
 		return nil, err
 	}
 
-	cmd := exec.CommandContext(ctx, validatedPath, configFile)
+	cmd := newScriptCommand(ctx, validatedPath, configFile)
 	cmd.Dir = installPath
 
 	stdout, err := cmd.StdoutPipe()
@@ -318,59 +350,36 @@ func (e *ScriptExecutor) StreamExecuteAt(ctx context.Context, instanceID, script
 		defer os.Remove(configFile)
 		defer close(outputCh)
 
-		buf := make([]byte, 1024)
-		for {
-			select {
-			case <-ctx.Done():
-				// Context cancelled — kill the process and reap it.
-				_ = cmd.Process.Kill()
-				_ = cmd.Wait()
-				return
-			default:
-			}
-
-			n, err := stdout.Read(buf)
-			if n > 0 {
-				select {
-				case outputCh <- ScriptOutput{
-					Type:    "stdout",
-					Content: string(buf[:n]),
-				}:
-				case <-ctx.Done():
-					_ = cmd.Process.Kill()
-					_ = cmd.Wait()
-					return
-				}
-			}
-			if err != nil {
-				if err != io.EOF {
+		var readers sync.WaitGroup
+		readPipe := func(pipe io.Reader, outputType string) {
+			defer readers.Done()
+			buf := make([]byte, 1024)
+			for {
+				n, readErr := pipe.Read(buf)
+				if n > 0 {
 					select {
-					case outputCh <- ScriptOutput{
-						Type:  "error",
-						Error: fmt.Sprintf("stdout read error: %v", err),
-					}:
+					case outputCh <- ScriptOutput{Type: outputType, Content: string(buf[:n])}:
 					case <-ctx.Done():
-						_ = cmd.Process.Kill()
-						_ = cmd.Wait()
 						return
 					}
 				}
-				break
+				if readErr != nil {
+					if readErr != io.EOF {
+						select {
+						case outputCh <- ScriptOutput{Type: "error", Error: fmt.Sprintf("%s read error: %v", outputType, readErr)}:
+						case <-ctx.Done():
+						}
+					}
+					return
+				}
 			}
 		}
-
-		errBuf, _ := io.ReadAll(stderr)
-		if len(errBuf) > 0 {
-			select {
-			case outputCh <- ScriptOutput{
-				Type:    "stderr",
-				Content: string(errBuf),
-			}:
-			case <-ctx.Done():
-				_ = cmd.Process.Kill()
-				_ = cmd.Wait()
-				return
-			}
+		readers.Add(2)
+		go readPipe(stdout, "stdout")
+		go readPipe(stderr, "stderr")
+		readers.Wait()
+		if ctx.Err() != nil {
+			_ = cmd.Cancel()
 		}
 
 		// Wait for the process to finish before accessing ProcessState.
@@ -384,6 +393,12 @@ func (e *ScriptExecutor) StreamExecuteAt(ctx context.Context, instanceID, script
 			exitCode = 1
 		}
 
+		if ctx.Err() != nil {
+			select {
+			case outputCh <- ScriptOutput{Type: "error", Error: scriptContextError(ctx)}:
+			default:
+			}
+		}
 		select {
 		case outputCh <- ScriptOutput{
 			Type:     "complete",
@@ -487,7 +502,7 @@ type ScriptOutput struct {
 	Type     string `json:"type"`
 	Content  string `json:"content,omitempty"`
 	Error    string `json:"error,omitempty"`
-	ExitCode int    `json:"exit_code,omitempty"`
+	ExitCode int    `json:"exit_code"`
 }
 
 func (e *ScriptExecutor) GetActionSchema(appPath, scriptName string) (*ScriptAction, error) {

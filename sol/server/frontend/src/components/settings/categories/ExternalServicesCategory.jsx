@@ -372,7 +372,7 @@ export default function ExternalServicesCategory({
         service={services?.backup}
         repos={repos}
         connectStatus={connectStatus}
-        loading={modalLoading}
+        loading={false}
         csrfToken={csrfToken}
       />
       <TunnelServiceModal

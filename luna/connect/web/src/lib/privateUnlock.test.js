@@ -1,14 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 import { hexToBytes } from "@noble/hashes/utils.js";
 import { derive, verify } from "@libreloom/ui/lib/cloud/backupCrypto.js";
-import { privateOpenMessage } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
+import { findMyPrivateScopes, privateOpenMessage } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
 import fixture from "../../../../crates/lunad/src/backup/cloud/fixture.json";
 import { openPrivateScope, unlockPrivate } from "./privateUnlock.js";
 
 const priv = fixture.private;
 const entropy = () => hexToBytes(fixture.alice_entropy);
 const signingPublics = () => [hexToBytes(fixture.signing_public)];
-const scopeInfo = () => ({ scope: priv.scope, dedupKey: hexToBytes(priv.dedup_key) });
+// The scope's own key, opened from the phrase the way the browser does it.
+const scopeInfo = () =>
+  findMyPrivateScopes({
+    lunaId: fixture.luna_id,
+    entropy: entropy(),
+    pscopes: [{ name: priv.scope, data: hexToBytes(priv.records.pscopes[0].data) }],
+    signingPublics: signingPublics(),
+  })[0];
 
 /**
  * A CloudSource whose private session opens only with a valid signature from alice's auth key.

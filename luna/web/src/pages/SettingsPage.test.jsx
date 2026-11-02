@@ -195,13 +195,14 @@ describe("SettingsPage", () => {
     expect(screen.queryByRole("heading", { level: 1, name: "Devices" })).toBeNull();
   });
 
-  it("hides admin-only categories from a member", async () => {
-    stubFetch("user");
+  it("hides admin-only categories from a member, but keeps Cloud backup when Connect is on", async () => {
+    stubFetch("user", true);
     renderPage();
     await screen.findByText("max");
     expect(screen.getByText(/You're signed in as a Member\. Some settings aren't accessible to you/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Cloud backup$/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Luna Connect$/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /^About$/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /External services/i })).toBeNull();
   });
 
   it("does not offer a Local Network category", async () => {
@@ -212,11 +213,12 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("button", { name: /^About$/i })).toBeTruthy();
   });
 
-  it("keeps remote access settings available when Luna Connect is inactive", async () => {
+  it("keeps Cloud backup but hides Luna Connect when Connect is inactive on the device", async () => {
     stubFetch("admin", false);
     renderPage();
     await screen.findByText("max");
-    expect(screen.getByRole("button", { name: /External services/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Cloud backup$/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Luna Connect$/i })).toBeNull();
     expect(screen.getByRole("button", { name: /^About$/i })).toBeTruthy();
   });
 
@@ -288,7 +290,7 @@ describe("SettingsPage", () => {
   // going quietly missing from search.
   it("indexes every category", async () => {
     stubFetch("admin", true);
-    const categories = visibleCategories(true);
+    const categories = visibleCategories(true, true);
     expect(categories.length).toBeGreaterThan(0);
     const errors = [];
     const index = await buildSettingsIndex(

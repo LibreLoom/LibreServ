@@ -3,6 +3,17 @@
 # rebuilds it if the source is newer than the binary.
 set -e
 
+# Toolchains live in user dirs (nvm, rustup, gvm, ~/.local/bin) that only
+# shell profiles put on PATH — and profiles load for login/interactive
+# shells only, not for agents, cron or CI runners. Re-read the profile when
+# something we need is missing.
+if ! command -v go >/dev/null 2>&1 || ! command -v cargo >/dev/null 2>&1 \
+   || ! command -v npm >/dev/null 2>&1; then
+  if [ -f "$HOME/.profile" ]; then
+    . "$HOME/.profile"
+  fi
+fi
+
 SELF="$(cd "$(dirname "$0")" && pwd)"
 BIN_DIR="$SELF/infra/ci-source/bin"
 SOURCE_DIR="$SELF/infra/ci-source"

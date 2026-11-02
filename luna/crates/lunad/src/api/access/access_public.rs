@@ -498,6 +498,8 @@ pub(super) struct PublicUploadCreate {
 #[derive(Deserialize)]
 pub(super) struct PublicUploadCompleteQuery {
     pub(super) overwrite: Option<String>,
+    /// "1" saves a clash as `name (1).ext` beside the existing file.
+    pub(super) keep_both: Option<String>,
     pub(super) hash: Option<String>,
     /// Diagram saves name the last live edit in the file. See `UploadQuery`.
     pub(super) coverage: Option<String>,
@@ -876,7 +878,10 @@ pub(super) async fn public_upload_complete(
         // overwrite silently — a name clash auto-renames, because the guest
         // can't see which names are taken and a bare error would leak one.
         let overwrite = query.overwrite.as_deref() == Some("1") && link.caps & CAP_EDIT != 0;
-        let rename_on_conflict = link.caps & CAP_VIEW == 0;
+        // Keep-both asks for a free name even where the guest could see the
+        // clash; overwrite wins when both are asked for.
+        let keep_both = query.keep_both.as_deref() == Some("1") && !overwrite;
+        let rename_on_conflict = link.caps & CAP_VIEW == 0 || keep_both;
         let entry = uploads::complete(
             &state.db,
             &id,
@@ -884,7 +889,14 @@ pub(super) async fn public_upload_complete(
             rename_on_conflict,
             query.hash.as_deref(),
         )
-        .map_err(map_upload_err)?;
+        .map_err(|e| {
+            // A taken name gets the `exists` code the web app reads.
+            if crate::api::uploads::is_name_clash(&e) {
+                crate::api::uploads::name_clash(None)
+            } else {
+                map_upload_err(e)
+            }
+        })?;
         let rel = crate::gallery::gallery_indexer::join_rel(&row.path, &entry.name);
         invalidate_guest_listing(&state, &row.drive_id, &rel);
         if link.subject_kind == KIND_ALBUM {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { Download, Image as ImageIcon, Lock } from "lucide-react";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
@@ -8,14 +8,15 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
-import { apiErrorMessage, getJson } from "../lib/api";
+import { getJson } from "../lib/api";
 import { CAP, hasCap } from "../lib/access.js";
 import { FileSourceProvider, shareSource } from "../lib/fileSource.jsx";
 import { parentPath, pathBasename } from "../lib/paths.js";
-import DriveFileExplorer, { UploadProgressList } from "../components/files/DriveFileExplorer.jsx";
+import DriveFileExplorer from "../components/files/DriveFileExplorer.jsx";
 import UploadFilesPanel from "../components/files/UploadFilesPanel.jsx";
 import useFileNavigation from "../hooks/useFileNavigation.js";
-import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
+import { useFileOps } from "../context/FileOpsContext.jsx";
+import FileOpsDock from "../components/files/fileOps/FileOpsDock.jsx";
 import FormResponder from "../components/files/forms/FormResponder.jsx";
 import DocumentLoadingScreen from "../components/files/DocumentLoadingScreen.jsx";
 import PhotoThumb from "../components/gallery/PhotoThumb.jsx";
@@ -26,24 +27,6 @@ import PhotoLightbox, {
 import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 
-
-const UPLOAD_PARALLEL = 2;
-
-function isAbortError(err) {
-  return err?.name === "AbortError" || err?.code === 20;
-}
-
-async function mapPool(items, limit, worker) {
-  let cursor = 0;
-  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (cursor < items.length) {
-      const index = cursor;
-      cursor += 1;
-      await worker(items[index], index);
-    }
-  });
-  await Promise.all(runners);
-}
 
 function isMediaName(name) {
   return /\.(jpe?g|png|gif|webp|avif|heic|heif|mp4|mov|webm|mkv|avi|m4v)$/i.test(name || "");
@@ -56,8 +39,7 @@ export default function PublicSharePage() {
 
 function PublicShareSession() {
   const { token } = useParams();
-  const queryClient = useQueryClient();
-  const { addToast } = useToast();
+  const fileOps = useFileOps();
   const [password, setPassword] = useState("");
   const [needPassword, setNeedPassword] = useState(false);
   const [submittedPassword, setSubmittedPassword] = useState("");
@@ -68,11 +50,9 @@ function PublicShareSession() {
   /** Resolved `kind: "form"` payload — a respond link mounts the responder. */
   const [formDoc, setFormDoc] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [uploads, setUploads] = useState(/** @type {any[]} */ ([]));
   const [uploadError, setUploadError] = useState("");
   const [batchDone, setBatchDone] = useState(false);
   const [lightbox, setLightbox] = useState(/** @type {{ key: string }|null} */ (null));
-  const uploadsRef = useRef(/** @type {any[]} */ ([]));
   const [passwordRetry, setPasswordRetry] = useState(0);
   const sentinel = useRef(null);
 
@@ -225,94 +205,56 @@ function PublicShareSession() {
     [token],
   );
 
-  function patchUpload(id, patch) {
-    uploadsRef.current = uploadsRef.current.map((row) => (row.id === id ? { ...row, ...patch } : row));
-    setUploads([...uploadsRef.current]);
-  }
-
-  function removeUpload(id) {
-    uploadsRef.current = uploadsRef.current.filter((row) => row.id !== id);
-    setUploads([...uploadsRef.current]);
-  }
-
-  async function uploadOne(item) {
-    await source.uploadFile(token || "", item.file, "", item.uploadName, {
-      signal: item.abort.signal,
-      onSession: (uploadId) => patchUpload(item.id, { uploadId }),
-      onProgress: (received) => patchUpload(item.id, { received }),
-    });
-  }
-
-  async function addFiles(fileList) {
-    const allFiles = Array.from(fileList || []);
-    // Album links only take photos and videos — the server enforces it too,
-    // but skipping early keeps the error readable.
-    const eligible = isAlbum ? allFiles.filter((f) => isMediaName(f.name)) : allFiles;
-    const skippedMedia = allFiles.length - eligible.length;
-    const files = eligible.filter((f) => f.size > 0);
-    const skippedEmpty = eligible.length - files.length;
+  /**
+   * Hand a pick or drop to the file task card. Drop-box links never ask
+   * about clashes (Luna renames), so nothing here handles decisions.
+   * @param {{ dropped: import("../lib/collectUploadFiles.js").DroppedItems } | { files: File[] }} input
+   */
+  function addFiles(input) {
     setUploadError("");
     setBatchDone(false);
-    if (skippedMedia > 0) {
-      setUploadError("Only photos and videos can go in this album.");
-      return;
-    }
-    if (!files.length) {
-      if (skippedEmpty) setUploadError("Luna can't add empty files.");
-      return;
-    }
-    if (skippedEmpty > 0) {
-      setUploadError(`Skipped ${skippedEmpty} empty file${skippedEmpty === 1 ? "" : "s"} — Luna can't add empty files.`);
-    }
-    const batch = files.map((file) => ({
-      id: crypto.randomUUID(),
-      name: file.name,
-      uploadName: file.name,
-      received: 0,
-      size: file.size,
-      uploadId: null,
-      abort: new AbortController(),
-      file,
-    }));
-    uploadsRef.current = [...uploadsRef.current, ...batch];
-    setUploads([...uploadsRef.current]);
-
-    let hadError = false;
-    let completed = 0;
-    await mapPool(batch, UPLOAD_PARALLEL, async (item) => {
-      try {
-        await uploadOne(item);
-        removeUpload(item.id);
-        completed += 1;
-      } catch (err) {
-        removeUpload(item.id);
-        if (isAbortError(err) || item.abort.signal.aborted) return;
-        if (!hadError) {
-          hadError = true;
-          setUploadError(apiErrorMessage(err, "Couldn't upload that file. Try again."));
-        }
-      }
-    });
-    if (completed > 0) {
-      setBatchDone(true);
-      addToast({
-        type: "success",
-        message: completed === 1 ? "1 file uploaded." : `${completed} files uploaded.`,
-      });
+    /** @type {{ files: File[] } | { dropped: import("../lib/collectUploadFiles.js").DroppedItems }} */
+    let request;
+    if ("dropped" in input) {
+      let { entries, files } = input.dropped;
+      let skippedMedia = 0;
       if (isAlbum) {
-        queryClient.invalidateQueries({ queryKey: ["public-link-items", token] });
+        // Album links only take photos and videos — the server enforces it
+        // too, but skipping early keeps the error readable.
+        const keptEntries = entries.filter((e) => e.isFile && isMediaName(e.name));
+        const keptFiles = files.filter((f) => isMediaName(f.name));
+        skippedMedia = entries.length - keptEntries.length + files.length - keptFiles.length;
+        entries = keptEntries;
+        files = keptFiles;
       }
+      if (skippedMedia > 0) setUploadError("Only photos and videos can go in this album.");
+      if (!entries.length && !files.length) return;
+      request = { dropped: { entries, files } };
+    } else {
+      const picked = isAlbum ? input.files.filter((f) => isMediaName(f.name)) : input.files;
+      if (picked.length < input.files.length) {
+        setUploadError("Only photos and videos can go in this album.");
+        return;
+      }
+      const files = picked.filter((f) => f.size > 0);
+      if (!files.length) {
+        if (picked.length) setUploadError("Luna can't add empty files.");
+        return;
+      }
+      if (files.length < picked.length) {
+        const skipped = picked.length - files.length;
+        setUploadError(`Skipped ${skipped} empty file${skipped === 1 ? "" : "s"} — Luna can't add empty files.`);
+      }
+      request = { files };
     }
-  }
-
-  function cancelUpload(id) {
-    const row = uploadsRef.current.find((r) => r.id === id);
-    if (!row) return;
-    row.abort.abort();
-    if (row.uploadId) {
-      void source.cancelUpload(token || "", row.uploadId).catch(() => {});
-    }
-    removeUpload(id);
+    fileOps.startUpload({
+      // shareSource() types `kind` as a plain string; the store wants the literal union.
+      source: /** @type {import("../lib/fileSource.jsx").FileSource} */ (/** @type {unknown} */ (source)),
+      driveId: token || "",
+      ...request,
+      invalidateKeys: isAlbum ? [["public-link-items", token]] : [],
+      afterFinish: () => setBatchDone(true),
+    });
   }
 
   function albumContentSrc(photo) {
@@ -375,6 +317,7 @@ function PublicShareSession() {
     return (
       <div className="min-h-screen surface-primary">
         <Page title={title} titleId="public-album-title">
+          <FileOpsDock />
           {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
           {album.isLoading ? null : (
             <>
@@ -420,10 +363,7 @@ function PublicShareSession() {
                   accept="image/*,video/*"
                   onUploadFiles={addFiles}
                   error={uploadError || null}
-                  busy={uploads.length > 0}
-                >
-                  <UploadProgressList uploads={uploads} onCancel={cancelUpload} />
-                </UploadFilesPanel>
+                />
               )}
               {albumItems.length === 0 ? (
                 <EmptyState
@@ -497,6 +437,7 @@ function PublicShareSession() {
         title={meta?.name || "Shared with you"}
         titleId="public-share-title"
       >
+        <FileOpsDock />
         {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
         {uploadError && !isDropbox && <PageNotice variant="error" className="mb-4">{uploadError}</PageNotice>}
 
@@ -531,12 +472,10 @@ function PublicShareSession() {
 
         {isDropbox && meta && !needPassword && !loading && (
           <UploadFilesPanel
-            onUploadFiles={(files) => addFiles(files)}
+            onUploadFiles={addFiles}
             error={uploadError || null}
-            busy={uploads.length > 0}
           >
-            <UploadProgressList uploads={uploads} onCancel={cancelUpload} />
-            {batchDone && uploads.length === 0 && (
+            {batchDone && (
               <p className="text-primary text-sm mt-3">Files uploaded.</p>
             )}
           </UploadFilesPanel>

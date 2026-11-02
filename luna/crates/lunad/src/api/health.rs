@@ -92,7 +92,7 @@ fn compute(state: &AppState) -> crate::system::system_health::ComprehensiveHealt
         Probes, backup_checks, finish_comprehensive, run_preflight,
     };
     let probes = Probes::from_state(state);
-    let (preflight, drives) = {
+    let (preflight, mut drives) = {
         let conn = state.db.lock().unwrap();
         let mut preflight = run_preflight(&state.data_dir, &conn, &probes);
         // Backup rows warn only, so they never change `healthy`.
@@ -102,6 +102,14 @@ fn compute(state: &AppState) -> crate::system::system_health::ComprehensiveHealt
         let drives = crate::db::list_drives(&conn).unwrap_or_default();
         (preflight, drives)
     };
+    // A Luna mount that isn't live is treated as no mount: the check then
+    // says Luna can't open the drive and doesn't write a test file into
+    // the empty folder on the system disk.
+    for drive in &mut drives {
+        if !state.drive_manager.mount_is_live(&drive.mount_point) {
+            drive.mount_point = String::new();
+        }
+    }
     finish_comprehensive(preflight, drives)
 }
 

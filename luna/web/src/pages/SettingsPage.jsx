@@ -11,6 +11,7 @@ import SettingsContent from "../components/settings/SettingsContent";
 import useSettingsSearch from "../components/settings/useSettingsSearch.jsx";
 import { visibleCategories } from "../components/settings/settingsCategories";
 import { useAuth } from "../context/AuthContext";
+import useConnectActive from "../hooks/useConnectActive";
 import usePageTitle from "../hooks/usePageTitle.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
@@ -44,9 +45,10 @@ export default function SettingsPage() {
   const navigate = useNavigate();
   const isDesktop = useIsDesktop();
   const isAdmin = user?.role === "admin";
+  const connectActive = useConnectActive();
   const categories = useMemo(
-    () => visibleCategories(isAdmin),
-    [isAdmin],
+    () => visibleCategories(isAdmin, connectActive),
+    [isAdmin, connectActive],
   );
   const allowedCategoryIds = useMemo(() => categories.map((c) => c.id), [categories]);
   const defaultCategory = "appearance";

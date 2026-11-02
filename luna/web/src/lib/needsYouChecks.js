@@ -6,12 +6,17 @@ import { displayLabel } from "./healthChecks.js";
  *   rank: number,
  *   tone: "problem" | "info",
  *   title: Array<string | { name: string }>,
- *   detail?: string,
+ *   detail?: string | Array<string | { name: string }>,
+ *   hint?: string,
  *   action?: { label: string, ariaLabel?: string, href?: string, intent?: "open-backup" | "check-phrase", payload?: any },
  * }} NeedsYouItem
  */
 
 const DRIVE_SMART = /^drive_.+_smart$/;
+/** Checks about Luna's own built-in disk, not the person's drives. */
+export const SYSTEM_DISK_CHECKS = new Set(["disk_space", "data_path_writable", "logs_path_writable"]);
+export const SYSTEM_DISK_HINT = "Luna keeps its own software and settings on a small built-in disk, separate from your drives.";
+
 const DRIVE_READ_WRITE = /^drive_.+_read_write$/;
 
 /**
@@ -76,6 +81,8 @@ export function buildSystemCheckItems({
       title: [displayLabel(name, check)],
       action: { label: "Open system checks", href: "/settings#about" },
     };
+
+    if (SYSTEM_DISK_CHECKS.has(name)) item.hint = SYSTEM_DISK_HINT;
 
     if (DRIVE_READ_WRITE.test(name)) {
       // The drive's own row already says what is wrong with it.

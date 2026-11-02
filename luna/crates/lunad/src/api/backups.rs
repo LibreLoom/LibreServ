@@ -45,8 +45,53 @@ struct RunBody {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/backups", get(list).post(create))
+        .route("/api/v1/backups/covered", get(covered))
         .route("/api/v1/backups/{id}", delete(remove))
         .route("/api/v1/backups/{id}/run", post(run))
+}
+
+/// Which backups of a larger folder already hold this one, per kind and place they go to.
+/// A drive backup covers it only for the same backup drive; the cloud covers it for the cloud.
+async fn covered(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+    Query(query): Query<ListQuery>,
+) -> ApiResult {
+    let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+    let drive = query.drive.unwrap_or_default();
+    let path = crate::access::normalize_subject_path(query.path.as_deref().unwrap_or(""));
+    if !crate::auth::has_cap(&user, &conn, &drive, &path, crate::access::CAP_VIEW) {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "Luna can't find this folder.",
+        ));
+    }
+    let owner = crate::backup::access_list::private_source(&conn, &drive, &path)
+        .owner()
+        .unwrap_or_default()
+        .to_string();
+    let rows = db::list_protections(&conn).map_err(|_| read_failed())?;
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for row in rows
+        .iter()
+        .filter(|r| r.source_drive == drive && r.private_owner == owner)
+    {
+        if !seen.insert((row.kind.clone(), row.target_drive.clone())) {
+            continue;
+        }
+        let probe = ProtectionRow::probe(&row.kind, &drive, &path, &row.target_drive, &owner);
+        if let Some((parent, _)) = drive_backup::covered_by(&conn, &probe) {
+            let label = drive_label(&conn, &drive);
+            out.push(json!({
+                "kind": row.kind,
+                "target_drive": row.target_drive,
+                "path": parent.source_path,
+                "name": parent.source_path.rsplit('/').find(|s| !s.is_empty()).unwrap_or(&label),
+            }));
+        }
+    }
+    Ok(Json(Value::Array(out)))
 }
 
 async fn list(
@@ -70,7 +115,7 @@ async fn list(
                 .as_deref()
                 .is_none_or(|p| crate::access::normalize_subject_path(&row.source_path) == p)
         })
-        .map(|row| backup_json(&conn, row, &user, now))
+        .map(|row| backup_json(&state.db, &conn, row, &user, now))
         .collect();
     Ok(Json(Value::Array(backups)))
 }
@@ -137,7 +182,13 @@ async fn create(
     }));
 
     let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
-    Ok(Json(backup_json(&conn, &row, &user, db::now_unix())))
+    Ok(Json(backup_json(
+        &state.db,
+        &conn,
+        &row,
+        &user,
+        db::now_unix(),
+    )))
 }
 
 async fn remove(
@@ -154,13 +205,13 @@ async fn remove(
         ));
     }
     // A copy in progress would write into the backup's files as they go.
-    if drive_backup::is_running(&id) {
+    if drive_backup::is_running(&state.db, &id) {
         return Err(json_error(
             StatusCode::CONFLICT,
             "Luna is copying this backup right now. Delete it when the copy finishes.",
         ));
     }
-    drive_backup::delete(&conn, &row).map_err(|_| {
+    drive_backup::delete(&state.db, &conn, &row).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't delete this backup. Try again.",
@@ -192,7 +243,7 @@ async fn run(
 
     // A run or a restore already holds the backup. Say so instead of starting
     // another run.
-    if drive_backup::is_running(&id) {
+    if drive_backup::is_running(&state.db, &id) {
         return Ok(Json(json!({
             "done": false,
             "problem": "This backup is busy right now. Try again in a minute.",
@@ -240,10 +291,19 @@ fn can_delete(conn: &Connection, row: &ProtectionRow, user: &CurrentUser) -> boo
     user.role == "admin" || (row.created_by == user.id && drive_backup::visible_to(row, user))
 }
 
-fn backup_json(conn: &Connection, row: &ProtectionRow, user: &CurrentUser, now: i64) -> Value {
+fn backup_json(
+    db: &crate::Db,
+    conn: &Connection,
+    row: &ProtectionRow,
+    user: &CurrentUser,
+    now: i64,
+) -> Value {
     let source_label = drive_label(conn, &row.source_drive);
     let target_label = drive_label(conn, &row.target_drive);
+    let covered_by = drive_backup::covered_by(conn, row)
+        .map(|(parent, _)| json!({ "path": parent.source_path, "name": folder_name(&parent.source_path, &source_label) }));
     json!({
+        "covered_by": covered_by,
         "id": row.id,
         "kind": row.kind,
         "source_drive": row.source_drive,
@@ -262,14 +322,13 @@ fn backup_json(conn: &Connection, row: &ProtectionRow, user: &CurrentUser, now: 
         "created_by": row.created_by,
         "can_delete": can_delete(conn, row, user),
         "private": !row.private_owner.is_empty(),
-        "running": drive_backup::is_running(&row.id),
+        "running": drive_backup::is_running(db, &row.id),
         "notes": row.notes.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>(),
     })
 }
 
 /// A refusal about who may do something is 403; anything else is 400.
-/// The private-item refusal "Back up the private item itself, from its own shield."
-/// is not a who-may refusal, so it stays 400.
+/// "Included in the backup of …" is not a who-may refusal, so it stays 400.
 fn refusal_status(msg: &str) -> StatusCode {
     let who_may = msg.starts_with("You need")
         || msg.starts_with("Only an Admin")
@@ -647,7 +706,7 @@ mod tests {
         seed(&f.state, "busy", "photos", &member_only, &f.member_id);
 
         // A restore holds the same slot as a run.
-        let _held = drive_backup::try_hold("busy").expect("slot free");
+        let _held = drive_backup::try_hold(&f.state.db, "busy").expect("slot free");
         let (status, json) = send(
             &f.router,
             "POST",
@@ -706,7 +765,7 @@ mod tests {
     fn refusal_status_keeps_other_refusals_at_400() {
         use axum::http::StatusCode;
         assert_eq!(
-            super::refusal_status("Back up the private item itself, from its own shield."),
+            super::refusal_status("Included in the backup of \"Docs\"."),
             StatusCode::BAD_REQUEST
         );
         assert_eq!(

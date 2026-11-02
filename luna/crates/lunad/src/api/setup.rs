@@ -6,13 +6,21 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use crate::AppState;
-use crate::api::response::json_error;
+use crate::api::response::{json_error, json_error_code};
 
 const SETUP_KEY: &str = "setup";
 
 /// Cap on wizard draft data accepted from an anonymous off-LAN client.
 const MAX_ANON_STEP_DATA: usize = 4096;
-const VALID_STEPS: &[&str] = &["welcome", "preflight", "network", "account", "name", "done"];
+const VALID_STEPS: &[&str] = &[
+    "welcome",
+    "preflight",
+    "network",
+    "account",
+    "phrase",
+    "name",
+    "done",
+];
 
 fn default_step() -> String {
     "welcome".into()
@@ -243,6 +251,7 @@ async fn save_setup(
     Json(body): Json<SaveBody>,
 ) -> Result<Json<SetupState>, (StatusCode, Json<Value>)> {
     let has_users = state.auth.count_users().unwrap_or(0) > 0;
+    let mut caller_id = None;
     if has_users {
         let Some(Extension(user)) = current else {
             return Err(json_error(
@@ -256,6 +265,7 @@ async fn save_setup(
                 "Only an Admin can change setup.",
             ));
         }
+        caller_id = Some(user.id);
     } else if !client_is_lan(&addr, &headers) {
         // Before the first login exists, anyone may save wizard *progress*
         // (step + draft data) so a refresh resumes. Finishing setup or
@@ -283,6 +293,33 @@ async fn save_setup(
             "Luna is updating its file list. Wait a moment and try again.",
         )
     })?;
+    // Setup can't finish until the signed-in Admin has a recovery phrase. The first Admin's
+    // phrase is what locks their cloud backups, so Luna never closes setup without one.
+    if body.setup_completed == Some(true) {
+        let caller_has_phrase = match &caller_id {
+            Some(id) => crate::db::get_user_keys(&conn, id)
+                .map_err(|_| {
+                    json_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Luna couldn't check your recovery phrase. Try again.",
+                    )
+                })?
+                .is_some(),
+            None => false,
+        };
+        if !caller_has_phrase {
+            let message = if has_users {
+                "Set up your recovery phrase before you finish setup."
+            } else {
+                "Create your Luna account and its recovery phrase before you finish setup."
+            };
+            return Err(json_error_code(
+                StatusCode::CONFLICT,
+                "needs_phrase",
+                message,
+            ));
+        }
+    }
     let mut setup = crate::db::get_meta(&conn, SETUP_KEY)
         .map_err(|_| {
             json_error(
@@ -379,7 +416,7 @@ mod tests {
 
     #[test]
     fn valid_steps_cover_wizard() {
-        for step in ["welcome", "network", "account", "name", "done"] {
+        for step in ["welcome", "network", "account", "phrase", "name", "done"] {
             assert!(VALID_STEPS.contains(&step), "missing {step}");
         }
     }
@@ -464,8 +501,20 @@ mod tests {
             send("127.0.0.1", None, Some("203.0.113.7")).await,
             StatusCode::FORBIDDEN
         );
-        // A LAN client writes freely — setup on the LAN must keep working.
-        assert_eq!(send("192.168.1.40", None, None).await, StatusCode::OK);
+        // Finishing setup from the LAN before any account exists is refused: the first
+        // Admin's recovery phrase has to be set first.
+        assert_eq!(send("192.168.1.40", None, None).await, StatusCode::CONFLICT);
+        // Progress alone still saves from the LAN.
+        assert_eq!(
+            send_body(
+                "192.168.1.40",
+                None,
+                None,
+                r#"{"current_step":"preflight"}"#
+            )
+            .await,
+            StatusCode::OK
+        );
         // Once the first login exists the LAN window closes: anonymous is
         // refused everywhere and an Admin signs in instead.
         state

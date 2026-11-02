@@ -103,6 +103,7 @@ pub fn detected_drive_at(root: &Path, on: bool, name: &str, model: &str) -> Opti
         mount_point: Some(root.to_string_lossy().into_owned()),
         fs_type: Some("exfat".into()),
         mount_readonly: false,
+        diskseq: None,
     })
 }
 
@@ -160,6 +161,7 @@ pub fn scan_mock_drives_at(parent: &Path, on: bool) -> Vec<DetectedDrive> {
             mount_point: Some(path.to_string_lossy().into_owned()),
             fs_type,
             mount_readonly,
+            diskseq: None,
         });
     }
     results.sort_by(|a, b| a.name.cmp(&b.name));

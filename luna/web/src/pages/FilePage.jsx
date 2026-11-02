@@ -1,38 +1,28 @@
-import { useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { HardDrive, Trash2 } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
-import Card from "@libreloom/ui/components/cards/Card.jsx";
-import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import useDriveHealth from "../hooks/useDriveHealth.js";
+import { describeDriveHealth } from "../lib/driveHealth.js";
 import { FileSearchButton } from "../components/files/FileSearch";
 import DriveFileExplorer from "../components/files/DriveFileExplorer";
 import DriveMenu from "../components/files/DriveMenu";
 import useDriveMove from "../hooks/useDriveMove";
-import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
-import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
-import {
-  apiErrorMessage,
-  deleteJson,
-  getDrives,
-  getJson,
-} from "../lib/api";
+import { getDrives, getJson } from "../lib/api";
 import { folderHref, isTrashPath, pathBasename, TRASH_PATH, trashDisplayName } from "../lib/paths";
 import useFileNavigation from "../hooks/useFileNavigation.js";
 import useMovedLinkForwarding from "../hooks/useMovedLinkForwarding.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 import { useAuth } from "../context/AuthContext";
 import { CAP, hasCapOnDrive, memberWritableRoots } from "../lib/shareTree.js";
-import { isPresentDrive } from "../lib/drives.js";
-
-function jobBusy(job) {
-  return job.state === "running" || job.state === "queued";
-}
+import { isPresentDrive, isUnopenable } from "../lib/drives.js";
 
 export default function FilePage() {
-  const { addToast } = useToast();
   const { id } = useParams();
   const {
     path,
@@ -43,7 +33,6 @@ export default function FilePage() {
     clearSelectParam,
   } = useFileNavigation();
 
-  const [actionError, setActionError] = useState(null);
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
@@ -59,29 +48,16 @@ export default function FilePage() {
   const inTrash = isTrashPath(path);
   const canOpenTrash = isAdmin || hasCapOnDrive(access.data, id, CAP.EDIT);
 
-  const jobs = useQuery({
-    queryKey: ["jobs"],
-    queryFn: () => getJson("/api/v1/jobs"),
-    refetchInterval: (q) => ((q.state.data || []).some(jobBusy) ? 1000 : false),
-  });
+  // Header drive-menu drops: move dragged files to the top of that drive. The
+  // file task store sends the jobs and shows how they go.
+  const moveFilesMutation = useDriveMove({ driveId: id, driveLabel: drive?.label });
 
-  const cancelMutation = useMutation({
-    mutationFn: (jobId) => deleteJson(`/api/v1/jobs/${jobId}`),
-    onSuccess: () => {
-      addToast({ type: "success", message: "Job stopped." });
-    },
-    onError: (err) => setActionError(apiErrorMessage(err, "Couldn't cancel that job. Try again.")),
-  });
-
-  // Header drive-menu drops: move dragged files to the top of that drive.
-  const [broaden, setBroaden] = useState({ open: false, retry: async () => {} });
-  const moveFilesMutation = useDriveMove({
-    driveId: id,
-    onError: setActionError,
-    onBroaden: (retry) => setBroaden({ open: true, retry: async () => { await retry(); } }),
-  });
-
-  const activeJobs = (jobs.data || []).filter(jobBusy);
+  const unopenable = drive != null && isUnopenable(drive);
+  const browsable = drive != null && drive.state !== "missing" && !unopenable;
+  // Only an Admin sees a drive's health; a failing or worn drive still browses.
+  const health = useDriveHealth(drive ?? { id: id ?? "" }, isAdmin && drive != null);
+  const healthCopy = health.data ? describeDriveHealth(health.data) : null;
+  const healthNotice = healthCopy?.needsYou ?? null;
 
   // A bookmark or recent from before a move or rename follows the item.
   useMovedLinkForwarding({
@@ -127,8 +103,6 @@ export default function FilePage() {
     ? undefined
     : (path ? pathBasename(path) : drive?.label);
 
-  useStrandedErrorToast(actionError, false, () => setActionError(null));
-
   // The most specific thing open: the file, else the folder, else the drive.
   const openName = viewerPath ?? path;
   const openLabel = inTrash
@@ -153,56 +127,6 @@ export default function FilePage() {
       ) : undefined}
       rightContent={<FileSearchButton />}
     >
-      <ConfirmModal
-        open={broaden.open}
-        title="Move it out of the private folder?"
-        message="Everyone with access to the destination will be able to open it."
-        confirmLabel="Move anyway"
-        variant="warning"
-        loading={moveFilesMutation.isPending}
-        onClose={() => !moveFilesMutation.isPending && setBroaden((current) => ({ ...current, open: false }))}
-        onConfirm={() => broaden.retry().then(() => setBroaden((current) => ({ ...current, open: false }))).catch(() => setBroaden((current) => ({ ...current, open: false })))}
-      />
-      {activeJobs.length > 0 && (
-        <div className="grid gap-3 mb-4">
-          {activeJobs.map((job) => (
-            <Card key={job.id} padding>
-              <p className="text-primary text-sm font-mono">
-                {job.kind === "move" ? "Moving" : "Copying"}{" "}
-                {job.from_path
-                  ? job.from_path === TRASH_PATH
-                    ? "trash"
-                    : isTrashPath(job.from_path)
-                      ? trashDisplayName(job.from_path)
-                      : job.from_path
-                  : "a file"}
-              </p>
-              <p className="text-primary text-xs mt-1">
-                {job.total > 0
-                  ? `${Math.min(100, Math.round((100 * job.progress) / job.total))}% done`
-                  : "Starting…"}
-              </p>
-              <div className="mt-2 h-2 rounded-pill surface-primary p-0.5 overflow-hidden" aria-hidden="true">
-                <div
-                  className="h-full rounded-pill surface-secondary motion-safe:transition-[width]"
-                  style={{ width: `${job.total > 0 ? Math.min(100, (100 * job.progress) / job.total) : 8}%` }}
-                />
-              </div>
-              <div className="mt-3">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  loading={cancelMutation.isPending}
-                  onClick={() => cancelMutation.mutate(job.id)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
-
       {!drives.isLoading && !drive && (
         <EmptyState
           className="mt-4"
@@ -239,7 +163,39 @@ export default function FilePage() {
         />
       )}
 
-      {drive && drive.state !== "missing" && inTrash && !canOpenTrash && !access.isLoading && (
+      {drive && unopenable && (
+        <EmptyState
+          className="mt-4"
+          icon={HardDrive}
+          title="Luna can't open this drive"
+          description={
+            isAdmin
+              ? "Unplug it and plug it back in, then try again."
+              : "Ask an Admin to check it."
+          }
+          action={
+            <Button size="sm" variant="primary" asChild>
+              <Link to="/files">{isAdmin ? "Go to Files" : "Back to Files"}</Link>
+            </Button>
+          }
+        />
+      )}
+
+      {drive && browsable && healthNotice && (
+        <PageNotice variant={healthNotice.tone === "problem" ? "error" : "warning"} className="mb-4">
+          <p>
+            <InlinePill>{drive.label}</InlinePill>
+            {healthNotice.title}
+            {". "}
+            <Link to={`/files#drive-${drive.id}`} className="underline decoration-accent underline-offset-2">
+              See what&apos;s wrong
+            </Link>
+            .
+          </p>
+        </PageNotice>
+      )}
+
+      {drive && browsable && inTrash && !canOpenTrash && !access.isLoading && (
         <EmptyState
           className="mt-4"
           icon={Trash2}
@@ -253,7 +209,7 @@ export default function FilePage() {
         />
       )}
 
-      {drive && drive.state !== "missing" && !(inTrash && !canOpenTrash) && (
+      {drive && browsable && !(inTrash && !canOpenTrash) && (
         <DriveFileExplorer
           driveId={id}
           driveLabel={drive.label}

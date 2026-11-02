@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -43,12 +43,12 @@ vi.mock("react-router-dom", async (importOriginal) => {
   };
 });
 vi.mock("@libreloom/ui/components/cards/ModalCard.jsx", () => ({
-  default: ({ children, onClose, title }) => (
+  default: ({ children, onClose, title, open = true }) => open ? (
     <div role="dialog" aria-label={typeof title === "string" ? title : "Email"}>
       <button type="button" onClick={onClose}>Close modal</button>
       {typeof children === "function" ? children({ close: onClose }) : children}
     </div>
-  ),
+  ) : null,
 }));
 vi.mock("@libreloom/ui/components/cards/Card.jsx", () => ({
   default: ({ children, headerActions, title }) => (
@@ -90,10 +90,12 @@ vi.mock("@libreloom/ui/components/ui/Button.jsx", () => ({
     title,
     tooltip,
     type = /** @type {"button"|"reset"|"submit"} */ ("button"),
+    ...rest
   }) => (
     <button
+      {...rest}
       type={type}
-      aria-label={title || (typeof tooltip === "string" ? tooltip : undefined)}
+      aria-label={rest["aria-label"] || title || (typeof tooltip === "string" ? tooltip : undefined)}
       disabled={disabled || loading}
       onClick={onClick}
     >
@@ -426,25 +428,27 @@ describe("connect component coverage", () => {
 
   it("loads backup destinations and saves backup mode", async () => {
     const user = userEvent.setup();
-    apiMock.mockResolvedValue(
-      jsonResponse({
+    apiMock.mockImplementation((path) => Promise.resolve(path === "/apps"
+      ? jsonResponse({ apps: [{ id: "notes", name: "Notes" }] })
+      : jsonResponse({
         repositories: [
-          {
-            id: "connect-repo",
-            repo_type: "s3",
-            repo_path: "bucket",
-            password: "key",
-          },
           {
             id: "custom",
             app_id: "notes",
+            connect_ownership_known: true,
             name: "Notes storage",
             repo_type: "sftp",
             repo_path: "/backups",
           },
+          {
+            id: "connect-repo",
+            connect_ownership_known: true,
+            connect_managed: true,
+            repo_type: "s3",
+            repo_path: "bucket",
+          },
         ],
-      }),
-    );
+      })));
     render(
       <BackupServiceModal
         open
@@ -460,6 +464,7 @@ describe("connect component coverage", () => {
 
     expect(await screen.findByText("Notes storage")).toBeVisible();
     expect(screen.getByText("Backup recovery key")).toBeVisible();
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/backups/repos/connect-repo/recovery-key"));
     await user.click(screen.getByRole("button", { name: /Add Destination/ }));
     expect(screen.getByText("Add a new backup destination")).toBeVisible();
     await user.click(screen.getAllByRole("button", { name: "Cancel" })[0]);
@@ -469,6 +474,161 @@ describe("connect component coverage", () => {
       "connected",
       "csrf",
     );
+  });
+
+  it("validates, creates, refreshes, confirms, and deletes a backup destination", async () => {
+    const user = userEvent.setup();
+    const destination = { id: "disposable", app_id: "notes", connect_managed: false, connect_ownership_known: true, repo_type: "s3", repo_path: "s3:s3.amazonaws.com/disposable" };
+    let saved = false;
+    let repoReads = 0;
+    apiMock.mockImplementation((path, options = {}) => {
+      if (path === "/apps") return Promise.resolve(jsonResponse({ apps: [{ id: "notes", name: "Notes" }] }));
+      if (path === "/backups/repos" && options.method === "POST") { saved = true; return Promise.resolve(jsonResponse(destination)); }
+      if (path === "/backups/repos" && options.method !== "POST") {
+        repoReads += 1;
+        if (repoReads === 3) return Promise.resolve({ ok: false, json: vi.fn() });
+        return Promise.resolve(jsonResponse({ repositories: saved ? [destination] : [] }));
+      }
+      if (path === "/backups/repos/disposable" && options.method === "DELETE") { saved = false; return Promise.resolve(jsonResponse({ status: "deleted" })); }
+      return Promise.resolve(jsonResponse({}));
+    });
+    render(<BackupServiceModal open service={{ state: "disabled" }} repos={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: /Add Destination/ }));
+    await user.click(screen.getByRole("button", { name: "Save destination" }));
+    expect(screen.getByText("Enter a backup destination.")).toBeVisible();
+
+    await user.type(screen.getByPlaceholderText("s3:s3.amazonaws.com/bucket"), destination.repo_path);
+    await user.type(screen.getByLabelText("Access key"), "disposable-access-key");
+    await user.type(screen.getByLabelText("Secret key"), "disposable-secret-key");
+    await user.type(screen.getByLabelText("Region"), "us-east-1");
+    await user.click(screen.getByRole("button", { name: "Save destination" }));
+
+    expect(apiMock).toHaveBeenCalledWith("/backups/repos", expect.objectContaining({ method: "POST" }));
+    expect(JSON.parse(apiMock.mock.calls.find(([path, options]) => path === "/backups/repos" && options?.method === "POST")[1].body).app_id).toBe("notes");
+    expect(await screen.findByText(destination.repo_path)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Delete s3 destination" }));
+    expect(await screen.findByRole("dialog", { name: "Delete this backup destination?" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Delete destination" }));
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/backups/repos/disposable", expect.objectContaining({ method: "DELETE" })));
+    expect(await screen.findByRole("status")).toHaveTextContent("Destination deleted.");
+    expect(await screen.findByText("No custom backup destinations configured yet.")).toBeVisible();
+  });
+
+  it("does not invite a duplicate create when saving succeeds but refresh fails", async () => {
+    const user = userEvent.setup();
+    let repoReads = 0;
+    apiMock.mockImplementation((path, options = {}) => {
+      if (path === "/apps") return Promise.resolve(jsonResponse({ apps: [{ id: "notes", name: "Notes" }] }));
+      if (path === "/backups/repos" && options.method === "POST") return Promise.resolve(jsonResponse({ id: "saved" }));
+      if (path === "/backups/repos") {
+        repoReads += 1;
+        return Promise.resolve(repoReads === 1 ? jsonResponse({ repositories: [] }) : { ok: false, json: vi.fn() });
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    render(<BackupServiceModal open service={{ state: "disabled" }} repos={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: /Add Destination/ }));
+    await user.selectOptions(screen.getAllByLabelText("Choose option")[0], "local");
+    await user.type(screen.getByPlaceholderText("/path/to/backups"), "/tmp/disposable-backups");
+    await user.click(screen.getByRole("button", { name: "Save destination" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Destination saved.");
+    expect(screen.queryByText("Add a new backup destination")).not.toBeInTheDocument();
+    expect(apiMock.mock.calls.filter(([path, options]) => path === "/backups/repos" && options?.method === "POST")).toHaveLength(1);
+  });
+
+  it("shows delete failures in the confirmation and lets the user retry", async () => {
+    const user = userEvent.setup();
+    let deleteCalls = 0;
+    const destination = { id: "retained", app_id: "notes", is_system: false, connect_managed: false, connect_ownership_known: true, repo_type: "local", repo_path: "/tmp/retained" };
+    apiMock.mockImplementation((path, options = {}) => {
+      if (path === "/apps") return Promise.resolve(jsonResponse({ apps: [{ id: "notes", name: "Notes" }] }));
+      if (path === "/backups/repos/retained" && options.method === "DELETE") {
+        deleteCalls += 1;
+        return Promise.resolve(deleteCalls === 1
+          ? { ok: false, status: 409, json: vi.fn().mockResolvedValue({ error: "This destination still has saved backups. Delete those backups first to keep them available for restore." }) }
+          : jsonResponse({ status: "deleted" }));
+      }
+      return Promise.resolve(jsonResponse({ repositories: [destination] }));
+    });
+    render(<BackupServiceModal open service={{ state: "byo" }} repos={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    await user.click(await screen.findByRole("button", { name: "Delete local destination" }));
+    const confirmation = await screen.findByRole("dialog", { name: "Delete this backup destination?" });
+    await user.click(screen.getByRole("button", { name: "Delete destination" }));
+    expect(await within(confirmation).findByRole("status")).toHaveTextContent(/This destination still has saved backups/);
+    expect(confirmation).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Delete destination" }));
+    await waitFor(() => expect(deleteCalls).toBe(2));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete this backup destination?" })).not.toBeInTheDocument());
+  });
+
+  it("does not offer deletion for destinations with unknown ownership", async () => {
+    const unmarkedRepo = { id: "legacy", app_id: "", connect_ownership_known: false, connect_managed: false, repo_type: "s3", repo_path: "s3:legacy.example/backups" };
+    apiMock.mockImplementation((path) => Promise.resolve(path === "/apps"
+      ? jsonResponse({ apps: [{ id: "notes", name: "Notes" }] })
+      : jsonResponse({ repositories: [unmarkedRepo, { id: "system", is_system: true, repo_type: "local", repo_path: "/tmp/system" }] })));
+    render(<BackupServiceModal open service={{ state: "byo" }} repos={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    expect(await screen.findByText("s3:legacy.example/backups")).toBeVisible();
+    expect(screen.queryByText("/tmp/system")).not.toBeInTheDocument();
+    expect(screen.getByText("Sol can't confirm who manages this destination.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Delete s3 destination" })).not.toBeInTheDocument();
+  });
+
+  it("does not show system repositories as user-managed destinations", async () => {
+    const systemRepo = { id: "system", app_id: "", is_system: true, connect_managed: false, repo_type: "local", repo_path: "/tmp/system-backup" };
+    const customRepo = { id: "custom", app_id: "notes", is_system: false, connect_managed: false, connect_ownership_known: true, repo_type: "local", repo_path: "/tmp/custom-backup" };
+    apiMock.mockImplementation((path) => Promise.resolve(path === "/apps"
+      ? jsonResponse({ apps: [{ id: "notes", name: "Notes" }] })
+      : jsonResponse({ repositories: [systemRepo, customRepo] })));
+    render(<BackupServiceModal open service={{ state: "byo" }} repos={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    expect(await screen.findByText("/tmp/custom-backup")).toBeVisible();
+    expect(screen.queryByText("/tmp/system-backup")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete local destination" })).toBeVisible();
+  });
+
+  it("shows an app destination conflict inline", async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation((path, options = {}) => {
+      if (path === "/apps") return Promise.resolve(jsonResponse({ apps: [{ id: "notes", name: "Notes" }] }));
+      if (path === "/backups/repos" && options.method === "POST") return Promise.resolve({ ok: false, status: 409, json: vi.fn().mockResolvedValue({ error: "This app already has a backup destination. Delete it before adding another." }) });
+      return Promise.resolve(jsonResponse({ repositories: [] }));
+    });
+    render(<BackupServiceModal open service={{ state: "disabled" }} repos={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: /Add Destination/ }));
+    await user.selectOptions(screen.getAllByLabelText("Choose option")[0], "local");
+    await user.type(screen.getByPlaceholderText("/path/to/backups"), "/tmp/disposable-backups");
+    await user.click(screen.getByRole("button", { name: "Save destination" }));
+
+    expect(await screen.findByText("This app already has a backup destination. Delete it before adding another.")).toBeVisible();
+    expect(screen.getByText("Add a new backup destination")).toBeVisible();
+  });
+
+  it("lets the user retry when the app list fails to load", async () => {
+    const user = userEvent.setup();
+    let appReads = 0;
+    apiMock.mockImplementation((path) => {
+      if (path === "/apps") {
+        appReads += 1;
+        return Promise.resolve(appReads === 1
+          ? { ok: false, json: vi.fn() }
+          : jsonResponse({ apps: [{ id: "notes", name: "Notes" }] }));
+      }
+      return Promise.resolve(jsonResponse({ repositories: [] }));
+    });
+    render(<BackupServiceModal open service={{ state: "disabled" }} repos={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: /Add Destination/ }));
+    expect(await screen.findByText("Could not load your apps.")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Notes")).toBeVisible();
+    expect(appReads).toBe(2);
   });
 
   it("falls back to provided backup destinations and reports save errors", async () => {
@@ -485,6 +645,8 @@ describe("connect component coverage", () => {
             id: "fallback",
             app_id: "app",
             name: "Fallback storage",
+            connect_managed: false,
+            connect_ownership_known: true,
             repo_type: "s3",
             repo_path: "fallback",
           },

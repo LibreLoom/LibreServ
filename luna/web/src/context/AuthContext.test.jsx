@@ -31,6 +31,7 @@ function renderAt(path, { setupCompleted = false, hasAdmin = false } = {}) {
           <Route path="/" element={<div>LUNA HOME</div>} />
           <Route path="/setup" element={<div>SETUP WIZARD</div>} />
           <Route path="/login" element={<div>LOGIN SCREEN</div>} />
+          <Route path="/recover" element={<div>RECOVERY WIZARD</div>} />
         </Routes>
       </AuthProvider>
     </MemoryRouter>
@@ -46,6 +47,11 @@ describe("AuthProvider setup gating", () => {
   it("sends a fresh Luna from login to the setup wizard", async () => {
     renderAt("/login", { setupCompleted: false, hasAdmin: false });
     expect(await screen.findByText("SETUP WIZARD")).toBeInTheDocument();
+  });
+
+  it("keeps password recovery reachable when Luna has no Admin yet", async () => {
+    renderAt("/recover", { setupCompleted: false, hasAdmin: false });
+    expect(await screen.findByText("RECOVERY WIZARD")).toBeInTheDocument();
   });
 
   it("keeps login when setup is incomplete but an account exists", async () => {

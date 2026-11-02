@@ -44,7 +44,44 @@ function renderZone(items, onAction = vi.fn()) {
   return { ...view, onAction };
 }
 
+/** @returns {NeedsYouItem} */
+function warning(overrides = {}) {
+  return {
+    id: "drive-health:d2",
+    rank: 70,
+    tone: "warning",
+    title: [{ name: "Drive 2" }, " is showing wear"],
+    detail: "4 spots on its disk have worn out. Keep using it, and make sure it's backed up.",
+    action: { label: "See what's wrong", href: "/files#drive-d2" },
+    ...overrides,
+  };
+}
+
 describe("NeedsYou", () => {
+  describe("warning tone", () => {
+    it("draws a warning row with a warning icon, its words and a link to the drive card", () => {
+      renderZone([warning()]);
+      const row = screen.getByRole("listitem");
+      expect(row).toHaveAttribute("data-tone", "warning");
+      const icon = row.querySelector("svg");
+      expect(icon).toHaveClass("text-warning");
+      expect(icon).not.toHaveClass("text-error");
+      expect(within(row).getByText("Drive 2")).toHaveAttribute("data-slot", "inline-pill");
+      expect(within(row).getByText(/is showing wear/)).toBeInTheDocument();
+      expect(within(row).getByRole("link", { name: "See what's wrong" })).toHaveAttribute(
+        "href",
+        "/files#drive-d2",
+      );
+    });
+
+    it("keeps the problem row's own icon next to a warning row", () => {
+      renderZone([problem({ rank: 12 }), warning()]);
+      const [first, second] = screen.getAllByRole("listitem");
+      expect(first.querySelector("svg")).toHaveClass("text-error");
+      expect(second.querySelector("svg")).toHaveClass("text-warning");
+    });
+  });
+
   describe("nothing to show", () => {
     it("renders nothing for an empty list", () => {
       const { container } = renderZone([]);
@@ -397,6 +434,25 @@ describe("NeedsYou", () => {
       expect(screen.getAllByRole("listitem")).toHaveLength(8);
       await userEvent.click(screen.getByRole("button", { name: "Show fewer" }));
       expect(screen.getAllByRole("listitem")).toHaveLength(5);
+    });
+  });
+
+  describe("hints and detail segments", () => {
+    it("shows an info hint next to a row that has one", () => {
+      renderZone([
+        problem({
+          id: "check:disk_space",
+          title: ["Storage space"],
+          hint: "Luna keeps its own software and settings on a small built-in disk, separate from your drives.",
+        }),
+      ]);
+      expect(screen.getByRole("button", { name: "More about this" })).toBeInTheDocument();
+    });
+
+    it("puts names in a detail line in a pill", () => {
+      renderZone([problem({ detail: [{ name: "Backup drive" }, " (the backup drive) is full."] })]);
+      const pills = screen.getAllByText("Backup drive");
+      expect(pills.some((el) => el.getAttribute("data-slot") === "inline-pill")).toBe(true);
     });
   });
 });

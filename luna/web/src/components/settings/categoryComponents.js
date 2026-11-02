@@ -1,5 +1,6 @@
 import AppearanceCategory from "./categories/AppearanceCategory.jsx";
-import ExternalServicesCategory from "./categories/ExternalServicesCategory.jsx";
+import CloudBackupCategory from "./categories/CloudBackupCategory.jsx";
+import RemoteCategory from "./categories/RemoteCategory.jsx";
 import DevicesCategory from "./categories/DevicesCategory.jsx";
 import AccessCategory from "./categories/AccessCategory.jsx";
 import UsersCategory from "./categories/UsersCategory.jsx";
@@ -8,7 +9,8 @@ import AboutCategory from "./categories/AboutCategory.jsx";
 /** Category id → the component that draws it. Shared by the page and the settings search. */
 export const CATEGORY_COMPONENTS = {
   appearance: AppearanceCategory,
-  external_services: ExternalServicesCategory,
+  cloud_backup: CloudBackupCategory,
+  luna_connect: RemoteCategory,
   users: UsersCategory,
   devices: DevicesCategory,
   security: AccessCategory,

@@ -4,7 +4,8 @@ import { CATEGORY_COMPONENTS } from "./categoryComponents.js";
 
 const CATEGORY_TITLES = {
   appearance: "Appearance",
-  external_services: "External services",
+  cloud_backup: "Cloud backup",
+  luna_connect: "Luna Connect",
   users: "Users",
   devices: "Devices",
   security: "Security",

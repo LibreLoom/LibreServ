@@ -7,11 +7,26 @@ import { postJson } from "./api.js";
 import { isMockUnknownDrive } from "./devMockDrives.js";
 
 /**
- * Drive is plugged in and listed (not missing, ejected, or failed).
- * @param {{ state?: string }} drive
+ * Luna knows this drive and it is plugged in, but Luna can't open it (its
+ * mount is gone). Its files and free space aren't available.
+ * @param {{ state?: string, mounted?: boolean }} drive
+ */
+export function isUnopenable(drive) {
+  return (drive.state === "as_is" || drive.state === "readonly") && drive.mounted === false;
+}
+
+/**
+ * Drive is plugged in, listed and open (not missing, ejected, failed, or
+ * unopenable). A failed drive has mount or I/O errors, so it can't be browsed.
+ * @param {{ state?: string, mounted?: boolean }} drive
  */
 export function isPresentDrive(drive) {
-  return drive.state !== "missing" && drive.state !== "ejected" && drive.state !== "failed";
+  return (
+    drive.state !== "missing"
+    && drive.state !== "ejected"
+    && drive.state !== "failed"
+    && drive.mounted !== false
+  );
 }
 
 /**

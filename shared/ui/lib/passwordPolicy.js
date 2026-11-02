@@ -24,9 +24,10 @@ export const PASSWORD_FIELD_PLACEHOLDER = 'Not "a1!", please.';
  *   ok: boolean,
  * }}
  */
-export function passwordChecks(password) {
+export function passwordChecks(password, { lengthUnit = "characters" } = {}) {
   const pw = password || "";
-  const hasLength = pw.length >= MIN_PASSWORD_LENGTH;
+  const length = lengthUnit === "utf8-bytes" ? new TextEncoder().encode(pw).length : pw.length;
+  const hasLength = length >= MIN_PASSWORD_LENGTH;
   const hasLetter = /[a-zA-Z]/.test(pw);
   const hasDigit = /[0-9]/.test(pw);
   const hasSpecial = /[!@#$%^&*(),.?":{}|<>[\]\\;'`~\-_=+]/.test(pw);
@@ -46,9 +47,9 @@ export function passwordChecks(password) {
  * @param {string} password
  * @returns {string | null}
  */
-export function passwordPolicyError(password) {
+export function passwordPolicyError(password, options) {
   if (!password) return "Enter a password.";
-  const { hasLength, hasLetter, hasDigit } = passwordChecks(password);
+  const { hasLength, hasLetter, hasDigit } = passwordChecks(password, options);
   if (!hasLength) return "Passwords need at least 12 characters.";
   if (!hasLetter || !hasDigit) {
     return "Passwords need at least one letter and one number.";
@@ -57,6 +58,6 @@ export function passwordPolicyError(password) {
 }
 
 /** @param {string} password */
-export function meetsPasswordPolicy(password) {
-  return passwordChecks(password).ok;
+export function meetsPasswordPolicy(password, options) {
+  return passwordChecks(password, options).ok;
 }

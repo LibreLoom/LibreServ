@@ -19,8 +19,24 @@ const now = () => Math.floor(Date.now() / 1000);
 
 const DRIVE_OK = { id: "d1", label: "Photos", state: "as_is" };
 const SUMMARY_ROOMY = { mounted: true, total_bytes: 64 * GB, free_bytes: 40 * GB };
-const HEALTH_OK = { available: true, overall: "passed", reallocated_sectors: 0, temperature_c: 31 };
-const HEALTH_WORN = { available: true, overall: "passed", reallocated_sectors: 3, temperature_c: 38 };
+const HEALTH_OK = {
+  available: true,
+  reason: null,
+  verdict: "ok",
+  overall: "passed",
+  reallocated_sectors: 0,
+  temperature_c: 31,
+  temperature_max_c: 60,
+  temperature_max_source: "typical",
+  signals: [],
+};
+const HEALTH_WORN = {
+  ...HEALTH_OK,
+  verdict: "watch",
+  reallocated_sectors: 3,
+  temperature_c: 38,
+  signals: [{ kind: "reallocated_sectors", level: "watch", value: 3, limit: 100 }],
+};
 const PHRASE_NOT_DUE = { set: true, set_at: 0, luna_id: "luna-1", signing_public: "", check_due: false };
 
 /** The requests a Member makes. Admin-only requests must never be among them. */
@@ -146,7 +162,7 @@ describe("useNeedsYou for an Admin", () => {
   it("lists the urgent rows in urgency order", async () => {
     stubFetch(
       adminRoutes({
-        "/api/v1/drives": answer([{ id: "d1", label: "Backup drive", state: "failed" }]),
+        "/api/v1/drives": answer([{ id: "d1", label: "Backup drive", state: "as_is", mounted: false }]),
         "/api/v1/backups": answer([backup({ id: "b1", state: "failing", last_error: "Disk full" })]),
         "/api/v1/connect/status": answer({ device_token_error: "Your device token was revoked." }),
         "/api/v1/network/status": answer({ has_default_route: false }),
@@ -157,17 +173,17 @@ describe("useNeedsYou for an Admin", () => {
     const { result } = renderNeedsYou();
 
     await waitFor(() =>
-      expect(ids(result)).toEqual(["drive-failed:d1", "backup:drive:b1", "device-token", "no-route"]),
+      expect(ids(result)).toEqual(["drive-unopenable:d1", "backup:drive:b1", "device-token", "no-route"]),
     );
-    expect(result.current.items.map((item) => item.rank)).toEqual([10, 40, 50, 60]);
+    expect(result.current.items.map((item) => item.rank)).toEqual([15, 40, 50, 60]);
     expect(result.current.items[0]).toMatchObject({
       tone: "problem",
-      title: [{ name: "Backup drive" }, " ran into a problem"],
-      action: { label: "Open Files", href: "/files" },
+      title: [{ name: "Backup drive" }, " can't be opened"],
+      action: { label: "See what's wrong", href: "/files#drive-d1" },
     });
     expect(result.current.items[1]).toMatchObject({
       title: [{ name: "Photos" }, " backup didn't finish"],
-      detail: "Disk full",
+      detail: ["Backup drive ", { name: "Backup drive" }, ": ", "Disk full"],
       action: { label: "Open", intent: "open-backup" },
     });
     expect(result.current.items[2]).toMatchObject({
@@ -180,9 +196,9 @@ describe("useNeedsYou for an Admin", () => {
     });
   });
 
-  it("does not ask a failed drive for its summary or health", async () => {
+  it("does not ask a drive Luna can't open for its summary or health", async () => {
     const fetchMock = stubFetch(
-      adminRoutes({ "/api/v1/drives": answer([{ id: "d1", label: "Backup drive", state: "failed" }]) }),
+      adminRoutes({ "/api/v1/drives": answer([{ id: "d1", label: "Backup drive", state: "as_is", mounted: false }]) }),
     );
 
     const { result } = renderNeedsYou();
@@ -191,7 +207,7 @@ describe("useNeedsYou for an Admin", () => {
     await settle(result);
     expect(calledPaths(fetchMock)).not.toContain("/api/v1/drives/d1/summary");
     expect(calledPaths(fetchMock)).not.toContain("/api/v1/drives/d1/health");
-    expect(ids(result)).toEqual(["drive-failed:d1"]);
+    expect(ids(result)).toEqual(["drive-unopenable:d1"]);
   });
 
   it("shows a drive-health row when the drive reports wear", async () => {
@@ -201,11 +217,28 @@ describe("useNeedsYou for an Admin", () => {
 
     await waitFor(() => expect(ids(result)).toEqual(["drive-health:d1"]));
     expect(result.current.items[0]).toMatchObject({
-      rank: 30,
-      tone: "problem",
-      title: [{ name: "Photos" }, " is working, with a warning"],
-      action: { label: "Open Files", href: "/files" },
+      rank: 70,
+      tone: "warning",
+      title: [{ name: "Photos" }, " is showing wear"],
+      action: { label: "See what's wrong", href: "/files#drive-d1" },
     });
+  });
+
+  it("asks a read-only drive for its health but not one whose mount is gone", async () => {
+    const fetchMock = stubFetch(
+      adminRoutes({
+        "/api/v1/drives": answer([
+          { id: "d1", label: "Photos", state: "readonly" },
+          { id: "d2", label: "Spare", state: "as_is", mounted: false },
+        ]),
+      }),
+    );
+
+    const { result } = renderNeedsYou();
+
+    await waitFor(() => expect(calledPaths(fetchMock)).toContain("/api/v1/drives/d1/health"));
+    await settle(result);
+    expect(calledPaths(fetchMock)).not.toContain("/api/v1/drives/d2/health");
   });
 
   it("shows a drive-full row when less than a tenth of the drive is free", async () => {
@@ -268,7 +301,7 @@ describe("useNeedsYou for an Admin", () => {
     await waitFor(() => expect(ids(result)).toEqual(["check:disk_space"]));
     expect(result.current.items[0]).toMatchObject({
       rank: 20,
-      title: ["Storage space"],
+      title: ["Luna's own storage"],
       detail: "Low space",
       action: { label: "Open system checks", href: "/settings#about" },
     });
@@ -386,16 +419,16 @@ describe("useNeedsYou for an Admin", () => {
   it("still shows drive rows when the backup list fails", async () => {
     stubFetch(
       adminRoutes({
-        "/api/v1/drives": answer([{ id: "d1", label: "Backup drive", state: "failed" }]),
+        "/api/v1/drives": answer([{ id: "d1", label: "Backup drive", state: "as_is", mounted: false }]),
         "/api/v1/backups": answer({ error: "down" }, 500),
       }),
     );
 
     const { result } = renderNeedsYou();
 
-    await waitFor(() => expect(ids(result)).toEqual(["drive-failed:d1"]));
+    await waitFor(() => expect(ids(result)).toEqual(["drive-unopenable:d1"]));
     await settle(result);
-    expect(ids(result)).toEqual(["drive-failed:d1"]);
+    expect(ids(result)).toEqual(["drive-unopenable:d1"]);
   });
 });
 
@@ -403,7 +436,7 @@ describe("useNeedsYou for a Member", () => {
   it("asks only for the Member's own data and shows only their own failing backup", async () => {
     auth.user = MEMBER;
     const fetchMock = stubFetch({
-      "/api/v1/drives": answer([DRIVE_OK, { id: "d2", label: "Family drive", state: "failed" }]),
+      "/api/v1/drives": answer([DRIVE_OK, { id: "d2", label: "Family drive", state: "as_is", mounted: false }]),
       "/api/v1/backups": answer([
         backup({ id: "b-sam", state: "failing", last_error: "Disk full", created_by: "sam" }),
         backup({ id: "b-admin", state: "failing", created_by: "admin", private: false }),

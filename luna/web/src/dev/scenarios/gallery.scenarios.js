@@ -160,7 +160,7 @@ export default [
     title: "Member with no drives and no albums",
     url: "/gallery",
     seed: (w) => { asMember(w); w.photos = []; },
-    check: ["Plain message that nothing is shared with them yet", "No Rescan or Upload offered", "No red errors"],
+    check: ["Plain message that nothing is shared with them yet", "No Rescan or Upload offered", "No error messages"],
   },
 
   // ── Filters and search ───────────────────────────────────────────────────
@@ -320,12 +320,12 @@ export default [
     check: ["Select 5 photos and press Favorite", "An error says some could not be added", "Favorites tab holds exactly 2 of them", "Library hearts match Favorites"],
   },
   {
-    id: "gallery/download-fallback",
+    id: "gallery/download",
     area: "Photos",
     title: "Download selected photos",
     url: "/gallery",
     seed: (w) => lib(w, 20),
-    check: ["Select 3, Download: the browser starts one download per photo (no zip in the fake)", "No error banner appears"],
+    check: ["Select 3 photos and press Download", "One photos.zip file is saved", "No error banner appears"],
   },
   {
     id: "gallery/lightbox-first",
@@ -357,7 +357,7 @@ export default [
     title: "Moving a photo to Trash fails",
     url: "/gallery",
     seed: (w) => lib(w, 20),
-    faults: [{ match: "DELETE /api/v1/drives/d1/files", mode: "409", message: "Luna couldn't move that to Trash because the drive is read-only." }],
+    faults: [{ match: "DELETE /api/v1/drives/d1/files", mode: "409", message: "This drive is read-only right now, so Luna can't change it." }],
     check: ["Open a photo, press Trash, confirm", "The message explains the drive is read-only, in the page, not a crash", "The photo is still there"],
   },
 

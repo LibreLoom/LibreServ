@@ -238,7 +238,9 @@ export default function DriveMenu({ drives, destinations, currentDriveId, curren
       optionProps={(option) => {
         const dest = otherItems.find((d) => destKey(d) === option.value);
         if (!dest) return undefined;
-        const canDrop = dest.writable !== false;
+        // Read-only places stay normal targets: lunad refuses the drop and the
+        // caller shows why.
+        const canDrop = true;
         return {
           className: dragOverDriveId === option.value ? "ring-2 ring-inset ring-accent" : undefined,
           onDragOver: (e) => handleItemDragOver(dest, canDrop, e),

@@ -147,11 +147,11 @@ func TestBackupFormatField(t *testing.T) {
 
 	db.Exec(`INSERT INTO backups (id, app_id, type, path, size, created_at, format, snapshot_id, repo_id)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"b-restic", "app-fmt", "app", "/tmp/repo", 1000, now, "restic", "snap-1", "repo-1")
+		"b-restic", "app-fmt", "app", "/tmp/repo", 1000, now, "restic", "snap-1", "")
 
 	db.Exec(`INSERT INTO backups (id, app_id, type, path, size, created_at, format, snapshot_id, repo_id)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"b-restic-2", "app-fmt", "app", "/tmp/repo2", 2000, now, "restic", "snap-2", "repo-2")
+		"b-restic-2", "app-fmt", "app", "/tmp/repo2", 2000, now, "restic", "snap-2", "")
 
 	backups, err := svc.ListBackups(ctx, "app-fmt")
 	if err != nil {
@@ -180,7 +180,7 @@ func TestGetBackupWithFormat(t *testing.T) {
 
 	db.Exec(`INSERT INTO backups (id, app_id, type, path, size, created_at, format, snapshot_id, repo_id)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"b-get-restic", "app-get", "app", "/tmp/repo", 1000, now, "restic", "snap-get", "repo-get")
+		"b-get-restic", "app-get", "app", "/tmp/repo", 1000, now, "restic", "snap-get", "")
 
 	backup, err := svc.GetBackup(ctx, "b-get-restic")
 	if err != nil {
@@ -237,7 +237,7 @@ func TestDeleteResticBackup(t *testing.T) {
 
 	db.Exec(`INSERT INTO backups (id, app_id, type, path, size, created_at, format, snapshot_id, repo_id)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"b-del-restic", "app-del", "app", "/tmp/repo", 1000, now, "restic", "snap-del", "repo-del")
+		"b-del-restic", "app-del", "app", "/tmp/repo", 1000, now, "restic", "snap-del", "")
 
 	if err := svc.DeleteBackup(ctx, "b-del-restic"); err != nil {
 		t.Fatalf("DeleteBackup: %v", err)

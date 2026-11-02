@@ -25,6 +25,8 @@ import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.j
 import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
 import usePageTitle from "../hooks/usePageTitle.js";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
+import { useFileOps } from "../context/FileOpsContext.jsx";
+import { driveSource } from "../lib/fileSource.jsx";
 import { showPageLevelError } from "../lib/modalScopedError";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import GalleryToolbar from "../components/gallery/GalleryToolbar.jsx";
@@ -53,7 +55,6 @@ import PhotoThumb from "../components/gallery/PhotoThumb.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
-import { downloadHref } from "../lib/paths.js";
 import { useAuth } from "../context/AuthContext";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useShortcut, useShortcutsSheet } from "@libreloom/ui/context/ShortcutsContext.jsx";
@@ -64,10 +65,108 @@ import {
   getDrives,
   getJson,
   patchJson,
-  postForm,
   postJson,
   putJson,
 } from "../lib/api";
+
+const GALLERY_DOWNLOAD_MAX = 200;
+const GALLERY_DOWNLOAD_FILENAME = "photos.zip";
+
+/**
+ * Save a download without buffering the whole response when the browser
+ * supports the File System Access API. Older browsers use a Blob fallback.
+ *
+ * @param {Response} response
+ * @param {string} filename
+ * @param {FileSystemWritableFileStream|null} [writable]
+ */
+export async function saveDownloadResponse(response, filename, writable = null) {
+  if (writable && response.body?.getReader) {
+    const reader = response.body.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        await writable.write(value);
+      }
+      await writable.close();
+      return;
+    } catch (error) {
+      await reader.cancel().catch(() => {});
+      await writable.abort().catch(() => {});
+      throw error;
+    }
+  }
+  if (writable) {
+    try {
+      await writable.abort();
+    } catch {
+      // The browser will clean up an unopened stream.
+    }
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+export async function openDownloadFile(filename) {
+  const picker = globalThis.showSaveFilePicker;
+  if (typeof picker !== "function") return null;
+  const handle = await picker({
+    suggestedName: filename,
+    types: [{ description: "ZIP archive", accept: { "application/zip": [".zip"] } }],
+  });
+  return handle.createWritable();
+}
+
+async function abortDownloadFile(writable) {
+  try {
+    await writable?.abort?.();
+  } catch {
+    // The download error is the useful message for the person.
+  }
+}
+
+export class GalleryDownloadError extends Error {}
+
+export function downloadFailureDescription(error) {
+  if (error instanceof GalleryDownloadError) return error.message;
+  if (error?.name === "NotAllowedError" || error?.name === "SecurityError") {
+    return "Luna couldn't open a save location. Try the download again.";
+  }
+  if (error?.name === "QuotaExceededError") {
+    return "Luna couldn't save the file. Check that the chosen save location has enough space.";
+  }
+  if (error?.name === "TypeError") {
+    return "Luna couldn't save the file. Check this Luna's connection and try again.";
+  }
+  return "Luna couldn't save the selected photos. Try again.";
+}
+
+export async function cancelDownloadResponse(response) {
+  try {
+    await response.body?.cancel?.();
+  } catch {
+    // The failed download message is the useful result for the person.
+  }
+}
+
+export async function downloadErrorMessage(response) {
+  try {
+    const data = await response.json();
+    if (typeof data?.error === "string" && data.error) return data.error;
+  } catch {
+    // Use the status below when the server did not return JSON.
+  }
+  return "Luna couldn't prepare that download. Try again.";
+}
 
 const placesUrlFor = (listUrl) =>
   listUrl.replace("/api/v1/gallery?", "/api/v1/gallery/places?");
@@ -323,6 +422,7 @@ export default function GalleryPage() {
   const activeSegment = SEGMENT_IDS.includes(segment) ? segment : DEFAULT_SEGMENT;
   const [error, setError] = useState(null);
   const { addToast } = useToast();
+  const fileOps = useFileOps();
   const [q, setQ] = useState("");
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -865,6 +965,8 @@ export default function GalleryPage() {
     },
     onError: (err) => setError(apiErrorMessage(err, "Luna couldn't rescan your drives. Try again.")),
   });
+  const rescanRef = useRef(() => {});
+  rescanRef.current = () => rescan.mutate();
 
   const driveList = drives.data || [];
   const albumList = Array.isArray(albums.data) ? albums.data : [];
@@ -1197,39 +1299,55 @@ export default function GalleryPage() {
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
-  const uploadFiles = useMutation({
-    /** @param {File[]} files */
-    mutationFn: async (files) => {
+  /**
+   * Photos go through the file task card: progress, clashes and failures show
+   * there, and the toast says how many arrived.
+   * @param {File[]} files
+   */
+  const uploadFiles = useCallback(
+    (files) => {
       const writable = (drives.data || []).find(
         (d) => d.state === "as_is" && d.mount_point,
       ) || (drives.data || [])[0];
-      if (!writable?.id) throw new Error("No drive to upload to.");
-      // Prefer Photos / DCIM folders when present — upload API creates leaf path.
-      const dest = "Photos";
-      for (const file of files) {
-        const form = new FormData();
-        form.append("file", file);
-        await postForm(
-          `/api/v1/drives/${writable.id}/files/upload?path=${encodeURIComponent(dest)}`,
-          form,
-        );
+      if (!writable?.id) {
+        setError("Luna has no drive to put photos on yet.");
+        return;
       }
-    },
-    onSuccess: (_d, files) => {
-      addToast({
-        type: "success",
-        message: files.length === 1 ? "Photo uploaded." : `${files.length} photos uploaded.`,
+      fileOps.startUpload({
+        source: driveSource,
+        driveId: writable.id,
+        files,
+        kind: "gallery",
+        destFolder: "Photos",
+        destLabel: writable.label,
+        invalidateKeys: [["gallery"], ["gallery-status"]],
+        afterFinish: () => rescanRef.current(),
       });
-      queryClient.invalidateQueries({ queryKey: ["gallery"] });
-      queryClient.invalidateQueries({ queryKey: ["gallery-status"] });
-      void rescan.mutate();
     },
-    onError: (err) => setError(apiErrorMessage(err, "Luna couldn't upload those photos. Try again.")),
-  });
+    [drives.data, fileOps],
+  );
+
+  const [downloadingSelected, setDownloadingSelected] = useState(false);
 
   async function downloadSelected(items) {
+    if (!items.length || downloadingSelected) return;
+    if (items.length > GALLERY_DOWNLOAD_MAX) {
+      addToast({
+        type: "error",
+        message: `You can download up to ${GALLERY_DOWNLOAD_MAX} photos at once.`,
+        description: "Select fewer photos and try again.",
+      });
+      return;
+    }
+    setDownloadingSelected(true);
+    let writable = null;
     try {
-      // Prefer the zip endpoint; daemons without it answer 404 and fall through.
+      try {
+        writable = await openDownloadFile(GALLERY_DOWNLOAD_FILENAME);
+      } catch (error) {
+        if (error?.name === "AbortError") throw error;
+        // Fall back to the browser download when the picker is unavailable.
+      }
       const res = await apiFetch("/api/v1/gallery/download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1237,30 +1355,31 @@ export default function GalleryPage() {
           items: items.map((p) => ({ drive_id: p.drive_id, path: p.path })),
         }),
       });
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "photos.zip";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        // Firefox starts the download after the click returns; revoking in
-        // the same tick can cancel it.
-        setTimeout(() => URL.revokeObjectURL(url), 30_000);
-        return;
+      if (!res.ok) {
+        throw new GalleryDownloadError(await downloadErrorMessage(res));
       }
-    } catch {
-      /* sequential fallback */
-    }
-    for (const photo of items) {
-      const a = document.createElement("a");
-      a.href = downloadHref(photo.drive_id, photo.path);
-      a.download = photo.name || "photo";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      const contentType = res.headers.get("Content-Type")?.split(";", 1)[0].trim().toLowerCase();
+      if (contentType !== "application/zip") {
+        await cancelDownloadResponse(res);
+        throw new GalleryDownloadError("Luna returned an invalid download. Try again.");
+      }
+      if (writable) {
+        await saveDownloadResponse(res, GALLERY_DOWNLOAD_FILENAME, writable);
+        writable = null;
+      } else {
+        await saveDownloadResponse(res, GALLERY_DOWNLOAD_FILENAME);
+      }
+    } catch (error) {
+      await abortDownloadFile(writable);
+      if (error?.name !== "AbortError") {
+        addToast({
+          type: "error",
+          message: "Selected photos could not be downloaded.",
+          description: downloadFailureDescription(error),
+        });
+      }
+    } finally {
+      setDownloadingSelected(false);
     }
   }
 
@@ -1369,7 +1488,7 @@ export default function GalleryPage() {
       const files = [...(e.dataTransfer?.files || [])].filter(
         (f) => f.type.startsWith("image/") || f.type.startsWith("video/"),
       );
-      if (files.length) uploadFiles.mutate(files);
+      if (files.length) uploadFiles(files);
     }
     const node = dropZoneRef.current || document.body;
     node.addEventListener("dragover", onDragOver);
@@ -2086,7 +2205,12 @@ export default function GalleryPage() {
         visible={selection.selectMode}
         onSelectAll={selection.selectAllInView}
         favoriting={bulkFavorite.isPending}
-        busy={trashMany.isPending || removeFromAlbum.isPending || applyAlbumPick.isPending}
+        busy={
+          downloadingSelected ||
+          trashMany.isPending ||
+          removeFromAlbum.isPending ||
+          applyAlbumPick.isPending
+        }
         onClear={selection.clear}
         onFavorite={() => bulkFavorite.mutate(selection.selectedItems)}
         onAddToAlbum={() => setAlbumPick(selection.selectedItems)}

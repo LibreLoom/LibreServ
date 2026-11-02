@@ -134,6 +134,8 @@ package-lock.json
 !luna/connect/web/package-lock.json
 !luna/quick-start/package-lock.json
 !shared/ui/package-lock.json
+!infra/agents/common/plugins/dsh-memory-guard/package-lock.json
+!infra/agents/common/dsh-home/profiles/headless/package-lock.json
 
 # Support module binaries
 support/support-relay/relay

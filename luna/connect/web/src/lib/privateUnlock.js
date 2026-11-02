@@ -4,6 +4,7 @@ import { PSNAPSHOTS_KIND, readPrivateSnapshots, signPrivateOpen } from "@librelo
 
 /** @typedef {import("./cloudSource.js").CloudSource} CloudSource */
 /** @typedef {{ scope: string, sealSecret: Uint8Array, dedupKey: Uint8Array, source: CloudSource }} PrivateKeys */
+/** sealSecret in PrivateKeys is the scope's own secret key; the phrase's key only opens the scope. */
 
 const OPEN_FAILED = "Could not open your private items. Try again.";
 
@@ -13,12 +14,12 @@ const OPEN_FAILED = "Could not open your private items. Try again.";
  * @param {CloudSource} source
  * @param {Uint8Array} entropy the recovery phrase's entropy
  * @param {string} lunaId
- * @param {{ scope: string, dedupKey: Uint8Array }} scopeInfo one entry of mine.privateScopes
+ * @param {{ scope: string, dedupKey: Uint8Array, sealSecret: Uint8Array }} scopeInfo one entry of mine.privateScopes (sealSecret is the scope's key)
  * @param {Uint8Array[]} signingPublics
  * @returns {Promise<Array<import("./cloudUnlock.js").CloudBackup & { private: PrivateKeys }>>} one backup per protection, newest first
  */
 export async function openPrivateScope(source, entropy, lunaId, scopeInfo, signingPublics) {
-  const { scope, dedupKey } = scopeInfo;
+  const { scope, dedupKey, sealSecret } = scopeInfo;
   const k = derive(entropy, lunaId);
   let tokenSource;
   try {
@@ -36,7 +37,7 @@ export async function openPrivateScope(source, entropy, lunaId, scopeInfo, signi
   }
 
   const psnapshots = await tokenSource.listRecords(PSNAPSHOTS_KIND);
-  const snaps = readPrivateSnapshots({ lunaId, entropy, scope, psnapshots, signingPublics });
+  const snaps = readPrivateSnapshots({ lunaId, sealSecret, scope, psnapshots, signingPublics });
 
   /** @type {Map<string, Array<any>>} */
   const byProtection = new Map();
@@ -46,7 +47,7 @@ export async function openPrivateScope(source, entropy, lunaId, scopeInfo, signi
     byProtection.set(snap.protectionId, list);
   }
 
-  const privateKeys = { scope, sealSecret: k.sealSecret, dedupKey, source: tokenSource };
+  const privateKeys = { scope, sealSecret, dedupKey, source: tokenSource };
   const backups = [];
   for (const [protectionId, list] of byProtection) {
     const newest = list[0];
@@ -76,7 +77,7 @@ export async function openPrivateScope(source, entropy, lunaId, scopeInfo, signi
  * @param {CloudSource} source
  * @param {Uint8Array} entropy
  * @param {string} lunaId
- * @param {Array<{ scope: string, dedupKey: Uint8Array }>} privateScopes
+ * @param {Array<{ scope: string, dedupKey: Uint8Array, sealSecret: Uint8Array }>} privateScopes
  * @param {Uint8Array[]} signingPublics
  * @returns {Promise<Array<import("./cloudUnlock.js").CloudBackup & { private: PrivateKeys }>>}
  */

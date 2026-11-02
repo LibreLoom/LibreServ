@@ -80,8 +80,21 @@ pub enum PrivateSource {
     Shared,
     /// The folder is itself a private item owned by `owner`.
     OwnItem { owner: String },
-    /// The folder is inside a private item (or is private trash).
-    Inside,
+    /// The folder is inside the private item at `item`, owned by `owner`. It is
+    /// backed up as a private folder of its own, with the item's access list.
+    Inside { owner: String, item: String },
+    /// Private trash: never a backup source.
+    PrivateTrash,
+}
+
+impl PrivateSource {
+    /// The owner of the private item this folder is or sits in, if any.
+    pub fn owner(&self) -> Option<&str> {
+        match self {
+            PrivateSource::OwnItem { owner } | PrivateSource::Inside { owner, .. } => Some(owner),
+            PrivateSource::Shared | PrivateSource::PrivateTrash => None,
+        }
+    }
 }
 
 /// Classify `path` on `drive_id` against the private items on that drive.
@@ -98,7 +111,10 @@ pub fn private_source(conn: &Connection, drive_id: &str, path: &str) -> PrivateS
         return if b.path == real {
             PrivateSource::OwnItem { owner: b.owner }
         } else {
-            PrivateSource::Inside
+            PrivateSource::Inside {
+                owner: b.owner,
+                item: b.path,
+            }
         };
     }
     if crate::files::is_trash_api(&norm)
@@ -107,7 +123,7 @@ pub fn private_source(conn: &Connection, drive_id: &str, path: &str) -> PrivateS
             Ok(Some(_))
         )
     {
-        return PrivateSource::Inside;
+        return PrivateSource::PrivateTrash;
     }
     PrivateSource::Shared
 }
@@ -158,12 +174,12 @@ pub fn for_row(conn: &Connection, row: &db::ProtectionRow) -> anyhow::Result<Acc
             admins: false,
         });
     }
-    for_private(
-        conn,
-        &row.source_drive,
-        &row.source_path,
-        &row.private_owner,
-    )
+    // Grants count on the private item itself, even when the row is a folder inside it.
+    let item = match private_source(conn, &row.source_drive, &row.source_path) {
+        PrivateSource::Inside { item, .. } => item,
+        _ => row.source_path.clone(),
+    };
+    for_private(conn, &row.source_drive, &item, &row.private_owner)
 }
 
 /// Why a private row must stop now, or None. Used by drive and cloud repath
@@ -179,7 +195,9 @@ pub fn private_stop_reason(conn: &Connection, row: &db::ProtectionRow) -> Option
     match private_source(conn, &row.source_drive, &row.source_path) {
         PrivateSource::OwnItem { owner } if owner == row.private_owner => None,
         PrivateSource::OwnItem { .. } => Some("This folder now belongs to someone else."),
-        PrivateSource::Inside => Some("This private item is now inside another private item."),
+        PrivateSource::Inside { owner, .. } if owner == row.private_owner => None,
+        PrivateSource::Inside { .. } => Some("This folder now belongs to someone else."),
+        PrivateSource::PrivateTrash => Some("This folder is now in the trash."),
         PrivateSource::Shared => Some("This folder is no longer a private item."),
     }
 }
@@ -473,7 +491,10 @@ mod tests {
         );
         assert_eq!(
             private_source(&conn, "drive-a", "Family/Vault/Deep"),
-            PrivateSource::Inside
+            PrivateSource::Inside {
+                owner: "u-ann".into(),
+                item: "Family/Vault".into()
+            }
         );
         assert_eq!(
             private_source(&conn, "drive-a", "Family"),
@@ -506,9 +527,19 @@ mod tests {
             "Family/Vault/Deep",
             "u-ann",
         );
+        // A folder inside the owner's own item is a fine private backup.
+        assert_eq!(private_stop_reason(&conn, &inside), None);
+        let others_inside = private_row(
+            &conn,
+            "p3b",
+            "cloud",
+            "drive-a",
+            "Family/Vault/Deep",
+            "u-bob",
+        );
         assert_eq!(
-            private_stop_reason(&conn, &inside),
-            Some("This private item is now inside another private item.")
+            private_stop_reason(&conn, &others_inside),
+            Some("This folder now belongs to someone else.")
         );
 
         let plain = private_row(&conn, "p4", "drive", "drive-a", "Family", "u-ann");

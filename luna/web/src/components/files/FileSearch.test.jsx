@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../../context/AuthContext";
+import { FileOpsProvider } from "../../context/FileOpsContext.jsx";
 import FileSearch, { FileSearchButton } from "./FileSearch";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import { ShortcutsProvider, useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
@@ -21,9 +22,10 @@ const IDLE_SCAN = { scanning: false, drives_total: 1, drives_done: 1, dirs_index
  *   truncated?: boolean,
  *   searchError?: boolean,
  *   holdSecond?: Promise<void>,
+ *   fileOpsStore?: any,
  * }} [options]
  */
-function renderSearch(hits, { searchHold, extra = null, before = null, scan = IDLE_SCAN, closeOnly = false, truncated = false, searchError = false, holdSecond } = {}) {
+function renderSearch(hits, { searchHold, extra = null, before = null, scan = IDLE_SCAN, closeOnly = false, truncated = false, searchError = false, holdSecond, fileOpsStore } = {}) {
   let searchCount = 0;
   const fetchMock = vi.fn(async (url) => {
     const u = String(url);
@@ -80,10 +82,12 @@ function renderSearch(hits, { searchHold, extra = null, before = null, scan = ID
     <QueryClientProvider client={client}>
       <MemoryRouter>
         <AuthProvider>
+          <FileOpsProvider store={fileOpsStore}>
           {before}
           <FileSearchButton />
           <FileSearch />
           {extra}
+          </FileOpsProvider>
         </AuthProvider>
       </MemoryRouter>
     </QueryClientProvider>
@@ -373,6 +377,28 @@ describe("FileSearch", () => {
     const dialog = await screen.findByRole("dialog", { name: /Move to trash/i });
     expect(within(dialog).getByText(/Move to trash\?/i)).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: /Move to trash/i })).toBeInTheDocument();
+  });
+
+  it("hands a copy from a search hit to the file operation card", async () => {
+    const startJobs = vi.fn();
+    renderSearch(
+      [{ drive_id: "d1", path: "docs/notes.txt", parent: "docs", name: "notes.txt", kind: "file", size: 10, modified: 1 }],
+      { fileOpsStore: { startJobs, subscribe: () => () => {}, getState: () => ({}) } },
+    );
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
+      target: { value: "notes" },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /Copy notes.txt/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Start copying/i }));
+    await waitFor(() => expect(startJobs).toHaveBeenCalledTimes(1));
+    expect(startJobs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "copy",
+        fromDrive: "d1",
+        items: [{ path: "docs/notes.txt", name: "notes.txt" }],
+      }),
+    );
   });
 
   it("opens from / and Alt+/ anywhere", async () => {

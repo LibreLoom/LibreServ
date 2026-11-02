@@ -105,6 +105,79 @@ async fn text(res: axum::response::Response) -> String {
     String::from_utf8(bytes.to_vec()).unwrap()
 }
 
+/// Registers the first account and signs in. Returns the cookie header and the CSRF token.
+async fn sign_in_first_admin(app: &axum::Router) -> (String, String) {
+    let res = call(
+        app,
+        req(
+            Method::POST,
+            "/api/v1/auth/register",
+            Some(r#"{"username":"max","display_name":"Max","password":"hunter22hunter1"}"#),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), 200, "register failed: {}", text(res).await);
+    let res = call(
+        app,
+        req(
+            Method::POST,
+            "/api/v1/auth/login",
+            Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), 200, "login failed: {}", text(res).await);
+    let (session, csrf) = auth_cookies(&res);
+    (cookie_header(&session, &csrf), csrf)
+}
+
+/// Gives the signed-in account a recovery phrase the way the web does: the Luna id first, then
+/// the phrase's public keys. The keys come from the shared test vectors; no real phrase is needed.
+async fn seed_phrase(app: &axum::Router, cookie: &str, csrf: &str) {
+    use base64::Engine;
+    let res = call(
+        app,
+        req_with_csrf(
+            Method::POST,
+            "/api/v1/cloud/identity",
+            None,
+            Some(cookie),
+            Some(csrf),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), 200, "identity failed: {}", text(res).await);
+
+    let vectors: serde_json::Value =
+        serde_json::from_str(include_str!("../backup/cloud/vectors.json")).unwrap();
+    let b64_of_hex = |hex: &str| {
+        let bytes: Vec<u8> = (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect();
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    };
+    let body = format!(
+        r#"{{"seal_public":"{}","auth_public":"{}","self_sealed":"AA=="}}"#,
+        b64_of_hex(vectors["seal_public"].as_str().unwrap()),
+        b64_of_hex(vectors["auth_public"].as_str().unwrap()),
+    );
+    let res = call(
+        app,
+        req_with_csrf(
+            Method::PUT,
+            "/api/v1/cloud/phrase",
+            Some(&body),
+            Some(cookie),
+            Some(csrf),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), 200, "set phrase failed: {}", text(res).await);
+}
+
 #[tokio::test]
 async fn me_reports_the_signed_in_session() {
     let (_dir, app) = test_app();
@@ -391,6 +464,9 @@ async fn network_status_public_while_setup_incomplete_even_with_user() {
     let (session, csrf) = auth_cookies(&res);
     let cookie = cookie_header(&session, &csrf);
 
+    // Finishing setup needs the Admin's recovery phrase first.
+    seed_phrase(&app, &cookie, &csrf).await;
+
     // The CSRF guard (added after this test was written) requires the
     // double-submit token on cookie-authenticated mutations — pass it.
     let res = call(
@@ -495,16 +571,26 @@ async fn setup_progress_rejects_unknown_step() {
 
 #[tokio::test]
 async fn completing_setup_clears_step_data() {
+    const FINISH: &str = r#"{"current_step":"name","step_data":{"account_completed":true},"name":"Kitchen","setup_completed":true}"#;
     let (_dir, app) = test_app();
+
+    // (a) No account yet: setup can't finish, and the wizard is told to make one first.
+    let res = call(&app, req(Method::POST, "/api/v1/setup", Some(FINISH), None)).await;
+    assert_eq!(res.status(), 409, "{}", text(res).await);
+    let body: serde_json::Value = serde_json::from_str(&text(res).await).unwrap();
+    assert_eq!(body["code"], "needs_phrase");
+
+    // (b) With an Admin who has a phrase, finishing works and clears the draft.
+    let (cookie, csrf) = sign_in_first_admin(&app).await;
+    seed_phrase(&app, &cookie, &csrf).await;
     let res = call(
         &app,
-        req(
+        req_with_csrf(
             Method::POST,
             "/api/v1/setup",
-            Some(
-                r#"{"current_step":"name","step_data":{"account_completed":true},"name":"Kitchen","setup_completed":true}"#,
-            ),
-            None,
+            Some(FINISH),
+            Some(&cookie),
+            Some(&csrf),
         ),
     )
     .await;
@@ -514,6 +600,36 @@ async fn completing_setup_clears_step_data() {
     assert_eq!(body["current_step"], "done");
     assert_eq!(body["name"], "Kitchen");
     assert!(body["step_data"].as_object().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn finishing_setup_needs_the_admins_recovery_phrase() {
+    let (_dir, app) = test_app();
+    let (cookie, csrf) = sign_in_first_admin(&app).await;
+    let finish = || {
+        req_with_csrf(
+            Method::POST,
+            "/api/v1/setup",
+            Some(r#"{"setup_completed":true}"#),
+            Some(&cookie),
+            Some(&csrf),
+        )
+    };
+
+    // Signed in, but no phrase yet: refused with a code the wizard can route on.
+    let res = call(&app, finish()).await;
+    assert_eq!(res.status(), 409, "{}", text(res).await);
+    let body: serde_json::Value = serde_json::from_str(&text(res).await).unwrap();
+    assert_eq!(body["code"], "needs_phrase");
+    assert_eq!(
+        body["error"],
+        "Set up your recovery phrase before you finish setup."
+    );
+
+    // Once the phrase is set, the same request finishes setup.
+    seed_phrase(&app, &cookie, &csrf).await;
+    let res = call(&app, finish()).await;
+    assert_eq!(res.status(), 200, "{}", text(res).await);
 }
 
 #[tokio::test]

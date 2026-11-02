@@ -251,8 +251,8 @@ export default function Button({
         <span className="relative inline-flex overflow-hidden">
           <span
             className={cn(
-              "inline-flex will-change-transform motion-safe:transition-all motion-safe:ease-[var(--motion-easing-emphasized)]",
-              loading && "-translate-y-full opacity-0",
+              "inline-flex motion-safe:transition-all motion-safe:ease-[var(--motion-easing-emphasized)]",
+              loading && "-translate-y-full opacity-0 will-change-transform",
             )}
             style={{ transitionDuration: "var(--motion-duration-medium2)" }}
           >
@@ -261,12 +261,13 @@ export default function Button({
           <span
             aria-hidden={!loading}
             className={cn(
-              "absolute inset-0 inline-flex items-center justify-center will-change-transform motion-safe:transition-all motion-safe:ease-[var(--motion-easing-emphasized)]",
+              "absolute inset-0 inline-flex items-center justify-center motion-safe:transition-all motion-safe:ease-[var(--motion-easing-emphasized)]",
               loading ? "translate-y-0 opacity-100" : "translate-y-full opacity-0",
+              loading && "will-change-transform",
             )}
             style={{ transitionDuration: "var(--motion-duration-medium2)" }}
           >
-            <Spinner decorative size={spinnerSize} className="pointer-events-none" />
+            <Spinner decorative paused={!loading} size={spinnerSize} className="pointer-events-none" />
           </span>
           {loading && <span className="sr-only">Loading</span>}
         </span>

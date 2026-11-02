@@ -9,6 +9,7 @@ use anyhow::{Result, anyhow, bail};
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use zeroize::{Zeroize, Zeroizing};
 
 use super::crypto::{self, SigBytes, SigPublic, Signer};
 
@@ -123,7 +124,7 @@ pub struct SealedPack {
 /// A pack opened with its key. Holds the plain body and the index.
 pub struct OpenedPack {
     scope_id: [u8; 32],
-    plain: Vec<u8>,
+    plain: Zeroizing<Vec<u8>>,
     index: HashMap<[u8; 32], (u64, u32)>,
 }
 
@@ -158,13 +159,13 @@ pub fn open_pack(
     }
     let wrapped_len = take_len(&mut rest)?;
     let wrapped = take(&mut rest, wrapped_len)?;
-    let pack_key = unwrap_key(wrapped)?;
+    let pack_key = Zeroizing::new(unwrap_key(wrapped)?);
     let index_len = take_len(&mut rest)?;
     let sealed_index = take(&mut rest, index_len)?;
 
-    let index = crypto::decrypt(&pack_key, PACK_INDEX_AAD, sealed_index)?;
+    let index = Zeroizing::new(crypto::decrypt(&pack_key, PACK_INDEX_AAD, sealed_index)?);
     let (scope_id, entries) = decode_index(&index)?;
-    let plain = crypto::decrypt(&pack_key, PACK_BODY_AAD, rest)?;
+    let plain = Zeroizing::new(crypto::decrypt(&pack_key, PACK_BODY_AAD, rest)?);
 
     let mut map = HashMap::with_capacity(entries.len());
     for (chunk_id, offset, len) in entries {
@@ -246,6 +247,15 @@ pub struct Tree {
     pub entries: Vec<TreeEntry>,
 }
 
+impl Zeroize for Tree {
+    fn zeroize(&mut self) {
+        for entry in &mut self.entries {
+            entry.zeroize();
+        }
+        self.entries.clear();
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TreeEntry {
     pub path: String,
@@ -254,6 +264,18 @@ pub struct TreeEntry {
     /// The file's chunks, in order. Each one says where its bytes live, so a restore
     /// after the local database is lost can read the data packs straight from the tree.
     pub chunks: Vec<ChunkRef>,
+}
+
+impl Zeroize for TreeEntry {
+    fn zeroize(&mut self) {
+        self.path.zeroize();
+        self.size.zeroize();
+        self.mtime.zeroize();
+        for chunk in &mut self.chunks {
+            chunk.zeroize();
+        }
+        self.chunks.clear();
+    }
 }
 
 /// One chunk of a file: its id, and the pack and place where its bytes are stored.
@@ -267,6 +289,15 @@ pub struct ChunkRef {
     pub len: u32,
 }
 
+impl Zeroize for ChunkRef {
+    fn zeroize(&mut self) {
+        self.id.zeroize();
+        self.pack.zeroize();
+        self.offset.zeroize();
+        self.len.zeroize();
+    }
+}
+
 /// Encrypt a tree as JSON under `key`. Output is `crypto::encrypt` layout (nonce ‖ ciphertext).
 pub fn encrypt_tree(tree: &Tree, key: &[u8; 32]) -> Vec<u8> {
     let json = serde_json::to_vec(tree).expect("a tree always serializes to JSON");
@@ -274,7 +305,7 @@ pub fn encrypt_tree(tree: &Tree, key: &[u8; 32]) -> Vec<u8> {
 }
 
 pub fn decrypt_tree(sealed: &[u8], key: &[u8; 32]) -> Result<Tree> {
-    let json = crypto::decrypt(key, TREE_AAD, sealed)?;
+    let json = Zeroizing::new(crypto::decrypt(key, TREE_AAD, sealed)?);
     serde_json::from_slice(&json)
         .map_err(|_| anyhow!("This backup's file list could not be read. It may be damaged."))
 }
@@ -291,6 +322,16 @@ pub struct BackupMeta {
     pub started_by_name: String,
 }
 
+impl Zeroize for BackupMeta {
+    fn zeroize(&mut self) {
+        self.name.zeroize();
+        self.source_drive.zeroize();
+        self.source_path.zeroize();
+        self.started_by.zeroize();
+        self.started_by_name.zeroize();
+    }
+}
+
 /// Encrypt backup metadata as JSON under the backup key. Output is `crypto::encrypt` layout.
 pub fn encrypt_meta(meta: &BackupMeta, key: &[u8; 32]) -> Vec<u8> {
     let json = serde_json::to_vec(meta).expect("backup metadata always serializes to JSON");
@@ -298,7 +339,7 @@ pub fn encrypt_meta(meta: &BackupMeta, key: &[u8; 32]) -> Vec<u8> {
 }
 
 pub fn decrypt_meta(sealed: &[u8], key: &[u8; 32]) -> Result<BackupMeta> {
-    let json = crypto::decrypt(key, META_AAD, sealed)?;
+    let json = Zeroizing::new(crypto::decrypt(key, META_AAD, sealed)?);
     serde_json::from_slice(&json)
         .map_err(|_| anyhow!("This backup's details could not be read. It may be damaged."))
 }
@@ -607,6 +648,56 @@ mod tests {
         let tree_sealed = encrypt_tree(&Tree { entries: vec![] }, &key);
         assert!(decrypt_meta(&tree_sealed, &key).is_err());
         assert!(decrypt_tree(&sealed, &key).is_err());
+    }
+
+    #[test]
+    fn decrypted_tree_and_metadata_values_can_be_zeroized() {
+        let mut tree = Tree {
+            entries: vec![TreeEntry {
+                path: "private/folder/file.txt".into(),
+                size: 10,
+                mtime: 20,
+                chunks: vec![ChunkRef {
+                    id: [1; 32],
+                    pack: [2; 32],
+                    offset: 3,
+                    len: 4,
+                }],
+            }],
+        };
+        tree.entries[0].zeroize();
+        assert!(tree.entries[0].path.is_empty());
+        assert_eq!(tree.entries[0].size, 0);
+        assert_eq!(tree.entries[0].mtime, 0);
+        assert!(tree.entries[0].chunks.is_empty());
+        tree.zeroize();
+        assert!(tree.entries.is_empty());
+
+        let mut chunk = ChunkRef {
+            id: [1; 32],
+            pack: [2; 32],
+            offset: 3,
+            len: 4,
+        };
+        chunk.zeroize();
+        assert_eq!(chunk.id, [0; 32]);
+        assert_eq!(chunk.pack, [0; 32]);
+        assert_eq!(chunk.offset, 0);
+        assert_eq!(chunk.len, 0);
+
+        let mut meta = BackupMeta {
+            name: "Private backup".into(),
+            source_drive: "Personal drive".into(),
+            source_path: "private/folder".into(),
+            started_by: "admin-id".into(),
+            started_by_name: "Admin".into(),
+        };
+        meta.zeroize();
+        assert!(meta.name.is_empty());
+        assert!(meta.source_drive.is_empty());
+        assert!(meta.source_path.is_empty());
+        assert!(meta.started_by.is_empty());
+        assert!(meta.started_by_name.is_empty());
     }
 
     fn sample_record() -> SnapshotRecord {

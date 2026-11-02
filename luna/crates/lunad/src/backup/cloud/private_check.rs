@@ -229,6 +229,7 @@ mod tests {
                 self_sealed: vec![3; 48],
                 phrase_set_at: 1,
                 last_checked_at: 0,
+                phrase_words: 0,
             },
         )
         .unwrap();
@@ -315,6 +316,14 @@ mod tests {
         }
         fn list_records(&self, kind: &str) -> Result<Vec<String>, StoreError> {
             self.inner.list_records(kind)
+        }
+        fn list_record_page(
+            &self,
+            kind: &str,
+            after: Option<&str>,
+            limit: usize,
+        ) -> Result<crate::backup::cloud::store::RecordPage, StoreError> {
+            self.inner.list_record_page(kind, after, limit)
         }
         fn usage(&self) -> Result<Usage, StoreError> {
             self.inner.usage()

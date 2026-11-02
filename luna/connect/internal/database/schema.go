@@ -151,6 +151,12 @@ CREATE TABLE IF NOT EXISTS storage_records (
   storage_backend TEXT NOT NULL DEFAULT 'local',
   PRIMARY KEY(account_id, luna_id, kind, name)
 );
+CREATE TABLE IF NOT EXISTS storage_record_versions (
+  account_id TEXT NOT NULL,
+  luna_id TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(account_id, luna_id)
+);
 -- purge_after: unix time when this Luna's storage is deleted (30 days after its device was unlinked), 0 = never.
 CREATE TABLE IF NOT EXISTS luna_ids (
   account_id TEXT NOT NULL,
@@ -341,6 +347,12 @@ CREATE TABLE IF NOT EXISTS storage_records (
   updated_at BIGINT NOT NULL,
   storage_backend TEXT NOT NULL DEFAULT 'local',
   PRIMARY KEY(account_id, luna_id, kind, name)
+);
+CREATE TABLE IF NOT EXISTS storage_record_versions (
+  account_id TEXT NOT NULL,
+  luna_id TEXT NOT NULL,
+  version BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY(account_id, luna_id)
 );
 -- purge_after: unix time when this Luna's storage is deleted (30 days after its device was unlinked), 0 = never.
 CREATE TABLE IF NOT EXISTS luna_ids (

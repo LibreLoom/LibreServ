@@ -9,9 +9,10 @@ const modules = /** @type {any} */ (import.meta.glob("./*.scenarios.js", { eager
  *   check?: string[],            // what the tester should look for
  *   url?: string,                // start route, default "/"
  *   seed?: (world: any) => void, // edits the base world
- *   faults?: Array<{ match: string, mode: string, message?: string, code?: string, once?: boolean }>,
+ *   faults?: Array<{ match: string, mode: string, message?: string, code?: string, once?: boolean, on?: boolean }>,
  *   now?: number,                // frozen start time (ms)
  *   offline?: boolean, latency?: number,
+ *   restart?: number,           // lunad is down for this many ms from the start (as after an update)
  *   viewport?: "phone" | "tablet" | "desktop",
  *   theme?: "light" | "dark",
  *   realLunadOnly?: string,      // set when a fake can't stand in (office editors, ...)

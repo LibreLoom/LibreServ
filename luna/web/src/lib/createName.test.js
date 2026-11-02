@@ -28,3 +28,10 @@ describe("parseCreateName", () => {
     expect(parseCreateName("Deck.pptx", { forceExt: ".pptx" })).toEqual({ name: "Deck.pptx" });
   });
 
+
+describe("slash error wording", () => {
+  it("does not add a second sentence", async () => {
+    const { parseCreateName } = await import("./createName.js");
+    expect(parseCreateName("a/b").error).toBe("Names cannot include / or \\.");
+  });
+});

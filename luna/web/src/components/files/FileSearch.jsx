@@ -27,9 +27,10 @@ import {
   openFileSearch,
   saveSearchKind,
 } from "../../lib/fileSearch.js";
-import { apiErrorMessage, deleteJson, getDrives, getJson, postJson } from "../../lib/api";
-import { parentPath } from "../../lib/paths";
+import { apiErrorMessage, deleteJson, getDrives, getJson } from "../../lib/api";
+import { parentPath, pathBasename } from "../../lib/paths";
 import { useAuth } from "../../context/AuthContext.jsx";
+import { useFileOps } from "../../context/FileOpsContext.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
@@ -134,12 +135,13 @@ export default function FileSearch() {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const { user } = useAuth();
+  const fileOps = useFileOps();
   const [typed, setTyped] = useState("");
   const [kind, setKind] = useState(loadSearchKind);
   const [actionError, setActionError] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [copyTarget, setCopyTarget] = useState(null);
-  const [copyKind, setCopyKind] = useState("copy");
+  const [copyKind, setCopyKind] = useState(/** @type {"copy" | "move"} */ ("copy"));
   const [accessTarget, setAccessTarget] = useState(null);
 
   const [present, setPresent] = useState(false);
@@ -190,35 +192,21 @@ export default function FileSearch() {
     onError: (err) => setActionError(apiErrorMessage(err, "Luna couldn't move that to trash. Try again.")),
   });
 
-  const copyMutation = useMutation({
-    mutationFn: async (/** @type {{ driveId: string, path: string }} */ dest) => {
-      return postJson("/api/v1/jobs", {
-        kind: copyKind,
-        from_drive: copyTarget.drive_id,
-        from_path: copyTarget.path,
-        to_drive: dest.driveId || copyTarget.drive_id,
-        to_path: dest.path,
-      });
-    },
-    onSuccess: () => {
-      setActionError(null);
-      addToast({
-        type: "success",
-        message: copyKind === "move" ? "Luna is moving that file." : "Luna is copying that file.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["search"] });
-    },
-    onError: (err) =>
-      setActionError(
-        apiErrorMessage(
-          err,
-          copyKind === "move"
-            ? "Luna couldn't start moving that. Try again."
-            : "Luna couldn't start copying that. Try again."
-        )
-      ),
-  });
+  /** Hand the copy or move to the file task card; it sends, tracks and reports it. */
+  function startTransfer(/** @type {{ driveId: string, path: string }} */ dest) {
+    if (!copyTarget) return;
+    const toDrive = dest.driveId || copyTarget.drive_id;
+    fileOps.startJobs({
+      kind: copyKind,
+      fromDrive: copyTarget.drive_id,
+      items: [{ path: copyTarget.path, name: copyTarget.name || pathBasename(copyTarget.path) }],
+      toDrive,
+      toPath: dest.path,
+      toLabel: dest.path ? pathBasename(dest.path) : labels[toDrive] || "",
+    });
+    setActionError(null);
+    queryClient.invalidateQueries({ queryKey: ["search"] });
+  }
 
   const actionModalOpen = deleteTarget != null || copyTarget != null || accessTarget != null;
 
@@ -705,17 +693,16 @@ export default function FileSearch() {
         drives={drives.data || []}
         initialDriveId={copyTarget?.drive_id || ""}
         initialPath={copyTarget ? (copyTarget.parent != null ? copyTarget.parent : folderOf(copyTarget.path)) : ""}
+        movingPaths={copyKind === "move" && copyTarget ? [copyTarget.path] : []}
         confirmLabel={copyKind === "move" ? "Start moving" : "Start copying"}
-        busy={copyMutation.isPending}
         error={copyTarget != null ? actionError : null}
         onClose={() => {
           setActionError(null);
           setCopyTarget(null);
         }}
         onConfirm={(dest, close) => {
-          copyMutation.mutateAsync(dest)
-            .then(() => close())
-            .catch(() => {});
+          startTransfer(dest);
+          close();
         }}
       />
 

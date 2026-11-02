@@ -11,7 +11,7 @@ export function parseCreateName(raw, opts = {}) {
     return { error: "Choose a name." };
   }
   if (trimmed.includes("/") || trimmed.includes("\\")) {
-    return { error: "Names cannot include / or \\. Use a short name instead." };
+    return { error: "Names cannot include / or \\." };
   }
   if (trimmed === "." || trimmed === "..") {
     return { error: "Choose a different name." };

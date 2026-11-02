@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -22,7 +23,14 @@ import (
 // cloud, so the rows are kept and a retry can find them. Any blob error stops the
 // purge before rows are removed.
 func PurgeStorage(ctx context.Context, db *database.DB, st store.Store, accountID string) error {
-	return purgeStorage(ctx, db, st, accountID, "")
+	return purgeStorage(ctx, db, st, accountID, "", nil)
+}
+
+// PurgeStorageAnd runs finalize in the same transaction that removes the account's
+// storage. Account-deletion callers use it so no new storage write can slip between
+// storage cleanup and deleting the account row.
+func PurgeStorageAnd(ctx context.Context, db *database.DB, st store.Store, accountID string, finalize func(*database.Tx) error) error {
+	return purgeStorage(ctx, db, st, accountID, "", finalize)
 }
 
 // PurgeLunaStorage deletes one Luna's cloud storage on an account: its pack and
@@ -33,7 +41,7 @@ func PurgeLunaStorage(ctx context.Context, db *database.DB, st store.Store, acco
 	if lunaID == "" {
 		return nil
 	}
-	return purgeStorage(ctx, db, st, accountID, lunaID)
+	return purgeStorage(ctx, db, st, accountID, lunaID, nil)
 }
 
 // purgeStorage does the work for PurgeStorage and PurgeLunaStorage. An empty
@@ -42,21 +50,41 @@ func PurgeLunaStorage(ctx context.Context, db *database.DB, st store.Store, acco
 // For one Luna, the purge first claims it: purge_after moves to -1 only while it is still due,
 // so a second run or a relink cannot overlap it. If the purge fails, the old purge_after comes
 // back so the next retention run tries again.
-func purgeStorage(ctx context.Context, db *database.DB, st store.Store, accountID, lunaID string) (err error) {
+func purgeStorage(ctx context.Context, db *database.DB, st store.Store, accountID, lunaID string, finalize func(*database.Tx) error) (err error) {
 	if db == nil || accountID == "" {
 		return nil
 	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := database.LockStorageAccount(tx, accountID); err != nil {
+		return err
+	}
+	var claimedPurgeAfter int64
 	if lunaID != "" {
-		old, claimed, claimErr := claimLunaForPurge(ctx, db, accountID, lunaID, time.Now().Unix())
-		if claimErr != nil || !claimed {
+		old, claimed, claimErr := claimLunaForPurgeExec(tx, accountID, lunaID, time.Now().Unix())
+		if claimErr != nil {
 			return claimErr
 		}
-		defer func() {
-			if err != nil {
-				_, _ = db.ExecContext(ctx, `UPDATE luna_ids SET purge_after = ? WHERE account_id = ? AND luna_id = ? AND purge_after = -1`,
-					old, accountID, lunaID)
+		if !claimed {
+			var exists int
+			claimErr = tx.QueryRow(`SELECT 1 FROM luna_ids WHERE account_id = ? AND luna_id = ?`, accountID, lunaID).Scan(&exists)
+			if claimErr == nil {
+				return nil
 			}
-		}()
+			if !errors.Is(claimErr, sql.ErrNoRows) {
+				return claimErr
+			}
+		}
+		claimedPurgeAfter = old
+	}
+	releaseClaim := func() {
+		if lunaID != "" {
+			_, _ = tx.Exec(`UPDATE luna_ids SET purge_after = ? WHERE account_id = ? AND luna_id = ? AND purge_after = -1`,
+				claimedPurgeAfter, accountID, lunaID)
+		}
 	}
 	lunaClause := ""
 	args := []any{accountID}
@@ -64,10 +92,38 @@ func purgeStorage(ctx context.Context, db *database.DB, st store.Store, accountI
 		lunaClause = " AND luna_id = ?"
 		args = append(args, lunaID)
 	}
-	type blob struct{ backend, slot, path string }
+	type blob struct {
+		backend, lunaID, slot, path string
+		record                      bool
+	}
 	var blobs []blob
+	// The account fence is held before inventory discovery so pack writes and new
+	// Luna claims cannot appear after the purge has chosen its rows and blobs.
+	// Record rows are read again after the per-Luna inventory locks below.
+	inventorySet := map[string]struct{}{}
+	if lunaID != "" {
+		inventorySet[lunaID] = struct{}{}
+	} else {
+		lunas, err := tx.Query(`SELECT luna_id FROM luna_ids WHERE account_id = ?`, accountID)
+		if err != nil {
+			return err
+		}
+		for lunas.Next() {
+			var id string
+			if err := lunas.Scan(&id); err != nil {
+				lunas.Close()
+				return err
+			}
+			inventorySet[id] = struct{}{}
+		}
+		err = lunas.Err()
+		lunas.Close()
+		if err != nil {
+			return err
+		}
+	}
 
-	prows, err := db.QueryContext(ctx, `SELECT luna_id, id, COALESCE(storage_backend, '') FROM storage_packs WHERE account_id = ?`+lunaClause, args...)
+	prows, err := tx.Query(`SELECT luna_id, id, COALESCE(storage_backend, '') FROM storage_packs WHERE account_id = ?`+lunaClause, args...)
 	if err != nil {
 		return err
 	}
@@ -77,7 +133,7 @@ func purgeStorage(ctx context.Context, db *database.DB, st store.Store, accountI
 			prows.Close()
 			return err
 		}
-		blobs = append(blobs, blob{backend, store.StorageSlot(lunaID), store.StoragePackPath(id)})
+		blobs = append(blobs, blob{backend: backend, lunaID: lunaID, slot: store.StorageSlot(lunaID), path: store.StoragePackPath(id)})
 	}
 	err = prows.Err()
 	prows.Close()
@@ -85,17 +141,17 @@ func purgeStorage(ctx context.Context, db *database.DB, st store.Store, accountI
 		return err
 	}
 
-	rrows, err := db.QueryContext(ctx, `SELECT luna_id, kind, name, COALESCE(storage_backend, '') FROM storage_records WHERE account_id = ?`+lunaClause, args...)
+	rrows, err := tx.Query(`SELECT DISTINCT luna_id FROM storage_records WHERE account_id = ?`+lunaClause, args...)
 	if err != nil {
 		return err
 	}
 	for rrows.Next() {
-		var lunaID, kind, name, backend string
-		if err := rrows.Scan(&lunaID, &kind, &name, &backend); err != nil {
+		var id string
+		if err := rrows.Scan(&id); err != nil {
 			rrows.Close()
 			return err
 		}
-		blobs = append(blobs, blob{backend, store.StorageSlot(lunaID), store.StorageRecordPath(kind, name)})
+		inventorySet[id] = struct{}{}
 	}
 	err = rrows.Err()
 	rrows.Close()
@@ -104,7 +160,7 @@ func purgeStorage(ctx context.Context, db *database.DB, st store.Store, accountI
 	}
 
 	// Bytes still waiting out their delete grace period go with the rest.
-	pend, err := db.QueryContext(ctx, `SELECT luna_id, path, storage_backend FROM storage_pending_deletes WHERE account_id = ?`+lunaClause, args...)
+	pend, err := tx.Query(`SELECT luna_id, path, storage_backend FROM storage_pending_deletes WHERE account_id = ?`+lunaClause, args...)
 	if err != nil {
 		return err
 	}
@@ -114,7 +170,7 @@ func purgeStorage(ctx context.Context, db *database.DB, st store.Store, accountI
 			pend.Close()
 			return err
 		}
-		blobs = append(blobs, blob{backend, store.StorageSlot(lunaID), path})
+		blobs = append(blobs, blob{backend: backend, lunaID: lunaID, slot: store.StorageSlot(lunaID), path: path})
 	}
 	err = pend.Err()
 	pend.Close()
@@ -125,26 +181,120 @@ func purgeStorage(ctx context.Context, db *database.DB, st store.Store, accountI
 	if len(blobs) > 0 && st == nil {
 		return errors.New("cloud storage store is not configured")
 	}
+	lockedLunas := make([]string, 0, len(inventorySet))
+	for id := range inventorySet {
+		lockedLunas = append(lockedLunas, id)
+	}
+	sort.Strings(lockedLunas)
+	for _, id := range lockedLunas {
+		if err := database.LockStorageRecordInventory(tx, accountID, id); err != nil {
+			return err
+		}
+	}
+	// The lock wait may have allowed a PUT to finish after the initial scan. Read
+	// current rows only after all known inventory locks are held so every removed
+	// record has already had its generation invalidated.
+	rrows, err = tx.Query(`SELECT luna_id, kind, name, COALESCE(storage_backend, '') FROM storage_records WHERE account_id = ?`+lunaClause, args...)
+	if err != nil {
+		return err
+	}
+	recordLunas := map[string]struct{}{}
+	for rrows.Next() {
+		var id, kind, name, backend string
+		if err := rrows.Scan(&id, &kind, &name, &backend); err != nil {
+			rrows.Close()
+			return err
+		}
+		recordLunas[id] = struct{}{}
+		blobs = append(blobs, blob{backend: backend, lunaID: id, slot: store.StorageSlot(id), path: store.StorageRecordPath(kind, name), record: true})
+	}
+	err = rrows.Err()
+	rrows.Close()
+	if err != nil {
+		return err
+	}
+	if len(blobs) > 0 && st == nil {
+		return errors.New("cloud storage store is not configured")
+	}
+	for id := range recordLunas {
+		if err := database.BumpStorageRecordVersion(tx, accountID, id); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`SAVEPOINT storage_purge_rows`); err != nil {
+		return err
+	}
+	recordDeleteStarted := false
 	for _, b := range blobs {
+		if b.record {
+			recordDeleteStarted = true
+		}
 		err := deleteBlob(st, b.backend, accountID, b.slot, b.path)
 		switch {
 		case err == nil, errors.Is(err, fs.ErrNotExist):
 		case errors.Is(err, providers.ErrBackupNotConfigured) && b.backend == "local":
 		default:
+			if recordDeleteStarted {
+				releaseClaim()
+				if commitErr := tx.Commit(); commitErr != nil {
+					return errors.Join(err, commitErr)
+				}
+			}
 			return err
 		}
 	}
-
 	for _, table := range []string{"storage_packs", "storage_records", "storage_pending_deletes", "share_links"} {
-		if _, err := db.ExecContext(ctx, `DELETE FROM `+table+` WHERE account_id = ?`+lunaClause, args...); err != nil {
+		if _, err := tx.Exec(`DELETE FROM `+table+` WHERE account_id = ?`+lunaClause, args...); err != nil {
+			if _, rollbackErr := tx.Exec(`ROLLBACK TO SAVEPOINT storage_purge_rows`); rollbackErr != nil {
+				return errors.Join(err, rollbackErr)
+			}
+			releaseClaim()
+			if commitErr := tx.Commit(); commitErr != nil {
+				return errors.Join(err, commitErr)
+			}
 			return err
 		}
 	}
-	if _, err = db.ExecContext(ctx, `DELETE FROM luna_ids WHERE account_id = ?`+lunaClause, args...); err != nil {
+	if _, err := tx.Exec(`DELETE FROM luna_ids WHERE account_id = ?`+lunaClause, args...); err != nil {
+		if _, rollbackErr := tx.Exec(`ROLLBACK TO SAVEPOINT storage_purge_rows`); rollbackErr != nil {
+			return errors.Join(err, rollbackErr)
+		}
+		releaseClaim()
+		if commitErr := tx.Commit(); commitErr != nil {
+			return errors.Join(err, commitErr)
+		}
 		return err
 	}
-	// The blobs are gone, so give the B2 buckets and keys back. This is best effort: a bucket
-	// that cannot be deleted now is only a spare bucket, not lost data.
+	if finalize != nil {
+		if err := finalize(tx); err != nil {
+			if _, rollbackErr := tx.Exec(`ROLLBACK TO SAVEPOINT storage_purge_rows`); rollbackErr != nil {
+				return errors.Join(err, rollbackErr)
+			}
+			releaseClaim()
+			if commitErr := tx.Commit(); commitErr != nil {
+				return errors.Join(err, commitErr)
+			}
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		if lunaID != "" {
+			_, restoreErr := db.ExecContext(ctx, `UPDATE luna_ids SET purge_after = ? WHERE account_id = ? AND luna_id = ? AND purge_after = -1`,
+				claimedPurgeAfter, accountID, lunaID)
+			if restoreErr != nil {
+				err = errors.Join(err, restoreErr)
+			}
+		}
+		for id := range recordLunas {
+			bumpErr := bumpStorageRecordInventory(db, accountID, id)
+			if bumpErr != nil {
+				err = errors.Join(err, bumpErr)
+			}
+		}
+		return err
+	}
+	// The bytes are gone, so give the B2 buckets and keys back. This is best effort:
+	// a bucket that cannot be deleted now is only a spare bucket, not lost data.
 	if rel, ok := st.(interface {
 		ReleaseBuckets(accountID, lunaID string) error
 	}); ok {
@@ -155,12 +305,33 @@ func purgeStorage(ctx context.Context, db *database.DB, st store.Store, accountI
 	return nil
 }
 
+func bumpStorageRecordInventory(db *database.DB, accountID, lunaID string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := database.BumpStorageRecordVersion(tx, accountID, lunaID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // claimLunaForPurge sets a due Luna's purge_after to -1 and returns the value it had. A Luna at
 // -1 was claimed by a purge that never finished, so it is claimed again to retry that purge. It
 // reports false when the Luna is not due and not claimed, or is linked again.
+type storagePurgeQueryExec interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
 func claimLunaForPurge(ctx context.Context, db *database.DB, accountID, lunaID string, now int64) (int64, bool, error) {
+	return claimLunaForPurgeExec(db, accountID, lunaID, now)
+}
+
+func claimLunaForPurgeExec(exec storagePurgeQueryExec, accountID, lunaID string, now int64) (int64, bool, error) {
 	var old int64
-	err := db.QueryRowContext(ctx, `SELECT purge_after FROM luna_ids WHERE account_id = ? AND luna_id = ?`,
+	err := exec.QueryRow(`SELECT purge_after FROM luna_ids WHERE account_id = ? AND luna_id = ?`,
 		accountID, lunaID).Scan(&old)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false, nil
@@ -168,7 +339,7 @@ func claimLunaForPurge(ctx context.Context, db *database.DB, accountID, lunaID s
 	if err != nil {
 		return 0, false, err
 	}
-	res, err := db.ExecContext(ctx, `UPDATE luna_ids SET purge_after = -1 WHERE account_id = ? AND luna_id = ? AND purge_after = ? AND (purge_after = -1 OR (purge_after > 0 AND purge_after <= ?))`,
+	res, err := exec.Exec(`UPDATE luna_ids SET purge_after = -1 WHERE account_id = ? AND luna_id = ? AND purge_after = ? AND (purge_after = -1 OR (purge_after > 0 AND purge_after <= ?))`,
 		accountID, lunaID, old, now)
 	if err != nil {
 		return 0, false, err
@@ -196,15 +367,19 @@ func deleteBlob(st store.Store, backend, accountID, slot, path string) error {
 const pendingDeleteBatch = 500
 
 // pathIsLive says whether a stored pack or record row still points at a path.
-func pathIsLive(ctx context.Context, db *database.DB, accountID, lunaID, path string) (bool, error) {
+type storageRowQuerier interface {
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+func pathIsLive(exec storageRowQuerier, accountID, lunaID, path string) (bool, error) {
 	var n int
 	var err error
 	if id, ok := strings.CutPrefix(path, "packs/"); ok {
-		err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = ? AND id = ?`,
+		err = exec.QueryRow(`SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = ? AND id = ?`,
 			accountID, lunaID, id).Scan(&n)
 	} else if rest, ok := strings.CutPrefix(path, "records/"); ok {
 		kind, name, _ := strings.Cut(rest, "/")
-		err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM storage_records WHERE account_id = ? AND luna_id = ? AND kind = ? AND name = ?`,
+		err = exec.QueryRow(`SELECT COUNT(*) FROM storage_records WHERE account_id = ? AND luna_id = ? AND kind = ? AND name = ?`,
 			accountID, lunaID, kind, name).Scan(&n)
 	}
 	return n > 0, err
@@ -245,44 +420,92 @@ WHERE delete_after <= ? ORDER BY delete_after LIMIT ?`, now, pendingDeleteBatch)
 		if ctx.Err() != nil {
 			break
 		}
-		forget := func() {
-			_, _ = db.ExecContext(ctx, `DELETE FROM storage_pending_deletes WHERE account_id = ? AND luna_id = ? AND path = ?`,
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			slog.Warn("pending deletes: could not prepare a piece", "error", err)
+			continue
+		}
+		// Deleting a blob must exclude every writer for this account until the
+		// liveness check, object removal, and reminder removal have committed.
+		// A shared write fence is insufficient here: a re-upload could otherwise
+		// create a live row for bytes the worker is deleting.
+		if err := database.LockStorageAccount(tx, it.account); err != nil {
+			_ = tx.Rollback()
+			slog.Warn("pending deletes: could not lock account storage", "error", err)
+			continue
+		}
+		forget := func() error {
+			_, err := tx.Exec(`DELETE FROM storage_pending_deletes WHERE account_id = ? AND luna_id = ? AND path = ?`,
 				it.account, it.luna, it.path)
+			return err
 		}
 		// Stored again since: the bytes are wanted, so only drop the reminder.
-		if live, err := pathIsLive(ctx, db, it.account, it.luna, it.path); err != nil {
+		if live, err := pathIsLive(tx, it.account, it.luna, it.path); err != nil {
+			_ = tx.Rollback()
 			slog.Warn("pending deletes: could not check a piece", "error", err)
 			continue
 		} else if live {
-			forget()
+			if err := forget(); err != nil {
+				_ = tx.Rollback()
+				slog.Warn("pending deletes: could not forget a live piece", "error", err)
+				continue
+			}
+			if err := tx.Commit(); err != nil {
+				slog.Warn("pending deletes: could not finish a live piece", "error", err)
+			}
 			continue
 		}
-		err := deleteBlob(st, it.backend, it.account, store.StorageSlot(it.luna), it.path)
+		err = deleteBlob(st, it.backend, it.account, store.StorageSlot(it.luna), it.path)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, providers.ErrBackupNotConfigured) {
+			_ = tx.Rollback()
 			slog.Warn("pending deletes: a piece could not be removed yet", "backend", it.backend, "error", err)
 			continue
 		}
 		if errors.Is(err, providers.ErrBackupNotConfigured) && it.backend != "local" {
+			_ = tx.Rollback()
 			continue
 		}
-		// An upload that landed while the bytes were being removed would now point at nothing.
-		// Dropping its row makes Luna upload that piece again.
-		if live, _ := pathIsLive(ctx, db, it.account, it.luna, it.path); live {
-			dropLiveRow(ctx, db, it.account, it.luna, it.path)
+		if err := forget(); err != nil {
+			_ = tx.Rollback()
+			slog.Warn("pending deletes: could not forget a removed piece", "error", err)
+			continue
 		}
-		forget()
+		if err := tx.Commit(); err != nil {
+			slog.Warn("pending deletes: could not finish a removed piece", "error", err)
+			continue
+		}
 		removed++
 	}
 	return removed
 }
 
-func dropLiveRow(ctx context.Context, db *database.DB, accountID, lunaID, path string) {
+func dropLiveRow(ctx context.Context, db *database.DB, accountID, lunaID, path string) error {
 	if id, ok := strings.CutPrefix(path, "packs/"); ok {
-		_, _ = db.ExecContext(ctx, `DELETE FROM storage_packs WHERE account_id = ? AND luna_id = ? AND id = ?`, accountID, lunaID, id)
+		_, err := db.ExecContext(ctx, `DELETE FROM storage_packs WHERE account_id = ? AND luna_id = ? AND id = ?`, accountID, lunaID, id)
+		return err
 	} else if rest, ok := strings.CutPrefix(path, "records/"); ok {
 		kind, name, _ := strings.Cut(rest, "/")
-		_, _ = db.ExecContext(ctx, `DELETE FROM storage_records WHERE account_id = ? AND luna_id = ? AND kind = ? AND name = ?`, accountID, lunaID, kind, name)
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		res, err := tx.Exec(`DELETE FROM storage_records WHERE account_id = ? AND luna_id = ? AND kind = ? AND name = ?`, accountID, lunaID, kind, name)
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n > 0 {
+			if err := database.BumpStorageRecordVersion(tx, accountID, lunaID); err != nil {
+				return err
+			}
+		}
+		return tx.Commit()
 	}
+	return nil
 }
 
 // RunPendingDeleteLoop removes due blobs once an hour until ctx ends.

@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { HardDrive } from "lucide-react";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { dashboard as greetingMessages } from "../lib/greetings.jsx";
@@ -15,7 +17,7 @@ import TipPill from "../components/common/TipPill.jsx";
 import { getDrives, getJson, getRecents } from "../lib/api.js";
 import { KIND_ALBUM } from "../lib/access.js";
 import { memberAccessRoots } from "../lib/shareTree.js";
-import { PHRASE_QUERY_KEY } from "../lib/cloudPhrase.js";
+import { checkPhraseWords, PHRASE_CHECKED_TOAST, PHRASE_QUERY_KEY } from "../lib/cloudPhrase.js";
 import { readRecentItems } from "../lib/recentItems.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 import useNeedsYou from "../hooks/useNeedsYou.js";
@@ -56,6 +58,8 @@ function getGreeting() {
 
 export default function DashboardPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { addToast } = useToast();
   const greeting = useMemo(() => getGreeting(), []);
   usePageTitle("Dashboard");
   const { user } = useAuth();
@@ -141,6 +145,7 @@ export default function DashboardPage() {
   const memberHasNothingShared =
     !isAdmin &&
     !drives.isLoading &&
+    !drives.isError &&
     !memberSharesLoading &&
     grants.length === 0 &&
     albumsShared.length === 0;
@@ -149,8 +154,11 @@ export default function DashboardPage() {
   // with no drives and nothing new plugged in gets no column at all (the Needs you "No drives yet" row covers it).
   const hasRecents = recentItems.length > 0;
   const showAlbums = !isAdmin && !memberSharesLoading && albumsShared.length > 0;
-  const showNothingShared = !drives.isLoading && memberHasNothingShared;
+  const showNothingShared = !drives.isLoading && !drives.isError && memberHasNothingShared;
+  // A failed drive list is not an empty one: say so and offer a retry.
+  const drivesFailed = drives.isError && adopted.length === 0;
   const showDrivesColumn =
+    drivesFailed ||
     adopted.length > 0 ||
     (isAdmin && pluggedIn.length > 0) ||
     (!isAdmin && grants.length > 0) ||
@@ -225,6 +233,25 @@ export default function DashboardPage() {
               <div className="min-w-0 space-y-4">
                 <h2 className="font-mono font-normal text-lg">{isAdmin ? "Drives" : "Your folders"}</h2>
 
+                {drivesFailed && (
+                  <PageNotice variant="error">
+                    <div className="space-y-3" role="alert">
+                      <p>
+                        {isAdmin ? "Luna couldn't load your drives." : "Luna couldn't load your folders."}
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        surface="primary"
+                        loading={drives.isFetching}
+                        onClick={() => drives.refetch()}
+                      >
+                        Try again
+                      </Button>
+                    </div>
+                  </PageNotice>
+                )}
+
                 {adopted.length > 0 && (
                   <div className="grid grid-cols-1 gap-6">
                     {adopted.map((drive, index) => (
@@ -273,7 +300,16 @@ export default function DashboardPage() {
         />
       )}
       {checkingPhrase && phrase?.luna_id && (
-        <RecoveryPhraseCheck lunaId={phrase.luna_id} onClose={closeCheck} />
+        <RecoveryPhraseCheck
+          verify={(words) => checkPhraseWords(words, phrase.luna_id).then(Boolean)}
+          words={phrase.phrase_words}
+          onVerified={() => {
+            addToast(PHRASE_CHECKED_TOAST);
+            closeCheck();
+          }}
+          onLost={() => navigate("/settings#cloud_backup")}
+          onClose={closeCheck}
+        />
       )}
     </Page>
   );

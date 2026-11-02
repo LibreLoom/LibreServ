@@ -1,21 +1,35 @@
 package apps
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
-	"strings"
+	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/Sol/internal/apps"
 )
 
 type ScriptsHandler struct {
-	manager *apps.Manager
+	manager    *apps.Manager
+	mu         sync.Mutex
+	executions map[string]*actionExecution
+}
+
+type actionExecution struct {
+	instanceID, action string
+	output             <-chan apps.ScriptOutput
+	cancel             context.CancelFunc
+	attached           bool
 }
 
 func NewScriptsHandler(manager *apps.Manager) *ScriptsHandler {
 	return &ScriptsHandler{
-		manager: manager,
+		manager:    manager,
+		executions: make(map[string]*actionExecution),
 	}
 }
 
@@ -191,21 +205,46 @@ func (h *ScriptsHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := executor.Execute(r.Context(), instanceID, fullScriptPath, req.Options)
+	response := ExecuteActionResponse{ExecutionID: instanceID + "-" + req.Action}
+	action, _ := h.getAction(appDef, req.Action)
+
+	if action != nil && action.Execution.StreamOutput {
+		var tokenBytes [24]byte
+		if _, err := rand.Read(tokenBytes[:]); err != nil {
+			JSONError(w, http.StatusInternalServerError, "We couldn't start that action. Please try again.")
+			return
+		}
+		token := hex.EncodeToString(tokenBytes[:])
+		timeout := 10 * time.Minute
+		if action.Execution.Timeout > 0 {
+			timeout = time.Duration(action.Execution.Timeout) * time.Second
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		stream, err := executor.StreamExecute(ctx, instanceID, fullScriptPath, req.Options)
+		if err != nil {
+			cancel()
+			JSONError(w, http.StatusInternalServerError, "We couldn't start that action. Please try again.")
+			return
+		}
+		h.mu.Lock()
+		h.executions[token] = &actionExecution{instanceID: instanceID, action: req.Action, output: stream, cancel: cancel}
+		h.mu.Unlock()
+		go func() { <-ctx.Done(); cancel(); h.mu.Lock(); delete(h.executions, token); h.mu.Unlock() }()
+		response.ExecutionID = token
+		response.StreamURL = "/api/v1/apps/" + instanceID + "/actions/" + req.Action + "/stream?execution=" + token
+		JSON(w, http.StatusAccepted, response)
+		return
+	}
+	timeoutSecs := 0
+	if action != nil {
+		timeoutSecs = action.Execution.Timeout
+	}
+	result, err := executor.ExecuteWithTimeout(r.Context(), instanceID, fullScriptPath, app.Path, req.Options, timeoutSecs)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "We couldn't run that script. Please try again.")
 		return
 	}
-
-	response := ExecuteActionResponse{
-		ExecutionID: instanceID + "-" + req.Action,
-		Duration:    result.Duration.String(),
-		Result:      result,
-	}
-
-	if action, _ := h.getAction(appDef, req.Action); action != nil && action.Execution.StreamOutput {
-		response.StreamURL = "/api/v1/apps/" + instanceID + "/actions/" + req.Action + "/stream"
-	}
+	response.Duration, response.Result = result.Duration.String(), result
 
 	JSON(w, http.StatusOK, response)
 }
@@ -223,6 +262,7 @@ func (h *ScriptsHandler) getAction(appDef *apps.AppDefinition, actionName string
 			Name:   "destructive-repair",
 			Script: appDef.Scripts.System.DestructiveRepair.Script,
 			Execution: apps.ScriptExecution{
+				Timeout:      120,
 				StreamOutput: true,
 			},
 		}, nil
@@ -242,7 +282,7 @@ func (h *ScriptsHandler) StreamAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	instanceID, app, appDef, ok := h.loadAppContext(w, r)
+	instanceID, _, appDef, ok := h.loadAppContext(w, r)
 	if !ok {
 		return
 	}
@@ -253,33 +293,20 @@ func (h *ScriptsHandler) StreamAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fullScriptPath := app.Path + "/" + scriptPath
-
-	executor := h.manager.GetScriptExecutor()
-	if executor == nil {
-		JSONError(w, http.StatusInternalServerError, "We couldn't run scripts right now. Please try again later.")
-		return
-	}
-
-	// Parse options from query parameters (opt_name=value)
-	var options map[string]interface{}
-	if r.URL.RawQuery != "" {
-		options = make(map[string]interface{})
-		for key, values := range r.URL.Query() {
-			if strings.HasPrefix(key, "opt_") {
-				optName := strings.TrimPrefix(key, "opt_")
-				if len(values) == 1 {
-					options[optName] = values[0]
-				} else {
-					options[optName] = values
-				}
-			}
+	token := r.URL.Query().Get("execution")
+	h.mu.Lock()
+	execution := h.executions[token]
+	if execution != nil && execution.instanceID == instanceID && execution.action == actionName {
+		if execution.attached {
+			h.mu.Unlock()
+			JSONError(w, http.StatusConflict, "This action stream is already connected.")
+			return
 		}
+		execution.attached = true
 	}
-
-	stream, err := executor.StreamExecute(r.Context(), instanceID, fullScriptPath, options)
-	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "We couldn't run that script. Please try again.")
+	h.mu.Unlock()
+	if execution == nil || execution.instanceID != instanceID || execution.action != actionName {
+		JSONError(w, http.StatusNotFound, "That action run has expired. Please start it again.")
 		return
 	}
 
@@ -287,10 +314,38 @@ func (h *ScriptsHandler) StreamAction(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	for output := range stream {
-		data, _ := json.Marshal(output)
-		_, _ = w.Write([]byte("data: " + string(data) + "\n\n"))
+	flusher, _ := w.(http.Flusher)
+	for {
+		select {
+		case <-r.Context().Done():
+			execution.cancel()
+			h.mu.Lock()
+			delete(h.executions, token)
+			h.mu.Unlock()
+			return
+		case output, open := <-execution.output:
+			if !open {
+				goto finished
+			}
+			data, _ := json.Marshal(output)
+			if _, err := w.Write([]byte("data: " + string(data) + "\n\n")); err != nil {
+				execution.cancel()
+				h.mu.Lock()
+				delete(h.executions, token)
+				h.mu.Unlock()
+				return
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
 	}
+
+finished:
+	h.mu.Lock()
+	delete(h.executions, token)
+	h.mu.Unlock()
+	execution.cancel()
 }
 
 // StreamInstall handles SSE streaming of install progress for a specific instance.

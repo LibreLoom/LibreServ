@@ -1,4 +1,5 @@
-import { backup, cloudBackup, DAY, DEFAULT_NOW, drive, HOUR, summary, user } from "../fake/world.js";
+import { backup, cloudBackup, DAY, DEFAULT_NOW, drive, HOUR, smartHealth, summary, user } from "../fake/world.js";
+import { addFile, demoTree } from "../fake/handlers/files.js";
 
 const at = (s, now = DEFAULT_NOW) => Math.floor(now / 1000) - s;
 const GB = 1_000_000_000;
@@ -43,7 +44,7 @@ export default [
     seed: (w) => {
       w.drives.push(drive({ id: "d2", label: "Backup drive" }));
       w.summaries.d2 = summary("d2");
-      w.backups = [backup({ state: "failing", last_error: "The backup drive is full." })];
+      w.backups = [backup({ state: "failing", last_error: "Backup drive is full. Free up some space on it and try again." })];
     },
     check: [NEEDS, "The error text is shown as the detail"],
   },
@@ -70,24 +71,18 @@ export default [
       w.cloudBackups = [cloudBackup({ last_checked_at: at(200 * DAY), last_ok_at: at(HOUR) })];
       w.phrase = { ...w.phrase, check_due: true };
     },
-    check: [NEEDS, "Row asks you to check your recovery phrase", "The check opens and accepts any 12 or 24 words"],
+    check: [NEEDS, "Row asks you to check your recovery phrase", "Check now opens Check my phrase with 12 numbered boxes", "Pasting `abandon` ×11 + `about` fills every box", "Check closes the dialog, toasts 'Your recovery phrase is correct.' and the row clears"],
   },
   {
-    id: "dashboard/no-phrase",
+    id: "dashboard/check-paste-file",
     area: "Dashboard",
-    title: "Cloud backup but no recovery phrase yet",
+    title: "Recovery phrase check: pasting the downloaded file",
+    now: Date.UTC(2027, 3, 1),
     seed: (w) => {
-      w.cloudBackups = [cloudBackup()];
-      w.phrase = { set: false, set_at: 0, luna_id: "", signing_public: "", check_due: false };
+      w.cloudBackups = [cloudBackup({ last_checked_at: at(200 * DAY), last_ok_at: at(HOUR) })];
+      w.phrase = { ...w.phrase, check_due: true };
     },
-    check: ["Dashboard still loads", "Settings → Security / Devices explains how to set the phrase up"],
-  },
-  {
-    id: "dashboard/drive-failed",
-    area: "Dashboard",
-    title: "Needs you: a drive ran into a problem",
-    seed: (w) => { w.drives[0].state = "failed"; },
-    check: [NEEDS, "Row names the drive and opens Files"],
+    check: [NEEDS, "Check now opens Check my phrase", "Pasting the downloaded file's numbered lines (1. abandon, 2. abandon, …) fills the boxes in order"],
   },
   {
     id: "dashboard/drive-unhealthy",
@@ -96,11 +91,18 @@ export default [
     seed: (w) => {
       manyDrives(w, 2);
       w.health = {
-        d1: { available: true, overall: "failed", reallocated_sectors: 120, temperature_c: 55 },
-        d2: { available: true, overall: "warning", reallocated_sectors: 4, temperature_c: 48 },
+        d1: smartHealth({ verdict: "failing", overall: "failed", status_bits: 8, reallocated_sectors: 120, temperature_c: 55, signals: [{ kind: "self_check_failed", level: "failing", value: null, limit: null }, { kind: "reallocated_sectors", level: "failing", value: 120, limit: 100 }, { kind: "temperature", level: "note", value: 55, limit: 60 }] }),
+        d2: smartHealth({ verdict: "watch", reallocated_sectors: 4, temperature_c: 48, signals: [{ kind: "reallocated_sectors", level: "watch", value: 4, limit: 100 }] }),
       };
     },
-    check: [NEEDS, "'needs attention' for the failing one, 'working, with a warning' for the other"],
+    check: [NEEDS, "Drive 1 is failing, with a failing icon, and says why and to copy files off now", "Drive 2 is showing wear, with a warning icon, and says to keep using it and back it up", "Files: Drive 2 health details say 48°C · normal"],
+  },
+  {
+    id: "dashboard/drive-hot",
+    area: "Dashboard",
+    title: "Drive running hot",
+    seed: (w) => { w.health.d1 = smartHealth({ verdict: "watch", temperature_c: 61, signals: [{ kind: "temperature", level: "watch", value: 61, limit: 60 }] }); },
+    check: [NEEDS, "The row says the drive is hotter than it should be, in plain words, and what to do"],
   },
   {
     id: "dashboard/drive-full",
@@ -120,8 +122,8 @@ export default [
     id: "dashboard/drive-unmounted",
     area: "Dashboard",
     title: "Drive unplugged (not mounted)",
-    seed: (w) => { w.summaries.d1 = { id: "d1", mounted: false, total_bytes: null, free_bytes: null, used_bytes: null, shortcuts: [] }; },
-    check: ["Card says the drive isn't connected, not 0 bytes", "No crash or NaN"],
+    seed: (w) => { w.drives[0].mounted = false; },
+    check: ["Card pill says Can't open, not Ready", "Needs you: Drive can't be opened, and the button opens Files at that drive", "Files card has no Browse button and says why", "No crash or NaN"],
   },
   {
     id: "dashboard/new-drive-found",
@@ -143,22 +145,25 @@ export default [
     id: "dashboard/update-available",
     area: "Dashboard",
     title: "Update available",
-    seed: (w) => { w.updates = { update_available: true, current_version: "1.4.2", latest_version: "1.5.0", notes: "Faster photo scanning." }; },
-    check: ["Update card shows the new version in plain words", "Starting it shows progress, not a freeze"],
+    seed: (w) => { w.updates = { update_available: true, current_version: "1.4.2", latest_version: "1.5.0", release_notes: "Faster photo scanning." }; },
+    url: "/settings#about",
+    check: ["The dashboard shows the new version in plain words", "Settings → System updates → Install: the dialog closes, Luna goes quiet for a few seconds (as lunad restarts), then the page reloads on version 1.5.0", "After the restart you sign in again, as lunad asks"],
   },
   {
     id: "dashboard/update-failed",
     area: "Dashboard",
     title: "System update failed earlier",
-    seed: (w) => { w.updates = { update_available: true, current_version: "1.4.2", latest_version: "1.5.0", os_update_failed: true }; },
+    seed: (w) => { w.updates = { update_available: true, current_version: "1.4.2", latest_version: "1.5.0", os_update_failed: { version: "1.5.0" } }; },
     check: ["Failure is explained", "Dismissing it works"],
   },
   {
     id: "dashboard/update-applying",
     area: "Dashboard",
-    title: "Update is installing",
-    seed: (w) => { w.updates = { update_available: true, applying: true, current_version: "1.4.2", latest_version: "1.5.0" }; },
-    check: ["Shows that an update is being installed", "No second install button"],
+    title: "Luna is restarting after an update",
+    // lunad has no "installing" flag: the install answers, then Luna restarts and its pages go quiet for a while.
+    restart: 8000,
+    seed: (w) => { w.updates = { update_available: false, current_version: "1.5.0", latest_version: "1.5.0" }; },
+    check: ["For about 8 seconds every request fails, as when lunad restarts", "The app says in plain words that it can't reach Luna, with no raw errors", "When Luna is back the app recovers without a manual reload"],
   },
   {
     id: "dashboard/no-internet",
@@ -171,8 +176,8 @@ export default [
     id: "dashboard/connect-token-error",
     area: "Dashboard",
     title: "Needs you: Connect device token rejected",
-    seed: (w) => { w.connect = { enabled: true, connect_active: true, device_token_error: "Luna Connect no longer accepts this device token." }; },
-    check: [NEEDS, "Button goes to Settings → About where the token can be replaced"],
+    seed: (w) => { w.connect = { connect_active: false, enabled: false, device_token_error: "Luna Connect did not accept this device token. It may be mistyped, revoked, or meant for a different Luna. Open Luna on a phone or computer, then go to Settings → About → Advanced and paste a new device token." }; },
+    check: [NEEDS, "Button goes to Settings → About where the token can be replaced", "lunad never sends the saved token back, so the token box is empty even while the error shows — a new token has to be pasted"],
   },
   {
     id: "dashboard/system-check-failed",
@@ -182,9 +187,9 @@ export default [
       w.systemChecks = {
         overall_pass: false,
         checks: {
-          disk_space: { status: "failed", message: "Storage space is nearly gone.", category: "storage" },
-          clock: { status: "warning", message: "The clock may be wrong.", category: "system" },
-          video_tools: { status: "warning", message: "Video previews are off.", category: "features" },
+          disk_space: { status: "failed", message: "Luna's own storage (its system disk) is almost full. Free some space on it, or Luna may stop working.", more: "This is the disk where Luna keeps its accounts and settings; your files are on your drives.", category: "system" },
+          clock: { status: "warning", message: "The clock may be off.", more: "Luna sets its clock over the internet and hasn't managed to yet, so new and changed files may get wrong dates. Check that your router or modem is online, then check again in a minute.", category: "system" },
+          video_tools: { status: "warning", message: "Videos get no preview pictures or length.", more: "Photos shows these for each video, made with video tools that are missing. Videos can still be played and downloaded.", category: "features" },
         },
       };
     },
@@ -196,13 +201,13 @@ export default [
     title: "Needs you: every problem at once",
     seed: (w) => {
       manyDrives(w, 3);
-      w.drives[2].state = "failed";
-      w.health = { d1: { available: true, overall: "failed", reallocated_sectors: 99, temperature_c: 60 } };
+      w.drives[2].mounted = false;
+      w.health = { d1: smartHealth({ verdict: "failing", overall: "failed", status_bits: 8, reallocated_sectors: 120, temperature_c: 55, signals: [{ kind: "self_check_failed", level: "failing", value: null, limit: null }, { kind: "reallocated_sectors", level: "failing", value: 120, limit: 100 }, { kind: "temperature", level: "note", value: 55, limit: 60 }] }) };
       w.summaries.d2 = summary("d2", { total_bytes: 64 * GB, free_bytes: GB, used_bytes: 63 * GB });
       w.network = { ethernet_connected: true, has_default_route: false };
-      w.connect = { enabled: true, connect_active: true, device_token_error: "Device token rejected." };
-      w.systemChecks = { overall_pass: false, checks: { disk_space: { status: "failed", message: "Storage nearly gone.", category: "storage" } } };
-      w.backups = [backup({ state: "failing", last_error: "Drive full." }), backup({ state: "stale", source_name: "Documents" })];
+      w.connect = { connect_active: false, enabled: false, device_token_error: "Luna Connect did not accept this device token. It may be mistyped, revoked, or meant for a different Luna. Open Luna on a phone or computer, then go to Settings → About → Advanced and paste a new device token." };
+      w.systemChecks = { overall_pass: false, checks: { drive_d1_smart: { status: "failed", message: "Drive 1 is failing. Copy your files to another drive now.", category: "drives" }, disk_space: { status: "failed", message: "Luna's own storage (its system disk) is almost full. Free some space on it, or Luna may stop working.", more: "This is the disk where Luna keeps its accounts and settings; your files are on your drives.", category: "system" } } };
+      w.backups = [backup({ state: "failing", last_error: "Backup drive is full. Free up some space on it and try again." }), backup({ state: "stale", source_name: "Documents" })];
       w.cloudBackups = [cloudBackup({ source_missing: true })];
       w.phrase = { ...w.phrase, check_due: true };
       w.detected = [{ name: "sdb", model: "USB stick", size_bytes: 16 * GB, fs_type: "fat32" }];
@@ -224,9 +229,13 @@ export default [
     title: "Very long and unusual names",
     seed: (w) => {
       w.drives[0].label = "Family photos and videos from every holiday we ever took together including the long summer trip";
+      // lunad only lists recents whose files still exist, so they have to be on the drive.
+      demoTree(w, "d1");
+      addFile(w, "d1", "Photos/IMG_000001-with-a-very-long-descriptive-name-that-keeps-going-and-going.jpeg", { sample: "png" });
+      addFile(w, "d1", "Dokumente/Übersicht 日本語 😀.pdf", { sample: "pdf" });
       w.recents = [
-        { driveId: "d1", path: "Photos/IMG_000001-with-a-very-long-descriptive-name-that-keeps-going-and-going.jpeg", name: "IMG_000001-with-a-very-long-descriptive-name-that-keeps-going-and-going.jpeg", kind: "file", at: (at(HOUR)) * 1000 },
-        { driveId: "d1", path: "Dokumente/Übersicht 日本語 😀.pdf", name: "Übersicht 日本語 😀.pdf", kind: "file", at: (at(DAY)) * 1000 },
+        { driveId: "d1", path: "Photos/IMG_000001-with-a-very-long-descriptive-name-that-keeps-going-and-going.jpeg", kind: "file", at: (at(HOUR)) * 1000 },
+        { driveId: "d1", path: "Dokumente/Übersicht 日本語 😀.pdf", kind: "file", at: (at(DAY)) * 1000 },
       ];
       w.backups = [backup({ source_name: "A folder name that is far too long to ever fit on one line of a card", state: "stale" })];
       w.drives.push(drive({ id: "d2", label: "Backup drive" }));
@@ -245,16 +254,19 @@ export default [
     area: "Dashboard",
     title: "Lots of recent files",
     seed: (w) => {
-      w.recents = Array.from({ length: 12 }, (_, i) => ({ driveId: "d1", path: `Documents/Report ${i + 1}.pdf`, name: `Report ${i + 1}.pdf`, kind: "file", at: (at(i * HOUR)) * 1000 }));
+      demoTree(w, "d1");
+      for (let i = 0; i < 12; i += 1) addFile(w, "d1", `Documents/Report ${i + 1}.pdf`, { sample: "pdf" });
+      w.recents = Array.from({ length: 12 }, (_, i) => ({ driveId: "d1", path: `Documents/Report ${i + 1}.pdf`, kind: "file", at: (at(i * HOUR)) * 1000 }));
     },
-    check: ["List is capped sensibly", "Clicking one opens it"],
+    check: ["lunad lists at most 10 recent items, newest first", "Clicking one opens it", "Opening the same file twice never lists it twice"],
   },
   {
     id: "dashboard/albums-many",
     area: "Dashboard",
     title: "Shared albums: none, then many",
     seed: (w) => {
-      w.albums = Array.from({ length: 9 }, (_, i) => ({ id: `a${i}`, name: `Album ${i + 1}`, drive_id: "d1", count: i * 7, shared: true, owner_name: i % 2 ? "Max" : "Sam" }));
+      w.users.push(user({ id: "u2", username: "sam", display_name: "Sam" }));
+      w.albums = Array.from({ length: 9 }, (_, i) => ({ id: `a${i}`, home_drive_id: "d1", name: `Album ${i + 1}`, owner_user_id: i % 2 ? "u1" : "u2", fakeCount: i * 7, shared_with: ["u1", "u2"], created_at: at(i * DAY) }));
     },
     check: ["Albums card handles nine albums", "Open one to see it work"],
   },
@@ -272,11 +284,11 @@ export default [
     title: "Member while the Luna has problems",
     seed: (w) => {
       member(w);
-      w.drives[0].state = "failed";
+      w.drives[0].mounted = false;
       w.network = { ethernet_connected: true, has_default_route: false };
-      w.backups = [backup({ state: "failing", created_by: "u2", last_error: "Drive full." }), backup({ state: "stale", created_by: "u1", can_delete: false })];
+      w.backups = [backup({ state: "failing", created_by: "u2", last_error: "Backup drive is full. Free up some space on it and try again." }), backup({ state: "stale", created_by: "u1" })];
     },
-    check: ["Member sees only their own backup problem", "Never sees drive, network or update rows"],
+    check: ["Member sees only the backup they made (lunad hides the other one from them)", "Never sees drive or update rows", "Network: lunad answers Members with a reduced status, so a no-internet row may show — if it does, that is an app question, not the fake"],
   },
   // ── Failures ──────────────────────────────────────────────────────────────
   {
@@ -314,8 +326,8 @@ export default [
     viewport: "phone",
     theme: "dark",
     seed: (w) => {
-      w.drives[0].state = "failed";
-      w.backups = [backup({ state: "failing", last_error: "Drive full." })];
+      w.drives[0].mounted = false;
+      w.backups = [backup({ state: "failing", last_error: "Backup drive is full. Free up some space on it and try again." })];
     },
     check: ["Text is readable on every surface", "Buttons don't blend into their backgrounds"],
   },

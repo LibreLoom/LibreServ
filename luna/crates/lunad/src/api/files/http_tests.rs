@@ -2187,6 +2187,84 @@ async fn member_upload_overwrite_needs_edit() {
 }
 
 #[tokio::test]
+async fn multipart_keep_both_saves_beside_the_clash() {
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(mount.path().join("drop")).unwrap();
+    std::fs::write(mount.path().join("drop/x.txt"), b"old").unwrap();
+    let (dir, app) = test_app(mount.path());
+    let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
+    grant_path(&dir, &sam_id, "drop", crate::access::CAP_ALL);
+
+    let boundary = "----luna";
+    let body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"x.txt\"\r\nContent-Type: text/plain\r\n\r\nnew\r\n--{boundary}--\r\n"
+    );
+    let upload = |query: &str| {
+        let mut http = HttpReq::builder()
+            .method(Method::POST)
+            .uri(format!(
+                "/api/v1/drives/photos/files/upload?path=drop{query}"
+            ))
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .header("cookie", &sam_cookie)
+            .header("x-csrf-token", &sam_csrf)
+            .body(Body::from(body.clone()))
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        http
+    };
+
+    // Without a choice the clash is refused and names what holds it.
+    let res = call(&app, upload("")).await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    let v = body_json(res).await;
+    assert_eq!(v["code"], "exists");
+    assert_eq!(v["existing_kind"], "file");
+
+    // Keep both saves under the next free name and reports it back.
+    let res = call(&app, upload("&keep_both=1")).await;
+    assert_eq!(res.status(), 200);
+    let v = body_json(res).await;
+    assert_eq!(v["name"], "x (1).txt");
+    assert_eq!(
+        std::fs::read(mount.path().join("drop/x.txt")).unwrap(),
+        b"old"
+    );
+    // Small uploads land in the RAM dirty cache and flush on a blocking
+    // task; the content route reads the drive, so wait for the durable file.
+    let kept = mount.path().join("drop/x (1).txt");
+    for _ in 0..100 {
+        if kept.is_file() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(kept.is_file());
+    let res = call(
+        &app,
+        json_req(
+            Method::GET,
+            &format!(
+                "/api/v1/drives/photos/files/content?path={}",
+                urlencoding("drop/x (1).txt")
+            ),
+            "",
+            Some(&sam_cookie),
+            Some(&sam_csrf),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), 200);
+    let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    assert_eq!(&body[..], b"new");
+}
+
+#[tokio::test]
 async fn member_trash_zip_skips_foreign_origins() {
     // The trash zip mirrors the filtered listing: entries whose origin
     // Sam cannot edit never enter the archive.
@@ -2233,7 +2311,13 @@ async fn member_trash_zip_skips_foreign_origins() {
         .unwrap();
     let mut zip = zip::ZipArchive::new(std::io::Cursor::new(body)).unwrap();
     let names: Vec<String> = (0..zip.len())
-        .map(|i| zip.by_index(i).unwrap().name().to_string())
+        .map(|i| {
+            zip.by_index(i)
+                .unwrap()
+                .name()
+                .expect("ZIP entry name is valid UTF-8")
+                .to_string()
+        })
         .collect();
     assert!(
         names.iter().any(|n| n.contains("a.txt")),

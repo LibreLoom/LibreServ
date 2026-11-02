@@ -34,7 +34,7 @@ export default function EmptyState({
           <p className={cn("font-mono mb-1", textClass)}>{title}</p>
         )}
         {description && (
-          <p className={cn("text-sm max-w-xs", textClass)}>{description}</p>
+          <p className={cn("text-sm max-w-prose", textClass)}>{description}</p>
         )}
         {action && <div className="mt-4">{action}</div>}
       </div>

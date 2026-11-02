@@ -2,15 +2,18 @@ package providers
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
 func TestEnsureDeviceBucketIdempotent(t *testing.T) {
@@ -242,5 +245,251 @@ VALUES ('acct_10:storage-luna-y', 'n', 'b', 'e', 'k', '', 1)`)
 	_ = db.QueryRow(`SELECT COUNT(*) FROM device_backup_buckets`).Scan(&n)
 	if n != 1 {
 		t.Fatalf("acct_10's bucket was released by acct_1 (%d rows)", n)
+	}
+}
+
+// A bucket provisioned before the keep-last-version rule existed gets the rule the next time its
+// Luna asks for it, once per process, and a failure never blocks the backup.
+func TestEnsureDeviceBucketAppliesKeepLastToExistingBucket(t *testing.T) {
+	prev := os.Getenv("LUNACONNECT_DEV")
+	_ = os.Setenv("LUNACONNECT_DEV", "1")
+	t.Cleanup(func() { _ = os.Setenv("LUNACONNECT_DEV", prev) })
+	config.C.Server.AtRestKey = ""
+
+	db, err := database.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := database.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := security.SealString("old-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO device_backup_buckets (device_id, bucket_name, bucket_id, endpoint, key_id, application_key_sealed, provisioned_at)
+VALUES ('acct_1:dev_old', 'luna-backup-old', 'buc-old', 's3.example', 'kid-old', ?, 1)`, sealed); err != nil {
+		t.Fatal(err)
+	}
+
+	var updates int
+	var sentRevision any
+	failUpdate := true
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/b2api/v2/b2_authorize_account":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"accountId": "acc", "authorizationToken": "tok",
+				"apiUrl": "http://" + r.Host, "s3ApiUrl": "https://s3.us-west-001.backblazeb2.com",
+			})
+		case strings.Contains(r.URL.Path, "b2_list_buckets"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"buckets": []map[string]any{
+				{"bucketId": "buc-old", "bucketName": "luna-backup-old", "lifecycleRules": []any{}, "revision": 3},
+			}})
+		case strings.Contains(r.URL.Path, "b2_update_bucket"):
+			updates++
+			var req map[string]any
+			body, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(body, &req)
+			sentRevision = req["ifRevisionIs"]
+			assertKeepLastVersionRules(t, req["lifecycleRules"])
+			if failUpdate {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"code":"service_unavailable","message":"try later"}`))
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"bucketId": "buc-old", "revision": 4})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	svc := NewService(db)
+	if _, err := svc.Create("backup", "B2", map[string]string{
+		"account_id": "acc", "application_key": "master",
+	}, map[string]string{"bucket_prefix": "luna-backup"}, true); err != nil {
+		t.Fatal(err)
+	}
+	client := NewB2Client(ts.Client())
+	client.authorizeURL = ts.URL + "/b2api/v2/b2_authorize_account"
+	clock := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	p := &BucketProvisioner{DB: db, Providers: svc, B2: client, Now: func() time.Time { return clock }}
+
+	// A failed update still hands back the bucket, and is tried again once the backoff has passed.
+	got, err := p.EnsureDeviceBucket("acct_1:dev_old")
+	if err != nil || got.BucketID != "buc-old" {
+		t.Fatalf("got=%+v err=%v", got, err)
+	}
+	if updates != 1 {
+		t.Fatalf("updates=%d, want 1", updates)
+	}
+	failUpdate = false
+	clock = clock.Add(keepLastRetryFirst)
+	if _, err := p.EnsureDeviceBucket("acct_1:dev_old"); err != nil {
+		t.Fatal(err)
+	}
+	if updates != 2 {
+		t.Fatalf("updates=%d, want 2 (retried after the failure)", updates)
+	}
+	if sentRevision != float64(3) {
+		t.Fatalf("ifRevisionIs=%v, want 3", sentRevision)
+	}
+	// Once it worked, B2 is not asked again.
+	if _, err := p.EnsureDeviceBucket("acct_1:dev_old"); err != nil {
+		t.Fatal(err)
+	}
+	if updates != 2 {
+		t.Fatalf("updates=%d, want 2 (no more calls once set)", updates)
+	}
+}
+
+// keepLastFixture is a provisioner over one old bucket whose B2 keep-last update answers with
+// onUpdate. Every other B2 call succeeds.
+func keepLastFixture(t *testing.T, now func() time.Time, onUpdate http.HandlerFunc) *BucketProvisioner {
+	t.Helper()
+	prev := os.Getenv("LUNACONNECT_DEV")
+	_ = os.Setenv("LUNACONNECT_DEV", "1")
+	t.Cleanup(func() { _ = os.Setenv("LUNACONNECT_DEV", prev) })
+	config.C.Server.AtRestKey = ""
+
+	db, err := database.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := database.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := security.SealString("old-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO device_backup_buckets (device_id, bucket_name, bucket_id, endpoint, key_id, application_key_sealed, provisioned_at)
+VALUES ('acct_1:dev_old', 'luna-backup-old', 'buc-old', 's3.example', 'kid-old', ?, 1)`, sealed); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/b2api/v2/b2_authorize_account":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"accountId": "acc", "authorizationToken": "tok",
+				"apiUrl": "http://" + r.Host, "s3ApiUrl": "https://s3.us-west-001.backblazeb2.com",
+			})
+		case strings.Contains(r.URL.Path, "b2_list_buckets"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"buckets": []map[string]any{
+				{"bucketId": "buc-old", "bucketName": "luna-backup-old", "lifecycleRules": []any{}, "revision": 3},
+			}})
+		case strings.Contains(r.URL.Path, "b2_update_bucket"):
+			onUpdate(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(ts.Close)
+
+	svc := NewService(db)
+	if _, err := svc.Create("backup", "B2", map[string]string{
+		"account_id": "acc", "application_key": "master",
+	}, map[string]string{"bucket_prefix": "luna-backup"}, true); err != nil {
+		t.Fatal(err)
+	}
+	client := NewB2Client(ts.Client())
+	client.authorizeURL = ts.URL + "/b2api/v2/b2_authorize_account"
+	return &BucketProvisioner{DB: db, Providers: svc, B2: client, Now: now}
+}
+
+func TestKeepLastBackoffDoublesAndCaps(t *testing.T) {
+	want := []time.Duration{5 * time.Minute, 10 * time.Minute, 20 * time.Minute, 40 * time.Minute}
+	for i, w := range want {
+		if got := keepLastBackoff(i + 1); got != w {
+			t.Fatalf("keepLastBackoff(%d)=%v want %v", i+1, got, w)
+		}
+	}
+	for _, n := range []int{8, 20, 1000} {
+		if got := keepLastBackoff(n); got != keepLastRetryMax {
+			t.Fatalf("keepLastBackoff(%d)=%v want the cap %v", n, got, keepLastRetryMax)
+		}
+	}
+}
+
+// A key without bucket-write rights fails the keep-last update every time. Requests in between
+// must not ask B2 again, and each retry waits twice as long as the one before.
+func TestEnsureKeepLastBacksOffAfterFailure(t *testing.T) {
+	clock := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	updates := 0
+	p := keepLastFixture(t, func() time.Time { return clock }, func(w http.ResponseWriter, r *http.Request) {
+		updates++
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"code":"unauthorized","message":"key cannot update buckets"}`))
+	})
+	call := func() {
+		t.Helper()
+		if _, err := p.EnsureDeviceBucket("acct_1:dev_old"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	expectUpdates := func(want int) {
+		t.Helper()
+		if updates != want {
+			t.Fatalf("updates=%d, want %d", updates, want)
+		}
+	}
+
+	call()
+	call()
+	call()
+	expectUpdates(1)
+
+	clock = clock.Add(keepLastRetryFirst - time.Second)
+	call()
+	expectUpdates(1)
+
+	clock = clock.Add(time.Second) // first wait (5 min) has passed
+	call()
+	expectUpdates(2)
+
+	clock = clock.Add(keepLastBackoff(2) - time.Second) // second wait is 10 min, not 5
+	call()
+	expectUpdates(2)
+
+	clock = clock.Add(time.Second)
+	call()
+	expectUpdates(3)
+}
+
+// While one request is talking to B2, parallel requests for the same bucket return at once
+// instead of queueing more B2 calls behind it.
+func TestEnsureKeepLastOneAttemptInFlight(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	updates := 0
+	p := keepLastFixture(t, nil, func(w http.ResponseWriter, r *http.Request) {
+		updates++
+		entered <- struct{}{}
+		<-release
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"code":"unauthorized","message":"no"}`))
+	})
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.EnsureDeviceBucket("acct_1:dev_old")
+		done <- err
+	}()
+	<-entered
+
+	for i := 0; i < 5; i++ {
+		if _, err := p.EnsureDeviceBucket("acct_1:dev_old"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if updates != 1 {
+		t.Fatalf("updates=%d while one attempt was running, want 1", updates)
 	}
 }

@@ -14,7 +14,7 @@ type PerfProfile struct {
 	ID          string
 	Name        string
 	Description string
-	// ParallelDiv caps parallelism; 0 keeps the configured value.
+	// Parallel caps parallelism; 0 keeps the configured value.
 	Parallel int
 	// CPUPercent and MemPercent are shares of the machine (0 = unlimited).
 	CPUPercent int
@@ -51,7 +51,7 @@ func CapJobs(n int, cpuQuota int64) int {
 var PerfCustom = &PerfProfile{ID: "custom", Name: "Custom", Description: "Use the CPU, memory and parallelism settings as set"}
 
 var PerfProfiles = []*PerfProfile{
-	{ID: PerfFull, Name: "Full", Description: "No limits (default)"},
+	{ID: PerfFull, Name: "Full", Description: "No limits"},
 	{ID: "balanced", Name: "Balanced", Description: "3 at a time, up to 75% of CPU and 60% of memory, lower priority", Parallel: 3, CPUPercent: 75, MemPercent: 60, Nice: 10},
 	{ID: "gentle", Name: "Gentle", Description: "1-2 at a time, up to 40% of CPU and 25% of memory, lowest priority", Parallel: 2, CPUPercent: 40, MemPercent: 25, Nice: 19},
 }

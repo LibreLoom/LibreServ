@@ -503,14 +503,15 @@ func (h *ConnectHandler) applyCredentials(ctx context.Context, svcID connect.Ser
 		}
 		now := time.Now()
 		repo := &storage.BackupRepository{
-			ID:          uuid.New().String(),
-			RepoType:    creds.Backup.RepoType,
-			RepoPath:    creds.Backup.RepoPath,
-			Password:    creds.Backup.Password,
-			Credentials: string(envJSON),
-			IsSystem:    false,
-			CreatedAt:   now,
-			UpdatedAt:   now,
+			ID:             uuid.New().String(),
+			RepoType:       creds.Backup.RepoType,
+			RepoPath:       creds.Backup.RepoPath,
+			Password:       creds.Backup.Password,
+			Credentials:    string(envJSON),
+			IsSystem:       false,
+			ConnectManaged: true,
+			CreatedAt:      now,
+			UpdatedAt:      now,
 		}
 		if err := h.backupService.CreateRepository(ctx, repo); err != nil {
 			return fmt.Errorf("could not save the backup repository")

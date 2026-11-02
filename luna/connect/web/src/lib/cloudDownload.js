@@ -1,4 +1,4 @@
-import { makePackReader, makePackReaderWith, readFile } from "@libreloom/ui/lib/cloud/cloudFormat.js";
+import { MissingKeyError, makePackReaderForVersions, makePackReaderWith, readFile } from "@libreloom/ui/lib/cloud/cloudFormat.js";
 import { privateUnwrap } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
 import { checkZipFits, buildZip } from "./zip.js";
 import { baseName, filesUnder } from "./cloudTree.js";
@@ -6,7 +6,8 @@ import { saveBlob } from "./download.js";
 
 /**
  * The pack reader and dedup key for one version. A private backup reads its packs through its own
- * private source with the private pack keys; a shared backup uses the shared source and backup keys.
+ * private source with the private pack keys; a shared backup opens each pack with whichever key
+ * version sealed it, so an older pack still opens after a new phrase starts a new version.
  * @param {import("./cloudSource.js").CloudSource} source
  * @param {import("./cloudUnlock.js").CloudBackup} backup
  * @param {import("./cloudUnlock.js").CloudVersion} version
@@ -17,8 +18,10 @@ function readerFor(source, backup, version) {
     const unwrapKey = privateUnwrap(sealSecret, privateSource.lunaId, scope);
     return { reader: makePackReaderWith(privateSource.getPack, unwrapKey), dedupKey };
   }
+  // The dedup key comes from the file's own version. Packs may be sealed under any version we hold.
   const keys = backup.keys[version.keyVersion];
-  return { reader: makePackReader(source.getPack, keys.key), dedupKey: keys.dedupKey };
+  if (!keys) throw new MissingKeyError();
+  return { reader: makePackReaderForVersions(source.getPack, backup.keys), dedupKey: keys.dedupKey };
 }
 
 /**
@@ -30,8 +33,12 @@ function readerFor(source, backup, version) {
  */
 export async function downloadFile(source, backup, version, entry) {
   const { reader, dedupKey } = readerFor(source, backup, version);
-  const blob = await readFile(entry, reader, dedupKey);
-  saveBlob(blob, baseName(entry.path));
+  try {
+    const blob = await readFile(entry, reader, dedupKey);
+    saveBlob(blob, baseName(entry.path));
+  } finally {
+    await reader.dispose();
+  }
 }
 
 /** A zip entry name must be a plain relative path: no "..", no leading "/", no backslash. */
@@ -56,19 +63,23 @@ export async function downloadFolder(source, backup, version, entries, folder) {
   checkZipFits(under.map((entry) => ({ path: relative(entry.path), size: entry.size })));
 
   const { reader, dedupKey } = readerFor(source, backup, version);
-  // Read in pack order so each 32 MiB pack is fetched once, then put the files back in tree order for the zip.
-  const packOf = (entry) => entry.chunks[0]?.pack ?? "";
-  const byPack = [...under].sort((a, b) => packOf(a).localeCompare(packOf(b)) || a.path.localeCompare(b.path));
-  const dataByPath = new Map();
-  for (const entry of byPack) {
-    dataByPath.set(entry.path, await readFile(entry, reader, dedupKey));
+  try {
+    // Read in pack order so each 32 MiB pack is fetched once, then put the files back in tree order for the zip.
+    const packOf = (entry) => entry.chunks[0]?.pack ?? "";
+    const byPack = [...under].sort((a, b) => packOf(a).localeCompare(packOf(b)) || a.path.localeCompare(b.path));
+    const dataByPath = new Map();
+    for (const entry of byPack) {
+      dataByPath.set(entry.path, await readFile(entry, reader, dedupKey));
+    }
+    const files = under.map((entry) => ({
+      path: relative(entry.path),
+      data: dataByPath.get(entry.path),
+      mtime: entry.mtime,
+    }));
+    const zip = await buildZip(files);
+    const name = folder ? baseName(folder) : backup.name;
+    saveBlob(zip, `${name}.zip`);
+  } finally {
+    await reader.dispose();
   }
-  const files = under.map((entry) => ({
-    path: relative(entry.path),
-    data: dataByPath.get(entry.path),
-    mtime: entry.mtime,
-  }));
-  const zip = await buildZip(files);
-  const name = folder ? baseName(folder) : backup.name;
-  saveBlob(zip, `${name}.zip`);
 }

@@ -47,6 +47,87 @@ func callBackupHandler(t *testing.T, call func(http.ResponseWriter, *http.Reques
 	return rec
 }
 
+func TestBackupHandlersListRepositoriesReportsConnectOwnership(t *testing.T) {
+	handler, service, db, _ := newBackupHandlerTest(t)
+	if err := service.CreateRepository(context.Background(), &storage.BackupRepository{
+		ID:             "connect-repo",
+		RepoType:       "s3",
+		RepoPath:       "s3:https://storage.example/backups",
+		Password:       "recovery-key",
+		ConnectManaged: true,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}); err != nil {
+		t.Fatalf("create Connect repository: %v", err)
+	}
+	if err := service.CreateRepository(context.Background(), &storage.BackupRepository{
+		ID: "system-repo", RepoType: "local", RepoPath: "/tmp/system-repo",
+		Password: "system-secret", IsSystem: true, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("create system repository: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO backup_repositories (id, repo_type, repo_path, password, credentials, connect_managed, created_at, updated_at) VALUES ('unknown-repo', 's3', 's3:legacy/bucket', 'legacy-key', NULL, NULL, NULL, NULL)`); err != nil {
+		t.Fatalf("create repository with unknown owner: %v", err)
+	}
+
+	rec := callBackupHandler(t, handler.ListRepositories, httptest.NewRequest(http.MethodGet, "/backups/repos", nil), http.StatusOK)
+	var response struct {
+		Repositories []struct {
+			ID             string     `json:"id"`
+			IsSystem       bool       `json:"is_system"`
+			ConnectManaged bool       `json:"connect_managed"`
+			OwnershipKnown bool       `json:"connect_ownership_known"`
+			CreatedAt      *time.Time `json:"created_at"`
+			UpdatedAt      *time.Time `json:"updated_at"`
+		} `json:"repositories"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode repository response: %v", err)
+	}
+	if len(response.Repositories) != 3 {
+		t.Fatalf("repository response = %+v", response.Repositories)
+	}
+	var foundConnect, foundSystem bool
+	for _, listed := range response.Repositories {
+		switch listed.ID {
+		case "connect-repo":
+			foundConnect = listed.ConnectManaged && !listed.IsSystem && listed.OwnershipKnown
+		case "system-repo":
+			foundSystem = listed.IsSystem && !listed.ConnectManaged && listed.OwnershipKnown
+		case "unknown-repo":
+			if listed.CreatedAt != nil || listed.UpdatedAt != nil || !strings.Contains(rec.Body.String(), `"created_at":null`) || !strings.Contains(rec.Body.String(), `"updated_at":null`) {
+				t.Fatalf("unknown timestamps should be JSON null: %+v", listed)
+			}
+			if listed.OwnershipKnown {
+				t.Fatal("legacy repository owner reported as known")
+			}
+		}
+	}
+	if !foundConnect || !foundSystem || strings.Contains(rec.Body.String(), "system-secret") {
+		t.Fatalf("repository ownership response = %+v", response.Repositories)
+	}
+	repeated := callBackupHandler(t, handler.ListRepositories, httptest.NewRequest(http.MethodGet, "/backups/repos", nil), http.StatusOK)
+	if repeated.Body.String() != rec.Body.String() {
+		t.Fatalf("unchanged repository dates or order drifted between reads: %s vs %s", rec.Body, repeated.Body)
+	}
+	callBackupHandler(t, handler.DeleteRepository,
+		requestWithJobParam(http.MethodDelete, "/backups/repos/connect-repo", "repoID", "connect-repo"),
+		http.StatusConflict,
+	)
+	callBackupHandler(t, handler.DeleteRepository,
+		requestWithJobParam(http.MethodDelete, "/backups/repos/unknown-repo", "repoID", "unknown-repo"),
+		http.StatusConflict,
+	)
+}
+
+func TestDeleteMissingBackupRepositoryReportsNotFound(t *testing.T) {
+	handler, _, _, _ := newBackupHandlerTest(t)
+	callBackupHandler(t, handler.DeleteRepository,
+		requestWithJobParam(http.MethodDelete, "/backups/repos/missing", "repoID", "missing"),
+		http.StatusNotFound,
+	)
+}
+
 func TestBackupHandlersListGetDeleteAndValidation(t *testing.T) {
 	handler, _, db, dir := newBackupHandlerTest(t)
 	now := time.Now()
@@ -87,6 +168,26 @@ func TestBackupHandlersListGetDeleteAndValidation(t *testing.T) {
 	callBackupHandler(t, handler.DownloadBackup, requestWithJobParam(http.MethodGet, "/backups/missing/download", "backupID", "missing"), http.StatusInternalServerError)
 
 	callBackupHandler(t, handler.DeleteBackup, requestWithJobParam(http.MethodDelete, "/backups/backup-1", "backupID", "backup-1"), http.StatusOK)
+}
+
+func TestBackupHandlerExplainsDestinationCannotBeDeletedWhileBackupsRemain(t *testing.T) {
+	handler, service, db, dir := newBackupHandlerTest(t)
+	if _, err := db.Exec(`INSERT INTO apps (id, name, type, path, status) VALUES ('retained-app', 'App', 'repo', ?, 'stopped')`, filepath.Join(dir, "apps", "retained-app")); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.CreateRepository(context.Background(), &storage.BackupRepository{ID: "retained-repo", AppID: "retained-app", RepoType: "local", RepoPath: "/tmp/retained", Password: "key", CreatedAt: time.Now(), UpdatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO backups (id, app_id, type, path, repo_id, format) VALUES ('retained-backup', 'retained-app', 'app', '/tmp/backup', 'retained-repo', 'restic')`); err != nil {
+		t.Fatal(err)
+	}
+	rec := callBackupHandler(t, handler.DeleteRepository,
+		requestWithJobParam(http.MethodDelete, "/backups/repos/retained-repo", "repoID", "retained-repo"),
+		http.StatusConflict,
+	)
+	if !strings.Contains(rec.Body.String(), "This destination still has saved backups") {
+		t.Fatalf("delete error response = %s", rec.Body)
+	}
 }
 
 func TestBackupHandlersDatabaseBackupAndUpload(t *testing.T) {
@@ -199,7 +300,11 @@ func requestWithBodyAndParam(method, target, body, key, value string) *http.Requ
 }
 
 func TestBackupRepositoryHandlers(t *testing.T) {
-	handler, service, _, dir := newBackupHandlerTest(t)
+	handler, service, db, dir := newBackupHandlerTest(t)
+	appPath := filepath.Join(dir, "apps", "app-1")
+	if _, err := db.Exec(`INSERT INTO apps (id, name, type, path, status) VALUES ('app-1', 'App', 'repo', ?, 'stopped')`, appPath); err != nil {
+		t.Fatalf("insert app: %v", err)
+	}
 	ctx := context.Background()
 	now := time.Now()
 	repo := &storage.BackupRepository{
@@ -218,16 +323,25 @@ func TestBackupRepositoryHandlers(t *testing.T) {
 	callBackupHandler(t, handler.CreateRepository, httptest.NewRequest(http.MethodPost, "/repositories", strings.NewReader(`{`)), http.StatusBadRequest)
 	callBackupHandler(t, handler.CreateRepository, httptest.NewRequest(http.MethodPost, "/repositories", strings.NewReader(`{}`)), http.StatusBadRequest)
 	callBackupHandler(t, handler.CreateRepository, httptest.NewRequest(http.MethodPost, "/repositories", strings.NewReader(`{"repo_type":"local"}`)), http.StatusBadRequest)
+	callBackupHandler(t, handler.CreateRepository, httptest.NewRequest(http.MethodPost, "/repositories", strings.NewReader(
+		`{"app_id":"app-1","repo_type":"unsupported","repo_path":"/tmp/unsupported"}`,
+	)), http.StatusBadRequest)
+	callBackupHandler(t, handler.CreateRepository, httptest.NewRequest(http.MethodPost, "/repositories", strings.NewReader(
+		`{"app_id":"missing-app","repo_type":"local","repo_path":"/tmp/missing-app"}`,
+	)), http.StatusBadRequest)
 	// These assertions depend on whether a restic binary is available in the
 	// environment: with restic, repo creation succeeds; without it, the
 	// handler returns 412 Precondition Failed.
 	if service.UseRestic() {
 		callBackupHandler(t, handler.CreateRepository, httptest.NewRequest(http.MethodPost, "/repositories", strings.NewReader(
-			`{"repo_type":"local","repo_path":"/tmp/new","credentials":{"token":"secret"}}`,
+			`{"app_id":"app-1","repo_type":"local","repo_path":"/tmp/new","credentials":{"token":"secret"}}`,
 		)), http.StatusCreated)
+		callBackupHandler(t, handler.CreateRepository, httptest.NewRequest(http.MethodPost, "/repositories", strings.NewReader(
+			`{"app_id":"app-1","repo_type":"local","repo_path":"/tmp/second"}`,
+		)), http.StatusConflict)
 	} else {
 		callBackupHandler(t, handler.CreateRepository, httptest.NewRequest(http.MethodPost, "/repositories", strings.NewReader(
-			`{"repo_type":"local","repo_path":"/tmp/new","credentials":{"token":"secret"}}`,
+			`{"app_id":"app-1","repo_type":"local","repo_path":"/tmp/new","credentials":{"token":"secret"}}`,
 		)), http.StatusPreconditionFailed)
 	}
 

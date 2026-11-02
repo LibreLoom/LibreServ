@@ -7,6 +7,8 @@ pub mod cloud_phrase;
 pub mod cloud_restore;
 pub mod cloud_restore_private;
 pub mod connect;
+#[cfg(test)]
+pub(crate) mod contract;
 pub mod device_tokens;
 pub mod drives;
 pub mod forms;

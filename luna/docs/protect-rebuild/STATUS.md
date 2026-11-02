@@ -41,7 +41,7 @@ orchestrator re-ran every suite before committing. Checks at the phase 5 commit:
 - Overlapping purges of an unlinked Luna are possible after a crash retry; purging is idempotent.
 - `gofmt` flags `luna/connect/internal/api/handlers/admin_console.go` (was unformatted before this work).
 - The source-missing check in `run_once` has no direct test.
-- `needed` on the Luna restore card compares counts only (not changed in phase 4).
+- `needed` on the Luna restore card compares snapshot ids, not counts (changed after phase 4): equal totals can still hide missing versions, and private snapshots stay out of the comparison.
 - Restore downloads every tree pack in one go (data packs are no longer downloaded).
 - Desktop and Android have no Protect screens (plan §9); check by grep before assuming.
 

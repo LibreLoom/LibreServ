@@ -67,6 +67,8 @@ const memberRow = (w, s, m, me) => ({
   name: userName(w, m.user_id),
   caps: m.caps,
   effective_caps: m.effective_caps || m.caps,
+  created_by: m.created_by ?? s.owner_id,
+  shared_by: userName(w, m.created_by || s.owner_id),
   can_manage: s.my_caps.includes("share"),
   can_remove: s.my_caps.includes("share") || m.user_id === me.id,
 });
@@ -74,6 +76,8 @@ const linkRow = (s, l) => ({
   id: l.id,
   caps: l.caps,
   has_password: Boolean(l.password),
+  created_at: l.created_at ?? 0,
+  created_by: s.owner_id,
   expires_at: l.expires_at ?? null,
   url: `/s/${l.token}`,
   can_manage: s.my_caps.includes("share"),
@@ -84,8 +88,11 @@ get("/api/v1/access/subject", ({ world, user, query }) => {
   if (!s) return fail(404, "That album no longer exists.");
   if (s.hidden) return fail(403, "You don't have access to share this.");
   return {
-    subject: { kind: s.kind, name: s.name, path: s.path, is_file: s.is_file, private: s.private, private_folder: Boolean(s.private_folder), album_id: s.album_id },
+    subject: { kind: s.kind, name: s.name, path: s.path, is_file: s.is_file, private: s.private, private_folder: Boolean(s.private_folder), album_id: s.album_id, drive_id: s.drive_id, exists: s.exists !== false, item_count: s.kind === "album" ? (world.albumItems?.[s.album_id] || []).length : (s.is_file ? 1 : 0), owner: s.owner_id },
     my_caps: s.my_caps,
+    private: s.private,
+    link_count: s.links.length,
+    member_count: s.members.length,
     members: s.members.map((m) => memberRow(world, s, m, user)),
     links: s.links.map((l) => linkRow(s, l)),
     inherited_members: s.inherited_members || [],
@@ -177,7 +184,7 @@ del("/api/v1/access/links/:id", ({ world, params }) => {
   const hit = findLink(world, params.id);
   if (!hit) return fail(404, "That link is already gone.");
   hit.s.links = hit.s.links.filter((x) => x !== hit.l);
-  (sharing(world).revoked ||= new Set()).add(hit.l.token);
+  (sharing(world).revoked ||= []).push(hit.l.token);
   return {};
 });
 
@@ -198,12 +205,13 @@ function myRows(w, user) {
         name: s.name,
         is_file: s.is_file,
         caps: m.caps,
+        created_by: s.owner_id,
         shared_by: userName(w, s.owner_id),
         exists: s.exists !== false,
       });
     }
   }
-  return [...rows, ...sh.withMe];
+  return [...rows, ...sh.withMe.map((r) => ({ created_by: "", ...r }))];
 }
 
 get("/api/v1/access/mine", ({ world, user }) => {
@@ -220,8 +228,14 @@ get("/api/v1/access/mine", ({ world, user }) => {
 });
 
 get("/api/v1/me/access", ({ world, user }) => [
-  ...(world.access || []),
-  ...myRows(world, user).filter((r) => r.exists !== false).map(({ kind, drive_id, path, album_id, caps }) => ({ kind, drive_id, path, album_id, caps })),
+  // Grants made straight on the world apply to the person named in `user_id`, or to any Member when none is named.
+  ...(world.access || []).filter((r) => !r.user_id || r.user_id === user.id).map(({ user_id: _who, ...row }) => ({
+    id: row.id ?? "", kind: row.kind ?? "path", album_id: row.album_id ?? "", drive_id: row.drive_id ?? "", drive_label: row.drive_label ?? "",
+    path: row.path ?? "", name: row.name ?? "", is_file: row.is_file ?? false, caps: row.caps,
+    created_by: row.created_by ?? "", shared_by: row.shared_by ?? "", exists: row.exists !== false,
+  })),
+  // Rows from shares: the full "shared with you" row shape.
+  ...myRows(world, user),
 ]);
 
 // ── Forms (signed-in side) ──────────────────────────────────────────────────
@@ -296,12 +310,13 @@ publicGet("/s/:token", ({ world, params, headers }) => {
       kind: "form",
       form: l.form || {
         title: s.name,
-        description: "Tell us what you think.",
+        version: 1,
         questions: [
           { id: "q1", type: "short_text", label: "Your name", required: true },
-          { id: "q2", type: "choice", label: "Can you come?", required: true, options: ["Yes", "No", "Maybe"] },
-          { id: "q3", type: "long_text", label: "Anything we should know?", required: false },
+          { id: "q2", type: "choice", label: "Can you come?", required: true, config: { options: ["Yes", "No", "Maybe"] } },
+          { id: "q3", type: "long_text", label: "Anything we should know?" },
         ],
+        settings: { allowEdits: false, collecting: true },
       },
       accepting: l.accepting !== false,
       full: Boolean(l.full),
@@ -332,7 +347,7 @@ publicGet("/s/:token/list", ({ world, params, headers }) => {
 publicGet("/s/:token/stat", ({ world, params, headers }) => {
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
-  return { name: r.s.name, kind: r.s.is_file ? "file" : "dir", size: 120_000, modified: nowSec() - 86400 };
+  return { name: r.s.name, kind: r.s.is_file ? "file" : "dir", size: 120_000, modified: nowSec() - 86400, children: null, created: nowSec() - 86400 * 30, hidden: false, totals: null, writable: false };
 });
 
 post("/s/:token/upload", ({ world, params, headers, body }) => {
@@ -353,7 +368,7 @@ del("/s/:token/upload/:id", () => ({}), { public: true });
 get("/s/:token/respond", ({ world, params, query }) => {
   const hit = lookup(world, params.token);
   const r = hit?.l.responses?.find((x) => x.edit_token === query.edit_token);
-  return r ? { id: r.id, answers: r.answers } : fail(404, "We couldn't find answers for that edit link.");
+  return r ? { id: r.id, answers: r.answers, ok: true } : fail(404, "We couldn't find answers for that edit link.");
 }, { public: true });
 post("/s/:token/respond", ({ world, params, headers, body }) => {
   const r = open(world, params.token, headers);

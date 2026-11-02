@@ -1,6 +1,7 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use adw::prelude::*;
 use gtk::gio;
@@ -13,6 +14,9 @@ use super::adaptive::{configure_form_dialog, make_page_toolbar, touch_icon_butto
 use super::folder_browser::FolderBrowser;
 use super::spawn_blocking;
 use super::toast_error;
+
+/// The drive check asks Luna over HTTP, so it runs at most this often.
+const DRIVE_CHECK_EVERY: Duration = Duration::from_secs(30);
 
 pub struct SyncPage {
     root: gtk::Widget,
@@ -63,6 +67,8 @@ impl SyncPage {
         outer.append(&scrolled);
 
         let refresh_slot: Rc<RefCell<Option<Rc<dyn Fn()>>>> = Rc::new(RefCell::new(None));
+        let last_drive_check: Rc<Cell<Option<Instant>>> = Rc::new(Cell::new(None));
+        let no_drives = Rc::new(Cell::new(false));
         let do_refresh = {
             let state = state.clone();
             let list = list.clone();
@@ -70,6 +76,8 @@ impl SyncPage {
             let toast = toast.clone();
             let outer = outer.clone();
             let refresh_slot = refresh_slot.clone();
+            let last_drive_check = last_drive_check.clone();
+            let no_drives = no_drives.clone();
             Rc::new(move || {
                 let state = state.clone();
                 let list = list.clone();
@@ -77,7 +85,14 @@ impl SyncPage {
                 let toast = toast.clone();
                 let outer = outer.clone();
                 let refresh_slot = refresh_slot.clone();
+                let no_drives = no_drives.clone();
                 let state_for_ui = state.clone();
+                let check_drives = last_drive_check
+                    .get()
+                    .is_none_or(|at| at.elapsed() >= DRIVE_CHECK_EVERY);
+                if check_drives {
+                    last_drive_check.set(Some(Instant::now()));
+                }
                 spawn_blocking(
                     move || {
                         let pairs = luna_desktop::sync::load_pairs();
@@ -86,10 +101,18 @@ impl SyncPage {
                             .lock()
                             .map(|m| m.clone())
                             .unwrap_or_default();
-                        let drives = luna_desktop::list_drives(&state).unwrap_or_default();
-                        (pairs, progress, drives.is_empty())
+                        let checked_drives = check_drives.then(|| {
+                            luna_desktop::list_drives(&state)
+                                .unwrap_or_default()
+                                .is_empty()
+                        });
+                        (pairs, progress, checked_drives)
                     },
-                    move |(pairs, progress, no_drives)| {
+                    move |(pairs, progress, checked_drives)| {
+                        if let Some(empty_now) = checked_drives {
+                            no_drives.set(empty_now);
+                        }
+                        let no_drives = no_drives.get();
                         while let Some(row) = list.row_at_index(0) {
                             list.remove(&row);
                         }
@@ -127,12 +150,20 @@ impl SyncPage {
         *refresh_slot.borrow_mut() = Some(do_refresh.clone());
         do_refresh();
 
-        glib::timeout_add_local(std::time::Duration::from_secs(2), {
+        // Hidden pages skip their ticks. Mapping the page again refreshes it at once.
+        glib::timeout_add_local(Duration::from_secs(2), {
             let do_refresh = do_refresh.clone();
+            let outer = outer.clone();
             move || {
-                do_refresh();
+                if outer.is_mapped() {
+                    do_refresh();
+                }
                 glib::ControlFlow::Continue
             }
+        });
+        outer.connect_map({
+            let do_refresh = do_refresh.clone();
+            move |_| do_refresh()
         });
 
         new_btn.connect_clicked({

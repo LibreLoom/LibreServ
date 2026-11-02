@@ -77,6 +77,20 @@ describe("PrivateRestoreCard", () => {
     await waitFor(() => expect(container).toBeEmptyDOMElement());
   });
 
+  it("shows a retry when Luna cannot check whether private restore is needed", async () => {
+    getPrivateRestoreStatusMock
+      .mockRejectedValueOnce(new Error("Connect is unavailable"))
+      .mockResolvedValueOnce(STATUS);
+    const user = userEvent.setup();
+    renderCard();
+
+    expect(
+      await screen.findByText("Luna could not check whether your private items need restoring. Try again."),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("textbox", { name: "Recovery phrase" })).toBeInTheDocument();
+  });
+
   it("shows the card to a member, not only an Admin", async () => {
     mockUser = { id: "7", role: "member" };
     renderCard();
@@ -88,6 +102,32 @@ describe("PrivateRestoreCard", () => {
     renderCard();
     expect(await screen.findByText("connect.luna.libreloom.org")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Find my private items" })).toBeInTheDocument();
+  });
+
+  it("stops private restore and explains that completed versions can be retried", async () => {
+    restorePrivateFromPhraseMock.mockImplementation((_, options) => {
+      options.onProgress?.({ processed: 1, total: 2, snapshots: 1, already_indexed: 0, skipped: 0 });
+      return new Promise((_, reject) => {
+        options.signal.addEventListener("abort", () => {
+          reject(new DOMException("Restore stopped", "AbortError"));
+        }, { once: true });
+      });
+    });
+    const user = userEvent.setup();
+    renderCard();
+    await user.type(await screen.findByLabelText("Recovery phrase"), "one two three");
+    await user.click(screen.getByRole("button", { name: "Find my private items" }));
+
+    await waitFor(() => expect(restorePrivateFromPhrase).toHaveBeenCalled());
+    const options = restorePrivateFromPhraseMock.mock.calls[0][1];
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+    expect(await screen.findByText("Restoring backup 1 of 2")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Stop restore" }));
+    expect(await screen.findByText(
+      "Restore stopped. Some private versions may already be back; you can safely try again.",
+    )).toBeInTheDocument();
+    expect(screen.queryByText(/Found \d+ private version/)).not.toBeInTheDocument();
   });
 
   it("explains a missing signing key instead of the phrase form", async () => {
@@ -109,10 +149,11 @@ describe("PrivateRestoreCard", () => {
     await user.click(screen.getByRole("button", { name: "Find my private items" }));
 
     await waitFor(() =>
-      expect(restorePrivateFromPhrase).toHaveBeenCalledWith("one two three", {
+      expect(restorePrivateFromPhrase).toHaveBeenCalledWith("one two three", expect.objectContaining({
         lunaId: "luna-fixture-1",
         signingPublic: "AAAA",
-      }),
+        onProgress: expect.any(Function),
+      })),
     );
     expect(await screen.findByText("Found 1 private version")).toBeInTheDocument();
     expect(field).toHaveValue("");

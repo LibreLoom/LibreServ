@@ -3,7 +3,7 @@ import { buildBackupItems, buildPhraseItem, visibleBackupRows } from "./needsYou
 
 const MISSING = "The folder or drive this backs up is not available right now.";
 const FALLBACK = "The last copy did not finish. Open it to see what went wrong.";
-const PHRASE_DETAIL = "It's been a while. Make sure your recovery words still open your cloud backups.";
+const PHRASE_DETAIL = "It's been a while. Make sure your recovery phrase still opens your cloud backups.";
 
 /** @returns {any} */
 function drive(overrides = {}) {
@@ -114,13 +114,26 @@ describe("buildBackupItems", () => {
   it("uses the fallback sentence when a failing backup has no reason", () => {
     const [item] = buildBackupItems({ backupRows: [drive({ state: "failing" })], ...ADMIN });
     expect(item.title).toEqual([{ name: "Photos" }, " backup didn't finish"]);
-    expect(item.detail).toBe(FALLBACK);
+    expect(item.detail).toEqual(["Backing up to ", { name: "Backup drive" }, " did not finish."]);
   });
 
-  it("titles a stale drive backup as not copied in a day, with the fallback detail", () => {
-    const [item] = buildBackupItems({ backupRows: [drive({ state: "stale", last_error: "" })], ...ADMIN });
-    expect(item.title).toEqual([{ name: "Photos" }, " hasn't been copied in a day"]);
-    expect(item.detail).toBe(FALLBACK);
+  it("names the backup drive when it is full", () => {
+    const [item] = buildBackupItems({
+      backupRows: [drive({ state: "failing", last_error: "Drive full." })],
+      ...ADMIN,
+    });
+    expect(item.detail).toEqual([{ name: "Backup drive" }, " (the backup drive) is full."]);
+  });
+
+  it("titles a stale drive backup as out of date, with the real age", () => {
+    const now = 1_000_000 * 1000;
+    const [item] = buildBackupItems({
+      backupRows: [drive({ state: "stale", last_error: "", last_ok_at: 1_000_000 - 2 * 86400 })],
+      ...ADMIN,
+      now,
+    });
+    expect(item.title).toEqual([{ name: "Photos" }, " backup is out of date"]);
+    expect(item.detail).toBe("Last backed up 2 days ago.");
   });
 
   it("titles a cloud backup whose original is missing, with the missing-source detail", () => {

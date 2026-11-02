@@ -6,7 +6,7 @@ export const CHECK_LABELS = {
   database: "Accounts and settings",
   data_path_writable: "Luna data folder",
   logs_path_writable: "Logs folder",
-  disk_space: "Storage space",
+  disk_space: "Luna's own storage",
   clock: "Clock",
   update_signing: "Update safety check",
   os_update_tools: "System updates",

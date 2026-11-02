@@ -48,4 +48,14 @@ describe("passwordPolicy", () => {
     expect(without.ok).toBe(true);
     expect(without.hasSpecial).toBe(false);
   });
+
+  it("can count UTF-8 bytes without changing the default character count", () => {
+    const password = "é".repeat(9) + "a1";
+
+    expect(passwordChecks(password).hasLength).toBe(false);
+    expect(passwordChecks(password, { lengthUnit: "utf8-bytes" }).hasLength).toBe(true);
+    expect(passwordPolicyError(password, { lengthUnit: "utf8-bytes" })).toBeNull();
+    expect(meetsPasswordPolicy(password, { lengthUnit: "utf8-bytes" })).toBe(true);
+    expect(passwordPolicyError("é".repeat(4) + "a1", { lengthUnit: "utf8-bytes" })).toContain("12 characters");
+  });
 });

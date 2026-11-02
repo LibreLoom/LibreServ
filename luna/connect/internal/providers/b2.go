@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -91,8 +92,42 @@ func (r *b2AuthResponse) normalize() {
 }
 
 type b2BucketResponse struct {
-	BucketID   string `json:"bucketId"`
-	BucketName string `json:"bucketName"`
+	BucketID       string            `json:"bucketId"`
+	BucketName     string            `json:"bucketName"`
+	LifecycleRules []b2LifecycleRule `json:"lifecycleRules"`
+	// Revision changes every time B2 updates the bucket. Sending it back as ifRevisionIs makes
+	// an update fail instead of overwriting a change made in between.
+	Revision int64 `json:"revision"`
+}
+
+// b2LifecycleRule is one B2 file lifecycle rule. fileNamePrefix "" applies to every file.
+type b2LifecycleRule struct {
+	FileNamePrefix            string `json:"fileNamePrefix"`
+	DaysFromHidingToDeleting  *int   `json:"daysFromHidingToDeleting,omitempty"`
+	DaysFromUploadingToHiding *int   `json:"daysFromUploadingToHiding,omitempty"`
+}
+
+// keepLastVersionRules keeps only the newest version of each file. A file that is overwritten is
+// hidden at once and deleted a day later, so an old phrase's copy does not stay billed forever.
+func keepLastVersionRules() []b2LifecycleRule {
+	days := 1
+	return []b2LifecycleRule{{FileNamePrefix: "", DaysFromHidingToDeleting: &days}}
+}
+
+// hasKeepLastVersionRules reports whether a bucket's rules are exactly keepLastVersionRules.
+func hasKeepLastVersionRules(rules []b2LifecycleRule) bool {
+	want := keepLastVersionRules()
+	if len(rules) != len(want) {
+		return false
+	}
+	for i := range rules {
+		got, exp := rules[i], want[i]
+		if got.FileNamePrefix != exp.FileNamePrefix || got.DaysFromUploadingToHiding != nil ||
+			got.DaysFromHidingToDeleting == nil || *got.DaysFromHidingToDeleting != *exp.DaysFromHidingToDeleting {
+			return false
+		}
+	}
+	return true
 }
 
 type b2KeyResponse struct {
@@ -155,7 +190,7 @@ func (c *B2Client) authorizeFresh(accountID, applicationKey string) (*b2AuthResp
 	return &resp, nil
 }
 
-// CreateBucket creates a private B2 bucket.
+// CreateBucket creates a private B2 bucket that keeps only the last version of each file.
 func (c *B2Client) CreateBucket(apiURL, authToken, accountID, name, bucketType string) (*b2BucketResponse, error) {
 	if bucketType == "" {
 		bucketType = "allPrivate"
@@ -164,15 +199,66 @@ func (c *B2Client) CreateBucket(apiURL, authToken, accountID, name, bucketType s
 	var resp b2BucketResponse
 	if err := doJSON(c.httpClient, http.MethodPost, url, map[string]string{
 		"Authorization": authToken,
-	}, map[string]string{
-		"accountId":  accountID,
-		"bucketName": name,
-		"bucketType": bucketType,
+	}, map[string]any{
+		"accountId":      accountID,
+		"bucketName":     name,
+		"bucketType":     bucketType,
+		"lifecycleRules": keepLastVersionRules(),
 	}, &resp); err != nil {
 		return nil, fmt.Errorf("could not create Backblaze B2 bucket: %w", err)
 	}
 	resp.BucketName = name
 	return &resp, nil
+}
+
+// EnsureKeepLastVersion applies the keep-last-version rule to an existing bucket. It does nothing
+// when the bucket already has exactly that rule, so it is safe to call on every provision.
+//
+// Any other lifecycle rules on the bucket are REPLACED by the one rule: B2 sets the whole list at
+// once. Luna's buckets hold only Luna's own files, so nothing else is expected there. When B2
+// reported the bucket's revision, it is sent as ifRevisionIs, so a bucket changed since it was read
+// is refused rather than overwritten; the caller can read it again and retry.
+func (c *B2Client) EnsureKeepLastVersion(apiURL, authToken, accountID string, bucket *b2BucketResponse) error {
+	if hasKeepLastVersionRules(bucket.LifecycleRules) {
+		return nil
+	}
+	url := strings.TrimRight(apiURL, "/") + "/b2api/v2/b2_update_bucket"
+	var resp b2BucketResponse
+	update := map[string]any{
+		"accountId":      accountID,
+		"bucketId":       bucket.BucketID,
+		"lifecycleRules": keepLastVersionRules(),
+	}
+	if bucket.Revision > 0 {
+		update["ifRevisionIs"] = bucket.Revision
+	}
+	if err := doJSON(c.httpClient, http.MethodPost, url, map[string]string{
+		"Authorization": authToken,
+	}, update, &resp); err != nil {
+		return fmt.Errorf("could not set Backblaze B2 bucket to keep only the last version: %w", err)
+	}
+	bucket.LifecycleRules = keepLastVersionRules()
+	if resp.Revision > 0 {
+		bucket.Revision = resp.Revision
+	}
+	return nil
+}
+
+// EnsureKeepLastVersionByName applies the keep-last-version rule to the existing bucket called
+// name, using the account's master key. Use it for buckets provisioned before the rule existed.
+func (c *B2Client) EnsureKeepLastVersionByName(accountID, applicationKey, name string) error {
+	auth, err := c.Authorize(accountID, applicationKey)
+	if err != nil {
+		return err
+	}
+	bucket, err := c.findBucket(auth.APIURL, auth.AuthorizationToken, auth.AccountID, name)
+	if err != nil {
+		return err
+	}
+	if bucket == nil {
+		return fmt.Errorf("Backblaze B2 bucket %s was not found", name)
+	}
+	return c.EnsureKeepLastVersion(auth.APIURL, auth.AuthorizationToken, auth.AccountID, bucket)
 }
 
 // ListBuckets returns all buckets on the account.
@@ -269,6 +355,11 @@ func (c *B2Client) ProvisionBucket(accountID, applicationKey, bucketName string)
 		}
 		if existing == nil {
 			return nil, fmt.Errorf("Backblaze B2 reported the bucket already exists, but it was not found: %s", bucketName)
+		}
+		// Best effort: the master key is in use and the bucket works without the rule, so a
+		// backup can still start. The rule is tried again the next time this Luna asks for its bucket.
+		if err := c.EnsureKeepLastVersion(auth.APIURL, auth.AuthorizationToken, auth.AccountID, existing); err != nil {
+			slog.Warn("backup bucket: could not set keep-last-version", "bucket", bucketName, "error", err)
 		}
 		bucket = existing
 	}

@@ -64,14 +64,14 @@ export function needsALook(b) {
  * @param {any} b
  * @returns {{ label: string, variant: "success"|"warning"|"error"|"default" }}
  */
-export function backupStatus(b) {
+export function backupStatus(b, now = Date.now()) {
   if (b.status === "stopped") return { label: "Stopped", variant: "default" };
   if (b.status === "source_gone") return { label: "Original is gone", variant: "default" };
   if (b.kind === "cloud" && b.status === "active" && b.source_missing) {
     return { label: "Original is missing", variant: "warning" };
   }
   if (b.state === "failing") return { label: "Last copy failed", variant: "error" };
-  if (b.state === "stale") return { label: "Not copied in a day", variant: "warning" };
+  if (b.state === "stale") return { label: lastBackedUpLine(b.last_ok_at, now), variant: "warning" };
   if (b.kind === "cloud" && b.check_problem) return { label: "Check failed", variant: "warning" };
   if (!b.last_ok_at) return { label: "No copy yet", variant: "default" };
   return { label: "Backup successful", variant: "success" };
@@ -90,11 +90,23 @@ export function sortByUrgency(list) {
   );
 }
 
+/**
+ * The one wording for when a backup last finished: "Last backed up 2 days ago."
+ * Used wherever a backup's age is shown, stale or not. Anything a week or older
+ * reads as a date ("Last backed up on Mar 4.").
+ * @param {number | null | undefined} lastOkAt Unix seconds, 0 or missing when it never finished.
+ * @param {number} [now]
+ */
+export function lastBackedUpLine(lastOkAt, now = Date.now()) {
+  if (!lastOkAt) return "Not backed up yet.";
+  const ago = formatRecentAgo(lastOkAt * 1000, now);
+  if (ago === "Just now") return "Last backed up just now.";
+  return /ago$/.test(ago) ? `Last backed up ${ago}.` : `Last backed up on ${ago}.`;
+}
+
 /** @param {any} b @param {number} [now] */
 export function lastCopyLine(b, now = Date.now()) {
-  return b.last_ok_at
-    ? `Last copy ${formatRecentAgo(b.last_ok_at * 1000, now).replace(/^Just now$/, "just now")}`
-    : "No copy yet";
+  return lastBackedUpLine(b.last_ok_at, now);
 }
 
 /** Name shown for a backup's creator, or "Someone" when unknown. */

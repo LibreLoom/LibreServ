@@ -38,6 +38,17 @@ export default [
     check: ["No admin-only cards on the dashboard", "/settings/users/u1 is blocked, not blank", "Settings hides admin categories"],
   },
   {
+    id: "auth/member-needs-phrase",
+    area: "Sign-in",
+    title: "Member signed in without a recovery phrase",
+    seed: (w) => {
+      w.users.push(user({ id: "u2", username: "sam", display_name: "Sam", role: "user" }));
+      w.sessionUserId = "u2";
+      w.phrase = { ...w.phrase, set: false };
+    },
+    check: ["The recovery phrase gate shows before the app", "Sign out works from the gate", "Saving a phrase opens the dashboard"],
+  },
+  {
     id: "auth/session-dies-mid-use",
     area: "Sign-in",
     title: "Session dies while using the app",

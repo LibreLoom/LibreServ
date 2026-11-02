@@ -37,6 +37,8 @@ func privFixture(t *testing.T) (d Deps, acct string, lunaPriv hybridKey, authPub
 func privWriteScope(t *testing.T, d Deps, acct, scope, userID string, authPub []byte, signWith hybridKey) {
 	t.Helper()
 	sealPublic := bytes.Repeat([]byte{7}, sealPublicLen)
+	scopePublic := bytes.Repeat([]byte{8}, sealPublicLen)
+	sealedScopeSecret := []byte("sealed scope secret")
 	sealed := []byte("sealed")
 	created := time.Now().Unix()
 	var c [8]byte
@@ -48,6 +50,8 @@ func privWriteScope(t *testing.T, d Deps, acct, scope, userID string, authPub []
 		[2][]byte{[]byte("seal_public"), sealPublic},
 		[2][]byte{[]byte("auth_public"), authPub},
 		[2][]byte{[]byte("created_at"), c[:]},
+		[2][]byte{[]byte("scope_public"), scopePublic},
+		[2][]byte{[]byte("sealed_scope_secret"), sealedScopeSecret},
 		[2][]byte{[]byte("sealed_dedup"), sealed},
 	)
 	sig := signWith.sign(t, privateScopeDomain, msg)
@@ -55,7 +59,8 @@ func privWriteScope(t *testing.T, d Deps, acct, scope, userID string, authPub []
 		"record": map[string]any{
 			"luna_id": privTestLuna, "scope": scope, "user_id": userID,
 			"seal_public": hex.EncodeToString(sealPublic), "auth_public": hex.EncodeToString(authPub),
-			"created_at": created, "sealed_dedup": hex.EncodeToString(sealed),
+			"created_at": created, "scope_public": hex.EncodeToString(scopePublic),
+			"sealed_scope_secret": hex.EncodeToString(sealedScopeSecret), "sealed_dedup": hex.EncodeToString(sealed),
 		},
 		"signature": hex.EncodeToString(sig),
 	})

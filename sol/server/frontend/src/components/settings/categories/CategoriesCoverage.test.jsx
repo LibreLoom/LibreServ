@@ -734,15 +734,16 @@ describe("settings category coverage", () => {
           ],
         });
       }
-      if (path === "/backups/repos") return jsonResponse({ repos: [] });
+      if (path === "/backups/repos") return jsonResponse({ repositories: [] });
       return jsonResponse({ ok: true });
     });
     window.URL.createObjectURL = vi.fn(() => "blob:backup");
     window.URL.revokeObjectURL = vi.fn();
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-    render(<BackupsCategory connectStatus={{ services: {} }} />);
+    render(<BackupsCategory />);
 
     expect(await screen.findByText("2 of 1 apps backed up")).toBeVisible();
+    expect(screen.getByText("Off-site backup storage")).toBeVisible();
     expect(screen.getByText("Copies from apps that are no longer installed")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Notes backups" }));
     expect(screen.getByText(/Automatic backups on/)).toBeVisible();
@@ -793,6 +794,91 @@ describe("settings category coverage", () => {
       "/backups/database/upload-restore",
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  it("asks users to confirm a configured S3 or B2 destination is hosted off-site", async () => {
+    requestMock.mockImplementation(async (path) => {
+      if (path === "/backups") return jsonResponse({ backups: [] });
+      if (path === "/apps") return jsonResponse({ apps: [{ id: "notes", name: "Notes" }] });
+      if (path === "/backups/schedules") return jsonResponse({ schedules: [] });
+      if (path === "/backups/repos") return jsonResponse({ repositories: [{ id: "dest-1", connect_ownership_known: true, connect_managed: false, repo_type: "s3", repo_path: "s3:bucket" }] });
+      return jsonResponse({});
+    });
+    render(<BackupsCategory />);
+    await screen.findByRole("button", { name: /Notes backups/ });
+    await waitFor(() => expect(requestMock).toHaveBeenCalledWith("/backups/repos"));
+    expect(screen.getByText("Check your backup location")).toBeVisible();
+    expect(screen.getByText(/Confirm it is hosted somewhere else/)).toBeVisible();
+  });
+
+  it("identifies Connect-managed S3 storage while still asking admins to confirm where it is hosted", async () => {
+    requestMock.mockImplementation(async (path) => {
+      if (path === "/backups") return jsonResponse({ backups: [] });
+      if (path === "/apps") return jsonResponse({ apps: [] });
+      if (path === "/backups/schedules") return jsonResponse({ schedules: [] });
+      if (path === "/backups/repos") return jsonResponse({ repositories: [{ id: "connect-dest", connect_ownership_known: true, repo_type: "s3", repo_path: "s3:connect-bucket", connect_managed: true }] });
+      return jsonResponse({});
+    });
+    render(<BackupsCategory />);
+    expect(await screen.findByText("Connect backup storage")).toBeVisible();
+    expect(screen.getByText(/Connect provisions this S3-compatible backup destination/)).toBeVisible();
+    expect(screen.getByText(/Confirm with your server admin that its storage provider is hosted somewhere else/)).toBeVisible();
+  });
+
+  it("keeps the custom location warning when Connect and custom S3 destinations both exist", async () => {
+    requestMock.mockImplementation(async (path) => {
+      if (path === "/backups") return jsonResponse({ backups: [] });
+      if (path === "/apps") return jsonResponse({ apps: [] });
+      if (path === "/backups/schedules") return jsonResponse({ schedules: [] });
+      if (path === "/backups/repos") return jsonResponse({ repositories: [
+        { id: "connect-dest", connect_ownership_known: true, repo_type: "s3", repo_path: "s3:connect-bucket", connect_managed: true },
+        { id: "custom-dest", connect_ownership_known: true, repo_type: "s3", repo_path: "s3:lan-bucket", connect_managed: false },
+      ] });
+      return jsonResponse({});
+    });
+    render(<BackupsCategory />);
+    expect(await screen.findByText("Check your backup location")).toBeVisible();
+    expect(screen.getByText(/a custom S3-compatible server on this network could be lost/)).toBeVisible();
+  });
+
+  it("does not describe an unknown owner as a custom or Connect destination", async () => {
+    requestMock.mockImplementation(async (path) => {
+      if (path === "/backups") return jsonResponse({ backups: [] });
+      if (path === "/apps") return jsonResponse({ apps: [] });
+      if (path === "/backups/schedules") return jsonResponse({ schedules: [] });
+      if (path === "/backups/repos") return jsonResponse({ repositories: [{ id: "legacy-dest", connect_ownership_known: false, repo_type: "s3", repo_path: "s3:legacy-bucket" }] });
+      return jsonResponse({});
+    });
+    render(<BackupsCategory />);
+    expect(await screen.findByText("Check your backup location")).toBeVisible();
+    expect(screen.getByText(/Sol can't confirm who manages it/)).toBeVisible();
+    expect(screen.queryByText(/Connect provisions this S3-compatible backup destination/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/custom S3-compatible server on this network/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the off-site setup card when the only destination is on this device", async () => {
+    requestMock.mockImplementation(async (path) => {
+      if (path === "/backups") return jsonResponse({ backups: [] });
+      if (path === "/apps") return jsonResponse({ apps: [] });
+      if (path === "/backups/schedules") return jsonResponse({ schedules: [] });
+      if (path === "/backups/repos") return jsonResponse({ repositories: [{ id: "dest-1", repo_type: "local", repo_path: "/backups" }] });
+      return jsonResponse({});
+    });
+    render(<BackupsCategory />);
+    expect(await screen.findByText("Off-site backup storage")).toBeVisible();
+  });
+
+  it("keeps the off-site check visible for SFTP because its location may be on this network", async () => {
+    requestMock.mockImplementation(async (path) => {
+      if (path === "/backups") return jsonResponse({ backups: [] });
+      if (path === "/apps") return jsonResponse({ apps: [] });
+      if (path === "/backups/schedules") return jsonResponse({ schedules: [] });
+      if (path === "/backups/repos") return jsonResponse({ repositories: [{ id: "dest-1", repo_type: "sftp", repo_path: "sftp:backup@server:/backups" }] });
+      return jsonResponse({});
+    });
+    render(<BackupsCategory />);
+    expect(await screen.findByText("Off-site backup storage")).toBeVisible();
+    expect(screen.getByText(/confirm the SFTP server is somewhere else/)).toBeVisible();
   });
 
   it("renders general and about settings and saves an update source", async () => {

@@ -70,9 +70,16 @@ ensure_sysroot() {
   while read -r _sha file; do
     case "$_sha" in '' | \#*) continue ;; esac
     [ -n "$file" ] || die "bad manifest line: $_sha"
+    # A download that was cut off (build killed midway) must not be kept: drop
+    # a cached file whose checksum is wrong and fetch it again.
+    if [ -f "$file" ] && ! echo "$_sha  $file" | sha256sum -c - >/dev/null 2>&1; then
+      echo "  discard $file (checksum mismatch)"
+      rm -f "$file"
+    fi
     if [ ! -f "$file" ]; then
       echo "  fetch $file"
-      curl -fL --proto '=https' --tlsv1.2 --retry 3 -o "$file" "https://repo.msys2.org/mingw/mingw64/$file"
+      curl -fL --proto '=https' --tlsv1.2 --retry 3 -o "$file.part" "https://repo.msys2.org/mingw/mingw64/$file"
+      mv "$file.part" "$file"
     fi
   done <"$MANIFEST"
   # Verify before anything is unpacked — a tampered or stale download fails here.

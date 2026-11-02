@@ -1,6 +1,7 @@
 package apps
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -52,16 +53,24 @@ func (pm *PortManager) Init() error {
 
 	pm.usedPorts = make(map[int]string)
 
-	rows, err := pm.db.Query(`SELECT id, source, metadata FROM apps`)
+	rows, err := pm.db.Query(`SELECT id, source, metadata, status, error FROM apps`)
 	if err != nil {
 		return fmt.Errorf("failed to query installed apps for port init: %w", err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var instanceID, appID, metadataJSON string
-		if err := rows.Scan(&instanceID, &appID, &metadataJSON); err != nil {
+		var instanceID, appID, metadataJSON, status string
+		var installError sql.NullString
+		if err := rows.Scan(&instanceID, &appID, &metadataJSON, &status, &installError); err != nil {
 			pm.logger.Warn("Failed to scan app row for port init", "error", err)
+			continue
+		}
+		// Failed-install records retain an error message after handleInstallFailure
+		// releases their ports. Other error rows can come from boot recovery,
+		// where a failed ComposeUp may leave a partially running service; keep
+		// those reservations to avoid reallocating a port that may still be bound.
+		if status == string(StatusError) && installError.Valid && installError.String != "" {
 			continue
 		}
 
@@ -158,6 +167,40 @@ func (pm *PortManager) IsAvailable(port int) bool {
 	return pm.isPortFreeAtOSLocked(port)
 }
 
+// IsAvailableForOwner allows a deployment mapping to reuse a port already
+// reserved by the same install while still checking the OS and other owners.
+func (pm *PortManager) IsAvailableForOwner(port int, instanceID string) bool {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	if owner, used := pm.usedPorts[port]; used && owner != instanceID {
+		return false
+	}
+	if port <= 0 || port > MaxPort || port <= WellKnownPortMax || port == pm.serverPort {
+		return false
+	}
+	return pm.isPortFreeAtOSLocked(port)
+}
+
+// ReserveIfAvailableForOwner atomically checks and claims an unreserved port,
+// or accepts a reservation already held by this install. It also confirms the
+// port is free at the OS level.
+func (pm *PortManager) ReserveIfAvailableForOwner(port int, instanceID string) bool {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	if port <= 0 || port > MaxPort || port <= WellKnownPortMax || port == pm.serverPort {
+		return false
+	}
+	if owner, used := pm.usedPorts[port]; used && owner != instanceID {
+		return false
+	}
+	if !pm.isPortFreeAtOSLocked(port) {
+		return false
+	}
+	pm.usedPorts[port] = instanceID
+	return true
+}
+
 // IsPortFreeAtOS checks if a port is available at the OS level by attempting to bind to it.
 func (pm *PortManager) IsPortFreeAtOS(port int) bool {
 	pm.mu.RLock()
@@ -175,6 +218,12 @@ func (pm *PortManager) isPortFreeAtOSLocked(port int) bool {
 		return false
 	}
 	_ = listener.Close()
+	packetConn, err := net.ListenPacket("udp", addr)
+	if err != nil {
+		pm.logger.Debug("Port not available at OS level", "port", port, "protocol", "udp", "error", err)
+		return false
+	}
+	_ = packetConn.Close()
 	return true
 }
 
@@ -243,12 +292,39 @@ func (pm *PortManager) Reserve(port int, instanceID string) {
 	pm.usedPorts[port] = instanceID
 }
 
+// ReserveIfAvailable atomically checks a requested port and records its owner.
+// Unlike IsAvailable followed by Reserve, a competing install cannot claim the
+// same port between the availability check and reservation.
+func (pm *PortManager) ReserveIfAvailable(port int, instanceID string) error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	if !pm.isAvailableLocked(port) || !pm.isPortFreeAtOSLocked(port) {
+		return fmt.Errorf("port %d is already in use", port)
+	}
+	pm.usedPorts[port] = instanceID
+	return nil
+}
+
 // Release removes a port from the used set.
 func (pm *PortManager) Release(port int) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
 	delete(pm.usedPorts, port)
+}
+
+// ReleaseIfOwned removes a reservation only if it still belongs to the
+// specified install. This prevents cleanup from deleting a later owner's port.
+func (pm *PortManager) ReleaseIfOwned(port int, instanceID string) bool {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	if owner, used := pm.usedPorts[port]; !used || owner != instanceID {
+		return false
+	}
+	delete(pm.usedPorts, port)
+	return true
 }
 
 // ReleaseAll removes all ports associated with an instance.

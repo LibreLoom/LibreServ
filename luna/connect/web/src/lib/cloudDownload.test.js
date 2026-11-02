@@ -5,12 +5,16 @@ import { downloadFile, downloadFolder } from "./cloudDownload.js";
 import { loadTree, unlockBackups } from "./cloudUnlock.js";
 import { ZIP_TOO_BIG } from "./zip.js";
 import { saveBlob } from "./download.js";
-import { derive, entropyToPhrase, verify } from "@libreloom/ui/lib/cloud/backupCrypto.js";
-import { openPrivateTreeBytes, privateOpenMessage, privateUnwrap } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
-import { readTreeWith } from "@libreloom/ui/lib/cloud/cloudFormat.js";
+import { decrypt, derive, entropyToPhrase, verify } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import { findMyPrivateScopes, openPrivateTreeBytes, privateOpenMessage, privateUnwrap } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
+import { NO_KEY, PACK_BODY_AAD, readTreeWith } from "@libreloom/ui/lib/cloud/cloudFormat.js";
 import { openPrivateScope } from "./privateUnlock.js";
 
 vi.mock("./download.js", () => ({ saveBlob: vi.fn() }));
+vi.mock("@libreloom/ui/lib/cloud/backupCrypto.js", async (importOriginal) => {
+  const actual = /** @type {typeof import("@libreloom/ui/lib/cloud/backupCrypto.js")} */ (await importOriginal());
+  return { ...actual, decrypt: vi.fn(actual.decrypt) };
+});
 
 /** A CloudSource over the Rust fixture's records and packs. */
 function fixtureSource() {
@@ -117,12 +121,101 @@ describe("downloadFolder", () => {
     expect(positions.every((i) => i >= 0)).toBe(true);
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
   });
+
+  it("finishes and clears the pack reader when a later pack download fails", async () => {
+    const source = fixtureSource();
+    const { backup, version, entries } = await openFixture(source);
+    const first = entries.find((entry) => entry.chunks.length > 0);
+    if (!first) throw new Error("The fixture has no file chunks.");
+    const originalGetPack = source.getPack;
+    source.getPack = vi.fn(async (idHex) => {
+      if (idHex === "zzzz") throw new Error("The backup pack could not be loaded.");
+      return originalGetPack(idHex);
+    });
+    const failed = {
+      path: "zz.txt",
+      size: 0,
+      mtime: 0,
+      chunks: [{ id: "00".repeat(32), pack: "zzzz", offset: 0, len: 0 }],
+    };
+    vi.mocked(decrypt).mockClear();
+
+    await expect(downloadFolder(source, backup, version, [first, failed], "")).rejects.toThrow(
+      "The backup pack could not be loaded.",
+    );
+    const bodyCalls = vi.mocked(decrypt).mock.calls
+      .map(([, aad], index) => (aad === PACK_BODY_AAD ? vi.mocked(decrypt).mock.results[index].value : null))
+      .filter((body) => body instanceof Uint8Array);
+    expect(bodyCalls.length).toBeGreaterThan(0);
+    for (const body of bodyCalls) {
+      expect(Array.from(body)).toEqual(new Array(body.length).fill(0));
+    }
+    expect(source.getPack.mock.calls.map(([id]) => id)).toEqual([first.chunks[0].pack, "zzzz"]);
+    expect(saveBlob).not.toHaveBeenCalled();
+  });
+});
+
+describe("packs sealed under older key versions", () => {
+  // A new phrase starts key version N+1 and copies only changed chunks, so a file's version can name a
+  // key whose packs were sealed under an older version. These tests build such a backup from the fixture.
+  const wrongKey = new Uint8Array(32).fill(0x33);
+
+  /** The fixture backup with its keys and the file's key version replaced. */
+  function backupWith(backup, version, keys, keyVersion) {
+    return { ...backup, keys, versions: [{ ...version, keyVersion }] };
+  }
+
+  it("downloads a file whose snapshot is key version 2 when the packs are sealed under version 1", async () => {
+    const source = fixtureSource();
+    const { backup, version, entries } = await openFixture(source);
+    const real = backup.keys[version.keyVersion];
+    // Version 2 is held but is the wrong key for these packs; version 1 is the one that opens them.
+    const keys = { 1: real, 2: { key: wrongKey, dedupKey: real.dedupKey } };
+    const b = backupWith(backup, version, keys, 2);
+    const entry = entries.find((e) => e.path === "docs/a.txt");
+
+    await downloadFile(source, b, b.versions[0], entry);
+
+    expect(saveBlob).toHaveBeenCalledTimes(1);
+    const [blob, name] = saveBlob.mock.calls[0];
+    expect(name).toBe("a.txt");
+    expect(toHex(await bytesOf(blob))).toBe(fixture.expected.files["docs/a.txt"]);
+  });
+
+  it("refuses with a clear message, not garbage, when no held key opens the packs", async () => {
+    const source = fixtureSource();
+    const { backup, version, entries } = await openFixture(source);
+    const real = backup.keys[version.keyVersion];
+    const keys = { 2: { key: wrongKey, dedupKey: real.dedupKey } };
+    const b = backupWith(backup, version, keys, 2);
+    const entry = entries.find((e) => e.path === "docs/a.txt");
+
+    await expect(downloadFile(source, b, b.versions[0], entry)).rejects.toThrow(NO_KEY);
+    expect(saveBlob).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the file's own key version is not held at all", async () => {
+    const source = fixtureSource();
+    const { backup, version, entries } = await openFixture(source);
+    const b = backupWith(backup, version, {}, 2);
+    const entry = entries.find((e) => e.path === "docs/a.txt");
+
+    await expect(downloadFile(source, b, b.versions[0], entry)).rejects.toThrow(NO_KEY);
+    expect(saveBlob).not.toHaveBeenCalled();
+  });
 });
 
 describe("private backups", () => {
   const priv = fixture.private;
   const entropy = () => hexToBytes(fixture.alice_entropy);
-  const scopeInfo = () => ({ scope: priv.scope, dedupKey: hexToBytes(priv.dedup_key) });
+  // The scope's own key, opened from the phrase the way the browser does it.
+  const scopeInfo = () =>
+    findMyPrivateScopes({
+      lunaId: fixture.luna_id,
+      entropy: entropy(),
+      pscopes: [{ name: priv.scope, data: hexToBytes(priv.records.pscopes[0].data) }],
+      signingPublics: [hexToBytes(fixture.signing_public)],
+    })[0];
 
   /** A private session that opens only with alice's signed challenge; packs and records come from the fixture. */
   function privateSource() {

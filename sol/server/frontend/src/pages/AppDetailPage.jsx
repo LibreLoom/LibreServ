@@ -15,6 +15,7 @@ import Card from "@libreloom/ui/components/cards/Card.jsx";
 import MetricCard from "../components/cards/MetricCard";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Alert from "@libreloom/ui/components/common/Alert.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import ObjectNotFound from "./ObjectNotFound";
 import AppIcon from "../components/common/AppIcon";
@@ -314,6 +315,14 @@ export default function AppDetailPage() {
               appName={app.name}
               acknowledged={!!app.revocation_notice.acknowledged_at}
               onSeeDetails={() => setShowAckRevocationModal(true)}
+            />
+          )}
+
+          {app.status === "error" && app.error && (
+            <Alert
+              variant="error"
+              className="mb-6"
+              message={app.error}
             />
           )}
 

@@ -3,6 +3,7 @@ import { render, screen, within, fireEvent, waitFor } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
+import { FileOpsProvider } from "../context/FileOpsContext.jsx";
 import FilesPage, { describePeek, inspectCountLine } from "./FilesPage";
 import FileSearch from "../components/files/FileSearch";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
@@ -83,17 +84,50 @@ function stubDrivesApi(extra = {}) {
   }));
 }
 
+const OK_HEALTH = {
+  available: true, reason: null, verdict: "ok", overall: "passed", temperature_c: 34,
+  temperature_max_c: 60, temperature_max_source: "typical", reallocated_sectors: 0,
+  pending_sectors: 0, uncorrectable_sectors: 0, status_bits: 0, signals: [],
+};
+
+const FAILING_HEALTH = {
+  ...OK_HEALTH, verdict: "failing", overall: "failed", status_bits: 8,
+  reallocated_sectors: 120, temperature_c: 55,
+  signals: [
+    { kind: "self_check_failed", level: "failing", value: null, limit: null },
+    { kind: "reallocated_sectors", level: "failing", value: 120, limit: 100 },
+    { kind: "temperature", level: "note", value: 55, limit: 60 },
+  ],
+};
+
+function driveFetch(drive, health) {
+  return (u) => {
+    if (u.endsWith("/drives")) {
+      return new Response(JSON.stringify([drive]), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (u.includes("/health")) {
+      return new Response(JSON.stringify(health), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    return null;
+  };
+}
+
+const D1 = { id: "d1", label: "Photos Drive", state: "as_is", fs_type: "ext4", device: "sdz", mounted: true };
+
 function renderPage(initialEntry = "/files") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ToastProvider>
     <MemoryRouter initialEntries={[initialEntry]}>
       <QueryClientProvider client={client}>
-        <AuthProvider>
-          <FilesPage />
-          {/* The overlay lives in AppShell; the page only holds its button. */}
-          <FileSearch />
-        </AuthProvider>
+        {/* App mounts FileOpsProvider above the routes; FileSearch reads it. */}
+        <FileOpsProvider>
+          <AuthProvider>
+            <FilesPage />
+            {/* The overlay lives in AppShell; the page only holds its button. */}
+            <FileSearch />
+          </AuthProvider>
+        </FileOpsProvider>
       </QueryClientProvider>
     </MemoryRouter>
     </ToastProvider>
@@ -496,16 +530,17 @@ describe("FilesPage", () => {
           }]), { status: 200, headers: { "Content-Type": "application/json" } });
         }
         if (u.includes("/health")) {
-          return new Response(JSON.stringify({
-            available: true, overall: "passed", temperature_c: 31, reallocated_sectors: 0,
-          }), { status: 200, headers: { "Content-Type": "application/json" } });
+          return new Response(JSON.stringify(OK_HEALTH), { status: 200, headers: { "Content-Type": "application/json" } });
         }
         return null;
       },
     });
     renderPage();
-    expect(await screen.findByText(/^Healthy$/i)).toBeInTheDocument();
-    expect(screen.getByText(/31°C/)).toBeInTheDocument();
+    // Healthy drives keep the verdict inside the collapsed Drive health section.
+    const toggle = await screen.findByRole("button", { name: /Drive health/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText(/^Healthy$/i)).toBeInTheDocument();
+    expect(screen.getByText(/34°C/)).toBeInTheDocument();
     expect(screen.queryByText(/smartctl/i)).not.toBeInTheDocument();
     // Device connection lives inside collapsed Drive details, not as a status line.
     expect(screen.getByRole("button", { name: /Drive details/i })).toHaveAttribute("aria-expanded", "false");
@@ -562,7 +597,9 @@ describe("FilesPage", () => {
     expect(screen.getByText(/sdmock · exFAT/i)).toBeInTheDocument();
     // Card-style collapsible + ValueDisplay rows (storage is outside)
     expect(toggle.closest("[data-slot=collapsible]")?.className).toMatch(/rounded-large-element/);
-    expect(document.querySelectorAll("[data-slot=value-display]")).toHaveLength(3);
+    // The drive's health section above adds its own ValueDisplay row, so
+    // count the rows of this panel, not the whole document.
+    expect(panel.querySelectorAll("[data-slot=value-display]")).toHaveLength(3);
   });
 
   it("shows ejected drives as Ejected without Open files or Eject safely", async () => {
@@ -1019,4 +1056,43 @@ describe("FilesPage", () => {
     expect(info.note).toMatch(/erases what/i);
   });
 
+
+  it("shows a failing drive with a Failing pill and no Ready", async () => {
+    stubDrivesApi({ fetch: driveFetch(D1, FAILING_HEALTH) });
+    renderPage();
+    // The failing drive says it twice: the card's status pill and the health
+    // section's own pill.
+    const pills = await screen.findAllByText(/^Failing$/);
+    expect(pills).toHaveLength(2);
+    expect(screen.queryByText(/^Ready$/)).not.toBeInTheDocument();
+    expect(screen.getByText(/This drive is failing\. Copy your files to another drive now\./)).toBeInTheDocument();
+    expect(screen.queryByText(/needs attention/i)).not.toBeInTheDocument();
+    expect(document.getElementById("drive-d1")).not.toBeNull();
+  });
+
+  it("opens the drive health section for #drive-d1", async () => {
+    stubDrivesApi({ fetch: driveFetch(D1, FAILING_HEALTH) });
+    renderPage("/files#drive-d1");
+    const toggle = await screen.findByRole("button", { name: /Drive health/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("What to do")).toBeInTheDocument();
+  });
+
+  it("keeps the drive health section closed without the hash", async () => {
+    stubDrivesApi({ fetch: driveFetch(D1, FAILING_HEALTH) });
+    renderPage("/files");
+    const toggle = await screen.findByRole("button", { name: /Drive health/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("shows a drive Luna can't open without Browse files or storage", async () => {
+    stubDrivesApi({ fetch: driveFetch({ ...D1, mounted: false }, OK_HEALTH) });
+    renderPage();
+    expect(await screen.findByText(/Luna can't open this drive right now, so its files and free space aren't available\./)).toBeInTheDocument();
+    expect(screen.getByText(/^Can't open$/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Browse files/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Eject safely/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Storage will show/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Remove$/i })).toBeInTheDocument();
+  });
 });

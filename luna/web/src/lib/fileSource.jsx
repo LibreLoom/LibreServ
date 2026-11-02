@@ -73,17 +73,55 @@ export async function requireOk(res, fallback) {
  *   rename: (driveId: string, path: string, newName: string) => Promise<unknown>,
  *   remove: (driveId: string, path: string) => Promise<unknown>,
  *   move: (driveId: string, paths: string[], dest: string) => Promise<unknown>,
- *   uploadFile: (driveId: string, file: File, destPath: string, name: string, opts?: { signal?: AbortSignal, onSession?: (uploadId: string) => void, onProgress?: (loaded: number, total: number) => void }) => Promise<void>,
+ *   uploadFile: (driveId: string, file: File, destPath: string, name: string, opts?: UploadFileOptions) => Promise<any>,
+ *   completeUpload?: (driveId: string, uploadId: string, onConflict?: "replace" | "keep_both") => Promise<any>,
  *   cancelUpload: (driveId: string, uploadId: string) => Promise<unknown>,
+ *   cancelUploadUrl?: (uploadId: string) => { url: string, headers: Record<string, string> },
  *   officeSession: (driveId: string, path: string) => Promise<any>,
  *   formResponses: (driveId: string, path: string) => Promise<object[]>,
  *   formResponseCount: (driveId: string, path: string) => Promise<number>,
  *   deleteFormResponse: (driveId: string, path: string, id: string) => Promise<unknown>,
  *   copyFormPicture: (driveId: string, formPath: string, source: string) => Promise<string>,
  *   uploadFormPicture: (driveId: string, formPath: string, file: File) => Promise<string>,
- *   uploadBlob?: (path: string, name: string, blob: Blob, opts?: { overwrite?: boolean, signal?: AbortSignal, headers?: object, onSession?: (uploadId: string) => void, onProgress?: (loaded: number, total: number) => void }) => Promise<void>,
+ *   uploadBlob?: (path: string, name: string, blob: Blob, opts?: { overwrite?: boolean, keepBoth?: boolean, signal?: AbortSignal, headers?: object, onSession?: (uploadId: string) => void, onProgress?: (loaded: number, total: number) => void, onRetry?: (attempt: number) => void }) => Promise<any>,
  * }} FileSource
  */
+
+/**
+ * @typedef {{
+ *   signal?: AbortSignal,
+ *   onSession?: (uploadId: string) => void,
+ *   onProgress?: (loaded: number, total: number) => void,
+ *   onConflict?: "replace" | "keep_both",
+ *   onRetry?: (attempt: number) => void,
+ * }} UploadFileOptions
+ *   `onConflict` answers a name clash up front: "replace" overwrites in place,
+ *   "keep_both" lets Luna add a number (name (1).ext). Resolves with the entry
+ *   Luna saved, so the final name is known.
+ */
+
+/** @param {"replace" | "keep_both" | undefined} onConflict */
+function conflictQuery(onConflict) {
+  if (onConflict === "replace") return "overwrite=1";
+  if (onConflict === "keep_both") return "keep_both=1";
+  return "";
+}
+
+/**
+ * A name clash at `/complete`. The session is still good (the bytes are on
+ * Luna), so the upload keeps it and the person decides: the error carries
+ * `uploadId` and `completeOnly: true`.
+ * @param {unknown} err
+ */
+function isNameClash(err) {
+  const e = /** @type {any} */ (err);
+  return e?.status === 409 && (!e.code || e.code === "exists");
+}
+
+/** @param {unknown} err @param {string} uploadId */
+function keepSessionError(err, uploadId) {
+  return Object.assign(/** @type {object} */ (err), { uploadId, completeOnly: true });
+}
 
 /** Same-origin ws(s) base — mirrors the member collab socket. */
 function wsBase() {
@@ -155,14 +193,15 @@ export const driveSource = {
       });
     }
   },
-  async uploadFile(driveId, file, destPath, name, { signal, onSession, onProgress } = {}) {
+  async uploadFile(driveId, file, destPath, name, { signal, onSession, onProgress, onConflict, onRetry } = {}) {
     if (file.size <= MULTIPART_LIMIT) {
       const form = new FormData();
       form.append("path", destPath);
       const blob = file.name === name ? file : new File([file], name, { type: file.type });
       form.append("file", blob);
-      await postFormProgress(
-        `/api/v1/drives/${driveId}/files/upload?path=${encodeURIComponent(destPath)}`,
+      const conflict = conflictQuery(onConflict);
+      return postFormProgress(
+        `/api/v1/drives/${driveId}/files/upload?path=${encodeURIComponent(destPath)}${conflict ? `&${conflict}` : ""}`,
         form,
         {
           signal,
@@ -171,14 +210,20 @@ export const driveSource = {
           },
         },
       );
-      return;
     }
     const session = await postJson(
       "/api/v1/uploads",
-      { drive_id: driveId, path: destPath, name, size: file.size },
+      {
+        drive_id: driveId,
+        path: destPath,
+        name,
+        size: file.size,
+        ...(onConflict ? { on_conflict: onConflict } : {}),
+      },
       { signal },
     );
     onSession?.(session.upload_id);
+    let completing = false;
     try {
       for (let start = 0; start < file.size; start += CHUNK_SIZE) {
         if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
@@ -191,16 +236,35 @@ export const driveSource = {
               onProgress: (loaded) =>
                 onProgress?.(Math.min(file.size, start + loaded), file.size),
             }),
-          { signal },
+          { signal, onRetry },
         );
         onProgress?.(Number(progress.received) || end + 1, file.size);
       }
-      await postJson(`/api/v1/uploads/${session.upload_id}/complete`, {}, { signal });
+      completing = true;
+      const conflict = conflictQuery(onConflict);
+      return await postJson(
+        `/api/v1/uploads/${session.upload_id}/complete${conflict ? `?${conflict}` : ""}`,
+        {},
+        { signal },
+      );
     } catch (err) {
+      if (completing && isNameClash(err)) throw keepSessionError(err, session.upload_id);
       void deleteJson(`/api/v1/uploads/${session.upload_id}`).catch(() => {});
       throw err;
     }
   },
+  // Finish an upload whose bytes are all on Luna after a name clash was answered.
+  async completeUpload(_driveId, uploadId, onConflict) {
+    const conflict = conflictQuery(onConflict);
+    try {
+      return await postJson(`/api/v1/uploads/${uploadId}/complete${conflict ? `?${conflict}` : ""}`, {});
+    } catch (err) {
+      if (isNameClash(err)) throw keepSessionError(err, uploadId);
+      void deleteJson(`/api/v1/uploads/${uploadId}`).catch(() => {});
+      throw err;
+    }
+  },
+  cancelUploadUrl: (uploadId) => ({ url: `/api/v1/uploads/${uploadId}`, headers: {} }),
   cancelUpload: (_driveId, uploadId) => deleteJson(`/api/v1/uploads/${uploadId}`),
   officeSession: (driveId, path) =>
     postJson("/api/v1/office/session", { drive_id: driveId, path }),
@@ -266,9 +330,9 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
    * @param {string} path
    * @param {string} name
    * @param {Blob} blob
-   * @param {{ overwrite?: boolean, signal?: AbortSignal, headers?: object, onSession?: (uploadId: string) => void, onProgress?: (loaded: number, total: number) => void, coverage?: number }} [opts]
+   * @param {{ overwrite?: boolean, keepBoth?: boolean, signal?: AbortSignal, headers?: object, onSession?: (uploadId: string) => void, onProgress?: (loaded: number, total: number) => void, onRetry?: (attempt: number) => void, coverage?: number }} [opts]
    */
-  async function uploadBlob(path, name, blob, { overwrite = false, signal, headers: extraHeaders, onSession, onProgress, coverage } = {}) {
+  async function uploadBlob(path, name, blob, { overwrite = false, keepBoth = false, signal, headers: extraHeaders, onSession, onProgress, onRetry, coverage } = {}) {
     const reqHeaders = () => ({ ...headers(), ...(extraHeaders || {}) });
     const folder = isFile ? "" : (parentPath(path) ?? "");
     const session = await postJson(
@@ -282,6 +346,7 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
     );
     let uploadId = session.upload_id;
     onSession?.(uploadId);
+    let completing = false;
     try {
       for (let start = 0; start < blob.size; start += CHUNK_SIZE) {
         if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
@@ -293,20 +358,44 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
               headers: { ...reqHeaders(), "Content-Range": `bytes ${start}-${end}/${blob.size}` },
               onProgress: (loaded) => onProgress?.(Math.min(blob.size, start + loaded), blob.size),
             }),
-          { signal },
+          { signal, onRetry },
         );
       }
+      completing = true;
       const complete = new URLSearchParams();
       if (overwrite) complete.set("overwrite", "1");
+      else if (keepBoth) complete.set("keep_both", "1");
       if (typeof coverage === "number") complete.set("coverage", String(coverage));
       const completeQuery = complete.toString();
-      await postJson(
+      return await postJson(
         `/s/${token}/upload/${session.upload_id}/complete${completeQuery ? `?${completeQuery}` : ""}`,
         {},
         { headers: reqHeaders(), signal },
       );
     } catch (err) {
+      if (completing && isNameClash(err)) throw keepSessionError(err, uploadId);
       void deleteJson(`/s/${token}/upload/${uploadId}`, { headers: reqHeaders() }).catch(() => {});
+      throw err;
+    }
+  }
+
+  /**
+   * Finish a guest upload whose bytes are all on Luna after a name clash was answered.
+   * @param {string} _driveId
+   * @param {string} uploadId
+   * @param {"replace" | "keep_both"} [onConflict]
+   */
+  async function completeUpload(_driveId, uploadId, onConflict) {
+    const conflict = conflictQuery(onConflict);
+    try {
+      return await postJson(
+        `/s/${token}/upload/${uploadId}/complete${conflict ? `?${conflict}` : ""}`,
+        {},
+        { headers: headers() },
+      );
+    } catch (err) {
+      if (isNameClash(err)) throw keepSessionError(err, uploadId);
+      void deleteJson(`/s/${token}/upload/${uploadId}`, { headers: headers() }).catch(() => {});
       throw err;
     }
   }
@@ -318,14 +407,16 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
    * @param {File} file
    * @param {string} destPath
    * @param {string} name
-   * @param {{ signal?: AbortSignal, onSession?: (uploadId: string) => void, onProgress?: (loaded: number, total: number) => void }} [opts]
+   * @param {UploadFileOptions} [opts]
    */
-  const uploadFile = (_driveId, file, destPath, name, { signal, onSession, onProgress } = {}) =>
+  const uploadFile = (_driveId, file, destPath, name, { signal, onSession, onProgress, onConflict, onRetry } = {}) =>
     uploadBlob(joinPath(destPath, name), name, file, {
-      overwrite: isFile && canEdit,
+      overwrite: (isFile && canEdit) || onConflict === "replace",
+      keepBoth: onConflict === "keep_both",
       signal,
       onSession,
       onProgress,
+      onRetry,
     });
 
   return {
@@ -405,8 +496,10 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
     move: (_driveId, paths, dest) =>
       postJson(`/s/${token}/move`, { paths, dest }, { headers: headers() }),
     uploadFile,
+    completeUpload,
     cancelUpload: (_driveId, uploadId) =>
       deleteJson(`/s/${token}/upload/${uploadId}`, { headers: headers() }),
+    cancelUploadUrl: (uploadId) => ({ url: `/s/${token}/upload/${uploadId}`, headers: headers() }),
     officeSession: (_driveId, path) =>
       postJson(`/s/${token}/office/session`, { path: rel(path) }, { headers: headers() }),
     formResponses: async (_driveId, path) => {

@@ -6,7 +6,8 @@ import { AlertTriangle, ChevronDown } from "lucide-react";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import { useSystemHealthCheck } from "../../hooks/useSystemHealthCheck.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
-import { warningChecks } from "../../lib/needsYouChecks.js";
+import { SYSTEM_DISK_CHECKS, SYSTEM_DISK_HINT, warningChecks } from "../../lib/needsYouChecks.js";
+import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import CheckStatusIcon from "./CheckStatusIcon.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
@@ -157,7 +158,15 @@ export default function SystemHealthPill() {
                   <div className="px-4 py-2 flex items-start gap-2">
                     <CheckStatusIcon status="warning" size="sm" className="mt-0.5" />
                     <div className="min-w-0">
-                      <div className="text-sm text-primary font-medium">{check.label}</div>
+                      <div className="text-sm text-primary font-medium">
+                        {check.label}
+                        {SYSTEM_DISK_CHECKS.has(check.name) && (
+                          <>
+                            {" "}
+                            <InfoHint content={SYSTEM_DISK_HINT} />
+                          </>
+                        )}
+                      </div>
                       {check.message && (
                         <div className="text-xs mt-0.5 break-words">{check.message}</div>
                       )}

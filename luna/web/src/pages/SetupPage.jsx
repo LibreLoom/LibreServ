@@ -34,6 +34,7 @@ import DotMatrixLoader from "@libreloom/ui/components/ui/DotMatrixLoader.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import useLabelErrorState from "@libreloom/ui/hooks/useLabelErrorState.js";
 import PreflightStep from "../components/setup/PreflightStep.jsx";
+import PhraseStep from "../components/setup/PhraseStep.jsx";
 import DiscoveryPaths from "../components/setup/DiscoveryPaths.jsx";
 import TextLink from "../components/ui/TextLink";
 import PasswordStrengthChecklist from "@libreloom/ui/components/common/PasswordStrengthChecklist.jsx";
@@ -46,6 +47,7 @@ const STEP = {
   WELCOME:    "welcome",
   PREFLIGHT:  "preflight",
   ACCOUNT:    "account",
+  PHRASE:     "phrase",
   NAME:       "name",
   DONE:       "done",
 };
@@ -191,6 +193,7 @@ const VISIBLE_STEPS = [
   { id: STEP.WELCOME,    label: "Welcome" },
   { id: STEP.PREFLIGHT,  label: "System check" },
   { id: STEP.ACCOUNT,    label: "Account" },
+  { id: STEP.PHRASE,     label: "Recovery phrase" },
   { id: STEP.NAME,       label: "Name" },
   { id: STEP.DONE,       label: "Done" },
 ];
@@ -934,6 +937,7 @@ const STEP_ORDER = [
   STEP.WELCOME,
   STEP.PREFLIGHT,
   STEP.ACCOUNT,
+  STEP.PHRASE,
   STEP.NAME,
   STEP.DONE,
 ];
@@ -1008,16 +1012,26 @@ export default function SetupPage() {
         // "done" is only shown after a successful finish in this session.
         // A stale/partial record should resume at naming.
         if (next === STEP.DONE) next = STEP.NAME;
+        // Read the signed-in person fresh: the `user` captured on mount may be from before sign-in finished.
+        const me = await getJson("/api/v1/auth/me").catch(() => null);
+        if (!alive) return;
         // Account already exists but session is gone → land on sign-in gate.
-        if ((next === STEP.NAME || next === STEP.DONE) && !user) {
+        let signedOutGate = false;
+        if ((next === STEP.PHRASE || next === STEP.NAME || next === STEP.DONE) && !user && !me) {
           const status = await getJson("/api/v1/auth/status").catch(() => null);
           if (!alive) return;
-          if (status?.has_admin) next = STEP.ACCOUNT;
+          if (status?.has_admin) {
+            next = STEP.ACCOUNT;
+            signedOutGate = true;
+          }
         }
         // Skip account form if that step already finished.
-        if (next === STEP.ACCOUNT && savedData.account_completed) {
-          next = STEP.NAME;
+        if (next === STEP.ACCOUNT && savedData.account_completed && !signedOutGate) {
+          next = STEP.PHRASE;
         }
+        // A phrase already saved skips the phrase step; Name without a saved phrase goes back to it.
+        if (next === STEP.PHRASE && me?.phrase_set === true) next = STEP.NAME;
+        if (next === STEP.NAME && me?.phrase_set === false) next = STEP.PHRASE;
         setStep(next);
       } catch {
         // After the first account exists, setup reads are signed-in only. If an
@@ -1088,26 +1102,43 @@ export default function SetupPage() {
     const data = { ...(progressRef.current.stepData || {}), preflight_passed: true };
     advanceStep(STEP.ACCOUNT, data);
   }, [advanceStep]);
-  const handleAccountContinue = useCallback(() => {
+  const handleAccountContinue = useCallback(async () => {
     const data = { ...(progressRef.current.stepData || {}), account_completed: true };
-    advanceStep(STEP.NAME, data);
+    // An Admin who already has a recovery phrase doesn't make another.
+    const me = await getJson("/api/v1/auth/me").catch(() => null);
+    advanceStep(me?.phrase_set === true ? STEP.NAME : STEP.PHRASE, data);
   }, [advanceStep]);
+  const handlePhraseSaved = useCallback(async () => {
+    const data = { ...(progressRef.current.stepData || {}), phrase_set: true };
+    await refresh();
+    await advanceStep(STEP.NAME, data);
+  }, [advanceStep, refresh]);
 
   const handleFinish = useCallback(async (name) => {
     // Flush any in-flight progress save, then mark setup complete.
     await flushProgress();
     // Throws on failure so NameStep keeps its input and stays on the step.
-    const saved = await postJson("/api/v1/setup", {
-      name,
-      setup_completed: true,
-      current_step: STEP.DONE,
-    });
+    let saved;
+    try {
+      saved = await postJson("/api/v1/setup", {
+        name,
+        setup_completed: true,
+        current_step: STEP.DONE,
+      });
+    } catch (err) {
+      // Luna won't finish setup without the Admin's recovery phrase: send them back to make it.
+      if (/** @type {any} */ (err)?.code === "needs_phrase") {
+        await advanceStep(STEP.PHRASE);
+        return;
+      }
+      throw err;
+    }
     setDeviceName(saved?.name || name);
     // Refresh the auth context so RequireAuth sees setup_completed === true
     // and lets the post-setup navigation through.
     await refresh();
     setStep(STEP.DONE);
-  }, [flushProgress, refresh]);
+  }, [advanceStep, flushProgress, refresh]);
 
   // While loading, the card holds an invisible Welcome step (the usual first
   // step) so it is already the right size under the dot-matrix wave.
@@ -1127,6 +1158,8 @@ export default function SetupPage() {
         connectActive={connectActive}
       />
     );
+  } else if (shownStep === STEP.PHRASE) {
+    renderedStep = <PhraseStep onSaved={handlePhraseSaved} />;
   } else if (shownStep === STEP.NAME) {
     renderedStep = <NameStep initialName={deviceName} onFinish={handleFinish} />;
   } else if (shownStep === STEP.DONE) {

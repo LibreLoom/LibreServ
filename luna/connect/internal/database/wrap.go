@@ -59,6 +59,8 @@ type Tx struct {
 	driver Driver
 }
 
+func (tx *Tx) Driver() Driver { return tx.driver }
+
 func (tx *Tx) Exec(query string, args ...any) (sql.Result, error) {
 	return tx.Tx.Exec(rebind(tx.driver, query), args...)
 }

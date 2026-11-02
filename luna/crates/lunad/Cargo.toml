@@ -39,6 +39,7 @@ bytes = "1"
 libc = "0.2"
 futures-util = "0.3"
 getrandom.workspace = true
+zeroize = "1"
 uuid.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

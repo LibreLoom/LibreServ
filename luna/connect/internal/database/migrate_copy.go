@@ -37,6 +37,7 @@ var migrateTables = []string{
 	"billing_period_egress",
 	"storage_packs",
 	"storage_records",
+	"storage_record_versions",
 	"storage_pending_deletes",
 	"luna_ids",
 	"share_links",

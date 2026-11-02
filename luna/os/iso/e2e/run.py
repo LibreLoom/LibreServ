@@ -413,6 +413,7 @@ def part_setup(vm, lu):
     check("the new admin can sign in", c == 200 and b.get("role") == "admin", f"{c} {b}")
     c, b = Luna(18080).post("/api/v1/auth/register", {"username": "intruder", "display_name": "x", "password": "another-long-pass-1"})
     check("a stranger cannot create a second account", c in (401, 403), f"{c} {b}")
+    set_test_phrase(lu)
     c, b = lu.post("/api/v1/setup", {"name": "E2E Luna", "current_step": "done", "setup_completed": True})
     check("setup can be completed", c == 200 and b.get("setup_completed") is True, f"{c} {b}")
     c, b = Luna(18080).get("/api/v1/setup/preflight")
@@ -894,6 +895,32 @@ def login_admin(lu):
     return c == 200
 
 
+# lunad's shared test vectors (its phrase keys). The phrase is a test one, not a real person's.
+# e2e.sh mounts the file at /vectors.json; the repo path is for runs outside the container.
+VECTORS = "/vectors.json" if os.path.exists("/vectors.json") else os.path.normpath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..",
+                 "crates", "lunad", "src", "backup", "cloud", "vectors.json"))
+
+
+def set_test_phrase(lu):
+    """Gives the signed-in Admin a recovery phrase, so setup can finish. Call before setup is completed."""
+    import base64
+    with open(VECTORS) as f:
+        vectors = json.load(f)
+
+    def b64(hex_text):
+        return base64.b64encode(bytes.fromhex(hex_text)).decode()
+
+    lu.post("/api/v1/cloud/identity")
+    c, b = lu.req("PUT", "/api/v1/cloud/phrase", {
+        "seal_public": b64(vectors["seal_public"]),
+        "auth_public": b64(vectors["auth_public"]),
+        "self_sealed": "AA==",
+        "words": 12,
+    })
+    check("the admin's test recovery phrase is set", c == 200, f"{c} {b}")
+
+
 def stage_resilience():
     """Crashes, restarts, power cuts, a missing cable, a full disk, a wrong clock."""
     say("-- resilience")
@@ -903,6 +930,7 @@ def stage_resilience():
     check("web UI answers", lu.wait_up(240))
     lu.post("/api/v1/auth/register", ADMIN)
     check("admin signs in", login_admin(lu))
+    set_test_phrase(lu)
     lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done"})
     d = detected(lu, lambda x: True, 60)
     check("the stick plugged at boot is offered", bool(d))
@@ -1250,6 +1278,7 @@ def stage_wyse():
     check("[wyse] idle: more than 1 GB of memory is free", m0.get("MemAvailable", 0) > 1_000_000, str(m0))
     lu.post("/api/v1/auth/register", ADMIN)
     check("[wyse] admin signs in", login_admin(lu))
+    set_test_phrase(lu)
     lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done"})
     img = f"{WORK}/library.run.img"
     sh(f"cp --sparse=always {lib} {img}")
@@ -1502,6 +1531,7 @@ def stage_bigfiles():
     check("web UI answers", lu.wait_up(240))
     lu.post("/api/v1/auth/register", ADMIN)
     check("admin signs in", login_admin(lu))
+    set_test_phrase(lu)
     lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done"})
     d = detected(lu, lambda x: True, 60)
     c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Big", "erase": False})
@@ -1600,6 +1630,7 @@ def stage_app():
     check("web UI answers", lu.wait_up(240))
     lu.post("/api/v1/auth/register", ADMIN)
     check("admin signs in", login_admin(lu))
+    set_test_phrase(lu)
     lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done", "name": "E2E Luna"})
     d = detected(lu, lambda x: True, 60)
     c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Main", "erase": False})
@@ -1734,6 +1765,7 @@ def stage_eject_busy():
     check("web UI answers", lu.wait_up(240))
     lu.post("/api/v1/auth/register", ADMIN)
     check("admin signs in", login_admin(lu))
+    set_test_phrase(lu)
     lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done"})
     d = detected(lu, lambda x: True, 60)
     c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Lots of files", "erase": False})
@@ -1765,6 +1797,7 @@ def stage_reset():
     check("web UI answers", lu.wait_up(240))
     lu.post("/api/v1/auth/register", ADMIN)
     check("admin signs in", login_admin(lu))
+    set_test_phrase(lu)
     lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done", "name": "Reset me"})
     d = detected(lu, lambda x: True, 60)
     c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Keep my files", "erase": False})
@@ -1834,6 +1867,7 @@ def stage_recovery():
     check("web UI answers", lu.wait_up(240))
     lu.post("/api/v1/auth/register", ADMIN)
     check("admin signs in", login_admin(lu))
+    set_test_phrase(lu)
     lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done"})
     lu.post("/api/v1/users", {"username": "sam", "display_name": "Sam", "password": "sams-long-password-7", "role": "member"})
     new_pw = "recovered-pass-12345"
@@ -2093,6 +2127,7 @@ def stage_update():
     check("web UI answers", lu.wait_up(240))
     lu.post("/api/v1/auth/register", ADMIN)
     c, b = lu.post("/api/v1/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})
+    set_test_phrase(lu)
     lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done"})
     # Connect is off for the OS update path: the new slot has no test hook for the mock.
     vm.sh("rm -f /var/lib/luna/device-token")
@@ -2281,6 +2316,7 @@ def stage_update_powercut():
         check(T + "Luna starts", lu.wait_up(240))
         lu.post("/api/v1/auth/register", ADMIN)
         login_admin(lu)
+        set_test_phrase(lu)
         lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done"})
         vm.sh("rm -f /var/lib/luna/device-token")
         lu.req("PUT", "/api/v1/system/updates/source", {"feed_url": FEED_URL, "channel": "stable", "keys": [good_pub]})
@@ -2342,6 +2378,7 @@ def stage_lab():
     lu.wait_up(240)
     lu.post("/api/v1/auth/register", ADMIN)
     lu.post("/api/v1/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})
+    set_test_phrase(lu)
     lu.post("/api/v1/setup", {"setup_completed": True})
     fx = make_fixtures()
     d = plug(vm, lu, "u-lab", fx["fat32"])
