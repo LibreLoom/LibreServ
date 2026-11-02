@@ -89,6 +89,46 @@ describe("selectors", () => {
     expect(dockInfo(stateOf([])).visible).toBe(false);
   });
 
+  // A single-file share link refuses a two-file drop before any item exists,
+  // so the reason lives on the op and its item list stays empty. Counting only
+  // items called that "Finished / 0 files uploaded" and kept the reason folded.
+  it("treats an op that failed as a whole as a problem, not finished work", () => {
+    const state = stateOf([
+      {
+        id: "f",
+        kind: "upload",
+        state: "failed",
+        endedAt: 1,
+        title: "report.pdf",
+        destLabel: "report.pdf",
+        error: "Choose one file to replace this file.",
+        items: [],
+      },
+    ]);
+    const info = dockInfo(state);
+    expect(info.problemCount).toBe(1);
+    expect(info.finishedCount).toBe(0);
+    expect(info.title).toBe("Some files need you");
+    expect(info.hasProblems).toBe(true);
+  });
+
+  it("names the file, not a count of zero, when nothing was counted", () => {
+    const state = stateOf([
+      {
+        id: "f",
+        kind: "upload",
+        state: "failed",
+        endedAt: 1,
+        title: "report.pdf",
+        destLabel: "report.pdf",
+        error: "Choose one file to replace this file.",
+        items: [],
+      },
+    ]);
+    const [op] = state.ops;
+    expect(plain(opStatus(op))).toBe("Couldn't replace report.pdf");
+  });
+
   it("reports progress, null for indeterminate", () => {
     const state = stateOf([
       { id: "a", kind: "upload", state: "running", items: [{ id: "i", name: "a", size: 200, received: 50, state: "uploading" }] },

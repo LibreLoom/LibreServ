@@ -213,6 +213,12 @@ export function opStatus(op) {
           `; ${foldersFailed} ${n(foldersFailed, "folder", "folders")} couldn't be made`,
         ];
       }
+      // The op failed before any file was counted (a single-file link refused
+      // a two-file drop): "Couldn't upload 0 files to X" would be nonsense.
+      // Name the file it was for instead.
+      if (op.error && total === 0) {
+        return ["Couldn't replace ", pill(name || folder)];
+      }
       if (name && (op.rootFolder || total <= 1)) {
         if (running) return ["Uploading ", pill(name)];
         if (state === "done") return ["Uploaded ", pill(name)];
