@@ -30,7 +30,6 @@ func TestTailscaleProfileIncludesStandaloneChecks(t *testing.T) {
 	}
 }
 
-
 func TestBroadProfilesRunLunaRecoveryBrowserAndColorChecks(t *testing.T) {
 	for _, profileID := range []string{"full", "nofuzz", "nightly"} {
 		t.Run(profileID, func(t *testing.T) {

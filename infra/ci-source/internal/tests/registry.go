@@ -658,7 +658,7 @@ func addLunaTests() {
 		Description: "Run Luna web tests, lint, typecheck and build without OS toolchains",
 		Type:        TestTypeUnit,
 		Container:   "host",
-		Command:     "web_check_result=0; npm test -- --run || web_check_result=1; npm run lint || web_check_result=1; npm run typecheck || web_check_result=1; npm run build || web_check_result=1; exit \"$web_check_result\"",
+		Command:     "(cd ../../shared/ui && npm install --no-audit --no-fund --cache /tmp/luna-npm-cache) && npm install --no-audit --no-fund --cache /tmp/luna-npm-cache && { web_check_result=0; npm test -- --run || web_check_result=1; npm run lint || web_check_result=1; npm run typecheck || web_check_result=1; npm run build || web_check_result=1; exit \"$web_check_result\"; }",
 		WorkDir:     "/repo/luna/web",
 		Timeout:     20 * time.Minute,
 	})

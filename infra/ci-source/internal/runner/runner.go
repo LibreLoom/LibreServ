@@ -25,6 +25,7 @@ type Runner struct {
 	cli               *client.Client
 	cfg               *config.Config
 	repoPath          string
+	containerCacheDir string
 	socketPath        string
 	outputChan        chan OutputLine
 	resultChan        chan *tests.TestResult
@@ -90,11 +91,16 @@ func NewRunner(cfg *config.Config) (*Runner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to find repo root: %w", err)
 	}
+	cacheDir, err := containerCacheRoot(repoPath, os.Getenv("LIBRESERV_CI_CONTAINER_CACHE"))
+	if err != nil {
+		return nil, err
+	}
 
 	r := &Runner{
 		cli:               cli,
 		cfg:               cfg,
 		repoPath:          repoPath,
+		containerCacheDir: cacheDir,
 		socketPath:        socketPath,
 		outputChan:        make(chan OutputLine, 1000),
 		resultChan:        make(chan *tests.TestResult, 100),
@@ -113,6 +119,30 @@ func NewRunner(cfg *config.Config) (*Runner, error) {
 	}
 
 	return r, nil
+}
+
+// containerCacheRoot selects only caches mounted into test containers. The
+// lifeline and machine-wide slots deliberately keep their existing locations.
+func containerCacheRoot(repoPath, override string) (string, error) {
+	if override == "" {
+		return filepath.Join(repoPath, ".cache"), nil
+	}
+	if !filepath.IsAbs(override) || filepath.Clean(override) != override || strings.ContainsAny(override, ":\n\r") {
+		return "", fmt.Errorf("LIBRESERV_CI_CONTAINER_CACHE must be a clean absolute path without colon or newline")
+	}
+	info, err := os.Lstat(override)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("LIBRESERV_CI_CONTAINER_CACHE must be an existing directory")
+	}
+	resolved, err := filepath.EvalSymlinks(override)
+	if err != nil || resolved != override {
+		return "", fmt.Errorf("LIBRESERV_CI_CONTAINER_CACHE must not contain symlinks")
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != uint32(os.Geteuid()) || info.Mode().Perm()&0022 != 0 {
+		return "", fmt.Errorf("LIBRESERV_CI_CONTAINER_CACHE must be owned by the current user and not group- or world-writable")
+	}
+	return override, nil
 }
 
 // ownerLabel records the pid of the ci process that created a container, so a
@@ -433,6 +463,7 @@ func (r *Runner) runTest(ctx context.Context, t *tests.Test, fuzzDuration time.D
 	}
 
 	if err := r.pullImageIfNeeded(ctx, t.Container); err != nil {
+		r.outputChan <- OutputLine{TestID: t.ID, Type: OutputError, Line: "image pull failed: " + launchErrorClass(err)}
 		result.Status = tests.StatusFailed
 		result.Error = fmt.Sprintf("failed to pull image: %v", err)
 		result.EndTime = time.Now()
@@ -442,6 +473,7 @@ func (r *Runner) runTest(ctx context.Context, t *tests.Test, fuzzDuration time.D
 
 	containerID, err := r.createContainer(ctx, t, fuzzDuration)
 	if err != nil {
+		r.outputChan <- OutputLine{TestID: t.ID, Type: OutputError, Line: "container creation failed: " + launchErrorClass(err)}
 		result.Status = tests.StatusFailed
 		result.Error = fmt.Sprintf("failed to create container: %v", err)
 		result.EndTime = time.Now()
@@ -462,6 +494,7 @@ func (r *Runner) runTest(ctx context.Context, t *tests.Test, fuzzDuration time.D
 	}()
 
 	if err := r.cli.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
+		r.outputChan <- OutputLine{TestID: t.ID, Type: OutputError, Line: "container start failed: " + launchErrorClass(err)}
 		result.Status = tests.StatusFailed
 		result.Error = fmt.Sprintf("failed to start container: %v", err)
 		result.EndTime = time.Now()
@@ -669,6 +702,28 @@ func (r *Runner) pullImageIfNeeded(ctx context.Context, imageRef string) error {
 	return nil
 }
 
+func containerBaseBinds(repo, cache string) []string {
+	return []string{repo + ":/repo:z", cache + ":/cache:z", filepath.Join(repo, ".cache") + ":/ci-lifeline:z"}
+}
+
+// launchErrorClass reports a bounded category without exposing runtime URLs,
+// credentials, mount paths or arbitrary server-provided error text.
+func launchErrorClass(err error) string {
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "permission denied") || strings.Contains(message, "access denied"):
+		return "permission denied"
+	case strings.Contains(message, "no such file") || strings.Contains(message, "not found"):
+		return "resource not found"
+	case strings.Contains(message, "connection refused"):
+		return "runtime connection refused"
+	case strings.Contains(message, "deadline") || strings.Contains(message, "timeout"):
+		return "runtime timeout"
+	default:
+		return "runtime error (details withheld)"
+	}
+}
+
 func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuration time.Duration) (string, error) {
 	env := make([]string, len(t.Env))
 	copy(env, t.Env)
@@ -680,18 +735,20 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 	// worker per host core and just wait on the container's quota.
 	env = append(env, parallelismEnv(r.jobCPUQuota())...)
 
-	cacheDir := filepath.Join(r.repoPath, ".cache")
-	os.MkdirAll(cacheDir, 0755)
+	cacheDir := r.containerCacheDir
+	if cacheDir == "" {
+		cacheDir = filepath.Join(r.repoPath, ".cache")
+	}
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return "", fmt.Errorf("create container cache: %w", err)
+	}
 
 	// Bind mounts use the :z SELinux relabel option so containers can read the
 	// repo under SELinux-enforcing hosts (required by Podman rootless; harmless
 	// for Docker). The shared :z (not private :Z) is used because several test
 	// containers mount the same repo in parallel. The structured mount.Mount API
 	// can't express :z, so we use HostConfig.Binds ("src:dst[:opts]").
-	binds := []string{
-		r.repoPath + ":/repo:z",
-		cacheDir + ":/cache:z",
-	}
+	binds := containerBaseBinds(r.repoPath, cacheDir)
 
 	// Node tests share one warmed node_modules and one npm cache per workdir
 	// (populated by warmCaches before the workers start), so every test that

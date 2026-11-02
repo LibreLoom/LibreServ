@@ -153,7 +153,7 @@ var Profiles = map[string]*Profile{
 	"tailscale": {
 		ID: "tailscale", Name: "Tailscale",
 		Description: "Remote access packaging, daemon and web checks without OS toolchains",
-		TestIDs: []string{"tailscale-packaging", "luna-daemon-check", "luna-web-check", "go-test", "go-vet", "staticcheck", "frontend-test", "frontend-typecheck", "frontend-colors", "release-test"},
+		TestIDs:     []string{"tailscale-packaging", "luna-daemon-check", "luna-web-check", "go-test", "go-vet", "staticcheck", "frontend-test", "frontend-typecheck", "frontend-colors", "release-test"},
 	},
 	"nightly": {
 		ID:          "nightly",
