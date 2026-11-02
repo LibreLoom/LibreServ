@@ -112,11 +112,20 @@ pub fn search_all(
         let mut all = Vec::new();
         let mut incomplete = false;
         for handle in handles {
-            let (hits, limited) = handle
-                .join()
-                .map_err(|_| anyhow::anyhow!("search worker failed"))??;
-            all.extend(hits);
-            incomplete |= limited;
+            match handle.join() {
+                Ok(Ok((hits, limited))) => {
+                    all.extend(hits);
+                    incomplete |= limited;
+                }
+                Ok(Err(error)) => {
+                    tracing::warn!(%error, "drive search failed");
+                    incomplete = true;
+                }
+                Err(_) => {
+                    tracing::warn!("drive search worker failed");
+                    incomplete = true;
+                }
+            }
         }
         Ok::<_, anyhow::Error>((all, incomplete))
     })?;
@@ -503,13 +512,27 @@ mod tests {
     }
 
     #[test]
-    fn search_all_reports_an_unreadable_index() {
+    fn search_all_marks_an_unreadable_index_incomplete() {
         let dir = tempfile::tempdir().unwrap();
-        let drives = [DriveRef {
-            id: "missing".into(),
-            mount: dir.path().join("missing"),
-        }];
-        assert!(search_all(&drives, &Query::new("budget"), KindFilter::All).is_err());
+        let good = dir.path().join("good");
+        std::fs::create_dir_all(&good).unwrap();
+        let conn = drive_conn(&good);
+        replace_dir(&conn, "good", "", 1, &[entry("budget.txt", "file", false)]).unwrap();
+        let drives = [
+            DriveRef {
+                id: "missing".into(),
+                mount: dir.path().join("missing"),
+            },
+            DriveRef {
+                id: "good".into(),
+                mount: good,
+            },
+        ];
+        let (hits, incomplete) =
+            search_all(&drives, &Query::new("budget"), KindFilter::All).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].hit.name, "budget.txt");
+        assert!(incomplete);
     }
 
     #[test]

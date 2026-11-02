@@ -170,7 +170,7 @@ export default function FileSearch() {
     { label: "Best match", hits: search.hits.slice(0, 1) },
     { label: "Folders", hits: remaining.filter((hit) => hit.kind === "dir") },
     { label: "Files", hits: remaining.filter((hit) => hit.kind !== "dir" && !isImageFile(hit.name)) },
-    { label: "Photos", hits: remaining.filter((hit) => hit.kind !== "dir" && isImageFile(hit.name)) },
+    { label: "Image files", hits: remaining.filter((hit) => hit.kind !== "dir" && isImageFile(hit.name)) },
   ].filter((group) => group.hits.length > 0);
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives, enabled: present });
@@ -570,7 +570,7 @@ export default function FileSearch() {
 
               {search.incomplete && !search.isError && (
                 <PageNotice variant="warning" className="mb-3">
-                  Luna could not check every match. Type more of the name to narrow your search.
+                  Luna could not check every match or drive. Try again or type more of the name to narrow your search.
                 </PageNotice>
               )}
 
