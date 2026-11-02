@@ -125,5 +125,7 @@ Sync with the animation. Never buzz on hover, scroll, or typing. Never double-bu
 ## Notes for agents
 
 - **Go 1.27 is real** and every Go 1.27 image exists. Don't question it.
-- **Early development, no existing users.** No backwards compatibility or migrations unless asked; tear obsolete concepts down completely.
+- **Early development, no existing users.** Nobody's data or habits are worth protecting yet, so this is a licence, not a limit: pick the mechanism that makes the product best, and change whatever stands in the way — schemas, concepts, APIs, pricing, provider setup. Don't design around preserving what exists.
+  - **SQL:** no migrations or backwards compatibility unless asked. Rewrite the schema, drop the table, squash the migration; don't write a data-preserving path for rows nobody has.
+  - **Everywhere else:** don't treat "it's already configured" or "that means re-doing X" as a reason to avoid the better option. If the best design means replacing a Stripe price, redrawing an API, or deleting a concept, say so and do that.
 - **If you are confused by the user's instructions, or if they are unclear, ask the user clarifying questions** instead of guessing.
