@@ -229,11 +229,28 @@ mod tests {
         assert_eq!(v["overall_pass"], true);
         assert!(v["checks"]["database"].is_object());
         assert!(v["checks"]["disk_space"].is_object());
+    }
 
-        // The contract recorder sees the host's warning response above. Also
-        // record a passing response so optional warning-only fields such as
-        // `more` and `details` stay optional in the generated contract, and so
-        // the rows that never carry them are recorded without them.
+    /// The contract recorder keeps one shape per route, merged over every
+    /// answer it sees. The test above records whatever this host happens to
+    /// report — usually warnings — so this one records the passing answer: the
+    /// rows that never carry `more` or `details` on success, and a covered
+    /// backup row whose `covered_by` is an object rather than null.
+    ///
+    /// It builds its own `AppState` and routers, so it never competes with the
+    /// test above for the cache, the database, or the recorder's mutex.
+    #[tokio::test]
+    async fn passing_health_and_covered_backup_are_recorded() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = AppState::new(conn, drive_manager, dir.path());
+        let auth = state.auth.clone();
+        let user = auth
+            .register("Max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        let token = auth.issue(&user).unwrap();
+
         let tools_dir = dir.path().join("tools");
         std::fs::create_dir_all(&tools_dir).unwrap();
         for name in [
@@ -281,8 +298,8 @@ mod tests {
             whiteboard_editor: true,
             whiteboard_fonts: true,
         };
-        // EuroOffice, the diagram pack, and the whiteboard chunks are files in
-        // the data folder, so a passing office_pack needs them on disk.
+        // EuroOffice and the diagram pack are files in the data folder, so a
+        // passing office_pack and diagram_pack need them on disk.
         let office = state.data_dir.join("eurooffice");
         for rel in [
             "web-apps/apps/api/documents/api.js",
@@ -323,7 +340,7 @@ mod tests {
                 state.clone(),
                 crate::auth::guard,
             ))
-            .with_state(state);
+            .with_state(state.clone());
         let response = router
             .oneshot(
                 axum::http::Request::builder()
@@ -334,6 +351,7 @@ mod tests {
             )
             .await
             .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
         let bytes = axum::body::to_bytes(response.into_body(), 256 * 1024)
             .await
             .unwrap();
@@ -345,9 +363,9 @@ mod tests {
             "smart_tool",
             "video_tools",
         ] {
-            assert_eq!(passing["checks"][name]["status"], "passed");
-            assert!(passing["checks"][name].get("more").is_none());
-            assert!(passing["checks"][name].get("details").is_none());
+            assert_eq!(passing["checks"][name]["status"], "passed", "{name}");
+            assert!(passing["checks"][name].get("more").is_none(), "{name}");
+            assert!(passing["checks"][name].get("details").is_none(), "{name}");
         }
         // The network and NTFS rows still carry no `more` on success.
         assert_eq!(passing["checks"]["network"]["status"], "passed");
@@ -391,7 +409,7 @@ mod tests {
                     state.clone(),
                     crate::auth::guard,
                 ))
-                .with_state(state);
+                .with_state(state.clone());
             let response = router
                 .oneshot(
                     axum::http::Request::builder()
