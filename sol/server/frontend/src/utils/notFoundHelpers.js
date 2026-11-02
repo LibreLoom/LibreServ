@@ -74,6 +74,22 @@ export function levenshteinDistance(firstInput, secondInput) {
 }
 
 /**
+ * A known route plus the match metadata computed by {@link scoreKnownPages}.
+ *
+ * @typedef {object} ScoredPage
+ * @property {string} to - Route path as given in `knownPages`.
+ * @property {string} label - Human-readable route name.
+ * @property {string} candidatePath - Lower-cased route path.
+ * @property {string} candidateSegment - First segment of `candidatePath`.
+ * @property {boolean} isPathPrefix - The attempted path is this route or sits under it.
+ * @property {boolean} isTypedPrefixOfCandidate - The typed segment starts this route's segment.
+ * @property {boolean} isCandidatePrefixOfTyped - This route's segment starts the typed segment.
+ * @property {number} lettersOff - Edit distance between the two primary segments.
+ * @property {number} score - Sort key; 0 for prefix matches, else `lettersOff`.
+ * @property {boolean} isClose - Whether this is a plausible "did you mean?".
+ */
+
+/**
  * Score known routes for "close enough" suggestions against the attempted
  * path. Returns a sorted array of scored candidates (best match first).
  * Pure: identical inputs always yield identical output.
@@ -81,7 +97,7 @@ export function levenshteinDistance(firstInput, secondInput) {
  * @param {string} normalizedPathname - Already-normalized pathname
  *   (see {@link normalizePathname}).
  * @param {Array<{ to: string, label: string }>} knownPages - Routes to match.
- * @returns {Array<object>} Scored candidates with match metadata, sorted
+ * @returns {ScoredPage[]} Scored candidates with match metadata, sorted
  *   best-first.
  */
 export function scoreKnownPages(normalizedPathname, knownPages) {

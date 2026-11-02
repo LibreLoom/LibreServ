@@ -1,6 +1,6 @@
 # Recovery phrase: check modal redesign and phrase as a required setup step
 
-Status: shipped 23 Oct 2026 (lunad `bc423af0`, web `2ce3ed70`). Setup now has the phrase step and the check is rebuilt on `PhraseWordsInput`; "What's true today" below describes the pre-change code and stays as history.
+Status: shipped 23 Oct 2026 (lunad `bc423af0`, web `2ce3ed70`). The check is rebuilt on `PhraseWordsInput` and stays. **The required setup step was removed 2 Nov 2026** (see §1, decisions A and B): a phrase only opens cloud backups, so it is asked for when someone turns on cloud backup, not during setup. "What's true today" below describes the pre-change code and stays as history.
 
 ## 0. What's true today
 
@@ -43,11 +43,13 @@ Backups to local drives don't use it.
 - The person also writes down a new phrase they don't need, when the restore needs their old one.
 - No files are lost: Connect's web unlock (`connect/web/src/lib/cloudUnlock.js`) works from the account's list of Luna ids, so the old phrase still opens old backups there.
 - **Recommended:** ship the setup step now, then a follow-up lunad change. When a drive is added that holds exactly one other Luna id, and this Luna's id has never been used (no cloud backups, snapshots or private scopes), Luna switches to the drive's id and clears every account's keys. The forced phrase screen then asks for "the recovery phrase you used before" and runs the restore. That follow-up is not in the briefs below; it waits for your yes.
+- **Resolved 2 Nov 2026: the setup step was dropped, so this cost is gone.** Luna makes its id the first time someone turns on cloud backup, which is after drives are added, so `known_luna_id` can find the old id on a drive. The unbuilt follow-up above is no longer needed.
 
 **B. Members and later Admins.** Setup only covers the first Admin. The briefs add a required phrase screen at first sign-in for any account without a phrase, which is what makes "a Luna can't be without one" true for everyone. The web enforces it; lunad's existing 409 stays as a backstop. If you'd rather not require it for Members, drop part F2 and keep the card's "Not set up" state and `settings/phrase-member-not-set`.
+- **Taken 2 Nov 2026: part F2 is dropped.** No account is required to have a phrase, and nothing blocks the app on one. The card's `Not set up` state is built, and `settings/phrase-not-set` covers it.
 
 **Taken in this spec (tell me if you want otherwise):**
-- **The phrase is required at setup even with Connect off.** That's the plain reading of the decision. The 90-day reminder already only shows when you can see a cloud backup (`buildPhraseItem`), so a Luna without Connect isn't nagged.
+- ~~**The phrase is required at setup even with Connect off.**~~ Overruled 2 Nov 2026: it is not required at setup at all. The 90-day reminder already only shows when you can see a cloud backup (`buildPhraseItem`), so a Luna without Connect isn't nagged.
 - **Where the card lives:** Settings → Cloud backup, now shown to everyone all the time. With Connect off it shows the phrase card plus one line saying cloud backup needs Luna Connect.
   - Max questioned the phrase being under Security. The phrase only opens cloud backups. And "Settings → Cloud backup" is already the copy in lunad (`NO_PHRASE`, the 409).
   - The other option is Security, next to the "You" card. Say so if you prefer it.
@@ -129,6 +131,10 @@ The words stay in the boxes after every failure, so one can be fixed. They're wi
 - Button `Check`.
 
 ## 3. Design (b): the phrase as a setup step
+
+> **Removed 2 Nov 2026.** This section is history. The step is gone from the wizard; the same
+> `PhraseStep` now runs inside `PhraseSetupModal`, opened from the Settings card's `Set up`
+> button and from "Back up to the cloud" when no phrase is saved yet.
 
 **Order:** Welcome → System check → Account → **Recovery phrase** → Name → Done, with dots `n / 6`.
 - Step id `phrase`, label `Recovery phrase`.
@@ -260,7 +266,7 @@ The words stay in the boxes after every failure, so one can be fixed. They're wi
 ## Brief F (sonnet): web
 
 **Owned files:**
-- New in `luna/web/src/components/cloud/`: `PhraseWordsInput.jsx` (+`.test.jsx`), `PhraseWriteDown.jsx` (+test), `PhraseGate.jsx` (+test)
+- New in `luna/web/src/components/cloud/`: `PhraseWordsInput.jsx` (+`.test.jsx`), `PhraseWriteDown.jsx` (+test), `PhraseSetupModal.jsx` (the dialog that replaced `PhraseGate.jsx`, removed 2 Nov 2026)
 - New: `luna/web/src/components/setup/PhraseStep.jsx` (+test)
 - Changed in `luna/web/src/components/cloud/`: `RecoveryPhraseCheck.jsx` (+test), `RecoveryPhraseCard.jsx` (+test), `PhraseReplaceFlow.jsx` (+test), `RestoreForm.jsx`
 - Deleted: `luna/web/src/components/cloud/RecoveryPhraseSetup.jsx` and its test
@@ -292,13 +298,13 @@ The words stay in the boxes after every failure, so one can be fixed. They're wi
   - Words are wiped on close and on success.
 
 **F2. Required phrase**
-- **`PhraseStep.jsx`:** the setup step (§3), built on `PhraseWriteDown`. It calls `createIdentity()` on mount and gets `userId` from `useAuth`.
+- **`PhraseStep.jsx`:** the phrase content (§3), built on `PhraseWriteDown`. It calls `createIdentity()` on mount and gets `userId` from `useAuth`. Since 2 Nov 2026 it is used by `PhraseSetupModal`, not by the wizard.
 - **`SetupPage.jsx`:**
   - Add `STEP.PHRASE` to `STEP`, `VISIBLE_STEPS` and `STEP_ORDER`.
   - `handleAccountContinue` goes to `PHRASE`; the step's save goes to `NAME` with `phrase_set: true` and calls `refresh()`.
   - Resume rules as in §3. The signed-out check includes `PHRASE`, and `account_completed` now skips to `PHRASE`.
   - `handleFinish`: an error with `code === "needs_phrase"` sets the step to `PHRASE`.
-- **`PhraseGate.jsx`:** wraps the children of `RequireAuth` in `App.jsx`.
+- ~~**`PhraseGate.jsx`:** wraps the children of `RequireAuth` in `App.jsx`.~~ Deleted 2 Nov 2026. Nothing blocks the app on a phrase.
   - If `user.phrase_set === false`, it renders a full page instead of the app: `surface-primary` page, a centered `surface-secondary` card (`max-w-md rounded-large-element`).
   - Heading `Set up your recovery phrase`; lead `Every account on this Luna has its own recovery phrase. It locks your cloud backups so only you can open them.`
   - Then `PhraseWriteDown` (`saveLabel="Save recovery phrase"`) and a ghost `Sign out` button with `surface="secondary"`.
@@ -342,22 +348,17 @@ The words stay in the boxes after every failure, so one can be fixed. They're wi
   - success calls `onVerified`.
 - **`PhraseWriteDown.test.jsx`:** rendered on a `surface-secondary` wrapper — show → confirm, a wrong position shakes with its line, the right words call `onSave`.
 - **`PhraseStep.test.jsx`:** the identity call failing shows the message and `Try again`.
-- **`PhraseGate.test.jsx`:**
-  - `phrase_set: false` shows the gate;
-  - `true` and `undefined` show the children.
-- **`SetupPage.test.jsx`:**
-  - Account → Recovery phrase → Name with `4 / 6`;
-  - resuming on `phrase` with `phrase_set: true` lands on Name;
-  - finishing refused with `needs_phrase` goes back to the phrase step.
-- **`RecoveryPhraseCard.test.jsx`:** no "Not set up" anywhere; the length shows in the set line.
+- **`PhraseSetupModal`** (replaced `PhraseGate.test.jsx`, 2 Nov 2026): opening it shows the phrase to write down; saving toasts and closes.
+- **`SetupPage.test.jsx`:** Account → Name with `4 / 5`; a saved `phrase` step resumes at naming; finishing never asks for a phrase.
+- **`RecoveryPhraseCard.test.jsx`:** `Not set up` with a `Set up` button, which opens the dialog; the length shows in the set line.
 - **`CloudBackupCategory.test.jsx` and `settingsCategories.test.jsx`:** the category shows with Connect off (card plus line, no list).
-- **`ProtectSheet.test.jsx`:** 409 `needs_phrase` shows inline, and no setup modal opens.
+- **`ProtectSheet.test.jsx`:** a 409 `needs_phrase` opens the phrase dialog, and nothing is created until it is saved.
 - **`PhraseReplaceFlow.test.jsx` and the dashboard tests:** updated for the changes above.
 
 **Acceptance:**
-- No screen offers "Not set up".
-- Setup can't reach Name without a saved phrase.
-- An account without a phrase can't reach the app.
+- The card offers "Not set up" with a `Set up` button; nothing else does.
+- Setup never asks for a phrase.
+- An account without a phrase reaches the app normally.
 - The check modal follows §2 exactly (copy, keyboard, haptics, toast).
 - The card shows in Cloud backup with Connect off.
 - No "words" for the phrase itself in any shipped string.
@@ -392,7 +393,7 @@ The words stay in the boxes after every failure, so one can be fixed. They're wi
   - `PUT /api/v1/cloud/phrase` stores `phrase_words: body.words || 0` and sets `last_checked_at: 0`.
   - It sets `resealing: true` only when a phrase was already set (a replacement), never on the first save.
 
-**Scenarios:**
+**Scenarios** (as shipped 23 Oct 2026; the setup ones were undone 2 Nov 2026 — see the note under §3):
 - **`setup.scenarios.js`:**
   - `fresh()` seeds the phrase as not set.
   - `STEPS_CHECK` becomes "Welcome → System check → Account → Recovery phrase → Name → Done, with a step counter".
@@ -409,6 +410,8 @@ The words stay in the boxes after every failure, so one can be fixed. They're wi
   - Change `settings/connect-off`: Cloud backup is in the sidebar with the phrase card and the "needs Luna Connect" line; Luna Connect isn't.
   - Add `settings/phrase-24-words`: the check shows 24 boxes and no switch.
 - **`files.scenarios.js`:** remove `files/cloud-backup-no-phrase`.
+
+**What those scenarios are now (2 Nov 2026):** the four `setup/phrase-*` scenarios are gone with the step. `setup/finish-without-phrase` now checks that setup finishes without a phrase. `auth/member-needs-phrase` opens the app normally and checks the card's `Not set up` state. `settings/phrase-not-set` exists again (it is the card's new state). `files/protect-cloud-no-phrase` replaces `files/cloud-backup-no-phrase`: pressing "Back up to the cloud" asks for a phrase in a dialog, then starts the backup.
 - **`dashboard.scenarios.js`:**
   - `dashboard/check-overdue` check lines become: "Check now opens Check my phrase with 12 numbered boxes", "Pasting `abandon` ×11 + `about` fills every box", "Check closes the dialog, toasts 'Your recovery phrase is correct.' and the row clears".
   - Add `dashboard/check-paste-file`: pasting the downloaded file's numbered lines fills the boxes.

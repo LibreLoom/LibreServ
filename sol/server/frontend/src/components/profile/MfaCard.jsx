@@ -34,6 +34,19 @@ import { TYPE_META, ORDER, inputClass } from "./mfa-shared";
 import { copyToClipboard, canUseClipboard } from "@libreloom/ui/utils/clipboard.js";
 
 /**
+ * One enrolled two-factor method, as returned by `/auth/mfa/methods`
+ * (mirrors `auth.MFAMethod` in the backend).
+ *
+ * @typedef {object} MfaMethod
+ * @property {string} id
+ * @property {string} type - One of `ORDER` in ./mfa-shared.
+ * @property {string} label
+ * @property {boolean} enabled
+ * @property {string} [created_at]
+ * @property {string|null} [last_used_at]
+ */
+
+/**
  * @param {{ onMethodEnabled?: () => void, onComplete?: () => void, embedded?: boolean } | undefined} [props]
  */
 export default function MfaCard({ onMethodEnabled, onComplete, embedded = false } = {}) {
@@ -41,7 +54,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
   const { addToast } = useToast();
   const { availability, loading: loadingAvailability } = useMfaAvailability();
   const clipboardOk = canUseClipboard();
-  const [methods, setMethods] = useState(/** @type {Array<object>} */ ([]));
+  const [methods, setMethods] = useState(/** @type {MfaMethod[]} */ ([]));
   const [loadingMethods, setLoadingMethods] = useState(true);
   const [remainingRecovery, setRemainingRecovery] = useState(null);
   const [loadedRecovery, setLoadedRecovery] = useState(false);

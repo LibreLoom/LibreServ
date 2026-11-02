@@ -7,7 +7,7 @@ import { useFileSource } from "../../../lib/fileSource.jsx";
 /**
  * Bytes through the active file source (drive API, or a share link for
  * guests). Standalone helper for callers outside a component.
- * @param {object} source
+ * @param {import("../../../lib/fileSource.jsx").FileSource} source
  * @param {string} driveId
  * @param {string} path
  */
@@ -16,7 +16,7 @@ export async function fetchDriveBytes(source, driveId, path) {
 }
 
 /**
- * @param {object} source
+ * @param {import("../../../lib/fileSource.jsx").FileSource} source
  * @param {string} driveId
  * @param {string} path
  * @param {string} [mime]

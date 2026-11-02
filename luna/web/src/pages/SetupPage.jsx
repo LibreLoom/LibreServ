@@ -34,7 +34,6 @@ import DotMatrixLoader from "@libreloom/ui/components/ui/DotMatrixLoader.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import useLabelErrorState from "@libreloom/ui/hooks/useLabelErrorState.js";
 import PreflightStep from "../components/setup/PreflightStep.jsx";
-import PhraseStep from "../components/setup/PhraseStep.jsx";
 import DiscoveryPaths from "../components/setup/DiscoveryPaths.jsx";
 import TextLink from "../components/ui/TextLink";
 import PasswordStrengthChecklist from "@libreloom/ui/components/common/PasswordStrengthChecklist.jsx";
@@ -47,7 +46,6 @@ const STEP = {
   WELCOME:    "welcome",
   PREFLIGHT:  "preflight",
   ACCOUNT:    "account",
-  PHRASE:     "phrase",
   NAME:       "name",
   DONE:       "done",
 };
@@ -193,7 +191,6 @@ const VISIBLE_STEPS = [
   { id: STEP.WELCOME,    label: "Welcome" },
   { id: STEP.PREFLIGHT,  label: "System check" },
   { id: STEP.ACCOUNT,    label: "Account" },
-  { id: STEP.PHRASE,     label: "Recovery phrase" },
   { id: STEP.NAME,       label: "Name" },
   { id: STEP.DONE,       label: "Done" },
 ];
@@ -937,7 +934,6 @@ const STEP_ORDER = [
   STEP.WELCOME,
   STEP.PREFLIGHT,
   STEP.ACCOUNT,
-  STEP.PHRASE,
   STEP.NAME,
   STEP.DONE,
 ];
@@ -1005,6 +1001,8 @@ export default function SetupPage() {
           if (savedStep === STEP.WELCOME && savedData.preflight_passed) {
             next = STEP.ACCOUNT;
           }
+          // A wizard saved before the phrase step was dropped resumes at naming.
+          if (next === "phrase") next = STEP.NAME;
           if (!STEP_ORDER.includes(next)) {
             next = STEP.WELCOME;
           }
@@ -1017,7 +1015,7 @@ export default function SetupPage() {
         if (!alive) return;
         // Account already exists but session is gone → land on sign-in gate.
         let signedOutGate = false;
-        if ((next === STEP.PHRASE || next === STEP.NAME || next === STEP.DONE) && !user && !me) {
+        if ((next === STEP.NAME || next === STEP.DONE) && !user && !me) {
           const status = await getJson("/api/v1/auth/status").catch(() => null);
           if (!alive) return;
           if (status?.has_admin) {
@@ -1027,11 +1025,8 @@ export default function SetupPage() {
         }
         // Skip account form if that step already finished.
         if (next === STEP.ACCOUNT && savedData.account_completed && !signedOutGate) {
-          next = STEP.PHRASE;
+          next = STEP.NAME;
         }
-        // A phrase already saved skips the phrase step; Name without a saved phrase goes back to it.
-        if (next === STEP.PHRASE && me?.phrase_set === true) next = STEP.NAME;
-        if (next === STEP.NAME && me?.phrase_set === false) next = STEP.PHRASE;
         setStep(next);
       } catch {
         // After the first account exists, setup reads are signed-in only. If an
@@ -1073,35 +1068,39 @@ export default function SetupPage() {
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
 
-  const advanceStep = useCallback(async (nextStep, stepData) => {
-    const data = stepData || progressRef.current.stepData || {};
-    progressRef.current = { step: nextStep, stepData: data };
-    setSaveError(null);
-    savingRef.current = true;
-    try {
-      await saveProgress(nextStep, data);
-    } catch (err) {
-      // One retry covers a blip. If it fails again, say what Luna actually
-      // said: a 4xx here is a real refusal (bad step, full disk), not a
-      // connection problem, and "check your connection" would be a lie.
+  const advanceStep = useCallback(
+    /** @param {string} nextStep @param {Record<string, unknown>} [stepData] */
+    async (nextStep, stepData) => {
+      const data = stepData || progressRef.current.stepData || {};
+      progressRef.current = { step: nextStep, stepData: data };
+      setSaveError(null);
+      savingRef.current = true;
       try {
         await saveProgress(nextStep, data);
-      } catch (retryErr) {
-        const status = retryErr?.status ?? err?.status;
-        const said = retryErr?.message || err?.message;
-        setSaveError(
-          status && status >= 400 && status < 500 && said
-            ? said
-            : "Luna couldn't save your setup progress. Check your connection and try again.",
-        );
+      } catch (err) {
+        // One retry covers a blip. If it fails again, say what Luna actually
+        // said: a 4xx here is a real refusal (bad step, full disk), not a
+        // connection problem, and "check your connection" would be a lie.
+        try {
+          await saveProgress(nextStep, data);
+        } catch (retryErr) {
+          const status = retryErr?.status ?? err?.status;
+          const said = retryErr?.message || err?.message;
+          setSaveError(
+            status && status >= 400 && status < 500 && said
+              ? said
+              : "Luna couldn't save your setup progress. Check your connection and try again.",
+          );
+          savingRef.current = false;
+          return;
+        }
+      } finally {
         savingRef.current = false;
-        return;
       }
-    } finally {
-      savingRef.current = false;
-    }
-    setStep(nextStep);
-  }, [saveProgress]);
+      setStep(nextStep);
+    },
+    [saveProgress],
+  );
 
   const handleBegin = useCallback(() => {
     const data = { ...(progressRef.current.stepData || {}), network_connected: true };
@@ -1111,43 +1110,26 @@ export default function SetupPage() {
     const data = { ...(progressRef.current.stepData || {}), preflight_passed: true };
     advanceStep(STEP.ACCOUNT, data);
   }, [advanceStep]);
-  const handleAccountContinue = useCallback(async () => {
+  const handleAccountContinue = useCallback(() => {
     const data = { ...(progressRef.current.stepData || {}), account_completed: true };
-    // An Admin who already has a recovery phrase doesn't make another.
-    const me = await getJson("/api/v1/auth/me").catch(() => null);
-    advanceStep(me?.phrase_set === true ? STEP.NAME : STEP.PHRASE, data);
+    advanceStep(STEP.NAME, data);
   }, [advanceStep]);
-  const handlePhraseSaved = useCallback(async () => {
-    const data = { ...(progressRef.current.stepData || {}), phrase_set: true };
-    await refresh();
-    await advanceStep(STEP.NAME, data);
-  }, [advanceStep, refresh]);
 
   const handleFinish = useCallback(async (name) => {
     // Flush any in-flight progress save, then mark setup complete.
     await flushProgress();
     // Throws on failure so NameStep keeps its input and stays on the step.
-    let saved;
-    try {
-      saved = await postJson("/api/v1/setup", {
-        name,
-        setup_completed: true,
-        current_step: STEP.DONE,
-      });
-    } catch (err) {
-      // Luna won't finish setup without the Admin's recovery phrase: send them back to make it.
-      if (/** @type {any} */ (err)?.code === "needs_phrase") {
-        await advanceStep(STEP.PHRASE);
-        return;
-      }
-      throw err;
-    }
+    const saved = await postJson("/api/v1/setup", {
+      name,
+      setup_completed: true,
+      current_step: STEP.DONE,
+    });
     setDeviceName(saved?.name || name);
     // Refresh the auth context so RequireAuth sees setup_completed === true
     // and lets the post-setup navigation through.
     await refresh();
     setStep(STEP.DONE);
-  }, [advanceStep, flushProgress, refresh]);
+  }, [flushProgress, refresh]);
 
   // While loading, the card holds an invisible Welcome step (the usual first
   // step) so it is already the right size under the dot-matrix wave.
@@ -1167,8 +1149,6 @@ export default function SetupPage() {
         connectActive={connectActive}
       />
     );
-  } else if (shownStep === STEP.PHRASE) {
-    renderedStep = <PhraseStep onSaved={handlePhraseSaved} />;
   } else if (shownStep === STEP.NAME) {
     renderedStep = <NameStep initialName={deviceName} onFinish={handleFinish} />;
   } else if (shownStep === STEP.DONE) {

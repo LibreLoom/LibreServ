@@ -305,11 +305,34 @@ export function findMyPrivateScopes({ lunaId, entropy, pscopes = [], signingPubl
 }
 
 /**
+ * A private backup's name and who started it — what {@link openPrivateMeta}
+ * returns.
+ * @typedef {{ name: string, sourceDrive: string, sourcePath: string, startedBy: string, startedByName: string }} PrivateMeta
+ */
+
+/**
+ * A verified private snapshot: the signed record's fields plus the sealed and
+ * opened metadata. `treeHash` stays raw bytes — `readRawTreeWith` checks them.
+ *
+ * @typedef {{
+ *   lunaId: string,
+ *   protectionId: string,
+ *   snapshotId: string,
+ *   createdAt: number,
+ *   keyVersion: number,
+ *   treePackId: string,
+ *   treeHash: Uint8Array,
+ *   sealedMeta: Uint8Array,
+ *   meta: PrivateMeta,
+ * }} PrivateSnapshot
+ */
+
+/**
  * The verified private snapshots in one scope, newest first. A snapshot whose details do not open
  * with the scope's key is left out.
  * @param {{ lunaId: string, sealSecret: Uint8Array, scope: string, psnapshots: Array<{ name: string, data: Uint8Array }>, signingPublics: Uint8Array[] }} input
  *   `sealSecret` is the scope's secret key (`sealSecret` from `findMyPrivateScopes`).
- * @returns {Array<object>} the verified snapshot fields, with `meta` (decoded) and `sealedMeta`
+ * @returns {PrivateSnapshot[]} the verified snapshot fields, with `meta` (decoded) and `sealedMeta`
  */
 export function readPrivateSnapshots({ lunaId, sealSecret, scope, psnapshots = [], signingPublics }) {
 	const out = [];

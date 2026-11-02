@@ -170,7 +170,7 @@ post("/api/v1/cloud/backups", ({ world, user, body }) => {
   const norm = clean(body.source_path);
   if (!norm && !isAdmin(user)) throw fail(403, "Only an Admin can back up a whole drive.");
   if (!hasCap(world, user, src, norm, CAP_VIEW)) throw fail(403, "You need Read access to this folder to back it up.");
-  if (!world.phrase?.set) throw fail(409, "You need a recovery phrase first. Reload this page to set one up.", "needs_phrase");
+  if (!world.phrase?.set) throw fail(409, "Set up your recovery phrase first, then start the cloud backup.", "needs_phrase");
   const owner = privateOwnerOf(world, src, norm);
   if (owner && owner !== user.id) {
     const who = world.users.find((u) => u.id === owner);

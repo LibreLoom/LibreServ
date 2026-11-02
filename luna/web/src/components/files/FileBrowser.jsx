@@ -218,8 +218,46 @@ function compareEntries(a, b, sortKey) {
 }
 
 /**
- * @typedef {{ name: string, kind: "dir"|"file"|string, size?: number, modified?: number, hidden?: boolean, saving?: boolean, original_name?: string, original_path?: string, caps?: number|string }} FileEntry
+ * One row in a folder listing — lunad's `FileEntry`.
+ * @typedef {{
+ *   name: string,
+ *   kind: "dir"|"file"|"symlink"|"other"|string,
+ *   size?: number,
+ *   modified?: number,
+ *   hidden?: boolean,
+ *   saving?: boolean,
+ *   save_failed?: boolean,
+ *   original_name?: string,
+ *   original_path?: string,
+ *   link_target?: string,
+ *   caps?: number|string,
+ *   private?: boolean,
+ *   in_private?: boolean,
+ * }} FileEntry
  * @typedef {{ entry: FileEntry, path: string, fullPath: string, displayName: string }} FileBrowserRowContext
+ */
+
+/**
+ * What `/files/stat` answers — lunad's `FileStat`, plus the trash and
+ * private-folder fields the API stamps on.
+ * @typedef {{
+ *   name?: string,
+ *   kind?: string,
+ *   size?: number,
+ *   modified?: number,
+ *   created?: number,
+ *   hidden?: boolean,
+ *   saving?: boolean,
+ *   writable?: boolean,
+ *   private?: boolean,
+ *   in_private?: boolean,
+ *   link_target?: string,
+ *   trashed_from?: string,
+ *   original_name?: string,
+ *   children?: { dirs?: number, files?: number, other?: number },
+ *   totals?: { bytes: number, dirs: number, files: number, other: number, complete: boolean },
+ *   caps?: number|string,
+ * }} FileStat
  */
 
 /**
@@ -378,7 +416,7 @@ export default function FileBrowser({
 
   const listing = useQuery({
     queryKey: fileListKey(source, driveId, path),
-    queryFn: () => source.listDir(driveId, path),
+    queryFn: () => /** @type {Promise<FileEntry[]>} */ (source.listDir(driveId, path)),
     enabled: !!driveId,
     // Keep the previous folder visible while the next listing loads so the list
     // card does not collapse empty and pop back in.
@@ -424,7 +462,7 @@ export default function FileBrowser({
   );
   const rootStat = useQuery({
     queryKey: ["file-stat", fileSourceScope(source, driveId), path],
-    queryFn: () => source.stat(driveId, path),
+    queryFn: () => /** @type {Promise<FileStat>} */ (source.stat(driveId, path)),
     enabled: maybeFileRoot,
   });
   const fileRoot = maybeFileRoot && rootStat.data?.kind === "file";

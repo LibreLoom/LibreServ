@@ -15,6 +15,7 @@ export const PASSWORD_FIELD_PLACEHOLDER = 'Not "a1!", please.';
 
 /**
  * @param {string} password
+ * @param {{ lengthUnit?: "characters" | "utf8-bytes" }} [options]
  * @returns {{
  *   hasLength: boolean,
  *   hasLetter: boolean,
@@ -45,6 +46,7 @@ export function passwordChecks(password, { lengthUnit = "characters" } = {}) {
 /**
  * Plain-language error matching lunad messages, or null when the password is OK.
  * @param {string} password
+ * @param {{ lengthUnit?: "characters" | "utf8-bytes" }} [options]
  * @returns {string | null}
  */
 export function passwordPolicyError(password, options) {
@@ -57,7 +59,10 @@ export function passwordPolicyError(password, options) {
   return null;
 }
 
-/** @param {string} password */
+/**
+ * @param {string} password
+ * @param {{ lengthUnit?: "characters" | "utf8-bytes" }} [options]
+ */
 export function meetsPasswordPolicy(password, options) {
   return passwordChecks(password, options).ok;
 }

@@ -33,7 +33,7 @@ area you are touching before you touch it.
 ## Prerequisites
 
 - **Go 1.27+** — Sol, Connect
-- **Node 20+ and npm** — both web UIs
+- **Node 26+ and npm** — both web UIs
 - **Rust (edition 2024) and Cargo** — Luna
 - **Podman + `podman-compose`** — app runtime for Sol, and all `./ci` runs
 - Optional: `adb` for the Android app, GTK 4/libadwaita dev packages for the desktop app

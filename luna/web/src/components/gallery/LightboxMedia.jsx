@@ -4,6 +4,8 @@ import { Download, ImageOff, VideoOff } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { isHeicFile } from "../../lib/fileKinds.js";
 
+/** @typedef {import("./PhotoThumb.jsx").GalleryPhoto} GalleryPhoto */
+
 function prefersReducedMotion() {
   return typeof window !== "undefined"
     && typeof window.matchMedia === "function"
@@ -30,7 +32,7 @@ const THUMB_STAGE_CAP = "max-h-[45%] max-w-[45%]";
  * ready are the one exception: they fall back to the drive thumbnail and
  * say so, since a stretched thumb beats a dead pane but is still a preview.
  *
- * @param {{ photo: object, src: string, downloadSrc?: string, autoPlay?: boolean, lite?: boolean }} props
+ * @param {{ photo: GalleryPhoto, src: string, downloadSrc?: string, autoPlay?: boolean, lite?: boolean }} props
  */
 export default function LightboxMedia({ photo, src, downloadSrc = "", autoPlay = true, lite = false }) {
   // "loading" (thumbnail only) → "primed" (media at thumbnail scale) → "grown".

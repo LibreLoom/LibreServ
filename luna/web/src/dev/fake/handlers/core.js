@@ -93,9 +93,10 @@ post("/api/v1/setup", ({ world, user, body }) => {
     if (!user) return fail(401, "Sign in to Luna first.");
     if (!isAdmin(user)) return fail(403, "Only an Admin can change setup.");
   }
-  // Setup can't finish until the signed-in Admin has a recovery phrase.
-  if (body.setup_completed === true && !world.phrase?.set) {
-    return fail(409, world.users.length > 0 ? "Set up your recovery phrase before you finish setup." : "Create your Luna account and its recovery phrase before you finish setup.", "needs_phrase");
+  // Setup closes only behind the first Admin's account. A recovery phrase is not part of
+  // it: the phrase opens cloud backups, which stay off until someone turns them on.
+  if (body.setup_completed === true && world.users.length === 0) {
+    return fail(409, "Create your Luna account before you finish setup.");
   }
   if (body.name !== undefined) {
     const name = String(body.name).trim();

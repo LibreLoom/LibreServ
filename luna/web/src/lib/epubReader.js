@@ -133,6 +133,16 @@ export function attachSanitizer(book) {
 /**
  * foliate-js metadata follows the webpub schema: values can be a plain string
  * or a language map like `{ en: "Title" }`.
+ *
+ * @typedef {string | Record<string, string>} LangValue
+ * @typedef {{ name?: LangValue }} BookContributor
+ * @typedef {{
+ *   title?: LangValue,
+ *   author?: LangValue | BookContributor | Array<LangValue | BookContributor>,
+ * }} BookMetadata
+ */
+
+/**
  * @param {unknown} value
  */
 export function langMapValue(value) {
@@ -145,12 +155,12 @@ export function langMapValue(value) {
   return String(value);
 }
 
-/** @param {object|undefined} metadata foliate-js book.metadata */
+/** @param {BookMetadata|undefined} metadata foliate-js book.metadata */
 export function bookTitle(metadata) {
   return langMapValue(metadata?.title);
 }
 
-/** @param {object|undefined} metadata foliate-js book.metadata */
+/** @param {BookMetadata|undefined} metadata foliate-js book.metadata */
 export function bookAuthor(metadata) {
   if (!metadata?.author) return "";
   const list = Array.isArray(metadata.author) ? metadata.author : [metadata.author];

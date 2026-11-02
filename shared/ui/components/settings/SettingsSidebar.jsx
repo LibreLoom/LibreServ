@@ -5,6 +5,8 @@ import SettingsUserCard from "./SettingsUserCard.jsx";
 import CardButton from "../../components/ui/CardButton.jsx";
 import { ICON_SIZE } from "../../lib/ui-tokens.js";
 
+/** @typedef {import("./SettingsUserCard.jsx").SettingsUser} SettingsUser */
+
 /**
  * Settings category rail: user card on top, category list below.
  *
@@ -13,12 +15,12 @@ import { ICON_SIZE } from "../../lib/ui-tokens.js";
  * and passes the result in.
  *
  * @param {{
- *   user: object|null,
+ *   user: SettingsUser|null,
  *   categories: { id: string, label: string, icon?: import("react").ComponentType<any> }[],
  *   activeCategory: string,
  *   onCategoryChange: (id: string) => void,
  *   memberHint?: string,
- *   userHref?: string|((user: object) => string|null),
+ *   userHref?: string|((user: SettingsUser) => string|null),
  *   deviceName?: string,
  *   className?: string,
  * }} props

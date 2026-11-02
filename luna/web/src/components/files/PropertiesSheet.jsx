@@ -316,10 +316,11 @@ function FilePropertiesSheet({
   const source = useFileSource();
   const stat = useQuery({
     queryKey: ["file-stat", fileSourceScope(source, driveId), path],
-    queryFn: () => source.stat(driveId, path),
+    queryFn: () => /** @type {Promise<import("./FileBrowser.jsx").FileStat>} */ (source.stat(driveId, path)),
     enabled: open && Boolean(driveId),
   });
 
+  /** @type {import("./FileBrowser.jsx").FileStat | null} */
   const data = stat.data && !Array.isArray(stat.data) ? stat.data : null;
   const name = data?.name || entry?.name || pathBasename(path) || driveLabel;
   const kind = data?.kind || entry?.kind || "file";
