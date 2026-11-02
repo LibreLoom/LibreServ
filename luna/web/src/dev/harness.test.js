@@ -341,6 +341,21 @@ describe("recents, renames and restores", () => {
 describe("keeping the world across a page load", () => {
   beforeEach(() => { sessionStorage.clear(); window.history.replaceState(null, "", "/"); });
 
+  it("keeps recovery secrets out of the log and saved world and revokes them", async () => {
+    const fake = installFake({ world: createWorld(), scenario: {}, now: 0 });
+    const first = await call("POST", "/api/v1/auth/recovery-file", {});
+    const second = await call("POST", "/api/v1/auth/recovery-file", {});
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(JSON.stringify(fake.snapshot())).not.toContain(first.data.secret);
+    expect(saveState("recovery", fake.exportState())).toBe(true);
+    expect(JSON.stringify(loadState("recovery"))).not.toContain(first.data.secret);
+    expect(JSON.stringify(loadState("recovery"))).not.toContain(second.data.secret);
+    expect((await call("POST", "/api/v1/auth/revoke-recovery-files", {})).status).toBe(200);
+    expect((await call("POST", "/api/v1/auth/recover-password", { secret: first.data.secret, new_password: "replacement123" })).status).toBe(400);
+    expect((await call("POST", "/api/v1/auth/recover-password", { secret: second.data.secret, new_password: "replacement123" })).status).toBe(400);
+  });
+
   it("saves and loads a world with its ids, faults and clock", () => {
     const fake = installFake({ world: createWorld(), scenario: {}, now: Date.UTC(2026, 9, 18) });
     fake.addFault({ match: "GET /api/v1/drives", mode: "500" });

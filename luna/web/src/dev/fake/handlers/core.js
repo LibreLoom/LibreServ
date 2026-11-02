@@ -39,17 +39,19 @@ post("/api/v1/auth/login", ({ world, body }) => {
 
 post("/api/v1/auth/logout", ({ world }) => { world.sessionUserId = null; return { ok: true }; }, { public: true });
 
-post("/api/v1/auth/recovery-file", ({ world, user }) => {
+const recoveryDigest = async (secret) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret))), (byte) => byte.toString(16).padStart(2, "0")).join("");
+post("/api/v1/auth/recovery-file", async ({ world, user }) => {
   if (!user) return fail(401, "Sign in to Luna first.");
   if (!isAdmin(user)) return fail(403, "Only an Admin can create a recovery file.");
   const secret = crypto.randomUUID().replaceAll("-", "") + "fakeSecret1";
   world.passwordRecoveryFiles ??= [];
-  world.passwordRecoveryFiles.push({ secret, userId: user.id });
+  world.passwordRecoveryFiles.push({ digest: await recoveryDigest(secret), userId: user.id });
   return { version: 1, secret };
 }, { public: true });
 
-post("/api/v1/auth/recover-password", ({ world, body }) => {
-  const file = world.passwordRecoveryFiles?.find((item) => item.secret === body.secret);
+post("/api/v1/auth/recover-password", async ({ world, body }) => {
+  const digest = await recoveryDigest(String(body.secret ?? ""));
+  const file = world.passwordRecoveryFiles?.find((item) => item.digest === digest);
   const owner = world.users.find((u) => u.id === file?.userId && u.role === "admin");
   if (!owner) return fail(400, "That recovery file is invalid or has already been used.");
   const bad = badPassword(body.new_password);
@@ -57,6 +59,13 @@ post("/api/v1/auth/recover-password", ({ world, body }) => {
   world.passwordRecoveryFiles = world.passwordRecoveryFiles.filter((item) => item !== file);
   owner.password = body.new_password;
   world.sessionUserId = null;
+  return { ok: true };
+}, { public: true });
+
+post("/api/v1/auth/revoke-recovery-files", ({ world, user }) => {
+  if (!user) return fail(401, "Sign in to Luna first.");
+  if (!isAdmin(user)) return fail(403, "Only an Admin can revoke recovery files.");
+  world.passwordRecoveryFiles = (world.passwordRecoveryFiles || []).filter((item) => item.userId !== user.id);
   return { ok: true };
 }, { public: true });
 

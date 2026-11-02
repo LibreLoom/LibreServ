@@ -61,6 +61,19 @@ describe("AccessCategory", () => {
     expect(findContrastProblems(container)).toEqual([]);
   });
 
+  it("asks before revoking recovery files and sends the revoke request", async () => {
+    vi.spyOn(authContext, "useOptionalAuth").mockReturnValue(/** @type {any} */ ({ user: { id: "1", username: "max", display_name: "Max", role: "admin" } }));
+    vi.stubGlobal("fetch", vi.fn(async (url) => new Response(JSON.stringify(String(url).includes("revoke-recovery-files") ? { ok: true } : []), { status: 200, headers: { "Content-Type": "application/json" } })));
+    const { userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+    renderAccess();
+    await user.click(await screen.findByRole("button", { name: "Revoke recovery files" }));
+    const dialog = screen.getByRole("dialog", { name: "Revoke recovery files?" });
+    expect(within(dialog).getByText(/Every unused recovery file/)).toBeVisible();
+    await user.click(within(dialog).getByRole("button", { name: "Revoke recovery files" }));
+    await waitFor(() => expect(/** @type {any} */ (fetch).mock.calls.some(([url]) => String(url).endsWith("/api/v1/auth/revoke-recovery-files"))).toBe(true));
+  });
+
   it("shows browser sign-out without bulk app revoke", async () => {
     renderAccess();
     expect(await screen.findByRole("heading", { name: "Browsers" })).toBeTruthy();

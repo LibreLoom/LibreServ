@@ -31,6 +31,10 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/auth/register", post(register))
         .route("/api/v1/auth/login", post(login))
         .route("/api/v1/auth/recovery-file", post(create_recovery_file))
+        .route(
+            "/api/v1/auth/revoke-recovery-files",
+            post(revoke_recovery_files),
+        )
         .route("/api/v1/auth/recover-password", post(recover_password))
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/auth/revoke-sessions", post(revoke_sessions))
@@ -43,6 +47,33 @@ pub fn router() -> Router<AppState> {
 struct RecoveryBody {
     secret: String,
     new_password: String,
+}
+
+async fn revoke_recovery_files(
+    State(state): State<AppState>,
+    current: Option<Extension<CurrentUser>>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let Some(Extension(user)) = current else {
+        return Err(json_error(
+            StatusCode::UNAUTHORIZED,
+            "Sign in to Luna first.",
+        ));
+    };
+    if user.role != "admin" {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an Admin can revoke recovery files.",
+        ));
+    }
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Could not revoke recovery files.",
+        )
+    })?;
+    conn.execute("DELETE FROM password_recovery_files WHERE user_id = ?1 AND EXISTS (SELECT 1 FROM users WHERE id = ?1 AND role = 'admin')", [&user.id])
+        .map_err(|_| json_error(StatusCode::INTERNAL_SERVER_ERROR, "Could not revoke recovery files."))?;
+    Ok(Json(json!({"ok": true})))
 }
 
 async fn create_recovery_file(
@@ -894,6 +925,63 @@ mod tests {
     }
 
     const FIRST_USER: &str = r#"{"username":"max","password":"hunter22hunter1"}"#;
+
+    #[tokio::test]
+    async fn admin_can_revoke_only_their_recovery_files() {
+        let (_dir, state) = state();
+        let admin = state
+            .auth
+            .register("max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        let other = state
+            .auth
+            .register("sam", "Sam", "hunter22hunter1", "admin")
+            .unwrap();
+        let member = state
+            .auth
+            .register("lee", "Lee", "hunter22hunter1", "user")
+            .unwrap();
+        let current = |u: &crate::db::UserRow| {
+            Extension(CurrentUser {
+                id: u.id.clone(),
+                username: u.username.clone(),
+                role: u.role.clone(),
+            })
+        };
+        assert_eq!(
+            revoke_recovery_files(State(state.clone()), None)
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            revoke_recovery_files(State(state.clone()), Some(current(&member)))
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::FORBIDDEN
+        );
+        for user in [&admin, &admin, &other] {
+            create_recovery_file(State(state.clone()), Some(current(user)))
+                .await
+                .unwrap();
+        }
+        revoke_recovery_files(State(state.clone()), Some(current(&admin)))
+            .await
+            .unwrap();
+        let conn = state.db.lock().unwrap();
+        let count = |id: &str| -> i64 {
+            conn.query_row(
+                "SELECT count(*) FROM password_recovery_files WHERE user_id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(count(&admin.id), 0);
+        assert_eq!(count(&other.id), 1);
+    }
 
     #[tokio::test]
     async fn recovery_file_is_admin_only_hashed_and_single_use() {

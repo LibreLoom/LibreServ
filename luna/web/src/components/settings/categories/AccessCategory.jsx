@@ -399,6 +399,17 @@ export default function AccessCategory() {
   const { endSession, user } = useOptionalAuth() || {};
   const [recoveryError, setRecoveryError] = useState("");
   const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [confirmRevokeRecovery, setConfirmRevokeRecovery] = useState(false);
+  async function revokeRecovery() {
+    setRecoveryError("");
+    setRecoveryBusy(true);
+    try {
+      await postJson("/api/v1/auth/revoke-recovery-files", {});
+      setConfirmRevokeRecovery(false);
+      addToast({ type: "success", message: "Recovery files revoked." });
+    } catch (err) { setRecoveryError(apiErrorMessage(err)); setConfirmRevokeRecovery(false); }
+    finally { setRecoveryBusy(false); }
+  }
   async function downloadRecovery() {
     setRecoveryError("");
     setRecoveryBusy(true);
@@ -500,10 +511,14 @@ export default function AccessCategory() {
       <ProfileCard />
 
       {user?.role === "admin" && <SettingsCard icon={Shield} title="Password recovery file" padding={false}>
-        <SettingsRow label="Download a recovery file" description="Anyone with this file can change your Admin password. Store it safely. Each file works once. Older files still work until used." stack hideDivider>
+        <SettingsRow label="Download a recovery file" description="Anyone with this file can change your Admin password. Store it safely. Each file works once. Older files still work until used." stack>
           <Button loading={recoveryBusy} onClick={downloadRecovery}>Download recovery file</Button>
           {recoveryError && <p role="alert">{recoveryError}</p>}
         </SettingsRow>
+        <SettingsRow label="Revoke recovery files" description="Stop every unused recovery file for your account from working." stack hideDivider>
+          <Button variant="accent" onClick={() => setConfirmRevokeRecovery(true)}>Revoke recovery files</Button>
+        </SettingsRow>
+        <ConfirmModal open={confirmRevokeRecovery} variant="danger" title="Revoke recovery files?" message="Every unused recovery file for your account will stop working. Download a new one to recover your password later." confirmLabel="Revoke recovery files" onClose={() => setConfirmRevokeRecovery(false)} onConfirm={revokeRecovery} />
       </SettingsCard>}
 
       <SettingsCard icon={Globe2} title="Browsers" padding={false} index={0}>

@@ -195,7 +195,7 @@ export function installFake({ world, scenario, now, restored = {} }) {
       if (!(out instanceof Res)) out = new Res(200, out === undefined ? {} : out);
       const text = out.body === undefined ? "" : JSON.stringify(out.body);
       entry.status = out.status;
-      entry.body = out.bytes != null ? "(file contents)" : text.slice(0, BODY_LOG_CHARS);
+      entry.body = path === "/api/v1/auth/recovery-file" ? "(recovery file hidden)" : out.bytes != null ? "(file contents)" : text.slice(0, BODY_LOG_CHARS);
       return { status: out.status, text, bytes: out.bytes, headers: out.headers };
     } finally {
       inflight.delete(handle);

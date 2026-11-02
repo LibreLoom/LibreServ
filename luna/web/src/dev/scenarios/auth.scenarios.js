@@ -23,7 +23,7 @@ export default [
     area: "Sign-in",
     title: "Recover an Admin password",
     url: "/settings#security",
-    check: ["Download a recovery file from Settings", "Sign out, upload the file and choose a new password", "The file cannot be used twice"],
+    check: ["Download a recovery file from Settings", "Sign out, upload the file and choose a new password", "The file cannot be used twice", "Revoke unused files and confirm they stop working", "Recent requests and saved state do not contain the recovery secret"],
   },
   {
     id: "auth/signed-out-deep-link",
