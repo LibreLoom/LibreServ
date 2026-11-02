@@ -232,7 +232,8 @@ mod tests {
 
         // The contract recorder sees the host's warning response above. Also
         // record a passing response so optional warning-only fields such as
-        // `more` and `details` stay optional in the generated contract.
+        // `more` and `details` stay optional in the generated contract, and so
+        // the rows that never carry them are recorded without them.
         let tools_dir = dir.path().join("tools");
         std::fs::create_dir_all(&tools_dir).unwrap();
         for name in [
@@ -280,6 +281,27 @@ mod tests {
             whiteboard_editor: true,
             whiteboard_fonts: true,
         };
+        // EuroOffice, the diagram pack, and the whiteboard chunks are files in
+        // the data folder, so a passing office_pack needs them on disk.
+        let office = state.data_dir.join("eurooffice");
+        for rel in [
+            "web-apps/apps/api/documents/api.js",
+            "x2t/x2t.js",
+            "x2t/x2t.wasm",
+            "sdkjs/word/sdk-all-min.js",
+            "sdkjs/cell/sdk-all-min.js",
+            "sdkjs/slide/sdk-all-min.js",
+        ] {
+            let path = office.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, "x").unwrap();
+        }
+        std::fs::create_dir_all(office.join("fonts")).unwrap();
+        let drawio = state.data_dir.join("drawio");
+        std::fs::create_dir_all(&drawio).unwrap();
+        std::fs::write(drawio.join("pack.json"), r#"{"pack":"luna-drawio"}"#).unwrap();
+        std::fs::write(drawio.join("index.html"), "x").unwrap();
+
         let passing = {
             let conn = state.db.lock().unwrap();
             let mut preflight =
@@ -316,11 +338,85 @@ mod tests {
             .await
             .unwrap();
         let passing: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        for name in ["erase_tools", "video_tools"] {
+        for name in [
+            "erase_tools",
+            "heic_tools",
+            "office_pack",
+            "smart_tool",
+            "video_tools",
+        ] {
             assert_eq!(passing["checks"][name]["status"], "passed");
             assert!(passing["checks"][name].get("more").is_none());
             assert!(passing["checks"][name].get("details").is_none());
         }
+        // The network and NTFS rows still carry no `more` on success.
+        assert_eq!(passing["checks"]["network"]["status"], "passed");
+        assert!(passing["checks"]["network"].get("more").is_none());
+        assert_eq!(passing["checks"]["ntfs_support"]["status"], "passed");
+        assert!(passing["checks"]["ntfs_support"].get("more").is_none());
+
+        // A folder covered by a parent backup answers with the parent, not null;
+        // the fake sends both, so the contract must record both. The parent has
+        // to be finished for `covering_protection` to match it.
+        let (status, body) = {
+            let access = format!(r#"{{"users":["{}"],"admins":true}}"#, user.id);
+            {
+                let conn = state.db.lock().unwrap();
+                for (id, path) in [("docs", "docs"), ("docs-sub", "docs/sub")] {
+                    db::insert_protection(
+                        &conn,
+                        &db::NewProtection {
+                            id,
+                            kind: db::PROTECTION_DRIVE,
+                            source_drive: "d1",
+                            source_path: path,
+                            target_drive: "d2",
+                            private_owner: "",
+                            created_by: &user.id,
+                            created_at: 0,
+                        },
+                    )
+                    .unwrap();
+                    conn.execute(
+                        "UPDATE protections SET access_json = ?1 WHERE id = ?2",
+                        rusqlite::params![access, id],
+                    )
+                    .unwrap();
+                }
+                db::record_protection_ok(&conn, "docs", 5, &access).unwrap();
+            }
+            let router = axum::Router::new()
+                .merge(crate::api::backups::router())
+                .layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    crate::auth::guard,
+                ))
+                .with_state(state);
+            let response = router
+                .oneshot(
+                    axum::http::Request::builder()
+                        .uri("/api/v1/backups")
+                        .header("Authorization", format!("Bearer {token}"))
+                        .body(axum::body::Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let status = response.status();
+            let bytes = axum::body::to_bytes(response.into_body(), 256 * 1024)
+                .await
+                .unwrap();
+            (
+                status,
+                serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
+            )
+        };
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert!(
+            body.as_array()
+                .is_some_and(|rows| rows.iter().any(|r| r["covered_by"].is_object())),
+            "expected a covered row in {body}"
+        );
     }
 
     #[tokio::test]

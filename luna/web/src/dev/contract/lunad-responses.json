@@ -158,15 +158,7 @@
   "GET /api/v1/backups": [
     {
       "can_delete": "boolean",
-      "covered_by": {
-        "$oneOf": [
-          "null",
-          {
-            "name": "string",
-            "path": "string"
-          }
-        ]
-      },
+      "covered_by": "null",
       "created_by": "string",
       "first_done": "boolean",
       "hard": "boolean",
@@ -612,13 +604,7 @@
       },
       "heic_tools": {
         "category": "string",
-        "details?": {
-          "missing": [
-            "string"
-          ]
-        },
         "message": "string",
-        "more?": "string",
         "status": "string"
       },
       "logs_path_writable": {
@@ -638,13 +624,7 @@
       },
       "office_pack": {
         "category": "string",
-        "details": {
-          "missing": [
-            "string"
-          ]
-        },
         "message": "string",
-        "more": "string",
         "status": "string"
       },
       "os_update_tools?": {
@@ -654,13 +634,7 @@
       },
       "smart_tool": {
         "category": "string",
-        "details?": {
-          "missing": [
-            "string"
-          ]
-        },
         "message": "string",
-        "more?": "string",
         "status": "string"
       },
       "trim_tool": {
