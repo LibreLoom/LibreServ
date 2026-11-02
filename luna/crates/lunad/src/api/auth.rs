@@ -476,6 +476,9 @@ fn ip_is_lan(ip: std::net::IpAddr) -> bool {
 /// connection, or a local proxy/tunnel forwarding the real address —
 /// already resolves to a LAN client.
 fn is_lan_request(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
+    if headers.get("x-luna-tailscale").is_some_and(|v| v == "1") {
+        return false;
+    }
     ip_is_lan(client_ip(addr, headers))
 }
 

@@ -34,7 +34,7 @@ FROM alpine:3.22
 # hashes. The managed daemon never uses a distro service or baked identity.
 RUN apk add --no-cache ca-certificates docker-cli docker-compose restic
 COPY shared/scripts/tailscale-bake.sh /tmp/tailscale-bake.sh
-RUN apk add --no-cache --virtual .tailscale-fetch curl && . /tmp/tailscale-bake.sh && libreloom_install_tailscale /usr/local/bin "$(apk --print-arch)" && rm /tmp/tailscale-bake.sh && apk del .tailscale-fetch
+RUN apk add --no-cache --virtual .tailscale-fetch curl && . /tmp/tailscale-bake.sh && libreloom_install_tailscale "/usr/local/lib/sol/tailscale/$TAILSCALE_BAKE_VERSION" "$(apk --print-arch)" && rm /tmp/tailscale-bake.sh && apk del .tailscale-fetch
 
 # Least-resources tuning: collect garbage earlier so the Go heap stays small
 # (slightly more GC CPU, much lower idle/peak RSS on small boxes).

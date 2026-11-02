@@ -287,3 +287,4 @@ pub mod connect;
 pub mod dhcp;
 
 pub mod tailscale_proxy;
+pub mod tailscale_socket;

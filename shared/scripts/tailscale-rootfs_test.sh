@@ -47,7 +47,10 @@ run_container() {
     fi
 }
 hash_in_container() {
-    run_container run --rm --security-opt label=disable --network=none --read-only --memory=256m \
+    # Explicit finite task limit avoids the Podman/runc zero-to-one mapping
+    # described in tailscale-verification.md; this remains an owned, bounded,
+    # network-disabled hash-only container.
+    run_container run --rm --security-opt label=disable --network=none --read-only --memory=256m --pids-limit=64 \
         -v "$T/repo/luna/os:/luna/os:ro" \
         -v "$T/repo/shared/scripts:/shared/scripts:ro" \
         "$ALPINE_IMAGE" sh -ec '. /shared/scripts/tailscale-bake.sh; test -n "$TAILSCALE_BAKE_VERSION"; sh /luna/os/build/input-hash.sh'

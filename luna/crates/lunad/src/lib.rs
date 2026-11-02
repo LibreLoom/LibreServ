@@ -130,6 +130,8 @@ impl Db {
 #[derive(Clone)]
 pub struct AppState {
     pub db: Arc<Db>,
+    /// Serializes factory reset with remote-access mutations.
+    pub tailscale_reset_gate: Arc<tokio::sync::RwLock<()>>,
     pub drive_manager: Arc<DriveManager>,
     pub job_manager: Arc<crate::jobs::JobManager>,
     pub gallery: Arc<crate::gallery::gallery_indexer::GalleryIndexer>,
@@ -178,6 +180,7 @@ impl AppState {
         ));
         Self {
             db: db.clone(),
+            tailscale_reset_gate: Arc::new(tokio::sync::RwLock::new(())),
             drive_manager,
             job_manager,
             gallery,

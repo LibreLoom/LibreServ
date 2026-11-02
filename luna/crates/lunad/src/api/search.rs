@@ -256,12 +256,38 @@ async fn factory_reset(
                 "That password is wrong. Reset was not started.",
             )
         })?;
+    // Hold through account deletion and secret rotation. Requests that were
+    // authenticated before reset re-check the account after acquiring the gate.
+    let tailscale_reset_guard = state.tailscale_reset_gate.clone().write_owned().await;
+    {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        if !crate::db::get_user(&conn, &user.id)
+            .map_err(|_| {
+                json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Luna could not check your account.",
+                )
+            })?
+            .is_some_and(|account| account.role == "admin")
+        {
+            return Err(json_error(
+                StatusCode::UNAUTHORIZED,
+                "Sign in as an Admin again.",
+            ));
+        }
+    }
     let connect = state.connect.clone();
     let _ = tokio::task::spawn_blocking(move || connect.deactivate()).await;
     let tailscale_dir = state.data_dir.clone();
     let tailscale_port = state.http_port;
-    let forgotten = tokio::task::spawn_blocking(move || {
-        crate::net::tailscale::forget(&tailscale_dir, tailscale_port)
+    let (forgotten, _tailscale_reset_guard) = tokio::task::spawn_blocking(move || {
+        let result = crate::net::tailscale::forget(&tailscale_dir, tailscale_port);
+        (result, tailscale_reset_guard)
     })
     .await
     .map_err(|_| {

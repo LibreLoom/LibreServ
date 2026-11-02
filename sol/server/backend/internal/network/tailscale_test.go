@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -16,6 +18,95 @@ import (
 	"time"
 )
 
+func TestHeadscaleControlServerAndAuthURLValidation(t *testing.T) {
+	got, err := normalizeControlServer("https://control.example:8443/")
+	if err != nil || got != "https://control.example:8443" {
+		t.Fatalf("control server: %q, %v", got, err)
+	}
+	for _, raw := range []string{"http://control.example", "https://user:pass@control.example", "https://control.example/path", "https://control.example/?x=1", "javascript:alert(1)"} {
+		if _, err := normalizeControlServer(raw); err == nil {
+			t.Errorf("accepted %q", raw)
+		}
+	}
+	if !allowedTailscaleAuthURL("https://control.example:8443/register/node", got) || allowedTailscaleAuthURL("https://other.example/register/node", got) || allowedTailscaleAuthURL("https://login.tailscale.com.evil.example/x", "") || !allowedTailscaleAuthURL("https://login.tailscale.com/a/demo", "") {
+		t.Fatal("invalid login URL policy")
+	}
+}
+
+func TestHeadscaleHTTPSListenerAndPublicRejection(t *testing.T) {
+	fixture := map[string]any{"Web": map[string]any{"sol.example.net:443": map[string]any{"Handlers": map[string]any{"/": map[string]any{"Proxy": "http://127.0.0.1:8080"}}}}, "AllowFunnel": map[string]any{"sol.example.net:443": false}}
+	public, private := configuredURLsForControl(fixture, "https://sol.example.net", "http://127.0.0.1:8080", true)
+	if public != "" || private != "https://sol.example.net" {
+		t.Fatalf("got %q %q", public, private)
+	}
+	_, private = configuredURLsForControl(fixture, "https://other.example.net", "http://127.0.0.1:8080", true)
+	if private != "" {
+		t.Fatal("accepted a different node")
+	}
+	_, private = configuredURLsForControl(fixture, "https://sol.example.net", "http://127.0.0.1:9999", true)
+	if private != "" {
+		t.Fatal("accepted a different proxy")
+	}
+	fixture["AllowFunnel"] = map[string]any{"sol.example.net:443": true}
+	public, private = configuredURLsForControl(fixture, "https://sol.example.net", "http://127.0.0.1:8080", true)
+	if public != "" || private != "" {
+		t.Fatal("accepted Headscale public listener")
+	}
+}
+
+func TestHeadscaleIdentityCannotChangeServerAndUpUsesSavedServer(t *testing.T) {
+	dir := t.TempDir()
+	service := NewTailscaleService(dir, 8080)
+	service.UnixListenerReady("/tmp/test-8080.sock", nil)
+	if err := os.Mkdir(service.dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(service.dir, "tailscaled.state")
+	if err := os.WriteFile(state, []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ConnectWithControl("https://headscale.example"); err == nil || !strings.Contains(err.Error(), "Sign out") {
+		t.Fatalf("identity switch: %v", err)
+	}
+	if got, err := os.ReadFile(state); err != nil || string(got) != "{}" {
+		t.Fatalf("identity changed: %q, %v", got, err)
+	}
+	if err := os.WriteFile(filepath.Join(service.dir, "control-server"), []byte("https://headscale.example"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cli, calls := filepath.Join(dir, "cli"), filepath.Join(dir, "calls")
+	writeExecutable(t, cli, `echo "$*" > "$TS_CALLS"`)
+	t.Setenv("SOL_TAILSCALE_CLI", cli)
+	t.Setenv("TS_CALLS", calls)
+	if err := service.up(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(calls)
+	if err != nil || !strings.Contains(string(got), "--login-server=https://headscale.example") {
+		t.Fatalf("up args: %q, %v", got, err)
+	}
+	if _, err := service.Serve(true); err == nil || !strings.Contains(err.Error(), "not available") {
+		t.Fatalf("public access: %v", err)
+	}
+}
+
+func TestHeadscaleSelectionPersistsBeforeDaemonStart(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("SOL_TAILSCALED", filepath.Join(dir, "missing-daemon"))
+	t.Setenv("SOL_TAILSCALE_CLI", filepath.Join(dir, "missing-cli"))
+	s := NewTailscaleService(dir, 8080)
+	s.UnixListenerReady("/tmp/test-8080.sock", nil)
+	if _, err := s.ConnectWithControl("https://headscale.example/"); err == nil {
+		t.Fatal("expected the missing daemon to fail")
+	}
+	if got, err := s.controlServer(); err != nil || got != "https://headscale.example" {
+		t.Fatalf("selection: %q %v", got, err)
+	}
+	if tailscaleFileExists(filepath.Join(s.dir, "enabled")) {
+		t.Fatal("enabled a missing daemon")
+	}
+}
+
 func TestTailscaleShutdownRejectsLaterStartRequests(t *testing.T) {
 	dir := t.TempDir()
 	cli, calls := filepath.Join(dir, "cli"), filepath.Join(dir, "calls")
@@ -23,7 +114,7 @@ func TestTailscaleShutdownRejectsLaterStartRequests(t *testing.T) {
 	t.Setenv("SOL_TAILSCALE_CLI", cli)
 	t.Setenv("TS_CALLS", calls)
 	svc := NewTailscaleService(dir, 8080)
-	svc.WebListenerReady(&net.TCPAddr{IP: net.IPv4zero, Port: 8080})
+	svc.UnixListenerReady("/tmp/test-8080.sock", nil)
 	if err := svc.StopForShutdown(); err != nil {
 		t.Fatal(err)
 	}
@@ -56,6 +147,9 @@ func TestTailscaleRestoreClearsOldTargetBeforeWaitingForOwnedWebListener(t *test
 			store, _ := json.Marshal(map[string]string{"_machinekey": "a2V5", "_serve/profile": base64.StdEncoding.EncodeToString(encoded)})
 			state := filepath.Join(node, "tailscaled.state")
 			if err := os.WriteFile(state, store, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(node, "stop-verified"), []byte(mustBootID(t)), 0600); err != nil {
 				t.Fatal(err)
 			}
 			if err := os.WriteFile(filepath.Join(node, "enabled"), []byte("1"), 0600); err != nil {
@@ -100,14 +194,14 @@ esac
 				t.Fatalf("lost selected mode on cancellation: %q %v", pending, err)
 			}
 			svc = NewTailscaleService(dir, 8080)
-			svc.WebListenerReady(&net.TCPAddr{IP: net.IPv4zero, Port: 9090})
+			svc.UnixListenerReady("/tmp/test-9090.sock", nil)
 			svc.waitForRestore()
 			log, _ := os.ReadFile(calls)
 			verb := "serve --bg"
 			if public {
 				verb = "funnel --bg"
 			}
-			if !strings.Contains(string(log), verb+" --https=443 http://127.0.0.1:9090") || strings.Contains(string(log), "4444") {
+			if !strings.Contains(string(log), verb+" --https=443 unix:/tmp/test-9090.sock") || strings.Contains(string(log), "4444") {
 				t.Fatalf("restore used wrong mode/target: %s", log)
 			}
 			if tailscaleFileExists(filepath.Join(node, "restore-serve")) {
@@ -130,6 +224,9 @@ func TestTailscaleForgetCancelsRestoreBeforeTheWebListenerIsReady(t *testing.T) 
 		if err := os.WriteFile(filepath.Join(node, name), []byte(value), 0600); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := os.WriteFile(filepath.Join(node, "stop-verified"), []byte(mustBootID(t)), 0600); err != nil {
+		t.Fatal(err)
 	}
 	t.Setenv("SOL_TAILSCALE_CLI", filepath.Join(dir, "missing-cli"))
 	t.Setenv("SOL_TAILSCALED", filepath.Join(dir, "missing-daemon"))
@@ -156,6 +253,9 @@ func TestTailscaleStartupRestoreKeepsStatusResponsiveAndSerializesShutdown(t *te
 	if err := os.MkdirAll(node, 0700); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(node, "stop-verified"), []byte(mustBootID(t)), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(node, "enabled"), []byte("1"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +267,7 @@ func TestTailscaleStartupRestoreKeepsStatusResponsiveAndSerializesShutdown(t *te
 	t.Setenv("TS_CALLED", called)
 	t.Setenv("TS_RELEASE", release)
 	svc := NewTailscaleService(data, 8080)
-	svc.WebListenerReady(&net.TCPAddr{IP: net.IPv4zero, Port: 8080})
+	svc.UnixListenerReady("/tmp/test-8080.sock", nil)
 	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0600); svc.waitForRestore() })
 	for deadline := time.Now().Add(time.Second); !tailscaleFileExists(called) && time.Now().Before(deadline); {
 		time.Sleep(10 * time.Millisecond)
@@ -214,6 +314,9 @@ func TestTailscaleStartupRestoreLogsFailure(t *testing.T) {
 	if err := os.Mkdir(node, 0700); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(node, "stop-verified"), []byte(mustBootID(t)), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(node, "enabled"), []byte("1"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +327,7 @@ func TestTailscaleStartupRestoreLogsFailure(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
 	defer slog.SetDefault(previous)
 	svc := NewTailscaleService(dir, 8080)
-	svc.WebListenerReady(&net.TCPAddr{IP: net.IPv4zero, Port: 8080})
+	svc.UnixListenerReady("/tmp/test-8080.sock", nil)
 	svc.waitForRestore()
 	if !strings.Contains(logs.String(), "Could not restore Tailscale at startup") {
 		t.Fatalf("missing restore diagnostic: %s", logs.String())
@@ -307,6 +410,13 @@ func TestTailscaleBrokenCLICanDisableAndForget(t *testing.T) {
 	if !svc.managedDaemonAlive() {
 		t.Fatal("fixture daemon is not ready")
 	}
+	start, err := tailscaleProcessStart(process.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.writeLaunchIntent(fmt.Sprintf("%d %s %s", process.Process.Pid, start, mustBootID(t)), true); err != nil {
+		t.Fatal(err)
+	}
 	st, err := svc.Disable()
 	if err != nil || st.Enabled || !st.IdentitySaved || svc.managedDaemonAlive() {
 		t.Fatalf("disable = %#v %v", st, err)
@@ -328,6 +438,9 @@ func TestTailscaleReconnectClearsSavedServeBeforeUp(t *testing.T) {
 	t.Setenv("SOL_TAILSCALE_CLI", bin)
 	t.Setenv("TS_LOG", calls)
 	svc := &TailscaleService{dir: dir, port: 8080}
+	if err := os.WriteFile(filepath.Join(dir, "stop-verified"), []byte(mustBootID(t)), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "tailscaled.state"), []byte(`{"_serve/old":"e30=","_machinekey":"a2V5"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -435,8 +548,8 @@ func TestTailscaleTeardownDoesNotKillUnverifiedSocketOwner(t *testing.T) {
 	if err := listener.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Forget(); err != nil {
-		t.Fatal(err)
+	if _, err := svc.Forget(); err == nil {
+		t.Fatal("unverified PID must remain uncertain")
 	}
 }
 
@@ -514,6 +627,48 @@ func TestTailscaleFailedResetWriteStillClearsEnabledIntent(t *testing.T) {
 	}
 }
 
+func TestPrivateSwitchClearsPublicIntentBeforeUpFailure(t *testing.T) {
+	dir := t.TempDir()
+	cli := filepath.Join(dir, "cli")
+	marker := filepath.Join(dir, "up-reached")
+	writeExecutable(t, cli, `case "$*" in
+  *"status --json"*) echo '{"BackendState":"Running"}' ;;
+  *"up "*) touch "$TS_UP_MARKER"; exit 1 ;;
+esac`)
+	t.Setenv("SOL_TAILSCALE_CLI", cli)
+	t.Setenv("TS_UP_MARKER", marker)
+	svc := NewTailscaleService(dir, 8080)
+	svc.UnixListenerReady("/tmp/test-private.sock", nil)
+	if err := os.MkdirAll(svc.dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	boot, err := tailscaleBootID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, value := range map[string]string{"enabled": "1", "stop-verified": boot, "restore-serve": "public", "tailscaled.state": `{"_machinekey":"a2V5","_serve/profile":"e30="}`} {
+		if err := os.WriteFile(filepath.Join(svc.dir, name), []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := svc.Serve(false); err == nil {
+		t.Fatal("expected mocked up failure")
+	}
+	if !tailscaleFileExists(marker) {
+		t.Fatal("private switch did not reach mocked up")
+	}
+	if tailscaleFileExists(filepath.Join(svc.dir, "restore-serve")) {
+		t.Fatal("public restore intent survived")
+	}
+	state, err := os.ReadFile(filepath.Join(svc.dir, "tailscaled.state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(state), "_serve/") {
+		t.Fatal("public Serve configuration survived")
+	}
+}
+
 func TestTailscaleUsesPrivatePersistentUserspaceNodeAndServe(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "tailscale-mock")
@@ -524,7 +679,7 @@ func TestTailscaleUsesPrivatePersistentUserspaceNodeAndServe(t *testing.T) {
 	writeExecutable(t, daemon, "echo \"$*\" >> \"$TS_LOG\"\nwhile [ $# -gt 0 ]; do if [ \"$1\" = --socket ] || [ \"$1\" = --state ]; then touch \"$2\"; fi; shift; done\ntouch \"$TS_READY\"\n")
 	writeExecutable(t, bin, `echo "$*" >> "$TS_LOG"
 	case "$*" in
-	  *"serve status --json"*) if [ -f "$TS_SERVED" ]; then echo '{"Web":{"sol.tail-example.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:8080"}}}},"AllowFunnel":{"sol.tail-example.ts.net:443":false}}'; else echo '{}'; fi ;;
+	  *"serve status --json"*) if [ -f "$TS_SERVED" ]; then echo '{"Web":{"sol.tail-example.ts.net:443":{"Handlers":{"/":{"Proxy":"unix:/tmp/test-8080.sock"}}}},"AllowFunnel":{"sol.tail-example.ts.net:443":false}}'; else echo '{}'; fi ;;
 	  *"serve --bg"*) touch "$TS_SERVED" ;;
 	  *"status --json"*) [ -f "$TS_READY" ] || exit 1; echo '{"BackendState":"Running","Self":{"DNSName":"sol.tail-example.ts.net."}}' ;;
   *"up "*) echo '{"AuthURL":"https://login.tailscale.com/a/approval"}' ;;
@@ -536,7 +691,7 @@ esac
 	t.Setenv("TS_READY", ready)
 	t.Setenv("TS_SERVED", servedMarker)
 	svc := NewTailscaleService(filepath.Join(dir, "data"), 8080)
-	svc.WebListenerReady(&net.TCPAddr{IP: net.IPv4zero, Port: 8080})
+	svc.UnixListenerReady("/tmp/test-8080.sock", nil)
 	connected, err := svc.Connect()
 	if err != nil {
 		t.Fatal(err)
@@ -552,7 +707,7 @@ esac
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"--tun=userspace-networking", "--state", "tailscaled.state", "--https=443", "http://127.0.0.1:8080", "serve --bg"} {
+	for _, want := range []string{"--tun=userspace-networking", "--state", "tailscaled.state", "--https=443", "unix:/tmp/test-8080.sock", "serve --bg"} {
 		if !strings.Contains(string(calls), want) {
 			t.Errorf("calls missing %q:\n%s", want, calls)
 		}
@@ -614,12 +769,13 @@ func TestTailscalePrivateListenerKeepsPendingFunnelApproval(t *testing.T) {
 	configFile := filepath.Join(dir, "serve.json")
 	writeExecutable(t, bin, `case "$*" in
   *"serve status --json"*) cat "$TS_SERVE_CONFIG" ;;
-  *"status --json"*) echo '{"BackendState":"Running","Self":{"DNSName":"sol.tail-example.ts.net."}}' ;;
+  *"status --json"*) if [ -n "$TS_NEEDS_LOGIN" ]; then echo '{"BackendState":"NeedsLogin","AuthURL":"https://login.tailscale.com/a/test"}'; else echo '{"BackendState":"Running","Self":{"DNSName":"sol.tail-example.ts.net."}}'; fi ;;
 esac
 `)
 	t.Setenv("SOL_TAILSCALE_CLI", bin)
 	t.Setenv("TS_SERVE_CONFIG", configFile)
-	svc := &TailscaleService{dir: filepath.Join(dir, "state"), port: 8080}
+	svc := NewTailscaleService(dir, 8080)
+	svc.UnixListenerReady("/tmp/test-8080.sock", nil)
 	if err := os.MkdirAll(svc.dir, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -628,7 +784,7 @@ esac
 			t.Fatal(err)
 		}
 	}
-	fixture := `{"Web":{"sol.tail-example.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:8080"}}}},"AllowFunnel":{"sol.tail-example.ts.net:443":false}}`
+	fixture := `{"Web":{"sol.tail-example.ts.net:443":{"Handlers":{"/":{"Proxy":"unix:/tmp/test-8080.sock"}}}},"AllowFunnel":{"sol.tail-example.ts.net:443":false}}`
 	if err := os.WriteFile(configFile, []byte(fixture), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -642,6 +798,37 @@ esac
 	public := svc.Status()
 	if public.PublicURL == "" || public.PrivateURL != "" || public.ApprovalURL != "" {
 		t.Fatalf("public listener did not complete approval: %#v", public)
+	}
+	for _, bad := range []string{"invalid json", ""} {
+		if err := os.WriteFile(configFile, []byte(bad), 0600); err != nil {
+			t.Fatal(err)
+		}
+		unknown := svc.Status()
+		if unknown.State != "error" || !unknown.ResidualExposure || unknown.PublicURL != "" {
+			t.Fatalf("unreadable Serve status must report unknown exposure: %#v", unknown)
+		}
+	}
+	if err := os.Remove(configFile); err != nil {
+		t.Fatal(err)
+	}
+	if unknown := svc.Status(); unknown.State != "error" || !unknown.ResidualExposure {
+		t.Fatalf("failed Serve command must report unknown exposure: %#v", unknown)
+	}
+	if err := os.WriteFile(configFile, []byte(`{}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if empty := svc.Status(); empty.State != "connected" || empty.ResidualExposure || empty.PublicURL != "" {
+		t.Fatalf("verified empty Serve status: %#v", empty)
+	}
+	if err := os.WriteFile(configFile, []byte(`null`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if empty := svc.Status(); empty.State != "connected" || empty.ResidualExposure {
+		t.Fatalf("null Serve status: %#v", empty)
+	}
+	t.Setenv("TS_NEEDS_LOGIN", "1")
+	if pending := svc.Status(); pending.State != "pending" || pending.AuthURL == "" || pending.ResidualExposure {
+		t.Fatalf("null Serve status during login: %#v", pending)
 	}
 }
 
@@ -677,5 +864,210 @@ func TestTailscaleInstallerRejectsReusedPIDAndWrongState(t *testing.T) {
 	}
 	if check(1, state) || check(-1, state) {
 		t.Fatal("unsafe PID was accepted")
+	}
+}
+
+func TestForgetRepairsInvalidControlAfterVerifiedStop(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewTailscaleService(dir, 8080)
+	node := filepath.Join(dir, "tailscale")
+	if err := os.MkdirAll(node, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(node, "control-server"), []byte("http://invalid.example"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(node, "stop-verified"), []byte(mustBootID(t)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(node, "tailscaled.state"), []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Forget(); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := svc.controlServer(); err != nil || got != "" {
+		t.Fatalf("control server %q: %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(node, "tailscaled.state")); !os.IsNotExist(err) {
+		t.Fatalf("identity remains: %v", err)
+	}
+}
+
+func TestPendingDisableNeverRestoresSavedPublicAccess(t *testing.T) {
+	dir := t.TempDir()
+	node := filepath.Join(dir, "tailscale")
+	if err := os.Mkdir(node, 0700); err != nil {
+		t.Fatal(err)
+	}
+	config := map[string]any{"Web": map[string]any{"sol.example.ts.net:443": map[string]any{"Handlers": map[string]any{"/": map[string]string{"Proxy": "http://127.0.0.1:4444"}}}}, "AllowFunnel": map[string]bool{"sol.example.ts.net:443": true}}
+	encoded, _ := json.Marshal(config)
+	store, _ := json.Marshal(map[string]string{"_machinekey": "a2V5", "_serve/profile": base64.StdEncoding.EncodeToString(encoded)})
+	for name, data := range map[string][]byte{"tailscaled.state": store, "enabled": []byte("1"), "reset-required": []byte("1"), "restore-serve": []byte("public")} {
+		if err := os.WriteFile(filepath.Join(node, name), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(node, "stop-verified"), []byte(mustBootID(t)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cli, calls := filepath.Join(dir, "cli"), filepath.Join(dir, "calls")
+	writeExecutable(t, cli, `echo "$*" >> "$TS_CALLS"`)
+	t.Setenv("SOL_TAILSCALE_CLI", cli)
+	t.Setenv("SOL_TAILSCALED", filepath.Join(dir, "missing-daemon"))
+	t.Setenv("TS_CALLS", calls)
+	svc := NewTailscaleService(dir, 8080)
+	svc.UnixListenerReady("/tmp/test-8080.sock", nil)
+	svc.waitForRestore()
+	if tailscaleFileExists(calls) {
+		t.Fatal("pending disable started Tailscale")
+	}
+	for _, name := range []string{"enabled", "reset-required", "restore-serve"} {
+		if tailscaleFileExists(filepath.Join(node, name)) {
+			t.Fatalf("%s remains", name)
+		}
+	}
+	raw, err := os.ReadFile(filepath.Join(node, "tailscaled.state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte("_serve/")) || !bytes.Contains(raw, []byte("_machinekey")) {
+		t.Fatalf("bad state: %s", raw)
+	}
+}
+
+func TestIncompleteLaunchNeverCountsAsStoppedOrForgettable(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewTailscaleService(dir, 8080)
+	if err := os.MkdirAll(svc.dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(svc.dir, "launch-intent"), []byte("pending"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(svc.dir, "tailscaled.state"), []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.stopDaemon(); err == nil {
+		t.Fatal("accepted uncertain launch")
+	}
+	if _, err := svc.Forget(); err == nil {
+		t.Fatal("forgot uncertain identity")
+	}
+	if _, err := os.Stat(filepath.Join(svc.dir, "tailscaled.state")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTailscaleStatusAcceptsOnlyCurrentUnixGeneration(t *testing.T) {
+	fixture := map[string]any{"Web": map[string]any{"sol.example.ts.net:443": map[string]any{"Handlers": map[string]any{"/": map[string]any{"Proxy": "unix:/private/old/s"}}}}, "AllowFunnel": map[string]any{"sol.example.ts.net:443": true}}
+	public, private := configuredURLsForControl(fixture, "https://sol.example.ts.net", "unix:/private/new/s", false)
+	if public != "" || private != "" {
+		t.Fatal("accepted old generation")
+	}
+	public, _ = configuredURLsForControl(fixture, "https://sol.example.ts.net", "unix:/private/old/s", false)
+	if public == "" {
+		t.Fatal("rejected current generation")
+	}
+}
+
+func TestPidfdStopTargetsVerifiedLiveProcess(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewTailscaleService(dir, 8080)
+	if err := os.MkdirAll(svc.dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SOL_TAILSCALED", "/bin/sh")
+	cmd := exec.Command("/bin/sh", "-c", "printf ready; read value", "--state", filepath.Join(svc.dir, "tailscaled.state"))
+	input, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer input.Close()
+	output, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	ready := make([]byte, 5)
+	if _, err := io.ReadFull(output, ready); err != nil || string(ready) != "ready" {
+		t.Fatalf("ready: %q %v", ready, err)
+	}
+	start, err := tailscaleProcessStart(cmd.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.writeLaunchIntent(fmt.Sprintf("%d %s %s", cmd.Process.Pid, start, mustBootID(t)), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.stopDaemon(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(svc.dir, "launch-intent")); !os.IsNotExist(err) {
+		t.Fatalf("intent remains: %v", err)
+	}
+}
+
+func mustBootID(t *testing.T) string {
+	t.Helper()
+	value, err := tailscaleBootID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func TestPendingLaunchFromPriorBootIsRetired(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewTailscaleService(dir, 8080)
+	if err := os.MkdirAll(svc.dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(svc.dir, "launch-intent"), []byte("pending 00000000-0000-0000-0000-000000000000"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(svc.dir, "tailscaled.state"), []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.stopDaemon(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(svc.dir, "launch-intent")); !os.IsNotExist(err) {
+		t.Fatalf("intent remains: %v", err)
+	}
+	proof, err := os.ReadFile(filepath.Join(svc.dir, "stop-verified"))
+	if err != nil || string(proof) != mustBootID(t) {
+		t.Fatalf("proof %q %v", proof, err)
+	}
+}
+
+func TestVerifiedStopProofSurvivesRebootAndMissingDaemon(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewTailscaleService(dir, 8080)
+	if err := os.MkdirAll(svc.dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(svc.dir, "tailscaled.state"), []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(svc.dir, "stop-verified"), []byte("00000000-0000-0000-0000-000000000000"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.stopDaemon(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SOL_TAILSCALED", filepath.Join(dir, "missing"))
+	t.Setenv("SOL_TAILSCALE_CLI", filepath.Join(dir, "missing-cli"))
+	if err := svc.ensureDaemon(); err == nil {
+		t.Fatal("missing daemon started")
+	}
+	if !svc.validStopProof() || tailscaleFileExists(filepath.Join(svc.dir, "launch-intent")) {
+		t.Fatal("failed spawn lost proof")
+	}
+	if _, err := svc.Forget(); err != nil {
+		t.Fatal(err)
 	}
 }

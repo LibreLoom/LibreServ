@@ -18,7 +18,8 @@ describe("state gallery harness", () => {
     expect((await fetch("/api/v1/device-tokens/admin-token/usage")).status).toBe(404);
     const created = await fetch("/api/v1/device-tokens", { method: "POST", body: JSON.stringify({ name: "Phone" }) });
     expect(created.status).toBe(200);
-    expect((await created.json()).user_id).toBe("u2");
+    const token = await created.json();
+    expect(world.tokens.find((t) => t.id === token.id)?.user_id).toBe("u2");
     expect((await fetch("/api/v1/connect/device-token", { method: "POST", body: JSON.stringify({ token: "demo" }) })).status).toBe(403);
     expect((await fetch("/api/v1/connect/device-token", { method: "DELETE" })).status).toBe(403);
     world.sessionUserId = "u1";

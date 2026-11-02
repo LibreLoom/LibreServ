@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
@@ -40,6 +41,9 @@ func TestFactoryResetTailscaleRecoveryKeepsLiveIdentitySafe(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if _, err := db.Exec("UPDATE users SET role = 'admin' WHERE id = ?", user.ID); err != nil {
+				t.Fatal(err)
+			}
 			h := NewFactoryResetHandler(db, setup.NewService(db), authSvc)
 			t.Setenv("SOL_TAILSCALE_CLI", filepath.Join(dir, "missing-cli"))
 			t.Setenv("SOL_TAILSCALED", filepath.Join(dir, "missing-daemon"))
@@ -61,8 +65,17 @@ func TestFactoryResetTailscaleRecoveryKeepsLiveIdentitySafe(t *testing.T) {
 					t.Fatal(err)
 				}
 				defer listener.Close()
-			} else if err := os.Mkdir(filepath.Join(node, "reset-required"), 0700); err != nil {
-				t.Fatal(err)
+			} else {
+				boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(node, "stop-verified"), []byte(strings.TrimSpace(string(boot))), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(filepath.Join(node, "reset-required"), 0700); err != nil {
+					t.Fatal(err)
+				}
 			}
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/system/factory-reset", bytes.NewBufferString(`{"confirm":true,"password":"SuperSecret123"}`))
 			req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDContextKey, user.ID))

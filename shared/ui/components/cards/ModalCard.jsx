@@ -213,6 +213,9 @@ export default function ModalCard({
     if (!present) return undefined;
 
     const overlayId = titleId;
+    // Closing renders clear the ref before effect cleanup runs. Keep the
+    // opener for this appearance so both animated exits and unmounts restore it.
+    const previousFocus = previousFocusRef.current;
     overlayStack.push(overlayId);
 
     document.body.style.overflow = "hidden";
@@ -261,7 +264,7 @@ export default function ModalCard({
         document.body.style.overflow = "";
       }
       document.removeEventListener("keydown", handleKeyDown);
-      previousFocusRef.current?.focus?.();
+      previousFocus?.focus?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [present]);

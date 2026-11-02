@@ -63,6 +63,17 @@ func (h *FactoryResetHandler) FactoryReset(w http.ResponseWriter, r *http.Reques
 		JSONError(w, http.StatusBadRequest, "Incorrect password. Please try again.")
 		return
 	}
+	// Block remote-access mutations across the whole reset, then recheck the
+	// requester: another reset may have removed the account while this waited.
+	if h.tailscale != nil {
+		h.tailscale.LockReset()
+		defer h.tailscale.UnlockReset()
+		user, err = h.authService.GetUserByID(r.Context(), userID)
+		if err != nil || user == nil || user.Role != "admin" {
+			JSONError(w, http.StatusUnauthorized, "Please log in as an Admin again.")
+			return
+		}
+	}
 	// A new setup must never inherit the old owner's Tailscale device identity.
 	if h.tailscale != nil {
 		if _, err := h.tailscale.Forget(); err != nil {

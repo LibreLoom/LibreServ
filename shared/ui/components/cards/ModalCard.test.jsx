@@ -46,6 +46,47 @@ function stubMeasureHeight(initialHeight = 80) {
 }
 
 describe("ModalCard", () => {
+  it("returns focus to the opener after Escape finishes the exit", () => {
+    vi.useFakeTimers();
+    const { rerender } = render(<><button type="button">Open confirmation</button></>);
+    const opener = screen.getByRole("button", { name: "Open confirmation" });
+    opener.focus();
+    rerender(
+      <>
+        <button type="button">Open confirmation</button>
+        <ModalCard title="Confirmation" onClose={() => {}}>Body</ModalCard>
+      </>,
+    );
+
+    expect(screen.getByRole("dialog").contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(document, { key: "Escape" });
+    act(() => { vi.advanceTimersByTime(EXIT_ANIMATION_MS); });
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+  });
+
+  it("restores the current opener on each controlled close", () => {
+    vi.useFakeTimers();
+    const view = (open) => (
+      <>
+        <button type="button">First opener</button>
+        <button type="button">Second opener</button>
+        <ModalCard open={open} title="Confirmation">Body</ModalCard>
+      </>
+    );
+    const { rerender } = render(view(false));
+    for (const name of ["First opener", "Second opener"]) {
+      const opener = screen.getByRole("button", { name });
+      opener.focus();
+      rerender(view(true));
+      expect(screen.getByRole("dialog").contains(document.activeElement)).toBe(true);
+      rerender(view(false));
+      act(() => { vi.advanceTimersByTime(EXIT_ANIMATION_MS); });
+      expect(opener).toHaveFocus();
+    }
+  });
+
   it("delays onClose until exit animation finishes", () => {
     vi.useFakeTimers();
     const onClose = vi.fn();

@@ -45,6 +45,35 @@ fn wait_for_usb_to_settle(seconds: f64) {
     }
 }
 
+// Keep the proxy port reserved until the old node is known to be stopped.
+async fn wait_for_tailscale_stop(data: &std::path::Path) {
+    let dir = data.to_path_buf();
+    match tokio::task::spawn_blocking(move || lunad::net::tailscale::stop_for_shutdown(&dir)).await
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::error!(%error, "Tailscale may still be running after shutdown"),
+        Err(error) => tracing::error!(%error, "Tailscale shutdown task failed"),
+    }
+}
+
+async fn reject_proxy_during_shutdown(
+    axum::extract::State(stopping): axum::extract::State<
+        std::sync::Arc<std::sync::atomic::AtomicBool>,
+    >,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if stopping.load(std::sync::atomic::Ordering::Acquire) {
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "Luna is shutting down.",
+        )
+            .into_response();
+    }
+    next.run(request).await
+}
+
 async fn async_main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -118,8 +147,43 @@ async fn async_main() -> anyhow::Result<()> {
         .with_local_port(cfg.port),
     );
     connect.restore_tunnel_from_disk();
-    let tailscale_listener = match lunad::net::tailscale_proxy::bind(&cfg.data_dir).await {
-        Ok(listener) => Some(listener),
+    // Clear any previous generation (including legacy TCP targets) before
+    // allowing a new socket to be advertised.
+    let cleanup_data = cfg.data_dir.clone();
+    let cleanup = tokio::task::spawn_blocking(move || {
+        if cleanup_data.join("tailscale").exists() {
+            match lunad::net::tailscale::prepare_proxy_move(&cleanup_data) {
+                Ok(()) => Ok::<bool, String>(true),
+                Err(error) => {
+                    lunad::net::tailscale::verify_stopped_for_startup(&cleanup_data)?;
+                    tracing::warn!(%error, "Tailscale configuration needs attention; remote access is unavailable");
+                    Ok(false)
+                }
+            }
+        } else {
+            Ok(true)
+        }
+    })
+    .await;
+    // An unverified older daemon may still forward to the main TCP port.
+    // Do not bind it until cleanup has established that the daemon stopped.
+    let can_start_tailscale = match cleanup {
+        Ok(Ok(ready)) => ready,
+        Ok(Err(error)) => return Err(std::io::Error::other(error).into()),
+        Err(error) => return Err(std::io::Error::other(error).into()),
+    };
+    let tailscale_listener = if can_start_tailscale {
+        lunad::net::tailscale_socket::bind(&cfg.data_dir).await
+    } else {
+        Err(std::io::Error::other(
+            "Tailscale configuration needs attention",
+        ))
+    };
+    let tailscale_listener = match tailscale_listener {
+        Ok((listener, path)) => {
+            lunad::net::tailscale_socket::register(&cfg.data_dir, &path);
+            Some(listener)
+        }
         Err(error) => {
             tracing::warn!(%error, "Tailscale's optional web listener is unavailable; Luna will continue starting");
             let data = cfg.data_dir.clone();
@@ -131,11 +195,7 @@ async fn async_main() -> anyhow::Result<()> {
             None
         }
     };
-    let tailscale_port = tailscale_listener
-        .as_ref()
-        .and_then(|listener| listener.local_addr().ok())
-        .map(|addr| addr.port())
-        .unwrap_or(0);
+    let tailscale_port = if tailscale_listener.is_some() { 1 } else { 0 };
     let state = AppState::new(conn, drive_manager, &cfg.data_dir)
         .with_connect(connect.clone())
         .with_http_port(tailscale_port);
@@ -744,6 +804,7 @@ async fn async_main() -> anyhow::Result<()> {
                 )),
         );
     }
+    let proxy_state = state.clone();
     let app =
         app.with_state(state)
             .fallback(axum::routing::get(|uri: axum::http::Uri| async move {
@@ -762,59 +823,69 @@ async fn async_main() -> anyhow::Result<()> {
     let (addr, listener) = match main_listener {
         Ok(bound) => bound,
         Err(error) => {
-            let data = cfg.data_dir.clone();
-            match tokio::task::spawn_blocking(move || {
-                lunad::net::tailscale::stop_for_shutdown(&data)
-            })
-            .await
-            {
-                Ok(Ok(())) => {}
-                Ok(Err(stop_error)) => {
-                    tracing::error!(%stop_error, "Could not stop Tailscale after Luna's web listener failed")
-                }
-                Err(stop_error) => tracing::error!(%stop_error, "Tailscale cleanup task failed"),
-            }
+            // tailscale_listener remains owned while stop verification retries.
+            wait_for_tailscale_stop(&cfg.data_dir).await;
             return Err(error.into());
         }
     };
+    let proxy_stopping = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     if let Some(tailscale_listener) = tailscale_listener {
-        let tailscale_app = app.clone().layer(axum::middleware::from_fn(
-            lunad::net::tailscale_proxy::boundary,
-        ));
+        let listener_data = cfg.data_dir.clone();
+        let tailscale_app = app
+            .clone()
+            .layer(axum::middleware::from_fn_with_state(
+                proxy_state,
+                lunad::net::tailscale_proxy::boundary,
+            ))
+            .layer(axum::middleware::from_fn_with_state(
+                proxy_stopping.clone(),
+                reject_proxy_during_shutdown,
+            ));
         bg_tasks.push(tokio::spawn(async move {
-            if let Err(error) = axum::serve(
-                tailscale_listener,
-                tailscale_app.into_make_service_with_connect_info::<SocketAddr>(),
-            )
-            .await
+            if let Err(error) =
+                axum::serve(tailscale_listener, tailscale_app.into_make_service()).await
             {
                 tracing::error!(%error, "Tailscale's local web listener stopped");
             }
+            lunad::net::tailscale_socket::unregister(&listener_data);
+            let _ = tokio::task::spawn_blocking(move || {
+                lunad::net::tailscale::disable(&listener_data, 0)
+            })
+            .await;
         }));
     }
     let tailscale_data = cfg.data_dir.clone();
     bg_tasks.push(tokio::task::spawn_blocking(move || {
         lunad::net::tailscale::restore(&tailscale_data, tailscale_port);
     }));
+    let refresh_data = cfg.data_dir.clone();
+    bg_tasks.push(tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+        loop {
+            interval.tick().await;
+            let data = refresh_data.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                lunad::net::tailscale::status(&data, tailscale_port)
+            })
+            .await;
+        }
+    }));
 
     tracing::info!(%addr, product = "Luna", "listening");
+    let shutdown_proxy = proxy_stopping.clone();
+    let shutdown_data = cfg.data_dir.clone();
     let server_result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal())
-    .await;
-    // Keep the private proxy listener bound until the managed node is stopped.
-    let tailscale_data = cfg.data_dir.clone();
-    match tokio::task::spawn_blocking(move || {
-        lunad::net::tailscale::stop_for_shutdown(&tailscale_data)
+    .with_graceful_shutdown(async move {
+        shutdown_signal().await;
+        begin_tailscale_shutdown(shutdown_proxy, shutdown_data);
     })
-    .await
-    {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => tracing::error!(%error, "Could not stop Tailscale during Luna shutdown"),
-        Err(error) => tracing::error!(%error, "Tailscale shutdown task failed"),
-    }
+    .await;
+    // Reject new proxy requests while retaining the port until verified stop.
+    proxy_stopping.store(true, std::sync::atomic::Ordering::Release);
+    wait_for_tailscale_stop(&cfg.data_dir).await;
     // Deterministic teardown: a service stop must not leave the managed
     // cloudflared running or the supervisors ticking behind a dead listener.
     shutting_down.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -824,6 +895,14 @@ async fn async_main() -> anyhow::Result<()> {
     }
     server_result?;
     Ok(())
+}
+
+fn begin_tailscale_shutdown(
+    stopping: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    data: std::path::PathBuf,
+) {
+    stopping.store(true, std::sync::atomic::Ordering::Release);
+    tokio::spawn(async move { wait_for_tailscale_stop(&data).await });
 }
 
 /// Static draw.io pack — every `/drawio/**` request serves from
@@ -875,4 +954,87 @@ async fn shutdown_signal() {
         }
     }
     let _ = ctrl_c.await;
+}
+
+#[cfg(test)]
+mod tailscale_shutdown_tests {
+    use super::*;
+    use axum::{
+        Router,
+        body::Body,
+        http::{Request, StatusCode},
+        routing::get,
+    };
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn shutdown_rejects_remote_while_main_request_is_draining() {
+        let dir = tempfile::tempdir().unwrap();
+        let stopping = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (finish_tx, finish_rx) = tokio::sync::oneshot::channel::<()>();
+        let gate = std::sync::Arc::new(tokio::sync::Mutex::new(Some((started_tx, finish_rx))));
+        let main = Router::new().route(
+            "/",
+            get(move || {
+                let gate = gate.clone();
+                async move {
+                    let (started, finish) = gate.lock().await.take().unwrap();
+                    let _ = started.send(());
+                    let _ = finish.await;
+                    "ok"
+                }
+            }),
+        );
+        let request = tokio::spawn(async move {
+            main.oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+                .await
+                .unwrap()
+        });
+        started_rx.await.unwrap();
+        begin_tailscale_shutdown(stopping.clone(), dir.path().to_path_buf());
+        let remote = Router::new().route("/", get(|| async { "ok" })).layer(
+            axum::middleware::from_fn_with_state(stopping, reject_proxy_during_shutdown),
+        );
+        let response = remote
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(
+            !request.is_finished(),
+            "main request should still be draining"
+        );
+        finish_tx.send(()).unwrap();
+        request.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shutdown_rejects_requests_and_records_unverified_stop() {
+        let dir = tempfile::tempdir().unwrap();
+        let node = dir.path().join("tailscale");
+        std::fs::create_dir(&node).unwrap();
+        let socket = node.join("tailscaled.sock");
+        let foreign = tokio::net::UnixListener::bind(&socket).unwrap();
+        let stopping = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let app = Router::new().route("/", get(|| async { "ok" })).layer(
+            axum::middleware::from_fn_with_state(stopping, reject_proxy_during_shutdown),
+        );
+        let response = app
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            wait_for_tailscale_stop(dir.path()),
+        )
+        .await
+        .unwrap();
+        assert!(
+            node.join("stop-failed").exists(),
+            "unverified stop must remain visible"
+        );
+        drop(foreign);
+    }
 }

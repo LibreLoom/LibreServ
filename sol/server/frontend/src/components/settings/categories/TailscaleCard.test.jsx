@@ -17,6 +17,18 @@ const response = (value) => ({ json: async () => value });
 describe("Sol Tailscale settings", () => {
   beforeEach(() => api.mockReset());
 
+  it("sends the chosen Headscale control server and hides public access", async () => {
+    api.mockResolvedValueOnce(response({ enabled: false, installed: true, state: "off" }));
+    api.mockResolvedValueOnce(response({ enabled: true, installed: true, identity_saved: true, state: "connected", control_server: "https://control.example", private_url: "https://sol.example.net" }));
+    render(<TailscaleCard />);
+    fireEvent.click(await screen.findByRole("radio", { name: "Headscale" }));
+    fireEvent.change(screen.getByLabelText("Headscale server address"), { target: { value: "https://control.example" } });
+    fireEvent.click(screen.getByRole("button", { name: "Connect Sol" }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/network/tailscale/connect", expect.objectContaining({ body: JSON.stringify({ control_server: "https://control.example" }) })));
+    expect(await screen.findByRole("link", { name: "Open private address" })).toHaveAttribute("href", "https://sol.example.net");
+    expect(screen.queryByRole("button", { name: "Turn on public access" })).not.toBeInTheDocument();
+  });
+
   it("keeps first-connect retry available after the daemon fails to start", async () => {
     api.mockResolvedValueOnce(response({ enabled: false, installed: true, state: "off" }));
     api.mockRejectedValueOnce(new Error("Could not start Tailscale."));

@@ -52,6 +52,9 @@ func SetupAccess(provider SetupStateProvider) func(http.Handler) http.Handler {
 }
 
 func isLocalSetupRequest(r *http.Request) bool {
+	if IsTailscaleIngress(r) {
+		return false
+	}
 	ip := clientIP(r)
 	if ip == nil {
 		return false

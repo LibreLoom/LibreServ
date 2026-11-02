@@ -4,6 +4,7 @@ import PropTypes from "prop-types";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import FactoryResetCard from "./FactoryResetCard";
+import TailscaleCard from "./TailscaleCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
@@ -215,6 +216,9 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
           index={3}
         >
           <div className="px-5 py-4 space-y-4">
+            <CollapsibleSection title="Tailscale remote access" mono size="sm" pill>
+              <TailscaleCard />
+            </CollapsibleSection>
             <CollapsibleSection
               title="System update source"
               mono

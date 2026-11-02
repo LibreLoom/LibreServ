@@ -18,7 +18,6 @@ import BackupServiceModal from "../../connect/BackupServiceModal.jsx";
 import TunnelServiceModal from "../../connect/TunnelServiceModal.jsx";
 import AIServiceModal from "../../connect/AIServiceModal.jsx";
 import { getConnectUsage } from "../../../lib/connect-api.js";
-import TailscaleCard from "./TailscaleCard.jsx";
 
 function formatGB(value) {
   if (value === 0) return null;
@@ -230,7 +229,6 @@ export default function ExternalServicesCategory({
         a domain name to reach it, and a place to store backups. Here are all the
         external services your server depends on, in one place.
       </p>
-      <TailscaleCard />
 
       <div className="animate-in fade-in slide-in-from-bottom-1 duration-150">
         <ConnectStatusCard

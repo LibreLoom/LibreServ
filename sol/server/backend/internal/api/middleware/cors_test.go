@@ -1,10 +1,36 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
+
+func TestCORSAllowsOnlyExactValidatedTailscaleOrigin(t *testing.T) {
+	h := CORS([]string{"https://other.example"}, false)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	for _, tc := range []struct {
+		origin  string
+		ingress bool
+		want    int
+	}{
+		{"https://node.example", true, http.StatusOK},
+		{"https://evil.example", true, http.StatusForbidden},
+		{"http://node.example", true, http.StatusForbidden},
+		{"https://node.example", false, http.StatusForbidden},
+	} {
+		req := httptest.NewRequest(http.MethodPost, "http://node.example/", nil)
+		req.Header.Set("Origin", tc.origin)
+		if tc.ingress {
+			req = req.WithContext(context.WithValue(req.Context(), tailscaleIngressKey{}, true))
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != tc.want {
+			t.Errorf("origin %q ingress %v: got %d, want %d", tc.origin, tc.ingress, rec.Code, tc.want)
+		}
+	}
+}
 
 func TestCORSAllowsConfiguredOrigin(t *testing.T) {
 	mw := CORS([]string{"https://example.com"}, false)

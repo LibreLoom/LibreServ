@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
 	"gt.plainskill.net/LibreLoom/Sol/internal/network"
 )
 
@@ -18,12 +20,46 @@ func tailscaleFailure(w http.ResponseWriter, action string, err error) {
 func NewTailscaleHandler(service *network.TailscaleService) *TailscaleHandler {
 	return &TailscaleHandler{service: service}
 }
+
+// Mutation revalidates an already-authenticated request after any reset finishes.
+func (h *TailscaleHandler) Mutation(authService *auth.Service, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		h.service.LockMutation()
+		defer h.service.UnlockMutation()
+		id, ok := middleware.GetUserID(r.Context())
+		if !ok {
+			JSONError(w, http.StatusUnauthorized, "Please log in again.")
+			return
+		}
+		user, err := authService.GetUserByID(r.Context(), id)
+		if err != nil || user == nil || user.Role != "admin" {
+			JSONError(w, http.StatusUnauthorized, "Please log in as an Admin again.")
+			return
+		}
+		next(w, r)
+	}
+}
 func (h *TailscaleHandler) Status(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, h.service.Status())
 }
 func (h *TailscaleHandler) Connect(w http.ResponseWriter, r *http.Request) {
-	st, err := h.service.Connect()
+	var body struct {
+		ControlServer string `json:"control_server"`
+	}
+	if r.ContentLength != 0 && json.NewDecoder(r.Body).Decode(&body) != nil {
+		JSONError(w, http.StatusBadRequest, "Sol could not read that remote access request.")
+		return
+	}
+	st, err := h.service.ConnectWithControl(body.ControlServer)
 	if err != nil {
+		switch err.Error() {
+		case "Headscale needs an HTTPS server address without a path":
+			JSONError(w, http.StatusBadRequest, "Headscale needs an HTTPS server address without a path")
+			return
+		case "Sign out of Tailscale before changing the server":
+			JSONError(w, http.StatusBadRequest, "Sign out of Tailscale before changing the server")
+			return
+		}
 		tailscaleFailure(w, "connect to Tailscale", err)
 		return
 	}
@@ -52,6 +88,17 @@ func (h *TailscaleHandler) Serve(w http.ResponseWriter, r *http.Request) {
 	}
 	st, err := h.service.Serve(body.Public)
 	if err != nil {
+		switch err.Error() {
+		case "Public access is not available with Headscale":
+			JSONError(w, http.StatusBadRequest, "Public access is not available with Headscale")
+			return
+		case "Sol could not turn on private access. Check your Headscale connection and HTTPS certificate settings.":
+			JSONError(w, http.StatusBadRequest, "Sol could not turn on private access. Check your Headscale connection and HTTPS certificate settings.")
+			return
+		case "Headscale has not reported a private HTTPS address. Check its connection and certificate settings.":
+			JSONError(w, http.StatusBadRequest, "Headscale has not reported a private HTTPS address. Check its connection and certificate settings.")
+			return
+		}
 		tailscaleFailure(w, "change Tailscale access", err)
 		return
 	}

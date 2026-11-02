@@ -247,6 +247,29 @@ describe("SettingsPage", () => {
       await waitFor(() => expect(card.closest("[data-settings-item]")).toHaveClass("ring-2"));
     });
 
+    it("opens Tailscale in About from search for an Admin", async () => {
+      stubFetch("admin", false);
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByText("max");
+      await user.type(screen.getByRole("searchbox", { name: "Search settings" }), "tailscale remote access");
+      const hit = (await screen.findAllByRole("button", { name: /Tailscale remote access/ }))[0];
+      expect(hit).toHaveTextContent("About");
+      await user.click(hit);
+      const section = await screen.findByRole("button", { name: "Tailscale remote access" });
+      await waitFor(() => expect(section).toHaveAttribute("aria-expanded", "true"));
+      expect(await screen.findByRole("heading", { name: "Tailscale remote access" })).toBeVisible();
+    });
+
+    it("does not offer Tailscale settings in search to a Member", async () => {
+      stubFetch("member");
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByText("max");
+      await user.type(screen.getByRole("searchbox", { name: "Search settings" }), "tailscale remote access");
+      expect(await screen.findByText(/Nothing in Settings matches/)).toBeTruthy();
+    });
+
     it("says so when nothing matches", async () => {
       stubFetch("admin");
       const user = userEvent.setup();

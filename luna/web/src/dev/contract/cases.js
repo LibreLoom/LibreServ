@@ -57,6 +57,7 @@ export const CASES = {
   "GET /api/v1/system/updates/source": plain("/api/v1/system/updates/source"),
   "GET /api/v1/network/status": plain("/api/v1/network/status"),
   "GET /api/v1/connect/status": plain("/api/v1/connect/status"),
+  "GET /api/v1/tailscale/status": plain("/api/v1/tailscale/status"),
   "GET /api/v1/me/recents": plain("/api/v1/me/recents"),
 
   // Files

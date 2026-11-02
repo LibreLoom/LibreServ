@@ -99,6 +99,9 @@ func isTrustedProxy(ipStr string) bool {
 // fallbacks are on the same trustedProxyNets list (rate_limit.go), so a
 // spoofed X-Forwarded-Proto from an untrusted client is ignored here.
 func IsSecureRequest(r *http.Request) bool {
+	if middleware.IsTailscaleIngress(r) {
+		return true
+	}
 	if r.TLS != nil {
 		return true
 	}

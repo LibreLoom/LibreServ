@@ -1019,29 +1019,23 @@ do_uninstall() {
     # silently restore a previously public Funnel listener.
     local ts_socket="${DATA_DIR}/tailscale/tailscaled.sock"
     local ts_state="${DATA_DIR}/tailscale/tailscaled.state"
-    # systemd normally stops the entire process group. If the daemon survived,
-    # stop that exact managed process and confirm exit before removing files.
-    # Keep binaries and state available for recovery if it cannot be stopped.
-    if [ -f "${DATA_DIR}/tailscale/tailscaled.pid" ]; then
-        local ts_pid
-        ts_pid="$(cat "${DATA_DIR}/tailscale/tailscaled.pid")"
-        if tailscale_pid_matches "$ts_pid" "$ts_state"; then
-            if ! kill "$ts_pid" 2>/dev/null; then
-                log_error "Could not stop Tailscale. Sol files were kept; uninstall was not completed."
-                return 1
-            fi
-            local ts_wait
-            for ts_wait in {1..50}; do
-                if ! tailscale_pid_matches "$ts_pid" "$ts_state"; then
-                    break
-                fi
-                sleep 0.1
-            done
-            if tailscale_pid_matches "$ts_pid" "$ts_state"; then
-                log_error "Tailscale is still running. Sol files were kept; uninstall was not completed."
-                return 1
-            fi
+    # Never signal a numeric PID after checking /proc: it can be recycled.
+    # An unfinished launch or any still-matching node remains a hard stop.
+    if [ -e "${DATA_DIR}/tailscale/launch-intent" ]; then
+        log_error "Tailscale's last start has not been verified. Sol files were kept."
+        return 1
+    fi
+    if [ ! -f "${DATA_DIR}/tailscale/tailscaled.pid" ] && [ -e "$ts_state" ]; then
+        local ts_proof
+        ts_proof="$(cat "${DATA_DIR}/tailscale/stop-verified" 2>/dev/null)" || ts_proof=""
+        if [[ ! "$ts_proof" =~ ^[0-9a-fA-F-]{36}$ ]]; then
+            log_error "An older Tailscale process cannot be verified. Sol files were kept."
+            return 1
         fi
+    fi
+    if [ -e "${DATA_DIR}/tailscale/tailscaled.pid" ]; then
+        log_error "An older Tailscale process cannot be safely identified. Sol files were kept."
+        return 1
     fi
     if ! tailscale_socket_stopped "$ts_socket"; then
         log_error "Could not verify that Tailscale stopped. Sol files were kept."

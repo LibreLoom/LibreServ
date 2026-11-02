@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -105,7 +106,12 @@ func (s *Server) setupRoutes() {
 	connectivityHandler := handlersnetwork.NewConnectivityHandler(s.ddnsService, s.appManager, s.caddyManager)
 	wifiHandler := handlersnetwork.NewWifiHandler(wifi.Auto())
 	tunnelHandler := handlersnetwork.NewTunnelHandler(s.tunnelService, s.settingsService, s.connectClient)
-	tailscaleService := network.NewTailscaleService(config.Get().Server.DataDir, config.Get().Server.Port)
+	tailscaleDataDir, err := filepath.Abs(config.Get().Server.DataDir)
+	if err != nil {
+		tailscaleDataDir = config.Get().Server.DataDir
+	}
+	s.tailscaleDataDir = tailscaleDataDir
+	tailscaleService := network.NewTailscaleService(tailscaleDataDir, config.Get().Server.Port)
 	s.tailscaleService = tailscaleService
 	tailscaleHandler := handlersnetwork.NewTailscaleHandler(tailscaleService)
 	factoryResetHandler.SetTailscale(tailscaleService)
@@ -616,12 +622,12 @@ func (s *Server) setupRoutes() {
 			r.Route("/network/tailscale", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/status", tailscaleHandler.Status)
-				r.Post("/connect", tailscaleHandler.Connect)
-				r.Post("/reconnect", tailscaleHandler.Reconnect)
-				r.Post("/serve", tailscaleHandler.Serve)
-				r.Post("/stop-serve", tailscaleHandler.StopServe)
-				r.Post("/disable", tailscaleHandler.Disable)
-				r.Post("/forget", tailscaleHandler.Forget)
+				r.Post("/connect", tailscaleHandler.Mutation(s.authService, tailscaleHandler.Connect))
+				r.Post("/reconnect", tailscaleHandler.Mutation(s.authService, tailscaleHandler.Reconnect))
+				r.Post("/serve", tailscaleHandler.Mutation(s.authService, tailscaleHandler.Serve))
+				r.Post("/stop-serve", tailscaleHandler.Mutation(s.authService, tailscaleHandler.StopServe))
+				r.Post("/disable", tailscaleHandler.Mutation(s.authService, tailscaleHandler.Disable))
+				r.Post("/forget", tailscaleHandler.Mutation(s.authService, tailscaleHandler.Forget))
 			})
 
 			// Audit logs (admin only)

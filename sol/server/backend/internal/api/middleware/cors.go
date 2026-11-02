@@ -42,7 +42,7 @@ func CORS(allowedOrigins []string, devMode bool, trustedHost ...string) func(nex
 			if len(origins) > 0 {
 				if origin == "" {
 					allowOrigin = ""
-				} else if !originAllowed(origins, origin) {
+				} else if !(IsTailscaleIngress(r) && strings.EqualFold(origin, "https://"+r.Host)) && !originAllowed(origins, origin) {
 					http.Error(w, "CORS origin denied", http.StatusForbidden)
 					return
 				} else {
@@ -114,7 +114,7 @@ func isSameOrigin(r *http.Request, origin string, trustedHost string) bool {
 		return false
 	}
 	host := r.Host
-	if trustedHost != "" {
+	if trustedHost != "" && !IsTailscaleIngress(r) {
 		host = trustedHost
 	}
 	return strings.EqualFold(u.Host, host)

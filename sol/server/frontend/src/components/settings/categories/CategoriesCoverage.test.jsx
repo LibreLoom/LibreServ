@@ -254,6 +254,8 @@ function serviceModal(name) {
   };
 }
 
+vi.mock("./TailscaleCard.jsx", () => ({ default: () => <div>Tailscale settings content</div> }));
+
 vi.mock("../../connect/ConnectStatusCard.jsx", () => ({
   default: ({ onActivate, onDeactivate }) => (
     <div>
@@ -934,6 +936,14 @@ describe("settings category coverage", () => {
       owner: "old",
       repo: "sol",
     });
+  });
+
+  it("keeps Tailscale under About advanced settings for Admins", async () => {
+    const { rerender } = render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} />);
+    expect(screen.getByText("Tailscale remote access")).toBeInTheDocument();
+    expect(screen.getByText("Tailscale settings content")).toBeVisible();
+    rerender(<AboutCategory settings={{}} onUpdateSourceSave={vi.fn()} />);
+    expect(screen.queryByText("Tailscale remote access")).not.toBeInTheDocument();
   });
 
   it("performs a factory reset and reports reset failures", async () => {

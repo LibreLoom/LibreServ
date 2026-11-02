@@ -11,6 +11,7 @@ import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.j
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import ConnectDeviceCodeForm from "../ConnectDeviceCodeForm.jsx";
+import TailscaleCard from "./TailscaleCard.jsx";
 import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { getJson, putJson, apiErrorMessage } from "../../../lib/api";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
@@ -89,6 +90,10 @@ export default function UpdateSourceCard({ index = 3 }) {
   return (
     <SettingsCard icon={AlertTriangle} title="Advanced" padding={false} index={index}>
       <div className="px-5 py-4 space-y-4">
+        <CollapsibleSection title="Tailscale remote access" mono pill>
+          <TailscaleCard />
+        </CollapsibleSection>
+
         <CollapsibleSection title="Luna Connect" mono pill>
           <div className="space-y-3 mb-1">
             <p className="text-sm text-primary leading-relaxed">

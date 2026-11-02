@@ -126,6 +126,16 @@ export default function SettingsPage() {
     const look = () => {
       const target = findSettingsTarget(document, pendingHit);
       if (target) {
+        // A search hit may live inside a collapsed section. Opening it remounts
+        // its contents, so find the target again after React updates.
+        const hidden = target.closest('[aria-hidden="true"]');
+        const section = hidden?.closest('[data-slot="collapsible"]');
+        const toggle = section?.querySelector('button[aria-expanded="false"]');
+        if (toggle instanceof HTMLElement) {
+          toggle.click();
+          timers.push(window.setTimeout(look, 100));
+          return;
+        }
         const reduce = typeof window.matchMedia === "function"
           && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
         target.scrollIntoView?.({ block: "center", behavior: reduce ? "auto" : "smooth" });

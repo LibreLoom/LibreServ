@@ -158,6 +158,9 @@ fn setup_origin(addr: &std::net::SocketAddr, headers: &HeaderMap) -> &'static st
 }
 
 fn is_lan_request(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
+    if headers.get("x-luna-tailscale").is_some_and(|v| v == "1") {
+        return false;
+    }
     let host = headers
         .get(axum::http::header::HOST)
         .and_then(|v| v.to_str().ok())
@@ -178,6 +181,9 @@ fn is_lan_request(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
 /// there is no Host hint — the Host header is client-supplied, so a remote
 /// caller claiming `luna.local` must not win write access to setup state.
 fn client_is_lan(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
+    if headers.get("x-luna-tailscale").is_some_and(|v| v == "1") {
+        return false;
+    }
     // The shared resolver honors forwarding headers only from a loopback
     // peer — a remote caller's spoofed X-Forwarded-For can't fake LAN.
     let ip = crate::api::auth::client_ip(addr, headers);

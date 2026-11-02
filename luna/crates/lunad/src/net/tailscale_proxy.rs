@@ -5,52 +5,15 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use std::net::IpAddr;
-use std::path::Path;
 
 #[derive(Clone, Copy)]
 pub(crate) struct TailscalePeer;
 
-/// Preserve the port across lunad restarts because Serve stores its target.
-/// If it cannot be reused, turn off the old proxy before selecting a new port.
-/// The file box must still boot when optional remote access needs repair.
-pub async fn bind(data_dir: &Path) -> std::io::Result<tokio::net::TcpListener> {
-    let path = data_dir.join("tailscale-proxy-port");
-    let port = match std::fs::read_to_string(&path) {
-        Ok(value) => value.trim().parse::<u16>().ok().filter(|p| *p != 0),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(0),
-        Err(e) => {
-            tracing::warn!(%e, "Could not read Tailscale's saved proxy port");
-            None
-        }
-    };
-    let listener = if let Some(port) = port {
-        tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
-            .await
-            .ok()
-    } else {
-        None
-    };
-    let listener = match listener {
-        Some(listener) => listener,
-        None => {
-            tracing::warn!(
-                "Tailscale's saved proxy port is invalid or busy; turning off remote access before choosing a new port"
-            );
-            let data = data_dir.to_path_buf();
-            tokio::task::spawn_blocking(move || super::tailscale::prepare_proxy_move(&data))
-                .await
-                .map_err(std::io::Error::other)?
-                .map_err(std::io::Error::other)?;
-            tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await?
-        }
-    };
-    std::fs::write(path, listener.local_addr()?.port().to_string())?;
-    Ok(listener)
-}
-
 fn sanitize(headers: &mut HeaderMap) -> Option<()> {
-    // The pinned Serve proxy replaces X-Forwarded-For with exactly one source
-    // address. Never turn a malformed or absent address into loopback trust.
+    // Tailscale 1.104.2 Serve replaces X-Forwarded-For with one source IP.
+    // Re-verify this through real Serve AND Funnel on every version bump:
+    // shared/scripts/tailscale-verification.md. Mocks do not prove it.
+    // Never turn a malformed or absent address into loopback trust.
     let source = headers
         .get("x-forwarded-for")?
         .to_str()
@@ -75,7 +38,29 @@ fn sanitize(headers: &mut HeaderMap) -> Option<()> {
     Some(())
 }
 
-pub async fn boundary(mut request: Request, next: Next) -> Response {
+pub async fn boundary(
+    axum::extract::State(state): axum::extract::State<crate::AppState>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let values = request.headers().get_all("x-forwarded-for");
+    let hosts = request.headers().get_all("x-forwarded-host");
+    if values.iter().count() != 1 || hosts.iter().count() != 1 {
+        return (StatusCode::BAD_GATEWAY, "Invalid remote access request.").into_response();
+    }
+    let host = hosts
+        .iter()
+        .next()
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_owned();
+    let expected = super::tailscale_socket::authority(&state.data_dir);
+    if !expected
+        .as_deref()
+        .is_some_and(|v| host.eq_ignore_ascii_case(v))
+    {
+        return (StatusCode::BAD_GATEWAY, "Invalid remote access request.").into_response();
+    }
     if sanitize(request.headers_mut()).is_none() {
         tracing::warn!(
             "Rejected a request on Tailscale's proxy listener without exactly one valid client address"
@@ -86,6 +71,18 @@ pub async fn boundary(mut request: Request, next: Next) -> Response {
         )
             .into_response();
     }
+    let Ok(host) = HeaderValue::from_str(&host) else {
+        return (StatusCode::BAD_GATEWAY, "Invalid remote access request.").into_response();
+    };
+    request.headers_mut().insert(axum::http::header::HOST, host);
+    // The dedicated Unix ingress has no TCP peer. The auth guard uses this
+    // synthetic peer only after the boundary has replaced forwarding headers.
+    request
+        .extensions_mut()
+        .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+            [127, 0, 0, 1],
+            0,
+        ))));
     request.extensions_mut().insert(TailscalePeer);
     next.run(request).await
 }
@@ -117,23 +114,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn loopback_port_is_persistent() {
+    async fn missing_saved_port_clears_old_target_before_restoring() {
         let dir = tempfile::tempdir().unwrap();
-        let listener = bind(dir.path()).await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        assert!(addr.ip().is_loopback());
-        drop(listener);
-        assert_eq!(bind(dir.path()).await.unwrap().local_addr().unwrap(), addr);
-    }
-
-    #[tokio::test]
-    async fn invalid_or_occupied_saved_ports_do_not_block_luna() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("tailscale-proxy-port"), "broken").unwrap();
-        let listener = bind(dir.path()).await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let replacement = bind(dir.path()).await.unwrap();
-        assert_ne!(replacement.local_addr().unwrap(), address);
-        assert!(replacement.local_addr().unwrap().ip().is_loopback());
+        let node = dir.path().join("tailscale");
+        std::fs::create_dir(&node).unwrap();
+        std::fs::write(
+            node.join("stop-verified"),
+            std::fs::read_to_string("/proc/sys/kernel/random/boot_id")
+                .unwrap()
+                .trim(),
+        )
+        .unwrap();
+        std::fs::write(
+            node.join("tailscaled.state"),
+            r#"{"_machinekey":"a2V5","_serve/profile":"e30="}"#,
+        )
+        .unwrap();
+        std::fs::write(node.join("enabled"), "1").unwrap();
+        std::fs::write(node.join("serve-mode"), "private").unwrap();
+        super::super::tailscale::prepare_proxy_move(dir.path()).unwrap();
+        let state = std::fs::read_to_string(node.join("tailscaled.state")).unwrap();
+        assert!(state.contains("_machinekey"));
+        assert!(!state.contains("_serve/"));
+        assert_eq!(
+            std::fs::read_to_string(node.join("restore-serve")).unwrap(),
+            "private"
+        );
+        assert!(node.join("enabled").exists());
     }
 }

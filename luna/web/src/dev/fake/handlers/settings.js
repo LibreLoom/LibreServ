@@ -44,12 +44,14 @@ post("/api/v1/connect/device-token", ({ world, user, body }) => {
   if (world.users.length > 0 && !isAdmin(user)) return fail(403, "Only an Admin can enter a device token.");
   const token = String(body.token || body.code || "");
   if (!token) return fail(400, "Paste the device token first.");
+  if (!isAdmin(user) && world.fakeDeviceToken && world.fakeDeviceToken !== token) return fail(403, "An Admin can change the device token after setup.");
   if (token === "bad") return fail(401, DEVICE_TOKEN_REJECTED);
+  world.fakeDeviceToken = token;
   const { device_token_error: _gone, ...rest } = world.connect;
   world.connect = { ...rest, enabled: true, connect_active: true };
   world.connectActive = true;
   return {};
-});
+}, { public: true });
 del("/api/v1/connect/device-token", ({ world, user }) => {
   requireAdmin(user, "Only an Admin can change remote access.");
   world.connect = { ...world.connect, enabled: false, connect_active: false };
@@ -58,40 +60,53 @@ del("/api/v1/connect/device-token", ({ world, user }) => {
 });
 
 // ── Tailscale remote access ──────────────────────────────────────────────────
+const tailscaleStatus = (world) => {
+  const saved = world.tailscale || {};
+  return {
+    installed: true, enabled: false, identity_saved: false, state: "off",
+    control_server: "", auth_url: "", error: "",
+    ...saved,
+    private_url: saved.private_url ?? "", public_url: saved.public_url ?? "", approval_url: saved.approval_url ?? "",
+  };
+};
 get("/api/v1/tailscale/status", ({ world, user }) => user?.role === "admin"
-  ? (world.tailscale || { installed: true, enabled: false, state: "off" })
+  ? tailscaleStatus(world)
   : fail(403, "Only an Admin can change remote access."));
-post("/api/v1/tailscale/connect", ({ world, user }) => {
+post("/api/v1/tailscale/connect", ({ world, user, body }) => {
   if (user?.role !== "admin") return fail(403, "Only an Admin can change remote access.");
-  world.tailscale = { installed: true, enabled: true, state: "pending", identity_saved: true, auth_url: "https://login.tailscale.com/a/demo" };
-  return world.tailscale;
+  const server = String(body.control_server || "");
+  if (world.tailscale?.identity_saved && server !== (world.tailscale.control_server || "")) return fail(400, "Sign out of Tailscale before changing the server.");
+  world.tailscale = { installed: true, enabled: true, state: "pending", identity_saved: true, control_server: server, auth_url: server ? `${server}/register/demo` : "https://login.tailscale.com/a/demo" };
+  return tailscaleStatus(world);
 });
 post("/api/v1/tailscale/reconnect", ({ world, user }) => {
   if (user?.role !== "admin") return fail(403, "Only an Admin can change remote access.");
-  world.tailscale = { ...world.tailscale, installed: true, enabled: true, state: "pending", error: "", auth_url: "https://login.tailscale.com/a/demo" };
-  return world.tailscale;
+  world.tailscale = { ...world.tailscale, installed: true, enabled: true, state: "pending", error: "", auth_url: world.tailscale?.control_server ? `${world.tailscale.control_server}/register/demo` : "https://login.tailscale.com/a/demo" };
+  return tailscaleStatus(world);
 });
 post("/api/v1/tailscale/serve", ({ world, body, user }) => {
   if (user?.role !== "admin") return fail(403, "Only an Admin can change remote access.");
   if (!world.tailscale?.enabled || world.tailscale.state !== "connected") return fail(409, "Connect Tailscale first.");
+  if (body.public && world.tailscale.control_server) return fail(400, "Public access is not available with Headscale.");
   if (body.public && !body.confirm_public) return fail(400, "Confirm public access before turning it on.");
-  world.tailscale = { ...world.tailscale, state: "connected", private_url: "https://luna.tail-demo.ts.net", public_url: body.public ? "https://luna.tail-demo.ts.net" : undefined, approval_url: undefined };
-  return world.tailscale;
+  const address = world.tailscale.control_server ? "https://luna.headscale.example.net" : "https://luna.tail-demo.ts.net";
+  world.tailscale = { ...world.tailscale, state: "connected", private_url: address, public_url: body.public ? address : undefined, approval_url: undefined };
+  return tailscaleStatus(world);
 });
 post("/api/v1/tailscale/stop-serve", ({ world, user }) => {
   if (user?.role !== "admin") return fail(403, "Only an Admin can change remote access.");
   world.tailscale = { ...world.tailscale, private_url: "", public_url: "", approval_url: "", approval_type: "" };
-  return world.tailscale;
+  return tailscaleStatus(world);
 });
 post("/api/v1/tailscale/disable", ({ world, user }) => {
   if (user?.role !== "admin") return fail(403, "Only an Admin can change remote access.");
-  world.tailscale = { installed: true, enabled: false, identity_saved: true, state: "off" };
-  return world.tailscale;
+  world.tailscale = { installed: true, enabled: false, identity_saved: true, state: "off", control_server: world.tailscale?.control_server || "" };
+  return tailscaleStatus(world);
 });
 post("/api/v1/tailscale/forget", ({ world, user }) => {
   if (user?.role !== "admin") return fail(403, "Only an Admin can change remote access.");
-  world.tailscale = { installed: true, enabled: false, identity_saved: false, state: "off" };
-  return world.tailscale;
+  world.tailscale = { installed: true, enabled: false, identity_saved: false, state: "off", control_server: world.tailscale?.control_server || "" };
+  return tailscaleStatus(world);
 });
 
 // ── Cloud identity, recovery phrase, restore ────────────────────────────────

@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -13,6 +14,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -81,8 +83,10 @@ func inviteSender(s EmailSender, baseURL string) func(email, token string) error
 
 // Server holds runtime state for the API server.
 type Server struct {
+	stopping        atomic.Bool
 	router          chi.Router
 	httpServer      *http.Server
+	tailscaleServer *http.Server
 	addr            string
 	db              *database.DB
 	appManager      *apps.Manager
@@ -121,6 +125,7 @@ type Server struct {
 	oidcAdminHandler *handlersauth.OIDCHandler // admin API for managing OIDC clients per app
 
 	tailscaleService *network.TailscaleService
+	tailscaleDataDir string
 }
 
 // ServerConfig holds configuration for creating a new Server
@@ -377,7 +382,7 @@ func (s *Server) Start() error {
 	}
 	s.httpServer = &http.Server{
 		Addr:           s.addr,
-		Handler:        s.router,
+		Handler:        s.shutdownAwareHandler(),
 		ReadTimeout:    readTimeout,
 		WriteTimeout:   writeTimeout,
 		IdleTimeout:    idleTimeout,
@@ -385,6 +390,12 @@ func (s *Server) Start() error {
 	}
 
 	s.logger.Info("Starting HTTP server", "addr", s.addr)
+	if s.tailscaleService != nil {
+		if err := s.tailscaleService.WaitLegacyCleanup(); err != nil {
+			s.logger.Error("Cannot safely expose Sol's web listener while old remote access is unverified", "error", err)
+			return err
+		}
+	}
 	listener, err := net.Listen("tcp", s.addr)
 	if err != nil {
 		if s.tailscaleService != nil {
@@ -393,18 +404,60 @@ func (s *Server) Start() error {
 		return err
 	}
 	if s.tailscaleService != nil {
-		s.tailscaleService.WebListenerReady(listener.Addr())
+		socket, path, bindErr := network.BindTailscaleSocket(s.tailscaleDataDir)
+		if bindErr != nil {
+			s.logger.Error("Tailscale's private listener is unavailable", "error", bindErr)
+			s.tailscaleService.UnixListenerReady("", bindErr)
+		} else {
+			ingress := middleware.TailscaleIngress(s.tailscaleService.ApprovedURL, s.shutdownAwareHandler())
+			s.tailscaleServer = &http.Server{Handler: ingress, ReadTimeout: readTimeout, WriteTimeout: writeTimeout, IdleTimeout: idleTimeout, MaxHeaderBytes: 1 << 20}
+			s.tailscaleService.UnixListenerReady(path, nil)
+			go func() {
+				ticker := time.NewTicker(10 * time.Second)
+				defer ticker.Stop()
+				for !s.stopping.Load() {
+					_ = s.tailscaleService.Status()
+					<-ticker.C
+				}
+			}()
+			go func() {
+				if serveErr := s.tailscaleServer.Serve(socket); serveErr != nil && serveErr != http.ErrServerClosed {
+					s.tailscaleService.UnixListenerStopped()
+					s.logger.Error("Tailscale's private listener stopped", "error", serveErr)
+					if _, stopErr := s.tailscaleService.Disable(); stopErr != nil {
+						s.logger.Error("Could not stop Tailscale after listener failure", "error", stopErr)
+					}
+				}
+			}()
+		}
 	}
 	return s.httpServer.Serve(listener)
+}
+
+func (s *Server) shutdownAwareHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.stopping.Load() {
+			http.Error(w, "Sol is shutting down.", http.StatusServiceUnavailable)
+			return
+		}
+		s.router.ServeHTTP(w, r)
+	})
 }
 
 // Shutdown gracefully shuts down the server
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.Info("Shutting down HTTP server")
+	// The generation-specific Unix target cannot be reused by another process.
+	s.stopping.Store(true)
+	var stopErr error
 	if s.tailscaleService != nil {
-		if err := s.tailscaleService.StopForShutdown(); err != nil {
-			s.logger.Error("Could not verify Tailscale stopped before releasing Sol's web listener", "error", err)
+		stopErr = s.tailscaleService.StopForShutdown()
+		if stopErr != nil {
+			s.logger.Error("Tailscale may still be running after shutdown", "error", stopErr)
 		}
+	}
+	if s.tailscaleServer != nil {
+		_ = s.tailscaleServer.Shutdown(ctx)
 	}
 	if s.ddnsService != nil {
 		s.ddnsService.Stop()
@@ -419,7 +472,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		s.selfHealMonitor.Stop()
 	}
 	middleware.StopRateLimiters()
-	return s.httpServer.Shutdown(ctx)
+	return errors.Join(stopErr, s.httpServer.Shutdown(ctx))
 }
 
 // Router returns the chi router (useful for testing)

@@ -5,6 +5,7 @@ import Button from "../ui/Button.jsx";
 import CopyableValue from "../ui/CopyableValue.jsx";
 import InlinePill from "../common/InlinePill.jsx";
 import PageNotice from "../common/PageNotice.jsx";
+import SegmentedControl from "../common/SegmentedControl.jsx";
 import SettingsCard from "./SettingsCard.jsx";
 import { InfoHint } from "../ui/Tooltip.jsx";
 /**
@@ -21,6 +22,19 @@ export default function TailscaleCard({
 }) {
   const [confirmPublic, setConfirmPublic] = useState(false);
   const [confirmForget, setConfirmForget] = useState(false);
+  const [serverKind, setServerKind] = useState(null);
+  const [serverDraft, setServerDraft] = useState(null);
+  const selectedKind = s.identity_saved || s.enabled ? (s.control_server ? "headscale" : "tailscale") : serverKind ?? (s.control_server ? "headscale" : "tailscale");
+  const serverAddress = s.identity_saved || s.enabled ? s.control_server || "" : serverDraft ?? s.control_server ?? "";
+  const headscale = Boolean(s.control_server);
+  const serverLocked = Boolean(s.identity_saved || s.enabled || s.residual_exposure);
+  let validServer = selectedKind !== "headscale";
+  if (!validServer) {
+    try {
+      const u = new URL(serverAddress);
+      validServer = u.protocol === "https:" && !u.username && !u.password && u.pathname === "/" && !u.search && !u.hash;
+    } catch { /* an incomplete address is not ready to submit */ }
+  }
   const connected = s.state === "connected";
   const statusText = loading
     ? "Checking"
@@ -47,12 +61,38 @@ export default function TailscaleCard({
           <p className="text-primary text-sm">
             Reach {product} away from home without {product} Connect.
           </p>
+          {!loading && (
+            <div className="space-y-2">
+              <p className="text-sm">Control server <InfoHint content="The control server connects your devices to each other. Headscale is a self-hosted alternative to Tailscale's server." /></p>
+              <SegmentedControl
+                aria-label="Control server"
+                surface="secondary"
+                value={selectedKind}
+                options={[
+                  { value: "tailscale", label: "Tailscale", disabled: serverLocked || busy },
+                  { value: "headscale", label: "Headscale", disabled: serverLocked || busy },
+                ]}
+                onChange={setServerKind}
+              />
+              {selectedKind === "headscale" && (
+                <div className="space-y-2">
+                  <label htmlFor="headscale-server" className="text-sm">Headscale server address</label>
+                  <input id="headscale-server" type="url" value={serverAddress} disabled={serverLocked || busy}
+                    onChange={(event) => setServerDraft(event.target.value)} placeholder="https://headscale.example.com"
+                    className="w-full rounded-pill surface-primary px-4 py-2 focus:border-accent" />
+                  <p className="text-sm">Enter an HTTPS address without a path. Private web access requires a Headscale version that supports Tailscale HTTPS certificates, with DNS-01 certificates configured by its administrator. Public access is unavailable.</p>
+                </div>
+              )}
+              {serverLocked && <p className="text-sm">Sign out of Tailscale to change the control server.</p>}
+            </div>
+          )}
           {error && <PageNotice variant="error">{error}</PageNotice>}
           {s.error && s.error !== error && <PageNotice variant="error">{s.error}</PageNotice>}
+          {s.residual_exposure && <PageNotice variant="error">Public access may still be on. Turn off Tailscale and check again.</PageNotice>}
           {s.state === "pending" && (
             <div className="surface-primary rounded-large-element p-4 space-y-3">
               <p className="text-sm">
-                Approve {product} in Tailscale to finish connecting.
+                Approve {product} in {headscale ? "Headscale" : "Tailscale"} to finish connecting.
               </p>
               {s.auth_url && (
                 <Button variant="secondary" asChild>
@@ -61,7 +101,7 @@ export default function TailscaleCard({
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    Approve {product} in Tailscale
+                    Approve {product} in {headscale ? "Headscale" : "Tailscale"}
                   </a>
                 </Button>
               )}
@@ -158,7 +198,7 @@ export default function TailscaleCard({
                 Turn on private access
               </Button>
             )}
-            {s.state === "connected" && s.private_url && !s.public_url && (
+            {s.state === "connected" && s.private_url && !s.public_url && !headscale && (
               <Button
                 variant="outline"
                 surface="secondary"
@@ -182,8 +222,8 @@ export default function TailscaleCard({
               <Button
                 variant="primary"
                 loading={busy}
-                disabled={busy || s.installed === false}
-                onClick={() => run("connect")}
+                disabled={busy || s.installed === false || !validServer}
+                onClick={() => run("connect", { control_server: selectedKind === "headscale" ? new URL(serverAddress).origin : "" })}
               >
                 Connect {product}
               </Button>
@@ -198,7 +238,7 @@ export default function TailscaleCard({
                 Reconnect
               </Button>
             )}
-            {s.enabled && (
+            {(s.enabled || s.residual_exposure) && (
               <Button
                 variant="outline"
                 surface="secondary"
@@ -215,14 +255,13 @@ export default function TailscaleCard({
                 disabled={busy}
                 onClick={() => setConfirmForget(true)}
               >
-                Remove saved identity
+                Sign out of Tailscale
               </Button>
             )}
           </div>
           {s.installed === false && (
             <PageNotice variant="error">
-              Tailscale is missing from this {product} installation. Update{" "}
-              {product} to restore it.
+              Tailscale is missing from this {product} installation. Remote access is unavailable.
             </PageNotice>
           )}
         </div>
@@ -259,7 +298,7 @@ export default function TailscaleCard({
           run("forget");
         }}
         title={`Remove ${product} from this Tailscale setup?`}
-        confirmLabel="Remove saved identity"
+        confirmLabel="Sign out of Tailscale"
         variant="danger"
         loading={busy}
       >
