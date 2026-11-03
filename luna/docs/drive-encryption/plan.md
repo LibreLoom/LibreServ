@@ -195,7 +195,7 @@ The sequence is always: unmount everything on the disk and refuse if anything is
 ## 6. What still leaks
 
 - **The central database.** `luna.db` is on the Luna's own disk, which this does not encrypt, and it records paths in the clear: `user_recents.path`, `path_moves`, `access_members`/`access_links.path`, `protections.source_path`, `jobs.from_path`/`to_path`. So the honest claim is **"a stolen Luna shows what files you have, not what is in them."** Accepting and saying that is cheap. Encrypting those columns touches grants and protections and makes them unreadable while locked. **Recommendation: accept for v1.**
-- **Drive backups.** `backup/drive_store.rs` writes plaintext copies onto the target drive — backing up an encrypted drive to an unencrypted one silently undoes the feature. Refuse that pairing, or require the target to be encrypted too.
+- **Drive backups.** `backup/drive_store.rs` writes plaintext copies onto the target drive — backing up an encrypted drive to an unencrypted one would silently undo the feature. **Refused** by `backup/drive_backup.rs`: an encrypted source may only be backed up to an encrypted target, checked at `create` and on every `run`.
 - **The drive label** is readable while locked. Deliberate, and worth stating in the setup dialog.
 
 ## 7. Deferred: the reader
@@ -216,11 +216,11 @@ Two consequences of deferring it that are worth knowing now:
 | **2** | The encryption page: route, the five states, Unlock/Lock, the drive-card link and state line. | done |
 | **3** | New-drive format path: partition → `luksFormat` → `mkfs.ext4`, reusing the page's password step. | done |
 | **4** | Encryption both ways by reformatting: one format backend, the shared wipe confirmation with its 30-second rule, identity preserved across a wipe, the `converting` flag and the exclusive hold. | done |
-| **5** | Parity: drive-backup pairing rules, the §6 leak audit. | **not done** |
+| **5** | Parity: drive-backup pairing rules, the §6 leak audit. | pairing rules done; leak audit **not done** |
 
-Phase 5 is the remaining work. Two things in §6 are still open and are the reason it is not "finished":
+Phase 5 is the remaining work. The drive-backup pairing rule is done; the §6 leak audit is not:
 
-- **Drive backups can undo encryption.** `backup/drive_store.rs` writes plaintext copies onto the target drive, so backing up an encrypted drive to an unencrypted one silently defeats the feature. Nothing refuses that pairing yet.
+- **Drive backups can no longer undo encryption.** `backup/drive_store.rs` still writes plaintext copies onto the target drive, but `backup/drive_backup.rs` refuses to back an encrypted drive up to a plain one, and allows the other direction — a plain source onto an encrypted target is more protection than the source had. The check runs at `create` and again on every `run`, because either drive can be reformatted after the backup exists.
 - **The central database still records paths in clear.** Accepting that is a decision, but the UI should not imply more than it delivers.
 
 **Still to verify on real hardware** (not assumptions, and not covered by the unit tests):
