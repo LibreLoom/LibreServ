@@ -75,17 +75,14 @@ fn boot_id() -> Result<String, String> {
     Ok(value.to_owned())
 }
 
-// The proof records the boot it was taken on. A stop verified on an earlier
-// boot says nothing about the process running now, so it must not stand in for
-// checking the socket.
+// A durable verified stop remains valid across boots. A later launch intent
+// takes precedence, and stop_daemon still checks for a listening socket.
 fn valid_stop_proof(data: &Path) -> bool {
     let Ok(recorded) = std::fs::read_to_string(root(data).join("stop-verified")) else {
         return false;
     };
     let recorded = recorded.trim();
-    recorded.len() == 36
-        && recorded.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
-        && boot_id().is_ok_and(|boot| boot == recorded)
+    recorded.len() == 36 && recorded.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
 }
 
 fn retire_launch(data: &Path) -> Result<(), String> {
@@ -1687,17 +1684,33 @@ mod tests {
     }
 
     #[test]
-    fn stop_proof_from_an_earlier_boot_does_not_count_as_stopped() {
+    fn prior_boot_stop_proof_allows_startup_but_not_a_live_socket_or_pending_launch() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(root(dir.path())).unwrap();
         std::fs::write(state(dir.path()), "{}").unwrap();
+        std::fs::write(root(dir.path()).join("enabled"), "1").unwrap();
         std::fs::write(
             root(dir.path()).join("stop-verified"),
             "00000000-0000-0000-0000-000000000000",
         )
         .unwrap();
-        assert!(!valid_stop_proof(dir.path()));
+        assert!(valid_stop_proof(dir.path()));
+        let listener = std::os::unix::net::UnixListener::bind(socket(dir.path())).unwrap();
+        assert!(prepare_proxy_move(dir.path()).is_err());
+        assert!(state(dir.path()).exists());
+        drop(listener);
+        std::fs::remove_file(socket(dir.path())).unwrap();
+        std::fs::write(root(dir.path()).join("enabled"), "1").unwrap();
+        std::fs::write(
+            root(dir.path()).join("launch-intent"),
+            format!("pending {}", boot_id().unwrap()),
+        )
+        .unwrap();
         assert!(stop_daemon(dir.path()).is_err());
+        assert!(root(dir.path()).join("launch-intent").exists());
+        std::fs::remove_file(root(dir.path()).join("launch-intent")).unwrap();
+        prepare_proxy_move(dir.path()).unwrap();
+        assert!(enabled(dir.path()));
         assert!(state(dir.path()).exists());
     }
 
