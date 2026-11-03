@@ -484,7 +484,7 @@ func (s *TailscaleService) clearSavedServe() error {
 	}
 	var values map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &values); err != nil || values == nil {
-		return errors.New("Tailscale is off. Remove its saved identity before connecting again")
+		return errors.New("Tailscale is off. Sign out of Tailscale before connecting again")
 	}
 	if len(values) == 3 && values["key"] != nil && values["nonce"] != nil && values["data"] != nil {
 		return errors.New("Tailscale's encrypted state cannot be cleared offline")
@@ -1344,7 +1344,7 @@ func (s *TailscaleService) disableLocked() (TailscaleStatus, error) {
 	}
 	if err := s.clearAccessIfRequired(); err != nil {
 		slog.Warn("Tailscale is stopped but its saved access could not be cleared", "error", err)
-		_ = os.WriteFile(filepath.Join(s.dir, "last-error"), []byte("Tailscale is off. Remove its saved identity before connecting again."), 0600)
+		_ = os.WriteFile(filepath.Join(s.dir, "last-error"), []byte("Tailscale is off. Sign out of Tailscale before connecting again."), 0600)
 	} else {
 		_ = os.Remove(filepath.Join(s.dir, "last-error"))
 	}

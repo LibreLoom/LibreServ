@@ -504,7 +504,7 @@ fn clear_access_if_required(data: &Path) -> Result<(), String> {
     stop_daemon(data)?;
     clear_saved_serve(data).map_err(|error| {
         tracing::warn!(%error, "Could not clear saved Tailscale access");
-        "Tailscale is off. Remove its saved identity before connecting again.".to_string()
+        "Tailscale is off. Sign out of Tailscale before connecting again.".to_string()
     })?;
     // A pending reset invalidates any saved exposure intent as well as the
     // daemon's Serve state. Never restore an older public mode after a crash.
@@ -1021,7 +1021,7 @@ fn disable_inner(data: &Path, port: u16) -> Result<Value, String> {
         tracing::warn!(%error, "Tailscale is stopped but its saved access could not be cleared");
         let _ = std::fs::write(
             root(data).join("last-error"),
-            "Tailscale is off. Remove its saved identity before connecting again.",
+            "Tailscale is off. Sign out of Tailscale before connecting again.",
         );
     } else {
         let _ = std::fs::remove_file(root(data).join("last-error"));
@@ -1809,6 +1809,40 @@ mod tests {
         assert!(state(dir.path()).exists());
         restore(dir.path(), 8090);
         assert!(!root(dir.path()).join("tailscaled.pid").exists());
+    }
+
+    #[test]
+    fn failed_stop_warning_clears_only_after_verified_retry() {
+        let _env = TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root(dir.path())).unwrap();
+        std::fs::write(root(dir.path()).join("stop-verified"), boot_id().unwrap()).unwrap();
+        std::fs::write(root(dir.path()).join("enabled"), "1").unwrap();
+        std::fs::write(state(dir.path()), "{}").unwrap();
+        let listener = std::os::unix::net::UnixListener::bind(socket(dir.path())).unwrap();
+        let previous = std::env::var_os("LUNA_TAILSCALE_CLI");
+        unsafe { std::env::set_var("LUNA_TAILSCALE_CLI", dir.path().join("missing-cli")) };
+
+        let failed = disable(dir.path(), 8090).unwrap();
+        assert_eq!(failed["residual_exposure"], true);
+        assert!(root(dir.path()).join("stop-failed").exists());
+        assert!(root(dir.path()).join("last-error").exists());
+        assert!(state(dir.path()).exists());
+
+        drop(listener);
+        let recovered = disable(dir.path(), 8090).unwrap();
+        assert_ne!(recovered["residual_exposure"], true);
+        assert_eq!(recovered["error"], "");
+        assert!(!root(dir.path()).join("stop-failed").exists());
+        assert!(!root(dir.path()).join("last-error").exists());
+        assert!(state(dir.path()).exists());
+        unsafe {
+            if let Some(value) = previous {
+                std::env::set_var("LUNA_TAILSCALE_CLI", value);
+            } else {
+                std::env::remove_var("LUNA_TAILSCALE_CLI");
+            }
+        }
     }
 
     #[test]

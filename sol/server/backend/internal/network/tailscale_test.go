@@ -430,6 +430,36 @@ func TestTailscaleBrokenCLICanDisableAndForget(t *testing.T) {
 	}
 }
 
+func TestTailscaleFailedStopWarningClearsOnlyAfterVerifiedRetry(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("SOL_TAILSCALE_CLI", filepath.Join(dir, "missing"))
+	svc := &TailscaleService{dir: dir, port: 8080}
+	for name, value := range map[string]string{"stop-verified": mustBootID(t), "tailscaled.state": `{}`, "enabled": "1"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	listener, err := net.Listen("unix", svc.sock())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	failed, err := svc.Disable()
+	if err != nil || !failed.ResidualExposure || !tailscaleFileExists(filepath.Join(dir, "stop-failed")) || !tailscaleFileExists(filepath.Join(dir, "last-error")) {
+		t.Fatalf("unverified stop = %#v, %v", failed, err)
+	}
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := svc.Disable()
+	if err != nil || recovered.ResidualExposure || recovered.Error != "" || tailscaleFileExists(filepath.Join(dir, "stop-failed")) || tailscaleFileExists(filepath.Join(dir, "last-error")) {
+		t.Fatalf("verified retry = %#v, %v", recovered, err)
+	}
+	if !tailscaleFileExists(filepath.Join(dir, "tailscaled.state")) {
+		t.Fatal("verified retry removed identity")
+	}
+}
+
 func TestTailscaleVerifiedDisableClearsStaleError(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("SOL_TAILSCALE_CLI", filepath.Join(dir, "missing"))
