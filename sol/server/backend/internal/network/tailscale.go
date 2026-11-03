@@ -341,7 +341,10 @@ func (s *TailscaleService) persistRestoreMode(mode string) error {
 	if err != nil {
 		return err
 	}
-	if err = os.Rename(f.Name(), filepath.Join(s.dir, "restore-failed-mode")); err != nil {
+	if err = os.Link(f.Name(), filepath.Join(s.dir, "restore-failed-mode")); err != nil {
+		if os.IsExist(err) {
+			return nil
+		}
 		return err
 	}
 	dir, err := os.Open(s.dir)

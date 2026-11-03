@@ -79,8 +79,12 @@ fn persist_restore_mode(data: &Path, mode: &str) -> Result<(), String> {
     file.write_all(mode.as_bytes())
         .and_then(|_| file.as_file().sync_all())
         .map_err(|e| e.to_string())?;
-    file.persist(root(data).join("restore-failed-mode"))
-        .map_err(|e| e.to_string())?;
+    if let Err(error) = file.persist_noclobber(root(data).join("restore-failed-mode")) {
+        if error.error.kind() == std::io::ErrorKind::AlreadyExists {
+            return Ok(());
+        }
+        return Err(error.to_string());
+    }
     std::fs::File::open(root(data))
         .and_then(|dir| dir.sync_all())
         .map_err(|e| e.to_string())
@@ -1045,6 +1049,12 @@ pub fn disable(data: &Path, port: u16) -> Result<Value, String> {
     Ok(out)
 }
 
+/// Automatic listener failure must not erase the Admin's unresolved warning.
+pub fn disable_for_listener_failure(data: &Path) -> Result<Value, String> {
+    let _guard = lifecycle();
+    disable_inner(data, 0)
+}
+
 pub fn stop_serve(data: &Path, port: u16) -> Result<Value, String> {
     let _guard = lifecycle();
     if let Err(error) = command(data, &["serve", "reset"]) {
@@ -1329,6 +1339,9 @@ pub fn prepare_proxy_move(data: &Path) -> Result<(), String> {
             .or_else(|_| std::fs::read_to_string(root(data).join("restore-serve")))
             .unwrap_or_default()
     };
+    if was_enabled && matches!(mode.as_str(), "private" | "public") {
+        persist_restore_mode(data, &mode)?;
+    }
     let stopped = disable_inner(data, 0)?;
     if stopped["residual_exposure"] == true {
         return Err("Tailscale could not be stopped before moving its local web address.".into());
@@ -2042,6 +2055,63 @@ mod tests {
             std::fs::write(state(dir.path()), corrupt).unwrap();
             assert!(clear_saved_serve(dir.path()).is_err());
             assert_eq!(std::fs::read_to_string(state(dir.path())).unwrap(), corrupt);
+        }
+    }
+
+    #[test]
+    fn startup_cleanup_preserves_prior_warning_and_records_intent_before_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root(dir.path())).unwrap();
+        std::fs::write(root(dir.path()).join("stop-verified"), boot_id().unwrap()).unwrap();
+        std::fs::write(state(dir.path()), "{}").unwrap();
+        std::fs::write(root(dir.path()).join("enabled"), "1").unwrap();
+        std::fs::write(root(dir.path()).join("serve-mode"), "private").unwrap();
+        std::fs::write(root(dir.path()).join("restore-failed-mode"), "public").unwrap();
+        prepare_proxy_move(dir.path()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root(dir.path()).join("restore-failed-mode")).unwrap(),
+            "public"
+        );
+        assert!(restore_warning(dir.path(), true, false));
+        disable_for_listener_failure(dir.path()).unwrap();
+        assert!(root(dir.path()).join("restore-failed-mode").exists());
+        prepare_proxy_move(dir.path()).unwrap();
+        assert!(restore_warning(dir.path(), true, false));
+        assert!(!restore_warning(dir.path(), false, true));
+
+        std::fs::write(root(dir.path()).join("enabled"), "1").unwrap();
+        std::fs::write(root(dir.path()).join("serve-mode"), "public").unwrap();
+        std::fs::create_dir(root(dir.path()).join("reset-required")).unwrap();
+        assert!(prepare_proxy_move(dir.path()).is_err());
+        // Existing reset intent means no new mode may be inferred or restored.
+        assert!(!root(dir.path()).join("restore-failed-mode").exists());
+    }
+
+    #[test]
+    fn startup_cleanup_records_mode_before_a_stop_failure() {
+        let _env = TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root(dir.path())).unwrap();
+        std::fs::write(root(dir.path()).join("stop-verified"), boot_id().unwrap()).unwrap();
+        std::fs::write(state(dir.path()), "{}").unwrap();
+        std::fs::write(root(dir.path()).join("enabled"), "1").unwrap();
+        std::fs::write(root(dir.path()).join("serve-mode"), "public").unwrap();
+        let listener = std::os::unix::net::UnixListener::bind(socket(dir.path())).unwrap();
+        let previous = std::env::var_os("LUNA_TAILSCALE_CLI");
+        unsafe { std::env::set_var("LUNA_TAILSCALE_CLI", dir.path().join("missing-cli")) };
+        assert!(prepare_proxy_move(dir.path()).is_err());
+        assert_eq!(
+            std::fs::read_to_string(root(dir.path()).join("restore-failed-mode")).unwrap(),
+            "public"
+        );
+        assert!(state(dir.path()).exists());
+        drop(listener);
+        unsafe {
+            if let Some(value) = previous {
+                std::env::set_var("LUNA_TAILSCALE_CLI", value);
+            } else {
+                std::env::remove_var("LUNA_TAILSCALE_CLI");
+            }
         }
     }
 

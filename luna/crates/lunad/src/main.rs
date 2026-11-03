@@ -187,8 +187,10 @@ async fn async_main() -> anyhow::Result<()> {
         Err(error) => {
             tracing::warn!(%error, "Tailscale's optional web listener is unavailable; Luna will continue starting");
             let data = cfg.data_dir.clone();
-            let result =
-                tokio::task::spawn_blocking(move || lunad::net::tailscale::disable(&data, 0)).await;
+            let result = tokio::task::spawn_blocking(move || {
+                lunad::net::tailscale::disable_for_listener_failure(&data)
+            })
+            .await;
             if let Err(error) = result {
                 tracing::error!(%error, "Could not finish Tailscale cleanup after its listener failed");
             }

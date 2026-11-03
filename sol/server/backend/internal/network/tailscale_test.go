@@ -134,6 +134,21 @@ func TestTailscaleShutdownRejectsLaterStartRequests(t *testing.T) {
 	}
 }
 
+func TestTailscaleRestoreModeDoesNotReplaceAnUnresolvedWarning(t *testing.T) {
+	dir := t.TempDir()
+	svc := &TailscaleService{dir: dir}
+	if err := svc.persistRestoreMode("public"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.persistRestoreMode("private"); err != nil {
+		t.Fatal(err)
+	}
+	mode, err := os.ReadFile(filepath.Join(dir, "restore-failed-mode"))
+	if err != nil || string(mode) != "public" {
+		t.Fatalf("lost public warning: %q, %v", mode, err)
+	}
+}
+
 func TestTailscaleStartupFailureKeepsSelectedRestorationMode(t *testing.T) {
 	dir := t.TempDir()
 	node := filepath.Join(dir, "tailscale")
@@ -181,6 +196,11 @@ func TestTailscaleRestoreClearsOldTargetBeforeWaitingForOwnedWebListener(t *test
 			}
 			if err := os.WriteFile(filepath.Join(node, "enabled"), []byte("1"), 0600); err != nil {
 				t.Fatal(err)
+			}
+			if !public {
+				if err := os.WriteFile(filepath.Join(node, "restore-failed-mode"), []byte("public"), 0600); err != nil {
+					t.Fatal(err)
+				}
 			}
 			cli, calls := filepath.Join(dir, "cli"), filepath.Join(dir, "calls")
 			writeExecutable(t, cli, `echo "$*" >> "$TS_CALLS"
@@ -236,6 +256,12 @@ esac
 			}
 			if !tailscaleFileExists(filepath.Join(node, "enabled")) {
 				t.Fatal("restore disabled valid selected access")
+			}
+			if !public {
+				warning, err := os.ReadFile(filepath.Join(node, "restore-failed-mode"))
+				if err != nil || string(warning) != "public" {
+					t.Fatalf("private restart lost unresolved public warning: %q, %v", warning, err)
+				}
 			}
 		})
 	}
