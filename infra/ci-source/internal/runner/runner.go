@@ -22,7 +22,8 @@ import (
 )
 
 type Runner struct {
-	cli               *client.Client
+	cli               *client.Client // nil when no container runtime is reachable
+	runtimeErr        error          // why cli is nil, for the tests that need it
 	cfg               *config.Config
 	repoPath          string
 	socketPath        string
@@ -42,7 +43,7 @@ type Runner struct {
 	containersMu      sync.RWMutex
 	skippedTests      map[string]bool
 	skippedMu         sync.RWMutex
-	hostMode          bool // set from RunOptions.Host for the length of a run
+	mode              RunMode // set from RunOptions.Mode for the length of a run
 }
 
 type OutputLine struct {
@@ -74,34 +75,23 @@ type RunOptions struct {
 	// Parallelism shared slots, so concurrent ci runs together stay in bounds.
 	// Otherwise the limits cover this run alone.
 	Universal bool
-	// Host runs every test on the host instead of in its container. It is
-	// much faster (no image pull, no mount, no container start) and is meant
-	// for the inner loop; it gives up the pinned toolchain, so it is opt-in
-	// and never the default. A test that already needs the host is unaffected.
-	Host bool
+	// Mode decides where each test runs. ModeAuto (the zero value) runs a test
+	// on the host when this machine can run it and in its container when it
+	// cannot; ModeHost and ModeContainer force one or the other. A test that
+	// declares Container: "host" always runs on the host — a container cannot
+	// run it at all.
+	Mode RunMode
 }
 
 func NewRunner(cfg *config.Config) (*Runner, error) {
-	hostURI, socketPath, err := findRuntimeSocket()
-	if err != nil {
-		return nil, fmt.Errorf("failed to find container runtime socket: %w", err)
-	}
-
-	cli, err := client.NewClientWithOpts(client.WithHost(hostURI), client.WithAPIVersionNegotiation())
-	if err != nil {
-		return nil, fmt.Errorf("failed to create runtime client (%s): %w", hostURI, err)
-	}
-
 	repoPath, err := findRepoRoot()
 	if err != nil {
 		return nil, fmt.Errorf("failed to find repo root: %w", err)
 	}
 
 	r := &Runner{
-		cli:               cli,
 		cfg:               cfg,
 		repoPath:          repoPath,
-		socketPath:        socketPath,
 		outputChan:        make(chan OutputLine, 1000),
 		resultChan:        make(chan *tests.TestResult, 100),
 		workers:           cfg.Parallelism,
@@ -111,7 +101,20 @@ func NewRunner(cfg *config.Config) (*Runner, error) {
 		skippedTests:      make(map[string]bool),
 	}
 
-	r.cleanupOrphanedContainers()
+	// The runtime is connected lazily: a run that stays on the host never needs
+	// it, and `ci check` is host-first, so a machine without podman must still
+	// be able to lint and typecheck. The error is kept for the tests that do
+	// need a container, which report it as their own failure.
+	hostURI, socketPath, err := findRuntimeSocket()
+	if err != nil {
+		r.runtimeErr = err
+	} else if cli, err := client.NewClientWithOpts(client.WithHost(hostURI), client.WithAPIVersionNegotiation()); err != nil {
+		r.runtimeErr = fmt.Errorf("failed to create runtime client (%s): %w", hostURI, err)
+	} else {
+		r.cli = cli
+		r.socketPath = socketPath
+		r.cleanupOrphanedContainers()
+	}
 
 	// Without the lifeline, containers just don't stop themselves when ci dies.
 	if l, err := newLifeline(filepath.Join(repoPath, ".cache")); err == nil {
@@ -182,7 +185,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) *RunSummary {
 	r.cpuQuota = opts.CPUQuota
 	r.memoryLimit = opts.MemoryLimit
 	r.nice = opts.Nice
-	r.hostMode = opts.Host
+	r.mode = opts.Mode
 
 	// The limits cover the whole run (or the whole machine, when universal), so
 	// each job gets an equal share. Never plan for more jobs than the CPU budget
@@ -209,9 +212,9 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) *RunSummary {
 	// profile into one cachable pass per module, and gives every node test
 	// workdir one warmed npm install instead of a cold install per test.
 	// Warms run in parallel, bounded by the same job slots as the tests.
-	// Host mode runs everything directly, so there is nothing to warm: the
-	// caches it would populate are the container-side ones.
-	if !r.hostMode {
+	// They populate the container-side caches, so a run that stays on the host
+	// has nothing to warm.
+	if r.needsContainers(testList) {
 		r.warmCaches(ctx, testList)
 	}
 
@@ -468,12 +471,28 @@ func (r *Runner) runTest(ctx context.Context, t *tests.Test, fuzzDuration time.D
 		Line:   "starting...",
 	}
 
-	// "host" container = run the command directly on the host (no container).
-	// Used for tests like podman-build that need host-level tools (podman) and
-	// can't usefully run inside a container (e.g. SELinux blocks socket mounts).
-	// RunOptions.Host extends that to every test for a fast inner loop.
-	if t.Container == tests.ContainerHost || r.hostMode {
+	// Where this test runs is decided per test, so one run can mix the two:
+	// a test that declares Container: "host" always runs on the host (a
+	// container cannot run it at all), ModeHost and ModeContainer force their
+	// side, and ModeAuto asks this machine whether it can run the command.
+	onHost, why := r.hostDecision(t)
+	if onHost {
 		return r.runHostTest(ctx, t)
+	}
+	if why != "" {
+		r.outputChan <- OutputLine{
+			TestID: t.ID,
+			Type:   OutputStatus,
+			Line:   fmt.Sprintf("running in its container (%s)", why),
+		}
+	}
+
+	if r.cli == nil {
+		result.Status = tests.StatusFailed
+		result.Error = fmt.Sprintf("%s needs a container, but no container runtime is available: %v", t.ID, r.runtimeErr)
+		result.EndTime = time.Now()
+		result.Duration = result.EndTime.Sub(result.StartTime)
+		return result
 	}
 
 	if err := r.pullImageIfNeeded(ctx, t.Container); err != nil {
@@ -1061,6 +1080,9 @@ func (r *Runner) StopAllContainers() {
 func (r *Runner) Close() error {
 	r.StopAllContainers()
 	r.lifeline.close()
+	if r.cli == nil {
+		return nil
+	}
 	return r.cli.Close()
 }
 
@@ -1287,10 +1309,7 @@ func npmWorkDirSlug(workDir string) string {
 
 // hostWorkDir maps an in-container workdir under /repo to the host path.
 func (r *Runner) hostWorkDir(inContainerWorkDir string) string {
-	if rel, ok := strings.CutPrefix(inContainerWorkDir, "/repo"); ok {
-		return filepath.Join(r.repoPath, strings.TrimPrefix(rel, "/"))
-	}
-	return inContainerWorkDir
+	return hostWorkDir(r.repoPath, inContainerWorkDir)
 }
 
 // findGoModuleRoot maps an in-container work dir to the nearest go.mod

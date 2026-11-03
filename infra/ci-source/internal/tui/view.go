@@ -265,7 +265,9 @@ func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	go m.executor.Execute("", testIDs, limits.Parallelism, m.settings.FailFast, m.settings.FuzzDuration, limits.CPUQuota, limits.MemoryLimit, limits.Nice, universal, false)
+	// The interactive runner is the unattended pass, so it stays container-first
+	// like `ci run`; `ci check` is the host-first inner loop.
+	go m.executor.Execute("", testIDs, limits.Parallelism, m.settings.FailFast, m.settings.FuzzDuration, limits.CPUQuota, limits.MemoryLimit, limits.Nice, universal, runner.ModeContainer)
 
 	return m, tickCmd()
 }
