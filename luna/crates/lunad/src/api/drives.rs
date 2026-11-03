@@ -114,6 +114,14 @@ struct InspectionJson {
     writable: bool,
     /// An encrypted Luna drive that needs its password before it can be added.
     locked: bool,
+    /// Bytes in use beyond what a fresh filesystem occupies. The Add-drive
+    /// flow uses this to apply the same "does this hold anything?" rule as
+    /// every other wipe, rather than counting files.
+    used_bytes: Option<u64>,
+    /// True when the drive holds something a person would miss, so wiping it
+    /// has to wait. Decided here, next to the rule itself, so the UI cannot
+    /// disagree with the daemon about what "empty" means.
+    meaningful: bool,
 }
 
 /// Home-dashboard snapshot for one adopted drive. Space is `statvfs`;
@@ -395,6 +403,8 @@ async fn inspect(
         readable: inspection.readable,
         writable: inspection.writable,
         locked: inspection.locked,
+        used_bytes: inspection.used_bytes,
+        meaningful: crate::drives::wipe::holds_something(inspection.used_bytes),
     }))
 }
 

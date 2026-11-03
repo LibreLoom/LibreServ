@@ -306,11 +306,16 @@ post("/api/v1/drives/:name/inspect", ({ world, user, params }) => {
   const d = findDetected(world, params.name);
   if (d.inspectFails) return fail(500, "Luna couldn't look at this drive safely. Make sure it's plugged in and try again.");
   const entries = d.entries ?? [{ kind: "folder", name: "Photos" }, { kind: "file", name: "readme.txt" }];
+  // The daemon measures the drive and decides whether a wipe has to wait;
+  // the fake does the same from the entry count so `npm run dev` shows the
+  // real flow either way.
+  const usedBytes = d.used_bytes ?? (entries.length > 0 ? 4 * 1024 * 1024 * 1024 : 96 * 1024);
   return {
     device: d.name, model: d.model ?? "", fs_type: d.fs_type ?? null, mount_point: d.mount_point ?? `/run/luna/inspect/${d.name}`,
     mounted_by_luna: true, has_marker: Boolean(d.has_marker), folders: entries.filter((e) => e.kind === "folder").length,
     files: entries.filter((e) => e.kind === "file").length, unreadable: d.unreadable ?? 0, entries,
     needs_erase: Boolean(d.needs_erase), readable: d.readable ?? true, writable: d.writable ?? !d.read_only,
+    used_bytes: usedBytes, meaningful: d.meaningful ?? usedBytes > 16 * 1024 * 1024,
   };
 });
 get("/api/v1/drives/:name/peek", ({ world, user, params }) => {

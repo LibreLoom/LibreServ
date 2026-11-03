@@ -177,6 +177,10 @@ The sequence is always: unmount everything on the disk and refuse if anything is
 
 "Meaningful" is measured, not guessed: used bytes beyond what a fresh filesystem of that kind already occupies. A freshly made 2 TB exFAT reports 2.25 MiB used with nothing on it, a 200 GB one 512 KiB, a 4 GB one 96 KiB, and a fresh ext4 28 KiB at any size — so the allowance is 16 MiB, generous enough to separate "empty" from "has files" in either direction. A drive Luna could not read is treated as holding something, because the alternative is telling someone a drive is empty when it is not. `drives/wipe.rs` owns the measurement and the rule; the API exposes it as `GET /api/v1/drives/{id}/wipe-preview`.
 
+**Adding a drive reaches the same dialog a different way.** A drive Luna has not adopted yet has a device name (`sdb`), not an id, so it cannot fetch a wipe preview. It does not need to: `POST /inspect` measures the same bytes and returns `used_bytes` and `meaningful`, decided by the same function (`wipe::holds_something`), and `previewFromInspection` maps that straight into the dialog. The rule is never re-derived in the UI — two implementations of "is this drive empty?" would eventually disagree, and one flow would skip the wait.
+
+**Every disk tool is time-bounded.** A stick that stops answering must not hold a format open with the drive stuck in `converting` and nothing to report. `wipefs` 60s, `sfdisk` 60s, `mkfs` 120–300s, `luksFormat` 300s, `luksOpen` 120s, `mount`/`umount` 60s, `fstrim` 30 min. A timeout is reported as its own failure (`FormatError::Unresponsive`, `mount::DriveUnresponsive`), never as "busy": busy means files are open, is retried, and tells the person to close them — none of which is true of a dead drive.
+
 **Reformatting keeps the drive's identity.** The wipe destroys the `.luna-<uuid>` marker, and the marker is what ties the drive on disk to its row in `luna.db` — its shares, access grants, gallery index and backup rules. So the job remounts the drive, rewrites the same marker with the same id, and records the new mount point. Without that step a reformatted drive would look like a stranger and every grant would silently detach.
 
 **Decrypt still asks for the password.** It is about to be destroyed, but asking proves the person knows it rather than merely sitting at an unlocked session, and it is the last moment before the files become readable to anyone who plugs the drive in. `POST /reformat` (the plain "start over" path) is refused on an encrypted drive for the same reason.
@@ -230,7 +234,8 @@ Phase 5 is the remaining work. Two things in §6 are still open and are the reas
 - **Anyone with access to a drive may unlock it.** The rate limiter is what makes that safe.
 - **Encryption is turned on and off by wiping the drive**, not by converting it in place. Any drive Luna can see can be encrypted, whatever filesystem it has now. Encrypted drives are always ext4 inside a LUKS2 container.
 - **A wipe keeps the drive's identity.** The same id and a fresh marker, so shares, grants, gallery index and backup rules survive.
-- **One confirmation for an empty drive; a 30-second wait for one holding anything**, with the contents listed. The rule is the same for every flow that wipes.
+- **One confirmation for an empty drive; a 30-second wait for one holding anything**, with the contents listed. The rule is the same for every flow that wipes — including adding a drive Luna has not adopted yet, which gets the same measurement from `/inspect` because it has no id to ask for a preview with.
+- **Every disk tool has a deadline**, and a tool that runs out of time is reported as an unresponsive drive rather than as a busy one. A hung stick must never leave a drive stuck mid-format with nothing to tell the person.
 - **The drive is locked after an encrypted format.** The key went with the job, so the password is entered again — which also proves it was recorded correctly.
 - **Decrypt requires the password.**
 - **The encryption page is linked from the Files page only**; the dashboard card stays a summary.

@@ -11,6 +11,10 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 
+/// How long `sfdisk` gets to write a partition table. It writes a few sectors,
+/// so anything approaching this means the stick has stopped answering.
+const SFDISK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// One whole disk or partition as `blkid` (or a test double) reported it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FsInfo {
@@ -379,7 +383,9 @@ fn prepare_disk_cmd(disk: &str) -> anyhow::Result<String> {
             .ok_or_else(|| anyhow::anyhow!("Luna couldn't prepare this USB."))?;
         stdin.write_all(b"label: dos\n,+,7\n")?;
     }
-    let sfdisk_out = sfdisk.wait_with_output()?;
+    // Bounded: a stick that stops answering would otherwise hold the format
+    // open forever, with the drive stuck in `converting` and no way out.
+    let sfdisk_out = crate::sandbox::collect_output(sfdisk, SFDISK_TIMEOUT)?;
     if !sfdisk_out.status.success() {
         anyhow::bail!(
             "Luna couldn't set up this USB. {}",

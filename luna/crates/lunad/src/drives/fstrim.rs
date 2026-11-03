@@ -15,6 +15,10 @@ use crate::drives::scrub::{PERIODIC_IDLE_SECS, in_night_window};
 /// At least six days between fstrim passes.
 pub const FSTRIM_MIN_GAP_SECS: i64 = 6 * 24 * 60 * 60;
 
+/// How long one drive's trim may take. Generous — trimming a full 2 TB drive
+/// is slow — but bounded, so one sick drive cannot stall the weekly pass.
+const FSTRIM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
 pub fn should_run_fstrim(
     running: bool,
     local_hour: u32,
@@ -96,7 +100,12 @@ fn resolve_sys_block_name(partition: &str) -> String {
 }
 
 pub fn fstrim_mount(mount: &Path) -> anyhow::Result<()> {
-    let status = Command::new("fstrim").arg(mount).status()?;
+    // Trim can take minutes on a large drive, but it must not run forever: a
+    // stick that has stopped answering would otherwise hold the weekly job
+    // open with no way to move on to the next drive.
+    let mut cmd = Command::new("fstrim");
+    cmd.arg(mount);
+    let status = crate::sandbox::run_limited(&mut cmd, FSTRIM_TIMEOUT)?;
     if !status.success() {
         anyhow::bail!("fstrim exited {}", status.code().unwrap_or(-1));
     }

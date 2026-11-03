@@ -29,6 +29,19 @@ use luna_core::scan::{TopLevelEntry, TopLevelSummary, scan_top_level};
 /// costs nothing while being low would call an empty drive full.
 const OVERHEAD_ALLOWANCE: u64 = 16 * 1024 * 1024;
 
+/// Does a drive reporting `used_bytes` hold anything a person would miss?
+///
+/// The one rule, in one place: callers that only have a measurement — the
+/// Add-drive inspector, which never builds a full [`Contents`] — must reach
+/// the same answer as the ones that do.
+pub fn holds_something(used_bytes: Option<u64>) -> bool {
+    match used_bytes {
+        Some(used) => used > OVERHEAD_ALLOWANCE,
+        // Could not measure it. Assume the worst.
+        None => true,
+    }
+}
+
 /// Bytes in use on the filesystem at `mount_point`.
 ///
 /// `used = total - free`, which is what `df` reports. Returns `None` when the
@@ -83,11 +96,7 @@ impl Contents {
     /// filesystem could not be read at all. A drive that is merely *large*
     /// does not qualify: overhead is subtracted first.
     pub fn is_meaningful(&self) -> bool {
-        match self.used_bytes {
-            Some(used) => used > OVERHEAD_ALLOWANCE,
-            // Could not measure it. Assume the worst.
-            None => true,
-        }
+        holds_something(self.used_bytes)
     }
 
     /// The names to show in the confirmation, folders first.

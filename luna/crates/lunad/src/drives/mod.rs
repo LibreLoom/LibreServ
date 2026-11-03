@@ -59,6 +59,11 @@ pub struct Inspection {
     /// The drive is an encrypted Luna drive whose password has not been
     /// entered. Nothing can be listed, and nothing should be erased.
     pub locked: bool,
+    /// Bytes in use beyond what a fresh filesystem occupies, so the caller can
+    /// apply the same "does this hold anything?" rule the wipe dialog uses for
+    /// drives Luna already knows. `None` when it could not be measured, which
+    /// counts as holding something.
+    pub used_bytes: Option<u64>,
 }
 
 /// A passive look at a detected drive: what's on it, without writing to it.
@@ -262,6 +267,8 @@ impl DriveManager {
                 readable: false,
                 writable: false,
                 locked: true,
+                // Locked: Luna cannot see inside, so it cannot say it is empty.
+                used_bytes: None,
             });
         }
         let (mount_point, mounted_by_luna) = if let Some(existing) = &device.mount_point {
@@ -301,6 +308,9 @@ impl DriveManager {
                         readable: true,
                         writable: false,
                         locked: false,
+                        // Unreadable format: the only way forward is a wipe,
+                        // and Luna cannot say what is on it.
+                        used_bytes: None,
                     });
                 }
                 return Err(anyhow::anyhow!("Could not look at this drive safely. {e}"));
@@ -330,6 +340,7 @@ impl DriveManager {
             probe_writable(&mount_point).is_ok()
         };
 
+        let used_bytes = crate::drives::wipe::used_bytes(&mount_point);
         Ok(Inspection {
             device: device.name.clone(),
             model: device.model.clone(),
@@ -346,6 +357,10 @@ impl DriveManager {
             readable,
             writable,
             locked: false,
+            // Measured here so the Add-drive flow applies the same
+            // "does this hold anything?" rule as every other wipe, instead of
+            // deciding from a file count.
+            used_bytes,
         })
     }
 
@@ -481,7 +496,7 @@ impl DriveManager {
                 &device.name,
                 &crate::drives::format::Target::plain(label),
                 "",
-                |point| self.mounter.unmount(point).is_ok(),
+                |point| self.mounter.unmount(point),
             )
             .map_err(|e| anyhow::anyhow!("Luna couldn't erase this USB. {}", e.message()))?;
             choice = MountChoice {
@@ -644,7 +659,7 @@ impl DriveManager {
             &device.name,
             &crate::drives::format::Target::encrypted(label),
             password,
-            |point| self.mounter.unmount(point).is_ok(),
+            |point| self.mounter.unmount(point),
         )
         .map_err(|e| anyhow::anyhow!("Luna couldn't set up this drive. {}", e.message()))?;
         let part_dev = device_path(&made.partition);

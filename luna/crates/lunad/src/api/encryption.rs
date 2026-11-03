@@ -451,7 +451,7 @@ async fn reformat(
             &disk,
             &target,
             password.as_deref().unwrap_or(""),
-            |point| manager.mounter().unmount(point).is_ok(),
+            |point| manager.mounter().unmount(point),
         );
         // Whatever happened, the drive is no longer held by a format.
         let _ = crate::db::with_db(

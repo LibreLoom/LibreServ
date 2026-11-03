@@ -93,6 +93,10 @@ pub enum FormatError {
         "Something is still using this drive, so Luna can't erase it. Close whatever has it open, then try again."
     )]
     Busy,
+    #[error(
+        "This drive stopped responding, so Luna couldn't erase it. Unplug it, plug it back in, and try again."
+    )]
+    Unresponsive,
     #[error("Luna can't prepare drives. This Luna is missing a program it needs ({0}).")]
     MissingTool(&'static str),
     #[error("{0}")]
@@ -147,7 +151,7 @@ pub fn run(
     disk: &str,
     target: &Target,
     password: &str,
-    unmount: impl Fn(&Path) -> bool,
+    unmount: impl Fn(&Path) -> anyhow::Result<()>,
 ) -> Result<Formatted, FormatError> {
     unmount_disk(disk, unmount)?;
 
@@ -196,15 +200,35 @@ pub fn device_path(name: &str) -> String {
 ///
 /// Repartitioning under a live mount can corrupt the running system, not just
 /// the stick, so a busy disk stops the format rather than being ignored.
-fn unmount_disk(disk: &str, unmount: impl Fn(&Path) -> bool) -> Result<(), FormatError> {
+///
+/// The first real failure is kept rather than reduced to "still mounted":
+/// "close whatever has it open" is the wrong advice for a drive that has
+/// stopped answering, and the two need different words.
+fn unmount_disk(
+    disk: &str,
+    unmount: impl Fn(&Path) -> anyhow::Result<()>,
+) -> Result<(), FormatError> {
     let mut points = crate::drives::mounted_points_for_disk(disk);
     // Deepest first: an unmount of a nested mount has to happen before its
     // parent, or the parent is still busy.
     points.sort_by_key(|p| std::cmp::Reverse(p.as_os_str().len()));
+    let mut first_failure = None;
     for point in &points {
-        unmount(point);
+        if let Err(e) = unmount(point)
+            && first_failure.is_none()
+        {
+            first_failure = Some(e);
+        }
     }
     if !crate::drives::mounted_points_for_disk(disk).is_empty() {
+        // A drive that stopped answering is not the same problem as one with
+        // files open, and the person can do nothing about the first.
+        if first_failure
+            .as_ref()
+            .is_some_and(crate::drives::mount::is_unresponsive)
+        {
+            return Err(FormatError::Unresponsive);
+        }
         return Err(FormatError::Busy);
     }
     Ok(())
@@ -362,7 +386,7 @@ mod tests {
             "sdz",
             &Target::plain("Photos"),
             "",
-            |_| true,
+            |_| Ok(()),
         )
         .unwrap();
 
@@ -396,7 +420,7 @@ mod tests {
             "sdz",
             &Target::encrypted("Photos"),
             "hunter22hunter1",
-            |_| true,
+            |_| Ok(()),
         )
         .unwrap();
 
@@ -430,5 +454,27 @@ mod tests {
         // /proc, which a unit test cannot fake.
         let err = FormatError::Busy;
         assert!(err.message().contains("still using this drive"));
+    }
+
+    #[test]
+    fn a_drive_that_stopped_answering_says_so_instead_of_blaming_open_files() {
+        // "Close whatever has it open" is useless advice for a stick that has
+        // stopped responding: there is nothing to close, and the person would
+        // keep trying. The two failures need different words.
+        let said = FormatError::Unresponsive.message();
+        assert!(said.contains("stopped responding"), "got: {said}");
+        assert!(!said.contains("still using"), "got: {said}");
+        assert!(said.contains("Unplug it"), "got: {said}");
+    }
+
+    #[test]
+    fn an_unresponsive_drive_is_not_reported_as_busy() {
+        // The distinction only matters if the code that classifies the error
+        // actually looks at it. Busy is retried and blamed on open files;
+        // a dead stick must be neither.
+        use crate::drives::mount::DriveUnresponsive;
+        let unresponsive = anyhow::Error::new(DriveUnresponsive);
+        assert!(crate::drives::mount::is_unresponsive(&unresponsive));
+        assert!(!crate::drives::mount::is_busy(&unresponsive));
     }
 }

@@ -10,6 +10,35 @@
 export const WIPE_WAIT_SECONDS = 30;
 
 /**
+ * Turn an Add-drive inspection into the shape the wipe dialog expects.
+ *
+ * A drive Luna has not added yet has a device name (`sdb`), not an id, so it
+ * cannot fetch `/wipe-preview`. It does not need to: `inspect` already
+ * measured the same thing and decided `meaningful` with the same rule, so the
+ * values are mapped straight across and both flows show one dialog.
+ *
+ * @param {any} result the `/inspect` response
+ * @param {string} label the name the person is giving the drive
+ * @returns {import("./encryption.js").WipePreview | undefined}
+ */
+export function previewFromInspection(result, label) {
+  if (!result) return undefined;
+  return {
+    drive_id: result.device,
+    label,
+    used_bytes: result.used_bytes ?? null,
+    meaningful: Boolean(result.meaningful),
+    // Adding a drive always leaves it plain and readable anywhere.
+    target_fs: "exfat",
+    target_encrypted: false,
+    entries: Array.isArray(result.entries) ? result.entries : [],
+    folders: Number(result.folders) || 0,
+    files: Number(result.files) || 0,
+    readable: Boolean(result.readable),
+  };
+}
+
+/**
  * What the wipe will leave behind, in plain words.
  * @param {import("./encryption.js").WipePreview | undefined} preview
  */

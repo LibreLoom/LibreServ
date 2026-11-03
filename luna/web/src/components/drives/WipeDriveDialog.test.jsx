@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import WipeDriveDialog from "./WipeDriveDialog.jsx";
 import {
   WIPE_WAIT_SECONDS,
+  previewFromInspection,
   wipeContentsHeading,
   wipeContentsNote,
   wipeTargetCopy,
@@ -87,6 +88,52 @@ describe("wipeContentsNote", () => {
     expect(wipeContentsNote({ ...FULL, readable: false })).toContain(
       "Anything on it will be lost",
     );
+  });
+});
+
+describe("previewFromInspection", () => {
+  const INSPECTED = {
+    device: "sdb",
+    model: "Lexar USB Flash Drive",
+    readable: true,
+    entries: [{ name: "Holiday", kind: "folder" }],
+    folders: 1,
+    files: 1,
+    used_bytes: 4 * 1024 * 1024 * 1024,
+    meaningful: true,
+  };
+
+  it("carries the daemon's verdict across rather than deciding again", () => {
+    // The rule lives in the daemon. If the UI re-derived "is this empty?" from
+    // a file count the two could disagree, and one of the wipes would skip the
+    // wait. The mapped preview repeats what `inspect` decided.
+    const preview = previewFromInspection(INSPECTED, "Lexar");
+    expect(preview.meaningful).toBe(true);
+    expect(preview.used_bytes).toBe(4 * 1024 * 1024 * 1024);
+    expect(
+      previewFromInspection({ ...INSPECTED, meaningful: false }, "Lexar").meaningful,
+    ).toBe(false);
+  });
+
+  it("describes a drive that has just been added as plain and readable anywhere", () => {
+    const preview = previewFromInspection(INSPECTED, "Lexar");
+    expect(preview.target_fs).toBe("exfat");
+    expect(preview.target_encrypted).toBe(false);
+    expect(wipeTargetCopy(preview)).toContain("any computer");
+  });
+
+  it("uses the device name, because a drive that was never added has no id", () => {
+    expect(previewFromInspection(INSPECTED, "Lexar").drive_id).toBe("sdb");
+  });
+
+  it("passes the label through so the dialog names the drive being wiped", () => {
+    expect(previewFromInspection(INSPECTED, "Holiday photos").label).toBe(
+      "Holiday photos",
+    );
+  });
+
+  it("says nothing at all before the inspection answers", () => {
+    expect(previewFromInspection(undefined, "Lexar")).toBeUndefined();
   });
 });
 
