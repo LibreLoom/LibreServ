@@ -190,7 +190,7 @@ describe("FileSearch", () => {
   it("hides stale incomplete and duplicate truncated notices while a new search loads", async () => {
     /** @type {() => void} */
     let releaseSecond = () => {};
-    const holdSecond = new Promise((resolve) => { releaseSecond = resolve; });
+    const holdSecond = new Promise((resolve) => { releaseSecond = () => resolve(undefined); });
     renderSearch([{ drive_id: "d1", path: "budget.txt", parent: "", name: "budget.txt", kind: "file", size: 1, modified: 1 }], { incomplete: true, truncated: true, holdSecond });
     await openSearchOverlay();
     const input = screen.getByRole("textbox", { name: "Search for a file" });
