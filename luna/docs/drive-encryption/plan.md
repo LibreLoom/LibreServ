@@ -2,16 +2,16 @@
 
 **LUKS2 + ext4, Luna side only.** The computer-side reader is deferred (§7).
 
-> **Status: built.** Phases 0–4 are implemented. One thing in the original plan
-> was wrong and is corrected below: `cryptsetup reencrypt --encrypt` does **not**
-> shrink the filesystem, and converting an exFAT drive in place is impossible.
-> See §5 "Conversion" for what was measured.
+> **Status: built.** Phases 0–4 are implemented. The design changed while
+> building it: encryption is turned on and off by **reformatting the drive**,
+> not by converting it in place. §5 explains why, and what the earlier in-place
+> design got wrong. Phase 5 (§8) is still open.
 
 ## 1. Scope
 
 Built:
 
-- **R1.** Off by default; one option turns encryption on for one drive — and off again, on any drive, at any time.
+- **R1.** Off by default; one option turns encryption on for one drive — and off again, on any drive, at any time. Both directions wipe the drive.
 - **R4.** The key lives only in RAM on the Luna.
 - **R5.** Someone unlocks the drive after Luna boots.
 - **R6.** Web UI access to a locked drive opens an unlock dialog.
@@ -19,7 +19,7 @@ Built:
 
 Deferred: reading the drive on a non-Luna computer. Until the reader exists, an encrypted drive is readable only by a Luna. That is a real product limit, not a detail — an encrypted drive is not a portable archive yet.
 
-**Encrypted drives are always ext4 inside.** That is what makes a conversion possible at all: ext4 can be shrunk, so the LUKS2 header has somewhere to live. exFAT, FAT32 and NTFS cannot be shrunk by any tool Luna ships.
+**Encrypted drives are always ext4 inside a LUKS2 container.** Getting there wipes the drive, so the filesystem it had before does not matter — any drive Luna can see can be encrypted.
 
 ## 2. Why this is small now
 
@@ -140,28 +140,46 @@ A route rather than a modal, for three reasons: progress survives a refresh and 
 | Encrypted, locked | *"Locked. Enter the password to open it."* | Unlock |
 | Encrypted, unlocked | *"Unlocked. It stays open until you lock it or Luna restarts."* | Lock, Decrypt |
 | Decrypting | Progress bar, *"Decrypting"* | nothing |
-| Interrupted | *"Encryption was interrupted. Enter the password to finish it."* | Resume (asks for the password) |
 
 `encryptionState()` in `web/src/lib/encryption.js` owns the precedence, so the page and its tests cannot disagree.
 
-**Cancel is not built.** The plan called for it; the job currently runs to completion or is interrupted by a power cut. LUKS2 keeps its state in the header, so the safe-cancel path is available, but nothing exposes it yet.
+**Cancel is not built, and matters less now.** A format is bounded by the drive's metadata rather than its contents, so the window in which cancelling would help is seconds, not hours. The drive is held exclusively either way, so a cancel would have to leave it in a state the UI can describe; the honest answer today is that it runs to completion.
 
 The page is the only home for progress. The drive card shows a one-line state (`Encrypting`, `Locked`, `Unlocked`) and a link here — enough to know what is happening, not enough to act by accident. The link appears on the Files page only; the dashboard card stays a summary.
 
 **Encrypt and Decrypt both go through a confirmation step** on this page, never directly from the card. Encrypt asks for the password twice, with the §4 warning above the fields. **Decrypt asks for the password too** — it proves the person knows it rather than merely sitting at an unlocked session, and it is the last moment before the files become readable by anyone who plugs the drive in. Its confirmation says exactly that.
 
-**Blocking the drive while it runs.** Conversion holds the drive exclusively: `Db::drive_lock` for per-drive writes, `begin_closing` so `reconcile` leaves it alone, and a `converting` flag that `drive_root()` refuses the way it refuses `locked` — same 423, different message (*"This drive is being encrypted. It will be available when that finishes."*). Browse, uploads, WebDAV, gallery indexing and backups all stop for the duration, because they all go through `drive_root()`.
+**Turning encryption on or off wipes the drive.** There is no in-place conversion. The drive is reformatted — keeping its identity — and whatever was on it is gone. That is a deliberate reversal of the earlier design, and the reason is below.
 
-**The job.** `cryptsetup reencrypt` in place, recorded in the existing `jobs` table so progress survives a restart:
+**Blocking the drive while it runs.** The format holds the drive exclusively: `Db::drive_lock` for per-drive writes, `begin_closing` so `reconcile` leaves it alone, and a `converting` flag that `drive_root()` refuses the way it refuses `locked` — same 423, different message. Browse, uploads, WebDAV, gallery indexing and backups all stop for the duration, because they all go through `drive_root()`.
 
-- **The filesystem is shrunk first, by Luna, before `cryptsetup` runs.** This is the correction to the original plan, and it matters: `cryptsetup reencrypt --encrypt --reduce-device-size 32m` does **not** shrink the filesystem. It assumes the last 32 MiB is already free and destroys the filesystem if it is not ([cryptsetup-reencrypt(8)](https://man.archlinux.org/man/cryptsetup-reencrypt.8.en): *"Make sure the last 32 MiB on /dev/plaintext is unused (e.g., does not contain filesystem data)"*). Measured on real loop devices: ext4 converted "successfully" and then would not mount; exFAT mounted and looked fine but `fsck.exfat` reported *"boot region is corrupted / too large sector count"*. Both silently lost data. `ext4::shrink_for_header` runs `resize2fs` first, and that path was verified end-to-end — `e2fsck` clean and md5sums matching after conversion.
-- **Only ext4 converts in place.** exFAT, FAT32 and NTFS have no shrink tool (`exfatprogs` ships only `mkfs`, `fsck`, `label`, `tune`), so those drives are refused with a plain reason and pointed at copying their files to a new encrypted drive.
-- **Hours on a full drive.** Real progress from `--progress-json`, and a cancel that is safe because LUKS2 keeps reencrypt state in the header — `--resume-only` picks it back up ([ArchWiki](https://wiki.archlinux.org/title/Removing_system_encryption)).
-- **A power cut cannot resume by itself.** `--resume-only` needs a passphrase to unlock a keyslot and recover the volume key, and the password only ever lived in RAM. So an interrupted conversion comes back in the **Interrupted** state above and waits for someone to enter the password — it cannot be automatic, and pretending otherwise would mean storing the password on disk, which is exactly what §4 forbids.
+**Why not convert in place.** The earlier plan converted ext4 in place with `cryptsetup reencrypt`. It worked, and it was verified end to end on real devices — but it had three problems that were not worth carrying:
 
-  That is not a bad outcome. The drive is unavailable until someone resumes, which is honest: it is mid-conversion and must not be written to. The state is visible on the card and the page, and the password is one the person already knows.
+- **Only ext4 could do it.** `reencrypt` needs the filesystem shrunk by the header size first (it does not shrink it itself — skipping that step destroys the filesystem while reporting success, measured on loop devices). Only ext4 can be shrunk; exFAT, FAT32 and NTFS have no shrink tool, so most drives — which are exFAT — were refused.
+- **The interrupted state was broken.** `luksDump` on a real interrupted conversion (cryptsetup 2.7.0) prints `Requirements: online-reencrypt-v2` and a `1: reencrypt (unbound)` keyslot. It does **not** print an `Online reencryption` block, which is what the parser looked for. Three real interrupted dumps all parsed as `None`, so the drive looked healthy and the Resume button never appeared; `luksOpen` then failed with `Reencryption in-progress. Cannot activate device.` and the raw developer string reached the user. Recovery needed `cryptsetup repair`, which was never called.
+- **Hours of anxiety for a result a format gives in seconds.** A wipe plus `mkfs` is bounded by the size of the drive's metadata, not its contents.
 
-  **What to check before relying on this:** that `--resume-only` on a *partially converted* device is safe to leave sitting across a reboot, and that Luna can detect the unfinished state at boot without a passphrase (the LUKS2 header records it, so `luksDump` should say so). Both are phase 4 tests, not assumptions.
+Wiping also removes the whole class of "the drive is half-converted" states: a format either finishes or the drive has no filesystem, and both are states the UI already knows how to describe.
+
+**One backend.** `drives/format.rs` is the only thing that puts a filesystem on a drive. Every flow goes through it — adding a blank stick, erasing installer media, reformatting an existing drive, turning encryption on, turning it off — and they differ only in the `Target` they ask for:
+
+| Target | Filesystem | Container |
+|---|---|---|
+| `Target::plain(label)` | exFAT (FAT32 fallback) | none |
+| `Target::encrypted(label)` | ext4, forced | LUKS2 |
+
+The sequence is always: unmount everything on the disk and refuse if anything is still busy → `wipefs` every signature → one partition spanning the disk → optionally `luksFormat` → `mkfs` on the partition or on the mapper. An encrypted target forces ext4 rather than taking the caller's word for it, because an encrypted drive is always ext4 inside.
+
+**The wipe confirmation is one dialog, in one place.** `WipeDriveDialog` is used by every flow that destroys a drive, and it enforces one rule:
+
+- A drive holding **nothing meaningful** gets a single confirmation.
+- A drive holding **anything** gets the same confirmation with the button disabled for **30 seconds**, and the dialog lists what is on the drive.
+
+"Meaningful" is measured, not guessed: used bytes beyond what a fresh filesystem of that kind already occupies. A freshly made 2 TB exFAT reports 2.25 MiB used with nothing on it, a 200 GB one 512 KiB, a 4 GB one 96 KiB, and a fresh ext4 28 KiB at any size — so the allowance is 16 MiB, generous enough to separate "empty" from "has files" in either direction. A drive Luna could not read is treated as holding something, because the alternative is telling someone a drive is empty when it is not. `drives/wipe.rs` owns the measurement and the rule; the API exposes it as `GET /api/v1/drives/{id}/wipe-preview`.
+
+**Reformatting keeps the drive's identity.** The wipe destroys the `.luna-<uuid>` marker, and the marker is what ties the drive on disk to its row in `luna.db` — its shares, access grants, gallery index and backup rules. So the job remounts the drive, rewrites the same marker with the same id, and records the new mount point. Without that step a reformatted drive would look like a stranger and every grant would silently detach.
+
+**Decrypt still asks for the password.** It is about to be destroyed, but asking proves the person knows it rather than merely sitting at an unlocked session, and it is the last moment before the files become readable to anyone who plugs the drive in. `POST /reformat` (the plain "start over" path) is refused on an encrypted drive for the same reason.
 
 **Admin-only**, matching Remove and Eject. A Member can use an encrypted drive and unlock it, but cannot change whether it is encrypted.
 
@@ -191,9 +209,9 @@ Two consequences of deferring it that are worth knowing now:
 |---|---|---|
 | **0** | Fix the LUKS2 profile (cipher, KDF memory, one keyslot). | done — `drives/luks.rs` |
 | **1** | Image: `cryptsetup`, `dm-crypt`, presence check. Luna: detection, unlock/lock, `locked` column, 423 on API and WebDAV. | done |
-| **2** | The encryption page: route, the six states, Unlock/Lock, the drive-card link and state line. | done |
+| **2** | The encryption page: route, the five states, Unlock/Lock, the drive-card link and state line. | done |
 | **3** | New-drive format path: partition → `luksFormat` → `mkfs.ext4`, reusing the page's password step. | done |
-| **4** | Conversion both ways: the job, progress, cancel, the Interrupted state and password-gated resume, the `converting` flag and the exclusive hold. | done for ext4; exFAT refused |
+| **4** | Encryption both ways by reformatting: one format backend, the shared wipe confirmation with its 30-second rule, identity preserved across a wipe, the `converting` flag and the exclusive hold. | done |
 | **5** | Parity: drive-backup pairing rules, the §6 leak audit. | **not done** |
 
 Phase 5 is the remaining work. Two things in §6 are still open and are the reason it is not "finished":
@@ -203,14 +221,17 @@ Phase 5 is the remaining work. Two things in §6 are still open and are the reas
 
 **Still to verify on real hardware** (not assumptions, and not covered by the unit tests):
 
-- That a partially converted device is safe to leave sitting across a reboot.
-- That Luna detects the unfinished state at boot without a passphrase. `luksDump` is parsed for an `Online reencryption` block (`luks::parse_reencrypt_state`), but that has only been tested against synthetic dumps, not a real interrupted conversion.
+- That a real wipe on a real stick produces a drive Luna can immediately browse, share and back up — the unit tests use a mock probe, so the whole sequence has only been exercised against loop devices by hand.
+- That a power cut during the format leaves the drive recoverable. The `converting` flag is cleared at startup (`db::open`), so the drive is not locked out of the UI; what it comes back as depends on how far the wipe got, and the UI has no state for "no filesystem" beyond the existing unreadable-drive handling.
+- That a LUKS2 container created by this code opens on a machine that is not a Luna, which is the whole point of the deferred reader.
 
 ## 9. Settled
 
 - **Anyone with access to a drive may unlock it.** The rate limiter is what makes that safe.
-- **Conversion works both ways on an ext4 drive**, from the encryption page. exFAT, FAT32 and NTFS cannot be shrunk, so they cannot be converted in place; their files have to be copied to a new encrypted drive. Encrypted drives are always ext4 inside.
-- **An interrupted conversion waits in the Interrupted state** and resumes only when someone enters the password. It cannot resume by itself: the password is only ever in RAM.
+- **Encryption is turned on and off by wiping the drive**, not by converting it in place. Any drive Luna can see can be encrypted, whatever filesystem it has now. Encrypted drives are always ext4 inside a LUKS2 container.
+- **A wipe keeps the drive's identity.** The same id and a fresh marker, so shares, grants, gallery index and backup rules survive.
+- **One confirmation for an empty drive; a 30-second wait for one holding anything**, with the contents listed. The rule is the same for every flow that wipes.
+- **The drive is locked after an encrypted format.** The key went with the job, so the password is entered again — which also proves it was recorded correctly.
 - **Decrypt requires the password.**
 - **The encryption page is linked from the Files page only**; the dashboard card stays a summary.
 - **No recovery path.** One keyslot, one password, and the warning says what that means.

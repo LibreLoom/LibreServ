@@ -74,7 +74,6 @@ const UNENCRYPTED = {
   encrypted: false,
   unlocked: false,
   converting: false,
-  interrupted: false,
   present: true,
   fs_type: "ext4",
   can_encrypt: true,
@@ -86,12 +85,11 @@ afterEach(() => {
 });
 
 describe("encryptionState", () => {
-  it("reads the six states in the right order", () => {
+  it("reads the five states in the right order", () => {
     expect(encryptionState(undefined)).toBe("unencrypted");
     expect(encryptionState({ encrypted: false, converting: false })).toBe("unencrypted");
     expect(encryptionState({ encrypted: false, converting: true })).toBe("encrypting");
     expect(encryptionState({ encrypted: true, converting: true })).toBe("decrypting");
-    expect(encryptionState({ encrypted: true, interrupted: true })).toBe("interrupted");
     expect(encryptionState({ encrypted: true, unlocked: false })).toBe("locked");
     expect(encryptionState({ encrypted: true, unlocked: true })).toBe("unlocked");
   });
@@ -102,10 +100,6 @@ describe("encryptionState", () => {
     expect(copy.body).toBe("Enter the password to open it.");
   });
 
-  it("says an interrupted conversion needs the password", () => {
-    const copy = encryptionCopy("interrupted", { label: "Family photos" });
-    expect(copy.body).toContain("Enter the password to finish it");
-  });
 });
 
 describe("DriveEncryptionPage", () => {
@@ -116,15 +110,25 @@ describe("DriveEncryptionPage", () => {
     expect(screen.getByRole("button", { name: "Encrypt this drive" })).toBeEnabled();
   });
 
-  it("explains why a drive cannot be encrypted in place", async () => {
+  it("offers Encrypt on an exFAT drive too, because encrypting wipes it", async () => {
+    // The old design could only convert ext4 in place. Wiping removed that
+    // limit, so the format a drive happens to have now must not disable the
+    // button.
+    stubApi({ ...UNENCRYPTED, fs_type: "exfat", can_encrypt: true });
+    renderPage();
+    expect(await screen.findByText("Not encrypted")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Encrypt this drive" })).toBeEnabled();
+  });
+
+  it("explains why a drive cannot be encrypted when it is unplugged", async () => {
     stubApi({
       ...UNENCRYPTED,
-      fs_type: "exfat",
+      present: false,
       can_encrypt: false,
-      cannot_encrypt_reason: "Luna can only encrypt ext4 drives in place. To encrypt this one, copy its files to a new encrypted drive.",
+      cannot_encrypt_reason: "Plug this drive in to encrypt it.",
     });
     renderPage();
-    expect(await screen.findByText(/only encrypt ext4 drives in place/)).toBeInTheDocument();
+    expect(await screen.findByText("Plug this drive in to encrypt it.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Encrypt this drive" })).toBeDisabled();
   });
 
@@ -170,7 +174,7 @@ describe("DriveEncryptionPage", () => {
     fireEvent.change(await screen.findByLabelText("Password"), { target: { value: "one" } });
     fireEvent.change(screen.getByLabelText("Password again"), { target: { value: "two" } });
     expect(screen.getByText("Those two passwords don't match.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Encrypt" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
   });
 
   it("offers Lock and Decrypt on an unlocked drive", async () => {

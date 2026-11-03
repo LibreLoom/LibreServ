@@ -352,6 +352,17 @@
       "size": "number"
     }
   ],
+  "GET /api/v1/drives/{id}/encryption": {
+    "can_encrypt": "boolean",
+    "cannot_encrypt_reason": "string",
+    "converting": "boolean",
+    "drive_id": "string",
+    "encrypted": "boolean",
+    "fs_type": "string",
+    "label": "string",
+    "present": "boolean",
+    "unlocked": "boolean"
+  },
   "GET /api/v1/drives/{id}/files": [
     {
       "caps": "string",
@@ -407,17 +418,22 @@
     "total_bytes": "null|number",
     "used_bytes": "null|number"
   },
-  "GET /api/v1/drives/{}/encryption": {
-    "can_encrypt": "boolean",
-    "cannot_encrypt_reason": "string",
-    "converting": "boolean",
+  "GET /api/v1/drives/{id}/wipe-preview/{intent}": {
     "drive_id": "string",
-    "encrypted": "boolean",
-    "fs_type": "string",
-    "interrupted": "boolean",
+    "entries": [
+      {
+        "kind": "string",
+        "name": "string"
+      }
+    ],
+    "files": "number",
+    "folders": "number",
     "label": "string",
-    "present": "boolean",
-    "unlocked": "boolean"
+    "meaningful": "boolean",
+    "readable": "boolean",
+    "target_encrypted": "boolean",
+    "target_fs": "string",
+    "used_bytes": "null|number"
   },
   "GET /api/v1/forms/responses": {
     "responses": [
@@ -591,7 +607,7 @@
       "diagram_pack": {
         "category": "string",
         "message": "string",
-        "more": "string",
+        "more?": "string",
         "status": "string"
       },
       "disk_space": {
@@ -605,13 +621,7 @@
       },
       "drive_tools": {
         "category": "string",
-        "details?": {
-          "missing": [
-            "string"
-          ]
-        },
         "message": "string",
-        "more?": "string",
         "status": "string"
       },
       "erase_tools": {
@@ -627,7 +637,13 @@
       },
       "heic_tools": {
         "category": "string",
+        "details?": {
+          "missing": [
+            "string"
+          ]
+        },
         "message": "string",
+        "more?": "string",
         "status": "string"
       },
       "logs_path_writable": {
@@ -638,11 +654,18 @@
       "network": {
         "category": "string",
         "message": "string",
+        "more?": "string",
         "status": "string"
       },
       "ntfs_support": {
         "category": "string",
+        "details?": {
+          "missing": [
+            "string"
+          ]
+        },
         "message": "string",
+        "more?": "string",
         "status": "string"
       },
       "office_pack": {
@@ -663,11 +686,6 @@
       },
       "smart_tool": {
         "category": "string",
-        "message": "string",
-        "status": "string"
-      },
-      "trim_tool": {
-        "category": "string",
         "details?": {
           "missing": [
             "string"
@@ -677,6 +695,11 @@
         "more?": "string",
         "status": "string"
       },
+      "trim_tool": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
       "update_signing": {
         "category": "string",
         "message": "string",
@@ -684,7 +707,13 @@
       },
       "video_tools": {
         "category": "string",
+        "details?": {
+          "missing": [
+            "string"
+          ]
+        },
         "message": "string",
+        "more?": "string",
         "status": "string"
       },
       "whiteboard": {
@@ -968,6 +997,10 @@
   },
   "POST /api/v1/drives/{id}/eject": {
     "ok": "boolean"
+  },
+  "POST /api/v1/drives/{id}/encrypt": {
+    "ok": "boolean",
+    "started": "boolean"
   },
   "POST /api/v1/drives/{id}/files/create": {
     "ok": "boolean",

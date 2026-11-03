@@ -21,9 +21,26 @@ import {
   encryptionCopy,
   encryptionState,
   getDriveEncryption,
+  getWipePreview,
   lockDrive,
+  reformatDrive,
   unlockDrive,
 } from "../lib/encryption.js";
+import WipeDriveDialog from "../components/drives/WipeDriveDialog.jsx";
+
+/** What the wipe dialog is called, per direction. */
+const WIPE_TITLES = {
+  encrypt: "Wipe and encrypt?",
+  decrypt: "Wipe and decrypt?",
+  reformat: "Wipe this drive?",
+};
+
+/** The button that performs the wipe, per direction. */
+const WIPE_LABELS = {
+  encrypt: "Wipe and encrypt",
+  decrypt: "Wipe and decrypt",
+  reformat: "Wipe",
+};
 
 /** The warning that has to be read before a drive is encrypted. */
 const NO_RECOVERY_WARNING =
@@ -66,8 +83,53 @@ export default function DriveEncryptionPage() {
 
   // Which dialog is open, if any.
   const [dialog, setDialog] = useState(
-    /** @type {null | "unlock" | "encrypt" | "decrypt"} */ (null),
+    /** @type {null | "unlock" | "encrypt" | "decrypt" | "wipe"} */ (null),
   );
+
+  // The configuration decided before the wipe: the password (encrypting) or
+  // just the confirmation (decrypting). Held here so the wipe step can run the
+  // request without asking for anything again.
+  const [pending, setPending] = useState(
+    /** @type {{ direction: "encrypt" | "decrypt" | "reformat", password: string } | null} */ (null),
+  );
+
+  const wipePreview = useQuery({
+    queryKey: ["drive-wipe-preview", id, pending?.direction],
+    queryFn: () => getWipePreview(id, pending?.direction ?? "reformat"),
+    // Only needed once the person has asked to wipe.
+    enabled: dialog === "wipe" && Boolean(pending),
+  });
+
+  const [wiping, setWiping] = useState(false);
+  const [wipeError, setWipeError] = useState("");
+
+  /** Run the wipe the person just confirmed. */
+  const runWipe = async () => {
+    if (!pending || wiping) return;
+    setWiping(true);
+    setWipeError("");
+    try {
+      if (pending.direction === "encrypt") {
+        await encryptDrive(id, pending.password);
+        addToast("success", "Drive wiped and encrypted");
+      } else if (pending.direction === "decrypt") {
+        await decryptDrive(id, pending.password);
+        addToast("success", "Drive wiped and decrypted");
+      } else {
+        await reformatDrive(id);
+        addToast("success", "Drive reformatted");
+      }
+      setPending(null);
+      setDialog(null);
+      refresh();
+    } catch (e) {
+      // Keep the dialog open: the drive is unchanged and the person can retry
+      // or cancel, rather than being dropped back with no explanation.
+      setWipeError(apiErrorMessage(e));
+    } finally {
+      setWiping(false);
+    }
+  };
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["drive-encryption", id] });
@@ -115,14 +177,26 @@ export default function DriveEncryptionPage() {
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {state === "unencrypted" && isAdmin && (
-              <Button
-                size="sm"
-                variant="accent"
-                disabled={!data?.can_encrypt}
-                onClick={() => setDialog("encrypt")}
-              >
-                Encrypt this drive
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  variant="accent"
+                  disabled={!data?.can_encrypt}
+                  onClick={() => setDialog("encrypt")}
+                >
+                  Encrypt this drive
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setPending({ direction: "reformat", password: "" });
+                    setDialog("wipe");
+                  }}
+                >
+                  Reformat
+                </Button>
+              </>
             )}
             {state === "locked" && (
               <Button size="sm" variant="primary" onClick={() => setDialog("unlock")}>
@@ -152,11 +226,6 @@ export default function DriveEncryptionPage() {
                 )}
               </>
             )}
-            {state === "interrupted" && (
-              <Button size="sm" variant="primary" onClick={() => setDialog("unlock")}>
-                Resume
-              </Button>
-            )}
           </div>
         </Card>
 
@@ -180,8 +249,8 @@ export default function DriveEncryptionPage() {
 
       {dialog === "unlock" && (
         <PasswordDialog
-          title={state === "interrupted" ? "Resume encryption" : `Unlock ${drive?.label ?? "drive"}`}
-          confirmLabel={state === "interrupted" ? "Resume" : "Unlock"}
+          title={`Unlock ${drive?.label ?? "drive"}`}
+          confirmLabel="Unlock"
           hint={PASSWORD_HINT}
           onClose={() => setDialog(null)}
           onSubmit={async (password) => {
@@ -196,16 +265,16 @@ export default function DriveEncryptionPage() {
       {dialog === "encrypt" && (
         <PasswordDialog
           title="Encrypt this drive"
-          confirmLabel="Encrypt"
+          confirmLabel="Continue"
           warning={NO_RECOVERY_WARNING}
           hint="Luna needs this password to open the drive after it restarts."
           confirmTwice
           onClose={() => setDialog(null)}
           onSubmit={async (password) => {
-            await encryptDrive(id, password);
-            addToast("success", "Encryption started");
-            setDialog(null);
-            refresh();
+            // Configuration first: the password is decided here, and the wipe
+            // is the next step rather than something this dialog performs.
+            setPending({ direction: "encrypt", password });
+            setDialog("wipe");
           }}
         />
       )}
@@ -213,18 +282,39 @@ export default function DriveEncryptionPage() {
       {dialog === "decrypt" && (
         <PasswordDialog
           title="Decrypt this drive"
-          confirmLabel="Decrypt"
+          confirmLabel="Continue"
           warning="After this, anyone who plugs this drive in can read its files."
           hint="Enter the password to confirm it's you."
-          onClose={() => setDialog(null)}
-          onSubmit={async (password) => {
-            await decryptDrive(id, password);
-            addToast("success", "Decryption started");
+          onClose={() => {
+            setPending(null);
             setDialog(null);
-            refresh();
+          }}
+          onSubmit={async (password) => {
+            setPending({ direction: "decrypt", password });
+            setDialog("wipe");
           }}
         />
       )}
+
+      {dialog === "wipe" && pending ? (
+        <WipeDriveDialog
+          // A different drive must start its own wait, so the dialog is
+          // remounted rather than reused.
+          key={wipePreview.data?.drive_id ?? "pending"}
+          title={WIPE_TITLES[pending.direction]}
+          confirmLabel={WIPE_LABELS[pending.direction]}
+          preview={wipePreview.data}
+          loading={wipePreview.isLoading}
+          busy={wiping}
+          error={wipeError}
+          onClose={() => {
+            setPending(null);
+            setWipeError("");
+            setDialog(null);
+          }}
+          onConfirm={runWipe}
+        />
+      ) : null}
     </Page>
   );
 }

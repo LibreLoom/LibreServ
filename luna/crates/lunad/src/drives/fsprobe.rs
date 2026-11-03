@@ -30,7 +30,10 @@ pub struct MountChoice {
 
 pub trait FsProbe: Send + Sync {
     fn probe_disk(&self, disk: &str) -> Vec<FsInfo>;
-    fn format_data_usb(&self, disk: &str, volume_label: &str) -> anyhow::Result<()>;
+    /// Clear every signature off `disk` and give it one partition spanning the
+    /// whole disk. No filesystem: [`super::format`] decides which one, so the
+    /// same prep serves a plain drive and an encrypted one.
+    fn prepare_disk(&self, disk: &str) -> anyhow::Result<String>;
 }
 
 #[derive(Clone, Default)]
@@ -41,8 +44,8 @@ impl FsProbe for CommandFsProbe {
         probe_disk_sysfs(Path::new("/sys/block"), disk, blkid_export)
     }
 
-    fn format_data_usb(&self, disk: &str, volume_label: &str) -> anyhow::Result<()> {
-        format_data_usb_cmd(disk, volume_label)
+    fn prepare_disk(&self, disk: &str) -> anyhow::Result<String> {
+        prepare_disk_cmd(disk)
     }
 }
 
@@ -50,7 +53,7 @@ pub fn shared_command_probe() -> Arc<CommandFsProbe> {
     Arc::new(CommandFsProbe)
 }
 
-/// Test double: canned `blkid` results and recorded format calls.
+/// Test double: canned `blkid` results and recorded prepare calls.
 #[derive(Default)]
 pub struct MockFsProbe {
     pub disks: std::sync::Mutex<std::collections::HashMap<String, Vec<FsInfo>>>,
@@ -67,9 +70,11 @@ impl FsProbe for MockFsProbe {
             .unwrap_or_default()
     }
 
-    fn format_data_usb(&self, disk: &str, _volume_label: &str) -> anyhow::Result<()> {
+    fn prepare_disk(&self, disk: &str) -> anyhow::Result<String> {
         self.formats.lock().unwrap().push(disk.to_string());
-        Ok(())
+        // The real probe names the first partition it created; the mock has to
+        // agree, or the caller mounts a partition name that never appears.
+        Ok(first_partition_name(disk))
     }
 }
 
@@ -320,7 +325,12 @@ pub fn parse_blkid_export(text: &str) -> Option<(String, String)> {
     }
 }
 
-fn format_data_usb_cmd(disk: &str, volume_label: &str) -> anyhow::Result<()> {
+/// Clear every signature off the disk and give it one partition spanning
+/// the whole disk. Returns the partition name.
+///
+/// No filesystem: [`super::format`] decides which one, so the same prep
+/// serves a plain drive and an encrypted one.
+fn prepare_disk_cmd(disk: &str) -> anyhow::Result<String> {
     let dev = format!("/dev/{disk}");
     if !Path::new(&dev).exists() {
         anyhow::bail!("Luna can't see that USB stick. Plug it in and try again.");
@@ -400,67 +410,7 @@ fn format_data_usb_cmd(disk: &str, volume_label: &str) -> anyhow::Result<()> {
             "Luna prepared the USB but the new partition did not appear. Unplug it, plug it back in, and try again."
         );
     }
-
-    let label = sanitize_volume_label(volume_label);
-    let exfat = crate::sandbox::which("mkfs.exfat").map(|bin| {
-        let mut cmd = crate::sandbox::hardened(&bin);
-        cmd.args(["-n", &label, &part_dev]).stderr(Stdio::piped());
-        crate::sandbox::output_limited(&mut cmd, std::time::Duration::from_secs(120))
-    });
-    let exfat = exfat.unwrap_or_else(|| {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "mkfs.exfat missing",
-        ))
-    });
-    if exfat.as_ref().is_ok_and(|o| o.status.success()) {
-        return Ok(());
-    }
-    let fat = crate::sandbox::which("mkfs.vfat").map(|bin| {
-        let mut cmd = crate::sandbox::hardened(&bin);
-        cmd.args(["-F", "32", "-n", &label, &part_dev])
-            .stderr(Stdio::piped());
-        crate::sandbox::output_limited(&mut cmd, std::time::Duration::from_secs(120))
-    });
-    let fat = fat.unwrap_or_else(|| {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "mkfs.vfat missing",
-        ))
-    });
-    if fat.as_ref().is_ok_and(|o| o.status.success()) {
-        return Ok(());
-    }
-    anyhow::bail!(
-        "Luna couldn't set up this USB for files. {}",
-        mkfs_failure_details(&exfat, &fat)
-    )
-}
-
-/// What each format tool said, so a failure shows both attempts. A tool that
-/// couldn't start at all is reported as missing.
-fn mkfs_failure_details(
-    exfat: &std::io::Result<std::process::Output>,
-    fat: &std::io::Result<std::process::Output>,
-) -> String {
-    fn one(name: &str, result: &std::io::Result<std::process::Output>) -> String {
-        match result {
-            Ok(o) => {
-                let said = String::from_utf8_lossy(&o.stderr).trim().to_string();
-                if said.is_empty() {
-                    format!("{name} failed.")
-                } else {
-                    format!("{name}: {said}")
-                }
-            }
-            Err(_) => format!("{name} is not installed on this Luna."),
-        }
-    }
-    format!(
-        "{} {}",
-        one("exFAT format", exfat),
-        one("FAT32 format", fat)
-    )
+    Ok(part)
 }
 
 #[cfg(test)]

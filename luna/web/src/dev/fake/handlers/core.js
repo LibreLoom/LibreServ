@@ -382,21 +382,60 @@ get("/api/v1/drives/:id/encryption", ({ world, user, params }) => {
   const d = findDrive(world, params.id);
   if (!isAdmin(user) && !hasDriveAccess(world, user, d.id)) return fail(403, "You don't have access to this drive.");
   const present = d.state !== "missing" && d.state !== "ejected";
-  // Only ext4 can be converted in place; the reason is what the page shows.
-  const canEncrypt = !d.encrypted && present && d.fs_type === "ext4";
+  // Encrypting wipes the drive, so the format it has now does not matter.
+  const canEncrypt = !d.encrypted && present && !d.converting;
   return {
     drive_id: d.id,
     label: d.label,
     encrypted: Boolean(d.encrypted),
     unlocked: Boolean(d.encrypted) && !d.locked,
     converting: Boolean(d.converting),
-    interrupted: Boolean(d.interrupted),
     present,
     fs_type: d.fs_type,
     can_encrypt: canEncrypt,
-    cannot_encrypt_reason: canEncrypt || d.encrypted ? "" : "Luna can only encrypt ext4 drives in place. To encrypt this one, copy its files to a new encrypted drive.",
+    cannot_encrypt_reason: canEncrypt || d.encrypted
+      ? ""
+      : d.converting
+        ? "Luna is already working on this drive. Wait for that to finish."
+        : "Plug this drive in to encrypt it.",
   };
 });
+
+// What a wipe would destroy. Read-only, and shared by every flow that wipes:
+// the plain reformat, encryption on, and encryption off.
+const wipePreviewFor = (world, user, params, intent) => {
+  driveGate(user);
+  const d = findDrive(world, params.id);
+  const peek = world.peek?.[d.device] || {};
+  const folders = peek.folders ?? 0;
+  const files = peek.files ?? 0;
+  const used = peek.used_bytes ?? 0;
+  const readable = d.state !== "missing" && d.state !== "ejected" && !d.locked;
+  // A fresh filesystem already reports some bytes in use; the server allows
+  // for that, and so does this.
+  const meaningful = !readable || used > 16 * 1024 * 1024;
+  // The intent decides the target, not the drive's current state.
+  const encrypted = intent === "encrypt";
+  return {
+    drive_id: d.id,
+    label: d.label,
+    used_bytes: readable ? used : null,
+    meaningful,
+    target_fs: encrypted ? "ext4" : "exfat",
+    target_encrypted: encrypted,
+    entries: (peek.sample || []).map((e) => ({ name: e.name, kind: e.kind })),
+    folders,
+    files,
+    readable,
+  };
+};
+
+get("/api/v1/drives/:id/wipe-preview/:intent", ({ world, user, params }) =>
+  wipePreviewFor(world, user, params, params.intent),
+);
+get("/api/v1/drives/:id/wipe-preview", ({ world, user, params }) =>
+  wipePreviewFor(world, user, params, "reformat"),
+);
 
 post("/api/v1/drives/:id/unlock", ({ world, user, params, body }) => {
   const d = findDrive(world, params.id);
@@ -404,7 +443,6 @@ post("/api/v1/drives/:id/unlock", ({ world, user, params, body }) => {
   if (!d.encrypted) return fail(400, "This drive isn't encrypted, so it doesn't need a password.");
   if (!String(body.password ?? "").length) return fail(401, "That password didn't work.");
   d.locked = false;
-  d.interrupted = false;
   return { ok: true };
 });
 
@@ -420,10 +458,11 @@ post("/api/v1/drives/:id/encrypt", ({ world, user, params, body }) => {
   driveGate(user);
   const d = findDrive(world, params.id);
   if (d.encrypted) return fail(400, "This drive is already encrypted.");
-  if (d.fs_type !== "ext4") return fail(400, "Luna can only encrypt ext4 drives in place. To encrypt this one, copy its files to a new encrypted drive.");
   if (!String(body.password ?? "").length) return fail(400, "Enter a password for this drive.");
+  // The drive is wiped to ext4 inside a container, so its old format is gone.
   d.encrypted = true;
   d.locked = true;
+  d.fs_type = "ext4";
   return { ok: true, started: true };
 });
 
@@ -432,8 +471,10 @@ post("/api/v1/drives/:id/decrypt", ({ world, user, params, body }) => {
   const d = findDrive(world, params.id);
   if (!d.encrypted) return fail(400, "This drive isn't encrypted, so there's nothing to decrypt.");
   if (!String(body.password ?? "").length) return fail(401, "That password didn't work.");
+  // Decrypting wipes to a plain exFAT drive.
   d.encrypted = false;
   d.locked = false;
+  d.fs_type = "exfat";
   return { ok: true, started: true };
 });
 

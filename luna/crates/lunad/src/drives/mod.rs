@@ -26,8 +26,7 @@ use uuid::Uuid;
 use crate::db;
 use crate::drives::detect::DetectedDrive;
 use crate::drives::fsprobe::{
-    FsProbe, MountChoice, first_partition_name, is_intrinsically_read_only, is_writable_type,
-    pick_mount_source,
+    FsProbe, MountChoice, is_intrinsically_read_only, is_writable_type, pick_mount_source,
 };
 use crate::drives::mount::Mounter;
 
@@ -127,6 +126,7 @@ pub struct DriveManager {
     mounter: Arc<dyn Mounter>,
     probe: Arc<dyn FsProbe>,
     luks: Arc<dyn crate::drives::luks::Luks>,
+    mkfs: Arc<dyn crate::drives::format::Mkfs>,
     foreign_base: PathBuf,
     adopted_base: PathBuf,
     /// Serializes the temporary look-inside mounts (peek, inspect) so two
@@ -175,6 +175,7 @@ impl DriveManager {
             mounter,
             probe,
             luks: Arc::new(crate::drives::luks::CommandLuks),
+            mkfs: Arc::new(crate::drives::format::CommandMkfs),
             foreign_base: data_dir.join("mounts/foreign"),
             adopted_base: data_dir.join("mounts/drives"),
             look_lock: Arc::new(std::sync::Mutex::new(())),
@@ -189,8 +190,23 @@ impl DriveManager {
         self
     }
 
+    /// Replace the filesystem writer. Tests use a mock so a wipe never touches
+    /// a real device; production always uses [`crate::drives::format::CommandMkfs`].
+    pub fn with_mkfs(mut self, mkfs: Arc<dyn crate::drives::format::Mkfs>) -> Self {
+        self.mkfs = mkfs;
+        self
+    }
+
     pub fn mounter(&self) -> &dyn Mounter {
         self.mounter.as_ref()
+    }
+
+    pub fn probe(&self) -> &dyn FsProbe {
+        self.probe.as_ref()
+    }
+
+    pub fn mkfs(&self) -> &dyn crate::drives::format::Mkfs {
+        self.mkfs.as_ref()
     }
 
     pub fn luks(&self) -> &dyn crate::drives::luks::Luks {
@@ -456,13 +472,21 @@ impl DriveManager {
         }
 
         if erase {
-            self.unmount_disk_mounts(&device.name)?;
-            self.probe
-                .format_data_usb(&device.name, label)
-                .map_err(|e| anyhow::anyhow!("Luna couldn't erase this USB. {e}"))?;
+            // One backend for every wipe: unmount, wipe signatures, one
+            // partition, then the filesystem.
+            let made = crate::drives::format::run(
+                self.probe.as_ref(),
+                self.luks.as_ref(),
+                self.mkfs.as_ref(),
+                &device.name,
+                &crate::drives::format::Target::plain(label),
+                "",
+                |point| self.mounter.unmount(point).is_ok(),
+            )
+            .map_err(|e| anyhow::anyhow!("Luna couldn't erase this USB. {}", e.message()))?;
             choice = MountChoice {
-                name: first_partition_name(&device.name),
-                fs_type: "exfat".into(),
+                name: made.partition,
+                fs_type: made.filesystem.as_str().into(),
                 needs_erase: false,
             };
         }
@@ -612,24 +636,18 @@ impl DriveManager {
         }
         self.unmount_disk_mounts(&device.name)?;
 
-        // Partition first: one partition, the whole stick.
-        self.probe.format_data_usb(&device.name, label)?;
-        let part = first_partition_name(&device.name);
-        let part_dev = device_path(&part);
-
-        // Then the container, then the filesystem inside it.
-        let pbkdf = crate::drives::luks::pbkdf_kib_from(crate::budget::meminfo().available_bytes);
-        self.luks.format(&part_dev, label, password, pbkdf)?;
-        self.luks
-            .open(&part_dev, "__format_probe", password)
-            .map_err(|e| anyhow::anyhow!("Luna couldn't open the new encrypted drive. {e}"))?;
-        let probe_mapper = format!(
-            "/dev/mapper/{}",
-            crate::drives::luks::mapper_name("__format_probe")
-        );
-        let made = crate::drives::ext4::mkfs_ext4(&probe_mapper, label);
-        let _ = self.luks.close("__format_probe");
-        made?;
+        // Wipe, container, filesystem — all through the one format backend.
+        let made = crate::drives::format::run(
+            self.probe.as_ref(),
+            self.luks.as_ref(),
+            self.mkfs.as_ref(),
+            &device.name,
+            &crate::drives::format::Target::encrypted(label),
+            password,
+            |point| self.mounter.unmount(point).is_ok(),
+        )
+        .map_err(|e| anyhow::anyhow!("Luna couldn't set up this drive. {}", e.message()))?;
+        let part_dev = device_path(&made.partition);
 
         // Now adopt the encrypted drive the ordinary way: it is ext4 inside an
         // open container, so every step below is the same as any other drive.
@@ -690,6 +708,70 @@ impl DriveManager {
         db::get_drive(conn, &id)?
             .map(Ok)
             .unwrap_or_else(|| anyhow::bail!("Drive was added but could not be read back."))
+    }
+
+    /// Bring a drive back into use after it has been reformatted.
+    ///
+    /// A wipe destroys the `.luna-<uuid>` marker, and the marker is what ties
+    /// the drive on disk to its row in `luna.db` — its shares, access grants,
+    /// gallery index and backup rules. Reformatting keeps the id, so this puts
+    /// the same marker back and mounts the drive at the same place.
+    ///
+    /// Returns the mount point. On failure the drive is left unmounted rather
+    /// than half-claimed, and the caller reports it.
+    pub fn remount_after_format(
+        &self,
+        conn: &Connection,
+        id: &str,
+        label: &str,
+        encrypted: bool,
+        password: &str,
+    ) -> anyhow::Result<String> {
+        let target = self.adopted_mount_point(id);
+        if target.exists() {
+            let _ = self.mounter.unmount(&target);
+            let _ = std::fs::remove_dir(&target);
+        }
+        std::fs::create_dir_all(&target)?;
+
+        // An encrypted drive is mounted through its container; a plain one
+        // straight from the partition.
+        let source = if encrypted {
+            self.luks.open(&self.device_for(conn, id)?, id, password)?;
+            format!("/dev/mapper/{}", crate::drives::luks::mapper_name(id))
+        } else {
+            self.device_for(conn, id)?
+        };
+        let fs = if encrypted {
+            Some("ext4")
+        } else {
+            Some("exfat")
+        };
+        if let Err(e) = self.mounter.mount_typed(&source, &target, false, fs) {
+            if encrypted {
+                let _ = self.luks.close(id);
+            }
+            anyhow::bail!("Luna couldn't open this drive after wiping it. {e}");
+        }
+
+        let marker = Marker::new(id.to_string(), label);
+        let prefix = luna_core::marker::pick_prefix(&target)
+            .map_err(|e| anyhow::anyhow!("Luna could not mark this drive as its own. {e}"))?;
+        if let Err(e) = crate::drives::drive_db::create(&target, &marker, &prefix) {
+            let _ = self.mounter.unmount(&target);
+            if encrypted {
+                let _ = self.luks.close(id);
+            }
+            anyhow::bail!("Luna could not mark this drive as its own. {e}");
+        }
+        Ok(target.to_string_lossy().into_owned())
+    }
+
+    /// The device node for a drive row, as `/dev/...`.
+    fn device_for(&self, conn: &Connection, id: &str) -> anyhow::Result<String> {
+        let row = db::get_drive(conn, id)?
+            .ok_or_else(|| anyhow::anyhow!("Luna doesn't know this drive."))?;
+        Ok(crate::drives::format::device_path(&row.device))
     }
 
     /// First mount for adopt: prefer an existing OS mount, else mount RW at a
@@ -1496,7 +1578,7 @@ fn fs_opt(fs_type: &str) -> Option<&str> {
 
 /// Every mount point any partition of `disk` currently has (from
 /// `/proc/mounts`) — not just the one detection happened to report.
-fn mounted_points_for_disk(disk: &str) -> Vec<PathBuf> {
+pub(crate) fn mounted_points_for_disk(disk: &str) -> Vec<PathBuf> {
     let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
     mounted_points_for_disk_in(&mounts, disk)
 }
@@ -1629,6 +1711,28 @@ mod tests {
         assert!(!mgr.is_system_mount(Path::new("/var/lib/luna/mounts/drives/abc")));
         assert!(mgr.is_system_mount(Path::new("/var/lib/other")));
         assert!(mgr.is_system_mount(Path::new("/")));
+    }
+
+    /// Records what it was asked to make, and makes nothing. A wipe in a test
+    /// must never reach a real device.
+    #[derive(Default)]
+    struct RecordingMkfs {
+        made: std::sync::Mutex<Vec<(String, String)>>,
+    }
+
+    impl crate::drives::format::Mkfs for RecordingMkfs {
+        fn make(
+            &self,
+            device: &str,
+            _label: &str,
+            filesystem: crate::drives::format::Filesystem,
+        ) -> Result<(), crate::drives::format::FormatError> {
+            self.made
+                .lock()
+                .unwrap()
+                .push((device.to_string(), filesystem.as_str().to_string()));
+            Ok(())
+        }
     }
 
     fn detected(name: &str, mount: Option<&str>) -> DetectedDrive {
@@ -2622,7 +2726,9 @@ mod tests {
         let dir = root.path();
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let probe = iso_probe("sdz");
-        let mgr = DriveManager::new_with_probe(mounter.clone(), dir, probe.clone());
+        let mkfs = std::sync::Arc::new(RecordingMkfs::default());
+        let mgr = DriveManager::new_with_probe(mounter.clone(), dir, probe.clone())
+            .with_mkfs(mkfs.clone());
         let mut dev = detected("sdz", None);
         dev.fs_type = Some("iso9660".into());
         let row = mgr
@@ -2636,10 +2742,66 @@ mod tests {
         );
         let formatted = probe.formats.lock().unwrap().clone();
         assert_eq!(formatted, vec!["sdz".to_string()]);
+        // The filesystem went on the new partition, as exFAT.
+        assert_eq!(
+            mkfs.made.lock().unwrap().clone(),
+            vec![("/dev/sdz1".to_string(), "exfat".to_string())]
+        );
         let mounts = mounter.mounts.lock().unwrap();
         assert!(
             mounts.iter().any(|m| m.0.ends_with("sdz1") && !m.2),
             "erase must mount the new partition read-write, got {mounts:?}"
+        );
+    }
+
+    #[test]
+    fn a_reformatted_drive_keeps_its_identity_and_gets_its_marker_back() {
+        // A wipe destroys the marker, and the marker is what ties the drive to
+        // its row in luna.db. Reformatting must put the same marker back, or
+        // every share, grant, gallery index and backup rule detaches from a
+        // drive that still exists.
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter.clone(), dir);
+        db::upsert_drive(&conn, "d1", "Photos", "as_is", "exfat", "sdz", "").unwrap();
+
+        let mount = mgr
+            .remount_after_format(&conn, "d1", "Photos", false, "")
+            .unwrap();
+
+        // Mounted where Luna expects, read-write.
+        assert_eq!(mount, mgr.adopted_mount_point("d1").to_string_lossy());
+        // The marker is back, with the same id and label.
+        let marker = luna_core::marker::read_marker(Path::new(&mount))
+            .unwrap()
+            .expect("a reformatted drive must be marked as Luna's again");
+        assert_eq!(marker.id, "d1");
+        assert_eq!(marker.label, "Photos");
+    }
+
+    #[test]
+    fn a_reformatted_encrypted_drive_is_mounted_through_its_container() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let luks = std::sync::Arc::new(crate::drives::luks::MockLuks::with_luks("/dev/sdz1"));
+        let mgr = DriveManager::new(mounter.clone(), dir).with_luks(luks.clone());
+        db::upsert_drive(&conn, "d1", "Photos", "as_is", "ext4", "sdz1", "").unwrap();
+
+        mgr.remount_after_format(&conn, "d1", "Photos", true, "hunter22hunter1")
+            .unwrap();
+
+        // The container is open, and the mount came from the mapper rather
+        // than the raw partition.
+        use crate::drives::luks::Luks;
+        assert!(luks.is_open("d1"));
+        let mounts = mounter.mounts.lock().unwrap();
+        assert!(
+            mounts.iter().any(|m| m.0.contains("luna-vault-d1")),
+            "an encrypted drive must mount through its container, got {mounts:?}"
         );
     }
 
@@ -2703,10 +2865,10 @@ mod tests {
     }
 }
 
-pub mod convert;
 pub mod detect;
 pub mod drive_db;
 pub mod ext4;
+pub mod format;
 pub mod fsprobe;
 pub mod fstrim;
 pub mod layout;
@@ -2717,3 +2879,4 @@ pub mod scrub;
 pub mod smart;
 pub mod summary;
 pub mod vault;
+pub mod wipe;

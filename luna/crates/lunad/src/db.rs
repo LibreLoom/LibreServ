@@ -258,6 +258,13 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
     ensure_column(&conn, "drives", "encrypted", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(&conn, "drives", "locked", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(&conn, "drives", "converting", "INTEGER NOT NULL DEFAULT 0")?;
+    // A format only runs inside this process, so a `converting` flag found at
+    // startup belongs to a run that died with the last one — a crash or a power
+    // cut. Nothing will ever clear it, and `drive_root()` refuses a converting
+    // drive, so leaving it set locks the drive out of the UI permanently.
+    // Clearing it is safe: the disk is either fully formatted or not, and the
+    // drive is re-probed on the next scan either way.
+    let _ = conn.execute("UPDATE drives SET converting = 0 WHERE converting != 0", []);
     // Legacy eMMC photos table (pre on-drive .lunagallery) — drop if present.
     let _ = conn.execute_batch("DROP TABLE IF EXISTS photos;");
     ensure_column(
@@ -497,6 +504,27 @@ pub fn set_drive_encrypted(conn: &Connection, id: &str, encrypted: bool) -> anyh
     conn.execute(
         "UPDATE drives SET encrypted = ?2, updated_at = ?3 WHERE id = ?1",
         params![id, if encrypted { 1 } else { 0 }, now_unix()],
+    )?;
+    Ok(())
+}
+
+/// Record where a reformatted drive is mounted, without touching its
+/// encryption flags. Used after a wipe, when the drive keeps its identity but
+/// gets a fresh mount point.
+pub fn set_drive_mount_point(conn: &Connection, id: &str, mount_point: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE drives SET mount_point = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, mount_point, now_unix()],
+    )?;
+    Ok(())
+}
+
+/// Record the filesystem a reformat put on the drive, so the next mount and
+/// the encryption page describe it correctly without waiting for a rescan.
+pub fn set_drive_fs_type(conn: &Connection, id: &str, fs_type: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE drives SET fs_type = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, fs_type, now_unix()],
     )?;
     Ok(())
 }
