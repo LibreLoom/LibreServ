@@ -1007,6 +1007,8 @@ fn disable_inner(data: &Path, port: u16) -> Result<Value, String> {
             root(data).join("last-error"),
             "Tailscale is off. Remove its saved identity before connecting again.",
         );
+    } else {
+        let _ = std::fs::remove_file(root(data).join("last-error"));
     }
     Ok(status_json(data, port))
 }
@@ -1998,6 +2000,7 @@ mod tests {
         std::fs::create_dir(root(dir.path())).unwrap();
         std::fs::write(root(dir.path()).join("stop-verified"), boot_id().unwrap()).unwrap();
         std::fs::write(root(dir.path()).join("reset-required"), "1").unwrap();
+        std::fs::write(root(dir.path()).join("last-error"), "old failure").unwrap();
         std::fs::write(
             state(dir.path()),
             r#"{"_serve/old":"e30=","identity":"keep"}"#,
@@ -2009,11 +2012,13 @@ mod tests {
         assert!(saved.get("_serve/old").is_none());
         assert_eq!(saved["identity"], "keep");
         assert!(!root(dir.path()).join("reset-required").exists());
+        assert!(!root(dir.path()).join("last-error").exists());
         assert!(!enabled(dir.path()));
     }
 
     #[test]
     fn public_off_stops_daemon_when_cli_is_unavailable() {
+        use std::os::unix::fs::PermissionsExt;
         let _env = TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(root(dir.path())).unwrap();
@@ -2024,9 +2029,13 @@ mod tests {
             r#"{"_serve/old":"e30=","identity":"keep"}"#,
         )
         .unwrap();
+        let cli = dir.path().join("tailscale-mock");
+        let calls = dir.path().join("calls");
+        std::fs::write(&cli, format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\ncase \"$*\" in *'serve reset'*) exit 1 ;; esac\nexit 0\n", calls.display())).unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o700)).unwrap();
         let previous = std::env::var_os("LUNA_TAILSCALE_CLI");
         unsafe {
-            std::env::set_var("LUNA_TAILSCALE_CLI", dir.path().join("missing"));
+            std::env::set_var("LUNA_TAILSCALE_CLI", &cli);
         }
         let result = stop_serve(dir.path(), 0);
         unsafe {
@@ -2037,6 +2046,11 @@ mod tests {
             }
         }
         let status = result.unwrap();
+        assert!(
+            std::fs::read_to_string(calls)
+                .unwrap()
+                .contains("serve reset")
+        );
         assert_eq!(status["enabled"], false);
         assert!(!status["residual_exposure"].as_bool().unwrap_or(false));
         let saved: Value =

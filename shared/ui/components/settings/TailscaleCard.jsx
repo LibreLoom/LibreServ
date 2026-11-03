@@ -86,7 +86,7 @@ export default function TailscaleCard({
               {serverLocked && <p className="text-sm">Sign out of Tailscale to change the control server.</p>}
             </div>
           )}
-          {(error || s.error) && <PageNotice variant="error">{error || s.error}</PageNotice>}
+          {(error || s.error) && <PageNotice variant="error">{(s.state === "error" || s.state === "pending") && s.error ? s.error : error || s.error}</PageNotice>}
           {s.residual_exposure && <PageNotice variant="error">Public access may still be on. Turn off Tailscale and check again.</PageNotice>}
           {s.state === "pending" && (
             <div className="surface-primary rounded-large-element p-4 space-y-3">
