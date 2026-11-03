@@ -4,6 +4,8 @@ import { PSNAPSHOTS_KIND, readPrivateSnapshots, signPrivateOpen } from "@librelo
 
 /** @typedef {import("./cloudSource.js").CloudSource} CloudSource */
 /** @typedef {{ scope: string, sealSecret: Uint8Array, dedupKey: Uint8Array, source: CloudSource }} PrivateKeys */
+/** @typedef {{ name: string, sourceDrive: string, sourcePath: string, startedBy: string, startedByName: string }} PrivateMeta */
+/** @typedef {{ lunaId: string, protectionId: string, snapshotId: string, createdAt: number, keyVersion: number, treePackId: string, treeHash: Uint8Array, sealedMeta: Uint8Array, meta: PrivateMeta }} PrivateSnapshot */
 /** sealSecret in PrivateKeys is the scope's own secret key; the phrase's key only opens the scope. */
 
 const OPEN_FAILED = "Could not open your private items. Try again.";
@@ -37,7 +39,9 @@ export async function openPrivateScope(source, entropy, lunaId, scopeInfo, signi
   }
 
   const psnapshots = await tokenSource.listRecords(PSNAPSHOTS_KIND);
-  const snaps = readPrivateSnapshots({ lunaId, sealSecret, scope, psnapshots, signingPublics });
+  const snaps = /** @type {PrivateSnapshot[]} */ (
+    readPrivateSnapshots({ lunaId, sealSecret, scope, psnapshots, signingPublics })
+  );
 
   /** @type {Map<string, Array<any>>} */
   const byProtection = new Map();

@@ -182,7 +182,7 @@ export default [
   {
     id: "dashboard/system-check-failed",
     area: "Dashboard",
-    title: "Needs you: system checks failed and warned",
+    title: "System checks failed and warned",
     seed: (w) => {
       w.systemChecks = {
         overall_pass: false,
@@ -193,7 +193,7 @@ export default [
         },
       };
     },
-    check: [NEEDS + " (failed check)", "Warnings show in the header pill only, not as rows"],
+    check: ["No Needs you row: there is no row-level fix to offer", "The header pill says 1 problem and lists Luna's own storage plus both warnings", "Its link goes to Settings → About → System checks, where the storage breakdown is"],
   },
   {
     id: "dashboard/everything-wrong",

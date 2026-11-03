@@ -8,6 +8,8 @@ import { AuthProvider } from "../../context/AuthContext";
 import { FileOpsProvider } from "../../context/FileOpsContext.jsx";
 import DriveFileExplorer from "./DriveFileExplorer.jsx";
 import FileOpsDock from "./fileOps/FileOpsDock.jsx";
+import { driveSource, fileListKey } from "../../lib/fileSource.jsx";
+import { TRASH_PATH } from "../../lib/paths.js";
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
@@ -73,14 +75,14 @@ function renderExplorer({ path, listing, failing = "", failWith = "Luna is busy.
       </ToastProvider>
     </ThemeProvider>,
   );
-  return calls;
+  return { calls, client };
 }
 
 describe("DriveFileExplorer long requests", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("trashes a selection in the file task card and carries on past one failure", async () => {
-    const calls = renderExplorer({ listing: FILES, failing: "b.txt" });
+    const { calls } = renderExplorer({ listing: FILES, failing: "b.txt" });
     // The rows must be there before selecting, or the select-all ticks an
     // empty folder and the toolbar never appears.
     await screen.findByText("a.txt");
@@ -99,7 +101,7 @@ describe("DriveFileExplorer long requests", () => {
   });
 
   it("deletes permanently through the card, showing one problem out of three", async () => {
-    const calls = renderExplorer({ path: ".luna-trash", listing: TRASHED, failing: "17c-c.txt" });
+    const { calls } = renderExplorer({ path: ".luna-trash", listing: TRASHED, failing: "17c-c.txt" });
     // The rows must be there before selecting, or the select-all ticks an
     // empty folder and the toolbar never appears.
     await screen.findByText("a.txt");
@@ -117,7 +119,7 @@ describe("DriveFileExplorer long requests", () => {
   });
 
   it("empties the trash through the card and keeps a failure in its row", async () => {
-    const calls = renderExplorer({
+    const { calls } = renderExplorer({
       path: ".luna-trash",
       listing: TRASHED,
       failing: ".luna-trash",
@@ -136,5 +138,52 @@ describe("DriveFileExplorer long requests", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     const purge = calls.find(([method, url]) => method === "POST" && url.includes("/files/purge"));
     expect(purge[2]).toEqual({ path: ".luna-trash" });
+  });
+
+  // The phone sheet's destructive row used to keep the danger card's extra
+  // padding, so "Move to trash" stood half again as tall as every action above
+  // it. Every row in the sheet is one size now.
+  it("gives every action in a phone row sheet the same height", async () => {
+    vi.stubGlobal("matchMedia", (query) => /** @type {any} */ ({
+      matches: false,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    renderExplorer({ listing: FILES });
+    await screen.findByText("a.txt");
+    fireEvent.click(screen.getByRole("button", { name: "Actions for a.txt" }));
+    const dialog = await screen.findByRole("dialog", { name: "a.txt" });
+    const rows = [...dialog.querySelectorAll('[data-slot="card-button"]')];
+    expect(rows.length).toBeGreaterThan(1);
+    const sizes = rows.map((row) => row.className.split(/\s+/).filter((c) => /^(p|py|px|h)-/.test(c)).sort());
+    for (const size of sizes) expect(size).toEqual(sizes[0]);
+  });
+
+  it("refreshes the Trash listing when a folder is trashed", async () => {
+    // Deleting `Documents` changes the drive root and `Documents` — never the
+    // trash dir, which is its own listing. Without an explicit invalidate the
+    // trash query keeps its cached rows for the whole staleTime, so a folder
+    // that really did land in the trash looks permanently gone: the reported
+    // "deleting a folder when an item inside it was trashed silently deletes
+    // it". The trash key must be among the ones a delete makes stale.
+    const { calls, client } = renderExplorer({ listing: FILES });
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+
+    // The rows must be there before selecting, or the select-all ticks an
+    // empty folder and the toolbar never appears.
+    await screen.findByText("a.txt");
+    fireEvent.click(screen.getByLabelText("Select all in this folder"));
+    fireEvent.click(await screen.findByRole("button", { name: "Trash" }));
+    const dialog = await screen.findByRole("dialog", { name: "Move to trash?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move to trash" }));
+
+    await waitFor(() => expect(calls.some(([method]) => method === "DELETE")).toBe(true));
+    const trashKey = fileListKey(driveSource, "d1", TRASH_PATH);
+    await waitFor(() => {
+      expect(invalidate.mock.calls.map(([arg]) => arg.queryKey)).toContainEqual(trashKey);
+    });
+    // And it is the same key the trash view itself reads, so the refresh lands.
+    expect(trashKey).toEqual(["files", "d1", ".luna-trash"]);
   });
 });

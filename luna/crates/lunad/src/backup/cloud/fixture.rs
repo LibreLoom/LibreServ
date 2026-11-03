@@ -665,8 +665,20 @@ fn unhex32_16(s: &str) -> Result<[u8; 16]> {
         .map_err(|_| anyhow!("expected 16 bytes in fixture"))
 }
 
+/// Regenerate `fixture.json`. Run it deliberately, never as part of the suite:
+///
+/// ```text
+/// cargo test -p lunad --lib backup::cloud::fixture::write_fixture -- --ignored
+/// ```
+///
+/// It is `#[ignore]`d because the file is committed and five web tests import
+/// it. `build()` seals packs with fresh `OsRng` keys and nonces, so each run
+/// writes completely different ciphertext for identical input — a live test
+/// would leave the file dirty after every `cargo test --workspace`, and the
+/// next person would learn to skim past it. A committed generated file has to
+/// change only when its contents actually change.
 #[test]
-// TEMP-REGEN-HOOK
+#[ignore = "regenerates a committed fixture; run explicitly with --ignored"]
 fn write_fixture() {
     let value = build().expect("build the fixture");
     let text = serde_json::to_string_pretty(&value).expect("serialize the fixture") + "\n";
@@ -678,4 +690,38 @@ fn fixture_opens() {
     let text = std::fs::read_to_string(FIXTURE_PATH).expect("run write_fixture first");
     let fx: Value = serde_json::from_str(&text).expect("fixture.json is JSON");
     check(&fx).expect("Rust opens the fixture");
+}
+
+/// The committed fixture must be what `build()` produces, or the web tests are
+/// reading bytes no code path makes any more. This is the check that used to be
+/// implied by `write_fixture` running: it compares the plaintext and the ids,
+/// not the ciphertext, because the ciphertext is random by design.
+#[test]
+fn the_committed_fixture_still_matches_what_the_code_builds() {
+    let text = std::fs::read_to_string(FIXTURE_PATH).expect("fixture.json is committed");
+    let committed: Value = serde_json::from_str(&text).expect("fixture.json is JSON");
+    let built = build().expect("build the fixture");
+
+    // Everything that is deterministic must match exactly. The sealed packs and
+    // the ids derived from them cannot, so they are excluded.
+    for key in [
+        "luna_id",
+        "alice_entropy",
+        "bob_entropy",
+        "backup_key",
+        "dedup_key",
+        "protection_id",
+        "key_version",
+        "scope_tag",
+        "expected",
+        "signing_public",
+    ] {
+        assert_eq!(
+            committed.get(key),
+            built.get(key),
+            "fixture.json is stale: `{key}` no longer matches what build() produces. \
+             Regenerate it with: cargo test -p lunad --lib \
+             backup::cloud::fixture::write_fixture -- --ignored"
+        );
+    }
 }

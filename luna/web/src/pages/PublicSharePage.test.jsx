@@ -339,7 +339,7 @@ describe("PublicSharePage", () => {
 
   it("keeps the same browser mounted while a subfolder listing loads", async () => {
     let releaseSub = /** @type {() => void} */ (() => {});
-    const gate = new Promise((r) => { releaseSub = () => r(); });
+    const gate = new Promise((/** @type {(value?: void) => void} */ r) => { releaseSub = () => r(); });
     const metaCalls = /** @type {string[]} */ ([]);
     vi.stubGlobal("fetch", vi.fn(async (url) => {
       const u = String(url);

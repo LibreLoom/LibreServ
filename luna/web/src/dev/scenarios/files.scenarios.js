@@ -237,7 +237,16 @@ export default [
   },
   {
     id: "files/upload-folder", area: A, title: "Upload a whole folder", url: "/files/d1?path=Documents",
-    check: ["Drag a folder with sub-folders onto the list", "Structure is kept", "Empty folders are handled sensibly"],
+    check: [
+      "Drag a folder with sub-folders onto the list → one row named after the folder, and the drive gets the same tree",
+      "An empty folder inside it is made on the drive too, at every level, and counts in the card (\"Made 2 folders in Documents\")",
+      "A folder holding only empty folders still finishes and says what it made, never \"0 of 0 files\"",
+      "Pick a folder from the Upload menu → the menu says empty folders inside it aren't copied, because the browser can't see them; dragging the folder does copy them",
+      "Pick an empty folder, or one holding only empty folders → it says that folder has no files instead of doing nothing",
+      "Pick the same folder twice in a row → the second pick uploads again",
+      "Cancel during the walk → it stops, and the card says Cancelled rather than claiming the folder went up",
+      "Drop a folder on a single-file share link → refused with \"Choose one file to replace this file.\" and nothing is uploaded",
+    ],
   },
   {
     id: "files/upload-many-clashes", area: A, title: "Upload 15 files whose names are taken", url: "/files/d1?path=Documents",
@@ -374,6 +383,15 @@ export default [
     check: ["Documents shows a cloud backup row with last backed up time", "Photos offers to start one", "Older versions option asks first"],
   },
   {
+    id: "files/protect-cloud-no-phrase", area: A, title: "Cloud backup before any recovery phrase", url: "/files/d1",
+    seed: (w) => { demo(w); w.connect = { enabled: true, card_on_file: true }; w.connectActive = true; w.phrase = { ...w.phrase, set: false }; },
+    check: [
+      "Photos offers 'Back up to the cloud'",
+      "Pressing it asks for a recovery phrase first, in a dialog, instead of failing",
+      "Saving the phrase starts the cloud backup and toasts 'Cloud backup started.'",
+    ],
+  },
+  {
     id: "files/protect-cloud-no-card", area: A, title: "Cloud backup, no payment card", url: "/files/d1",
     seed: (w) => { demo(w); w.connect = { enabled: true, card_on_file: false }; w.connectActive = true; },
     check: ["Says a card is needed, and where to add it"],
@@ -385,8 +403,22 @@ export default [
   },
   {
     id: "files/protect-inside-private", area: A, title: "Protect a folder inside your private one", url: "/files/d1",
-    seed: (w) => { demo(w); withBackupDrive(w); addDir(w, "d1", "Diary/2025", { private: false }); w.fs.d1.nodes.Diary.private = true; w.fs.d1.nodes.Diary.owner = "u1"; },
-    check: ["Protect on Diary/2025 says this folder is private and only you can back it up", "Choose a drive and Back up to the cloud both work"],
+    // Diary is Max's private item and already backed up to the Backup drive; Diary/2025 sits inside it.
+    seed: (w) => {
+      demo(w);
+      withBackupDrive(w);
+      w.connect = { enabled: true, connect_active: true, card_on_file: true };
+      w.connectActive = true;
+      addDir(w, "d1", "Diary/2025", { private: false });
+      w.fs.d1.nodes.Diary.private = true;
+      w.fs.d1.nodes.Diary.owner = "u1";
+      w.backups.push(backup({ source_drive: "d1", source_path: "Diary", source_name: "Diary", target_drive: "d2", private_owner: "u1" }));
+    },
+    check: [
+      "Protect on Diary/2025 says this folder is private and only you can back it up",
+      "It does not say 'Included in the backup of Diary': the private item's backup never holds it",
+      "Choose a drive and Back up to the cloud both work",
+    ],
   },
   {
     id: "files/protect-covered-by-parent", area: A, title: "Folder already held by a bigger folder's backup", url: "/files/d1",
@@ -396,7 +428,13 @@ export default [
   {
     id: "files/backups-browse", area: A, title: "Browse a backup drive's Backups folder", url: "/files/d2",
     seed: (w) => { demo(w); withBackupDrive(w); w.backups.push(backup({ source_drive: "d1", source_path: "Documents", source_name: "Documents", target_drive: "d2" })); trashed(w, "deleted-since.txt", "Documents"); },
-    check: ["Backups link appears at the top of Backup drive", "Folder lists the backed-up Documents, deleted files marked", "Versions shows older copies; Restore says 'Restored as …' and never replaces the current file", "Download works"],
+    check: [
+      "Backups link appears at the top of Backup drive",
+      "Folder lists the backed-up Documents, with deleted-since.txt marked as deleted",
+      "Versions of notes.txt shows Latest plus two older dates, each a different size — not the same size twice",
+      "Download on an older row saves that older copy, not today's file",
+      "Restore on an older row says 'Restored as …' and leaves the current notes.txt untouched",
+    ],
   },
   {
     id: "files/backups-no-versions", area: A, title: "Backed up file with no older versions", url: "/files/d2",
@@ -492,7 +530,7 @@ export default [
   },
 
   // ── Editors ───────────────────────────────────────────────────────────────
-  { id: "files/edit-text-save", area: A, title: "Edit and save a text file", url: open("notes.txt"), seed: viewerSamples, check: ["Type something: 'unsaved' indicator shows", "Save (button and Ctrl+S) → 'Saved just now'", "Close and reopen: change is there", "Autosave kicks in after a pause"] },
+  { id: "files/edit-text-save", area: A, title: "Edit and save a text file", url: open("notes.txt"), seed: viewerSamples, check: ["Type something: 'unsaved' indicator shows", "Save (button and Ctrl+S) → 'Saved'", "Close and reopen: change is there", "Autosave kicks in after a pause"] },
   {
     id: "files/edit-text-conflict", area: A, title: "Save conflict (file changed meanwhile)", url: open("notes.txt"), seed: viewerSamples,
     faults: [{ match: "POST /api/v1/drives/d1/files/upload", mode: "409", code: "exists", message: "A file with this name is already here. Rename it or choose another." }],

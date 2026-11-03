@@ -17,6 +17,21 @@ const RING_CIRC = 2 * Math.PI * 12;
 // Collapsed message clip — ~1 line of text-sm / leading-snug.
 const COLLAPSED_H = "1.3rem";
 
+/**
+ * `.animate-toast-enter` is a keyframe whose 0% frame is `opacity: 0` with
+ * `animation-fill-mode: both`, so while it is applied the toast's *visible*
+ * state belongs to the animation timeline. A timeline that never advances —
+ * a throttled or occluded tab, a phone compositor starved mid-scroll, the
+ * state gallery running the app in an iframe — then leaves the toast mounted,
+ * correctly stacked, and fully transparent for its whole life: the success
+ * toast nobody sees. So the class is applied for one entrance and then
+ * dropped; the element's resting styles are visible on their own, and this
+ * wall-clock fallback drops it even when the animation never reports finishing.
+ * Keep in step with the 380ms in index.css.
+ */
+const ENTER_MS = 380;
+const ENTER_FALLBACK_MS = ENTER_MS + 40;
+
 function Toast({ toast, onDismiss, onPause, onResume }) {
   const config = TYPE_CONFIG[toast.type] || TYPE_CONFIG.info;
   const Icon = config.icon;
@@ -26,7 +41,17 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
   const [clickedOpen, setClickedOpen] = useState(false);
   const [isTruncated, setIsTruncated] = useState(false);
   const [fullHeight, setFullHeight] = useState(0);
+  // The entrance animation is applied for its own run only — see ENTER_MS.
+  // Dropping it hands visibility back to the element's resting styles, so a
+  // stalled timeline can no longer leave the toast invisible.
+  const [entering, setEntering] = useState(!toast.exiting);
   const msgRef = useRef(null);
+
+  useEffect(() => {
+    if (!entering) return undefined;
+    const timer = setTimeout(() => setEntering(false), ENTER_FALLBACK_MS);
+    return () => clearTimeout(timer);
+  }, [entering]);
 
   // Compact by default; springs open on hover/click when the message overflows.
   const expanded = clickedOpen || (hovering && isTruncated);
@@ -61,9 +86,13 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
         "surface-secondary",
         "rounded-large-element border border-primary/10 shadow-lg",
         "pl-3 pr-2 py-2.5 origin-top-right",
-        toast.exiting ? "animate-toast-exit" : "animate-toast-enter",
+        toast.exiting ? "animate-toast-exit" : entering && "animate-toast-enter",
         isTruncated && "cursor-pointer",
       )}
+      // The entrance ends here too, so a stalled timeline still drops the class.
+      onAnimationEnd={(event) => {
+        if (event.target === event.currentTarget && entering) setEntering(false);
+      }}
       onClick={() => isTruncated && setClickedOpen((v) => !v)}
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}

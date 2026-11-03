@@ -12,7 +12,7 @@ import (
 )
 
 // ciGate runs ./ci profiles for a cut. A release should not wait on a polite
-// test run, so it opts out of the universal bounds (-session with no limits);
+// test run, so it opts out of the universal bounds (--session with no limits);
 // everything else about ./ci still applies, including stopping its containers
 // if this tool dies.
 func ciGate(repo string) func(ctx context.Context, profiles []string, log func(string)) error {
@@ -27,7 +27,7 @@ func ciGate(repo string) func(ctx context.Context, profiles []string, log func(s
 }
 
 func runCI(ctx context.Context, repo, profile string, log func(string)) error {
-	cmd := exec.CommandContext(ctx, filepath.Join(repo, "ci"), "run", "-profile", profile, "-session")
+	cmd := exec.CommandContext(ctx, filepath.Join(repo, "ci"), "run", "--profile", profile, "--session")
 	cmd.Dir = repo
 	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGINT) } // lets ci stop its containers
 	cmd.WaitDelay = 30 * time.Second

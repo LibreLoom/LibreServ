@@ -30,7 +30,7 @@ import useReleaseInspectedDrive from "../hooks/useReleaseInspectedDrive.js";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
 import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
-import { isUnopenable } from "../lib/drives.js";
+import { driveEncryptionLine, encryptionHref, isConvertingDrive, isLockedDrive, isUnopenable } from "../lib/drives.js";
 import useDriveHealth from "../hooks/useDriveHealth.js";
 import DriveHealthDetails from "../components/files/DriveHealthDetails.jsx";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
@@ -353,6 +353,10 @@ function DetectedCard({ drive, onOpen }) {
 
 const CANT_OPEN_MESSAGE =
   "Luna can't open this drive right now, so its files and free space aren't available.";
+const LOCKED_MESSAGE =
+  "Locked. Enter the password to open this drive and see its files.";
+const CONVERTING_MESSAGE =
+  "Being encrypted. This drive is unavailable until that finishes.";
 const CANT_OPEN_HINT =
   "Luna knows this drive but couldn't open it. This can happen after it was pulled out without Eject, or when the drive has a problem. Unplug it, wait a few seconds, and plug it back in. If that doesn't help, the drive may be failing.";
 
@@ -361,7 +365,11 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect 
   const cardRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const unopenable = isUnopenable(drive);
   // Ready means Luna can open it: the storage bar, Browse and the other drive actions apply.
-  const ready = (drive.state === "as_is" || drive.state === "readonly") && !unopenable;
+  const locked = isLockedDrive(drive);
+  const converting = isConvertingDrive(drive);
+  // Ready means Luna can open it: the storage bar, Browse and the other drive
+  // actions apply. A locked or converting drive is present but not open.
+  const ready = (drive.state === "as_is" || drive.state === "readonly") && !unopenable && !locked && !converting;
   const health = useDriveHealth(drive, !!showHealth);
   const summary = useQuery({
     queryKey: ["drive-summary", drive.id],
@@ -373,6 +381,9 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect 
   const copy = showHealth && health.data ? describeDriveHealth(health.data) : null;
   const showSummary = copy && ["failing", "watch", "unknown"].includes(copy.verdict);
   const statusMessage = driveStatusMessage(drive);
+  // The card carries one line about encryption and a way in. The page holds
+  // the detail and the actions, so nothing long or destructive lives here.
+  const encryptionLine = driveEncryptionLine(drive);
   const hashId = `drive-${drive.id}`;
   const targeted = location.hash === `#${hashId}`;
 
@@ -422,6 +433,13 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect 
               <Link to={`/files/${drive.id}`}>Browse files</Link>
             </Button>
           )}
+          {/* Every drive links here: a plain drive can be encrypted, a locked
+              one unlocked, and the card only carries the one-line state. */}
+          <Button size="sm" variant="outline" asChild>
+            <Link to={encryptionHref(drive)}>
+              {encryptionLine || "Encryption"}
+            </Link>
+          </Button>
           {showHealth && ready && (
             <Button size="sm" variant="outline" onClick={() => onEject(drive)}>
               Eject safely
@@ -448,6 +466,8 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect 
 function driveStatusMessage(drive) {
   if (drive.state === "missing") return "Unplugged. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.";
   if (drive.state === "ejected") return "Ejected. Plug it back in to use files again.";
+  if (isConvertingDrive(drive)) return CONVERTING_MESSAGE;
+  if (isLockedDrive(drive)) return LOCKED_MESSAGE;
   if (isUnopenable(drive)) return CANT_OPEN_MESSAGE;
   if (drive.state === "readonly") {
     return "Read only — Luna cannot save here. Usually a filesystem issue, or a write-lock switch on the stick.";

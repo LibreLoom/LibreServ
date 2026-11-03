@@ -35,8 +35,9 @@ const fresh = (over = {}) => (w) => {
 };
 
 const STEPS_CHECK = [
-  "Welcome → System check → Account → Recovery phrase → Name → Done, with a step counter",
+  "Welcome → System check → Account → Name → Done, with a step counter",
   "Back works on every step and keeps what you typed",
+  "No recovery phrase step: a phrase is only asked for when someone turns on cloud backup",
 ];
 
 /** @type {import("./registry.js").Scenario[]} */
@@ -109,7 +110,6 @@ export default [
       w.users = [{ id: "u1", username: "max", display_name: "Max", role: "admin", created_at: DEFAULT_NOW / 1000 }];
       w.hasAdmin = true;
       w.sessionUserId = "u1";
-      w.phrase = { ...w.phrase, set: true };
     },
     check: ["Resumes at naming, signed in", "Finishing works"],
   },
@@ -166,7 +166,6 @@ export default [
       w.users = [{ id: "u1", username: "max", display_name: "Max", role: "admin", created_at: DEFAULT_NOW / 1000 }];
       w.hasAdmin = true;
       w.sessionUserId = "u1";
-      w.phrase = { ...w.phrase, set: true };
     },
     faults: [{ match: "POST /api/v1/setup", mode: "500", message: "Luna couldn't save setup progress." }],
     check: ["The name you typed stays in the box", "An error says finishing failed and to try again"],
@@ -181,63 +180,9 @@ export default [
     check: ["Pressing Begin shows 'couldn't save your setup progress'", "You stay on the same step"],
   },
   {
-    id: "setup/phrase-step",
-    area: "Setup",
-    title: "Recovery phrase step",
-    url: "/setup",
-    seed: (w) => {
-      fresh({ setup: { current_step: "phrase", step_data: { account_completed: true, preflight_passed: true } } })(w);
-      w.users = [{ id: "u1", username: "max", display_name: "Max", role: "admin", created_at: DEFAULT_NOW / 1000 }];
-      w.hasAdmin = true;
-      w.sessionUserId = "u1";
-    },
-    check: ["Shows a new phrase to write down, then asks you to confirm it", "Saving it moves on to naming Luna", "Copy and download both work"],
-  },
-  {
-    id: "setup/phrase-refresh",
-    area: "Setup",
-    title: "Refreshed on the recovery phrase step",
-    url: "/setup",
-    seed: (w) => {
-      fresh({ setup: { current_step: "phrase", step_data: { account_completed: true, preflight_passed: true } } })(w);
-      w.users = [{ id: "u1", username: "max", display_name: "Max", role: "admin", created_at: DEFAULT_NOW / 1000 }];
-      w.hasAdmin = true;
-      w.sessionUserId = "u1";
-    },
-    check: ["After a refresh a NEW phrase is shown, with the line about leaving the page", "The old phrase is never kept"],
-  },
-  {
-    id: "setup/phrase-identity-fails",
-    area: "Setup",
-    title: "Recovery phrase step: Luna can't set up its backup identity",
-    url: "/setup",
-    seed: (w) => {
-      fresh({ setup: { current_step: "phrase", step_data: { account_completed: true, preflight_passed: true } } })(w);
-      w.users = [{ id: "u1", username: "max", display_name: "Max", role: "admin", created_at: DEFAULT_NOW / 1000 }];
-      w.hasAdmin = true;
-      w.sessionUserId = "u1";
-    },
-    faults: [{ match: "POST /api/v1/cloud/identity", mode: "409", message: "Luna could not set up its backup identity. Try again, or contact your Admin." }],
-    check: ["The message is shown on the step, in plain words", "Nothing is saved; trying again works once the rule is off"],
-  },
-  {
-    id: "setup/phrase-save-fails",
-    area: "Setup",
-    title: "Recovery phrase step: saving fails",
-    url: "/setup",
-    seed: (w) => {
-      fresh({ setup: { current_step: "phrase", step_data: { account_completed: true, preflight_passed: true } } })(w);
-      w.users = [{ id: "u1", username: "max", display_name: "Max", role: "admin", created_at: DEFAULT_NOW / 1000 }];
-      w.hasAdmin = true;
-      w.sessionUserId = "u1";
-    },
-    faults: [{ match: "PUT /api/v1/cloud/phrase", mode: "500", message: "Luna couldn't save that. Try again." }],
-    check: ["The inline error keeps the confirm step and what you typed"],
-  },
-  {
     id: "setup/finish-without-phrase",
     area: "Setup",
-    title: "Naming step saved, but no recovery phrase yet",
+    title: "Finishing setup with no recovery phrase",
     url: "/setup",
     seed: (w) => {
       fresh({ setup: { current_step: "name", step_data: { account_completed: true, preflight_passed: true } } })(w);
@@ -245,7 +190,7 @@ export default [
       w.hasAdmin = true;
       w.sessionUserId = "u1";
     },
-    check: ["Luna won't finish setup without a phrase: the wizard resumes on the recovery phrase step"],
+    check: ["Setup finishes without a phrase and lands on the dashboard", "Nothing asks for a phrase on the way"],
   },
   {
     id: "setup/phone-dark",

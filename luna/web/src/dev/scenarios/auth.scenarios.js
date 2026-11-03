@@ -46,7 +46,12 @@ export default [
       w.sessionUserId = "u2";
       w.phrase = { ...w.phrase, set: false };
     },
-    check: ["The recovery phrase gate shows before the app", "Sign out works from the gate", "Saving a phrase opens the dashboard"],
+    check: [
+      "The app opens normally: no phrase screen, no setup detour",
+      "Settings → Cloud backup shows Recovery phrase as Not set up, with a Set up button",
+      "Set up opens the phrase dialog; saving it fills in the card",
+    ],
+    url: "/settings#cloud_backup",
   },
   {
     id: "auth/session-dies-mid-use",

@@ -267,6 +267,22 @@ export default [
     check: ["Problem stays on the backup card, not a toast"],
   },
   {
+    id: "settings/phrase-not-set",
+    area: "Settings: Cloud backup",
+    title: "No recovery phrase yet",
+    url: "/settings#cloud_backup",
+    seed: (w) => {
+      w.connect = { enabled: true, connect_active: true, card_on_file: true };
+      w.connectActive = true;
+      w.phrase = { ...w.phrase, set: false };
+    },
+    check: [
+      "Recovery phrase shows a 'Not set up' pill and a Set up button",
+      "Set up opens the phrase dialog with the 12/24 switch",
+      "Saving fills the card in as Ready",
+    ],
+  },
+  {
     id: "settings/phrase-check-wrong",
     area: "Settings: Cloud backup",
     title: "Recovery phrase check with the wrong words",
@@ -474,7 +490,7 @@ export default [
         },
       };
     },
-    check: ["Checks are grouped, failures first", "Update now starts the update", "Open source licenses open and close"],
+    check: ["Checks are grouped, failures first", "Luna's own storage shows what is using the disk, biggest first", "Free up space clears the temporary files and says how much", "Update now starts the update", "Open source licenses open and close"],
   },
   {
     id: "settings/update-source",

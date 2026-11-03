@@ -147,9 +147,20 @@ pub struct TrashEntry {
 /// prefix never leaks into the web API contract.
 pub const TRASH_API_ALIAS: &str = ".luna-trash";
 
-/// Shown when the drive row exists and the mount is there, but the
-/// `.luna-<uuid>.sqlite3` microdb is gone. This is not an unplug.
-pub const MISSING_DRIVE_DB_MSG: &str = "Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again. Your files stay on the drive, but items in its Trash won't show up after you add it again.";
+/// Shown when the drive row exists and the mount is there, but Luna could not
+/// rebuild the `.luna-<uuid>.sqlite3` microdb it keeps on the drive. This is
+/// not an unplug, and nothing on the drive is lost.
+pub const MISSING_DRIVE_DB_MSG: &str = "Luna can't write to this drive, so it can't rebuild its database. Your files are still on the drive — free up space or check the write-lock switch, then try again.";
+
+/// Shown when a file operation reaches an encrypted drive whose container is
+/// not open. Nothing is wrong with the drive — it needs its password.
+pub const DRIVE_LOCKED_MSG: &str =
+    "This drive is locked. An Admin can unlock it in Luna's web page.";
+
+/// Shown while an in-place conversion holds the drive. The drive is fine; it is
+/// simply unavailable until the conversion finishes.
+pub const DRIVE_CONVERTING_MSG: &str =
+    "This drive is being encrypted. It will be available when that finishes.";
 
 #[derive(Debug, thiserror::Error)]
 pub enum FilesError {
@@ -157,6 +168,12 @@ pub enum FilesError {
         "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
     )]
     UnknownDrive,
+    /// The drive is present and healthy, but its container is not open.
+    #[error("{}", DRIVE_LOCKED_MSG)]
+    Locked,
+    /// An in-place conversion holds the drive exclusively.
+    #[error("{}", DRIVE_CONVERTING_MSG)]
+    Converting,
     #[error("{}", MISSING_DRIVE_DB_MSG)]
     MissingDriveDb,
     #[error("{0}")]
@@ -215,25 +232,85 @@ fn already_exists() -> FilesError {
 
 pub fn drive_root(conn: &rusqlite::Connection, drive_id: &str) -> Result<DriveRow, FilesError> {
     crate::private::install();
-    db::get_drive(conn, drive_id)
+    let drive = db::get_drive(conn, drive_id)
         .map_err(FilesError::Db)?
-        // An unplugged or ejected drive keeps its old mount path in the row;
-        // reading it would only find an empty folder and blame the drive's
-        // database. Say it is not connected instead.
-        .filter(|d| !d.mount_point.is_empty() && d.state != "missing" && d.state != "ejected")
-        .ok_or(FilesError::UnknownDrive)
+        .ok_or(FilesError::UnknownDrive)?;
+    // Every file operation in Luna goes through here, so these two checks are
+    // the whole gate: browse, uploads, WebDAV, gallery, search and backups all
+    // stop at a locked or converting drive without knowing it exists.
+    //
+    // They come BEFORE the mount-point check: a locked drive has no mount
+    // point, so asking about the mount first would report "Luna can't find
+    // this drive" for a drive that is sitting right there and needs a
+    // password. The client keys off the 423 to open the unlock dialog.
+    if drive.locked {
+        return Err(FilesError::Locked);
+    }
+    if drive.converting {
+        return Err(FilesError::Converting);
+    }
+    // An unplugged or ejected drive keeps its old mount path in the row;
+    // reading it would only find an empty folder and blame the drive's
+    // database. Say it is not connected instead.
+    if drive.mount_point.is_empty() || drive.state == "missing" || drive.state == "ejected" {
+        return Err(FilesError::UnknownDrive);
+    }
+    Ok(drive)
+}
+
+/// The identity a rebuilt microdb carries: the drive Luna already knows, never
+/// a new one.
+fn drive_marker(drive: &DriveRow) -> luna_core::marker::Marker {
+    luna_core::marker::Marker::new(drive.id.clone(), drive.label.clone())
+}
+
+/// Rebuild the drive's missing microdb, reusing the `.luna-<uuid>` prefix its
+/// trash, thumbnails and backups still carry.
+///
+/// Only called for the "no marker file" case — a microdb that exists but
+/// cannot be read is never replaced. A rebuild that fails (read-only drive, no
+/// space) is [`FilesError::MissingDriveDb`]: the drive is here, Luna just
+/// cannot write its own bookkeeping back onto it.
+fn heal_drive_db(drive: &DriveRow) -> Result<rusqlite::Connection, FilesError> {
+    match crate::drives::drive_db::rebuild(Path::new(&drive.mount_point), &drive_marker(drive)) {
+        Ok(conn) => Ok(conn),
+        Err(e) => {
+            // Without this the reason the rebuild failed is nowhere in the log.
+            tracing::warn!(drive = %drive.id, error = %e, "could not rebuild a drive's missing database");
+            Err(FilesError::MissingDriveDb)
+        }
+    }
 }
 
 pub(crate) fn open_drive_db(drive: &DriveRow) -> Result<rusqlite::Connection, FilesError> {
-    crate::drives::drive_db::open(std::path::Path::new(&drive.mount_point))
-        .map_err(files_error_from_drive_db)
+    match crate::drives::drive_db::open(Path::new(&drive.mount_point)) {
+        Ok(conn) => Ok(conn),
+        // The microdb file is gone, but Luna still knows this drive: rebuild it
+        // under the same id and label, beside the trash and thumbnails its old
+        // `.luna-<uuid>` prefix left behind. That is the "remove this drive,
+        // then add it again" repair, done automatically. A corrupt or unreadable
+        // microdb is not this case and keeps failing.
+        Err(err) if crate::drives::drive_db::is_no_marker(&err) => heal_drive_db(drive),
+        Err(err) => Err(files_error_from_drive_db(err)),
+    }
 }
 
-/// A missing adoption microdb is its own failure. Other database problems
-/// stay [`FilesError::Db`].
+/// Make sure the drive's microdb is there before a read that needs its
+/// `.luna-<uuid>` prefix but never opens the database — trash, which reads the
+/// directory that prefix names. Without it the trash dir cannot be found at
+/// all, and an empty listing would claim there is nothing in it.
+pub fn ensure_drive_db(conn: &rusqlite::Connection, drive_id: &str) -> Result<(), FilesError> {
+    let drive = drive_root(conn, drive_id)?;
+    if crate::drives::drive_db::find_db_file(Path::new(&drive.mount_point)).is_some() {
+        return Ok(());
+    }
+    heal_drive_db(&drive).map(|_| ())
+}
+
+/// A microdb Luna could not rebuild is its own failure. Other database
+/// problems stay [`FilesError::Db`].
 fn files_error_from_drive_db(err: anyhow::Error) -> FilesError {
-    let text = err.to_string();
-    if text.contains("no .luna-") && text.contains("marker") {
+    if crate::drives::drive_db::is_no_marker(&err) {
         FilesError::MissingDriveDb
     } else {
         FilesError::Db(err)

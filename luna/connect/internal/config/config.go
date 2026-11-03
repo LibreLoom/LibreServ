@@ -56,6 +56,8 @@ type StripeConfig struct {
 	PublishableKey string `mapstructure:"publishable_key"`
 	WebhookSecret  string `mapstructure:"webhook_secret"`
 	// PriceID: usage-based storage price linked to MeterEventName ($0.008/GB-mo).
+	// The monthly minimum ($3 once anything is stored) is applied by topping up
+	// the reported storage quantity, not by changing this price.
 	PriceID string `mapstructure:"price_id"`
 	// MeterEventName: Billing Meter for average storage GB (aggregation Last).
 	// We compute month-to-date average ourselves and report that gauge value.

@@ -17,6 +17,11 @@ export async function copyToClipboard(text) {
   }
 }
 
+/**
+ * Legacy clipboard write for insecure contexts.
+ * @param {string} text
+ * @returns {Promise<void>}
+ */
 function legacyWriteText(text) {
   return new Promise((resolve, reject) => {
     const textarea = document.createElement("textarea");

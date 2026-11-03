@@ -35,13 +35,31 @@ pub fn prefix_for(root: &Path) -> Option<String> {
         .map(|(p, _)| p)
 }
 
+/// The drive has no marker file at all — nothing was opened, nothing failed
+/// to read. Only this case may be rebuilt; a file that exists but is corrupt
+/// or unreadable is a real error and must stay one.
+#[derive(Debug)]
+pub struct NoMarker;
+
+impl std::fmt::Display for NoMarker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("drive has no .luna-<uuid>.sqlite3 marker")
+    }
+}
+
+impl std::error::Error for NoMarker {}
+
+/// True when `err` is only the absence of the marker file.
+pub fn is_no_marker(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<NoMarker>().is_some()
+}
+
 /// Open the drive's marker microdb and apply the full drive schema.
 ///
 /// Fails when the drive has no marker — a foreign drive must never gain
 /// Luna files as a side effect of opening.
 pub fn open(root: &Path) -> anyhow::Result<Connection> {
-    let path = find_db_file(root)
-        .ok_or_else(|| anyhow::anyhow!("drive has no .luna-<uuid>.sqlite3 marker"))?;
+    let path = find_db_file(root).ok_or_else(|| anyhow::Error::new(NoMarker))?;
     open_file(&path)
 }
 
@@ -50,6 +68,69 @@ fn open_file(path: &Path) -> anyhow::Result<Connection> {
     configure(&conn)?;
     migrate_schema(&conn)?;
     Ok(conn)
+}
+
+/// The `.luna-<uuid>` prefix this drive already uses, read from the Luna-owned
+/// names still on it (`{p}-trash`, `{p}-thumbs`, `{p}-backups`, private items,
+/// upload temps).
+///
+/// The marker file is the only thing that records the prefix, so when that
+/// file is gone this is how a rebuilt microdb lands back beside the drive's
+/// existing trash instead of somewhere the trash is not.
+pub fn prefix_in_use(root: &Path) -> Option<String> {
+    let entries = std::fs::read_dir(root).ok()?;
+    let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    let mut trash: Vec<String> = Vec::new();
+    for entry in entries.flatten() {
+        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        let Some(prefix) = marker::extract_prefix(&name) else {
+            continue;
+        };
+        *counts.entry(prefix.clone()).or_default() += 1;
+        if name == format!("{prefix}-trash") {
+            trash.push(prefix);
+        }
+    }
+    // The trash dir is the one that must be found again: it holds the
+    // person's deleted files, and nothing else can point at it. Otherwise the
+    // prefix with the most leftovers wins (ties by name, so two calls on the
+    // same drive always choose the same one).
+    trash.sort();
+    trash.into_iter().next().or_else(|| {
+        counts
+            .into_iter()
+            .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
+            .map(|(prefix, _)| prefix)
+    })
+}
+
+/// Serializes marker creation, so two requests that both find the microdb
+/// gone cannot write two different markers and split the drive's trash
+/// between them.
+fn rebuild_lock() -> &'static std::sync::Mutex<()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+}
+
+/// Rebuild the marker microdb for a drive Luna already knows, reusing the
+/// `.luna-<uuid>` prefix its trash, thumbnails and backups still carry.
+///
+/// Only for a drive whose marker file is gone — callers check
+/// [`is_no_marker`] first, so a corrupt microdb is never replaced. A second
+/// caller that raced the first finds the marker already there and claims it
+/// in place (see [`create`]), which changes nothing.
+pub fn rebuild(root: &Path, marker: &Marker) -> anyhow::Result<Connection> {
+    let _guard = rebuild_lock().lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(path) = find_db_file(root) {
+        return open_file(&path);
+    }
+    let prefix = match prefix_in_use(root) {
+        Some(prefix) => prefix,
+        None => marker::pick_prefix(root)?,
+    };
+    create(root, marker, &prefix)
 }
 
 /// Create or claim the `{prefix}.sqlite3` microdb with identity, then apply
@@ -653,9 +734,70 @@ mod tests {
     #[test]
     fn open_refuses_a_drive_with_no_marker() {
         let dir = tempdir().unwrap();
-        assert!(open(dir.path()).is_err());
+        let err = open(dir.path()).unwrap_err();
+        assert!(is_no_marker(&err), "{err}");
         // And it must not have created any Luna files.
         assert!(marker::find_markers(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn rebuild_reuses_the_prefix_its_trash_still_carries() {
+        let dir = tempdir().unwrap();
+        let marker = Marker::new("drive-1", "Photos");
+        let prefix = marker::pick_prefix(dir.path()).unwrap();
+        create(dir.path(), &marker, &prefix).unwrap();
+        // Something the person deleted before the microdb went missing.
+        let trash = dir.path().join(format!("{prefix}-trash"));
+        std::fs::create_dir(&trash).unwrap();
+        std::fs::write(trash.join("1710000000-photo.jpg"), b"jpeg").unwrap();
+        // The marker file is what went missing — the trash stays.
+        std::fs::remove_file(dir.path().join(marker::marker_file_name(&prefix))).unwrap();
+        assert!(is_no_marker(&open(dir.path()).unwrap_err()));
+
+        let conn = rebuild(dir.path(), &marker).unwrap();
+        // Same prefix, so the trash dir is the same dir — not a new one.
+        assert_eq!(prefix_for(dir.path()).as_deref(), Some(prefix.as_str()));
+        assert_eq!(
+            find_db_file(dir.path()).unwrap(),
+            dir.path().join(format!("{prefix}.sqlite3"))
+        );
+        let id = read_identity(&conn).unwrap().unwrap();
+        assert_eq!(id.id, "drive-1", "the drive keeps its own id");
+        assert_eq!(id.label, "Photos");
+        // The rebuilt microdb is a working one: the full schema is there and
+        // the old trash entry is still on disk beside it.
+        let meta: i64 = conn
+            .query_row("SELECT COUNT(*) FROM trash_meta", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(meta, 0);
+        assert!(trash.join("1710000000-photo.jpg").is_file());
+        assert!(!dir.path().join(format!("{prefix}.sqlite3-wal")).exists());
+    }
+
+    #[test]
+    fn rebuild_leaves_a_corrupt_microdb_alone() {
+        let dir = tempdir().unwrap();
+        let marker = Marker::new("drive-1", "Photos");
+        let prefix = marker::pick_prefix(dir.path()).unwrap();
+        let path = dir.path().join(marker::marker_file_name(&prefix));
+        std::fs::write(&path, b"this is not a database").unwrap();
+
+        // A file that exists but cannot be read is a real error, never the
+        // "no marker" case that may be rebuilt.
+        let err = open(dir.path()).unwrap_err();
+        assert!(!is_no_marker(&err), "{err}");
+        // And rebuild refuses it too, rather than replacing the file.
+        assert!(rebuild(dir.path(), &marker).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"this is not a database");
+    }
+
+    #[test]
+    fn rebuild_with_nothing_left_over_picks_a_fresh_prefix() {
+        let dir = tempdir().unwrap();
+        let marker = Marker::new("drive-1", "Photos");
+        let conn = rebuild(dir.path(), &marker).unwrap();
+        assert_eq!(read_identity(&conn).unwrap().unwrap().id, "drive-1");
+        assert!(prefix_for(dir.path()).is_some());
     }
 
     #[test]

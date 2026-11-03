@@ -21,6 +21,7 @@ import {
   replacePhrase,
 } from "../../lib/cloudPhrase";
 import PhraseReplaceFlow from "./PhraseReplaceFlow.jsx";
+import PhraseSetupModal from "./PhraseSetupModal.jsx";
 import RecoveryPhraseCheck from "./RecoveryPhraseCheck.jsx";
 
 /** How often the card asks for status while Luna re-seals backups to the new phrase. */
@@ -236,11 +237,21 @@ export default function RecoveryPhraseCard() {
   } else if (status.isError) {
     body = <p className="px-4 py-3 text-primary text-sm">Could not load your recovery phrase. Try again later.</p>;
   } else if (!isSet) {
-    // Every account is asked for a phrase before it reaches the app, so this is only a stale read.
+    // A phrase is only needed for cloud backups, so this is the ordinary state until someone
+    // sets one up. Nothing blocks the app on it.
     body = (
-      <p className="px-4 py-3 text-primary text-sm">
-        Your recovery phrase isn't saved yet. Reload this page to set it up.
-      </p>
+      <SettingsRow
+        stack
+        label="Recovery phrase"
+        description="Cloud backups of your files can start once you set one up."
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusPill tone="bg-warning/20 border-warning/30">Not set up</StatusPill>
+          <Button variant="primary" size="sm" onClick={() => setDialog({ kind: "setup" })}>
+            Set up
+          </Button>
+        </div>
+      </SettingsRow>
     );
   } else {
     const setOn = formatDate(status.data?.set_at);
@@ -288,7 +299,7 @@ export default function RecoveryPhraseCard() {
           </SettingsRow>
         )}
         <div className="px-4 py-3">
-          <CollapsibleSection title="Lost your recovery phrase?" surface="secondary">
+          <CollapsibleSection title="Lost your recovery phrase?" mono pill surface="secondary">
             <p className="mb-3 text-primary text-sm">
               Get a new phrase without the old one. Private items backed up with the old phrase can't be opened anymore. Your shared cloud backups stay open to you.
             </p>
@@ -335,6 +346,9 @@ export default function RecoveryPhraseCard() {
         {deleteError && <p role="alert" className="mt-2 text-primary text-sm">{deleteError}</p>}
       </ConfirmModal>
 
+      {dialog?.kind === "setup" && (
+        <PhraseSetupModal open onClose={close} />
+      )}
       {dialog?.kind === "check" && (
         <RecoveryPhraseCheck
           verify={(phrase) => checkPhraseWords(phrase, lunaId).then(Boolean)}

@@ -8,8 +8,11 @@ const variants = {
     "surface-primary hover:bg-secondary hover:text-primary hover:ring-primary mt-5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
   inverted:
     "surface-secondary hover:bg-primary hover:text-secondary hover:ring-secondary mt-0 py-4 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
+  // Same height as `default`: a destructive row in a sheet must not stand
+  // taller than the actions around it. The old `py-4` made "Move to trash"
+  // half again the size of every other row in the same list.
   danger:
-    "bg-accent text-primary hover:bg-primary hover:text-accent hover:ring-accent mt-0 py-4 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
+    "bg-accent text-primary hover:bg-primary hover:text-accent hover:ring-accent mt-0 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
   nav: "text-primary hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
 };
 

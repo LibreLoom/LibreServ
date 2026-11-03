@@ -12,7 +12,7 @@ import PhraseWriteDown from "../cloud/PhraseWriteDown.jsx";
  * Setup step: make Luna's keys, show a new recovery phrase to write down, confirm three words, save.
  * Content only (SetupPage draws the card around it). `onSaved` runs once Luna has the phrase.
  * The phrase is never stored in the setup progress; only the browser holds it until it is saved.
- * PhraseGate reuses it with its own label, headings and opening line.
+ * The recovery phrase card and ProtectSheet reuse it with their own label, headings and opening line.
  * @param {{
  *   onSaved: () => unknown,
  *   saveLabel?: string,

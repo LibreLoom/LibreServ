@@ -157,7 +157,7 @@ export default function EuroOfficeHost({
     // presence hub (the docstorage engine inside the editor still runs).
     if (!driveId || !path || source.collab === false) return;
     const sock = new CollabSocket(driveId, path);
-    sock.onMessage = (msg) => {
+    sock.onMessage = (/** @type {import("../collabDocSync.js").CollabFrame} */ msg) => {
       if (msg?.type === "welcome") {
         setPeers(Array.isArray(msg.peers) ? msg.peers : []);
         setSelfPeerId(typeof msg.peer_id === "number" ? msg.peer_id : null);

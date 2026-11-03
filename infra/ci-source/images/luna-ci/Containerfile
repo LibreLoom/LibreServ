@@ -1,0 +1,68 @@
+# Toolchain for luna/ci.sh: Rust 1.99 (host + musl target), Node, the Android
+# SDK, and GTK 4 / libadwaita for the desktop crate.
+#
+# Everything luna/ci.sh needs is installed here so the test runs in a container
+# like every other ./ci test, instead of mutating the host's working tree (it
+# writes web/testing/results.json and the lunad contract fixtures) and depending
+# on whichever toolchains the host happens to have.
+#
+# The script's own `podman` calls degrade gracefully inside this image: the musl
+# smoke test falls back to running the binary directly, and the desktop lane
+# only shells out to cargo-in-container.sh when the host GTK is too old — here it
+# is new enough, so plain cargo is used.
+FROM docker.io/library/ubuntu@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:$PATH \
+    ANDROID_HOME=/opt/android-sdk \
+    ANDROID_SDK_ROOT=/opt/android-sdk
+
+# Build essentials, GTK 4.14 / libadwaita 1.5 (desktop), musl-gcc (static-pie
+# smoke test), and the small tools the CI script asserts with (readelf, file).
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+      build-essential pkg-config curl ca-certificates git bash \
+      libgtk-4-dev libadwaita-1-dev \
+      musl-tools binutils file xz-utils unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node for the web, connect/web and quick-start lanes. 26 is the current LTS.
+# Two things this needs from the test setup, both already in place:
+#   - foliate-js (the epub reader) calls Object.groupBy, which arrived in 21.
+#   - Node 26 adds a `localStorage` global that is undefined without
+#     --localstorage-file and shadows jsdom's; each package's test setup swaps
+#     in an in-memory Storage when it doesn't work.
+RUN curl --proto '=https' --tlsv1.2 -fsSL https://deb.nodesource.com/setup_26.x | bash - \
+    && apt-get install -y -qq --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Rust 1.99 with rustfmt (ci.sh runs `cargo fmt --check`) and clippy.
+RUN curl --proto '=https' --tlsv1.2 -fsSLo /tmp/rustup-init https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init \
+    && echo "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71  /tmp/rustup-init" | sha256sum -c - \
+    && chmod +x /tmp/rustup-init \
+    && /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain 1.99.0 \
+       --component rustfmt --component clippy \
+    && rm /tmp/rustup-init \
+    && rustup target add x86_64-unknown-linux-musl \
+    && chmod -R a+rwX /usr/local/rustup /usr/local/cargo
+
+# JDK 17 + Android SDK 34 for the mobile lane.
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends default-jdk-headless \
+    && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p $ANDROID_HOME/cmdline-tools && cd /tmp \
+    && curl -fsSLo tools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
+    && echo "2d2d50857e4eb553af5a6dc3ad507a17adf43d115264b1afc116f95c92e5e258  tools.zip" | sha256sum -c - \
+    && unzip -q tools.zip -d $ANDROID_HOME/cmdline-tools \
+    && mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest \
+    && rm tools.zip \
+    && yes | sdkmanager --licenses >/dev/null \
+    && sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" >/dev/null \
+    && chmod -R a+rwX $ANDROID_HOME
+
+# Gradle and npm caches live outside $HOME so a bind-mounted cache can own them.
+ENV GRADLE_USER_HOME=/cache/gradle \
+    ANDROID_USER_HOME=/cache/android \
+    npm_config_cache=/cache/npm
+
+WORKDIR /repo

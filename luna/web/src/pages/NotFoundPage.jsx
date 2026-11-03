@@ -51,6 +51,19 @@ import usePageTitle from "../hooks/usePageTitle.js";
    Where people meant to go
    ====================================================================== */
 
+/**
+ * One "Did you mean" row: a destination plus the match metadata
+ * `scoreKnownPages` attaches.
+ *
+ * @typedef {{
+ *   to: string,
+ *   label: string,
+ *   icon?: import("react").ElementType,
+ *   adminOnly?: boolean,
+ *   match?: string,
+ * }} SuggestedPage
+ */
+
 // Mirrors the Navbar. `aliases` are words people type for the same page.
 // Home and Sign in are left out: "Where to next" always offers one of them.
 const DESTINATIONS = [
@@ -363,7 +376,10 @@ export default function NotFoundPage() {
   );
 
   const suggestions = useMemo(
-    () => bestDistinctMatches(scoreKnownPages(pathname, candidatesFor(user))),
+    () =>
+      /** @type {SuggestedPage[]} */ (
+        bestDistinctMatches(scoreKnownPages(pathname, candidatesFor(user)))
+      ),
     [pathname, user],
   );
 

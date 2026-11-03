@@ -17,8 +17,11 @@ function jsonResponse(body, status = 200) {
 }
 
 let mockRole = "admin";
+const refresh = vi.fn();
 vi.mock("../../context/AuthContext", () => ({
   useOptionalAuth: () => ({ user: { id: "42", role: mockRole } }),
+  // The Set up dialog makes a phrase, which re-reads the account afterwards.
+  useAuth: () => ({ user: { id: "42", role: mockRole }, refresh }),
 }));
 
 function stubStatus(status) {
@@ -50,21 +53,30 @@ describe("RecoveryPhraseCard", () => {
     expect(screen.getByText("Checking your recovery phrase…")).toBeInTheDocument();
   });
 
-  it("has no Not set up state: an unset phrase says to reload, with no Set up button", async () => {
+  it("offers a Not set up state with a Set up button when no phrase is saved", async () => {
     stubStatus({ set: false, set_at: null, luna_id: "luna-1" });
     renderCard();
 
-    expect(await screen.findByText("Your recovery phrase isn't saved yet. Reload this page to set it up.")).toBeInTheDocument();
-    expect(screen.queryByText("Not set up")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Set up" })).toBeNull();
+    expect(await screen.findByText("Not set up")).toBeInTheDocument();
+    expect(screen.getByText("Cloud backups of your files can start once you set one up.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Set up" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Change phrase" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Check my phrase" })).toBeNull();
   });
 
-  it("gives a Member no 'shared backups wait for an Admin' line", async () => {
+  it("opens the phrase dialog from Set up", async () => {
+    const user = userEvent.setup();
+    stubStatus({ set: false, set_at: null, luna_id: "luna-1" });
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Set up" }));
+    expect(await screen.findByRole("dialog", { name: "Set up your recovery phrase" })).toBeInTheDocument();
+  });
+
+  it("gives a Member the same Not set up state, with no 'shared backups' line", async () => {
     mockRole = "member";
     stubStatus({ set: false, set_at: null, luna_id: "luna-1" });
     renderCard();
-    await screen.findByText(/Reload this page/);
+    await screen.findByText("Not set up");
     expect(screen.queryByText(/Shared backups also wait/)).toBeNull();
   });
 
@@ -186,7 +198,8 @@ describe("RecoveryPhraseCard", () => {
 
     expect(await screen.findByRole("heading", { name: "Get a new phrase?" })).toBeInTheDocument();
     expect(screen.getByText("Private items backed up with your old phrase can't be opened anymore.")).toBeInTheDocument();
-  });});
+  });
+});
 
 // ── Replacing and checking the phrase ────────────────────────────────────────
 

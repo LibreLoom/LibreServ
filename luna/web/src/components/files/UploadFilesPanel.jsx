@@ -13,6 +13,12 @@ import { haptic } from "@libreloom/ui/utils/haptics.js";
 const FOLDER_INPUT = { webkitdirectory: "" };
 
 /**
+ * The picker hands back a flat list of files, so an empty folder inside the
+ * picked one never reaches us. Say so where the choice is made.
+ */
+const PICK_FOLDER_NOTE = "Empty folders inside the one you pick aren't copied. Drag the folder in instead.";
+
+/**
  * @param {{
  *   onUploadFiles: (input: { dropped: import("../../lib/collectUploadFiles.js").DroppedItems } | { files: File[] }) => void,
  *   onMovePaths?: (paths: string[], sourceDriveId?: string) => void,
@@ -33,6 +39,8 @@ export default function UploadFilesPanel({
   children,
 }) {
   const [dragOver, setDragOver] = useState(false);
+  /** @type {[string|null, import("react").Dispatch<import("react").SetStateAction<string|null>>]} */
+  const [pickNotice, setPickNotice] = useState(/** @type {string|null} */ (null));
   const fileInputRef = useRef(/** @type {HTMLInputElement|null} */ (null));
   const folderInputRef = useRef(/** @type {HTMLInputElement|null} */ (null));
   const canPickFolder = typeof document !== "undefined" && "webkitdirectory" in document.createElement("input");
@@ -42,6 +50,7 @@ export default function UploadFilesPanel({
   return (
     <Card title={title}>
       {shownError && <PageNotice variant="error" className="mb-3">{shownError}</PageNotice>}
+      {pickNotice && <PageNotice variant="info" className="mb-3">{pickNotice}</PageNotice>}
       <div
         className={cn(
           "flex flex-col items-center justify-center gap-3 rounded-large-element border-2 border-dashed border-secondary/30 surface-primary p-8 motion-safe:transition-colors motion-safe:duration-150",
@@ -110,6 +119,7 @@ export default function UploadFilesPanel({
             </Button>
           ) : null}
         </div>
+        {canPickFolder ? <p className="text-xs text-secondary">{PICK_FOLDER_NOTE}</p> : null}
         <input
           ref={fileInputRef}
           type="file"
@@ -135,8 +145,15 @@ export default function UploadFilesPanel({
             aria-label="Add a folder"
             onChange={(e) => {
               const files = filesFromFileList(e.target.files);
+              // Reset so picking the same folder again fires `change` again.
               e.target.value = "";
-              if (files.length) onUploadFiles({ files });
+              if (files.length) {
+                onUploadFiles({ files });
+                return;
+              }
+              // An empty folder (or one holding only empty folders) gives the
+              // picker nothing to hand over. Say so instead of doing nothing.
+              setPickNotice("That folder has no files in it. The folder picker can't copy empty folders — drag the folder in instead.");
             }}
           />
         ) : null}

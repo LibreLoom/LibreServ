@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
   Check,
@@ -11,12 +11,10 @@ import {
   Pencil,
   Trash2,
   Users,
-  Zap,
 } from "lucide-react";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
-import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import CardButton from "@libreloom/ui/components/ui/CardButton.jsx";
+import RowActionMenu from "@libreloom/ui/components/ui/RowActionMenu.jsx";
 import AnimatedCheckbox from "@libreloom/ui/components/ui/AnimatedCheckbox.jsx";
 import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -62,6 +60,7 @@ function FileRow({
   hasDelete,
   enableDownload,
   renderRowActions,
+  renderRowSheetActions = undefined,
   folderHref,
   fileHref,
   api,
@@ -72,7 +71,6 @@ function FileRow({
 }) {
   const source = useFileSource();
   const isSmUp = useIsSmUp();
-  const [sheetOpen, setSheetOpen] = useState(false);
   const displayName = displayNameOf(entry);
   const fullPath = fileRoot ? path : joinPath(path, entry.name);
   const ctx = useMemo(
@@ -103,7 +101,99 @@ function FileRow({
     }
     : {};
 
+  // One action list for both sizes: icon buttons in the row on wide screens,
+  // labeled rows in the phone sheet. `aria` is the icon's accessible name,
+  // which is not always the sheet's label.
+  const canShareRow = hasShare && (capsBits(entry.caps || "") & CAP.SHARE) !== 0;
+  const canDownload = enableDownload && (entry.kind === "file" || isDir);
+  const actions = [];
+  // The share bit is per-entry: a view-only member sees the row but never the
+  // Sharing button. Entries without stamped caps fail closed.
+  if (canShareRow) {
+    actions.push({
+      key: "share",
+      label: "Sharing",
+      aria: `Sharing for ${displayName}`,
+      icon: Users,
+      // The row has always spelled this one out; the sheet says the same word.
+      text: true,
+      run: () => api.share(ctx),
+    });
+  }
+  if (hasCopy) {
+    actions.push({
+      key: "copy",
+      label: "Copy",
+      aria: `Copy ${displayName}`,
+      icon: Copy,
+      run: () => api.copy([fullPath]),
+    });
+  }
+  if (hasMove) {
+    actions.push({
+      key: "move",
+      label: "Move",
+      aria: `Move ${displayName}`,
+      icon: FolderInput,
+      run: () => api.move([fullPath]),
+    });
+  }
+  if (hasRename) {
+    actions.push({
+      key: "rename",
+      label: "Rename",
+      aria: `Rename ${displayName}`,
+      icon: Pencil,
+      run: () => api.rename(ctx),
+    });
+  }
+  if (canDownload) {
+    actions.push({
+      key: "download",
+      label: "Download",
+      aria: `Download ${displayName}`,
+      icon: Download,
+      href: source.downloadHref(driveId, fullPath, entry.kind),
+      run: () => window.location.assign(source.downloadHref(driveId, fullPath, entry.kind)),
+    });
+  }
+  // The row renders Properties itself, beside the action row, so it is only
+  // in the sheet's list.
+  actions.push({
+    key: "properties",
+    label: "Properties",
+    aria: `Properties for ${displayName}`,
+    icon: Info,
+    rowHidden: true,
+    run: () => api.openProperties(ctx),
+  });
+  if (hasDelete) {
+    actions.push({
+      key: "delete",
+      label: "Move to trash",
+      aria: `Move ${displayName} to trash`,
+      icon: Trash2,
+      danger: true,
+      run: () => api.remove([fullPath]),
+    });
+  }
+
   function renderActions() {
+    // Phones get one lightning button that opens every action, as in search
+    // results. This must come before renderRowActions: the explorer supplies
+    // its own action row, and on a phone that row is a wall of buttons that
+    // squeezes the file name down to nothing.
+    if (!isSmUp && !isPicker) {
+      return (
+        <RowActionMenu
+          label={displayName}
+          actions={actions}
+          renderSheet={renderRowSheetActions ? (close) => renderRowSheetActions(ctx, close) : undefined}
+          surface={surface}
+        />
+      );
+    }
+
     if (renderRowActions) return renderRowActions(ctx);
     if (isPicker) {
       const canPick = pickerMode === "any"
@@ -125,126 +215,54 @@ function FileRow({
       );
     }
 
-    // Phones: one lightning button opens every action, as in search results.
-    if (!isSmUp) {
-      return (
-        <Button
-          variant="outline"
-          surface={surface}
-          size="icon"
-          className="size-11"
-          aria-label={`Actions for ${displayName}`}
-          aria-haspopup="dialog"
-          onClick={() => setSheetOpen(true)}
-        >
-          <Zap size={24} aria-hidden="true" />
-        </Button>
-      );
-    }
-
-    const actions = [];
-    // The share bit is per-entry: a view-only member sees the row but
-    // never the Sharing button. Entries without stamped caps fail closed.
-    if (hasShare && (capsBits(entry.caps || "") & CAP.SHARE) !== 0) {
-      actions.push(
-        <Button
-          key="share"
-          variant="ghost"
-          surface={surface}
-          size="sm"
-          onClick={() => api.share(ctx)}
-        >
-          Sharing
-        </Button>,
-      );
-    }
-    if (hasCopy) {
-      actions.push(
-        <Tooltip key="copy" content="Copy">
-          <Button
-            variant="ghost"
-            surface={surface}
-            size="iconSm"
-            aria-label={`Copy ${displayName}`}
-            onClick={() => api.copy([fullPath])}
-          >
-            <Copy size={14} />
-          </Button>
-        </Tooltip>,
-      );
-    }
-    if (hasMove) {
-      actions.push(
-        <Tooltip key="move" content="Move">
-          <Button
-            variant="ghost"
-            surface={surface}
-            size="iconSm"
-            aria-label={`Move ${displayName}`}
-            onClick={() => api.move([fullPath])}
-          >
-            <FolderInput size={14} />
-          </Button>
-        </Tooltip>,
-      );
-    }
-    if (hasRename) {
-      actions.push(
-        <Tooltip key="rename" content="Rename">
-          <Button
-            variant="ghost"
-            surface={surface}
-            size="iconSm"
-            aria-label={`Rename ${displayName}`}
-            onClick={() => api.rename(ctx)}
-          >
-            <Pencil size={14} />
-          </Button>
-        </Tooltip>,
-      );
-    }
-    if (hasDelete) {
-      actions.push(
-        <Tooltip key="delete" content="Move to trash">
-          <Button
-            variant="ghost"
-            surface={surface}
-            size="iconSm"
-            aria-label={`Move ${displayName} to trash`}
-            onClick={() => api.remove([fullPath])}
-          >
-            <Trash2 size={14} />
-          </Button>
-        </Tooltip>,
-      );
-    }
-    if (enableDownload && (entry.kind === "file" || isDir)) {
-      actions.push(
-        <Tooltip key="download" content="Download">
-          <Button
-            variant="ghost"
-            surface={surface}
-            size="iconSm"
-            asChild
-            aria-label={`Download ${displayName}`}
-          >
-            <a href={source.downloadHref(driveId, fullPath, entry.kind)}>
-              <Download size={14} />
-            </a>
-          </Button>
-        </Tooltip>,
-      );
-    }
-    return actions.length ? (
+    const rowActions = actions.filter((action) => !action.rowHidden);
+    return rowActions.length ? (
       <ActionTooltipGroup>
-        <div className="flex items-center gap-0.5 flex-wrap justify-end">{actions}</div>
+        <div className="flex items-center gap-0.5 flex-wrap justify-end">
+          {rowActions.map(({ key, label, aria, icon: Icon, href, run, text }) => (
+            text ? (
+              <Button
+                key={key}
+                variant="ghost"
+                surface={surface}
+                size="sm"
+                aria-label={aria}
+                onClick={run}
+              >
+                {label}
+              </Button>
+            ) : (
+              <Tooltip key={key} content={label}>
+                {href ? (
+                  <Button
+                    variant="ghost"
+                    surface={surface}
+                    size="iconSm"
+                    asChild
+                    aria-label={aria}
+                  >
+                    <a href={href}>
+                      <Icon size={14} />
+                    </a>
+                  </Button>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    surface={surface}
+                    size="iconSm"
+                    aria-label={aria}
+                    onClick={run}
+                  >
+                    <Icon size={14} />
+                  </Button>
+                )}
+              </Tooltip>
+            )
+          ))}
+        </div>
       </ActionTooltipGroup>
     ) : null;
   }
-
-  const phoneActions = !isSmUp && !renderRowActions && !isPicker;
-  const canShareRow = hasShare && (capsBits(entry.caps || "") & CAP.SHARE) !== 0;
-  const canDownload = enableDownload && (entry.kind === "file" || isDir);
 
   const Icon = isDir ? Folder : FileIcon;
   const label = (
@@ -397,59 +415,6 @@ function FileRow({
           />
         )}
       </div>
-      {phoneActions ? (
-        <ModalCard open={sheetOpen} title={displayName} size="sm" onClose={() => setSheetOpen(false)}>
-          {({ close }) => {
-            const run = (fn) => () => {
-              close();
-              fn();
-            };
-            return (
-              <div className="grid gap-2">
-                {canShareRow && (
-                  <CardButton actionLabel="Sharing" icon={Users} align="start" className="mt-0" onClick={run(() => api.share(ctx))}>
-                    Sharing
-                  </CardButton>
-                )}
-                {hasCopy && (
-                  <CardButton actionLabel="Copy" icon={Copy} align="start" className="mt-0" onClick={run(() => api.copy([fullPath]))}>
-                    Copy
-                  </CardButton>
-                )}
-                {hasMove && (
-                  <CardButton actionLabel="Move" icon={FolderInput} align="start" className="mt-0" onClick={run(() => api.move([fullPath]))}>
-                    Move
-                  </CardButton>
-                )}
-                {hasRename && (
-                  <CardButton actionLabel="Rename" icon={Pencil} align="start" className="mt-0" onClick={run(() => api.rename(ctx))}>
-                    Rename
-                  </CardButton>
-                )}
-                {canDownload && (
-                  <CardButton
-                    actionLabel="Download"
-                    icon={Download}
-                    align="start"
-                    className="mt-0"
-                    onClick={run(() => window.location.assign(source.downloadHref(driveId, fullPath, entry.kind)))}
-                  >
-                    Download
-                  </CardButton>
-                )}
-                <CardButton actionLabel="Properties" icon={Info} align="start" className="mt-0" onClick={run(() => api.openProperties(ctx))}>
-                  Properties
-                </CardButton>
-                {hasDelete && (
-                  <CardButton variant="danger" actionLabel="Move to trash" icon={Trash2} align="start" className="mt-0 py-2" onClick={run(() => api.remove([fullPath]))}>
-                    Move to trash
-                  </CardButton>
-                )}
-              </div>
-            );
-          }}
-        </ModalCard>
-      ) : null}
     </li>
   );
 }

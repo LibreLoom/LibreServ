@@ -27,6 +27,7 @@ import PhotoLightbox, {
 import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 
+/** @typedef {import("../components/gallery/PhotoThumb.jsx").GalleryPhoto} GalleryPhoto */
 
 function isMediaName(name) {
   return /\.(jpe?g|png|gif|webp|avif|heic|heif|mp4|mov|webm|mkv|avi|m4v)$/i.test(name || "");
@@ -107,7 +108,10 @@ function PublicShareSession() {
       last?.has_more ? (last.next_offset ?? (last.items?.length || 0)) : undefined,
   });
   const albumPages = useMemo(() => album.data?.pages || [], [album.data?.pages]);
-  const albumItems = useMemo(() => albumPages.flatMap((p) => p.items || []), [albumPages]);
+  const albumItems = useMemo(
+    () => /** @type {GalleryPhoto[]} */ (albumPages.flatMap((p) => p.items || [])),
+    [albumPages],
+  );
   const selection = useMultiSelect({ items: albumItems });
 
   const loadMore = useCallback(() => {
@@ -264,7 +268,7 @@ function PublicShareSession() {
     return photo?.download || photo?.content || photo?.thumb || "";
   }
   function downloadSelected() {
-    for (const photo of selection.selectedItems) {
+    for (const photo of /** @type {GalleryPhoto[]} */ (selection.selectedItems)) {
       const href = albumDownloadSrc(photo);
       if (!href) continue;
       const a = document.createElement("a");

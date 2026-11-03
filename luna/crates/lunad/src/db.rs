@@ -251,6 +251,23 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
     )?;
     // Thin upgrade path for boxes that already had an older CREATE.
     ensure_column(&conn, "drives", "mount_point", "TEXT NOT NULL DEFAULT ''")?;
+    // Encryption. `encrypted` is a property of the drive on disk; `locked` is
+    // whether its container is open right now, which is false after every boot
+    // because the key only ever lived in the kernel. `converting` marks a drive
+    // held exclusively by an in-place conversion.
+    ensure_column(&conn, "drives", "encrypted", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(&conn, "drives", "locked", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(&conn, "drives", "converting", "INTEGER NOT NULL DEFAULT 0")?;
+    // A format only runs inside this process, so a `converting` flag found at
+    // startup belongs to a run that died with the last one — a crash or a power
+    // cut. Nothing will ever clear it, and `drive_root()` refuses a converting
+    // drive, so leaving it set locks the drive out of the UI permanently.
+    // Clearing it is safe: the disk is either fully formatted or not, and the
+    // drive is re-probed on the next scan either way.
+    let _ = conn.execute("UPDATE drives SET converting = 0 WHERE converting != 0", []);
+    // Trim the tables that otherwise grow without bound. Cheap, and it runs
+    // before anything can read them.
+    let _ = trim_housekeeping(&conn);
     // Legacy eMMC photos table (pre on-drive .lunagallery) — drop if present.
     let _ = conn.execute_batch("DROP TABLE IF EXISTS photos;");
     ensure_column(
@@ -336,6 +353,48 @@ pub struct DriveRow {
     pub fs_type: String,
     pub device: String,
     pub mount_point: String,
+    /// The drive on disk is a LUKS2 container. A property of the drive, not of
+    /// the session: it stays true while the drive is locked.
+    pub encrypted: bool,
+    /// The container is not open, so there is nothing mounted and no files can
+    /// be read. False after every boot — the key only ever lived in the kernel.
+    pub locked: bool,
+    /// An in-place conversion holds this drive exclusively.
+    pub converting: bool,
+}
+
+impl DriveRow {
+    /// The drive is present and healthy, but its container is not open.
+    pub fn is_locked(&self) -> bool {
+        self.encrypted && self.locked
+    }
+
+    /// Files can be read right now: present, mounted, not locked, and not
+    /// mid-conversion.
+    pub fn is_readable(&self) -> bool {
+        !self.mount_point.is_empty()
+            && self.state != "missing"
+            && self.state != "ejected"
+            && !self.locked
+            && !self.converting
+    }
+}
+
+const DRIVE_COLS: &str =
+    "id, label, state, fs_type, device, mount_point, encrypted, locked, converting";
+
+fn drive_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DriveRow> {
+    Ok(DriveRow {
+        id: row.get(0)?,
+        label: row.get(1)?,
+        state: row.get(2)?,
+        fs_type: row.get(3)?,
+        device: row.get(4)?,
+        mount_point: row.get(5)?,
+        encrypted: row.get::<_, i64>(6)? != 0,
+        locked: row.get::<_, i64>(7)? != 0,
+        converting: row.get::<_, i64>(8)? != 0,
+    })
 }
 
 pub fn now_unix() -> i64 {
@@ -344,6 +403,60 @@ pub fn now_unix() -> i64 {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
 }
+
+/// How many finished jobs to keep per user.
+///
+/// The jobs list is a progress view, not a history: the UI asks for a page of
+/// recent rows and nothing reads an old one. Every copy, move and delete ever
+/// run used to stay forever, which is both unbounded growth on a small OS disk
+/// and a permanent log of every path a household touched.
+pub const JOBS_KEPT_PER_USER: i64 = 100;
+
+/// Finished jobs older than this are dropped regardless of the per-user cap,
+/// so a household that never runs anything still sheds its old rows.
+pub const JOBS_MAX_AGE_SECS: i64 = 30 * 24 * 60 * 60;
+
+/// Trim the bookkeeping tables that have no natural bound.
+///
+/// Called once at startup. Each step is independent and best-effort: a failure
+/// here must never stop Luna from opening its own database.
+fn trim_housekeeping(conn: &Connection) -> rusqlite::Result<()> {
+    let now = now_unix();
+    // Finished jobs: keep the newest few per user, and drop anything old.
+    // A running job is never touched — it is the only record that it exists.
+    // Ranked per user with a window function, so the cap is per person rather
+    // than a global cut that one busy user could consume.
+    conn.execute(
+        "DELETE FROM jobs
+         WHERE state != 'running'
+           AND (created_at < ?1
+                OR id IN (
+                    SELECT id FROM (
+                        SELECT id,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY user_id ORDER BY created_at DESC
+                               ) AS rank
+                        FROM jobs
+                        WHERE state != 'running'
+                    )
+                    WHERE rank > ?2
+                ))",
+        params![now - JOBS_MAX_AGE_SECS, JOBS_KEPT_PER_USER],
+    )?;
+    // Rate-limit buckets only mean anything while their window or lock is
+    // live. Expired ones are dead weight keyed by raw IP.
+    conn.execute(
+        "DELETE FROM rate_limit_buckets
+         WHERE locked_until < ?1
+           AND window_start < ?2",
+        params![now, now - RATE_LIMIT_BUCKET_MAX_AGE_SECS],
+    )?;
+    Ok(())
+}
+
+/// How long a rate-limit bucket outlives its last use. Long enough that no
+/// live window can be dropped, short enough that the table stays small.
+const RATE_LIMIT_BUCKET_MAX_AGE_SECS: i64 = 24 * 60 * 60;
 
 fn ensure_column(conn: &Connection, table: &str, column: &str, decl: &str) -> anyhow::Result<()> {
     let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
@@ -362,36 +475,17 @@ fn ensure_column(conn: &Connection, table: &str, column: &str, decl: &str) -> an
 }
 
 pub fn list_drives(conn: &Connection) -> anyhow::Result<Vec<DriveRow>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT id, label, state, fs_type, device, mount_point FROM drives ORDER BY label, id",
-    )?;
-    let rows = stmt.query_map([], |row| {
-        Ok(DriveRow {
-            id: row.get(0)?,
-            label: row.get(1)?,
-            state: row.get(2)?,
-            fs_type: row.get(3)?,
-            device: row.get(4)?,
-            mount_point: row.get(5)?,
-        })
-    })?;
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT {DRIVE_COLS} FROM drives ORDER BY label, id"
+    ))?;
+    let rows = stmt.query_map([], drive_from_row)?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
 pub fn get_drive(conn: &Connection, id: &str) -> anyhow::Result<Option<DriveRow>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT id, label, state, fs_type, device, mount_point FROM drives WHERE id = ?1",
-    )?;
-    let mut rows = stmt.query_map(params![id], |row| {
-        Ok(DriveRow {
-            id: row.get(0)?,
-            label: row.get(1)?,
-            state: row.get(2)?,
-            fs_type: row.get(3)?,
-            device: row.get(4)?,
-            mount_point: row.get(5)?,
-        })
-    })?;
+    let mut stmt =
+        conn.prepare_cached(&format!("SELECT {DRIVE_COLS} FROM drives WHERE id = ?1"))?;
+    let mut rows = stmt.query_map(params![id], drive_from_row)?;
     Ok(rows.next().transpose()?)
 }
 
@@ -440,6 +534,63 @@ pub fn set_drive_state(conn: &Connection, id: &str, state: &str) -> anyhow::Resu
     conn.execute(
         "UPDATE drives SET state = ?2, updated_at = ?3 WHERE id = ?1",
         params![id, state, now_unix()],
+    )?;
+    Ok(())
+}
+
+/// Record whether the drive's container is open. Locking also clears the mount
+/// point: a locked drive has nothing mounted, and leaving a stale path behind
+/// would let a file operation reach an empty directory and blame the drive.
+pub fn set_drive_locked(conn: &Connection, id: &str, locked: bool) -> anyhow::Result<()> {
+    if locked {
+        conn.execute(
+            "UPDATE drives SET locked = 1, mount_point = '', updated_at = ?2 WHERE id = ?1",
+            params![id, now_unix()],
+        )?;
+    } else {
+        conn.execute(
+            "UPDATE drives SET locked = 0, updated_at = ?2 WHERE id = ?1",
+            params![id, now_unix()],
+        )?;
+    }
+    Ok(())
+}
+
+/// Mark a drive as encrypted (or not) and, for a fresh format, unlocked.
+pub fn set_drive_encrypted(conn: &Connection, id: &str, encrypted: bool) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE drives SET encrypted = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, if encrypted { 1 } else { 0 }, now_unix()],
+    )?;
+    Ok(())
+}
+
+/// Record where a reformatted drive is mounted, without touching its
+/// encryption flags. Used after a wipe, when the drive keeps its identity but
+/// gets a fresh mount point.
+pub fn set_drive_mount_point(conn: &Connection, id: &str, mount_point: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE drives SET mount_point = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, mount_point, now_unix()],
+    )?;
+    Ok(())
+}
+
+/// Record the filesystem a reformat put on the drive, so the next mount and
+/// the encryption page describe it correctly without waiting for a rescan.
+pub fn set_drive_fs_type(conn: &Connection, id: &str, fs_type: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE drives SET fs_type = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, fs_type, now_unix()],
+    )?;
+    Ok(())
+}
+
+/// Hold the drive exclusively for a conversion, or release it.
+pub fn set_drive_converting(conn: &Connection, id: &str, converting: bool) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE drives SET converting = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, if converting { 1 } else { 0 }, now_unix()],
     )?;
     Ok(())
 }
@@ -1268,14 +1419,19 @@ pub fn get_protection(conn: &Connection, id: &str) -> anyhow::Result<Option<Prot
 }
 
 /// The backup that has taken over `row`: the nearest backup of a parent folder of the same kind,
-/// from the same drive to the same place, with the same privacy (a shared parent never holds a
-/// private item inside it). Only a parent that is running and has finished its first copy counts,
-/// so until then the child stays the up-to-date copy. When that parent is stopped or deleted the
+/// from the same drive to the same place. A shared parent's backup holds a shared folder inside
+/// it, but a private folder is always its own backup: it ignores every parent backup, the private
+/// item's included. Only a parent that is running and has finished its first copy counts, so
+/// until then the child stays the up-to-date copy. When that parent is stopped or deleted the
 /// child is no longer covered and runs again.
 pub fn covering_protection(
     conn: &Connection,
     row: &ProtectionRow,
 ) -> anyhow::Result<Option<ProtectionRow>> {
+    // A private folder is never covered by a bigger backup, so it always runs on its own.
+    if !row.private_owner.is_empty() {
+        return Ok(None);
+    }
     let child = crate::access::normalize_subject_path(&row.source_path);
     if child.is_empty() {
         return Ok(None);
@@ -2995,6 +3151,21 @@ mod tests {
         add("cloud-child", PROTECTION_CLOUD, "docs/sub", "", "");
         add("private-child", PROTECTION_DRIVE, "docs/vault", "b1", "ann");
         add("sibling", PROTECTION_DRIVE, "docsy", "b1", "");
+        // A private item and a folder inside it, both owned by the same person.
+        add(
+            "private-parent",
+            PROTECTION_DRIVE,
+            "docs/secret",
+            "b1",
+            "ann",
+        );
+        add(
+            "inside-private",
+            PROTECTION_DRIVE,
+            "docs/secret/inner",
+            "b1",
+            "ann",
+        );
         let row = |id: &str| get_protection(&conn, id).unwrap().unwrap();
         let covered = |id: &str| covering_protection(&conn, &row(id)).unwrap().map(|p| p.id);
 
@@ -3011,6 +3182,13 @@ mod tests {
         // The parent itself is never covered by itself.
         assert_eq!(covered("parent"), None);
 
+        // A private folder is its own backup, so even a finished backup of the
+        // private item it sits in never covers it.
+        record_protection_ok(&conn, "private-parent", 5, "{}").unwrap();
+        assert_eq!(covered("inside-private"), None);
+        // A shared parent never holds a private item either.
+        assert_eq!(covered("private-parent"), None);
+
         // A stopped parent gives the child back; so does a deleted one.
         set_protection_state(
             &conn,
@@ -3024,6 +3202,42 @@ mod tests {
         assert_eq!(covered("child"), Some("parent".to_string()));
         delete_protection(&conn, "parent").unwrap();
         assert_eq!(covered("child"), None);
+    }
+
+    #[test]
+    fn a_private_folder_is_never_covered_by_a_parent_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        let add = |id: &str, kind: &str, path: &str, target: &str, owner: &str| {
+            insert_protection(
+                &conn,
+                &NewProtection {
+                    kind,
+                    target_drive: target,
+                    private_owner: owner,
+                    ..new_protection(id, "d1", path)
+                },
+            )
+            .unwrap();
+        };
+        // The private item "Diary" and a folder inside it, both Ann's.
+        add("diary", PROTECTION_DRIVE, "Diary", "b1", "ann");
+        add("diary-2025", PROTECTION_DRIVE, "Diary/2025", "b1", "ann");
+        // The same shape, shared: no owner on either row.
+        add("docs", PROTECTION_DRIVE, "Docs", "b1", "");
+        add("docs-sub", PROTECTION_DRIVE, "Docs/Sub", "b1", "");
+        let row = |id: &str| get_protection(&conn, id).unwrap().unwrap();
+        let covered = |id: &str| covering_protection(&conn, &row(id)).unwrap().map(|p| p.id);
+
+        record_protection_ok(&conn, "diary", 5, "{}").unwrap();
+        record_protection_ok(&conn, "docs", 5, "{}").unwrap();
+
+        // A private folder runs on its own, even with the item's backup finished.
+        assert_eq!(covered("diary-2025"), None);
+        // A shared folder inside a shared parent is still covered.
+        assert_eq!(covered("docs-sub"), Some("docs".to_string()));
+        // The private item itself is never covered by itself either.
+        assert_eq!(covered("diary"), None);
     }
 
     #[test]

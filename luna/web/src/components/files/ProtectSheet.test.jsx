@@ -634,9 +634,12 @@ describe("ProtectSheet", () => {
       connect: { connect_active: true },
       cloudBackups: [],
       privateItem: { private: true, inside_private: true, mine: true, owner_name: "Max" },
+      // The private item's own backup never holds this folder (db::covering_protection).
+      covered: [],
     });
     renderSheet();
     expect(await screen.findByText("This folder is private, so only you can back it up.")).toBeInTheDocument();
+    expect(screen.queryByText(/Included in the backup of/)).not.toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Choose a drive" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Back up to the cloud" })).toBeInTheDocument();
   });
@@ -767,10 +770,10 @@ describe("ProtectSheet", () => {
 });
 
 describe("ProtectButton", () => {
-  describe("starting a cloud backup without a phrase step", () => {
+  describe("starting a cloud backup with a phrase step", () => {
     const connected = { connect_active: true, card_on_file: true };
 
-    it("starts the backup straight away, once", async () => {
+    it("starts the backup straight away when a phrase is saved, once", async () => {
       const user = userEvent.setup();
       const onCloudCreate = vi.fn();
       stubBackupApi({ connect: connected, onCloudCreate });
@@ -781,28 +784,31 @@ describe("ProtectButton", () => {
       expect(await screen.findByText("Cloud backup started.")).toBeInTheDocument();
     });
 
-    it("shows Luna's message inline on a 409 needs_phrase, and opens no setup", async () => {
+    it("asks for a recovery phrase first when none is saved, and creates nothing", async () => {
       const user = userEvent.setup();
-      const message = "You need a recovery phrase first. Reload this page to set one up.";
+      const onCloudCreate = vi.fn();
       stubBackupApi({
         connect: connected,
-        cloudCreateReply: { status: 409, body: { error: message, code: "needs_phrase" } },
+        onCloudCreate,
+        phrase: { set: false, set_at: 0, luna_id: "luna-1", signing_public: "sig" },
       });
       renderSheet();
       await user.click(await screen.findByRole("button", { name: "Back up to the cloud" }));
-      expect(await screen.findByText(message)).toBeInTheDocument();
-      expect(screen.queryByRole("dialog", { name: "Phrase setup" })).not.toBeInTheDocument();
+      expect(await screen.findByRole("dialog", { name: "Set up your recovery phrase" })).toBeInTheDocument();
+      expect(onCloudCreate).not.toHaveBeenCalled();
       expect(screen.queryByText("Cloud backup started.")).not.toBeInTheDocument();
     });
 
-    it("does not look up the phrase before starting", async () => {
+    it("opens the phrase setup when Luna refuses with 409 needs_phrase anyway", async () => {
       const user = userEvent.setup();
-      stubBackupApi({ connect: connected });
+      stubBackupApi({
+        connect: connected,
+        cloudCreateReply: { status: 409, body: { error: "Set up your recovery phrase first, then start the cloud backup.", code: "needs_phrase" } },
+      });
       renderSheet();
       await user.click(await screen.findByRole("button", { name: "Back up to the cloud" }));
-      await screen.findByText("Cloud backup started.");
-      const paths = vi.mocked(globalThis.fetch).mock.calls.map(([url]) => String(typeof url === "string" ? url : /** @type {any} */ (url)?.url));
-      expect(paths.some((u) => u.startsWith("/api/v1/cloud/phrase") || u.startsWith("/api/v1/cloud/identity"))).toBe(false);
+      expect(await screen.findByRole("dialog", { name: "Set up your recovery phrase" })).toBeInTheDocument();
+      expect(screen.queryByText("Cloud backup started.")).not.toBeInTheDocument();
     });
 
     it("sends only one backup request on rapid clicks", async () => {

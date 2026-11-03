@@ -61,12 +61,82 @@ func TestEgressOverageGB(t *testing.T) {
 }
 
 func TestEstimateMonthUSDIncludesEgress(t *testing.T) {
-	avg := int64(BytesPerTB) // 1 TB → $8 storage
+	avg := int64(BytesPerTB) // 1 TB → $8 storage, already above the minimum
 	// 4 TB egress with 1 TB avg → free 3 TB, overage 1 TB = 1000 GB × $0.01 = $10
 	got := EstimateMonthUSD(avg, 4*BytesPerTB)
 	want := 8.0 + 10.0
 	if got != want {
 		t.Fatalf("estimate=%v want %v", got, want)
+	}
+}
+
+// The minimum is on the month's whole bill: max($3, storage + egress). Egress
+// counts toward it rather than sitting on top.
+func TestMinimumAppliesToStorageAndEgressTogether(t *testing.T) {
+	GB := int64(BytesPerGB)
+	cases := []struct {
+		name   string
+		avg    int64
+		egress int64
+		want   float64
+	}{
+		{"nothing stored, no egress", 0, 0, 0},
+		{"nothing stored, egress only", 0, 10 * int64(BytesPerTB), 0},
+		{"3 GB stored", 3 * GB, 0, MinimumMonthlyUSD},
+		{"3 GB stored, egress under free allowance", 3 * GB, 5 * GB, MinimumMonthlyUSD},
+		{"250 GB stored", 250 * GB, 0, MinimumMonthlyUSD},
+		{"exactly at the floor", MinBillableGB * GB, 0, MinimumMonthlyUSD},
+		{"above the floor", (MinBillableGB + 1) * GB, 0, 3.008},
+		{"1 TB", int64(BytesPerTB), 0, 8.0},
+	}
+	for _, tc := range cases {
+		if got := EstimateMonthUSD(tc.avg, tc.egress); got != tc.want {
+			t.Errorf("%s: estimate=%v want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// The two reported quantities must always bill at least the minimum once
+// anything is stored.
+func TestMeteredQuantitiesReachMinimum(t *testing.T) {
+	GB := int64(BytesPerGB)
+	for _, avg := range []int64{1, GB, 3 * GB, 100 * GB, 250 * GB, MinBillableGB * GB} {
+		for _, egress := range []int64{0, 5 * GB, 100 * GB, 400 * GB} {
+			storageGB, overGB := MeteredQuantities(avg, egress)
+			mills := storageGB*MillsPerGBStorage + overGB*MillsPerGBEgress
+			if mills < MinimumMonthlyMills {
+				t.Errorf("avg=%d egress=%d bills %d mills, below the %d mill minimum", avg, egress, mills, MinimumMonthlyMills)
+			}
+		}
+	}
+	// Nothing stored reports nothing on either meter.
+	if s, o := MeteredQuantities(0, 10*int64(BytesPerTB)); s != 0 || o != 0 {
+		t.Errorf("empty account reported storage=%d egress=%d, want 0/0", s, o)
+	}
+}
+
+// Egress overage beyond the minimum must not also be covered by a storage
+// top-up: the account pays its real (small) storage plus its real egress, which
+// is the "at least the minimum, otherwise what you used" rule. It must never
+// bill the minimum twice.
+func TestEgressBeyondTheMinimumIsNotToppedUp(t *testing.T) {
+	GB := int64(BytesPerGB)
+	avg := 3 * GB
+	egress := int64(400 * GB) // 391 GB overage × $0.01 = $3.91, above the minimum
+	storageGB, overGB := MeteredQuantities(avg, egress)
+
+	// Storage bills at its real size, not a top-up.
+	if storageGB != 3 {
+		t.Errorf("storage quantity=%d, want the real 3 GB", storageGB)
+	}
+	// And the total is exactly storage + egress, with no hidden minimum added.
+	total := float64(storageGB*MillsPerGBStorage+overGB*MillsPerGBEgress) / float64(MillsPerDollar)
+	want := 0.024 + 3.91
+	if diff := total - want; diff > 1e-9 || diff < -1e-9 {
+		t.Errorf("total=%v want %v", total, want)
+	}
+	if total < MinimumMonthlyUSD {
+		t.Errorf("total=%v, want at least %v", total, MinimumMonthlyUSD)
 	}
 }
 

@@ -1,0 +1,13 @@
+{
+  "name": "luna-connect-billing-proof",
+  "private": true,
+  "type": "module",
+  "description": "Proves Luna Connect's billing rules with gdp-wired, and checks the Go implementation against them",
+  "scripts": {
+    "prove": "node billing.mjs",
+    "crosscheck": "node crosscheck.mjs"
+  },
+  "devDependencies": {
+    "gdp-wired": "^0.45.0"
+  }
+}

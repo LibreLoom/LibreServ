@@ -68,6 +68,7 @@ describe("BackupsPage", () => {
     expect(screen.getByTestId("backups-gated")).toBeTruthy();
     expect(screen.getByTestId("backups-files")).toBeTruthy();
     expect(screen.getByText(/\$8 \/ terabyte \/ month/i)).toBeTruthy();
+    expect(screen.getByText(/\$3 once you store something/i)).toBeTruthy();
     expect(screen.getByText(/Free up to 3× stored amount/i)).toBeTruthy();
     expect(screen.queryByText(/average storage/i)).toBeNull();
     expect(screen.getByRole("button", { name: /Add a payment card/i })).toBeTruthy();
@@ -84,6 +85,17 @@ describe("BackupsPage", () => {
     expect(screen.getByText(/\$0\.01 \/ GB/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Turn off payment/i })).toBeTruthy();
     expect(screen.getByLabelText("Recovery phrase")).toBeTruthy();
+  });
+
+  it("shows a credit balance when the account has one", () => {
+    renderTab({ me: { has_card: true, estimated_month: 3, credit_balance_cents: 500 } });
+    expect(screen.getByTestId("backup-credit")).toBeTruthy();
+    expect(screen.getByText(/\$5\.00 in credit/i)).toBeTruthy();
+  });
+
+  it("shows no credit line when the balance is zero", () => {
+    renderTab({ me: { has_card: true, estimated_month: 3, credit_balance_cents: 0 } });
+    expect(screen.queryByTestId("backup-credit")).toBeNull();
   });
 
   it("uses destructive variant for turn off payment", () => {

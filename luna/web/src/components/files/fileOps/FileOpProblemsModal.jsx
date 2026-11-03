@@ -1,8 +1,10 @@
 import PropTypes from "prop-types";
+import { AnimatePresence, motion as Motion } from "motion/react";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { useFileOps, useFileOpsState } from "../../../context/FileOpsContext.jsx";
 import { labels, problemsTitle } from "../../../lib/fileOps/copy.js";
+import { EXIT, ROW_EXIT, ROW_HIDDEN, ROW_SHOWN, SPRING } from "../../../lib/fileOps/motion.js";
 import { opById, problemItems } from "../../../lib/fileOps/selectors.js";
 import FileOpItemLine from "./FileOpItemLine.jsx";
 
@@ -35,33 +37,88 @@ export default function FileOpProblemsModal({ opId, open, onClose }) {
 
   const footer = (
     <div className="space-y-2">
-      {hasClashes && <p className="text-sm">{labels.appliesToRest}</p>}
+      <AnimatePresence initial={false}>
+        {hasClashes && (
+          <Motion.p
+            key="applies"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0, transition: EXIT }}
+            transition={SPRING}
+            className="overflow-hidden text-sm"
+          >
+            {labels.appliesToRest}
+          </Motion.p>
+        )}
+      </AnimatePresence>
       <div className="flex flex-wrap gap-2">
-        {showReplace && (
-          <Button variant="outline" size="sm" surface="secondary" onClick={() => ops.decideAll(op.id, "replace")}>
-            {labels.replaceAll}
-          </Button>
-        )}
-        {showKeep && (
-          <Button variant="outline" size="sm" surface="secondary" onClick={() => ops.decideAll(op.id, "keep_both")}>
-            {labels.keepBothAll}
-          </Button>
-        )}
-        {showSkip && (
-          <Button variant="outline" size="sm" surface="secondary" onClick={() => ops.decideAll(op.id, "skip")}>
-            {labels.skipAll}
-          </Button>
-        )}
-        {showRetry && (
-          <Button variant="outline" size="sm" surface="secondary" onClick={() => ops.retry(op.id)}>
-            {labels.tryAllAgain}
-          </Button>
-        )}
-        {failed.length > 0 && (
-          <Button variant="ghost" size="sm" surface="secondary" onClick={() => ops.clearFailed(op.id)}>
-            {labels.clearFailed}
-          </Button>
-        )}
+        <AnimatePresence initial={false}>
+          {showReplace && (
+            <Motion.span
+              key="replace"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9, transition: EXIT }}
+              transition={SPRING}
+            >
+              <Button variant="outline" size="sm" surface="secondary" onClick={() => ops.decideAll(op.id, "replace")}>
+                {labels.replaceAll}
+              </Button>
+            </Motion.span>
+          )}
+          {showKeep && (
+            <Motion.span
+              key="keep"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9, transition: EXIT }}
+              transition={SPRING}
+            >
+              <Button variant="outline" size="sm" surface="secondary" onClick={() => ops.decideAll(op.id, "keep_both")}>
+                {labels.keepBothAll}
+              </Button>
+            </Motion.span>
+          )}
+          {showSkip && (
+            <Motion.span
+              key="skip"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9, transition: EXIT }}
+              transition={SPRING}
+            >
+              <Button variant="outline" size="sm" surface="secondary" onClick={() => ops.decideAll(op.id, "skip")}>
+                {labels.skipAll}
+              </Button>
+            </Motion.span>
+          )}
+          {showRetry && (
+            <Motion.span
+              key="retry"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9, transition: EXIT }}
+              transition={SPRING}
+            >
+              <Button variant="outline" size="sm" surface="secondary" onClick={() => ops.retry(op.id)}>
+                {labels.tryAllAgain}
+              </Button>
+            </Motion.span>
+          )}
+          {failed.length > 0 && (
+            <Motion.span
+              key="clear"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9, transition: EXIT }}
+              transition={SPRING}
+            >
+              <Button variant="outline" size="sm" surface="secondary" onClick={() => ops.clearFailed(op.id)}>
+                {labels.clearFailed}
+              </Button>
+            </Motion.span>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -73,10 +130,24 @@ export default function FileOpProblemsModal({ opId, open, onClose }) {
       onClose={onClose}
       footer={hasClashes || failed.length > 0 ? footer : undefined}
     >
-      <div className="max-h-[50vh] space-y-2 overflow-y-auto rounded-large-element surface-primary p-3">
-        {problems.map((item) => (
-          <FileOpItemLine key={item.id} op={op} item={item} />
-        ))}
+      <div className="max-h-[50vh] overflow-y-auto rounded-large-element surface-primary p-3">
+        {/* Answering one clash removes its row; the rest close the gap. */}
+        <AnimatePresence initial={false}>
+          {problems.map((item) => (
+            <Motion.div
+              key={item.id}
+              initial={ROW_HIDDEN}
+              animate={ROW_SHOWN}
+              exit={ROW_EXIT}
+              transition={SPRING}
+              className="overflow-hidden"
+            >
+              <div className="pb-2">
+                <FileOpItemLine op={op} item={item} />
+              </div>
+            </Motion.div>
+          ))}
+        </AnimatePresence>
       </div>
     </ModalCard>
   );

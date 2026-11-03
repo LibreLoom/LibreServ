@@ -84,11 +84,11 @@ describe("describeDriveHealth", () => {
       detail: "Its own self-check failed. Copy your files to another drive now.",
     });
     expect(copy.steps).toEqual([
-      "Plug in another drive with enough free space and add it to Luna.",
-      "Open this drive, tick Select all, choose Copy, and pick the new drive.",
-      "When the copy is done, remove this drive from Luna and stop using it.",
+      "Unplug this drive from Luna and plug it into a computer.",
+      "Copy all the files off it to the computer.",
+      "When the copy is done, stop using this drive.",
     ]);
-    expect(row(copy, "replaced-spots").value).toBe("120 · too many");
+    expect(row(copy, "replaced-blocks").value).toBe("120 · too many");
     expect(row(copy, "self-check").value).toBe("Failed");
     expect(row(copy, "temperature").value).toBe("55°C · warm");
   });
@@ -102,12 +102,12 @@ describe("describeDriveHealth", () => {
     [
       "pending_sectors",
       { kind: "pending_sectors", level: "failing", value: 3, limit: null },
-      "It can't read 3 spots on its disk. Copy your files to another drive now.",
+      "It can't read 3 blocks on its disk. Copy your files to another drive now.",
     ],
     [
       "reallocated_sectors",
       { kind: "reallocated_sectors", level: "failing", value: 120, limit: 100 },
-      "120 spots on its disk have worn out. Copy your files to another drive now.",
+      "120 blocks on its disk have worn out. Copy your files to another drive now.",
     ],
   ])("explains a failing drive by its top signal: %s", (_name, signal, detail) => {
     const copy = describeDriveHealth({ ...BASE, verdict: "failing", signals: [signal] });
@@ -123,7 +123,7 @@ describe("describeDriveHealth", () => {
       tone: "warning",
       rank: 70,
       title: " is showing wear",
-      detail: "4 spots on its disk have worn out. Keep using it, and make sure it's backed up.",
+      detail: "4 blocks on its disk have worn out. Keep using it, and make sure it's backed up.",
     });
     expect(copy.steps).toEqual([
       "Keep using it.",
@@ -213,7 +213,7 @@ describe("describeDriveHealth", () => {
     expect(row(copy, "temperature")).toBeUndefined();
   });
 
-  it("shows unreadable spots as failing and adds a row for each extra signal", () => {
+  it("shows unreadable blocks as failing and adds a row for each extra signal", () => {
     const copy = describeDriveHealth({
       ...BASE,
       verdict: "failing",
@@ -226,16 +226,16 @@ describe("describeDriveHealth", () => {
         { kind: "self_test_errors", level: "watch", value: null, limit: null },
       ],
     });
-    expect(row(copy, "unreadable-spots").value).toBe("3 · failing");
+    expect(row(copy, "unreadable-blocks").value).toBe("3 · failing");
     expect(row(copy, "wear-limit").value).toBe("Past the maker's limit");
     expect(row(copy, "error-log").value).toBe("Has errors");
     expect(row(copy, "self-test").value).toBe("Found a problem");
   });
 
-  it("shows None for replaced and unreadable spots on a clean drive", () => {
+  it("shows None for replaced and unreadable blocks on a clean drive", () => {
     const copy = describeDriveHealth(BASE);
-    expect(row(copy, "replaced-spots").value).toBe("None");
-    expect(row(copy, "unreadable-spots").value).toBe("None");
+    expect(row(copy, "replaced-blocks").value).toBe("None");
+    expect(row(copy, "unreadable-blocks").value).toBe("None");
     expect(row(copy, "wear-limit")).toBeUndefined();
   });
 

@@ -288,14 +288,11 @@ fn display_name(conn: &Connection, id: &str) -> String {
 }
 
 /// Whether a backup needs someone to look at it: not active, failing, or
-/// (cloud) its last check found a problem.
+/// (cloud) its last check found a problem. A private folder is never held by a
+/// bigger backup, so it always answers for itself.
 fn needs_look(conn: &Connection, row: &ProtectionRow, now: i64) -> bool {
     if row.state != db::PROTECTION_ACTIVE {
         return true;
-    }
-    // A larger folder's backup holds these files, so this one is meant to stand still.
-    if drive_backup::covered_by(conn, row).is_some() {
-        return false;
     }
     if row.kind == db::PROTECTION_CLOUD {
         ops::state(row, now) != BackupState::Ok || ops::last_check_problem(conn, &row.id).is_some()

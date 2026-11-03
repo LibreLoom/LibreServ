@@ -54,6 +54,10 @@ export function drive(over = {}) {
     device: `sd${id}`,
     fs_type: "exfat",
     mounted: true,
+    // Encryption is off for every drive until someone turns it on.
+    encrypted: false,
+    locked: false,
+    converting: false,
     ...over,
   };
 }
@@ -151,19 +155,38 @@ export function baseWorld() {
         database: passed("Database", "Luna's database is healthy."),
         diagram_pack: { category: "Diagrams", message: "Diagram pack installed.", more: "", status: "passed" },
         disk_space: { category: "Storage", message: "Plenty of room left.", status: "passed", details: { free_bytes: 30_000_000_000, free_human: "30.0 GB" } },
+        // A passing check carries only what lunad sends on success: no
+        // `details` and no `more` unless the failure path adds them. The
+        // contract test compares this shape against lunad's own output, so a
+        // tidy-looking `more: ""` here is a lie about the API.
         drive_tools: { category: "Drive tools", message: "Luna can add and eject drives.", status: "passed" },
-        erase_tools: { category: "Erase tools", message: "Luna can erase a drive while adding it.", status: "passed" },
-        heic_tools: { category: "Photos", message: "iPhone photo support installed.", more: "", status: "passed", details: { missing: [] } },
+        erase_tools: { category: "Erase tools", message: "Erase tools are installed.", status: "passed" },
+        heic_tools: { category: "Photos", message: "iPhone photo support installed.", status: "passed" },
         logs_path_writable: passed("Storage", "Luna can write to its log folder."),
-        network: passed("Network", "Connected to your router or modem, with a path to the internet."),
-        ntfs_support: passed("Drive tools", "Windows-formatted drives are supported."),
-        office_pack: { category: "Documents", message: "Document pack installed.", more: "", status: "passed", details: { missing: [] } },
-        smart_tool: { category: "Drive health", message: "Drive health checks are available.", more: "", status: "passed", details: { missing: [] } },
+        network: { category: "Network", message: "Connected to your router or modem, with a path to the internet.", status: "passed" },
+        ntfs_support: { category: "Drive tools", message: "Luna can open drives formatted as NTFS, the format Windows uses for its own drives.", status: "passed" },
+        office_pack: { category: "Documents", message: "Document pack installed.", status: "passed" },
+        smart_tool: { category: "Drive health", message: "Drive health checks are available.", status: "passed" },
         trim_tool: { category: "Drive health", message: "Luna can run its weekly SSD (solid-state drive) upkeep.", status: "passed" },
         update_signing: passed("Updates", "Updates are checked against Luna's signing key."),
-        video_tools: { category: "Videos", message: "Videos get preview pictures in Photos.", status: "passed" },
+        video_tools: { category: "Videos", message: "Video previews installed.", status: "passed" },
         whiteboard: passed("Whiteboard", "Whiteboard tools are installed."),
       },
+    },
+    // What is using Luna's own disk (GET /system/storage). The packs are the
+    // bulk of it and can't go; the temporary copies are what "Free up space"
+    // clears, so a scenario that wants the button seeds a non-zero one.
+    storage: {
+      total_bytes: 8_000_000_000,
+      free_bytes: 5_200_000_000,
+      used_bytes: 2_800_000_000,
+      items: [
+        { id: "office_pack", label: "Office editor", bytes: 1_400_000_000, removable: false },
+        { id: "diagram_pack", label: "Diagram editor", bytes: 152_000_000, removable: false },
+        { id: "settings", label: "Accounts and settings", bytes: 40_000_000, removable: false },
+        { id: "logs", label: "Logs", bytes: 8_000_000, removable: false },
+        { id: "temporary", label: "Temporary files from open documents", bytes: 1_200_000_000, removable: true },
+      ],
     },
     updates: { update_available: false, current_version: "1.4.2", latest_version: "1.4.2", release_notes: "", binary_name: "lunad", checksum: "", reboot_required: false },
     updateSource: { channel: "stable", default_keys: true, defaults: { channel: "stable", feed_url: DEFAULT_FEED_URL, keys: [] }, effective_keys: [], feed_url: DEFAULT_FEED_URL, keys: [] },

@@ -10,7 +10,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::access::normalize_subject_path;
 
-pub const RECENTS_LIMIT_PER_USER: usize = 50;
+/// How many recent items to keep per user.
+///
+/// The dashboard card shows 6 and the full list shows 10, so keeping 50 was
+/// five times what anything reads — and every row is a path on the Luna's own
+/// disk, which drive encryption does not cover. Ten fills the list and leaves
+/// a little room for the card to stay full as items are deleted.
+pub const RECENTS_LIMIT_PER_USER: usize = 10;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RecentItem {

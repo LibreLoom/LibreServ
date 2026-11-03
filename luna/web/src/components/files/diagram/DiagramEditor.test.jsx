@@ -8,6 +8,12 @@ vi.mock("@libreloom/ui/hooks/useTheme.jsx", () => ({
 
 const sockets = [];
 
+/**
+ * A message the editor posted into its iframe. `action` is the embed
+ * protocol's verb; the rest is whatever that action carries.
+ * @typedef {{ action?: string, [key: string]: unknown }} PostedMessage
+ */
+
 vi.mock("../office/collabSocket.js", () => ({
   CollabSocket: class {
     constructor(_driveId, _path, url) {
@@ -176,7 +182,7 @@ describe("DiagramEditor collaboration", () => {
     // take longer than the timeout and add retries nobody asked for. Freeze
     // setTimeout from here on (timers made after this line are the patch ones).
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    /** @type {object[]} */
+    /** @type {PostedMessage[]} */
     const posted = [];
     iframe.contentWindow.postMessage = (data) => {
       posted.push(JSON.parse(String(data)));
@@ -274,7 +280,7 @@ describe("DiagramEditor collaboration", () => {
     );
     render(<DiagramEditor {...PROPS} />);
     const iframe = /** @type {HTMLIFrameElement} */ (await screen.findByTitle(/Diagram editor/));
-    /** @type {object[]} */
+    /** @type {PostedMessage[]} */
     const posted = [];
     iframe.contentWindow.postMessage = (data) => {
       posted.push(JSON.parse(String(data)));

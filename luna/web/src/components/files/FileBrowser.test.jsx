@@ -5,6 +5,8 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useSearchParams } from "react-router-dom";
 import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
+import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 import FileBrowser from "./FileBrowser.jsx";
 
 function stubListing(byPath) {
@@ -574,6 +576,54 @@ describe("FileBrowser", () => {
       Object.defineProperty(f, "webkitRelativePath", { value: "Trip/a.txt" });
       fireEvent.change(input, { target: { files: [f] } });
       expect(onUploadFiles).toHaveBeenCalledWith({ files: [f] }, "");
+    });
+
+    it("clears the folder picker so picking the same folder twice fires again", async () => {
+      folderSupport(true);
+      stubListing({ "": [] });
+      const onUploadFiles = vi.fn();
+      renderBrowser({ multiSelect: false, enableUploadDrop: true, onUploadFiles });
+      const input = /** @type {HTMLInputElement} */ (await screen.findByLabelText("Add a folder"));
+      const f = new File(["x"], "a.txt");
+      Object.defineProperty(f, "webkitRelativePath", { value: "Trip/a.txt" });
+      fireEvent.change(input, { target: { files: [f] } });
+      expect(input.value).toBe("");
+      fireEvent.change(input, { target: { files: [f] } });
+      expect(onUploadFiles).toHaveBeenCalledTimes(2);
+    });
+
+    it("says a picked folder held no files instead of doing nothing", async () => {
+      folderSupport(true);
+      stubListing({ "": [] });
+      const onUploadFiles = vi.fn();
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      render(
+        <ToastProvider>
+          <ShortcutsProvider>
+            <QueryClientProvider client={client}>
+              <MemoryRouter>
+                <FileBrowser driveId="d1" driveLabel="Photos" multiSelect={false} enableUploadDrop onUploadFiles={onUploadFiles} />
+              </MemoryRouter>
+            </QueryClientProvider>
+          </ShortcutsProvider>
+          <Toaster />
+        </ToastProvider>,
+      );
+      const input = await screen.findByLabelText("Add a folder");
+      // An empty folder — or one holding only empty folders — arrives as an
+      // empty list: the browser never sends a folder with no files in it.
+      fireEvent.change(input, { target: { files: [] } });
+      expect(onUploadFiles).not.toHaveBeenCalled();
+      expect(await screen.findByText("That folder has no files in it.")).toBeInTheDocument();
+    });
+
+    it("says at the menu that the picker skips empty folders", async () => {
+      folderSupport(true);
+      stubListing({ "": [] });
+      renderBrowser({ multiSelect: false, enableUploadDrop: true, onUploadFiles: vi.fn() });
+      fireEvent.click(await screen.findByRole("button", { name: "Upload" }));
+      const menu = await screen.findByRole("menu", { name: "Upload" });
+      expect(within(menu).getByText("Skips empty folders")).toBeInTheDocument();
     });
 
     it("keeps a plain Upload button when the browser cannot pick folders", async () => {

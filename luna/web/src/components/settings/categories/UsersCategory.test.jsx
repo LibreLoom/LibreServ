@@ -349,6 +349,10 @@ describe("UsersCategory", () => {
     renderPage();
 
     const list = await screen.findByRole("region", { name: /User list/i });
+    // Wait for a real person first. Until the fetch lands the card shows its
+    // empty state, whose own "Add user" button is a different thing (a
+    // primary Button, not the table's plus row) and would answer this query.
+    await within(list).findByText("Demo");
     const add = await within(list).findByRole("button", { name: /^Add user$/i });
     expect(add.textContent?.trim()).toBe("Add user");
     expect(add.className).toMatch(/surface-secondary/);
@@ -377,6 +381,9 @@ describe("UsersCategory", () => {
     renderPage();
 
     const list = await screen.findByRole("region", { name: /User list/i });
+    // Wait for the people to arrive: the empty state has no rows at all, so
+    // asking for the last one before the fetch lands finds nothing.
+    await within(list).findByText("Demo");
     await within(list).findByRole("button", { name: /^Add user$/i });
     const items = within(list).getAllByRole("listitem");
     expect(within(items[items.length - 1]).getByRole("button", { name: /^Add user$/i })).toBeInTheDocument();

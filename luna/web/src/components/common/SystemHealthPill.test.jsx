@@ -56,12 +56,38 @@ describe("SystemHealthPill", () => {
     expect(screen.queryByText("Everything looks good")).not.toBeInTheDocument();
   });
 
-  it("renders nothing when the only problem is a failed check", () => {
-    mockChecks({ database: PASSED, disk_space: FAILED_DISK });
+  it("renders nothing when the only failure has a Needs you row", () => {
+    mockChecks({ database: PASSED, clock: { status: "failed", message: "The clock is wrong.", category: "system" } });
     const { container } = renderPill();
     expect(container.firstChild).toBeNull();
-    expect(screen.queryByText("1 issue")).not.toBeInTheDocument();
+    expect(screen.queryByText("1 problem")).not.toBeInTheDocument();
     expect(screen.queryByText(/warning/)).not.toBeInTheDocument();
+  });
+
+  it("carries a failed check that has no Needs you row", async () => {
+    mockChecks({ database: PASSED, disk_space: FAILED_DISK });
+    renderPill();
+    expect(screen.getByText("1 problem")).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="badge"]')).toHaveAttribute("data-variant", "error");
+
+    await userEvent.click(screen.getByRole("button", { name: "1 problem. Click to view details." }));
+    const dialog = await screen.findByRole("dialog", { name: "System health problems" });
+    expect(dialog).toHaveTextContent("Luna's own storage");
+    expect(dialog).toHaveTextContent("Low space");
+    expect(screen.getByText("1 problem found")).toBeInTheDocument();
+  });
+
+  it("counts problems and warnings together when both are listed", async () => {
+    mockChecks({ disk_space: FAILED_DISK, diagram_pack: WARN_DIAGRAMS });
+    renderPill();
+    expect(screen.getByText("1 problem")).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="badge"]')).toHaveAttribute("data-variant", "error");
+
+    await userEvent.click(screen.getByRole("button", { name: "1 problem. Click to view details." }));
+    const dialog = await screen.findByRole("dialog", { name: "System health problems" });
+    expect(dialog).toHaveTextContent("Luna's own storage");
+    expect(dialog).toHaveTextContent("Diagrams");
+    expect(screen.getByText("1 problem and 1 warning found")).toBeInTheDocument();
   });
 
   it("renders nothing when there are no checks at all", () => {
@@ -111,19 +137,6 @@ describe("SystemHealthPill", () => {
     expect(screen.getByRole("button", { name: "1 warning. Click to view details." })).toBeInTheDocument();
   });
 
-  it("counts only the warning when a failed check sits next to it", async () => {
-    mockChecks({ disk_space: FAILED_DISK, diagram_pack: WARN_DIAGRAMS });
-    renderPill();
-    expect(screen.getByText("1 warning")).toBeInTheDocument();
-    expect(document.querySelector('[data-slot="badge"]')).toHaveAttribute("data-variant", "warning");
-
-    await userEvent.click(screen.getByRole("button", { name: /warning/ }));
-    const dialog = await screen.findByRole("dialog", { name: "System health warnings" });
-    expect(dialog).toHaveTextContent("Diagrams");
-    expect(dialog).not.toHaveTextContent("Luna's own storage");
-    expect(dialog).not.toHaveTextContent("Low space");
-  });
-
   it("opens a list of the warnings with a link to the system checks", async () => {
     mockChecks({ database: PASSED, diagram_pack: WARN_DIAGRAMS, video_tools: WARN_VIDEO });
     renderPill();
@@ -134,7 +147,7 @@ describe("SystemHealthPill", () => {
 
     await userEvent.click(button);
 
-    const dialog = await screen.findByRole("dialog", { name: "System health warnings" });
+    const dialog = await screen.findByRole("dialog", { name: "System health problems" });
     expect(button).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("2 warnings found")).toBeInTheDocument();
     expect(dialog).toHaveTextContent("Diagrams");
@@ -155,7 +168,7 @@ describe("SystemHealthPill", () => {
     });
     renderPill();
     await userEvent.click(screen.getByRole("button", { name: /warning/ }));
-    const dialog = await screen.findByRole("dialog", { name: "System health warnings" });
+    const dialog = await screen.findByRole("dialog", { name: "System health problems" });
     expect(dialog).toHaveTextContent("Luna's own storage");
     // Only the one system-disk check gets the hint; Diagrams does not.
     expect(dialog.querySelectorAll('[data-slot="info-hint-trigger"]')).toHaveLength(1);
@@ -173,7 +186,7 @@ describe("SystemHealthPill", () => {
     renderPill();
     const button = screen.getByRole("button", { name: /warning/ });
     await userEvent.click(button);
-    await screen.findByRole("dialog", { name: "System health warnings" });
+    await screen.findByRole("dialog", { name: "System health problems" });
     await userEvent.click(button);
     await vi.waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });

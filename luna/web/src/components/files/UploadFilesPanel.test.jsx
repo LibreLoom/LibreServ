@@ -117,6 +117,34 @@ describe("UploadFilesPanel", () => {
       expect(onUploadFiles).toHaveBeenCalledWith({ files: [f] });
     });
 
+    it("says at the button that the picker skips empty folders", () => {
+      Object.defineProperty(HTMLInputElement.prototype, "webkitdirectory", { configurable: true, writable: true, value: false });
+      render(<UploadFilesPanel onUploadFiles={vi.fn()} />);
+      expect(screen.getByText(/Empty folders inside the one you pick aren't copied/)).toBeInTheDocument();
+    });
+
+    it("clears the picker so choosing the same folder twice fires again", () => {
+      Object.defineProperty(HTMLInputElement.prototype, "webkitdirectory", { configurable: true, writable: true, value: false });
+      const onUploadFiles = vi.fn();
+      render(<UploadFilesPanel onUploadFiles={onUploadFiles} />);
+      const input = /** @type {HTMLInputElement} */ (screen.getByLabelText("Add a folder"));
+      const f = file("a.txt");
+      fireEvent.change(input, { target: { files: [f] } });
+      expect(input.value).toBe("");
+      fireEvent.change(input, { target: { files: [f] } });
+      expect(onUploadFiles).toHaveBeenCalledTimes(2);
+    });
+
+    it("says a picked folder held no files instead of doing nothing", () => {
+      Object.defineProperty(HTMLInputElement.prototype, "webkitdirectory", { configurable: true, writable: true, value: false });
+      const onUploadFiles = vi.fn();
+      render(<UploadFilesPanel onUploadFiles={onUploadFiles} />);
+      // The browser sends no entry at all for a folder with no files in it.
+      fireEvent.change(screen.getByLabelText("Add a folder"), { target: { files: [] } });
+      expect(onUploadFiles).not.toHaveBeenCalled();
+      expect(screen.getByText(/That folder has no files in it/)).toBeInTheDocument();
+    });
+
     it("hides Choose a folder when the browser cannot pick folders", () => {
       render(<UploadFilesPanel onUploadFiles={vi.fn()} />);
       expect(screen.queryByRole("button", { name: "Choose a folder" })).not.toBeInTheDocument();

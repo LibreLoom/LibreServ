@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildSystemCheckItems, warningChecks } from "./needsYouChecks.js";
+import { NO_ACTION_CHECKS, buildSystemCheckItems, pillChecks } from "./needsYouChecks.js";
 
-const NO_EXCLUSIONS = { coveredDriveLabels: [], noRouteShown: false, tokenShown: false };
+const NO_EXCLUSIONS = { coveredDriveLabels: [], noRouteShown: false };
 
 /**
  * @param {Record<string, any> | undefined} checks
@@ -17,6 +17,15 @@ function build(checks, overrides = {}) {
 
 const ids = (items) => items.map((item) => item.id);
 
+// Only these can ever be `failed`: lunad reports everything else as a warning
+// at worst. A fixture that fails a check lunad can't fail proves nothing.
+const CLOCK_FAILED = { status: "failed", message: "The clock is wrong: it says 2020-01-01." };
+const DRIVE_RW_FAILED = {
+  status: "failed",
+  message: "Luna can't save new files to Photos.",
+  details: { drive_label: "Photos" },
+};
+
 describe("buildSystemCheckItems", () => {
   it("returns nothing when there are no system checks", () => {
     expect(buildSystemCheckItems({ systemChecks: null, ...NO_EXCLUSIONS })).toEqual([]);
@@ -27,20 +36,23 @@ describe("buildSystemCheckItems", () => {
   });
 
   it("skips an entry that is empty instead of throwing", () => {
-    const items = build({
-      clock: null,
-      disk_space: { status: "failed", message: "Storage is nearly full." },
-    });
-    expect(ids(items)).toEqual(["check:disk_space"]);
+    const items = build({ network: null, clock: CLOCK_FAILED });
+    expect(ids(items)).toEqual(["check:clock"]);
   });
 
   it("makes a row only for failed checks; warnings and passes stay out", () => {
     const items = build({
-      clock: { status: "warning", message: "Clock is slow." },
+      clock: { status: "warning", message: "The clock may be off." },
       database: { status: "passed" },
-      disk_space: { status: "failed", message: "Storage is full." },
+      drive_d1_read_write: DRIVE_RW_FAILED,
     });
-    expect(ids(items)).toEqual(["check:disk_space"]);
+    expect(ids(items)).toEqual(["check:drive_d1_read_write"]);
+  });
+
+  it("makes no row for a failure nobody can act on", () => {
+    for (const name of NO_ACTION_CHECKS) {
+      expect(build({ [name]: { status: "failed", message: "Something is wrong." } })).toEqual([]);
+    }
   });
 
   it("leaves out backup checks, which backup rows already cover", () => {
@@ -51,11 +63,6 @@ describe("buildSystemCheckItems", () => {
     expect(items).toEqual([]);
   });
 
-  it("keeps a failed check from any other category", () => {
-    const items = build({ disk_space: { status: "failed", category: "storage" } });
-    expect(ids(items)).toEqual(["check:disk_space"]);
-  });
-
   it("leaves out hard drive wear checks, which the drive health row covers", () => {
     const items = build({
       drive_d1_smart: { status: "failed", message: "Drive is wearing out.", details: { drive_label: "Photos" } },
@@ -63,59 +70,9 @@ describe("buildSystemCheckItems", () => {
     expect(items).toEqual([]);
   });
 
-  it("keeps the system hard drive report check, which is not a per-drive wear check", () => {
-    const items = build({ smart_tool: { status: "failed", message: "Report tool is missing." } });
-    expect(ids(items)).toEqual(["check:smart_tool"]);
-  });
-
-  it("leaves out the network check when the no-route row is shown", () => {
-    const items = build({ network: { status: "failed", message: "No route." } }, { noRouteShown: true });
-    expect(items).toEqual([]);
-  });
-
-  it("keeps the network check with Open system checks when no-route row is not shown", () => {
-    const items = build({ network: { status: "failed", message: "No route." } });
-    expect(items).toEqual([
-      {
-        id: "check:network",
-        rank: 20,
-        tone: "problem",
-        title: ["Network"],
-        detail: "No route.",
-        action: { label: "Open system checks", href: "/settings#about" },
-      },
-    ]);
-  });
-
-  it("leaves out connect and remote access checks when the device token row is shown", () => {
-    const items = build(
-      {
-        connect: { status: "failed", message: "Token expired." },
-        remote_access: { status: "failed", message: "Remote access is off." },
-      },
-      { tokenShown: true },
-    );
-    expect(items).toEqual([]);
-  });
-
-  it("keeps connect and remote access checks when the device token row is not shown", () => {
-    const items = build({
-      connect: { status: "failed", message: "Token expired." },
-      remote_access: { status: "failed", message: "Remote access is off." },
-    });
-    expect(ids(items)).toEqual(["check:connect", "check:remote_access"]);
-    expect(items.map((item) => item.title)).toEqual([["Luna Connect"], ["Remote access"]]);
-  });
-
   it("leaves out a save test when that drive already has a drive row", () => {
     const items = build(
-      {
-        drive_d1_read_write: {
-          status: "failed",
-          message: "Could not save a test file.",
-          details: { drive_label: "Photos" },
-        },
-      },
+      { drive_d1_read_write: DRIVE_RW_FAILED },
       { coveredDriveLabels: ["Photos"] },
     );
     expect(items).toEqual([]);
@@ -123,13 +80,7 @@ describe("buildSystemCheckItems", () => {
 
   it("keeps a save test for a drive with no drive row, opening Files", () => {
     const items = build(
-      {
-        drive_d2_read_write: {
-          status: "failed",
-          message: "Could not save a test file.",
-          details: { drive_label: "Documents" },
-        },
-      },
+      { drive_d2_read_write: { ...DRIVE_RW_FAILED, details: { drive_label: "Documents" } } },
       { coveredDriveLabels: ["Photos"] },
     );
     expect(items).toEqual([
@@ -138,7 +89,7 @@ describe("buildSystemCheckItems", () => {
         rank: 20,
         tone: "problem",
         title: ["Documents — save test"],
-        detail: "Could not save a test file.",
+        detail: "Luna can't save new files to Photos.",
         action: { label: "Open Files", href: "/files" },
       },
     ]);
@@ -161,10 +112,27 @@ describe("buildSystemCheckItems", () => {
   });
 
   it("titles a kept save test with its drive label", () => {
-    const [item] = build({
-      drive_d2_read_write: { status: "failed", details: { drive_label: "Photos" } },
-    });
+    const [item] = build({ drive_d2_read_write: DRIVE_RW_FAILED });
     expect(item.title).toEqual(["Photos — save test"]);
+  });
+
+  it("leaves out the clock check when the no-route row already says it", () => {
+    const items = build({ clock: CLOCK_FAILED }, { noRouteShown: true });
+    expect(items).toEqual([]);
+  });
+
+  it("keeps the clock check when the no-route row is not shown", () => {
+    const items = build({ clock: CLOCK_FAILED });
+    expect(items).toEqual([
+      {
+        id: "check:clock",
+        rank: 20,
+        tone: "problem",
+        title: ["Clock"],
+        detail: "The clock is wrong: it says 2020-01-01.",
+        action: { label: "Open system checks", href: "/settings#about" },
+      },
+    ]);
   });
 
   it("uses the check message as detail", () => {
@@ -185,17 +153,21 @@ describe("buildSystemCheckItems", () => {
 
   it("sorts rows by id so the output is deterministic", () => {
     const items = build({
-      disk_space: { status: "failed" },
+      drive_d2_read_write: DRIVE_RW_FAILED,
       clock: { status: "failed" },
-      database: { status: "failed" },
+      drive_d1_read_write: DRIVE_RW_FAILED,
     });
-    expect(ids(items)).toEqual(["check:clock", "check:database", "check:disk_space"]);
+    expect(ids(items)).toEqual([
+      "check:clock",
+      "check:drive_d1_read_write",
+      "check:drive_d2_read_write",
+    ]);
   });
 
   it("turns two failed checks into two problem rows with the default action", () => {
     const items = build({
-      disk_space: { status: "failed", category: "storage", message: "Less than 1 GB free." },
       clock: { status: "failed", category: "system", message: "Clock is wrong." },
+      drive_d1_read_write: DRIVE_RW_FAILED,
       database: { status: "passed", category: "system" },
     });
     expect(items).toEqual([
@@ -208,37 +180,57 @@ describe("buildSystemCheckItems", () => {
         action: { label: "Open system checks", href: "/settings#about" },
       },
       {
-        id: "check:disk_space",
+        id: "check:drive_d1_read_write",
         rank: 20,
         tone: "problem",
-        title: ["Luna's own storage"],
-        detail: "Less than 1 GB free.",
-        hint: "Luna keeps its own software and settings on a small built-in disk, separate from your drives.",
-        action: { label: "Open system checks", href: "/settings#about" },
+        title: ["Photos — save test"],
+        detail: "Luna can't save new files to Photos.",
+        action: { label: "Open Files", href: "/files" },
       },
     ]);
   });
 });
 
-describe("warningChecks", () => {
-  it("lists only the checks that warn, with their plain label and message", () => {
-    const found = warningChecks({
+describe("pillChecks", () => {
+  it("lists the warnings, with their plain label and message", () => {
+    const found = pillChecks({
       checks: {
-        clock_sync: { status: "warning", message: "Clock is a few minutes off.", category: "system" },
+        video_tools: { status: "warning", message: "Videos get no previews.", category: "features" },
         database: { status: "passed", message: "OK" },
-        disk_space: { status: "failed", message: "Low space" },
       },
     });
-    expect(found.map((check) => check.name)).toEqual(["clock_sync"]);
-    expect(found[0].message).toBe("Clock is a few minutes off.");
+    expect(found.map((check) => check.name)).toEqual(["video_tools"]);
+    expect(found[0].message).toBe("Videos get no previews.");
+    expect(found[0].status).toBe("warning");
     expect(typeof found[0].label).toBe("string");
     expect(found[0].label).not.toBe("");
   });
 
+  it("carries a failed check that has no Needs you row", () => {
+    const found = pillChecks({
+      checks: {
+        disk_space: { status: "failed", message: "Luna's own storage is almost full." },
+        database: { status: "failed", message: "Signing in may not work." },
+      },
+    });
+    expect(found.map((check) => check.name)).toEqual(["disk_space", "database"]);
+    expect(found.map((check) => check.status)).toEqual(["failed", "failed"]);
+  });
+
+  it("leaves a failed check with a real fix to its Needs you row", () => {
+    const found = pillChecks({
+      checks: {
+        clock: { status: "failed", message: "The clock is wrong." },
+        drive_d1_read_write: DRIVE_RW_FAILED,
+      },
+    });
+    expect(found).toEqual([]);
+  });
+
   it("returns nothing when there are no checks, or an entry is empty", () => {
-    expect(warningChecks(null)).toEqual([]);
-    expect(warningChecks(undefined)).toEqual([]);
-    expect(warningChecks({})).toEqual([]);
-    expect(warningChecks({ checks: { clock_sync: null } })).toEqual([]);
+    expect(pillChecks(null)).toEqual([]);
+    expect(pillChecks(undefined)).toEqual([]);
+    expect(pillChecks({})).toEqual([]);
+    expect(pillChecks({ checks: { clock_sync: null } })).toEqual([]);
   });
 });

@@ -92,7 +92,7 @@ After phase 1, retest every scenario whose note says "mock bug" / "harness": `ba
 | `dashboard/backup-stale` | Use one wording for a stale backup everywhere: "Last backed up 2 days ago." (real age, with a period). Drop "in over a day" and "in a day". Needs-you row body text one size smaller. |
 | `dashboard/check-overdue` | Title "Check my phrase" (wall of shame). Grep the whole repo for the rest of the wall. Redesign: stream D. |
 | `dashboard/everything-wrong` | "Drive full." → name the drive: "Backup drive is full." in backup errors (lunad `last_error` and the web). |
-| `dashboard/system-check-failed` | "Storage space is nearly gone" → say whose storage: "Luna's own storage (the system disk) is nearly full", plus an InfoHint on what that is. |
+| `dashboard/system-check-failed` | "Storage space is nearly gone" → say whose storage: "Luna's own storage (the system disk) is nearly full", plus an InfoHint on what that is. **Done.** The row itself went away — see decision 1a below. |
 | `files/create-collision` | Drop "Use a short name instead." |
 | `files/drive-database-missing` | Add "No data on the drive will be lost." |
 | `files/job-server-error` | "Luna's job queue isn't responding." (lunad message). |
@@ -119,7 +119,7 @@ After phase 1, retest every scenario whose note says "mock bug" / "harness": `ba
 | `files/rename-while-open` | The toast doesn't show: find out why (z-order under the viewer, or not fired). |
 | `files/trash-restore-conflict` | Restore-with-new-name warns on an extension change, the same as rename. |
 | `files/trash-restore-folder-gone` | Restoring when the original folder is gone recreates the folders above it (lunad and fake). |
-| `files/unicode-emoji` | Phone editor: "Saved just now" in a pill. |
+| `files/unicode-emoji` | Phone editor: "Saved" in a pill. |
 | `files/unplugged-at-start` | Card text is boxed too narrow (three lines instead of two): drop the max-width. Member wording: retest with 1.11. |
 | `files/protect-inside-private` | Done in `29c9b3e8`: a folder inside a private item backs up as private. Retest. |
 
@@ -160,5 +160,19 @@ Max: "the file operation card covers any file operation with length and is per-t
 with subagents. The defaults below were taken because the questions were not answered, so Max can overrule them:
 
 1. `dashboard/no-phrase`: the recovery phrase becomes a required setup step, so a Luna can't be without one.
+   **Overruled 2 Nov 2026.** A phrase only opens cloud backups, which are off until someone turns them on,
+   so nothing may block the app on one. The setup step, the app-wide gate and lunad's `needs_phrase` on
+   finishing setup are all gone; the phrase is asked for when someone turns on cloud backup, and the
+   Settings card shows a `Not set up` state until then. See `recovery-phrase.md` §1, decisions A and B.
 2. Stream order: A (file operation card) → C → D → B. The perf frontend work lands after A, because both touch the file list.
+   **Decision 1a, 2 Nov 2026 — `dashboard/system-check-failed`.** The note was "it's not possible for the user to do
+   anything about this". It was right: a Needs you row promises an action, and a failed check with no fix only
+   ever navigated to a second copy of the same sentence. So a failed check gets a row only when someone can act on
+   it — a drive's save test (open Files) or the clock (check the router or modem). `disk_space`,
+   `data_path_writable` and `database` get no row; the header pill carries them instead, so a failing Luna is
+   never silent. `disk_space` gained a real fix while we were there: Settings → About → System checks now shows
+   what is using Luna's own disk, biggest first, and a **Free up space** button that clears the temporary copies
+   of documents no editor has open (`GET /api/v1/system/storage`, `POST /api/v1/system/storage/cleanup`). The
+   clock row also stands down when the no-route row is already on screen, since both said "check your router or
+   modem".
 3. Contract fixtures (1.8) are generated from lunad's API tests.

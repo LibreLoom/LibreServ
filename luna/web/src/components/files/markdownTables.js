@@ -39,9 +39,33 @@ export { parseMarkdownTable, serializeMarkdownTable, splitTableLine, encodeTable
 /** Inline marks a cell can hold — block actions have no meaning inside one. */
 const CELL_ACTIONS = new Set(["bold", "italic", "strikethrough", "code", "link"]);
 
+/**
+ * The slice of Yjs's `UndoManager` the table widgets drive — structurally
+ * satisfied by the real one the editor builds.
+ * @typedef {{ undo: () => void, redo: () => void, stopCapturing?: () => void }} TableUndoManager
+ */
+
+/**
+ * A pipe table's editable content: the header row, per-column alignment,
+ * and the body rows. Mirrors `parseTableDocument().model`.
+ * @typedef {{ header: string[], align: string[], body: string[][] }} TableModel
+ */
+
+/**
+ * What React renders: a plain snapshot of a controller, rebuilt on every
+ * change so `useSyncExternalStore` sees a fresh object.
+ * @typedef {{
+ *   model: TableModel,
+ *   rows: number,
+ *   cols: number,
+ *   editable: boolean,
+ *   editing: { r: number, c: number, text: string } | null,
+ * }} TableSnapshot
+ */
+
 /** @type {WeakMap<EditorView, Set<TableController>>} */
 const controllersByView = new WeakMap();
-/** @type {WeakMap<EditorView, { undo: () => void, redo: () => void, stopCapturing?: () => void }>} */
+/** @type {WeakMap<EditorView, TableUndoManager>} */
 const undoManagerByView = new WeakMap();
 /**
  * Focus hand-off across widget mounts: insertMarkdownTable stashes the cell
@@ -53,7 +77,7 @@ const pendingFocus = new WeakMap();
 /**
  * Wire the Yjs undo manager the editor created into the table widgets, so
  * Ctrl+Z inside a cell undoes document history (cell typing included).
- * @param {EditorView} view @param {object} undoManager
+ * @param {EditorView} view @param {TableUndoManager} undoManager
  */
 export function registerTableUndoManager(view, undoManager) {
   undoManagerByView.set(view, undoManager);
@@ -178,7 +202,7 @@ export class TableController {
     this.undoManager = null;
     /** @type {HTMLElement | null} widget root element (set in toDOM) */
     this.dom = null;
-    /** @type {{ unmount: () => void, render: (n: object) => void } | null} */
+    /** @type {import("react-dom/client").Root | null} */
     this._root = null;
     /**
      * The cell being typed in. `text` is what the textarea shows — it can
@@ -480,7 +504,7 @@ export class TableController {
   /**
    * Apply a model operation: recompute from the latest block text, then
    * dispatch the smallest replacement as its own undo step.
-   * @param {(model: object) => object | null} mutate
+   * @param {(model: TableModel) => TableModel | null} mutate
    * @param {{ r: number, c: number }} [focus] cell to put the caret in after
    */
   apply(mutate, focus) {
@@ -590,7 +614,7 @@ export class TableController {
     const doc = this.view.state.doc;
     const writable = this._canWrite();
     let pos;
-    /** @type {object | undefined} */
+    /** @type {import("@codemirror/state").ChangeSpec | undefined} */
     let changes;
     if (direction === "before") {
       if (this.from === 0 && writable) changes = { from: 0, insert: "\n\n" };

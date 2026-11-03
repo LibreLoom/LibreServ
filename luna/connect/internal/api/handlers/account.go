@@ -165,6 +165,7 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 	resolvedPath, resolvedStep := ResolveOnboarding(acct.OnboardingPath, acct.OnboardingStep, dev)
 	persistOnboardingIfChanged(h.DB, acct.ID, acct.OnboardingPath, acct.OnboardingStep, resolvedPath, resolvedStep)
 	status := onboardingStatusFields(resolvedPath, resolvedStep, dev)
+	credits, _ := billing.GetCreditBalance(h.DB, acct.ID)
 
 	JSON(w, http.StatusOK, map[string]any{
 		"id":                     acct.ID,
@@ -177,7 +178,8 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 		"avg_stored_bytes":       avgBytes,
 		"egress_bytes":           egressBytes,
 		"estimated_month":        billing.EstimateMonthUSD(avgBytes, egressBytes),
-		"price_copy":             "Cloud backup costs $8 per terabyte each month, based on your average storage over the month. Downloads are free up to 3× stored amount; extra download traffic is $0.01 per GB.",
+		"credit_balance_cents":   credits.BalanceCents,
+		"price_copy":             PriceCopy(),
 		"backup_purge_after":     acct.BackupPurgeAfter,
 		"onboarding_path":        status["path"],
 		"onboarding_step":        status["step"],

@@ -29,7 +29,7 @@ If 1.7 hasn't landed, `upload-slow` (a) stays open after this stream.
 | 11 | Restore a folder/file from a drive backup (row action) | `components/files/backupsView.jsx` → `BackupRowActions` `restore` mutation → `POST /api/v1/drives/{id}/backups/{bid}/restore` | `copy_tree` in `spawn_blocking`, no progress | Button `loading` | Error toast | Toast | **Yes** |
 | 12 | Restore a file version from a backup | `backupsView.jsx` → `VersionsModal` `restore` | Same endpoint | Button `loading` in the modal | PageNotice in the modal | Toast `"Restored as …"` | No. The open modal owns it (AGENTS toast rules). |
 | 13 | Folder download (zip) | `<a href={source.downloadHref(…)}>` in `DriveFileExplorer.jsx` `DownloadButton`, `FileRow.jsx`, `FileBrowser.jsx` (`d` shortcut, selection bar) | `GET …/files/content?download=1` → `serve_folder_zip` **builds the whole zip into a temp file before it sends headers** | **None.** The click seems to do nothing for a while. | An error such as `"That folder has too many files…"` arrives as a JSON body that the browser downloads or shows | Browser download bar | **Yes**, last and deferrable (R2 + F8) |
-| 14 | Gallery "download selected" | `GalleryPage.jsx` → `downloadSelected` → `POST /api/v1/gallery/download` → `res.blob()` | The whole zip goes **into memory** | None | Silently falls back to one link per photo | n/a | Not in this stream. Logged as follow-up (needs the same prepare step as 13). |
+| 14 | Gallery "download selected" | `GalleryPage.jsx` → `downloadSelected` → `POST /api/v1/gallery/download` → `saveDownloadResponse` | Streamed to a file the person picks (`showSaveFilePicker`); `res.blob()` only where the browser has no picker | None | Error toast naming the failure (no save location, no space, connection, server message); **no per-photo fallback**. Over 200 photos is refused up front. | Browser download or the chosen file | No, and not planned |
 | 15 | Editor saves, form pictures, office sessions | `saveFile`, `uploadFormPicture`, … | n/a | Editors own their save state | n/a | n/a | No |
 | 16 | Cloud restore / private restore | `CloudRestoreCard.jsx`, `PrivateRestoreCard.jsx` | n/a | Their own stateful cards | n/a | n/a | No. Settings and recovery flows, not file explorer work. |
 
@@ -206,10 +206,14 @@ Item = {
   - `UploadFilesPanel` gets the same two buttons: `Choose files`, `Choose a folder`.
 - **Walker** (`walkDropped(dropped, { onFile, onDir, onError })`):
   - It's an async loop over `readEntries` batches. Each entry has its own try/catch, so one bad entry never stops the walk.
-  - It reports empty folders through `onDir`.
-  - For picker input it uses `file.webkitRelativePath`.
+  - It reports empty folders through `onDir`. Only a folder with **no children at all** is reported; a folder holding only empty folders is not, but its leaf's path carries it, and `makeFolders` makes every level of the path.
+  - Aborting (cancelling the operation) stops the walk where it is: a file already being read is dropped instead of queued, and no further folder is entered.
+  - For picker input it uses `file.webkitRelativePath`. The picker hands over a **flat list of files**, so an empty folder inside the picked one leaves no trace: the picker cannot copy it. The code says so instead of pretending — the menu item reads `Skips empty folders`, the panel prints the same line under `Choose a folder`, and a pick that comes back with no files says `That folder has no files in it.` Dragging the folder does copy empty folders.
 - **Problem folders:** a bad file becomes a failed row. Every other file continues.
-- **A file in the way:** if a file sits where a folder should go, every file under it gets lunad's `That destination is not a folder.` These are grouped through "N more problems →".
+- **A file in the way:** lunad answers `409` with the *folder* wording for a file of that name too, so the runner asks `stat` what is really there. A folder is success; a file fails the row with `couldn't be made: a file named {name} is already there.` Every file under it then gets lunad's `That destination is not a folder.` These are grouped through "N more problems →".
+- **Folder-only drops:** a folder holding only empty folders uploads no bytes, so the card counts folders — `Made 2 folders in Documents`, meta `2 folders made`, a moving bar rather than one stuck at 0%, and the success toast `Made 2 folders.` It never says `0 of 0 files`.
+- **Cancel:** a folder being made stops before its next level. Folders already created stay (Luna has them and nothing here can take them back), and the row says `Cancelled`.
+- **Single-file share links:** a dropped folder is refused up front with `Choose one file to replace this file.` — the walk would otherwise find many files after the operation had already started.
 - **Junk files:** no silent skipping of OS junk files. If lunad refuses a name, its message shows in the row.
 
 ### 2.9 Toasts, haptics, errors
@@ -260,9 +264,14 @@ Item = {
 |---|---|
 | Something running | `Working on your files` |
 | Nothing running, problems left | `Some files need you` |
-| Collapsed summary (mono) | `{n} running · {pct}%`, plus ` · {n} need you` when there are problems. A single upload operation reads `Uploading {n} files · {pct}%`. |
+| Nothing running, nothing wrong | `Finished`, or `Stopped` when the only task was cancelled |
+| Collapsed summary (mono) | `{n} running · {pct}%`, plus ` · {n} need you` when there are problems. A single upload operation reads `Uploading {n} files · {pct}%`. When everything has finished it says what finished: `3 files uploaded`, `Moved 2 items to Trash`. |
 | Expand / collapse button aria | `Show details` / `Hide details` |
-| Close button (only when nothing runs) aria | `Close` |
+
+**There is no card-wide close button.** One X that dropped every row could hide a
+failure nobody had read yet, and it could not be undone. A finished operation
+clears itself after 4 s; a failed one stays until it is retried or removed. A
+single row is still cleared with its own `Clear`.
 
 **Operation status line, while running → when done**
 
@@ -748,7 +757,6 @@ Self-check rules for every brief: never run tests. Frontend agents may run only 
 
 ## 6. Out of scope (logged)
 
-- **Gallery "download selected" zip into memory:** needs R2's prepare pattern for `/api/v1/gallery/download`.
 - **Signing out while uploads run:** this stream adds no in-app guard. Rows fail with a sign-in error and can be retried.
 - **Editor saves, form pictures, cloud and private restore:** they keep their own state.
 

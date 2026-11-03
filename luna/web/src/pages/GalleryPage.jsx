@@ -69,6 +69,28 @@ import {
   putJson,
 } from "../lib/api";
 
+/** @typedef {import("../components/gallery/PhotoThumb.jsx").GalleryPhoto} GalleryPhoto */
+
+/**
+ * An album as `/api/v1/gallery/albums` returns it (`Album` in
+ * `crates/lunad/src/gallery/mod.rs`; the public projection drops the
+ * cover/contrib fields).
+ *
+ * @typedef {{
+ *   id: string,
+ *   home_drive_id: string,
+ *   owner_user_id?: string,
+ *   name?: string,
+ *   created_at?: number,
+ *   cover_path?: string,
+ *   cover_drive_id?: string,
+ *   cover_thumb?: string,
+ *   contrib_path?: string,
+ *   locked?: boolean,
+ *   item_count?: number,
+ * }} GalleryAlbum
+ */
+
 const GALLERY_DOWNLOAD_MAX = 200;
 const GALLERY_DOWNLOAD_FILENAME = "photos.zip";
 
@@ -397,6 +419,7 @@ export function parseGalleryHash(hash) {
   return { segment: DEFAULT_SEGMENT };
 }
 
+/** @param {GalleryAlbum} album */
 function unlockKey(album) {
   return `luna.photos.unlock.${album.home_drive_id}:${album.id}`;
 }
@@ -444,7 +467,7 @@ export default function GalleryPage() {
     return init;
   });
   const [placesDrawMode, setPlacesDrawMode] = useState(false);
-  const [albumView, setAlbumView] = useState(null);
+  const [albumView, setAlbumView] = useState(/** @type {GalleryAlbum|null} */ (null));
   // Cosmetic only — a smart album IS its filters; this just keeps its name
   // in the detail chrome and album-name prefill.
   const [viewLabel, setViewLabel] = useState(/** @type {string|null} */ (null));
@@ -489,7 +512,7 @@ export default function GalleryPage() {
       : null,
   );
   const hashStateRef = useRef(
-    /** @type {{ activeSegment: string, albumView: object|null, viewLabel: string|null, filters: import("../components/gallery/GalleryFilterSheet.jsx").GalleryFilters, duplicatesView: boolean, lightbox: object|null }|null} */ (null),
+    /** @type {{ activeSegment: string, albumView: GalleryAlbum|null, viewLabel: string|null, filters: import("../components/gallery/GalleryFilterSheet.jsx").GalleryFilters, duplicatesView: boolean, lightbox: { key: string }|null }|null} */ (null),
   );
   hashStateRef.current = {
     activeSegment,
@@ -566,21 +589,25 @@ export default function GalleryPage() {
     writeHash();
   }, [activeSegment, albumView, viewLabel, filters, duplicatesView, lightbox, writeHash]);
 
-  const tryOpenAlbum = useCallback((album) => {
-    if (album.locked) {
-      try {
-        if (sessionStorage.getItem(unlockKey(album)) === "1") {
-          setAlbumView(album);
-          return;
+  const tryOpenAlbum = useCallback(
+    /** @param {GalleryAlbum} album */
+    (album) => {
+      if (album.locked) {
+        try {
+          if (sessionStorage.getItem(unlockKey(album)) === "1") {
+            setAlbumView(album);
+            return;
+          }
+        } catch {
+          /* ignore */
         }
-      } catch {
-        /* ignore */
+        setLockedGate(album);
+        return;
       }
-      setLockedGate(album);
-      return;
-    }
-    setAlbumView(album);
-  }, []);
+      setAlbumView(album);
+    },
+    [],
+  );
 
   useEffect(() => {
     const onHashChange = () => {
@@ -1059,7 +1086,7 @@ export default function GalleryPage() {
       : null;
 
   const favorite = useMutation({
-    /** @param {{ drive_id: string, path: string, favorited?: boolean }} photo */
+    /** @param {GalleryPhoto} photo */
     mutationFn: async (photo) => {
       const body = { drive_id: photo.drive_id, path: photo.path };
       if (photo.favorited) {
@@ -1096,7 +1123,7 @@ export default function GalleryPage() {
   });
 
   const trashMany = useMutation({
-    /** @param {object[]} items */
+    /** @param {GalleryPhoto[]} items */
     mutationFn: async (items) => {
       for (const photo of items) {
         await deleteJson(
@@ -1118,7 +1145,7 @@ export default function GalleryPage() {
   });
 
   const createAlbum = useMutation({
-    /** @param {{ name: string, items?: object[] }} args */
+    /** @param {{ name: string, items?: GalleryPhoto[] }} args */
     mutationFn: async ({ name, items }) => {
       const album = await postJson("/api/v1/gallery/albums", { name });
       if (items?.length) {
@@ -1148,7 +1175,7 @@ export default function GalleryPage() {
   });
 
   const setAlbumCover = useMutation({
-    /** @param {object} photo */
+    /** @param {GalleryPhoto} photo */
     mutationFn: async (photo) => {
       if (!albumView) return;
       await patchJson(`/api/v1/gallery/albums/${albumView.home_drive_id}/${albumView.id}`, {
@@ -1167,7 +1194,7 @@ export default function GalleryPage() {
   });
 
   const renameAlbumMut = useMutation({
-    /** @param {{ album: object, name: string }} args */
+    /** @param {{ album: GalleryAlbum, name: string }} args */
     mutationFn: ({ album, name }) =>
       patchJson(`/api/v1/gallery/albums/${album.home_drive_id}/${album.id}`, { name }),
     onSuccess: (_d, { album, name }) => {
@@ -1185,7 +1212,7 @@ export default function GalleryPage() {
   });
 
   const lockAlbumMut = useMutation({
-    /** @param {{ album: object, locked: boolean }} args */
+    /** @param {{ album: GalleryAlbum, locked: boolean }} args */
     mutationFn: ({ album, locked }) =>
       patchJson(`/api/v1/gallery/albums/${album.home_drive_id}/${album.id}`, { locked }),
     onSuccess: (_d, { locked }) => {
@@ -1199,7 +1226,7 @@ export default function GalleryPage() {
   });
 
   const deleteAlbum = useMutation({
-    /** @param {{ home_drive_id: string, id: string }} album */
+    /** @param {GalleryAlbum} album */
     mutationFn: (album) =>
       deleteJson(`/api/v1/gallery/albums/${album.home_drive_id}/${album.id}`),
     onSuccess: (_data, album) => {
@@ -1220,7 +1247,7 @@ export default function GalleryPage() {
   });
 
   const applyAlbumPick = useMutation({
-    /** @param {{ changes: Array<{ album: object, add?: object[], remove?: object[] }>, close?: () => void }} args */
+    /** @param {{ changes: Array<{ album: { id?: string, home_drive_id?: string }, add?: GalleryPhoto[], remove?: GalleryPhoto[] }>, close?: () => void }} args */
     mutationFn: async ({ changes }) => {
       for (const change of changes) {
         const base = `/api/v1/gallery/albums/${change.album.home_drive_id}/${change.album.id}/items`;
@@ -1249,7 +1276,7 @@ export default function GalleryPage() {
   });
 
   const removeFromAlbum = useMutation({
-    /** @param {object[]} items */
+    /** @param {GalleryPhoto[]} items */
     mutationFn: async (items) => {
       if (!albumView) return;
       for (const photo of items) {
@@ -1277,7 +1304,7 @@ export default function GalleryPage() {
   });
 
   const bulkFavorite = useMutation({
-    /** @param {object[]} items */
+    /** @param {GalleryPhoto[]} items */
     mutationFn: async (items) => {
       for (const photo of items) {
         if (!photo.favorited) {
@@ -1499,13 +1526,15 @@ export default function GalleryPage() {
     };
   }, [activeSegment, albumView, filters.place, uploadFiles]);
 
-  const showTimeline =
+  // Boolean() because the album/label terms are truthiness tests, not booleans.
+  const showTimeline = Boolean(
     !duplicatesView &&
-    (activeSegment === "library" ||
-      activeSegment === "favorites" ||
-      (activeSegment === "places" && !placesMapOverview) ||
-      (activeSegment === "albums" &&
-        (albumView || viewLabel || filterActiveCount > 0)));
+      (activeSegment === "library" ||
+        activeSegment === "favorites" ||
+        (activeSegment === "places" && !placesMapOverview) ||
+        (activeSegment === "albums" &&
+          (albumView || viewLabel || filterActiveCount > 0))),
+  );
 
   // Track window scroll into the hash (`?y=`) so a reload lands back here.
   useEffect(() => {
@@ -1821,12 +1850,13 @@ export default function GalleryPage() {
                   variant="secondary"
                   surface="primary"
                   size="sm"
+                  aria-label="Share album"
                   onClick={() => {
                     setError(null);
                     setShareAlbum(albumView);
                   }}
                 >
-                  <Share2 size={14} /> Share album
+                  <Share2 size={14} /> Share
                 </Button>
               </>
             )}
@@ -2229,7 +2259,7 @@ export default function GalleryPage() {
           setNewAlbumSeed(selection.selectedItems);
           setNewAlbumName(
             selection.selectedCount === 1
-              ? selection.selectedItems[0]?.name?.replace(/\.[^.]+$/, "") || "Shared photos"
+              ? /** @type {GalleryPhoto|undefined} */ (selection.selectedItems[0])?.name?.replace(/\.[^.]+$/, "") || "Shared photos"
               : `Shared ${selection.selectedCount} photos`,
           );
           setNewAlbumOpen(true);
@@ -2430,7 +2460,7 @@ export default function GalleryPage() {
       <AddToAlbumModal
         open={!!albumPick}
         albums={albums.data || []}
-        photos={albumPick || []}
+        photos={/** @type {Array<{ drive_id: string, path: string }>} */ (albumPick || [])}
         albumsLoading={!!albumPick && (albums.isLoading || albums.isPending || (albums.isFetching && !albums.data))}
         applying={applyAlbumPick.isPending}
         error={albumPick ? error : null}
@@ -2662,9 +2692,10 @@ function AlbumsPanel({
                   variant="outline"
                   size="sm"
                   className="min-w-0 flex-1"
+                  aria-label={`Share album ${album.name}`}
                   onClick={() => onShare(album)}
                 >
-                  <Share2 size={14} /> Share album
+                  <Share2 size={14} /> Share
                 </Button>
                 <Button
                   variant="ghost"

@@ -14,11 +14,21 @@ else
 fi
 mkdir -p "$CARGO_HOME"
 
-# Cloud Agent / CI host shells often skip /etc/profile.d. Pick up the SDK
-# install.sh provisions so mobile unit tests can find it.
+# Cloud Agent / CI host shells often skip /etc/profile.d. Find the SDK in the
+# install.sh location or the standard Android Studio location so mobile tests
+# do not depend on a login shell exporting it. A configured ANDROID_SDK_ROOT
+# counts too, and either name covers for the other.
+if [ -z "${ANDROID_HOME:-}" ] && [ -n "${ANDROID_SDK_ROOT:-}" ]; then
+  export ANDROID_HOME="$ANDROID_SDK_ROOT"
+fi
 if [ -z "${ANDROID_HOME:-}" ] && [ -d /usr/local/android-sdk ]; then
   export ANDROID_HOME=/usr/local/android-sdk
-  export ANDROID_SDK_ROOT=/usr/local/android-sdk
+fi
+if [ -z "${ANDROID_HOME:-}" ] && [ -d "$HOME/Android/Sdk" ]; then
+  export ANDROID_HOME="$HOME/Android/Sdk"
+fi
+if [ -n "${ANDROID_HOME:-}" ]; then
+  export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
   export PATH="${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools:${PATH}"
 fi
 if [ -n "${ANDROID_HOME:-}" ] && [ ! -f mobile/local.properties ]; then

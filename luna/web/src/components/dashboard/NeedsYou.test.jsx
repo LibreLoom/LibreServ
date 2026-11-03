@@ -44,6 +44,32 @@ function renderZone(items, onAction = vi.fn()) {
   return { ...view, onAction };
 }
 
+/**
+ * Rows past the fold stay mounted so the card can grow and shrink through
+ * them, so a row is "folded" rather than absent. The title still finds it;
+ * the row itself is inert and aria-hidden until it is shown.
+ *
+ * @param {string} title
+ * @returns {HTMLElement}
+ */
+function rowFor(title) {
+  const row = screen.getByText(title).closest("li");
+  if (!row) throw new Error(`no row for ${title}`);
+  return /** @type {HTMLElement} */ (row);
+}
+
+/** Whether a row is folded away (inert + aria-hidden) instead of shown. */
+function isFolded(row) {
+  return row.getAttribute("aria-hidden") === "true" && row.hasAttribute("inert");
+}
+
+/** The titles of the rows a screen reader can reach, in order. */
+function shownTitles() {
+  return screen
+    .getAllByRole("listitem")
+    .map((row) => row.querySelector("p")?.textContent);
+}
+
 /** @returns {NeedsYouItem} */
 function warning(overrides = {}) {
   return {
@@ -51,7 +77,7 @@ function warning(overrides = {}) {
     rank: 70,
     tone: "warning",
     title: [{ name: "Drive 2" }, " is showing wear"],
-    detail: "4 spots on its disk have worn out. Keep using it, and make sure it's backed up.",
+    detail: "4 blocks on its disk have worn out. Keep using it, and make sure it's backed up.",
     action: { label: "See what's wrong", href: "/files#drive-d2" },
     ...overrides,
   };
@@ -334,33 +360,72 @@ describe("NeedsYou", () => {
       renderZone(manyItems(6));
       expect(screen.getAllByRole("listitem")).toHaveLength(5);
       expect(screen.getByRole("button", { name: "Show 1 more" })).toBeInTheDocument();
+      // The sixth row is still mounted (so the card can grow through it) but
+      // folded away: inert, aria-hidden, and out of the list a reader hears.
+      expect(isFolded(rowFor("Item 6"))).toBe(true);
+    });
+
+    it("keeps a folded row out of the tab order and the accessibility tree", () => {
+      const items = [
+        ...manyItems(5),
+        problem({
+          id: "backup:drive:last",
+          rank: 99,
+          title: ["Last row"],
+          action: { label: "Open", ariaLabel: "Open Last row", intent: "open-backup" },
+        }),
+      ];
+      renderZone(items);
+      const row = rowFor("Last row");
+      expect(isFolded(row)).toBe(true);
+      // The row is still mounted (so the card can grow through it) but its
+      // controls are out of the accessibility tree and out of the tab order.
+      expect(within(row).queryByRole("button")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Open Last row" })).not.toBeInTheDocument();
+      expect(shownTitles()).toEqual(["Item 1", "Item 2", "Item 3", "Item 4", "Item 5"]);
     });
 
     it("shows five of seven rows, expands to all seven, and folds back", async () => {
       renderZone(manyItems(7));
       expect(screen.getAllByRole("listitem")).toHaveLength(5);
-      expect(screen.queryByText("Item 6")).not.toBeInTheDocument();
+      expect(isFolded(rowFor("Item 6"))).toBe(true);
 
       const more = screen.getByRole("button", { name: "Show 2 more" });
       expect(more).toHaveAttribute("aria-expanded", "false");
       await userEvent.click(more);
       expect(screen.getAllByRole("listitem")).toHaveLength(7);
       expect(screen.getByText("Item 7")).toBeVisible();
+      expect(isFolded(rowFor("Item 6"))).toBe(false);
       expect(screen.queryByRole("button", { name: "Show 2 more" })).not.toBeInTheDocument();
 
       const fewer = screen.getByRole("button", { name: "Show fewer" });
       expect(fewer).toHaveAttribute("aria-expanded", "true");
       await userEvent.click(fewer);
       expect(screen.getAllByRole("listitem")).toHaveLength(5);
-      expect(screen.queryByText("Item 6")).not.toBeInTheDocument();
+      expect(isFolded(rowFor("Item 6"))).toBe(true);
       expect(screen.getByRole("button", { name: "Show 2 more" })).toBeInTheDocument();
+    });
+
+    it("keeps the toggle wired to the list it controls", () => {
+      renderZone(manyItems(7));
+      const toggle = screen.getByRole("button", { name: "Show 2 more" });
+      const list = screen.getByRole("list");
+      expect(toggle).toHaveAttribute("aria-controls", list.id);
+      expect(list.id).not.toBe("");
     });
 
     it("keeps the order when expanded", async () => {
       renderZone(manyItems(7));
       await userEvent.click(screen.getByRole("button", { name: "Show 2 more" }));
-      const titles = screen.getAllByRole("listitem").map((r) => r.querySelector("p")?.textContent);
-      expect(titles).toEqual(["Item 1", "Item 2", "Item 3", "Item 4", "Item 5", "Item 6", "Item 7"]);
+      expect(shownTitles()).toEqual([
+        "Item 1",
+        "Item 2",
+        "Item 3",
+        "Item 4",
+        "Item 5",
+        "Item 6",
+        "Item 7",
+      ]);
     });
 
     it("keeps the row buttons working while expanded", async () => {
@@ -441,8 +506,8 @@ describe("NeedsYou", () => {
     it("shows an info hint next to a row that has one", () => {
       renderZone([
         problem({
-          id: "check:disk_space",
-          title: ["Storage space"],
+          id: "check:clock",
+          title: ["Clock"],
           hint: "Luna keeps its own software and settings on a small built-in disk, separate from your drives.",
         }),
       ]);

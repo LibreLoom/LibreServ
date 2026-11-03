@@ -85,7 +85,7 @@ function EditorSession({
   const [error, setError] = useState(/** @type {string|null} */ (null));
   /** What the drive holds — the dirty baseline. Null until the fetch lands. */
   const [baseline, setBaseline] = useState(/** @type {string|null} */ (null));
-  const [peers, setPeers] = useState(/** @type {object[]} */ ([]));
+  const [peers, setPeers] = useState(/** @type {import("./collabDocSync.js").PeerInfo[]} */ ([]));
   const [connStatus, setConnStatus] = useState("connecting");
   const [mdMode, setMdMode] = useState(/** @type {"write"|"source"|"read"} */ (canWrite ? "write" : "read"));
   const [stats, setStats] = useState({ line: 1, col: 1, words: 0 });
@@ -179,7 +179,7 @@ function EditorSession({
   const isDirty =
     sync.hydrated && baseline != null && sync.serialize() !== baseline;
   // Report dirty upward; the clean report happens inside save() so the
-  // frame's "Saved just now" stamp only fires on a real save, not on load.
+  // frame's "Saved" pill only shows after a real save, not on load.
   useEffect(() => {
     if (isDirty && canWrite) onSaveStateChange(true);
   }, [isDirty, canWrite, onSaveStateChange]);

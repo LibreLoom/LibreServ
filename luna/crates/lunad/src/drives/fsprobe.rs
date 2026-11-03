@@ -11,6 +11,10 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 
+/// How long `sfdisk` gets to write a partition table. It writes a few sectors,
+/// so anything approaching this means the stick has stopped answering.
+const SFDISK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// One whole disk or partition as `blkid` (or a test double) reported it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FsInfo {
@@ -30,7 +34,10 @@ pub struct MountChoice {
 
 pub trait FsProbe: Send + Sync {
     fn probe_disk(&self, disk: &str) -> Vec<FsInfo>;
-    fn format_data_usb(&self, disk: &str, volume_label: &str) -> anyhow::Result<()>;
+    /// Clear every signature off `disk` and give it one partition spanning the
+    /// whole disk. No filesystem: [`super::format`] decides which one, so the
+    /// same prep serves a plain drive and an encrypted one.
+    fn prepare_disk(&self, disk: &str) -> anyhow::Result<String>;
 }
 
 #[derive(Clone, Default)]
@@ -41,8 +48,8 @@ impl FsProbe for CommandFsProbe {
         probe_disk_sysfs(Path::new("/sys/block"), disk, blkid_export)
     }
 
-    fn format_data_usb(&self, disk: &str, volume_label: &str) -> anyhow::Result<()> {
-        format_data_usb_cmd(disk, volume_label)
+    fn prepare_disk(&self, disk: &str) -> anyhow::Result<String> {
+        prepare_disk_cmd(disk)
     }
 }
 
@@ -50,7 +57,7 @@ pub fn shared_command_probe() -> Arc<CommandFsProbe> {
     Arc::new(CommandFsProbe)
 }
 
-/// Test double: canned `blkid` results and recorded format calls.
+/// Test double: canned `blkid` results and recorded prepare calls.
 #[derive(Default)]
 pub struct MockFsProbe {
     pub disks: std::sync::Mutex<std::collections::HashMap<String, Vec<FsInfo>>>,
@@ -67,9 +74,11 @@ impl FsProbe for MockFsProbe {
             .unwrap_or_default()
     }
 
-    fn format_data_usb(&self, disk: &str, _volume_label: &str) -> anyhow::Result<()> {
+    fn prepare_disk(&self, disk: &str) -> anyhow::Result<String> {
         self.formats.lock().unwrap().push(disk.to_string());
-        Ok(())
+        // The real probe names the first partition it created; the mock has to
+        // agree, or the caller mounts a partition name that never appears.
+        Ok(first_partition_name(disk))
     }
 }
 
@@ -112,6 +121,15 @@ pub fn is_esp_like(info: &FsInfo) -> bool {
     fat && info.size_bytes > 0 && info.size_bytes < 64 * 1024 * 1024
 }
 
+/// A LUKS container is a candidate drive, not an unreadable one. It is
+/// deliberately excluded from [`is_writable_type`]: there is no filesystem to
+/// mount until the container is opened, so treating it as a filesystem would
+/// make `peek` try to mount it read-only and report "Can't open" for a
+/// perfectly good encrypted drive.
+pub fn is_luks_type(fs: &str) -> bool {
+    crate::drives::luks::is_luks_type(fs)
+}
+
 /// Prefer a real data partition over the whole-disk ISO9660 view of an isohybrid USB.
 pub fn pick_mount_source(disk: &str, parts: &[FsInfo]) -> MountChoice {
     let data: Vec<&FsInfo> = parts
@@ -122,6 +140,19 @@ pub fn pick_mount_source(disk: &str, parts: &[FsInfo]) -> MountChoice {
         return MountChoice {
             name: best.name.clone(),
             fs_type: best.fs_type.clone(),
+            needs_erase: false,
+        };
+    }
+    // An encrypted drive: nothing to mount, but nothing to erase either. It is
+    // the largest such partition that matters, matching the data-partition rule.
+    if let Some(luks) = parts
+        .iter()
+        .filter(|p| is_luks_type(&p.fs_type) && !is_esp_like(p))
+        .max_by_key(|p| p.size_bytes)
+    {
+        return MountChoice {
+            name: luks.name.clone(),
+            fs_type: luks.fs_type.clone(),
             needs_erase: false,
         };
     }
@@ -298,7 +329,12 @@ pub fn parse_blkid_export(text: &str) -> Option<(String, String)> {
     }
 }
 
-fn format_data_usb_cmd(disk: &str, volume_label: &str) -> anyhow::Result<()> {
+/// Clear every signature off the disk and give it one partition spanning
+/// the whole disk. Returns the partition name.
+///
+/// No filesystem: [`super::format`] decides which one, so the same prep
+/// serves a plain drive and an encrypted one.
+fn prepare_disk_cmd(disk: &str) -> anyhow::Result<String> {
     let dev = format!("/dev/{disk}");
     if !Path::new(&dev).exists() {
         anyhow::bail!("Luna can't see that USB stick. Plug it in and try again.");
@@ -347,7 +383,9 @@ fn format_data_usb_cmd(disk: &str, volume_label: &str) -> anyhow::Result<()> {
             .ok_or_else(|| anyhow::anyhow!("Luna couldn't prepare this USB."))?;
         stdin.write_all(b"label: dos\n,+,7\n")?;
     }
-    let sfdisk_out = sfdisk.wait_with_output()?;
+    // Bounded: a stick that stops answering would otherwise hold the format
+    // open forever, with the drive stuck in `converting` and no way out.
+    let sfdisk_out = crate::sandbox::collect_output(sfdisk, SFDISK_TIMEOUT)?;
     if !sfdisk_out.status.success() {
         anyhow::bail!(
             "Luna couldn't set up this USB. {}",
@@ -378,67 +416,7 @@ fn format_data_usb_cmd(disk: &str, volume_label: &str) -> anyhow::Result<()> {
             "Luna prepared the USB but the new partition did not appear. Unplug it, plug it back in, and try again."
         );
     }
-
-    let label = sanitize_volume_label(volume_label);
-    let exfat = crate::sandbox::which("mkfs.exfat").map(|bin| {
-        let mut cmd = crate::sandbox::hardened(&bin);
-        cmd.args(["-n", &label, &part_dev]).stderr(Stdio::piped());
-        crate::sandbox::output_limited(&mut cmd, std::time::Duration::from_secs(120))
-    });
-    let exfat = exfat.unwrap_or_else(|| {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "mkfs.exfat missing",
-        ))
-    });
-    if exfat.as_ref().is_ok_and(|o| o.status.success()) {
-        return Ok(());
-    }
-    let fat = crate::sandbox::which("mkfs.vfat").map(|bin| {
-        let mut cmd = crate::sandbox::hardened(&bin);
-        cmd.args(["-F", "32", "-n", &label, &part_dev])
-            .stderr(Stdio::piped());
-        crate::sandbox::output_limited(&mut cmd, std::time::Duration::from_secs(120))
-    });
-    let fat = fat.unwrap_or_else(|| {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "mkfs.vfat missing",
-        ))
-    });
-    if fat.as_ref().is_ok_and(|o| o.status.success()) {
-        return Ok(());
-    }
-    anyhow::bail!(
-        "Luna couldn't set up this USB for files. {}",
-        mkfs_failure_details(&exfat, &fat)
-    )
-}
-
-/// What each format tool said, so a failure shows both attempts. A tool that
-/// couldn't start at all is reported as missing.
-fn mkfs_failure_details(
-    exfat: &std::io::Result<std::process::Output>,
-    fat: &std::io::Result<std::process::Output>,
-) -> String {
-    fn one(name: &str, result: &std::io::Result<std::process::Output>) -> String {
-        match result {
-            Ok(o) => {
-                let said = String::from_utf8_lossy(&o.stderr).trim().to_string();
-                if said.is_empty() {
-                    format!("{name} failed.")
-                } else {
-                    format!("{name}: {said}")
-                }
-            }
-            Err(_) => format!("{name} is not installed on this Luna."),
-        }
-    }
-    format!(
-        "{} {}",
-        one("exFAT format", exfat),
-        one("FAT32 format", fat)
-    )
+    Ok(part)
 }
 
 #[cfg(test)]

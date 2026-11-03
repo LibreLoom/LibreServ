@@ -9,6 +9,17 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
+/// How long `umount` gets before Luna gives up on it.
+///
+/// A drive that has stopped answering can hold an unmount open indefinitely,
+/// and every wipe starts with an unmount — so without this bound a failing
+/// stick would leave the drive stuck mid-format with nothing to report.
+const UNMOUNT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// How long `mount` gets. Mounting a local filesystem is immediate; anything
+/// slower is a sick drive or a filesystem that needs checking.
+const MOUNT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// An unmount that failed only because something still has files open on
 /// the drive. Waiting and trying again can work; other failures won't.
 #[derive(Debug)]
@@ -21,6 +32,28 @@ impl std::fmt::Display for MountBusy {
 }
 
 impl std::error::Error for MountBusy {}
+
+/// A mount tool that ran out of time: the drive stopped answering.
+///
+/// Deliberately not [`MountBusy`]. Busy means "something has files open", and
+/// callers retry it and tell the person to close them — neither of which is
+/// true here, and retrying a dead drive is just a longer wait for the same
+/// failure.
+#[derive(Debug)]
+pub struct DriveUnresponsive;
+
+impl std::fmt::Display for DriveUnresponsive {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("drive stopped responding")
+    }
+}
+
+impl std::error::Error for DriveUnresponsive {}
+
+/// True when `err` is (or wraps) [`DriveUnresponsive`].
+pub fn is_unresponsive(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<DriveUnresponsive>().is_some()
+}
 
 /// True when `err` is (or wraps) [`MountBusy`].
 pub fn is_busy(err: &anyhow::Error) -> bool {
@@ -103,7 +136,8 @@ impl Mounter for CommandMounter {
         if !self.is_mounted(target) {
             return Ok(());
         }
-        let out = Command::new("umount").arg(target).output()?;
+        let out = run_bounded(Command::new("umount").arg(target), UNMOUNT_TIMEOUT)
+            .map_err(|e| timeout_or(e, || anyhow::Error::new(DriveUnresponsive)))?;
         if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr);
             if already_unmounted_stderr(&stderr) {
@@ -121,7 +155,11 @@ impl Mounter for CommandMounter {
         if !self.is_mounted(target) {
             return Ok(());
         }
-        let out = Command::new("umount").arg("-l").arg(target).output()?;
+        let out = run_bounded(
+            Command::new("umount").arg("-l").arg(target),
+            UNMOUNT_TIMEOUT,
+        )
+        .map_err(|e| timeout_or(e, unresponsive))?;
         if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr);
             if already_unmounted_stderr(&stderr) {
@@ -133,9 +171,11 @@ impl Mounter for CommandMounter {
     }
 
     fn remount(&self, target: &Path, read_only: bool) -> anyhow::Result<()> {
-        let out = Command::new("mount")
-            .args(remount_args(target, read_only))
-            .output()?;
+        let out = run_bounded(
+            Command::new("mount").args(remount_args(target, read_only)),
+            MOUNT_TIMEOUT,
+        )
+        .map_err(|e| timeout_or(e, unresponsive))?;
         if !out.status.success() {
             return Err(anyhow::anyhow!(
                 "remount {} failed: {}",
@@ -154,9 +194,11 @@ impl Mounter for CommandMounter {
         fs_type: Option<&str>,
     ) -> anyhow::Result<()> {
         std::fs::create_dir_all(target)?;
-        let out = Command::new("mount")
-            .args(mount_args(device, target, read_only, fs_type))
-            .output()?;
+        let out = run_bounded(
+            Command::new("mount").args(mount_args(device, target, read_only, fs_type)),
+            MOUNT_TIMEOUT,
+        )
+        .map_err(|e| timeout_or(e, unresponsive))?;
         if !out.status.success() {
             return Err(anyhow::anyhow!(
                 "mount {device} failed: {}",
@@ -164,6 +206,36 @@ impl Mounter for CommandMounter {
             ));
         }
         Ok(())
+    }
+}
+
+/// Run a mount tool with a deadline, capturing both streams.
+///
+/// `Command::output` waits forever, which is the one thing a mount call must
+/// not do: a drive that has stopped answering would hold the caller open with
+/// no way to report it. Callers decide what a timeout means — see
+/// [`unresponsive`].
+fn run_bounded(
+    cmd: &mut Command,
+    timeout: std::time::Duration,
+) -> std::io::Result<std::process::Output> {
+    cmd.stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    crate::sandbox::output_limited(cmd, timeout)
+}
+
+/// What a tool that ran out of time means: the drive stopped answering.
+fn unresponsive() -> anyhow::Error {
+    anyhow::Error::new(DriveUnresponsive)
+}
+
+/// Map a timeout to the caller's meaning for it, and any other I/O error to
+/// itself.
+fn timeout_or(err: std::io::Error, on_timeout: impl FnOnce() -> anyhow::Error) -> anyhow::Error {
+    if err.kind() == std::io::ErrorKind::TimedOut {
+        on_timeout()
+    } else {
+        anyhow::Error::new(err)
     }
 }
 
@@ -326,6 +398,49 @@ mod tests {
 
     fn args(device: &str, read_only: bool, fs: Option<&str>) -> Vec<String> {
         mount_args(device, Path::new("/run/luna/mnt/d1"), read_only, fs)
+    }
+
+    #[test]
+    fn a_mount_tool_that_never_returns_is_killed() {
+        // The whole point of the bound: a drive that has stopped answering
+        // must not hold the caller open. `sleep` stands in for a wedged
+        // `umount`, and the deadline is short so the test is quick.
+        let started = std::time::Instant::now();
+        let out = run_bounded(
+            Command::new("sleep").arg("30"),
+            std::time::Duration::from_millis(200),
+        );
+        let err = out.expect_err("a tool that outlives its deadline must not succeed");
+        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "the deadline was not enforced"
+        );
+    }
+
+    #[test]
+    fn a_timeout_is_not_reported_as_a_busy_drive() {
+        // Busy means "close your files", and callers retry it. A timeout must
+        // not be retried for half an hour or blamed on the person.
+        let timed_out = std::io::Error::new(std::io::ErrorKind::TimedOut, "tool timed out");
+        let as_busy = timeout_or(timed_out, || anyhow::Error::new(MountBusy));
+        assert!(is_busy(&as_busy));
+
+        let timed_out = std::io::Error::new(std::io::ErrorKind::TimedOut, "tool timed out");
+        let as_unresponsive = timeout_or(timed_out, unresponsive);
+        assert!(is_unresponsive(&as_unresponsive));
+        assert!(!is_busy(&as_unresponsive));
+    }
+
+    #[test]
+    fn an_ordinary_io_error_is_passed_through() {
+        // A missing binary is not a dead drive, and must not be described as
+        // one: the two need different fixes.
+        let missing = std::io::Error::new(std::io::ErrorKind::NotFound, "no such file");
+        let err = timeout_or(missing, unresponsive);
+        assert!(!is_unresponsive(&err));
+        assert!(!is_busy(&err));
+        assert!(err.to_string().contains("no such file"));
     }
 
     #[test]

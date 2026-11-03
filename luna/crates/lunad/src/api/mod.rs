@@ -11,6 +11,7 @@ pub mod connect;
 pub(crate) mod contract;
 pub mod device_tokens;
 pub mod drives;
+pub mod encryption;
 pub mod forms;
 pub mod health;
 pub mod network;
@@ -54,6 +55,7 @@ pub fn router() -> Router<AppState> {
         .merge(network::router())
         .merge(setup::router())
         .merge(drives::router())
+        .merge(encryption::router())
         .merge(collab::router())
         .merge(files::router())
         .merge(gallery::router())

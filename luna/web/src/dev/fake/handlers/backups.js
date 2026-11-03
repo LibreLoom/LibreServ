@@ -29,6 +29,8 @@ const folderName = (path, drive) => path.split("/").filter(Boolean).pop() || dri
 
 /** The backup of a bigger folder that holds this one (db::covering_protection). */
 function coveringBackup(world, row) {
+  // A private folder is always its own backup: it ignores every parent backup.
+  if (row.private_owner) return null;
   const child = clean(row.source_path);
   if (!child) return null;
   const list = row.kind === "cloud" ? world.cloudBackups : world.backups;
@@ -168,7 +170,7 @@ post("/api/v1/cloud/backups", ({ world, user, body }) => {
   const norm = clean(body.source_path);
   if (!norm && !isAdmin(user)) throw fail(403, "Only an Admin can back up a whole drive.");
   if (!hasCap(world, user, src, norm, CAP_VIEW)) throw fail(403, "You need Read access to this folder to back it up.");
-  if (!world.phrase?.set) throw fail(409, "You need a recovery phrase first. Reload this page to set one up.", "needs_phrase");
+  if (!world.phrase?.set) throw fail(409, "Set up your recovery phrase first, then start the cloud backup.", "needs_phrase");
   const owner = privateOwnerOf(world, src, norm);
   if (owner && owner !== user.id) {
     const who = world.users.find((u) => u.id === owner);
@@ -294,19 +296,83 @@ function backedUpFile(world, row, rel) {
   return t ? { node: t.nodes[""], current: false } : null;
 }
 
+/** How far back the fake keeps copies: one per backup run, newest first. */
+const VERSION_DAYS = [5, 21];
+
+/** How much of the file each earlier copy held, newest first. */
+const VERSION_KEPT = [0.6, 0.35];
+
+/** An earlier copy of a file: a shorter draft of it, so every version really differs. */
+function earlierNode(node, i) {
+  const older = { ...node };
+  const keep = VERSION_KEPT[i] ?? 0.2;
+  if (node.text != null) {
+    const cut = Math.max(1, Math.floor(node.text.length * keep));
+    let text = node.text.slice(0, cut);
+    // End on a line, so a text copy reads like a real earlier draft.
+    const line = text.lastIndexOf("\n");
+    if (line > 0) text = text.slice(0, line);
+    older.text = text;
+    older.size = text.length;
+  } else {
+    older.size = Math.max(1, Math.round((node.size || 1000) * keep));
+  }
+  return older;
+}
+
+/**
+ * The copies the backup kept of a file, newest first, as `[{ at, node }]`.
+ *
+ * lunad keeps one folder per backup run under `versions/`, so an older copy is a real
+ * earlier file with its own bytes — not today's file with a smaller size. The copies are
+ * made once and kept on the drive, so the list, a download of one and a restore of one
+ * all agree. `noVersions` means the backup never kept any.
+ */
+function versionsOf(world, row, rel, node) {
+  if (fsOpts(world).noVersions) return [];
+  const src = fsOf(world, row.source_drive);
+  src.versions ??= {};
+  const key = `${row.id}\0${rel}`;
+  if (src.versions[key]) return src.versions[key];
+  const t = nowS();
+  src.versions[key] = VERSION_DAYS.map((days, i) => {
+    const at = t - days * 86400;
+    const older = earlierNode(node, i);
+    older.modified = at - 3600;
+    return { at, node: older };
+  });
+  return src.versions[key];
+}
+
+/** The copy kept at `at`, or null when this backup has no such version. */
+function versionAt(world, row, rel, at) {
+  const src = fsOf(world, row.source_drive);
+  const kept = src.versions?.[`${row.id}\0${rel}`];
+  const list = kept || (() => {
+    const file = backedUpFile(world, row, rel);
+    return file ? versionsOf(world, row, rel, file.node) : [];
+  })();
+  return list.find((v) => String(v.at) === String(at)) || null;
+}
+
+/** `at` from a query or body: null when absent, digits only otherwise. */
+function versionParam(value) {
+  if (value == null || value === "") return null;
+  const text = String(value);
+  if (!/^\d+$/.test(text)) throw fail(400, "That version is not valid. Choose one from the list.");
+  return text;
+}
+
 get("/api/v1/drives/:id/backups/:bid/versions", ({ world, user, params, query }) => {
   const rel = cleanRel(query.path);
   if (!rel) throw fail(400, "Choose a file to see its versions.");
   const row = findVisible(world, user, params.id, params.bid);
   const file = backedUpFile(world, row, rel);
+  if (!file) return [];
   const out = [];
-  if (file?.current) out.push({ at: null, size: file.node.size || 0, mtime: file.node.modified });
-  if (file && !fsOpts(world).noVersions) {
-    const t = nowS();
-    for (const [i, days] of [5, 21].entries()) {
-      const at = t - days * 86400;
-      out.push({ at, size: Math.max(0, (file.node.size || 0) - 600 * (i + 1)), mtime: at - 3600 });
-    }
+  if (file.current) out.push({ at: null, size: file.node.size || 0, mtime: file.node.modified });
+  for (const v of versionsOf(world, row, rel, file.node)) {
+    out.push({ at: v.at, size: v.node.size || 0, mtime: v.node.modified });
   }
   return out;
 });
@@ -314,12 +380,19 @@ get("/api/v1/drives/:id/backups/:bid/versions", ({ world, user, params, query })
 get("/api/v1/drives/:id/backups/:bid/download", ({ world, user, params, query }) => {
   const row = findVisible(world, user, params.id, params.bid);
   const rel = cleanRel(query.path);
-  if (query.at && !/^\d+$/.test(String(query.at))) throw fail(400, "That version is not valid. Choose one from the list.");
+  const at = versionParam(query.at);
+  if (at != null) {
+    if (!rel) throw fail(400, "Choose a file to download a version of.");
+    const version = versionAt(world, row, rel, at);
+    if (!version) throw fail(404, "Luna couldn't find that version of this file.");
+    const [data, type] = bytesFor(version.node);
+    return raw(data, type, 200, { "Content-Disposition": `attachment; filename="${base(rel)}"` });
+  }
   const file = backedUpFile(world, row, rel);
   if (!file) {
     const dir = fsOf(world, row.source_drive).nodes[join(clean(row.source_path), rel)];
     if (dir?.kind === "dir") return raw(new Uint8Array(22), "application/zip", 200, { "Content-Disposition": `attachment; filename="${base(rel)}.zip"` });
-    throw fail(404, query.at ? "Luna couldn't find that version of this file." : "Luna couldn't find that in this backup.");
+    throw fail(404, "Luna couldn't find that in this backup.");
   }
   const [data, type] = bytesFor(file.node);
   return raw(data, type, 200, { "Content-Disposition": `attachment; filename="${base(rel)}"` });
@@ -328,16 +401,24 @@ get("/api/v1/drives/:id/backups/:bid/download", ({ world, user, params, query })
 post("/api/v1/drives/:id/backups/:bid/restore", ({ world, user, params, body }) => {
   const rel = cleanRel(body.path);
   if (!rel) throw fail(400, "Choose a file or folder to restore.");
-  if (body.at != null && !/^\d+$/.test(String(body.at))) throw fail(400, "That version is not valid. Choose one from the list.");
+  const at = versionParam(body.at);
   const row = findVisible(world, user, params.id, params.bid);
-  const file = backedUpFile(world, row, rel);
   const srcFs = fsOf(world, row.source_drive);
   const sub = srcFs.nodes[join(clean(row.source_path), rel)];
+  // An older version is a file; a folder only restores as it stands now.
+  const file = at == null
+    ? backedUpFile(world, row, rel)
+    : (() => {
+      const version = versionAt(world, row, rel, at);
+      return version ? { node: version.node, current: false } : null;
+    })();
+  if (at != null && !file) throw fail(404, "Luna couldn't find that in this backup.");
   if (!file && !sub) throw fail(404, "Luna couldn't find that in this backup.");
   const srcLabel = driveRow(world, row.source_drive)?.label || row.source_drive_name || "the original drive";
   if (!driveUsable(world, row.source_drive)) throw fail(409, `Connect ${srcLabel} to restore to the original folder.`);
   const parentRel = parentOf(rel);
-  const destDir = join(clean(row.source_path), parentRel);
+  // `join` leaves a trailing slash for a top-level file, which no node has.
+  const destDir = clean(join(clean(row.source_path), parentRel));
   if (row.private_owner) {
     if (user.id !== row.private_owner) throw fail(403, "Only the owner of this private item can restore it.");
   } else if (!hasCap(world, user, row.source_drive, destDir, CAP_EDIT)) {

@@ -17,7 +17,8 @@ describe("FileOpItemLine", () => {
   it("shows a running upload with its percent and a cancel button", () => {
     line([{ ...base, items: [{ id: "i1", name: "a.txt", state: "uploading", size: 100, received: 40 }] }]);
     expect(screen.getByText("a.txt")).toBeTruthy();
-    expect(screen.getByText("40%")).toBeTruthy();
+    // The percentage is an odometer now, so its DOM text is every digit.
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("40");
     expect(screen.getByRole("button", { name: "Cancel uploading a.txt" })).toBeTruthy();
     expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("40");
   });
@@ -28,6 +29,29 @@ describe("FileOpItemLine", () => {
     for (const label of ["Replace", "Keep both", "Skip"]) {
       expect(screen.getByRole("button", { name: label })).toBeTruthy();
     }
+  });
+
+  it("puts each explanation on its button, not a separate info icon", () => {
+    // A little ⓘ between the buttons broke the row into button-icon-button and
+    // read as five things instead of three. The button itself is the term now.
+    const { container } = line([{ ...base, state: "waiting", items: [fileClash("i1", "a.txt")] }]);
+    expect(container.querySelector("[data-slot='info-hint']")).toBeNull();
+    // Every button is still exactly one button — no control nested in another.
+    for (const label of ["Replace", "Keep both", "Skip"]) {
+      expect(screen.getAllByRole("button", { name: label })).toHaveLength(1);
+    }
+    expect(container.querySelectorAll("button button")).toHaveLength(0);
+    // Replace and Keep both carry a definition; Skip has nothing to explain.
+    expect(container.querySelectorAll("[data-slot='tooltip']")).toHaveLength(2);
+    expect(container.querySelectorAll("span.underline")).toHaveLength(2);
+  });
+
+  it("opens a button's explanation from the button itself", async () => {
+    line([{ ...base, state: "waiting", items: [fileClash("i1", "a.txt")] }]);
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "Replace" }), { pointerType: "mouse" });
+    expect((await screen.findByRole("tooltip")).textContent).toBe(
+      "The file that's there now is overwritten.",
+    );
   });
 
   it("answers through the store", () => {
@@ -54,6 +78,21 @@ describe("FileOpItemLine", () => {
     expect(screen.getByText(/Couldn't reach Luna/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Remove" })).toBeTruthy();
+  });
+
+  it("gives the Remove button a body", () => {
+    // It was a ghost: bare text with no chrome, sitting beside outlined
+    // buttons, so it read as a label rather than something you could press.
+    line([
+      {
+        ...base,
+        state: "partial",
+        items: [{ id: "i1", name: "locked.pdf", state: "failed", retryable: true, error: null }],
+      },
+    ]);
+    const remove = screen.getByRole("button", { name: "Remove" });
+    expect(remove.getAttribute("data-variant")).toBe("outline");
+    expect(screen.getByRole("button", { name: "Try again" }).getAttribute("data-variant")).toBe("outline");
   });
 
   it("shows Luna's own words for a failed copy and no Try again when it can't be retried", () => {

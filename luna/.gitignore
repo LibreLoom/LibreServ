@@ -26,3 +26,7 @@ __pycache__/
 # EuroOffice pack + converted doc bundles — installed/generated, never commit
 eurooffice/
 office_bundles/
+
+# Vitest's placeholder build.outDir, materialised when a Vite plugin copies
+# into it during a test run (see shared/ui/vite/sharedFonts.js). Never source.
+dummy-non-existing-folder/

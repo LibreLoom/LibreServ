@@ -578,11 +578,14 @@ async fn completing_setup_clears_step_data() {
     let res = call(&app, req(Method::POST, "/api/v1/setup", Some(FINISH), None)).await;
     assert_eq!(res.status(), 409, "{}", text(res).await);
     let body: serde_json::Value = serde_json::from_str(&text(res).await).unwrap();
-    assert_eq!(body["code"], "needs_phrase");
+    assert_eq!(
+        body["error"],
+        "Create your Luna account before you finish setup."
+    );
 
-    // (b) With an Admin who has a phrase, finishing works and clears the draft.
+    // (b) With an Admin, finishing works and clears the draft. No recovery phrase is needed:
+    // it opens cloud backups, which are off until someone turns them on.
     let (cookie, csrf) = sign_in_first_admin(&app).await;
-    seed_phrase(&app, &cookie, &csrf).await;
     let res = call(
         &app,
         req_with_csrf(
@@ -603,33 +606,26 @@ async fn completing_setup_clears_step_data() {
 }
 
 #[tokio::test]
-async fn finishing_setup_needs_the_admins_recovery_phrase() {
+async fn finishing_setup_needs_no_recovery_phrase() {
     let (_dir, app) = test_app();
     let (cookie, csrf) = sign_in_first_admin(&app).await;
-    let finish = || {
+
+    // Signed in with no phrase: setup still finishes. The phrase opens cloud backups,
+    // which are off until someone turns them on, so it is asked for there instead.
+    let res = call(
+        &app,
         req_with_csrf(
             Method::POST,
             "/api/v1/setup",
             Some(r#"{"setup_completed":true}"#),
             Some(&cookie),
             Some(&csrf),
-        )
-    };
-
-    // Signed in, but no phrase yet: refused with a code the wizard can route on.
-    let res = call(&app, finish()).await;
-    assert_eq!(res.status(), 409, "{}", text(res).await);
-    let body: serde_json::Value = serde_json::from_str(&text(res).await).unwrap();
-    assert_eq!(body["code"], "needs_phrase");
-    assert_eq!(
-        body["error"],
-        "Set up your recovery phrase before you finish setup."
-    );
-
-    // Once the phrase is set, the same request finishes setup.
-    seed_phrase(&app, &cookie, &csrf).await;
-    let res = call(&app, finish()).await;
+        ),
+    )
+    .await;
     assert_eq!(res.status(), 200, "{}", text(res).await);
+    let body: serde_json::Value = serde_json::from_str(&text(res).await).unwrap();
+    assert_eq!(body["setup_completed"], true);
 }
 
 #[tokio::test]
