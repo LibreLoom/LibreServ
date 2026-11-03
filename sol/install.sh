@@ -978,22 +978,6 @@ do_upgrade() {
 }
 
 # Uninstall Sol
-# A saved PID alone is insufficient after a reboot or PID reuse.
-tailscale_pid_matches() {
-    local ts_pid="$1" ts_state="$2" ts_executable=""
-    [[ "$ts_pid" =~ ^[0-9]+$ ]] && [ "$ts_pid" -gt 1 ] && [ -r "/proc/${ts_pid}/cmdline" ] || return 1
-    IFS= read -r -d '' ts_executable < "/proc/${ts_pid}/cmdline" || return 1
-    [ "${ts_executable##*/}" = tailscaled ] || return 1
-    local ts_arg ts_previous=""
-    while IFS= read -r -d '' ts_arg; do
-        if [ "$ts_arg" = "--state=$ts_state" ] || { [ "$ts_previous" = --state ] && [ "$ts_arg" = "$ts_state" ]; }; then
-            return 0
-        fi
-        ts_previous="$ts_arg"
-    done < "/proc/${ts_pid}/cmdline"
-    return 1
-}
-
 tailscale_socket_stopped() {
     # Kernel paths contain literal spaces/UTF-8. Pass the name through the
     # environment so awk does not reinterpret a literal backslash in it.

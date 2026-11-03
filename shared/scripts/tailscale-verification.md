@@ -1,7 +1,6 @@
 # Tailscale release verification
 
-This is a maintainer protocol, not a record of a completed live test. PR209
-review 111 remains `REQUEST_CHANGES` until the requested live evidence exists.
+This is a maintainer protocol, not a record of a completed live test.
 Mock tests and source inspection cannot establish actual Serve/Funnel behavior.
 
 Current PR209 status: the user authorized an isolated test, then paused it
@@ -125,8 +124,7 @@ observation. Do not turn TLS verification off to make a request succeed.
   header or public-request evidence.
 - Attach the evidence manifest and completed matrix to the review record only
   with authorization. A successful cleanup and a reviewer decision must be
-  recorded separately from engineering checks. Do not mark review 111 approved
-  merely because this checklist or its mock tests exist.
+  recorded separately from engineering checks. Do not claim live verification merely because this checklist or its mock tests exist.
 
 ## Generation socket verification (pending)
 
