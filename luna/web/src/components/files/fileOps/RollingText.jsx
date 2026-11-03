@@ -49,13 +49,16 @@ export default function RollingText({ value, className = "", children }) {
  * @param {{ parts: Array<string | { number: number, suffix?: string }>, className?: string }} props
  */
 export function RollingNumbers({ parts, className = "" }) {
+  // Plain inline flow, NOT flex: a flex container trims whitespace at each
+  // item's edges, which ate the spaces around the separators and produced
+  // "50%·96.0 MBof192.0 MB". Text flows here, so the spaces survive.
   return (
-    <span className={cn("inline-flex items-baseline whitespace-nowrap", className)}>
+    <span className={cn("whitespace-nowrap", className)}>
       {parts.map((part, i) =>
         typeof part === "string" ? (
           <span key={i}>{part}</span>
         ) : (
-          <span key={i} className="inline-flex items-baseline">
+          <span key={i}>
             <RollingNumber value={part.number} />
             {part.suffix}
           </span>

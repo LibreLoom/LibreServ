@@ -122,6 +122,38 @@ describe("FileOpRow", () => {
     expect(meta.textContent).toContain("files");
   });
 
+  it("keeps the spaces around the meta line's separators", () => {
+    // The line is built from text and counters. A flex container trims
+    // whitespace at each item's edge, which turned "50% · 96.0 MB of 192.0 MB"
+    // into "50%·96.0 MBof192.0 MB" — the text was right, the layout ate it.
+    const { container } = row([
+      {
+        id: "op2",
+        kind: "copy",
+        state: "running",
+        title: "a",
+        destLabel: "Backup drive",
+        itemsTotal: 6,
+        bytesTotal: 192_000_000,
+        bytesDone: 96_000_000,
+        items: [{ id: "i1", name: "a", state: "running", size: 192_000_000, received: 96_000_000 }],
+      },
+    ]);
+    const meta = [...container.querySelectorAll("[data-slot='file-op-row'] p")].find((p) =>
+      p.textContent.includes(" of "),
+    );
+    expect(meta).toBeTruthy();
+    // The separators keep their spaces on both sides.
+    expect(meta.textContent).toContain(" · ");
+    expect(meta.textContent).toContain(" of ");
+    // The line itself is inline flow, not a flex container — flex is what ate
+    // the spaces. (The odometers inside it are their own inline-flex, which is
+    // fine: the whitespace lives between them, in the line.)
+    const line = meta.firstElementChild;
+    expect(line.className).not.toContain("inline-flex");
+    expect(line.className).toContain("whitespace-nowrap");
+  });
+
   it("shows a moving bar for emptying the trash", async () => {
     row([{ id: "op3", kind: "empty-trash", state: "running", title: "Photos drive", destLabel: "Photos drive", indeterminate: true, itemsTotal: null, items: [] }]);
     const bar = await screen.findByRole("progressbar");
