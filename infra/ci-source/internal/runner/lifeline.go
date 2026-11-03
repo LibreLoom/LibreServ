@@ -13,7 +13,7 @@ import (
 const lifelinePrefix = ".ci-run-"
 
 // lifeline is a lock file this ci process holds for as long as it lives.
-// Containers see it at /ci-lifeline and stop themselves once nobody holds it, so
+// Containers see it under /repo/.cache and stop once nobody holds it, so
 // killing ci (even with kill -9) can't leave test containers running.
 type lifeline struct {
 	f    *os.File
@@ -88,7 +88,7 @@ func removeStaleLifelines(cacheDir string) {
 func containerCommand(command string, nice int, lifelineName string) []string {
 	lock := ""
 	if lifelineName != "" {
-		lock = "/ci-lifeline/" + lifelineName
+		lock = "/repo/.cache/" + lifelineName
 	}
 	const script = `lock=$1; nice=$2; cmd=$3
 trap 'kill -9 -1 2>/dev/null; exit 137' TERM

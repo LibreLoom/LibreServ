@@ -45,11 +45,11 @@ func TestLaunchErrorClassDoesNotExposeDetails(t *testing.T) {
 
 func TestContainerCacheBindsKeepLifelineIndependent(t *testing.T) {
 	for _, cache := range []string{"/repo/.cache", "/tmp/owned-cache"} {
-		want := []string{"/repo:/repo:z", cache + ":/cache:z", "/repo/.cache:/ci-lifeline:z"}
+		want := []string{"/repo:/repo:z", cache + ":/cache:z"}
 		if got := containerBaseBinds("/repo", cache); !reflect.DeepEqual(got, want) {
 			t.Fatalf("cache %s: binds %v", cache, got)
 		}
-		if got := containerCommand("true", 0, ".ci-run-7.lock"); got[4] != "/ci-lifeline/.ci-run-7.lock" {
+		if got := containerCommand("true", 0, ".ci-run-7.lock"); got[4] != "/repo/.cache/.ci-run-7.lock" {
 			t.Fatalf("lifeline path = %q", got[4])
 		}
 	}

@@ -85,7 +85,7 @@ func TestJobSharesSplitTheRunLimits(t *testing.T) {
 
 func TestContainerCommandArgs(t *testing.T) {
 	got := containerCommand("go test", 19, ".ci-run-7.lock")
-	want := []string{"/ci-lifeline/.ci-run-7.lock", "19", "go test"}
+	want := []string{"/repo/.cache/.ci-run-7.lock", "19", "go test"}
 	if len(got) != 7 || !reflect.DeepEqual(got[4:], want) {
 		t.Fatalf("args = %v", got)
 	}

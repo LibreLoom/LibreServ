@@ -383,10 +383,6 @@ func (r *Runner) throttleHostCmd(cmd *exec.Cmd) (warning string) {
 	return warning
 }
 
-// runHostTest executes a test command directly on the host (no container),
-// for tests whose Container is the sentinel "host". Used by podman-build,
-// which needs the host podman binary and can't reach a mounted socket under
-// SELinux. Output is captured (not streamed live) and replayed on completion.
 // hostCommand rewrites the container paths a test command names (/cache) to
 // the runner's real cache dir, for host execution. Without this, a lint that
 // writes --cache-location /cache/... fails on the host.
@@ -416,6 +412,7 @@ func (r *Runner) hostEnv(env []string) []string {
 	return out
 }
 
+// runHostTest executes a test on the host and replays its captured output.
 func (r *Runner) runHostTest(ctx context.Context, t *tests.Test) *tests.TestResult {
 	result := &tests.TestResult{
 		TestID:    t.ID,
@@ -758,7 +755,7 @@ func (r *Runner) pullImageIfNeeded(ctx context.Context, imageRef string) error {
 }
 
 func containerBaseBinds(repo, cache string) []string {
-	return []string{repo + ":/repo:z", cache + ":/cache:z", filepath.Join(repo, ".cache") + ":/ci-lifeline:z"}
+	return []string{repo + ":/repo:z", cache + ":/cache:z"}
 }
 
 // launchErrorClass reports a bounded category without exposing runtime URLs,
