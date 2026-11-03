@@ -84,11 +84,28 @@ fn clear_resolved_warning(data: &Path) {
     };
     let resolved = message
         == "Tailscale may still be reachable. Luna could not verify that its remote connection stopped."
-        || message == "Tailscale is off. Sign out of Tailscale before connecting again."
-        || (message
-            == "Tailscale is off because its web address could not be restored. Try connecting again."
-            && !root.join("restore-failed-mode").exists());
+        || message == "Tailscale is off. Sign out of Tailscale before connecting again.";
     if resolved {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+fn clear_restoration_warning(data: &Path) {
+    let root = root(data);
+    if root.join("stop-failed").exists()
+        || root.join("reset-required").exists()
+        || root.join("restore-failed-mode").exists()
+    {
+        return;
+    }
+    let path = root.join("last-error");
+    if std::fs::read_to_string(&path).is_ok_and(|message| {
+        matches!(
+            message.as_str(),
+            "Tailscale is off because its web address could not be restored. Try connecting again."
+                | "Tailscale could not restore web access. Try turning it on again."
+        )
+    }) {
         let _ = std::fs::remove_file(path);
     }
 }
@@ -730,7 +747,7 @@ fn status_json(data: &Path, port: u16) -> Value {
             || out["error"]
                 == "Tailscale is off because its web address could not be restored. Try connecting again.")
     {
-        clear_resolved_warning(data);
+        clear_restoration_warning(data);
         out["error"] = json!("");
     }
     out
@@ -1009,6 +1026,7 @@ pub fn disable(data: &Path, port: u16) -> Result<Value, String> {
     if out["residual_exposure"] != true && !root(data).join("reset-required").exists() {
         let _ = std::fs::remove_file(root(data).join("restore-failed-mode"));
         clear_resolved_warning(data);
+        clear_restoration_warning(data);
         return Ok(status_json(data, port));
     }
     Ok(out)
@@ -1021,6 +1039,9 @@ pub fn stop_serve(data: &Path, port: u16) -> Result<Value, String> {
         let mut status = disable_inner(data, port)?;
         if status["residual_exposure"] != true && !root(data).join("reset-required").exists() {
             let _ = std::fs::remove_file(root(data).join("restore-failed-mode"));
+            clear_resolved_warning(data);
+            clear_restoration_warning(data);
+            status = status_json(data, port);
         }
         // disable_inner returns before it clears a saved Serve config it could
         // not read, and status_json would then report the old public address as
@@ -1032,6 +1053,7 @@ pub fn stop_serve(data: &Path, port: u16) -> Result<Value, String> {
     }
     super::tailscale_socket::set_authority(data, None);
     let _ = std::fs::remove_file(root(data).join("restore-failed-mode"));
+    clear_restoration_warning(data);
     let _ = std::fs::remove_file(root(data).join("serve-mode"));
     let _ = std::fs::remove_file(root(data).join("restore-serve"));
     let _ = std::fs::remove_file(root(data).join("approval-url"));
@@ -2102,6 +2124,17 @@ mod tests {
             std::fs::read_to_string(root(dir.path()).join("last-error")).unwrap(),
             "unknown warning"
         );
+        std::fs::remove_file(&marker).unwrap();
+        let message =
+            "Tailscale is off because its web address could not be restored. Try connecting again.";
+        std::fs::write(root(dir.path()).join("last-error"), message).unwrap();
+        clear_resolved_warning(dir.path());
+        assert_eq!(
+            std::fs::read_to_string(root(dir.path()).join("last-error")).unwrap(),
+            message
+        );
+        clear_restoration_warning(dir.path());
+        assert!(!root(dir.path()).join("last-error").exists());
     }
 
     #[test]
@@ -2255,6 +2288,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(root(dir.path())).unwrap();
         std::fs::write(root(dir.path()).join("stop-verified"), boot_id().unwrap()).unwrap();
+        std::fs::write(root(dir.path()).join("restore-failed-mode"), "public").unwrap();
+        std::fs::write(
+            root(dir.path()).join("last-error"),
+            "Tailscale is off because its web address could not be restored. Try connecting again.",
+        )
+        .unwrap();
         std::fs::write(root(dir.path()).join("enabled"), "1").unwrap();
         std::fs::write(
             state(dir.path()),
@@ -2270,7 +2309,7 @@ mod tests {
         unsafe {
             std::env::set_var("LUNA_TAILSCALE_CLI", &cli);
         }
-        let result = stop_serve(dir.path(), 0);
+        let result = stop_serve(dir.path(), 8090);
         unsafe {
             if let Some(value) = previous {
                 std::env::set_var("LUNA_TAILSCALE_CLI", value);
@@ -2286,6 +2325,8 @@ mod tests {
         );
         assert_eq!(status["enabled"], false);
         assert_eq!(status["stop_serve_fallback"], true);
+        assert_eq!(status["error"], "");
+        assert!(!root(dir.path()).join("restore-failed-mode").exists());
         assert!(!status["residual_exposure"].as_bool().unwrap_or(false));
         assert_eq!(status["private_url"], "");
         assert_eq!(status["public_url"], "");

@@ -489,6 +489,18 @@ func TestTailscaleUnknownWarningSurvivesRecovery(t *testing.T) {
 	if got, err := os.ReadFile(path); err != nil || string(got) != "unknown warning" {
 		t.Fatalf("unknown warning lost: %q, %v", got, err)
 	}
+	message := "Tailscale could not restore remote access. Try connecting again."
+	if err := os.WriteFile(path, []byte(message), 0600); err != nil {
+		t.Fatal(err)
+	}
+	svc.clearResolvedWarning()
+	if got, err := os.ReadFile(path); err != nil || string(got) != message {
+		t.Fatalf("restoration warning lost: %q, %v", got, err)
+	}
+	svc.clearRestorationWarning()
+	if tailscaleFileExists(path) {
+		t.Fatal("explicit resolution retained restoration warning")
+	}
 }
 
 func TestTailscaleStopServeFallsBackToVerifiedDisable(t *testing.T) {
@@ -497,13 +509,13 @@ func TestTailscaleStopServeFallsBackToVerifiedDisable(t *testing.T) {
 	writeExecutable(t, bin, "exit 1\n")
 	t.Setenv("SOL_TAILSCALE_CLI", bin)
 	svc := &TailscaleService{dir: dir, port: 8080}
-	for name, value := range map[string]string{"enabled": "1", "stop-verified": mustBootID(t), "tailscaled.state": `{"_serve/old":"e30=","identity":"keep"}`} {
+	for name, value := range map[string]string{"enabled": "1", "stop-verified": mustBootID(t), "tailscaled.state": `{"_serve/old":"e30=","identity":"keep"}`, "restore-failed-mode": "public", "last-error": "Tailscale could not restore remote access. Try connecting again."} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	status, err := svc.StopServe()
-	if err != nil || status.Enabled || status.ResidualExposure || !status.StopServeFallback {
+	if err != nil || status.Enabled || status.ResidualExposure || !status.StopServeFallback || status.Error != "" || tailscaleFileExists(filepath.Join(dir, "restore-failed-mode")) {
 		t.Fatalf("stop serve = %#v, %v", status, err)
 	}
 	if data, err := os.ReadFile(filepath.Join(dir, "tailscaled.state")); err != nil || strings.Contains(string(data), "_serve/old") {
