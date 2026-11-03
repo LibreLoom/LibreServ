@@ -568,7 +568,7 @@ export default function FileSearch() {
 
               {search.isLoading && <SearchSkeleton />}
 
-              {search.incomplete && !search.isError && (
+              {search.incomplete && !search.isError && !search.isUpdating && trimmed === search.q && (
                 <PageNotice variant="warning" className="mb-3">
                   Luna could not check every match or drive. Try again or type more of the name to narrow your search.
                 </PageNotice>
@@ -637,7 +637,7 @@ export default function FileSearch() {
                       </Fragment>
                     ))}
                   </ul>
-                  {search.truncated && (
+                  {search.truncated && !search.incomplete && !search.isUpdating && trimmed === search.q && (
                     <p data-slot="file-search-truncated" className="px-1 pt-3 text-xs font-mono text-primary">
                       There are more matches than fit here. Type more of the name to narrow it down.
                     </p>

@@ -187,6 +187,22 @@ describe("FileSearch", () => {
     expect(screen.queryByText("Nothing matched")).not.toBeInTheDocument();
   });
 
+  it("hides stale incomplete and duplicate truncated notices while a new search loads", async () => {
+    /** @type {() => void} */
+    let releaseSecond = () => {};
+    const holdSecond = new Promise((resolve) => { releaseSecond = resolve; });
+    renderSearch([{ drive_id: "d1", path: "budget.txt", parent: "", name: "budget.txt", kind: "file", size: 1, modified: 1 }], { incomplete: true, truncated: true, holdSecond });
+    await openSearchOverlay();
+    const input = screen.getByRole("textbox", { name: "Search for a file" });
+    fireEvent.change(input, { target: { value: "budget" } });
+    expect(await screen.findByText(/could not check every match/i)).toBeInTheDocument();
+    expect(document.querySelector("[data-slot=file-search-truncated]")).toBeNull();
+    fireEvent.change(input, { target: { value: "budgets" } });
+    expect(screen.queryByText(/could not check every match/i)).not.toBeInTheDocument();
+    await act(async () => { releaseSecond(); });
+    expect(await screen.findByText(/could not check every match/i)).toBeInTheDocument();
+  });
+
   it("explains an empty search in plain language", async () => {
     renderSearch([]);
     await openSearchOverlay();

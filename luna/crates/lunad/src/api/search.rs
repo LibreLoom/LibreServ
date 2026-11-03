@@ -44,6 +44,7 @@ pub fn router() -> Router<AppState> {
 /// so the limit counts only what the caller can see. `scan` says whether
 /// drives are still being read; the page asks again while it is, and results
 /// that were already searchable stay put.
+/// `incomplete` warns when a drive fails or its search work limit is reached.
 async fn search(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,

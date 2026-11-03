@@ -145,7 +145,8 @@ fn sort_candidates(all: &mut [Candidate]) {
 }
 
 /// Search one drive's index. Hidden entries are never returned.
-pub fn search_drive(
+#[cfg(test)]
+fn search_drive(
     conn: &Connection,
     drive_id: &str,
     query: &Query,
@@ -154,7 +155,10 @@ pub fn search_drive(
     Ok(search_drive_bounded(conn, drive_id, query, kind)?.0)
 }
 
-/// Each lookup reads stable rowid-ordered pages under a fixed per-drive budget.
+/// Each lookup reads stable rowid-ordered pages under a fixed per-step budget.
+/// Each drive gets one exact and one close step, so at most twice that many
+/// rows are examined. Separate budgets preserve typo recall when exact matches
+/// fill their budget, including when those matches are inaccessible.
 /// Ranking happens after collection; exhausting a budget means neither the
 /// order nor the existence of omitted visible matches is known.
 fn search_drive_bounded(
@@ -183,10 +187,17 @@ fn search_drive_with_limits(
 ) -> anyhow::Result<(Vec<Candidate>, bool)> {
     // SQLite can spend work inside MATCH before yielding a row. Interrupt long
     // queries as well as bounding rows; incomplete results are labelled above.
+    struct ProgressGuard<'a>(&'a Connection);
+    impl Drop for ProgressGuard<'_> {
+        fn drop(&mut self) {
+            self.0.progress_handler(0, None::<fn() -> bool>);
+        }
+    }
     if let Some(timeout) = timeout {
         let deadline = std::time::Instant::now() + timeout;
         conn.progress_handler(1000, Some(move || std::time::Instant::now() >= deadline));
     }
+    let _progress_guard = ProgressGuard(conn);
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     let mut incomplete = false;
@@ -236,7 +247,6 @@ fn search_drive_with_limits(
                 Ok(())
             }
         });
-        conn.progress_handler(0, None::<fn() -> bool>);
         result?;
     }
     out.sort_by(|a, b| a.rank.cmp(&b.rank));
