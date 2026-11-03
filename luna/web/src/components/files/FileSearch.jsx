@@ -613,7 +613,9 @@ export default function FileSearch() {
                         <li role="presentation" className="px-1 pt-2 text-xs font-mono text-primary">
                           {group.label}
                         </li>
-                        {group.hits.map((item, index) => (
+                        {group.hits.map((item, index) => {
+                          const at = search.hits.indexOf(item);
+                          return (
                           <Fragment key={`${item.drive_id}:${item.path}`}>
                             {!search.closeOnly && item.match === "close" && group.hits[index - 1]?.match !== "close" && (
                               <li role="presentation" className="file-search-row-enter px-1 pt-2 text-xs font-mono text-primary">
@@ -626,14 +628,15 @@ export default function FileSearch() {
                               driveLabel={labels[item.drive_id] || "A drive"}
                               isAdmin={user?.role === "admin"}
                               memberAccess={memberAccess.data}
-                              index={index}
+                              index={at < 0 ? index : at}
                               onNavigate={beginClose}
                               onShare={shareHit}
                               onCopy={copyHit}
                               onTrash={trashHit}
                             />
                           </Fragment>
-                        ))}
+                          );
+                        })}
                       </Fragment>
                     ))}
                   </ul>

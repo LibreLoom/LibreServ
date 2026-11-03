@@ -408,6 +408,56 @@ mod tests {
     }
 
     #[test]
+    fn an_admin_keeps_their_grant_inside_someone_elses_private_folder() {
+        let (dir, conn, _) = member_setup();
+        let root = dir.path().join("drive");
+        std::fs::create_dir(&root).unwrap();
+        let prefix = luna_core::marker::pick_prefix(&root).unwrap();
+        crate::drives::drive_db::create(&root, &luna_core::marker::Marker::new("d1", "D"), &prefix)
+            .unwrap();
+        crate::db::upsert_drive(
+            &conn,
+            "d1",
+            "D",
+            "as_is",
+            "ext4",
+            "d1",
+            root.to_str().unwrap(),
+        )
+        .unwrap();
+        crate::db::insert_user(&conn, "owner", "owner", "owner", "unused", "user").unwrap();
+        crate::db::insert_user(&conn, "a", "admin", "admin", "unused", "admin").unwrap();
+        std::fs::create_dir(root.join("Private")).unwrap();
+        crate::private::privatize(&root, "Private", "owner").unwrap();
+        let admin = crate::auth::CurrentUser {
+            id: "a".into(),
+            username: "admin".into(),
+            role: "admin".into(),
+        };
+        crate::db::insert_access_member(
+            &conn,
+            &crate::db::AccessMemberRow {
+                id: "g1".into(),
+                subject_kind: crate::access::KIND_PATH.into(),
+                drive_id: "d1".into(),
+                path: "Private/notes".into(),
+                album_id: String::new(),
+                user_id: "a".into(),
+                caps: crate::access::CAP_VIEW,
+                created_by: "owner".into(),
+            },
+        )
+        .unwrap();
+        let hits = vec![
+            candidate("d1", "Private/notes", "budget.txt", "file", Tier::Prefix),
+            candidate("d1", "Private", "budget plans.txt", "file", Tier::Prefix),
+        ];
+        let (got, _) = visible_hits(&conn, &admin, hits, 10);
+        let paths: Vec<&str> = got.iter().map(|h| h["path"].as_str().unwrap()).collect();
+        assert_eq!(paths, ["Private/notes/budget.txt"]);
+    }
+
+    #[test]
     fn the_limit_counts_only_hits_the_member_can_open() {
         let (_dir, conn, member) = member_setup();
         crate::db::insert_access_member(

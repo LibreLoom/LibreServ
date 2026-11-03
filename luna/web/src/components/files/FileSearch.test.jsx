@@ -135,6 +135,19 @@ describe("FileSearch", () => {
     expect(labels).toEqual(["Best match", "Open budget.jpg", "Folders", "Open budget", "Files", "Open budget.txt"]);
   });
 
+  it("staggers the row animation in reading order across the groups", async () => {
+    /** @param {string} name @param {string} kind */
+    const hit = (name, kind) => ({ drive_id: "d1", path: name, parent: "", name, kind, size: 0, modified: 0, match: "name" });
+    renderSearch([hit("budget.jpg", "file"), hit("budget.txt", "file"), hit("budget", "dir")]);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "budget" } });
+    await screen.findByRole("link", { name: "Open budget.txt" });
+    const delays = Array.from(document.querySelectorAll('[data-slot="file-search-item"]')).map(
+      (row) => /** @type {HTMLElement} */ (row).style.animationDelay,
+    );
+    expect(delays).toEqual(["0ms", "28ms", "56ms"]);
+  });
+
   it("keeps the highest-ranked file as the default before a weaker folder", async () => {
     renderSearch([
       { drive_id: "d1", path: "report.txt", parent: "", name: "report.txt", kind: "file", size: 0, modified: 0, match: "name" },
