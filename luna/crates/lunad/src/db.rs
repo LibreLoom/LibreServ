@@ -265,6 +265,9 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
     // Clearing it is safe: the disk is either fully formatted or not, and the
     // drive is re-probed on the next scan either way.
     let _ = conn.execute("UPDATE drives SET converting = 0 WHERE converting != 0", []);
+    // Trim the tables that otherwise grow without bound. Cheap, and it runs
+    // before anything can read them.
+    let _ = trim_housekeeping(&conn);
     // Legacy eMMC photos table (pre on-drive .lunagallery) — drop if present.
     let _ = conn.execute_batch("DROP TABLE IF EXISTS photos;");
     ensure_column(
@@ -400,6 +403,60 @@ pub fn now_unix() -> i64 {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
 }
+
+/// How many finished jobs to keep per user.
+///
+/// The jobs list is a progress view, not a history: the UI asks for a page of
+/// recent rows and nothing reads an old one. Every copy, move and delete ever
+/// run used to stay forever, which is both unbounded growth on a small OS disk
+/// and a permanent log of every path a household touched.
+pub const JOBS_KEPT_PER_USER: i64 = 100;
+
+/// Finished jobs older than this are dropped regardless of the per-user cap,
+/// so a household that never runs anything still sheds its old rows.
+pub const JOBS_MAX_AGE_SECS: i64 = 30 * 24 * 60 * 60;
+
+/// Trim the bookkeeping tables that have no natural bound.
+///
+/// Called once at startup. Each step is independent and best-effort: a failure
+/// here must never stop Luna from opening its own database.
+fn trim_housekeeping(conn: &Connection) -> rusqlite::Result<()> {
+    let now = now_unix();
+    // Finished jobs: keep the newest few per user, and drop anything old.
+    // A running job is never touched — it is the only record that it exists.
+    // Ranked per user with a window function, so the cap is per person rather
+    // than a global cut that one busy user could consume.
+    conn.execute(
+        "DELETE FROM jobs
+         WHERE state != 'running'
+           AND (created_at < ?1
+                OR id IN (
+                    SELECT id FROM (
+                        SELECT id,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY user_id ORDER BY created_at DESC
+                               ) AS rank
+                        FROM jobs
+                        WHERE state != 'running'
+                    )
+                    WHERE rank > ?2
+                ))",
+        params![now - JOBS_MAX_AGE_SECS, JOBS_KEPT_PER_USER],
+    )?;
+    // Rate-limit buckets only mean anything while their window or lock is
+    // live. Expired ones are dead weight keyed by raw IP.
+    conn.execute(
+        "DELETE FROM rate_limit_buckets
+         WHERE locked_until < ?1
+           AND window_start < ?2",
+        params![now, now - RATE_LIMIT_BUCKET_MAX_AGE_SECS],
+    )?;
+    Ok(())
+}
+
+/// How long a rate-limit bucket outlives its last use. Long enough that no
+/// live window can be dropped, short enough that the table stays small.
+const RATE_LIMIT_BUCKET_MAX_AGE_SECS: i64 = 24 * 60 * 60;
 
 fn ensure_column(conn: &Connection, table: &str, column: &str, decl: &str) -> anyhow::Result<()> {
     let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
