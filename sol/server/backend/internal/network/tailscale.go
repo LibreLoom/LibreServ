@@ -118,6 +118,13 @@ func NewTailscaleService(dataDir string, port int) *TailscaleService {
 			err := s.restoreForWebListener()
 			if err != nil {
 				slog.Warn("Could not restore Tailscale at startup", "error", err)
+				mode, _ := os.ReadFile(filepath.Join(s.dir, "restore-failed-mode"))
+				if string(mode) != "private" && string(mode) != "public" {
+					mode = []byte("unknown")
+				}
+				if markerErr := os.WriteFile(filepath.Join(s.dir, "restore-failed-mode"), mode, 0600); markerErr != nil {
+					slog.Error("Could not record failed Tailscale web restoration", "error", markerErr)
+				}
 				// restoreDone remains open through this cleanup. Mutations reject
 				// or wait for restore; StopForShutdown waits before taking mu
 				// and writing shuttingDown. Do not close restoreDone early or
@@ -126,7 +133,7 @@ func NewTailscaleService(dataDir string, port int) *TailscaleService {
 				if offErr != nil {
 					slog.Warn("Could not persist Tailscale shutdown after restore failure", "error", offErr)
 				}
-				if !st.ResidualExposure {
+				if !st.ResidualExposure && !tailscaleFileExists(filepath.Join(s.dir, "reset-required")) {
 					_ = os.WriteFile(filepath.Join(s.dir, "last-error"), []byte("Tailscale could not restore remote access. Try connecting again."), 0600)
 				}
 			}
@@ -307,6 +314,9 @@ func (s *TailscaleService) restoreForWebListener() error {
 		return err
 	}
 	if mode != "" {
+		if err := os.WriteFile(filepath.Join(s.dir, "restore-failed-mode"), []byte(mode), 0600); err != nil {
+			return err
+		}
 		_, err = s.serveLocked(mode == "public")
 	}
 	if err == nil {
@@ -538,8 +548,8 @@ func (s *TailscaleService) clearAccessIfRequired() error {
 	if err := os.Remove(filepath.Join(s.dir, "reset-required")); err != nil {
 		return err
 	}
-	_ = os.Remove(filepath.Join(s.dir, "last-error"))
 	_ = os.Remove(filepath.Join(s.dir, "stop-failed"))
+	s.clearResolvedWarning()
 	return nil
 }
 
@@ -806,6 +816,9 @@ func (s *TailscaleService) statusLocked() TailscaleStatus {
 	if warning, err := os.ReadFile(filepath.Join(s.dir, "last-error")); err == nil {
 		st.Error = strings.TrimSpace(string(warning))
 	}
+	if st.Error == "" && tailscaleFileExists(filepath.Join(s.dir, "restore-failed-mode")) {
+		st.Error = "Tailscale could not restore web access. Try turning it on again."
+	}
 	if tailscaleFileExists(filepath.Join(s.dir, "stop-failed")) {
 		st.State, st.ResidualExposure = "error", true
 		return st
@@ -878,6 +891,12 @@ func (s *TailscaleService) statusLocked() TailscaleStatus {
 	}
 	if st.State != "connected" {
 		st.PublicURL, st.PrivateURL = "", ""
+	}
+	if mode, err := os.ReadFile(filepath.Join(s.dir, "restore-failed-mode")); err == nil && !tailscaleFileExists(filepath.Join(s.dir, "reset-required")) && !tailscaleFileExists(filepath.Join(s.dir, "stop-failed")) && ((string(mode) == "private" && st.PrivateURL != "") || (string(mode) == "public" && st.PublicURL != "")) {
+		if os.Remove(filepath.Join(s.dir, "restore-failed-mode")) == nil && (st.Error == "Tailscale could not restore web access. Try turning it on again." || st.Error == "Tailscale could not restore remote access. Try connecting again.") {
+			s.clearResolvedWarning()
+			st.Error = ""
+		}
 	}
 	if st.PublicURL != "" {
 		s.authority.Store(st.PublicURL)
@@ -1002,6 +1021,20 @@ func commandExists(name string) bool {
 	return err == nil
 }
 func tailscaleFileExists(path string) bool { _, err := os.Stat(path); return err == nil }
+func (s *TailscaleService) clearResolvedWarning() {
+	if tailscaleFileExists(filepath.Join(s.dir, "stop-failed")) || tailscaleFileExists(filepath.Join(s.dir, "reset-required")) {
+		return
+	}
+	path := filepath.Join(s.dir, "last-error")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	msg := string(b)
+	if msg == "Tailscale may still be reachable. Sol could not verify that its remote connection stopped." || msg == "Tailscale is off. Sign out of Tailscale before connecting again." || (msg == "Tailscale could not restore remote access. Try connecting again." && !tailscaleFileExists(filepath.Join(s.dir, "restore-failed-mode"))) {
+		_ = os.Remove(path)
+	}
+}
 func (s *TailscaleService) up() error {
 	control, err := s.controlServer()
 	if err != nil {
@@ -1019,7 +1052,7 @@ func (s *TailscaleService) up() error {
 		if start >= 0 && end >= start && json.Unmarshal([]byte(rawErr[start:end+1]), &v) == nil {
 			if auth, ok := v["AuthURL"].(string); ok && allowedTailscaleAuthURL(auth, control) {
 				_ = os.WriteFile(filepath.Join(s.dir, "auth-url"), []byte(auth), 0600)
-				_ = os.Remove(filepath.Join(s.dir, "last-error"))
+				s.clearResolvedWarning()
 				return nil
 			}
 		}
@@ -1031,7 +1064,7 @@ func (s *TailscaleService) up() error {
 			_ = os.WriteFile(filepath.Join(s.dir, "auth-url"), []byte(auth), 0600)
 		}
 	}
-	_ = os.Remove(filepath.Join(s.dir, "last-error"))
+	s.clearResolvedWarning()
 	return nil
 }
 func (s *TailscaleService) Connect() (TailscaleStatus, error) {
@@ -1123,7 +1156,7 @@ func (s *TailscaleService) ConnectWithControl(selected string) (TailscaleStatus,
 	if err := s.up(); err != nil {
 		return TailscaleStatus{}, err
 	}
-	_ = os.Remove(filepath.Join(s.dir, "last-error"))
+	s.clearResolvedWarning()
 	return s.statusLocked(), nil
 }
 func (s *TailscaleService) Reconnect() (TailscaleStatus, error) {
@@ -1162,7 +1195,7 @@ func (s *TailscaleService) Reconnect() (TailscaleStatus, error) {
 	if err := s.up(); err != nil {
 		return TailscaleStatus{}, err
 	}
-	_ = os.Remove(filepath.Join(s.dir, "last-error"))
+	s.clearResolvedWarning()
 	return s.statusLocked(), nil
 }
 func approvalURL(raw string) string {
@@ -1277,7 +1310,13 @@ func (s *TailscaleService) Disable() (TailscaleStatus, error) {
 	s.waitForRestore()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.disableLocked()
+	st, err := s.disableLocked()
+	if err == nil && !st.ResidualExposure && !tailscaleFileExists(filepath.Join(s.dir, "reset-required")) {
+		_ = os.Remove(filepath.Join(s.dir, "restore-failed-mode"))
+		s.clearResolvedWarning()
+		return s.statusLocked(), nil
+	}
+	return st, err
 }
 
 // StopServe removes web access while keeping the node connected to Tailscale.
@@ -1296,9 +1335,13 @@ func (s *TailscaleService) StopServe() (TailscaleStatus, error) {
 	if _, err := s.run("serve", "reset"); err != nil {
 		slog.Warn("Could not reset Tailscale web access; stopping the managed daemon", "error", err)
 		status, err := s.disableLocked()
+		if err == nil && !status.ResidualExposure && !tailscaleFileExists(filepath.Join(s.dir, "reset-required")) {
+			_ = os.Remove(filepath.Join(s.dir, "restore-failed-mode"))
+		}
 		status.StopServeFallback = true
 		return status, err
 	}
+	_ = os.Remove(filepath.Join(s.dir, "restore-failed-mode"))
 	for _, name := range []string{"approval-url", "approval-type"} {
 		_ = os.Remove(filepath.Join(s.dir, name))
 	}
@@ -1346,7 +1389,7 @@ func (s *TailscaleService) disableLocked() (TailscaleStatus, error) {
 		slog.Warn("Tailscale is stopped but its saved access could not be cleared", "error", err)
 		_ = os.WriteFile(filepath.Join(s.dir, "last-error"), []byte("Tailscale is off. Sign out of Tailscale before connecting again."), 0600)
 	} else {
-		_ = os.Remove(filepath.Join(s.dir, "last-error"))
+		s.clearResolvedWarning()
 	}
 	return s.statusLocked(), nil
 }
@@ -1512,7 +1555,7 @@ func (s *TailscaleService) Forget() (TailscaleStatus, error) {
 			return TailscaleStatus{}, err
 		}
 	}
-	for _, name := range []string{"tailscaled.pid", "tailscaled.sock", "restore-serve", "reset-required", "last-error", "stop-failed", "private-enabled", "approval-type", "approval-url", "auth-url"} {
+	for _, name := range []string{"tailscaled.pid", "tailscaled.sock", "restore-serve", "restore-failed-mode", "reset-required", "last-error", "stop-failed", "private-enabled", "approval-type", "approval-url", "auth-url"} {
 		if err := os.Remove(filepath.Join(s.dir, name)); err != nil && !os.IsNotExist(err) {
 			slog.Warn("Could not remove old Tailscale metadata after verified stop and identity removal", "file", name, "error", err)
 		}

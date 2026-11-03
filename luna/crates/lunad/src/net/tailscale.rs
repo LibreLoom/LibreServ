@@ -57,6 +57,42 @@ fn enabled(data: &Path) -> bool {
     root(data).join("enabled").exists()
 }
 
+fn restore_warning(data: &Path, private: bool, public: bool) -> bool {
+    let path = root(data).join("restore-failed-mode");
+    let mode = match std::fs::read_to_string(&path) {
+        Ok(mode) => mode,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return false,
+        Err(_) => return true,
+    };
+    if !root(data).join("stop-failed").exists()
+        && !root(data).join("reset-required").exists()
+        && ((mode == "private" && private) || (mode == "public" && public))
+    {
+        return std::fs::remove_file(path).is_err();
+    }
+    true
+}
+
+fn clear_resolved_warning(data: &Path) {
+    let root = root(data);
+    if root.join("stop-failed").exists() || root.join("reset-required").exists() {
+        return;
+    }
+    let path = root.join("last-error");
+    let Ok(message) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    let resolved = message
+        == "Tailscale may still be reachable. Luna could not verify that its remote connection stopped."
+        || message == "Tailscale is off. Sign out of Tailscale before connecting again."
+        || (message
+            == "Tailscale is off because its web address could not be restored. Try connecting again."
+            && !root.join("restore-failed-mode").exists());
+    if resolved {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 fn process_start(pid: u32) -> Result<String, String> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).map_err(|e| e.to_string())?;
     stat.rsplit_once(')')
@@ -511,8 +547,8 @@ fn clear_access_if_required(data: &Path) -> Result<(), String> {
     remove_if_present(&root(data).join("serve-mode"))?;
     remove_if_present(&root(data).join("restore-serve"))?;
     std::fs::remove_file(root(data).join("reset-required")).map_err(|e| e.to_string())?;
-    let _ = std::fs::remove_file(root(data).join("last-error"));
     let _ = std::fs::remove_file(root(data).join("stop-failed"));
+    clear_resolved_warning(data);
     Ok(())
 }
 
@@ -579,6 +615,9 @@ fn status_json(data: &Path, port: u16) -> Value {
     }
     if let Ok(warning) = std::fs::read_to_string(root(data).join("last-error")) {
         out["error"] = json!(warning.trim());
+    }
+    if out["error"] == "" && restore_warning(data, false, false) {
+        out["error"] = json!("Tailscale could not restore web access. Try turning it on again.");
     }
     if root(data).join("stop-failed").exists() {
         out["state"] = json!("error");
@@ -680,6 +719,20 @@ fn status_json(data: &Path, port: u16) -> Value {
             out["approval_type"] = json!("");
         }
     }
+    let had_restore_warning = restore_warning(data, false, false);
+    if had_restore_warning
+        && !restore_warning(
+            data,
+            out["private_url"].as_str().is_some_and(|v| !v.is_empty()),
+            out["public_url"].as_str().is_some_and(|v| !v.is_empty()),
+        )
+        && (out["error"] == "Tailscale could not restore web access. Try turning it on again."
+            || out["error"]
+                == "Tailscale is off because its web address could not be restored. Try connecting again.")
+    {
+        clear_resolved_warning(data);
+        out["error"] = json!("");
+    }
     out
 }
 
@@ -732,12 +785,12 @@ pub fn connect_with_control(data: &Path, port: u16, selected: &str) -> Result<Va
     let raw = match up(data, true) {
         Ok(raw) => raw,
         Err(error) if save_auth_url(data, &error) => {
-            let _ = std::fs::remove_file(root(data).join("last-error"));
+            clear_resolved_warning(data);
             return Ok(status_json(data, port));
         }
         Err(error) => return Err(error),
     };
-    let _ = std::fs::remove_file(root(data).join("last-error"));
+    clear_resolved_warning(data);
     if let Ok(v) = serde_json::from_str::<Value>(&raw)
         && let Some(url) = v
             .get("AuthURL")
@@ -765,12 +818,12 @@ pub fn reconnect(data: &Path, port: u16) -> Result<Value, String> {
     let raw = match up(data, true) {
         Ok(raw) => raw,
         Err(error) if save_auth_url(data, &error) => {
-            let _ = std::fs::remove_file(root(data).join("last-error"));
+            clear_resolved_warning(data);
             return Ok(status_json(data, port));
         }
         Err(error) => return Err(error),
     };
-    let _ = std::fs::remove_file(root(data).join("last-error"));
+    clear_resolved_warning(data);
     if let Ok(v) = serde_json::from_str::<Value>(&raw)
         && let Some(url) = v
             .get("AuthURL")
@@ -880,7 +933,7 @@ fn serve_inner(data: &Path, port: u16, public: bool) -> Result<Value, String> {
         if public { "public" } else { "private" },
     )
     .map_err(|e| e.to_string())?;
-    let _ = std::fs::remove_file(root(data).join("last-error"));
+    clear_resolved_warning(data);
     Ok(status_json(data, port))
 }
 fn extract_url(text: &str) -> Option<&str> {
@@ -952,7 +1005,13 @@ fn configured_urls_for_target(
 
 pub fn disable(data: &Path, port: u16) -> Result<Value, String> {
     let _guard = lifecycle();
-    disable_inner(data, port)
+    let out = disable_inner(data, port)?;
+    if out["residual_exposure"] != true && !root(data).join("reset-required").exists() {
+        let _ = std::fs::remove_file(root(data).join("restore-failed-mode"));
+        clear_resolved_warning(data);
+        return Ok(status_json(data, port));
+    }
+    Ok(out)
 }
 
 pub fn stop_serve(data: &Path, port: u16) -> Result<Value, String> {
@@ -960,6 +1019,9 @@ pub fn stop_serve(data: &Path, port: u16) -> Result<Value, String> {
     if let Err(error) = command(data, &["serve", "reset"]) {
         tracing::warn!(%error, "Could not reset Tailscale web access; stopping the managed daemon");
         let mut status = disable_inner(data, port)?;
+        if status["residual_exposure"] != true && !root(data).join("reset-required").exists() {
+            let _ = std::fs::remove_file(root(data).join("restore-failed-mode"));
+        }
         // disable_inner returns before it clears a saved Serve config it could
         // not read, and status_json would then report the old public address as
         // if it were still served. Nothing is listening, so say so.
@@ -969,11 +1031,12 @@ pub fn stop_serve(data: &Path, port: u16) -> Result<Value, String> {
         return Ok(status);
     }
     super::tailscale_socket::set_authority(data, None);
+    let _ = std::fs::remove_file(root(data).join("restore-failed-mode"));
     let _ = std::fs::remove_file(root(data).join("serve-mode"));
     let _ = std::fs::remove_file(root(data).join("restore-serve"));
     let _ = std::fs::remove_file(root(data).join("approval-url"));
     let _ = std::fs::remove_file(root(data).join("approval-type"));
-    let _ = std::fs::remove_file(root(data).join("last-error"));
+    clear_resolved_warning(data);
     Ok(status_json(data, port))
 }
 fn disable_inner(data: &Path, port: u16) -> Result<Value, String> {
@@ -1024,7 +1087,7 @@ fn disable_inner(data: &Path, port: u16) -> Result<Value, String> {
             "Tailscale is off. Sign out of Tailscale before connecting again.",
         );
     } else {
-        let _ = std::fs::remove_file(root(data).join("last-error"));
+        clear_resolved_warning(data);
     }
     Ok(status_json(data, port))
 }
@@ -1195,6 +1258,7 @@ pub fn forget(data: &Path, port: u16) -> Result<Value, String> {
         root(data).join("stop-failed"),
         root(data).join("serve-mode"),
         root(data).join("restore-serve"),
+        root(data).join("restore-failed-mode"),
         root(data).join("auth-url"),
         root(data).join("approval-url"),
         root(data).join("approval-type"),
@@ -1290,11 +1354,32 @@ pub fn restore(data: &Path, port: u16) {
             && let Err(error) = serve_inner(data, port, mode == "public")
         {
             tracing::warn!(%error, "Could not restore Tailscale's web target after moving its proxy port");
-            let _ = disable_inner(data, port);
-            let _ = std::fs::write(
-                root(data).join("last-error"),
-                "Tailscale is off because its web address could not be restored. Try connecting again.",
-            );
+            let marker = std::fs::write(root(data).join("restore-failed-mode"), &mode);
+            let stopped = disable_inner(data, port);
+            if let Err(error) = marker {
+                tracing::error!(%error, "Could not record the failed Tailscale web restoration");
+                if stopped
+                    .as_ref()
+                    .is_ok_and(|out| out["residual_exposure"] != true)
+                    && !root(data).join("reset-required").exists()
+                {
+                    let _ = std::fs::write(
+                        root(data).join("last-error"),
+                        "Tailscale could not restore web access. Try turning it on again.",
+                    );
+                }
+                return;
+            }
+            if stopped
+                .as_ref()
+                .is_ok_and(|out| out["residual_exposure"] != true)
+                && !root(data).join("reset-required").exists()
+            {
+                let _ = std::fs::write(
+                    root(data).join("last-error"),
+                    "Tailscale is off because its web address could not be restored. Try connecting again.",
+                );
+            }
         }
         let _ = std::fs::remove_file(root(data).join("restore-serve"));
     }
@@ -1819,6 +1904,7 @@ mod tests {
         std::fs::write(root(dir.path()).join("stop-verified"), boot_id().unwrap()).unwrap();
         std::fs::write(root(dir.path()).join("enabled"), "1").unwrap();
         std::fs::write(state(dir.path()), "{}").unwrap();
+        std::fs::write(root(dir.path()).join("restore-failed-mode"), "public").unwrap();
         let listener = std::os::unix::net::UnixListener::bind(socket(dir.path())).unwrap();
         let previous = std::env::var_os("LUNA_TAILSCALE_CLI");
         unsafe { std::env::set_var("LUNA_TAILSCALE_CLI", dir.path().join("missing-cli")) };
@@ -1827,6 +1913,7 @@ mod tests {
         assert_eq!(failed["residual_exposure"], true);
         assert!(root(dir.path()).join("stop-failed").exists());
         assert!(root(dir.path()).join("last-error").exists());
+        assert!(root(dir.path()).join("restore-failed-mode").exists());
         assert!(state(dir.path()).exists());
 
         drop(listener);
@@ -1835,6 +1922,7 @@ mod tests {
         assert_eq!(recovered["error"], "");
         assert!(!root(dir.path()).join("stop-failed").exists());
         assert!(!root(dir.path()).join("last-error").exists());
+        assert!(!root(dir.path()).join("restore-failed-mode").exists());
         assert!(state(dir.path()).exists());
         unsafe {
             if let Some(value) = previous {
@@ -1976,7 +2064,7 @@ mod tests {
             std::env::set_var("LUNA_TAILSCALED", &daemon);
         }
         for operation in [connect, reconnect] {
-            std::fs::write(root(dir.path()).join("last-error"), "old restore failure").unwrap();
+            std::fs::write(root(dir.path()).join("last-error"), "Tailscale may still be reachable. Luna could not verify that its remote connection stopped.").unwrap();
             let result = operation(dir.path(), 8090).unwrap();
             assert_eq!(result["error"], "");
             assert_eq!(result["auth_url"], "https://login.tailscale.com/a/test");
@@ -1988,6 +2076,32 @@ mod tests {
             }
             assert!(!Path::new(&process).exists(), "mock daemon did not exit");
         }
+    }
+
+    #[test]
+    fn restore_warning_requires_matching_target_and_no_pending_cleanup() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root(dir.path())).unwrap();
+        let marker = root(dir.path()).join("restore-failed-mode");
+        std::fs::write(&marker, "public").unwrap();
+        assert!(restore_warning(dir.path(), false, false));
+        assert!(restore_warning(dir.path(), true, false));
+        std::fs::write(root(dir.path()).join("stop-failed"), "1").unwrap();
+        assert!(restore_warning(dir.path(), false, true));
+        std::fs::remove_file(root(dir.path()).join("stop-failed")).unwrap();
+        std::fs::write(root(dir.path()).join("reset-required"), "1").unwrap();
+        assert!(restore_warning(dir.path(), false, true));
+        std::fs::remove_file(root(dir.path()).join("reset-required")).unwrap();
+        assert!(!restore_warning(dir.path(), false, true));
+        assert!(!marker.exists());
+        std::fs::write(&marker, "unknown").unwrap();
+        assert!(restore_warning(dir.path(), true, true));
+        std::fs::write(root(dir.path()).join("last-error"), "unknown warning").unwrap();
+        clear_resolved_warning(dir.path());
+        assert_eq!(
+            std::fs::read_to_string(root(dir.path()).join("last-error")).unwrap(),
+            "unknown warning"
+        );
     }
 
     #[test]
@@ -2049,23 +2163,34 @@ mod tests {
             std::env::set_var("LUNA_TAILSCALED", &daemon);
         }
         std::fs::create_dir(root(dir.path())).unwrap();
-        std::fs::write(root(dir.path()).join("last-error"), "old restore failure").unwrap();
+        std::fs::write(root(dir.path()).join("last-error"), "Tailscale may still be reachable. Luna could not verify that its remote connection stopped.").unwrap();
         super::super::tailscale_socket::register(dir.path(), &dir.path().join("proxy.sock"));
         let status = connect(dir.path(), 8090).unwrap();
         assert_eq!(status["state"], "connected");
         assert_eq!(status["error"], "");
         assert!(!root(dir.path()).join("last-error").exists());
-        std::fs::write(root(dir.path()).join("last-error"), "old reconnect failure").unwrap();
+        std::fs::write(root(dir.path()).join("last-error"), "Tailscale may still be reachable. Luna could not verify that its remote connection stopped.").unwrap();
+        std::fs::write(root(dir.path()).join("restore-failed-mode"), "public").unwrap();
         let reconnected = reconnect(dir.path(), 8090).unwrap();
-        assert_eq!(reconnected["error"], "");
+        assert_eq!(
+            reconnected["error"],
+            "Tailscale could not restore web access. Try turning it on again."
+        );
+        assert!(root(dir.path()).join("restore-failed-mode").exists());
         assert!(status["identity_saved"].as_bool().unwrap());
         assert_eq!(status["private_url"], "");
-        std::fs::write(root(dir.path()).join("last-error"), "old Serve failure").unwrap();
+        std::fs::write(root(dir.path()).join("last-error"), "Tailscale may still be reachable. Luna could not verify that its remote connection stopped.").unwrap();
         assert_eq!(
             serve(dir.path(), 8090, false).unwrap()["private_url"],
             "https://luna.tail-example.ts.net"
         );
+        assert_eq!(
+            status_json(dir.path(), 8090)["error"],
+            "Tailscale could not restore web access. Try turning it on again."
+        );
+        std::fs::write(root(dir.path()).join("restore-failed-mode"), "private").unwrap();
         assert_eq!(status_json(dir.path(), 8090)["error"], "");
+        assert!(!root(dir.path()).join("restore-failed-mode").exists());
         let _ = std::fs::remove_file(root(dir.path()).join("tailscaled.pid"));
         unsafe {
             std::env::remove_var("LUNA_TAILSCALE_CLI");
@@ -2079,7 +2204,7 @@ mod tests {
         std::fs::create_dir(root(dir.path())).unwrap();
         std::fs::write(root(dir.path()).join("stop-verified"), boot_id().unwrap()).unwrap();
         std::fs::write(root(dir.path()).join("reset-required"), "1").unwrap();
-        std::fs::write(root(dir.path()).join("last-error"), "old failure").unwrap();
+        std::fs::write(root(dir.path()).join("last-error"), "Tailscale may still be reachable. Luna could not verify that its remote connection stopped.").unwrap();
         std::fs::write(
             state(dir.path()),
             r#"{"_serve/old":"e30=","identity":"keep"}"#,
@@ -2101,7 +2226,7 @@ mod tests {
         let _env = TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(root(dir.path())).unwrap();
-        std::fs::write(root(dir.path()).join("last-error"), "old error").unwrap();
+        std::fs::write(root(dir.path()).join("last-error"), "Tailscale may still be reachable. Luna could not verify that its remote connection stopped.").unwrap();
         super::super::tailscale_socket::set_authority(dir.path(), Some("luna.example"));
         let cli = dir.path().join("tailscale-mock");
         std::fs::write(&cli, "#!/bin/sh\nexit 0\n").unwrap();

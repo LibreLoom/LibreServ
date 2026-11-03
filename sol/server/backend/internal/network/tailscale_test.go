@@ -434,7 +434,7 @@ func TestTailscaleFailedStopWarningClearsOnlyAfterVerifiedRetry(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("SOL_TAILSCALE_CLI", filepath.Join(dir, "missing"))
 	svc := &TailscaleService{dir: dir, port: 8080}
-	for name, value := range map[string]string{"stop-verified": mustBootID(t), "tailscaled.state": `{}`, "enabled": "1"} {
+	for name, value := range map[string]string{"stop-verified": mustBootID(t), "tailscaled.state": `{}`, "enabled": "1", "restore-failed-mode": "public"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -445,14 +445,14 @@ func TestTailscaleFailedStopWarningClearsOnlyAfterVerifiedRetry(t *testing.T) {
 	}
 	defer listener.Close()
 	failed, err := svc.Disable()
-	if err != nil || !failed.ResidualExposure || !tailscaleFileExists(filepath.Join(dir, "stop-failed")) || !tailscaleFileExists(filepath.Join(dir, "last-error")) {
+	if err != nil || !failed.ResidualExposure || !tailscaleFileExists(filepath.Join(dir, "stop-failed")) || !tailscaleFileExists(filepath.Join(dir, "last-error")) || !tailscaleFileExists(filepath.Join(dir, "restore-failed-mode")) {
 		t.Fatalf("unverified stop = %#v, %v", failed, err)
 	}
 	if err := listener.Close(); err != nil {
 		t.Fatal(err)
 	}
 	recovered, err := svc.Disable()
-	if err != nil || recovered.ResidualExposure || recovered.Error != "" || tailscaleFileExists(filepath.Join(dir, "stop-failed")) || tailscaleFileExists(filepath.Join(dir, "last-error")) {
+	if err != nil || recovered.ResidualExposure || recovered.Error != "" || tailscaleFileExists(filepath.Join(dir, "stop-failed")) || tailscaleFileExists(filepath.Join(dir, "last-error")) || tailscaleFileExists(filepath.Join(dir, "restore-failed-mode")) {
 		t.Fatalf("verified retry = %#v, %v", recovered, err)
 	}
 	if !tailscaleFileExists(filepath.Join(dir, "tailscaled.state")) {
@@ -464,7 +464,7 @@ func TestTailscaleVerifiedDisableClearsStaleError(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("SOL_TAILSCALE_CLI", filepath.Join(dir, "missing"))
 	svc := &TailscaleService{dir: dir, port: 8080}
-	for name, value := range map[string]string{"stop-verified": mustBootID(t), "tailscaled.state": `{}`, "last-error": "old failure"} {
+	for name, value := range map[string]string{"stop-verified": mustBootID(t), "tailscaled.state": `{}`, "last-error": "Tailscale may still be reachable. Sol could not verify that its remote connection stopped."} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -475,6 +475,19 @@ func TestTailscaleVerifiedDisableClearsStaleError(t *testing.T) {
 	}
 	if tailscaleFileExists(filepath.Join(dir, "last-error")) {
 		t.Fatal("stale error was retained")
+	}
+}
+
+func TestTailscaleUnknownWarningSurvivesRecovery(t *testing.T) {
+	dir := t.TempDir()
+	svc := &TailscaleService{dir: dir, port: 8080}
+	path := filepath.Join(dir, "last-error")
+	if err := os.WriteFile(path, []byte("unknown warning"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	svc.clearResolvedWarning()
+	if got, err := os.ReadFile(path); err != nil || string(got) != "unknown warning" {
+		t.Fatalf("unknown warning lost: %q, %v", got, err)
 	}
 }
 
@@ -517,11 +530,18 @@ func TestTailscaleReconnectClearsSavedServeBeforeUp(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(dir, "last-error"), []byte("old error"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "last-error"), []byte("Tailscale may still be reachable. Sol could not verify that its remote connection stopped."), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Reconnect(); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "restore-failed-mode"), []byte("public"), 0600); err != nil {
 		t.Fatal(err)
+	}
+	status, err := svc.Reconnect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Error == "" || !tailscaleFileExists(filepath.Join(dir, "restore-failed-mode")) {
+		t.Fatalf("reconnect lost unresolved web restoration: %#v", status)
 	}
 	if tailscaleFileExists(filepath.Join(dir, "last-error")) {
 		t.Fatal("reconnect retained a stale error")
@@ -858,6 +878,9 @@ esac
 			t.Fatal(err)
 		}
 	}
+	if err := os.WriteFile(filepath.Join(svc.dir, "restore-failed-mode"), []byte("public"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	fixture := `{"Web":{"sol.tail-example.ts.net:443":{"Handlers":{"/":{"Proxy":"unix:/tmp/test-8080.sock"}}}},"AllowFunnel":{"sol.tail-example.ts.net:443":false}}`
 	if err := os.WriteFile(configFile, []byte(fixture), 0600); err != nil {
 		t.Fatal(err)
@@ -866,12 +889,18 @@ esac
 	if private.PrivateURL == "" || private.PublicURL != "" || private.ApprovalURL == "" || private.ApprovalType != "funnel" {
 		t.Fatalf("private listener lost pending public approval: %#v", private)
 	}
+	if private.Error == "" || !tailscaleFileExists(filepath.Join(svc.dir, "restore-failed-mode")) {
+		t.Fatalf("private access or approval cleared the public restoration warning: %#v", private)
+	}
 	if err := os.WriteFile(configFile, []byte(strings.Replace(fixture, ":false", ":true", 1)), 0600); err != nil {
 		t.Fatal(err)
 	}
 	public := svc.Status()
 	if public.PublicURL == "" || public.PrivateURL != "" || public.ApprovalURL != "" {
 		t.Fatalf("public listener did not complete approval: %#v", public)
+	}
+	if public.Error != "" || tailscaleFileExists(filepath.Join(svc.dir, "restore-failed-mode")) {
+		t.Fatalf("matching public target did not clear restoration warning: %#v", public)
 	}
 	for _, bad := range []string{"invalid json", ""} {
 		if err := os.WriteFile(configFile, []byte(bad), 0600); err != nil {
