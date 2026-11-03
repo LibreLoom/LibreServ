@@ -73,6 +73,19 @@ fn restore_warning(data: &Path, private: bool, public: bool) -> bool {
     true
 }
 
+fn persist_restore_mode(data: &Path, mode: &str) -> Result<(), String> {
+    use std::io::Write;
+    let mut file = tempfile::NamedTempFile::new_in(root(data)).map_err(|e| e.to_string())?;
+    file.write_all(mode.as_bytes())
+        .and_then(|_| file.as_file().sync_all())
+        .map_err(|e| e.to_string())?;
+    file.persist(root(data).join("restore-failed-mode"))
+        .map_err(|e| e.to_string())?;
+    std::fs::File::open(root(data))
+        .and_then(|dir| dir.sync_all())
+        .map_err(|e| e.to_string())
+}
+
 fn clear_resolved_warning(data: &Path) {
     let root = root(data);
     if root.join("stop-failed").exists() || root.join("reset-required").exists() {
@@ -1367,6 +1380,19 @@ pub fn restore(data: &Path, port: u16) {
         let _ = disable_inner(data, port);
         return;
     }
+    let pending_mode = std::fs::read_to_string(root(data).join("restore-serve")).ok();
+    if let Some(mode) = pending_mode
+        .as_deref()
+        .filter(|mode| matches!(*mode, "private" | "public"))
+        && let Err(error) = persist_restore_mode(data, mode)
+    {
+        tracing::error!(%error, "Could not record Tailscale web restoration");
+        let _ = std::fs::write(
+            root(data).join("last-error"),
+            "Tailscale could not restore web access. Try turning it on again.",
+        );
+        return;
+    }
     if let Err(error) = ensure_daemon(data) {
         tracing::warn!(%error, "Could not restore Tailscale");
         return;
@@ -1376,22 +1402,7 @@ pub fn restore(data: &Path, port: u16) {
             && let Err(error) = serve_inner(data, port, mode == "public")
         {
             tracing::warn!(%error, "Could not restore Tailscale's web target after moving its proxy port");
-            let marker = std::fs::write(root(data).join("restore-failed-mode"), &mode);
             let stopped = disable_inner(data, port);
-            if let Err(error) = marker {
-                tracing::error!(%error, "Could not record the failed Tailscale web restoration");
-                if stopped
-                    .as_ref()
-                    .is_ok_and(|out| out["residual_exposure"] != true)
-                    && !root(data).join("reset-required").exists()
-                {
-                    let _ = std::fs::write(
-                        root(data).join("last-error"),
-                        "Tailscale could not restore web access. Try turning it on again.",
-                    );
-                }
-                return;
-            }
             if stopped
                 .as_ref()
                 .is_ok_and(|out| out["residual_exposure"] != true)
@@ -2229,6 +2240,33 @@ mod tests {
             std::env::remove_var("LUNA_TAILSCALE_CLI");
             std::env::remove_var("LUNA_TAILSCALED");
         }
+    }
+
+    #[test]
+    fn startup_failure_keeps_selected_restoration_mode() {
+        let _env = TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root(dir.path())).unwrap();
+        std::fs::write(root(dir.path()).join("stop-verified"), boot_id().unwrap()).unwrap();
+        std::fs::write(root(dir.path()).join("enabled"), "1").unwrap();
+        std::fs::write(root(dir.path()).join("restore-serve"), "public").unwrap();
+        std::fs::write(state(dir.path()), "{}").unwrap();
+        let previous = std::env::var_os("LUNA_TAILSCALED");
+        unsafe { std::env::set_var("LUNA_TAILSCALED", dir.path().join("missing-daemon")) };
+        restore(dir.path(), 8090);
+        unsafe {
+            if let Some(value) = previous {
+                std::env::set_var("LUNA_TAILSCALED", value);
+            } else {
+                std::env::remove_var("LUNA_TAILSCALED");
+            }
+        }
+        assert_eq!(
+            std::fs::read_to_string(root(dir.path()).join("restore-failed-mode")).unwrap(),
+            "public"
+        );
+        assert!(restore_warning(dir.path(), true, false));
+        assert!(state(dir.path()).exists());
     }
 
     #[test]

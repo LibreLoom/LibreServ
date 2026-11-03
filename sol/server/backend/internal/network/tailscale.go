@@ -122,7 +122,7 @@ func NewTailscaleService(dataDir string, port int) *TailscaleService {
 				if string(mode) != "private" && string(mode) != "public" {
 					mode = []byte("unknown")
 				}
-				if markerErr := os.WriteFile(filepath.Join(s.dir, "restore-failed-mode"), mode, 0600); markerErr != nil {
+				if markerErr := s.persistRestoreMode(string(mode)); markerErr != nil {
 					slog.Error("Could not record failed Tailscale web restoration", "error", markerErr)
 				}
 				// restoreDone remains open through this cleanup. Mutations reject
@@ -293,6 +293,10 @@ func (s *TailscaleService) restoreForWebListener() error {
 			close(s.cleanupDone)
 			return err
 		}
+		if err := s.persistRestoreMode(mode); err != nil {
+			close(s.cleanupDone)
+			return err
+		}
 	}
 	if err := s.clearSavedServe(); err != nil {
 		close(s.cleanupDone)
@@ -314,15 +318,38 @@ func (s *TailscaleService) restoreForWebListener() error {
 		return err
 	}
 	if mode != "" {
-		if err := os.WriteFile(filepath.Join(s.dir, "restore-failed-mode"), []byte(mode), 0600); err != nil {
-			return err
-		}
 		_, err = s.serveLocked(mode == "public")
 	}
 	if err == nil {
 		err = removeTailscalePendingMode(s.dir)
 	}
 	return err
+}
+
+func (s *TailscaleService) persistRestoreMode(mode string) error {
+	f, err := os.CreateTemp(s.dir, ".restore-mode-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err = f.WriteString(mode); err == nil {
+		err = f.Sync()
+	}
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	if err = os.Rename(f.Name(), filepath.Join(s.dir, "restore-failed-mode")); err != nil {
+		return err
+	}
+	dir, err := os.Open(s.dir)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }
 
 func removeTailscalePendingMode(dir string) error {

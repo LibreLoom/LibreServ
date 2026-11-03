@@ -134,6 +134,33 @@ func TestTailscaleShutdownRejectsLaterStartRequests(t *testing.T) {
 	}
 }
 
+func TestTailscaleStartupFailureKeepsSelectedRestorationMode(t *testing.T) {
+	dir := t.TempDir()
+	node := filepath.Join(dir, "tailscale")
+	if err := os.Mkdir(node, 0700); err != nil {
+		t.Fatal(err)
+	}
+	config := `{"Web":{"sol.tail-example.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:4444"}}}},"AllowFunnel":{"sol.tail-example.ts.net:443":true}}`
+	store, _ := json.Marshal(map[string]string{"_machinekey": "a2V5", "_serve/profile": base64.StdEncoding.EncodeToString([]byte(config))})
+	for name, value := range map[string][]byte{"tailscaled.state": store, "stop-verified": []byte(mustBootID(t)), "enabled": []byte("1")} {
+		if err := os.WriteFile(filepath.Join(node, name), value, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("SOL_TAILSCALED", filepath.Join(dir, "missing-daemon"))
+	t.Setenv("SOL_TAILSCALE_CLI", filepath.Join(dir, "missing-cli"))
+	svc := NewTailscaleService(dir, 8080)
+	svc.UnixListenerReady("/tmp/test-8080.sock", nil)
+	svc.waitForRestore()
+	mode, err := os.ReadFile(filepath.Join(node, "restore-failed-mode"))
+	if err != nil || string(mode) != "public" {
+		t.Fatalf("lost requested mode: %q, %v", mode, err)
+	}
+	if !tailscaleFileExists(filepath.Join(node, "tailscaled.state")) {
+		t.Fatal("startup failure lost identity")
+	}
+}
+
 func TestTailscaleRestoreClearsOldTargetBeforeWaitingForOwnedWebListener(t *testing.T) {
 	for _, public := range []bool{false, true} {
 		t.Run(strconv.FormatBool(public), func(t *testing.T) {
