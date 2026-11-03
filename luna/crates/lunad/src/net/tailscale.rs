@@ -75,12 +75,17 @@ fn boot_id() -> Result<String, String> {
     Ok(value.to_owned())
 }
 
+// The proof records the boot it was taken on. A stop verified on an earlier
+// boot says nothing about the process running now, so it must not stand in for
+// checking the socket.
 fn valid_stop_proof(data: &Path) -> bool {
-    std::fs::read_to_string(root(data).join("stop-verified"))
-        .ok()
-        .is_some_and(|value| {
-            value.len() == 36 && value.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
-        })
+    let Ok(recorded) = std::fs::read_to_string(root(data).join("stop-verified")) else {
+        return false;
+    };
+    let recorded = recorded.trim();
+    recorded.len() == 36
+        && recorded.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
+        && boot_id().is_ok_and(|boot| boot == recorded)
 }
 
 fn retire_launch(data: &Path) -> Result<(), String> {
@@ -958,6 +963,11 @@ pub fn stop_serve(data: &Path, port: u16) -> Result<Value, String> {
     if let Err(error) = command(data, &["serve", "reset"]) {
         tracing::warn!(%error, "Could not reset Tailscale web access; stopping the managed daemon");
         let mut status = disable_inner(data, port)?;
+        // disable_inner returns before it clears a saved Serve config it could
+        // not read, and status_json would then report the old public address as
+        // if it were still served. Nothing is listening, so say so.
+        status["private_url"] = json!("");
+        status["public_url"] = json!("");
         status["stop_serve_fallback"] = json!(true);
         return Ok(status);
     }
@@ -1006,6 +1016,10 @@ fn disable_inner(data: &Path, port: u16) -> Result<Value, String> {
     ] {
         let _ = std::fs::remove_file(root(data).join(name));
     }
+    // Nothing is listening any more, so the ingress authority is stale whatever
+    // the saved Serve config says. clear_access_if_required may return before
+    // it gets here, and this must not depend on that.
+    super::tailscale_socket::set_authority(data, None);
     if let Err(error) = clear_access_if_required(data) {
         tracing::warn!(%error, "Tailscale is stopped but its saved access could not be cleared");
         let _ = std::fs::write(
@@ -1653,16 +1667,12 @@ mod tests {
     }
 
     #[test]
-    fn verified_stop_proof_survives_reboot_and_missing_daemon() {
+    fn verified_stop_proof_outlives_a_missing_daemon() {
         let _env = TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(root(dir.path())).unwrap();
         std::fs::write(state(dir.path()), "{}").unwrap();
-        std::fs::write(
-            root(dir.path()).join("stop-verified"),
-            "00000000-0000-0000-0000-000000000000",
-        )
-        .unwrap();
+        std::fs::write(root(dir.path()).join("stop-verified"), boot_id().unwrap()).unwrap();
         assert!(stop_daemon(dir.path()).is_ok());
         unsafe {
             std::env::set_var("LUNA_TAILSCALED", dir.path().join("missing"));
@@ -1674,6 +1684,21 @@ mod tests {
         unsafe {
             std::env::remove_var("LUNA_TAILSCALED");
         }
+    }
+
+    #[test]
+    fn stop_proof_from_an_earlier_boot_does_not_count_as_stopped() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root(dir.path())).unwrap();
+        std::fs::write(state(dir.path()), "{}").unwrap();
+        std::fs::write(
+            root(dir.path()).join("stop-verified"),
+            "00000000-0000-0000-0000-000000000000",
+        )
+        .unwrap();
+        assert!(!valid_stop_proof(dir.path()));
+        assert!(stop_daemon(dir.path()).is_err());
+        assert!(state(dir.path()).exists());
     }
 
     #[test]
@@ -2068,6 +2093,7 @@ mod tests {
         let calls = dir.path().join("calls");
         std::fs::write(&cli, format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\ncase \"$*\" in *'serve reset'*) exit 1 ;; esac\nexit 0\n", calls.display())).unwrap();
         std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o700)).unwrap();
+        super::super::tailscale_socket::set_authority(dir.path(), Some("luna.example"));
         let previous = std::env::var_os("LUNA_TAILSCALE_CLI");
         unsafe {
             std::env::set_var("LUNA_TAILSCALE_CLI", &cli);
@@ -2089,6 +2115,9 @@ mod tests {
         assert_eq!(status["enabled"], false);
         assert_eq!(status["stop_serve_fallback"], true);
         assert!(!status["residual_exposure"].as_bool().unwrap_or(false));
+        assert_eq!(status["private_url"], "");
+        assert_eq!(status["public_url"], "");
+        assert!(super::super::tailscale_socket::authority(dir.path()).is_none());
         let saved: Value =
             serde_json::from_slice(&std::fs::read(state(dir.path())).unwrap()).unwrap();
         assert!(saved.get("_serve/old").is_none());
