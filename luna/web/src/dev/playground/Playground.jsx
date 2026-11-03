@@ -115,9 +115,9 @@ function AppBehind() {
 
 /**
  * Every way to start an operation on the card.
- * @param {{ world: ReturnType<typeof createFakeWorld>, onToggleExpanded: () => void }} props
+ * @param {{ world: ReturnType<typeof createFakeWorld> }} props
  */
-function Controls({ world, onToggleExpanded }) {
+function Controls({ world }) {
   const store = useFileOps();
   const { addToast } = useToast();
 
@@ -418,9 +418,6 @@ function Controls({ world, onToggleExpanded }) {
           <Button size="sm" onClick={clearCard}>
             Card pops out
           </Button>
-          <Button size="sm" onClick={onToggleExpanded}>
-            Collapse / expand
-          </Button>
         </Group>
         <Group label="A row">
           <Button size="sm" onClick={() => uploadFiles([fakeFile("a.txt", 120_000)])}>
@@ -499,7 +496,6 @@ function PlaygroundBody({ world }) {
   const [jobs, setJobs] = useState("ok");
   const [speed, setSpeed] = useState("normal");
   const [theme, setTheme] = useState("light");
-  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     world.setBehaviour({ upload });
@@ -568,14 +564,14 @@ function PlaygroundBody({ world }) {
           </div>
         </Card>
 
-        <Controls world={world} onToggleExpanded={() => setExpanded((open) => !open)} />
+        <Controls world={world} />
       </div>
 
       <div className="min-h-[400px] min-w-0 grow overflow-hidden rounded-large-element border-2 border-accent">
         <AppBehind />
       </div>
 
-      <FileOpsDock expanded={expanded} onExpandedChange={setExpanded} />
+      <FileOpsDock />
     </div>
   );
 }

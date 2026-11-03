@@ -81,6 +81,13 @@ export const ITEM_EXIT = { opacity: 0, height: 0, marginTop: 0, y: -10, transiti
 /** @type {import("motion/react").Transition} */
 export const TEXT_EXIT = { duration: 0.16, ease: EASE_OUT };
 
+/**
+ * The incoming words. A spring, so a swap has the same small overshoot as
+ * everything else in the card rather than a linear slide.
+ */
+/** @type {import("motion/react").Transition} */
+export const TEXT_SWAP = { type: "spring", stiffness: 560, damping: 40, mass: 0.8 };
+
 // -- the progress bar --------------------------------------------------------
 
 /** The fill itself: a spring, so a jump in progress glides instead of snapping. */

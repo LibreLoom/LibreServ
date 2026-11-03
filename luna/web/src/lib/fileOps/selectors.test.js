@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { dockHeaderTitle, dockSummary, moreProblems, opMeta, opStatus, plain } from "./copy.js";
+import { dockHeaderTitle, dockSummary, dockSummaryParts, moreProblems, opMeta, opStatus, plain } from "./copy.js";
 import { classifyError } from "./errors.js";
 import { dockInfo, inlineProblem, opProgress, problemItems, visibleOps } from "./selectors.js";
 import { createFileOpsStore } from "./store.js";
@@ -176,6 +176,25 @@ describe("copy and errors", () => {
     // A cancelled operation is not finished work; say it stopped instead.
     expect(dockHeaderTitle({ running: 0, problems: 0, finished: 1, cancelled: 1 })).toBe("Stopped");
     expect(dockHeaderTitle({ running: 0, problems: 0, finished: 2, cancelled: 1 })).toBe("Finished");
+  });
+
+  it("keeps the summary key stable while only a number moves", () => {
+    // The summary re-renders on every progress tick. If the key changed with
+    // the percentage, the words would re-animate ten times a second; the key
+    // must change only when the words do.
+    const at = (pct) => dockSummaryParts({
+      running: 1, problems: 0, finished: 0, pct, singleUpload: { files: 12 },
+    });
+    expect(at(50).key).toBe(at(51).key);
+    expect(at(50).key).toBe(at(99).key);
+    // The number is carried separately, so it can roll.
+    expect(at(50).count).toBe(12);
+
+    // A real word change does move the key.
+    expect(at(50).key).not.toBe(
+      dockSummaryParts({ running: 0, problems: 0, finished: 1, finishedLabel: "12 files uploaded", pct: null }).key,
+    );
+    expect(dockSummaryParts({ running: 0, problems: 2, finished: 0, pct: null }).key).toBe("need");
   });
 
   it("names what finished in the collapsed summary", () => {

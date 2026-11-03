@@ -3,7 +3,7 @@
 // straight to useFileOpsState (it compares by reference); use the `select*`
 // helpers below that are memoized on the ops array.
 
-import { dockHeaderTitle, dockSummary, finishedText } from "./copy.js";
+import { dockHeaderTitle, dockSummary, dockSummaryParts, finishedText } from "./copy.js";
 
 /** @typedef {import("./store.js").Op} Op */
 /** @typedef {import("./store.js").Item} Item */
@@ -107,14 +107,17 @@ export function dockInfo(state) {
     info.title = shown.length
       ? dockHeaderTitle({ running: running.length, problems, finished: finished.length, cancelled })
       : "";
-    info.summary = dockSummary({
+    const summaryInput = {
       running: running.length,
       problems,
       finished: finished.length,
       finishedLabel: finished.length === 1 ? finishedText(finished[0]) : "",
       pct,
       singleUpload,
-    });
+    };
+    info.summary = dockSummary(summaryInput);
+    // The same summary, split so the words can swap while the number rolls.
+    info.parts = dockSummaryParts(summaryInput);
     return info;
   });
 }

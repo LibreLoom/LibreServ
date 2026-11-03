@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import PropTypes from "prop-types";
 import { AnimatePresence, MotionConfig, motion as Motion } from "motion/react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import RollingNumber from "@libreloom/ui/components/common/RollingNumber.jsx";
 import { useFileOpsState } from "../../../context/FileOpsContext.jsx";
 import { labels } from "../../../lib/fileOps/copy.js";
 import {
@@ -17,6 +19,7 @@ import {
   SPRING,
 } from "../../../lib/fileOps/motion.js";
 import { dockInfo, visibleOps } from "../../../lib/fileOps/selectors.js";
+import RollingText from "./RollingText.jsx";
 import FileOpRow from "./FileOpRow.jsx";
 
 /**
@@ -27,6 +30,55 @@ import FileOpRow from "./FileOpRow.jsx";
 function startsExpanded() {
   return false;
 }
+
+/**
+ * The collapsed summary, built so only what changed moves.
+ *
+ * The words ("Uploading", "finished", "needs you") slide to their new text;
+ * the number beside them rolls like the file explorer's selection count. A
+ * percentage that ticks ten times a second therefore animates nothing — it
+ * just counts — while "Uploading" becoming "12 files uploaded" is a swap you
+ * can see.
+ *
+ * @param {{ parts: any }} props
+ */
+function SummaryLine({ parts }) {
+  const { lead, count, unit, pct, need } = parts;
+  // The odometer draws all ten digits of every column, so its DOM text is not
+  // the number. Screen readers get the plain sentence; the visible line is
+  // aria-hidden, exactly as the file explorer's selection count does it.
+  const spoken = lead
+    ? `${lead}${count ?? ""}${unit}`
+    : count != null
+      ? `${count}${unit}`
+      : "";
+  return (
+    <span className="block font-mono text-xs">
+      <span className="sr-only" role="status">
+        {spoken}
+        {pct != null ? ` · ${Math.round(pct)}%` : ""}
+        {need > 0 ? ` · ${need} need you` : ""}
+      </span>
+      <span aria-hidden="true" className="block truncate">
+        {count != null ? (
+          <RollingText value={parts.key}>
+            {lead}
+            <RollingNumber value={count} />
+            {unit}
+          </RollingText>
+        ) : (
+          lead && <RollingText value={lead} />
+        )}
+        {pct != null && <span> · {Math.round(pct)}%</span>}
+        {need > 0 && !lead && count == null && <span> · {need} need you</span>}
+      </span>
+    </span>
+  );
+}
+
+SummaryLine.propTypes = {
+  parts: PropTypes.object.isRequired,
+};
 
 /**
  * The file task card: every running or troubled file operation of this tab,
@@ -57,13 +109,16 @@ export default function FileOpsDock() {
   const [expanded, setExpanded] = useState(startsExpanded);
   // The last header that had words in it. Read only while the card is leaving,
   // because that is exactly when `info` has nothing left to say.
-  const held = useRef({ title: "", summary: "" });
+  const held = useRef({ title: "", summary: "", parts: null });
   const title = info.title || held.current.title;
   const summary = info.summary || held.current.summary;
+  const summaryParts = info.parts || held.current.parts;
 
   useEffect(() => {
-    if (info.title) held.current = { title: info.title, summary: info.summary };
-  }, [info.title, info.summary]);
+    if (info.title) {
+      held.current = { title: info.title, summary: info.summary, parts: info.parts };
+    }
+  }, [info.title, info.summary, info.parts]);
 
   return (
     <MotionConfig reducedMotion="user">
@@ -83,12 +138,11 @@ export default function FileOpsDock() {
             <Card padding={false} noPopIn noHeightAnim className="border-2 border-accent">
               <div className="flex items-center gap-2 p-3">
                 <div className="min-w-0 flex-1">
-                  <Motion.p layout="position" className="truncate font-mono text-sm">
-                    {title}
-                  </Motion.p>
+                  {/* The title swaps its words rather than snapping. */}
+                  <RollingText value={title} className="truncate font-mono text-sm" />
                   <AnimatePresence initial={false}>
                     {!expanded && summary && (
-                      <Motion.p
+                      <Motion.div
                         key="summary"
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: "auto" }}
@@ -96,8 +150,8 @@ export default function FileOpsDock() {
                         transition={SPRING}
                         className="overflow-hidden"
                       >
-                        <span className="block truncate font-mono text-xs">{summary}</span>
-                      </Motion.p>
+                        <SummaryLine parts={summaryParts} />
+                      </Motion.div>
                     )}
                   </AnimatePresence>
                 </div>

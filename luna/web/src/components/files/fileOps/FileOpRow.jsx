@@ -26,6 +26,38 @@ import FileOpProgress from "./FileOpProgress.jsx";
 const MAX_ACTIVE_LINES = 3;
 
 /**
+ * The meta line under a status line. Its words swap when the line changes
+ * meaning ("Counting files…" → "5 of 12 files"); its numbers tick in place,
+ * because they change on every progress emit.
+ *
+ * @param {{ text: string }} props
+ */
+function MetaLine({ text }) {
+  // Split on the numbers so the stable words are the animation key.
+  const words = text.replace(/\d+(?:\.\d+)?/g, "#");
+  return (
+    <p className="font-mono text-xs">
+      <AnimatePresence mode="wait" initial={false}>
+        <Motion.span
+          key={words}
+          initial={{ opacity: 0, y: "40%" }}
+          animate={{ opacity: 1, y: "0%" }}
+          exit={{ opacity: 0, y: "-40%", transition: TEXT_EXIT }}
+          transition={SPRING}
+          className="block"
+        >
+          {text}
+        </Motion.span>
+      </AnimatePresence>
+    </p>
+  );
+}
+
+MetaLine.propTypes = {
+  text: PropTypes.string.isRequired,
+};
+
+/**
  * One operation inside the dock: status line, meter, the files being sent,
  * and at most one problem (the oldest) with "N more problems" behind it.
  *
@@ -125,8 +157,10 @@ export default function FileOpRow({ op }) {
             transition={SPRING}
             className="overflow-hidden"
           >
-            {/* The counter changes every emit; only the line's presence animates. */}
-            <p className="font-mono text-xs">{meta}</p>
+            {/* The counter changes every emit. Animating the whole line would
+                restart a swap ten times a second, so the words are keyed and
+                the numbers are left to tick. */}
+            <MetaLine text={meta} />
           </Motion.div>
         )}
       </AnimatePresence>

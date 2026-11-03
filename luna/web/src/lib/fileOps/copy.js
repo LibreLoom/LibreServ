@@ -154,6 +154,47 @@ export function dockHeaderTitle(s) {
 }
 
 /**
+ * The collapsed summary, split so the counting part can move on its own.
+ *
+ * The summary changes on every progress tick. Animating the whole string would
+ * restart an exit/enter 10 times a second, so the stable words are separated
+ * from the numbers that actually count: the words swap (a real state change),
+ * the numbers roll like the file explorer's selection count.
+ *
+ * @param {{ running: number, problems: number, finished: number, finishedLabel?: string, pct: number|null, singleUpload?: { files: number }|null }} s
+ * @returns {{ key: string, lead: string, count: number|null, unit: string, pct: number|null, need: number }}
+ *   `key` changes only when the words change, never when a number does.
+ */
+export function dockSummaryParts(s) {
+  const need = s.problems;
+  if (s.running === 0) {
+    if (s.problems > 0) {
+      return { key: "need", lead: "", count: s.problems, unit: ` ${n(s.problems, "needs", "need")} you`, pct: null, need };
+    }
+    if (s.finishedLabel) {
+      // Already a whole phrase ("12 files uploaded"): no number to roll.
+      return { key: `done:${s.finishedLabel}`, lead: s.finishedLabel, count: null, unit: "", pct: null, need };
+    }
+    if (s.finished > 0) {
+      return { key: "finished", lead: "", count: s.finished, unit: " finished", pct: null, need };
+    }
+    return { key: "idle", lead: "", count: null, unit: "", pct: null, need };
+  }
+  if (s.singleUpload) {
+    const files = s.singleUpload.files;
+    return {
+      key: "uploading",
+      lead: "Uploading ",
+      count: files,
+      unit: ` ${n(files, "file", "files")}`,
+      pct: s.pct,
+      need,
+    };
+  }
+  return { key: "running", lead: "", count: s.running, unit: " running", pct: s.pct, need };
+}
+
+/**
  * Collapsed summary (mono). A lone upload operation reads `Uploading {n} files · {pct}%`.
  * @param {{ running: number, problems: number, finished: number, finishedLabel?: string, pct: number|null, singleUpload?: { files: number }|null }} s
  */

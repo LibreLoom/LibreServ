@@ -117,7 +117,9 @@ describe("FileOpsDock", () => {
       },
     ]);
     expect(screen.getByText("Finished")).toBeTruthy();
-    expect(screen.getByText("2 files uploaded")).toBeTruthy();
+    // The summary is announced once (sr-only) and drawn once (aria-hidden), so
+    // match the visible line rather than the count of matches.
+    expect(screen.getAllByText("2 files uploaded").length).toBeGreaterThan(0);
     expect(screen.queryByText("Some files need you")).toBeNull();
   });
 

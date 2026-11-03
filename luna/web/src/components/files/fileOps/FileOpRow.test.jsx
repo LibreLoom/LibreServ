@@ -98,6 +98,27 @@ describe("FileOpRow", () => {
     expect(screen.getByText(/Couldn't copy/)).toBeTruthy();
   });
 
+  it("swaps the meta line's words without re-animating on every byte", () => {
+    // The meta line changes on every progress emit. Its animation key is the
+    // words with the numbers masked, so "0 of 1 files · 10 B" and
+    // "0 of 1 files · 20 B" are the same key and nothing re-enters; the words
+    // changing ("Counting files…") is a real swap.
+    const { container } = row([
+      {
+        ...base,
+        state: "running",
+        title: "a.txt",
+        itemsTotal: 1,
+        bytesTotal: 100,
+        items: [{ id: "i1", name: "a.txt", state: "uploading", size: 100, received: 10 }],
+      },
+    ]);
+    const meta = [...container.querySelectorAll("[data-slot='file-op-row'] p")][1];
+    expect(meta.textContent).toMatch(/0 of 1 files/);
+    // One animated span, not one per number.
+    expect(meta.querySelectorAll("span.block")).toHaveLength(1);
+  });
+
   it("shows a moving bar for emptying the trash", async () => {
     row([{ id: "op3", kind: "empty-trash", state: "running", title: "Photos drive", destLabel: "Photos drive", indeterminate: true, itemsTotal: null, items: [] }]);
     const bar = await screen.findByRole("progressbar");
