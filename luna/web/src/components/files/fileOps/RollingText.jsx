@@ -44,9 +44,11 @@ export default function RollingText({ value, className = "", children }) {
  *
  * This is the shape for any line that changes on every progress emit. Pass the
  * segments from `opMetaParts` (or build the same shape): a string is drawn as
- * it is, `{ number }` becomes an odometer so only the digits that change move.
+ * it is, `{ number }` becomes an odometer so only the digits that change move,
+ * and `{ size, decimals, unit }` is a size whose digits roll while its unit
+ * stays put.
  *
- * @param {{ parts: Array<string | { number: number, suffix?: string }>, className?: string }} props
+ * @param {{ parts: Array<string | { number: number, suffix?: string } | { size: number, decimals: number, unit: string }>, className?: string }} props
  */
 export function RollingNumbers({ parts, className = "" }) {
   // Plain inline flow, NOT flex: a flex container trims whitespace at each
@@ -54,16 +56,25 @@ export function RollingNumbers({ parts, className = "" }) {
   // "50%·96.0 MBof192.0 MB". Text flows here, so the spaces survive.
   return (
     <span className={cn("whitespace-nowrap", className)}>
-      {parts.map((part, i) =>
-        typeof part === "string" ? (
-          <span key={i}>{part}</span>
-        ) : (
+      {parts.map((part, i) => {
+        if (typeof part === "string") return <span key={i}>{part}</span>;
+        // A size carries its own decimals and unit ("96.0" + " MB"), so the
+        // digits roll and the unit stays put.
+        if ("size" in part) {
+          return (
+            <span key={i}>
+              <RollingNumber value={part.size} decimals={part.decimals} />
+              {part.unit}
+            </span>
+          );
+        }
+        return (
           <span key={i}>
             <RollingNumber value={part.number} />
             {part.suffix}
           </span>
-        ),
-      )}
+        );
+      })}
     </span>
   );
 }

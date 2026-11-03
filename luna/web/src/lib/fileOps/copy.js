@@ -324,6 +324,24 @@ export function opStatus(op) {
 
 // -- Meta line (mono) --------------------------------------------------------
 
+/**
+ * A file size as a part the odometer can roll.
+ *
+ * `fmtSize` returns a finished string ("96.0 MB"), which can only be swapped;
+ * this keeps the number and the unit apart so the digits move and the unit
+ * stays put. The decimals match `fmtSize`'s, so the two never disagree.
+ *
+ * @param {number} bytes
+ * @returns {{ size: number, decimals: number, unit: string }}
+ */
+export function sizePart(bytes) {
+  const n2 = Number(bytes) || 0;
+  if (n2 < 1000) return { size: n2, decimals: 0, unit: " B" };
+  if (n2 < 1000 * 1000) return { size: n2 / 1000, decimals: 1, unit: " KB" };
+  if (n2 < 1000 * 1000 * 1000) return { size: n2 / 1000 / 1000, decimals: 1, unit: " MB" };
+  return { size: n2 / 1000 / 1000 / 1000, decimals: 1, unit: " GB" };
+}
+
 /** @param {any} op */
 export function opMeta(op) {
   if (op.kind === "upload" || op.kind === "gallery") {
@@ -363,7 +381,7 @@ export function opMeta(op) {
  * segments: text stays put, numbers roll like the file explorer's count.
  *
  * @param {any} op
- * @returns {Array<string | { number: number, suffix?: string }>}
+ * @returns {Array<string | { number: number, suffix?: string } | { size: number, decimals: number, unit: string }>}
  */
 export function opMetaParts(op) {
   if (op.kind === "upload" || op.kind === "gallery") {
@@ -378,9 +396,9 @@ export function opMetaParts(op) {
       " of ",
       { number: total },
       " files · ",
-      fmtSize(op.bytesDone),
+      sizePart(op.bytesDone),
       " of ",
-      fmtSize(op.bytesTotal),
+      sizePart(op.bytesTotal),
     ];
   }
   if (op.kind === "copy" || op.kind === "move") {
@@ -390,9 +408,9 @@ export function opMetaParts(op) {
     return [
       { number: pct, suffix: "%" },
       " · ",
-      fmtSize(op.bytesDone),
+      sizePart(op.bytesDone),
       " of ",
-      fmtSize(op.bytesTotal),
+      sizePart(op.bytesTotal),
     ];
   }
   const batchTotal = op.itemsTotal ?? op.items?.length ?? 0;

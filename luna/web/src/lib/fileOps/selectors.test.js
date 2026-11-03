@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { dockHeaderTitle, dockSummary, dockSummaryParts, moreProblems, opMeta, opStatus, plain } from "./copy.js";
+import { dockHeaderTitle, dockSummary, dockSummaryParts, moreProblems, opMeta, opMetaParts, opStatus, plain, sizePart } from "./copy.js";
 import { classifyError } from "./errors.js";
 import { dockInfo, inlineProblem, opProgress, problemItems, visibleOps } from "./selectors.js";
 import { createFileOpsStore } from "./store.js";
@@ -224,6 +224,24 @@ describe("copy and errors", () => {
     // A batch has no bytes, so the meta line says how far along it is instead.
     expect(opMeta({ kind: "trash", state: "running", itemsTotal: 5, itemsDone: 2, items: [] }))
       .toBe("2 of 5 done");
+  });
+
+  it("gives the meta line a size the odometer can roll", () => {
+    // A finished string ("96.0 MB") can only be swapped; the parts carry the
+    // number, its decimals and its unit so the digits move and the unit stays.
+    expect(sizePart(96_000_000)).toEqual({ size: 96, decimals: 1, unit: " MB" });
+    expect(sizePart(4_200)).toEqual({ size: 4.2, decimals: 1, unit: " KB" });
+    expect(sizePart(512)).toEqual({ size: 512, decimals: 0, unit: " B" });
+    expect(sizePart(2_500_000_000)).toEqual({ size: 2.5, decimals: 1, unit: " GB" });
+
+    const parts = opMetaParts({
+      kind: "copy", state: "running", itemsTotal: 6,
+      bytesTotal: 192_000_000, bytesDone: 96_000_000, items: [],
+    });
+    expect(parts).toContainEqual({ size: 96, decimals: 1, unit: " MB" });
+    expect(parts).toContainEqual({ size: 192, decimals: 1, unit: " MB" });
+    // The words between them are still their own segments, so the spaces stay.
+    expect(parts).toContain(" of ");
   });
 
   it("classifies errors", () => {
