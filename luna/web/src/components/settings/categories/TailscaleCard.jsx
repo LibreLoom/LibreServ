@@ -26,10 +26,10 @@ export default function TailscaleCard() {
       await cache.cancelQueries({ queryKey: QUERY_KEY });
       cache.setQueryData(QUERY_KEY, data);
       addToast({
-        type: data.residual_exposure ? "error" : "success",
+        type: data.residual_exposure || data.stop_serve_fallback ? "error" : "success",
         message:
-          data.residual_exposure ? "Tailscale could not be stopped" : variables.action === "stop-serve" && !data.enabled
-            ? "Tailscale is off"
+          data.residual_exposure ? "Tailscale could not be stopped" : variables.action === "stop-serve" && data.stop_serve_fallback
+            ? "Could not turn off web access. Tailscale was turned off instead."
             : data.auth_url || data.approval_url
             ? "Tailscale approval link ready"
             : "Tailscale settings updated",

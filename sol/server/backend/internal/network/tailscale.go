@@ -27,18 +27,19 @@ import (
 const TailscaleVersion = "1.104.2"
 
 type TailscaleStatus struct {
-	Installed        bool   `json:"installed"`
-	Enabled          bool   `json:"enabled"`
-	IdentitySaved    bool   `json:"identity_saved"`
-	State            string `json:"state"`
-	PrivateURL       string `json:"private_url"`
-	PublicURL        string `json:"public_url"`
-	AuthURL          string `json:"auth_url"`
-	ApprovalURL      string `json:"approval_url"`
-	ApprovalType     string `json:"approval_type"`
-	Error            string `json:"error"`
-	ResidualExposure bool   `json:"residual_exposure"`
-	ControlServer    string `json:"control_server"`
+	Installed         bool   `json:"installed"`
+	Enabled           bool   `json:"enabled"`
+	IdentitySaved     bool   `json:"identity_saved"`
+	State             string `json:"state"`
+	PrivateURL        string `json:"private_url"`
+	PublicURL         string `json:"public_url"`
+	AuthURL           string `json:"auth_url"`
+	ApprovalURL       string `json:"approval_url"`
+	ApprovalType      string `json:"approval_type"`
+	Error             string `json:"error"`
+	ResidualExposure  bool   `json:"residual_exposure"`
+	StopServeFallback bool   `json:"stop_serve_fallback,omitempty"`
+	ControlServer     string `json:"control_server"`
 }
 
 // An empty control server selects Tailscale's official coordination service.
@@ -1122,6 +1123,7 @@ func (s *TailscaleService) ConnectWithControl(selected string) (TailscaleStatus,
 	if err := s.up(); err != nil {
 		return TailscaleStatus{}, err
 	}
+	_ = os.Remove(filepath.Join(s.dir, "last-error"))
 	return s.statusLocked(), nil
 }
 func (s *TailscaleService) Reconnect() (TailscaleStatus, error) {
@@ -1160,6 +1162,7 @@ func (s *TailscaleService) Reconnect() (TailscaleStatus, error) {
 	if err := s.up(); err != nil {
 		return TailscaleStatus{}, err
 	}
+	_ = os.Remove(filepath.Join(s.dir, "last-error"))
 	return s.statusLocked(), nil
 }
 func approvalURL(raw string) string {
@@ -1292,7 +1295,9 @@ func (s *TailscaleService) StopServe() (TailscaleStatus, error) {
 	}
 	if _, err := s.run("serve", "reset"); err != nil {
 		slog.Warn("Could not reset Tailscale web access; stopping the managed daemon", "error", err)
-		return s.disableLocked()
+		status, err := s.disableLocked()
+		status.StopServeFallback = true
+		return status, err
 	}
 	for _, name := range []string{"approval-url", "approval-type"} {
 		_ = os.Remove(filepath.Join(s.dir, name))

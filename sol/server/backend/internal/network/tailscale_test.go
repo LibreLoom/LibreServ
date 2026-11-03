@@ -460,7 +460,7 @@ func TestTailscaleStopServeFallsBackToVerifiedDisable(t *testing.T) {
 		}
 	}
 	status, err := svc.StopServe()
-	if err != nil || status.Enabled || status.ResidualExposure {
+	if err != nil || status.Enabled || status.ResidualExposure || !status.StopServeFallback {
 		t.Fatalf("stop serve = %#v, %v", status, err)
 	}
 	if data, err := os.ReadFile(filepath.Join(dir, "tailscaled.state")); err != nil || strings.Contains(string(data), "_serve/old") {
@@ -487,8 +487,14 @@ func TestTailscaleReconnectClearsSavedServeBeforeUp(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := os.WriteFile(filepath.Join(dir, "last-error"), []byte("old error"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := svc.Reconnect(); err != nil {
 		t.Fatal(err)
+	}
+	if tailscaleFileExists(filepath.Join(dir, "last-error")) {
+		t.Fatal("reconnect retained a stale error")
 	}
 	log, err := os.ReadFile(calls)
 	if err != nil {

@@ -957,8 +957,11 @@ pub fn stop_serve(data: &Path, port: u16) -> Result<Value, String> {
     let _guard = lifecycle();
     if let Err(error) = command(data, &["serve", "reset"]) {
         tracing::warn!(%error, "Could not reset Tailscale web access; stopping the managed daemon");
-        return disable_inner(data, port);
+        let mut status = disable_inner(data, port)?;
+        status["stop_serve_fallback"] = json!(true);
+        return Ok(status);
     }
+    super::tailscale_socket::set_authority(data, None);
     let _ = std::fs::remove_file(root(data).join("serve-mode"));
     let _ = std::fs::remove_file(root(data).join("restore-serve"));
     let _ = std::fs::remove_file(root(data).join("approval-url"));
@@ -2027,6 +2030,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(root(dir.path())).unwrap();
         std::fs::write(root(dir.path()).join("last-error"), "old error").unwrap();
+        super::super::tailscale_socket::set_authority(dir.path(), Some("luna.example"));
         let cli = dir.path().join("tailscale-mock");
         std::fs::write(&cli, "#!/bin/sh\nexit 0\n").unwrap();
         std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -2043,6 +2047,7 @@ mod tests {
             }
         }
         assert_eq!(result.unwrap()["error"], "");
+        assert!(super::super::tailscale_socket::authority(dir.path()).is_none());
         assert!(!root(dir.path()).join("last-error").exists());
     }
 
@@ -2082,6 +2087,7 @@ mod tests {
                 .contains("serve reset")
         );
         assert_eq!(status["enabled"], false);
+        assert_eq!(status["stop_serve_fallback"], true);
         assert!(!status["residual_exposure"].as_bool().unwrap_or(false));
         let saved: Value =
             serde_json::from_slice(&std::fs::read(state(dir.path())).unwrap()).unwrap();

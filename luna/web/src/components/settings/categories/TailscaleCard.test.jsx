@@ -37,7 +37,9 @@ describe("TailscaleCard", () => {
 
   it.each([
     [{ installed: true, enabled: false, state: "error", residual_exposure: true }, "error", "Tailscale could not be stopped"],
-    [{ installed: true, enabled: false, state: "off" }, "success", "Tailscale is off"],
+    [{ installed: true, enabled: false, state: "off", stop_serve_fallback: true }, "error", "Could not turn off web access. Tailscale was turned off instead."],
+    [{ installed: true, enabled: true, state: "connected" }, "success", "Tailscale settings updated"],
+    [{ installed: true, enabled: false, state: "off" }, "success", "Tailscale settings updated"],
   ])("reports a stop-serve fallback honestly", async (result, type, message) => {
     getJson.mockResolvedValue({ installed: true, enabled: true, state: "connected", private_url: "https://luna.example.ts.net" });
     postJson.mockResolvedValue(result);
