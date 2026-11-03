@@ -1291,7 +1291,8 @@ func (s *TailscaleService) StopServe() (TailscaleStatus, error) {
 		return TailscaleStatus{}, err
 	}
 	if _, err := s.run("serve", "reset"); err != nil {
-		return TailscaleStatus{}, err
+		slog.Warn("Could not reset Tailscale web access; stopping the managed daemon", "error", err)
+		return s.disableLocked()
 	}
 	for _, name := range []string{"approval-url", "approval-type"} {
 		_ = os.Remove(filepath.Join(s.dir, name))

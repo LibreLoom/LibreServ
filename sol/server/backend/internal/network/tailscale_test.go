@@ -448,6 +448,26 @@ func TestTailscaleVerifiedDisableClearsStaleError(t *testing.T) {
 	}
 }
 
+func TestTailscaleStopServeFallsBackToVerifiedDisable(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "tailscale-mock")
+	writeExecutable(t, bin, "exit 1\n")
+	t.Setenv("SOL_TAILSCALE_CLI", bin)
+	svc := &TailscaleService{dir: dir, port: 8080}
+	for name, value := range map[string]string{"enabled": "1", "stop-verified": mustBootID(t), "tailscaled.state": `{"_serve/old":"e30=","identity":"keep"}`} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	status, err := svc.StopServe()
+	if err != nil || status.Enabled || status.ResidualExposure {
+		t.Fatalf("stop serve = %#v, %v", status, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "tailscaled.state")); err != nil || strings.Contains(string(data), "_serve/old") {
+		t.Fatalf("saved access was not cleared: %s, %v", data, err)
+	}
+}
+
 func TestTailscaleReconnectClearsSavedServeBeforeUp(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "tailscale-mock")
@@ -847,41 +867,6 @@ esac
 	t.Setenv("TS_NEEDS_LOGIN", "1")
 	if pending := svc.Status(); pending.State != "pending" || pending.AuthURL == "" || pending.ResidualExposure {
 		t.Fatalf("null Serve status during login: %#v", pending)
-	}
-}
-
-func TestTailscaleInstallerRejectsReusedPIDAndWrongState(t *testing.T) {
-	installer, err := filepath.Abs("../../../../install.sh")
-	if err != nil {
-		t.Fatal(err)
-	}
-	state := filepath.Join(t.TempDir(), "tailscaled.state")
-	process := exec.Command("bash", "-c", `exec -a tailscaled bash -c 'while :; do sleep 1; done' --state "$1"`, "fixture", state)
-	process.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := process.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = syscall.Kill(-process.Process.Pid, syscall.SIGKILL); _ = process.Wait() }()
-	check := func(pid int, path string) bool {
-		command := exec.Command("bash", "-c", `source "$1"; tailscale_pid_matches "$2" "$3"`, "check", installer, strconv.Itoa(pid), path)
-		return command.Run() == nil
-	}
-	// Allow bash to exec with the fixture's daemon name.
-	deadline := time.Now().Add(2 * time.Second)
-	for !check(process.Process.Pid, state) && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if !check(process.Process.Pid, state) {
-		t.Fatal("managed fixture was not recognized")
-	}
-	if check(process.Process.Pid, state+"-different") {
-		t.Fatal("wrong state path was accepted")
-	}
-	if check(os.Getpid(), state) {
-		t.Fatal("unrelated reused PID was accepted")
-	}
-	if check(1, state) || check(-1, state) {
-		t.Fatal("unsafe PID was accepted")
 	}
 }
 

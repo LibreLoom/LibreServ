@@ -962,6 +962,7 @@ pub fn stop_serve(data: &Path, port: u16) -> Result<Value, String> {
     let _ = std::fs::remove_file(root(data).join("restore-serve"));
     let _ = std::fs::remove_file(root(data).join("approval-url"));
     let _ = std::fs::remove_file(root(data).join("approval-type"));
+    let _ = std::fs::remove_file(root(data).join("last-error"));
     Ok(status_json(data, port))
 }
 fn disable_inner(data: &Path, port: u16) -> Result<Value, String> {
@@ -2014,6 +2015,32 @@ mod tests {
         assert!(!root(dir.path()).join("reset-required").exists());
         assert!(!root(dir.path()).join("last-error").exists());
         assert!(!enabled(dir.path()));
+    }
+
+    #[test]
+    fn successful_serve_reset_clears_stale_error() {
+        use std::os::unix::fs::PermissionsExt;
+        let _env = TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root(dir.path())).unwrap();
+        std::fs::write(root(dir.path()).join("last-error"), "old error").unwrap();
+        let cli = dir.path().join("tailscale-mock");
+        std::fs::write(&cli, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let previous = std::env::var_os("LUNA_TAILSCALE_CLI");
+        unsafe {
+            std::env::set_var("LUNA_TAILSCALE_CLI", &cli);
+        }
+        let result = stop_serve(dir.path(), 0);
+        unsafe {
+            if let Some(value) = previous {
+                std::env::set_var("LUNA_TAILSCALE_CLI", value);
+            } else {
+                std::env::remove_var("LUNA_TAILSCALE_CLI");
+            }
+        }
+        assert_eq!(result.unwrap()["error"], "");
+        assert!(!root(dir.path()).join("last-error").exists());
     }
 
     #[test]
