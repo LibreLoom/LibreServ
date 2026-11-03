@@ -979,9 +979,6 @@ struct Target {
     layout: Layout,
     label: String,
     limits: drive_store::FsLimits,
-    /// The drive is a LUKS2 container. Recorded so a backup can refuse to put
-    /// an encrypted drive's files, in the clear, onto a plain one.
-    encrypted: bool,
 }
 
 /// Is this drive encrypted? Reads the row rather than the mount, because the
@@ -1029,7 +1026,6 @@ fn connected(conn: &Connection, drive_id: &str) -> Option<Target> {
         layout,
         label: label_or_default(&drive.label),
         limits,
-        encrypted: drive.encrypted,
     })
 }
 

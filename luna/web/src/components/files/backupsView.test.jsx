@@ -193,6 +193,7 @@ describe("backup folder restore", () => {
     fireEvent.click(screen.getByRole("button", { name: "Restore Holiday to original folder" }));
 
     const dock = await screen.findByRole("region", { name: "File tasks" });
+    fireEvent.click(within(dock).getByRole("button", { name: "Show details" }));
     expect(await within(dock).findByText("Connect Photo drive to restore this file.")).toBeInTheDocument();
     expect(within(dock).getByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(toasts.addToast).not.toHaveBeenCalled();

@@ -538,7 +538,9 @@ describe("PublicSharePage", () => {
     fireEvent.change(/** @type {HTMLInputElement} */ (picker), {
       target: { files: [new File(["1"], "a.txt"), new File(["2"], "b.txt")] },
     });
-    expect(await screen.findByText("Choose one file to replace this file.")).toBeInTheDocument();
+    const dock = await screen.findByRole("region", { name: "File tasks" });
+    fireEvent.click(within(dock).getByRole("button", { name: "Show details" }));
+    expect(await within(dock).findByText("Choose one file to replace this file.")).toBeInTheDocument();
   });
 
   it("scopes the guest move picker to the shared drive and invalidates its listing on mkdir", async () => {
