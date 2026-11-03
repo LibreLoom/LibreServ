@@ -79,15 +79,14 @@ export default function TailscaleCard({
                   <label htmlFor="headscale-server" className="text-sm">Headscale server address</label>
                   <input id="headscale-server" type="url" value={serverAddress} disabled={serverLocked || busy}
                     onChange={(event) => setServerDraft(event.target.value)} placeholder="https://headscale.example.com"
-                    className="w-full rounded-pill surface-primary px-4 py-2 focus:border-accent" />
+                    className="w-full rounded-large-element surface-primary px-4 py-2 focus:border-accent" />
                   <p className="text-sm">Enter an HTTPS address without a path. Private web access requires a Headscale version that supports Tailscale HTTPS certificates, with DNS-01 certificates configured by its administrator. Public access is unavailable.</p>
                 </div>
               )}
               {serverLocked && <p className="text-sm">Sign out of Tailscale to change the control server.</p>}
             </div>
           )}
-          {error && <PageNotice variant="error">{error}</PageNotice>}
-          {s.error && s.error !== error && <PageNotice variant="error">{s.error}</PageNotice>}
+          {(error || s.error) && <PageNotice variant="error">{error || s.error}</PageNotice>}
           {s.residual_exposure && <PageNotice variant="error">Public access may still be on. Turn off Tailscale and check again.</PageNotice>}
           {s.state === "pending" && (
             <div className="surface-primary rounded-large-element p-4 space-y-3">

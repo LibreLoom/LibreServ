@@ -430,6 +430,24 @@ func TestTailscaleBrokenCLICanDisableAndForget(t *testing.T) {
 	}
 }
 
+func TestTailscaleVerifiedDisableClearsStaleError(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("SOL_TAILSCALE_CLI", filepath.Join(dir, "missing"))
+	svc := &TailscaleService{dir: dir, port: 8080}
+	for name, value := range map[string]string{"stop-verified": mustBootID(t), "tailscaled.state": `{}`, "last-error": "old failure"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	status, err := svc.Disable()
+	if err != nil || status.Error != "" || status.Enabled {
+		t.Fatalf("disable = %#v, %v", status, err)
+	}
+	if tailscaleFileExists(filepath.Join(dir, "last-error")) {
+		t.Fatal("stale error was retained")
+	}
+}
+
 func TestTailscaleReconnectClearsSavedServeBeforeUp(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "tailscale-mock")

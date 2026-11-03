@@ -954,7 +954,10 @@ pub fn disable(data: &Path, port: u16) -> Result<Value, String> {
 
 pub fn stop_serve(data: &Path, port: u16) -> Result<Value, String> {
     let _guard = lifecycle();
-    command(data, &["serve", "reset"])?;
+    if let Err(error) = command(data, &["serve", "reset"]) {
+        tracing::warn!(%error, "Could not reset Tailscale web access; stopping the managed daemon");
+        return disable_inner(data, port);
+    }
     let _ = std::fs::remove_file(root(data).join("serve-mode"));
     let _ = std::fs::remove_file(root(data).join("restore-serve"));
     let _ = std::fs::remove_file(root(data).join("approval-url"));
@@ -1248,6 +1251,12 @@ pub fn restore(data: &Path, port: u16) {
         return;
     }
     if !enabled(data) {
+        if root(data).join("reset-required").exists()
+            && let Err(error) = clear_access_if_required(data)
+        {
+            tracing::warn!(%error, "Could not complete Tailscale shutdown cleanup");
+            let _ = std::fs::write(root(data).join("last-error"), error);
+        }
         return;
     }
     if port == 0 {
@@ -1981,6 +1990,58 @@ mod tests {
             std::env::remove_var("LUNA_TAILSCALE_CLI");
             std::env::remove_var("LUNA_TAILSCALED");
         }
+    }
+
+    #[test]
+    fn restore_finishes_interrupted_disable_without_restarting() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root(dir.path())).unwrap();
+        std::fs::write(root(dir.path()).join("stop-verified"), boot_id().unwrap()).unwrap();
+        std::fs::write(root(dir.path()).join("reset-required"), "1").unwrap();
+        std::fs::write(
+            state(dir.path()),
+            r#"{"_serve/old":"e30=","identity":"keep"}"#,
+        )
+        .unwrap();
+        restore(dir.path(), 0);
+        let saved: Value =
+            serde_json::from_slice(&std::fs::read(state(dir.path())).unwrap()).unwrap();
+        assert!(saved.get("_serve/old").is_none());
+        assert_eq!(saved["identity"], "keep");
+        assert!(!root(dir.path()).join("reset-required").exists());
+        assert!(!enabled(dir.path()));
+    }
+
+    #[test]
+    fn public_off_stops_daemon_when_cli_is_unavailable() {
+        let _env = TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root(dir.path())).unwrap();
+        std::fs::write(root(dir.path()).join("stop-verified"), boot_id().unwrap()).unwrap();
+        std::fs::write(root(dir.path()).join("enabled"), "1").unwrap();
+        std::fs::write(
+            state(dir.path()),
+            r#"{"_serve/old":"e30=","identity":"keep"}"#,
+        )
+        .unwrap();
+        let previous = std::env::var_os("LUNA_TAILSCALE_CLI");
+        unsafe {
+            std::env::set_var("LUNA_TAILSCALE_CLI", dir.path().join("missing"));
+        }
+        let result = stop_serve(dir.path(), 0);
+        unsafe {
+            if let Some(value) = previous {
+                std::env::set_var("LUNA_TAILSCALE_CLI", value);
+            } else {
+                std::env::remove_var("LUNA_TAILSCALE_CLI");
+            }
+        }
+        let status = result.unwrap();
+        assert_eq!(status["enabled"], false);
+        assert!(!status["residual_exposure"].as_bool().unwrap_or(false));
+        let saved: Value =
+            serde_json::from_slice(&std::fs::read(state(dir.path())).unwrap()).unwrap();
+        assert!(saved.get("_serve/old").is_none());
     }
 
     #[test]

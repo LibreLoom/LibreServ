@@ -1339,6 +1339,8 @@ func (s *TailscaleService) disableLocked() (TailscaleStatus, error) {
 	if err := s.clearAccessIfRequired(); err != nil {
 		slog.Warn("Tailscale is stopped but its saved access could not be cleared", "error", err)
 		_ = os.WriteFile(filepath.Join(s.dir, "last-error"), []byte("Tailscale is off. Remove its saved identity before connecting again."), 0600)
+	} else {
+		_ = os.Remove(filepath.Join(s.dir, "last-error"))
 	}
 	return s.statusLocked(), nil
 }
