@@ -387,13 +387,19 @@ func (r *Runner) throttleHostCmd(cmd *exec.Cmd) (warning string) {
 // the runner's real cache dir, for host execution. Without this, a lint that
 // writes --cache-location /cache/... fails on the host.
 func (r *Runner) hostCommand(command string) string {
-	cacheDir := filepath.Join(r.repoPath, ".cache")
+	cacheDir := r.containerCacheDir
+	if cacheDir == "" {
+		cacheDir = filepath.Join(r.repoPath, ".cache")
+	}
 	return strings.ReplaceAll(command, "/cache/", cacheDir+"/")
 }
 
 // hostEnv rewrites a test's container-path env vars for host execution.
 func (r *Runner) hostEnv(env []string) []string {
-	cacheDir := filepath.Join(r.repoPath, ".cache")
+	cacheDir := r.containerCacheDir
+	if cacheDir == "" {
+		cacheDir = filepath.Join(r.repoPath, ".cache")
+	}
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
 		key, val, ok := strings.Cut(kv, "=")

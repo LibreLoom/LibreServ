@@ -43,6 +43,17 @@ func TestLaunchErrorClassDoesNotExposeDetails(t *testing.T) {
 	}
 }
 
+func TestHostPathsUseSelectedContainerCache(t *testing.T) {
+	r := &Runner{repoPath: "/checkout", containerCacheDir: "/owned/cache"}
+	if got := r.hostCommand("tool --cache /cache/work"); got != "tool --cache /owned/cache/work" {
+		t.Fatalf("host command = %q", got)
+	}
+	got := r.hostEnv([]string{"CACHE=/cache/work", "REPO=/repo/sub"})
+	if want := []string{"CACHE=/owned/cache/work", "REPO=/checkout/sub"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("host env = %v, want %v", got, want)
+	}
+}
+
 func TestContainerCacheBindsKeepLifelineIndependent(t *testing.T) {
 	for _, cache := range []string{"/repo/.cache", "/tmp/owned-cache"} {
 		want := []string{"/repo:/repo:z", cache + ":/cache:z"}
