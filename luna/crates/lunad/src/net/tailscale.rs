@@ -878,6 +878,7 @@ fn serve_inner(data: &Path, port: u16, public: bool) -> Result<Value, String> {
         if public { "public" } else { "private" },
     )
     .map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(root(data).join("last-error"));
     Ok(status_json(data, port))
 }
 fn extract_url(text: &str) -> Option<&str> {
@@ -1984,10 +1985,12 @@ mod tests {
         assert_eq!(reconnected["error"], "");
         assert!(status["identity_saved"].as_bool().unwrap());
         assert_eq!(status["private_url"], "");
+        std::fs::write(root(dir.path()).join("last-error"), "old Serve failure").unwrap();
         assert_eq!(
             serve(dir.path(), 8090, false).unwrap()["private_url"],
             "https://luna.tail-example.ts.net"
         );
+        assert_eq!(status_json(dir.path(), 8090)["error"], "");
         let _ = std::fs::remove_file(root(dir.path()).join("tailscaled.pid"));
         unsafe {
             std::env::remove_var("LUNA_TAILSCALE_CLI");

@@ -2,8 +2,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TailscaleCard from "./TailscaleCard.jsx";
 
+const { addToast } = vi.hoisted(() => ({ addToast: vi.fn() }));
 vi.mock("@libreloom/ui/context/ToastContext.jsx", () => ({
-  useToast: () => ({ addToast: vi.fn() }),
+  useToast: () => ({ addToast }),
 }));
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
@@ -15,7 +16,18 @@ vi.mock("../../../lib/api.js", () => ({
 const response = (value) => ({ json: async () => value });
 
 describe("Sol Tailscale settings", () => {
-  beforeEach(() => api.mockReset());
+  beforeEach(() => { api.mockReset(); addToast.mockReset(); });
+
+  it.each([
+    [{ installed: true, enabled: false, state: "error", residual_exposure: true }, "error", "Tailscale could not be stopped"],
+    [{ installed: true, enabled: false, state: "off" }, "success", "Tailscale is off"],
+  ])("reports a stop-serve fallback honestly", async (result, type, message) => {
+    api.mockResolvedValueOnce(response({ installed: true, enabled: true, state: "connected", private_url: "https://sol.example.ts.net" }));
+    api.mockResolvedValueOnce(response(result));
+    render(<TailscaleCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Turn off private access" }));
+    await waitFor(() => expect(addToast).toHaveBeenCalledWith(expect.objectContaining({ type, message })));
+  });
 
   it("sends the chosen Headscale control server and hides public access", async () => {
     api.mockResolvedValueOnce(response({ enabled: false, installed: true, state: "off" }));

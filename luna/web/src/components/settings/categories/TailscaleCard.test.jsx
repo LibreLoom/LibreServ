@@ -3,8 +3,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TailscaleCard from "./TailscaleCard.jsx";
 
+const { addToast } = vi.hoisted(() => ({ addToast: vi.fn() }));
 vi.mock("@libreloom/ui/context/ToastContext.jsx", () => ({
-  useToast: () => ({ addToast: vi.fn() }),
+  useToast: () => ({ addToast }),
 }));
 
 const { getJson, postJson } = vi.hoisted(() => ({
@@ -31,6 +32,18 @@ describe("TailscaleCard", () => {
   beforeEach(() => {
     getJson.mockReset();
     postJson.mockReset();
+    addToast.mockReset();
+  });
+
+  it.each([
+    [{ installed: true, enabled: false, state: "error", residual_exposure: true }, "error", "Tailscale could not be stopped"],
+    [{ installed: true, enabled: false, state: "off" }, "success", "Tailscale is off"],
+  ])("reports a stop-serve fallback honestly", async (result, type, message) => {
+    getJson.mockResolvedValue({ installed: true, enabled: true, state: "connected", private_url: "https://luna.example.ts.net" });
+    postJson.mockResolvedValue(result);
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Turn off private access" }));
+    await waitFor(() => expect(addToast).toHaveBeenCalledWith(expect.objectContaining({ type, message })));
   });
 
   it("warns when public exposure is unknown and offers to stop Tailscale", async () => {

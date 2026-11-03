@@ -22,13 +22,15 @@ export default function TailscaleCard() {
     mutationKey: MUTATION_KEY,
     onMutate: () => cache.cancelQueries({ queryKey: QUERY_KEY }),
     mutationFn: (/** @type {{ action: string, body?: object }} */ { action, body = {} }) => postJson(`${PATH}/${action}`, body),
-    onSuccess: async (data) => {
+    onSuccess: async (data, variables) => {
       await cache.cancelQueries({ queryKey: QUERY_KEY });
       cache.setQueryData(QUERY_KEY, data);
       addToast({
         type: data.residual_exposure ? "error" : "success",
         message:
-          data.residual_exposure ? "Tailscale could not be stopped" : data.auth_url || data.approval_url
+          data.residual_exposure ? "Tailscale could not be stopped" : variables.action === "stop-serve" && !data.enabled
+            ? "Tailscale is off"
+            : data.auth_url || data.approval_url
             ? "Tailscale approval link ready"
             : "Tailscale settings updated",
       });

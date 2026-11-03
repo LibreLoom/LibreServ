@@ -50,7 +50,9 @@ export default function TailscaleCard() {
       addToast({
         type: data.residual_exposure ? "error" : "success",
         message:
-          data.residual_exposure ? "Tailscale could not be stopped" : data.auth_url || data.approval_url
+          data.residual_exposure ? "Tailscale could not be stopped" : action === "stop-serve" && !data.enabled
+            ? "Tailscale is off"
+            : data.auth_url || data.approval_url
             ? "Tailscale approval link ready"
             : "Tailscale settings updated",
       });
