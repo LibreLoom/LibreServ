@@ -1,0 +1,10 @@
+# Toolchains for the Tailscale daemon and web checks, without Android or desktop.
+FROM docker.io/library/rust:1.99.1-bookworm
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+    ca-certificates curl git pkg-config libssl-dev build-essential \
+    && curl --proto '=https' --tlsv1.2 -fsSL https://deb.nodesource.com/setup_26.x | bash - \
+    && apt-get install -y -qq --no-install-recommends nodejs \
+    && rustup component add rustfmt clippy \
+    && rm -rf /var/lib/apt/lists/*
+ENV npm_config_cache=/cache/npm
+WORKDIR /repo

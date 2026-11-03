@@ -727,9 +727,8 @@ func addLunaTests() {
 		Name:        "Luna Daemon Checks",
 		Description: "Check Luna Rust code without OS, desktop or Android toolchains",
 		Type:        TestTypeUnit,
-		Container:   "host",
-		NeedsHost:   "runs the installed Rust toolchain without requiring the full Luna image",
-		Command:     "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace",
+		Container:   LocalImagePrefix + "luna-remote-check",
+		Command:     "runtime_dir=$(mktemp -d /cache/ts-runtime-XXXXXX) && trap 'rm -rf \"$runtime_dir\"' EXIT && export XDG_RUNTIME_DIR=\"$runtime_dir\" && cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace",
 		WorkDir:     "/repo/luna",
 		Timeout:     30 * time.Minute,
 	})
@@ -740,10 +739,9 @@ func addLunaTests() {
 		Name:        "Luna Web Checks",
 		Description: "Run Luna web tests, lint, typecheck and build without OS toolchains",
 		Type:        TestTypeUnit,
-		Container:   "host",
-		NeedsHost:   "runs the installed Node toolchain without requiring the full Luna image",
-		Command:     "(cd ../../shared/ui && npm install --no-audit --no-fund --cache /tmp/luna-npm-cache) && npm install --no-audit --no-fund --cache /tmp/luna-npm-cache && { web_check_result=0; npm test -- --run || web_check_result=1; npm run lint || web_check_result=1; npm run typecheck || web_check_result=1; npm run build || web_check_result=1; exit \"$web_check_result\"; }",
-		WorkDir:     "/repo/luna/web",
+		Container:   LocalImagePrefix + "luna-remote-check",
+		Command:     "mkdir -p /tmp/luna-web-check && tar -C /repo --exclude=node_modules --exclude=dist -cf - shared/ui luna/web luna/crates/lunad/src/backup/cloud/fixture.json | tar -C /tmp/luna-web-check -xf - && cd /tmp/luna-web-check/shared/ui && npm ci --no-audit --no-fund && cd /tmp/luna-web-check/luna/web && npm ci --no-audit --no-fund && { web_check_result=0; npm test -- --run || web_check_result=1; npm run lint || web_check_result=1; npm run typecheck || web_check_result=1; npm run build || web_check_result=1; exit \"$web_check_result\"; }",
+		WorkDir:     "/repo",
 		Timeout:     20 * time.Minute,
 	})
 	DefaultRegistry.Add(&Test{

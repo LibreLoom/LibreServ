@@ -45,7 +45,7 @@ func (l *lifeline) hostPath() string {
 	return l.path
 }
 
-// name is the file's name; inside a container it is /ci-lifeline/<name>.
+// name is the file's name; inside a container it is /repo/.cache/<name>.
 func (l *lifeline) name() string {
 	if l == nil {
 		return ""
