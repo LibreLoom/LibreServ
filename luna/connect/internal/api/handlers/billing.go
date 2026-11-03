@@ -13,6 +13,7 @@ import (
 	stripego "github.com/stripe/stripe-go/v76"
 	"github.com/stripe/stripe-go/v76/webhook"
 
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 )
@@ -53,6 +54,15 @@ func (h AccountHandler) StripeWebhook(w http.ResponseWriter, r *http.Request) {
 		handleErr = h.lockFromInvoiceJSON(event.Data.Raw, "past_due")
 	case "invoice.paid", "customer.subscription.updated":
 		handleErr = h.unlockFromEvent(string(event.Type), event.Data.Raw)
+		if handleErr == nil && event.Type == "invoice.paid" {
+			// A paid invoice is the moment a credit balance is spent: the
+			// account's next bill is smaller by whatever we still owe them.
+			// Best-effort — a credit that fails to apply must never make
+			// Stripe retry an invoice we have already recorded as paid.
+			if err := h.applyCreditsFromInvoice(event.Data.Raw); err != nil {
+				slog.Error("could not apply credit to paid invoice", "error", err)
+			}
+		}
 	}
 	if handleErr != nil {
 		// A database failure is temporary: 500 makes Stripe retry the event.
@@ -139,6 +149,34 @@ func (h AccountHandler) unlockFromEvent(kind string, raw json.RawMessage) error 
 		return err
 	}
 	_, err := h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, backup_purge_after = NULL, purge_mail_day = NULL WHERE stripe_subscription_id = ?`, status, subID)
+	return err
+}
+
+// applyCreditsFromInvoice spends an account's credit balance against a paid
+// invoice. Stripe has already collected the invoice amount, so applying a
+// credit refunds that much back to the balance and the next invoice is smaller
+// by the same amount. Applies at most the invoice total and at most the
+// balance, so a credit can reduce a bill to zero but never create money owed.
+func (h AccountHandler) applyCreditsFromInvoice(raw json.RawMessage) error {
+	var inv struct {
+		ID         string `json:"id"`
+		AmountPaid int64  `json:"amount_paid"`
+	}
+	if err := json.Unmarshal(raw, &inv); err != nil || inv.ID == "" || inv.AmountPaid <= 0 {
+		return nil
+	}
+	subID := subscriptionIDFromInvoiceJSON(raw)
+	if subID == "" {
+		return nil
+	}
+	var accountID string
+	if err := h.DB.QueryRow(`SELECT id FROM accounts WHERE stripe_subscription_id = ?`, subID).Scan(&accountID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	_, err := billing.ApplyCreditsToInvoice(h.DB, accountID, inv.ID, int(inv.AmountPaid))
 	return err
 }
 

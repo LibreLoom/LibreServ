@@ -538,7 +538,7 @@ export default [
         },
       };
     },
-    check: ["Checks are grouped, failures first", "Update now starts the update", "Open source licenses open and close"],
+    check: ["Checks are grouped, failures first", "Luna's own storage shows what is using the disk, biggest first", "Free up space clears the temporary files and says how much", "Update now starts the update", "Open source licenses open and close"],
   },
   {
     id: "settings/update-source",

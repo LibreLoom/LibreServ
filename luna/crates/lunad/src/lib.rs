@@ -138,6 +138,8 @@ pub struct AppState {
     pub auth: Arc<crate::auth::AuthService>,
     pub connect: Arc<crate::net::connect::ConnectService>,
     pub login_limiter: Arc<crate::rate_limit::RateLimiter>,
+    /// Wrong passwords on an encrypted drive: per user, per drive.
+    pub unlock_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub dav_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub share_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub public_upload_limiter: Arc<crate::rate_limit::RateLimiter>,
@@ -193,6 +195,14 @@ impl AppState {
                 db.clone(),
                 std::time::Duration::from_secs(300),
                 10,
+            )),
+            // Five wrong passwords on a drive, then a five-minute wait. A
+            // Member with a live session can unlock a drive they can already
+            // read, so this is what keeps guessing from being free.
+            unlock_limiter: Arc::new(crate::rate_limit::RateLimiter::new(
+                db.clone(),
+                std::time::Duration::from_secs(300),
+                5,
             )),
             dav_limiter: Arc::new(crate::rate_limit::RateLimiter::new(
                 db.clone(),

@@ -19,12 +19,14 @@ import useRecentItemsTracker from "./hooks/useRecentItemsTracker";
 // One chunk per page: the first paint downloads only the page being opened.
 const loadFilesPage = () => import("./pages/FilesPage");
 const loadFilePage = () => import("./pages/FilePage");
+const loadDriveEncryptionPage = () => import("./pages/DriveEncryptionPage");
 const loadGalleryPage = () => import("./pages/GalleryPage");
 const loadSharedPage = () => import("./pages/SharedPage");
 const loadDashboardPage = () => import("./pages/DashboardPage");
 const loadSettingsPage = () => import("./pages/SettingsPage");
 const FilesPage = lazy(loadFilesPage);
 const FilePage = lazy(loadFilePage);
+const DriveEncryptionPage = lazy(loadDriveEncryptionPage);
 const GalleryPage = lazy(loadGalleryPage);
 const SharedPage = lazy(loadSharedPage);
 const DashboardPage = lazy(loadDashboardPage);
@@ -147,6 +149,7 @@ export default function App() {
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/files" element={<FilesPage />} />
                 <Route path="/files/:id" element={<FilePage />} />
+                <Route path="/files/:id/encryption" element={<DriveEncryptionPage />} />
                 <Route path="/gallery" element={<GalleryPage />} />
                 <Route path="/shared" element={<SharedPage />} />
                 <Route path="/photos" element={<PhotosToGalleryRedirect />} />

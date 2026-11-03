@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -9,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
@@ -31,8 +34,46 @@ func (h AdminConsoleHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		"tokens_unclaimed": unbound,
 		"tokens_revoked":   revoked,
 		"backup_bytes":     backupBytes,
-		"estimated_month":  billing.EstimateUSD(backupBytes),
+		"estimated_month":  estimatedMonthlyRevenue(h.DB),
 	})
+}
+
+// estimatedMonthlyRevenue is what the current month bills across all accounts.
+// It must be summed per account, not computed from total stored bytes: the
+// monthly minimum applies to each account separately, so two accounts storing
+// 3 GB each bill $6.00, while one account storing 6 GB bills $3.00.
+func estimatedMonthlyRevenue(db *database.DB) float64 {
+	period := billing.PeriodKeyUTC(time.Now())
+	rows, err := db.Query(`
+SELECT COALESCE(s.sample_sum, 0), COALESCE(s.sample_count, 0),
+       COALESCE(e.egress_bytes, 0),
+       COALESCE((SELECT SUM(size) FROM storage_packs WHERE account_id = a.id), 0)
+     + COALESCE((SELECT SUM(bytes) FROM storage_records WHERE account_id = a.id), 0)
+FROM accounts a
+LEFT JOIN (
+  SELECT account_id, SUM(stored_bytes) AS sample_sum, COUNT(*) AS sample_count
+  FROM billing_storage_samples WHERE period_ym = ?
+  GROUP BY account_id
+) s ON s.account_id = a.id
+LEFT JOIN billing_period_egress e ON e.account_id = a.id AND e.period_ym = ?`, period, period)
+	if err != nil {
+		return 0
+	}
+	defer rows.Close()
+
+	var totalMills int64
+	for rows.Next() {
+		var sum, count, egress, live int64
+		if err := rows.Scan(&sum, &count, &egress, &live); err != nil {
+			continue
+		}
+		avg := live
+		if count > 0 {
+			avg = billing.AverageStoredBytes(sum, count)
+		}
+		totalMills += billing.MonthMills(avg, egress)
+	}
+	return float64(totalMills) / float64(billing.MillsPerDollar)
 }
 
 func (h AdminConsoleHandler) Devices(w http.ResponseWriter, r *http.Request) {
@@ -178,6 +219,12 @@ FROM accounts WHERE id = ?`, accountID).
 		return
 	}
 
+	credits, err := billing.GetCreditBalance(h.DB, accountID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not load the credit balance for this account.")
+		return
+	}
+
 	JSON(w, http.StatusOK, map[string]any{
 		"id":             accountID,
 		"email":          email,
@@ -186,7 +233,56 @@ FROM accounts WHERE id = ?`, accountID).
 		"email_verified": emailVerified == 1,
 		"created_at":     created,
 		"devices":        devices,
+		"credits":        credits,
 	})
+}
+
+// AddAccountCredit puts money on a customer's balance — the remedy when we get
+// a bill wrong. The reason is required and stored with the movement, along with
+// the staff member who made it, so a balance can always be explained.
+func (h AdminConsoleHandler) AddAccountCredit(w http.ResponseWriter, r *http.Request) {
+	accountID := strings.TrimSpace(chi.URLParam(r, "accountID"))
+	if accountID == "" {
+		JSONError(w, http.StatusBadRequest, "Account id is required.")
+		return
+	}
+	var req struct {
+		AmountCents int    `json:"amount_cents"`
+		Reason      string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "Could not read that credit.")
+		return
+	}
+	reason := strings.TrimSpace(req.Reason)
+	if req.AmountCents <= 0 {
+		JSONError(w, http.StatusBadRequest, "Enter an amount greater than zero.")
+		return
+	}
+	if reason == "" {
+		JSONError(w, http.StatusBadRequest, "Say why this credit is being added.")
+		return
+	}
+	adminID := AdminIDFrom(r.Context())
+	if err := billing.AddCredit(h.DB, accountID, req.AmountCents, reason, "", adminID); err != nil {
+		switch {
+		case errors.Is(err, billing.ErrNoSuchAccount):
+			JSONError(w, http.StatusNotFound, "That customer account was not found.")
+		case errors.Is(err, billing.ErrCreditReasonRequired):
+			JSONError(w, http.StatusBadRequest, "Say why this credit is being added.")
+		case errors.Is(err, billing.ErrCreditAmountInvalid):
+			JSONError(w, http.StatusBadRequest, "Enter an amount greater than zero.")
+		default:
+			JSONError(w, http.StatusInternalServerError, "Could not add that credit.")
+		}
+		return
+	}
+	credits, err := billing.GetCreditBalance(h.DB, accountID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Credit added, but the new balance could not be read.")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]any{"ok": true, "credits": credits})
 }
 
 func (h AdminConsoleHandler) listAccountDevices(accountID string) ([]map[string]any, error) {

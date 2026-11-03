@@ -1,0 +1,7 @@
+# Searching document contents and photos
+
+Luna's current per-drive index stores names and file metadata. Search does not read document contents or recognize text in photos. Photo results are image files matched by name, not a separate photo library search.
+
+Content search needs a bounded extraction pipeline integrated with the existing drive indexer. Extract text from supported plain text and office formats in isolated workers with limits on file size, time, memory, and extracted text. Store extracted text in each drive's index, update it when files change, and remove it when files disappear. Show extraction failures and progress separately from the existing directory scan. Query results must pass the same current path permission checks as name results, including after permissions change; snippets must never be generated for inaccessible paths. Decide how encrypted documents, removable and read-only drives, and indexing on limited hardware behave before enabling it. Test permission changes, malicious documents, stale indexes, and resource limits with real drives.
+
+OCR and visual photo search need separate decisions about local processing cost, supported languages, model distribution, metadata privacy, and whether to index thumbnails or originals. They should use the same per-drive lifecycle and access checks, with explicit progress and failure reporting. No image data should leave Luna without a separate user choice.

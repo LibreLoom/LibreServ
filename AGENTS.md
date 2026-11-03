@@ -57,7 +57,7 @@ Not covered: code comments, logs, internal docs. Dashboard greetings (pigeons, s
 
 ## Running tests
 
-- **After an edit, run `./ci check`.** It prints the static checks (format, vet, lint, typecheck, colour scan) that the current diff can affect, and stops. `./ci check -r` runs them; `./ci check -f` widens to every check; add `--host` to run them on the host instead of in containers (faster, but it uses whatever toolchain the machine has). This is the inner loop — it is seconds, not minutes, and it catches a broken edit without running product logic.
+- **After an edit, run `./ci check`.** It prints the static checks (format, vet, lint, typecheck, colour scan) that the current diff can affect, and stops. `./ci check -r` runs them; `./ci check -f` widens to every check. Checks run on the host when this machine has the toolchain for them and in their container when it does not, which is the fast path and needs no flag; `--host` forces the host, `--podman` forces containers. This is the inner loop — it is seconds, not minutes, and it catches a broken edit without running product logic.
 - **Tests are the unattended pass, not the inner loop.** Run them through `./ci run --profile <profile>` when asked to verify a change properly (or when a release needs it). Never run `cargo test`, `npx vitest`, `npm test`, `go test` or any other runner directly, not even to read one output value or check one test. No focused `./ci` target? Wait for the full run.
 - Flags are `-x` for one letter, `--long` for more: `./ci run -p quick`, `./ci check -r`.
 - A full luna run takes 15–30 minutes. Start it in the background and poll its log for the `EXIT` line. Never start a second run while one is going, and a shell exit is not a result.
@@ -125,5 +125,7 @@ Sync with the animation. Never buzz on hover, scroll, or typing. Never double-bu
 ## Notes for agents
 
 - **Go 1.27 is real** and every Go 1.27 image exists. Don't question it.
-- **Early development, no existing users.** No backwards compatibility or migrations unless asked; tear obsolete concepts down completely.
+- **Early development, no existing users.** Nobody's data or habits are worth protecting yet, so this is a licence, not a limit: pick the mechanism that makes the product best, and change whatever stands in the way — schemas, concepts, APIs, pricing, provider setup. Don't design around preserving what exists.
+  - **SQL:** no migrations or backwards compatibility unless asked. Rewrite the schema, drop the table, squash the migration; don't write a data-preserving path for rows nobody has.
+  - **Everywhere else:** don't treat "it's already configured" or "that means re-doing X" as a reason to avoid the better option. If the best design means replacing a Stripe price, redrawing an API, or deleting a concept, say so and do that.
 - **If you are confused by the user's instructions, or if they are unclear, ask the user clarifying questions** instead of guessing.

@@ -3,6 +3,10 @@ import { render, screen, within } from "@testing-library/react";
 
 const health = vi.fn();
 vi.mock("../../../hooks/useSystemHealthCheck.jsx", () => ({ useSystemHealthCheck: () => health() }));
+// The breakdown has its own test; here it only has to land on the right row.
+vi.mock("./StorageBreakdown.jsx", () => ({
+  default: () => <div data-testid="storage-breakdown" />,
+}));
 
 import SystemChecksCard from "./SystemChecksCard.jsx";
 
@@ -71,6 +75,24 @@ describe("SystemChecksCard", () => {
     render(<SystemChecksCard />);
     expect(screen.getByText("2 of 2 checks have warnings.")).toBeInTheDocument();
     expect(screen.getByText("Warnings")).toBeInTheDocument();
+  });
+
+  it("puts the storage breakdown on Luna's own storage row only", () => {
+    health.mockReturnValue({
+      data: {
+        checks: {
+          disk_space: { status: "failed", message: "Almost full", category: "system" },
+          logs_path_writable: { status: "failed", message: "Can't write logs", category: "storage" },
+        },
+      },
+      isLoading: false,
+      error: null,
+    });
+    render(<SystemChecksCard />);
+    const rows = within(screen.getByRole("list")).getAllByRole("listitem");
+    const withBreakdown = rows.filter((row) => within(row).queryByTestId("storage-breakdown"));
+    expect(withBreakdown).toHaveLength(1);
+    expect(withBreakdown[0]).toHaveTextContent("Almost full");
   });
 
   it("handles a response with no checks", () => {

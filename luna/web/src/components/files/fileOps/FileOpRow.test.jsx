@@ -34,17 +34,28 @@ describe("FileOpRow", () => {
     row([{ ...base, state: "waiting", items }]);
     expect(screen.getByText("f0.txt")).toBeTruthy();
     expect(screen.queryByText("f1.txt")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "14 more problems →" }));
+    fireEvent.click(screen.getByRole("button", { name: "14 more problems" }));
     expect(screen.getByText("Problems with this upload")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Replace all" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Keep both for all" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip all" })).toBeTruthy();
   });
 
+  it("draws a real icon on the more-problems control", () => {
+    // It used to end in a literal "→" character, which renders in the body
+    // font at body weight and reads as stray punctuation.
+    const items = Array.from({ length: 4 }, (_, i) => fileClash(`i${i}`, `f${i}.txt`));
+    const { container } = row([{ ...base, state: "waiting", items }]);
+    const more = screen.getByRole("button", { name: "3 more problems" });
+    expect(more.querySelector("svg")).toBeTruthy();
+    expect(container.textContent).not.toContain("→");
+  });
+
   it("offers no Replace for a folder clash", () => {
     row([{ ...base, state: "waiting", items: [folderClash("i1", "Photos")] }]);
     expect(screen.queryByRole("button", { name: "Replace" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "More problems →" })).toBeNull();
+    // One problem is shown inline; there is no "more" control to offer.
+    expect(screen.queryByRole("button", { name: /more problem/ })).toBeNull();
   });
 
   it("shows Try again for an item that failed offline", () => {
@@ -85,6 +96,62 @@ describe("FileOpRow", () => {
     ]);
     expect(screen.getByText(/Backup is full/)).toBeTruthy();
     expect(screen.getByText(/Couldn't copy/)).toBeTruthy();
+  });
+
+  it("swaps the meta line's words without re-animating on every byte", () => {
+    // The meta line changes on every progress emit. Its animation key is the
+    // words with the numbers masked, so "0 of 1 files · 10 B" and
+    // "0 of 1 files · 20 B" are the same key and nothing re-enters; the words
+    // changing ("Counting files…") is a real swap.
+    const { container } = row([
+      {
+        ...base,
+        state: "running",
+        title: "a.txt",
+        itemsTotal: 1,
+        bytesTotal: 100,
+        items: [{ id: "i1", name: "a.txt", state: "uploading", size: 100, received: 10 }],
+      },
+    ]);
+    const meta = [...container.querySelectorAll("[data-slot='file-op-row'] p")][1];
+    // The counters are odometers: their DOM text is every digit of every
+    // column, so assert the shape (two numbers and the words between them)
+    // rather than the rendered text.
+    expect(meta.querySelectorAll("[data-slot='inline-pill'], .inline-flex").length).toBeGreaterThan(0);
+    expect(meta.textContent).toContain("of");
+    expect(meta.textContent).toContain("files");
+  });
+
+  it("keeps the spaces around the meta line's separators", () => {
+    // The line is built from text and counters. A flex container trims
+    // whitespace at each item's edge, which turned "50% · 96.0 MB of 192.0 MB"
+    // into "50%·96.0 MBof192.0 MB" — the text was right, the layout ate it.
+    const { container } = row([
+      {
+        id: "op2",
+        kind: "copy",
+        state: "running",
+        title: "a",
+        destLabel: "Backup drive",
+        itemsTotal: 6,
+        bytesTotal: 192_000_000,
+        bytesDone: 96_000_000,
+        items: [{ id: "i1", name: "a", state: "running", size: 192_000_000, received: 96_000_000 }],
+      },
+    ]);
+    const meta = [...container.querySelectorAll("[data-slot='file-op-row'] p")].find((p) =>
+      p.textContent.includes(" of "),
+    );
+    expect(meta).toBeTruthy();
+    // The separators keep their spaces on both sides.
+    expect(meta.textContent).toContain(" · ");
+    expect(meta.textContent).toContain(" of ");
+    // The line itself is inline flow, not a flex container — flex is what ate
+    // the spaces. (The odometers inside it are their own inline-flex, which is
+    // fine: the whitespace lives between them, in the line.)
+    const line = meta.firstElementChild;
+    expect(line.className).not.toContain("inline-flex");
+    expect(line.className).toContain("whitespace-nowrap");
   });
 
   it("shows a moving bar for emptying the trash", async () => {

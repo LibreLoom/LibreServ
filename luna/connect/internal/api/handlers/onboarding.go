@@ -35,7 +35,7 @@ func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 		JSON(w, http.StatusOK, map[string]any{"ok": true, "enabled": false})
 		return
 	}
-	price := "Cloud backup costs $8 per terabyte each month, based on your average storage. Downloads are free up to 3× stored amount."
+	price := PriceCopy()
 	if billing.DevBypass() {
 		price = "Cloud backup costs $8 per terabyte each month. Luna will turn cloud backup on when it is next quiet."
 	}
@@ -146,6 +146,12 @@ func (h OnboardingHandler) VerifyHuman(w http.ResponseWriter, r *http.Request) {
 	_, _ = h.DB.Exec(`INSERT INTO oss_payments (account_id, payment_intent_id, status, created_at) VALUES (?, ?, 'succeeded', ?)
 ON CONFLICT(account_id) DO UPDATE SET payment_intent_id=excluded.payment_intent_id, status='succeeded'`,
 		acct.ID, pi, time.Now().Unix())
+	// The copy promises this dollar counts toward cloud backup, so make it
+	// true: hold it as credit that the next invoice spends. Best-effort — the
+	// card check itself succeeded and must not fail over a ledger write.
+	if err := billing.AddCredit(h.DB, acct.ID, 100, "card check", pi, ""); err != nil {
+		slog.Error("could not credit the $1 card check", "account", acct.ID, "error", err)
+	}
 	JSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
 		"message": okMsg,

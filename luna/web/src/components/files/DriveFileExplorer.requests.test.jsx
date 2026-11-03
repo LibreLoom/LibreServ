@@ -140,6 +140,26 @@ describe("DriveFileExplorer long requests", () => {
     expect(purge[2]).toEqual({ path: ".luna-trash" });
   });
 
+  // The phone sheet's destructive row used to keep the danger card's extra
+  // padding, so "Move to trash" stood half again as tall as every action above
+  // it. Every row in the sheet is one size now.
+  it("gives every action in a phone row sheet the same height", async () => {
+    vi.stubGlobal("matchMedia", (query) => /** @type {any} */ ({
+      matches: false,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    renderExplorer({ listing: FILES });
+    await screen.findByText("a.txt");
+    fireEvent.click(screen.getByRole("button", { name: "Actions for a.txt" }));
+    const dialog = await screen.findByRole("dialog", { name: "a.txt" });
+    const rows = [...dialog.querySelectorAll('[data-slot="card-button"]')];
+    expect(rows.length).toBeGreaterThan(1);
+    const sizes = rows.map((row) => row.className.split(/\s+/).filter((c) => /^(p|py|px|h)-/.test(c)).sort());
+    for (const size of sizes) expect(size).toEqual(sizes[0]);
+  });
+
   it("refreshes the Trash listing when a folder is trashed", async () => {
     // Deleting `Documents` changes the drive root and `Documents` — never the
     // trash dir, which is its own listing. Without an explicit invalidate the

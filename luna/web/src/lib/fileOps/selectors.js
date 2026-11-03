@@ -3,7 +3,7 @@
 // straight to useFileOpsState (it compares by reference); use the `select*`
 // helpers below that are memoized on the ops array.
 
-import { dockHeaderTitle, dockSummary } from "./copy.js";
+import { dockHeaderTitle, dockSummary, dockSummaryParts, finishedText } from "./copy.js";
 
 /** @typedef {import("./store.js").Op} Op */
 /** @typedef {import("./store.js").Item} Item */
@@ -29,6 +29,20 @@ export function visibleOps(state) {
 /** @param {Op} op */
 export function problemItems(op) {
   return memo(problemCache, op, (o) => o.items.filter(isProblem));
+}
+
+/**
+ * Did this op fail as a whole, with no item to point at?
+ *
+ * A single-file share link refuses a two-file drop before any item exists, so
+ * the op carries the reason in `op.error` and its item list is empty. Counting
+ * only items called that a finished upload — the dock said "Finished / 0 files
+ * uploaded" and kept the reason folded away.
+ *
+ * @param {Op} op
+ */
+export function opFailed(op) {
+  return Boolean(op.error) && op.items.length === 0;
 }
 
 /** Inline problem (the oldest) and how many more are behind it. */
@@ -57,7 +71,18 @@ export function dockInfo(state) {
   return memo(dockCache, state.ops, (ops) => {
     const shown = ops.filter((o) => o.shown);
     const running = shown.filter(isRunning);
-    const problems = shown.reduce((sum, o) => sum + problemItems(o).length, 0);
+    // An op that failed as a whole has no item to count, but it is still a
+    // problem: the dock must open and show its reason.
+    const problems = shown.reduce((sum, o) => sum + problemItems(o).length + (opFailed(o) ? 1 : 0), 0);
+    // Ended with nothing left to answer: done, and only waiting to be
+    // dismissed. Counting these separately is what stops a finished upload
+    // from announcing that files need you.
+    const finished = shown.filter(
+      (o) => !isRunning(o) && o.endedAt != null && problemItems(o).length === 0 && !opFailed(o),
+    );
+    // A cancelled operation is among the finished ones, but it must not be
+    // announced as finished work.
+    const cancelled = finished.filter((o) => o.state === "cancelled").length;
     const known = running.filter((o) => !o.indeterminate);
     const pct = known.length
       ? known.reduce((sum, o) => sum + (opProgress(o) || 0), 0) / known.length
@@ -71,14 +96,28 @@ export function dockInfo(state) {
       visible: shown.length > 0,
       runningCount: running.length,
       problemCount: problems,
+      finishedCount: finished.length,
+      cancelledCount: cancelled,
       pct,
       title: "",
       summary: "",
       /** True when a new problem appeared since the previous state (the dock opens itself). */
       hasProblems: problems > 0,
     };
-    info.title = shown.length ? dockHeaderTitle({ running: running.length, problems }) : "";
-    info.summary = dockSummary({ running: running.length, problems, pct, singleUpload });
+    info.title = shown.length
+      ? dockHeaderTitle({ running: running.length, problems, finished: finished.length, cancelled })
+      : "";
+    const summaryInput = {
+      running: running.length,
+      problems,
+      finished: finished.length,
+      finishedLabel: finished.length === 1 ? finishedText(finished[0]) : "",
+      pct,
+      singleUpload,
+    };
+    info.summary = dockSummary(summaryInput);
+    // The same summary, split so the words can swap while the number rolls.
+    info.parts = dockSummaryParts(summaryInput);
     return info;
   });
 }

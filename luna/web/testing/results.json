@@ -14,7 +14,6 @@
     "theme": "scenario default"
   },
   "auth/member-needs-phrase": {
-    "status": "fail",
     "note": "Card doesn't smoothly resize when you switch between word counts. There are also a few layout issues. I'd also like to mention that the user is not required to have a recovery phrase — it's only for cloud backup, so this gate should never be used. Simply a setup wizard when the user chooses to cloud backup.",
     "at": "2026-10-29T04:04:02.349Z",
     "viewport": "desktop",
@@ -1065,7 +1064,6 @@
     "theme": "scenario default"
   },
   "dashboard/system-check-failed": {
-    "status": "fail",
     "note": "It's not possible for the user to do anything about this. That needs to be fixed.",
     "at": "2026-11-01T22:10:33.964Z",
     "viewport": "phone",
@@ -2104,7 +2102,6 @@
     "theme": "scenario default"
   },
   "files/empty-drive": {
-    "status": "fail",
     "note": "@plainskill needs to review the new file operations card.",
     "at": "2026-11-01T22:16:15.923Z",
     "viewport": "desktop",
@@ -3212,7 +3209,6 @@
     "theme": "scenario default"
   },
   "files/trash-empty-slow": {
-    "status": "fail",
     "note": "New unified file operations bar needs review from @plainskill",
     "at": "2026-11-02T02:19:09.922Z",
     "viewport": "desktop",
@@ -3518,7 +3514,6 @@
     "theme": "scenario default"
   },
   "files/upload-duplicate": {
-    "status": "fail",
     "note": "@plainskill needs to review all possible states of the new stateful file ops card",
     "at": "2026-11-02T02:27:52.709Z",
     "viewport": "desktop",

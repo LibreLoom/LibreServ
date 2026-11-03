@@ -21,6 +21,33 @@ const DollarsPerGB = 0.008 // $8/TB; Stripe metered unit = 1 decimal GB (average
 const BytesPerTB = 1_000_000_000_000
 const BytesPerGB = 1_000_000_000
 
+// MinimumMonthlyUSD is the least a month of cloud backup can cost. It applies
+// to the month's whole bill (storage + egress overage), not to storage alone,
+// and only once the account actually stores something: an account with a card
+// and nothing uploaded is never charged.
+//
+// The floor rides on the storage meter, so the reported storage quantity is
+// topped up until storage + egress reaches it. Stripe's price is untouched:
+// the same $0.008/GB price bills the top-up. See ReportUsage.
+const MinimumMonthlyUSD = 3.00
+
+// MinBillableGB is the storage quantity that bills exactly MinimumMonthlyUSD
+// at DollarsPerGB. 375 × $0.008 = $3.00. Both constants move together; a test
+// pins the relationship.
+const MinBillableGB = 375
+
+// MillsPerGBStorage and MillsPerGBEgress are the per-GB prices in thousandths
+// of a cent, so the floor arithmetic stays in integers. $0.008 = 8 mills,
+// $0.01 = 10 mills, $3.00 = 3000 mills.
+const (
+	MillsPerGBStorage = 8
+	MillsPerGBEgress  = 10
+	MillsPerDollar    = 1000
+)
+
+// MinimumMonthlyMills is MinimumMonthlyUSD in thousandths of a cent.
+const MinimumMonthlyMills int64 = 3000
+
 var (
 	// ErrNotConfigured: Stripe is turned on but not usable (empty secret in production).
 	ErrNotConfigured = errors.New("stripe not configured")
@@ -40,21 +67,25 @@ type CardAction struct {
 	ClientSecret  string
 }
 
+// EstimateUSD is the month's bill for an account storing bytes with no egress
+// overage. It goes through MeteredQuantities, the same function the meters are
+// reported from, so the number shown is the number charged.
 func EstimateUSD(bytes int64) float64 {
-	return float64(bytes) / float64(BytesPerTB) * DollarsPerTB
+	return EstimateMonthUSD(bytes, 0)
 }
 
-// UsageQuantityGB is the Stripe metered quantity for average stored backups.
-// Unit = 1 decimal GB ($0.008/GB-mo). Floor(bytes/1e9); any stored bytes bills at least 1.
+// UsageQuantityGB is the raw storage quantity for average stored backups, in
+// whole GB, with no minimum applied. Unit = 1 decimal GB ($0.008/GB-mo).
+//
+// The monthly minimum is NOT applied here: it is a floor on the month's whole
+// bill (storage + egress), so it lives in MeteredQuantities, which can see both
+// meters. Flooring storage on its own would put egress on top of the minimum
+// instead of counting toward it. Nothing stored reports nothing.
 func UsageQuantityGB(bytes int64) int64 {
 	if bytes <= 0 {
 		return 0
 	}
-	gb := bytes / BytesPerGB
-	if gb < 1 {
-		return 1
-	}
-	return gb
+	return bytes / BytesPerGB
 }
 
 // DevBypass is true only with an explicit local/dev env (LUNACONNECT_DEV)

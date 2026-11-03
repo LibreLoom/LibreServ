@@ -44,7 +44,8 @@ func main() {
 	checkFullShort := checkCmd.Bool("f", false, "Shorthand for --full")
 	checkRun := checkCmd.Bool("run", false, "Run the selected checks (default: list them only)")
 	checkRunShort := checkCmd.Bool("r", false, "Shorthand for --run")
-	checkHost := checkCmd.Bool("host", false, "Run on the host instead of in containers (faster, unpinned toolchain)")
+	checkHost := checkCmd.Bool("host", false, "Force every check onto the host, even where this machine lacks a toolchain")
+	checkPodman := checkCmd.Bool("podman", false, "Force every check into its container")
 
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -59,7 +60,7 @@ func main() {
 			runCLI(*profileName, *testIDs, *parallel, *fuzzDuration, *failFast, *outputDir, *session, *perf, *cpus, *memory, flagSet(runCmd, "parallel") || flagSet(runCmd, "j"), *runHost)
 		case "check":
 			checkCmd.Parse(os.Args[2:])
-			runCheck(*checkFull || *checkFullShort, *checkRun || *checkRunShort, *checkHost)
+			runCheck(*checkFull || *checkFullShort, *checkRun || *checkRunShort, checkMode(*checkHost, *checkPodman))
 		case "help", "-h", "--help":
 			printHelp()
 		default:
@@ -96,14 +97,18 @@ Commands:
 Check Flags:
   -f, --full          Every check, not just the ones the diff can affect
   -r, --run           Run the selection (default: print it and stop)
-      --host          Run on the host instead of in containers (faster)
+      --host          Force every check onto the host
+      --podman        Force every check into its container
+
+Checks run on the host when this machine can run them and in their container
+when it cannot, which is why the default needs no flag.
 
 Check Examples:
   ci check                     # Dry run: what checks this diff can affect
   ci check -r                  # Run them
   ci check -f                  # Dry run: every check
   ci check -f -r               # Run every check
-  ci check -r --host           # Run them on the host (fastest)
+  ci check -r --podman         # Same checks, pinned toolchains
 
 Run Flags:
   -p, --profile <name>  Run tests for a profile (quick, sol, luna, full, etc.)
@@ -118,7 +123,8 @@ Run Flags:
       --memory <size>   With --session: cap memory, e.g. 8G
   -j, --parallel <n>    With --session: parallel containers
       --host            Run on the host instead of in containers (faster,
-                        unpinned toolchain; for the inner loop)
+                        unpinned toolchain; for the inner loop). Runs are
+                        container-first otherwise.
 
 Examples:
   ci                           # Launch TUI
@@ -161,10 +167,17 @@ type runOpts struct {
 	parallel     int
 	parallelSet  bool
 	verbose      bool
-	host         bool
+	mode         runner.RunMode
 }
 
 func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, failFast bool, outputDir string, session bool, perf string, cpus float64, memory string, parallelSet, host bool) {
+	// `ci run` stays container-first: its profiles are the unattended pass, and
+	// a pinned toolchain is the point. --host is the explicit opt-out.
+	mode := runner.ModeContainer
+	if host {
+		mode = runner.ModeHost
+	}
+
 	var testsToRun []string
 
 	if profileName != "" {
@@ -200,7 +213,7 @@ func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, fail
 		parallel:     parallel,
 		parallelSet:  parallelSet,
 		verbose:      true,
-		host:         host,
+		mode:         mode,
 	})
 }
 
@@ -259,7 +272,7 @@ func runTests(testsToRun []string, opts runOpts) {
 		executor.Cancel()
 	}()
 
-	go executor.Execute("", testsToRun, parallel, opts.failFast, fuzzDur, limits.CPUQuota, limits.MemoryLimit, limits.Nice, universal, opts.host)
+	go executor.Execute("", testsToRun, parallel, opts.failFast, fuzzDur, limits.CPUQuota, limits.MemoryLimit, limits.Nice, universal, opts.mode)
 
 	passed := 0
 	failed := 0
@@ -383,7 +396,13 @@ func flagSet(fs *flag.FlagSet, name string) bool {
 // Default is a dry run: it prints what it would run and stops, so the selection
 // is visible before anything costs time. --run executes it, --full widens the
 // selection from "what this diff can reach" to every check.
-func runCheck(full, run, host bool) {
+//
+// Where it runs is the opposite of `ci run`: checks are host-first, because the
+// inner loop should not pay for an image pull and a container start when the
+// toolchain is already here. A check whose tools are missing on this machine
+// falls back to its container on its own, so the default is both the fast path
+// and the correct one. --host and --podman force a side.
+func runCheck(full, run bool, mode runner.RunMode) {
 	root, err := findRepoRoot()
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -438,7 +457,7 @@ func runCheck(full, run, host bool) {
 	}
 	fmt.Println()
 
-	runTests(ids, runOpts{fuzzDuration: "5m", parallel: 4, host: host})
+	runTests(ids, runOpts{fuzzDuration: "5m", parallel: 4, mode: mode})
 }
 
 // changedPaths returns the repo-relative paths of everything not committed,
@@ -480,6 +499,21 @@ func gitOutput(root string, args ...string) ([]byte, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = root
 	return cmd.Output()
+}
+
+// checkMode turns the check flags into a run mode. The two flags are opposites,
+// so asking for both is a contradiction rather than a preference.
+func checkMode(host, podman bool) runner.RunMode {
+	switch {
+	case host && podman:
+		fmt.Println("Error: --host and --podman are opposites; pick one.")
+		os.Exit(1)
+	case host:
+		return runner.ModeHost
+	case podman:
+		return runner.ModeContainer
+	}
+	return runner.ModeAuto
 }
 
 // findRepoRoot walks up from the working directory looking for the checkout,

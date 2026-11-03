@@ -43,6 +43,9 @@ export const CASES = {
   "GET /api/v1/drives": plain("/api/v1/drives"),
   "GET /api/v1/drives/detected": plain("/api/v1/drives/detected"),
   "GET /api/v1/drives/:id/summary": onDrive((w, d) => `/api/v1/drives/${q(d)}/summary`),
+  "GET /api/v1/drives/:id/encryption": onDrive((w, d) => `/api/v1/drives/${q(d)}/encryption`),
+  "GET /api/v1/drives/:id/wipe-preview": onDrive((w, d) => `/api/v1/drives/${q(d)}/wipe-preview`),
+  "GET /api/v1/drives/:id/wipe-preview/:intent": onDrive((w, d) => `/api/v1/drives/${q(d)}/wipe-preview/encrypt`),
   "GET /api/v1/drives/:id/health": onDrive((w, d) => `/api/v1/drives/${q(d)}/health`),
   "GET /api/v1/drives/:name/peek": { url: (w) => { const dev = detectedName(w); return dev ? `/api/v1/drives/${q(dev)}/peek` : null; } },
   // The app sends POST (FilesPage.jsx); lunad only has POST. The GET case checks the method.
@@ -53,6 +56,11 @@ export const CASES = {
   "GET /health": plain("/health"),
   "GET /api/v1/health": plain("/api/v1/health"),
   "GET /api/v1/system/health/check": plain("/api/v1/system/health/check"),
+  "GET /api/v1/system/storage": plain("/api/v1/system/storage"),
+  "POST /api/v1/system/storage/cleanup": {
+    url: () => "/api/v1/system/storage/cleanup",
+    body: () => ({}),
+  },
   "GET /api/v1/system/updates": plain("/api/v1/system/updates"),
   "GET /api/v1/system/updates/source": plain("/api/v1/system/updates/source"),
   "GET /api/v1/network/status": plain("/api/v1/network/status"),

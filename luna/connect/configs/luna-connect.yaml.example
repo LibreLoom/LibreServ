@@ -44,6 +44,9 @@ stripe:
   #   Egress overage = max(0, download_GB − 3×avg_storage_GB) at $0.01/GB (second meter, Last).
   # Dashboard → Billing → Meters:
   #   1) luna_backup_gb     aggregation Last  → price $0.008/GB-mo
+  #   A month costs at least $3.00 once an account stores anything: we top up
+  #   the reported storage quantity (375 GB bills $3.00) rather than changing
+  #   the Stripe price. Nothing stored reports 0 and bills nothing.
   #   2) luna_egress_gb aggregation Last → price $0.01/GB overage only
   enabled: false
   secret_key: ""

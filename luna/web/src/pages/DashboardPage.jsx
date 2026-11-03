@@ -23,7 +23,7 @@ import usePageTitle from "../hooks/usePageTitle.js";
 import useNeedsYou from "../hooks/useNeedsYou.js";
 import { useSoftwareUpdates } from "../hooks/useSoftwareUpdates.jsx";
 import { useSystemHealthCheck } from "../hooks/useSystemHealthCheck.jsx";
-import { warningChecks } from "../lib/needsYouChecks.js";
+import { pillChecks } from "../lib/needsYouChecks.js";
 import useBackupRows from "../hooks/useBackupRows.js";
 import ProtectSheet from "../components/files/ProtectSheet.jsx";
 import RecoveryPhraseCheck from "../components/cloud/RecoveryPhraseCheck.jsx";
@@ -176,13 +176,13 @@ export default function DashboardPage() {
   // pill is passed to the header; otherwise it gets none.
   const updateReady =
     isAdmin && !updates.isLoading && !updates.error && Boolean(updates.data?.update_available);
-  const warningsShown =
+  const pillShown =
     isAdmin &&
     !systemHealth.isLoading &&
     !systemHealth.error &&
-    warningChecks(systemHealth.data).length > 0;
+    pillChecks(systemHealth.data).length > 0;
   const headerPills =
-    updateReady || warningsShown ? (
+    updateReady || pillShown ? (
       <div
         data-slot="header-pills"
         className="flex items-center gap-2 flex-wrap justify-end"

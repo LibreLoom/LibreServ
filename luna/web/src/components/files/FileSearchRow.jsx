@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
   Copy,
@@ -9,39 +9,18 @@ import {
   FolderOpen,
   Trash2,
   Users,
-  Zap,
 } from "lucide-react";
-import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import CardButton from "@libreloom/ui/components/ui/CardButton.jsx";
+import RowActionMenu from "@libreloom/ui/components/ui/RowActionMenu.jsx";
 import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import PrivateBadge from "../private/PrivateBadge.jsx";
-import { ShareButton } from "../share/ShareSheet.jsx";
 import { highlightParts, locationParts, searchWhen } from "../../lib/fileSearch.js";
 import { canViewerOpen } from "../../lib/officeConvert.js";
 import { downloadHref, fileHref, fmtSize, parentPath, searchResultHref } from "../../lib/paths";
 import { capsOnPath, memberFileHref, memberSearchHref } from "../../lib/shareTree.js";
 import { CAP } from "../../lib/access.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
-
-const SM_UP_QUERY = "(min-width: 640px)";
-
-/** Phones get one action button; a missing matchMedia (tests) counts as desktop. */
-function useIsSmUp() {
-  const read = () =>
-    typeof window === "undefined" || typeof window.matchMedia !== "function"
-      ? true
-      : window.matchMedia(SM_UP_QUERY).matches;
-  const [isSmUp, setIsSmUp] = useState(read);
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") return undefined;
-    const mq = window.matchMedia(SM_UP_QUERY);
-    const onChange = () => setIsSmUp(mq.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
-  return isSmUp;
-}
+import { useIsSmUp } from "./fileRowUtils.js";
 
 function folderOf(path) {
   return parentPath(path) ?? "";
@@ -89,7 +68,6 @@ function FileSearchRow({
 }) {
   const isDir = item.kind === "dir";
   const isSmUp = useIsSmUp();
-  const [sheetOpen, setSheetOpen] = useState(false);
   const actionsRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   // The row link is the row's one Tab stop; ←/→ (see FileSearch) reach the
   // actions, so a long list isn't six Tab presses per row.
@@ -122,6 +100,63 @@ function FileSearchRow({
   const parts = item.match === "close"
     ? [{ text: item.name, hit: false }]
     : highlightParts(item.name, query);
+
+  // One action list, rendered two ways: icon buttons in the row on wide
+  // screens, labeled rows in the phone sheet. Same order, same words, and
+  // `aria` is the icon's accessible name, which is not always the sheet's
+  // label (the trash button puts the verb on the name).
+  const actions = [];
+  if (!isDir) {
+    actions.push({
+      key: "folder",
+      label: "Go to folder",
+      aria: `Go to folder for ${item.name}`,
+      icon: FolderOpen,
+      to: href,
+      run: onNavigate,
+    });
+  }
+  actions.push({
+    key: "download",
+    label: "Download",
+    aria: `Download ${item.name}`,
+    icon: Download,
+    href: downloadHref(item.drive_id, item.path),
+    run: () => window.location.assign(downloadHref(item.drive_id, item.path)),
+  });
+  if (canShare) {
+    actions.push({
+      key: "share",
+      label: "Share",
+      aria: `Sharing for ${item.name}`,
+      icon: Users,
+      run: () => onShare(item),
+    });
+  }
+  actions.push({
+    key: "copy",
+    label: "Copy",
+    aria: `Copy ${item.name}`,
+    icon: Copy,
+    run: () => onCopy("copy", item),
+  });
+  if (canEdit) {
+    actions.push({
+      key: "move",
+      label: "Move",
+      aria: `Move ${item.name}`,
+      icon: FolderInput,
+      run: () => onCopy("move", item),
+    });
+    actions.push({
+      key: "delete",
+      label: "Move to trash",
+      aria: `Move ${item.name} to trash`,
+      icon: Trash2,
+      danger: true,
+      run: () => onTrash(item),
+    });
+  }
 
   return (
     <li
@@ -176,93 +211,48 @@ function FileSearchRow({
             </p>
           </div>
           {isSmUp ? (
-          <ActionTooltipGroup>
-            <div
-              ref={actionsRef}
-              data-slot="file-search-actions"
-              className="flex items-center gap-1 shrink-0 pointer-events-auto"
-              onClick={(event) => event.stopPropagation()}
-            >
-              {!isDir && (
-              <Tooltip content="Go to folder">
-                <Button
-                  variant="ghost"
-                  surface="primary"
-                  size="iconSm"
-                  asChild
-                  aria-label={`Go to folder for ${item.name}`}
-                >
-                  <Link
-                    to={href}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onNavigate();
-                    }}
-                  >
-                    <FolderOpen size={14} />
-                  </Link>
-                </Button>
-              </Tooltip>
-              )}
-              <Tooltip content="Download">
-                <Button
-                  variant="ghost"
-                  surface="primary"
-                  size="iconSm"
-                  asChild
-                  aria-label={`Download ${item.name}`}
-                >
-                  <a href={downloadHref(item.drive_id, item.path)}>
-                    <Download size={14} />
-                  </a>
-                </Button>
-              </Tooltip>
-              {canShare && (
-                <ShareButton
-                  label={item.name}
-                  surface="primary"
-                  onClick={() => onShare(item)}
-                />
-              )}
-              <Tooltip content="Copy">
-                <Button
-                  variant="ghost"
-                  surface="primary"
-                  size="iconSm"
-                  aria-label={`Copy ${item.name}`}
-                  onClick={() => onCopy("copy", item)}
-                >
-                  <Copy size={14} />
-                </Button>
-              </Tooltip>
-              {canEdit && (
-                <>
-                  <Tooltip content="Move">
-                    <Button
-                      variant="ghost"
-                      surface="primary"
-                      size="iconSm"
-                      aria-label={`Move ${item.name}`}
-                      onClick={() => onCopy("move", item)}
-                    >
-                      <FolderInput size={14} />
-                    </Button>
+            <ActionTooltipGroup>
+              <div
+                ref={actionsRef}
+                data-slot="file-search-actions"
+                className="flex items-center gap-1 shrink-0 pointer-events-auto"
+                onClick={(event) => event.stopPropagation()}
+              >
+                {actions.map(({ key, label, aria, icon: Icon, to, href, run }) => (
+                  <Tooltip key={key} content={label}>
+                    {to ? (
+                      <Button variant="ghost" surface="primary" size="iconSm" asChild aria-label={aria}>
+                        <Link
+                          to={to}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onNavigate();
+                          }}
+                        >
+                          <Icon size={14} />
+                        </Link>
+                      </Button>
+                    ) : href ? (
+                      <Button variant="ghost" surface="primary" size="iconSm" asChild aria-label={aria}>
+                        <a href={href}>
+                          <Icon size={14} />
+                        </a>
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        surface="primary"
+                        size="iconSm"
+                        aria-label={aria}
+                        onClick={run}
+                      >
+                        <Icon size={14} />
+                      </Button>
+                    )}
                   </Tooltip>
-                  <Tooltip content="Move to trash">
-                    <Button
-                      variant="ghost"
-                      surface="primary"
-                      size="iconSm"
-                      aria-label={`Move ${item.name} to trash`}
-                      onClick={() => onTrash(item)}
-                    >
-                      <Trash2 size={14} />
-                    </Button>
-                  </Tooltip>
-                </>
-              )}
-            </div>
-          </ActionTooltipGroup>
+                ))}
+              </div>
+            </ActionTooltipGroup>
           ) : (
             <div
               ref={actionsRef}
@@ -270,65 +260,11 @@ function FileSearchRow({
               className="shrink-0 pointer-events-auto"
               onClick={(event) => event.stopPropagation()}
             >
-              <Button
-                variant="outline"
-                surface="primary"
-                size="icon"
-                className="size-11"
-                aria-label={`Actions for ${item.name}`}
-                aria-haspopup="dialog"
-                onClick={() => setSheetOpen(true)}
-              >
-                <Zap size={24} aria-hidden="true" />
-              </Button>
+              <RowActionMenu label={item.name} actions={actions} surface="primary" />
             </div>
           )}
         </div>
       </div>
-      <ModalCard open={sheetOpen} title={item.name} size="sm" onClose={() => setSheetOpen(false)}>
-        {({ close }) => {
-          const run = (fn) => () => {
-            close();
-            fn();
-          };
-          return (
-            <div className="grid gap-2">
-              {!isDir && (
-                <CardButton action={href} actionLabel="Go to folder" icon={FolderOpen} align="start" className="mt-0" onClick={() => { close(); onNavigate(); }}>
-                  Go to folder
-                </CardButton>
-              )}
-              <CardButton
-                actionLabel="Download"
-                icon={Download}
-                align="start"
-                className="mt-0"
-                onClick={run(() => window.location.assign(downloadHref(item.drive_id, item.path)))}
-              >
-                Download
-              </CardButton>
-              {canShare && (
-                <CardButton actionLabel="Share" icon={Users} align="start" className="mt-0" onClick={run(() => onShare(item))}>
-                  Share
-                </CardButton>
-              )}
-              <CardButton actionLabel="Copy" icon={Copy} align="start" className="mt-0" onClick={run(() => onCopy("copy", item))}>
-                Copy
-              </CardButton>
-              {canEdit && (
-                <>
-                  <CardButton actionLabel="Move" icon={FolderInput} align="start" className="mt-0" onClick={run(() => onCopy("move", item))}>
-                    Move
-                  </CardButton>
-                  <CardButton variant="danger" actionLabel="Move to trash" icon={Trash2} align="start" className="mt-0 py-2" onClick={run(() => onTrash(item))}>
-                    Move to trash
-                  </CardButton>
-                </>
-              )}
-            </div>
-          );
-        }}
-      </ModalCard>
     </li>
   );
 }

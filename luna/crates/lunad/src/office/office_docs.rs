@@ -1063,6 +1063,18 @@ impl OfficeDocHub {
         hub.sessions.get(key).map(locks_json).unwrap_or(json!({}))
     }
 
+    /// Doc keys with at least one editor attached right now. Their copies of
+    /// a document under `office_bundles` are in use, so clearing space has to
+    /// leave them alone.
+    pub async fn live_keys(&self) -> Vec<String> {
+        let hub = self.inner.lock().await;
+        hub.sessions
+            .iter()
+            .filter(|(_, s)| !s.participants.is_empty())
+            .map(|(k, _)| k.clone())
+            .collect()
+    }
+
     /// Drop sessions with no participants past the idle window, and their bus.
     pub async fn evict_idle(&self) {
         let cutoff = Duration::from_secs(IDLE_EMPTY_SECS);

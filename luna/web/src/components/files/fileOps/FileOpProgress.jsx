@@ -1,10 +1,17 @@
 import PropTypes from "prop-types";
+import { motion as Motion } from "motion/react";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import LinearProgress from "@libreloom/ui/components/common/LinearProgress.jsx";
+import { BAR_FILL } from "../../../lib/fileOps/motion.js";
 
 /**
  * A progress bar. `pct` is 0-100, or null when the size isn't known (a moving bar).
  * `surface` is the surface the bar sits on; the track and fill use the inverse pair.
+ *
+ * The fill rides a spring rather than a fixed-duration width transition: a
+ * chunked upload reports in bursts, so the bar eases into each new value
+ * instead of restarting a 300ms tween on every emit.
+ *
  * @param {{ pct: number|null, surface?: "primary"|"secondary", label?: string, className?: string }} props
  */
 export default function FileOpProgress({ pct, surface = "primary", label = "Progress", className = "" }) {
@@ -24,9 +31,11 @@ export default function FileOpProgress({ pct, surface = "primary", label = "Prog
       data-slot="file-op-progress"
       className={cn("h-1.5 w-full overflow-hidden rounded-pill p-px", track, className)}
     >
-      <div
-        className={cn("h-full rounded-pill motion-safe:transition-[width] motion-safe:duration-300", fill)}
-        style={{ width: `${value}%` }}
+      <Motion.div
+        className={cn("h-full rounded-pill", fill)}
+        initial={false}
+        animate={{ width: `${value}%` }}
+        transition={BAR_FILL}
       />
     </div>
   );

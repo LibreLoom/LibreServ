@@ -17,6 +17,8 @@ import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { ROOT_TERM_HINT } from "../../lib/rootTerm.js";
 import { describeInspectSummary } from "../../lib/fileCounts.js";
+import { previewFromInspection } from "../../lib/wipeCopy.js";
+import WipeDriveDialog from "../drives/WipeDriveDialog.jsx";
 
 /**
  * @param {{
@@ -38,6 +40,14 @@ export default function InspectModal({ open = true, drive, result, error, onClos
   const [label, setLabel] = useState(shownDrive?.model || "My Drive");
   const [confirmErase, setConfirmErase] = useState(false);
   const [confirmFormat, setConfirmFormat] = useState(false);
+  /**
+   * Which wipe the person has asked for, if any. Both destructive paths —
+   * erasing installer media and formatting a drive Luna can't write — hand off
+   * to the one shared wipe dialog, so the waiting rule is the same here as on
+   * the encryption page.
+   * @type {[null | "erase" | "format", Function]}
+   */
+  const [wipe, setWipe] = useState(null);
 
   useEffect(() => {
     if (open && drive) {
@@ -45,6 +55,7 @@ export default function InspectModal({ open = true, drive, result, error, onClos
       setLabel(drive.model || "My Drive");
       setConfirmErase(false);
       setConfirmFormat(false);
+      setWipe(null);
     }
   }, [open, drive]);
 
@@ -62,7 +73,22 @@ export default function InspectModal({ open = true, drive, result, error, onClos
     ? "Usually this means a filesystem issue, or a write-lock switch on the drive. If there's a switch, flip it and try again."
     : null;
 
+  // The one wipe dialog, fed from the inspection this flow already made. A
+  // drive that has not been added yet has no id to fetch a preview with, and
+  // does not need one: `inspect` measured the same thing and applied the same
+  // rule, so the wait here matches every other wipe.
+  const wipePreview = previewFromInspection(result, label);
+
+  /** Perform the wipe the person confirmed in the shared dialog. */
+  const runWipe = () =>
+    Promise.resolve(onAdopt(label, true))
+      // `onClose` is the caller's, which tears down the whole Add-drive flow.
+      // The dialog's own `close` is not in scope out here.
+      .then(() => onClose())
+      .catch(() => {});
+
   return (
+    <>
     <ModalCard
       open={open}
       onClose={onClose}
@@ -185,12 +211,9 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                         ) : (
                           <Button
                             variant="danger"
+                            haptic="warning"
                             loading={adopting}
-                            onClick={() => {
-                              Promise.resolve(onAdopt(label, true))
-                                .then(() => close())
-                                .catch(() => {});
-                            }}
+                            onClick={() => setWipe("format")}
                           >
                             Yes, format it
                           </Button>
@@ -237,9 +260,17 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                     ) : (
                       <Button
                         variant={needsErase ? "danger" : "primary"}
+                        haptic={needsErase ? "warning" : undefined}
                         loading={adopting}
                         onClick={() => {
-                          Promise.resolve(onAdopt(label, needsErase))
+                          // Erasing goes through the shared wipe dialog, which
+                          // applies the waiting rule. A plain add destroys
+                          // nothing, so it happens straight away.
+                          if (needsErase) {
+                            setWipe("erase");
+                            return;
+                          }
+                          Promise.resolve(onAdopt(label, false))
                             .then(() => close())
                             .catch(() => {});
                         }}
@@ -261,5 +292,19 @@ export default function InspectModal({ open = true, drive, result, error, onClos
         </>
       )}
     </ModalCard>
+    {wipe ? (
+      <WipeDriveDialog
+        // A different drive must start its own wait.
+        key={`${shownDrive.name}:${wipe}`}
+        title={wipe === "erase" ? "Erase this drive?" : "Format this drive?"}
+        confirmLabel={wipe === "erase" ? "Erase and add" : "Format"}
+        preview={wipePreview}
+        busy={adopting}
+        error={adoptError || ""}
+        onClose={() => setWipe(null)}
+        onConfirm={runWipe}
+      />
+    ) : null}
+    </>
   );
 }

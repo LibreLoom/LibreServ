@@ -40,6 +40,6 @@ describe("searchWhen", () => {
 describe("parseSearchResponse", () => {
   it("reads the truncated flag and tolerates an empty answer", () => {
     expect(parseSearchResponse({ hits: [], truncated: true }).truncated).toBe(true);
-    expect(parseSearchResponse(undefined)).toEqual({ hits: [], closeOnly: false, truncated: false, scan: null });
+    expect(parseSearchResponse(undefined)).toEqual({ hits: [], closeOnly: false, truncated: false, incomplete: false, scan: null });
   });
 });

@@ -2,6 +2,7 @@ import { InfoHint } from "./ui/Tooltip.jsx";
 
 const PRICING_ROWS = [
   { label: "Storage", value: "$8 / terabyte / month" },
+  { label: "Minimum a month", value: "$3 once you store something" },
   { label: "Downloads", value: "Free up to 3× stored amount" },
   { label: "Extra download traffic", value: "$0.01 / GB" },
 ];
@@ -19,7 +20,7 @@ export function BackupPricingTable({ surface = "secondary", className = "" }) {
           surface={surface}
           delayMs={0}
           label="How cloud backup pricing works"
-          content="We bill from your average storage over the month, not a single day. Downloads are free up to 3× stored amount; extra download traffic costs $0.01 per GB."
+          content="We bill from your average storage over the month, not a single day. A month costs at least $3 once you store something, and nothing before that. Downloads are free up to 3× stored amount; extra download traffic costs $0.01 per GB."
         />
       </div>
       <div

@@ -9,19 +9,20 @@ import (
 )
 
 func TestUsageQuantityGB(t *testing.T) {
+	// The raw quantity: whole GB, no minimum. The minimum is a floor on the
+	// month's whole bill, applied in MeteredQuantities.
 	cases := []struct {
 		bytes int64
 		want  int64
 	}{
 		{0, 0},
-		{1, 1},              // any bytes → at least 1 GB
-		{BytesPerGB - 1, 1}, // under 1 GB still 1
-		{BytesPerGB, 1},     // exactly 1 GB
-		{BytesPerGB + 1, 1}, // floor until 2e9
-		{2*BytesPerGB - 1, 1},
+		{1, 0}, // under 1 GB rounds down to 0 GB of storage
+		{BytesPerGB - 1, 0},
+		{BytesPerGB, 1},
 		{2 * BytesPerGB, 2},
-		{100 * BytesPerGB, 100}, // was one 0.1 TB unit before
-		{BytesPerTB, 1000},      // 1 TB = 1000 GB
+		{100 * BytesPerGB, 100},
+		{MinBillableGB * BytesPerGB, MinBillableGB},
+		{BytesPerTB, 1000},
 		{BytesPerTB + BytesPerGB, 1001},
 	}
 	for _, tc := range cases {
@@ -32,6 +33,44 @@ func TestUsageQuantityGB(t *testing.T) {
 	// $8/TB still holds at the GB unit price
 	if DollarsPerGB*1000 != DollarsPerTB {
 		t.Fatalf("DollarsPerGB*1000=%v want %v", DollarsPerGB*1000, DollarsPerTB)
+	}
+}
+
+// The minimum and the quantity that produces it are two constants; if one
+// moves without the other the floor silently stops being $3.
+func TestMinimumConstantsAgree(t *testing.T) {
+	want := int64(MinimumMonthlyUSD * 1000) // thousandths of a cent
+	if got := int64(MinBillableGB) * MillsPerGBStorage; got != want {
+		t.Fatalf("MinBillableGB × MillsPerGBStorage = %d mills, want %d ($%.2f)", got, want, MinimumMonthlyUSD)
+	}
+}
+
+// EstimateUSD must equal what the meters actually charge, at every size.
+func TestEstimateMatchesMeteredCharge(t *testing.T) {
+	cases := []struct {
+		bytes int64
+		want  float64
+	}{
+		{0, 0},                 // nothing stored, nothing billed
+		{1, MinimumMonthlyUSD}, // any bytes → the minimum
+		{BytesPerGB / 2, MinimumMonthlyUSD},
+		{3 * BytesPerGB, MinimumMonthlyUSD},
+		{MinBillableGB * BytesPerGB, MinimumMonthlyUSD},
+		{(MinBillableGB + 1) * BytesPerGB, 3.008},
+		{BytesPerTB, 8.0},
+		{2 * BytesPerTB, 16.0},
+	}
+	for _, tc := range cases {
+		got := EstimateUSD(tc.bytes)
+		if diff := got - tc.want; diff > 1e-9 || diff < -1e-9 {
+			t.Fatalf("EstimateUSD(%d)=%v want %v", tc.bytes, got, tc.want)
+		}
+		// And it must agree with the meters at the same size.
+		storageGB, overGB := MeteredQuantities(tc.bytes, 0)
+		byMeter := float64(storageGB*MillsPerGBStorage+overGB*MillsPerGBEgress) / float64(MillsPerDollar)
+		if diff := got - byMeter; diff > 1e-9 || diff < -1e-9 {
+			t.Fatalf("EstimateUSD(%d)=%v disagrees with meter %v", tc.bytes, got, byMeter)
+		}
 	}
 }
 

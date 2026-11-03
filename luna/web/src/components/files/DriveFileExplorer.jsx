@@ -19,7 +19,7 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import CardButton from "@libreloom/ui/components/ui/CardButton.jsx";
+import { RowActionSheet } from "@libreloom/ui/components/ui/RowActionMenu.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { ActionTooltipGroup, InfoHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
@@ -756,28 +756,12 @@ export default function DriveFileExplorer({
     );
   }, [rowActionsFor, inBackups, driveId, openVersions]);
 
-  // The phone sheet: the same actions as labeled cards.
+  // The phone sheet: the same actions as labeled rows, in the shared shape.
   const renderRowSheetActions = useCallback((ctx, close) => {
     if (inBackups) return <BackupRowActions driveId={driveId} ctx={ctx} onVersions={openVersions} />;
     const actions = rowActionsFor(ctx);
     if (!actions) return null;
-    return (
-      <div className="grid gap-2">
-        {actions.map(({ key, label, icon: Icon, danger, run }) => (
-          <CardButton
-            key={key}
-            variant={danger ? "danger" : "default"}
-            actionLabel={label}
-            icon={Icon}
-            align="start"
-            className="mt-0"
-            onClick={() => { close(); run(); }}
-          >
-            {label}
-          </CardButton>
-        ))}
-      </div>
-    );
+    return <RowActionSheet actions={actions} close={close} />;
   }, [rowActionsFor, inBackups, driveId, openVersions]);
 
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { dockSummary, moreProblems, opStatus, plain } from "./copy.js";
+import { dockHeaderTitle, dockSummary, dockSummaryParts, moreProblems, opMeta, opMetaParts, opStatus, plain, sizePart } from "./copy.js";
 import { classifyError } from "./errors.js";
 import { dockInfo, inlineProblem, opProgress, problemItems, visibleOps } from "./selectors.js";
 import { createFileOpsStore } from "./store.js";
@@ -39,8 +39,8 @@ describe("selectors", () => {
     const { item, moreCount } = inlineProblem(op);
     expect(item.name).toBe("f0.txt");
     expect(moreCount).toBe(14);
-    expect(moreProblems(moreCount)).toBe("14 more problems →");
-    expect(moreProblems(1)).toBe("1 more problem →");
+    expect(moreProblems(moreCount)).toBe("14 more problems");
+    expect(moreProblems(1)).toBe("1 more problem");
   });
 
   it("builds the dock header and collapsed summary", () => {
@@ -63,9 +63,70 @@ describe("selectors", () => {
     const needs = stateOf([{ id: "c", kind: "upload", state: "waiting", items: [clash("c1", "z")] }]);
     info = dockInfo(needs);
     expect(info.title).toBe("Some files need you");
-    expect(info.summary).toBe("1 need you");
+    expect(info.summary).toBe("1 needs you");
+
+    // Finished, with nothing to answer: the card says so rather than
+    // announcing that files need you.
+    const done = stateOf([
+      {
+        id: "d",
+        kind: "upload",
+        state: "done",
+        endedAt: 1,
+        itemsTotal: 3,
+        itemsDone: 3,
+        items: [
+          { id: "x", name: "a", state: "done" },
+          { id: "y", name: "b", state: "done" },
+          { id: "z", name: "c", state: "done" },
+        ],
+      },
+    ]);
+    info = dockInfo(done);
+    expect(info.title).toBe("Finished");
+    expect(info.summary).toBe("3 files uploaded");
 
     expect(dockInfo(stateOf([])).visible).toBe(false);
+  });
+
+  // A single-file share link refuses a two-file drop before any item exists,
+  // so the reason lives on the op and its item list stays empty. Counting only
+  // items called that "Finished / 0 files uploaded" and kept the reason folded.
+  it("treats an op that failed as a whole as a problem, not finished work", () => {
+    const state = stateOf([
+      {
+        id: "f",
+        kind: "upload",
+        state: "failed",
+        endedAt: 1,
+        title: "report.pdf",
+        destLabel: "report.pdf",
+        error: "Choose one file to replace this file.",
+        items: [],
+      },
+    ]);
+    const info = dockInfo(state);
+    expect(info.problemCount).toBe(1);
+    expect(info.finishedCount).toBe(0);
+    expect(info.title).toBe("Some files need you");
+    expect(info.hasProblems).toBe(true);
+  });
+
+  it("names the file, not a count of zero, when nothing was counted", () => {
+    const state = stateOf([
+      {
+        id: "f",
+        kind: "upload",
+        state: "failed",
+        endedAt: 1,
+        title: "report.pdf",
+        destLabel: "report.pdf",
+        error: "Choose one file to replace this file.",
+        items: [],
+      },
+    ]);
+    const [op] = state.ops;
+    expect(plain(opStatus(op))).toBe("Couldn't replace report.pdf");
   });
 
   it("reports progress, null for indeterminate", () => {
@@ -100,8 +161,87 @@ describe("copy and errors", () => {
     expect(opStatus({ kind: "copy", state: "running", title: "a.txt", itemsTotal: 1, destLabel: "Backup" })[1]).toEqual({ pill: "a.txt" });
   });
 
-  it("collapses the summary when nothing runs", () => {
-    expect(dockSummary({ running: 0, problems: 0, pct: null })).toBe("");
+  it("collapses the summary when nothing runs and nothing finished", () => {
+    expect(dockSummary({ running: 0, problems: 0, finished: 0, pct: null })).toBe("");
+  });
+
+  it("says what finished instead of claiming files need you", () => {
+    // The old header had only two states, so a finished upload announced
+    // "Some files need you". These are the three real states.
+    expect(dockHeaderTitle({ running: 1, problems: 0, finished: 0 })).toBe("Working on your files");
+    expect(dockHeaderTitle({ running: 0, problems: 2, finished: 0 })).toBe("Some files need you");
+    expect(dockHeaderTitle({ running: 0, problems: 0, finished: 1 })).toBe("Finished");
+    // A problem outranks a finish: something still needs an answer.
+    expect(dockHeaderTitle({ running: 0, problems: 1, finished: 1 })).toBe("Some files need you");
+    // A cancelled operation is not finished work; say it stopped instead.
+    expect(dockHeaderTitle({ running: 0, problems: 0, finished: 1, cancelled: 1 })).toBe("Stopped");
+    expect(dockHeaderTitle({ running: 0, problems: 0, finished: 2, cancelled: 1 })).toBe("Finished");
+  });
+
+  it("keeps the summary key stable while only a number moves", () => {
+    // The summary re-renders on every progress tick. If the key changed with
+    // the percentage, the words would re-animate ten times a second; the key
+    // must change only when the words do.
+    const at = (pct) => dockSummaryParts({
+      running: 1, problems: 0, finished: 0, pct, singleUpload: { files: 12 },
+    });
+    expect(at(50).key).toBe(at(51).key);
+    expect(at(50).key).toBe(at(99).key);
+    // The number is carried separately, so it can roll.
+    expect(at(50).count).toBe(12);
+
+    // A real word change does move the key.
+    expect(at(50).key).not.toBe(
+      dockSummaryParts({ running: 0, problems: 0, finished: 1, finishedLabel: "12 files uploaded", pct: null }).key,
+    );
+    expect(dockSummaryParts({ running: 0, problems: 2, finished: 0, pct: null }).key).toBe("need");
+  });
+
+  it("names what finished in the collapsed summary", () => {
+    expect(dockSummary({ running: 0, problems: 0, finished: 1, finishedLabel: "3 files uploaded", pct: null }))
+      .toBe("3 files uploaded");
+    expect(dockSummary({ running: 0, problems: 0, finished: 2, pct: null })).toBe("2 finished");
+    expect(dockSummary({ running: 0, problems: 1, finished: 0, pct: null })).toBe("1 needs you");
+    expect(dockSummary({ running: 0, problems: 2, finished: 0, pct: null })).toBe("2 need you");
+  });
+
+  it("names the items a batch is moving, not just how many", () => {
+    const items = (names) => names.map((name, i) => ({ id: `i${i}`, name, state: "running" }));
+    // "Moving 3 items to Trash" tells you nothing about what is going.
+    expect(plain(opStatus({ kind: "trash", state: "running", items: items(["a.jpg"]) })))
+      .toBe("Moving a.jpg to Trash");
+    expect(plain(opStatus({ kind: "trash", state: "running", items: items(["a.jpg", "b.jpg"]) })))
+      .toBe("Moving a.jpg and b.jpg to Trash");
+    expect(plain(opStatus({ kind: "trash", state: "running", items: items(["a.jpg", "b.jpg", "c.jpg"]) })))
+      .toBe("Moving a.jpg, b.jpg and c.jpg to Trash");
+    // Past three, a list is worse than a count.
+    expect(plain(opStatus({ kind: "trash", state: "running", items: items(["a", "b", "c", "d"]) })))
+      .toBe("Moving 4 items to Trash");
+    expect(plain(opStatus({ kind: "purge", state: "running", items: items(["a.jpg", "b.jpg"]) })))
+      .toBe("Deleting a.jpg and b.jpg permanently");
+    expect(plain(opStatus({ kind: "restore-trash", state: "running", items: items(["a.jpg", "b.jpg"]) })))
+      .toBe("Putting back a.jpg and b.jpg");
+    // A batch has no bytes, so the meta line says how far along it is instead.
+    expect(opMeta({ kind: "trash", state: "running", itemsTotal: 5, itemsDone: 2, items: [] }))
+      .toBe("2 of 5 done");
+  });
+
+  it("gives the meta line a size the odometer can roll", () => {
+    // A finished string ("96.0 MB") can only be swapped; the parts carry the
+    // number, its decimals and its unit so the digits move and the unit stays.
+    expect(sizePart(96_000_000)).toEqual({ size: 96, decimals: 1, unit: " MB" });
+    expect(sizePart(4_200)).toEqual({ size: 4.2, decimals: 1, unit: " KB" });
+    expect(sizePart(512)).toEqual({ size: 512, decimals: 0, unit: " B" });
+    expect(sizePart(2_500_000_000)).toEqual({ size: 2.5, decimals: 1, unit: " GB" });
+
+    const parts = opMetaParts({
+      kind: "copy", state: "running", itemsTotal: 6,
+      bytesTotal: 192_000_000, bytesDone: 96_000_000, items: [],
+    });
+    expect(parts).toContainEqual({ size: 96, decimals: 1, unit: " MB" });
+    expect(parts).toContainEqual({ size: 192, decimals: 1, unit: " MB" });
+    // The words between them are still their own segments, so the spaces stay.
+    expect(parts).toContain(" of ");
   });
 
   it("classifies errors", () => {

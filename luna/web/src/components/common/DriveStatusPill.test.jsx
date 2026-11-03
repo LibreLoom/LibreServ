@@ -86,3 +86,31 @@ describe("DriveStatusPill", () => {
     expect(screen.queryByText("Problem")).not.toBeInTheDocument();
   });
 });
+
+describe("DriveStatusPill — encryption", () => {
+  it("shows Locked for an encrypted drive that is not open", () => {
+    render(<DriveStatusPill drive={{ state: "as_is", encrypted: true, locked: true, mounted: false }} />);
+    expect(screen.getByText("Locked")).toBeInTheDocument();
+  });
+
+  it("prefers Locked over Can't open, because a locked drive is not broken", () => {
+    // A locked drive has no mount, which would otherwise read as unopenable.
+    render(<DriveStatusPill drive={{ state: "as_is", encrypted: true, locked: true, mounted: false }} />);
+    expect(screen.queryByText("Can't open")).toBeNull();
+  });
+
+  it("shows Encrypting while a conversion holds the drive", () => {
+    render(<DriveStatusPill drive={{ state: "as_is", converting: true, locked: true }} />);
+    expect(screen.getByText("Encrypting")).toBeInTheDocument();
+  });
+
+  it("shows Ready for an unlocked encrypted drive", () => {
+    render(<DriveStatusPill drive={{ state: "as_is", encrypted: true, locked: false }} />);
+    expect(screen.getByText("Ready")).toBeInTheDocument();
+  });
+
+  it("still shows Unplugged for an encrypted drive that is gone", () => {
+    render(<DriveStatusPill drive={{ state: "missing", encrypted: true, locked: true }} />);
+    expect(screen.getByText("Unplugged")).toBeInTheDocument();
+  });
+});
