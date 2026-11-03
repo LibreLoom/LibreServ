@@ -107,20 +107,44 @@ function searchCalls(fetchMock) {
 async function openSearchOverlay() {
   const trigger = await screen.findByRole("button", { name: "Search" });
   fireEvent.click(trigger);
-  return screen.findByRole("dialog", { name: "Search for a file" });
+  return screen.findByRole("dialog", { name: "Search Luna" });
 }
 
 describe("FileSearch", () => {
   it("opens a morphing overlay from the header search button", async () => {
     renderSearch([]);
-    expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Search Luna" })).not.toBeInTheDocument();
     const dialog = await openSearchOverlay();
     expect(dialog).toBeInTheDocument();
-    const box = screen.getByRole("textbox", { name: "Search for a file" });
-    expect(box).toHaveAttribute("placeholder", "A filename, please.");
+    const box = screen.getByRole("textbox", { name: "Search Luna" });
+    expect(box).toHaveAttribute("placeholder", "Search Luna");
     // No cycling example text on top of it.
     expect(document.querySelector("[data-slot=file-search-example]")).toBeNull();
     expect(screen.getByRole("button", { name: "Close search" })).toBeInTheDocument();
+  });
+
+  it("keeps the best file ahead of matching places for keyboard selection", async () => {
+    renderSearch([{ drive_id: "d1", path: "home", parent: "", name: "home", kind: "dir", size: 0, modified: 0, match: "name" }]);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "home" } });
+    await screen.findByRole("link", { name: /open home/i });
+    const links = document.querySelectorAll('[data-slot="file-search-link"]');
+    expect(links[0]).toHaveAccessibleName(/open home/i);
+    expect(Array.from(links).some((link) => link.textContent === "Home")).toBe(true);
+  });
+
+  it("moves focus to the first newly revealed file", async () => {
+    const hits = Array.from({ length: 7 }, (_, index) => ({
+      drive_id: "d1", path: `report${index}.txt`, parent: "", name: `report${index}.txt`,
+      kind: "file", size: 0, modified: 0, match: "name",
+    }));
+    renderSearch(hits);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "report" } });
+    const more = await screen.findByRole("button", { name: "Show more files" });
+    more.focus();
+    fireEvent.click(more);
+    await waitFor(() => expect(screen.getByRole("link", { name: /report5\.txt/i })).toHaveFocus());
   });
 
   it("groups ranked matches by type", async () => {
@@ -128,7 +152,7 @@ describe("FileSearch", () => {
     const hit = (name, kind) => ({ drive_id: "d1", path: name, parent: "", name, kind, size: 0, modified: 0, match: "name" });
     renderSearch([hit("budget.jpg", "file"), hit("budget.txt", "file"), hit("budget", "dir")]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "budget" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "budget" } });
     await screen.findByRole("link", { name: "Open budget.txt" });
     const list = /** @type {HTMLElement} */ (document.querySelector('[data-slot="file-search-list"]'));
     const labels = Array.from(list.children).map((child) => child.getAttribute("role") === "presentation" ? child.textContent : child.querySelector('[data-slot="file-search-link"]')?.getAttribute("aria-label"));
@@ -141,23 +165,23 @@ describe("FileSearch", () => {
       { drive_id: "d1", path: "reports", parent: "", name: "reports", kind: "dir", size: 0, modified: 0, match: "close" },
     ]);
     await openSearchOverlay();
-    const input = screen.getByRole("textbox", { name: "Search for a file" });
+    const input = screen.getByRole("textbox", { name: "Search Luna" });
     fireEvent.change(input, { target: { value: "report" } });
     const best = await screen.findByRole("link", { name: "Open report.txt" });
     const list = /** @type {HTMLElement} */ (document.querySelector('[data-slot="file-search-list"]'));
     expect(list.querySelector('[data-slot="file-search-link"]')).toBe(best);
     fireEvent.keyDown(input, { key: "Enter" });
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search Luna" })).not.toBeInTheDocument());
   });
 
   it("closes on Escape and restores focus to the header button", async () => {
     renderSearch([]);
     const trigger = await screen.findByRole("button", { name: "Search" });
     fireEvent.click(trigger);
-    expect(await screen.findByRole("dialog", { name: "Search for a file" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Search Luna" })).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument(),
+      expect(screen.queryByRole("dialog", { name: "Search Luna" })).not.toBeInTheDocument(),
     );
     expect(trigger).toHaveFocus();
   });
@@ -170,7 +194,7 @@ describe("FileSearch", () => {
     });
     renderSearch([], { searchHold });
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), {
       target: { value: "zz" },
     });
     expect(await screen.findByRole("status", { name: /Searching/i })).toBeInTheDocument();
@@ -182,7 +206,7 @@ describe("FileSearch", () => {
   it("does not claim there are no matches when the search budget was exhausted", async () => {
     renderSearch([], { incomplete: true });
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "budget" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "budget" } });
     expect(await screen.findByText(/could not check every match/i)).toBeInTheDocument();
     expect(screen.queryByText("Nothing matched")).not.toBeInTheDocument();
   });
@@ -193,7 +217,7 @@ describe("FileSearch", () => {
     const holdSecond = new Promise((resolve) => { releaseSecond = () => resolve(undefined); });
     renderSearch([{ drive_id: "d1", path: "budget.txt", parent: "", name: "budget.txt", kind: "file", size: 1, modified: 1 }], { incomplete: true, truncated: true, holdSecond });
     await openSearchOverlay();
-    const input = screen.getByRole("textbox", { name: "Search for a file" });
+    const input = screen.getByRole("textbox", { name: "Search Luna" });
     fireEvent.change(input, { target: { value: "budget" } });
     expect(await screen.findByText(/could not check every match/i)).toBeInTheDocument();
     expect(document.querySelector("[data-slot=file-search-truncated]")).toBeNull();
@@ -206,7 +230,7 @@ describe("FileSearch", () => {
   it("explains an empty search in plain language", async () => {
     renderSearch([]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), {
       target: { value: "zz" },
     });
     expect(await screen.findByText(/Nothing matched/i)).toBeInTheDocument();
@@ -226,7 +250,7 @@ describe("FileSearch", () => {
       },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), {
       target: { value: "beach" },
     });
     expect(await screen.findByRole("link", { name: /^Open beach.jpg$/i })).toBeInTheDocument();
@@ -271,7 +295,7 @@ describe("FileSearch", () => {
         },
       ]);
       await openSearchOverlay();
-      fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
+      fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), {
         target: { value: "beach" },
       });
       const bolt = await screen.findByRole("button", { name: "Actions for beach.jpg" });
@@ -299,7 +323,7 @@ describe("FileSearch", () => {
       },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), {
       target: { value: "data" },
     });
     const row = await screen.findByRole("link", { name: /Show data.bin in its folder/i });
@@ -319,7 +343,7 @@ describe("FileSearch", () => {
       },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), {
       target: { value: "alb" },
     });
     const opens = await screen.findAllByRole("link", { name: /^Open album$/i });
@@ -347,13 +371,13 @@ describe("FileSearch", () => {
       },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), {
       target: { value: "beach" },
     });
     const row = await screen.findByRole("link", { name: /^Open beach.jpg$/i });
     fireEvent.click(row);
     await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument(),
+      expect(screen.queryByRole("dialog", { name: "Search Luna" })).not.toBeInTheDocument(),
     );
   });
 
@@ -370,12 +394,12 @@ describe("FileSearch", () => {
       },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), {
       target: { value: "notes" },
     });
     fireEvent.click(await screen.findByRole("button", { name: /Copy notes.txt/i }));
     expect(await screen.findByRole("dialog", { name: /Copy notes.txt/i })).toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: "Search for a file" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Search Luna" })).toBeInTheDocument();
   });
   it("shows tooltips on search result action buttons", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -392,8 +416,8 @@ describe("FileSearch", () => {
       },
     ]);
     fireEvent.click(await screen.findByRole("button", { name: "Search" }));
-    expect(await screen.findByRole("dialog", { name: "Search for a file" })).toBeInTheDocument();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
+    expect(await screen.findByRole("dialog", { name: "Search Luna" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), {
       target: { value: "notes" },
     });
     expect(await screen.findByRole("button", { name: /Copy notes.txt/i })).toBeInTheDocument();
@@ -423,7 +447,7 @@ describe("FileSearch", () => {
       },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), {
       target: { value: "notes" },
     });
     fireEvent.click(await screen.findByRole("button", { name: /Move notes.txt to trash/i }));
@@ -439,7 +463,7 @@ describe("FileSearch", () => {
       { fileOpsStore: { startJobs, subscribe: () => () => {}, getState: () => ({}) } },
     );
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), {
       target: { value: "notes" },
     });
     fireEvent.click(await screen.findByRole("button", { name: /Copy notes.txt/i }));
@@ -457,13 +481,13 @@ describe("FileSearch", () => {
   it("opens from / and Alt+/ anywhere", async () => {
     renderSearch([]);
     fireEvent.keyDown(document.body, { key: "/" });
-    expect(await screen.findByRole("dialog", { name: "Search for a file" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Search Luna" })).toBeInTheDocument();
   });
 
   it("opens from Alt+/ while typing in another field", async () => {
     renderSearch([], { extra: <input aria-label="Some field" /> });
     fireEvent.keyDown(screen.getByLabelText("Some field"), { key: "/", code: "Slash", altKey: true });
-    expect(await screen.findByRole("dialog", { name: "Search for a file" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Search Luna" })).toBeInTheDocument();
   });
 
   it("leaves / to a page's own search but keeps Alt+/", async () => {
@@ -475,18 +499,18 @@ describe("FileSearch", () => {
     renderSearch([], { extra: <PageSearch /> });
     fireEvent.keyDown(document.body, { key: "/" });
     expect(own).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Search Luna" })).not.toBeInTheDocument();
     fireEvent.keyDown(document.body, { key: "/", code: "Slash", altKey: true });
-    expect(await screen.findByRole("dialog", { name: "Search for a file" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Search Luna" })).toBeInTheDocument();
   });
 
   it("uses the visible header button, not HeaderCard's hidden copy that comes first", async () => {
     renderSearch([], { before: <div aria-hidden="true"><FileSearchButton /></div> });
     const [hidden, real] = screen.getAllByRole("button", { name: "Search", hidden: true });
     fireEvent.keyDown(document.body, { key: "/" });
-    await screen.findByRole("dialog", { name: "Search for a file" });
+    await screen.findByRole("dialog", { name: "Search Luna" });
     fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search Luna" })).not.toBeInTheDocument());
     expect(real).toHaveFocus();
     expect(hidden).not.toHaveFocus();
   });
@@ -513,7 +537,7 @@ describe("FileSearch", () => {
       },
     ]);
     await openSearchOverlay();
-    const input = screen.getByRole("textbox", { name: "Search for a file" });
+    const input = screen.getByRole("textbox", { name: "Search Luna" });
     fireEvent.change(input, { target: { value: "jpg" } });
 
     const firstRow = await screen.findByRole("link", { name: /^Open beach.jpg$/i });
@@ -553,7 +577,7 @@ describe("FileSearch", () => {
       },
     ]);
     await openSearchOverlay();
-    const input = screen.getByRole("textbox", { name: "Search for a file" });
+    const input = screen.getByRole("textbox", { name: "Search Luna" });
     fireEvent.change(input, { target: { value: "beach" } });
 
     const copyBtn = await screen.findByRole("button", { name: /Copy beach.jpg/i });
@@ -572,7 +596,7 @@ describe("FileSearch", () => {
   it("does not error when pressing ArrowDown with no results", async () => {
     renderSearch([]);
     await openSearchOverlay();
-    const input = screen.getByRole("textbox", { name: "Search for a file" });
+    const input = screen.getByRole("textbox", { name: "Search Luna" });
     input.focus();
     expect(input).toHaveFocus();
 
@@ -585,7 +609,7 @@ describe("FileSearch", () => {
       { drive_id: "d1", path: "beach day.jpg", parent: "", name: "beach day.jpg", kind: "file", size: 1, modified: 1, match: "name" },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "beach" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "beach" } });
     const link = await screen.findByRole("link", { name: /^Open beach day.jpg$/i });
     const underlined = link.closest("[data-slot=file-search-item]")?.querySelector(".underline");
     expect(underlined).toHaveTextContent("beach");
@@ -594,7 +618,7 @@ describe("FileSearch", () => {
   it("asks for only folders or only files when you pick one", async () => {
     const { fetchMock } = renderSearch([]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "photos" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "photos" } });
     await waitFor(() => expect(searchCalls(fetchMock)).toContain("/api/v1/search?q=photos"));
     fireEvent.click(screen.getByRole("radio", { name: "Folders" }));
     await waitFor(() => expect(searchCalls(fetchMock)).toContain("/api/v1/search?q=photos&kind=dir"));
@@ -608,7 +632,7 @@ describe("FileSearch", () => {
       { closeOnly: true },
     );
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "pasport" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "pasport" } });
     expect(await screen.findByText(/Nothing matched exactly\. These names are close\./)).toBeInTheDocument();
     expect(screen.queryByText("Similar names")).not.toBeInTheDocument();
   });
@@ -619,7 +643,7 @@ describe("FileSearch", () => {
       { drive_id: "d1", path: "passport.pdf", parent: "", name: "passport.pdf", kind: "file", size: 1, modified: 1, match: "close" },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "pasport" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "pasport" } });
     expect(await screen.findByText("Similar names")).toBeInTheDocument();
     const items = screen.getAllByRole("link", { name: /^Open / });
     expect(items.map((el) => el.getAttribute("aria-label"))).toEqual([
@@ -642,7 +666,7 @@ describe("FileSearch", () => {
       },
     );
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "found" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "found" } });
     expect(await screen.findByRole("link", { name: /^Open found.txt$/i })).toBeInTheDocument();
     // Results are already on screen; the page asks again on its own.
     await waitFor(() => expect(searchCalls(fetchMock).length).toBeGreaterThanOrEqual(3), { timeout: 5000 });
@@ -668,7 +692,7 @@ describe("FileSearch", () => {
   it("explains an empty search while drives are still being read", async () => {
     renderSearch([], { scan: { scanning: true, drives_total: 1, drives_done: 0, dirs_indexed: 5 } });
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "zz" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "zz" } });
     expect(await screen.findByText("Nothing yet")).toBeInTheDocument();
     expect(screen.getByText(/still reading your drives/i)).toBeInTheDocument();
   });
@@ -678,13 +702,13 @@ describe("FileSearch", () => {
       { drive_id: "d1", path: "a/beach.jpg", parent: "a", name: "beach.jpg", kind: "file", size: 1, modified: 1 },
     ]);
     await openSearchOverlay();
-    const input = screen.getByRole("textbox", { name: "Search for a file" });
+    const input = screen.getByRole("textbox", { name: "Search Luna" });
     fireEvent.change(input, { target: { value: "beach" } });
     await screen.findByRole("link", { name: /^Open beach.jpg$/i });
     fireEvent.keyDown(input, { key: "Enter" });
     // Following the link closes the overlay.
     await waitFor(
-      () => expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument(),
+      () => expect(screen.queryByRole("dialog", { name: "Search Luna" })).not.toBeInTheDocument(),
       { timeout: 2000 },
     );
   });
@@ -694,7 +718,7 @@ describe("FileSearch", () => {
       { drive_id: "d1", path: "a/beach.jpg", parent: "a", name: "beach.jpg", kind: "file", size: 1, modified: 1 },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "beach" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "beach" } });
     const row = await screen.findByRole("link", { name: /^Open beach.jpg$/i });
     const actions = document.querySelector("[data-slot=file-search-actions]");
     for (const el of actions.querySelectorAll("a, button")) {
@@ -713,7 +737,7 @@ describe("FileSearch", () => {
       { drive_id: "d1", path: "two.txt", parent: "", name: "two.txt", kind: "file", size: 1, modified: 1 },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "txt" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "txt" } });
     const first = await screen.findByRole("link", { name: /^Open one.txt$/i });
     const last = screen.getByRole("link", { name: /^Open two.txt$/i });
     first.focus();
@@ -728,7 +752,7 @@ describe("FileSearch", () => {
       { drive_id: "d1", path: "a/b/c/Spain", parent: "a/b/c", name: "Spain", kind: "dir", size: 0, modified: 1 },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "spain" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "spain" } });
     await screen.findByRole("link", { name: /^Open Spain$/i });
     expect(screen.queryByRole("link", { name: /Go to folder for Spain/i })).not.toBeInTheDocument();
     // The middle of a long path collapses so the last folders stay visible.
@@ -742,7 +766,7 @@ describe("FileSearch", () => {
       { truncated: true },
     );
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "one" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "one" } });
     await screen.findByRole("link", { name: /^Open one.txt$/i });
     expect(document.querySelector("[data-slot=file-search-truncated]")).toHaveTextContent(/more matches/i);
   });
@@ -750,7 +774,7 @@ describe("FileSearch", () => {
   it("warns when a drive could not be read", async () => {
     renderSearch([], { scan: { scanning: false, drives_total: 2, drives_done: 1, drives_failed: 1, dirs_indexed: 0 } });
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "zz" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "zz" } });
     await waitFor(() =>
       expect(document.querySelector("[data-slot=file-search-status]")).toHaveTextContent(
         "Luna couldn't read 1 drive, so some files may not show up.",
@@ -761,7 +785,7 @@ describe("FileSearch", () => {
   it("offers a retry when searching fails", async () => {
     const { fetchMock } = renderSearch([], { searchError: true });
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "zz" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "zz" } });
     const retry = await screen.findByRole("button", { name: "Try again" });
     const before = searchCalls(fetchMock).length;
     fireEvent.click(retry);
@@ -789,7 +813,7 @@ describe("FileSearch", () => {
       { holdSecond },
     );
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "one" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "one" } });
     await screen.findByRole("link", { name: /^Open one.txt$/i });
     expect(screen.queryByRole("progressbar", { name: "Updating results" })).not.toBeInTheDocument();
 
@@ -813,7 +837,7 @@ describe("FileSearch", () => {
       { drive_id: "d1", path: "Tax notes.txt", parent: "", name: "Tax notes.txt", kind: "file", size: 10, modified: 1, private: false },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("A filename, please."), { target: { value: "tax" } });
+    fireEvent.change(screen.getByPlaceholderText("Search Luna"), { target: { value: "tax" } });
     expect(await screen.findByLabelText("Open Tax notes.txt")).toBeInTheDocument();
     expect(screen.getAllByLabelText("Private")).toHaveLength(1);
   });

@@ -1,4 +1,4 @@
-import { User, X } from "lucide-react";
+import { Search, User, X } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { cn } from "../../lib/utils.js";
@@ -99,12 +99,13 @@ function NavShortcut({ item, position, enabled }) {
  * @param {() => unknown} props.onLogout Called from "Sign out".
  * @param {{ to: string, icon: React.ElementType, label: string, adminOnly?: boolean }[]} [props.menuItems]
  *   Extra links at the top of the desktop user menu.
+ * @param {() => void} [props.onSearch] Open the app search.
  * @param {string} props.storageKey localStorage key remembering where the mobile button was parked.
  * @param {boolean} [props.showShortcutsHint] Show "Press ? for keyboard shortcuts" in the user menu. Default true.
  * @param {string} [props.editorKey] `document.documentElement.dataset` key an app sets while a
  *   fullscreen editor is open; the mobile button then hides unless parked in the top strip.
  */
-export default function Navbar({ brand, items, user, onLogout, menuItems = [], storageKey, editorKey, showShortcutsHint = true }) {
+export default function Navbar({ brand, items, user, onLogout, menuItems = [], storageKey, editorKey, showShortcutsHint = true, onSearch }) {
   const logout = onLogout;
   const isAdmin = user?.role === "admin";
   const shortcutsSheet = useShortcutsSheet();
@@ -504,6 +505,11 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
             </span>
             <div className="flex items-center gap-6 text-sm font-sans justify-center flex-1">
               {navButtonsElements}
+              {onSearch && (
+                <button type="button" className={navButtonBaseClasses} onClick={onSearch}>
+                  <Search size={ICON_SIZE.lg} aria-hidden="true" /><span>Search</span>
+                </button>
+              )}
             </div>
             <div
               className="group flex items-center gap-2 relative"
@@ -677,6 +683,11 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
                 </NavLink>
               </React.Fragment>
             ))}
+            {onSearch && (
+              <button type="button" className={mobileMenuItemClasses} onClick={() => { closeMobileMenu(); onSearch(); }}>
+                <Search size={ICON_SIZE.lg} aria-hidden="true" /><span>Search</span>
+              </button>
+            )}
             <div className="mx-4 my-1 h-px bg-accent" aria-hidden="true" />
             <button
               type="button"

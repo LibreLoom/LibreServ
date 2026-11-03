@@ -117,6 +117,17 @@ export default function SettingsPage() {
     setPendingHit(hit.kind === "category" ? null : hit);
   };
 
+  useEffect(() => {
+    const hit = location.state?.searchHit;
+    if (!hit || !allowedCategoryIds.includes(hit.categoryId)) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- consume a router navigation
+    setQuery("");
+    setSelectedCategory(hit.categoryId);
+    setShowMobileContent(true);
+    setPendingHit(hit.kind === "category" ? null : hit);
+    navigate({ pathname: location.pathname, search: location.search, hash: hit.categoryId }, { replace: true, state: null });
+  }, [location, allowedCategoryIds, navigate]);
+
   // The category draws in (and its cards fade in) after the pick, so look for
   // the setting for a moment, then scroll to it and ring it briefly.
   useEffect(() => {

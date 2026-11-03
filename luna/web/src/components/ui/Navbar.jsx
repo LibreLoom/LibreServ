@@ -7,6 +7,7 @@ import {
   UserRound,
 } from "lucide-react";
 import SharedNavbar from "@libreloom/ui/components/ui/Navbar.jsx";
+import { openFileSearch } from "../../lib/fileSearch.js";
 import { useAuth } from "../../context/AuthContext";
 
 const navItems = [
@@ -24,6 +25,7 @@ export default function Navbar() {
   return (
     <SharedNavbar
       brand="Luna"
+      onSearch={openFileSearch}
       items={navItems}
       user={user}
       onLogout={logout}

@@ -61,6 +61,7 @@ function stubFetch(role = "admin", connectActive = false) {
   }));
 }
 
+/** @param {import("react-router-dom").InitialEntry} initialPath */
 function renderPage(initialPath = "/settings") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -107,6 +108,23 @@ describe("SettingsPage", () => {
         get length() { return store.size; },
         key: (index) => [...store.keys()][index] ?? null,
       };
+    }
+  });
+
+  it("opens an incoming search result at its setting", async () => {
+    stubFetch("admin");
+    const scroll = vi.fn();
+    const previous = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scroll;
+    try {
+      renderPage({ pathname: "/settings", hash: "#appearance", state: { searchHit: {
+        kind: "row", categoryId: "appearance", categoryLabel: "Appearance",
+        title: "Color scheme", cardTitle: "Theme", text: "",
+      } } });
+      await waitFor(() => expect(scroll).toHaveBeenCalled());
+      expect(screen.getByText("Color scheme")).toBeTruthy();
+    } finally {
+      Element.prototype.scrollIntoView = previous;
     }
   });
 

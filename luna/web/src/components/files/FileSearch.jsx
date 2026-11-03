@@ -1,5 +1,7 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router-dom";
+import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
@@ -34,6 +36,9 @@ import { useAuth } from "../../context/AuthContext.jsx";
 import { useFileOps } from "../../context/FileOpsContext.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+import useSettingsSearch from "../settings/useSettingsSearch.jsx";
+import { visibleCategories } from "../settings/settingsCategories.js";
+import useConnectActive from "../../hooks/useConnectActive.js";
 
 /** Match ModalCard exit + FLIP morph duration. */
 const OVERLAY_EXIT_MS = 320;
@@ -162,12 +167,23 @@ export default function FileSearch() {
     if (target?.isConnected) target.focus();
   }, []);
 
+  const connectActive = useConnectActive();
+  const categories = useMemo(() => visibleCategories(user?.role === "admin", connectActive), [user?.role, connectActive]);
   const trimmed = typed.trim();
+  const settings = useSettingsSearch(categories, present ? trimmed : "");
+  const [showAllSettings, setShowAllSettings] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState(/** @type {string[]} */ ([]));
+  const places = [{ title: "Home", path: "/" }, { title: "Photos", path: "/gallery" }, { title: "Files", path: "/files" }, { title: "Shared", path: "/shared" }, { title: "Settings", path: "/settings" }]
+    .filter((place) => trimmed.length >= MIN_SEARCH_LENGTH && place.title.toLowerCase().includes(trimmed.toLowerCase()));
   const search = useFileSearch(trimmed, { enabled: present && !isClosing, kind });
 
+  const exactPlace = places.find((place) => place.title.toLowerCase() === trimmed.toLowerCase());
+  const exactSetting = settings.results?.find((hit) => hit.title.toLowerCase() === trimmed.toLowerCase());
+  const exactFile = search.hits[0]?.name.toLowerCase() === trimmed.toLowerCase();
+  const bestOther = !exactFile && (exactPlace || exactSetting);
   const remaining = search.hits.slice(1);
   const groups = [
-    { label: "Best match", hits: search.hits.slice(0, 1) },
+    { label: bestOther ? "Other matches" : "Best match", hits: search.hits.slice(0, 1) },
     { label: "Folders", hits: remaining.filter((hit) => hit.kind === "dir") },
     { label: "Files", hits: remaining.filter((hit) => hit.kind !== "dir" && !isImageFile(hit.name)) },
     { label: "Image files", hits: remaining.filter((hit) => hit.kind !== "dir" && isImageFile(hit.name)) },
@@ -296,7 +312,7 @@ export default function FileSearch() {
     return () => window.removeEventListener(OPEN_FILE_SEARCH_EVENT, openOverlay);
   }, [openOverlay]);
 
-  useShortcut(["/", "Alt+/"], openOverlay, { label: "Search all your files", group: "Search" });
+  useShortcut(["/", "Alt+/"], openOverlay, { label: "Search Luna", group: "Search" });
   // FLIP open: invert from the header button into the elevated search surface.
   useLayoutEffect(() => {
     if (!present || isClosing) return;
@@ -374,6 +390,16 @@ export default function FileSearch() {
       }
     }
   }, []);
+
+  const expandResults = (/** @type {React.MouseEvent<HTMLElement>} */ event, /** @type {() => void} */ expand) => {
+    const links = [...(panelRef.current?.querySelectorAll('[data-slot="file-search-link"]') ?? [])];
+    const index = links.indexOf(event.currentTarget);
+    expand();
+    window.setTimeout(() => {
+      const next = panelRef.current?.querySelectorAll('[data-slot="file-search-link"]')[index];
+      if (next instanceof HTMLElement) next.focus();
+    }, 0);
+  };
 
   const handleListKeyDown = useCallback((/** @type {import("react").KeyboardEvent<HTMLUListElement>} */ event) => {
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
@@ -467,7 +493,7 @@ export default function FileSearch() {
             data-slot="file-search-panel"
             role="dialog"
             aria-modal="true"
-            aria-label="Search for a file"
+            aria-label="Search Luna"
             className={cn(
               "w-full max-w-2xl max-h-[min(80dvh,40rem)] flex flex-col",
               "rounded-large-element surface-secondary",
@@ -482,18 +508,18 @@ export default function FileSearch() {
                 className="min-w-0 flex-1"
               >
                 <label className="block min-w-0">
-                  <span className="sr-only">Search for a file</span>
+                  <span className="sr-only">Search Luna</span>
                   <span className="flex items-center gap-3 rounded-pill surface-primary border-2 border-transparent px-4 py-2.5 focus-within:border-accent motion-safe:transition-colors">
                     <Search size={18} className="shrink-0" aria-hidden="true" />
                     <span className="flex-1 min-w-0">
                       <input
                         ref={inputRef}
                         className="file-search-input w-full min-w-0 appearance-none bg-transparent text-secondary text-sm border-0 shadow-none outline-none no-focus-outline"
-                        placeholder="A filename, please."
+                        placeholder="Search Luna"
                         value={typed}
-                        onChange={(e) => setTyped(e.target.value)}
+                        onChange={(e) => { setTyped(e.target.value); setShowAllSettings(false); setExpandedGroups([]); }}
                         onKeyDown={handleInputKeyDown}
-                        aria-label="Search for a file"
+                        aria-label="Search Luna"
                         autoComplete="off"
                         autoCorrect="off"
                         spellCheck={false}
@@ -574,7 +600,7 @@ export default function FileSearch() {
                 </PageNotice>
               )}
 
-              {search.active && !search.isLoading && !search.isError && !search.incomplete && search.hits.length === 0 && (
+              {search.active && !search.isLoading && !search.isError && !search.incomplete && search.hits.length === 0 && places.length === 0 && settings.results?.length === 0 && (
                 search.scan?.scanning ? (
                   <EmptyState
                     className="mt-1"
@@ -587,14 +613,14 @@ export default function FileSearch() {
                     className="mt-1"
                     surface="primary"
                     title="Nothing matched"
-                    description="Try another name, or open a drive and browse. Luna only shows files you're allowed to see."
+                    description="Try another name or browse Luna."
                   />
                 )
               )}
 
-              {search.hits.length > 0 && (
+              {(search.hits.length > 0 || places.length > 0 || (settings.results?.length ?? 0) > 0) && (
                 <>
-                  {search.closeOnly && (
+                  {search.closeOnly && !bestOther && (
                     <Typewriter
                       as="p"
                       className="px-1 pb-2 text-sm font-mono text-primary"
@@ -608,12 +634,28 @@ export default function FileSearch() {
                     className="grid grid-cols-[minmax(0,1fr)] gap-2"
                     onKeyDown={handleListKeyDown}
                   >
+                    {bestOther && (
+                      <>
+                        <li role="presentation" className="px-1 pt-2 text-xs font-mono text-primary">Best match</li>
+                        <li data-slot="file-search-item">
+                          <Link
+                            data-slot="file-search-link"
+                            to={"path" in bestOther ? bestOther.path : { pathname: "/settings", hash: bestOther.categoryId }}
+                            state={"path" in bestOther ? undefined : { searchHit: bestOther }}
+                            onClick={() => beginClose()}
+                            className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent"
+                          >
+                            {bestOther.title}
+                          </Link>
+                        </li>
+                      </>
+                    )}
                     {groups.map((group) => (
                       <Fragment key={group.label}>
                         <li role="presentation" className="px-1 pt-2 text-xs font-mono text-primary">
                           {group.label}
                         </li>
-                        {group.hits.map((item, index) => (
+                        {(expandedGroups.includes(group.label) ? group.hits : group.hits.slice(0, 4)).map((item, index) => (
                           <Fragment key={`${item.drive_id}:${item.path}`}>
                             {!search.closeOnly && item.match === "close" && group.hits[index - 1]?.match !== "close" && (
                               <li role="presentation" className="file-search-row-enter px-1 pt-2 text-xs font-mono text-primary">
@@ -634,8 +676,45 @@ export default function FileSearch() {
                             />
                           </Fragment>
                         ))}
+                        {group.hits.length > 4 && !expandedGroups.includes(group.label) && (
+                          <li data-slot="file-search-item">
+                            <Button data-slot="file-search-link" variant="ghost" surface="secondary" size="sm" onClick={(event) => expandResults(event, () => setExpandedGroups((current) => [...current, group.label]))}>
+                              Show more {group.label.toLowerCase()}
+                            </Button>
+                          </li>
+                        )}
                       </Fragment>
                     ))}
+                    {places.some((place) => place !== bestOther) && (
+                      <>
+                        <li role="presentation" className="px-1 pt-2 text-xs font-mono text-primary">Places</li>
+                        {places.filter((place) => place !== bestOther).map((place) => (
+                          <li key={place.path} data-slot="file-search-item">
+                            <Link data-slot="file-search-link" to={place.path} onClick={() => beginClose()} className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent">
+                              {place.title}
+                            </Link>
+                          </li>
+                        ))}
+                      </>
+                    )}
+                    {settings.results?.some((hit) => hit !== bestOther) && (
+                      <>
+                        <li role="presentation" className="px-1 pt-2 text-xs font-mono text-primary">Settings</li>
+                        {(showAllSettings ? settings.results : settings.results?.slice(0, 4))?.filter((hit) => hit !== bestOther).map((hit) => (
+                          <li key={`${hit.categoryId}/${hit.kind}/${hit.cardTitle}/${hit.title}`} data-slot="file-search-item">
+                            <Link data-slot="file-search-link" to={{ pathname: "/settings", hash: hit.categoryId }} state={{ searchHit: hit }} onClick={() => beginClose()} className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent">
+                              <span className="block">{hit.title}</span>
+                              <span className="block text-sm">{[hit.categoryLabel, hit.cardTitle].filter(Boolean).join(" › ")}</span>
+                            </Link>
+                          </li>
+                        ))}
+                        {!showAllSettings && (settings.results?.length ?? 0) > 4 && (
+                          <li data-slot="file-search-item">
+                            <Button data-slot="file-search-link" variant="ghost" surface="secondary" size="sm" onClick={(event) => expandResults(event, () => setShowAllSettings(true))}>Show more settings</Button>
+                          </li>
+                        )}
+                      </>
+                    )}
                   </ul>
                   {search.truncated && !search.incomplete && !search.isUpdating && trimmed === search.q && (
                     <p data-slot="file-search-truncated" className="px-1 pt-3 text-xs font-mono text-primary">
@@ -650,10 +729,10 @@ export default function FileSearch() {
                   <Typewriter
                     as="p"
                     className="block text-sm"
-                    text="Search every file and folder you can open."
+                    text="Search files, folders, settings and places."
                     cursor={false}
                   />
-                  <p className="mt-2 text-xs">Press / on any page to open search.</p>
+                  <p className="mt-2 text-xs">Press Alt+/ to search Luna from any page.</p>
                 </div>
               )}
              </div>
