@@ -20,12 +20,13 @@ const IDLE_SCAN = { scanning: false, drives_total: 1, drives_done: 1, dirs_index
  *   scan?: Record<string, unknown> | (() => Record<string, unknown>),
  *   closeOnly?: boolean,
  *   truncated?: boolean,
+ *   incomplete?: boolean,
  *   searchError?: boolean,
  *   holdSecond?: Promise<void>,
  *   fileOpsStore?: any,
  * }} [options]
  */
-function renderSearch(hits, { searchHold, extra = null, before = null, scan = IDLE_SCAN, closeOnly = false, truncated = false, searchError = false, holdSecond, fileOpsStore } = {}) {
+function renderSearch(hits, { searchHold, extra = null, before = null, scan = IDLE_SCAN, closeOnly = false, truncated = false, incomplete = false, searchError = false, holdSecond, fileOpsStore } = {}) {
   let searchCount = 0;
   const fetchMock = vi.fn(async (url) => {
     const u = String(url);
@@ -61,6 +62,7 @@ function renderSearch(hits, { searchHold, extra = null, before = null, scan = ID
           hits,
           close_only: closeOnly,
           truncated,
+          incomplete,
           scan: typeof scan === "function" ? scan() : scan,
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
@@ -121,6 +123,33 @@ describe("FileSearch", () => {
     expect(screen.getByRole("button", { name: "Close search" })).toBeInTheDocument();
   });
 
+  it("groups ranked matches by type", async () => {
+    /** @param {string} name @param {string} kind */
+    const hit = (name, kind) => ({ drive_id: "d1", path: name, parent: "", name, kind, size: 0, modified: 0, match: "name" });
+    renderSearch([hit("budget.jpg", "file"), hit("budget.txt", "file"), hit("budget", "dir")]);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "budget" } });
+    await screen.findByRole("link", { name: "Open budget.txt" });
+    const list = /** @type {HTMLElement} */ (document.querySelector('[data-slot="file-search-list"]'));
+    const labels = Array.from(list.children).map((child) => child.getAttribute("role") === "presentation" ? child.textContent : child.querySelector('[data-slot="file-search-link"]')?.getAttribute("aria-label"));
+    expect(labels).toEqual(["Best match", "Open budget.jpg", "Folders", "Open budget", "Files", "Open budget.txt"]);
+  });
+
+  it("keeps the highest-ranked file as the default before a weaker folder", async () => {
+    renderSearch([
+      { drive_id: "d1", path: "report.txt", parent: "", name: "report.txt", kind: "file", size: 0, modified: 0, match: "name" },
+      { drive_id: "d1", path: "reports", parent: "", name: "reports", kind: "dir", size: 0, modified: 0, match: "close" },
+    ]);
+    await openSearchOverlay();
+    const input = screen.getByRole("textbox", { name: "Search for a file" });
+    fireEvent.change(input, { target: { value: "report" } });
+    const best = await screen.findByRole("link", { name: "Open report.txt" });
+    const list = /** @type {HTMLElement} */ (document.querySelector('[data-slot="file-search-list"]'));
+    expect(list.querySelector('[data-slot="file-search-link"]')).toBe(best);
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument());
+  });
+
   it("closes on Escape and restores focus to the header button", async () => {
     renderSearch([]);
     const trigger = await screen.findByRole("button", { name: "Search" });
@@ -148,6 +177,30 @@ describe("FileSearch", () => {
     releaseSearch?.();
     expect(await screen.findByText(/Nothing matched/i)).toBeInTheDocument();
     expect(screen.queryByText(/Searching/i)).not.toBeInTheDocument();
+  });
+
+  it("does not claim there are no matches when the search budget was exhausted", async () => {
+    renderSearch([], { incomplete: true });
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "budget" } });
+    expect(await screen.findByText(/could not check every match/i)).toBeInTheDocument();
+    expect(screen.queryByText("Nothing matched")).not.toBeInTheDocument();
+  });
+
+  it("hides stale incomplete and duplicate truncated notices while a new search loads", async () => {
+    /** @type {() => void} */
+    let releaseSecond = () => {};
+    const holdSecond = new Promise((resolve) => { releaseSecond = () => resolve(undefined); });
+    renderSearch([{ drive_id: "d1", path: "budget.txt", parent: "", name: "budget.txt", kind: "file", size: 1, modified: 1 }], { incomplete: true, truncated: true, holdSecond });
+    await openSearchOverlay();
+    const input = screen.getByRole("textbox", { name: "Search for a file" });
+    fireEvent.change(input, { target: { value: "budget" } });
+    expect(await screen.findByText(/could not check every match/i)).toBeInTheDocument();
+    expect(document.querySelector("[data-slot=file-search-truncated]")).toBeNull();
+    fireEvent.change(input, { target: { value: "budgets" } });
+    expect(screen.queryByText(/could not check every match/i)).not.toBeInTheDocument();
+    await act(async () => { releaseSecond(); });
+    expect(await screen.findByText(/could not check every match/i)).toBeInTheDocument();
   });
 
   it("explains an empty search in plain language", async () => {

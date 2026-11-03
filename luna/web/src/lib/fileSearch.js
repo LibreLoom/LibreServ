@@ -33,13 +33,14 @@ export function searchUrl(q, kind = "all") {
 /**
  * The `/api/v1/search` answer in a predictable shape.
  * @param {any} data
- * @returns {{ hits: SearchHit[], closeOnly: boolean, truncated: boolean, scan: ScanStatus | null }}
+ * @returns {{ hits: SearchHit[], closeOnly: boolean, truncated: boolean, incomplete: boolean, scan: ScanStatus | null }}
  */
 export function parseSearchResponse(data) {
   return {
     hits: Array.isArray(data?.hits) ? data.hits : [],
     closeOnly: Boolean(data?.close_only),
     truncated: Boolean(data?.truncated),
+    incomplete: Boolean(data?.incomplete),
     scan: data?.scan ?? null,
   };
 }

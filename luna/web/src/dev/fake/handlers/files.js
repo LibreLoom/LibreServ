@@ -611,7 +611,7 @@ get("/api/v1/search", async ({ world, user, query }) => {
     }
   }
   const limit = o.limit ?? 100;
-  return { hits: hits.slice(0, limit), close_only: false, truncated: hits.length > limit, scan: o.scanning ? { scanning: true, drives_total: 2, drives_done: 1, dirs_indexed: 1200 } : { scanning: false, drives_total: 1, drives_done: 1, dirs_indexed: 100 } };
+  return { hits: hits.slice(0, limit), close_only: false, truncated: hits.length > limit, incomplete: false, scan: o.scanning ? { scanning: true, drives_total: 2, drives_done: 1, dirs_indexed: 1200 } : { scanning: false, drives_total: 1, drives_done: 1, dirs_indexed: 100 } };
 });
 
 // ── Office editors: the fake has no document server ─────────────────────────

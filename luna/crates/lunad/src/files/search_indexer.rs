@@ -313,6 +313,8 @@ mod tests {
             mount: root.to_path_buf(),
         }];
         search::search_all(&drives, &Query::new(q), KindFilter::All)
+            .unwrap()
+            .0
             .into_iter()
             .map(|c| c.hit.name)
             .collect()
