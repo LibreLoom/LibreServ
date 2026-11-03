@@ -55,7 +55,9 @@ export default function FileOpRow({ op }) {
         {/* The status line swaps its words as the operation moves on. Keyed by
             the words themselves, so "Uploading" → "Uploaded" is a swap and a
             percentage ticking up is not. */}
-        <p aria-live="polite" className="min-w-0 flex-1 break-words font-mono text-sm">
+        {/* overflow-hidden clips the slide to the line, so the outgoing words
+            never overlap the line above while they leave. */}
+        <p aria-live="polite" className="min-w-0 flex-1 overflow-hidden break-words font-mono text-sm">
           <AnimatePresence mode="wait" initial={false}>
             <Motion.span
               key={plain(status)}
