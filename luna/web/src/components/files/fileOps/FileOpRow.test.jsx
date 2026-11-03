@@ -114,9 +114,12 @@ describe("FileOpRow", () => {
       },
     ]);
     const meta = [...container.querySelectorAll("[data-slot='file-op-row'] p")][1];
-    expect(meta.textContent).toMatch(/0 of 1 files/);
-    // One animated span, not one per number.
-    expect(meta.querySelectorAll("span.block")).toHaveLength(1);
+    // The counters are odometers: their DOM text is every digit of every
+    // column, so assert the shape (two numbers and the words between them)
+    // rather than the rendered text.
+    expect(meta.querySelectorAll("[data-slot='inline-pill'], .inline-flex").length).toBeGreaterThan(0);
+    expect(meta.textContent).toContain("of");
+    expect(meta.textContent).toContain("files");
   });
 
   it("shows a moving bar for emptying the trash", async () => {

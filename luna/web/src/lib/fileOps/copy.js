@@ -355,6 +355,56 @@ export function opMeta(op) {
   return "";
 }
 
+/**
+ * The meta line, split into words and numbers so only the numbers move.
+ *
+ * The line changes on every progress emit. Re-rendering the whole string as
+ * one animated unit would restart it ten times a second, so it is a list of
+ * segments: text stays put, numbers roll like the file explorer's count.
+ *
+ * @param {any} op
+ * @returns {Array<string | { number: number, suffix?: string }>}
+ */
+export function opMetaParts(op) {
+  if (op.kind === "upload" || op.kind === "gallery") {
+    if (op.walking) return ["Counting files… ", { number: op.itemsTotal ?? 0 }, " found"];
+    const total = op.itemsTotal ?? 0;
+    if (total === 0 && !op.bytesTotal) {
+      const folders = op.foldersDone || 0;
+      return folders > 0 ? [{ number: folders }, ` ${n(folders, "folder", "folders")} made`] : [];
+    }
+    return [
+      { number: op.itemsDone ?? 0 },
+      " of ",
+      { number: total },
+      " files · ",
+      fmtSize(op.bytesDone),
+      " of ",
+      fmtSize(op.bytesTotal),
+    ];
+  }
+  if (op.kind === "copy" || op.kind === "move") {
+    if (op.items?.some((i) => i.waitingForQueue)) return [text.waitingForQueue];
+    if (!op.bytesTotal) return [text.starting];
+    const pct = Math.round(Math.min(100, (op.bytesDone / op.bytesTotal) * 100));
+    return [
+      { number: pct, suffix: "%" },
+      " · ",
+      fmtSize(op.bytesDone),
+      " of ",
+      fmtSize(op.bytesTotal),
+    ];
+  }
+  const batchTotal = op.itemsTotal ?? op.items?.length ?? 0;
+  if (batchTotal > 1) {
+    const done = op.itemsDone ?? 0;
+    if (op.state === "running" || op.state === "preparing" || op.state === "partial") {
+      return [{ number: done }, " of ", { number: batchTotal }, " done"];
+    }
+  }
+  return [];
+}
+
 // -- Items -------------------------------------------------------------------
 
 /** @param {any} item */

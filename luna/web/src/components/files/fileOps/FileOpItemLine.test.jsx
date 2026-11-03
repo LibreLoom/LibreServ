@@ -17,7 +17,8 @@ describe("FileOpItemLine", () => {
   it("shows a running upload with its percent and a cancel button", () => {
     line([{ ...base, items: [{ id: "i1", name: "a.txt", state: "uploading", size: 100, received: 40 }] }]);
     expect(screen.getByText("a.txt")).toBeTruthy();
-    expect(screen.getByText("40%")).toBeTruthy();
+    // The percentage is an odometer now, so its DOM text is every digit.
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("40");
     expect(screen.getByRole("button", { name: "Cancel uploading a.txt" })).toBeTruthy();
     expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("40");
   });

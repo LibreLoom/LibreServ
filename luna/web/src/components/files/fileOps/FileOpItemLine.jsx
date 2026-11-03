@@ -10,6 +10,7 @@ import { cancelUploadAria, decisionButtons, decisionText, failedText, itemPercen
 import { EXIT, ITEM_EXIT, ITEM_HIDDEN, ITEM_SHOWN, SPRING } from "../../../lib/fileOps/motion.js";
 import FileOpParts from "./FileOpParts.jsx";
 import FileOpProgress from "./FileOpProgress.jsx";
+import RollingNumber from "@libreloom/ui/components/common/RollingNumber.jsx";
 
 /**
  * A name clash that needs an answer.
@@ -148,7 +149,8 @@ function ActiveLine({ op, item }) {
               transition={{ duration: 0.15 }}
               className="shrink-0 font-mono text-xs"
             >
-              {pct}%
+              {/* The percentage counts up on every emit: roll it, don't swap it. */}
+              <RollingNumber value={pct} />%
             </Motion.span>
           )}
         </AnimatePresence>

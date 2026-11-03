@@ -101,6 +101,39 @@ describe("FileOpsDock", () => {
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
   });
 
+  it("keeps the summary on one line, with nothing before the dot missing", () => {
+    // It used to wrap: RollingText rendered a block, so the percentage fell to
+    // its own line and read as a bullet with no word before it.
+    const { container } = renderWithOps(<FileOpsDock />, [
+      { id: "op1", kind: "copy", state: "running", destLabel: "Backup",
+        itemsTotal: 2, bytesTotal: 100, bytesDone: 50,
+        items: [{ id: "i1", name: "a", state: "running" }] },
+    ]);
+    const visible = container.querySelector("[aria-hidden='true']");
+    // One inline flow: no block children to break the line.
+    expect(visible.querySelectorAll(":scope > span.block")).toHaveLength(0);
+    expect(visible.className).toContain("whitespace-nowrap");
+    // The words before the dot are there, and the dot follows them.
+    expect(visible.textContent).toContain("running");
+    expect(visible.textContent).toContain("·");
+  });
+
+  it("rolls the percentage instead of swapping it", () => {
+    // The ticker is the point: a percentage that counts up must animate like
+    // the file explorer's selection count, not re-enter on every emit.
+    const { container } = renderWithOps(<FileOpsDock />, [
+      { id: "op1", kind: "upload", state: "running", title: "a.txt", destLabel: "Inbox",
+        itemsTotal: 12, bytesTotal: 100,
+        items: [{ id: "i1", name: "a.txt", state: "uploading", size: 100, received: 50 }] },
+    ]);
+    const visible = container.querySelector("[aria-hidden='true']");
+    // Two odometers: the file count and the percentage.
+    expect(visible.querySelectorAll("[class*='inline-flex']").length).toBeGreaterThanOrEqual(2);
+    // And a clean sentence for screen readers, since the odometers' DOM text
+    // is every digit of every column.
+    expect(screen.getByRole("status").textContent).toBe("Uploading 1 file · 50%");
+  });
+
   it("says what finished instead of claiming files need you", () => {
     renderWithOps(<FileOpsDock />, [
       {
@@ -158,7 +191,7 @@ describe("FileOpsDock", () => {
   it("keeps the card while one file's shape changes", async () => {
     const { store } = renderWithOps(<FileOpsDock />, [upload]);
     fireEvent.click(screen.getByRole("button", { name: "Show details" }));
-    expect(screen.getByText("50%")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "File tasks" })).toBeTruthy();
 
     store.cancel("op1");
 

@@ -47,30 +47,27 @@ function SummaryLine({ parts }) {
   // The odometer draws all ten digits of every column, so its DOM text is not
   // the number. Screen readers get the plain sentence; the visible line is
   // aria-hidden, exactly as the file explorer's selection count does it.
-  const spoken = lead
-    ? `${lead}${count ?? ""}${unit}`
-    : count != null
-      ? `${count}${unit}`
-      : "";
+  const spoken = `${lead}${count ?? ""}${unit}${
+    pct != null ? ` · ${Math.round(pct)}%` : ""
+  }${need > 0 ? ` · ${need} need you` : ""}`;
   return (
     <span className="block font-mono text-xs">
-      <span className="sr-only" role="status">
-        {spoken}
-        {pct != null ? ` · ${Math.round(pct)}%` : ""}
-        {need > 0 ? ` · ${need} need you` : ""}
-      </span>
-      <span aria-hidden="true" className="block truncate">
-        {count != null ? (
-          <RollingText value={parts.key}>
-            {lead}
-            <RollingNumber value={count} />
-            {unit}
-          </RollingText>
-        ) : (
-          lead && <RollingText value={lead} />
+      <span className="sr-only" role="status">{spoken}</span>
+      {/* One line, one flow: the words swap as a unit, the numbers roll in
+          place, and nothing may wrap — a wrapped "·" reads as a stray bullet. */}
+      <span aria-hidden="true" className="block truncate whitespace-nowrap">
+        <RollingText value={parts.key}>
+          {lead}
+          {count != null && <RollingNumber value={count} />}
+          {unit}
+        </RollingText>
+        {pct != null && (
+          <>
+            {" · "}
+            <RollingNumber value={Math.round(pct)} />%
+          </>
         )}
-        {pct != null && <span> · {Math.round(pct)}%</span>}
-        {need > 0 && !lead && count == null && <span> · {need} need you</span>}
+        {need > 0 && !lead && count == null && <> · {need} need you</>}
       </span>
     </span>
   );
@@ -138,8 +135,10 @@ export default function FileOpsDock() {
             <Card padding={false} noPopIn noHeightAnim className="border-2 border-accent">
               <div className="flex items-center gap-2 p-3">
                 <div className="min-w-0 flex-1">
-                  {/* The title swaps its words rather than snapping. */}
-                  <RollingText value={title} className="truncate font-mono text-sm" />
+                  {/* The title swaps its words rather than snapping. `block`
+                      (not the inline default) so `truncate` can clip a long
+                      one, and the summary sits under it as its own line. */}
+                  <RollingText value={title} className="block truncate font-mono text-sm" />
                   <AnimatePresence initial={false}>
                     {!expanded && summary && (
                       <Motion.div
