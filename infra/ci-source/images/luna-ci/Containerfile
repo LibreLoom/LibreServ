@@ -38,8 +38,13 @@ RUN curl --proto '=https' --tlsv1.2 -fsSL https://deb.nodesource.com/setup_26.x 
     && rm -rf /var/lib/apt/lists/*
 
 # Rust 1.99 with rustfmt (ci.sh runs `cargo fmt --check`) and clippy.
-RUN curl --proto '=https' --tlsv1.2 -fsSLo /tmp/rustup-init https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init \
-    && echo "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71  /tmp/rustup-init" | sha256sum -c - \
+RUN case "$(dpkg --print-architecture)" in \
+      amd64) rust_arch=x86_64; rust_sha=dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71 ;; \
+      arm64) rust_arch=aarch64; rust_sha=15f6e4ce9f583b929c996c91562bad6d4454f3281de858b02cdfdef615fac433 ;; \
+      *) echo "Unsupported image architecture: $(dpkg --print-architecture)" >&2; exit 1 ;; \
+    esac \
+    && curl --proto '=https' --tlsv1.2 -fsSLo /tmp/rustup-init "https://static.rust-lang.org/rustup/archive/1.29.1/${rust_arch}-unknown-linux-gnu/rustup-init" \
+    && echo "${rust_sha}  /tmp/rustup-init" | sha256sum -c - \
     && chmod +x /tmp/rustup-init \
     && /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain 1.99.0 \
        --component rustfmt --component clippy \
