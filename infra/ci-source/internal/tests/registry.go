@@ -107,7 +107,7 @@ func addGoTests() {
 		Description: "Run all Go unit tests and write coverage.out / coverage.html",
 		Type:        TestTypeUnit,
 		Container:   "golang:1.27-alpine",
-		Command:     "apk add gcc musl-dev bash && CGO_ENABLED=1 go test -v -covermode=atomic -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | tail -n 15 && go tool cover -html=coverage.out -o coverage.html",
+		Command:     "runtime_dir=$(mktemp -d /cache/ts-runtime-XXXXXX) && trap 'rm -rf \"$runtime_dir\"' EXIT && export XDG_RUNTIME_DIR=\"$runtime_dir\" && apk add gcc musl-dev bash && CGO_ENABLED=1 go test -v -covermode=atomic -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | tail -n 15 && go tool cover -html=coverage.out -o coverage.html",
 		WorkDir:     "/repo/sol/server/backend",
 		Timeout:     15 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},

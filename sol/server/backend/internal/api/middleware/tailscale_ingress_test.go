@@ -13,7 +13,7 @@ func TestTailscaleIngressValidatesAuthorityAndNeverGrantsLocalSetup(t *testing.T
 		if !IsTailscaleIngress(r) || isLocalSetupRequest(r) || r.Host != "sol.example.ts.net" {
 			t.Errorf("unsafe ingress: host %q", r.Host)
 		}
-		if r.Header.Get("X-Real-IP") != "" || r.Header.Get("Forwarded") != "" {
+		if r.Header.Get("X-Real-IP") != "" || r.Header.Get("Forwarded") != "" || r.Header.Get("X-Forwarded-Host") != "" {
 			t.Error("spoofable forwarding headers survived")
 		}
 		w.WriteHeader(http.StatusNoContent)
