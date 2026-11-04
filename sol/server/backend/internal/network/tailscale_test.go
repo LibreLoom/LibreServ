@@ -107,6 +107,28 @@ func TestHeadscaleSelectionPersistsBeforeDaemonStart(t *testing.T) {
 	}
 }
 
+func TestPendingCleanupReportsUnverifiedStop(t *testing.T) {
+	dir := t.TempDir()
+	for name, value := range map[string]string{"reset-required": "1", "launch-intent": "invalid"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := &TailscaleService{dir: dir}
+	if err := svc.clearAccessIfRequired(); err == nil {
+		t.Fatal("expected unverified stop")
+	}
+	if !tailscaleFileExists(filepath.Join(dir, "stop-failed")) {
+		t.Fatal("unverified stop was not recorded")
+	}
+	if st := svc.statusLocked(); !st.ResidualExposure || st.State != "error" {
+		t.Fatalf("status hides unverified stop: %#v", st)
+	}
+	if !tailscaleFileExists(filepath.Join(dir, "reset-required")) {
+		t.Fatal("lost cleanup intent")
+	}
+}
+
 func TestFailedFirstConnectDoesNotEnableRestore(t *testing.T) {
 	dir := t.TempDir()
 	cli, daemon := filepath.Join(dir, "cli"), filepath.Join(dir, "daemon")

@@ -567,6 +567,7 @@ func (s *TailscaleService) clearAccessIfRequired() error {
 		return nil
 	}
 	if err := s.stopDaemon(); err != nil {
+		_ = os.WriteFile(filepath.Join(s.dir, "stop-failed"), []byte("unverified"), 0600)
 		return err
 	}
 	if err := s.clearSavedServe(); err != nil {

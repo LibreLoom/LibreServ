@@ -576,7 +576,10 @@ fn clear_access_if_required(data: &Path) -> Result<(), String> {
     if !root(data).join("reset-required").exists() {
         return Ok(());
     }
-    stop_daemon(data)?;
+    if let Err(error) = stop_daemon(data) {
+        let _ = std::fs::write(root(data).join("stop-failed"), "unverified");
+        return Err(error);
+    }
     clear_saved_serve(data).map_err(|error| {
         tracing::warn!(%error, "Could not clear saved Tailscale access");
         "Tailscale is off. Sign out of Tailscale before connecting again.".to_string()
@@ -1579,6 +1582,20 @@ mod tests {
             "https://headscale.example"
         );
         assert!(!enabled(dir.path()));
+    }
+
+    #[test]
+    fn pending_cleanup_reports_unverified_stop() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root(dir.path())).unwrap();
+        std::fs::write(root(dir.path()).join("reset-required"), "1").unwrap();
+        std::fs::write(root(dir.path()).join("launch-intent"), "invalid").unwrap();
+        assert!(clear_access_if_required(dir.path()).is_err());
+        assert!(root(dir.path()).join("stop-failed").exists());
+        let status = status_json(dir.path(), 8090);
+        assert_eq!(status["residual_exposure"], true);
+        assert_eq!(status["state"], "error");
+        assert!(root(dir.path()).join("reset-required").exists());
     }
 
     #[test]
