@@ -206,7 +206,8 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_writable_ancestor() {
-        let parent = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
+        let parent = tempfile::tempdir_in(runtime_dir()).unwrap();
+        assert_fixture_ancestry(parent.path());
         std::fs::set_permissions(parent.path(), std::fs::Permissions::from_mode(0o777)).unwrap();
         let data = parent.path().join("data");
         std::fs::DirBuilder::new()

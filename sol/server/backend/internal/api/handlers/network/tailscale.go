@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"gt.plainskill.net/LibreLoom/Sol/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/Sol/internal/auth"
@@ -14,7 +15,12 @@ type TailscaleHandler struct{ service *network.TailscaleService }
 
 func tailscaleFailure(w http.ResponseWriter, action string, err error) {
 	slog.Error("Tailscale action failed", "action", action, "error", err)
-	JSONError(w, http.StatusBadGateway, "Sol could not "+action+". Check the internet connection and try again, or turn off Tailscale.")
+	message := "Sol could not " + action + ". Try again."
+	switch err.Error() {
+	case "Sol is shutting down", "Connect Tailscale first", "Tailscale is starting. Try connecting again shortly", "Tailscale is starting. Try reconnecting again shortly", "Tailscale is starting. Try turning on access again shortly":
+		message = strings.TrimSuffix(err.Error(), ".") + "."
+	}
+	JSONError(w, http.StatusBadGateway, message)
 }
 
 func NewTailscaleHandler(service *network.TailscaleService) *TailscaleHandler {

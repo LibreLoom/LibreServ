@@ -114,7 +114,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn missing_saved_port_clears_old_target_before_restoring() {
+    async fn proxy_move_clears_old_target_and_retains_restore_intent() {
         let dir = tempfile::tempdir().unwrap();
         let node = dir.path().join("tailscale");
         std::fs::create_dir(&node).unwrap();
