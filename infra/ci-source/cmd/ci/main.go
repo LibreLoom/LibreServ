@@ -293,6 +293,9 @@ func runTests(testsToRun []string, opts runOpts) {
 				if out := strings.TrimSpace(result.Output); out != "" {
 					fmt.Printf("%s\n", indentLines(out, "    "))
 				}
+				if detail := strings.TrimSpace(result.Error); detail != "" {
+					fmt.Printf("%s\n", indentLines(detail, "    "))
+				}
 			case tests.StatusSkipped:
 				skipped++
 				fmt.Printf("⊘ %s (skipped)\n", result.Name)
