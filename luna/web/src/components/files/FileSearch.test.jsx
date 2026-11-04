@@ -152,7 +152,7 @@ describe("FileSearch", () => {
     const more = await screen.findByRole("button", { name: "Show more files" });
     more.focus();
     fireEvent.click(more);
-    await waitFor(() => expect(screen.getByRole("link", { name: /report5\.txt/i })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("link", { name: /^Open report5\.txt$/i })).toHaveFocus());
   });
 
   it.each([
@@ -266,7 +266,7 @@ describe("FileSearch", () => {
     renderSearch([], { searchHold });
     await openSearchOverlay();
     fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), {
-      target: { value: "zz" },
+      target: { value: "zzqzxnomatch" },
     });
     expect(await screen.findByRole("status", { name: /Searching/i })).toBeInTheDocument();
     releaseSearch?.();
@@ -302,10 +302,10 @@ describe("FileSearch", () => {
     renderSearch([]);
     await openSearchOverlay();
     fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), {
-      target: { value: "zz" },
+      target: { value: "zzqzxnomatch" },
     });
     expect(await screen.findByText(/Nothing matched/i)).toBeInTheDocument();
-    expect(screen.getByText(/only shows files you're allowed to see/i)).toBeInTheDocument();
+    expect(screen.getByText(/Try another name or browse Luna/i)).toBeInTheDocument();
   });
 
   it("offers open and download actions on a file hit", async () => {
@@ -763,7 +763,7 @@ describe("FileSearch", () => {
   it("explains an empty search while drives are still being read", async () => {
     renderSearch([], { scan: { scanning: true, drives_total: 1, drives_done: 0, dirs_indexed: 5 } });
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "zz" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "zzqzxnomatch" } });
     expect(await screen.findByText("Nothing yet")).toBeInTheDocument();
     expect(screen.getByText(/still reading your drives/i)).toBeInTheDocument();
   });
@@ -845,7 +845,7 @@ describe("FileSearch", () => {
   it("warns when a drive could not be read", async () => {
     renderSearch([], { scan: { scanning: false, drives_total: 2, drives_done: 1, drives_failed: 1, dirs_indexed: 0 } });
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "zz" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "zzqzxnomatch" } });
     await waitFor(() =>
       expect(document.querySelector("[data-slot=file-search-status]")).toHaveTextContent(
         "Luna couldn't read 1 drive, so some files may not show up.",
@@ -856,7 +856,7 @@ describe("FileSearch", () => {
   it("offers a retry when searching fails", async () => {
     const { fetchMock } = renderSearch([], { searchError: true });
     await openSearchOverlay();
-    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "zz" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "zzqzxnomatch" } });
     const retry = await screen.findByRole("button", { name: "Try again" });
     const before = searchCalls(fetchMock).length;
     fireEvent.click(retry);
