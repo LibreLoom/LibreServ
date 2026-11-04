@@ -19,6 +19,12 @@ func tailscaleFailure(w http.ResponseWriter, action string, err error) {
 	switch err.Error() {
 	case "Sol is shutting down", "Connect Tailscale first", "Tailscale is starting. Try connecting again shortly", "Tailscale is starting. Try reconnecting again shortly", "Tailscale is starting. Try turning on access again shortly":
 		message = strings.TrimSuffix(err.Error(), ".") + "."
+	case "connect Tailscale first":
+		message = "Connect Tailscale first."
+	case "Tailscale is starting but not responding yet", "Sol's web listener is not ready":
+		message = "Sol's remote access is starting. Wait a moment and try again."
+	case "Tailscale's private listener stopped":
+		message = "Sol can't offer remote access right now. Restart Sol and try again."
 	}
 	JSONError(w, http.StatusBadGateway, message)
 }

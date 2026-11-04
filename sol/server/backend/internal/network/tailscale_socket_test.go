@@ -19,6 +19,9 @@ func socketTestBase(t *testing.T) string {
 			base = filepath.Join("/run/user", strconv.Itoa(os.Geteuid()))
 		}
 	}
+	if _, err := os.Stat(base); os.IsNotExist(err) {
+		t.Skipf("protected runtime directory %s is unavailable", base)
+	}
 	return base
 }
 
