@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { AuthProvider } from "../../context/AuthContext";
 import { FileOpsProvider } from "../../context/FileOpsContext.jsx";
 import FileSearch, { FileSearchButton } from "./FileSearch";
@@ -15,6 +15,9 @@ const IDLE_SCAN = { scanning: false, drives_total: 1, drives_done: 1, dirs_index
  * @param {unknown[]} hits
  * @param {{
  *   searchHold?: Promise<void>,
+ *   initialPath?: string,
+ *   role?: string,
+ *   connectActive?: boolean,
  *   extra?: import("react").ReactNode,
  *   before?: import("react").ReactNode,
  *   scan?: Record<string, unknown> | (() => Record<string, unknown>),
@@ -26,14 +29,19 @@ const IDLE_SCAN = { scanning: false, drives_total: 1, drives_done: 1, dirs_index
  *   fileOpsStore?: any,
  * }} [options]
  */
-function renderSearch(hits, { searchHold, extra = null, before = null, scan = IDLE_SCAN, closeOnly = false, truncated = false, incomplete = false, searchError = false, holdSecond, fileOpsStore } = {}) {
+function renderSearch(hits, { initialPath = "/", role = "admin", connectActive = false, searchHold, extra = null, before = null, scan = IDLE_SCAN, closeOnly = false, truncated = false, incomplete = false, searchError = false, holdSecond, fileOpsStore } = {}) {
   let searchCount = 0;
   const fetchMock = vi.fn(async (url) => {
     const u = String(url);
     if (u.includes("/auth/me") || u.endsWith("/api/v1/auth/me")) {
-      return new Response(JSON.stringify({ id: "1", role: "admin", username: "admin" }), {
+      return new Response(JSON.stringify({ id: "1", role, username: "admin" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (u.includes("/auth/status")) {
+      return new Response(JSON.stringify({ has_admin: true, connect_active: connectActive }), {
+        status: 200, headers: { "Content-Type": "application/json" },
       });
     }
     if (u.includes("/setup")) {
@@ -82,7 +90,7 @@ function renderSearch(hits, { searchHold, extra = null, before = null, scan = ID
     <ToastProvider>
     <ShortcutsProvider>
     <QueryClientProvider client={client}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[initialPath]}>
         <AuthProvider>
           <FileOpsProvider store={fileOpsStore}>
           {before}
@@ -145,6 +153,69 @@ describe("FileSearch", () => {
     more.focus();
     fireEvent.click(more);
     await waitFor(() => expect(screen.getByRole("link", { name: /report5\.txt/i })).toHaveFocus());
+  });
+
+  it.each([
+    { role: "admin", connectActive: true, visible: true },
+    { role: "admin", connectActive: false, visible: false },
+    { role: "member", connectActive: true, visible: false },
+  ])("limits Luna Connect settings to eligible users: $role, active=$connectActive", async ({ role, connectActive, visible }) => {
+    renderSearch([], { role, connectActive });
+    await openSearchOverlay();
+    const input = screen.getByRole("textbox", { name: "Search Luna" });
+    fireEvent.change(input, { target: { value: "appearance" } });
+    await screen.findByRole("link", { name: /^Appearance$/i });
+    fireEvent.change(input, { target: { value: "Luna Connect" } });
+    if (visible) {
+      expect(await screen.findByRole("link", { name: /^Luna Connect$/i })).toBeInTheDocument();
+    } else {
+      await waitFor(() => expect(screen.queryByRole("link", { name: /^Luna Connect$/i })).not.toBeInTheDocument());
+    }
+  });
+
+  it.each([{ role: "admin", visible: true }, { role: "member", visible: false }])(
+    "limits Users settings to Admins: $role", async ({ role, visible }) => {
+      renderSearch([], { role });
+      await openSearchOverlay();
+      const input = screen.getByRole("textbox", { name: "Search Luna" });
+      fireEvent.change(input, { target: { value: "appearance" } });
+      await screen.findByRole("link", { name: /^Appearance$/i });
+      fireEvent.change(input, { target: { value: "users" } });
+      if (visible) {
+        expect(await screen.findByRole("link", { name: /^Users$/i })).toBeInTheDocument();
+      } else {
+        await waitFor(() => expect(screen.queryByRole("link", { name: /^Users$/i })).not.toBeInTheDocument());
+      }
+    },
+  );
+
+  it("moves focus to a newly revealed setting", async () => {
+    renderSearch([]);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "security" } });
+    const more = await screen.findByRole("button", { name: "Show more settings" });
+    more.focus();
+    fireEvent.click(more);
+    await waitFor(() => expect(screen.getByRole("link", { name: /sign out all apps/i })).toHaveFocus());
+  });
+
+  it("opens the visible exact place when file results are still loading", async () => {
+    let release = () => {};
+    const searchHold = new Promise((resolve) => { release = () => resolve(undefined); });
+    function Location() {
+      const { pathname } = useLocation();
+      return <output aria-label="Current page">{pathname}</output>;
+    }
+    const { fetchMock } = renderSearch([], { searchHold, initialPath: "/files", extra: <Location /> });
+    await openSearchOverlay();
+    const input = screen.getByRole("textbox", { name: "Search Luna" });
+    fireEvent.change(input, { target: { value: "home" } });
+    expect(await screen.findByRole("link", { name: "Home" })).toBeInTheDocument();
+    await waitFor(() => expect(searchCalls(fetchMock)).toHaveLength(1));
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.getByLabelText("Current page")).toHaveTextContent(/^\/$/));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search Luna" })).not.toBeInTheDocument());
+    release();
   });
 
   it("groups ranked matches by type", async () => {

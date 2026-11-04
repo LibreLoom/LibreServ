@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { Home } from "lucide-react";
 import Navbar from "./Navbar.jsx";
@@ -9,11 +9,12 @@ afterEach(() => {
   window.localStorage.removeItem("lunaHamburgerPosition");
 });
 
-function renderNavbar() {
+function renderNavbar(onSearch = undefined) {
   return render(
     <MemoryRouter>
       <Navbar
         brand="Test"
+        onSearch={onSearch}
         items={[{ to: "/", icon: Home, label: "Home", end: true }]}
         user={{ username: "admin", role: "admin" }}
         onLogout={() => {}}
@@ -120,5 +121,26 @@ describe("Navbar user menu keyboard", () => {
     fireEvent.keyDown(item, { key: "Escape" });
     expect(trigger).toHaveFocus();
     await waitFor(() => expect(document.querySelector('[role="menu"]')).toHaveAttribute("inert"));
+  });
+});
+
+
+describe("Navbar search", () => {
+  it("opens search from the mobile navigation", async () => {
+    const onSearch = vi.fn();
+    renderNavbar(onSearch);
+    fireEvent.click(await screen.findByLabelText("Toggle menu"));
+    const menu = screen.getByRole("dialog", { name: "Primary navigation" });
+    fireEvent.click(within(menu).getByRole("button", { name: "Search" }));
+    expect(onSearch).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText("Toggle menu")).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("opens search from the desktop navigation", () => {
+    const onSearch = vi.fn();
+    renderNavbar(onSearch);
+    const nav = /** @type {HTMLElement} */ (document.querySelector('nav[aria-label="Primary"]'));
+    fireEvent.click(within(nav).getByRole("button", { name: "Search", hidden: true }));
+    expect(onSearch).toHaveBeenCalledOnce();
   });
 });
