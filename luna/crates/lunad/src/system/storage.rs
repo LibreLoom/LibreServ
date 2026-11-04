@@ -377,7 +377,15 @@ mod tests {
         std::os::unix::fs::symlink(target.path(), d.path().join("logs/link")).unwrap();
 
         let report = report(d.path());
-        let logs = report.items.iter().find(|i| i.id == "logs").unwrap();
-        assert!(logs.bytes < 100_000, "followed the symlink: {}", logs.bytes);
+        // A row is dropped when it uses no space at all, so "no row" and "a
+        // tiny row" both mean the link was skipped. Following it would give
+        // the 100,000-byte target, which always makes a row.
+        let logs = report
+            .items
+            .iter()
+            .find(|i| i.id == "logs")
+            .map(|i| i.bytes)
+            .unwrap_or(0);
+        assert!(logs < 100_000, "followed the symlink: {logs}");
     }
 }
