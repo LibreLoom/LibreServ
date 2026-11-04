@@ -1186,13 +1186,30 @@ func (s *TailscaleService) ConnectWithControl(selected string) (TailscaleStatus,
 	if closeErr != nil {
 		return TailscaleStatus{}, closeErr
 	}
+	wasEnabled := tailscaleFileExists(filepath.Join(s.dir, "enabled"))
 	if err := s.ensureDaemon(); err != nil {
 		return TailscaleStatus{}, err
 	}
-	if err := os.WriteFile(filepath.Join(s.dir, "enabled"), []byte("1"), 0600); err != nil {
+	if err := s.up(); err != nil {
+		if !wasEnabled {
+			st, stopErr := s.disableLocked()
+			if stopErr != nil {
+				return st, stopErr
+			}
+			if st.ResidualExposure {
+				return st, errors.New("Tailscale may still be reachable. Sol could not verify that its remote connection stopped")
+			}
+		}
 		return TailscaleStatus{}, err
 	}
-	if err := s.up(); err != nil {
+	if err := os.WriteFile(filepath.Join(s.dir, "enabled"), []byte("1"), 0600); err != nil {
+		st, stopErr := s.disableLocked()
+		if stopErr != nil {
+			return st, stopErr
+		}
+		if st.ResidualExposure {
+			return st, errors.New("Tailscale may still be reachable. Sol could not verify that its remote connection stopped")
+		}
 		return TailscaleStatus{}, err
 	}
 	s.clearResolvedWarning()

@@ -107,6 +107,23 @@ func TestHeadscaleSelectionPersistsBeforeDaemonStart(t *testing.T) {
 	}
 }
 
+func TestFailedFirstConnectDoesNotEnableRestore(t *testing.T) {
+	dir := t.TempDir()
+	cli, daemon := filepath.Join(dir, "cli"), filepath.Join(dir, "daemon")
+	writeExecutable(t, cli, `case "$*" in *"status --json"*) echo '{}';; *"up "*) exit 1;; esac`)
+	writeExecutable(t, daemon, `while [ $# -gt 0 ]; do if [ "$1" = --socket ] || [ "$1" = --state ]; then touch "$2"; fi; shift; done`)
+	t.Setenv("SOL_TAILSCALE_CLI", cli)
+	t.Setenv("SOL_TAILSCALED", daemon)
+	svc := NewTailscaleService(filepath.Join(dir, "data"), 8080)
+	svc.UnixListenerReady("/tmp/test-failed-connect.sock", nil)
+	if _, err := svc.Connect(); err == nil {
+		t.Fatal("expected up to fail")
+	}
+	if tailscaleFileExists(filepath.Join(svc.dir, "enabled")) {
+		t.Fatal("failed connection left restore enabled")
+	}
+}
+
 func TestTailscaleShutdownRejectsLaterStartRequests(t *testing.T) {
 	dir := t.TempDir()
 	cli, calls := filepath.Join(dir, "cli"), filepath.Join(dir, "calls")

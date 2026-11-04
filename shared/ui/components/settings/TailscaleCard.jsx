@@ -278,9 +278,10 @@ export default function TailscaleCard({
         loading={busy}
       >
         <p className="text-primary text-sm">
-          Anyone on the internet can reach {product}&apos;s sign-in page
-          {product === "Luna" ? " and public share links" : ""}. Visitors do not
-          need Tailscale. {product}&apos;s sign-in and permissions still apply.
+          Anyone on the internet can reach {product === "Luna"
+            ? "Luna's sign-in page and public share links"
+            : "Sol's dashboard"}. Visitors do not need Tailscale. {product}&apos;s
+          sign-in and permissions still apply.
         </p>
         <p className="mt-3 text-primary text-sm">
           Tailscale gives {product} an encrypted web address ending in{" "}

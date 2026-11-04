@@ -60,6 +60,8 @@ export default function TailscaleCard() {
       setActionError(
         apiErrorMessage(err, "Sol could not change Tailscale access."),
       );
+      changing.current = false;
+      await refresh();
     } finally {
       changing.current = false;
       setBusy(false);

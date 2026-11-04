@@ -46,6 +46,7 @@ describe("Sol Tailscale settings", () => {
   it("keeps first-connect retry available after the daemon fails to start", async () => {
     api.mockResolvedValueOnce(response({ enabled: false, installed: true, state: "off" }));
     api.mockRejectedValueOnce(new Error("Could not start Tailscale."));
+    api.mockResolvedValueOnce(response({ enabled: false, installed: true, state: "off" }));
     api.mockResolvedValueOnce(response({ enabled: true, installed: true, state: "pending", auth_url: "https://login.tailscale.com/a/retry" }));
     render(<TailscaleCard />);
     fireEvent.click(await screen.findByRole("button", { name: "Connect Sol" }));
@@ -114,6 +115,7 @@ describe("Sol Tailscale settings", () => {
     expect(
       screen.getByText(/Visitors do not need Tailscale/),
     ).toBeInTheDocument();
+    expect(screen.getByText(/Anyone on the internet can reach Sol's dashboard/)).toBeInTheDocument();
     const confirmButtons = screen.getAllByRole("button", {
       name: "Turn on public access",
     });

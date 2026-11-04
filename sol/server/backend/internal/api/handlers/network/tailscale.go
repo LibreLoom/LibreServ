@@ -110,12 +110,20 @@ func (h *TailscaleHandler) StopServe(w http.ResponseWriter, r *http.Request) {
 		tailscaleFailure(w, "turn off Tailscale web access", err)
 		return
 	}
+	if st.ResidualExposure {
+		JSONError(w, http.StatusBadGateway, "Tailscale may still be reachable. Sol could not verify that its remote connection stopped.")
+		return
+	}
 	JSON(w, http.StatusOK, st)
 }
 func (h *TailscaleHandler) Disable(w http.ResponseWriter, r *http.Request) {
 	st, err := h.service.Disable()
 	if err != nil {
 		JSONError(w, http.StatusBadGateway, "Sol could not turn off Tailscale. Try again.")
+		return
+	}
+	if st.ResidualExposure {
+		JSONError(w, http.StatusBadGateway, "Tailscale may still be reachable. Sol could not verify that its remote connection stopped.")
 		return
 	}
 	JSON(w, http.StatusOK, st)

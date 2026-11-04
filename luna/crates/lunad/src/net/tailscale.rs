@@ -814,16 +814,36 @@ pub fn connect_with_control(data: &Path, port: u16, selected: &str) -> Result<Va
             .and_then(|dir| dir.sync_all())
             .map_err(|e| e.to_string())?;
     }
+    let was_enabled = enabled(data);
     ensure_daemon(data)?;
-    std::fs::write(root(data).join("enabled"), b"1").map_err(|e| e.to_string())?;
+    let save_enabled = || -> Result<(), String> {
+        if let Err(error) = std::fs::write(root(data).join("enabled"), b"1") {
+            let stopped = disable_inner(data, port)?;
+            if stopped["residual_exposure"] == true {
+                return Err("Tailscale may still be reachable. Luna could not verify that its remote connection stopped.".into());
+            }
+            return Err(error.to_string());
+        }
+        Ok(())
+    };
     let raw = match up(data, true) {
         Ok(raw) => raw,
         Err(error) if save_auth_url(data, &error) => {
+            save_enabled()?;
             clear_resolved_warning(data);
             return Ok(status_json(data, port));
         }
-        Err(error) => return Err(error),
+        Err(error) => {
+            if !was_enabled {
+                let stopped = disable_inner(data, port)?;
+                if stopped["residual_exposure"] == true {
+                    return Err("Tailscale may still be reachable. Luna could not verify that its remote connection stopped.".into());
+                }
+            }
+            return Err(error);
+        }
     };
+    save_enabled()?;
     clear_resolved_warning(data);
     if let Ok(v) = serde_json::from_str::<Value>(&raw)
         && let Some(url) = v
@@ -1428,6 +1448,10 @@ pub fn restore(data: &Path, port: u16) {
             }
         }
         let _ = std::fs::remove_file(root(data).join("restore-serve"));
+    } else if let Err(error) = up(data, true)
+        && !save_auth_url(data, &error)
+    {
+        tracing::warn!(%error, "Could not restore Tailscale connection");
     }
 }
 
@@ -2088,6 +2112,42 @@ mod tests {
     }
 
     #[test]
+    fn startup_reconnects_after_proxy_cleanup_without_web_access() {
+        let _env = TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root(dir.path())).unwrap();
+        std::fs::write(root(dir.path()).join("stop-verified"), boot_id().unwrap()).unwrap();
+        std::fs::write(root(dir.path()).join("enabled"), "1").unwrap();
+        std::fs::write(state(dir.path()), "{}").unwrap();
+        std::fs::write(socket(dir.path()), "").unwrap();
+        let cli = dir.path().join("cli");
+        let daemon = dir.path().join("daemon");
+        let calls = dir.path().join("calls");
+        std::fs::write(&cli, format!("#!/bin/sh\necho \"$*\" >> '{}'\ncase \"$*\" in *'status --json'*) echo '{{\"BackendState\":\"Running\"}}';; esac\n", calls.display())).unwrap();
+        std::fs::write(&daemon, "#!/bin/sh\nwhile [ $# -gt 0 ]; do if [ \"$1\" = --socket ] || [ \"$1\" = --state ]; then touch \"$2\"; fi; shift; done\n").unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
+        unsafe {
+            std::env::set_var("LUNA_TAILSCALE_CLI", &cli);
+            std::env::set_var("LUNA_TAILSCALED", &daemon);
+        }
+        prepare_proxy_move(dir.path()).unwrap();
+        assert!(!root(dir.path()).join("restore-serve").exists());
+        restore(dir.path(), 8090);
+        let log = std::fs::read_to_string(calls).unwrap();
+        assert!(
+            log.contains(" down"),
+            "startup cleanup did not disconnect: {log}"
+        );
+        assert!(log.contains(" up "), "startup did not reconnect: {log}");
+        assert!(!log.contains("serve --bg"));
+        unsafe {
+            std::env::remove_var("LUNA_TAILSCALE_CLI");
+            std::env::remove_var("LUNA_TAILSCALED");
+        }
+    }
+
+    #[test]
     fn startup_cleanup_records_mode_before_a_stop_failure() {
         let _env = TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
@@ -2169,6 +2229,10 @@ mod tests {
         for operation in [connect, reconnect] {
             std::fs::write(root(dir.path()).join("last-error"), "Tailscale may still be reachable. Luna could not verify that its remote connection stopped.").unwrap();
             let result = operation(dir.path(), 8090).unwrap();
+            assert!(
+                enabled(dir.path()),
+                "approval must retain connection intent"
+            );
             assert_eq!(result["error"], "");
             assert_eq!(result["auth_url"], "https://login.tailscale.com/a/test");
             let pid = std::fs::read_to_string(root(dir.path()).join("tailscaled.pid")).unwrap();
@@ -2178,6 +2242,34 @@ mod tests {
                 std::thread::sleep(Duration::from_millis(20));
             }
             assert!(!Path::new(&process).exists(), "mock daemon did not exit");
+        }
+    }
+
+    #[test]
+    fn failed_first_connect_does_not_restore_on_restart() {
+        let _env = TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let cli = dir.path().join("cli");
+        let daemon = dir.path().join("daemon");
+        std::fs::write(
+            &cli,
+            "#!/bin/sh\ncase \"$*\" in *'status --json'*) echo '{}';; *'up '*) exit 1;; esac\n",
+        )
+        .unwrap();
+        std::fs::write(&daemon, "#!/bin/sh\nwhile [ $# -gt 0 ]; do if [ \"$1\" = --socket ] || [ \"$1\" = --state ]; then touch \"$2\"; fi; shift; done\n").unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
+        unsafe {
+            std::env::set_var("LUNA_TAILSCALE_CLI", &cli);
+            std::env::set_var("LUNA_TAILSCALED", &daemon);
+        }
+        assert!(connect(dir.path(), 8090).is_err());
+        assert!(!enabled(dir.path()));
+        restore(dir.path(), 8090);
+        assert!(!enabled(dir.path()));
+        unsafe {
+            std::env::remove_var("LUNA_TAILSCALE_CLI");
+            std::env::remove_var("LUNA_TAILSCALED");
         }
     }
 

@@ -71,6 +71,13 @@ fn failure(message: String) -> (StatusCode, Json<Value>) {
     json_error(StatusCode::BAD_GATEWAY, &message)
 }
 
+fn stopped_status(value: Value) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if value["residual_exposure"] == true {
+        return Err(failure("Tailscale may still be reachable. Luna could not verify that its remote connection stopped.".into()));
+    }
+    Ok(Json(value))
+}
+
 async fn status(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
@@ -162,8 +169,8 @@ async fn disable(
     })
     .await
     .map_err(|_| failure("Luna could not turn off Tailscale.".into()))?
-    .map(Json)
     .map_err(failure)
+    .and_then(stopped_status)
 }
 async fn stop_serve(
     State(state): State<AppState>,
@@ -179,8 +186,8 @@ async fn stop_serve(
     })
     .await
     .map_err(|_| failure("Luna could not turn off Tailscale web access.".into()))?
-    .map(Json)
     .map_err(failure)
+    .and_then(stopped_status)
 }
 async fn forget(
     State(state): State<AppState>,
@@ -205,6 +212,13 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use tower::ServiceExt;
+
+    #[test]
+    fn unverified_stop_is_an_http_failure() {
+        let error = stopped_status(json!({"residual_exposure": true})).unwrap_err();
+        assert_eq!(error.0, StatusCode::BAD_GATEWAY);
+        assert!(stopped_status(json!({"residual_exposure": false})).is_ok());
+    }
 
     #[tokio::test]
     async fn queued_mutation_rechecks_admin_after_reset() {
