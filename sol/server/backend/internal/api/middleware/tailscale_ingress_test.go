@@ -13,8 +13,10 @@ func TestTailscaleIngressValidatesAuthorityAndNeverGrantsLocalSetup(t *testing.T
 		if !IsTailscaleIngress(r) || isLocalSetupRequest(r) || r.Host != "sol.example.ts.net" {
 			t.Errorf("unsafe ingress: host %q", r.Host)
 		}
-		if r.Header.Get("X-Real-IP") != "" || r.Header.Get("Forwarded") != "" || r.Header.Get("X-Forwarded-Host") != "" {
-			t.Error("spoofable forwarding headers survived")
+		for _, name := range []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-IP", "Cf-Connecting-Ip"} {
+			if r.Header.Get(name) != "" {
+				t.Errorf("%s survived ingress", name)
+			}
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -23,6 +25,8 @@ func TestTailscaleIngressValidatesAuthorityAndNeverGrantsLocalSetup(t *testing.T
 	req.Header.Set("X-Forwarded-Host", "sol.example.ts.net")
 	req.Header.Set("X-Real-IP", "192.168.1.2")
 	req.Header.Set("Forwarded", "for=192.168.1.2")
+	req.Header.Set("X-Forwarded-Proto", "http")
+	req.Header.Set("Cf-Connecting-Ip", "192.168.1.3")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent || !seen {

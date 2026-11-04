@@ -3,6 +3,14 @@
 This is a maintainer protocol, not a record of a completed live test.
 Mock tests and source inspection cannot establish actual Serve/Funnel behavior.
 
+Pending live verification:
+
+- [ ] Serve forwarding headers and private reachability at pinned 1.104.2
+- [ ] Funnel forwarding headers and reachability outside the tailnet
+- [ ] Headscale HTTPS certificate and private reachability
+- [ ] Real reboot restores the selected mode
+- Android client: not verified, waived by the user.
+
 Current PR209 status: the user authorized an isolated test, then paused it
 because a disposable test tailnet is not available. Both unenrolled nodes and
 the dummy supervisor have stopped, their identity directories were removed,

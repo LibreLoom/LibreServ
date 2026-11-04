@@ -40,8 +40,13 @@ fn daemon() -> PathBuf {
 
 fn retire_failed_child(data: &Path, child: &mut std::process::Child) {
     let _ = child.kill();
-    if child.wait().is_ok() && verify_socket_stopped(data).is_ok() {
-        let _ = retire_launch(data);
+    let result = child
+        .wait()
+        .map_err(|e| e.to_string())
+        .and_then(|_| verify_socket_stopped(data))
+        .and_then(|_| retire_launch(data));
+    if let Err(error) = result {
+        tracing::warn!(%error, "Could not verify failed Tailscale launch cleanup");
     }
 }
 fn root(data: &Path) -> PathBuf {

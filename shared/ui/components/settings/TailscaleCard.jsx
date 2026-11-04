@@ -29,10 +29,12 @@ export default function TailscaleCard({
   const headscale = Boolean(s.control_server);
   const serverLocked = Boolean(s.identity_saved || s.enabled || s.residual_exposure);
   let validServer = selectedKind !== "headscale";
+  let serverOrigin = "";
   if (!validServer) {
     try {
       const u = new URL(serverAddress);
       validServer = u.protocol === "https:" && !u.username && !u.password && u.pathname === "/" && !u.search && !u.hash;
+      if (validServer) serverOrigin = u.origin;
     } catch { /* an incomplete address is not ready to submit */ }
   }
   const connected = s.state === "connected";
@@ -183,7 +185,7 @@ export default function TailscaleCard({
           )}
           <div className="flex flex-wrap gap-2">
             {connected && s.private_url && !s.public_url && (
-              <Button variant="outline" disabled={busy} onClick={() => run("stop-serve")}>
+              <Button variant="outline" surface="secondary" disabled={busy} onClick={() => run("stop-serve")}>
                 Turn off private access
               </Button>
             )}
@@ -222,7 +224,7 @@ export default function TailscaleCard({
                 variant="primary"
                 loading={busy}
                 disabled={busy || s.installed === false || !validServer}
-                onClick={() => run("connect", { control_server: selectedKind === "headscale" ? new URL(serverAddress).origin : "" })}
+                onClick={() => run("connect", { control_server: selectedKind === "headscale" ? serverOrigin : "" })}
               >
                 Connect {product}
               </Button>
