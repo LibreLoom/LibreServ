@@ -538,6 +538,8 @@ describe("PublicSharePage", () => {
     fireEvent.change(/** @type {HTMLInputElement} */ (picker), {
       target: { files: [new File(["1"], "a.txt"), new File(["2"], "b.txt")] },
     });
+    const dock = await screen.findByRole("region", { name: "File tasks" });
+    fireEvent.click(within(dock).getByRole("button", { name: "Show details" }));
     expect(await screen.findByText("Choose one file to replace this file.")).toBeInTheDocument();
   });
 
