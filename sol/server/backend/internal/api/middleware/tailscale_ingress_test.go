@@ -33,6 +33,11 @@ func TestTailscaleIngressValidatesAuthorityAndNeverGrantsLocalSetup(t *testing.T
 		t.Fatalf("valid status %d", rec.Code)
 	}
 	for _, mutation := range []func(*http.Request){
+		func(r *http.Request) { r.Header.Del("X-Forwarded-For") },
+		func(r *http.Request) { r.Header.Set("X-Forwarded-For", "") },
+		func(r *http.Request) { r.Header.Set("X-Forwarded-For", "not-an-ip") },
+		func(r *http.Request) { r.Header.Del("X-Forwarded-Host") },
+		func(r *http.Request) { r.Header.Set("X-Forwarded-Host", "") },
 		func(r *http.Request) { r.Header.Set("X-Forwarded-Host", "other.example") },
 		func(r *http.Request) { r.Header.Add("X-Forwarded-For", "192.0.2.1") },
 		func(r *http.Request) { r.Header.Set("X-Forwarded-For", "192.0.2.1, 192.0.2.2") },
