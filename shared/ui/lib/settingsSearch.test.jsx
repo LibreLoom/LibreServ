@@ -7,6 +7,7 @@ import {
   extractSettingsItems,
   findSettingsTarget,
   normalize,
+  matchesSearchName,
   searchSettings,
 } from "./settingsSearch.js";
 
@@ -45,6 +46,15 @@ const categories = [
 ];
 
 describe("settings search", () => {
+  it("accepts a single typo in names without matching distant words", async () => {
+    const index = await buildSettingsIndex(categories, (node) => node);
+    expect(searchSettings(index, "appearence").some((hit) => hit.title === "Appearance")).toBe(true);
+    expect(matchesSearchName("Photos", "phoots")).toBe(true);
+    expect(matchesSearchName("Photos", "phases")).toBe(false);
+    expect(matchesSearchName("Home", "ho")).toBe(true);
+    expect(matchesSearchName("Home", "hx")).toBe(false);
+  });
+
   it("reads cards and rows from whatever the shared components draw", async () => {
     const errors = [];
     const index = await buildSettingsIndex(categories, (node) => node, {

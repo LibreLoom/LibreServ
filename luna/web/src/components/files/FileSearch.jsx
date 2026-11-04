@@ -9,7 +9,7 @@ import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
-import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
+import { matchesSearchName } from "@libreloom/ui/lib/settingsSearch.js";
 import LinearProgress from "@libreloom/ui/components/common/LinearProgress.jsx";
 import { showPageLevelError } from "../../lib/modalScopedError";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
@@ -25,9 +25,7 @@ import useFileSearch from "../../hooks/useFileSearch.js";
 import {
   MIN_SEARCH_LENGTH,
   OPEN_FILE_SEARCH_EVENT,
-  loadSearchKind,
   openFileSearch,
-  saveSearchKind,
 } from "../../lib/fileSearch.js";
 import { apiErrorMessage, deleteJson, getDrives, getJson } from "../../lib/api";
 import { parentPath, pathBasename } from "../../lib/paths";
@@ -43,11 +41,6 @@ import useConnectActive from "../../hooks/useConnectActive.js";
 /** Match ModalCard exit + FLIP morph duration. */
 const OVERLAY_EXIT_MS = 320;
 
-const KIND_OPTIONS = [
-  { value: "all", label: "All" },
-  { value: "dir", label: "Folders" },
-  { value: "file", label: "Files" },
-];
 
 function folderOf(path) {
   return parentPath(path) ?? "";
@@ -143,7 +136,6 @@ export default function FileSearch() {
   const { user } = useAuth();
   const fileOps = useFileOps();
   const [typed, setTyped] = useState("");
-  const [kind, setKind] = useState(loadSearchKind);
   const [actionError, setActionError] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [copyTarget, setCopyTarget] = useState(null);
@@ -170,12 +162,17 @@ export default function FileSearch() {
   const connectActive = useConnectActive();
   const categories = useMemo(() => visibleCategories(user?.role === "admin", connectActive), [user?.role, connectActive]);
   const trimmed = typed.trim();
-  const settings = useSettingsSearch(categories, present ? trimmed : "");
+  const settings = useSettingsSearch(categories, present ? trimmed : "", present);
   const [showAllSettings, setShowAllSettings] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState(/** @type {string[]} */ ([]));
   const places = [{ title: "Home", path: "/" }, { title: "Photos", path: "/gallery" }, { title: "Files", path: "/files" }, { title: "Shared", path: "/shared" }, { title: "Settings", path: "/settings" }]
-    .filter((place) => trimmed.length >= MIN_SEARCH_LENGTH && place.title.toLowerCase().includes(trimmed.toLowerCase()));
-  const search = useFileSearch(trimmed, { enabled: present && !isClosing, kind });
+    .filter((place) => trimmed.length >= MIN_SEARCH_LENGTH && matchesSearchName(place.title, trimmed));
+  const search = useFileSearch(trimmed, { enabled: present && !isClosing });
+  const users = useQuery({ queryKey: ["users"], queryFn: () => getJson("/api/v1/users"), enabled: present && user?.role === "admin" });
+  const peopleLoading = user?.role === "admin" && users.isPending && users.fetchStatus === "fetching";
+  const people = trimmed.length >= MIN_SEARCH_LENGTH && user?.role === "admin"
+    ? (users.data || []).filter((person) => matchesSearchName(person.display_name || person.username, trimmed) || matchesSearchName(person.username, trimmed))
+    : [];
 
   const exactPlace = places.find((place) => place.title.toLowerCase() === trimmed.toLowerCase());
   const exactSetting = settings.results?.find((hit) => hit.title.toLowerCase() === trimmed.toLowerCase());
@@ -478,7 +475,7 @@ export default function FileSearch() {
           data-slot="file-search-overlay"
           className={cn(
             "fixed inset-0 z-50 flex items-start justify-center p-4 sm:p-8 pt-[max(1rem,8vh)] sm:pt-[max(2rem,12vh)]",
-            "bg-primary/60 backdrop-blur-sm",
+            "bg-secondary/30 dark:bg-primary/30 backdrop-blur-sm",
             isClosing
               ? "file-search-backdrop-exit"
               : "file-search-backdrop-enter",
@@ -539,29 +536,9 @@ export default function FileSearch() {
               </Button>
             </div>
 
-            <div
-              data-slot="file-search-toolbar"
-              className="relative flex flex-wrap items-center justify-between gap-2 px-4 py-2 shrink-0 border-b border-primary/20"
-            >
-              {/* The old list stays up while a new answer loads; this says so. */}
-              <LinearProgress
-                active={search.isUpdating}
-                delayMs={150}
-                surface="secondary"
-                label="Updating results"
-                className="absolute inset-x-0 bottom-0 rounded-none"
-              />
-              <SegmentedControl
-                surface="secondary"
-                aria-label="Show"
-                options={KIND_OPTIONS}
-                value={kind}
-                onChange={(next) => {
-                  setKind(/** @type {any} */ (next));
-                  saveSearchKind(/** @type {any} */ (next));
-                }}
-              />
-              <FileSearchStatus scan={search.scan} />
+            <div className="relative shrink-0">
+              <LinearProgress active={search.isUpdating} delayMs={150} surface="secondary" label="Updating results" className="absolute inset-x-0 top-0 rounded-none" />
+              <FileSearchStatus scan={search.scan} className="m-3" />
             </div>
 
             <div
@@ -581,6 +558,10 @@ export default function FileSearch() {
                 </p>
               )}
 
+              {users.isError && user?.role === "admin" && (
+                <PageNotice variant="error" className="mb-3">Could not search people. <Button variant="outline" surface="primary" size="sm" onClick={() => users.refetch()}>Try again</Button></PageNotice>
+              )}
+
               {search.isError && (
                 <PageNotice variant="error" className="mb-3">
                   <span className="flex flex-wrap items-center justify-between gap-2">
@@ -593,6 +574,7 @@ export default function FileSearch() {
               )}
 
               {search.isLoading && <SearchSkeleton />}
+              {peopleLoading && trimmed.length >= MIN_SEARCH_LENGTH && <p role="status" className="text-sm text-primary">Searching people…</p>}
 
               {search.incomplete && !search.isError && !search.isUpdating && trimmed === search.q && (
                 <PageNotice variant="warning" className="mb-3">
@@ -600,7 +582,7 @@ export default function FileSearch() {
                 </PageNotice>
               )}
 
-              {search.active && !search.isLoading && !search.isError && !search.incomplete && search.hits.length === 0 && places.length === 0 && settings.results?.length === 0 && (
+              {search.active && !search.isLoading && !search.isError && !search.incomplete && !peopleLoading && !users.isError && search.hits.length === 0 && places.length === 0 && settings.results?.length === 0 && people.length === 0 && (
                 search.scan?.scanning ? (
                   <EmptyState
                     className="mt-1"
@@ -618,7 +600,7 @@ export default function FileSearch() {
                 )
               )}
 
-              {(search.hits.length > 0 || places.length > 0 || (settings.results?.length ?? 0) > 0) && (
+              {(search.hits.length > 0 || places.length > 0 || (settings.results?.length ?? 0) > 0 || people.length > 0) && (
                 <>
                   {search.closeOnly && !bestOther && (
                     <Typewriter
@@ -697,6 +679,22 @@ export default function FileSearch() {
                         ))}
                       </>
                     )}
+                    {people.length > 0 && (
+                      <>
+                        <li role="presentation" className="px-1 pt-2 text-xs font-mono text-primary">People</li>
+                        {people.slice(0, expandedGroups.includes("People") ? undefined : 4).map((person) => (
+                          <li key={person.id} data-slot="file-search-item">
+                            <Link data-slot="file-search-link" aria-label={[person.display_name, person.username].filter(Boolean).join(", ")} to={person.id === user?.id ? "/settings#security" : `/settings/users/${encodeURIComponent(person.id)}`} onClick={() => beginClose()} className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent">
+                              <span className="block">{person.display_name || person.username}</span>
+                              {person.display_name && person.username && person.display_name !== person.username && <span className="block text-sm"><InlinePill>{person.username}</InlinePill></span>}
+                            </Link>
+                          </li>
+                        ))}
+                        {people.length > 4 && !expandedGroups.includes("People") && (
+                          <li data-slot="file-search-item"><Button data-slot="file-search-link" variant="ghost" surface="secondary" size="sm" onClick={(event) => expandResults(event, () => setExpandedGroups((current) => [...current, "People"]))}>Show more people</Button></li>
+                        )}
+                      </>
+                    )}
                     {settings.results?.some((hit) => hit !== bestOther) && (
                       <>
                         <li role="presentation" className="px-1 pt-2 text-xs font-mono text-primary">Settings</li>
@@ -729,7 +727,7 @@ export default function FileSearch() {
                   <Typewriter
                     as="p"
                     className="block text-sm"
-                    text="Search files, folders, settings and places."
+                    text="Search files, folders, settings, places and people."
                     cursor={false}
                   />
                   <p className="mt-2 text-xs">Press Alt+/ to search Luna from any page.</p>

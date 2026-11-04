@@ -3,7 +3,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { getJson } from "../lib/api";
 import { MIN_SEARCH_LENGTH, parseSearchResponse, searchUrl } from "../lib/fileSearch.js";
 
-const DEBOUNCE_MS = 250;
+const DEBOUNCE_MS = 150;
 /** How often to ask again while Luna is still reading drives. */
 const SCAN_POLL_MS = 1200;
 

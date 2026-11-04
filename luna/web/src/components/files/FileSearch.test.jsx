@@ -27,9 +27,11 @@ const IDLE_SCAN = { scanning: false, drives_total: 1, drives_done: 1, dirs_index
  *   searchError?: boolean,
  *   holdSecond?: Promise<void>,
  *   fileOpsStore?: any,
+ *   people?: any[],
+ *   peopleHold?: Promise<void>,
  * }} [options]
  */
-function renderSearch(hits, { initialPath = "/", role = "admin", connectActive = false, searchHold, extra = null, before = null, scan = IDLE_SCAN, closeOnly = false, truncated = false, incomplete = false, searchError = false, holdSecond, fileOpsStore } = {}) {
+function renderSearch(hits, { initialPath = "/", role = "admin", connectActive = false, searchHold, extra = null, before = null, scan = IDLE_SCAN, closeOnly = false, truncated = false, incomplete = false, searchError = false, holdSecond, fileOpsStore, people = [], peopleHold } = {}) {
   let searchCount = 0;
   const fetchMock = vi.fn(async (url) => {
     const u = String(url);
@@ -76,7 +78,11 @@ function renderSearch(hits, { initialPath = "/", role = "admin", connectActive =
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }
-    if (u.endsWith("/shares") || u.endsWith("/grants") || u.endsWith("/users") || u.endsWith("/protections")) {
+    if (u.endsWith("/api/v1/users")) {
+      if (peopleHold) await peopleHold;
+      return new Response(JSON.stringify(people), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (u.endsWith("/shares") || u.endsWith("/grants") || u.endsWith("/protections")) {
       return new Response(JSON.stringify([]), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -686,15 +692,42 @@ describe("FileSearch", () => {
     expect(underlined).toHaveTextContent("beach");
   });
 
-  it("asks for only folders or only files when you pick one", async () => {
+  it.each(["admin", "user"])("limits people results to Admins: %s", async (role) => {
+    const { fetchMock } = renderSearch([], { role, people: [{ id: "p1", username: "alice", display_name: "Alice" }] });
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "alcie" } });
+    if (role === "admin") {
+      expect(await screen.findByRole("link", { name: /Alice, alice/i })).toHaveAttribute("href", "/settings/users/p1");
+    } else {
+      await waitFor(() => expect(searchCalls(fetchMock).length).toBeGreaterThan(0));
+      expect(screen.queryByRole("link", { name: /Alice/i })).not.toBeInTheDocument();
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/v1/users"))).toBe(false);
+    }
+  });
+
+  it("waits for people and distinguishes matching names by username", async () => {
+    /** @type {() => void} */
+    let release = () => {};
+    const peopleHold = new Promise((resolve) => { release = () => resolve(undefined); });
+    renderSearch([], { peopleHold, people: [
+      { id: "a1", username: "alice-one", display_name: "Alice" },
+      { id: "a2", username: "alice-two", display_name: "Alice" },
+    ] });
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "alice" } });
+    expect(await screen.findByText("Searching people…")).toBeInTheDocument();
+    expect(screen.queryByText("Nothing matched")).not.toBeInTheDocument();
+    release();
+    expect(await screen.findByRole("link", { name: /Alice, alice-one/i })).toHaveAttribute("href", "/settings/users/a1");
+    expect(screen.getByRole("link", { name: /Alice, alice-two/i })).toHaveAttribute("href", "/settings/users/a2");
+  });
+
+  it("searches all files and folders without a filter", async () => {
     const { fetchMock } = renderSearch([]);
     await openSearchOverlay();
     fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "photos" } });
     await waitFor(() => expect(searchCalls(fetchMock)).toContain("/api/v1/search?q=photos"));
-    fireEvent.click(screen.getByRole("radio", { name: "Folders" }));
-    await waitFor(() => expect(searchCalls(fetchMock)).toContain("/api/v1/search?q=photos&kind=dir"));
-    fireEvent.click(screen.getByRole("radio", { name: "Files" }));
-    await waitFor(() => expect(searchCalls(fetchMock)).toContain("/api/v1/search?q=photos&kind=file"));
+    expect(screen.queryByRole("radio", { name: "Folders" })).not.toBeInTheDocument();
   });
 
   it("says when every result is only a close match", async () => {
@@ -863,16 +896,6 @@ describe("FileSearch", () => {
     await waitFor(() => expect(searchCalls(fetchMock).length).toBeGreaterThan(before));
   });
 
-  it("remembers the Files / Folders choice", async () => {
-    window.localStorage.removeItem("luna.fileSearch.kind");
-    renderSearch([]);
-    await openSearchOverlay();
-    // The choice is there before anything is typed, so nothing shifts later.
-    fireEvent.click(screen.getByRole("radio", { name: "Folders" }));
-    expect(window.localStorage.getItem("luna.fileSearch.kind")).toBe("dir");
-    window.localStorage.removeItem("luna.fileSearch.kind");
-  });
-
   it("shows the loading bar when a newer answer is slow, and eases it out after", async () => {
     /** @type {(() => void) | undefined} */
     let release;
@@ -889,7 +912,7 @@ describe("FileSearch", () => {
     expect(screen.queryByRole("progressbar", { name: "Updating results" })).not.toBeInTheDocument();
 
     // A new search while the old list stays up: the bar waits out its delay.
-    fireEvent.click(screen.getByRole("radio", { name: "Files" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "ones" } });
     expect(screen.queryByRole("progressbar", { name: "Updating results" })).not.toBeInTheDocument();
     const bar = await screen.findByRole("progressbar", { name: "Updating results" }, { timeout: 2000 });
     expect(bar).toHaveAttribute("data-phase", "in");

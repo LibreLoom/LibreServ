@@ -110,6 +110,27 @@ function normalizedHit(hit) {
   return n;
 }
 
+/** One typo in a word of at least four characters, including a swap. */
+export function closeSearchWord(word, candidate) {
+  if (word.length < 4 || Math.abs(word.length - candidate.length) > 1) return false;
+  if (word.length === candidate.length) {
+    const differences = [...word].reduce((out, char, i) => char === candidate[i] ? out : [...out, i], []);
+    return differences.length === 1 || (differences.length === 2 && differences[1] === differences[0] + 1
+      && word[differences[0]] === candidate[differences[1]] && word[differences[1]] === candidate[differences[0]]);
+  }
+  const [shorter, longer] = word.length < candidate.length ? [word, candidate] : [candidate, word];
+  let i = 0;
+  while (i < shorter.length && shorter[i] === longer[i]) i++;
+  return shorter.slice(i) === longer.slice(i + 1);
+}
+
+/** @param {string} value @param {string} query */
+export function matchesSearchName(value, query) {
+  const name = normalize(value);
+  const words = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  return normalize(query).split(" ").filter(Boolean).every((word) => name.includes(word) || words.some((part) => closeSearchWord(word, part)));
+}
+
 /**
  * Hits for what the person typed, best first. Every word has to appear somewhere
  * in a hit; words in the name count for more than words in the small print.
@@ -133,6 +154,7 @@ export function searchSettings(index, query, limit = 30) {
       else if (card.includes(word)) best = 3;
       else if (category.includes(word)) best = 2;
       else if (text.includes(word)) best = 1;
+      else if (titleWords.some((w) => closeSearchWord(word, w))) best = 0.5;
       if (best === 0) return;
       score += best;
     }
