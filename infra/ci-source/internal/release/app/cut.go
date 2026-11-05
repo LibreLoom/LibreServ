@@ -306,6 +306,9 @@ func (a *App) preflight(ctx context.Context, req CutRequest, lk *feedLookup) *Pr
 		if err == nil {
 			err = g.Preflight(ctx, "main", tag, push, forge)
 		}
+		if err == nil {
+			err = g.CheckPushed(ctx, push, "main")
+		}
 		if err != nil {
 			add("git", CheckFail, err.Error())
 		} else if push == forge {

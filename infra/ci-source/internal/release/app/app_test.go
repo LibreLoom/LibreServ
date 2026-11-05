@@ -382,6 +382,31 @@ func TestPreflightReportsProblems(t *testing.T) {
 	}
 }
 
+func TestPreflightRefusesUnpushedCommits(t *testing.T) {
+	w := newWorld(t)
+	os.WriteFile(filepath.Join(w.repo, "keys", "late.txt"), []byte("x"), 0o644)
+	git(t, w.repo, "add", "keys/late.txt")
+	git(t, w.repo, "commit", "-q", "-m", "todo: push me")
+	rep := w.app.Preflight(context.Background(), CutRequest{Unit: "fake", Channel: "stable"})
+	if rep.OK() {
+		t.Fatal("unpushed commit passed")
+	}
+	var detail string
+	for _, c := range rep.Checks {
+		if c.Name == "git" {
+			detail = c.Detail
+		}
+	}
+	if !strings.Contains(detail, "push or drop") {
+		t.Fatalf("git check %q", detail)
+	}
+	if _, err := w.app.Cut(context.Background(), CutRequest{Unit: "fake", Channel: "stable"}); err == nil {
+		t.Fatal("cut ran with unpushed commits")
+	} else if !strings.Contains(err.Error(), "push or drop") {
+		t.Fatalf("want the unpushed error, got %v", err)
+	}
+}
+
 func TestCutAndVerifyEndToEnd(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
