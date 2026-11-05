@@ -370,6 +370,8 @@ describe("FilePage", () => {
     fireEvent.drop(item, { dataTransfer });
     // The question is a row in the file task card, not a dialog.
     const dock = await screen.findByRole("region", { name: "File tasks" });
+    // The card starts collapsed; open it for the assertions below.
+    fireEvent.click(await within(dock).findByRole("button", { name: "Show details" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     fireEvent.click(await within(dock).findByRole("button", { name: "Move anyway" }));
     await waitFor(() => expect(posts).toHaveLength(2));
@@ -610,6 +612,8 @@ describe("FilePage", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Empty trash" }));
     // The dialog hands the work to the file task card, where the failure stays.
     const dock = await screen.findByRole("region", { name: "File tasks" });
+    // The card starts collapsed; open it for the assertions below.
+    fireEvent.click(await within(dock).findByRole("button", { name: "Show details" }));
     expect(await within(dock).findByText("Request failed (500)")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
@@ -672,6 +676,8 @@ describe("FilePage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start copying" }));
     // The picker closes and the failure stays in the file task card, with no toast.
     const dock = await screen.findByRole("region", { name: "File tasks" });
+    // The card starts collapsed; open it for the assertions below.
+    fireEvent.click(await within(dock).findByRole("button", { name: "Show details" }));
     expect(await within(dock).findByText(/Couldn't reach Luna/i)).toBeInTheDocument();
     expect(within(dock).getByRole("button", { name: "Try again" })).toBeInTheDocument();
     // The picker plays its exit animation (300 ms) before it unmounts.
@@ -700,6 +706,8 @@ describe("FilePage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));
     fireEvent.click(await screen.findByRole("button", { name: "Start copying" }));
     const dock = await screen.findByRole("region", { name: "File tasks" });
+    // The card starts collapsed; open it for the assertions below.
+    fireEvent.click(await within(dock).findByRole("button", { name: "Show details" }));
     fireEvent.click(await within(dock).findByRole("button", { name: "Copy anyway" }));
     await waitFor(() => expect(posts).toHaveLength(3));
     expect(posts.map((body) => body.from_path)).toEqual(["Private/Nested", "Private/file.txt", "Private/file.txt"]);

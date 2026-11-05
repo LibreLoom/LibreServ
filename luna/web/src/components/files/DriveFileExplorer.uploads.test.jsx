@@ -85,6 +85,8 @@ describe("DriveFileExplorer uploads", () => {
     fireEvent.change(input, { target: { files: [inFolder("a.txt"), inFolder("b.txt")] } });
 
     const dock = await screen.findByRole("region", { name: "File tasks" });
+    // The card starts collapsed; open it for the assertions below.
+    fireEvent.click(await within(dock).findByRole("button", { name: "Show details" }));
     expect(await within(dock).findByRole("button", { name: "Replace" })).toBeInTheDocument();
     expect(within(dock).getByRole("button", { name: "Keep both" })).toBeInTheDocument();
     expect(within(dock).getByRole("button", { name: "Skip" })).toBeInTheDocument();

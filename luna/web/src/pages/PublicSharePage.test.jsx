@@ -538,6 +538,8 @@ describe("PublicSharePage", () => {
     fireEvent.change(/** @type {HTMLInputElement} */ (picker), {
       target: { files: [new File(["1"], "a.txt"), new File(["2"], "b.txt")] },
     });
+    // The card starts collapsed; open it so the picker's hint shows.
+    fireEvent.click(await screen.findByRole("button", { name: "Show details" }));
     expect(await screen.findByText("Choose one file to replace this file.")).toBeInTheDocument();
   });
 

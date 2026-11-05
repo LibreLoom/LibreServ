@@ -93,6 +93,8 @@ describe("DriveFileExplorer long requests", () => {
 
     // The dialog hands the work over and closes; the failure lives in its row.
     const dock = await screen.findByRole("region", { name: "File tasks" });
+    // The card starts collapsed; open it for the assertions below.
+    fireEvent.click(await within(dock).findByRole("button", { name: "Show details" }));
     expect(await within(dock).findByText("Luna is busy.")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     const deletes = calls.filter(([method]) => method === "DELETE");
@@ -111,6 +113,8 @@ describe("DriveFileExplorer long requests", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete permanently" }));
 
     const dock = await screen.findByRole("region", { name: "File tasks" });
+    // The card starts collapsed; open it for the assertions below.
+    fireEvent.click(await within(dock).findByRole("button", { name: "Show details" }));
     expect(await within(dock).findByText("Luna is busy.")).toBeInTheDocument();
     expect(within(dock).getByText("Deleted 2 of 3 items permanently")).toBeInTheDocument();
     expect(calls.filter(([method, url]) => method === "POST" && url.includes("/files/purge"))).toHaveLength(3);
@@ -134,6 +138,8 @@ describe("DriveFileExplorer long requests", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Empty trash" }));
 
     const dock = await screen.findByRole("region", { name: "File tasks" });
+    // The card starts collapsed; open it for the assertions below.
+    fireEvent.click(await within(dock).findByRole("button", { name: "Show details" }));
     expect(await within(dock).findByText("Luna couldn't reach the drive.")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     const purge = calls.find(([method, url]) => method === "POST" && url.includes("/files/purge"));
