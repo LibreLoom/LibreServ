@@ -131,14 +131,19 @@ mod tests {
         } else {
             format!("/run/user/{uid}").into()
         };
-        let candidate = std::env::var_os("XDG_RUNTIME_DIR")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| fallback.clone());
-        if protected_ancestry(&candidate).is_ok() {
-            candidate
-        } else {
-            fallback
+        for candidate in [
+            std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from),
+            Some(fallback.clone()),
+            std::env::var_os("HOME").map(std::path::PathBuf::from),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if protected_ancestry(&candidate).is_ok() && tempfile::tempdir_in(&candidate).is_ok() {
+                return candidate;
+            }
         }
+        fallback
     }
     fn assert_fixture_ancestry(path: &Path) {
         if let Err(error) = protected_ancestry(path) {

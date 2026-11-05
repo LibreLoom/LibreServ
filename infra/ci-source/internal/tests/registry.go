@@ -728,7 +728,7 @@ func addLunaTests() {
 		Description: "Check Luna Rust code without OS, desktop or Android toolchains",
 		Type:        TestTypeUnit,
 		Container:   LocalImagePrefix + "luna-remote-check",
-		Command:     "runtime_dir=$(mktemp -d \"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/ts-runtime-XXXXXX\") && trap 'rm -rf \"$runtime_dir\"' EXIT && export XDG_RUNTIME_DIR=\"$runtime_dir\" && cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace",
+		Command:     "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace",
 		WorkDir:     "/repo/luna",
 		Timeout:     30 * time.Minute,
 	})
