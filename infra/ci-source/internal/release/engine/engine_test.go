@@ -75,7 +75,7 @@ func TestRunArgs(t *testing.T) {
 	}, "cname")
 	line := strings.Join(args, " ")
 	for _, want := range []string{"--rm", "--memory 2g", "-v /s:/src", "-v /o:/out",
-		"-v libreserv-release-gomod:/go/pkg/mod", "-e A -e TOKEN", "unmask=ALL",
+		"-v " + VolumePrefix + "gomod:/go/pkg/mod", "-e A -e TOKEN", "unmask=ALL",
 		"libreserv-release/go:abc go build", "label=disable"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("missing %q in %s", want, line)
