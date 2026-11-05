@@ -930,6 +930,17 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 		config.Env = env
 	}
 
+	if t.ID == "luna-daemon-check" {
+		// The cache bind may have writable ancestors. Give the socket tests a
+		// private mount, initialize its owner, then drop privileges before tests.
+		const runtimeDir = "/luna-test-runtime"
+		hostConfig.Tmpfs = map[string]string{runtimeDir: "rw,nosuid,nodev,noexec,mode=0700"}
+		config.User = "0"
+		config.Env = append(config.Env, "XDG_RUNTIME_DIR="+runtimeDir, "LIBRESERV_LUNA_TEST_COMMAND="+t.Command)
+		init := fmt.Sprintf("chown %d:%d %s && exec setpriv --reuid=%d --regid=%d --clear-groups --bounding-set=-all --inh-caps=-all --ambient-caps=-all sh -c \"$LIBRESERV_LUNA_TEST_COMMAND\"", os.Getuid(), os.Getgid(), runtimeDir, os.Getuid(), os.Getgid())
+		config.Cmd = containerCommand(init, r.nice, r.lifeline.name())
+	}
+
 	// Apply resource limits if configured
 	if q := r.jobCPUQuota(); q > 0 {
 		hostConfig.CPUQuota = q
