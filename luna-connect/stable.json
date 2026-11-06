@@ -2,19 +2,19 @@
   "format": 1,
   "unit": "luna-connect",
   "channel": "stable",
-  "version": "0.0.2",
-  "published": "2026-10-18T21:47:38Z",
-  "notes": "- fix(connect): harden Stripe billing\n- feat(connect): delay removal of deleted backups by 7 days and retry failed removals\n- fix(connect): harden Backblaze buckets and keys\n- style(connect): pricing values all in mono\n- feat(connect): private items row shows whether a person has any, with a share link\n- feat(connect): rewrite the cloud backup viewer, download a folder from its row\n- fix(luna): Protect review follow-ups in Connect storage, share links and tests\n- chore: share npm→pnpm→bun fallback between host Makefiles\n- fix(luna): resolve shared/ui class helpers from the Connect web app\n- fix(luna): add prop-types to the Connect web app for shared/ui\n- fix(luna): resolve react for shared/ui from the Connect web app in release builds\n- chore(keys): rename lsluna signing key to luna\n- feat(luna): private backups in the Protect sheet, the restore card and Connect's Private items row\n- feat(luna): private cloud backups end to end on the daemon, shared JS and Connect\n- fix(luna): restore the phase 4 private-backup files and the Protect rebuild plan that the checkpoint left out\n- checkpoint\n- fix(luna): restore no longer holds the database lock while reading the cloud, re-linking needs a signed challenge, share links are capped and truthful\n- feat(luna): browse, download and share cloud backups from Connect, restore the cloud index after database loss\n- fix(luna-connect): moves need a fresh signature, only the owner sets the signing key, reads never claim a Luna\n- fix(luna-connect): bind Luna ids to devices, never create buckets on read or delete, keep committed objects on failed writes\n- feat(luna-connect): store encrypted backup packs and records per Luna, purge them with the account\n- docs(luna-connect): drop retired --tag hint and Sol Connect mention from deploy files\n",
+  "version": "0.0.3",
+  "published": "2026-11-06T03:51:19Z",
+  "notes": "I'm lazy. No notes for you.\n\n- feat(luna-connect): floor cloud backup at $3 a month, and add a credit ledger\n- fix(web): close 472 type holes tsgo found that tsc silently skipped\n- fix(deps): update packages with published security fixes\n- test(luna): wait for account detail and subdomain edit in AdminAccountsPage\n- fix(luna): recovery phrase review fixes\n- feat(luna): recovery phrase phase 5 — remove older private versions at once\n- feat(luna): recovery phrase phase 3 — change, replace, and lost-phrase flows\n- feat(luna): recovery phrase phase 1 — phrase setup, check, and restore flow\n- fix(luna-connect): restore jsdom's localStorage under newer Node in tests\n- fix(ci): review and CI fixes for the release build and Luna checks\n- feat(luna): hybrid Ed25519 + ML-DSA-65 signatures\n- feat(luna): optional 24-word recovery phrase\n- feat(luna): hybrid X25519 + ML-KEM-768 sealing for cloud backup keys\n- fix: typecheck, formatting and lint failures found by the full test run\n- test(connect): live Backblaze lifecycle test; correct audit note on the B2 key\n- fix(connect): let the database lock pick the one job leader\n",
   "parts": [
     {
       "name": "server",
       "os": "linux",
       "arch": "amd64",
       "file": "luna-connect-server-linux-amd64",
-      "size": 18043040,
-      "sha256": "d74802d722bce1bbeb6b2c9cf6069996ff1249d1251517b43e19f046ce37148a",
+      "size": 18137248,
+      "sha256": "839b681b18878a5ef0564f33642bdfb8087b6b6d8655e1c52e9f19a3120a6659",
       "urls": [
-        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna-connect/0.0.2/luna-connect-server-linux-amd64"
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna-connect/0.0.3/luna-connect-server-linux-amd64"
       ]
     },
     {
@@ -22,10 +22,10 @@
       "os": "any",
       "arch": "any",
       "file": "luna-connect-web.tar.gz",
-      "size": 1077192,
-      "sha256": "3ba006e3cd4128c38f8d4d70b685cc6417c41f98b86c424f15c5c6541e7334ad",
+      "size": 1089134,
+      "sha256": "24ac8538d8992e44e51e9e59035edfd5e0903fa19db887d9fabef44faee15acd",
       "urls": [
-        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna-connect/0.0.2/luna-connect-web.tar.gz"
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna-connect/0.0.3/luna-connect-web.tar.gz"
       ]
     }
   ]
