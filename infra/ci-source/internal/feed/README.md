@@ -114,6 +114,7 @@ image).
 | `luna` | `lunad` | linux | amd64 (musl) | `lunad-linux-amd64-musl` |
 | | `os` | linux | amd64 | `luna-os-x86_64.img.xz` |
 | | `installer` | linux | amd64 | `luna-rapidinstall-x86_64.iso.xz` |
+| | `packs` (optional) | linux | any | tar.xz of the pack folders |
 | `luna-desktop` | `flatpak` | linux | amd64 | `luna-desktop-x86_64.flatpak` |
 | | `windows` | windows | amd64 | `Luna-Desktop-Setup-x86_64.exe` |
 | `luna-android` | `apk` | android | any | `luna-android.apk` |
@@ -138,6 +139,14 @@ site files (`index.html` …) at the top for `luna-connect`
    check `size` and `sha256` before using anything.
 5. Compare versions as strict semver, including `-beta.N`. Same or lower than
    installed → no update.
+
+The optional `packs` part on `luna` carries the editor packs (EuroOffice,
+drawio) as one tar.xz whose top-level entries are the pack folders. The
+receiver downloads it like any other part (size + sha256 checked), unpacks it
+into a staging dir, swaps each known pack folder into the data dir with a
+single rename, and records the blob's sha256 in `packs.sha256` in the data dir
+so re-applying the same release is a no-op. Feeds without a `packs` part leave
+the packs on the device alone.
 6. In a package's `SHA256SUMS.txt`, match the file name field exactly, never as
    a substring.
 
