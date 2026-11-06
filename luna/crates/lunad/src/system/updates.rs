@@ -39,6 +39,16 @@ const OS_FAILED_FILE: &str = "os-image.failed";
 const BOOT_OK_MARKER: &str = "/run/luna/boot-ok";
 /// Newest feed `published` seen per unit + channel (replay protection).
 const FEED_SEEN_FILE: &str = "update-feed-seen.json";
+/// Feed part carrying the editor packs as one tar.xz whose top-level
+/// entries are the pack folders (`eurooffice/`, `drawio/`). Optional: feeds
+/// without it leave the packs on the device alone.
+const PACKS_PART: &str = "packs";
+/// Data-dir marker holding the sha256 of the packs blob applied last, so the
+/// same blob is never unpacked twice.
+const PACKS_MARKER: &str = "packs.sha256";
+/// The only pack folders a packs blob may carry. Anything else in the
+/// archive refuses the whole blob before a file lands on disk.
+const KNOWN_PACKS: [&str; 2] = ["eurooffice", "drawio"];
 /// OS slot images are streamed to disk, never held in RAM. Cap (on the
 /// decompressed image) matches the 1280 MiB A/B slot plus a little headroom.
 const OS_IMAGE_MAX_BYTES: u64 = 1536 * 1024 * 1024;
@@ -131,6 +141,13 @@ pub trait Installer: Send + Sync {
         Err(UpdateError::Other(
             "This Luna cannot apply an OS image update here.".into(),
         ))
+    }
+
+    /// Apply the packs blob: unpack it over the staged folders, then swap each
+    /// known pack into place under `data_dir`. Default: this Luna keeps no
+    /// packs (dev builds without the editor).
+    fn install_packs_file(&self, _blob: &Path, _sha256: &str) -> Result<(), UpdateError> {
+        Ok(())
     }
 
     /// Stream-decompress the `.img.xz` at `path` onto the inactive A/B partition.
@@ -312,6 +329,27 @@ impl Installer for DataDirInstaller {
         write_os_slot(&RealSlotOps, &part, inactive, || {
             decompress_xz_streaming(src, &part, OS_IMAGE_MAX_BYTES)
         })
+    }
+
+    /// Unpack the packs blob and swap each pack folder into place under the
+    /// data dir. The feed's sha256 for the blob decides skip: same hash,
+    /// already applied, nothing touched.
+    fn install_packs_file(&self, blob: &Path, sha256: &str) -> Result<(), UpdateError> {
+        if sha256.is_empty()
+            || read_trimmed(&self.data_dir.join(PACKS_MARKER)).as_deref() == Some(sha256)
+        {
+            return Ok(());
+        }
+        let staging = self.data_dir.join(".packs-staging");
+        let _ = std::fs::remove_dir_all(&staging);
+        std::fs::create_dir_all(&staging).map_err(|e| UpdateError::Other(e.to_string()))?;
+        let applied = (|| {
+            let packs = unpack_packs(blob, &staging)?;
+            swap_packs(&staging, &packs, &self.data_dir)
+        })();
+        let _ = std::fs::remove_dir_all(&staging);
+        applied?;
+        write_atomic(&self.data_dir.join(PACKS_MARKER), sha256)
     }
 
     fn staging_dir(&self) -> PathBuf {
@@ -781,6 +819,54 @@ fn decompress_xz_streaming(src: &Path, dest: &Path, max_bytes: u64) -> Result<()
     Ok(())
 }
 
+/// Unpack the packs blob into `staging` and name the packs it carries. Only
+/// the two known pack folders are ever swapped into the data dir — anything
+/// else in the archive lands in `staging` and is discarded with it.
+fn unpack_packs(blob: &Path, staging: &Path) -> Result<Vec<String>, UpdateError> {
+    let io = |e: std::io::Error| UpdateError::Other(e.to_string());
+    let file = std::fs::File::open(blob).map_err(io)?;
+    let buf = std::io::BufReader::with_capacity(256 * 1024, file);
+    let mut archive = tar::Archive::new(lzma_rust2::XzReader::new(buf, false));
+    archive
+        .unpack(staging)
+        .map_err(|e| UpdateError::Other(format!("the packs could not be unpacked: {e}")))?;
+    let mut packs: Vec<String> = Vec::new();
+    for name in KNOWN_PACKS {
+        if staging.join(name).is_dir() {
+            packs.push(name.to_string());
+        }
+    }
+    if packs.is_empty() {
+        return Err(UpdateError::Other(
+            "the packs blob carried no pack Luna knows".into(),
+        ));
+    }
+    Ok(packs)
+}
+
+/// Swap the packed folders in `staging` into the data dir, one rename each:
+/// the old pack steps aside first, so a swap that fails midway leaves the
+/// previous pack intact.
+fn swap_packs(staging: &Path, packs: &[String], data_dir: &Path) -> Result<(), UpdateError> {
+    for pack in packs {
+        let staged = staging.join(pack);
+        let dest = data_dir.join(pack);
+        if dest.exists() {
+            let old = data_dir.join(format!(".{pack}-old"));
+            let _ = std::fs::remove_dir_all(&old);
+            std::fs::rename(&dest, &old).map_err(|e| UpdateError::Other(e.to_string()))?;
+            if let Err(e) = std::fs::rename(&staged, &dest) {
+                let _ = std::fs::rename(&old, &dest);
+                return Err(UpdateError::Other(e.to_string()));
+            }
+            let _ = std::fs::remove_dir_all(&old);
+        } else if let Err(e) = std::fs::rename(&staged, &dest) {
+            return Err(UpdateError::Other(e.to_string()));
+        }
+    }
+    Ok(())
+}
+
 /// The A/B slot this boot came from. Missing `luna.slot=` is an error,
 /// never a guess: picking 'A' blind would overwrite the running system.
 fn active_slot_letter() -> Result<char, UpdateError> {
@@ -1175,6 +1261,7 @@ struct Resolved {
     info: UpdateInfo,
     lunad: Part,
     os: Option<Part>,
+    packs: Option<Part>,
     lunad_newer: bool,
     os_needed: bool,
 }
@@ -1404,6 +1491,7 @@ impl UpdateService {
             info,
             lunad: verified.part,
             os,
+            packs: feed::select_part(&verified.feed.parts, PACKS_PART, FEED_OS, arch).cloned(),
             lunad_newer: verified.newer,
             os_needed,
         })
@@ -1442,6 +1530,17 @@ impl UpdateService {
             info.reboot_required = true;
         } else {
             info.reboot_required = false;
+        }
+
+        // Editor packs ride the same feed: download once, verify, unpack, then
+        // swap into the data dir. A failed swap leaks no partial pack — each
+        // pack is replaced by a single rename from the staged copy.
+        if let Some(packs) = &resolved.packs {
+            let max = crate::budget::limits().update_download_bytes;
+            let tmp = self.download_verified(packs, max)?;
+            let applied = self.installer.install_packs_file(&tmp, &packs.sha256);
+            let _ = std::fs::remove_file(&tmp);
+            applied?;
         }
 
         *self.cache.lock().unwrap() = None;
@@ -2173,6 +2272,105 @@ mod tests {
         // Feed older than what is running: never go backwards, OS included.
         *inst.os_hash.lock().unwrap() = Some("different".into());
         assert!(!svc.check("0.5.0", true).unwrap().update_available);
+    }
+
+    #[test]
+    fn packs_blob_installs_packs_and_writes_the_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let blob = packs_blob(
+            dir.path(),
+            &[
+                ("eurooffice/sdkjs/word/sdk-all-min.js", b"office js"),
+                ("drawio/index.html", b"diagram html"),
+            ],
+        );
+        let inst = DataDirInstaller::new(dir.path());
+        inst.install_packs_file(&blob, "hash-1").unwrap();
+        assert_eq!(
+            std::fs::read(dir.path().join("eurooffice/sdkjs/word/sdk-all-min.js")).unwrap(),
+            b"office js"
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join("drawio/index.html")).unwrap(),
+            b"diagram html"
+        );
+        assert_eq!(read_trimmed(&dir.path().join(PACKS_MARKER)).as_deref(), Some("hash-1"));
+        assert!(!dir.path().join(".packs-staging").exists());
+    }
+
+    #[test]
+    fn packs_blob_replaces_the_old_pack_and_removes_the_aside_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = dir.path().join("eurooffice");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("old.js"), b"old pack").unwrap();
+        let blob = packs_blob(dir.path(), &[("eurooffice/new.js", b"new pack")]);
+        let inst = DataDirInstaller::new(dir.path());
+        inst.install_packs_file(&blob, "hash-2").unwrap();
+        assert!(!old.join("old.js").exists(), "old pack swapped out");
+        assert_eq!(std::fs::read(old.join("new.js")).unwrap(), b"new pack");
+        assert!(!dir.path().join(".eurooffice-old").exists());
+    }
+
+    #[test]
+    fn packs_blob_is_skipped_when_the_marker_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let blob = packs_blob(dir.path(), &[("eurooffice/a.js", b"first")]);
+        let inst = DataDirInstaller::new(dir.path());
+        inst.install_packs_file(&blob, "hash-1").unwrap();
+        // Same hash: never even looked at the blob again — a junk file is fine.
+        let junk = dir.path().join("junk.tar.xz");
+        std::fs::write(&junk, b"not xz").unwrap();
+        inst.install_packs_file(&junk, "hash-1").unwrap();
+        assert_eq!(
+            std::fs::read(dir.path().join("eurooffice/a.js")).unwrap(),
+            b"first"
+        );
+        // A different hash reinstalls from whatever blob it is handed.
+        let blob2 = packs_blob(dir.path(), &[("eurooffice/a.js", b"second")]);
+        inst.install_packs_file(&blob2, "hash-2").unwrap();
+        assert_eq!(
+            std::fs::read(dir.path().join("eurooffice/a.js")).unwrap(),
+            b"second"
+        );
+        assert_eq!(read_trimmed(&dir.path().join(PACKS_MARKER)).as_deref(), Some("hash-2"));
+    }
+
+    #[test]
+    fn packs_blob_without_a_known_pack_is_refused_and_keeps_the_old_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = dir.path().join("eurooffice");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("a.js"), b"still here").unwrap();
+        let blob = packs_blob(dir.path(), &[("something-else/x", b"no")]);
+        let inst = DataDirInstaller::new(dir.path());
+        assert!(inst.install_packs_file(&blob, "hash-3").is_err());
+        assert_eq!(std::fs::read(old.join("a.js")).unwrap(), b"still here");
+        assert!(read_trimmed(&dir.path().join(PACKS_MARKER)).is_none());
+        assert!(!dir.path().join(".packs-staging").exists());
+    }
+
+    /// Build a tar.xz packs blob at `dir/packs.tar.xz` from `(path, bytes)`
+    /// file entries.
+    fn packs_blob(dir: &Path, entries: &[(&str, &[u8])]) -> PathBuf {
+        let mut tar = tar::Builder::new(Vec::new());
+        for (path, data) in entries {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            tar.append_data(&mut header, path, *data).unwrap();
+        }
+        let raw = tar.into_inner().unwrap();
+        let out = dir.join("packs.tar.xz");
+        let mut w = lzma_rust2::XzWriter::new(
+            std::fs::File::create(&out).unwrap(),
+            lzma_rust2::XzOptions::with_preset(1),
+        )
+        .unwrap();
+        w.write_all(&raw).unwrap();
+        w.finish().unwrap();
+        out
     }
 
     #[test]
