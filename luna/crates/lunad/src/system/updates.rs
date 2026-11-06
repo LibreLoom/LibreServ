@@ -335,8 +335,11 @@ impl Installer for DataDirInstaller {
     /// data dir. The feed's sha256 for the blob decides skip: same hash,
     /// already applied, nothing touched.
     fn install_packs_file(&self, blob: &Path, sha256: &str) -> Result<(), UpdateError> {
+        // Lowercased like the OS slot hash: the download check is
+        // case-insensitive, so the marker comparison must be too.
+        let sha256 = sha256.to_lowercase();
         if sha256.is_empty()
-            || read_trimmed(&self.data_dir.join(PACKS_MARKER)).as_deref() == Some(sha256)
+            || read_trimmed(&self.data_dir.join(PACKS_MARKER)).as_deref() == Some(sha256.as_str())
         {
             return Ok(());
         }
@@ -349,7 +352,7 @@ impl Installer for DataDirInstaller {
         })();
         let _ = std::fs::remove_dir_all(&staging);
         applied?;
-        write_atomic(&self.data_dir.join(PACKS_MARKER), sha256)
+        write_atomic(&self.data_dir.join(PACKS_MARKER), &sha256)
     }
 
     fn staging_dir(&self) -> PathBuf {
@@ -832,8 +835,12 @@ fn unpack_packs(blob: &Path, staging: &Path) -> Result<Vec<String>, UpdateError>
         .map_err(|e| UpdateError::Other(format!("the packs could not be unpacked: {e}")))?;
     let mut packs: Vec<String> = Vec::new();
     for name in KNOWN_PACKS {
-        if staging.join(name).is_dir() {
-            packs.push(name.to_string());
+        // Only a real directory may be swapped in — a symlink named like a
+        // pack is not one.
+        if let Ok(meta) = std::fs::symlink_metadata(staging.join(name)) {
+            if meta.is_dir() {
+                packs.push(name.to_string());
+            }
         }
     }
     if packs.is_empty() {
@@ -2294,7 +2301,10 @@ mod tests {
             std::fs::read(dir.path().join("drawio/index.html")).unwrap(),
             b"diagram html"
         );
-        assert_eq!(read_trimmed(&dir.path().join(PACKS_MARKER)).as_deref(), Some("hash-1"));
+        assert_eq!(
+            read_trimmed(&dir.path().join(PACKS_MARKER)).as_deref(),
+            Some("hash-1")
+        );
         assert!(!dir.path().join(".packs-staging").exists());
     }
 
@@ -2317,11 +2327,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let blob = packs_blob(dir.path(), &[("eurooffice/a.js", b"first")]);
         let inst = DataDirInstaller::new(dir.path());
-        inst.install_packs_file(&blob, "hash-1").unwrap();
-        // Same hash: never even looked at the blob again — a junk file is fine.
+        inst.install_packs_file(&blob, "Hash-1").unwrap();
+        // The marker is stored lowercase and compared case-insensitively, so
+        // even a different-case hash skips — a junk file is fine here.
+        assert_eq!(
+            read_trimmed(&dir.path().join(PACKS_MARKER)).as_deref(),
+            Some("hash-1")
+        );
         let junk = dir.path().join("junk.tar.xz");
         std::fs::write(&junk, b"not xz").unwrap();
-        inst.install_packs_file(&junk, "hash-1").unwrap();
+        inst.install_packs_file(&junk, "HASH-1").unwrap();
         assert_eq!(
             std::fs::read(dir.path().join("eurooffice/a.js")).unwrap(),
             b"first"
@@ -2333,7 +2348,10 @@ mod tests {
             std::fs::read(dir.path().join("eurooffice/a.js")).unwrap(),
             b"second"
         );
-        assert_eq!(read_trimmed(&dir.path().join(PACKS_MARKER)).as_deref(), Some("hash-2"));
+        assert_eq!(
+            read_trimmed(&dir.path().join(PACKS_MARKER)).as_deref(),
+            Some("hash-2")
+        );
     }
 
     #[test]
@@ -2361,7 +2379,11 @@ mod tests {
             header.set_cksum();
             tar.append_data(&mut header, path, *data).unwrap();
         }
-        let raw = tar.into_inner().unwrap();
+        write_xz(dir, tar.into_inner().unwrap())
+    }
+
+    /// XZ-compress `raw` into `dir/packs.tar.xz`.
+    fn write_xz(dir: &Path, raw: Vec<u8>) -> PathBuf {
         let out = dir.join("packs.tar.xz");
         let mut w = lzma_rust2::XzWriter::new(
             std::fs::File::create(&out).unwrap(),
@@ -2371,6 +2393,26 @@ mod tests {
         w.write_all(&raw).unwrap();
         w.finish().unwrap();
         out
+    }
+
+    #[test]
+    fn packs_blob_with_a_symlinked_pack_dir_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = dir.path().join("eurooffice");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("a.js"), b"still here").unwrap();
+        let mut tar = tar::Builder::new(Vec::new());
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Symlink);
+        header.set_size(0);
+        header.set_mode(0o777);
+        tar.append_link(&mut header, "eurooffice", "/etc").unwrap();
+        let blob = write_xz(dir.path(), tar.into_inner().unwrap());
+        let inst = DataDirInstaller::new(dir.path());
+        assert!(inst.install_packs_file(&blob, "hash-4").is_err());
+        assert_eq!(std::fs::read(old.join("a.js")).unwrap(), b"still here");
+        assert!(read_trimmed(&dir.path().join(PACKS_MARKER)).is_none());
+        assert!(!dir.path().join(".packs-staging").exists());
     }
 
     #[test]
