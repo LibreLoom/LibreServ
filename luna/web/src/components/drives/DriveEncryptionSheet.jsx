@@ -1,20 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { HardDrive, Lock } from "lucide-react";
-import Page from "@libreloom/ui/components/ui/Page.jsx";
-import Card from "@libreloom/ui/components/cards/Card.jsx";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import LinearProgress from "@libreloom/ui/components/common/LinearProgress.jsx";
-import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
-import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
-import usePageTitle from "../hooks/usePageTitle.js";
-import { useAuth } from "../context/AuthContext";
-import { apiErrorMessage, getDrives } from "../lib/api";
+import { useAuth } from "../../context/AuthContext";
+import { apiErrorMessage } from "../../lib/api";
 import {
   decryptDrive,
   encryptDrive,
@@ -25,8 +20,8 @@ import {
   lockDrive,
   reformatDrive,
   unlockDrive,
-} from "../lib/encryption.js";
-import WipeDriveDialog from "../components/drives/WipeDriveDialog.jsx";
+} from "../../lib/encryption.js";
+import WipeDriveDialog from "./WipeDriveDialog.jsx";
 
 /** What the wipe dialog is called, per direction. */
 const WIPE_TITLES = {
@@ -42,36 +37,41 @@ const WIPE_LABELS = {
   reformat: "Wipe",
 };
 
-/** The warning that has to be read before a drive is encrypted. */
 const NO_RECOVERY_WARNING =
   "If you forget this password, the files on this drive are gone. Nobody can recover them, including us.";
 
-const PASSWORD_HINT =
-  "This drive stays unlocked until you lock it or Luna restarts.";
+const PASSWORD_HINT = "This drive stays unlocked until you lock it or Luna restarts.";
+
+const STATE_PILL = {
+  unencrypted: { variant: "muted", label: "Not encrypted" },
+  encrypting: { variant: "info", label: "Encrypting" },
+  decrypting: { variant: "info", label: "Decrypting" },
+  locked: { variant: "warning", label: "Locked" },
+  unlocked: { variant: "success", label: "Encrypted" },
+};
 
 /**
- * The encryption page: one drive's encryption state, and the only place
- * Encrypt, Decrypt, Unlock and Lock can be started.
+ * One drive's encryption, as a sheet opened from the drive card — the same
+ * modal shape as Backups and Sharing. A conversion can outlive the sheet;
+ * closing it does not stop the format, and the card keeps showing the state.
  *
- * A route rather than a modal, so progress survives a refresh and a
- * navigation, and so it is a place you return to rather than a dialog you
- * dismiss.
+ * @param {{
+ *   drive: { id: string, label: string } | null,
+ *   open: boolean,
+ *   onClose: () => void,
+ * }} props
  */
-export default function DriveEncryptionPage() {
-  const { id } = useParams();
+export default function DriveEncryptionSheet({ drive, open, onClose }) {
+  const driveId = drive?.id || "";
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
-  const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
-  const drive = (drives.data || []).find((d) => d.id === id);
-
   const encryption = useQuery({
-    queryKey: ["drive-encryption", id],
-    queryFn: () => getDriveEncryption(id),
-    // A conversion runs for hours; poll while one is in flight so the page
-    // notices when it finishes without a refresh.
+    queryKey: ["drive-encryption", driveId],
+    queryFn: () => getDriveEncryption(driveId),
+    enabled: open && Boolean(driveId),
     refetchInterval: (query) =>
       query.state.data?.converting || wipeJobRef.current ? 1500 : false,
   });
@@ -79,43 +79,30 @@ export default function DriveEncryptionPage() {
   const data = encryption.data;
   const state = encryptionState(data);
   const copy = encryptionCopy(state, data);
+  const pill = STATE_PILL[state] || STATE_PILL.unencrypted;
 
-  usePageTitle(drive ? `${drive.label} encryption` : "Encryption");
-
-  // Which dialog is open, if any.
   const [dialog, setDialog] = useState(
     /** @type {null | "unlock" | "encrypt" | "decrypt" | "wipe"} */ (null),
   );
-
-  // The configuration decided before the wipe: the password (encrypting) or
-  // just the confirmation (decrypting). Held here so the wipe step can run the
-  // request without asking for anything again.
   const [pending, setPending] = useState(
     /** @type {{ direction: "encrypt" | "decrypt" | "reformat", password: string } | null} */ (null),
   );
-
   const wipePreview = useQuery({
-    queryKey: ["drive-wipe-preview", id, pending?.direction],
-    queryFn: () => getWipePreview(id, pending?.direction ?? "reformat"),
-    // Only needed once the person has asked to wipe.
-    enabled: dialog === "wipe" && Boolean(pending),
+    queryKey: ["drive-wipe-preview", driveId, pending?.direction],
+    queryFn: () => getWipePreview(driveId, pending?.direction ?? "reformat"),
+    enabled: open && dialog === "wipe" && Boolean(pending),
   });
 
   const [wiping, setWiping] = useState(false);
   const [wipeError, setWipeError] = useState("");
-  // `started` means the request is accepted and the format runs in the
-  // background. The drive is not safe to use until polling sees it finish,
-  // so success is reported then, never when the request returns.
   const [wipeJob, setWipeJob] = useState(
     /** @type {null | { direction: "encrypt" | "decrypt" | "reformat" }} */ (null),
   );
   const wipeJobRef = useRef(wipeJob);
   wipeJobRef.current = wipeJob;
   const wipeSawRunning = useRef(false);
-  // A short grace period: the first poll after the request can land before
-  // the background format has set `converting`, and "not converting" would
-  // then look like "finished".
   const wipeGraceDone = useRef(false);
+
   useEffect(() => {
     if (!wipeJob) {
       wipeGraceDone.current = false;
@@ -127,18 +114,23 @@ export default function DriveEncryptionPage() {
     return () => clearTimeout(timer);
   }, [wipeJob]);
 
-  /** Run the wipe the person just confirmed. */
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["drive-encryption", driveId] });
+    queryClient.invalidateQueries({ queryKey: ["drives"] });
+    queryClient.invalidateQueries({ queryKey: ["drive-summary", driveId] });
+  };
+
   const runWipe = async () => {
     if (!pending || wiping) return;
     setWiping(true);
     setWipeError("");
     try {
       if (pending.direction === "encrypt") {
-        await encryptDrive(id, pending.password);
+        await encryptDrive(driveId, pending.password);
       } else if (pending.direction === "decrypt") {
-        await decryptDrive(id, pending.password);
+        await decryptDrive(driveId, pending.password);
       } else {
-        await reformatDrive(id);
+        await reformatDrive(driveId);
       }
       // The format is still running on Luna. Poll until the drive reports a
       // finished state before saying it worked.
@@ -148,31 +140,19 @@ export default function DriveEncryptionPage() {
       setDialog(null);
       refresh();
     } catch (e) {
-      // Keep the dialog open: the drive is unchanged and the person can retry
-      // or cancel, rather than being dropped back with no explanation.
       setWipeError(apiErrorMessage(e));
     } finally {
       setWiping(false);
     }
   };
 
-  const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: ["drive-encryption", id] });
-    queryClient.invalidateQueries({ queryKey: ["drives"] });
-    queryClient.invalidateQueries({ queryKey: ["drive-summary", id] });
-  };
-
   // Report the outcome only once the drive itself says the format finished.
-  // The API returns as soon as the job starts; a toast at that moment would
-  // claim success while the drive still has no usable filesystem.
   useEffect(() => {
     if (!wipeJob || !data) return;
     if (data.converting) {
       wipeSawRunning.current = true;
       return;
     }
-    // The first poll can race the job starting. Give it a moment before
-    // reading "not converting" as "finished".
     if (!wipeSawRunning.current && !wipeGraceDone.current) return;
     const finished = wipeJob.direction === "encrypt"
       ? data.encrypted === true
@@ -192,58 +172,42 @@ export default function DriveEncryptionPage() {
       addToast("success", verb === "encrypt" ? "Drive encrypted" : verb === "decrypt" ? "Drive decrypted" : "Drive reformatted");
     }
     setWipeJob(null);
-    queryClient.invalidateQueries({ queryKey: ["drive-encryption", id] });
-    queryClient.invalidateQueries({ queryKey: ["drives"] });
-    queryClient.invalidateQueries({ queryKey: ["drive-summary", id] });
-  }, [addToast, data, id, queryClient, wipeJob]);
+    refresh();
+  }, [addToast, data, driveId, queryClient, wipeJob]);
 
-  if (!drives.isLoading && !drive) {
-    return (
-      <Page title="Encryption" titleId="encryption-title">
-        <EmptyState
-          className="mt-4"
-          icon={HardDrive}
-          title="Drive not found"
-          description="Luna can't find this drive. Make sure it's plugged in."
-          action={
-            <Button size="sm" variant="primary" asChild>
-              <Link to="/files">Go to Files</Link>
-            </Button>
-          }
-        />
-      </Page>
-    );
-  }
+  const working = Boolean(wipeJob) || state === "encrypting" || state === "decrypting";
 
   return (
-    <Page
+    <ModalCard
+      open={open}
       title={drive ? `${drive.label} encryption` : "Encryption"}
-      titleId="encryption-title"
-      leftContent={(
-        <Button size="sm" variant="outline" asChild>
-          <Link to={`/files/${id}`}>Back to files</Link>
-        </Button>
-      )}
+      onClose={onClose}
+      size="md"
     >
-      <div className="mt-4 flex max-w-xl flex-col gap-4">
-        <Card icon={state === "locked" ? Lock : HardDrive} title={copy.title}>
-          <p className="text-primary text-sm">{copy.body}</p>
+      <div className="space-y-4">
+        <section className="rounded-large-element surface-primary p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Pill variant={pill.variant}>{pill.label}</Pill>
+            {state === "unlocked" ? (
+              <span className="inline-flex items-center gap-1 text-sm">
+                <Lock size={14} aria-hidden="true" />
+                Stays open until locked or restarted
+              </span>
+            ) : null}
+          </div>
+          <p className="text-sm">{copy.body}</p>
 
           {wipeJob && !data?.converting ? (
-            <p className="mt-2 text-primary text-sm">
-              Luna is starting the format. The drive is not ready to use until this finishes — you can
-              close this page.
+            <p className="text-sm">
+              Luna is starting the format. The drive is not ready to use until this finishes — you
+              can close this sheet.
             </p>
           ) : null}
 
-          {wipeJob || state === "encrypting" || state === "decrypting" ? (
-            <div className="mt-3">
-              <LinearProgress active label={wipeJob ? "Formatting this drive" : copy.title} />
-            </div>
-          ) : null}
+          {working ? <LinearProgress active label={wipeJob ? "Formatting this drive" : copy.title} /> : null}
 
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {state === "unencrypted" && isAdmin && !wipeJob && (
+          <div className="flex flex-wrap items-center gap-2">
+            {state === "unencrypted" && isAdmin && !working && (
               <>
                 <Button
                   size="sm"
@@ -256,6 +220,7 @@ export default function DriveEncryptionPage() {
                 <Button
                   size="sm"
                   variant="outline"
+                  surface="primary"
                   onClick={() => {
                     setPending({ direction: "reformat", password: "" });
                     setDialog("wipe");
@@ -265,18 +230,19 @@ export default function DriveEncryptionPage() {
                 </Button>
               </>
             )}
-            {state === "locked" && !wipeJob && (
-              <Button size="sm" variant="primary" onClick={() => setDialog("unlock")}>
+            {state === "locked" && !working && (
+              <Button size="sm" variant="secondary" onClick={() => setDialog("unlock")}>
                 Unlock
               </Button>
             )}
-            {state === "unlocked" && !wipeJob && (
+            {state === "unlocked" && !working && (
               <>
                 <Button
                   size="sm"
                   variant="outline"
+                  surface="primary"
                   onClick={() => {
-                    lockDrive(id)
+                    lockDrive(driveId)
                       .then(() => {
                         addToast("success", "Drive locked");
                         refresh();
@@ -294,7 +260,7 @@ export default function DriveEncryptionPage() {
               </>
             )}
           </div>
-        </Card>
+        </section>
 
         {state === "unencrypted" && data && !data.can_encrypt && data.cannot_encrypt_reason ? (
           <PageNotice variant="warning">
@@ -303,13 +269,16 @@ export default function DriveEncryptionPage() {
         ) : null}
 
         {state === "unencrypted" ? (
-          <p className="text-secondary text-sm">
-            An encrypted drive can only be read by a Luna. Reading it on another
-            computer needs an app that does not exist yet.
-            <InfoHint
-              surface="primary"
-              content="Until that app ships, keep the password somewhere safe and unlock the drive in Luna."
-            />
+          <p className="flex items-start gap-1.5 text-sm">
+            <HardDrive size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
+            <span>
+              An encrypted drive can only be read by a Luna. Reading it on another computer needs an
+              app that does not exist yet.
+              <InfoHint
+                surface="secondary"
+                content="Until that app ships, keep the password somewhere safe and unlock the drive in Luna."
+              />
+            </span>
           </p>
         ) : null}
       </div>
@@ -321,7 +290,7 @@ export default function DriveEncryptionPage() {
           hint={PASSWORD_HINT}
           onClose={() => setDialog(null)}
           onSubmit={async (password) => {
-            await unlockDrive(id, password);
+            await unlockDrive(driveId, password);
             addToast("success", "Drive unlocked");
             setDialog(null);
             refresh();
@@ -338,8 +307,6 @@ export default function DriveEncryptionPage() {
           confirmTwice
           onClose={() => setDialog(null)}
           onSubmit={async (password) => {
-            // Configuration first: the password is decided here, and the wipe
-            // is the next step rather than something this dialog performs.
             setPending({ direction: "encrypt", password });
             setDialog("wipe");
           }}
@@ -365,8 +332,6 @@ export default function DriveEncryptionPage() {
 
       {dialog === "wipe" && pending ? (
         <WipeDriveDialog
-          // A different drive must start its own wait, so the dialog is
-          // remounted rather than reused.
           key={wipePreview.data?.drive_id ?? "pending"}
           title={WIPE_TITLES[pending.direction]}
           confirmLabel={WIPE_LABELS[pending.direction]}
@@ -382,13 +347,13 @@ export default function DriveEncryptionPage() {
           onConfirm={runWipe}
         />
       ) : null}
-    </Page>
+    </ModalCard>
   );
 }
 
 /**
- * One dialog for every password the page needs: unlock, resume, encrypt and
- * decrypt differ only in their words.
+ * One dialog for every password the sheet needs: unlock, encrypt and decrypt
+ * differ only in their words.
  *
  * @param {{
  *   title: string,
@@ -400,15 +365,7 @@ export default function DriveEncryptionPage() {
  *   onSubmit: (password: string) => Promise<void>,
  * }} props
  */
-function PasswordDialog({
-  title,
-  confirmLabel,
-  hint,
-  warning,
-  confirmTwice = false,
-  onClose,
-  onSubmit,
-}) {
+function PasswordDialog({ title, confirmLabel, hint, warning, confirmTwice = false, onClose, onSubmit }) {
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");
   const [error, setError] = useState("");
@@ -425,63 +382,66 @@ function PasswordDialog({
       await onSubmit(password);
     } catch (e) {
       setError(apiErrorMessage(e));
+    } finally {
       setBusy(false);
     }
   };
 
   return (
     <ModalCard
+      open
       title={title}
       onClose={onClose}
+      overlayClassName={NESTED_OVERLAY_CLASS}
       footer={(
         <>
           <Button variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={submit} disabled={!canSubmit || busy}>
-            {busy ? "Working…" : confirmLabel}
+          <Button variant="primary" onClick={submit} loading={busy} disabled={!canSubmit}>
+            {confirmLabel}
           </Button>
         </>
       )}
     >
-      <div className="flex flex-col gap-3">
+      <div className="space-y-4">
         {warning ? (
           <PageNotice variant="warning">
             <p>{warning}</p>
           </PageNotice>
         ) : null}
-        <label className="flex flex-col gap-1">
-          <span className="text-primary text-sm">Password</span>
+        {hint ? <p className="text-primary text-sm">{hint}</p> : null}
+        <label className="block text-sm text-primary">
+          Password
           <input
             type="password"
-            className="w-full rounded-pill surface-primary border-2 border-secondary/30 px-4 py-2 text-sm focus:border-accent"
+            className="mt-1 w-full rounded-pill surface-primary border-2 border-secondary/30 px-4 py-2 text-sm"
             value={password}
-            autoFocus
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") submit();
+            onChange={(e) => {
+              setError("");
+              setPassword(e.target.value);
             }}
+            autoComplete="off"
+            autoFocus
           />
         </label>
         {confirmTwice ? (
-          <label className="flex flex-col gap-1">
-            <span className="text-primary text-sm">Password again</span>
+          <label className="block text-sm text-primary">
+            Password again
             <input
               type="password"
-              className="w-full rounded-pill surface-primary border-2 border-secondary/30 px-4 py-2 text-sm focus:border-accent"
+              className="mt-1 w-full rounded-pill surface-primary border-2 border-secondary/30 px-4 py-2 text-sm"
               value={again}
-              onChange={(e) => setAgain(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") submit();
+              onChange={(e) => {
+                setError("");
+                setAgain(e.target.value);
               }}
+              autoComplete="off"
             />
           </label>
         ) : null}
-        {mismatch ? (
-          <p className="text-primary text-sm">Those two passwords don't match.</p>
-        ) : null}
-        {hint ? <p className="text-primary text-sm">{hint}</p> : null}
-        {error ? <ModalErrorNotice error={error} /> : null}
+        {mismatch ? <p className="text-sm text-primary" role="alert">Those two passwords don't match.</p> : null}
+        {error ? <p className="text-sm text-primary" role="alert">{error}</p> : null}
       </div>
     </ModalCard>
   );

@@ -15,7 +15,7 @@
 
 import { useEffect, useState } from "react";
 import { AlertTriangle, Lock } from "lucide-react";
-import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
+import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import LinearProgress from "@libreloom/ui/components/common/LinearProgress.jsx";
@@ -90,6 +90,7 @@ export default function WipeDriveDialog({
     <ModalCard
       title={title}
       onClose={onClose}
+      overlayClassName={NESTED_OVERLAY_CLASS}
       footer={(
         <>
           <Button variant="ghost" onClick={onClose} disabled={busy}>

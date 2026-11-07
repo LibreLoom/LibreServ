@@ -17,6 +17,7 @@ import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSecti
 import ValueDisplay from "@libreloom/ui/components/common/ValueDisplay.jsx";
 import ShareSheet, { ShareButton } from "../components/share/ShareSheet.jsx";
 import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
+import DriveEncryptionSheet from "../components/drives/DriveEncryptionSheet.jsx";
 import InspectModal from "../components/files/InspectModal.jsx";
 import useCanProtect from "../hooks/useCanProtect";
 import { FileSearchButton } from "../components/files/FileSearch";
@@ -30,7 +31,7 @@ import useReleaseInspectedDrive from "../hooks/useReleaseInspectedDrive.js";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
 import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
-import { driveEncryptionLine, encryptionHref, isConvertingDrive, isLockedDrive, isUnopenable } from "../lib/drives.js";
+import { driveEncryptionLine, isConvertingDrive, isLockedDrive, isUnopenable } from "../lib/drives.js";
 import useDriveHealth from "../hooks/useDriveHealth.js";
 import DriveHealthDetails from "../components/files/DriveHealthDetails.jsx";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
@@ -360,7 +361,7 @@ const CONVERTING_MESSAGE =
 const CANT_OPEN_HINT =
   "Luna knows this drive but couldn't open it. This can happen after it was pulled out without Eject, or when the drive has a problem. Unplug it, wait a few seconds, and plug it back in. If that doesn't help, the drive may be failing.";
 
-function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect }) {
+function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect, onEncryption }) {
   const location = useLocation();
   const cardRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const unopenable = isUnopenable(drive);
@@ -433,12 +434,11 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect 
               <Link to={`/files/${drive.id}`}>Browse files</Link>
             </Button>
           )}
-          {/* Every drive links here: a plain drive can be encrypted, a locked
-              one unlocked, and the card only carries the one-line state. */}
-          <Button size="sm" variant="outline" asChild>
-            <Link to={encryptionHref(drive)}>
-              {encryptionLine || "Encryption"}
-            </Link>
+          {/* Every drive opens the encryption sheet: a plain drive can be
+              encrypted, a locked one unlocked, and the card only carries the
+              one-line state. */}
+          <Button size="sm" variant="outline" onClick={() => onEncryption(drive)}>
+            {encryptionLine || "Encryption"}
           </Button>
           {showHealth && ready && (
             <Button size="sm" variant="outline" onClick={() => onEject(drive)}>
@@ -500,6 +500,7 @@ export default function FilesPage() {
   const [actionError, setActionError] = useState(null);
   const [sharingDrive, setSharingDrive] = useState(null);
   const [protectingDrive, setProtectingDrive] = useState(null);
+  const [encryptionDrive, setEncryptionDrive] = useState(null);
   const protectAvailable = useCanProtect(isAdmin);
   const unknownDrives = withDevMockDetected(detected.data);
   // The dashboard's "New drive detected" card links to #unrecognized-drives. The drives load after
@@ -655,6 +656,7 @@ export default function FilesPage() {
               onRemove={(d) => setRemoveTarget(d)}
               onShare={(d) => setSharingDrive({ id: d.id, path: "" })}
               onProtect={protectAvailable ? (d) => setProtectingDrive({ id: d.id, path: "" }) : undefined}
+              onEncryption={(d) => setEncryptionDrive(d)}
             />
           ))}
         </div>
@@ -701,6 +703,11 @@ export default function FilesPage() {
         driveId={protectingDrive?.id || ""}
         path={protectingDrive?.path || ""}
         onClose={() => setProtectingDrive(null)}
+      />
+      <DriveEncryptionSheet
+        open={encryptionDrive != null}
+        drive={encryptionDrive}
+        onClose={() => setEncryptionDrive(null)}
       />
       <ModalCard
         open={ejectTarget != null}

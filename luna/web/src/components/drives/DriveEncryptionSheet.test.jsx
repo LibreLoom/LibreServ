@@ -1,11 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { AuthProvider } from "../context/AuthContext";
+import { AuthProvider } from "../../context/AuthContext";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
-import DriveEncryptionPage from "./DriveEncryptionPage";
-import { encryptionCopy, encryptionState } from "../lib/encryption.js";
+import DriveEncryptionSheet from "./DriveEncryptionSheet.jsx";
+import { encryptionCopy, encryptionState } from "../../lib/encryption.js";
 
 const DRIVE = {
   id: "d1",
@@ -55,15 +54,11 @@ function renderPage() {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/files/d1/encryption"]}>
-        <ToastProvider>
-          <AuthProvider>
-            <Routes>
-              <Route path="/files/:id/encryption" element={<DriveEncryptionPage />} />
-            </Routes>
-          </AuthProvider>
-        </ToastProvider>
-      </MemoryRouter>
+      <ToastProvider>
+        <AuthProvider>
+          <DriveEncryptionSheet open drive={DRIVE} onClose={() => {}} />
+        </AuthProvider>
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }
@@ -102,7 +97,7 @@ describe("encryptionState", () => {
 
 });
 
-describe("DriveEncryptionPage", () => {
+describe("DriveEncryptionSheet", () => {
   it("offers Encrypt on an unencrypted ext4 drive", async () => {
     stubApi(UNENCRYPTED);
     renderPage();
@@ -148,7 +143,9 @@ describe("DriveEncryptionPage", () => {
     const field = await screen.findByLabelText("Password");
     fireEvent.change(field, { target: { value: "hunter2" } });
     // The card also has an Unlock button; the dialog's is the one to press.
-    const dialog = screen.getByRole("dialog");
+    // The sheet is a dialog too; the password dialog is stacked above it.
+    const dialogs = screen.getAllByRole("dialog");
+    const dialog = dialogs[dialogs.length - 1];
     fireEvent.click(within(dialog).getByRole("button", { name: "Unlock" }));
     await waitFor(() => {
       expect(posted.some((p) => p.url.endsWith("/unlock") && p.body.password === "hunter2")).toBe(true);
