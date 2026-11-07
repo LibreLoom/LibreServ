@@ -1203,6 +1203,23 @@ pub fn load_settings(conn: &Connection) -> Option<UpdateSettings> {
     Some(settings)
 }
 
+/// The source Luna actually uses: every stored field with an empty value falls
+/// back to the env/compiled-in default. A partially stored row (an older
+/// client sent only the channel) still resolves to a complete source.
+pub fn effective_settings(conn: &Connection) -> UpdateSettings {
+    let stored = load_settings(conn).unwrap_or_default();
+    let defaults = default_settings();
+    UpdateSettings {
+        feed_url: first_nonempty(&stored.feed_url, &defaults.feed_url),
+        channel: first_nonempty(&stored.channel, &defaults.channel),
+        keys: if stored.keys.is_empty() {
+            defaults.keys
+        } else {
+            stored.keys
+        },
+    }
+}
+
 /// Persist the update source. An all-default body deletes the row so the DB
 /// stays clean and future compiled-in default changes apply.
 pub fn save_settings(conn: &Connection, settings: &UpdateSettings) -> anyhow::Result<()> {
@@ -1246,13 +1263,31 @@ fn normalize_pub_keys(entries: &[String]) -> Result<Vec<String>, &'static str> {
 /// Validate an admin-supplied update source. Returns a plain-language reason
 /// the save was refused, ready to show in the UI.
 pub fn validate_settings(settings: &UpdateSettings) -> Result<Vec<String>, &'static str> {
+    validate_settings_against(settings, None)
+}
+
+/// Validate a save, but accept a feed address that is unchanged from the one
+/// Luna is already using. Re-resolving an existing public feed can fail on a
+/// network whose DNS answers with a LAN address; changing only the channel
+/// must not be blocked by that.
+pub fn validate_settings_against(
+    settings: &UpdateSettings,
+    current_feed_url: Option<&str>,
+) -> Result<Vec<String>, &'static str> {
     let feed_url = settings.feed_url.trim();
     if feed_url.is_empty() {
         return Err(
             "The feed address needs a value. Put in the old address if you want to keep it.",
         );
     }
-    crate::system::update_host::validate_feed_url_host(feed_url)?;
+    let unchanged = current_feed_url
+        .map(|current| {
+            current.trim().trim_end_matches('/') == feed_url.trim_end_matches('/')
+        })
+        .unwrap_or(false);
+    if !unchanged {
+        crate::system::update_host::validate_feed_url_host(feed_url)?;
+    }
     if !CHANNELS.contains(&settings.channel.trim()) {
         return Err("Pick Stable or Beta as the update channel.");
     }
@@ -1294,18 +1329,13 @@ impl UpdateService {
     /// Build the service from persisted settings, falling back to env vars and
     /// compiled-in defaults for every unset field.
     pub fn from_db(conn: &Connection, data_dir: &Path) -> Self {
-        let stored = load_settings(conn).unwrap_or_default();
-        let d = default_settings();
+        let effective = effective_settings(conn);
         Self::with_keys(
             Box::new(UreqHttp),
             Box::new(DataDirInstaller::new(data_dir)),
-            first_nonempty(&stored.feed_url, &d.feed_url),
-            first_nonempty(&stored.channel, &d.channel),
-            if stored.keys.is_empty() {
-                d.keys
-            } else {
-                stored.keys
-            },
+            effective.feed_url,
+            effective.channel,
+            effective.keys,
         )
     }
 
@@ -2595,6 +2625,21 @@ mod tests {
             ..base
         };
         assert_eq!(validate_settings(&file).unwrap(), vec![real]);
+    }
+
+    #[test]
+    fn unchanged_feed_is_not_revalidated() {
+        // A LAN feed is refused when it is new, but saving the channel must
+        // not re-resolve a feed Luna is already using (split-horizon DNS maps
+        // a public name to a LAN address on some networks).
+        let settings = UpdateSettings {
+            feed_url: "https://192.168.1.10/feeds/".into(),
+            channel: "beta".into(),
+            keys: vec![],
+        };
+        assert!(validate_settings_against(&settings, Some("https://192.168.1.10/feeds")).is_ok());
+        assert!(validate_settings_against(&settings, Some("https://192.168.1.11/feeds")).is_err());
+        assert!(validate_settings_against(&settings, None).is_err());
     }
 
     #[test]

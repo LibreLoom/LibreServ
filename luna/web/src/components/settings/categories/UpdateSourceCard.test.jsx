@@ -48,13 +48,7 @@ function renderCard() {
   );
 }
 
-async function openAdvanced(user) {
-  await user.click(await screen.findByRole("button", { name: /^Update source$/ }));
-  await user.click(await screen.findByRole("button", { name: /Feed address and signing keys/ }));
-}
-
 async function openEditor(user) {
-  await openAdvanced(user);
   await user.click(await screen.findByRole("button", { name: "Edit update source" }));
   return screen.findByRole("dialog", { name: "Update source" });
 }
@@ -66,51 +60,39 @@ describe("UpdateSourceCard", () => {
 
   it("says whether updates come from the default or a custom source", async () => {
     stub();
-    const user = userEvent.setup();
     renderCard();
-    await openAdvanced(user);
     expect(await screen.findByText("Default source")).toBeInTheDocument();
     expect(screen.getByText("https://feeds.example.net/feeds")).toBeInTheDocument();
   });
 
   it("flags a custom feed address", async () => {
     stub({ source: { ...SOURCE, feed_url: "https://staging.example.net/feeds" } });
-    const user = userEvent.setup();
     renderCard();
-    await openAdvanced(user);
     expect(await screen.findByText("Custom source")).toBeInTheDocument();
   });
 
   it("offers Stable and Beta with the current channel selected", async () => {
     stub({ source: { ...SOURCE, channel: "beta" } });
-    const user = userEvent.setup();
     renderCard();
-    await user.click(await screen.findByRole("button", { name: /^Update source$/ }));
     const group = await screen.findByRole("radiogroup", { name: "Update channel" });
     expect(within(group).getByRole("radio", { name: "Beta" })).toBeChecked();
     expect(within(group).getByRole("radio", { name: "Stable" })).not.toBeChecked();
   });
 
-  it("saves a channel change straight away, keeping the rest of the source", async () => {
+  it("saves a channel change straight away, sending only the channel", async () => {
     const fetchMock = stub();
     const user = userEvent.setup();
     renderCard();
-    await user.click(await screen.findByRole("button", { name: /^Update source$/ }));
     const group = await screen.findByRole("radiogroup", { name: "Update channel" });
     await user.click(within(group).getByRole("radio", { name: "Beta" }));
     await waitFor(() => expect(puts(fetchMock)).toHaveLength(1));
-    expect(JSON.parse(puts(fetchMock)[0][1].body)).toEqual({
-      feed_url: DEFAULTS.feed_url,
-      channel: "beta",
-      keys: [],
-    });
+    expect(JSON.parse(puts(fetchMock)[0][1].body)).toEqual({ channel: "beta" });
   });
 
   it("says so when the channel could not be saved", async () => {
     stub({ onPut: () => json({ error: "Pick Stable or Beta as the update channel." }, 400) });
     const user = userEvent.setup();
     renderCard();
-    await user.click(await screen.findByRole("button", { name: /^Update source$/ }));
     const group = await screen.findByRole("radiogroup", { name: "Update channel" });
     await user.click(within(group).getByRole("radio", { name: "Beta" }));
     expect(await screen.findByText("Pick Stable or Beta as the update channel.")).toBeInTheDocument();

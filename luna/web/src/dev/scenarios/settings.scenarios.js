@@ -497,7 +497,31 @@ export default [
     area: "Settings: About",
     title: "Update source",
     url: "/settings#about",
-    check: ["Switching the source saves and says so", "A bad address is refused clearly"],
+    check: [
+      "Changing Stable ↔ Beta keeps the feed address and says it saved",
+      "The card says Default source or Custom source and shows the address",
+      "Edit update source opens with the warning and prefilled fields",
+      "A bad address or key is refused inline and the old value stays",
+    ],
+  },
+  {
+    id: "settings/update-source-lan-feed",
+    area: "Settings: About",
+    title: "Update source on a network address",
+    url: "/settings#about",
+    seed: (w) => {
+      w.updateSource = {
+        ...w.updateSource,
+        feed_url: "https://192.168.1.10/feeds",
+        default_keys: false,
+        effective_keys: ["RWCUSTOM"],
+      };
+    },
+    check: [
+      "The card says Custom source and shows the network address",
+      "Switching Stable ↔ Beta saves without the private-network error",
+      "The feed address stays 192.168.1.10",
+    ],
   },
   {
     id: "settings/update-source-fails",

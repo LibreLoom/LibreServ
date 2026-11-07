@@ -97,13 +97,7 @@ function stubFetch(sourceBody) {
   });
 }
 
-async function openAdvanced(user) {
-  await user.click(await screen.findByRole("button", { name: /^Update source$/i }));
-  await user.click(await screen.findByRole("button", { name: /Feed address and signing keys/i }));
-}
-
 async function openEditor(user) {
-  await openAdvanced(user);
   await user.click(await screen.findByRole("button", { name: /Edit update source/i }));
 }
 
@@ -256,7 +250,6 @@ describe("AboutCategory", () => {
   });
 
   it("flags a custom source when keys differ from the built-in key", async () => {
-    const user = userEvent.setup();
     renderPage(stubFetch({
       ...SOURCE_RESPONSE,
       feed_url: "https://staging.feeds.test/feeds",
@@ -264,7 +257,6 @@ describe("AboutCategory", () => {
       effective_keys: ["RWCUSTOM"],
       default_keys: false,
     }));
-    await openAdvanced(user);
     expect(await screen.findByText("Custom source")).toBeTruthy();
     expect(screen.getByText("https://staging.feeds.test/feeds")).toBeTruthy();
   });

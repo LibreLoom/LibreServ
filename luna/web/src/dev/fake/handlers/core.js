@@ -558,8 +558,23 @@ post("/api/v1/system/updates/os-failed/clear", ({ world, user }) => {
 get("/api/v1/system/updates/source", ({ world, user }) => { updatesGate(user); return world.updateSource; });
 put("/api/v1/system/updates/source", ({ world, user, body }) => {
   updatesGate(user);
-  world.updateSource = { ...body, ok: true };
-  return world.updateSource;
+  const current = world.updateSource || {};
+  // lunad keeps fields the body leaves out, so the channel toggle sends only
+  // `channel` and never re-resolves the feed it is already using.
+  const feedUrl = body.feed_url !== undefined ? String(body.feed_url).trim() : undefined;
+  const currentFeed = String(current.feed_url || "").trim().replace(/\/+$/, "");
+  if (feedUrl !== undefined && feedUrl.replace(/\/+$/, "") !== currentFeed && /^https:\/\/(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|localhost|\[::1\])/i.test(feedUrl)) {
+    return fail(400, "That feed address points at a private or local network. Use a public address for updates.");
+  }
+  const next = {
+    ...current,
+    ...(body.feed_url !== undefined ? { feed_url: body.feed_url } : {}),
+    ...(body.channel !== undefined ? { channel: body.channel } : {}),
+    ...(body.keys !== undefined ? { keys: body.keys } : {}),
+    ok: true,
+  };
+  world.updateSource = next;
+  return next;
 });
 post("/api/v1/system/factory-reset", ({ world, user, body }) => {
   requireAdmin(user, "Only an Admin can reset this Luna.");

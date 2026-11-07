@@ -75,11 +75,7 @@ export default function UpdateSourceCard({ index = 3 }) {
 
   const changeChannel = useMutation({
     mutationFn: (/** @type {string} */ channel) =>
-      putJson("/api/v1/system/updates/source", {
-        feed_url: s.feed_url,
-        channel,
-        keys: signingKeysForSave(signingKeysForDisplay(s), s),
-      }),
+      putJson("/api/v1/system/updates/source", { channel }),
     onSuccess: (data) => {
       addToast({ type: "success", message: "Update channel saved." });
       onSaved(data);
@@ -105,61 +101,54 @@ export default function UpdateSourceCard({ index = 3 }) {
           </div>
         </CollapsibleSection>
 
-        <CollapsibleSection title="Update source" mono pill>
-          <div className="space-y-4 mb-1">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="text-primary text-sm">
-                Update channel{" "}
-                <InfoHint
-                  label="What the update channel is"
-                  content="Stable gets releases once they are tested. Beta gets new versions sooner and may have bugs. You can switch back to Stable at any time; Luna never installs an older version."
-                />
-              </div>
-              <SegmentedControl
-                aria-label="Update channel"
-                surface="secondary"
-                value={s.channel || "stable"}
-                options={CHANNEL_OPTIONS}
-                onChange={(channel) => {
-                  if (source.data && channel !== s.channel) changeChannel.mutate(channel);
-                }}
+        <section className="space-y-3" aria-labelledby="update-channel-label">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-primary text-sm" id="update-channel-label">
+              Update channel{" "}
+              <InfoHint
+                label="What the update channel is"
+                content="Stable gets releases once they are tested. Beta gets new versions sooner and may have bugs. You can switch back to Stable at any time; Luna never installs an older version."
               />
             </div>
-            {changeChannel.isError && (
-              <PageNotice variant="error">{apiErrorMessage(changeChannel.error)}</PageNotice>
-            )}
-
-            <CollapsibleSection title="Feed address and signing keys" size="xs" pill>
-              <div className="p-4 mb-3 rounded-large-element bg-warning/20 border-2 border-warning/30">
-                <div className="flex items-center gap-3">
-                  <AlertTriangle size={ICON_SIZE.lg} className="text-warning flex-shrink-0" aria-hidden="true" />
-                  <p className="text-sm text-primary">
-                    Only change these if your updates come from somewhere else.{" "}
-                    <InfoHint
-                      label="What these settings control"
-                      content="They control where Luna itself gets its software updates — not your files, photos, or backups. A wrong value can stop Luna from updating, so leave these as-is unless you're pointing Luna at a different update source."
-                    />
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 mb-3">
-                <Pill variant={customized ? "warning" : "success"}>
-                  {customized ? "Custom source" : "Default source"}
-                </Pill>
-                <InlinePill className="break-all">{s.feed_url || "…"}</InlinePill>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                surface="secondary"
-                onClick={() => setModalOpen(true)}
-              >
-                <Rss size={ICON_SIZE.sm} aria-hidden="true" />
-                Edit update source
-              </Button>
-            </CollapsibleSection>
+            <SegmentedControl
+              aria-label="Update channel"
+              surface="secondary"
+              value={s.channel || "stable"}
+              options={CHANNEL_OPTIONS}
+              onChange={(channel) => {
+                if (source.data && channel !== s.channel) changeChannel.mutate(channel);
+              }}
+            />
           </div>
-        </CollapsibleSection>
+          {changeChannel.isError && (
+            <PageNotice variant="error">{apiErrorMessage(changeChannel.error)}</PageNotice>
+          )}
+        </section>
+
+        <section
+          className="rounded-large-element surface-primary p-4 space-y-3"
+          aria-labelledby="update-source-label"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-primary text-sm" id="update-source-label">Update source</h3>
+              <p className="text-primary text-xs mt-0.5">Where Luna reads its list of updates.</p>
+            </div>
+            <Pill variant={customized ? "warning" : "success"}>
+              {customized ? "Custom source" : "Default source"}
+            </Pill>
+          </div>
+          <InlinePill className="break-all">{s.feed_url || "…"}</InlinePill>
+          <Button
+            type="button"
+            variant="outline"
+            surface="primary"
+            onClick={() => setModalOpen(true)}
+          >
+            <Rss size={ICON_SIZE.sm} aria-hidden="true" />
+            Edit update source
+          </Button>
+        </section>
       </div>
 
       <ModalCard
@@ -263,6 +252,18 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
     <ModalCard open={open} title="Update source" onClose={onClose}>
       {({ close }) => (
         <div className="space-y-4">
+          <div className="p-4 rounded-large-element bg-warning/20 border-2 border-warning/30">
+            <div className="flex items-center gap-3">
+              <AlertTriangle size={ICON_SIZE.lg} className="text-primary flex-shrink-0" aria-hidden="true" />
+              <p className="text-sm text-primary">
+                Only change these if your updates come from somewhere else.{" "}
+                <InfoHint
+                  label="What these settings control"
+                  content="They control where Luna itself gets its software updates — not your files, photos, or backups. A wrong value can stop Luna from updating, so leave these as-is unless you're pointing Luna at a different update source."
+                />
+              </p>
+            </div>
+          </div>
           <p className="text-primary text-sm">
             Where Luna reads its list of updates — for the software on this Luna, not your files or
             backups.
