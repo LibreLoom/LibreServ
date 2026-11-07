@@ -212,8 +212,8 @@ export default function PhraseWriteDown({
           />
           <p className="text-primary text-sm">
             {words.length === 24
-              ? "24 words take longer to write down but add extra protection for backups you keep for years."
-              : "12 words are enough for most people."}
+              ? "24 words add extra protection for backups you keep for years. They take longer to write down."
+              : "12 words are enough for most people. Choose 24 for extra protection if you'll keep backups for years."}
           </p>
         </div>
         {/* Columns follow the card's own width, not the window's: these cards are

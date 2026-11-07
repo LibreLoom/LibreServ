@@ -211,11 +211,7 @@ export default function Table({
               return (
                 <tr
                   key={key}
-                  className={cn(
-                    "group",
-                    onRowClick &&
-                      "cursor-pointer motion-safe:transition-[translate] duration-200 ease-[var(--motion-easing-standard)] hover:motion-safe:translate-x-0.5 active:motion-safe:translate-x-0",
-                  )}
+                  className={cn("group", onRowClick && "cursor-pointer")}
                   onClick={
                     onRowClick
                       ? () => {
@@ -239,10 +235,9 @@ export default function Table({
                       col.hidden ? `hidden ${col.hidden}:table-cell` : "",
                       // The tint has to live on the cells — that is where
                       // bg-secondary is, and a transition on the <tr> would never
-                      // fire for it. It has to be OPAQUE: a translucent fill is
-                      // painted per cell, so at the fractional offsets the row
-                      // passes through mid-slide the shared edges blend twice and
-                      // show as vertical hairlines between the cells.
+                      // fire for it. Keep it OPAQUE, and never translate the row:
+                      // a moved row with a background on each cell is rasterised
+                      // cell by cell, leaving a hairline seam between them.
                       onRowClick
                         // color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
                         ? "motion-safe:transition-[background-color] duration-200 ease-[var(--motion-easing-standard)] group-hover:bg-[color-mix(in_oklab,var(--secondary)_85%,var(--primary))]"

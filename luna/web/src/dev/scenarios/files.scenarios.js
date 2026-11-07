@@ -139,7 +139,7 @@ export default [
   {
     id: "files/health-unknown", area: A, title: "Drive gives no health report", url: "/files/d1",
     seed: (w) => { demo(w); w.health.d1 = smartHealth({ available: false, reason: "no_report", verdict: "unknown", overall: "unknown", model: null, serial: null, temperature_c: null, reallocated_sectors: null, pending_sectors: null, uncorrectable_sectors: null }); },
-    check: ["Drive health says Luna got no report from this drive, in plain words", "No warning notice above the files"],
+    check: ["No Drive health section and no health pill appear", "No warning notice above the files"],
   },
   {
     id: "files/drive-healthy-details", area: A, title: "Healthy drive, a little warm", url: "/files/d1",
@@ -551,7 +551,7 @@ export default [
     seed: (w) => { viewerSamples(w); w.drives[0].state = "readonly"; },
     check: ["No Edit button, or it explains why", "Reading works"],
   },
-  { id: "files/edit-markdown", area: A, title: "Edit markdown with preview", url: open("readme.md"), seed: viewerSamples, check: ["Toolbar bold/italic/list work", "Table editing works", "Read mode and edit mode show the same text"] },
+  { id: "files/edit-markdown", area: A, title: "Edit markdown with preview", url: open("readme.md"), seed: viewerSamples, check: ["Toolbar bold/italic/list work", "Table editing works", "Read mode and edit mode show the same text", "The fullscreen sidebar has Share, and it opens the sharing sheet"] },
   {
     id: "files/edit-office", area: A, title: "Open a Word document", url: open("report.docx"), seed: viewerSamples,
     realLunadOnly: "The document editor (EuroOffice) needs the real lunad office service; the fake answers 'not available'.",

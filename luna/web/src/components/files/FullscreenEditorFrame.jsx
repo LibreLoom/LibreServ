@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
-import { Save, X } from "lucide-react";
+import { Save, Share2, X } from "lucide-react";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
@@ -80,6 +80,7 @@ function useIsMdUp() {
  *   sessionKey: string,
  *   isClosing?: boolean,
  *   canWrite?: boolean,
+ *   onShare?: (() => void) | null,
  *   editorKind?: string,
  *   onClose: () => void,
  *   children: (api: {
@@ -94,6 +95,7 @@ export default function FullscreenEditorFrame({
   sessionKey,
   isClosing = false,
   canWrite = true,
+  onShare = null,
   editorKind = "office",
   onClose,
   children,
@@ -367,6 +369,20 @@ export default function FullscreenEditorFrame({
                     </span>
                   </div>
                   <div className="flex shrink-0 flex-col items-center gap-2 pt-2">
+                    {onShare ? (
+                      <Button
+                        variant="ghost"
+                        surface="secondary"
+                        size="icon"
+                        smoothResize={false}
+                        haptic="light"
+                        onClick={onShare}
+                        aria-label="Share"
+                        tooltip="Share"
+                      >
+                        <Share2 size={ICON_SIZE.xl} aria-hidden="true" />
+                      </Button>
+                    ) : null}
                     {canWrite ? (
                       /* Dirty state reads on the button itself: inverted
                          primary fill when there are changes to save, muted
@@ -437,6 +453,19 @@ export default function FullscreenEditorFrame({
                         <span className="min-w-0 truncate">{saveLabel}</span>
                       </Pill>
                     </span>
+                  ) : null}
+                  {onShare ? (
+                    <Button
+                      variant="ghost"
+                      surface="secondary"
+                      size="iconSm"
+                      smoothResize={false}
+                      haptic="light"
+                      onClick={onShare}
+                      aria-label="Share"
+                    >
+                      <Share2 size={ICON_SIZE.lg} aria-hidden="true" />
+                    </Button>
                   ) : null}
                   <Button
                     ref={closeRef}
@@ -540,6 +569,7 @@ FullscreenEditorFrame.propTypes = {
   sessionKey: PropTypes.string.isRequired,
   isClosing: PropTypes.bool,
   canWrite: PropTypes.bool,
+  onShare: PropTypes.func,
   editorKind: PropTypes.string,
   onClose: PropTypes.func.isRequired,
   children: PropTypes.func.isRequired,

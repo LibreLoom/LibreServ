@@ -326,7 +326,7 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                          <span className="text-secondary text-xs truncate">{m.name}</span>
+                          <span className="font-mono text-secondary text-xs truncate">{m.name}</span>
                           {canManage ? (
                             <Dropdown
                               options={options}
@@ -463,7 +463,7 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
                         <CopyableValue
                           className="mt-2"
                           value={url}
-                          copyLabel="Copy address"
+                          copyLabel="Copy link"
                           ariaLabel="Share link address"
                           surface="primary"
                         />

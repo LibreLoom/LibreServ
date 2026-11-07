@@ -44,7 +44,7 @@ describe("PhraseWriteDown", () => {
     expect(
       screen.getByText("Write these 12 words on paper, in order. If you lose them, no one can open your cloud backups for you, including us."),
     ).toBeInTheDocument();
-    expect(screen.getByText("12 words are enough for most people.")).toBeInTheDocument();
+    expect(screen.getByText(/12 words are enough for most people/)).toBeInTheDocument();
     expect(screen.getByText("Leaving this page before you finish makes a new phrase.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "I wrote it down" })).toBeInTheDocument();
   });

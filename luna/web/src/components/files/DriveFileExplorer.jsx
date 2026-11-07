@@ -964,6 +964,9 @@ export default function DriveFileExplorer({
         canWrite={!inTrash && (guest
           ? (guestCaps & CAP.EDIT) !== 0
           : isAdmin || (capsForPath(viewerPath || "") & CAP.EDIT) !== 0)}
+        onShare={!guest && !inTrash && viewerPath && (isAdmin || (capsForPath(viewerPath) & CAP.SHARE) !== 0)
+          ? () => setAccessTarget({ path: viewerPath })
+          : undefined}
         onClose={() => setViewerPath(null)}
         onSaved={() => viewerPath && invalidate([viewerPath])}
         onOpenPath={(next) => {
@@ -1280,6 +1283,7 @@ export default function DriveFileExplorer({
         <>
           <ShareSheet
             open={accessTarget != null}
+            overlayClassName={NESTED_OVERLAY_CLASS}
             subject={
               accessTarget
                 ? { kind: "path", driveId, path: accessTarget.path || "" }

@@ -181,7 +181,7 @@ export default function CreateUserForm({
         <PasswordStrengthChecklist password={formData.password} />
       </div>
 
-      <div className="mb-4 flex items-center gap-3 px-5 py-2 bg-primary/10 rounded-pill">
+      <div className="mt-4 mb-4 flex items-center gap-3 px-5 py-2 bg-primary/10 rounded-pill">
         <span className="font-sans text-sm motion-safe:transition-all shrink-0 inline-flex items-center gap-1.5">
           Role
           <InfoHint
