@@ -482,9 +482,12 @@ fn install_rights(
     dest: &Path,
     want_overwrite: bool,
 ) -> Result<bool, UploadError> {
+    if let Some(link_id) = row.principal.strip_prefix("link:") {
+        return link_install_rights(conn, link_id, row, dest, want_overwrite);
+    }
     let Some(uid) = row.principal.strip_prefix("user:") else {
-        // `link:` sessions are upload-only drop boxes, and rows predating
-        // principals have no user to re-verify — neither may overwrite.
+        // Rows predating principals have no creator to re-verify; they may
+        // never overwrite.
         return Ok(false);
     };
     let Some(u) = db::get_user(conn, uid).map_err(UploadError::Db)? else {
@@ -515,6 +518,41 @@ fn install_rights(
         &rel,
         crate::access::CAP_EDIT,
     ))
+}
+
+/// Re-check a public-link upload at install time. A link's full-access grant
+/// is what lets a guest replace the shared file — the session itself is only
+/// a staging area, and its principal must still hold edit on the target.
+fn link_install_rights(
+    conn: &Connection,
+    link_id: &str,
+    row: &UploadRow,
+    dest: &Path,
+    want_overwrite: bool,
+) -> Result<bool, UploadError> {
+    let Some(link) = db::get_access_link(conn, link_id).map_err(UploadError::Db)? else {
+        return Err(UploadError::Denied);
+    };
+    if crate::access::link_expired(&link) || link.drive_id != row.drive_id {
+        return Err(UploadError::Denied);
+    }
+    if !want_overwrite || !dest.exists() {
+        return Ok(false);
+    }
+    if link.caps & crate::access::CAP_EDIT == 0 || link.subject_kind == crate::access::KIND_ALBUM {
+        return Err(UploadError::Denied);
+    }
+    let rel = crate::gallery::gallery_indexer::join_rel(&row.path, &row.name);
+    let in_scope = if link.path.is_empty() {
+        true
+    } else {
+        let base = link.path.trim_end_matches('/');
+        rel == base || rel.starts_with(&format!("{base}/"))
+    };
+    if !in_scope {
+        return Err(UploadError::Denied);
+    }
+    Ok(true)
 }
 
 /// Pick the first free name in `dir` by appending ` (n)` before the extension,

@@ -346,6 +346,20 @@ export default [
     check: ["Shows the one file by name with Download", "No folder navigation"],
   },
   {
+    id: "public/file-edit",
+    area: "Public link",
+    title: "Single text file link with edit",
+    url: "/s/tokfileedit",
+    seed: (w) => { guest(w); subject(w, { path: "Docs/notes.txt", name: "notes.txt", is_file: true, links: [{ ...link({ caps: "full" }), token: "tokfileedit" }] }); },
+    realLunadOnly: "Saving through a full link writes the file on the drive and live presence needs the real collab hub; the fake has no link file contents.",
+    check: [
+      "The text editor opens with the file's words",
+      "Type: the status pill says Unsaved; Save (and Ctrl+S) says Saved",
+      "Close and reopen: the change is still there under the same file name",
+      "Open the same link in a second window: the Live peers row shows the other editor",
+    ],
+  },
+  {
     id: "public/password",
     area: "Public link",
     title: "Link with a password (right is 'secret')",

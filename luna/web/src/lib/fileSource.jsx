@@ -422,7 +422,10 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
   return {
     kind: "share",
     guest: true,
-    collab: false,
+    // Guests share the same Yjs rooms as members: a view link joins read-only
+    // and an edit link may send ops. The hub allows text, form, diagram and
+    // whiteboard rooms; other kinds simply fail the socket and stay offline.
+    collab: true,
     token,
     capsBits: capsNum,
     isFile,
