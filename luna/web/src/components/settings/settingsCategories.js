@@ -1,14 +1,14 @@
-import { Cloud, Info, Laptop, Palette, Plug, Shield, Users } from "lucide-react";
+import { Info, Laptop, Palette, Plug, Shield, Users } from "lucide-react";
 
-// adminOnly categories change this Luna itself (Luna Connect, updates),
-// so they stay hidden from members who cannot change them.
-// connectOnly categories show only while Luna Connect is active on this Luna.
-// Cloud backup always shows: the recovery phrase card lives there.
+// adminOnly categories change this Luna itself (updates), so they stay hidden
+// from members who cannot change them.
+// Luna Connect and cloud backup share one entry: the address, the device
+// token and what is stored in the cloud are one thing to the person using
+// them, and the recovery phrase card lives there too.
 // Labels match Sol's clean category style (Appearance, Security, About)
 // rather than euphemistic phrasing.
 const CATEGORIES = [
-  { id: "cloud_backup", label: "Cloud backup", icon: Cloud },
-  { id: "luna_connect", label: "Luna Connect", icon: Plug, adminOnly: true, connectOnly: true },
+  { id: "luna_connect", label: "Luna Connect", icon: Plug },
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "security", label: "Security", icon: Shield },
   { id: "users", label: "Users", icon: Users, adminOnly: true },
@@ -17,9 +17,6 @@ const CATEGORIES = [
 ];
 
 /** Categories visible to a user with the given admin status. */
-export function visibleCategories(isAdmin, connectActive = false) {
-  return CATEGORIES.filter((c) => {
-    if (c.connectOnly && !connectActive) return false;
-    return isAdmin || !c.adminOnly;
-  });
+export function visibleCategories(isAdmin, _connectActive = false) {
+  return CATEGORIES.filter((c) => isAdmin || !c.adminOnly);
 }
