@@ -68,6 +68,17 @@ export default function DriveEncryptionSheet({ drive, open, onClose }) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
+  // Declared before the encryption query: React Query evaluates
+  // `refetchInterval` while constructing the observer during render, so the
+  // ref must already exist when the query options are built.
+  const [wipeJob, setWipeJob] = useState(
+    /** @type {null | { direction: "encrypt" | "decrypt" | "reformat" }} */ (null),
+  );
+  const wipeJobRef = useRef(wipeJob);
+  wipeJobRef.current = wipeJob;
+  const wipeSawRunning = useRef(false);
+  const wipeGraceDone = useRef(false);
+
   const encryption = useQuery({
     queryKey: ["drive-encryption", driveId],
     queryFn: () => getDriveEncryption(driveId),
@@ -95,13 +106,6 @@ export default function DriveEncryptionSheet({ drive, open, onClose }) {
 
   const [wiping, setWiping] = useState(false);
   const [wipeError, setWipeError] = useState("");
-  const [wipeJob, setWipeJob] = useState(
-    /** @type {null | { direction: "encrypt" | "decrypt" | "reformat" }} */ (null),
-  );
-  const wipeJobRef = useRef(wipeJob);
-  wipeJobRef.current = wipeJob;
-  const wipeSawRunning = useRef(false);
-  const wipeGraceDone = useRef(false);
 
   useEffect(() => {
     if (!wipeJob) {
