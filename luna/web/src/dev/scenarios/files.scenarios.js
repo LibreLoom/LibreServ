@@ -50,6 +50,19 @@ export default [
     check: ["List stays smooth while scrolling", "Sorting by name, size, age is quick", "Filter box narrows instantly", "Select-all says how many are selected"],
   },
   {
+    id: "files/open-close-speed",
+    area: A,
+    title: "Opening and closing a file in a huge folder",
+    url: "/files/d1?path=Big",
+    seed: (w) => { blank(w); addMany(w, "d1", "Big", 5000); addFile(w, "d1", "Big/notes.txt", { text: "hello" }); },
+    check: [
+      "Open notes.txt: the loading screen appears immediately and the editor follows without the list freezing",
+      "Close it: the list is interactive immediately, with no extra pause",
+      "Repeat five times: each open and close feels the same, with no growing delay",
+      "Scroll position and selection are unchanged after closing",
+    ],
+  },
+  {
     id: "files/long-names", area: A, title: "Very long file names", url: "/files/d1?path=Long",
     seed: (w) => {
       blank(w);
