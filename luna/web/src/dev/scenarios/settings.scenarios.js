@@ -73,7 +73,12 @@ export default [
       addDir(w, "d1", "Imported A", { private: true });
       addDir(w, "d1", "Imported B", { private: true });
     },
-    check: ["Two removed people listed with where their folders are (Alex: 3 folders and 1 item in Trash)", "Delete is disabled for the read-only one", "A line says Old USB isn't connected", "'Give to' flow hands the 2 ownerless folders to someone"],
+    check: [
+      "Two removed people listed with where their folders are (Alex: 3 folders and 1 item in Trash)",
+      "Delete is disabled for the read-only one",
+      "A line says Old USB isn't connected",
+      "The ownerless card lists Imported A and Imported B, each with its own Give control; giving one leaves the other",
+    ],
   },
   {
     id: "settings/users-last-admin",

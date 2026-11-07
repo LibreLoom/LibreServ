@@ -371,7 +371,11 @@ export default [
   {
     id: "files/private-ownerless", area: A, title: "Private folders that belong to nobody", url: "/settings#users",
     seed: (w) => { demo(w); w.users.push(user({ id: "u2", username: "sam", display_name: "Sam" })); addDir(w, "d1", "Imported A", { private: true }); addDir(w, "d1", "Imported B", { private: true }); },
-    check: ["Admin sees '2 private folders have no owner' and can give them to someone", "After giving, the notice disappears"],
+    check: [
+      "Admin sees a Private folders without an owner card listing Imported A and Imported B, each with its drive",
+      "Each row has its own Give to… and Give; giving one leaves the other",
+      "After both are given, the card disappears",
+    ],
   },
   {
     id: "files/private-move-out", area: A, title: "Move something out of a private folder", url: "/files/d1?path=Diary",

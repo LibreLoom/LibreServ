@@ -119,23 +119,30 @@ export default function UsersCategory() {
     retry: false,
   });
   const ownerlessCount = Number(ownerlessQuery.data?.count) || 0;
-  const [adoptId, setAdoptId] = useState("");
+  const ownerless = ownerlessQuery.data?.items || [];
+  /** Chosen person per row, keyed by drive + path. */
+  const [adoptFor, setAdoptFor] = useState(/** @type {Record<string, string>} */ ({}));
   const adoptMutation = useMutation({
-    mutationFn: (/** @type {string} */ id) => postJson(`/api/v1/users/${id}/adopt-private`, {}),
-    onSuccess: (data) => {
-      const n = Number(data?.count) || 0;
+    mutationFn: (/** @type {{ userId: string, item?: { drive_id: string, path: string, name: string } }} */ vars) =>
+      postJson(
+        `/api/v1/users/${vars.userId}/adopt-private`,
+        vars.item ? { drive_id: vars.item.drive_id, path: vars.item.path } : {},
+      ),
+    onSuccess: (_data, vars) => {
+      const person = list.find((u) => u.id === vars.userId);
+      const name = person ? person.display_name || person.username : "them";
       addToast({
         type: "success",
-        message: n === 1 ? "1 private folder given." : `${n} private folders given.`,
+        message: vars.item ? `Gave ${vars.item.name} to ${name}.` : `Gave the private folders to ${name}.`,
       });
-      setAdoptId("");
+      setAdoptFor({});
       queryClient.invalidateQueries({ queryKey: ["ownerless-private"] });
     },
     onError: (err) => {
       haptic("error");
       addToast({
         type: "error",
-        message: "Couldn't give the private folders.",
+        message: "Couldn't give that private folder.",
         description: apiErrorMessage(err, "Try again."),
       });
     },
@@ -174,35 +181,81 @@ export default function UsersCategory() {
         )}
 
         {ownerlessCount > 0 && (
-          <PageNotice variant="warning" className="mb-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <p className="text-sm">
-                {ownerlessCount === 1
-                  ? "1 private folder came from another Luna and has no owner."
-                  : `${ownerlessCount} private folders came from another Luna and have no owner.`}{" "}
-                Only an Admin can open {ownerlessCount === 1 ? "it" : "them"} until you give{" "}
-                {ownerlessCount === 1 ? "it" : "them"} to someone.
-              </p>
-              <Dropdown
-                options={list.map((u) => ({ value: u.id, label: u.display_name || u.username }))}
-                value={adoptId}
-                onChange={setAdoptId}
-                placeholder="Give to…"
-                bg="secondary"
-                size="form"
-                aria-label="Give private folders to"
-              />
-              <Button
-                size="sm"
-                variant="secondary"
-                surface="primary"
-                disabled={!adoptId || adoptMutation.isPending}
-                onClick={() => adoptMutation.mutate(adoptId)}
-              >
-                Give
-              </Button>
-            </div>
-          </PageNotice>
+          <section className="mb-4" aria-label="Private folders without an owner">
+            <Card surface="primary" padding>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="font-mono text-secondary text-sm">
+                    Private folders without an owner
+                  </h2>
+                  <p className="text-secondary text-sm mt-1">
+                    {ownerlessCount === 1
+                      ? "1 private folder came from another Luna."
+                      : `${ownerlessCount} private folders came from another Luna.`}{" "}
+                    Only an Admin can open {ownerlessCount === 1 ? "it" : "them"} until you give{" "}
+                    {ownerlessCount === 1 ? "it" : "them"} to someone.
+                  </p>
+                </div>
+                <Pill variant="warning">{ownerlessCount}</Pill>
+              </div>
+
+              {ownerless.length === 0 ? (
+                <p className="text-secondary text-sm mt-3">
+                  Refresh this page to see {ownerlessCount === 1 ? "it" : "them"}.
+                </p>
+              ) : (
+                <ul className="mt-3 space-y-2" aria-label="Private folders without an owner">
+                  {ownerless.map((folder) => {
+                    const key = `${folder.drive_id}:${folder.path}`;
+                    const name = folder.name || folder.path.split("/").pop() || folder.path;
+                    const chosen = adoptFor[key] || "";
+                    return (
+                      <li
+                        key={key}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-large-element surface-secondary p-3"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm text-primary">
+                            <InlinePill>{name}</InlinePill>
+                          </p>
+                          <p className="text-xs text-primary mt-0.5">{folder.drive_label}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Dropdown
+                            options={list.map((u) => ({ value: u.id, label: u.display_name || u.username }))}
+                            value={chosen}
+                            onChange={(id) => setAdoptFor((prev) => ({ ...prev, [key]: id }))}
+                            placeholder="Give to…"
+                            bg="primary"
+                            size="form"
+                            aria-label={`Give ${name} to`}
+                          />
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            surface="secondary"
+                            disabled={!chosen || adoptMutation.isPending}
+                            loading={
+                              adoptMutation.isPending &&
+                              adoptMutation.variables?.item?.path === folder.path
+                            }
+                            onClick={() =>
+                              adoptMutation.mutate({
+                                userId: chosen,
+                                item: folder,
+                              })
+                            }
+                          >
+                            Give
+                          </Button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </Card>
+          </section>
         )}
 
         {(orphans.length > 0 || orphanOffline.length > 0) && (

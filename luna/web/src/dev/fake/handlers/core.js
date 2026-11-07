@@ -151,7 +151,13 @@ get("/api/v1/users/:id/private-count", ({ world, user, params }) => {
 });
 get("/api/v1/private/ownerless", ({ world, user }) => {
   gate(user);
-  return { count: ownerlessItems(world).length };
+  const items = ownerlessItems(world).map((it) => ({
+    drive_id: it.driveId,
+    drive_label: world.drives.find((d) => d.id === it.driveId)?.label || it.driveId,
+    path: it.path,
+    name: it.path.split("/").pop() || it.path,
+  }));
+  return { count: items.length, items };
 });
 
 function ownerlessItems(world) {
@@ -163,12 +169,15 @@ function ownerlessItems(world) {
   }
   return out;
 }
-post("/api/v1/users/:id/adopt-private", ({ world, user, params }) => {
+post("/api/v1/users/:id/adopt-private", ({ world, user, params, body }) => {
   gate(user);
   if (!world.users.some((u) => u.id === params.id)) return fail(404, "Luna doesn't know that person.");
   const items = ownerlessItems(world);
-  for (const it of items) world.fs[it.driveId].nodes[it.path].owner = params.id;
-  return { count: items.length };
+  const one = body?.drive_id && body?.path
+    ? items.filter((it) => it.driveId === body.drive_id && it.path === body.path)
+    : items;
+  for (const it of one) world.fs[it.driveId].nodes[it.path].owner = params.id;
+  return { count: one.length };
 });
 
 patch("/api/v1/users/:id", ({ world, user, params, body }) => {

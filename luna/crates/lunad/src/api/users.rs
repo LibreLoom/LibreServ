@@ -354,23 +354,39 @@ async fn private_count(
     ))
 }
 
-/// Private items that came with a drive from another Luna and have no owner.
+#[derive(Deserialize, Default)]
+struct AdoptPrivate {
+    #[serde(default)]
+    drive_id: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
+}
+
+/// Private folders that came with a drive from another Luna and have no owner.
 async fn ownerless_count(
     State(state): State<AppState>,
     Extension(admin): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_admin(&admin)?;
     let conn = lock_db(&state)?;
-    Ok(Json(
-        json!({ "count": crate::private::ownerless_total(&conn) }),
-    ))
+    let folders = crate::private::ownerless_folders(&conn);
+    Ok(Json(json!({
+        "count": folders.len(),
+        "items": folders.iter().map(|f| json!({
+            "drive_id": f.drive_id,
+            "drive_label": f.drive_label,
+            "path": f.path,
+            "name": f.name(),
+        })).collect::<Vec<_>>(),
+    })))
 }
 
-/// Give every ownerless private item to this person.
+/// Give one ownerless private folder, or every one, to this person.
 async fn adopt_private(
     State(state): State<AppState>,
     Extension(admin): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
+    body: axum::body::Bytes,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_admin(&admin)?;
     let conn = lock_db(&state)?;
@@ -383,9 +399,23 @@ async fn adopt_private(
             "Luna doesn't know that person.",
         ));
     }
-    Ok(Json(
-        json!({ "count": crate::private::adopt_ownerless(&conn, &id) }),
-    ))
+    let body: AdoptPrivate = if body.is_empty() {
+        AdoptPrivate::default()
+    } else {
+        serde_json::from_slice(&body).map_err(|_| {
+            json_error(
+                StatusCode::BAD_REQUEST,
+                "That request wasn't valid. Choose a person and try again.",
+            )
+        })?
+    };
+    let count = match (body.drive_id.as_deref(), body.path.as_deref()) {
+        (Some(drive_id), Some(path)) => usize::from(crate::private::adopt_ownerless_folder(
+            &conn, drive_id, path, &id,
+        )),
+        _ => crate::private::adopt_ownerless(&conn, &id),
+    };
+    Ok(Json(json!({ "count": count })))
 }
 
 /// Private folders a removed person still owns — their files stay on the

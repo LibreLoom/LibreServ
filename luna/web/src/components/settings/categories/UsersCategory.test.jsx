@@ -44,7 +44,15 @@ function stubFetch({
         return jsonResponse({ count: privateCount });
       }
       if (u.endsWith("/api/v1/private/ownerless")) {
-        return jsonResponse({ count: ownerless });
+        return jsonResponse({
+          count: ownerless,
+          items: Array.from({ length: ownerless }, (_, i) => ({
+            drive_id: "d1",
+            drive_label: "Photos",
+            path: `Imported ${i + 1}`,
+            name: `Imported ${i + 1}`,
+          })),
+        });
       }
       if (u.endsWith("/api/v1/private/orphans")) {
         return jsonResponse(orphans);
@@ -54,7 +62,7 @@ function stubFetch({
         return jsonResponse(cleanupResult);
       }
       if (u.endsWith("/adopt-private") && init?.method === "POST") {
-        adopted.push(u);
+        adopted.push({ url: u, body: JSON.parse(init.body || "{}") });
         return jsonResponse({ count: ownerless });
       }
       if (u.includes("/api/v1/users/") && init?.method === "DELETE") {
@@ -197,17 +205,19 @@ describe("UsersCategory", () => {
     expect(screen.queryByText(/private folder/i)).toBeNull();
   });
 
-  it("offers to give ownerless private folders to someone", async () => {
+  it("offers to give each ownerless private folder to someone", async () => {
     const adopted = [];
     stubFetch({ ownerless: 2, adopted });
     const user = userEvent.setup();
     renderPage();
-    expect(await screen.findByText(/2 private folders came from another Luna and have no owner\./)).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Give private folders to" }));
+    expect(await screen.findByText(/2 private folders came from another Luna/)).toBeTruthy();
+    const row = /** @type {HTMLElement} */ (screen.getByText("Imported 1").closest("li"));
+    await user.click(screen.getByRole("button", { name: "Give Imported 1 to" }));
     await user.click(await screen.findByRole("option", { name: "Alex" }));
-    await user.click(screen.getByRole("button", { name: "Give" }));
+    await user.click(within(row).getByRole("button", { name: "Give" }));
     await vi.waitFor(() => expect(adopted).toHaveLength(1));
-    expect(adopted[0]).toMatch(/\/api\/v1\/users\/2\/adopt-private$/);
+    expect(adopted[0].url).toMatch(/\/api\/v1\/users\/2\/adopt-private$/);
+    expect(adopted[0].body).toEqual({ drive_id: "d1", path: "Imported 1" });
   });
 
   it("lists private folders left by removed people and deletes them on confirm", async () => {
