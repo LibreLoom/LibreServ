@@ -241,6 +241,15 @@ export default function Gallery() {
               Needs real Luna: {scenario.realLunadOnly}
             </p>
           )}
+          {scenario.how?.length ? (
+            <div className="mb-4">
+              <h3 className="mb-1 font-mono text-xs">How to test</h3>
+              <ol className="list-decimal space-y-1 pl-5 text-sm">
+                {scenario.how.map((step) => <li key={step}>{step}</li>)}
+              </ol>
+            </div>
+          ) : null}
+          <h3 className="mb-1 font-mono text-xs">What to check</h3>
           <ul className="list-disc space-y-1 pl-5 text-sm">
             {scenario.check.length ? scenario.check.map((c) => <li key={c}>{c}</li>) : <li>Look for anything odd, unclear or broken.</li>}
           </ul>

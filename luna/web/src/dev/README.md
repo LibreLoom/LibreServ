@@ -38,6 +38,7 @@ export default [{
   area: "Files",
   title: "Drive with nothing on it",
   url: "/files",                      // start route
+  how: ["Open Files", "Press New"],   // optional: the right panel's How to test steps
   check: ["Empty state explains what to do", "New menu still works"],
   seed: (w) => { w.summaries.d1.used_bytes = 0; },   // edit the fake world
   faults: [{ match: "GET /api/v1/drives/d1/files", mode: "slow:4000" }],
