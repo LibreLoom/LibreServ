@@ -264,7 +264,7 @@ export default [
       "Drag a folder with sub-folders onto the list → one row named after the folder, and the drive gets the same tree",
       "An empty folder inside it is made on the drive too, at every level, and counts in the card (\"Made 2 folders in Documents\")",
       "A folder holding only empty folders still finishes and says what it made, never \"0 of 0 files\"",
-      "Pick a folder from the Upload menu → the menu says empty folders inside it aren't copied, because the browser can't see them; dragging the folder does copy them",
+      "Pick a folder from the Upload menu → it has no 'skips empty folders' second line; an empty pick explains that the browser can't see empty folders and to drag the folder instead",
       "Pick an empty folder, or one holding only empty folders → it says that folder has no files instead of doing nothing",
       "Pick the same folder twice in a row → the second pick uploads again",
       "Cancel during the walk → it stops, and the card says Cancelled rather than claiming the folder went up",
