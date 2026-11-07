@@ -459,15 +459,28 @@ post("/api/v1/drives/:id/lock", ({ world, user, params }) => {
   return { ok: true };
 });
 
+// lunad starts the format in the background and answers `started` at once.
+// Keep the same shape: `converting` is true until the format finishes, so the
+// page has to wait for the drive and cannot report success too early.
+function runFormat(d, apply) {
+  d.converting = true;
+  setTimeout(() => {
+    d.converting = false;
+    apply();
+  }, 1200);
+}
+
 post("/api/v1/drives/:id/encrypt", ({ world, user, params, body }) => {
   driveGate(user);
   const d = findDrive(world, params.id);
   if (d.encrypted) return fail(400, "This drive is already encrypted.");
   if (!String(body.password ?? "").length) return fail(400, "Enter a password for this drive.");
   // The drive is wiped to ext4 inside a container, so its old format is gone.
-  d.encrypted = true;
-  d.locked = true;
-  d.fs_type = "ext4";
+  runFormat(d, () => {
+    d.encrypted = true;
+    d.locked = true;
+    d.fs_type = "ext4";
+  });
   return { ok: true, started: true };
 });
 
@@ -477,9 +490,23 @@ post("/api/v1/drives/:id/decrypt", ({ world, user, params, body }) => {
   if (!d.encrypted) return fail(400, "This drive isn't encrypted, so there's nothing to decrypt.");
   if (!String(body.password ?? "").length) return fail(401, "That password didn't work.");
   // Decrypting wipes to a plain exFAT drive.
-  d.encrypted = false;
-  d.locked = false;
-  d.fs_type = "exfat";
+  runFormat(d, () => {
+    d.encrypted = false;
+    d.locked = false;
+    d.fs_type = "exfat";
+  });
+  return { ok: true, started: true };
+});
+
+post("/api/v1/drives/:id/reformat", ({ world, user, params }) => {
+  driveGate(user);
+  const d = findDrive(world, params.id);
+  if (d.encrypted) return fail(400, "This drive is encrypted. Enter its password to decrypt it.");
+  runFormat(d, () => {
+    d.encrypted = false;
+    d.locked = false;
+    d.fs_type = "exfat";
+  });
   return { ok: true, started: true };
 });
 

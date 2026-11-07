@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { HardDrive, Lock } from "lucide-react";
@@ -72,7 +72,8 @@ export default function DriveEncryptionPage() {
     queryFn: () => getDriveEncryption(id),
     // A conversion runs for hours; poll while one is in flight so the page
     // notices when it finishes without a refresh.
-    refetchInterval: (query) => (query.state.data?.converting ? 5000 : false),
+    refetchInterval: (query) =>
+      query.state.data?.converting || wipeJobRef.current ? 1500 : false,
   });
 
   const data = encryption.data;
@@ -102,6 +103,29 @@ export default function DriveEncryptionPage() {
 
   const [wiping, setWiping] = useState(false);
   const [wipeError, setWipeError] = useState("");
+  // `started` means the request is accepted and the format runs in the
+  // background. The drive is not safe to use until polling sees it finish,
+  // so success is reported then, never when the request returns.
+  const [wipeJob, setWipeJob] = useState(
+    /** @type {null | { direction: "encrypt" | "decrypt" | "reformat" }} */ (null),
+  );
+  const wipeJobRef = useRef(wipeJob);
+  wipeJobRef.current = wipeJob;
+  const wipeSawRunning = useRef(false);
+  // A short grace period: the first poll after the request can land before
+  // the background format has set `converting`, and "not converting" would
+  // then look like "finished".
+  const wipeGraceDone = useRef(false);
+  useEffect(() => {
+    if (!wipeJob) {
+      wipeGraceDone.current = false;
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      wipeGraceDone.current = true;
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [wipeJob]);
 
   /** Run the wipe the person just confirmed. */
   const runWipe = async () => {
@@ -111,14 +135,15 @@ export default function DriveEncryptionPage() {
     try {
       if (pending.direction === "encrypt") {
         await encryptDrive(id, pending.password);
-        addToast("success", "Drive wiped and encrypted");
       } else if (pending.direction === "decrypt") {
         await decryptDrive(id, pending.password);
-        addToast("success", "Drive wiped and decrypted");
       } else {
         await reformatDrive(id);
-        addToast("success", "Drive reformatted");
       }
+      // The format is still running on Luna. Poll until the drive reports a
+      // finished state before saying it worked.
+      wipeSawRunning.current = false;
+      setWipeJob({ direction: pending.direction });
       setPending(null);
       setDialog(null);
       refresh();
@@ -136,6 +161,41 @@ export default function DriveEncryptionPage() {
     queryClient.invalidateQueries({ queryKey: ["drives"] });
     queryClient.invalidateQueries({ queryKey: ["drive-summary", id] });
   };
+
+  // Report the outcome only once the drive itself says the format finished.
+  // The API returns as soon as the job starts; a toast at that moment would
+  // claim success while the drive still has no usable filesystem.
+  useEffect(() => {
+    if (!wipeJob || !data) return;
+    if (data.converting) {
+      wipeSawRunning.current = true;
+      return;
+    }
+    // The first poll can race the job starting. Give it a moment before
+    // reading "not converting" as "finished".
+    if (!wipeSawRunning.current && !wipeGraceDone.current) return;
+    const finished = wipeJob.direction === "encrypt"
+      ? data.encrypted === true
+      : (data.encrypted ?? false) === false;
+    const verb = wipeJob.direction === "encrypt"
+      ? "encrypt"
+      : wipeJob.direction === "decrypt"
+        ? "decrypt"
+        : "reformat";
+    if (!finished) {
+      addToast(
+        "error",
+        `Luna couldn't finish ${verb === "encrypt" ? "encrypting" : verb === "decrypt" ? "decrypting" : "reformatting"} this drive.`,
+        "The drive may not open until it is formatted again from Files.",
+      );
+    } else {
+      addToast("success", verb === "encrypt" ? "Drive encrypted" : verb === "decrypt" ? "Drive decrypted" : "Drive reformatted");
+    }
+    setWipeJob(null);
+    queryClient.invalidateQueries({ queryKey: ["drive-encryption", id] });
+    queryClient.invalidateQueries({ queryKey: ["drives"] });
+    queryClient.invalidateQueries({ queryKey: ["drive-summary", id] });
+  }, [addToast, data, id, queryClient, wipeJob]);
 
   if (!drives.isLoading && !drive) {
     return (
@@ -169,14 +229,21 @@ export default function DriveEncryptionPage() {
         <Card icon={state === "locked" ? Lock : HardDrive} title={copy.title}>
           <p className="text-primary text-sm">{copy.body}</p>
 
-          {state === "encrypting" || state === "decrypting" ? (
+          {wipeJob && !data?.converting ? (
+            <p className="mt-2 text-primary text-sm">
+              Luna is starting the format. The drive is not ready to use until this finishes — you can
+              close this page.
+            </p>
+          ) : null}
+
+          {wipeJob || state === "encrypting" || state === "decrypting" ? (
             <div className="mt-3">
-              <LinearProgress active label={copy.title} />
+              <LinearProgress active label={wipeJob ? "Formatting this drive" : copy.title} />
             </div>
           ) : null}
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            {state === "unencrypted" && isAdmin && (
+            {state === "unencrypted" && isAdmin && !wipeJob && (
               <>
                 <Button
                   size="sm"
@@ -198,12 +265,12 @@ export default function DriveEncryptionPage() {
                 </Button>
               </>
             )}
-            {state === "locked" && (
+            {state === "locked" && !wipeJob && (
               <Button size="sm" variant="primary" onClick={() => setDialog("unlock")}>
                 Unlock
               </Button>
             )}
-            {state === "unlocked" && (
+            {state === "unlocked" && !wipeJob && (
               <>
                 <Button
                   size="sm"

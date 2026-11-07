@@ -173,7 +173,8 @@ async fn save_source(
         keys: body.keys.unwrap_or_else(|| current.keys.clone()),
     };
     let keys =
-        match crate::system::updates::validate_settings_against(&settings, Some(&current.feed_url)) {
+        match crate::system::updates::validate_settings_against(&settings, Some(&current.feed_url))
+        {
             Ok(keys) => keys,
             Err(message) => return Err(json_error(StatusCode::BAD_REQUEST, message)),
         };
@@ -583,7 +584,10 @@ mod tests {
     #[tokio::test]
     async fn source_put_channel_only_keeps_the_feed_and_keys() {
         let (router, token, state) = app();
-        let response = router.oneshot(put(&token, r#"{"channel":"beta"}"#)).await.unwrap();
+        let response = router
+            .oneshot(put(&token, r#"{"channel":"beta"}"#))
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let got = state.updates.settings();
         assert_eq!(got.feed_url, "http://feeds.test");

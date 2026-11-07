@@ -1281,9 +1281,7 @@ pub fn validate_settings_against(
         );
     }
     let unchanged = current_feed_url
-        .map(|current| {
-            current.trim().trim_end_matches('/') == feed_url.trim_end_matches('/')
-        })
+        .map(|current| current.trim().trim_end_matches('/') == feed_url.trim_end_matches('/'))
         .unwrap_or(false);
     if !unchanged {
         crate::system::update_host::validate_feed_url_host(feed_url)?;

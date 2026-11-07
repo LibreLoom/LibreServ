@@ -107,6 +107,28 @@ export default [
 
   // ── Drive condition ───────────────────────────────────────────────────────
   {
+    id: "files/encryption",
+    area: A,
+    title: "Turn encryption on",
+    url: "/files/d1/encryption",
+    seed: (w) => { demo(w); },
+    check: [
+      "The card says Not encrypted and explains what that means",
+      "Encrypt this drive asks for a password twice and warns there is no recovery",
+      "The wipe dialog lists what is on the drive and makes the button wait",
+      "After confirming, the page starts a format and only says Drive encrypted once the drive reports it finished",
+      "The drive then shows as Locked, not left in a half-formatted state",
+    ],
+  },
+  {
+    id: "files/encryption-locked",
+    area: A,
+    title: "Encrypted drive, locked",
+    url: "/files/d1/encryption",
+    seed: (w) => { demo(w); w.drives[0].encrypted = true; w.drives[0].locked = true; w.drives[0].fs_type = "ext4"; },
+    check: ["Says Locked and asks for the password", "A wrong password stays inline", "The right password unlocks and says so"],
+  },
+  {
     id: "files/readonly-drive", area: A, title: "Read-only drive", url: "/files/d1",
     seed: (w) => { demo(w); w.drives[0].state = "readonly"; },
     check: ["Browsing and opening work", "New, upload, rename, delete are hidden or disabled with a reason", "Trying anyway (drag a file in) gives a plain 'read-only' message"],
@@ -552,6 +574,33 @@ export default [
     check: ["No Edit button, or it explains why", "Reading works"],
   },
   { id: "files/edit-markdown", area: A, title: "Edit markdown with preview", url: open("readme.md"), seed: viewerSamples, check: ["Toolbar bold/italic/list work", "Table editing works", "Read mode and edit mode show the same text", "The fullscreen sidebar has Share, and it opens the sharing sheet"] },
+  {
+    id: "files/edit-form",
+    area: A,
+    title: "Edit a form",
+    url: open("rsvp.lunaform"),
+    seed: viewerSamples,
+    check: [
+      "The builder loads the title and both questions",
+      "Editing a question marks the file unsaved; Save says Saved",
+      "Responses tab opens and shows its empty state",
+      "The fullscreen sidebar has Share, and it opens the sharing sheet",
+    ],
+  },
+  {
+    id: "files/edit-form-collab",
+    area: A,
+    title: "Two people editing one form",
+    url: open("rsvp.lunaform"),
+    seed: viewerSamples,
+    realLunadOnly: "Live co-editing needs the real lunad collab hub; the fake has no WebSocket.",
+    check: [
+      "Open the form in two browsers as two people",
+      "Click into question 1 in one: the other shows a coloured outline and a name chip on question 1",
+      "Move to question 2: the highlight follows, without any text cursor",
+      "The name chip uses each person's colour",
+    ],
+  },
   {
     id: "files/edit-office", area: A, title: "Open a Word document", url: open("report.docx"), seed: viewerSamples,
     realLunadOnly: "The document editor (EuroOffice) needs the real lunad office service; the fake answers 'not available'.",
