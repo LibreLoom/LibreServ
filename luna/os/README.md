@@ -142,6 +142,10 @@ size and sha256 before use. A missing feed means nothing is published yet.
 
 - `lunad` — `lunad-linux-amd64-musl` (or arm64), the daemon
 - `os` — `luna-os-x86_64.img.xz`, only when the OS changed
+- `packs` (optional) — one tar.xz of the editor pack folders (`eurooffice`,
+  `drawio`); each is swapped into the data dir on **Install update**, and its
+  sha256 is kept in `/var/lib/luna/packs.sha256` so the same blob is applied
+  once. A feed without it leaves the installed packs alone.
 
 An admin taps **Install update** in Settings. Luna installs a newer `lunad`
 under `/var/lib/luna/bin/lunad` on the data partition, checking the signature
