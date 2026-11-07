@@ -116,10 +116,17 @@ export default function Gallery() {
     return { ...c, untested: scenarios.length - c.pass - c.fail - c.skip - c.retest };
   }, [results]);
 
+  // Next/previous follow what the left list shows (grouped by area, in the
+  // category's order), not the raw source-file order.
+  const orderedVisible = useMemo(
+    () => grouped.flatMap(([, list]) => list),
+    [grouped],
+  );
+
   const pick = useCallback((id) => { setSelectedId(id); setFrameKey((k) => k + 1); setSnap(null); }, []);
   const step = (dir) => {
-    const i = visible.findIndex((s) => s.id === scenario?.id);
-    const next = visible[Math.min(visible.length - 1, Math.max(0, i + dir))];
+    const i = orderedVisible.findIndex((s) => s.id === scenario?.id);
+    const next = orderedVisible[Math.min(orderedVisible.length - 1, Math.max(0, i + dir))];
     if (next) pick(next.id);
   };
 

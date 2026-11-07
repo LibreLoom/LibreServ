@@ -7,6 +7,7 @@ const modules = /** @type {any} */ (import.meta.glob("./*.scenarios.js", { eager
 /** @typedef {{
  *   id: string, area: string, title: string,
  *   how?: string[],              // step-by-step instructions the gallery shows
+ *   reviewOrder?: number,        // temporary ordering inside the review category
  *   check?: string[],            // what the tester should look for
  *   url?: string,                // start route, default "/"
  *   seed?: (world: any) => void, // edits the base world
@@ -23,29 +24,21 @@ const modules = /** @type {any} */ (import.meta.glob("./*.scenarios.js", { eager
 // and the map in `scenarios` below once the review pass is done — the
 // scenarios go back to their real areas.
 const REVIEW_AREA = "Review: 2026-11-06";
-const REVIEW_IDS = new Set([
-  // Settings — update source
-  "settings/update-source",
-  "settings/update-source-lan-feed",
-  // Settings — users and private folders
-  "settings/users-many",
-  "settings/users-orphans",
-  "settings/edit-user",
-  "settings/edit-user-self",
-  "settings/edit-user-save-fails",
-  "settings/edit-user-phone",
-  "files/private-ownerless",
-  // Settings — appearance
-  "settings/appearance",
-  // Settings — Luna Connect and cloud backup
-  "settings/cloud-backups",
-  "settings/cloud-no-card",
-  "settings/cloud-run-fails",
+const REVIEW_ORDER = [
+  // Drive encryption
+  "files/encryption",
+  "files/encryption-locked",
+  // Health, shared page, folder upload and speed
+  "files/health-unknown",
+  "shared/loading",
+  "shared/many",
+  "files/upload-folder",
+  "files/open-close-speed",
+  "dashboard/member-calm",
+  // Recovery phrase, Connect and the recovery file
   "settings/phrase-not-set",
-  "settings/phrase-check-wrong",
-  "settings/restore-needed",
-  "settings/restore-private-needed",
   "settings/phrase-24-words",
+  "settings/phrase-check-wrong",
   "settings/phrase-set-check-due",
   "settings/phrase-change",
   "settings/phrase-change-exposed",
@@ -55,28 +48,38 @@ const REVIEW_IDS = new Set([
   "settings/phrase-moving",
   "settings/phrase-moving-full",
   "auth/member-needs-phrase",
-  // Files — copy, health, folders and speed
-  "dashboard/member-calm",
+  "recovery/create",
+  "recovery/phone-dark",
+  // Updates, users and private folders
+  "settings/update-source",
+  "settings/update-source-lan-feed",
+  "settings/users-many",
+  "settings/users-orphans",
+  "files/private-ownerless",
+  "settings/edit-user",
+  "settings/edit-user-self",
+  "settings/edit-user-save-fails",
+  "settings/edit-user-phone",
   "auth/member",
-  "files/health-unknown",
-  "files/upload-folder",
+  // Sharing
+  "share/many-people",
+  "share/links-all-states",
+  // Editors
   "files/edit-markdown",
   "files/edit-form",
   "files/edit-form-collab",
-  "files/open-close-speed",
-  // Files — encryption
-  "files/encryption",
-  "files/encryption-locked",
-  // Shared page and public links
-  "shared/many",
-  "shared/loading",
   "public/file-edit",
-  // Recovery file page
-  "recovery/create",
-  "recovery/phone-dark",
-  // Photos
+  // Luna Connect and backup
+  "settings/cloud-backups",
+  "settings/cloud-no-card",
+  "settings/cloud-run-fails",
+  "settings/restore-needed",
+  "settings/restore-private-needed",
+  // Appearance and photos
+  "settings/appearance",
   "gallery/segment-motion",
-]);
+];
+const REVIEW_IDS = new Set(REVIEW_ORDER);
 
 const REVIEW_HOW = /** @type {Record<string, string[]>} */ ({
   "settings/update-source": [
@@ -262,6 +265,14 @@ const REVIEW_HOW = /** @type {Record<string, string[]>} */ ({
     "Open /recover on a phone in dark mode.",
     "Scroll the card; check every field and the download button.",
   ],
+  "share/many-people": [
+    "Open Shared → Manage sharing, then open a sharing sheet with people and links.",
+    "Check the People names use the mono font; check each link's copy button says Copy link.",
+  ],
+  "share/links-all-states": [
+    "Open a sharing sheet with links in different states (open, password, expired).",
+    "Check every link row's copy button says Copy link.",
+  ],
   "gallery/segment-motion": [
     "Open Photos.",
     "Switch Library → Albums → Places → Favorites and back.",
@@ -273,8 +284,11 @@ const REVIEW_HOW = /** @type {Record<string, string[]>} */ ({
 export const scenarios = Object.values(modules)
   .flatMap((m) => m.default || [])
   .map((s) => (REVIEW_IDS.has(s.id)
-    ? { ...s, area: REVIEW_AREA, ...(REVIEW_HOW[s.id] ? { how: REVIEW_HOW[s.id] } : {}) }
+    ? { ...s, area: REVIEW_AREA, reviewOrder: REVIEW_ORDER.indexOf(s.id), ...(REVIEW_HOW[s.id] ? { how: REVIEW_HOW[s.id] } : {}) }
     : s))
+  // Temporary: the review category leads, in the order its instructions are
+  // written. Everything else keeps its original order.
+  .sort((a, b) => (a.reviewOrder ?? Number.MAX_SAFE_INTEGER) - (b.reviewOrder ?? Number.MAX_SAFE_INTEGER))
   .map((s) => ({ url: "/", check: [], ...s }));
 
 const seen = new Set();
