@@ -18,6 +18,7 @@ import { apiErrorMessage, deleteJson, getJson, postJson } from "../../../lib/api
 import { useAuth } from "../../../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import CreateUserForm from "../../common/forms/CreateUserForm";
+import EditUserModal from "./EditUserModal.jsx";
 import useStrandedErrorToast from "../../../hooks/useStrandedErrorToast";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
@@ -25,10 +26,12 @@ export default function UsersCategory() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { user } = useAuth();
-  // You edit yourself in Settings → Security; everyone else gets a full page.
-  const editPath = (row) => (row.id === user?.id ? "/settings#security" : `/settings/users/${row.id}`);
+  // You edit yourself in Settings → Security; everyone else opens the same
+  // kind of modal Add a user uses.
+  const SELF_SECURITY = "/settings#security";
   const { addToast } = useToast();
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [error, setError] = useState(null);
   const [userToDelete, setUserToDelete] = useState(null);
 
@@ -362,17 +365,29 @@ export default function UsersCategory() {
                         const isSelf = row.id === user?.id;
                         return (
                           <span className="flex items-center justify-center gap-1">
-                            <Button
-                              asChild
-                              variant="ghost"
-                              size="iconSm"
-                              surface="secondary"
-                              aria-label={`Edit ${row.display_name || row.username}`}
-                            >
-                              <Link to={editPath(row)}>
+                            {isSelf ? (
+                              <Button
+                                asChild
+                                variant="ghost"
+                                size="iconSm"
+                                surface="secondary"
+                                aria-label={`Edit ${row.display_name || row.username}`}
+                              >
+                                <Link to={SELF_SECURITY}>
+                                  <Pencil size={16} aria-hidden="true" />
+                                </Link>
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="iconSm"
+                                surface="secondary"
+                                aria-label={`Edit ${row.display_name || row.username}`}
+                                onClick={() => setEditing(row)}
+                              >
                                 <Pencil size={16} aria-hidden="true" />
-                              </Link>
-                            </Button>
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="iconSm"
@@ -395,7 +410,9 @@ export default function UsersCategory() {
                   ]}
                   data={list}
                   rowKey="id"
-                  onRowClick={(row) => navigate(editPath(row))}
+                  onRowClick={(row) => (
+                    row.id === user?.id ? navigate(SELF_SECURITY) : setEditing(row)
+                  )}
                   addRow={{
                     label: "Add user",
                     onClick: () => {
@@ -442,6 +459,8 @@ export default function UsersCategory() {
           setError(null);
         }}
       />
+
+      <EditUserModal target={editing} onClose={() => setEditing(null)} />
 
       <ConfirmModal
         open={!!orphanToClean}

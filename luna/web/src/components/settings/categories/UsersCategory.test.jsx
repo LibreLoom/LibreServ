@@ -255,7 +255,7 @@ describe("UsersCategory", () => {
     renderPage();
 
     // Floating trigger is icon-only (Sol-style big plus) with aria-label.
-    await screen.findByRole("link", { name: /Edit Alex/i });
+    await screen.findByRole("button", { name: /Edit Alex/i });
     await user.click(await screen.findByRole("button", { name: /^Add user$/i }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("heading", { name: /Add a user/i })).toBeTruthy();
@@ -330,7 +330,7 @@ describe("UsersCategory", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await screen.findByRole("link", { name: /Edit Alex/i });
+    await screen.findByRole("button", { name: /Edit Alex/i });
     await user.click(await screen.findByRole("button", { name: /^Add user$/i }));
     const dialog = await screen.findByRole("dialog");
     await user.type(within(dialog).getByLabelText(/^Name$/i), "Jamie");
@@ -389,12 +389,15 @@ describe("UsersCategory", () => {
     expect(within(items[items.length - 1]).getByRole("button", { name: /^Add user$/i })).toBeInTheDocument();
   });
 
-  it("links Edit to a full page for others and to Settings for yourself", async () => {
+  it("opens Edit as a modal for others and links yourself to Settings", async () => {
     stubFetch();
+    const user = userEvent.setup();
     renderPage();
 
-    expect(await screen.findByRole("link", { name: /Edit Alex/i })).toHaveAttribute("href", "/settings/users/2");
     expect(screen.getByRole("link", { name: /Edit Demo/i })).toHaveAttribute("href", "/settings#security");
+    await user.click(await screen.findByRole("button", { name: /Edit Alex/i }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: /Edit Alex/i })).toBeTruthy();
   });
 
   it("links to settings security when editing yourself instead of opening modal", async () => {

@@ -13,7 +13,6 @@ import FileSearch from "./components/files/FileSearch";
 import FileOpsDock from "./components/files/fileOps/FileOpsDock.jsx";
 import Navbar from "./components/ui/Navbar";
 import LoadingBar from "@libreloom/ui/components/common/LoadingBar.jsx";
-import RequireAdmin from "./components/auth/RequireAdmin";
 import useRecentItemsTracker from "./hooks/useRecentItemsTracker";
 
 // One chunk per page: the first paint downloads only the page being opened.
@@ -31,7 +30,6 @@ const GalleryPage = lazy(loadGalleryPage);
 const SharedPage = lazy(loadSharedPage);
 const DashboardPage = lazy(loadDashboardPage);
 const LoginPage = lazy(() => import("./pages/LoginPage"));
-const EditUserPage = lazy(() => import("./pages/EditUserPage"));
 const SetupPage = lazy(() => import("./pages/SetupPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 const SettingsPage = lazy(loadSettingsPage);
@@ -153,7 +151,6 @@ export default function App() {
                 <Route path="/gallery" element={<GalleryPage />} />
                 <Route path="/shared" element={<SharedPage />} />
                 <Route path="/photos" element={<PhotosToGalleryRedirect />} />
-                <Route path="/settings/users/:id" element={<RequireAdmin><EditUserPage /></RequireAdmin>} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>
               <Route path="*" element={<NotFoundPage />} />
