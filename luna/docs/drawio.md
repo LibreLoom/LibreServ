@@ -109,7 +109,7 @@ NOTICE.luna.txt                  attribution (the pack can ship in the ISO)
 The war's `WEB-INF/` and `META-INF/` (Java server classes Luna never runs)
 are excluded during extraction.
 
-## Shipping the pack (install ISO)
+## Shipping the pack (install ISO and update feed)
 
 `make drawio-pack` (or `scripts/build-drawio-pack.sh`) produces
 `os/dist/drawio-pack.tar.zst` — the whole pack as a self-describing `drawio/`
@@ -118,6 +118,14 @@ dir. `build-iso.sh` builds it automatically when missing,
 `rapidinstall.sh` verifies its sha256 and extracts it onto `LUNA_DATA` — so
 diagram editing works on first boot with no download. A device installed
 without the pack shows the normal "not installed" card on diagram files.
+
+After install, the pack is updated from the signed update feed: an optional
+`packs` part on the `luna` unit carries the pack folders as one tar.xz, and
+lunad swaps each known pack (`eurooffice`, `drawio`) into `{data_dir}` on
+**Install update**, recording the blob's sha256 in `{data_dir}/packs.sha256`
+so the same release is never applied twice. A feed without a `packs` part
+leaves the on-device pack alone. See
+[the feed contract](../../infra/ci-source/internal/feed/README.md).
 
 ## Endpoints
 

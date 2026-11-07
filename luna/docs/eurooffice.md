@@ -82,7 +82,7 @@ x2t/x2t.js + x2t.wasm                browser-side converter (CryptPad build)
 fonts-manifest.json                  TTF list the worker fetches
 ```
 
-## Shipping the pack (install ISO)
+## Shipping the pack (install ISO and update feed)
 
 `make eurooffice-pack` (or `scripts/build-eurooffice-pack.sh`) produces
 `os/dist/eurooffice-pack.tar.zst` — the pack minus `web-apps/*/resources/help`
@@ -94,6 +94,14 @@ dictionaries. `build-iso.sh` builds it automatically when missing,
 office editing works on first boot with no download. Extraction needs `zstd`
 in the installer image (in `luna.list.chroot`). A device installed without
 the pack shows the normal "not installed" card on office files.
+
+After install, the pack is updated from the signed update feed: an optional
+`packs` part on the `luna` unit carries the pack folders as one tar.xz, and
+lunad swaps each known pack (`eurooffice`, `drawio`) into `{data_dir}` on
+**Install update**, recording the blob's sha256 in `{data_dir}/packs.sha256`
+so the same release is never applied twice. A feed without a `packs` part
+leaves the on-device pack alone. See
+[the feed contract](../../infra/ci-source/internal/feed/README.md).
 
 ## Endpoints (all cookie-authed except where noted)
 
