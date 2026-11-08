@@ -48,7 +48,13 @@ function renderCard() {
   );
 }
 
+/** The Updates section starts collapsed; open it before reading what is inside. */
+async function openUpdates(user) {
+  await user.click(await screen.findByRole("button", { name: "Updates" }));
+}
+
 async function openEditor(user) {
+  await openUpdates(user);
   await user.click(await screen.findByRole("button", { name: "Edit update source" }));
   return screen.findByRole("dialog", { name: "Update source" });
 }
@@ -60,7 +66,9 @@ describe("UpdateSourceCard", () => {
 
   it("offers the channel and the source as two rows, with no state pill or address", async () => {
     stub();
+    const user = userEvent.setup();
     renderCard();
+    await openUpdates(user);
     expect(await screen.findByText("Update channel")).toBeInTheDocument();
     expect(screen.getByText("Update source")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit update source" })).toBeInTheDocument();
@@ -79,7 +87,9 @@ describe("UpdateSourceCard", () => {
 
   it("offers Stable and Beta with the current channel selected", async () => {
     stub({ source: { ...SOURCE, channel: "beta" } });
+    const user = userEvent.setup();
     renderCard();
+    await openUpdates(user);
     const group = await screen.findByRole("radiogroup", { name: "Update channel" });
     expect(within(group).getByRole("radio", { name: "Beta" })).toBeChecked();
     expect(within(group).getByRole("radio", { name: "Stable" })).not.toBeChecked();
@@ -89,6 +99,7 @@ describe("UpdateSourceCard", () => {
     const fetchMock = stub();
     const user = userEvent.setup();
     renderCard();
+    await openUpdates(user);
     const group = await screen.findByRole("radiogroup", { name: "Update channel" });
     await user.click(within(group).getByRole("radio", { name: "Beta" }));
     await waitFor(() => expect(puts(fetchMock)).toHaveLength(1));
@@ -99,6 +110,7 @@ describe("UpdateSourceCard", () => {
     stub({ onPut: () => json({ error: "Pick Stable or Beta as the update channel." }, 400) });
     const user = userEvent.setup();
     renderCard();
+    await openUpdates(user);
     const group = await screen.findByRole("radiogroup", { name: "Update channel" });
     await user.click(within(group).getByRole("radio", { name: "Beta" }));
     expect(await screen.findByText("Pick Stable or Beta as the update channel.")).toBeInTheDocument();

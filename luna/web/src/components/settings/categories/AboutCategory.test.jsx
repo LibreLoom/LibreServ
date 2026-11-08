@@ -98,6 +98,7 @@ function stubFetch(sourceBody) {
 }
 
 async function openEditor(user) {
+  await user.click(await screen.findByRole("button", { name: "Updates" }));
   await user.click(await screen.findByRole("button", { name: /Edit update source/i }));
 }
 

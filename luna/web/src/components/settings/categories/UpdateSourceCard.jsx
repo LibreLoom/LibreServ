@@ -99,7 +99,7 @@ export default function UpdateSourceCard({ index = 3 }) {
         {/* One section for everything about updates: the channel the release
             comes down from and where Luna reads it. Each control is its own
             pill row, so the two never read as one line. */}
-        <CollapsibleSection title="Updates" mono pill defaultOpen>
+        <CollapsibleSection title="Updates" mono pill>
           <div className="space-y-3 mb-1">
             <div
               className="surface-primary rounded-pill px-4 py-2.5 flex flex-wrap items-center justify-between gap-3"
