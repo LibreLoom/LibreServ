@@ -1087,7 +1087,12 @@ impl ConnectService {
         Ok(())
     }
 
-    /// Resolve a runnable cloudflared, installing into `{data_dir}/bin` when needed.
+    /// Resolve a runnable cloudflared.
+    ///
+    /// On a Luna OS box it is baked into the image at /usr/local/bin, so the
+    /// lookup always finds it. The download fallback exists for dev runs on a
+    /// normal machine; on the appliance it is refused, because nothing
+    /// executable belongs on the data partition.
     fn resolve_or_install_cloudflared(&self) -> Result<PathBuf, ConnectError> {
         let data_dir = self
             .state_path
@@ -1099,6 +1104,11 @@ impl ConnectService {
             if cloudflared_looks_runnable(&candidate) {
                 return Ok(candidate);
             }
+        }
+        if on_luna_os() {
+            tracing::error!("no cloudflared in the OS image: this Luna cannot start a tunnel");
+            self.set_tunnel_error(TUNNEL_HELPER_MISSING_MSG);
+            return Err(ConnectError::Other(TUNNEL_HELPER_MISSING_MSG.into()));
         }
         if let Err(e) = install_cloudflared_to(&local) {
             tracing::error!(error = %e, path = %local.display(), "cloudflared install failed");
@@ -1468,6 +1478,14 @@ fn encode_object_key(rel: &str) -> String {
         }
     }
     out
+}
+
+/// True when this process booted from a Luna OS A/B slot. The image ships
+/// cloudflared, so the appliance never downloads one.
+fn on_luna_os() -> bool {
+    std::fs::read_to_string("/proc/cmdline")
+        .map(|c| c.split_whitespace().any(|t| t.starts_with("luna.slot=")))
+        .unwrap_or(false)
 }
 
 fn cloudflared_candidate_paths(data_bin: &Path) -> Vec<PathBuf> {

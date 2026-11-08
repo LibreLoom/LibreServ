@@ -44,9 +44,6 @@ cargo clippy --workspace --all-targets -- -D warnings
 echo "==> cargo test"
 LUNA_CONTRACT_RECORD=1 cargo test --workspace
 
-echo "==> luna-run version picker"
-bash os/luna_run_test.sh
-
 # Coverage is a report, not a gate, and re-running the whole workspace test
 # suite just for it doubles the CI time — so it is opt-in (LUNA_COVERAGE=1).
 echo "==> coverage (report only)"

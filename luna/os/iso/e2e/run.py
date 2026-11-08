@@ -166,8 +166,8 @@ def stage_install(bus, fw):
         r = ext_fsck(disk, n)
         check(f"[{bus}] slot {'AB'[n - 3]} filesystem is clean", "rc=0" in r, r[-300:])
     check(f"[{bus}] data filesystem is clean", "rc=0" in ext_fsck(disk, 5))
-    # The slot image is only rebuilt when OS inputs change, and lunad is not an
-    # input: a newer lunad binary is easily left out of the image by accident.
+    # The image carries lunad, so a stale image would ship a stale daemon. The
+    # check catches that (rebuild with LUNA_OS_FORCE=1).
     off = parts(disk)[3][0]
     baked = f"{WORK}/baked-lunad"
     sh(f"debugfs -R 'dump /usr/local/bin/lunad {baked}' '{disk}?offset={off}' >/dev/null 2>&1", check_rc=False)
@@ -2046,27 +2046,25 @@ def os_image_variant(name, edits):
     return out
 
 
-def publish(version, lunad=True, os_img=None, key="good", published=None, tamper=False, notes="E2E update", lunad_bytes=None):
-    """Write a signed feed (unit luna, channel stable) and the files it lists."""
+def publish(version, os_img=None, key="good", published=None, tamper=False, notes="E2E update"):
+    """Write a signed feed (unit luna, channel stable) and the files it lists.
+
+    A luna release ships one part: the OS image, which carries lunad and the
+    editor packs inside it. There is no daemon-only update any more.
+    """
     feed_server()
     pub, sec = minisign_keys(key)
     parts = []
-    if lunad:
-        src = LUNAD_BIN
-        dst = f"{UPD}/files/lunad-{version}"
-        if lunad_bytes is not None:
-            open(dst, "wb").write(lunad_bytes)
-        else:
-            shutil.copy(src, dst)
-        digest = sha256_file(dst)
-        if tamper:
-            open(dst, "ab").write(b"tampered")
-        parts.append({"name": "lunad", "os": "linux", "arch": "amd64", "file": "lunad-linux-amd64-musl",
-                      "size": os.path.getsize(dst), "sha256": digest, "urls": [f"{FEED_URL}/files/lunad-{version}"]})
     if os_img:
         parts.append({"name": "os", "os": "linux", "arch": "amd64", "file": "luna-os-x86_64.img.xz",
                       "size": os.path.getsize(os_img), "sha256": sha256_file(os_img),
                       "urls": [f"{FEED_URL}/files/{os.path.basename(os_img)}"]})
+        if tamper:
+            # Same size, different bytes: the size check passes and only the
+            # checksum can catch it.
+            with open(os_img, "r+b") as f:
+                f.seek(0)
+                f.write(b"tampered")
     global _pub_clock
     if published is None:
         _pub_clock = max(_pub_clock + 60, int(time.time()))
@@ -2161,7 +2159,7 @@ def stage_update():
     rc, o = vm.sh("ls /var/lib/luna/bin 2>&1; cat /var/lib/luna/os-image.sha256")
     check("untrusted feed left no new lunad and kept the OS hash", "lunad" not in o.split("\n")[0] and old_hash in o, o)
     # a part whose bytes do not match the signed checksum
-    publish("0.0.2", key="good", tamper=True)
+    publish("0.0.2", key="good", os_img=os_image_variant("tampered", {}), tamper=True)
     c, b = api_check(lu)
     check("a signed feed is accepted", c == 200 and b.get("update_available") is True and b.get("latest_version") == "0.0.2", f"{c} {b}")
     c, b = apply_update(lu)
@@ -2175,21 +2173,13 @@ def stage_update():
     c, b = api_check(lu)
     check("an older feed replayed after a newer one is refused", c >= 400 or b.get("update_available") is False, f"{c} {b}")
 
-    # lunad-only update
+    # There is no daemon-only update: a feed with no os part offers nothing,
+    # because lunad lives in the image.
     publish("0.0.5", key="good")
     c, b = api_check(lu)
-    check("lunad-only update is offered", c == 200 and b.get("update_available") and b.get("reboot_required") is False, f"{c} {b}")
-    rc, pid_before = vm.sh("pidof lunad")
-    c, b = apply_update(lu)
-    check("lunad-only update installs", c == 200 and b.get("ok") and b.get("reboot_required") is False, f"{c} {b}")
-    time.sleep(8)
-    check("Luna comes back by itself after a lunad-only update", lu.wait_up(90))
-    rc, pid_after = vm.sh("pidof lunad")
-    check("lunad restarted (new process)", pid_before and pid_after and pid_before.split()[-1] != pid_after.split()[-1], f"{pid_before} -> {pid_after}")
-    rc, o = vm.sh("ls -la /var/lib/luna/bin/lunad")
-    check("the new lunad is stored on the data partition", "lunad" in o and "No such" not in o, o)
-    c, b = lu.get("/api/v1/auth/me")
-    check("you stay signed in across a lunad restart", c == 200 and b and b.get("role") == "admin", f"{c} {b}")
+    check("a feed without an OS image offers no update", c == 200 and not b.get("update_available"), f"{c} {b}")
+    rc, o = vm.sh("ls /var/lib/luna/bin 2>&1")
+    check("nothing executable is ever written to the data partition", "No such file" in o or "lunad" not in o, o)
 
     # OS update to slot B
     good_v2 = os_image_variant("v2", {})
@@ -2234,9 +2224,7 @@ def stage_update():
     def rollback_case(tag, variant_edits, version, note, expect_slot, expect_panic=False, wait=900, lunad_bytes=None):
         T = f"[{tag}] "
         img = os_image_variant(tag, variant_edits)
-        # An OS release also ships lunad, and luna-run falls back to that copy when the
-        # baked one cannot run: to test "lunad cannot start" both must be broken.
-        publish(version, key="good", os_img=img, lunad_bytes=lunad_bytes)
+        publish(version, key="good", os_img=img)
         c, b = api_check(lu)
         check(T + "the update is offered", c == 200 and b.get("update_available"), f"{c} {b}")
         before_hash = vm.sh("cat /var/lib/luna/os-image.sha256")[1]
@@ -2275,12 +2263,10 @@ def stage_update():
         c, b = api_check(lu)
         check(T + "after clearing, the same image is offered again", c == 200 and b.get("reboot_required") is True and b.get("os_update_failed") is None, f"{c} {b}")
 
-    # luna-run falls back to the data-dir lunad when the baked one cannot run, so the
-    # earlier lunad-only update would (rightly) rescue this image: remove it first.
-    vm.sh("rm -f /var/lib/luna/bin/lunad")
+    # The daemon is baked into the image, so a broken lunad is a broken image:
+    # the box must fall back to the slot it came from.
     cur = slot_of(vm)
-    rollback_case("badlunad", {"/usr/local/bin/lunad": (b"#!/bin/sh\nexit 1\n",)}, "0.0.8", "lunad cannot start", cur,
-                  lunad_bytes=b"#!/bin/sh\nexit 1\n")
+    rollback_case("badlunad", {"/usr/local/bin/lunad": (b"#!/bin/sh\nexit 1\n",)}, "0.0.8", "lunad cannot start", cur)
     cur = slot_of(vm)
     rollback_case("badboot", {"/boot/initramfs-lts": b"this is not an initramfs\n" * 100}, "0.0.9", "kernel cannot find its root", cur, expect_panic=True)
 

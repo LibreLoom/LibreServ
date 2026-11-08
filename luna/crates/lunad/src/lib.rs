@@ -61,6 +61,7 @@ pub mod hibp;
 pub mod jobs;
 pub mod net;
 pub mod office;
+pub mod packs;
 pub mod password;
 pub mod private;
 pub mod rate_limit;

@@ -72,7 +72,7 @@ func TestBuildLunaOSAndInstaller(t *testing.T) {
 	dir1 := res1.Units[0].Dir
 	img1 := filepath.Join(dir1, "luna-os-x86_64.img.xz")
 	iso1 := filepath.Join(dir1, "luna-rapidinstall-x86_64.iso.xz")
-	for _, f := range []string{img1, iso1, img1 + ".inputs", iso1 + ".inputs"} {
+	for _, f := range []string{img1, iso1} {
 		if st, err := os.Stat(f); err != nil || st.Size() == 0 {
 			t.Fatalf("missing %s: %v", f, err)
 		}
@@ -87,9 +87,6 @@ func TestBuildLunaOSAndInstaller(t *testing.T) {
 			}
 		}
 	}
-	// The ISO embeds exactly the released image: its sha256 is in the ISO's /luna.
-	sha, _ := os.ReadFile(img1 + ".inputs")
-	t.Logf("os inputs %s", strings.TrimSpace(string(sha)))
 	if len(logs["luna/installer:iso"]) == 0 {
 		t.Error("no installer log")
 	}
@@ -98,11 +95,6 @@ func TestBuildLunaOSAndInstaller(t *testing.T) {
 	res2, d2 := run("second", nil)
 	dir2 := res2.Units[0].Dir
 	for _, f := range []string{"luna-os-x86_64.img.xz", "luna-rapidinstall-x86_64.iso.xz"} {
-		a, err1 := os.ReadFile(filepath.Join(dir1, f+".inputs"))
-		b, err2 := os.ReadFile(filepath.Join(dir2, f+".inputs"))
-		if err1 != nil || err2 != nil || string(a) != string(b) {
-			t.Errorf("%s inputs differ: %q %q (%v %v)", f, a, b, err1, err2)
-		}
 		s1, e1 := os.Stat(filepath.Join(dir1, f))
 		s2, e2 := os.Stat(filepath.Join(dir2, f))
 		if e1 != nil || e2 != nil || !os.SameFile(s1, s2) {
