@@ -58,18 +58,23 @@ const puts = (fetchMock) => fetchMock.mock.calls.filter(([, i]) => i?.method ===
 describe("UpdateSourceCard", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("says whether updates come from the default or a custom source", async () => {
+  it("offers the channel and the source as two rows, with no state pill or address", async () => {
     stub();
     renderCard();
-    expect(await screen.findByText("Default source")).toBeInTheDocument();
-    // The address lives in the editor; the card keeps the state only.
+    expect(await screen.findByText("Update channel")).toBeInTheDocument();
+    expect(screen.getByText("Update source")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit update source" })).toBeInTheDocument();
+    // The address and the default/custom state live in the editor now.
     expect(screen.queryByText("https://feeds.example.net/feeds")).toBeNull();
+    expect(screen.queryByText("Default source")).toBeNull();
   });
 
-  it("flags a custom feed address", async () => {
+  it("opens a custom feed address in the editor", async () => {
     stub({ source: { ...SOURCE, feed_url: "https://staging.example.net/feeds" } });
+    const user = userEvent.setup();
     renderCard();
-    expect(await screen.findByText("Custom source")).toBeInTheDocument();
+    const dialog = await openEditor(user);
+    expect(dialog.querySelector("#us-feed-url")).toHaveValue("https://staging.example.net/feeds");
   });
 
   it("offers Stable and Beta with the current channel selected", async () => {

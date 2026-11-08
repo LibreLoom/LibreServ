@@ -3,11 +3,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Rss } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
-import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
-import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import ConnectDeviceCodeForm from "../ConnectDeviceCodeForm.jsx";
@@ -60,9 +58,6 @@ export default function UpdateSourceCard({ index = 3 }) {
   });
 
   const s = source.data || {};
-  const customized =
-    source.data != null &&
-    (!s.default_keys || (s.defaults && s.feed_url !== s.defaults.feed_url));
 
   const onSaved = (data) => {
     queryClient.setQueryData(["updates-source"], (old) => {
@@ -102,62 +97,58 @@ export default function UpdateSourceCard({ index = 3 }) {
         </CollapsibleSection>
 
         {/* One section for everything about updates: the channel the release
-            comes down and where Luna reads it from. Each gets its own card, so
-            the two controls never read as one row. */}
+            comes down from and where Luna reads it. Each control is its own
+            pill row, so the two never read as one line. */}
         <CollapsibleSection title="Updates" pill defaultOpen className="pb-1">
           <div className="space-y-3 pt-1">
-            <Card surface="primary" padding={false} as="section" aria-labelledby="update-channel-label">
-              <div className="p-4 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="text-secondary text-sm" id="update-channel-label">
-                    Update channel{" "}
-                    <InfoHint
-                      label="What the update channel is"
-                      content="Stable gets releases once they are tested. Beta gets new versions sooner and may have bugs. You can switch back to Stable at any time; Luna never installs an older version."
-                    />
-                  </div>
-                  <SegmentedControl
-                    aria-label="Update channel"
-                    surface="primary"
-                    value={s.channel || "stable"}
-                    options={CHANNEL_OPTIONS}
-                    onChange={(channel) => {
-                      if (source.data && channel !== s.channel) changeChannel.mutate(channel);
-                    }}
-                  />
-                </div>
-                {changeChannel.isError && (
-                  <InlineError className="text-secondary">
-                    {apiErrorMessage(changeChannel.error)}
-                  </InlineError>
-                )}
+            <div
+              className="surface-primary rounded-pill px-4 py-2.5 flex flex-wrap items-center justify-between gap-3"
+              role="group"
+              aria-labelledby="update-channel-label"
+            >
+              <div className="text-secondary text-sm" id="update-channel-label">
+                Update channel{" "}
+                <InfoHint
+                  label="What the update channel is"
+                  content="Stable gets releases once they are tested. Beta gets new versions sooner and may have bugs. You can switch back to Stable at any time; Luna never installs an older version."
+                />
               </div>
-            </Card>
+              <SegmentedControl
+                aria-label="Update channel"
+                surface="primary"
+                value={s.channel || "stable"}
+                options={CHANNEL_OPTIONS}
+                onChange={(channel) => {
+                  if (source.data && channel !== s.channel) changeChannel.mutate(channel);
+                }}
+              />
+              {changeChannel.isError && (
+                <InlineError className="text-secondary w-full">
+                  {apiErrorMessage(changeChannel.error)}
+                </InlineError>
+              )}
+            </div>
 
-            <Card surface="primary" padding={false} as="section" aria-labelledby="update-source-label">
-              <div className="p-4 space-y-3">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-secondary text-sm" id="update-source-label">Update source</h3>
-                    <p className="text-secondary text-xs mt-0.5">Where Luna reads its list of updates.</p>
-                  </div>
-                  <Pill variant={customized ? "warning" : "success"}>
-                    {customized ? "Custom source" : "Default source"}
-                  </Pill>
-                </div>
-                <div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    surface="primary"
-                    onClick={() => setModalOpen(true)}
-                  >
-                    <Rss size={ICON_SIZE.sm} aria-hidden="true" />
-                    Edit update source
-                  </Button>
-                </div>
+            <div
+              className="surface-primary rounded-pill px-4 py-2.5 flex flex-wrap items-center justify-between gap-3"
+              role="group"
+              aria-labelledby="update-source-label"
+            >
+              <div>
+                <h3 className="text-secondary text-sm" id="update-source-label">Update source</h3>
+                <p className="text-secondary text-xs mt-0.5">Where Luna reads its list of updates.</p>
               </div>
-            </Card>
+              <Button
+                type="button"
+                variant="outline"
+                surface="primary"
+                size="sm"
+                onClick={() => setModalOpen(true)}
+              >
+                <Rss size={ICON_SIZE.sm} aria-hidden="true" />
+                Edit update source
+              </Button>
+            </div>
           </div>
         </CollapsibleSection>
       </div>

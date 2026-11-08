@@ -515,8 +515,8 @@ export default [
     url: "/settings#about",
     check: [
       "Changing Stable ↔ Beta keeps the feed address and says it saved",
-      "Updates opens as one section: the channel and the source each in their own card",
-      "The source card says Default source or Custom source; the address is in the editor",
+      "Updates opens as one section: the channel and the source each on their own pill row",
+      "The source row shows Edit update source, not the address or a default/custom pill",
       "Edit update source opens with the warning and prefilled fields",
       "A bad address or key is refused inline and the old value stays",
     ],
@@ -535,7 +535,7 @@ export default [
       };
     },
     check: [
-      "The card says Custom source and shows the network address",
+      "The editor opens on the network address",
       "Switching Stable ↔ Beta saves without the private-network error",
       "The feed address stays 192.168.1.10",
     ],
