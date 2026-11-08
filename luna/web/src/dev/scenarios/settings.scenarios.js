@@ -521,6 +521,7 @@ export default [
         current_version: "1.4.2",
         latest_version: "1.4.2",
         feed_is_newer: false,
+        from_new_source: true,
         release_notes: "## 1.4.2\n\nA build from this Luna's own update source.",
       };
       w.updateSource = {
@@ -533,8 +534,8 @@ export default [
     },
     check: [
       "Status says 1.4.2 available even though that is the running version",
-      "A line says Luna gets updates from the source you set, and this is the version it publishes",
-      "Update now installs that version from the source and says so",
+      "A line says the update source changed and this is the version it has",
+      "Update now installs that build and says it comes from the source you set",
     ],
   },
   {

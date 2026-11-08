@@ -109,11 +109,14 @@ pub struct UpdateInfo {
     /// True when applying will (or did) write an OS slot and reboot the box.
     #[serde(default)]
     pub reboot_required: bool,
-    /// The feed's version is newer than the running one. False means the
-    /// offer comes from an update source the admin just pointed Luna at, so
-    /// the build is installable but is not an upgrade. Absent = newer.
+    /// The feed's version is newer than the running one. Absent = newer.
     #[serde(default = "true_value")]
     pub feed_is_newer: bool,
+    /// The offer follows a change of update source: this build is what the
+    /// source the Admin set publishes, not necessarily an upgrade. Stays set
+    /// until that build is installed.
+    #[serde(default)]
+    pub from_new_source: bool,
 }
 
 fn true_value() -> bool {
@@ -1550,6 +1553,7 @@ impl UpdateService {
             binary_name: verified.part.file.clone(),
             reboot_required: os_needed,
             feed_is_newer: verified.newer,
+            from_new_source: adopt,
         };
         Ok(Resolved {
             info,

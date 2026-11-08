@@ -173,9 +173,9 @@ export default function SystemUpdatesCard({ index = 0 }) {
   };
 
   const hasUpdate = updateInfo?.update_available;
-  // A source the Admin just pointed Luna at is offered as-is, so the version
-  // may be the one already running (or older). Say so instead of calling it an
-  // upgrade.
+  // The offer may be the build of a source the Admin just switched Luna to, in
+  // which case it is the first thing to install, not an upgrade.
+  const fromNewSource = updateInfo?.from_new_source === true;
   const olderThanRunning = updateInfo?.feed_is_newer === false;
   const isUpToDate = updateInfo && !hasUpdate;
   const notChecked = !updateInfo && !updates.isLoading;
@@ -231,10 +231,10 @@ export default function SystemUpdatesCard({ index = 0 }) {
             )}
           </div>
 
-          {hasUpdate && olderThanRunning && (
+          {hasUpdate && fromNewSource && (
             <p className="mb-4 text-sm">
-              Luna gets its updates from the source you set. This is the version that source
-              publishes.
+              You changed where Luna gets its updates. This is the version that source has —
+              installing it switches Luna to that build.
             </p>
           )}
 
@@ -370,8 +370,8 @@ export default function SystemUpdatesCard({ index = 0 }) {
           retrying
             ? "Luna will install the update again and restart. Your files stay put."
             : updateInfo
-            ? olderThanRunning
-              ? `Luna will download version ${updateInfo.latest_version} from your update source, install it, and restart. Your files stay put.`
+            ? fromNewSource
+              ? `Luna will download version ${updateInfo.latest_version} from the source you set, install it, and restart. Your files stay put.`
               : `Luna will download version ${updateInfo.latest_version}, install it, and restart. Your files stay put.`
             : "Install the available update?"
         }
