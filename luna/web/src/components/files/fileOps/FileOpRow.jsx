@@ -52,10 +52,9 @@ export default function FileOpRow({ op }) {
   // second. Animating each line in and out made the card breathe constantly,
   // so a long queue gets a fixed set of slots: a file filling one slot swaps
   // its name in place and the card never changes height.
-  const queued = op.items.filter((item) =>
-    item.state === "queued" || item.state === "uploading" || item.state === "finishing",
-  ).length;
-  const stableSlots = Math.min(MAX_ACTIVE_LINES, Math.max(activeItems.length, queued));
+  const stableSlots = running && op.items.length > MAX_ACTIVE_LINES
+    ? MAX_ACTIVE_LINES
+    : Math.min(MAX_ACTIVE_LINES, activeItems.length);
 
   return (
     <div data-slot="file-op-row" className="rounded-large-element surface-primary p-3">
