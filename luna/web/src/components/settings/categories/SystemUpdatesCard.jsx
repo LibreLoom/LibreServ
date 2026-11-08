@@ -233,8 +233,8 @@ export default function SystemUpdatesCard({ index = 0 }) {
 
           {hasUpdate && olderThanRunning && (
             <p className="mb-4 text-sm">
-              This is the build your update source publishes — version{" "}
-              <InlinePill>{updateInfo.latest_version}</InlinePill>, not a newer release.
+              Luna gets its updates from the source you set. This is the version that source
+              publishes.
             </p>
           )}
 
@@ -321,7 +321,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
                 className="justify-center font-sans"
               >
                 <ExternalLink size={ICON_SIZE.md} aria-hidden="true" />
-                See what&apos;s new in {updateInfo.latest_version}
+                {olderThanRunning ? "See what's in" : "See what's new in"} {updateInfo.latest_version}
               </Button>
 
               {!updating && (
@@ -371,7 +371,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
             ? "Luna will install the update again and restart. Your files stay put."
             : updateInfo
             ? olderThanRunning
-              ? `Luna will download version ${updateInfo.latest_version} from your update source, install it, and restart. It is not newer than the version running now. Your files stay put.`
+              ? `Luna will download version ${updateInfo.latest_version} from your update source, install it, and restart. Your files stay put.`
               : `Luna will download version ${updateInfo.latest_version}, install it, and restart. Your files stay put.`
             : "Install the available update?"
         }

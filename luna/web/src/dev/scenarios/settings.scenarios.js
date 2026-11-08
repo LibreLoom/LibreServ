@@ -533,8 +533,8 @@ export default [
     },
     check: [
       "Status says 1.4.2 available even though that is the running version",
-      "A line says this is the build the source publishes, not a newer release",
-      "Update now warns that it is not newer before installing",
+      "A line says Luna gets updates from the source you set, and this is the version it publishes",
+      "Update now installs that version from the source and says so",
     ],
   },
   {
