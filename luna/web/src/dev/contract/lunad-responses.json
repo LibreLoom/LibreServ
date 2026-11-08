@@ -749,6 +749,8 @@
     "binary_name": "string",
     "checksum": "string",
     "current_version": "string",
+    "feed_is_newer": "boolean",
+    "from_new_source": "boolean",
     "latest_version": "string",
     "os_update_failed": {
       "$oneOf": [
@@ -1081,6 +1083,13 @@
       "name": "string"
     }
   },
+  "POST /api/v1/private/orphans/{owner}/give": {
+    "failed_drives": [],
+    "moved": "number",
+    "offline_drives": [],
+    "ok": "boolean",
+    "skipped_readonly": []
+  },
   "POST /api/v1/setup": {
     "current_step": "string",
     "name": "string",
@@ -1174,6 +1183,13 @@
     "received": "number",
     "size": "number",
     "upload_id": "string"
+  },
+  "POST /s/{token}/upload/{id}/complete": {
+    "hidden": "boolean",
+    "kind": "string",
+    "modified": "number",
+    "name": "string",
+    "size": "number"
   },
   "PUT /api/v1/cloud/phrase": {
     "rescope_failed": "number",

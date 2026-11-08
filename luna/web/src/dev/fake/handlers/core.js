@@ -594,6 +594,7 @@ get("/api/v1/system/updates", ({ world, user }) => {
   const { os_update_failed: failed, ...rest } = world.updates;
   return {
     binary_name: "lunad", checksum: "", reboot_required: false, release_notes: "",
+    feed_is_newer: false, from_new_source: false,
     latest_version: rest.current_version, ...rest,
     os_update_failed: failed ? (typeof failed === "object" ? failed : { version: world.updates.latest_version ?? "" }) : null,
   };
