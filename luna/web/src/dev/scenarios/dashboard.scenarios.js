@@ -109,7 +109,7 @@ export default [
     area: "Dashboard",
     title: "Needs you: drive almost full",
     seed: (w) => { w.summaries.d1 = summary("d1", { total_bytes: 64 * GB, free_bytes: 2 * GB, used_bytes: 62 * GB }); },
-    check: [NEEDS, "Row shows '2 GB free of 64 GB'", "Drive card shows a nearly full bar"],
+    check: [NEEDS, "Row shows '2.0 GB free of 64 GB'", "Drive card shows a nearly full bar"],
   },
   {
     id: "dashboard/drive-readonly",

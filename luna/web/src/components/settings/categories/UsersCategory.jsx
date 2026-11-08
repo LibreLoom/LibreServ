@@ -205,7 +205,7 @@ export default function UsersCategory() {
       <div data-slot="users-category" className={userToDelete ? "pop-out" : "pop-in"}>
         {users.isError && (
           <PageNotice variant="error" className="mb-4">
-            {String(users.error?.message || "Couldn't load users. Try again.")}
+            Couldn't load the people on this Luna. Try again in a moment.
           </PageNotice>
         )}
 

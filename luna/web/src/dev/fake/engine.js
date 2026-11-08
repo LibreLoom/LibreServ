@@ -136,7 +136,10 @@ export function installFake({ world, scenario, now, restored = {} }) {
       if (mode === "empty") return finish(200, "");
       if (mode === "badjson") return finish(200, "<html>oops");
       if (/^\d{3}$/.test(mode)) {
-        return finish(Number(mode), JSON.stringify({ error: fault.message || `Injected ${mode}`, ...(fault.code ? { code: fault.code } : {}) }));
+        // A fault with no message of its own still has to read like Luna. Plain
+        // words, no test jargon: the gallery is judged on what people see.
+        const plain = mode.startsWith("5") ? "Luna couldn't do that just now. Try again in a moment." : "Luna couldn't do that. Try again in a moment.";
+        return finish(Number(mode), JSON.stringify({ error: fault.message || plain, ...(fault.code ? { code: fault.code } : {}) }));
       }
 
       const found = findRoute(method, path);
@@ -225,6 +228,60 @@ export function installFake({ world, scenario, now, restored = {} }) {
   };
 
   window.XMLHttpRequest = createXHR({ isFake, dispatch });
+
+  // ── Media elements ─────────────────────────────────────────────────────────
+  // An <img src>, <video src>, <audio src> or <iframe src> is loaded by the
+  // browser itself, not by fetch or XHR, so it would reach the real dev server
+  // and 404. Rewrite any /api address to a blob URL built from the fake's
+  // answer, so photos, videos and PDF frames show in the gallery.
+  const MEDIA = [window.HTMLImageElement, window.HTMLMediaElement, window.HTMLSourceElement, window.HTMLIFrameElement];
+  const blobs = new Map();
+  const realSetters = new WeakMap();
+  const swapSrc = (el, url) => {
+    const href = typeof url === "string" ? url : String(url?.href ?? url ?? "");
+    let path;
+    try { path = new URL(href, window.location.origin).pathname; } catch { return null; }
+    if (!isFake(path)) return null;
+    if (!blobs.has(href)) {
+      blobs.set(href, (async () => {
+        const result = await dispatch("GET", href, undefined, {}, {});
+        if (result.status >= 400) throw new Error(`[mock] ${result.status} ${href}`);
+        return URL.createObjectURL(new Blob([result.bytes ?? result.text], { type: result.headers?.["Content-Type"] || "application/octet-stream" }));
+      })());
+    }
+    blobs.get(href)
+      .then((blobUrl) => realSetters.get(el)?.call(el, blobUrl))
+      .catch(() => { el.dispatchEvent(new Event("error")); });
+    return true;
+  };
+  for (const Ctor of MEDIA) {
+    if (!Ctor) continue;
+    const desc = Object.getOwnPropertyDescriptor(Ctor.prototype, "src");
+    if (!desc?.set) continue;
+    const realSet = desc.set;
+    Object.defineProperty(Ctor.prototype, "src", {
+      configurable: true,
+      enumerable: desc.enumerable,
+      get: desc.get,
+      set(value) {
+        realSetters.set(this, realSet);
+        if (swapSrc(this, value)) return;
+        realSet.call(this, value);
+      },
+    });
+    const realAttr = Ctor.prototype.setAttribute;
+    if (realAttr && !realAttr.__mockPatched) {
+      const patched = function (name, value) {
+        if (String(name).toLowerCase() === "src" && this.src !== undefined) {
+          realSetters.set(this, realSet);
+          if (swapSrc(this, value)) return;
+        }
+        return realAttr.call(this, name, value);
+      };
+      patched.__mockPatched = true;
+      Ctor.prototype.setAttribute = patched;
+    }
+  }
 
   // ── WebSocket: live co-editing needs the real daemon ───────────────────────
   const RealWS = window.WebSocket;

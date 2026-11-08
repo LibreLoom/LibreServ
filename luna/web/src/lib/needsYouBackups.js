@@ -72,6 +72,11 @@ function backupDetail(row, now) {
   if (row.state === "failing" && driveName) {
     if (/^the backup drive is full\.?$/i.test(error)) return error;
     if (error === "Backup drive is full.") return [{ name: driveName }, " (the backup drive) is full."];
+    // lunad often names the drive itself ("Backup drive is full."). Putting the
+    // name in front of that reads as "Backup drive Backup drive: …", so when the
+    // error already starts with the name, show it on its own.
+    const namesDrive = new RegExp(`^${driveName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+    if (error && namesDrive.test(error)) return error;
     if (error) return ["Backup drive ", { name: driveName }, ": ", error];
     return ["Backing up to ", { name: driveName }, " did not finish."];
   }

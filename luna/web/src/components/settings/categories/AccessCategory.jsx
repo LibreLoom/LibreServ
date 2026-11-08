@@ -570,7 +570,13 @@ export default function AccessCategory() {
               New access token
             </Button>
           </div>
-          {tokenList.length === 0 ? (
+          {tokens.isError ? (
+            <div className="px-4 pb-4">
+              <PageNotice variant="error">
+                Couldn't load your access tokens. Try again in a moment.
+              </PageNotice>
+            </div>
+          ) : tokenList.length === 0 ? (
             <div className="px-4 pb-4">
               <Pill>No apps or access tokens are set up yet.</Pill>
             </div>

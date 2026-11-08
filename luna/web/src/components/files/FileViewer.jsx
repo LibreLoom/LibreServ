@@ -413,11 +413,18 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
 
             {conversion && !guest && (
               <p className="mt-3 text-sm text-primary">
-                You can open this file in the editing view by converting it to a{" "}
-                <InlinePill>.{conversion.targetExt}</InlinePill> file.
-                {conversion.convert && canWrite
-                  ? ""
-                  : " Convert it on another device, then upload the copy here."}
+                {conversion.convert && canWrite ? (
+                  <>
+                    You can open this file in the editing view by converting it to a{" "}
+                    <InlinePill>.{conversion.targetExt}</InlinePill> file.
+                  </>
+                ) : (
+                  <>
+                    To edit this file, save a copy as a{" "}
+                    <InlinePill>.{conversion.targetExt}</InlinePill> file on another device, then upload
+                    it here.
+                  </>
+                )}
               </p>
             )}
 
