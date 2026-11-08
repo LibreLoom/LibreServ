@@ -218,7 +218,7 @@ export default function Table({
                     // Chrome rasterises each cell's background on its own and
                     // a row stopped at a fractional offset shows hairline
                     // seams between them.
-                    onRowClick && "cursor-pointer will-change-transform",
+                    onRowClick && "cursor-pointer hover:will-change-transform",
                     onRowClick && ROW_SLIDE,
                   )}
                   onClick={

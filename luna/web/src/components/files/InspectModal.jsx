@@ -12,7 +12,7 @@ import { File as FileIcon, Folder, Info, TriangleAlert } from "lucide-react";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
-import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { ROOT_TERM_HINT } from "../../lib/rootTerm.js";
@@ -201,7 +201,7 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                         </>
                       )}
                       {adoptError && confirmFormat && (
-                        <PageNotice variant="error">{adoptError}</PageNotice>
+                        <InlineError>{adoptError}</InlineError>
                       )}
                       <div className="flex gap-3 flex-wrap">
                         {!confirmFormat ? (
@@ -251,7 +251,7 @@ export default function InspectModal({ open = true, drive, result, error, onClos
                       onChange={(e) => setLabel(e.target.value)}
                     />
                   </label>
-                  {adoptError && <PageNotice variant="error" className="mt-2">{adoptError}</PageNotice>}
+                  {adoptError && <InlineError className="mt-2">{adoptError}</InlineError>}
                   <div className="mt-4 flex gap-3">
                     {needsErase && !confirmErase ? (
                       <Button variant="danger" haptic="warning" onClick={() => setConfirmErase(true)}>

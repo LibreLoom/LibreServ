@@ -24,7 +24,7 @@ export default function Gallery() {
   const [selectedId, setSelectedId] = useState(() => hashId() || scenarios[0]?.id);
   const [filter, setFilter] = useState("");
   const [only, setOnly] = useState("all");
-  const [viewport, setViewport] = useState("desktop");
+  const [viewportOverride, setViewportOverride] = useState(null);
   const [theme, setTheme] = useState("");
   const [frameKey, setFrameKey] = useState(0);
   const [snap, setSnap] = useState(null);
@@ -40,6 +40,13 @@ export default function Gallery() {
   const draftsRef = useRef({});
 
   const scenario = scenarios.find((s) => s.id === selectedId) || scenarios[0];
+
+  // A scenario that only makes sense on a phone (or tablet) opens that way.
+  // Switching the control afterwards is the tester's call and sticks for that
+  // scenario; picking another one goes back to what it declares.
+  const scenarioViewport = scenario?.viewport || "desktop";
+  const viewport = viewportOverride?.id === scenario?.id ? viewportOverride.value : scenarioViewport;
+  const setViewport = (value) => setViewportOverride({ id: scenario?.id, value });
 
   useEffect(() => { loadResults().then(setResults); }, []);
   const selectedRef = useRef(selectedId);

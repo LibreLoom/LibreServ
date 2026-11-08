@@ -471,8 +471,8 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
             /* color-scan: ignore-next-line cinema full-screen backdrop */
             "fixed inset-0 z-[80] flex items-center justify-center bg-black",
             fullViewOverlay.isClosing
-              ? "fullscreen-overlay-exit file-viewer-exit"
-              : "fullscreen-overlay-enter file-viewer-enter",
+              ? "file-viewer-exit"
+              : "file-viewer-enter",
           )}
         >
           <button

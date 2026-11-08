@@ -5,7 +5,7 @@ import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
-import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import PasswordStrengthChecklist from "@libreloom/ui/components/common/PasswordStrengthChecklist.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { meetsPasswordPolicy, passwordPolicyError } from "@libreloom/ui/lib/passwordPolicy.js";
@@ -219,7 +219,7 @@ function EditUserBody({ target, onClose }) {
           ) : null}
         </section>
 
-        {error ? <PageNotice variant="error">{error}</PageNotice> : null}
+        {error ? <InlineError>{error}</InlineError> : null}
 
         <section className="rounded-large-element surface-primary p-4 space-y-3">
           <h3 className="font-mono text-sm">Remove from this Luna</h3>

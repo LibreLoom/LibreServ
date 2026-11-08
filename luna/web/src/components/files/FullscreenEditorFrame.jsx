@@ -5,7 +5,7 @@ import { Save, Share2, X } from "lucide-react";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
-import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import { useSmoothResize } from "@libreloom/ui/hooks/useSmoothResize.js";
 import { apiErrorMessage } from "../../lib/api.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
@@ -334,8 +334,8 @@ export default function FullscreenEditorFrame({
           className={cn(
             "fixed inset-0 z-[80] flex flex-col surface-primary",
             isClosing
-              ? "fullscreen-overlay-exit file-viewer-exit"
-              : "fullscreen-overlay-enter file-viewer-enter",
+              ? "file-viewer-exit"
+              : "file-viewer-enter",
           )}
         >
           <div className="flex min-h-0 flex-1">
@@ -518,11 +518,7 @@ export default function FullscreenEditorFrame({
             <p className="text-sm text-primary">
               Closing now loses everything you changed since the last save.
             </p>
-            {saveError ? (
-              <PageNotice variant="error" surface="secondary">
-                {saveError}
-              </PageNotice>
-            ) : null}
+            {saveError ? <InlineError>{saveError}</InlineError> : null}
             <div className="flex flex-col gap-3">
               <Button
                 ref={cancelRef}

@@ -4,7 +4,7 @@ import { AlertTriangle, Rss } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
-import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
@@ -121,7 +121,7 @@ export default function UpdateSourceCard({ index = 3 }) {
             />
           </div>
           {changeChannel.isError && (
-            <PageNotice variant="error">{apiErrorMessage(changeChannel.error)}</PageNotice>
+            <InlineError>{apiErrorMessage(changeChannel.error)}</InlineError>
           )}
         </section>
 
@@ -320,7 +320,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
             </p>
           </div>
 
-          {saveError && <PageNotice variant="error">{saveError}</PageNotice>}
+          {saveError && <InlineError>{saveError}</InlineError>}
 
           <div className="flex gap-2 pt-1">
             <Button

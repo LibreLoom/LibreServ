@@ -8,7 +8,7 @@ import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
-import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import { Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
@@ -291,7 +291,7 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
               )}
             </div>
           )}
-          {sheetError && <PageNotice variant="error">{sheetError}</PageNotice>}
+          {sheetError && <InlineError>{sheetError}</InlineError>}
           {stateQuery.isLoading && (
             <div className="flex items-center gap-2 py-2 text-primary" role="status">
               <Spinner size="sm" decorative />

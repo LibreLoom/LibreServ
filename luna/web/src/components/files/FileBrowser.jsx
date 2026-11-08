@@ -94,6 +94,7 @@ import {
   readLunaPaths,
 } from "../../lib/dnd.js";
 import FileRow from "./FileRow.jsx";
+import { warmTextEditor } from "./editorWarm.js";
 import { canOpenRow, displayNameOf } from "./fileRowUtils.js";
 import PrivateBadge from "../private/PrivateBadge.jsx";
 import PropertiesSheet, { PropertiesButton } from "./PropertiesSheet.jsx";
@@ -441,6 +442,13 @@ export default function FileBrowser({
     }
     savingNamesRef.current = new Set(entries.filter((e) => e?.saving).map((e) => e.name));
   }, [listing.data, addToast]);
+
+  // Warm the text editor as soon as the folder is on screen. It is the most
+  // common file to open, and its chunk landing mid-click is what made the
+  // opening animation stutter the first time.
+  useEffect(() => {
+    warmTextEditor();
+  }, []);
 
   // A file path answers `list` with a one-entry "folder" containing the
   // file itself — member file grants are virtual roots whose ancestors are
