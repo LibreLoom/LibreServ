@@ -255,7 +255,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
             <div className="flex items-center gap-3">
               <AlertTriangle size={ICON_SIZE.lg} className="text-primary flex-shrink-0" aria-hidden="true" />
               <p className="text-sm text-primary">
-                Only change these if your updates come from somewhere else.{" "}
+                Only change this if you want Luna to get updates elsewhere.{" "}
                 <InfoHint
                   label="What these settings control"
                   content="They control where Luna itself gets its software updates — not your files, photos, or backups. A wrong value can stop Luna from updating, so leave these as-is unless you're pointing Luna at a different update source."
@@ -264,8 +264,8 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
             </div>
           </div>
           <p className="text-primary text-sm">
-            Where Luna reads its list of updates — for the software on this Luna, not your files or
-            backups.
+            Where Luna gets software updates from. This is for this Luna's server software, not
+            your files or backups.
           </p>
 
           <div className="space-y-1">

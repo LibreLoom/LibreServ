@@ -267,7 +267,7 @@ describe("AboutCategory", () => {
     await openEditor(user);
 
     expect(
-      await screen.findByText(/Only change these if your updates come from somewhere else/i),
+      await screen.findByText(/Only change this if you want Luna to get updates elsewhere/i),
     ).toBeTruthy();
     expect(screen.getByLabelText(/What these settings control/i)).toBeTruthy();
     const feedInput = /** @type {HTMLInputElement} */ (screen.getByPlaceholderText(FEED_URL));
