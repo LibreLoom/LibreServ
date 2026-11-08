@@ -123,15 +123,15 @@ One global handler, not a check on every page: a `drive_locked` response anywher
 
 **Anyone with access to the drive may unlock it.** If a person can read the drive's files, they already have everything the password protects, so withholding the unlock button buys nothing — the password is shared the way a house key is. It does mean a Member with a live session can guess, so the endpoint keeps the `login_limiter` rate-limit pattern: per user, per drive, five tries then a wait. A Member who has no access never sees the dialog, because `drive_root()` refuses them before `locked` is consulted.
 
-**No idle auto-lock in v1** — gallery indexing, cloud backup and search indexing run against the mount, and an idle timer would kill them mid-run. Locking is an explicit action on the encryption page (§5).
+**No idle auto-lock in v1** — gallery indexing, cloud backup and search indexing run against the mount, and an idle timer would kill them mid-run. Locking is an explicit action in the encryption sheet (§5).
 
 ### Encryption mode — one place per drive
 
-Not buttons beside Eject. Encryption is a long, irreversible operation, so it gets a **destination of its own**: `/files/:id/encryption`, reachable from the drive card.
+Not buttons beside Eject. Encryption is a long, irreversible operation, so it gets a **place of its own**: a sheet opened from the drive card's encryption button (`DriveEncryptionSheet`, 2026-11-06 — the `/files/:id/encryption` route is gone).
 
-A route rather than a modal, for three reasons: progress survives a refresh and a navigation; it is a place you return to rather than a dialog you dismiss; and it can hold the state, the history and the actions together instead of scattering them.
+A sheet rather than a route, because the drive card already carries the one-line state: the sheet holds the state, the actions and the progress, while the card keeps showing the state after the sheet is dismissed. A format outlives the sheet — closing it does not stop the format, and the sheet polls until it finishes.
 
-**What the page shows**, in one column:
+**What the sheet shows**, in one column:
 
 | State | What it says | What you can do |
 |---|---|---|
@@ -213,8 +213,8 @@ Two consequences of deferring it that are worth knowing now:
 |---|---|---|
 | **0** | Fix the LUKS2 profile (cipher, KDF memory, one keyslot). | done — `drives/luks.rs` |
 | **1** | Image: `cryptsetup`, `dm-crypt`, presence check. Luna: detection, unlock/lock, `locked` column, 423 on API and WebDAV. | done |
-| **2** | The encryption page: route, the five states, Unlock/Lock, the drive-card link and state line. | done |
-| **3** | New-drive format path: partition → `luksFormat` → `mkfs.ext4`, reusing the page's password step. | done |
+| **2** | The encryption surface: the five states, Unlock/Lock, the drive-card button and state line. | done — a page at first, a sheet on the drive card since 2026-11-06 |
+| **3** | New-drive format path: partition → `luksFormat` → `mkfs.ext4`, reusing the sheet's password step. | done |
 | **4** | Encryption both ways by reformatting: one format backend, the shared wipe confirmation with its 30-second rule, identity preserved across a wipe, the `converting` flag and the exclusive hold. | done |
 | **5** | Parity: drive-backup pairing rules, the §6 leak audit. | pairing rules done; leak audit **not done** |
 
@@ -238,5 +238,5 @@ Phase 5 is the remaining work. The drive-backup pairing rule is done; the §6 le
 - **Every disk tool has a deadline**, and a tool that runs out of time is reported as an unresponsive drive rather than as a busy one. A hung stick must never leave a drive stuck mid-format with nothing to tell the person.
 - **The drive is locked after an encrypted format.** The key went with the job, so the password is entered again — which also proves it was recorded correctly.
 - **Decrypt requires the password.**
-- **The encryption page is linked from the Files page only**; the dashboard card stays a summary.
+- **Encryption is opened from the Files page only**; the dashboard card stays a summary.
 - **No recovery path.** One keyslot, one password, and the warning says what that means.

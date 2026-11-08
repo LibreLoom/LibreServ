@@ -200,7 +200,7 @@ Signals are sorted failing first, then watch, then note, with the table order ke
    - `isPresentDrive` drops `"failed"` and adds `&& drive.mounted !== false`.
 3. **`describeDriveHealth(health)`:**
    - It reads only `verdict`, `reason`, `signals`, `temperature_max_*` and `overall`, never raw thresholds.
-   - It returns `null` for `reason === "not_a_hard_drive"`. Otherwise it returns `{ verdict, pill:{variant,label}, summary, needsYou, rows, steps }`.
+   - It returns `null` for `reason === "not_a_hard_drive"` and for any `verdict: "unknown"` (including `no_report`). Otherwise it returns `{ verdict, pill:{variant,label}, summary, needsYou, rows, steps }`.
    - `health` undefined (loading): verdict `"checking"`, pill muted `"Checking health…"`, summary `"Checking this drive's health…"`, no rows.
 
    **Pills and summaries** (by verdict, then top signal `signals[0]`):
@@ -213,11 +213,11 @@ Signals are sorted failing first, then watch, then note, with the table order ke
    | watch: self_test_errors | warning: `Failed a self-test` | same as above |
    | watch: temperature | warning: `Running hot` | `Still working, but too hot. Move it somewhere cooler or give it more air.` |
    | failing (any) | error: `Failing` | `This drive is failing. Copy your files to another drive now.` |
-   | unknown, `no_report` | muted: `Health unknown` | `Luna couldn't read this hard drive's health report.` |
+   | unknown (incl. `no_report`) | — returns `null`: no pill, no summary, no health section | — |
 
-   For `no_report`, InfoHint: `Hard drives keep a health report that Luna reads. Some USB cases don't pass it on. Luna can still use the drive, but it can't warn you early.`
+   A drive whose report Luna can't read is not a fault: many USB cases never pass the report on and the drive still works, so Luna says nothing rather than warn about a drive that is probably fine (2026-11-06, `42eb9e41`).
 
-   **`needsYou`:** `null` for ok, unknown and checking. Otherwise `{ tone, rank, title, detail }`; `title` is the text after the drive-name pill.
+   **`needsYou`:** `null` for ok and checking. Otherwise `{ tone, rank, title, detail }`; `title` is the text after the drive-name pill.
    - Failing: tone `"problem"`, rank 12, title `" is failing"`. Detail by top signal:
      - `self_check_failed`: `Its own self-check failed. Copy your files to another drive now.`
      - `worn_past_limit`: `It's past its maker's wear limit. Copy your files to another drive now.`
