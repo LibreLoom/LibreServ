@@ -482,6 +482,21 @@ export default function UsersCategory() {
                     },
                   }}
                   mobileCards
+                  renderMobileCard={(row, columns) => {
+                    const cell = (key) => columns.find((col) => col.key === key)?.render?.(row, 0);
+                    return (
+                      <div className="flex items-center gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex min-w-0 items-center gap-2">{cell("display_name")}</div>
+                          <div className="mt-1 flex flex-wrap items-center gap-2">
+                            {cell("username")}
+                            {cell("role")}
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">{cell("actions")}</div>
+                      </div>
+                    );
+                  }}
                 />
               </div>
             )}
