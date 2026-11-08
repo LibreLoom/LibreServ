@@ -99,7 +99,7 @@ export default function UpdateSourceCard({ index = 3 }) {
         {/* One section for everything about updates: the channel the release
             comes down from and where Luna reads it. Each control is its own
             pill row, so the two never read as one line. */}
-        <CollapsibleSection title="Updates" pill defaultOpen className="pb-1">
+        <CollapsibleSection title="Updates" pill mono defaultOpen className="pb-1">
           <div className="space-y-3 pt-1">
             <div
               className="surface-primary rounded-pill px-4 py-2.5 flex flex-wrap items-center justify-between gap-3"
@@ -134,10 +134,7 @@ export default function UpdateSourceCard({ index = 3 }) {
               role="group"
               aria-labelledby="update-source-label"
             >
-              <div>
-                <h3 className="text-secondary text-sm" id="update-source-label">Update source</h3>
-                <p className="text-secondary text-xs mt-0.5">Where Luna reads its list of updates.</p>
-              </div>
+              <h3 className="text-secondary text-sm" id="update-source-label">Update source</h3>
               <Button
                 type="button"
                 variant="outline"
