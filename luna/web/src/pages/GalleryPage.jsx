@@ -1767,7 +1767,17 @@ export default function GalleryPage() {
       )}
       {showPageLevelError(galleryLoadError, actionModalOpen) && (
         <PageNotice variant="error" className="mb-4">
-          {galleryLoadError}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p>{galleryLoadError}</p>
+            <Button
+              variant="outline"
+              surface="primary"
+              size="sm"
+              onClick={() => gallery.refetch()}
+            >
+              Try again
+            </Button>
+          </div>
         </PageNotice>
       )}
 
@@ -2141,6 +2151,7 @@ export default function GalleryPage() {
             <PlacesMap
               places={places.data || NO_PLACES}
               loading={places.isLoading}
+              failed={places.isError}
               filtered={filterActiveCount > 0}
               drawMode={placesDrawMode}
               onDrawModeChange={setPlacesDrawMode}

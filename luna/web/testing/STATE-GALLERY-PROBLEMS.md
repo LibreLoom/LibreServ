@@ -23,13 +23,13 @@ Status values: **open** (found, not fixed yet) · **fixed** (code changed, needs
 | Sign-in | 7 | 0 | 0 | 0 |
 | Dashboard | 33 | 33 | 2 | 1 |
 | Files | 121 | 121 | 3 | 3 |
-| Photos | 41 | 0 | 0 | 0 |
+| Photos | 41 | 41 | 2 | 2 |
 | Recovery | 2 | 0 | 0 | 0 |
 | Settings | 53 | 50 | 2 | 2 |
 | 404 | 3 | 0 | 0 | 0 |
 | Setup | 17 | 0 | 0 | 0 |
 | Sharing | 44 | 22 | 1 | 1 |
-| **Total** | **318** | **200** | **8** | **7** |
+| **Total** | **318** | **241** | **10** | **9** |
 
 ---
 
@@ -125,6 +125,28 @@ sentence. Two causes, both fixed:
 - `luna/web/src/dev/fake/engine.js` invented `Injected <code>` as the body of any fault
   that brought no message of its own. It now answers with a plain sentence, so no
   scenario can show a tester harness jargon.
+
+### 7. A failed map was shown as "no places yet" — **fixed**
+
+`gallery/places-fails`
+
+The scenario's own check says: *"If it says 'No places yet' as if nothing is wrong,
+record that as a problem."* It said exactly that. The map request failed, `places.data`
+was `undefined`, and the empty state took over — telling someone their photos carry no
+location when Luna could not read the map at all.
+
+Fixed in `luna/web/src/components/gallery/PlacesMap.jsx` and `src/pages/GalleryPage.jsx`:
+the failed request is now passed through and the tab says `Couldn't load places`.
+
+### 8. A gallery that failed to load offered no way to try again — **fixed**
+
+`gallery/server-error`
+
+The check asks for "an error with a Try again action". The notice said
+`Luna couldn't read your photos.` and stopped there, leaving a reload as the only exit.
+
+Fixed in `luna/web/src/pages/GalleryPage.jsx`: the notice carries a `Try again` button
+that refetches.
 
 ---
 

@@ -355,6 +355,7 @@ ClusterMarkers.propTypes = {
  * @param {{
  *   places?: Array<any>,
  *   loading?: boolean,
+ *   failed?: boolean,
  *   filtered?: boolean,
  *   onSelect?: (place: any) => void,
  *   onDrawArea?: () => void,
@@ -365,6 +366,7 @@ ClusterMarkers.propTypes = {
 export default function PlacesMap({
   places,
   loading = false,
+  failed = false,
   filtered = false,
   onSelect,
   onDrawArea = undefined,
@@ -435,6 +437,15 @@ export default function PlacesMap({
 
   // With filters on, no matches is just an empty map, not an empty state.
   if (!markers.length && !filtered) {
+    if (failed) {
+      return (
+        <EmptyState
+          icon={MapPin}
+          title="Couldn't load places"
+          description="Luna couldn't read the map or where your photos were taken. Try again in a moment."
+        />
+      );
+    }
     return (
       <EmptyState
         icon={MapPin}
@@ -586,6 +597,7 @@ export default function PlacesMap({
 PlacesMap.propTypes = {
   places: PropTypes.arrayOf(PropTypes.object),
   loading: PropTypes.bool,
+  failed: PropTypes.bool,
   filtered: PropTypes.bool,
   onSelect: PropTypes.func,
   onDrawArea: PropTypes.func,
