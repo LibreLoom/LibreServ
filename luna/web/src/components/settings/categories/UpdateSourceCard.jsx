@@ -125,11 +125,18 @@ export default function UpdateSourceCard({ index = 3 }) {
           )}
         </section>
 
-        <section className="space-y-3 border-t border-primary/10 pt-4" aria-labelledby="update-source-label">
+        {/* Its own panel on the card: the source is a separate thing to change,
+            not another line of the channel row. Text takes the panel's colour
+            (surface-primary paints text-secondary) — text-primary here would be
+            the panel's own background. */}
+        <section
+          className="rounded-large-element surface-primary p-4 space-y-3"
+          aria-labelledby="update-source-label"
+        >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h3 className="text-primary text-sm" id="update-source-label">Update source</h3>
-              <p className="text-primary text-xs mt-0.5">Where Luna reads its list of updates.</p>
+              <h3 className="text-secondary text-sm" id="update-source-label">Update source</h3>
+              <p className="text-secondary text-xs mt-0.5">Where Luna reads its list of updates.</p>
             </div>
             <Pill variant={customized ? "warning" : "success"}>
               {customized ? "Custom source" : "Default source"}
@@ -143,7 +150,7 @@ export default function UpdateSourceCard({ index = 3 }) {
           <Button
             type="button"
             variant="outline"
-            surface="secondary"
+            surface="primary"
             onClick={() => setModalOpen(true)}
           >
             <Rss size={ICON_SIZE.sm} aria-hidden="true" />

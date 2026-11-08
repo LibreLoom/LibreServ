@@ -17,7 +17,7 @@ Open `http://localhost:3001/__states` from `cd luna/web && npm run dev`. Each ro
 | 24-word recovery phrase copy | `settings/phrase-not-set`, `settings/phrase-24-words` | The phrase dialog says why to choose 24 words before the choice; a 24-word phrase gets 24 boxes. |
 | Recovery phrase modal doesn’t close | `settings/phrase-not-set` | Save the phrase: the dialog closes and the card says Ready. |
 | `/recover` UI | `recovery/create`, `recovery/phone-dark` | The page is a compact card; account choices are a two-column list; token is a toggle; instructions collapse. |
-| Update source mess | `settings/update-source` | Advanced is flat: channel, source, edit sheet. |
+| Update source mess | `settings/update-source` | The source sits in its own panel on the card, with readable text, the address on its own line, and the edit sheet behind Edit update source. |
 | Stable ↔ Beta blocked by private-network error | `settings/update-source`, `settings/update-source-lan-feed` | Switch channels; the feed address stays and no error appears. |
 | Caution triangle contrast | `settings/update-source` | Open Edit update source: the warning icon is primary-coloured on its tint. |
 | Add-user role padding | `settings/users-many` | Open Add user: the Role row has space above it. |
