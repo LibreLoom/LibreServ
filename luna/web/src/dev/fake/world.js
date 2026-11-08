@@ -188,7 +188,7 @@ export function baseWorld() {
         { id: "temporary", label: "Temporary files from open documents", bytes: 1_200_000_000, removable: true },
       ],
     },
-    updates: { update_available: false, current_version: "1.4.2", latest_version: "1.4.2", release_notes: "", binary_name: "lunad", checksum: "", reboot_required: false },
+    updates: { update_available: false, current_version: "1.4.2", latest_version: "1.4.2", release_notes: "", binary_name: "lunad", checksum: "", reboot_required: false, feed_is_newer: true },
     updateSource: { channel: "stable", default_keys: true, defaults: { channel: "stable", feed_url: DEFAULT_FEED_URL, keys: [] }, effective_keys: [], feed_url: DEFAULT_FEED_URL, keys: [] },
     backups: [],
     cloudBackups: [],

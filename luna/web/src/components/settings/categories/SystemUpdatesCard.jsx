@@ -173,6 +173,10 @@ export default function SystemUpdatesCard({ index = 0 }) {
   };
 
   const hasUpdate = updateInfo?.update_available;
+  // A source the Admin just pointed Luna at is offered as-is, so the version
+  // may be the one already running (or older). Say so instead of calling it an
+  // upgrade.
+  const olderThanRunning = updateInfo?.feed_is_newer === false;
   const isUpToDate = updateInfo && !hasUpdate;
   const notChecked = !updateInfo && !updates.isLoading;
 
@@ -226,6 +230,13 @@ export default function SystemUpdatesCard({ index = 0 }) {
               </span>
             )}
           </div>
+
+          {hasUpdate && olderThanRunning && (
+            <p className="mb-4 text-sm">
+              This is the build your update source publishes — version{" "}
+              <InlinePill>{updateInfo.latest_version}</InlinePill>, not a newer release.
+            </p>
+          )}
 
           {failedUpdate && (
             <PageNotice variant="warning" className="mb-4">
@@ -359,7 +370,9 @@ export default function SystemUpdatesCard({ index = 0 }) {
           retrying
             ? "Luna will install the update again and restart. Your files stay put."
             : updateInfo
-            ? `Luna will download version ${updateInfo.latest_version}, install it, and restart. Your files stay put.`
+            ? olderThanRunning
+              ? `Luna will download version ${updateInfo.latest_version} from your update source, install it, and restart. It is not newer than the version running now. Your files stay put.`
+              : `Luna will download version ${updateInfo.latest_version}, install it, and restart. Your files stay put.`
             : "Install the available update?"
         }
         variant="warning"

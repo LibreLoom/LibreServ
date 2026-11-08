@@ -109,6 +109,15 @@ pub struct UpdateInfo {
     /// True when applying will (or did) write an OS slot and reboot the box.
     #[serde(default)]
     pub reboot_required: bool,
+    /// The feed's version is newer than the running one. False means the
+    /// offer comes from an update source the admin just pointed Luna at, so
+    /// the build is installable but is not an upgrade. Absent = newer.
+    #[serde(default = "true_value")]
+    pub feed_is_newer: bool,
+}
+
+fn true_value() -> bool {
+    true
 }
 
 pub trait HttpGet: Send + Sync {
@@ -1311,6 +1320,11 @@ pub struct UpdateService {
     installer: Box<dyn Installer>,
     active: Mutex<ActiveSource>,
     cache: Mutex<Option<(Instant, UpdateInfo)>>,
+    /// Set when the admin points Luna at a different feed address: the next
+    /// check takes that source at its word instead of comparing it with what
+    /// the previous source published, and offers its build even when its
+    /// version is not newer. Cleared once that build is installed.
+    adopt_source: Mutex<bool>,
 }
 
 impl UpdateService {
@@ -1366,6 +1380,7 @@ impl UpdateService {
             installer,
             active: Mutex::new(active_from(feed_url, channel, keys)),
             cache: Mutex::new(None),
+            adopt_source: Mutex::new(false),
         }
     }
 
@@ -1427,8 +1442,14 @@ impl UpdateService {
             keys
         };
         warn_on_custom_keys(&keys);
+        let moved = self.active.lock().unwrap().feed_url != feed_url;
         *self.active.lock().unwrap() = active_from(feed_url, channel, keys);
         *self.cache.lock().unwrap() = None;
+        if moved {
+            // A different feed address is a different lineage of releases, not
+            // a replay of this one. Offer what it publishes straight away.
+            *self.adopt_source.lock().unwrap() = true;
+        }
     }
 
     pub fn check(&self, current_version: &str, force: bool) -> Result<UpdateInfo, UpdateError> {
@@ -1471,6 +1492,11 @@ impl UpdateService {
             .installer
             .read_feed_seen(UNIT, &src.channel)
             .unwrap_or_default();
+        let adopt = *self.adopt_source.lock().unwrap();
+        // The admin pointed Luna at a different feed address: don't hold it to
+        // the newest publish date recorded for the old one, and offer its
+        // build even when the version isn't higher.
+        let newest_seen = if adopt { "" } else { seen.as_str() };
         let verified = feed::check(
             &body,
             &sig,
@@ -1482,12 +1508,12 @@ impl UpdateService {
                 os: FEED_OS,
                 arch,
                 installed_version: current_version,
-                newest_published_seen: &seen,
+                newest_published_seen: newest_seen,
             },
         )
         .map_err(map_feed_error)?;
 
-        if verified.feed.published.as_str() > seen.as_str()
+        if (adopt || verified.feed.published.as_str() > seen.as_str())
             && let Err(e) =
                 self.installer
                     .write_feed_seen(UNIT, &src.channel, &verified.feed.published)
@@ -1497,8 +1523,10 @@ impl UpdateService {
 
         let os = feed::select_part(&verified.feed.parts, "os", FEED_OS, arch).cloned();
         // Never move to an older release: an OS image only counts when the
-        // feed is not behind what is running.
-        let os_needed = !verified.older
+        // feed is not behind what is running. A source the admin just chose is
+        // taken as-is, so its image counts even when its version is lower.
+        let lunad_offer = verified.newer || adopt;
+        let os_needed = (!verified.older || adopt)
             && match (&os, self.installer.read_os_hash()) {
                 (Some(part), Some(local)) => {
                     let same =
@@ -1516,18 +1544,19 @@ impl UpdateService {
         let info = UpdateInfo {
             current_version: current_version.to_string(),
             latest_version: verified.feed.version.clone(),
-            update_available: verified.newer || os_needed,
+            update_available: lunad_offer || os_needed,
             release_notes: verified.feed.notes.clone(),
             checksum: verified.part.sha256.clone(),
             binary_name: verified.part.file.clone(),
             reboot_required: os_needed,
+            feed_is_newer: verified.newer,
         };
         Ok(Resolved {
             info,
             lunad: verified.part,
             os,
             packs: feed::select_part(&verified.feed.parts, PACKS_PART, FEED_OS, arch).cloned(),
-            lunad_newer: verified.newer,
+            lunad_newer: lunad_offer,
             os_needed,
         })
     }
@@ -1547,6 +1576,8 @@ impl UpdateService {
                 return Err(e);
             }
             let _ = std::fs::remove_file(&tmp);
+            // That build is now what runs; the next feed is compared normally.
+            *self.adopt_source.lock().unwrap() = false;
         }
 
         if resolved.os_needed

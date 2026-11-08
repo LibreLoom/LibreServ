@@ -509,6 +509,35 @@ export default [
     check: ["Checks are grouped, failures first", "Luna's own storage shows what is using the disk, biggest first", "Free up space clears the temporary files and says how much", "Update now starts the update", "Open source licenses open and close"],
   },
   {
+    id: "settings/updates-from-new-source",
+    area: "Settings: About",
+    title: "Updates after changing the update source",
+    url: "/settings#about",
+    seed: (w) => {
+      // Luna just moved to this source, so its build is offered even though it
+      // is the version already running.
+      w.updates = {
+        update_available: true,
+        current_version: "1.4.2",
+        latest_version: "1.4.2",
+        feed_is_newer: false,
+        release_notes: "## 1.4.2\n\nA build from this Luna's own update source.",
+      };
+      w.updateSource = {
+        ...w.updateSource,
+        feed_url: "https://updates.example.net/feeds",
+        default_keys: false,
+        keys: ["RWSELFSIGNED"],
+        effective_keys: ["RWSELFSIGNED"],
+      };
+    },
+    check: [
+      "Status says 1.4.2 available even though that is the running version",
+      "A line says this is the build the source publishes, not a newer release",
+      "Update now warns that it is not newer before installing",
+    ],
+  },
+  {
     id: "settings/update-source",
     area: "Settings: About",
     title: "Update source",
