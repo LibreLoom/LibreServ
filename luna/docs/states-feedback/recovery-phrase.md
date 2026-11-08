@@ -316,7 +316,7 @@ The words stay in the boxes after every failure, so one can be fixed. They're wi
 - **`CloudBackupCategory.jsx`:**
   - `RecoveryPhraseCard` stays first.
   - Get "connected" from `useConnectActive()`, not `/connect/status`; Members can't read that.
-  - With Connect off, show only the card's "not linked" text. Admin: `Cloud backup needs Luna Connect. Add your device token in Settings → About → Advanced.` Member: `Cloud backup needs Luna Connect. An Admin can turn it on.`
+  - With Connect off, show only the card's "not linked" text. Admin: `Cloud backup needs Luna Connect. Add your device token in the Advanced settings.` plus a button linking to Settings → About → Advanced. Member: `Cloud backup needs Luna Connect. An Admin can turn it on.`
   - With Connect off, skip the cloud-backups query and the restore cards.
 - **`RecoveryPhraseCard.jsx`:**
   - Remove the not-set branch, `openSetup`, `createIdentity`, the Member line and the `RecoveryPhraseSetup` import.

@@ -142,7 +142,7 @@ describe("CloudBackupCategory", () => {
     const fetchMock = stubApi({ connected: false });
     renderCard();
     expect(
-      await screen.findByText("Cloud backup needs Luna Connect. Add your device token in About → Advanced."),
+      await screen.findByText("Cloud backup needs Luna Connect. Add your device token in the Advanced settings."),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open About → Advanced" })).toHaveAttribute("href", "/settings#about");
     expect(screen.getByText("Recovery phrase")).toBeInTheDocument();

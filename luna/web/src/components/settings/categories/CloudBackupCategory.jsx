@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Cloud } from "lucide-react";
+import { ChevronRight, Cloud } from "lucide-react";
 import { Link } from "react-router-dom";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -9,6 +9,7 @@ import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { apiErrorMessage, deleteJson, getJson, postJson } from "../../../lib/api";
 import { formatBytes } from "../../../lib/formatBytes.js";
@@ -232,12 +233,15 @@ export default function CloudBackupCategory() {
             <div className="space-y-2">
               <p className="text-primary text-sm">
                 {isAdmin
-                  ? "Cloud backup needs Luna Connect. Add your device token in About → Advanced."
+                  ? "Cloud backup needs Luna Connect. Add your device token in the Advanced settings."
                   : "Cloud backup needs Luna Connect. An Admin can turn it on."}
               </p>
               {isAdmin && (
                 <Button variant="outline" surface="secondary" size="sm" asChild>
-                  <Link to="/settings#about">Open About → Advanced</Link>
+                  <Link to="/settings#about">
+                    <span>Open About → Advanced</span>
+                    <ChevronRight size={ICON_SIZE.md} aria-hidden="true" />
+                  </Link>
                 </Button>
               )}
             </div>
