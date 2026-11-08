@@ -141,10 +141,8 @@ describe("CloudBackupCategory", () => {
   it("with Connect off, an Admin sees the phrase card and a line pointing at the device token, with no list", async () => {
     const fetchMock = stubApi({ connected: false });
     renderCard();
-    expect(
-      await screen.findByText("Cloud backup needs Luna Connect. Add your device token in the Advanced settings."),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open About → Advanced" })).toHaveAttribute("href", "/settings#about");
+    expect(await screen.findByText(/Add your device token in/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open Advanced/ })).toHaveAttribute("href", "/settings#about");
     expect(screen.getByText("Recovery phrase")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Back up now" })).toBeNull();
     const asked = fetchMock.mock.calls.map(([url]) => String(url));

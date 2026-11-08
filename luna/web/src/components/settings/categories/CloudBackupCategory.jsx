@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Cloud } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -20,6 +20,30 @@ import BackupStatusNotice from "../../common/BackupStatusNotice.jsx";
 import CloudRestoreCard from "../../cloud/CloudRestoreCard.jsx";
 import PrivateRestoreCard from "../../cloud/PrivateRestoreCard.jsx";
 import RecoveryPhraseCard from "../../cloud/RecoveryPhraseCard.jsx";
+
+/**
+ * A settings path — Settings › About › Advanced — with lucide chevrons between
+ * the steps, so the arrow is a drawn glyph rather than a typed character.
+ * @param {{ steps: string[] }} props
+ */
+function SettingsPath({ steps }) {
+  return (
+    <span className="inline-flex flex-wrap items-baseline gap-1">
+      {steps.map((step, index) => (
+        <Fragment key={step}>
+          {index > 0 && (
+            <ChevronRight
+              size={ICON_SIZE.xs}
+              aria-hidden="true"
+              className="shrink-0 translate-y-px"
+            />
+          )}
+          <span>{step}</span>
+        </Fragment>
+      ))}
+    </span>
+  );
+}
 
 function CloudBackupRow({ backup, onRun, onRunAnyway, missingSource, onCheck, onDelete, pending }) {
   const active = backup.status === "active";
@@ -232,14 +256,19 @@ export default function CloudBackupCategory() {
           {!connected ? (
             <div className="space-y-2">
               <p className="text-primary text-sm">
-                {isAdmin
-                  ? "Cloud backup needs Luna Connect. Add your device token in the Advanced settings."
-                  : "Cloud backup needs Luna Connect. An Admin can turn it on."}
+                {isAdmin ? (
+                  <>
+                    Cloud backup needs Luna Connect. Add your device token in{" "}
+                    <SettingsPath steps={["Settings", "About", "Advanced"]} />.
+                  </>
+                ) : (
+                  "Cloud backup needs Luna Connect. An Admin can turn it on."
+                )}
               </p>
               {isAdmin && (
                 <Button variant="outline" surface="secondary" size="sm" asChild>
                   <Link to="/settings#about">
-                    <span>Open About → Advanced</span>
+                    <span>Open Advanced</span>
                     <ChevronRight size={ICON_SIZE.md} aria-hidden="true" />
                   </Link>
                 </Button>
