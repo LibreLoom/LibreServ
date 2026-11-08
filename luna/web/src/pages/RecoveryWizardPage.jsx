@@ -142,7 +142,7 @@ export default function RecoveryWizardPage() {
                       required
                       error={errorField === "username" ? error : undefined}
                     />
-                    <p className="text-secondary text-sm">
+                    <p className="text-primary text-sm">
                       {selectorType === "u" && "Use the existing Luna username."}
                       {selectorType === "n" && "Luna creates this Admin account when it starts with the recovery drive."}
                       {selectorType === "f" && "Luna changes the password if this account exists. Otherwise, it creates a new Admin account."}
@@ -215,7 +215,7 @@ export default function RecoveryWizardPage() {
                   required
                   error={errorField === "confirm" ? error : undefined}
                 />
-                <p className="text-secondary text-sm">The selected accounts will be signed out on their other devices.</p>
+                <p className="text-primary text-sm">The selected accounts will be signed out on their other devices.</p>
               </section>
 
               {error && <InlineError>{error}</InlineError>}

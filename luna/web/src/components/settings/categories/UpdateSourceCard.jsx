@@ -109,6 +109,7 @@ export default function UpdateSourceCard({ index = 3 }) {
               <div className="text-secondary text-sm" id="update-channel-label">
                 Update channel{" "}
                 <InfoHint
+                  surface="primary"
                   label="What the update channel is"
                   content="Stable gets releases once they are tested. Beta gets new versions sooner and may have bugs. You can switch back to Stable at any time; Luna never installs an older version."
                 />

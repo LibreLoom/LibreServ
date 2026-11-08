@@ -90,7 +90,7 @@ export function MovingNote({ moving, resealing = false, className = "", member =
     <div className={`space-y-2 text-sm ${className}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <p>{line}</p>
-        {eta ? <p className="text-xs text-secondary">{eta}</p> : null}
+        {eta ? <p className="text-xs">{eta}</p> : null}
       </div>
       {pct != null ? (
         // color-scan: ignore-next-line overlay tint over theme variables only
@@ -101,7 +101,7 @@ export function MovingNote({ moving, resealing = false, className = "", member =
         <LinearProgress active label="Updating cloud backups" />
       )}
       {pct != null && !eta && (
-        <p className="text-xs text-secondary">This runs in the background; you can close this page.</p>
+        <p className="text-xs">This runs in the background; you can close this page.</p>
       )}
       {moving?.paused_full && (
         <p>
