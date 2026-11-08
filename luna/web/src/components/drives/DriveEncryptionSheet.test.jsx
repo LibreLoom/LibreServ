@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../../context/AuthContext";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import DriveEncryptionSheet from "./DriveEncryptionSheet.jsx";
@@ -55,9 +56,11 @@ function renderPage() {
   return render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <AuthProvider>
-          <DriveEncryptionSheet open drive={DRIVE} onClose={() => {}} />
-        </AuthProvider>
+        <MemoryRouter>
+          <AuthProvider>
+            <DriveEncryptionSheet open drive={DRIVE} onClose={() => {}} />
+          </AuthProvider>
+        </MemoryRouter>
       </ToastProvider>
     </QueryClientProvider>,
   );
@@ -139,7 +142,7 @@ describe("DriveEncryptionSheet", () => {
       },
     );
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Unlock" }));
+    // A locked drive opens straight on the password dialog.
     const field = await screen.findByLabelText("Password");
     fireEvent.change(field, { target: { value: "hunter2" } });
     // The card also has an Unlock button; the dialog's is the one to press.

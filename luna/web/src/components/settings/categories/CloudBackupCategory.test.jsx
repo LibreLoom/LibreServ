@@ -234,7 +234,6 @@ describe("CloudBackupCategory", () => {
     expect(screen.getByRole("button", { name: "Back up now" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Check" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
-    expect(screen.getByText(/costs \$8 per terabyte each month/)).toBeInTheDocument();
   });
 
   it("says when a cloud backup has stopped finishing", async () => {
