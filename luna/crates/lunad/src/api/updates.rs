@@ -637,9 +637,11 @@ mod tests {
         assert!(crate::system::updates::load_settings(&state.db.lock().unwrap()).is_some());
 
         // …then restore this binary's defaults: the stored row goes away.
+        // `keys: []` says "use the built-in release key"; omitting the field
+        // would keep the keys Luna is using now, which is not a reset.
         let d = crate::system::updates::default_settings();
         let body = format!(
-            r#"{{"feed_url":"{}","channel":"{}"}}"#,
+            r#"{{"feed_url":"{}","channel":"{}","keys":[]}}"#,
             d.feed_url, d.channel
         );
         let response = router.oneshot(put(&token, &body)).await.unwrap();

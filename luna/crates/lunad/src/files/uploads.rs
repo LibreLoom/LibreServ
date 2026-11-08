@@ -856,10 +856,30 @@ mod tests {
         std::fs::write(Path::new(&root).join("report.pdf"), b"original").unwrap();
         let up = {
             let conn = db.lock().unwrap();
+            // A real drop-box link: upload-only, so the public route masks
+            // `overwrite` to false before `complete` ever sees it.
+            crate::db::insert_access_link(
+                &conn,
+                &crate::db::AccessLinkRow {
+                    id: "l1".into(),
+                    token_hash: "hash-l1".into(),
+                    token: String::new(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: drive.clone(),
+                    path: String::new(),
+                    album_id: String::new(),
+                    caps: crate::access::CAP_UPLOAD,
+                    password_hash: String::new(),
+                    expires_at: None,
+                    created_by: String::new(),
+                    created_at: crate::db::now_unix(),
+                },
+            )
+            .unwrap();
             create_scoped(&conn, &drive, "", "report.pdf", 4, "link:l1").unwrap()
         };
         write_chunk(&db, &up.id, 0, &[7u8; 4]).unwrap();
-        let entry = complete(&db, &up.id, true, true, None).unwrap();
+        let entry = complete(&db, &up.id, false, true, None).unwrap();
         assert_eq!(entry.name, "report (1).pdf");
         assert_eq!(
             std::fs::read(Path::new(&root).join("report.pdf")).unwrap(),

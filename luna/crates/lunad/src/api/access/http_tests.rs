@@ -1170,7 +1170,7 @@ async fn guest_collab_ws_view_only_follows_and_bad_targets_are_refused() {
     let mount = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(mount.path().join("family")).unwrap();
     std::fs::write(mount.path().join("family/plan.drawio"), "<mxfile/>").unwrap();
-    std::fs::write(mount.path().join("family/note.txt"), "hi").unwrap();
+    std::fs::write(mount.path().join("family/note.docx"), "hi").unwrap();
     let (_dir, app) = test_app(mount.path());
     let (cookie, csrf) = admin(&app).await;
     let view = make_link(
@@ -1205,10 +1205,11 @@ async fn guest_collab_ws_view_only_follows_and_bad_targets_are_refused() {
     .await;
     let denied = ws_next_text(&mut res).await.unwrap();
     assert_eq!(denied["type"], "error", "{denied}");
-    // Escapes, non-diagrams, and missing files are refused pre-upgrade.
+    // Escapes, non-document files, and missing files are refused pre-upgrade.
+    // (Text and form files are allowed: a guest joins their room too.)
     let res = ws_connect(addr, &ws(&token, "../plan.drawio"), &[]).await;
     assert_eq!(res.status, 400, "{}", res.head);
-    let res = ws_connect(addr, &ws(&token, "note.txt"), &[]).await;
+    let res = ws_connect(addr, &ws(&token, "note.docx"), &[]).await;
     assert_eq!(res.status, 400, "{}", res.head);
     let res = ws_connect(addr, &ws(&token, "missing.drawio"), &[]).await;
     assert_eq!(res.status, 404, "{}", res.head);
