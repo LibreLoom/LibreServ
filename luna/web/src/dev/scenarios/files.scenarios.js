@@ -128,10 +128,10 @@ export default [
     check: [
       "Encryption on the Family photos card opens a sheet, not a page",
       "The sheet says Not encrypted and explains what that means",
-      "Encrypt this drive asks for a password twice and warns there is no recovery",
-      "The wipe dialog lists what is on the drive and makes the button wait",
-      "After confirming, the page starts a format and only says Drive encrypted once the drive reports it finished",
-      "The drive then shows as Locked, not left in a half-formatted state",
+      "Set up encryption opens Format with encryption selected and asks for the password twice",
+      "Review lists the partitions and contents and waits 30 seconds before formatting",
+      "Formatting shows its actual phase and reports completion only when the operation succeeds",
+      "The encrypted drive is unlocked and ready after a successful format",
     ],
   },
   {
@@ -140,7 +140,7 @@ export default [
     title: "Encrypted drive, locked",
     url: "/files",
     seed: (w) => { demo(w); w.drives[0].encrypted = true; w.drives[0].locked = true; w.drives[0].fs_type = "ext4"; },
-    check: ["Open Encryption on the card: it says Locked and asks for the password", "A wrong password stays inline", "The right password unlocks and says so"],
+    check: ["Open Encryption on the card: it says Encrypted and locked; Unlock asks for the password", "A wrong password stays inline", "The right password unlocks and says so"],
   },
   {
     id: "files/readonly-drive", area: A, title: "Read-only drive", url: "/files/d1",

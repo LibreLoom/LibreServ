@@ -154,13 +154,11 @@ pub const MISSING_DRIVE_DB_MSG: &str = "Luna can't write to this drive, so it ca
 
 /// Shown when a file operation reaches an encrypted drive whose container is
 /// not open. Nothing is wrong with the drive — it needs its password.
-pub const DRIVE_LOCKED_MSG: &str =
-    "This drive is locked. An Admin can unlock it in Luna's web page.";
+pub const DRIVE_LOCKED_MSG: &str = "This drive is locked. Unlock it in Luna to open its files.";
 
-/// Shown while an in-place conversion holds the drive. The drive is fine; it is
-/// simply unavailable until the conversion finishes.
+/// Shown while formatting holds the drive exclusively.
 pub const DRIVE_CONVERTING_MSG: &str =
-    "This drive is being encrypted. It will be available when that finishes.";
+    "This drive is being formatted. It will be available when formatting finishes.";
 
 #[derive(Debug, thiserror::Error)]
 pub enum FilesError {
@@ -171,7 +169,7 @@ pub enum FilesError {
     /// The drive is present and healthy, but its container is not open.
     #[error("{}", DRIVE_LOCKED_MSG)]
     Locked,
-    /// An in-place conversion holds the drive exclusively.
+    /// Formatting holds the drive exclusively.
     #[error("{}", DRIVE_CONVERTING_MSG)]
     Converting,
     #[error("{}", MISSING_DRIVE_DB_MSG)]

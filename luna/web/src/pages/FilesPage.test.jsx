@@ -655,11 +655,10 @@ describe("FilesPage", () => {
     expect(screen.getByText("EFI")).toBeInTheDocument();
     expect(screen.getByText("boot")).toBeInTheDocument();
     expect(screen.getByText("luna.iso")).toBeInTheDocument();
-    expect(screen.getByText(/moved any files you want to keep/i)).toBeInTheDocument();
+    expect(screen.getByText(/erases all files and partitions/i)).toBeInTheDocument();
     expect(screen.queryByText(/Luna installer/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/tiny/i)).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Erase and add this drive/i }));
-    expect(screen.getByRole("button", { name: /Yes, erase it/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Format drive/i })).toBeInTheDocument();
   });
 
   it("refuses Add when the drive is not writable", async () => {
@@ -695,59 +694,8 @@ describe("FilesPage", () => {
     expect(screen.queryByText(/1 folders/i)).not.toBeInTheDocument();
     expect(screen.getByText("Photos")).toBeInTheDocument();
     expect(screen.getByText("notes.txt")).toBeInTheDocument();
-    expect(screen.getByText(/won't accept new files/i)).toBeInTheDocument();
-    expect(screen.getByText(/need formatting/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Add this drive/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Format$/i })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /^Format$/i }));
-    expect(screen.getByText(/deletes everything on this drive/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Yes, format it/i })).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Locked Stick")).toBeInTheDocument();
-  });
-
-  it("formats a write-locked drive through adopt erase", async () => {
-    const { default: userEvent } = await import("@testing-library/user-event");
-    const adoptBodies = [];
-    stubDrivesApi({
-      fetch: (u, init) => {
-        if (u.endsWith("/drives/detected")) {
-          return new Response(JSON.stringify([{
-            name: "sdc", model: "Locked Stick", size_bytes: 4000000000,
-            removable: true, usb: true, mount_point: "/mnt", fs_type: "vfat",
-          }]), { status: 200, headers: { "Content-Type": "application/json" } });
-        }
-        if (u.includes("/drives/sdc/inspect")) {
-          return new Response(JSON.stringify({
-            device: "sdc", model: "Locked Stick", fs_type: "vfat",
-            mount_point: "/mnt", mounted_by_luna: false, has_marker: false,
-            folders: 0, files: 0, unreadable: 0, needs_erase: false,
-            readable: true, writable: false,
-            entries: [],
-            used_bytes: 96 * 1024,
-            meaningful: false,
-          }), { status: 200, headers: { "Content-Type": "application/json" } });
-        }
-        if (u.includes("/drives/sdc/adopt") && init?.method === "POST") {
-          adoptBodies.push(JSON.parse(init.body));
-          return new Response(JSON.stringify({
-            id: "formatted-1", label: "Locked Stick", state: "as_is",
-            fs_type: "exfat", device: "sdc", mount_point: "/mnt/drives/formatted-1",
-          }), { status: 200, headers: { "Content-Type": "application/json" } });
-        }
-        return null;
-      },
-    });
-    renderPage();
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
-    await screen.findByText(/won't accept new files/i);
-    await user.click(screen.getByRole("button", { name: /^Format$/i }));
-    await user.click(screen.getByRole("button", { name: /Yes, format it/i }));
-    // Formatting is a wipe, so it goes through the one shared confirmation —
-    // the same dialog the encryption page uses.
-    expect(await screen.findByText(/Format this drive\?/i)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /^Format$/i }));
-    expect(adoptBodies).toEqual([{ label: "Locked Stick", erase: true }]);
+    expect(screen.getByRole("button", { name: /Format drive/i })).toBeInTheDocument();
   });
 
   it("labels Browse files on adopted drives", async () => {
@@ -1102,107 +1050,4 @@ describe("FilesPage", () => {
     expect(screen.getByRole("button", { name: /^Remove$/i })).toBeInTheDocument();
   });
 
-  it("makes an Add-drive erase wait when the drive holds files", async () => {
-    // The waiting rule has to reach this flow too. A drive Luna has not added
-    // yet has no id, so it cannot fetch a wipe preview — the inspection has to
-    // carry the same measurement, or this path silently skips the wait.
-    const { default: userEvent } = await import("@testing-library/user-event");
-    const adoptBodies = [];
-    stubDrivesApi({
-      fetch: (u, init) => {
-        if (u.endsWith("/drives/detected")) {
-          return new Response(JSON.stringify([{
-            name: "sdb", model: "Lexar USB Flash Drive", size_bytes: 8000000000,
-            removable: true, usb: true, mount_point: null, fs_type: "iso9660",
-          }]), { status: 200, headers: { "Content-Type": "application/json" } });
-        }
-        if (u.includes("/drives/sdb/inspect")) {
-          return new Response(JSON.stringify({
-            device: "sdb", model: "Lexar USB Flash Drive", fs_type: "iso9660",
-            mount_point: "/mnt", mounted_by_luna: true, has_marker: false,
-            folders: 1, files: 1, unreadable: 0, needs_erase: true,
-            readable: true, writable: false,
-            entries: [
-              { name: "Holiday", kind: "folder" },
-              { name: "luna.iso", kind: "file" },
-            ],
-            used_bytes: 4 * 1024 * 1024 * 1024,
-            meaningful: true,
-          }), { status: 200, headers: { "Content-Type": "application/json" } });
-        }
-        if (u.includes("/drives/sdb/adopt") && init?.method === "POST") {
-          adoptBodies.push(JSON.parse(init.body));
-          return new Response(JSON.stringify({
-            id: "new-1", label: "Lexar USB Flash Drive", state: "as_is",
-            fs_type: "exfat", device: "sdb", mount_point: "/mnt/drives/new-1",
-          }), { status: 200, headers: { "Content-Type": "application/json" } });
-        }
-        return null;
-      },
-    });
-    renderPage();
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
-    await user.click(await screen.findByRole("button", { name: /Erase and add this drive/i }));
-    await user.click(screen.getByRole("button", { name: /Yes, erase it/i }));
-
-    // The shared dialog, with its countdown, not an immediate wipe.
-    expect(await screen.findByText(/Erase this drive\?/i)).toBeInTheDocument();
-    // The Add-drive modal is still underneath, so the wipe dialog is the
-    // newest one on screen.
-    const dialog = screen.getAllByRole("dialog").at(-1);
-    expect(within(dialog).getByText("Holiday")).toBeInTheDocument();
-    expect(within(dialog).getByText("luna.iso")).toBeInTheDocument();
-    const confirm = within(dialog).getByRole("button", { name: /Wait \d+s/i });
-    expect(confirm).toBeDisabled();
-    // Nothing has been sent while the wait runs.
-    expect(adoptBodies).toEqual([]);
-  });
-
-  it("lets an empty Add-drive erase go ahead with one confirmation", async () => {
-    // The other half of the rule: a drive with nothing on it is not made to
-    // wait, here or anywhere else.
-    const { default: userEvent } = await import("@testing-library/user-event");
-    const adoptBodies = [];
-    stubDrivesApi({
-      fetch: (u, init) => {
-        if (u.endsWith("/drives/detected")) {
-          return new Response(JSON.stringify([{
-            name: "sdb", model: "Blank Stick", size_bytes: 8000000000,
-            removable: true, usb: true, mount_point: null, fs_type: "iso9660",
-          }]), { status: 200, headers: { "Content-Type": "application/json" } });
-        }
-        if (u.includes("/drives/sdb/inspect")) {
-          return new Response(JSON.stringify({
-            device: "sdb", model: "Blank Stick", fs_type: "iso9660",
-            mount_point: "/mnt", mounted_by_luna: true, has_marker: false,
-            folders: 0, files: 0, unreadable: 0, needs_erase: true,
-            readable: true, writable: false,
-            entries: [],
-            used_bytes: 96 * 1024,
-            meaningful: false,
-          }), { status: 200, headers: { "Content-Type": "application/json" } });
-        }
-        if (u.includes("/drives/sdb/adopt") && init?.method === "POST") {
-          adoptBodies.push(JSON.parse(init.body));
-          return new Response(JSON.stringify({
-            id: "new-2", label: "Blank Stick", state: "as_is",
-            fs_type: "exfat", device: "sdb", mount_point: "/mnt/drives/new-2",
-          }), { status: 200, headers: { "Content-Type": "application/json" } });
-        }
-        return null;
-      },
-    });
-    renderPage();
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
-    await user.click(await screen.findByRole("button", { name: /Erase and add this drive/i }));
-    await user.click(screen.getByRole("button", { name: /Yes, erase it/i }));
-
-    expect(await screen.findByText(/Erase this drive\?/i)).toBeInTheDocument();
-    const confirm = screen.getByRole("button", { name: /^Erase and add$/i });
-    expect(confirm).toBeEnabled();
-    await user.click(confirm);
-    expect(adoptBodies).toEqual([{ label: "Blank Stick", erase: true }]);
-  });
 });

@@ -99,9 +99,9 @@ describe("DriveStatusPill — encryption", () => {
     expect(screen.queryByText("Can't open")).toBeNull();
   });
 
-  it("shows Encrypting while a conversion holds the drive", () => {
+  it("shows Formatting while a conversion holds the drive", () => {
     render(<DriveStatusPill drive={{ state: "as_is", converting: true, locked: true }} />);
-    expect(screen.getByText("Encrypting")).toBeInTheDocument();
+    expect(screen.getByText("Formatting")).toBeInTheDocument();
   });
 
   it("shows Ready for an unlocked encrypted drive", () => {

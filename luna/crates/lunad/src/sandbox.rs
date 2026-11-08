@@ -34,6 +34,22 @@ const SAFE_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin
 /// stay clear of stdio plumbing; each `input_path` call takes the next one.
 const FIRST_FD: i32 = 40;
 
+/// Passwords also pass through the daemon, not only its hardened children.
+/// Prevent a crash dump from persisting request bodies or temporary keys.
+pub fn disable_daemon_core_dumps() -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        let zero = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        if unsafe { libc::setrlimit(libc::RLIMIT_CORE, &zero) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
+
 /// Cap on bytes a sandboxed child may write to any file (RLIMIT_FSIZE).
 /// Thumbnails and decoded intermediates are far smaller; this is a disk-fill
 /// guard, not a format limit.

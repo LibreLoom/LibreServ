@@ -115,7 +115,7 @@ pub trait Mkfs: Send + Sync {
     fn make(&self, device: &str, label: &str, filesystem: Filesystem) -> Result<(), FormatError>;
 }
 
-/// The real one: `mkfs.ext4`, or exFAT with a FAT32 fallback.
+/// The real filesystem writers.
 #[derive(Clone, Default)]
 pub struct CommandMkfs;
 
@@ -153,31 +153,73 @@ pub fn run(
     password: &str,
     unmount: impl Fn(&Path) -> anyhow::Result<()>,
 ) -> Result<Formatted, FormatError> {
+    run_checked(
+        probe,
+        luks,
+        mkfs,
+        disk,
+        target,
+        password,
+        unmount,
+        || Ok(()),
+        || Ok(()),
+    )
+}
+
+/// Run a reviewed format, rechecking the physical drive immediately before
+/// the first destructive write, after all mounts have been released.
+#[allow(clippy::too_many_arguments)]
+pub fn run_checked(
+    probe: &dyn FsProbe,
+    luks: &dyn Luks,
+    mkfs: &dyn Mkfs,
+    disk: &str,
+    target: &Target,
+    password: &str,
+    unmount: impl Fn(&Path) -> anyhow::Result<()>,
+    before_write: impl FnOnce() -> Result<(), FormatError>,
+    check_attachment: impl Fn() -> anyhow::Result<()>,
+) -> Result<Formatted, FormatError> {
+    if target.encrypt && target.filesystem != Filesystem::Ext4 {
+        return Err(FormatError::Other(
+            "Choose ext4 to encrypt this drive.".into(),
+        ));
+    }
     unmount_disk(disk, unmount)?;
+    before_write()?;
 
     // 1. Clear every signature and lay down one partition spanning the disk.
     //    Shared with the adopt path, so there is one implementation of
     //    "prepare a disk" rather than two that can drift.
     let partition = probe
-        .prepare_disk(disk)
+        .prepare_disk_checked(disk, &check_attachment)
         .map_err(|e| FormatError::Other(format!("Luna couldn't prepare this drive. {e}")))?;
     let part_dev = format!("/dev/{partition}");
+    check_attachment().map_err(|e| FormatError::Other(e.to_string()))?;
 
     // 3. The container, when the drive is encrypted.
     if target.encrypt {
         let pbkdf = luks::pbkdf_kib_from(crate::budget::meminfo().available_bytes);
         luks.format(&part_dev, &target.label, password, pbkdf)
             .map_err(|e| FormatError::Other(e.to_string()))?;
+        check_attachment().map_err(|e| FormatError::Other(e.to_string()))?;
         // Format the filesystem through the container, so it lands inside.
-        luks.open(&part_dev, "__format", password)
+        let mapper_id = format!("format-{}", uuid::Uuid::new_v4());
+        luks.open(&part_dev, &mapper_id, password)
             .map_err(|e| FormatError::Other(e.to_string()))?;
-        let mapper = format!("/dev/mapper/{}", luks::mapper_name("__format"));
+        let mapper = format!("/dev/mapper/{}", luks::mapper_name(&mapper_id));
+        if let Err(e) = check_attachment() {
+            let _ = luks.close(&mapper_id);
+            return Err(FormatError::Other(e.to_string()));
+        }
         let made = mkfs.make(&mapper, &target.label, target.filesystem);
-        let _ = luks.close("__format");
+        let closed = luks.close(&mapper_id);
         made?;
+        closed.map_err(|e| FormatError::Other(e.to_string()))?;
     } else {
         mkfs.make(&part_dev, &target.label, target.filesystem)?;
     }
+    check_attachment().map_err(|e| FormatError::Other(e.to_string()))?;
 
     Ok(Formatted {
         partition,
@@ -252,72 +294,22 @@ pub(crate) fn make_filesystem(
     }
 }
 
-/// exFAT, falling back to FAT32 when the box has no `mkfs.exfat`.
-///
-/// The fallback is deliberate rather than an error: a stick formatted FAT32
-/// still works everywhere a person expects, and refusing to prepare a drive
-/// because one tool is absent would be worse than the older format.
+/// Create exactly the filesystem the person selected.
 fn make_exfat(device: &str, label: &str) -> Result<(), FormatError> {
-    let exfat = crate::sandbox::which("mkfs.exfat").map(|bin| {
-        let mut cmd = crate::sandbox::hardened(&bin);
-        cmd.args(["-n", label, device]).stderr(Stdio::piped());
-        crate::sandbox::output_limited(&mut cmd, std::time::Duration::from_secs(120))
-    });
-    let exfat = exfat.unwrap_or_else(|| {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "mkfs.exfat missing",
-        ))
-    });
-    if exfat.as_ref().is_ok_and(|o| o.status.success()) {
-        return Ok(());
+    let bin = crate::sandbox::which("mkfs.exfat").ok_or(FormatError::MissingTool("mkfs.exfat"))?;
+    let mut cmd = crate::sandbox::hardened(&bin);
+    cmd.args(["-n", label, device]).stderr(Stdio::piped());
+    let output = crate::sandbox::output_limited(&mut cmd, std::time::Duration::from_secs(120))
+        .map_err(|e| {
+            FormatError::Other(format!("Luna couldn't set up exFAT on this drive. {e}"))
+        })?;
+    if !output.status.success() {
+        return Err(FormatError::Other(format!(
+            "Luna couldn't set up exFAT on this drive. {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
     }
-
-    let fat = crate::sandbox::which("mkfs.vfat").map(|bin| {
-        let mut cmd = crate::sandbox::hardened(&bin);
-        cmd.args(["-F", "32", "-n", label, device])
-            .stderr(Stdio::piped());
-        crate::sandbox::output_limited(&mut cmd, std::time::Duration::from_secs(120))
-    });
-    let fat = fat.unwrap_or_else(|| {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "mkfs.vfat missing",
-        ))
-    });
-    if fat.as_ref().is_ok_and(|o| o.status.success()) {
-        return Ok(());
-    }
-    Err(FormatError::Other(format!(
-        "Luna couldn't set up this drive for files. {}",
-        mkfs_failure_details(&exfat, &fat)
-    )))
-}
-
-/// What each format tool said, so a failure shows both attempts. A tool that
-/// couldn't start at all is reported as missing.
-fn mkfs_failure_details(
-    exfat: &std::io::Result<std::process::Output>,
-    fat: &std::io::Result<std::process::Output>,
-) -> String {
-    fn one(name: &str, result: &std::io::Result<std::process::Output>) -> String {
-        match result {
-            Ok(o) => {
-                let said = String::from_utf8_lossy(&o.stderr).trim().to_string();
-                if said.is_empty() {
-                    format!("{name} failed.")
-                } else {
-                    format!("{name}: {said}")
-                }
-            }
-            Err(_) => format!("{name} is not installed on this Luna."),
-        }
-    }
-    format!(
-        "{} {}",
-        one("exFAT format", exfat),
-        one("FAT32 format", fat)
-    )
+    Ok(())
 }
 
 #[cfg(test)]
@@ -439,12 +431,7 @@ mod tests {
         );
         assert_eq!(kind, "ext4");
         // And the container was closed again, so no key is left in the kernel.
-        assert!(
-            luks.closed
-                .lock()
-                .unwrap()
-                .contains(&"__format".to_string())
-        );
+        assert_eq!(luks.closed.lock().unwrap().len(), 1);
     }
 
     #[test]

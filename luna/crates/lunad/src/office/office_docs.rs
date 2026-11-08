@@ -1075,6 +1075,19 @@ impl OfficeDocHub {
             .collect()
     }
 
+    /// Do not close storage underneath a document that is open or joining.
+    pub fn drive_is_active(&self, drive_id: &str) -> bool {
+        self.inner.try_lock().map_or(true, |hub| {
+            hub.sessions.values().any(|session| {
+                session.binding.drive_id == drive_id
+                    && (!session.participants.is_empty()
+                        || session
+                            .pending_until
+                            .is_some_and(|until| until > Instant::now()))
+            })
+        })
+    }
+
     /// Drop sessions with no participants past the idle window, and their bus.
     pub async fn evict_idle(&self) {
         let cutoff = Duration::from_secs(IDLE_EMPTY_SECS);

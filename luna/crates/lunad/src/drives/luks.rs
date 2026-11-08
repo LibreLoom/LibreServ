@@ -71,6 +71,8 @@ pub trait Luks: Send + Sync {
     ) -> anyhow::Result<()>;
     /// Open `device` as the drive's mapper. The password goes on stdin.
     fn open(&self, device: &str, drive_id: &str, password: &str) -> anyhow::Result<()>;
+    /// Change one password without removing any unrelated keyslots.
+    fn change_password(&self, device: &str, current: &str, new: &str) -> anyhow::Result<()>;
     /// Close the drive's mapper, wiping the volume key from the kernel.
     fn close(&self, drive_id: &str) -> anyhow::Result<()>;
     /// Is the container currently open?
@@ -155,6 +157,134 @@ impl Luks for CommandLuks {
         run_with_secret(&mut cmd, password, std::time::Duration::from_secs(120))
     }
 
+    fn change_password(&self, device: &str, current: &str, new: &str) -> anyhow::Result<()> {
+        let bin = cryptsetup()?;
+        let mut dump = crate::sandbox::hardened(&bin);
+        dump.args(["luksDump", "--dump-json-metadata", device])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        let output = crate::sandbox::output_limited(&mut dump, std::time::Duration::from_secs(30))?;
+        if !output.status.success() {
+            anyhow::bail!("Luna couldn't read this drive's password settings.");
+        }
+        let metadata: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+        let slots = metadata["keyslots"]
+            .as_object()
+            .ok_or_else(|| anyhow::anyhow!("Luna couldn't read this drive's password settings."))?;
+        let mut matches = Vec::new();
+        for slot in slots.keys() {
+            let mut cmd = crate::sandbox::hardened(&bin);
+            cmd.args([
+                "open",
+                "--test-passphrase",
+                "--key-slot",
+                slot,
+                "--key-file",
+                "-",
+                device,
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+            match run_with_secret(&mut cmd, current, std::time::Duration::from_secs(120)) {
+                Ok(()) => matches.push(slot.clone()),
+                Err(e) if e.to_string() == "That password didn't work." => {}
+                Err(e) => return Err(e),
+            }
+        }
+        if matches.is_empty() {
+            anyhow::bail!("That password didn't work.");
+        }
+        if matches.len() != 1 {
+            anyhow::bail!(
+                "This password is used in more than one slot. Luna can't change it safely."
+            );
+        }
+        let free = (0..32)
+            .find(|slot| !slots.contains_key(&slot.to_string()))
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "This drive has no free password slot. Luna can't change its password."
+                )
+            })?
+            .to_string();
+        // The old key is stdin. A private anonymous memory file supplies the
+        // new key; only cryptsetup inherits the descriptor, and it is wiped.
+        let key = SecretFile::new(new)?;
+        use std::os::unix::process::CommandExt;
+        let fd = key.fd;
+        let mut add = crate::sandbox::hardened(&bin);
+        let memory = pbkdf_kib_from(crate::budget::meminfo().available_bytes).to_string();
+        add.args([
+            "luksAddKey",
+            "--key-slot",
+            &matches[0],
+            "--new-key-slot",
+            &free,
+            "--pbkdf-memory",
+            &memory,
+            "--key-file",
+            "-",
+            device,
+            "/proc/self/fd/40",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+        // `fd` is a CLOEXEC duplicate >= 512, safely clear of child stdio.
+        unsafe {
+            add.pre_exec(move || {
+                if libc::dup2(fd, 40) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        if let Err(err) = run_with_secret(&mut add, current, std::time::Duration::from_secs(120)) {
+            // A timeout can occur after the header was updated. Remove only
+            // the slot reserved for this attempt if it exists.
+            match slot_present(&bin, device, &free) {
+                Ok(false) => return Err(err),
+                Ok(true) if kill_slot(&bin, device, &free, current).is_ok() => return Err(err),
+                _ => anyhow::bail!(
+                    "Luna couldn't finish changing the password. The current password still works; the new password may also work."
+                ),
+            }
+        }
+        let mut verify = crate::sandbox::hardened(&bin);
+        verify
+            .args([
+                "open",
+                "--test-passphrase",
+                "--key-slot",
+                &free,
+                "--key-file",
+                "-",
+                device,
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        if let Err(e) = run_with_secret(&mut verify, new, std::time::Duration::from_secs(120)) {
+            if kill_slot(&bin, device, &free, current).is_err() {
+                return Err(anyhow::anyhow!(
+                    "Luna couldn't verify the new password or remove it. The current password still works."
+                ));
+            }
+            return Err(e);
+        }
+        // Only after testing the new key do we remove the old keyslot.
+        if let Err(e) = kill_slot(&bin, device, &matches[0], new) {
+            if kill_slot(&bin, device, &free, current).is_err() {
+                return Err(anyhow::anyhow!(
+                    "Luna couldn't finish changing the password. Try the new password first, then the current password."
+                ));
+            }
+            return Err(e);
+        }
+        Ok(())
+    }
+
     fn close(&self, drive_id: &str) -> anyhow::Result<()> {
         if !self.is_open(drive_id) {
             return Ok(());
@@ -197,6 +327,84 @@ impl Luks for CommandLuks {
         }
         parse_reencrypt_state(&String::from_utf8_lossy(&out.stdout))
     }
+}
+
+// An anonymous RAM-backed keyfile. The high descriptor avoids collisions with
+// Command's stdio setup; CLOEXEC prevents inheritance by unrelated children.
+struct SecretFile {
+    fd: i32,
+    len: usize,
+}
+impl SecretFile {
+    fn new(secret: &str) -> anyhow::Result<Self> {
+        use std::os::fd::{AsRawFd, FromRawFd};
+        let fd = unsafe { libc::memfd_create(c"luna-key".as_ptr(), libc::MFD_CLOEXEC) };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+        file.write_all(secret.as_bytes())?;
+        let high = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 512) };
+        if high < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        Ok(Self {
+            fd: high,
+            len: secret.len(),
+        })
+    }
+}
+impl Drop for SecretFile {
+    fn drop(&mut self) {
+        let zeros = [0u8; 4096];
+        let mut offset = 0;
+        while offset < self.len {
+            let size = (self.len - offset).min(zeros.len());
+            let wrote = unsafe {
+                libc::pwrite(self.fd, zeros.as_ptr().cast(), size, offset as libc::off_t)
+            };
+            if wrote <= 0 {
+                break;
+            }
+            offset += wrote as usize;
+        }
+        unsafe {
+            libc::ftruncate(self.fd, 0);
+            libc::close(self.fd);
+        }
+    }
+}
+
+fn slot_present(bin: &Path, device: &str, slot: &str) -> anyhow::Result<bool> {
+    let mut cmd = crate::sandbox::hardened(bin);
+    cmd.args(["luksDump", "--dump-json-metadata", device])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let out = crate::sandbox::output_limited(&mut cmd, std::time::Duration::from_secs(30))?;
+    if !out.status.success() {
+        anyhow::bail!("Could not read keyslots");
+    }
+    let metadata: serde_json::Value = serde_json::from_slice(&out.stdout)?;
+    let slots = metadata["keyslots"]
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("Could not read keyslots"))?;
+    Ok(slots.contains_key(slot))
+}
+
+fn kill_slot(bin: &Path, device: &str, slot: &str, password: &str) -> anyhow::Result<()> {
+    let mut cmd = crate::sandbox::hardened(bin);
+    cmd.args([
+        "luksKillSlot",
+        "--batch-mode",
+        "--key-file",
+        "-",
+        device,
+        slot,
+    ])
+    .stdin(Stdio::piped())
+    .stdout(Stdio::null())
+    .stderr(Stdio::piped());
+    run_with_secret(&mut cmd, password, std::time::Duration::from_secs(120))
 }
 
 /// `luksDump` prints an `Online reencryption` block only while a conversion is
@@ -267,9 +475,7 @@ fn run_with_secret(
 /// into plain words and keep everything else short.
 pub fn plain_cryptsetup_error(said: &str) -> String {
     let lower = said.to_ascii_lowercase();
-    if lower.contains("no key available with this passphrase")
-        || lower.contains("no usable keyslot")
-    {
+    if lower.contains("no key available with this passphrase") {
         return "That password didn't work.".into();
     }
     if lower.contains("is busy") || lower.contains("in use") {
@@ -351,6 +557,16 @@ impl Luks for MockLuks {
             .unwrap()
             .push((device.to_string(), drive_id.to_string()));
         self.open.lock().unwrap().insert(drive_id.to_string());
+        Ok(())
+    }
+
+    fn change_password(&self, device: &str, _current: &str, _new: &str) -> anyhow::Result<()> {
+        if !self.is_luks(device) {
+            anyhow::bail!("This drive isn't an encrypted Luna drive.");
+        }
+        if let Some(err) = self.open_error.lock().unwrap().clone() {
+            anyhow::bail!("{err}");
+        }
         Ok(())
     }
 

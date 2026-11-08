@@ -249,6 +249,19 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
         );
         ",
     )?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS drive_format_plans (
+            id TEXT PRIMARY KEY, owner TEXT NOT NULL, body TEXT NOT NULL,
+            fingerprint TEXT NOT NULL, expires_at INTEGER NOT NULL,
+            review_ready_at INTEGER, operation_id TEXT
+        );
+        CREATE TABLE IF NOT EXISTS drive_format_operations (
+            id TEXT PRIMARY KEY, plan_id TEXT UNIQUE NOT NULL, drive_id TEXT,
+            device TEXT NOT NULL, label TEXT NOT NULL, state TEXT NOT NULL,
+            phase TEXT NOT NULL, error TEXT, destructive_started INTEGER NOT NULL,
+            encrypted INTEGER NOT NULL, filesystem TEXT NOT NULL
+        );",
+    )?;
     // Thin upgrade path for boxes that already had an older CREATE.
     ensure_column(&conn, "drives", "mount_point", "TEXT NOT NULL DEFAULT ''")?;
     // Encryption. `encrypted` is a property of the drive on disk; `locked` is
@@ -258,13 +271,8 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
     ensure_column(&conn, "drives", "encrypted", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(&conn, "drives", "locked", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(&conn, "drives", "converting", "INTEGER NOT NULL DEFAULT 0")?;
-    // A format only runs inside this process, so a `converting` flag found at
-    // startup belongs to a run that died with the last one — a crash or a power
-    // cut. Nothing will ever clear it, and `drive_root()` refuses a converting
-    // drive, so leaving it set locks the drive out of the UI permanently.
-    // Clearing it is safe: the disk is either fully formatted or not, and the
-    // drive is re-probed on the next scan either way.
-    let _ = conn.execute("UPDATE drives SET converting = 0 WHERE converting != 0", []);
+    // Interrupted formatting is reconciled against the durable operation
+    // record during AppState startup; it must not be silently made usable.
     // Trim the tables that otherwise grow without bound. Cheap, and it runs
     // before anything can read them.
     let _ = trim_housekeeping(&conn);
