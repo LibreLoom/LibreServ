@@ -62,7 +62,8 @@ describe("UpdateSourceCard", () => {
     stub();
     renderCard();
     expect(await screen.findByText("Default source")).toBeInTheDocument();
-    expect(screen.getByText("https://feeds.example.net/feeds")).toBeInTheDocument();
+    // The address lives in the editor; the card keeps the state only.
+    expect(screen.queryByText("https://feeds.example.net/feeds")).toBeNull();
   });
 
   it("flags a custom feed address", async () => {

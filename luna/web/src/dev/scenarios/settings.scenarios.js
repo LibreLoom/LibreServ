@@ -515,7 +515,8 @@ export default [
     url: "/settings#about",
     check: [
       "Changing Stable ↔ Beta keeps the feed address and says it saved",
-      "The card says Default source or Custom source and shows the address",
+      "Updates opens as one section: the channel and the source each in their own card",
+      "The source card says Default source or Custom source; the address is in the editor",
       "Edit update source opens with the warning and prefilled fields",
       "A bad address or key is refused inline and the old value stays",
     ],
