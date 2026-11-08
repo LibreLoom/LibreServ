@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Cloud } from "lucide-react";
+import { Link } from "react-router-dom";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
@@ -228,11 +229,18 @@ export default function CloudBackupCategory() {
           {error && <PageNotice variant="error" className="mb-3">{error}</PageNotice>}
 
           {!connected ? (
-            <p className="text-primary text-sm">
-              {isAdmin
-                ? "Cloud backup needs Luna Connect. Add your device token in Settings → About → Advanced."
-                : "Cloud backup needs Luna Connect. An Admin can turn it on."}
-            </p>
+            <div className="space-y-2">
+              <p className="text-primary text-sm">
+                {isAdmin
+                  ? "Cloud backup needs Luna Connect. Add your device token in About → Advanced."
+                  : "Cloud backup needs Luna Connect. An Admin can turn it on."}
+              </p>
+              {isAdmin && (
+                <Button variant="outline" surface="secondary" size="sm" asChild>
+                  <Link to="/settings#about">Open About → Advanced</Link>
+                </Button>
+              )}
+            </div>
           ) : backups.length === 0 ? (
             <div className="space-y-3">
               {!cardOnFile && (

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import CloudBackupCategory from "./CloudBackupCategory.jsx";
 
@@ -40,7 +41,9 @@ function renderCard() {
   return render(
     <QueryClientProvider client={client}>
       <ToastProvider>
-        <CloudBackupCategory />
+        <MemoryRouter>
+          <CloudBackupCategory />
+        </MemoryRouter>
       </ToastProvider>
     </QueryClientProvider>,
   );
@@ -139,8 +142,9 @@ describe("CloudBackupCategory", () => {
     const fetchMock = stubApi({ connected: false });
     renderCard();
     expect(
-      await screen.findByText("Cloud backup needs Luna Connect. Add your device token in Settings → About → Advanced."),
+      await screen.findByText("Cloud backup needs Luna Connect. Add your device token in About → Advanced."),
     ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open About → Advanced" })).toHaveAttribute("href", "/settings#about");
     expect(screen.getByText("Recovery phrase")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Back up now" })).toBeNull();
     const asked = fetchMock.mock.calls.map(([url]) => String(url));
