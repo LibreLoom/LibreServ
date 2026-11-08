@@ -352,17 +352,6 @@
       "size": "number"
     }
   ],
-  "GET /api/v1/drives/{id}/encryption": {
-    "can_encrypt": "boolean",
-    "cannot_encrypt_reason": "string",
-    "converting": "boolean",
-    "drive_id": "string",
-    "encrypted": "boolean",
-    "fs_type": "string",
-    "label": "string",
-    "present": "boolean",
-    "unlocked": "boolean"
-  },
   "GET /api/v1/drives/{id}/files": [
     {
       "caps": "string",
@@ -416,23 +405,6 @@
       "string"
     ],
     "total_bytes": "null|number",
-    "used_bytes": "null|number"
-  },
-  "GET /api/v1/drives/{id}/wipe-preview/{intent}": {
-    "drive_id": "string",
-    "entries": [
-      {
-        "kind": "string",
-        "name": "string"
-      }
-    ],
-    "files": "number",
-    "folders": "number",
-    "label": "string",
-    "meaningful": "boolean",
-    "readable": "boolean",
-    "target_encrypted": "boolean",
-    "target_fs": "string",
     "used_bytes": "null|number"
   },
   "GET /api/v1/forms/responses": {
@@ -999,10 +971,6 @@
   },
   "POST /api/v1/drives/{id}/eject": {
     "ok": "boolean"
-  },
-  "POST /api/v1/drives/{id}/encrypt": {
-    "ok": "boolean",
-    "started": "boolean"
   },
   "POST /api/v1/drives/{id}/files/create": {
     "ok": "boolean",
