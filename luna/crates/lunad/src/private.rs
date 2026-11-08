@@ -824,7 +824,10 @@ pub fn give_orphan(
             continue;
         }
         let mut failed = false;
-        for item in under(root, "").into_iter().filter(|item| item.owner == owner) {
+        for item in under(root, "")
+            .into_iter()
+            .filter(|item| item.owner == owner)
+        {
             match set_owner(root, &item.path, target) {
                 Ok(true) => report.moved += 1,
                 Ok(false) => {}

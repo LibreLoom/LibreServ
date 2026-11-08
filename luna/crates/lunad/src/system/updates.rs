@@ -849,10 +849,10 @@ fn unpack_packs(blob: &Path, staging: &Path) -> Result<Vec<String>, UpdateError>
     for name in KNOWN_PACKS {
         // Only a real directory may be swapped in — a symlink named like a
         // pack is not one.
-        if let Ok(meta) = std::fs::symlink_metadata(staging.join(name)) {
-            if meta.is_dir() {
-                packs.push(name.to_string());
-            }
+        if let Ok(meta) = std::fs::symlink_metadata(staging.join(name))
+            && meta.is_dir()
+        {
+            packs.push(name.to_string());
         }
     }
     if packs.is_empty() {
