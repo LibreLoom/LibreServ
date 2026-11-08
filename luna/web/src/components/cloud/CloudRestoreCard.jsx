@@ -147,6 +147,12 @@ export default function CloudRestoreCard() {
             : "Some cloud backup versions are missing from Luna's list. Enter your recovery phrase to find them again."}
         </p>
         <p className="text-primary text-sm">
+          Your phrase is the key to sealed copies of Luna&apos;s backup key kept with Luna Connect.
+          Without it, nothing can open those copies. This browser checks each copy against Luna&apos;s
+          public key, opens it, and sends Luna only the opened key — your phrase never leaves this
+          browser.
+        </p>
+        <p className="text-primary text-sm">
           {cloudCount === 1 ? "1 version is" : `${cloudCount} versions are`} in the cloud.{" "}
           {indexedCount === 1 ? "Luna has 1 version" : `Luna has ${indexedCount} versions`} in its list.{" "}
           <InfoHint label="What a version is" content="One saved state of a backup, from one time it ran." />

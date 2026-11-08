@@ -23,6 +23,7 @@ function stubFetch({
   adopted = [],
   orphans = { owners: [], offline_drives: [] },
   cleaned = [],
+  given = [],
   cleanupResult = { ok: true, skipped_readonly: [], failed_drives: [], offline_drives: [] },
   createResponse = /** @type {{ id: string, username: string, display_name: string, role: string, warning?: string }} */ ({ id: "3", username: "new", display_name: "New", role: "user" }),
   users = [
@@ -56,6 +57,10 @@ function stubFetch({
       }
       if (u.endsWith("/api/v1/private/orphans")) {
         return jsonResponse(orphans);
+      }
+      if (u.includes("/api/v1/private/orphans/") && init?.method === "POST" && u.endsWith("/give")) {
+        given.push({ url: u, body: JSON.parse(init.body || "{}") });
+        return jsonResponse({ ok: true, moved: 1, skipped_readonly: [], failed_drives: [], offline_drives: [] });
       }
       if (u.includes("/api/v1/private/orphans/") && init?.method === "DELETE") {
         cleaned.push(u);
@@ -212,9 +217,11 @@ describe("UsersCategory", () => {
     renderPage();
     expect(await screen.findByText(/2 private folders came from another Luna/)).toBeTruthy();
     const row = /** @type {HTMLElement} */ (screen.getByText("Imported 1").closest("li"));
-    await user.click(screen.getByRole("button", { name: "Give Imported 1 to" }));
+    await user.click(within(row).getByRole("button", { name: "Give…" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Who should get these private folders" }));
     await user.click(await screen.findByRole("option", { name: "Alex" }));
-    await user.click(within(row).getByRole("button", { name: "Give" }));
+    await user.click(within(dialog).getByRole("button", { name: /^Give$/ }));
     await vi.waitFor(() => expect(adopted).toHaveLength(1));
     expect(adopted[0].url).toMatch(/\/api\/v1\/users\/2\/adopt-private$/);
     expect(adopted[0].body).toEqual({ drive_id: "d1", path: "Imported 1" });
@@ -239,7 +246,9 @@ describe("UsersCategory", () => {
     const user = userEvent.setup();
     renderPage();
     expect(await screen.findByText("Private folders left behind")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: /Delete private folders left by Sam/i }));
+    await user.click(screen.getByRole("button", { name: /Manage private folders left by Sam/i }));
+    const manage = await screen.findByRole("dialog");
+    await user.click(within(manage).getByRole("button", { name: /Delete these folders/i }));
     await user.click(await screen.findByRole("button", { name: /^Delete permanently$/i }));
     await vi.waitFor(() => expect(cleaned).toHaveLength(1));
     expect(cleaned[0]).toMatch(/\/api\/v1\/private\/orphans\/gone1$/);
@@ -253,7 +262,9 @@ describe("UsersCategory", () => {
     const user = userEvent.setup();
     renderPage();
     expect(await screen.findByText(/1 item in Trash on Photos/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Delete private folders left by Sam/ }));
+    await user.click(screen.getByRole("button", { name: /Manage private folders left by Sam/ }));
+    const manage = await screen.findByRole("dialog");
+    await user.click(within(manage).getByRole("button", { name: /Delete these folders/i }));
     await user.click(await screen.findByRole("button", { name: /^Delete permanently$/ }));
     expect(await screen.findByText("Some private content remains.")).toBeInTheDocument();
     expect(screen.queryByText("Private content deleted.")).not.toBeInTheDocument();

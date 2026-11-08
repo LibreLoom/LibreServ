@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { HardDrive, Lock } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
@@ -95,6 +95,9 @@ export default function DriveEncryptionSheet({ drive, open, onClose }) {
   const [dialog, setDialog] = useState(
     /** @type {null | "unlock" | "encrypt" | "decrypt" | "wipe"} */ (null),
   );
+  // Opening the sheet for a locked drive asks for the password straight away:
+  // the Unlock button is the only thing anyone opens this sheet to press.
+  const unlockOffered = useRef("");
   const [pending, setPending] = useState(
     /** @type {{ direction: "encrypt" | "decrypt" | "reformat", password: string } | null} */ (null),
   );
@@ -106,6 +109,16 @@ export default function DriveEncryptionSheet({ drive, open, onClose }) {
 
   const [wiping, setWiping] = useState(false);
   const [wipeError, setWipeError] = useState("");
+
+  useEffect(() => {
+    if (!open) {
+      unlockOffered.current = "";
+      return;
+    }
+    if (state !== "locked" || !driveId || unlockOffered.current === driveId) return;
+    unlockOffered.current = driveId;
+    setDialog("unlock");
+  }, [open, state, driveId]);
 
   useEffect(() => {
     if (!wipeJob) {
@@ -215,7 +228,8 @@ export default function DriveEncryptionSheet({ drive, open, onClose }) {
               <>
                 <Button
                   size="sm"
-                  variant="accent"
+                  variant="secondary"
+                  surface="primary"
                   disabled={!data?.can_encrypt}
                   onClick={() => setDialog("encrypt")}
                 >
@@ -235,7 +249,7 @@ export default function DriveEncryptionSheet({ drive, open, onClose }) {
               </>
             )}
             {state === "locked" && !working && (
-              <Button size="sm" variant="secondary" onClick={() => setDialog("unlock")}>
+              <Button size="sm" variant="secondary" surface="primary" onClick={() => setDialog("unlock")}>
                 Unlock
               </Button>
             )}
@@ -273,15 +287,15 @@ export default function DriveEncryptionSheet({ drive, open, onClose }) {
         ) : null}
 
         {state === "unencrypted" ? (
-          <p className="flex items-start gap-1.5 text-sm">
+          <p className="flex items-start gap-2 px-1 text-sm">
             <HardDrive size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
             <span>
-              An encrypted drive can only be read by a Luna. Reading it on another computer needs an
-              app that does not exist yet.
+              Only Luna can read an encrypted drive{" "}
               <InfoHint
                 surface="secondary"
-                content="Until that app ships, keep the password somewhere safe and unlock the drive in Luna."
-              />
+                content="Until an app for other computers ships, keep the password somewhere safe and unlock the drive in Luna."
+              />{" "}
+              — reading it on another computer needs an app that does not exist yet.
             </span>
           </p>
         ) : null}
@@ -370,13 +384,21 @@ export default function DriveEncryptionSheet({ drive, open, onClose }) {
  * }} props
  */
 function PasswordDialog({ title, confirmLabel, hint, warning, confirmTwice = false, onClose, onSubmit }) {
+  const formId = useId();
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const firstField = useRef(/** @type {HTMLInputElement | null} */ (null));
 
   const mismatch = confirmTwice && again.length > 0 && password !== again;
   const canSubmit = password.length > 0 && (!confirmTwice || (again.length > 0 && !mismatch));
+
+  // The dialog is opened by the sheet, not by a click on itself, so put the
+  // caret in the password box as soon as it appears.
+  useEffect(() => {
+    firstField.current?.focus();
+  }, []);
 
   const submit = async () => {
     if (!canSubmit || busy) return;
@@ -402,13 +424,20 @@ function PasswordDialog({ title, confirmLabel, hint, warning, confirmTwice = fal
           <Button variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={submit} loading={busy} disabled={!canSubmit}>
+          <Button type="submit" form={formId} variant="primary" loading={busy} disabled={!canSubmit}>
             {confirmLabel}
           </Button>
         </>
       )}
     >
-      <div className="space-y-4">
+      <form
+        id={formId}
+        className="space-y-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+      >
         {warning ? (
           <PageNotice variant="warning">
             <p>{warning}</p>
@@ -418,6 +447,7 @@ function PasswordDialog({ title, confirmLabel, hint, warning, confirmTwice = fal
         <label className="block text-sm text-primary">
           Password
           <input
+            ref={firstField}
             type="password"
             className="mt-1 w-full rounded-pill surface-primary border-2 border-secondary/30 px-4 py-2 text-sm"
             value={password}
@@ -426,7 +456,6 @@ function PasswordDialog({ title, confirmLabel, hint, warning, confirmTwice = fal
               setPassword(e.target.value);
             }}
             autoComplete="off"
-            autoFocus
           />
         </label>
         {confirmTwice ? (
@@ -446,7 +475,7 @@ function PasswordDialog({ title, confirmLabel, hint, warning, confirmTwice = fal
         ) : null}
         {mismatch ? <p className="text-sm text-primary" role="alert">Those two passwords don't match.</p> : null}
         {error ? <p className="text-sm text-primary" role="alert">{error}</p> : null}
-      </div>
+      </form>
     </ModalCard>
   );
 }

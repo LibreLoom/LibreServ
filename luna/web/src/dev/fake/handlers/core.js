@@ -275,6 +275,28 @@ del("/api/v1/private/orphans/:owner", ({ world, user, params }) => {
   return { ok: !skipped.length && !offline.length, skipped_readonly: skipped, failed_drives: [], offline_drives: offline };
 });
 
+post("/api/v1/private/orphans/:owner/give", ({ world, user, params, body }) => {
+  gate(user);
+  if (!world.users.some((u) => u.id === body?.user_id)) return fail(404, "Luna doesn't know that person.");
+  if (!(world.deletedUsers || []).some((u) => u.id === params.owner)) {
+    return fail(400, "Luna can only give away private folders after their owner is removed.");
+  }
+  let moved = 0;
+  const skipped = [];
+  const offline = [];
+  for (const d of world.drives) {
+    const mounted = (d.state === "as_is" || d.state === "readonly") && world.summaries[d.id]?.mounted !== false;
+    if (!mounted) { offline.push(d.label); continue; }
+    const mine = privateUnder(world, d.id, "").filter((i) => i.owner === params.owner);
+    if (d.state === "readonly") { if (mine.length) skipped.push(d.label); continue; }
+    for (const item of mine) {
+      world.fs[d.id].nodes[item.path].owner = body.user_id;
+      moved++;
+    }
+  }
+  return { ok: !skipped.length && !offline.length, moved, skipped_readonly: skipped, failed_drives: [], offline_drives: offline };
+});
+
 // ── Drives ──────────────────────────────────────────────────────────────────
 const DRIVES_ONLY = "Only an Admin can manage drives.";
 const driveGate = (user) => requireAdmin(user, DRIVES_ONLY);
@@ -652,7 +674,7 @@ get("/api/v1/cloud/phrase", ({ world }) => ({
   check_due: Boolean(world.phrase?.check_due),
   last_checked_at: world.phrase?.last_checked_at ?? 0,
   phrase_words: world.phrase?.phrase_words ?? 0,
-  moving: null,
+  moving: world.phrase?.moving ?? null,
   old_phrase_copies: world.phrase?.old_phrase_copies ?? { count: 0, removed_at: null },
   resealing: Boolean(world.phrase?.resealing),
 }));

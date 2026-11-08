@@ -99,8 +99,9 @@ const REVIEW_HOW = /** @type {Record<string, string[]>} */ ({
   ],
   "settings/users-orphans": [
     "Open Settings → Users.",
-    "Read the removed-people rows; try Delete for Alex and Kit.",
-    "In the ownerless card, give Imported A to Sam, then give Imported B.",
+    "Open Manage for Alex, then choose someone to give the folders to; close and reopen to see Delete.",
+    "Open Manage for Kit: Delete is disabled because its drive is read-only.",
+    "In the ownerless card, press Give for Imported A and choose Sam; then give Imported B.",
   ],
   "settings/edit-user": [
     "Open Settings → Users.",
@@ -222,6 +223,7 @@ const REVIEW_HOW = /** @type {Record<string, string[]>} */ ({
   "files/edit-markdown": [
     "Open readme.md from Viewers.",
     "Edit text and the table; use Share in the sidebar.",
+    "Switch to Source and Ctrl-click (⌘-click on a Mac) the link; then try it in write mode.",
   ],
   "files/edit-form": [
     "Open rsvp.lunaform from Viewers.",

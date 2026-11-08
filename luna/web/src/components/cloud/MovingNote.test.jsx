@@ -65,13 +65,13 @@ describe("MovingNote", () => {
 
   it("shows the rounded percent with no pause message", () => {
     render(<MovingNote moving={{ percent: 40.9, paused_full: false }} />);
-    expect(screen.getByText("Moving to your new phrase · 40%")).toBeInTheDocument();
+    expect(screen.getByText("Updating your cloud backups to the new phrase · 40%")).toBeInTheDocument();
     expect(screen.queryByText(FULL_TEXT)).toBeNull();
   });
 
   it("explains a pause when Connect storage is full", () => {
     render(<MovingNote moving={{ percent: 40, paused_full: true }} />);
-    expect(screen.getByText("Moving to your new phrase · 40%")).toBeInTheDocument();
+    expect(screen.getByText("Updating your cloud backups to the new phrase · 40%")).toBeInTheDocument();
     expect(screen.getByText(FULL_TEXT)).toBeInTheDocument();
   });
 });
@@ -80,7 +80,7 @@ describe("RecoveryPhraseCard moving status", () => {
   it("shows the percent as a neutral line with no toast", async () => {
     stubFetch({ ...PHRASE, moving: { percent: 40.2, paused_full: false } });
     wrap(<RecoveryPhraseCard />);
-    expect(await screen.findByText("Moving to your new phrase · 40%")).toBeInTheDocument();
+    expect(await screen.findByText("Updating your cloud backups to the new phrase · 40%")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByText("Ready")).toBeInTheDocument();
   });
@@ -96,7 +96,7 @@ describe("RecoveryPhraseCard moving status", () => {
     stubFetch({ ...PHRASE, moving: null });
     wrap(<RecoveryPhraseCard />);
     await screen.findByText("Ready");
-    expect(screen.queryByText(/Moving to your new phrase/)).toBeNull();
+    expect(screen.queryByText(/Updating your cloud backups to the new phrase/)).toBeNull();
   });
 });
 
@@ -113,8 +113,8 @@ describe("AllBackupsModal moving status", () => {
         ]}
       />,
     );
-    expect(await screen.findByText("Moving to your new phrase · 40%")).toBeInTheDocument();
-    expect(screen.getAllByText(/Moving to your new phrase/)).toHaveLength(1);
+    expect(await screen.findByText("Updating your cloud backups to the new phrase · 40%")).toBeInTheDocument();
+    expect(screen.getAllByText(/Updating your cloud backups to the new phrase/)).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "Back up now" })).toHaveLength(2);
   });
 

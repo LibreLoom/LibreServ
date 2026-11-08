@@ -4,8 +4,10 @@ import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
+import Callout from "@libreloom/ui/components/common/Callout.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
-import { cn } from "@libreloom/ui/lib/utils.js";
 import FormInput from "../components/common/forms/FormInput";
 import usePageTitle from "../hooks/usePageTitle.js";
 import { MIN_PASSWORD_LENGTH, passwordPolicyError } from "@libreloom/ui/lib/passwordPolicy.js";
@@ -98,51 +100,48 @@ export default function RecoveryWizardPage() {
   return (
     <main data-slot="recovery-wizard" className="min-h-screen surface-primary px-4 py-8" id="main-content" tabIndex={-1}>
       <a href="#main-content" className="skip-link">Skip to main content</a>
-      <div className="mx-auto w-full max-w-2xl">
+      <div className="mx-auto w-full max-w-xl">
         <Card surface="secondary" padding={false}>
-          <div className="p-6 sm:p-8">
+          <div className="p-5 sm:p-7">
             <span className="block text-center text-primary font-mono text-2xl">Luna</span>
             <div className="my-5 h-px bg-accent" />
             <h1 className="text-center text-primary font-mono text-xl font-normal">Create a password recovery file</h1>
-            <p className="mx-auto mt-3 max-w-md text-center text-primary text-sm">
+            <p className="mx-auto mt-2 max-w-md text-center text-primary text-sm">
               Put this file on a USB drive to set a new password when Luna starts. Your password never leaves this device.
             </p>
-            <form onSubmit={handleSubmit} className="mt-6" noValidate>
-              <section className="rounded-large-element surface-primary p-4 sm:p-5">
-                <h2 className="font-mono text-lg font-normal">Who is it for?</h2>
-                <p className="mt-1 text-sm">The file changes the password for the account or group you choose.</p>
-                <fieldset className="mt-4">
-                  <legend className="sr-only">Account to recover</legend>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {SELECTORS.map(([value, label]) => (
-                      <label
-                        key={value}
-                        className={cn(
-                          "flex cursor-pointer items-center gap-3 rounded-pill border-2 px-3 py-2 text-sm motion-safe:transition-colors",
-                          selectorType === value
-                            ? "border-accent surface-secondary"
-                            : "border-secondary/20 hover:border-secondary/40",
-                        )}
-                      >
-                        <input
-                          type="radio"
-                          name="selector"
-                          value={value}
-                          checked={selectorType === value}
-                          onChange={() => {
-                            haptic("selection");
-                            clearFeedback();
-                            setSelectorType(value);
-                          }}
-                        />
-                        <span>{label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
+
+            <form onSubmit={handleSubmit} className="mt-6 space-y-6" noValidate>
+              <section className="space-y-4">
+                <div>
+                  <h2 className="font-mono text-base font-normal text-primary">Who is it for?</h2>
+                  <p className="mt-1 text-primary text-sm">
+                    The file changes the password for the account or group you choose.
+                  </p>
+                </div>
+                <Dropdown
+                  options={SELECTORS.map(([value, label]) => ({ value, label }))}
+                  value={selectorType}
+                  onChange={(value) => {
+                    haptic("selection");
+                    clearFeedback();
+                    setSelectorType(value);
+                  }}
+                  fullWidth
+                  size="form"
+                  bg="primary"
+                  aria-label="Account to recover"
+                />
                 {(selectorType === "u" || selectorType === "n" || selectorType === "f") && (
-                  <div className="mt-4">
-                    <FormInput label="Username" name="recovery-username" value={username} onChange={(e) => { clearFeedback(); setUsername(e.target.value); }} autoComplete="username" surface="primary" required error={errorField === "username" ? error : undefined} />
+                  <div>
+                    <FormInput
+                      label="Username"
+                      name="recovery-username"
+                      value={username}
+                      onChange={(e) => { clearFeedback(); setUsername(e.target.value); }}
+                      autoComplete="username"
+                      required
+                      error={errorField === "username" ? error : undefined}
+                    />
                     <p className="text-secondary text-sm">
                       {selectorType === "u" && "Use the existing Luna username."}
                       {selectorType === "n" && "Luna creates this Admin account when it starts with the recovery drive."}
@@ -152,12 +151,15 @@ export default function RecoveryWizardPage() {
                 )}
               </section>
 
-              <section className="mt-4 rounded-large-element surface-primary p-4 sm:p-5">
-                <h2 className="font-mono text-lg font-normal">Device token</h2>
-                <p className="mt-1 text-sm">A device token ties the file to this Luna. It is printed on the recovery card that came with Luna.</p>
+              <section className="space-y-3 border-t border-primary/10 pt-5">
+                <div>
+                  <h2 className="font-mono text-base font-normal text-primary">Device token</h2>
+                  <p className="mt-1 text-primary text-sm">
+                    A device token ties the file to this Luna. It is printed on the recovery card that came with Luna.
+                  </p>
+                </div>
                 <Toggle
-                  className="mt-4"
-                  surface="primary"
+                  surface="secondary"
                   checked={hasToken}
                   onChange={(checked) => {
                     haptic("selection");
@@ -167,27 +169,62 @@ export default function RecoveryWizardPage() {
                   label="This Luna has a device token"
                   description={hasToken ? undefined : "Leave this off if your Luna has no device token."}
                 />
-                {hasToken && <div className="mt-4"><FormInput label="Device token" name="device-token" value={token} onChange={(e) => { clearFeedback(); setToken(e.target.value); }} autoComplete="off" surface="primary" required hint="Enter the token exactly as it appears on the recovery card." error={errorField === "device-token" ? error : undefined} /></div>}
-                <p className="mt-3 text-sm">
+                {hasToken && (
+                  <FormInput
+                    label="Device token"
+                    name="device-token"
+                    value={token}
+                    onChange={(e) => { clearFeedback(); setToken(e.target.value); }}
+                    autoComplete="off"
+                    required
+                    hint="Enter the token exactly as it appears on the recovery card."
+                    error={errorField === "device-token" ? error : undefined}
+                  />
+                )}
+                <p className="text-primary text-sm">
                   File name: {hasToken && !token.trim()
                     ? "Enter your device token to see the file name."
                     : <InlinePill>{filename}</InlinePill>}
                 </p>
               </section>
 
-              <section className="mt-4 rounded-large-element surface-primary p-4 sm:p-5">
-                <h2 className="font-mono text-lg font-normal">Set a new password</h2>
-                <p className="mt-1 text-secondary text-sm">Use at least 12 characters, with an English letter and a number. Accented letters and some symbols count as more than one.</p>
-                <div className="mt-4">
-                  <FormInput label="New password" name="recovery-password" type="password" value={password} onChange={(e) => { clearFeedback(); setPassword(e.target.value); }} autoComplete="new-password" surface="primary" required error={errorField === "password" ? error : undefined} />
-                  <FormInput label="Confirm new password" name="recovery-confirm" type="password" value={confirm} onChange={(e) => { clearFeedback(); setConfirm(e.target.value); }} autoComplete="new-password" surface="primary" required error={errorField === "confirm" ? error : undefined} />
+              <section className="space-y-3 border-t border-primary/10 pt-5">
+                <div>
+                  <h2 className="font-mono text-base font-normal text-primary">Set a new password</h2>
+                  <p className="mt-1 text-primary text-sm">
+                    Use at least 12 characters, with an English letter and a number. Accented letters and some symbols count as more than one.
+                  </p>
                 </div>
+                <FormInput
+                  label="New password"
+                  name="recovery-password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => { clearFeedback(); setPassword(e.target.value); }}
+                  autoComplete="new-password"
+                  required
+                  error={errorField === "password" ? error : undefined}
+                />
+                <FormInput
+                  label="Confirm new password"
+                  name="recovery-confirm"
+                  type="password"
+                  value={confirm}
+                  onChange={(e) => { clearFeedback(); setConfirm(e.target.value); }}
+                  autoComplete="new-password"
+                  required
+                  error={errorField === "confirm" ? error : undefined}
+                />
                 <p className="text-secondary text-sm">The selected accounts will be signed out on their other devices.</p>
               </section>
 
-              {error && <p className="mt-4 rounded-large-element bg-error/20 border border-error/30 p-3 text-primary" role="alert">{error}</p>}
-              {downloaded && <div className="mt-4 rounded-large-element bg-success/20 border border-success/30 p-3 text-primary" role="status"><p>Your recovery file downloaded as <InlinePill>{filename}</InlinePill>.</p></div>}
-              <Button type="submit" variant="primary" surface="secondary" fullWidth className="mt-5">Download recovery file</Button>
+              {error && <InlineError>{error}</InlineError>}
+              {downloaded && (
+                <Callout tone="success">
+                  Your recovery file downloaded as <InlinePill>{filename}</InlinePill>.
+                </Callout>
+              )}
+              <Button type="submit" variant="primary" surface="secondary" fullWidth>Download recovery file</Button>
             </form>
 
             <CollapsibleSection title="How to use the recovery file" pill className="mt-6">

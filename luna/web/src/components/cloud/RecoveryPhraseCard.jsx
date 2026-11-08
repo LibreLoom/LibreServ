@@ -1,9 +1,10 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyRound } from "lucide-react";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import LinearProgress from "@libreloom/ui/components/common/LinearProgress.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import SettingsRow from "@libreloom/ui/components/settings/SettingsRow.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
@@ -27,20 +28,86 @@ import RecoveryPhraseCheck from "./RecoveryPhraseCheck.jsx";
 /** How often the card asks for status while Luna re-seals backups to the new phrase. */
 const RESEAL_POLL_MS = 5000;
 
+/** "About 2 hours left" from a number of seconds. Empty when there is no useful estimate. */
+function etaText(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "";
+  const minutes = Math.ceil(seconds / 60);
+  if (minutes < 2) return "Less than a minute left";
+  if (minutes < 60) return `About ${minutes} minutes left`;
+  const hours = Math.ceil(minutes / 60);
+  if (hours < 48) return `About ${hours} ${hours === 1 ? "hour" : "hours"} left`;
+  const days = Math.ceil(hours / 24);
+  return `About ${days} days left`;
+}
+
+/**
+ * Watches the percent across status polls and turns it into time left. The
+ * backend only knows how much is left, not how fast it goes, so the estimate
+ * appears once the percent has actually moved; before that there is none.
+ */
+function useMoveEta(pct) {
+  const [eta, setEta] = useState("");
+  const samples = useRef(/** @type {{ at: number, pct: number }[]} */ ([]));
+  useEffect(() => {
+    if (pct == null) {
+      samples.current = [];
+      /* eslint-disable-next-line react-hooks/set-state-in-effect -- a finished move has no time left to show */
+      setEta("");
+      return;
+    }
+    const now = Date.now();
+    const last = samples.current[samples.current.length - 1];
+    if (!last || last.pct !== pct) samples.current.push({ at: now, pct });
+    if (samples.current.length > 8) samples.current.shift();
+    const first = samples.current[0];
+    const seconds = (now - first.at) / 1000;
+    const moved = pct - first.pct;
+    if (seconds >= 20 && moved > 0) {
+      /* eslint-disable-next-line react-hooks/set-state-in-effect -- derived from the poll, not render state */
+      setEta(etaText((100 - pct) / (moved / seconds)));
+    }
+  }, [pct]);
+  return eta;
+}
+
 /**
  * Neutral status for backups moving to a new phrase. Hidden when `moving` is null.
+ * `resealing` covers the last step (Luna re-sealing backup keys), which has no
+ * percent of its own; when both are known they share one line instead of two.
  * When Connect storage is full it adds what happened and what to do, inline (no toast).
  */
-export function MovingNote({ moving, className = "", member = false }) {
-  if (!moving) return null;
+export function MovingNote({ moving, resealing = false, className = "", member = false, surface = "secondary" }) {
+  const pct = moving ? movingPercent(moving) : null;
+  const eta = useMoveEta(pct);
+  if (!moving && !resealing) return null;
+  // The bar is the inverse of the panel it sits on, like FileOpProgress.
+  const track = surface === "primary" ? "bg-secondary/10" : "bg-primary/10";
+  const fill = surface === "primary" ? "surface-secondary" : "surface-primary";
+  const line = pct != null
+    ? `Updating your cloud backups to the new phrase · ${pct}%`
+    : "Updating your cloud backups to the new phrase…";
   return (
-    <div className={`space-y-1 text-sm ${className}`}>
-      <p>{`Moving to your new phrase · ${movingPercent(moving)}%`}</p>
-      {moving.paused_full && (
+    <div className={`space-y-2 text-sm ${className}`}>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <p>{line}</p>
+        {eta ? <p className="text-xs text-secondary">{eta}</p> : null}
+      </div>
+      {pct != null ? (
+        // color-scan: ignore-next-line overlay tint over theme variables only
+        <div className={`h-1.5 w-full overflow-hidden rounded-pill p-px ${track}`}>
+          <div className={`h-full rounded-pill ${fill}`} style={{ width: `${pct}%` }} />
+        </div>
+      ) : (
+        <LinearProgress active label="Updating cloud backups" />
+      )}
+      {pct != null && !eta && (
+        <p className="text-xs text-secondary">This runs in the background; you can close this page.</p>
+      )}
+      {moving?.paused_full && (
         <p>
           {member
-            ? "Connect storage is full, so the move is paused. Nothing old was deleted. An Admin can free up space or add storage."
-            : "Connect storage is full, so the move is paused. Nothing old was deleted. Free up space or add storage on Luna Connect to continue."}
+            ? "Connect storage is full, so the update is paused. Nothing old was deleted. An Admin can free up space or add storage."
+            : "Connect storage is full, so the update is paused. Nothing old was deleted. Free up space or add storage on Luna Connect to continue."}
         </p>
       )}
     </div>
@@ -240,18 +307,17 @@ export default function RecoveryPhraseCard() {
     // A phrase is only needed for cloud backups, so this is the ordinary state until someone
     // sets one up. Nothing blocks the app on it.
     body = (
-      <SettingsRow
-        stack
-        label="Recovery phrase"
-        description="Cloud backups of your files can start once you set one up."
-      >
+      <div className="px-5 py-4 space-y-3">
+        <p className="text-primary text-sm">
+          Cloud backups of your files can start once you set one up.
+        </p>
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill tone="bg-warning/20 border-warning/30">Not set up</StatusPill>
           <Button variant="primary" size="sm" onClick={() => setDialog({ kind: "setup" })}>
             Set up
           </Button>
         </div>
-      </SettingsRow>
+      </div>
     );
   } else {
     const setOn = formatDate(status.data?.set_at);
@@ -263,7 +329,8 @@ export default function RecoveryPhraseCard() {
       .join(" · ");
     body = (
       <>
-        <SettingsRow stack label="Recovery phrase" description={setLine}>
+        <div className="px-5 py-4 space-y-3">
+          <p className="text-primary text-sm">{setLine}</p>
           <div className="flex flex-wrap items-center gap-2">
             {checkDue ? (
               <StatusPill tone="bg-warning/20 border-warning/30">Check due</StatusPill>
@@ -282,11 +349,12 @@ export default function RecoveryPhraseCard() {
               Change phrase
             </Button>
           </div>
-          <MovingNote moving={status.data?.moving} member={isMember} className="mt-3 text-primary" />
-          {status.data?.resealing && (
-            <p className="mt-3 text-primary text-sm">Updating your cloud backups to the new phrase…</p>
-          )}
-        </SettingsRow>
+          <MovingNote
+            moving={status.data?.moving}
+            resealing={Boolean(status.data?.resealing)}
+            member={isMember}
+          />
+        </div>
         {oldCopies?.count > 0 && (
           <SettingsRow
             stack

@@ -48,6 +48,14 @@ export default function FileOpRow({ op }) {
     running && (op.kind === "upload" || op.kind === "gallery")
       ? op.items.filter((item) => item.state === "uploading" || item.state === "finishing").slice(0, MAX_ACTIVE_LINES)
       : [];
+  // A folder of small files finishes one line and starts the next many times a
+  // second. Animating each line in and out made the card breathe constantly,
+  // so a long queue gets a fixed set of slots: a file filling one slot swaps
+  // its name in place and the card never changes height.
+  const queued = op.items.filter((item) =>
+    item.state === "queued" || item.state === "uploading" || item.state === "finishing",
+  ).length;
+  const stableSlots = Math.min(MAX_ACTIVE_LINES, Math.max(activeItems.length, queued));
 
   return (
     <div data-slot="file-op-row" className="rounded-large-element surface-primary p-3">
@@ -153,20 +161,33 @@ export default function FileOpRow({ op }) {
         )}
       </AnimatePresence>
 
-      <AnimatePresence initial={false}>
-        {activeItems.map((item) => (
-          <Motion.div
-            key={item.id}
-            initial={LINE_HIDDEN}
-            animate={LINE_SHOWN}
-            exit={LINE_EXIT}
-            transition={SPRING}
-            className="overflow-hidden"
-          >
-            <FileOpItemLine op={op} item={item} />
-          </Motion.div>
-        ))}
-      </AnimatePresence>
+      {stableSlots > 1 ? (
+        <div className="space-y-2">
+          {Array.from({ length: stableSlots }, (_, slot) => {
+            const item = activeItems[slot];
+            return (
+              <div key={slot} className="min-h-[4.25rem]">
+                {item ? <FileOpItemLine op={op} item={item} /> : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <AnimatePresence initial={false}>
+          {activeItems.map((item) => (
+            <Motion.div
+              key={item.id}
+              initial={LINE_HIDDEN}
+              animate={LINE_SHOWN}
+              exit={LINE_EXIT}
+              transition={SPRING}
+              className="overflow-hidden"
+            >
+              <FileOpItemLine op={op} item={item} />
+            </Motion.div>
+          ))}
+        </AnimatePresence>
+      )}
 
       <AnimatePresence initial={false}>
         {problem && (

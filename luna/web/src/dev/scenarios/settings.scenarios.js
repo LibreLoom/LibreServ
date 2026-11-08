@@ -75,7 +75,7 @@ export default [
     },
     check: [
       "Two removed people listed with where their folders are (Alex: 3 folders and 1 item in Trash)",
-      "Delete is disabled for the read-only one",
+      "Each has a Manage button; Kit's delete is disabled because the drive is read-only",
       "A line says Old USB isn't connected",
       "The ownerless card lists Imported A and Imported B, each with its own Give control; giving one leaves the other",
     ],

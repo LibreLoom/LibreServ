@@ -19,7 +19,7 @@ import CloudRestoreCard from "../../cloud/CloudRestoreCard.jsx";
 import PrivateRestoreCard from "../../cloud/PrivateRestoreCard.jsx";
 import RecoveryPhraseCard from "../../cloud/RecoveryPhraseCard.jsx";
 
-function CloudBackupRow({ backup, onRun, onRunAnyway, missingSource, onCheck, onDelete, busy }) {
+function CloudBackupRow({ backup, onRun, onRunAnyway, missingSource, onCheck, onDelete, pending }) {
   const active = backup.status === "active";
   const item = {
     ...backup,
@@ -28,6 +28,11 @@ function CloudBackupRow({ backup, onRun, onRunAnyway, missingSource, onCheck, on
     source_name: backup.source_name || backup.source_path || "Whole drive",
   };
   const size = formatBytes(backup.size);
+  // Each button shows only its own work. One backup running must not put a
+  // spinner on every other row's buttons.
+  const running = pending === "run" || pending === "runAnyway";
+  const checking = pending === "check";
+  const busy = running || checking;
   return (
     <BackupItem
       backup={item}
@@ -57,7 +62,7 @@ function CloudBackupRow({ backup, onRun, onRunAnyway, missingSource, onCheck, on
           size="sm"
           variant="outline"
           surface="primary"
-          loading={busy || backup.running}
+          loading={running || backup.running}
           disabled={busy || backup.running}
           onClick={() => onRun(backup)}
         >
@@ -65,7 +70,14 @@ function CloudBackupRow({ backup, onRun, onRunAnyway, missingSource, onCheck, on
         </Button>
       )}
       {active && missingSource && (
-        <Button size="sm" variant="outline" surface="primary" loading={busy} disabled={busy} onClick={() => onRunAnyway(backup)}>
+        <Button
+          size="sm"
+          variant="outline"
+          surface="primary"
+          loading={pending === "runAnyway"}
+          disabled={busy}
+          onClick={() => onRunAnyway(backup)}
+        >
           Back up anyway
         </Button>
       )}
@@ -74,7 +86,7 @@ function CloudBackupRow({ backup, onRun, onRunAnyway, missingSource, onCheck, on
           size="sm"
           variant="outline"
           surface="primary"
-          loading={busy}
+          loading={checking}
           disabled={busy || backup.running}
           onClick={() => onCheck(backup)}
         >
@@ -99,6 +111,9 @@ export default function CloudBackupCategory() {
   const { addToast } = useToast();
   const [error, setError] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  // Which button on which backup is working: `{ [backupId]: "run" | "runAnyway" | "check" }`.
+  // Keeping it per backup means one click never spins every button in the card.
+  const [pending, setPending] = useState(/** @type {Record<string, string>} */ ({}));
   // Set when a run stopped because the source looks missing; holds the backup id for "Back up anyway".
   const [missingSourceId, setMissingSourceId] = useState(null);
 
@@ -146,7 +161,14 @@ export default function CloudBackupCategory() {
       haptic("error");
       setError(apiErrorMessage(err));
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["cloud-backups"] }),
+    onSettled: (_data, _err, { id }) => {
+      setPending((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
+    },
   });
 
   const checkBackup = useMutation({
@@ -164,7 +186,14 @@ export default function CloudBackupCategory() {
       haptic("error");
       setError(apiErrorMessage(err));
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["cloud-backups"] }),
+    onSettled: (_data, _err, id) => {
+      setPending((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
+    },
   });
 
   const deleteBackup = useMutation({
@@ -181,8 +210,6 @@ export default function CloudBackupCategory() {
     },
   });
 
-  const busy = runBackup.isPending || checkBackup.isPending;
-
   return (
     <>
       <div className="space-y-4" data-slot="cloud-backup-category">
@@ -194,7 +221,7 @@ export default function CloudBackupCategory() {
           headerActions={
             <InfoHint
               label="What cloud backup means"
-              content="An off-site copy of your latest files, kept with Luna Connect. It keeps the latest copy, plus about one older copy from each of the last day, week and month. Cloud backup costs $8 per terabyte each month."
+              content="An off-site copy of your latest files, kept with Luna Connect. It keeps the latest copy, plus about one older copy from each of the last day, week and month."
             />
           }
         >
@@ -225,17 +252,26 @@ export default function CloudBackupCategory() {
                 </p>
               )}
               <p className="text-primary text-sm">
-                Luna copies the latest files every 6 hours. Cloud backup costs $8 per terabyte each month.
+                Luna copies the latest files every 6 hours.
               </p>
               {backups.map((backup) => (
                 <CloudBackupRow
                   key={backup.id}
                   backup={backup}
-                  busy={busy}
+                  pending={pending[backup.id] ?? null}
                   missingSource={missingSourceId === backup.id || backup.source_missing === true}
-                  onRun={(b) => runBackup.mutate({ id: b.id })}
-                  onRunAnyway={(b) => runBackup.mutate({ id: b.id, acceptMissing: true })}
-                  onCheck={(b) => checkBackup.mutate(b.id)}
+                  onRun={(b) => {
+                    setPending((prev) => ({ ...prev, [b.id]: "run" }));
+                    runBackup.mutate({ id: b.id });
+                  }}
+                  onRunAnyway={(b) => {
+                    setPending((prev) => ({ ...prev, [b.id]: "runAnyway" }));
+                    runBackup.mutate({ id: b.id, acceptMissing: true });
+                  }}
+                  onCheck={(b) => {
+                    setPending((prev) => ({ ...prev, [b.id]: "check" }));
+                    checkBackup.mutate(b.id);
+                  }}
                   onDelete={(b) => setDeleting(b)}
                 />
               ))}

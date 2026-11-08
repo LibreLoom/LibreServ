@@ -7,7 +7,6 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import PasswordStrengthChecklist from "@libreloom/ui/components/common/PasswordStrengthChecklist.jsx";
-import FieldLabel from "@libreloom/ui/components/common/forms/FieldLabel.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { meetsPasswordPolicy, passwordPolicyError } from "@libreloom/ui/lib/passwordPolicy.js";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
@@ -172,10 +171,10 @@ function EditUserBody({ target, onClose }) {
 
         <section className="rounded-large-element surface-primary p-4 space-y-3">
           <h3 className="font-mono text-sm">Role</h3>
-          <div className="flex items-center gap-1">
-            <FieldLabel htmlFor="edit-user-role" surface="primary">
+          <div className="flex items-center gap-1 pl-5">
+            <label htmlFor="edit-user-role" className="font-mono text-sm text-secondary">
               What they can do on this Luna
-            </FieldLabel>
+            </label>
             <InfoHint
               label="Admin and Member"
               surface="primary"

@@ -125,10 +125,7 @@ export default function UpdateSourceCard({ index = 3 }) {
           )}
         </section>
 
-        <section
-          className="rounded-large-element surface-primary p-4 space-y-3"
-          aria-labelledby="update-source-label"
-        >
+        <section className="space-y-3 border-t border-primary/10 pt-4" aria-labelledby="update-source-label">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="text-primary text-sm" id="update-source-label">Update source</h3>
@@ -138,11 +135,15 @@ export default function UpdateSourceCard({ index = 3 }) {
               {customized ? "Custom source" : "Default source"}
             </Pill>
           </div>
-          <InlinePill className="break-all">{s.feed_url || "…"}</InlinePill>
+          {/* Its own block: an inline pill would let the long address wrap
+              around the button and sit under it. */}
+          <p className="min-w-0">
+            <InlinePill className="break-all">{s.feed_url || "…"}</InlinePill>
+          </p>
           <Button
             type="button"
             variant="outline"
-            surface="primary"
+            surface="secondary"
             onClick={() => setModalOpen(true)}
           >
             <Rss size={ICON_SIZE.sm} aria-hidden="true" />

@@ -76,7 +76,8 @@ export function encryptionHref(drive) {
 export function driveEncryptionLine(drive) {
   if (drive?.converting) return "Encrypting";
   if (!drive?.encrypted) return "";
-  return drive.locked ? "Locked" : "Unlocked";
+  // The card's button is an action, not a state: the pill already says Locked.
+  return drive.locked ? "Unlock" : "Encryption";
 }
 
 /**

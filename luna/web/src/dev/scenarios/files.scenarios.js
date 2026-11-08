@@ -591,7 +591,7 @@ export default [
     seed: (w) => { viewerSamples(w); w.drives[0].state = "readonly"; },
     check: ["No Edit button, or it explains why", "Reading works"],
   },
-  { id: "files/edit-markdown", area: A, title: "Edit markdown with preview", url: open("readme.md"), seed: viewerSamples, check: ["Toolbar bold/italic/list work", "Table editing works", "Read mode and edit mode show the same text", "The fullscreen sidebar has Share, and it opens the sharing sheet"] },
+  { id: "files/edit-markdown", area: A, title: "Edit markdown with preview", url: open("readme.md"), seed: viewerSamples, check: ["Toolbar bold/italic/list work", "Table editing works", "Read mode and edit mode show the same text", "Ctrl-click (⌘-click on a Mac) the link in write and source mode: it opens in a new tab", "The fullscreen sidebar has Share, and it opens the sharing sheet"] },
   {
     id: "files/edit-form",
     area: A,

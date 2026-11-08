@@ -211,7 +211,16 @@ export default function Table({
               return (
                 <tr
                   key={key}
-                  className={cn("group", onRowClick && "cursor-pointer")}
+                  className={cn(
+                    "group",
+                    // The whole row slides on hover. `will-change: transform`
+                    // keeps the cells in one composited layer: without it,
+                    // Chrome rasterises each cell's background on its own and
+                    // a row stopped at a fractional offset shows hairline
+                    // seams between them.
+                    onRowClick && "cursor-pointer will-change-transform",
+                    onRowClick && ROW_SLIDE,
+                  )}
                   onClick={
                     onRowClick
                       ? () => {
@@ -235,9 +244,7 @@ export default function Table({
                       col.hidden ? `hidden ${col.hidden}:table-cell` : "",
                       // The tint has to live on the cells — that is where
                       // bg-secondary is, and a transition on the <tr> would never
-                      // fire for it. Keep it OPAQUE, and never translate the row:
-                      // a moved row with a background on each cell is rasterised
-                      // cell by cell, leaving a hairline seam between them.
+                      // fire for it. Keep it OPAQUE.
                       onRowClick
                         // color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
                         ? "motion-safe:transition-[background-color] duration-200 ease-[var(--motion-easing-standard)] group-hover:bg-[color-mix(in_oklab,var(--secondary)_85%,var(--primary))]"

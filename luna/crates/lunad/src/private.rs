@@ -791,6 +791,54 @@ pub fn orphaned(conn: &rusqlite::Connection) -> OrphanReport {
     }
 }
 
+/// What giving a removed person's private items to someone else did.
+#[derive(Default)]
+pub struct GiveReport {
+    pub moved: usize,
+    pub skipped_readonly: Vec<String>,
+    pub failed_drives: Vec<String>,
+    pub offline_drives: Vec<String>,
+}
+
+/// Hand every private item a removed person owns to `target`, on mounted,
+/// writable drives. Items in Trash are left alone: they are already deleted,
+/// and the target would not see them. Read-only drives are reported, not
+/// changed. Nothing is copied or moved on disk — only the owner changes, so
+/// paths and contents stay exactly where they were.
+pub fn give_orphan(
+    conn: &rusqlite::Connection,
+    owner: &str,
+    target: &str,
+) -> anyhow::Result<GiveReport> {
+    let mut report = GiveReport::default();
+    for drive in crate::db::list_drives(conn)? {
+        if drive.mount_point.is_empty() || !matches!(drive.state.as_str(), "as_is" | "readonly") {
+            report.offline_drives.push(drive.label);
+            continue;
+        }
+        let root = Path::new(&drive.mount_point);
+        if drive.state == "readonly" {
+            if !owned_paths(root, owner).is_empty() {
+                report.skipped_readonly.push(drive.label);
+            }
+            continue;
+        }
+        let mut failed = false;
+        for item in under(root, "").into_iter().filter(|item| item.owner == owner) {
+            match set_owner(root, &item.path, target) {
+                Ok(true) => report.moved += 1,
+                Ok(false) => {}
+                Err(_) => failed = true,
+            }
+        }
+        crate::files::note_write(conn, &drive.id, "");
+        if failed {
+            report.failed_drives.push(drive.label);
+        }
+    }
+    Ok(report)
+}
+
 /// Permanently delete every private item a deleted person owns, wherever it
 /// is mounted and writable. Read-only drives are reported, not cleaned —
 /// their items reappear here once they mount writable again.

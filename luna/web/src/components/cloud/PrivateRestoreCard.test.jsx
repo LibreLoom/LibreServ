@@ -5,6 +5,17 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider, useToastList } from "@libreloom/ui/context/ToastContext.jsx";
 import PrivateRestoreCard from "./PrivateRestoreCard.jsx";
 import { getPrivateRestoreStatus, restorePrivateFromPhrase } from "../../lib/privateRestore";
+import { entropyToPhrase, newEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+
+const PHRASE = entropyToPhrase(newEntropy(12));
+
+/** The restore form asks for one word per box now. */
+async function typePhrase(user) {
+  const words = PHRASE.split(" ");
+  for (let i = 0; i < words.length; i += 1) {
+    await user.type(screen.getByLabelText(`Word ${i + 1}`), words[i]);
+  }
+}
 
 const getPrivateRestoreStatusMock = vi.mocked(getPrivateRestoreStatus);
 const restorePrivateFromPhraseMock = vi.mocked(restorePrivateFromPhrase);
@@ -88,14 +99,14 @@ describe("PrivateRestoreCard", () => {
       await screen.findByText("Luna could not check whether your private items need restoring. Try again."),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByRole("textbox", { name: "Recovery phrase" })).toBeInTheDocument();
+    expect(await screen.findByLabelText("Word 1")).toBeInTheDocument();
   });
 
   it("shows the card to a member, not only an Admin", async () => {
     mockUser = { id: "7", role: "member" };
     renderCard();
     expect(await screen.findByText("Bring back your private items")).toBeInTheDocument();
-    expect(screen.getByLabelText("Recovery phrase")).toBeInTheDocument();
+    expect(screen.getByLabelText("Word 1")).toBeInTheDocument();
   });
 
   it("shows the phishing line and the find button when needed", async () => {
@@ -115,7 +126,7 @@ describe("PrivateRestoreCard", () => {
     });
     const user = userEvent.setup();
     renderCard();
-    await user.type(await screen.findByLabelText("Recovery phrase"), "one two three");
+    await typePhrase(user);
     await user.click(screen.getByRole("button", { name: "Find my private items" }));
 
     await waitFor(() => expect(restorePrivateFromPhrase).toHaveBeenCalled());
@@ -138,33 +149,31 @@ describe("PrivateRestoreCard", () => {
         "Luna hasn't found its backup signing key yet. Connect the drives that were in this Luna, then reload this page.",
       ),
     ).toBeInTheDocument();
-    expect(screen.queryByLabelText("Recovery phrase")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Word 1")).not.toBeInTheDocument();
   });
 
   it("submits the phrase and shows a success toast", async () => {
     const user = userEvent.setup();
     renderCard();
-    const field = await screen.findByLabelText("Recovery phrase");
-    await user.type(field, "one two three");
+    await typePhrase(user);
     await user.click(screen.getByRole("button", { name: "Find my private items" }));
 
     await waitFor(() =>
-      expect(restorePrivateFromPhrase).toHaveBeenCalledWith("one two three", expect.objectContaining({
+      expect(restorePrivateFromPhrase).toHaveBeenCalledWith(PHRASE, expect.objectContaining({
         lunaId: "luna-fixture-1",
         signingPublic: "AAAA",
         onProgress: expect.any(Function),
       })),
     );
     expect(await screen.findByText("Found 1 private version")).toBeInTheDocument();
-    expect(field).toHaveValue("");
+    expect(await screen.findByLabelText("Word 1")).toHaveValue("");
   });
 
   it("uses the plural toast for several versions", async () => {
     restorePrivateFromPhraseMock.mockResolvedValue({ restored: 4 });
     const user = userEvent.setup();
     renderCard();
-    const field = await screen.findByLabelText("Recovery phrase");
-    await user.type(field, "one two three");
+    await typePhrase(user);
     await user.click(screen.getByRole("button", { name: "Find my private items" }));
 
     expect(await screen.findByText("Found 4 private versions")).toBeInTheDocument();
@@ -174,12 +183,11 @@ describe("PrivateRestoreCard", () => {
     restorePrivateFromPhraseMock.mockRejectedValue(new Error("Check each word."));
     const user = userEvent.setup();
     renderCard();
-    const field = await screen.findByLabelText("Recovery phrase");
-    await user.type(field, "wrong words");
+    await typePhrase(user);
     await user.click(screen.getByRole("button", { name: "Find my private items" }));
 
     expect(await screen.findByText("Check each word.")).toBeInTheDocument();
     expect(screen.queryByText(/Found \d+ private/)).not.toBeInTheDocument();
-    expect(field).toHaveValue("");
+    expect(await screen.findByLabelText("Word 1")).toHaveValue("");
   });
 });

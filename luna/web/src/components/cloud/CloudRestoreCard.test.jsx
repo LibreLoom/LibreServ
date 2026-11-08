@@ -6,6 +6,17 @@ import { ToastProvider, useToastList } from "@libreloom/ui/context/ToastContext.
 import CloudRestoreCard from "./CloudRestoreCard.jsx";
 import { getRestoreStatus, restoreFromPhrase } from "../../lib/cloudRestore";
 import { getPhraseStatus } from "../../lib/cloudPhrase";
+import { entropyToPhrase, newEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+
+const PHRASE = entropyToPhrase(newEntropy(12));
+
+/** The restore form asks for one word per box now. */
+async function typePhrase(user) {
+  const words = PHRASE.split(" ");
+  for (let i = 0; i < words.length; i += 1) {
+    await user.type(screen.getByLabelText(`Word ${i + 1}`), words[i]);
+  }
+}
 
 const getRestoreStatusMock = vi.mocked(getRestoreStatus);
 const restoreFromPhraseMock = vi.mocked(restoreFromPhrase);
@@ -92,7 +103,7 @@ describe("CloudRestoreCard", () => {
     expect(screen.getByText(/5 versions are in the cloud/)).toBeInTheDocument();
     expect(screen.getByText(/Luna has 0 versions in its list/)).toBeInTheDocument();
     expect(screen.getByText("connect.luna.libreloom.org")).toBeInTheDocument();
-    expect(screen.getByLabelText("Recovery phrase")).toBeInTheDocument();
+    expect(screen.getByLabelText("Word 1")).toBeInTheDocument();
   });
 
   it("explains that matching totals can still have missing versions", async () => {
@@ -101,7 +112,7 @@ describe("CloudRestoreCard", () => {
     expect(await screen.findByText(/Some cloud backup versions are missing from Luna's list/)).toBeInTheDocument();
     expect(screen.getByText(/2 versions are in the cloud/)).toBeInTheDocument();
     expect(screen.getByText(/Luna has 2 versions in its list/)).toBeInTheDocument();
-    expect(screen.getByLabelText("Recovery phrase")).toBeInTheDocument();
+    expect(screen.getByLabelText("Word 1")).toBeInTheDocument();
   });
 
   it("uses singular verbs for one version", async () => {
@@ -119,18 +130,17 @@ describe("CloudRestoreCard", () => {
         "Luna hasn't found its backup signing key yet. Connect the drives that were in this Luna, then reload this page.",
       ),
     ).toBeInTheDocument();
-    expect(screen.queryByLabelText("Recovery phrase")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Word 1")).not.toBeInTheDocument();
   });
 
   it("submits the words with the restore context and shows a toast", async () => {
     const user = userEvent.setup();
     renderCard();
-    const field = await screen.findByLabelText("Recovery phrase");
-    await user.type(field, "one two three");
+    await typePhrase(user);
     await user.click(screen.getByRole("button", { name: "Find my backups" }));
 
     await waitFor(() =>
-      expect(restoreFromPhrase).toHaveBeenCalledWith("one two three", {
+      expect(restoreFromPhrase).toHaveBeenCalledWith(PHRASE, {
         lunaId: "luna-fixture-1",
         signingPublic: "AAAA",
         userId: "42",
@@ -138,7 +148,7 @@ describe("CloudRestoreCard", () => {
       }, expect.any(Function), expect.any(AbortSignal)),
     );
     expect(await screen.findByText("Found 3 backup versions")).toBeInTheDocument();
-    expect(field).toHaveValue("");
+    expect(await screen.findByLabelText("Word 1")).toHaveValue("");
   });
 
   it("shows a warning when metadata returns but old accounts could not all be reconnected", async () => {
@@ -152,12 +162,12 @@ describe("CloudRestoreCard", () => {
       warning: "Some backups are still linked to an old account. Try again to finish reconnecting them.",
     });
     renderCard();
-    await user.type(await screen.findByLabelText("Recovery phrase"), "one two three");
+    await typePhrase(user);
     await user.click(screen.getByRole("button", { name: "Find my backups" }));
     expect(await screen.findByText("Backup list restored with a warning")).toBeInTheDocument();
     expect(screen.getByText(/still linked to an old account/)).toBeInTheDocument();
     expect(screen.getByText(/Luna has 2 versions in its list/)).toBeInTheDocument();
-    expect(screen.getByLabelText("Recovery phrase")).toBeInTheDocument();
+    expect(screen.getByLabelText("Word 1")).toBeInTheDocument();
     expect(getRestoreStatus).toHaveBeenCalledTimes(1);
   });
 
@@ -165,7 +175,7 @@ describe("CloudRestoreCard", () => {
     restoreFromPhraseMock.mockResolvedValueOnce({ snapshots: 2, alreadyIndexed: 1, skipped: 1 });
     const user = userEvent.setup();
     renderCard();
-    await user.type(await screen.findByLabelText("Recovery phrase"), "one two three");
+    await typePhrase(user);
     await user.click(screen.getByRole("button", { name: "Find my backups" }));
 
     expect(await screen.findByText("Luna couldn't open 1 backup version.")).toBeInTheDocument();
@@ -182,7 +192,7 @@ describe("CloudRestoreCard", () => {
     });
     renderCard();
     expect(await screen.findByText(/restored the backup list, but some backups are still linked/)).toBeInTheDocument();
-    expect(screen.getByLabelText("Recovery phrase")).toBeInTheDocument();
+    expect(screen.getByLabelText("Word 1")).toBeInTheDocument();
   });
 
   it("shows the server's incremental restore progress while work is running", async () => {
@@ -194,7 +204,7 @@ describe("CloudRestoreCard", () => {
     });
     const user = userEvent.setup();
     renderCard();
-    await user.type(await screen.findByLabelText("Recovery phrase"), "one two three");
+    await typePhrase(user);
     await user.click(screen.getByRole("button", { name: "Find my backups" }));
     expect(await screen.findByText("Restoring backup 2 of 5")).toBeInTheDocument();
     expect(screen.getByLabelText("Cloud backup restore progress")).toHaveAttribute("value", "2");
@@ -209,7 +219,7 @@ describe("CloudRestoreCard", () => {
     }));
     const user = userEvent.setup();
     renderCard();
-    await user.type(await screen.findByLabelText("Recovery phrase"), "one two three");
+    await typePhrase(user);
     await user.click(screen.getByRole("button", { name: "Find my backups" }));
     await user.click(await screen.findByRole("button", { name: "Stop restore" }));
     expect(await screen.findByText(/Restore stopped\. Some backup versions may already be back/)).toBeInTheDocument();
@@ -219,11 +229,10 @@ describe("CloudRestoreCard", () => {
     restoreFromPhraseMock.mockRejectedValue(new Error("Check each word."));
     const user = userEvent.setup();
     renderCard();
-    const field = await screen.findByLabelText("Recovery phrase");
-    await user.type(field, "wrong words");
+    await typePhrase(user);
     await user.click(screen.getByRole("button", { name: "Find my backups" }));
 
     expect(await screen.findByText("Check each word.")).toBeInTheDocument();
-    expect(field).toHaveValue("");
+    expect(await screen.findByLabelText("Word 1")).toHaveValue("");
   });
 });
