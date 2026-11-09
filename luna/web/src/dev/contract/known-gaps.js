@@ -2,9 +2,6 @@
  *  path = JSON path from the failure message ("$[].current") or "*" for the whole route. Remove an entry when fixed. */
 /** @type {{ key: string, path: string, reason: string }[]} */
 export const KNOWN_GAPS = [
-  { key: "GET /api/v1/drives/{}/encryption", path: "$.status", reason: "The recorded encryption response predates explicit verified availability status." },
-  { key: "GET /api/v1/drives/{}/encryption", path: "$.can_encrypt", reason: "The recorded fixture predates the format capabilities API; the new encryption response no longer has this field." },
-  { key: "GET /api/v1/drives/{}/encryption", path: "$.cannot_encrypt_reason", reason: "The recorded fixture predates the format capabilities API; the new encryption response no longer has this field." },
   {
     key: "GET /api/v1/cloud/restore-private/records/{}",
     path: "*",

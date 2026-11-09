@@ -661,6 +661,74 @@ mod tests {
         assert_eq!(body.0["code"], "drive_converting");
     }
 
+    /// A state with one encrypted, locked drive on a mock mount and an Admin token.
+    fn app(dir: &std::path::Path) -> (crate::AppState, String) {
+        let conn = crate::db::open(&dir.join("luna.db")).unwrap();
+        let manager = std::sync::Arc::new(crate::drives::DriveManager::new(
+            crate::drives::mount::shared_mock(),
+            dir,
+        ));
+        let state = crate::AppState::new(conn, manager, dir);
+        {
+            let conn = state.db.lock().unwrap();
+            crate::db::upsert_drive(&conn, "d1", "Photos", "as_is", "ext4", "sdb", "").unwrap();
+            crate::db::set_drive_encrypted(&conn, "d1", true).unwrap();
+            crate::db::set_drive_locked(&conn, "d1", true).unwrap();
+        }
+        let admin = state
+            .auth
+            .register("Max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        let token = state.auth.issue(&admin).unwrap();
+        (state, token)
+    }
+
+    async fn get(
+        state: &crate::AppState,
+        token: &str,
+        uri: &str,
+    ) -> (StatusCode, serde_json::Value) {
+        let router = axum::Router::new()
+            .merge(super::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state.clone());
+        let response = router
+            .oneshot(
+                Request::get(uri)
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
+        )
+    }
+
+    /// The web UI reads protection state from this route, so its shape is
+    /// recorded into the contract fixture the fake lunad is checked against.
+    #[tokio::test]
+    async fn the_encryption_state_reports_a_locked_drive() {
+        let dir = tempfile::tempdir().unwrap();
+        let (state, token) = app(dir.path());
+        let (status, body) = get(&state, &token, "/api/v1/drives/d1/encryption").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["encrypted"], true);
+        assert_eq!(body["unlocked"], false);
+        assert_eq!(body["present"], true);
+        assert_eq!(body["status"], "locked");
+        assert_eq!(body["converting"], false);
+    }
+
     #[tokio::test]
     async fn old_destructive_endpoints_are_not_registered() {
         let dir = tempfile::tempdir().unwrap();

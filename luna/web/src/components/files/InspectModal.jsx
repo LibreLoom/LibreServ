@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Info } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -6,7 +7,7 @@ import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
-import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { apiErrorMessage, postJson } from "../../lib/api.js";
 import { ROOT_TERM_HINT } from "../../lib/rootTerm.js";
 import { describeInspectSummary } from "../../lib/fileCounts.js";
@@ -33,7 +34,7 @@ export default function InspectModal({
       setLabel(drive.model || "My drive"); setPassword(""); setUnlockError("");
     }
   }, [open, drive]);
-  return <ModalCard open={open} onClose={onClose} title={`Add ${drive?.model || drive?.name || "drive"}`}>
+  return <ModalCard open={open} onClose={onClose} title={<span className="inline-flex items-center gap-2 flex-wrap">{`Add ${drive?.model || drive?.name || "drive"}`}<InfoHint label="What happens when you add a drive" content="Luna shows what's on the drive first. Nothing is changed until you confirm." /></span>}>
     {({
       close
     }) => <div className="space-y-4">
@@ -60,8 +61,11 @@ export default function InspectModal({
           <p className="text-sm">Formatting erases all files and partitions on the whole drive.</p>
           <Button variant="outline" onClick={() => onFormat(drive)}>Format drive</Button>
         </> : result.readable && result.writable && !result.needs_erase ? <>
-          <p className="text-sm">Adding this drive keeps its files and writes a <InlinePill>.luna</InlinePill> database on it.</p>
-          <label className="block text-sm">Drive name<input className="mt-2 w-full rounded-pill surface-primary border-2 border-secondary/30 px-4 py-2 text-sm focus:border-accent" value={label} maxLength={80} onChange={e => setLabel(e.target.value)} /></label>
+          <div className="flex items-center gap-3">
+            <Info size={18} className="shrink-0" aria-hidden="true" />
+            <p className="text-sm">Adding it writes a <InlinePill>.luna</InlinePill> database file at the <TermHint content={ROOT_TERM_HINT}>root</TermHint> of the drive. Your files are untouched.</p>
+          </div>
+          <label className="block text-sm">Drive name<input className="mt-2 w-full rounded-pill surface-primary border-2 border-secondary/30 px-4 py-2 text-sm no-focus-outline focus:border-accent" value={label} maxLength={80} placeholder="e.g. Photos drive" onChange={e => setLabel(e.target.value)} /></label>
           {adoptError && <InlineError>{adoptError}</InlineError>}
           <Button loading={adopting} onClick={() => Promise.resolve(onAdopt(label, false)).then(close).catch(() => {})}>Add this drive</Button>
         </> : <><p className="text-sm">Format this drive to use it with Luna. Formatting erases all files and partitions on the whole drive.</p><Button variant="accent" haptic="warning" onClick={() => onFormat(drive)}>Format drive</Button></>}

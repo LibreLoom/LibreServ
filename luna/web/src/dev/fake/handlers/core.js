@@ -395,14 +395,14 @@ post("/api/v1/drives/:name/unlock-and-add", ({ world, user, params, body }) => {
 post("/api/v1/drives/:id/eject", ({ world, user, params }) => {
   driveGate(user);
   const d = world.drives.find((x) => x.id === params.id);
-  if (!d) return fail(400, "Luna doesn't know this drive.");
+  if (!d) return fail(404, "Luna doesn't know this drive.");
   d.state = "ejected";
   world.summaries[params.id] = unmounted(params.id);
   return { ok: true };
 });
 post("/api/v1/drives/:id/remove", ({ world, user, params }) => {
   driveGate(user);
-  if (!world.drives.some((x) => x.id === params.id)) return fail(400, "Luna doesn't know this drive.");
+  if (!world.drives.some((x) => x.id === params.id)) return fail(404, "Luna doesn't know this drive.");
   world.drives = world.drives.filter((d) => d.id !== params.id);
   delete world.summaries[params.id];
   return { ok: true };

@@ -1418,15 +1418,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ejecting_an_unknown_drive_says_so_plainly() {
+    async fn ejecting_or_removing_an_unknown_drive_says_so_plainly() {
         let app = drive_app();
-        let (status, body) = post(&app, "/api/v1/drives/not-a-drive/eject", &app.admin).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        let message = body["error"].as_str().unwrap();
-        assert!(
-            !message.contains('/') && !message.contains("sdz"),
-            "{message}"
-        );
+        for uri in [
+            "/api/v1/drives/not-a-drive/eject",
+            "/api/v1/drives/not-a-drive/remove",
+        ] {
+            let (status, body) = post(&app, uri, &app.admin).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+            let message = body["error"].as_str().unwrap();
+            assert!(
+                !message.contains('/') && !message.contains("sdz"),
+                "{uri}: {message}"
+            );
+        }
     }
 
     #[tokio::test]
