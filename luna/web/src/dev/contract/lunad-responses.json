@@ -352,6 +352,16 @@
       "size": "number"
     }
   ],
+  "GET /api/v1/drives/{id}/encryption": {
+    "converting": "boolean",
+    "drive_id": "string",
+    "encrypted": "boolean",
+    "fs_type": "string",
+    "label": "string",
+    "present": "boolean",
+    "status": "string",
+    "unlocked": "boolean"
+  },
   "GET /api/v1/drives/{id}/files": [
     {
       "caps": "string",
