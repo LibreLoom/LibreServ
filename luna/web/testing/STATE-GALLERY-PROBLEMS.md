@@ -22,14 +22,14 @@ Status values: **open** (found, not fixed yet) · **fixed** (code changed, needs
 | --- | ---: | ---: | ---: | ---: |
 | Sign-in | 7 | 0 | 0 | 0 |
 | Dashboard | 33 | 33 | 2 | 1 |
-| Files | 121 | 121 | 3 | 3 |
+| Files | 121 | 121 | 5 | 5 |
 | Photos | 41 | 41 | 2 | 2 |
 | Recovery | 2 | 0 | 0 | 0 |
 | Settings | 53 | 50 | 2 | 2 |
 | 404 | 3 | 0 | 0 | 0 |
 | Setup | 17 | 0 | 0 | 0 |
 | Sharing | 44 | 22 | 1 | 1 |
-| **Total** | **318** | **241** | **10** | **9** |
+| **Total** | **318** | **241** | **12** | **11** |
 
 ---
 
@@ -148,6 +148,31 @@ The check asks for "an error with a Try again action". The notice said
 Fixed in `luna/web/src/pages/GalleryPage.jsx`: the notice carries a `Try again` button
 that refetches.
 
+### 9. Opening a file Luna has no viewer for did nothing at all — **fixed**
+
+`files/view-unknown`, `files/edit-whiteboard-collab`
+
+Clicking `mystery.dat` opened nothing: no viewer, no message, no download. The same for
+`board.whiteboard`. `FileViewer` already carried the right sentence for this
+(*Luna cannot open this kind of file yet. You can download it instead.*) but nothing could
+reach it — `canViewerOpen()` refused the name, so the viewer never mounted.
+
+The comment above that function already promised the behaviour: *clicking a .doc should
+explain the path forward, not silently do nothing*. It only held for office-adjacent
+formats.
+
+Fixed in `luna/web/src/lib/officeConvert.js`: any named file can open, and the viewer
+decides what to show. Its test now asserts that a file with no viewer still opens.
+
+### 10. A failed file load left the status bar claiming "Connecting…" — **fixed**
+
+`files/view-load-error`
+
+The error was right, but the bar under it still read `Ln 1, Col 1 · 0 words` and
+`Connecting…`. The load had already failed; nothing was connecting and there were no
+words to count. Fixed in `luna/web/src/components/files/TextFileEditor.jsx`: under an
+error the bar reads `Not loaded` and makes no connection claim.
+
 ---
 
 ## Checked and found correct (not bugs)
@@ -165,4 +190,5 @@ that refetches.
 | `files/view-video` | `This video can't play in the browser` | The fake serves filler bytes, not a real video. The scenario says to judge the frame, title and buttons only. |
 | `files/deep-nesting` | Looked like it opened the drive root | The static list I first audited from had truncated the URL expression; the real address carries all 25 levels. |
 | `files/edit-diagram` | `404 /drawio/pack.json` | The draw.io pack is optional and not installed in a dev checkout. The viewer says so plainly (*This Luna can't open diagrams … Your file is fine*) and offers Download. |
+| `files/listing-error` | `Luna can't find this drive` on a listing 500 | **Not a bug.** The injected fault is on `GET /api/v1/drives/d1/files`, the drive itself, so the app's reading is right; a Try again button is offered as the check asks. |
 | `auth/signed-in-admin` | The greeting printed twice | The second copy is the hidden measurer (`opacity: 0`, `aria-hidden`, zero size) that keeps the header from jumping. |

@@ -8,7 +8,7 @@
 
 import { blankDocx, xlsxFromRows } from "./officeStubs.js";
 import { parseDelimited } from "./delimited.js";
-import { fileExtension, openableKind } from "./fileKinds.js";
+import { fileExtension } from "./fileKinds.js";
 import { listZipEntries, readZipEntry } from "./archiveReader.js";
 
 /** @param {ArrayBuffer | Uint8Array} bytes */
@@ -228,13 +228,14 @@ export function officeConversionFor(name, kind) {
 }
 
 /**
- * Can the file viewer open this name at all? True for real previews plus
- * office-adjacent formats that only get the conversion hint card — clicking
- * a .doc should explain the path forward, not silently do nothing.
+ * Can the file viewer open this name at all? True for anything with a name:
+ * real previews, office-adjacent formats that only get the conversion hint
+ * card, and kinds we have no viewer for — the viewer says so and offers a
+ * download. Clicking a file must never silently do nothing.
  *
  * @param {string} name file basename
  * @returns {boolean}
  */
 export function canViewerOpen(name) {
-  return Boolean(openableKind(name)) || Boolean(officeConversionFor(name, null));
+  return Boolean(name);
 }

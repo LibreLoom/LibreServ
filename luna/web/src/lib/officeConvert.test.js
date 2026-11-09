@@ -57,10 +57,13 @@ describe("officeConversionFor", () => {
 });
 
 describe("canViewerOpen", () => {
-  it("opens real previews and office-adjacent hint cards", () => {
+  it("opens real previews, hint cards, and kinds with no viewer", () => {
     expect(canViewerOpen("a.csv")).toBe(true);
     expect(canViewerOpen("a.doc")).toBe(true);
-    expect(canViewerOpen("a.stl")).toBe(false);
+    // No viewer for .stl, but opening it must explain that and offer a
+    // download rather than silently doing nothing.
+    expect(canViewerOpen("a.stl")).toBe(true);
+    expect(canViewerOpen("")).toBe(false);
   });
 });
 

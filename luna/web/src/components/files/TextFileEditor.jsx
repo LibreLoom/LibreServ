@@ -355,21 +355,23 @@ function EditorSession({
       <div className="flex h-9 shrink-0 items-center justify-between gap-3 border-t border-secondary/15 px-4 text-xs">
         {/* surface-scan: ignore-next-line -- status bar readout, mono is its face */}
         <span className="font-mono">
-          Ln {stats.line}, Col {stats.col} · {stats.words}{" "}
-          {stats.words === 1 ? "word" : "words"}
+          {error
+            ? "Not loaded"
+            : `Ln ${stats.line}, Col ${stats.col} · ${stats.words} ${stats.words === 1 ? "word" : "words"}`}
         </span>
         <span className="truncate">
-          {connNote ||
-            (isMarkdown ? (
-              <TermHint
-                content="Markdown is a plain-text way to add formatting — headings, lists, links. In Write mode you see the result as you type; Source shows the raw marks."
-                surface="primary"
-              >
-                Markdown
-              </TermHint>
-            ) : (
-              "Plain text"
-            ))}
+          {!error &&
+            (connNote ||
+              (isMarkdown ? (
+                <TermHint
+                  content="Markdown is a plain-text way to add formatting — headings, lists, links. In Write mode you see the result as you type; Source shows the raw marks."
+                  surface="primary"
+                >
+                  Markdown
+                </TermHint>
+              ) : (
+                "Plain text"
+              )))}
         </span>
       </div>
     </div>
