@@ -15,6 +15,9 @@ export default function SoftwareUpdatePill() {
   if (isLoading || error || !data?.update_available) return null;
 
   const version = data.latest_version || "Update";
+  // An update that failed to start leaves the pill saying "ready", which reads
+  // as if nothing went wrong. Say what happened instead.
+  const failed = Boolean(data.os_update_failed);
 
   return (
     <Link
@@ -23,11 +26,17 @@ export default function SoftwareUpdatePill() {
       data-slot="software-update-pill"
       data-header-item
       className="rounded-pill no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 motion-safe:transition-transform active:motion-safe:scale-95"
-      aria-label={`Software update ${version} available. Open Settings to install.`}
+      aria-label={
+        failed
+          ? `Software update ${version} didn't install. Open Settings to try again.`
+          : `Software update ${version} available. Open Settings to install.`
+      }
     >
-      <Pill variant="warning" className="hover:brightness-110">
+      <Pill variant={failed ? "error" : "warning"} className="hover:brightness-110">
         <Download size={ICON_SIZE.xs} strokeWidth={2.5} aria-hidden="true" />
-        <span className="font-medium">{version} ready</span>
+        <span className="font-medium">
+          {failed ? `${version} didn't install` : `${version} ready`}
+        </span>
       </Pill>
     </Link>
   );

@@ -262,7 +262,9 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
                 {inheritedLinks.length > 0 &&
                   `${inheritedLinks.length} ${inheritedLinks.length === 1 ? "link" : "links"}`}
                 {" shared through "}
-                {parentSources.map((p) => p.name).join(", ")}
+                {parentSources
+                  .map((p) => p.name || p.path || "a folder above")
+                  .join(", ")}
               </p>
               {inspectableParents.length > 0 && (
                 <div className="flex flex-wrap gap-2">

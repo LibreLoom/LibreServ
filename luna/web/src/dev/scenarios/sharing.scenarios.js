@@ -353,7 +353,7 @@ export default [
     seed: (w) => { guest(w); subject(w, { path: "Docs/notes.txt", name: "notes.txt", is_file: true, links: [{ ...link({ caps: "full" }), token: "tokfileedit" }] }); },
     realLunadOnly: "Saving through a full link writes the file on the drive and live presence needs the real collab hub; the fake has no link file contents.",
     check: [
-      "The text editor opens with the file's words",
+      "The text editor opens with the file name and its frame intact (the fake has no link file contents, so judge layout only)",
       "Type: the status pill says Unsaved; Save (and Ctrl+S) says Saved",
       "Close and reopen: the change is still there under the same file name",
       "Open the same link in a second window: the Live peers row shows the other editor",

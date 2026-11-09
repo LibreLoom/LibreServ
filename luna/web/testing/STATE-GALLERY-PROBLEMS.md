@@ -21,15 +21,16 @@ Status values: **open** (found, not fixed yet) · **fixed** (code changed, needs
 | Area | Scenarios | Audited | Problems found | Fixed |
 | --- | ---: | ---: | ---: | ---: |
 | Sign-in | 7 | 0 | 0 | 0 |
-| Dashboard | 33 | 33 | 2 | 1 |
+| Dashboard | 33 | 33 | 2 | 2 |
 | Files | 121 | 121 | 5 | 5 |
 | Photos | 41 | 41 | 2 | 2 |
 | Recovery | 2 | 0 | 0 | 0 |
 | Settings | 53 | 50 | 2 | 2 |
 | 404 | 3 | 0 | 0 | 0 |
 | Setup | 17 | 0 | 0 | 0 |
-| Sharing | 44 | 22 | 1 | 1 |
-| **Total** | **318** | **241** | **12** | **11** |
+| Sharing | 15 | 15 | 1 | 1 |
+| Public link | 18 | 18 | 0 | 0 |
+| **Total** | **318** | **307** | **13** | **13** |
 
 ---
 
@@ -173,6 +174,39 @@ The error was right, but the bar under it still read `Ln 1, Col 1 · 0 words` an
 words to count. Fixed in `luna/web/src/components/files/TextFileEditor.jsx`: under an
 error the bar reads `Not loaded` and makes no connection claim.
 
+### 11. The update pill said "ready" after the update failed — **fixed**
+
+`dashboard/update-failed`
+
+An update that never started left the header pill reading `1.5.0 ready`, as if nothing
+had gone wrong. The explanation existed only on Settings → About, so on the dashboard
+there was no sign of the failure at all — someone would click expecting a clean install.
+
+Fixed in `luna/web/src/components/common/SoftwareUpdatePill.jsx`: with an
+`os_update_failed` on the status the pill reads `1.5.0 didn't install` in the error tone,
+and it points at Settings to try again.
+
+### 12. Inherited sharing said "shared through" and then nothing — **fixed**
+
+`share/inherited`
+
+The sheet showed `1 person and 1 link shared through ` — the sentence stopped with no
+folder named. `inherited_from.name` is optional in lunad's response, and when it was
+absent the code joined a list of `undefined` into an empty string.
+
+Fixed in `luna/web/src/components/share/ShareSheet.jsx`: it falls back to the folder's
+path. The scenario now reads `1 person and 1 link shared through Photos`.
+
+### 13. A gallery check asked for something the fake cannot do — **fixed**
+
+`public/file-edit`
+
+The check opened with "The text editor opens with the file's words", while the same
+scenario declares *"the fake has no link file contents."* The editor correctly shows the
+name and frame, and the file body is empty because the fake has none — so the check
+could never pass and invited a false report. It now asks what the fake can actually
+show, matching how the office scenarios are worded.
+
 ---
 
 ## Checked and found correct (not bugs)
@@ -191,4 +225,5 @@ error the bar reads `Not loaded` and makes no connection claim.
 | `files/deep-nesting` | Looked like it opened the drive root | The static list I first audited from had truncated the URL expression; the real address carries all 25 levels. |
 | `files/edit-diagram` | `404 /drawio/pack.json` | The draw.io pack is optional and not installed in a dev checkout. The viewer says so plainly (*This Luna can't open diagrams … Your file is fine*) and offers Download. |
 | `files/listing-error` | `Luna can't find this drive` on a listing 500 | **Not a bug.** The injected fault is on `GET /api/v1/drives/d1/files`, the drive itself, so the app's reading is right; a Try again button is offered as the check asks. |
+| `share/view-only-member` | The sheet lists "Person number 2" | **Not a bug.** That is the fixture's display name for its second fake user, not placeholder text from the app. |
 | `auth/signed-in-admin` | The greeting printed twice | The second copy is the hidden measurer (`opacity: 0`, `aria-hidden`, zero size) that keeps the header from jumping. |
