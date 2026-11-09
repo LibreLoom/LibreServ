@@ -2,30 +2,19 @@
   "format": 1,
   "unit": "luna",
   "channel": "stable",
-  "version": "0.0.4",
-  "published": "2026-11-08T08:21:47Z",
-  "notes": "Still no notes.\n\n- test(luna): refresh the fake lunad and the response contract\n- test(luna): realign web tests with the recent UI changes\n- test(luna): match Rust tests to the recent source, room and ownership changes\n- fix(luna): format the orphan-give loop and collapse the pack check\n- test(luna): drive the recovery tests through the account dropdown\n- fix(luna): keep helper text and info icons readable on their surfaces\n- chore(luna): refresh the npm lockfile\n- fix(luna): frame a source-change offer as finishing the switch\n- fix(luna): say what a source-change offer means instead of calling it not-newer\n- feat(luna): offer the new source's build as soon as the feed changes\n- fix(luna): start the Updates section closed on Settings → About\n- style(luna): give the Updates collapsible the Luna Connect structure\n- fix(luna): say what the update source is for, in plainer words\n- fix(luna): trim the source row and set the Updates title in mono\n- fix(luna): make the update rows pills and put Edit at the end of its row\n- feat(luna): one Updates section with the channel and source on their own cards\n- fix(luna): put the update source back in its own panel\n- fix(luna): draw the settings path with lucide chevrons\n- fix(luna): give the cloud backup link a chevron, drop literal arrows from copy\n- fix(luna): link the Connect-off cloud backup notice to About → Advanced\n- chore(luna): mark the 2026-11-07 review as passing\n- chore(luna): put the states gallery back in its usual shape\n- fix(luna): keep a big upload's task card one height while it runs\n- feat(ui): let a table draw a compact phone card\n- chore(luna): note per-row cloud backup loading in the review scenario\n- …and 19 more changes\n",
+  "version": "0.0.5",
+  "published": "2026-11-09T03:06:58Z",
+  "notes": "Still cooking.\n\n- test(luna): record GET /drives/{id}/encryption in the contract fixture\n- fix(luna): restore what the format-flow refactor dropped, and green the suite\n- test(luna): drop the removed encryption routes from the contract fixture\n- feat(luna): one format flow, and encryption that never erases in place\n- feat(luna): ship the whole system as the OS image\n",
   "parts": [
-    {
-      "name": "lunad",
-      "os": "linux",
-      "arch": "amd64",
-      "file": "lunad-linux-amd64-musl",
-      "size": 46681272,
-      "sha256": "5d7e81b61a1d3ec5b06ae7a21af70071e4163c8c958dd5339fec6e48bbdad68c",
-      "urls": [
-        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.4/lunad-linux-amd64-musl"
-      ]
-    },
     {
       "name": "os",
       "os": "linux",
       "arch": "amd64",
       "file": "luna-os-x86_64.img.xz",
-      "size": 278842912,
-      "sha256": "b449f408331fd4216b0c4a384d858bb1f835eb23d1b82292f77b8ae7ab05d08b",
+      "size": 278970696,
+      "sha256": "73897a40c6f7800937b273d0aca7ae160ffa036314ec131ae63e7052419d6ef1",
       "urls": [
-        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.3/luna-os-x86_64.img.xz"
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.5/luna-os-x86_64.img.xz"
       ]
     },
     {
@@ -33,10 +22,10 @@
       "os": "linux",
       "arch": "amd64",
       "file": "luna-rapidinstall-x86_64.iso.xz",
-      "size": 821183252,
-      "sha256": "cca42455bb201accc3e66dd1c66bf54793b90fe895a3bdd6ff1bfc896582b309",
+      "size": 529418772,
+      "sha256": "231d2b8c22f7061b9ca756e8d4613d7728127a381835de26b348263bf409c078",
       "urls": [
-        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.3/luna-rapidinstall-x86_64.iso.xz"
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.5/luna-rapidinstall-x86_64.iso.xz"
       ]
     }
   ],
