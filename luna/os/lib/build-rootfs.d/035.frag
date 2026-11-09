@@ -7,7 +7,7 @@
 # second update path that could drift from the image.
 #
 # They land in /usr/share/luna/<pack>, read-only with the rest of the root
-# slot. lunad serves them from there (see crates/lunad/src/main.rs).
+# slot. lunad serves them from there (see crates/lunad/src/packs.rs).
 PACKS_IN="${LUNA_PACKS_IN:-/in/packs}"
 PACK_DEST="$ROOTFS/usr/share/luna"
 # A release build (the release tool sets LUNA_PACKS_REQUIRED=1) must never ship
@@ -32,9 +32,11 @@ if [ -d "$PACKS_IN" ]; then
                 || { echo "error: $_pack pack does not match its checksum" >&2; exit 1; }
         fi
         echo "==> $_pack pack into the image"
+        # Each tarball carries its own top-level <pack>/ dir (see
+        # scripts/build-<pack>-pack.sh), so unpack it into the pack root.
+        mkdir -p "$PACK_DEST"
         rm -rf "$PACK_DEST/$_pack"
-        mkdir -p "$PACK_DEST/$_pack"
-        zstd -dc "$_blob" | tar -x -C "$PACK_DEST/$_pack"
+        zstd -dc "$_blob" | tar -x -C "$PACK_DEST"
     done
     # A pack that did not extract cleanly is a broken image, not a warning.
     [ -f "$PACK_DEST/eurooffice/web-apps/apps/api/documents/api.js" ] \

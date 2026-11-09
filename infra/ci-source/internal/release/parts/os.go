@@ -56,10 +56,11 @@ func (a osAction) String() string { return [...]string{"build", "cached"}[a] }
 // osPlan is what the hash job decided; the later jobs of both parts read it.
 type osPlan struct {
 	mu sync.Mutex
-	// osHash is the OS input hash, isoKey what the installer is made from.
-	osHash, isoKey string
-	os, inst       osAction
-	decided        bool
+	// osKey is what the image is keyed by (the OS input hash plus the packs'
+	// keys), isoKey what the installer is made from.
+	osKey, isoKey string
+	os, inst      osAction
+	decided       bool
 }
 
 // osBuilder holds the plans of the builds in flight. The os and installer
@@ -152,18 +153,18 @@ func (o *osBuilder) osJobs(b *engine.BuildContext) []engine.Job {
 		engine.Job{ID: OSJob, Title: "Luna OS " + b.Version, Deps: []string{osImageJob},
 			Run: func(ctx context.Context, j *engine.JobRun) error {
 				pl.mu.Lock()
-				act, hash := pl.os, pl.osHash
+				act, key := pl.os, pl.osKey
 				pl.mu.Unlock()
 				if act == osBuild {
-					forgetLunadVersion(b, "luna-os", hash) // never keep an older build's answer
+					forgetLunadVersion(b, "luna-os", key) // never keep an older build's answer
 				}
-				if err := finishFile(b, j.Logf, "os", OSFile, "luna-os", hash, act, osSidecars(OSFile)); err != nil {
+				if err := finishFile(b, j.Logf, "os", OSFile, "luna-os", key, act, osSidecars(OSFile)); err != nil {
 					return err
 				}
 				if act == osBuild {
 					// A cut may only take this image from the cache later if it
 					// was built with a release daemon, never a dev one.
-					return recordLunadVersion(b, "luna-os", hash, b.Version)
+					return recordLunadVersion(b, "luna-os", key, b.Version)
 				}
 				return nil
 			}},
@@ -212,8 +213,8 @@ func (o *osBuilder) installerJobs(b *engine.BuildContext) []engine.Job {
 				if act == osBuild {
 					// The ISO carries the OS image, so it carries that daemon.
 					lv := b.Version
-					if osAct, osHash := func() (osAction, string) { pl.mu.Lock(); defer pl.mu.Unlock(); return pl.os, pl.osHash }(); osAct == osCached {
-						lv = cachedLunadVersion(b, "luna-os", osHash)
+					if osAct, osKey := func() (osAction, string) { pl.mu.Lock(); defer pl.mu.Unlock(); return pl.os, pl.osKey }(); osAct == osCached {
+						lv = cachedLunadVersion(b, "luna-os", osKey)
 					}
 					return recordLunadVersion(b, "luna-installer", key, lv)
 				}
@@ -238,15 +239,18 @@ func (o *osBuilder) decide(ctx context.Context, b *engine.BuildContext, j *engin
 		}
 		packKeys[d.name] = k
 	}
-	key, err := installerKey(filepath.Join(b.SrcDir, "luna", "os"), hash, packKeys)
+	// The image carries the packs, so a changed pack must rebuild it. The OS
+	// input hash alone does not know about them.
+	osKey := osImageKey(hash, packKeys)
+	key, err := installerKey(filepath.Join(b.SrcDir, "luna", "os"), osKey, packKeys)
 	if err != nil {
 		return err
 	}
-	j.Logf("OS inputs %s, installer inputs %s", hash[:12], key[:12])
+	j.Logf("OS inputs %s (image key %s), installer inputs %s", hash[:12], osKey[:12], key[:12])
 
 	osAct, why := decide(decideIn{
 		force:  b.Rebuild || b.Named("os"),
-		cached: cacheUsable(b, "luna-os", hash, OSFile),
+		cached: cacheUsable(b, "luna-os", osKey, OSFile),
 	})
 	j.Logf("OS image: %s (%s)", osAct, why)
 
@@ -265,8 +269,25 @@ func (o *osBuilder) decide(ctx context.Context, b *engine.BuildContext, j *engin
 
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
-	pl.osHash, pl.isoKey, pl.os, pl.inst, pl.decided = hash, key, osAct, instAct, true
+	pl.osKey, pl.isoKey, pl.os, pl.inst, pl.decided = osKey, key, osAct, instAct, true
 	return nil
+}
+
+// osImageKey is the cache key of the OS image: its input hash plus what the
+// packs are made from. The packs are inside the image, so a changed pin or
+// build script must produce a new image, not a cached one with the old packs.
+func osImageKey(osHash string, packKeys map[string]string) string {
+	names := make([]string, 0, len(packKeys))
+	for n := range packKeys {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	h := sha256.New()
+	fmt.Fprintf(h, "os=%s\n", osHash)
+	for _, n := range names {
+		fmt.Fprintf(h, "pack=%s %s\n", n, packKeys[n])
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // decideIn is everything decide looks at.

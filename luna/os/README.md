@@ -12,8 +12,11 @@ disk both boot in either firmware mode.
 #    cargo build --release -p lunad
 #    or set LUNAD_BIN=/path/to/lunad
 
-# 2. OS image (rootless Podman, no sudo). The rootfs lives in a podman volume;
-#    ownership is right inside the user namespace and nothing runs as root.
+# 2. Editor packs, then the OS image (rootless Podman, no sudo). The packs are
+#    part of the image, so they must exist before the rootfs is built:
+make eurooffice-pack drawio-pack        # → os/dist/*-pack.tar.zst
+#    The rootfs lives in a podman volume; ownership is right inside the user
+#    namespace and nothing runs as root.
 ./os/build-rootfs.sh                  # rootfs → volume luna-os-rootfs
 ./os/make-image.sh                    # → os/dist/luna-os-x86_64.img.xz (+ .sha256)
 #    The .img.xz is compressed once. The OTA update part, the installer ISO and

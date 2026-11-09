@@ -88,20 +88,18 @@ fonts-manifest.json                  TTF list the worker fetches
 `os/dist/eurooffice-pack.tar.zst` — the pack minus `web-apps/*/resources/help`
 (~500MB of offline-help PNGs; the Help menu is already hidden via
 `customization.help: false`). Everything else ships: every font, all 50
-dictionaries. `build-iso.sh` builds it automatically when missing,
-`os/build/iso.sh` puts it next to the OS image on the ISO, and
-`rapidinstall.sh` verifies its sha256 and extracts it onto `LUNA_DATA` — so
-office editing works on first boot with no download. Extraction needs `zstd`
-in the installer image (in `luna.list.chroot`). A device installed without
-the pack shows the normal "not installed" card on office files.
+dictionaries.
 
-After install, the pack is updated from the signed update feed: an optional
-`packs` part on the `luna` unit carries the pack folders as one tar.xz, and
-lunad swaps each known pack (`eurooffice`, `drawio`) into `{data_dir}` on
-**Install update**, recording the blob's sha256 in `{data_dir}/packs.sha256`
-so the same release is never applied twice. A feed without a `packs` part
-leaves the on-device pack alone. See
-[the feed contract](../../infra/ci-source/internal/feed/README.md).
+The pack is part of the OS image, not the data partition. The release tool
+builds both editor packs before the rootfs and mounts them into it; the rootfs
+step unpacks them to `/usr/share/luna/eurooffice`, and a cut refuses an image
+without them. `./os/build-iso.sh` builds the packs into `os/dist/` before its
+`./os/build-rootfs.sh` step, so a dev image carries them too. lunad serves them
+from there (see `crates/lunad/src/packs.rs`); a data-dir copy is honoured only
+for a box installed from an older ISO, until it updates.
+
+An update replaces the whole image, packs included — there is no separate pack
+part on the feed. A feed without an `os` part offers nothing.
 
 ## Endpoints (all cookie-authed except where noted)
 

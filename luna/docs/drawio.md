@@ -14,7 +14,8 @@ it's plain XML, loaded into the editor and written back on save.
    (classified before image/text so the embedded diagram wins over the
    preview it carries).
 2. The editor is the stock draw.io webapp served by lunad at `/drawio` from
-   `{data_dir}/drawio`, loaded in a same-origin iframe with
+   the pack in the OS image (`/usr/share/luna/drawio`; a dev run may use a
+   copy in `{data_dir}/drawio`), loaded in a same-origin iframe with
    `embed=1&proto=json&stealth=1&noExitBtn=1&saveAndExit=0` (`ui=dark` when
    Luna is in dark mode; `noSaveBtn=1` for view-only opens). `stealth=1`
    disables draw.io's own realtime channel (the one that phones home to
@@ -109,29 +110,28 @@ NOTICE.luna.txt                  attribution (the pack can ship in the ISO)
 The war's `WEB-INF/` and `META-INF/` (Java server classes Luna never runs)
 are excluded during extraction.
 
-## Shipping the pack (install ISO and update feed)
+## Shipping the pack (inside the OS image)
 
 `make drawio-pack` (or `scripts/build-drawio-pack.sh`) produces
 `os/dist/drawio-pack.tar.zst` — the whole pack as a self-describing `drawio/`
-dir. `build-iso.sh` builds it automatically when missing,
-`os/build/iso.sh` puts it next to the OS image on the ISO, and
-`rapidinstall.sh` verifies its sha256 and extracts it onto `LUNA_DATA` — so
-diagram editing works on first boot with no download. A device installed
-without the pack shows the normal "not installed" card on diagram files.
+dir.
 
-After install, the pack is updated from the signed update feed: an optional
-`packs` part on the `luna` unit carries the pack folders as one tar.xz, and
-lunad swaps each known pack (`eurooffice`, `drawio`) into `{data_dir}` on
-**Install update**, recording the blob's sha256 in `{data_dir}/packs.sha256`
-so the same release is never applied twice. A feed without a `packs` part
-leaves the on-device pack alone. See
-[the feed contract](../../infra/ci-source/internal/feed/README.md).
+The pack is part of the OS image, not the data partition. The release tool
+builds both editor packs before the rootfs and mounts them into it; the rootfs
+step unpacks them to `/usr/share/luna/drawio`, and a cut refuses an image
+without them. `./os/build-iso.sh` builds the packs into `os/dist/` before its
+`./os/build-rootfs.sh` step, so a dev image carries them too. lunad serves them
+from there (see `crates/lunad/src/packs.rs`); a data-dir copy is honoured only
+for a box installed from an older ISO, until it updates.
+
+An update replaces the whole image, packs included — there is no separate pack
+part on the feed. A feed without an `os` part offers nothing.
 
 ## Endpoints
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /drawio/**` | Static webapp pack via one wildcard route — mounted at boot only when `{data_dir}/drawio` exists |
+| `GET /drawio/**` | Static webapp pack via one wildcard route — mounted at boot when the pack is present in the image (or a data-dir copy from an older install) |
 | `GET /api/v1/collab/ws` | Member collab room (presence, opaque diff patches, save election) — the same endpoint EuroOffice uses |
 | `GET /s/{token}/collab/ws` | Guest collab room for a shared diagram or whiteboard. Refuses anything that is not a `.drawio` / `.drawio.svg` / `.drawio.png` / `.excalidraw` file |
 

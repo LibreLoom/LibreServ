@@ -147,6 +147,19 @@ func TestInstallerKey(t *testing.T) {
 	}
 }
 
+func TestOSImageKeyFollowsPacks(t *testing.T) {
+	k1 := osImageKey("os1", map[string]string{"eurooffice": "aa", "drawio": "bb"})
+	if k2 := osImageKey("os1", map[string]string{"drawio": "bb", "eurooffice": "aa"}); k2 != k1 {
+		t.Fatal("key depends on map order")
+	}
+	if k2 := osImageKey("os2", map[string]string{"eurooffice": "aa", "drawio": "bb"}); k2 == k1 {
+		t.Fatal("a new OS input hash must change the key")
+	}
+	if k2 := osImageKey("os1", map[string]string{"eurooffice": "aa", "drawio": "cc"}); k2 == k1 {
+		t.Fatal("a changed pack must change the image key")
+	}
+}
+
 func sum(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
 
 func TestFinishFile(t *testing.T) {

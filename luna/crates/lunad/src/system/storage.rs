@@ -1,9 +1,10 @@
 //! What is using Luna's own disk, and the parts of it that can be cleared.
 //!
-//! Luna keeps its software, its settings, the editor packs and the temporary
-//! copies of documents being edited on one small built-in disk. The packs are
-//! the bulk of it and can't go (the editors need them); the temporary copies
-//! and half-downloaded updates are the parts that grow and can be swept.
+//! Luna's software — the daemon, cloudflared, the editor packs — ships in the
+//! OS image and takes no room here. This disk holds the settings, the
+//! temporary copies of documents being edited and the logs; the temporary
+//! copies and half-downloaded updates are the parts that grow and can be
+//! swept.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};

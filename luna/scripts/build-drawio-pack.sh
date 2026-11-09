@@ -1,7 +1,7 @@
 #!/bin/sh
 # Build os/dist/drawio-pack.tar.zst — the draw.io webapp pack baked into the
-# install ISO. rapidinstall.sh verifies its sha256 and extracts it onto
-# LUNA_DATA so diagram editing works on first boot with no download.
+# OS image. The rootfs step unpacks it to /usr/share/luna/drawio, so diagram
+# editing works on first boot with no download.
 #
 # Source pack: $DRAWIO_DIR (default $LUNA_DATA_DIR/drawio → luna/dev).
 # When no pack exists, runs install-drawio-assets.sh into os/work first —
@@ -30,9 +30,9 @@ for f in \
 	[ -f "$f" ] || { echo "ERROR: pack at $PACK_SRC is incomplete (missing $f)" >&2; exit 1; }
 done
 
-# The tarball must contain a dir literally named drawio so it extracts
-# self-describing onto LUNA_DATA — a custom DRAWIO_DIR ending otherwise
-# would silently pack the wrong root name.
+# The tarball must contain a dir literally named drawio so it unpacks
+# self-describing into the image's pack root (/usr/share/luna) — a custom
+# DRAWIO_DIR ending otherwise would silently pack the wrong root name.
 if [ "$(basename "$PACK_SRC")" != "drawio" ]; then
 	echo "ERROR: pack dir must be named 'drawio' (got $PACK_SRC)" >&2
 	exit 1

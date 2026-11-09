@@ -30,7 +30,12 @@ pub fn root() -> PathBuf {
 /// home), the data dir everywhere else, which is what a dev run and the tests
 /// have.
 pub fn dir(data_dir: &Path, pack: &str) -> PathBuf {
-    let image_root = root();
+    dir_in(&root(), data_dir, pack)
+}
+
+/// [`dir`] against an explicit image root, so a test never has to touch the
+/// process environment (which every other test in this binary shares).
+fn dir_in(image_root: &Path, data_dir: &Path, pack: &str) -> PathBuf {
     let image = image_root.join(pack);
     if image.is_dir() {
         return image;
@@ -57,24 +62,20 @@ mod tests {
         let data = tmp.path().join("data");
         std::fs::create_dir_all(data.join("drawio")).unwrap();
         let image = tmp.path().join("image");
-        // SAFETY: this test owns the variable; no other test reads it.
-        unsafe { std::env::set_var("LUNA_PACK_ROOT", &image) };
         // Only the data dir has it: the old location still works.
-        assert_eq!(dir(&data, "drawio"), data.join("drawio"));
-        assert!(present(&data, "drawio"));
+        assert_eq!(dir_in(&image, &data, "drawio"), data.join("drawio"));
+        assert!(dir_in(&image, &data, "drawio").is_dir());
 
         // The image copy takes over once it is there.
         std::fs::create_dir_all(image.join("drawio")).unwrap();
-        assert_eq!(dir(&data, "drawio"), image.join("drawio"));
+        assert_eq!(dir_in(&image, &data, "drawio"), image.join("drawio"));
 
         // Neither, and the image root exists: report the image, its real home.
-        assert_eq!(dir(&data, "eurooffice"), image.join("eurooffice"));
-        assert!(!present(&data, "eurooffice"));
+        assert_eq!(dir_in(&image, &data, "eurooffice"), image.join("eurooffice"));
+        assert!(!dir_in(&image, &data, "eurooffice").is_dir());
 
         // Neither, and there is no image root (a dev run): the data dir.
         std::fs::remove_dir_all(&image).unwrap();
-        assert_eq!(dir(&data, "eurooffice"), data.join("eurooffice"));
-        // SAFETY: see above.
-        unsafe { std::env::remove_var("LUNA_PACK_ROOT") };
+        assert_eq!(dir_in(&image, &data, "eurooffice"), data.join("eurooffice"));
     }
 }

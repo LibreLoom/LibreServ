@@ -350,8 +350,9 @@ mod tests {
             whiteboard_editor: true,
             whiteboard_fonts: true,
         };
-        // EuroOffice and the diagram pack are files in the data folder, so a
-        // passing office_pack and diagram_pack need them on disk.
+        // A passing office_pack and diagram_pack need the packs on disk. On a
+        // test machine there is no image pack root, so `packs::dir` gives the
+        // data folder and they can be written there.
         let office = crate::packs::dir(&state.data_dir, "eurooffice");
         for rel in [
             "web-apps/apps/api/documents/api.js",

@@ -1,11 +1,10 @@
 #!/bin/sh
 # Dev wrapper: build the rapidinstall ISO (BIOS + UEFI hybrid, volume LUNAINST)
-# from os/dist/luna-os-x86_64.img.xz and the packs in os/dist/. Rootless
-# podman only; no sudo, no live-build. The work is build/iso.sh, which runs
-# inside build/Containerfile.iso.
+# from os/dist/luna-os-x86_64.img.xz. Rootless podman only; no sudo, no
+# live-build. The work is build/iso.sh, which runs inside build/Containerfile.iso.
 #
-# Needs first: ./os/make-image.sh (the .img.xz), and optionally the EuroOffice
-# and draw.io packs (make eurooffice-pack drawio-pack).
+# Needs first: ./os/make-image.sh (the .img.xz). The image carries the editor
+# packs, so no pack files are passed separately.
 set -eu
 
 OSDIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
