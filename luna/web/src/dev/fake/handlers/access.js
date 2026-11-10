@@ -373,10 +373,20 @@ publicGet("/s/:token/items", ({ world, params, query, headers }) => {
   return { items, has_more: offset + items.length < all.length, next_offset: offset + items.length };
 });
 
-publicGet("/s/:token/list", ({ world, params, headers }) => {
+publicGet("/s/:token/list", ({ world, params, query, headers }) => {
   const r = open(world, params.token, headers, { download: true });
   if (r.err) return r.err;
-  return { entries: treeOf(world, params.token, r.s) };
+  // A guest who opens a folder sees that folder's entries, not the root again.
+  const segments = String(query.path || "").split("/").filter(Boolean);
+  const tree = treeOf(world, params.token, r.s);
+  if (!segments.length) return { entries: tree };
+  let level = tree;
+  for (const seg of segments) {
+    const found = level?.find?.((e) => e.name === seg && e.kind === "dir");
+    if (!found) return fail(404, "Not found.");
+    level = found.children || [];
+  }
+  return { entries: level };
 });
 publicGet("/s/:token/stat", ({ world, params, headers }) => {
   const r = open(world, params.token, headers);
@@ -405,15 +415,20 @@ publicGet("/s/:token/file", ({ world, params, query, headers }) => {
   if (!entry) return fail(404, "Not found.");
   // Serve recognisable bytes for the kind, the same ones the drive's own
   // content route hands out, so a shared image or PDF actually previews.
-  const nodeFor = (rel) => {
-    if (!rel) return null;
+  const nodeFor = (full) => {
+    const key = String(full || "").replace(/^\/+|\/+$/g, "");
+    if (!key) return null;
     try {
-      return fsOf(world, r.s.drive_id || "d1").nodes?.[rel] || null;
+      return fsOf(world, r.s.drive_id || "d1").nodes?.[key] || null;
     } catch {
       return null;
     }
   };
-  const node = r.s.is_file ? nodeFor(r.s.path) : nodeFor(`${r.s.path || ""}/${name}`);
+  // The share's own path plus the whole validated relative path: a request for
+  // `Holiday/notes.txt` in `Photos` is `Photos/Holiday/notes.txt`, not
+  // `Photos/notes.txt`. `rel` was already resolved through the tree above, so
+  // it cannot point outside the share.
+  const node = nodeFor(r.s.is_file ? r.s.path : [r.s.path, rel].filter(Boolean).join("/"));
   const [data, type] = node
     ? bytesFor(node)
     : [new TextEncoder().encode(`This is ${entry.name}.\n`), "text/plain; charset=utf-8"];

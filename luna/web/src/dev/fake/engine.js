@@ -39,14 +39,23 @@ function faultMessage(method, path) {
   if (/\/users/.test(path)) return says("load the people on this Luna");
   if (/\/gallery\/places/.test(path)) return says("load where your photos were taken");
   if (/\/gallery\//.test(path)) return says("load your photos");
-  if (/\/drives\//.test(path)) return says("read this drive");
+  // A drive request is only a read when it is a read: an upload or a rename is
+  // a write, and calling that "read this drive" names the wrong action.
+  const reading = method === "GET" || method === "HEAD";
+  if (/\/uploads?\b/.test(path)) return says(reading ? "load that upload" : "upload that file");
+  if (/\/drives\//.test(path)) {
+    if (reading) return says("read this drive");
+    if (/\/rename/.test(path)) return says("rename that");
+    if (/\/mkdir/.test(path)) return says("make that folder");
+    if (/\/delete/.test(path)) return says("delete that");
+    return says("save that change");
+  }
   if (/\/drives$/.test(path)) return says("load your drives");
   if (/\/connect\/status|\/network\/status/.test(path)) return says("check how Luna is connected");
   if (/\/system\/updates\/source/.test(path)) return says("change where updates come from");
   if (/\/system\/updates\/apply/.test(path)) return says("install this update");
   if (/\/system\/updates/.test(path)) return says("check for updates");
   if (/\/system\/factory-reset/.test(path)) return says("reset this Luna");
-  if (/\/uploads\//.test(path)) return says("upload that file");
   if (/\/access\/members/.test(path)) return says("change who can reach this");
   if (/\/access\/links/.test(path)) return says("change this link");
   if (/\/access\//.test(path)) return says("load who can reach this");

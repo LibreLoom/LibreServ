@@ -735,11 +735,10 @@ describe("FileViewer fullscreen office overlay", () => {
         <FileViewer open driveId="d1" path={`f/${path}`} onClose={() => {}} />,
       );
       await act(async () => {});
-      expect(
-        document.querySelector('[data-slot="file-viewer-overlay"]'),
-        path,
-      ).toBeInTheDocument();
+      // No supported kind means no fullscreen frame: the viewer itself is a
+      // dialog that explains the file and offers a download.
       expect(screen.queryByTestId("office-editor"), path).not.toBeInTheDocument();
+      expect(screen.getByRole("dialog"), path).toBeInTheDocument();
       expect(screen.getAllByText(/cannot open this kind of file yet/i).length, path).toBeGreaterThan(0);
       unmount();
     }

@@ -233,9 +233,11 @@ an unknown path — a literal `{}` — as if that were the file's text. The edit
 right; the fake was missing a route. Added it: a single-file link serves its own file,
 a folder link serves an entry from its tree, and an upload-only link (a drop box) is
 refused, since that screen promises nobody can see the folder's contents. When the
-linked file is a real drive file the route serves that file's bytes; the built-in
-folder tree is a list of names with no files behind them, so those entries get
-generated text.
+linked file is a real drive file the route serves that file's bytes — for a folder link
+it joins the share's path with the whole relative path, so `Holiday/notes.txt` inside
+`Photos` reads `Photos/Holiday/notes.txt`. The built-in folder tree is a list of names
+with no files behind them, so those entries get generated text, and browsing into a
+folder now lists that folder rather than the root again.
 
 ---
 
