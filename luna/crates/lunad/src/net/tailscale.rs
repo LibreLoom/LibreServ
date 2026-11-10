@@ -580,6 +580,7 @@ fn clear_access_if_required(data: &Path) -> Result<(), String> {
         let _ = std::fs::write(root(data).join("stop-failed"), "unverified");
         return Err(error);
     }
+    remove_if_present(&root(data).join("stop-failed"))?;
     clear_saved_serve(data).map_err(|error| {
         tracing::warn!(%error, "Could not clear saved Tailscale access");
         "Tailscale is off. Sign out of Tailscale before connecting again.".to_string()
@@ -1197,7 +1198,12 @@ fn stop_daemon(data: &Path) -> Result<(), String> {
                 if *boot != boot_id()? {
                     return retire_launch(data);
                 }
-                Some((pid.parse::<u32>().map_err(|e| e.to_string())?, *start))
+                let pid = pid
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|pid| *pid > 1)
+                    .ok_or("A previous Tailscale start could not be verified.")?;
+                Some((pid, *start))
             }
             _ => return Err("A previous Tailscale start could not be verified.".into()),
         }
@@ -1595,6 +1601,43 @@ mod tests {
         let status = status_json(dir.path(), 8090);
         assert_eq!(status["residual_exposure"], true);
         assert_eq!(status["state"], "error");
+        assert!(root(dir.path()).join("reset-required").exists());
+    }
+
+    #[test]
+    fn invalid_launch_pid_does_not_use_stop_proof() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root(dir.path())).unwrap();
+        let boot = boot_id().unwrap();
+        std::fs::write(root(dir.path()).join("stop-verified"), &boot).unwrap();
+        for pid in ["0", "1", "invalid"] {
+            std::fs::write(
+                root(dir.path()).join("launch-intent"),
+                format!("{pid} 1 {boot}"),
+            )
+            .unwrap();
+            assert!(stop_daemon(dir.path()).is_err());
+        }
+    }
+
+    #[test]
+    fn verified_stop_clears_exposure_when_saved_access_cannot_be_cleared() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root(dir.path())).unwrap();
+        for (name, value) in [
+            ("reset-required", "1".to_string()),
+            ("stop-failed", "1".to_string()),
+            ("stop-verified", boot_id().unwrap()),
+            (
+                "tailscaled.state",
+                r#"{"key":"x","nonce":"x","data":"x"}"#.to_string(),
+            ),
+        ] {
+            std::fs::write(root(dir.path()).join(name), value).unwrap();
+        }
+        assert!(clear_access_if_required(dir.path()).is_err());
+        assert!(!root(dir.path()).join("stop-failed").exists());
+        assert_ne!(status_json(dir.path(), 8090)["residual_exposure"], true);
         assert!(root(dir.path()).join("reset-required").exists());
     }
 

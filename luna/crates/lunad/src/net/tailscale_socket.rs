@@ -143,7 +143,7 @@ mod tests {
                 return candidate;
             }
         }
-        fallback
+        panic!("no protected, writable runtime directory is available for the socket tests")
     }
     fn assert_fixture_ancestry(path: &Path) {
         if let Err(error) = protected_ancestry(path) {

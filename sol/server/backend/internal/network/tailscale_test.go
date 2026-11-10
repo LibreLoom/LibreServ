@@ -129,6 +129,25 @@ func TestPendingCleanupReportsUnverifiedStop(t *testing.T) {
 	}
 }
 
+func TestVerifiedStopClearsExposureWhenSavedAccessCannotBeCleared(t *testing.T) {
+	dir := t.TempDir()
+	for name, value := range map[string]string{"reset-required": "1", "stop-failed": "1", "stop-verified": mustBootID(t), "tailscaled.state": `{"key":"x","nonce":"x","data":"x"}`} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := &TailscaleService{dir: dir}
+	if err := svc.clearAccessIfRequired(); err == nil {
+		t.Fatal("expected saved access cleanup to fail")
+	}
+	if tailscaleFileExists(filepath.Join(dir, "stop-failed")) || svc.statusLocked().ResidualExposure {
+		t.Fatal("verified stop was reported as unverified")
+	}
+	if !tailscaleFileExists(filepath.Join(dir, "reset-required")) {
+		t.Fatal("lost cleanup intent")
+	}
+}
+
 func TestFailedFirstConnectDoesNotEnableRestore(t *testing.T) {
 	dir := t.TempDir()
 	cli, daemon := filepath.Join(dir, "cli"), filepath.Join(dir, "daemon")

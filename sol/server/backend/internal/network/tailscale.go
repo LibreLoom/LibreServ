@@ -570,6 +570,9 @@ func (s *TailscaleService) clearAccessIfRequired() error {
 		_ = os.WriteFile(filepath.Join(s.dir, "stop-failed"), []byte("unverified"), 0600)
 		return err
 	}
+	if err := os.Remove(filepath.Join(s.dir, "stop-failed")); err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	if err := s.clearSavedServe(); err != nil {
 		return err
 	}
