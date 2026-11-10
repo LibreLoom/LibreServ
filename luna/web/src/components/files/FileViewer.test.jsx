@@ -726,10 +726,10 @@ describe("FileViewer fullscreen office overlay", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("opens nothing for formats with no implemented support", async () => {
-    // No fullscreen overlay, no office editor, no fake preview pane — these
-    // never reach FileViewer from the browser (openableKind returns null),
-    // but a stale deep link must not mount the office editor either.
+  it("explains a format with no support instead of staying blank", async () => {
+    // These open the viewer like anything else: it says it cannot show the
+    // file and offers Download, rather than mounting a blank overlay or an
+    // office editor that was never going to work.
     for (const path of ["mesh.stl", "old.doc", "deck.key", "clip.mkv"]) {
       const { unmount } = render(
         <FileViewer open driveId="d1" path={`f/${path}`} onClose={() => {}} />,
@@ -738,8 +738,9 @@ describe("FileViewer fullscreen office overlay", () => {
       expect(
         document.querySelector('[data-slot="file-viewer-overlay"]'),
         path,
-      ).not.toBeInTheDocument();
+      ).toBeInTheDocument();
       expect(screen.queryByTestId("office-editor"), path).not.toBeInTheDocument();
+      expect(screen.getAllByText(/cannot open this kind of file yet/i).length, path).toBeGreaterThan(0);
       unmount();
     }
   });

@@ -2152,6 +2152,7 @@ export default function GalleryPage() {
               places={places.data || NO_PLACES}
               loading={places.isLoading}
               failed={places.isError}
+              onRetry={() => places.refetch()}
               filtered={filterActiveCount > 0}
               drawMode={placesDrawMode}
               onDrawModeChange={setPlacesDrawMode}

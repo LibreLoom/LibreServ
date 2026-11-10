@@ -75,7 +75,12 @@ function backupDetail(row, now) {
     // lunad often names the drive itself ("Backup drive is full."). Putting the
     // name in front of that reads as "Backup drive Backup drive: …", so when the
     // error already starts with the name, show it on its own.
-    const namesDrive = new RegExp(`^${driveName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+    // A name can end in punctuation ("Photos!"), where \b does not line up, so
+    // the match has to end at a separator or the end of the message instead.
+    const namesDrive = new RegExp(
+      `^${driveName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=[\\s:,.!?;—–-]|$)`,
+      "i",
+    );
     if (error && namesDrive.test(error)) return error;
     if (error) return ["Backup drive ", { name: driveName }, ": ", error];
     return ["Backing up to ", { name: driveName }, " did not finish."];

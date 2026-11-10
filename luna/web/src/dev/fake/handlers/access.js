@@ -18,6 +18,8 @@
 import { del, fail, get, json, patch, post, put, raw } from "../engine.js";
 import { nextId } from "../world.js";
 import { photoKey } from "../photos.js";
+import { bytesFor } from "./files.js";
+import { fsOf } from "../fsmodel.js";
 
 const sharing = (w) => {
   if (!w.sharing) w.sharing = { subjects: [], withMe: [] };
@@ -293,10 +295,42 @@ function treeOf(w, token, s) {
   const t = sharing(w).tree?.[token];
   if (t) return t;
   return [
-    { name: "Holiday", kind: "dir", size: 0, modified: nowSec() - 86400 * 30, hidden: false },
+    {
+      name: "Holiday",
+      kind: "dir",
+      size: 0,
+      modified: nowSec() - 86400 * 30,
+      hidden: false,
+      children: [
+        { name: "Day1.jpg", kind: "file", size: 180_000, modified: nowSec() - 86400 * 4, hidden: false },
+        { name: "notes.txt", kind: "file", size: 900, modified: nowSec() - 86400 * 4, hidden: false },
+      ],
+    },
     { name: "Menu.pdf", kind: "file", size: 220_000, modified: nowSec() - 86400 * 3, hidden: false },
     { name: `${s.name}-notes.txt`, kind: "file", size: 1200, modified: nowSec() - 3600, hidden: false },
   ];
+}
+
+/**
+ * Walks a folder link's tree to the entry a relative path names. Every segment
+ * but the last must be a folder, so a path can never reach past the shared
+ * folder into something else.
+ *
+ * @param {Array<any>} tree
+ * @param {string[]} segments
+ * @returns {any} the file entry, or null
+ */
+function inTree(tree, segments) {
+  if (!segments.length) return null;
+  let level = tree;
+  for (let i = 0; i < segments.length; i += 1) {
+    const found = level?.find?.((e) => e.name === segments[i]);
+    if (!found) return null;
+    if (i === segments.length - 1) return found.kind === "dir" ? null : found;
+    if (found.kind !== "dir") return null;
+    level = found.children || [];
+  }
+  return null;
 }
 
 const publicGet = (p, h) => get(p, h, { public: true });
@@ -356,20 +390,34 @@ publicGet("/s/:token/stat", ({ world, params, headers }) => {
 publicGet("/s/:token/file", ({ world, params, query, headers }) => {
   const r = open(world, params.token, headers, { download: query.download === "1" });
   if (r.err) return r.err;
-  const rel = String(query.path || "");
+  // An upload-only link is a drop box: it has no file list and no file to read.
+  // Serving one would contradict the screen that promises nobody can see the
+  // folder's contents.
+  if (r.l.caps === "upload") return fail(404, "Not found.");
+  const rel = String(query.path || "").replace(/^\/+|\/+$/g, "");
   const name = rel.split("/").filter(Boolean).pop() || r.s.name;
-  // A single-file link serves that file; a folder link serves an entry from its
-  // tree. Matching only the basename made `Holiday/Menu.pdf` indistinguishable
-  // from a `Menu.pdf` elsewhere, so a folder link can name a loose entry only.
+  // A single-file link serves that file. A folder link serves an entry from its
+  // tree, resolved against the shared folder: `Holiday/Menu.pdf` must walk into
+  // `Holiday`, so a same-named file outside it is not served instead.
   const entry = r.s.is_file
     ? { name: r.s.name || name, kind: "file" }
-    : rel.includes("/")
-      ? null
-      : treeOf(world, params.token, r.s).find((e) => e.name === name && e.kind !== "dir");
+    : inTree(treeOf(world, params.token, r.s), rel.split("/").filter(Boolean));
   if (!entry) return fail(404, "Not found.");
-  const text = `This is ${entry.name}.\n\nIt was shared with a link, so anyone who has the link can read it.\n`;
-  const type = entry.name.endsWith(".pdf") ? "application/pdf" : "text/plain; charset=utf-8";
-  return raw(new TextEncoder().encode(text), type, 200, {
+  // Serve recognisable bytes for the kind, the same ones the drive's own
+  // content route hands out, so a shared image or PDF actually previews.
+  const nodeFor = (rel) => {
+    if (!rel) return null;
+    try {
+      return fsOf(world, r.s.drive_id || "d1").nodes?.[rel] || null;
+    } catch {
+      return null;
+    }
+  };
+  const node = r.s.is_file ? nodeFor(r.s.path) : nodeFor(`${r.s.path || ""}/${name}`);
+  const [data, type] = node
+    ? bytesFor(node)
+    : [new TextEncoder().encode(`This is ${entry.name}.\n`), "text/plain; charset=utf-8"];
+  return raw(data, type, 200, {
     ...(query.download === "1" ? { "Content-Disposition": `attachment; filename="${entry.name}"` } : {}),
   });
 });

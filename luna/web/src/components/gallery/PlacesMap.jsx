@@ -356,6 +356,7 @@ ClusterMarkers.propTypes = {
  *   places?: Array<any>,
  *   loading?: boolean,
  *   failed?: boolean,
+ *   onRetry?: () => void,
  *   filtered?: boolean,
  *   onSelect?: (place: any) => void,
  *   onDrawArea?: () => void,
@@ -367,6 +368,7 @@ export default function PlacesMap({
   places,
   loading = false,
   failed = false,
+  onRetry = undefined,
   filtered = false,
   onSelect,
   onDrawArea = undefined,
@@ -441,7 +443,14 @@ export default function PlacesMap({
       <EmptyState
         icon={MapPin}
         title="Couldn't load places"
-        description="Luna couldn't read the map or where your photos were taken. Try again in a moment."
+        description="Luna couldn't read the map or where your photos were taken."
+        action={
+          onRetry ? (
+            <Button variant="outline" surface="secondary" size="sm" onClick={onRetry}>
+              Try again
+            </Button>
+          ) : undefined
+        }
       />
     );
   }
@@ -600,6 +609,7 @@ PlacesMap.propTypes = {
   places: PropTypes.arrayOf(PropTypes.object),
   loading: PropTypes.bool,
   failed: PropTypes.bool,
+  onRetry: PropTypes.func,
   filtered: PropTypes.bool,
   onSelect: PropTypes.func,
   onDrawArea: PropTypes.func,

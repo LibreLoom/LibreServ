@@ -230,8 +230,12 @@ A guest reads a shared file's contents from the link (`/s/:token/file`), not fro
 drive API. The fake registered every other `/s/:token` route but not that one, so the
 request fell through to the dev server and the editor rendered the router's answer for
 an unknown path — a literal `{}` — as if that were the file's text. The editor was
-right; the fake was missing a route. Added it, serving a single-file link's own file and
-a folder link's entry from its tree.
+right; the fake was missing a route. Added it: a single-file link serves its own file,
+a folder link serves an entry from its tree, and an upload-only link (a drop box) is
+refused, since that screen promises nobody can see the folder's contents. When the
+linked file is a real drive file the route serves that file's bytes; the built-in
+folder tree is a list of names with no files behind them, so those entries get
+generated text.
 
 ---
 

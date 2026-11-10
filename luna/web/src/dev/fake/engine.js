@@ -42,7 +42,9 @@ function faultMessage(method, path) {
   if (/\/drives\//.test(path)) return says("read this drive");
   if (/\/drives$/.test(path)) return says("load your drives");
   if (/\/connect\/status|\/network\/status/.test(path)) return says("check how Luna is connected");
-  if (/\/system\/updates/.test(path)) return says("change where updates come from");
+  if (/\/system\/updates\/source/.test(path)) return says("change where updates come from");
+  if (/\/system\/updates\/apply/.test(path)) return says("install this update");
+  if (/\/system\/updates/.test(path)) return says("check for updates");
   if (/\/system\/factory-reset/.test(path)) return says("reset this Luna");
   if (/\/uploads\//.test(path)) return says("upload that file");
   if (/\/access\/members/.test(path)) return says("change who can reach this");
@@ -275,13 +277,13 @@ export function installFake({ world, scenario, now, restored = {} }) {
   const wanted = new WeakMap();
   const swapSrc = (el, url) => {
     const href = typeof url === "string" ? url : String(url?.href ?? url ?? "");
+    // Whatever the element is asked for now, a reply already in flight is no
+    // longer wanted — including for a real or external address the fake leaves
+    // alone, and for an empty value that clears the picture.
+    wanted.set(el, href);
     let parsed;
     try { parsed = new URL(href, window.location.origin); } catch { return null; }
-    // Only this page's own addresses are the fake's business; an external image
-    // that happens to sit at /api/... must load from where it really lives.
-    if (parsed.origin !== window.location.origin) return null;
-    if (!isFake(parsed.pathname)) return null;
-    wanted.set(el, href);
+    if (parsed.origin !== window.location.origin || !isFake(parsed.pathname)) return null;
     if (!blobs.has(href)) {
       const request = (async () => {
         const result = await dispatch("GET", href, undefined, {}, {});
@@ -331,6 +333,17 @@ export function installFake({ world, scenario, now, restored = {} }) {
       };
       patched.__mockPatched = true;
       Ctor.prototype.setAttribute = patched;
+    }
+    const realRemove = Ctor.prototype.removeAttribute;
+    if (realRemove && !realRemove.__mockPatched) {
+      const patched = function (name) {
+        // Taking the attribute off cancels a reply still on its way, so a
+        // removed picture cannot reappear on its own.
+        if (String(name).toLowerCase() === "src" && this.src !== undefined) wanted.set(this, "");
+        return realRemove.call(this, name);
+      };
+      patched.__mockPatched = true;
+      Ctor.prototype.removeAttribute = patched;
     }
   }
 
