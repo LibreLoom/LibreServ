@@ -351,9 +351,9 @@ export default [
     title: "Single text file link with edit",
     url: "/s/tokfileedit",
     seed: (w) => { guest(w); subject(w, { path: "Docs/notes.txt", name: "notes.txt", is_file: true, links: [{ ...link({ caps: "full" }), token: "tokfileedit" }] }); },
-    realLunadOnly: "Saving through a full link writes the file on the drive and live presence needs the real collab hub; the fake has no link file contents.",
+    realLunadOnly: "Saving through a full link writes the file on the drive and live presence needs the real collab hub, which the fake has no endpoint for.",
     check: [
-      "The text editor opens with the file name and its frame intact (the fake has no link file contents, so judge layout only)",
+      "The text editor opens with the file's name and frame, and the body stays empty with Connecting… (the fake has no collab hub, so judge layout only)",
       "Type: the status pill says Unsaved; Save (and Ctrl+S) says Saved",
       "Close and reopen: the change is still there under the same file name",
       "Open the same link in a second window: the Live peers row shows the other editor",

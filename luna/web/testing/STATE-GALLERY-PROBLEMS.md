@@ -202,15 +202,16 @@ absent the code joined a list of `undefined` into an empty string.
 Fixed in `luna/web/src/components/share/ShareSheet.jsx`: it falls back to the folder's
 path. The scenario now reads `1 person and 1 link shared through Photos`.
 
-### 13. A gallery check asked for something the fake cannot do — **fixed**
+### 13. A public link had no way to serve the file's own bytes — **fixed**
 
 `public/file-edit`
 
-The check opened with "The text editor opens with the file's words", while the same
-scenario declares *"the fake has no link file contents."* The editor correctly shows the
-name and frame, and the file body is empty because the fake has none — so the check
-could never pass and invited a false report. It now asks what the fake can actually
-show, matching how the office scenarios are worded.
+A guest reads a shared file's contents from the link (`/s/:token/file`), not from the
+drive API. The fake registered every other `/s/:token` route but not that one, so the
+request fell through to the dev server and the editor rendered the router's answer for
+an unknown path — a literal `{}` — as if that were the file's text. The editor was
+right; the fake was missing a route. Added it, serving a single-file link's own file and
+a folder link's entry from its tree.
 
 ---
 
@@ -231,4 +232,6 @@ show, matching how the office scenarios are worded.
 | `files/edit-diagram` | `404 /drawio/pack.json` | The draw.io pack is optional and not installed in a dev checkout. The viewer says so plainly (*This Luna can't open diagrams … Your file is fine*) and offers Download. |
 | `files/listing-error` | `Luna can't find this drive` on a listing 500 | **Not a bug.** The injected fault is on `GET /api/v1/drives/d1/files`, the drive itself, so the app's reading is right; a Try again button is offered as the check asks. |
 | `share/view-only-member` | The sheet lists "Person number 2" | **Not a bug.** That is the fixture's display name for its second fake user, not placeholder text from the app. |
+| `public/file-edit` | The editor body stays empty and says `Connecting…` | **Not a bug.** The editor holds its loading screen until the collab hub answers, and the hub is a real-lunad feature the fake has no endpoint for. The scenario is marked `realLunadOnly` and now says so. |
+| `share/links-all-states` | An expired link still offers "Copy link" | **Not a bug for this audit.** The state reads correctly ("expired"), which is what the scenario asks. Offering to copy a dead link is a poor affordance worth a separate change, but it is new behaviour, not a repair. |
 | `auth/signed-in-admin` | The greeting printed twice | The second copy is the hidden measurer (`opacity: 0`, `aria-hidden`, zero size) that keeps the header from jumping. |

@@ -15,7 +15,7 @@
 //   }
 //   link = { id, token, caps, password, has_password, expires_at, disabled, download_limit,
 //            downloads, form, kind }
-import { del, fail, get, json, patch, post, put } from "../engine.js";
+import { del, fail, get, json, patch, post, put, raw } from "../engine.js";
 import { nextId } from "../world.js";
 import { photoKey } from "../photos.js";
 
@@ -350,6 +350,26 @@ publicGet("/s/:token/stat", ({ world, params, headers }) => {
   return { name: r.s.name, kind: r.s.is_file ? "file" : "dir", size: 120_000, modified: nowSec() - 86400, children: null, created: nowSec() - 86400 * 30, hidden: false, totals: null, writable: false };
 });
 
+// The file's own bytes. A guest reads these from the link, not the drive API,
+// so without this route a link's editor showed "{}" — the router's answer for
+// a path nothing matched — as if that were the file's text.
+publicGet("/s/:token/file", ({ world, params, query, headers }) => {
+  const r = open(world, params.token, headers, { download: query.download === "1" });
+  if (r.err) return r.err;
+  const name = String(query.path || "").split("/").filter(Boolean).pop() || r.s.name;
+  // A single-file link serves that file; a folder link serves an entry from its
+  // tree. Matching only the tree made every single-file link answer "not found".
+  const entry = r.s.is_file
+    ? { name: r.s.name || name, kind: "file" }
+    : treeOf(world, params.token, r.s).find((e) => e.name === name && e.kind !== "dir");
+  if (!entry) return fail(404, "Not found.");
+  const text = `This is ${entry.name}.\n\nIt was shared with a link, so anyone who has the link can read it.\n`;
+  const type = entry.name.endsWith(".pdf") ? "application/pdf" : "text/plain; charset=utf-8";
+  return raw(new TextEncoder().encode(text), type, 200, {
+    ...(query.download === "1" ? { "Content-Disposition": `attachment; filename="${entry.name}"` } : {}),
+  });
+});
+
 post("/s/:token/upload", ({ world, params, headers, body }) => {
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
@@ -386,5 +406,4 @@ post("/s/:token/respond", ({ world, params, headers, body }) => {
 }, { public: true });
 post("/s/:token/respond-file", () => ({ name: "attachment.png" }), { public: true });
 get("/s/:token/form-image", () => json({}), { public: true });
-get("/s/:token/file", () => json({}), { public: true });
 
