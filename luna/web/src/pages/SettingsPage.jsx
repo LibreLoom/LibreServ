@@ -117,16 +117,19 @@ export default function SettingsPage() {
     setPendingHit(hit.kind === "category" ? null : hit);
   };
 
+  // The hit is read once, by the render that arrives with it, so the cleanup
+  // below can drop it without a second navigation bringing it back.
+  const incomingHit = /** @type {import("@libreloom/ui/lib/settingsSearch.js").SettingsHit | null} */ (location.state?.searchHit ?? null);
   useEffect(() => {
-    const hit = location.state?.searchHit;
-    if (!hit || !allowedCategoryIds.includes(hit.categoryId)) return;
+    if (!incomingHit || !allowedCategoryIds.includes(incomingHit.categoryId)) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- consume a router navigation
     setQuery("");
-    setSelectedCategory(hit.categoryId);
+    setSelectedCategory(incomingHit.categoryId);
     setShowMobileContent(true);
-    setPendingHit(hit.kind === "category" ? null : hit);
-    navigate({ pathname: location.pathname, search: location.search, hash: hit.categoryId }, { replace: true, state: null });
-  }, [location, allowedCategoryIds, navigate]);
+    setPendingHit(incomingHit.kind === "category" ? null : incomingHit);
+    navigate({ pathname: location.pathname, search: location.search, hash: incomingHit.categoryId }, { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the hit is read once, when it arrives
+  }, [incomingHit, allowedCategoryIds, navigate]);
 
   // The category draws in (and its cards fade in) after the pick, so look for
   // the setting for a moment, then scroll to it and ring it briefly.

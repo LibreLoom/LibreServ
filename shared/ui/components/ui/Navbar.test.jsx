@@ -140,7 +140,9 @@ describe("Navbar search", () => {
     const onSearch = vi.fn();
     renderNavbar(onSearch);
     const nav = /** @type {HTMLElement} */ (document.querySelector('nav[aria-label="Primary"]'));
-    fireEvent.click(within(nav).getByRole("button", { name: "Search", hidden: true }));
+    const button = within(nav).getByRole("button", { name: "Search", hidden: true });
+    expect(button).toHaveAttribute("aria-keyshortcuts", "Alt+/");
+    fireEvent.click(button);
     expect(onSearch).toHaveBeenCalledOnce();
   });
 });

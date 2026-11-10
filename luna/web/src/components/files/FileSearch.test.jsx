@@ -171,10 +171,14 @@ describe("FileSearch", () => {
     await openSearchOverlay();
     const input = screen.getByRole("textbox", { name: "Search Luna" });
     fireEvent.change(input, { target: { value: "appearance" } });
-    await screen.findByRole("link", { name: /^Appearance$/i });
+    // "Appearance" is the exact match, so it sits in Best match, not Settings.
+    await waitFor(() => expect(document.querySelector('[data-slot="file-search-list"]')?.textContent).toContain("Appearance"));
     fireEvent.change(input, { target: { value: "Luna Connect" } });
     if (visible) {
-      expect(await screen.findByRole("link", { name: /^Luna Connect$/i })).toBeInTheDocument();
+      // The exact category is the best match, so it is listed once, at the top.
+      await waitFor(() => expect(document.querySelector('[data-slot="file-search-list"]')?.textContent).toContain("Luna Connect"));
+      // Shown once: the category as the best match, not again under Settings.
+      expect([...document.querySelectorAll('[data-slot="file-search-link"]')].filter((link) => link.textContent?.startsWith("Luna Connect"))).toHaveLength(1);
     } else {
       await waitFor(() => expect(screen.queryByRole("link", { name: /^Luna Connect$/i })).not.toBeInTheDocument());
     }
@@ -186,10 +190,12 @@ describe("FileSearch", () => {
       await openSearchOverlay();
       const input = screen.getByRole("textbox", { name: "Search Luna" });
       fireEvent.change(input, { target: { value: "appearance" } });
-      await screen.findByRole("link", { name: /^Appearance$/i });
+      await waitFor(() => expect(document.querySelector('[data-slot="file-search-list"]')?.textContent).toContain("Appearance"));
       fireEvent.change(input, { target: { value: "users" } });
       if (visible) {
-        expect(await screen.findByRole("link", { name: /^Users$/i })).toBeInTheDocument();
+        await waitFor(() => expect(document.querySelector('[data-slot="file-search-list"]')?.textContent).toContain("Users"));
+        // Shown once: the category as the best match, not again under Settings.
+        expect([...document.querySelectorAll('[data-slot="file-search-link"]')].filter((link) => link.textContent?.endsWith("Users"))).toHaveLength(1);
       } else {
         await waitFor(() => expect(screen.queryByRole("link", { name: /^Users$/i })).not.toBeInTheDocument());
       }
@@ -671,6 +677,25 @@ describe("FileSearch", () => {
     expect(input).toHaveFocus();
   });
 
+  it("leaves ArrowDown and Home in the search box alone when results are showing", async () => {
+    renderSearch([
+      { drive_id: "d1", path: "one.txt", parent: "", name: "one.txt", kind: "file", size: 1, modified: 1 },
+      { drive_id: "d1", path: "two.txt", parent: "", name: "two.txt", kind: "file", size: 1, modified: 1 },
+    ]);
+    await openSearchOverlay();
+    const input = screen.getByRole("textbox", { name: "Search Luna" });
+    fireEvent.change(input, { target: { value: "txt" } });
+    await screen.findByRole("link", { name: /^Open one.txt$/i });
+    const first = screen.getByRole("link", { name: /^Open one.txt$/i });
+    first.focus();
+    fireEvent.keyDown(first, { key: "ArrowUp" });
+    expect(input).toHaveFocus();
+    // Home is the start of the line being typed, not the first result.
+    fireEvent.keyDown(input, { key: "Home" });
+    expect(input).toHaveFocus();
+    expect(first).not.toHaveFocus();
+  });
+
   it("does not error when pressing ArrowDown with no results", async () => {
     renderSearch([]);
     await openSearchOverlay();
@@ -706,6 +731,57 @@ describe("FileSearch", () => {
       expect(screen.queryByRole("link", { name: /Alice/i })).not.toBeInTheDocument();
       expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/v1/users/directory"))).toBe(false);
     }
+  });
+
+  it("starts empty each time it opens, not on the last search", async () => {
+    renderSearch([{ drive_id: "d1", path: "notes.txt", parent: "", name: "notes.txt", kind: "file", size: 1, modified: 1 }]);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "notes" } });
+    await screen.findByRole("link", { name: /^Open notes.txt$/i });
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search Luna" })).not.toBeInTheDocument());
+    await openSearchOverlay();
+    expect(screen.getByRole("textbox", { name: "Search Luna" })).toHaveValue("");
+    expect(screen.queryByRole("link", { name: /^Open notes.txt$/i })).not.toBeInTheDocument();
+  });
+
+  it("says people search failed instead of saying it is still looking", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      const u = String(url);
+      if (u.endsWith("/api/v1/users/directory")) {
+        return new Response(JSON.stringify({ error: "Luna is busy." }), {
+          status: 500, headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/auth/me") || u.endsWith("/api/v1/auth/me")) {
+        return new Response(JSON.stringify({ id: "1", role: "admin", username: "admin" }), {
+          status: 200, headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <ToastProvider>
+        <ShortcutsProvider>
+          <QueryClientProvider client={client}>
+            <MemoryRouter initialEntries={["/"]}>
+              <AuthProvider>
+                <FileOpsProvider>
+                  <FileSearch />
+                </FileOpsProvider>
+              </AuthProvider>
+            </MemoryRouter>
+          </QueryClientProvider>
+        </ShortcutsProvider>
+      </ToastProvider>,
+    );
+    fireEvent.keyDown(document.body, { key: "/" });
+    await screen.findByRole("dialog", { name: "Search Luna" });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "zzqzxnomatch" } });
+    expect(await screen.findByText(/Could not search people/i)).toBeInTheDocument();
+    expect(screen.queryByText("Searching people…")).not.toBeInTheDocument();
   });
 
   it("refreshes people when search is reopened", async () => {
@@ -745,6 +821,21 @@ describe("FileSearch", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "photos" } });
     await waitFor(() => expect(searchCalls(fetchMock)).toContain("/api/v1/search?q=photos"));
     expect(screen.queryByRole("radio", { name: "Folders" })).not.toBeInTheDocument();
+  });
+
+  it("opens an exact setting as the best match, at that setting", async () => {
+    renderSearch([]);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "appearance" } });
+    await waitFor(() => expect(document.querySelector('[data-slot="file-search-list"]')?.textContent).toContain("Theme"));
+    // The exact category is the top link, and the only copy of itself.
+    const best = /** @type {HTMLElement} */ (document.querySelector('[data-slot="file-search-link"]'));
+    expect(best).toHaveTextContent("Appearance");
+    expect(best).toHaveAttribute("href", "/settings#appearance");
+    const links = [...document.querySelectorAll('[data-slot="file-search-link"]')];
+    expect(links.filter((link) => link.textContent === "ThemeAppearance")).toHaveLength(1);
+    // The settings under it still open at their own card.
+    expect(links.some((link) => link.textContent === "Color schemeAppearance › Theme")).toBe(true);
   });
 
   it("says when every result is only a close match", async () => {

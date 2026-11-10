@@ -8,6 +8,7 @@ import {
   findSettingsTarget,
   normalize,
   matchesSearchName,
+  matchesSearchWords,
   searchSettings,
 } from "./settingsSearch.js";
 
@@ -59,6 +60,16 @@ describe("settings search", () => {
     expect(matchesSearchName("Ann-Marie", "marie ann")).toBe(false);
     expect(matchesSearchName("Alice", "ali ali")).toBe(false);
     expect(matchesSearchName("Jane Doe", "jnae doe")).toBe(true);
+  });
+
+  it("matches page names on their own words, with no typos forgiven", () => {
+    expect(matchesSearchWords("Photos", "pho")).toBe(true);
+    expect(matchesSearchWords("Photos", "photos")).toBe(true);
+    expect(matchesSearchWords("Photos", "phoots")).toBe(false);
+    expect(matchesSearchWords("Photos", "phases")).toBe(false);
+    expect(matchesSearchWords("Shared", "hared")).toBe(true);
+    expect(matchesSearchWords("Shared", "shared files")).toBe(false);
+    expect(matchesSearchWords("Shared", "")).toBe(false);
   });
 
   it("reads cards and rows from whatever the shared components draw", async () => {

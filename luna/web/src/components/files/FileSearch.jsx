@@ -9,7 +9,7 @@ import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
-import { matchesSearchName } from "@libreloom/ui/lib/settingsSearch.js";
+import { matchesSearchName, matchesSearchWords } from "@libreloom/ui/lib/settingsSearch.js";
 import LinearProgress from "@libreloom/ui/components/common/LinearProgress.jsx";
 import { showPageLevelError } from "../../lib/modalScopedError";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
@@ -171,10 +171,15 @@ export default function FileSearch() {
   const settings = useSettingsSearch(categories, present ? trimmed : "", present);
   const [showAllSettings, setShowAllSettings] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState(/** @type {string[]} */ ([]));
-  const places = PLACES.filter((place) => trimmed.length >= MIN_SEARCH_LENGTH && matchesSearchName(place.title, trimmed));
+  // Pages are a fixed handful of names: a typo there only suggests a page that
+  // isn't called that, so they match on their own words and nothing looser.
+  const places = PLACES.filter((place) => trimmed.length >= MIN_SEARCH_LENGTH && matchesSearchWords(place.title, trimmed));
   const search = useFileSearch(trimmed, { enabled: present && !isClosing });
   const users = useQuery({ queryKey: ["users-directory"], queryFn: () => getJson("/api/v1/users/directory"), enabled: present && user?.role === "admin", staleTime: 0 });
   const peopleLoading = user?.role === "admin" && users.isPending && users.fetchStatus === "fetching";
+  // A failed people lookup has no rows, so without this the box would keep
+  // saying it is still looking.
+  const peopleFailed = user?.role === "admin" && users.isError;
   const people = trimmed.length >= MIN_SEARCH_LENGTH && user?.role === "admin"
     ? (users.data || []).filter((person) => matchesSearchName(person.display_name || person.username, trimmed) || matchesSearchName(person.username, trimmed))
     : [];
@@ -182,7 +187,10 @@ export default function FileSearch() {
   const exactPlace = places.find((place) => place.title.toLowerCase() === trimmed.toLowerCase());
   const exactSetting = settings.results?.find((hit) => hit.title.toLowerCase() === trimmed.toLowerCase());
   const exactFile = search.hits[0]?.name.toLowerCase() === trimmed.toLowerCase();
-  const bestOther = !exactFile && (exactPlace || exactSetting);
+  // Only a page can be lifted out of its group. A setting is a Link that
+  // needs its hit, and the Best match slot reads `path` as a route.
+  const bestOther = !exactFile && exactPlace;
+  const bestSetting = !exactFile && !exactPlace && exactSetting;
   const remaining = search.hits.slice(1);
   const groups = [
     { label: bestOther ? "Other matches" : "Best match", hits: search.hits.slice(0, 1) },
@@ -304,6 +312,10 @@ export default function FileSearch() {
     isClosingRef.current = false;
     fromRectRef.current = searchTrigger()?.getBoundingClientRect() ?? null;
     returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // A new search starts empty, not on the results from last time.
+    setTyped("");
+    setShowAllSettings(false);
+    setExpandedGroups([]);
     setIsClosing(false);
     setPresent(true);
     haptic("medium");
@@ -405,6 +417,9 @@ export default function FileSearch() {
 
   const handleListKeyDown = useCallback((/** @type {import("react").KeyboardEvent<HTMLUListElement>} */ event) => {
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    // The search box keeps its own Arrow/Home/End handling. A key bubble that
+    // starts there is the person editing text, not moving through results.
+    if (event.target === inputRef.current) return;
 
     // ←/→ move between a row's link and its action buttons.
     if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
@@ -587,7 +602,7 @@ export default function FileSearch() {
                 </PageNotice>
               )}
 
-              {search.active && !search.isLoading && !search.isError && !search.incomplete && !peopleLoading && !users.isError && search.hits.length === 0 && places.length === 0 && settings.results?.length === 0 && people.length === 0 && (
+              {search.active && !search.isLoading && !search.isError && !search.incomplete && !peopleLoading && !peopleFailed && search.hits.length === 0 && places.length === 0 && settings.results?.length === 0 && people.length === 0 && (
                 search.scan?.scanning ? (
                   <EmptyState
                     className="mt-1"
@@ -627,8 +642,7 @@ export default function FileSearch() {
                         <li data-slot="file-search-item">
                           <Link
                             data-slot="file-search-link"
-                            to={"path" in bestOther ? bestOther.path : { pathname: "/settings", hash: bestOther.categoryId }}
-                            state={"path" in bestOther ? undefined : { searchHit: bestOther }}
+                            to={bestOther.path}
                             onClick={() => beginClose()}
                             className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent"
                           >
@@ -700,10 +714,10 @@ export default function FileSearch() {
                         )}
                       </>
                     )}
-                    {settings.results?.some((hit) => hit !== bestOther) && (
+                    {settings.results?.some((hit) => hit !== bestSetting) && (
                       <>
                         <li role="presentation" className="px-1 pt-2 text-xs font-mono text-primary">Settings</li>
-                        {(showAllSettings ? settings.results : settings.results?.slice(0, 4))?.filter((hit) => hit !== bestOther).map((hit) => (
+                        {(showAllSettings ? settings.results : settings.results?.slice(0, 4))?.filter((hit) => hit !== bestSetting).map((hit) => (
                           <li key={`${hit.categoryId}/${hit.kind}/${hit.cardTitle}/${hit.title}`} data-slot="file-search-item">
                             <Link data-slot="file-search-link" to={{ pathname: "/settings", hash: hit.categoryId }} state={{ searchHit: hit }} onClick={() => beginClose()} className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent">
                               <span className="block">{hit.title}</span>

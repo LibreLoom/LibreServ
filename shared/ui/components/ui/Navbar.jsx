@@ -506,7 +506,15 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
             <div className="flex items-center gap-6 text-sm font-sans justify-center flex-1">
               {navButtonsElements}
               {onSearch && (
-                <button type="button" className={navButtonBaseClasses} onClick={onSearch}>
+                <button
+                  type="button"
+                  className={navButtonBaseClasses}
+                  aria-keyshortcuts="Alt+/"
+                  onClick={() => {
+                    haptic("selection");
+                    onSearch();
+                  }}
+                >
                   <Search size={ICON_SIZE.lg} aria-hidden="true" /><span>Search</span>
                 </button>
               )}
@@ -684,7 +692,7 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
               </React.Fragment>
             ))}
             {onSearch && (
-              <button type="button" className={mobileMenuItemClasses} onClick={() => { closeMobileMenu(); onSearch(); }}>
+              <button type="button" className={mobileMenuItemClasses} onClick={() => { haptic("selection"); closeMobileMenu(); onSearch(); }}>
                 <Search size={ICON_SIZE.lg} aria-hidden="true" /><span>Search</span>
               </button>
             )}
