@@ -5,9 +5,9 @@ Open `http://localhost:3001/__states` from `cd luna/web && npm run dev`. Each ro
 | Issue | Scenario | What to do |
 |---|---|---|
 | Encryption menu as a page | `files/encryption` | On Files, press Encryption on a drive. It opens a sheet, not a page; state pill, actions and progress live there. |
-| Encryption “succeeds” while the drive is unreadable | `files/encryption` | Encrypt, confirm the wipe, then watch the sheet. “Drive encrypted” appears only after the sheet has seen the drive finish; the card then shows Locked. |
+| Encryption “succeeds” while the drive is unreadable | `files/encryption` | Set up encryption, then watch Format. It reports completion only when the operation succeeds, and the drive is unlocked and ready afterwards. |
 | Locked drive flow | `files/encryption-locked` | Open Encryption on the locked drive; wrong password stays inline, right one unlocks. |
-| Wipe flow | `files/encryption`, `files/encryption-locked` | The wipe dialog is the same confirmation for encrypt/decrypt/reformat, lists what is on the drive and waits before the destructive button. |
+| Format flow | `files/encryption` | Set up encryption opens Format with encryption selected. Review lists the partitions and contents and waits 30 seconds before the button; there is no wipe dialog. |
 | Unreadable health report | `files/health-unknown` | No Drive health section, no health pill, no warning notice. |
 | Shared-page spinner not centred | `shared/loading` | Throttle the shared request; the loading line sits centred like Photos. |
 | White hairline on shared rows | `shared/many` | Hover rows: no white seams between cells. |

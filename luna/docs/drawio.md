@@ -116,16 +116,21 @@ are excluded during extraction.
 `os/dist/drawio-pack.tar.zst` — the whole pack as a self-describing `drawio/`
 dir.
 
-The pack is part of the OS image, not the data partition. The release tool
-builds both editor packs before the rootfs and mounts them into it; the rootfs
-step unpacks them to `/usr/share/luna/drawio`, and a cut refuses an image
-without them. `./os/build-iso.sh` builds the packs into `os/dist/` before its
-`./os/build-rootfs.sh` step, so a dev image carries them too. lunad serves them
-from there (see `crates/lunad/src/packs.rs`); a data-dir copy is honoured only
-for a box installed from an older ISO, until it updates.
+The pack is a program file, so it lives in the OS image, not on the data
+partition. The release tool builds it before the rootfs and mounts it in;
+`os/lib/build-rootfs.d/035.frag` extracts it to `/usr/share/luna/drawio`.
+A release cut refuses an image without it (`LUNA_PACKS_REQUIRED=1`); a dev
+build only warns. `os/build-iso.sh` builds the packs into `os/dist/` before its
+`os/build-rootfs.sh` step, so a dev image carries them too. lunad serves it from
+there (`crates/lunad/src/packs.rs`): the image's copy wins, and a
+`{data_dir}/drawio` copy is honoured next, so a box from an older ISO keeps its
+editors until it updates. A device whose image lacks the pack shows the normal
+"not installed" card on diagram files.
 
-An update replaces the whole image, packs included — there is no separate pack
-part on the feed. A feed without an `os` part offers nothing.
+There is no separate pack update: a new pack is a new OS image, which
+**Install update** replaces as a whole, and a feed without an `os` part offers
+nothing. See
+[the feed contract](../../infra/ci-source/internal/feed/README.md).
 
 ## Endpoints
 
