@@ -989,13 +989,15 @@ describe("FilePage", () => {
     expect(await screen.findByRole("dialog", { name: /notes.txt/i })).toBeInTheDocument();
   });
 
-  it("ignores unsupported file in query parameter and does not open viewer", async () => {
+  it("opens the viewer for an unsupported file so it can explain and offer a download", async () => {
     stubFilesApi({
       "": [{ name: "data.bin", kind: "file", size: 50, modified: 0, hidden: false }],
     });
     renderFiles("/files/d1?file=data.bin");
-    expect(await screen.findByText("data.bin")).toBeInTheDocument();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: /data.bin/i })).toBeInTheDocument();
+    expect(
+      await screen.findByText(/cannot open this kind of file yet/i),
+    ).toBeInTheDocument();
   });
 
   it("ignores unsupported file in hashtag and does not open viewer", async () => {

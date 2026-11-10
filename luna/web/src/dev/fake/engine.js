@@ -25,6 +25,35 @@ class NetworkError extends Error {}
 const abortError = () => new DOMException("Aborted", "AbortError");
 
 /**
+ * What a request was trying to do, in words a person would use. Used only when
+ * a fault carries no message of its own, so the gallery never shows "Luna
+ * couldn't do that" — that names nothing and tells nobody what to retry.
+ *
+ * @param {string} method
+ * @param {string} path
+ * @returns {string}
+ */
+function faultMessage(method, path) {
+  const says = (s) => s;
+  if (/\/device-tokens/.test(path)) return says("load your apps and access tokens");
+  if (/\/users/.test(path)) return says("load the people on this Luna");
+  if (/\/gallery\/places/.test(path)) return says("load where your photos were taken");
+  if (/\/gallery\//.test(path)) return says("load your photos");
+  if (/\/drives\//.test(path)) return says("read this drive");
+  if (/\/drives$/.test(path)) return says("load your drives");
+  if (/\/connect\/status|\/network\/status/.test(path)) return says("check how Luna is connected");
+  if (/\/system\/updates/.test(path)) return says("change where updates come from");
+  if (/\/system\/factory-reset/.test(path)) return says("reset this Luna");
+  if (/\/uploads\//.test(path)) return says("upload that file");
+  if (/\/access\/members/.test(path)) return says("change who can reach this");
+  if (/\/access\/links/.test(path)) return says("change this link");
+  if (/\/access\//.test(path)) return says("load who can reach this");
+  if (/\/stat$|\/file$|\/tree$/.test(path)) return says("open this shared item");
+  const verb = method === "GET" || method === "HEAD" ? "load that" : "save that";
+  return says(verb);
+}
+
+/**
  * Starts the fake. Returns the control surface that the gallery drives through
  * `window.__lunaFake`.
  *
@@ -136,9 +165,13 @@ export function installFake({ world, scenario, now, restored = {} }) {
       if (mode === "empty") return finish(200, "");
       if (mode === "badjson") return finish(200, "<html>oops");
       if (/^\d{3}$/.test(mode)) {
-        // A fault with no message of its own still has to read like Luna. Plain
-        // words, no test jargon: the gallery is judged on what people see.
-        const plain = mode.startsWith("5") ? "Luna couldn't do that just now. Try again in a moment." : "Luna couldn't do that. Try again in a moment.";
+        // A fault with no message of its own still has to read like Luna, and
+        // name the thing that failed. Most pages show their own inline error
+        // and never display this.
+        const what = faultMessage(method, path);
+        const plain = mode.startsWith("5")
+          ? `Luna couldn't ${what} just now. Try again in a moment.`
+          : `Luna couldn't ${what}.`;
         return finish(Number(mode), JSON.stringify({ error: fault.message || plain, ...(fault.code ? { code: fault.code } : {}) }));
       }
 
@@ -237,21 +270,37 @@ export function installFake({ world, scenario, now, restored = {} }) {
   const MEDIA = [window.HTMLImageElement, window.HTMLMediaElement, window.HTMLSourceElement, window.HTMLIFrameElement];
   const blobs = new Map();
   const realSetters = new WeakMap();
+  // What each element was last asked to show. A reply that arrives after the
+  // element moved on (or lost its src) must not put the old picture back.
+  const wanted = new WeakMap();
   const swapSrc = (el, url) => {
     const href = typeof url === "string" ? url : String(url?.href ?? url ?? "");
-    let path;
-    try { path = new URL(href, window.location.origin).pathname; } catch { return null; }
-    if (!isFake(path)) return null;
+    let parsed;
+    try { parsed = new URL(href, window.location.origin); } catch { return null; }
+    // Only this page's own addresses are the fake's business; an external image
+    // that happens to sit at /api/... must load from where it really lives.
+    if (parsed.origin !== window.location.origin) return null;
+    if (!isFake(parsed.pathname)) return null;
+    wanted.set(el, href);
     if (!blobs.has(href)) {
-      blobs.set(href, (async () => {
+      const request = (async () => {
         const result = await dispatch("GET", href, undefined, {}, {});
         if (result.status >= 400) throw new Error(`[mock] ${result.status} ${href}`);
         return URL.createObjectURL(new Blob([result.bytes ?? result.text], { type: result.headers?.["Content-Type"] || "application/octet-stream" }));
-      })());
+      })();
+      blobs.set(href, request);
+      // A transient failure must not stick: drop it so a retry asks again.
+      request.catch(() => blobs.delete(href));
     }
     blobs.get(href)
-      .then((blobUrl) => realSetters.get(el)?.call(el, blobUrl))
-      .catch(() => { el.dispatchEvent(new Event("error")); });
+      .then((blobUrl) => {
+        if (wanted.get(el) !== href) return;
+        realSetters.get(el)?.call(el, blobUrl);
+      })
+      .catch(() => {
+        if (wanted.get(el) !== href) return;
+        el.dispatchEvent(new Event("error"));
+      });
     return true;
   };
   for (const Ctor of MEDIA) {
@@ -274,6 +323,8 @@ export function installFake({ world, scenario, now, restored = {} }) {
       const patched = function (name, value) {
         if (String(name).toLowerCase() === "src" && this.src !== undefined) {
           realSetters.set(this, realSet);
+          // Removing the attribute cancels whatever was still on its way.
+          if (value === null || value === undefined || value === "") wanted.set(this, "");
           if (swapSrc(this, value)) return;
         }
         return realAttr.call(this, name, value);

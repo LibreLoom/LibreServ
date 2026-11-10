@@ -356,12 +356,16 @@ publicGet("/s/:token/stat", ({ world, params, headers }) => {
 publicGet("/s/:token/file", ({ world, params, query, headers }) => {
   const r = open(world, params.token, headers, { download: query.download === "1" });
   if (r.err) return r.err;
-  const name = String(query.path || "").split("/").filter(Boolean).pop() || r.s.name;
+  const rel = String(query.path || "");
+  const name = rel.split("/").filter(Boolean).pop() || r.s.name;
   // A single-file link serves that file; a folder link serves an entry from its
-  // tree. Matching only the tree made every single-file link answer "not found".
+  // tree. Matching only the basename made `Holiday/Menu.pdf` indistinguishable
+  // from a `Menu.pdf` elsewhere, so a folder link can name a loose entry only.
   const entry = r.s.is_file
     ? { name: r.s.name || name, kind: "file" }
-    : treeOf(world, params.token, r.s).find((e) => e.name === name && e.kind !== "dir");
+    : rel.includes("/")
+      ? null
+      : treeOf(world, params.token, r.s).find((e) => e.name === name && e.kind !== "dir");
   if (!entry) return fail(404, "Not found.");
   const text = `This is ${entry.name}.\n\nIt was shared with a link, so anyone who has the link can read it.\n`;
   const type = entry.name.endsWith(".pdf") ? "application/pdf" : "text/plain; charset=utf-8";

@@ -46,9 +46,11 @@ describe("useFileNavigation", () => {
     expect(result.current.nav.viewerPath).toBe("docs/photo.jpg");
   });
 
-  it("does not open files that the viewer cannot render", () => {
+  it("opens any named file so the viewer can explain what it cannot render", () => {
+    // A name Luna has no viewer for still opens: the viewer says so and offers a
+    // download. Opening nothing made the click look like a dead end.
     const { result } = harness("/files/d1?file=weird.xyz123");
-    expect(result.current.nav.viewerPath).toBeNull();
+    expect(result.current.nav.viewerPath).toBe("weird.xyz123");
   });
 
   it("onPathChange drops file and select params", () => {

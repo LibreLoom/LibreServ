@@ -91,16 +91,18 @@ describe("recentItemFromLocation", () => {
     ).toEqual({ kind: "file", driveId: "d1", path: "Documents/note.md" });
   });
 
-  it("falls back to the folder when the file is not openable in Luna", () => {
+  it("records the file even when Luna has no viewer for it", () => {
+    // Anything with a name opens now — the viewer explains and offers a
+    // download — so a recent entry points at the file, not its folder.
     expect(
       recentItemFromLocation({
         pathname: "/files/d1",
         search: "?path=Documents&file=backup.dat",
       }),
-    ).toEqual({ kind: "folder", driveId: "d1", path: "Documents" });
+    ).toEqual({ kind: "file", driveId: "d1", path: "Documents/backup.dat" });
     expect(
       recentItemFromLocation({ pathname: "/files/d1", search: "?file=backup.dat" }),
-    ).toEqual({ kind: "drive", driveId: "d1", path: "" });
+    ).toEqual({ kind: "file", driveId: "d1", path: "backup.dat" });
   });
 
   it("ignores the skip-link hash", () => {

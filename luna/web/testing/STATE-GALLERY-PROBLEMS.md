@@ -25,13 +25,19 @@ Status values: **open** (found, not fixed yet) · **fixed** (code changed, needs
 | Files | 121 | 121 | 5 | 5 |
 | Photos | 41 | 41 | 2 | 2 |
 | Recovery | 2 | 2 | 0 | 0 |
-| Settings | 53 | 53 | 2 | 2 |
+| Settings (five sub-areas) | 50 | 50 | 2 | 2 |
 | 404 | 3 | 3 | 0 | 0 |
 | Setup | 17 | 17 | 0 | 0 |
-| Sharing | 15 | 15 | 1 | 1 |
+| Shared | 7 | 7 | 0 | 0 |
+| Sharing sheet | 15 | 15 | 1 | 1 |
 | Public link | 18 | 18 | 0 | 0 |
 | Forms | 4 | 4 | 0 | 0 |
 | **Total** | **318** | **318** | **13** | **13** |
+
+Counts are the gallery's own `area` values. Settings splits into Luna Connect (20),
+Security (7), About (7), Users (6), Appearance (2) and the general settings page (4),
+plus Edit user (4) — 50 together. "Sharing sheet" is the gallery's label; the PR calls
+it the share sheet.
 
 Both passes are complete and clean: every one of the 318 scenarios has been walked by
 hand against the checks the gallery lists, and the automated pass over all 318 reports

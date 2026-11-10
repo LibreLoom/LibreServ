@@ -286,7 +286,7 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
                     >
                       {inspectableParents.length === 1
                         ? "View parent shares"
-                        : `View ${p.name} shares`}
+                        : `View ${p.name || p.path || "folder"} shares`}
                     </Button>
                   ))}
                 </div>

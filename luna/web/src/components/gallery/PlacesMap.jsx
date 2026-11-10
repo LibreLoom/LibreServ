@@ -435,17 +435,19 @@ export default function PlacesMap({
     );
   }
 
+  // A failed load is not an empty map, whether or not filters are on.
+  if (failed) {
+    return (
+      <EmptyState
+        icon={MapPin}
+        title="Couldn't load places"
+        description="Luna couldn't read the map or where your photos were taken. Try again in a moment."
+      />
+    );
+  }
+
   // With filters on, no matches is just an empty map, not an empty state.
   if (!markers.length && !filtered) {
-    if (failed) {
-      return (
-        <EmptyState
-          icon={MapPin}
-          title="Couldn't load places"
-          description="Luna couldn't read the map or where your photos were taken. Try again in a moment."
-        />
-      );
-    }
     return (
       <EmptyState
         icon={MapPin}
