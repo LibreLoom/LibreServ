@@ -45,6 +45,7 @@ function faultMessage(method, path) {
   if (/\/uploads?\b/.test(path)) return says(reading ? "load that upload" : "upload that file");
   if (/\/drives\//.test(path)) {
     if (reading) return says("read this drive");
+    if (method === "DELETE") return says("delete that");
     if (/\/rename/.test(path)) return says("rename that");
     if (/\/mkdir/.test(path)) return says("make that folder");
     if (/\/delete/.test(path)) return says("delete that");
@@ -60,8 +61,9 @@ function faultMessage(method, path) {
   if (/\/access\/links/.test(path)) return says("change this link");
   if (/\/access\//.test(path)) return says("load who can reach this");
   if (/\/stat$|\/file$|\/tree$/.test(path)) return says("open this shared item");
-  const verb = method === "GET" || method === "HEAD" ? "load that" : "save that";
-  return says(verb);
+  if (method === "DELETE") return says("delete that");
+  if (method === "GET" || method === "HEAD") return says("load that");
+  return says("save that");
 }
 
 /**

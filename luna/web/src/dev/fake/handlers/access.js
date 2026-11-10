@@ -376,6 +376,10 @@ publicGet("/s/:token/items", ({ world, params, query, headers }) => {
 publicGet("/s/:token/list", ({ world, params, query, headers }) => {
   const r = open(world, params.token, headers, { download: true });
   if (r.err) return r.err;
+  // Only a folder a guest may look through has a listing. A drop box promises
+  // nobody can see what is in it, and an album or a single file is not a
+  // folder at all, so none of them get names and sizes back.
+  if (r.l.caps === "upload" || r.s.kind === "album" || r.s.is_file) return fail(404, "Not found.");
   // A guest who opens a folder sees that folder's entries, not the root again.
   const segments = String(query.path || "").split("/").filter(Boolean);
   const tree = treeOf(world, params.token, r.s);
@@ -404,14 +408,18 @@ publicGet("/s/:token/file", ({ world, params, query, headers }) => {
   // Serving one would contradict the screen that promises nobody can see the
   // folder's contents.
   if (r.l.caps === "upload") return fail(404, "Not found.");
-  const rel = String(query.path || "").replace(/^\/+|\/+$/g, "");
-  const name = rel.split("/").filter(Boolean).pop() || r.s.name;
+  // Repeated or trailing separators are harmless to a person typing a path, so
+  // collapse them once and use the same segments for the walk and the lookup.
+  // Otherwise `Holiday//notes.txt` would pass the walk but miss the real file.
+  const segments = String(query.path || "").split("/").filter(Boolean);
+  const rel = segments.join("/");
+  const name = segments[segments.length - 1] || r.s.name;
   // A single-file link serves that file. A folder link serves an entry from its
   // tree, resolved against the shared folder: `Holiday/Menu.pdf` must walk into
   // `Holiday`, so a same-named file outside it is not served instead.
   const entry = r.s.is_file
     ? { name: r.s.name || name, kind: "file" }
-    : inTree(treeOf(world, params.token, r.s), rel.split("/").filter(Boolean));
+    : inTree(treeOf(world, params.token, r.s), segments);
   if (!entry) return fail(404, "Not found.");
   // Serve recognisable bytes for the kind, the same ones the drive's own
   // content route hands out, so a shared image or PDF actually previews.
