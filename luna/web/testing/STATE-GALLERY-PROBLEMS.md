@@ -37,6 +37,20 @@ Both passes are complete and clean: every one of the 318 scenarios has been walk
 hand against the checks the gallery lists, and the automated pass over all 318 reports
 **0 findings**. Every problem found is fixed.
 
+## Final confirmation runs
+
+Two consecutive extra-hard passes over all 318 scenarios, both returning **0 findings**:
+
+| Run | Automated audit | Text sweep | Internal links |
+| --- | --- | --- | --- |
+| 1 | 318 / 318, 0 findings | 318 / 318, 0 junk | — |
+| 2 | 318 / 318, 0 findings | 318 / 318, 0 junk | 74 pages, 0 dead |
+
+Beyond the first audit these runs added three checks — an unnamed field, text clipped by
+its own box, and a control with no name or icon — and read the file viewer's overlay, which
+mounts outside `<main>` and so was invisible to the earlier sweep (32 scenarios). Each new
+check was proved able to fail by injecting a violation, then re-run on a clean page.
+
 ---
 
 ## Problems
@@ -234,4 +248,5 @@ a folder link's entry from its tree.
 | `share/view-only-member` | The sheet lists "Person number 2" | **Not a bug.** That is the fixture's display name for its second fake user, not placeholder text from the app. |
 | `public/file-edit` | The editor body stays empty and says `Connecting…` | **Not a bug.** The editor holds its loading screen until the collab hub answers, and the hub is a real-lunad feature the fake has no endpoint for. The scenario is marked `realLunadOnly` and now says so. |
 | `share/links-all-states` | An expired link still offers "Copy link" | **Not a bug for this audit.** The state reads correctly ("expired"), which is what the scenario asks. Offering to copy a dead link is a poor affordance worth a separate change, but it is new behaviour, not a repair. |
+| `files/edit-form` | The builder's question input has no label | **Not a bug.** It is the preview of what the person answering will see, and it is `pointer-events-none` — nobody can type into it. Worth naming the check so it skips inert controls. |
 | `auth/signed-in-admin` | The greeting printed twice | The second copy is the hidden measurer (`opacity: 0`, `aria-hidden`, zero size) that keeps the header from jumping. |
