@@ -78,7 +78,7 @@ function renderSearch(hits, { initialPath = "/", role = "admin", connectActive =
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }
-    if (u.endsWith("/api/v1/users")) {
+    if (u.endsWith("/api/v1/users/directory")) {
       if (peopleHold) await peopleHold;
       return new Response(JSON.stringify(people), { status: 200, headers: { "Content-Type": "application/json" } });
     }
@@ -91,7 +91,7 @@ function renderSearch(hits, { initialPath = "/", role = "admin", connectActive =
     return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
   });
   vi.stubGlobal("fetch", fetchMock);
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
   const view = render(
     <ToastProvider>
     <ShortcutsProvider>
@@ -129,6 +129,7 @@ describe("FileSearch", () => {
     renderSearch([]);
     expect(screen.queryByRole("dialog", { name: "Search Luna" })).not.toBeInTheDocument();
     const dialog = await openSearchOverlay();
+    expect(screen.getByRole("button", { name: "Search", hidden: true })).toHaveAttribute("aria-keyshortcuts", "Alt+/");
     expect(dialog).toBeInTheDocument();
     const box = screen.getByRole("textbox", { name: "Search Luna" });
     expect(box).toHaveAttribute("placeholder", "Search Luna");
@@ -698,11 +699,27 @@ describe("FileSearch", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "alcie" } });
     if (role === "admin") {
       expect(await screen.findByRole("link", { name: /Alice, alice/i })).toHaveAttribute("href", "/settings/users/p1");
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/v1/users/directory"))).toBe(true);
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/v1/users"))).toBe(false);
     } else {
       await waitFor(() => expect(searchCalls(fetchMock).length).toBeGreaterThan(0));
       expect(screen.queryByRole("link", { name: /Alice/i })).not.toBeInTheDocument();
-      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/v1/users"))).toBe(false);
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/v1/users/directory"))).toBe(false);
     }
+  });
+
+  it("refreshes people when search is reopened", async () => {
+    const people = [{ id: "p1", username: "alice", display_name: "Alice" }];
+    renderSearch([], { people });
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "alice" } });
+    expect(await screen.findByRole("link", { name: /Alice, alice/i })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search Luna" })).not.toBeInTheDocument());
+    people.splice(0, 1, { id: "p2", username: "alicia", display_name: "Alicia" });
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "alicia" } });
+    expect(await screen.findByRole("link", { name: /Alicia, alicia/i })).toHaveAttribute("href", "/settings/users/p2");
   });
 
   it("waits for people and distinguishes matching names by username", async () => {

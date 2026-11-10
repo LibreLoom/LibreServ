@@ -53,6 +53,12 @@ describe("settings search", () => {
     expect(matchesSearchName("Photos", "phases")).toBe(false);
     expect(matchesSearchName("Home", "ho")).toBe(true);
     expect(matchesSearchName("Home", "hx")).toBe(false);
+    expect(matchesSearchName("Jane Doe", "jane doe")).toBe(true);
+    expect(matchesSearchName("Jane Doe", "doe jane")).toBe(false);
+    expect(matchesSearchName("Ann-Marie", "ann marie")).toBe(true);
+    expect(matchesSearchName("Ann-Marie", "marie ann")).toBe(false);
+    expect(matchesSearchName("Alice", "ali ali")).toBe(false);
+    expect(matchesSearchName("Jane Doe", "jnae doe")).toBe(true);
   });
 
   it("reads cards and rows from whatever the shared components draw", async () => {

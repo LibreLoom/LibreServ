@@ -126,9 +126,16 @@ export function closeSearchWord(word, candidate) {
 
 /** @param {string} value @param {string} query */
 export function matchesSearchName(value, query) {
-  const name = normalize(value);
-  const words = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  return normalize(query).split(" ").filter(Boolean).every((word) => name.includes(word) || words.some((part) => closeSearchWord(word, part)));
+  const words = normalize(value).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const queryWords = normalize(query).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  if (!queryWords.length) return false;
+  let next = 0;
+  for (const word of queryWords) {
+    while (next < words.length && !words[next].includes(word) && !closeSearchWord(word, words[next])) next++;
+    if (next === words.length) return false;
+    next++;
+  }
+  return true;
 }
 
 /**

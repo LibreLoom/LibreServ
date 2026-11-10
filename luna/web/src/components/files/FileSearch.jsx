@@ -41,6 +41,12 @@ import useConnectActive from "../../hooks/useConnectActive.js";
 /** Match ModalCard exit + FLIP morph duration. */
 const OVERLAY_EXIT_MS = 320;
 
+const PLACES = [
+  { title: "Home", path: "/" }, { title: "Photos", path: "/gallery" },
+  { title: "Files", path: "/files" }, { title: "Shared", path: "/shared" },
+  { title: "Settings", path: "/settings" },
+];
+
 
 function folderOf(path) {
   return parentPath(path) ?? "";
@@ -105,7 +111,7 @@ export function FileSearchButton() {
         size="icon"
         aria-label="Search"
         aria-haspopup="dialog"
-        aria-keyshortcuts="/"
+        aria-keyshortcuts="Alt+/"
         onClick={openFileSearch}
       >
         <Search size={20} aria-hidden="true" />
@@ -165,10 +171,9 @@ export default function FileSearch() {
   const settings = useSettingsSearch(categories, present ? trimmed : "", present);
   const [showAllSettings, setShowAllSettings] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState(/** @type {string[]} */ ([]));
-  const places = [{ title: "Home", path: "/" }, { title: "Photos", path: "/gallery" }, { title: "Files", path: "/files" }, { title: "Shared", path: "/shared" }, { title: "Settings", path: "/settings" }]
-    .filter((place) => trimmed.length >= MIN_SEARCH_LENGTH && matchesSearchName(place.title, trimmed));
+  const places = PLACES.filter((place) => trimmed.length >= MIN_SEARCH_LENGTH && matchesSearchName(place.title, trimmed));
   const search = useFileSearch(trimmed, { enabled: present && !isClosing });
-  const users = useQuery({ queryKey: ["users"], queryFn: () => getJson("/api/v1/users"), enabled: present && user?.role === "admin" });
+  const users = useQuery({ queryKey: ["users-directory"], queryFn: () => getJson("/api/v1/users/directory"), enabled: present && user?.role === "admin", staleTime: 0 });
   const peopleLoading = user?.role === "admin" && users.isPending && users.fetchStatus === "fetching";
   const people = trimmed.length >= MIN_SEARCH_LENGTH && user?.role === "admin"
     ? (users.data || []).filter((person) => matchesSearchName(person.display_name || person.username, trimmed) || matchesSearchName(person.username, trimmed))
