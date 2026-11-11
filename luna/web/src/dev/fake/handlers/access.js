@@ -277,6 +277,10 @@ const header = (h, name) => {
   return k ? String(h[k]) : "";
 };
 
+// Link id -> the password that was proved right, standing in for lunad's proof
+// cookie. Keyed by the password itself so changing it invalidates the unlock.
+const proofs = new Map();
+
 /** Runs every check a real link goes through; returns an error answer or the link. */
 function open(w, token, headers) {
   const hit = lookup(w, token);
@@ -284,8 +288,35 @@ function open(w, token, headers) {
   const { s, l } = hit;
   if (l.disabled) return { err: fail(403, "This link has been turned off.") };
   if (l.expires_at && l.expires_at < nowSec()) return { err: fail(410, "This link has expired.") };
-  if (l.password && header(headers, "x-share-password") !== l.password) return { err: fail(401, "This link needs its password.") };
+  // lunad hands back a proof cookie once the password is right, and later
+  // requests — including the ones a media element makes, which cannot carry a
+  // header — present that instead. Remember the unlock the same way, so a photo
+  // behind a password is not refused after the folder next to it opened fine.
+  if (l.password) {
+    const given = header(headers, "x-share-password");
+    const unlocked = proofs.get(l.id) === l.password;
+    if (given && given === l.password) proofs.set(l.id, l.password);
+    else if (!unlocked) return { err: fail(401, "This link needs its password.") };
+  }
   return { s, l };
+}
+
+/**
+ * Mirrors lunad's `child_under_link`: a link's relative path must stay lexical
+ * and below the link. Leading separators, backslashes and `.`/`..` are refused
+ * rather than tidied, because tidying them is how a scope check gets bypassed.
+ *
+ * @param {string} raw
+ * @returns {string[] | null} segments, or null when the path is refused
+ */
+function linkSegments(raw) {
+  const extra = String(raw ?? "").trim();
+  if (extra.startsWith("/") || extra.includes("\\")) return null;
+  if (!extra) return [];
+  const segments = extra.split("/");
+  if (segments.some((seg) => seg === "." || seg === "..")) return null;
+  // `a//b` and `a/b` name the same item, as in lunad.
+  return segments.filter(Boolean);
 }
 
 function treeOf(w, token, s) {
@@ -394,13 +425,13 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
   // A single-file link still gets a listing, because its page mounts a file
   // browser: that browser must show the one shared file, not an error. Asking
   // for anything else under it is refused.
+  const segments = linkSegments(query.path);
+  if (!segments) return fail(400, "That folder isn't part of this shared link.");
   if (r.s.is_file) {
-    const asked = String(query.path || "").split("/").filter(Boolean);
-    if (asked.length) return fail(404, "Not found.");
+    if (segments.length) return fail(404, "Not found.");
     return { entries: [{ name: r.s.name, kind: "file", size: 120_000, modified: nowSec() - 86400, hidden: false }] };
   }
   // A guest who opens a folder sees that folder's entries, not the root again.
-  const segments = String(query.path || "").split("/").filter(Boolean);
   const tree = treeOf(world, params.token, r.s);
   if (!segments.length) return { entries: tree };
   let level = tree;
@@ -428,10 +459,15 @@ publicGet("/s/:token/file", ({ world, params, query, headers }) => {
   // answering-only or album link has no file to read — serving one would
   // contradict screens that promise as much.
   if (r.s.kind !== "path" || r.l.caps === "upload" || r.l.caps === "respond") return fail(404, "Not found.");
-  // Repeated or trailing separators are harmless to a person typing a path, so
-  // collapse them once and use the same segments for the walk and the lookup.
-  // Otherwise `Holiday//notes.txt` would pass the walk but miss the real file.
-  const segments = String(query.path || "").split("/").filter(Boolean);
+  const segments = linkSegments(query.path);
+  if (!segments) {
+    return fail(400, "That file isn't part of this shared link.");
+  }
+  // A link to one file has nothing beneath it, so any relative path asks for
+  // something that cannot exist.
+  if (r.s.is_file && segments.length > 0) {
+    return fail(400, "That file isn't part of this shared link.");
+  }
   const rel = segments.join("/");
   const name = segments[segments.length - 1] || r.s.name;
   // A single-file link serves that file. A folder link serves an entry from its

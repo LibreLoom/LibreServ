@@ -313,8 +313,12 @@ export function installFake({ world, scenario, now, restored = {} }) {
         return URL.createObjectURL(new Blob([result.bytes ?? result.text], { type: result.headers?.["Content-Type"] || "application/octet-stream" }));
       })();
       blobs.set(href, request);
-      // A transient failure must not stick: drop it so a retry asks again.
-      request.catch(() => blobs.delete(href));
+      // Dedupe only what is in flight. Keeping a finished request would answer
+      // later loads from it, so a fault added afterwards would never run and a
+      // failure review would see the photo succeed. lunad serves these with
+      // `no-store`, so every load is a real request.
+      const settle = () => blobs.delete(href);
+      request.then(settle, settle);
     }
     blobs.get(href)
       .then((blobUrl) => {

@@ -1290,7 +1290,7 @@ describe("FileViewer conversion hints", () => {
         <FileViewer open driveId="d1" path="docs/report.pdf" onClose={() => {}} />,
       );
       expect(await screen.findByTitle("PDF preview")).toBeInTheDocument();
-      expect(screen.getByText(/converting it to a/i)).toBeInTheDocument();
+      expect(screen.getByText(/save a copy as a/i)).toBeInTheDocument();
       expect(screen.getByText(".docx")).toBeInTheDocument();
       expect(
         screen.queryByRole("button", { name: /Convert & open/ }),
@@ -1312,7 +1312,7 @@ describe("FileViewer conversion hints", () => {
     expect(
       await screen.findByText(/cannot open this kind of file/i),
     ).toBeInTheDocument();
-    expect(screen.getByText(/converting it to a/i)).toBeInTheDocument();
+    expect(screen.getByText(/save a copy as a/i)).toBeInTheDocument();
     expect(screen.getByText(".docx")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Convert & open/ }),
@@ -1331,7 +1331,7 @@ describe("FileViewer conversion hints", () => {
       />,
     );
     expect(await screen.findByRole("table")).toBeInTheDocument();
-    expect(screen.getByText(/converting it to a/i)).toBeInTheDocument();
+    expect(screen.getByText(/save a copy as a/i)).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Convert & open/ }),
     ).not.toBeInTheDocument();

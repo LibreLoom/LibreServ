@@ -576,6 +576,12 @@ export default function AccessCategory() {
                 Couldn't load your access tokens. Try again in a moment.
               </PageNotice>
             </div>
+          ) : tokenList.length === 0 && !tokens.isSuccess ? (
+            // Still loading or retrying: saying nothing is set up would claim a
+            // fact Luna does not have yet.
+            <div className="px-4 pb-4">
+              <Pill>Checking your access tokens…</Pill>
+            </div>
           ) : tokenList.length === 0 ? (
             <div className="px-4 pb-4">
               <Pill>No apps or access tokens are set up yet.</Pill>

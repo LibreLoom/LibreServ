@@ -18,10 +18,12 @@ export default function SoftwareUpdatePill() {
   const failed = Boolean(data?.os_update_failed);
   if (isLoading || error || (!data?.update_available && !failed)) return null;
 
-  // Name the version that failed, not whatever release happens to be newest:
-  // a later release is not the one that broke.
-  const failedVersion = typeof data.os_update_failed === "object" ? data.os_update_failed.version : "";
-  const version = (failed ? failedVersion || data.latest_version : data.latest_version) || "Update";
+  // Name the version that failed, not whatever release happens to be newest: a
+  // later release is not the one that broke. lunad sends `null` when nothing
+  // failed and may send an empty version when it can't say, and neither is a
+  // reason to claim the newest release is the one that didn't install.
+  const failedVersion = data.os_update_failed?.version || "";
+  const version = (failed ? failedVersion : data.latest_version) || "Update";
 
   return (
     <Link
