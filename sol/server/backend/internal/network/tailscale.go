@@ -559,7 +559,41 @@ func (s *TailscaleService) clearSavedServe() error {
 	if err := temp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(temp.Name(), path)
+	if err := os.Rename(temp.Name(), path); err != nil {
+		return err
+	}
+	dir, err := os.Open(s.dir)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
+}
+
+func (s *TailscaleService) persistResetIntent() error {
+	f, err := os.CreateTemp(s.dir, ".reset-intent-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err = f.WriteString("1"); err == nil {
+		err = f.Sync()
+	}
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	if err = os.Rename(f.Name(), filepath.Join(s.dir, "reset-required")); err != nil {
+		return err
+	}
+	dir, err := os.Open(s.dir)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }
 
 func (s *TailscaleService) clearAccessIfRequired() error {
@@ -577,6 +611,15 @@ func (s *TailscaleService) clearAccessIfRequired() error {
 		return err
 	}
 	if err := removeTailscalePendingMode(s.dir); err != nil {
+		return err
+	}
+	dir, err := os.Open(s.dir)
+	if err != nil {
+		return err
+	}
+	err = dir.Sync()
+	_ = dir.Close()
+	if err != nil {
 		return err
 	}
 	if err := os.Remove(filepath.Join(s.dir, "reset-required")); err != nil {
@@ -681,38 +724,27 @@ func (s *TailscaleService) retireLaunch() error {
 
 func (s *TailscaleService) writeLaunchIntent(value string, exclusive bool) error {
 	path := filepath.Join(s.dir, "launch-intent")
+	f, err := os.CreateTemp(s.dir, ".launch-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err = f.WriteString(value); err == nil {
+		err = f.Sync()
+	}
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
 	if exclusive {
-		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-		if err != nil {
-			return err
-		}
-		if _, err = f.WriteString(value); err == nil {
-			err = f.Sync()
-		}
-		if closeErr := f.Close(); err == nil {
-			err = closeErr
-		}
-		if err != nil {
-			return err
-		}
+		err = os.Link(f.Name(), path)
 	} else {
-		f, err := os.CreateTemp(s.dir, ".launch-*")
-		if err != nil {
-			return err
-		}
-		defer os.Remove(f.Name())
-		if _, err = f.WriteString(value); err == nil {
-			err = f.Sync()
-		}
-		if closeErr := f.Close(); err == nil {
-			err = closeErr
-		}
-		if err != nil {
-			return err
-		}
-		if err = os.Rename(f.Name(), path); err != nil {
-			return err
-		}
+		err = os.Rename(f.Name(), path)
+	}
+	if err != nil {
+		return err
 	}
 	dir, err := os.Open(s.dir)
 	if err != nil {
@@ -1325,7 +1357,7 @@ func (s *TailscaleService) serveLocked(public bool) (TailscaleStatus, error) {
 	if !public {
 		// Persist reduced exposure before any fallible reconnect or setup.
 		// ensureDaemon stops the old process and clears its saved Serve state.
-		if err := os.WriteFile(filepath.Join(s.dir, "reset-required"), []byte("1"), 0600); err != nil {
+		if err := s.persistResetIntent(); err != nil {
 			return TailscaleStatus{}, err
 		}
 		if err := removeTailscalePendingMode(s.dir); err != nil {
@@ -1431,7 +1463,7 @@ func (s *TailscaleService) disableLocked() (TailscaleStatus, error) {
 	}
 	// Persist intent first. A broken CLI must not prevent off or resurrect
 	// a saved public listener on the next connection.
-	persistErr := os.WriteFile(filepath.Join(s.dir, "reset-required"), []byte("1"), 0600)
+	persistErr := s.persistResetIntent()
 	if err := os.Remove(filepath.Join(s.dir, "enabled")); err != nil && !os.IsNotExist(err) {
 		persistErr = errors.Join(persistErr, err)
 	}

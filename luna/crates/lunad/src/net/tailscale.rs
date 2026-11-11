@@ -199,14 +199,12 @@ fn write_launch_identity(data: &Path, value: &str) -> Result<(), String> {
 
 fn begin_launch(data: &Path) -> Result<(), String> {
     use std::io::Write;
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(root(data).join("launch-intent"))
-        .map_err(|_| "A previous Tailscale start could not be verified.".to_string())?;
+    let mut file = tempfile::NamedTempFile::new_in(root(data)).map_err(|e| e.to_string())?;
     file.write_all(format!("pending {}", boot_id()?).as_bytes())
-        .and_then(|_| file.sync_all())
+        .and_then(|_| file.as_file().sync_all())
         .map_err(|e| e.to_string())?;
+    file.persist_noclobber(root(data).join("launch-intent"))
+        .map_err(|_| "A previous Tailscale start could not be verified.".to_string())?;
     std::fs::File::open(root(data))
         .and_then(|dir| dir.sync_all())
         .map_err(|e| e.to_string())
@@ -589,6 +587,9 @@ fn clear_access_if_required(data: &Path) -> Result<(), String> {
     // daemon's Serve state. Never restore an older public mode after a crash.
     remove_if_present(&root(data).join("serve-mode"))?;
     remove_if_present(&root(data).join("restore-serve"))?;
+    std::fs::File::open(root(data))
+        .and_then(|dir| dir.sync_all())
+        .map_err(|e| e.to_string())?;
     std::fs::remove_file(root(data).join("reset-required")).map_err(|e| e.to_string())?;
     let _ = std::fs::remove_file(root(data).join("stop-failed"));
     clear_resolved_warning(data);
@@ -627,7 +628,9 @@ fn clear_saved_serve(data: &Path) -> Result<(), String> {
     tmp.flush().map_err(|e| e.to_string())?;
     tmp.as_file().sync_all().map_err(|e| e.to_string())?;
     tmp.persist(state(data)).map_err(|e| e.to_string())?;
-    Ok(())
+    std::fs::File::open(root(data))
+        .and_then(|dir| dir.sync_all())
+        .map_err(|e| e.to_string())
 }
 
 fn status_json(data: &Path, port: u16) -> Value {
@@ -1126,8 +1129,7 @@ fn disable_inner(data: &Path, port: u16) -> Result<Value, String> {
     }
     // Always attempt both operations. A failed reset-marker write must not
     // preserve the positive opt-in marker and restore a public node on reboot.
-    let reset_intent =
-        std::fs::write(root(data).join("reset-required"), b"1").map_err(|e| e.to_string());
+    let reset_intent = persist_reset_intent(data);
     let disabled_intent = remove_if_present(&root(data).join("enabled"));
     let persisted = reset_intent.and(disabled_intent);
     if socket(data).exists()
@@ -1595,6 +1597,19 @@ mod tests {
             "https://headscale.example"
         );
         assert!(!enabled(dir.path()));
+    }
+
+    #[test]
+    fn launch_intent_does_not_replace_existing_record() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root(dir.path())).unwrap();
+        begin_launch(dir.path()).unwrap();
+        let before = std::fs::read(root(dir.path()).join("launch-intent")).unwrap();
+        assert!(begin_launch(dir.path()).is_err());
+        assert_eq!(
+            std::fs::read(root(dir.path()).join("launch-intent")).unwrap(),
+            before
+        );
     }
 
     #[test]

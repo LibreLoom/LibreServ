@@ -107,6 +107,21 @@ func TestHeadscaleSelectionPersistsBeforeDaemonStart(t *testing.T) {
 	}
 }
 
+func TestLaunchIntentDoesNotReplaceExistingRecord(t *testing.T) {
+	dir := t.TempDir()
+	svc := &TailscaleService{dir: dir}
+	if err := svc.writeLaunchIntent("pending original", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.writeLaunchIntent("pending replacement", true); err == nil {
+		t.Fatal("replaced existing launch intent")
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "launch-intent"))
+	if err != nil || string(got) != "pending original" {
+		t.Fatalf("launch intent: %q, %v", got, err)
+	}
+}
+
 func TestPendingCleanupReportsUnverifiedStop(t *testing.T) {
 	dir := t.TempDir()
 	for name, value := range map[string]string{"reset-required": "1", "launch-intent": "invalid"} {
