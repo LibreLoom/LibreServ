@@ -1321,9 +1321,6 @@ func (s *TailscaleService) serveLocked(public bool) (TailscaleStatus, error) {
 	if s.shuttingDown {
 		return TailscaleStatus{}, errors.New("Sol is shutting down")
 	}
-	if err := s.requireWebListener(); err != nil {
-		return TailscaleStatus{}, err
-	}
 	control, err := s.controlServer()
 	if err != nil {
 		return TailscaleStatus{}, err
@@ -1363,6 +1360,12 @@ func (s *TailscaleService) serveLocked(public bool) (TailscaleStatus, error) {
 		if err := removeTailscalePendingMode(s.dir); err != nil {
 			return TailscaleStatus{}, err
 		}
+		if err := s.clearAccessIfRequired(); err != nil {
+			return TailscaleStatus{}, err
+		}
+	}
+	if err := s.requireWebListener(); err != nil {
+		return TailscaleStatus{}, err
 	}
 	if err := s.ensureDaemon(); err != nil {
 		return TailscaleStatus{}, err

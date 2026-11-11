@@ -943,9 +943,6 @@ fn serve_inner(data: &Path, port: u16, public: bool) -> Result<Value, String> {
     if !enabled(data) {
         return Err("Connect Tailscale first.".into());
     }
-    require_proxy(port)?;
-    let target = super::tailscale_socket::target(data)
-        .ok_or("Tailscale's private listener is unavailable.")?;
     let headscale = !control_server(data)?.is_empty();
     if public && headscale {
         return Err("Public access is not available with Headscale.".into());
@@ -955,7 +952,11 @@ fn serve_inner(data: &Path, port: u16, public: bool) -> Result<Value, String> {
         // listener. ensure_daemon clears saved Serve while stopped; a crash or
         // failed private setup must never resurrect the earlier Funnel.
         persist_reset_intent(data)?;
+        clear_access_if_required(data)?;
     }
+    require_proxy(port)?;
+    let target = super::tailscale_socket::target(data)
+        .ok_or("Tailscale's private listener is unavailable.")?;
     ensure_daemon(data)?;
     let _ = std::fs::remove_file(root(data).join("approval-url"));
     let _ = std::fs::remove_file(root(data).join("approval-type"));
@@ -1716,6 +1717,36 @@ mod tests {
                 .unwrap_err()
                 .contains("not available")
         );
+    }
+
+    #[test]
+    fn private_switch_without_listener_clears_old_public_access() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root(dir.path())).unwrap();
+        std::fs::write(root(dir.path()).join("enabled"), "1").unwrap();
+        std::fs::write(root(dir.path()).join("stop-verified"), boot_id().unwrap()).unwrap();
+        std::fs::write(root(dir.path()).join("serve-mode"), "public").unwrap();
+        std::fs::write(
+            state(dir.path()),
+            r#"{"_serve/old":"e30=","identity":"keep"}"#,
+        )
+        .unwrap();
+        assert!(serve_inner(dir.path(), 0, false).is_err());
+        let saved = std::fs::read_to_string(state(dir.path())).unwrap();
+        assert!(!saved.contains("_serve/"));
+        assert!(saved.contains("identity"));
+        assert!(!root(dir.path()).join("serve-mode").exists());
+    }
+
+    #[test]
+    fn private_switch_without_listener_retains_unverified_stop() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root(dir.path())).unwrap();
+        std::fs::write(root(dir.path()).join("enabled"), "1").unwrap();
+        std::fs::write(root(dir.path()).join("launch-intent"), "invalid").unwrap();
+        assert!(serve_inner(dir.path(), 0, false).is_err());
+        assert!(root(dir.path()).join("reset-required").exists());
+        assert!(root(dir.path()).join("stop-failed").exists());
     }
 
     #[test]

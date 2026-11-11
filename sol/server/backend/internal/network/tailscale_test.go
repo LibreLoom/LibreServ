@@ -107,6 +107,36 @@ func TestHeadscaleSelectionPersistsBeforeDaemonStart(t *testing.T) {
 	}
 }
 
+func TestPrivateSwitchWithoutListenerClearsOldPublicAccess(t *testing.T) {
+	dir := t.TempDir()
+	for name, value := range map[string]string{"enabled": "1", "stop-verified": mustBootID(t), "restore-serve": "public", "tailscaled.state": `{"_serve/old":"e30=","identity":"keep"}`} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := &TailscaleService{dir: dir, listenerReady: make(chan struct{})}
+	if _, err := svc.serveLocked(false); err == nil {
+		t.Fatal("expected unavailable listener")
+	}
+	state, err := os.ReadFile(filepath.Join(dir, "tailscaled.state"))
+	if err != nil || strings.Contains(string(state), "_serve/") || !strings.Contains(string(state), "identity") || tailscaleFileExists(filepath.Join(dir, "restore-serve")) {
+		t.Fatalf("old public access remains: %s, %v", state, err)
+	}
+}
+
+func TestPrivateSwitchWithoutListenerRetainsUnverifiedStop(t *testing.T) {
+	dir := t.TempDir()
+	for name, value := range map[string]string{"enabled": "1", "launch-intent": "invalid", "restore-serve": "public"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := &TailscaleService{dir: dir, listenerReady: make(chan struct{})}
+	if _, err := svc.serveLocked(false); err == nil || !tailscaleFileExists(filepath.Join(dir, "stop-failed")) || !tailscaleFileExists(filepath.Join(dir, "reset-required")) {
+		t.Fatalf("unverified stop did not retain cleanup intent: %v", err)
+	}
+}
+
 func TestLaunchIntentDoesNotReplaceExistingRecord(t *testing.T) {
 	dir := t.TempDir()
 	svc := &TailscaleService{dir: dir}
