@@ -118,8 +118,9 @@ browser the hint now says what is actually true.
 Before: `You can open this file in the editing view by converting it to a .docx file.
 Convert it on another device, then upload the copy here.`
 
-Now: `To edit this file, save a copy as a .docx file on another device, then upload it
-here.`
+Now: `To edit this file, download it and save a copy as a .docx file in another app.`
+Saying "upload it here" pointed a read-only member at a button they may not have, and
+Luna has no way to convert a PDF itself, so the hint names Download instead.
 
 CSV and other formats that really can convert still read `You can open this file in the
 editing view by converting it to a .xlsx file.` with a `Convert & open` button.
@@ -257,7 +258,7 @@ folder now lists that folder rather than the root again.
 | `files/edit-diagram` | `404 /drawio/pack.json` | The draw.io pack is optional and not installed in a dev checkout. The viewer says so plainly (*This Luna can't open diagrams … Your file is fine*) and offers Download. |
 | `files/listing-error` | `Luna can't find this drive` on a listing 500 | **Not a bug.** The injected fault is on `GET /api/v1/drives/d1/files`, the drive itself, so the app's reading is right; a Try again button is offered as the check asks. |
 | `share/view-only-member` | The sheet lists "Person number 2" | **Not a bug.** That is the fixture's display name for its second fake user, not placeholder text from the app. |
-| `public/file-edit` | The editor body stays empty and says `Connecting…` | **Not a bug.** The editor holds its loading screen until the collab hub answers, and the hub is a real-lunad feature the fake has no endpoint for. The scenario is marked `realLunadOnly` and now says so. |
+| `public/file-edit` | The editor body briefly says `Connecting…` | **Not a bug.** The editor waits up to 10 seconds for the collab hub, then shows the file's own text; the hub is a real-lunad feature the fake has no endpoint for, so it always ends on the fetched text. The scenario is marked `realLunadOnly` and now says so. |
 | `share/links-all-states` | An expired link still offers "Copy link" | **Not a bug for this audit.** The state reads correctly ("expired"), which is what the scenario asks. Offering to copy a dead link is a poor affordance worth a separate change, but it is new behaviour, not a repair. |
 | `files/edit-form` | The builder's question input has no label | **Not a bug.** It is the preview of what the person answering will see, and it is `pointer-events-none` — nobody can type into it. Worth naming the check so it skips inert controls. |
 | `auth/signed-in-admin` | The greeting printed twice | The second copy is the hidden measurer (`opacity: 0`, `aria-hidden`, zero size) that keeps the header from jumping. |

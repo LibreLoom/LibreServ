@@ -419,11 +419,13 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
                     <InlinePill>.{conversion.targetExt}</InlinePill> file.
                   </>
                 ) : (
-                  // Read-only: don't send someone hunting for an upload button
-                  // they may not have. Name the conversion only.
+                  // Read-only: Don't offer to convert it here and don't send
+                  // someone after an upload button they may not have. Download
+                  // gives them the file itself; the conversion happens wherever
+                  // they edit it.
                   <>
-                    This file can be edited as a{" "}
-                    <InlinePill>.{conversion.targetExt}</InlinePill> file.
+                    To edit this file, download it and save a copy as a{" "}
+                    <InlinePill>.{conversion.targetExt}</InlinePill> file in another app.
                   </>
                 )}
               </p>

@@ -41,6 +41,10 @@ function faultMessage(method, path) {
     if (/\/access\/links/.test(path)) return says("turn this link off");
     if (/\/access\/members/.test(path)) return says("remove that person");
     if (/\/device-tokens/.test(path)) return says("revoke that access token");
+    // Taking a photo out of Favorites or an album does not delete the photo,
+    // so a failure there must not say it does.
+    if (/\/gallery\/favorites/.test(path)) return says("take that photo out of Favorites");
+    if (/\/gallery\/albums\/[^/]+\/items/.test(path)) return says("take that photo out of the album");
     return says("delete that");
   }
   if (/\/device-tokens/.test(path)) return says("load your apps and access tokens");

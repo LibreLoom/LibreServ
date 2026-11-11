@@ -312,6 +312,20 @@ function treeOf(w, token, s) {
 }
 
 /**
+ * Bytes for a shared file that has no drive node behind it, chosen by the name
+ * so an image or a PDF is still the kind it claims to be.
+ *
+ * @param {string} name
+ * @returns {any[]} bytes and content type
+ */
+function syntheticBytes(name) {
+  const lower = String(name || "").toLowerCase();
+  if (/\.(png|jpe?g|gif|webp|avif)$/.test(lower)) return bytesFor({ sample: "png" });
+  if (/\.pdf$/.test(lower)) return bytesFor({ sample: "pdf" });
+  return [new TextEncoder().encode(`This is ${name}.\n`), "text/plain; charset=utf-8"];
+}
+
+/**
  * Walks a folder link's tree to the entry a relative path names. Every segment
  * but the last must be a folder, so a path can never reach past the shared
  * folder into something else.
@@ -443,9 +457,10 @@ publicGet("/s/:token/file", ({ world, params, query, headers }) => {
   // `Photos/notes.txt`. `rel` was already resolved through the tree above, so
   // it cannot point outside the share.
   const node = nodeFor(r.s.is_file ? r.s.path : [r.s.path, rel].filter(Boolean).join("/"));
-  const [data, type] = node
-    ? bytesFor(node)
-    : [new TextEncoder().encode(`This is ${entry.name}.\n`), "text/plain; charset=utf-8"];
+  // No drive node behind the name (the built-in folder tree is just names):
+  // still answer with something the browser can show for that kind, so a shared
+  // image previews and a shared PDF is a PDF rather than text wearing its name.
+  const [data, type] = node ? bytesFor(node) : syntheticBytes(entry.name);
   return raw(data, type, 200, {
     ...(query.download === "1" ? { "Content-Disposition": `attachment; filename="${entry.name}"` } : {}),
   });
