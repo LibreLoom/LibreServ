@@ -125,25 +125,7 @@ export function closeSearchWord(word, candidate) {
 }
 
 /**
- * Every word of `query`, in order, starts or sits inside a word of `value`.
- * No typos forgiven.
- * @param {string} value @param {string} query
- */
-export function matchesSearchWords(value, query) {
-  const words = normalize(value).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  const queryWords = normalize(query).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  if (!queryWords.length) return false;
-  let next = 0;
-  for (const word of queryWords) {
-    while (next < words.length && !words[next].includes(word)) next++;
-    if (next === words.length) return false;
-    next++;
-  }
-  return true;
-}
-
-/**
- * The same, forgiving one typo in a word of four letters or more.
+ * Match words in order, forgiving one typo in a word of four letters or more.
  * @param {string} value @param {string} query
  */
 export function matchesSearchName(value, query) {

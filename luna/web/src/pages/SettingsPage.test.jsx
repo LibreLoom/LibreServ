@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useNavigate } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import { ThemeProvider } from"@libreloom/ui/context/ThemeContext.jsx";
 import SettingsPage from "./SettingsPage";
@@ -62,7 +62,7 @@ function stubFetch(role = "admin", connectActive = false) {
 }
 
 /** @param {import("react-router-dom").InitialEntry} initialPath */
-function renderPage(initialPath = "/settings") {
+function renderPage(initialPath = "/settings", extra = null) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ToastProvider>
@@ -72,6 +72,7 @@ function renderPage(initialPath = "/settings") {
         <QueryClientProvider client={client}>
           <AuthProvider>
             <SettingsPage />
+            {extra}
           </AuthProvider>
         </QueryClientProvider>
       </ThemeProvider>
@@ -123,6 +124,29 @@ describe("SettingsPage", () => {
       } } });
       await waitFor(() => expect(scroll).toHaveBeenCalled());
       expect(screen.getByText("Color scheme")).toBeTruthy();
+    } finally {
+      Element.prototype.scrollIntoView = previous;
+    }
+  });
+
+  it("consumes successive search results while Settings stays mounted", async () => {
+    stubFetch("admin");
+    const scroll = vi.fn();
+    const previous = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scroll;
+    function SendHit() {
+      const navigate = useNavigate();
+      return <button onClick={() => navigate("/settings#appearance", { state: { searchHit: {
+        kind: "row", categoryId: "appearance", categoryLabel: "Appearance", title: "Color scheme", cardTitle: "Theme", text: "",
+      } } })}>Open color scheme</button>;
+    }
+    try {
+      renderPage("/settings", <SendHit />);
+      await screen.findByText("max");
+      fireEvent.click(screen.getByRole("button", { name: "Open color scheme" }));
+      await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1));
+      fireEvent.click(screen.getByRole("button", { name: "Open color scheme" }));
+      await waitFor(() => expect(scroll).toHaveBeenCalledTimes(2));
     } finally {
       Element.prototype.scrollIntoView = previous;
     }

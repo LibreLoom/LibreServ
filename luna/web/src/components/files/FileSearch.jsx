@@ -9,7 +9,7 @@ import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
-import { matchesSearchName, matchesSearchWords } from "@libreloom/ui/lib/settingsSearch.js";
+import { matchesSearchName } from "@libreloom/ui/lib/settingsSearch.js";
 import LinearProgress from "@libreloom/ui/components/common/LinearProgress.jsx";
 import { showPageLevelError } from "../../lib/modalScopedError";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
@@ -171,9 +171,7 @@ export default function FileSearch() {
   const settings = useSettingsSearch(categories, present ? trimmed : "", present);
   const [showAllSettings, setShowAllSettings] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState(/** @type {string[]} */ ([]));
-  // Pages are a fixed handful of names: a typo there only suggests a page that
-  // isn't called that, so they match on their own words and nothing looser.
-  const places = PLACES.filter((place) => trimmed.length >= MIN_SEARCH_LENGTH && matchesSearchWords(place.title, trimmed));
+  const places = PLACES.filter((place) => trimmed.length >= MIN_SEARCH_LENGTH && matchesSearchName(place.title, trimmed));
   const search = useFileSearch(trimmed, { enabled: present && !isClosing });
   const users = useQuery({ queryKey: ["users-directory"], queryFn: () => getJson("/api/v1/users/directory"), enabled: present && user?.role === "admin", staleTime: 0 });
   const peopleLoading = user?.role === "admin" && users.isPending && users.fetchStatus === "fetching";
@@ -193,7 +191,7 @@ export default function FileSearch() {
   const bestSetting = !exactFile && !exactPlace && exactSetting;
   const remaining = search.hits.slice(1);
   const groups = [
-    { label: bestOther ? "Other matches" : "Best match", hits: search.hits.slice(0, 1) },
+    { label: bestOther || bestSetting ? "Other matches" : "Best match", hits: search.hits.slice(0, 1) },
     { label: "Folders", hits: remaining.filter((hit) => hit.kind === "dir") },
     { label: "Files", hits: remaining.filter((hit) => hit.kind !== "dir" && !isImageFile(hit.name)) },
     { label: "Image files", hits: remaining.filter((hit) => hit.kind !== "dir" && isImageFile(hit.name)) },
@@ -622,7 +620,7 @@ export default function FileSearch() {
 
               {(search.hits.length > 0 || places.length > 0 || (settings.results?.length ?? 0) > 0 || people.length > 0) && (
                 <>
-                  {search.closeOnly && !bestOther && (
+                  {search.closeOnly && !bestOther && !bestSetting && (
                     <Typewriter
                       as="p"
                       className="px-1 pb-2 text-sm font-mono text-primary"
@@ -647,6 +645,17 @@ export default function FileSearch() {
                             className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent"
                           >
                             {bestOther.title}
+                          </Link>
+                        </li>
+                      </>
+                    )}
+                    {bestSetting && (
+                      <>
+                        <li role="presentation" className="px-1 pt-2 text-xs font-mono text-primary">Best match</li>
+                        <li data-slot="file-search-item">
+                          <Link data-slot="file-search-link" to={{ pathname: "/settings", hash: bestSetting.categoryId }} state={{ searchHit: bestSetting }} onClick={() => beginClose()} className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent">
+                            <span className="block">{bestSetting.title}</span>
+                            <span className="block text-sm">{[bestSetting.categoryLabel, bestSetting.cardTitle].filter(Boolean).join(" › ")}</span>
                           </Link>
                         </li>
                       </>

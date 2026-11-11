@@ -454,8 +454,8 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
     };
   }, [isMobileMenuOpen]);
 
-  const closeMobileMenu = () => {
-    haptic("light");
+  const closeMobileMenu = (feedback = true) => {
+    if (feedback) haptic("light");
     setIsMobileMenuOpen(false);
     menuButtonRef.current?.focus();
   };
@@ -510,10 +510,7 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
                   type="button"
                   className={navButtonBaseClasses}
                   aria-keyshortcuts="Alt+/"
-                  onClick={() => {
-                    haptic("selection");
-                    onSearch();
-                  }}
+                  onClick={onSearch}
                 >
                   <Search size={ICON_SIZE.lg} aria-hidden="true" /><span>Search</span>
                 </button>
@@ -692,7 +689,7 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
               </React.Fragment>
             ))}
             {onSearch && (
-              <button type="button" className={mobileMenuItemClasses} onClick={() => { haptic("selection"); closeMobileMenu(); onSearch(); }}>
+              <button type="button" className={mobileMenuItemClasses} onClick={() => { closeMobileMenu(false); onSearch(); }}>
                 <Search size={ICON_SIZE.lg} aria-hidden="true" /><span>Search</span>
               </button>
             )}

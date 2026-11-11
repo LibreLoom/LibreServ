@@ -167,7 +167,7 @@ describe("FileSearch", () => {
     { role: "admin", connectActive: false, visible: false },
     { role: "member", connectActive: true, visible: false },
   ])("limits Luna Connect settings to eligible users: $role, active=$connectActive", async ({ role, connectActive, visible }) => {
-    renderSearch([], { role, connectActive });
+    const { fetchMock } = renderSearch([], { role, connectActive });
     await openSearchOverlay();
     const input = screen.getByRole("textbox", { name: "Search Luna" });
     fireEvent.change(input, { target: { value: "appearance" } });
@@ -175,29 +175,26 @@ describe("FileSearch", () => {
     await waitFor(() => expect(document.querySelector('[data-slot="file-search-list"]')?.textContent).toContain("Appearance"));
     fireEvent.change(input, { target: { value: "Luna Connect" } });
     if (visible) {
-      // The exact category is the best match, so it is listed once, at the top.
-      await waitFor(() => expect(document.querySelector('[data-slot="file-search-list"]')?.textContent).toContain("Luna Connect"));
-      // Shown once: the category as the best match, not again under Settings.
-      expect([...document.querySelectorAll('[data-slot="file-search-link"]')].filter((link) => link.textContent?.startsWith("Luna Connect"))).toHaveLength(1);
+      await waitFor(() => expect(document.querySelector('[data-slot="file-search-link"][href="/settings#luna_connect"]')).toBeInTheDocument());
     } else {
-      await waitFor(() => expect(screen.queryByRole("link", { name: /^Luna Connect$/i })).not.toBeInTheDocument());
+      await waitFor(() => expect(searchCalls(fetchMock)).toContain("/api/v1/search?q=Luna%20Connect"));
+      expect(document.querySelector('[data-slot="file-search-link"][href="/settings#luna_connect"]')).not.toBeInTheDocument();
     }
   });
 
   it.each([{ role: "admin", visible: true }, { role: "member", visible: false }])(
     "limits Users settings to Admins: $role", async ({ role, visible }) => {
-      renderSearch([], { role });
+      const { fetchMock } = renderSearch([], { role });
       await openSearchOverlay();
       const input = screen.getByRole("textbox", { name: "Search Luna" });
       fireEvent.change(input, { target: { value: "appearance" } });
       await waitFor(() => expect(document.querySelector('[data-slot="file-search-list"]')?.textContent).toContain("Appearance"));
       fireEvent.change(input, { target: { value: "users" } });
       if (visible) {
-        await waitFor(() => expect(document.querySelector('[data-slot="file-search-list"]')?.textContent).toContain("Users"));
-        // Shown once: the category as the best match, not again under Settings.
-        expect([...document.querySelectorAll('[data-slot="file-search-link"]')].filter((link) => link.textContent?.endsWith("Users"))).toHaveLength(1);
+        await waitFor(() => expect(document.querySelector('[data-slot="file-search-link"][href="/settings#users"]')).toBeInTheDocument());
       } else {
-        await waitFor(() => expect(screen.queryByRole("link", { name: /^Users$/i })).not.toBeInTheDocument());
+        await waitFor(() => expect(searchCalls(fetchMock)).toContain("/api/v1/search?q=users"));
+        expect(document.querySelector('[data-slot="file-search-link"][href="/settings#users"]')).not.toBeInTheDocument();
       }
     },
   );
@@ -836,6 +833,39 @@ describe("FileSearch", () => {
     expect(links.filter((link) => link.textContent === "ThemeAppearance")).toHaveLength(1);
     // The settings under it still open at their own card.
     expect(links.some((link) => link.textContent === "Color schemeAppearance › Theme")).toBe(true);
+  });
+
+  it("keeps an exact setting visible and accepts a typo in a page name", async () => {
+    renderSearch([]);
+    await openSearchOverlay();
+    const input = screen.getByRole("textbox", { name: "Search Luna" });
+    fireEvent.change(input, { target: { value: "theme" } });
+    const theme = await waitFor(() => {
+      const link = [...document.querySelectorAll('[data-slot="file-search-link"]')].find((item) => item.firstElementChild?.textContent === "Theme");
+      expect(link).toBeTruthy();
+      return link;
+    }, { timeout: 5000 });
+    expect(theme).toHaveAttribute("href", "/settings#appearance");
+    fireEvent.change(input, { target: { value: "phoots" } });
+    expect(await screen.findByRole("link", { name: "Photos" })).toHaveAttribute("href", "/gallery");
+  });
+
+  it("passes the exact setting hit when its result is activated", async () => {
+    function Location() {
+      const location = useLocation();
+      return <output data-testid="destination">{JSON.stringify({ path: location.pathname, hash: location.hash, hit: location.state?.searchHit })}</output>;
+    }
+    renderSearch([], { extra: <Location /> });
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "theme" } });
+    const theme = await waitFor(() => {
+      const link = [...document.querySelectorAll('[data-slot="file-search-link"]')].find((item) => item.firstElementChild?.textContent === "Theme");
+      expect(link).toBeTruthy();
+      return link;
+    }, { timeout: 5000 });
+    fireEvent.click(theme);
+    await waitFor(() => expect(screen.getByTestId("destination")).toHaveTextContent('"categoryId":"appearance"'));
+    expect(screen.getByTestId("destination")).toHaveTextContent('"title":"Theme"');
   });
 
   it("says when every result is only a close match", async () => {

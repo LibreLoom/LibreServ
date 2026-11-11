@@ -81,28 +81,6 @@ export function highlightParts(name, query) {
   return parts;
 }
 
-const KINDS = ["all", "dir", "file"];
-const KIND_KEY = "luna.fileSearch.kind";
-
-/** The Folders / Files choice from last time ("all" when none or unreadable). */
-export function loadSearchKind() {
-  try {
-    const saved = window.localStorage.getItem(KIND_KEY);
-    return KINDS.includes(saved) ? /** @type {"all" | "dir" | "file"} */ (saved) : "all";
-  } catch {
-    return "all";
-  }
-}
-
-/** @param {"all" | "dir" | "file"} kind */
-export function saveSearchKind(kind) {
-  try {
-    window.localStorage.setItem(KIND_KEY, kind);
-  } catch {
-    // Remembering is a convenience; private windows may refuse.
-  }
-}
-
 /**
  * Where a hit lives, ending on the folder it is in: `Drive / … / 2024 / Spain`.
  * Long paths drop their middle so the part that tells folders apart stays.
