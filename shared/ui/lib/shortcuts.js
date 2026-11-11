@@ -23,6 +23,7 @@ const NAMED_KEYS = {
   down: "ArrowDown",
   left: "ArrowLeft",
   right: "ArrowRight",
+  slash: "/",
 };
 
 /** @param {string} combo @returns {Combo} */

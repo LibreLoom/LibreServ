@@ -37,6 +37,14 @@ describe("matchesCombo", () => {
     expect(matchesCombo(key({ key: "Enter" }), combo)).toBe(false);
   });
 
+  it("reads Alt+Slash as the / key", () => {
+    const combo = parseCombo("Alt+Slash");
+    expect(combo).toMatchObject({ alt: true, key: "/" });
+    expect(matchesCombo(key({ key: "/", code: "Slash", altKey: true }), combo)).toBe(true);
+    expect(matchesCombo(key({ key: "÷", code: "Slash", altKey: true }), combo)).toBe(true);
+    expect(matchesCombo(key({ key: "/", code: "Slash" }), combo)).toBe(false);
+  });
+
   it("reads named keys", () => {
     expect(matchesCombo(key({ key: "Delete" }), parseCombo("Delete"))).toBe(true);
     expect(matchesCombo(key({ key: " " }), parseCombo("Space"))).toBe(true);
@@ -51,6 +59,7 @@ describe("comboKeycaps", () => {
     expect(comboKeycaps("Mod+A", { mac: true })).toEqual(["⌘", "A"]);
     expect(comboKeycaps("Mod+A", { mac: false })).toEqual(["Ctrl", "A"]);
     expect(comboKeycaps("Escape")).toEqual(["Esc"]);
+    expect(comboKeycaps("Alt+Slash", { mac: false })).toEqual(["Alt", "/"]);
   });
 });
 

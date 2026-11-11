@@ -38,6 +38,14 @@ export default function useSettingsSearch(categories, query, preload = false) {
   const key = categories.map((c) => c.id).join("|");
 
   const wrap = useMemo(() => settingsIndexWrapper(queryClient), [queryClient]);
+  // Who can see which categories can change long after the first build, so the
+  // index follows the list rather than the first one it saw.
+  const list = useMemo(
+    () => categories
+      .filter((c) => CATEGORY_COMPONENTS[c.id])
+      .map((c) => ({ id: c.id, label: c.label, Component: CATEGORY_COMPONENTS[c.id] })),
+    [categories],
+  );
 
   useEffect(() => {
     // Latch the first request so query and visibility changes cannot restart an in-flight index build.
@@ -49,9 +57,6 @@ export default function useSettingsSearch(categories, query, preload = false) {
     if (!wanted) return undefined;
     if (built?.key === key) return undefined;
     let cancelled = false;
-    const list = categories
-      .filter((c) => CATEGORY_COMPONENTS[c.id])
-      .map((c) => ({ id: c.id, label: c.label, Component: CATEGORY_COMPONENTS[c.id] }));
     buildSettingsIndex(list, wrap, {
       onError: (id, error) => console.warn(`Settings search could not read "${id}"`, error),
     }).then((index) => {
@@ -60,9 +65,7 @@ export default function useSettingsSearch(categories, query, preload = false) {
     return () => {
       cancelled = true;
     };
-    // `categories` is covered by `key`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wanted, key, wrap, built?.key]);
+  }, [wanted, key, list, wrap, built?.key]);
 
   const index = built?.key === key ? built.index : null;
   const results = useMemo(() => (index ? searchSettings(index, query) : null), [index, query]);

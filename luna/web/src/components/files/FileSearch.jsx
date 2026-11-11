@@ -191,8 +191,10 @@ export default function FileSearch() {
   const bestSetting = !exactFile && exactSetting;
   const bestOther = !exactFile && !bestSetting && exactPlace;
   const remaining = rankedHits.slice(1);
+  // A page or setting in the Best match slot leaves the files it outranks
+  // below it, so their first row is not the best one.
   const groups = [
-    { label: bestOther || bestSetting ? "Other matches" : "Best match", hits: rankedHits.slice(0, 1) },
+    { label: "Best match", hits: bestOther || bestSetting ? [] : rankedHits.slice(0, 1) },
     { label: "Folders", hits: remaining.filter((hit) => hit.kind === "dir") },
     { label: "Files", hits: remaining.filter((hit) => hit.kind !== "dir" && !isImageFile(hit.name)) },
     { label: "Image files", hits: remaining.filter((hit) => hit.kind !== "dir" && isImageFile(hit.name)) },
@@ -325,7 +327,8 @@ export default function FileSearch() {
     return () => window.removeEventListener(OPEN_FILE_SEARCH_EVENT, openOverlay);
   }, [openOverlay]);
 
-  useShortcut(["/", "Alt+/"], openOverlay, { label: "Search Luna", group: "Search" });
+  // Shortcuts match the key as typed, so a bare `/` never fires for Alt+/.
+  useShortcut(["/", "Alt+Slash"], openOverlay, { label: "Search Luna", group: "Search" });
   // FLIP open: invert from the header button into the elevated search surface.
   useLayoutEffect(() => {
     if (!present || isClosing) return;

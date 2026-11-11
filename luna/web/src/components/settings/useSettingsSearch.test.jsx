@@ -30,4 +30,23 @@ describe("useSettingsSearch", () => {
     await waitFor(() => expect(result.current.results).toEqual([]));
     expect(buildSettingsIndex).toHaveBeenCalledTimes(1);
   });
+
+  it("builds again when the categories this person can see change", async () => {
+    vi.mocked(buildSettingsIndex).mockReset();
+    vi.mocked(buildSettingsIndex).mockImplementation(async () => []);
+    const client = new QueryClient();
+    const wrapper = ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+    const { result, rerender } = renderHook(({ categories }) => useSettingsSearch(categories, "", true), {
+      initialProps: { categories: [{ id: "appearance", label: "Appearance" }] }, wrapper,
+    });
+    await waitFor(() => expect(buildSettingsIndex).toHaveBeenCalledTimes(1));
+    // A new list with the same categories is not a reason to build again.
+    rerender({ categories: [{ id: "appearance", label: "Appearance" }] });
+    expect(buildSettingsIndex).toHaveBeenCalledTimes(1);
+    // Becoming an Admin (or Connect turning on) adds a category to search.
+    rerender({ categories: [{ id: "appearance", label: "Appearance" }, { id: "users", label: "Users" }] });
+    await waitFor(() => expect(buildSettingsIndex).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(buildSettingsIndex).mock.calls[1][0].map((c) => c.id)).toEqual(["appearance", "users"]);
+    expect(result.current.results).toEqual([]);
+  });
 });

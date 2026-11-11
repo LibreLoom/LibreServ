@@ -148,6 +148,17 @@ describe("FileSearch", () => {
     expect(Array.from(links).some((link) => link.textContent === "Home")).toBe(true);
   });
 
+  it("does not call the folder under a matching page the best match", async () => {
+    renderSearch([{ drive_id: "d1", path: "home/notes", parent: "home", name: "notes", kind: "dir", size: 0, modified: 0, match: "name" }]);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "home" } });
+    await screen.findByRole("link", { name: "Home" });
+    const list = /** @type {HTMLElement} */ (document.querySelector('[data-slot="file-search-list"]'));
+    const labels = Array.from(list.children).map((child) => child.getAttribute("role") === "presentation" ? child.textContent : child.querySelector('[data-slot="file-search-link"]')?.getAttribute("aria-label"));
+    // The page takes the Best match slot; the folder below it is only a match.
+    expect(labels).toEqual(["Best match", "Home", "Folders", "Open notes"]);
+  });
+
   it("promotes an exact file even when it is not the first returned hit", async () => {
     renderSearch([
       { drive_id: "d1", path: "home notes", parent: "", name: "home notes", kind: "file", size: 0, modified: 0, match: "name" },
@@ -600,6 +611,19 @@ describe("FileSearch", () => {
     renderSearch([], { extra: <input aria-label="Some field" /> });
     fireEvent.keyDown(screen.getByLabelText("Some field"), { key: "/", code: "Slash", altKey: true });
     expect(await screen.findByRole("dialog", { name: "Search Luna" })).toBeInTheDocument();
+  });
+
+  it("opens from Alt+/ even when the browser reports the key as ÷", async () => {
+    // Option+/ types ÷ on a Mac, so only the physical key can match.
+    renderSearch([]);
+    fireEvent.keyDown(document.body, { key: "÷", code: "Slash", altKey: true });
+    expect(await screen.findByRole("dialog", { name: "Search Luna" })).toBeInTheDocument();
+  });
+
+  it("does not open when Alt is held over a key that is not /", async () => {
+    renderSearch([]);
+    fireEvent.keyDown(document.body, { key: "a", code: "KeyA", altKey: true });
+    expect(screen.queryByRole("dialog", { name: "Search Luna" })).not.toBeInTheDocument();
   });
 
   it("leaves / to a page's own search but keeps Alt+/", async () => {
