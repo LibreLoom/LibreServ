@@ -759,7 +759,7 @@ export default function FileSearch() {
                   <Typewriter
                     as="p"
                     className="block text-sm"
-                    text="Search files, folders, settings, places and people."
+                    text="Search files, settings, pages and people."
                     cursor={false}
                   />
                   <p className="mt-2 text-xs">Press Alt+/ to search Luna from any page.</p>
