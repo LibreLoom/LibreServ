@@ -35,6 +35,14 @@ const abortError = () => new DOMException("Aborted", "AbortError");
  */
 function faultMessage(method, path) {
   const says = (s) => s;
+  // Deleting is its own action whatever it is aimed at: a failed DELETE for
+  // people, photos or uploads is not a failed *load* of them.
+  if (method === "DELETE") {
+    if (/\/access\/links/.test(path)) return says("turn this link off");
+    if (/\/access\/members/.test(path)) return says("remove that person");
+    if (/\/device-tokens/.test(path)) return says("revoke that access token");
+    return says("delete that");
+  }
   if (/\/device-tokens/.test(path)) return says("load your apps and access tokens");
   if (/\/users/.test(path)) return says("load the people on this Luna");
   if (/\/gallery\/places/.test(path)) return says("load where your photos were taken");
@@ -45,7 +53,6 @@ function faultMessage(method, path) {
   if (/\/uploads?\b/.test(path)) return says(reading ? "load that upload" : "upload that file");
   if (/\/drives\//.test(path)) {
     if (reading) return says("read this drive");
-    if (method === "DELETE") return says("delete that");
     if (/\/rename/.test(path)) return says("rename that");
     if (/\/mkdir/.test(path)) return says("make that folder");
     if (/\/delete/.test(path)) return says("delete that");

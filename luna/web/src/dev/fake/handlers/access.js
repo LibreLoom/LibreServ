@@ -376,10 +376,16 @@ publicGet("/s/:token/items", ({ world, params, query, headers }) => {
 publicGet("/s/:token/list", ({ world, params, query, headers }) => {
   const r = open(world, params.token, headers, { download: true });
   if (r.err) return r.err;
-  // Only a folder a guest may look through has a listing. A drop box promises
-  // nobody can see what is in it, and an album or a single file is not a
-  // folder at all, so none of them get names and sizes back.
-  if (r.l.caps === "upload" || r.s.kind === "album" || r.s.is_file) return fail(404, "Not found.");
+  // A drop box promises nobody can see what is in it, so it has no listing.
+  if (r.l.caps === "upload" || r.s.kind === "album") return fail(404, "Not found.");
+  // A single-file link still gets a listing, because its page mounts a file
+  // browser: that browser must show the one shared file, not an error. Asking
+  // for anything else under it is refused.
+  if (r.s.is_file) {
+    const asked = String(query.path || "").split("/").filter(Boolean);
+    if (asked.length) return fail(404, "Not found.");
+    return { entries: [{ name: r.s.name, kind: "file", size: 120_000, modified: nowSec() - 86400, hidden: false }] };
+  }
   // A guest who opens a folder sees that folder's entries, not the root again.
   const segments = String(query.path || "").split("/").filter(Boolean);
   const tree = treeOf(world, params.token, r.s);
