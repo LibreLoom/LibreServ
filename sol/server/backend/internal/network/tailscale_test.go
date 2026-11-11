@@ -154,8 +154,51 @@ func TestPendingCleanupRemainsVisibleWithoutWarning(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := (&TailscaleService{dir: dir}).statusLocked()
-	if st.State != "error" || st.ResidualExposure || st.Error != "Tailscale access cleanup is incomplete. Try connecting again or sign out of Tailscale." {
+	if st.State != "error" || st.ResidualExposure || st.Error != "Tailscale is off. Try connecting again." {
 		t.Fatalf("pending cleanup status: %#v", st)
+	}
+	// An unverified stop keeps its warning and its exposure claim.
+	if err := os.WriteFile(filepath.Join(dir, "stop-failed"), []byte("1"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if st := (&TailscaleService{dir: dir}).statusLocked(); st.State != "error" || !st.ResidualExposure {
+		t.Fatalf("unverified stop lost its exposure: %#v", st)
+	}
+}
+
+func TestInterruptedDisableWithoutWarningFinishesCleanupOnConnect(t *testing.T) {
+	dir := t.TempDir()
+	cli, daemon := filepath.Join(dir, "cli"), filepath.Join(dir, "daemon")
+	writeExecutable(t, cli, `case "$*" in *"status --json"*) echo '{}';; *"up "*) exit 1;; esac`)
+	writeExecutable(t, daemon, `while [ $# -gt 0 ]; do if [ "$1" = --socket ] || [ "$1" = --state ]; then touch "$2"; fi; shift; done`)
+	t.Setenv("SOL_TAILSCALE_CLI", cli)
+	t.Setenv("SOL_TAILSCALED", daemon)
+	svc := NewTailscaleService(filepath.Join(dir, "data"), 8080)
+	svc.UnixListenerReady("/tmp/test-interrupted-disable.sock", nil)
+	if err := os.MkdirAll(svc.dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(svc.dir, "reset-required"), []byte("1"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(svc.dir, "stop-verified"), []byte(mustBootID(t)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(svc.dir, "tailscaled.state"), []byte(`{"_serve/old":"e30=","identity":"keep"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Connect(); err == nil {
+		t.Fatal("expected up to fail")
+	}
+	if tailscaleFileExists(filepath.Join(svc.dir, "reset-required")) {
+		t.Fatal("the leftover marker was not cleared")
+	}
+	saved, err := os.ReadFile(filepath.Join(svc.dir, "tailscaled.state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(saved), "_serve/") || !strings.Contains(string(saved), "identity") {
+		t.Fatalf("saved serve was not cleared in place: %s", saved)
 	}
 }
 

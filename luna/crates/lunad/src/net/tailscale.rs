@@ -212,6 +212,8 @@ fn begin_launch(data: &Path) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+// Renaming a synced temporary file keeps the marker whole or absent, so a
+// crash cannot leave one that blocks every later connect with no cleanup left.
 fn persist_reset_intent(data: &Path) -> Result<(), String> {
     use std::io::Write;
     let mut file = tempfile::NamedTempFile::new_in(root(data)).map_err(|e| e.to_string())?;
@@ -222,6 +224,14 @@ fn persist_reset_intent(data: &Path) -> Result<(), String> {
     std::fs::File::open(root(data))
         .and_then(|dir| dir.sync_all())
         .map_err(|e| e.to_string())
+}
+
+// A marker without a saved warning means an earlier process stopped before it
+// could report what happened. The daemon is verified stopped before this runs,
+// so the marker is either finished cleanup or a stale leftover.
+fn reset_intent_without_warning(data: &Path) -> bool {
+    let root = root(data);
+    root.join("reset-required").exists() && !root.join("stop-failed").exists()
 }
 
 fn valid_authority_port(authority: &axum::http::uri::Authority) -> bool {
@@ -461,6 +471,11 @@ fn ensure_daemon(data: &Path) -> Result<(), String> {
         std::fs::set_permissions(root(data), std::fs::Permissions::from_mode(0o700))
             .map_err(|e| e.to_string())?;
     }
+    // An interrupted disable that saved no warning is finished here: the
+    // daemon is verified stopped below, so the marker only holds the cleanup.
+    if reset_intent_without_warning(data) {
+        stop_daemon(data)?;
+    }
     clear_access_if_required(data)?;
     // A durable record from an earlier process is recovered by the startup
     // reconciliation path before this function can start a new daemon.
@@ -669,9 +684,11 @@ fn status_json(data: &Path, port: u16) -> Value {
     }
     if root(data).join("reset-required").exists() {
         out["state"] = json!("error");
-        out["error"] = json!(
-            "Tailscale access cleanup is incomplete. Try connecting again or sign out of Tailscale."
-        );
+        out["error"] = json!(if root(data).join("stop-failed").exists() {
+            "Tailscale is off, but Luna could not finish cleaning up its saved access. Try connecting again or sign out of Tailscale."
+        } else {
+            "Tailscale is off. Try connecting again."
+        });
         return out;
     }
     if port == 0 && (enabled(data) || state(data).exists()) {
@@ -1126,8 +1143,7 @@ fn disable_inner(data: &Path, port: u16) -> Result<Value, String> {
     }
     // Always attempt both operations. A failed reset-marker write must not
     // preserve the positive opt-in marker and restore a public node on reboot.
-    let reset_intent =
-        std::fs::write(root(data).join("reset-required"), b"1").map_err(|e| e.to_string());
+    let reset_intent = persist_reset_intent(data);
     let disabled_intent = remove_if_present(&root(data).join("enabled"));
     let persisted = reset_intent.and(disabled_intent);
     if socket(data).exists()
@@ -1655,11 +1671,52 @@ mod tests {
         std::fs::write(root(dir.path()).join("reset-required"), "1").unwrap();
         let status = status_json(dir.path(), 8090);
         assert_eq!(status["state"], "error");
-        assert_eq!(
-            status["error"],
-            "Tailscale access cleanup is incomplete. Try connecting again or sign out of Tailscale."
-        );
+        assert_eq!(status["error"], "Tailscale is off. Try connecting again.");
         assert_ne!(status["residual_exposure"], true);
+        // An unverified stop keeps its warning and its exposure claim.
+        std::fs::write(root(dir.path()).join("stop-failed"), "1").unwrap();
+        let status = status_json(dir.path(), 8090);
+        assert_eq!(status["residual_exposure"], true);
+        assert_eq!(status["state"], "error");
+    }
+
+    #[test]
+    fn interrupted_disable_without_warning_finishes_cleanup_on_connect() {
+        use std::os::unix::fs::PermissionsExt;
+        let _env = TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root(dir.path())).unwrap();
+        std::fs::write(root(dir.path()).join("stop-verified"), boot_id().unwrap()).unwrap();
+        std::fs::write(root(dir.path()).join("reset-required"), "1").unwrap();
+        std::fs::write(
+            state(dir.path()),
+            r#"{"_serve/old":"e30=","identity":"keep"}"#,
+        )
+        .unwrap();
+        let cli = dir.path().join("tailscale-mock");
+        std::fs::write(&cli, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let previous = std::env::var_os("LUNA_TAILSCALE_CLI");
+        unsafe {
+            std::env::set_var("LUNA_TAILSCALE_CLI", &cli);
+        }
+        let result = ensure_daemon(dir.path());
+        unsafe {
+            if let Some(value) = previous {
+                std::env::set_var("LUNA_TAILSCALE_CLI", value);
+            } else {
+                std::env::remove_var("LUNA_TAILSCALE_CLI");
+            }
+        }
+        assert!(result.is_err(), "the mock daemon never starts");
+        assert!(
+            !root(dir.path()).join("reset-required").exists(),
+            "the leftover marker was not cleared"
+        );
+        let saved: Value =
+            serde_json::from_slice(&std::fs::read(state(dir.path())).unwrap()).unwrap();
+        assert!(saved.get("_serve/old").is_none());
+        assert_eq!(saved["identity"], "keep");
     }
 
     #[test]

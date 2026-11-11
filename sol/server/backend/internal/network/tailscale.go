@@ -679,6 +679,42 @@ func (s *TailscaleService) retireLaunch() error {
 	return nil
 }
 
+// persistResetIntent renames a synced temporary file into place so a crash
+// leaves the marker whole or absent, never truncated.
+func (s *TailscaleService) persistResetIntent() error {
+	f, err := os.CreateTemp(s.dir, ".reset-*")
+	if err != nil {
+		return err
+	}
+	name := f.Name()
+	defer os.Remove(name)
+	if _, err = f.WriteString("1"); err == nil {
+		err = f.Sync()
+	}
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	if err = os.Rename(name, filepath.Join(s.dir, "reset-required")); err != nil {
+		return err
+	}
+	dir, err := os.Open(s.dir)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
+}
+
+// A marker without a saved warning means an earlier process stopped before it
+// could report what happened. The daemon is verified stopped before this runs,
+// so the marker is either finished cleanup or a stale leftover.
+func (s *TailscaleService) resetIntentWithoutWarning() bool {
+	return tailscaleFileExists(filepath.Join(s.dir, "reset-required")) && !tailscaleFileExists(filepath.Join(s.dir, "stop-failed"))
+}
+
 func (s *TailscaleService) writeLaunchIntent(value string, exclusive bool) error {
 	path := filepath.Join(s.dir, "launch-intent")
 	if exclusive {
@@ -734,6 +770,13 @@ func (s *TailscaleService) ensureDaemon() error {
 	_ = unix.Close(fd)
 	if err != nil {
 		return fmt.Errorf("Tailscale is unavailable: process identity protection is not permitted: %w", err)
+	}
+	// An interrupted disable that saved no warning is finished here: the
+	// daemon is verified stopped below, so the marker only holds the cleanup.
+	if s.resetIntentWithoutWarning() {
+		if err := s.stopDaemon(); err != nil {
+			return err
+		}
 	}
 	if err := s.clearAccessIfRequired(); err != nil {
 		return err
@@ -858,7 +901,10 @@ func (s *TailscaleService) statusLocked() TailscaleStatus {
 		return st
 	}
 	if tailscaleFileExists(filepath.Join(s.dir, "reset-required")) {
-		st.State, st.Error = "error", "Tailscale access cleanup is incomplete. Try connecting again or sign out of Tailscale."
+		st.State, st.Error = "error", "Tailscale is off. Try connecting again."
+		if tailscaleFileExists(filepath.Join(s.dir, "stop-failed")) {
+			st.Error = "Tailscale is off, but Sol could not finish cleaning up its saved access. Try connecting again or sign out of Tailscale."
+		}
 		return st
 	}
 	if b, e := os.ReadFile(filepath.Join(s.dir, "approval-url")); e == nil {
@@ -1325,7 +1371,7 @@ func (s *TailscaleService) serveLocked(public bool) (TailscaleStatus, error) {
 	if !public {
 		// Persist reduced exposure before any fallible reconnect or setup.
 		// ensureDaemon stops the old process and clears its saved Serve state.
-		if err := os.WriteFile(filepath.Join(s.dir, "reset-required"), []byte("1"), 0600); err != nil {
+		if err := s.persistResetIntent(); err != nil {
 			return TailscaleStatus{}, err
 		}
 		if err := removeTailscalePendingMode(s.dir); err != nil {
@@ -1431,7 +1477,7 @@ func (s *TailscaleService) disableLocked() (TailscaleStatus, error) {
 	}
 	// Persist intent first. A broken CLI must not prevent off or resurrect
 	// a saved public listener on the next connection.
-	persistErr := os.WriteFile(filepath.Join(s.dir, "reset-required"), []byte("1"), 0600)
+	persistErr := s.persistResetIntent()
 	if err := os.Remove(filepath.Join(s.dir, "enabled")); err != nil && !os.IsNotExist(err) {
 		persistErr = errors.Join(persistErr, err)
 	}
