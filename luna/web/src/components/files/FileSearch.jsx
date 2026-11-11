@@ -190,7 +190,7 @@ export default function FileSearch() {
   // needs its hit, and the Best match slot reads `path` as a route.
   const bestSetting = !exactFile && exactSetting;
   const bestOther = !exactFile && !bestSetting && exactPlace;
-  const remaining = rankedHits.slice(1);
+  const remaining = bestOther || bestSetting ? rankedHits : rankedHits.slice(1);
   // A page or setting in the Best match slot leaves the files it outranks
   // below it, so their first row is not the best one.
   const groups = [
@@ -730,7 +730,7 @@ export default function FileSearch() {
                     {settings.results?.some((hit) => hit !== bestSetting) && (
                       <>
                         <li role="presentation" className="px-1 pt-2 text-xs font-mono text-primary">Settings</li>
-                        {(showAllSettings ? settings.results : settings.results?.slice(0, 4))?.filter((hit) => hit !== bestSetting).map((hit) => (
+                        {settings.results?.filter((hit) => hit !== bestSetting).slice(0, showAllSettings ? undefined : 4).map((hit) => (
                           <li key={`${hit.categoryId}/${hit.kind}/${hit.cardTitle}/${hit.title}`} data-slot="file-search-item">
                             <Link data-slot="file-search-link" to={{ pathname: "/settings", hash: hit.categoryId }} state={{ searchHit: hit }} onClick={() => beginClose("medium")} className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent">
                               <span className="block">{hit.title}</span>
