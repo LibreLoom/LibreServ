@@ -508,7 +508,7 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
               {onSearch && (
                 <button
                   type="button"
-                  className={navButtonBaseClasses}
+                  className={navButtonClasses}
                   aria-keyshortcuts="Alt+/"
                   onClick={onSearch}
                 >

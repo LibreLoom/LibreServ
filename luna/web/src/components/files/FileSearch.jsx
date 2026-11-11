@@ -1,7 +1,6 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
-import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
@@ -161,7 +160,8 @@ export default function FileSearch() {
 
   const focusTrigger = useCallback(() => {
     const button = searchTrigger()?.querySelector("button");
-    const target = button || returnFocusRef.current;
+    const previous = returnFocusRef.current;
+    const target = previous?.isConnected && previous !== document.body && previous !== document.documentElement ? previous : button;
     if (target?.isConnected) target.focus();
   }, []);
 
@@ -173,7 +173,7 @@ export default function FileSearch() {
   const [expandedGroups, setExpandedGroups] = useState(/** @type {string[]} */ ([]));
   const places = PLACES.filter((place) => trimmed.length >= MIN_SEARCH_LENGTH && matchesSearchName(place.title, trimmed));
   const search = useFileSearch(trimmed, { enabled: present && !isClosing });
-  const users = useQuery({ queryKey: ["users-directory"], queryFn: () => getJson("/api/v1/users/directory"), enabled: present && user?.role === "admin", staleTime: 0 });
+  const users = useQuery({ queryKey: ["users-directory"], queryFn: () => getJson("/api/v1/users/directory"), enabled: present && user?.role === "admin" && trimmed.length >= MIN_SEARCH_LENGTH, staleTime: 0 });
   const peopleLoading = user?.role === "admin" && users.isPending && users.fetchStatus === "fetching";
   // A failed people lookup has no rows, so without this the box would keep
   // saying it is still looking.
@@ -184,14 +184,15 @@ export default function FileSearch() {
 
   const exactPlace = places.find((place) => place.title.toLowerCase() === trimmed.toLowerCase());
   const exactSetting = settings.results?.find((hit) => hit.title.toLowerCase() === trimmed.toLowerCase());
-  const exactFile = search.hits[0]?.name.toLowerCase() === trimmed.toLowerCase();
+  const exactFile = search.hits.find((hit) => hit.name.toLowerCase() === trimmed.toLowerCase());
+  const rankedHits = exactFile ? [exactFile, ...search.hits.filter((hit) => hit !== exactFile)] : search.hits;
   // Only a page can be lifted out of its group. A setting is a Link that
   // needs its hit, and the Best match slot reads `path` as a route.
-  const bestOther = !exactFile && exactPlace;
-  const bestSetting = !exactFile && !exactPlace && exactSetting;
-  const remaining = search.hits.slice(1);
+  const bestSetting = !exactFile && exactSetting;
+  const bestOther = !exactFile && !bestSetting && exactPlace;
+  const remaining = rankedHits.slice(1);
   const groups = [
-    { label: bestOther || bestSetting ? "Other matches" : "Best match", hits: search.hits.slice(0, 1) },
+    { label: bestOther || bestSetting ? "Other matches" : "Best match", hits: rankedHits.slice(0, 1) },
     { label: "Folders", hits: remaining.filter((hit) => hit.kind === "dir") },
     { label: "Files", hits: remaining.filter((hit) => hit.kind !== "dir" && !isImageFile(hit.name)) },
     { label: "Image files", hits: remaining.filter((hit) => hit.kind !== "dir" && isImageFile(hit.name)) },
@@ -641,7 +642,7 @@ export default function FileSearch() {
                           <Link
                             data-slot="file-search-link"
                             to={bestOther.path}
-                            onClick={() => beginClose()}
+                            onClick={() => beginClose("medium")}
                             className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent"
                           >
                             {bestOther.title}
@@ -653,7 +654,7 @@ export default function FileSearch() {
                       <>
                         <li role="presentation" className="px-1 pt-2 text-xs font-mono text-primary">Best match</li>
                         <li data-slot="file-search-item">
-                          <Link data-slot="file-search-link" to={{ pathname: "/settings", hash: bestSetting.categoryId }} state={{ searchHit: bestSetting }} onClick={() => beginClose()} className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent">
+                          <Link data-slot="file-search-link" to={{ pathname: "/settings", hash: bestSetting.categoryId }} state={{ searchHit: bestSetting }} onClick={() => beginClose("medium")} className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent">
                             <span className="block">{bestSetting.title}</span>
                             <span className="block text-sm">{[bestSetting.categoryLabel, bestSetting.cardTitle].filter(Boolean).join(" › ")}</span>
                           </Link>
@@ -700,7 +701,7 @@ export default function FileSearch() {
                         <li role="presentation" className="px-1 pt-2 text-xs font-mono text-primary">Places</li>
                         {places.filter((place) => place !== bestOther).map((place) => (
                           <li key={place.path} data-slot="file-search-item">
-                            <Link data-slot="file-search-link" to={place.path} onClick={() => beginClose()} className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent">
+                            <Link data-slot="file-search-link" to={place.path} onClick={() => beginClose("medium")} className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent">
                               {place.title}
                             </Link>
                           </li>
@@ -712,7 +713,7 @@ export default function FileSearch() {
                         <li role="presentation" className="px-1 pt-2 text-xs font-mono text-primary">People</li>
                         {people.slice(0, expandedGroups.includes("People") ? undefined : 4).map((person) => (
                           <li key={person.id} data-slot="file-search-item">
-                            <Link data-slot="file-search-link" aria-label={[person.display_name, person.username].filter(Boolean).join(", ")} to={person.id === user?.id ? "/settings#security" : `/settings/users/${encodeURIComponent(person.id)}`} onClick={() => beginClose()} className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent">
+                            <Link data-slot="file-search-link" aria-label={[person.display_name, person.username].filter(Boolean).join(", ")} to={person.id === user?.id ? "/settings#security" : `/settings/users/${encodeURIComponent(person.id)}`} onClick={() => beginClose("medium")} className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent">
                               <span className="block">{person.display_name || person.username}</span>
                               {person.display_name && person.username && person.display_name !== person.username && <span className="block text-sm"><InlinePill>{person.username}</InlinePill></span>}
                             </Link>
@@ -728,7 +729,7 @@ export default function FileSearch() {
                         <li role="presentation" className="px-1 pt-2 text-xs font-mono text-primary">Settings</li>
                         {(showAllSettings ? settings.results : settings.results?.slice(0, 4))?.filter((hit) => hit !== bestSetting).map((hit) => (
                           <li key={`${hit.categoryId}/${hit.kind}/${hit.cardTitle}/${hit.title}`} data-slot="file-search-item">
-                            <Link data-slot="file-search-link" to={{ pathname: "/settings", hash: hit.categoryId }} state={{ searchHit: hit }} onClick={() => beginClose()} className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent">
+                            <Link data-slot="file-search-link" to={{ pathname: "/settings", hash: hit.categoryId }} state={{ searchHit: hit }} onClick={() => beginClose("medium")} className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent">
                               <span className="block">{hit.title}</span>
                               <span className="block text-sm">{[hit.categoryLabel, hit.cardTitle].filter(Boolean).join(" › ")}</span>
                             </Link>

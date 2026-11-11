@@ -40,7 +40,13 @@ export default function useSettingsSearch(categories, query, preload = false) {
   const wrap = useMemo(() => settingsIndexWrapper(queryClient), [queryClient]);
 
   useEffect(() => {
-    if (!wanted && !preload && !query.trim()) return undefined;
+    // Latch the first request so query and visibility changes cannot restart an in-flight index build.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!wanted && (preload || query.trim())) setWanted(true);
+  }, [wanted, preload, query]);
+
+  useEffect(() => {
+    if (!wanted) return undefined;
     if (built?.key === key) return undefined;
     let cancelled = false;
     const list = categories
@@ -56,7 +62,7 @@ export default function useSettingsSearch(categories, query, preload = false) {
     };
     // `categories` is covered by `key`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wanted, preload, query, key, wrap, built?.key]);
+  }, [wanted, key, wrap, built?.key]);
 
   const index = built?.key === key ? built.index : null;
   const results = useMemo(() => (index ? searchSettings(index, query) : null), [index, query]);

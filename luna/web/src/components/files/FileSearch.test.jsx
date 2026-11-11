@@ -148,6 +148,37 @@ describe("FileSearch", () => {
     expect(Array.from(links).some((link) => link.textContent === "Home")).toBe(true);
   });
 
+  it("promotes an exact file even when it is not the first returned hit", async () => {
+    renderSearch([
+      { drive_id: "d1", path: "home notes", parent: "", name: "home notes", kind: "file", size: 0, modified: 0, match: "name" },
+      { drive_id: "d1", path: "home", parent: "", name: "home", kind: "dir", size: 0, modified: 0, match: "name" },
+    ]);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "home" } });
+    await screen.findByRole("link", { name: "Open home" });
+    expect(document.querySelector('[data-slot="file-search-link"]')).toHaveAccessibleName("Open home");
+  });
+
+  it("does not load people for an empty search and avoids unrelated page matches", async () => {
+    const { fetchMock } = renderSearch([]);
+    await openSearchOverlay();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/v1/users/directory"))).toBe(false);
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "phases" } });
+    await waitFor(() => expect(searchCalls(fetchMock)).toContain("/api/v1/search?q=phases"));
+    expect(screen.queryByRole("link", { name: "Photos" })).not.toBeInTheDocument();
+  });
+
+  it("returns focus to the control that opened search when a header trigger exists", async () => {
+    const { openFileSearch } = await import("../../lib/fileSearch.js");
+    renderSearch([], { before: <button onClick={openFileSearch}>Open from navigation</button> });
+    const origin = screen.getByRole("button", { name: "Open from navigation" });
+    origin.focus();
+    fireEvent.click(origin);
+    await screen.findByRole("dialog", { name: "Search Luna" });
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(origin).toHaveFocus());
+  });
+
   it("moves focus to the first newly revealed file", async () => {
     const hits = Array.from({ length: 7 }, (_, index) => ({
       drive_id: "d1", path: `report${index}.txt`, parent: "", name: `report${index}.txt`,
@@ -237,7 +268,7 @@ describe("FileSearch", () => {
     await screen.findByRole("link", { name: "Open budget.txt" });
     const list = /** @type {HTMLElement} */ (document.querySelector('[data-slot="file-search-list"]'));
     const labels = Array.from(list.children).map((child) => child.getAttribute("role") === "presentation" ? child.textContent : child.querySelector('[data-slot="file-search-link"]')?.getAttribute("aria-label"));
-    expect(labels).toEqual(["Best match", "Open budget.jpg", "Folders", "Open budget", "Files", "Open budget.txt"]);
+    expect(labels).toEqual(["Best match", "Open budget", "Files", "Open budget.txt", "Image files", "Open budget.jpg"]);
   });
 
   it("keeps the highest-ranked file as the default before a weaker folder", async () => {
