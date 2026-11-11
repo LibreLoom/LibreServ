@@ -395,18 +395,39 @@ export function installFake({ world, scenario, now, restored = {} }) {
   // fetch patch nor the media patch sees it, and the dev server proxies `/s/`
   // to the real lunad — which does not know these tokens. Catch the click and
   // hand over the fake's own bytes instead.
-  const onDownloadClick = (event) => {
-    // Two shapes: the `download` attribute, or the link a share page builds
-    // with `?download=1` and no attribute. Both leave the page as a navigation.
-    const link = event.target?.closest?.("a");
-    if (!link) return;
+  //
+  // Two shapes: the `download` attribute, or the link a share page builds with
+  // `?download=1` and no attribute.
+  const fakeDownloadUrl = (link) => {
     let parsed;
-    try { parsed = new URL(link.href, window.location.origin); } catch { return; }
-    if (parsed.origin !== window.location.origin || !isFake(parsed.pathname)) return;
+    try { parsed = new URL(link.href, window.location.origin); } catch { return null; }
+    if (parsed.origin !== window.location.origin || !isFake(parsed.pathname)) return null;
     const isDownload =
       link.hasAttribute("download") || parsed.searchParams.get("download") === "1";
-    if (!isDownload) return;
+    return isDownload ? parsed : null;
+  };
+  const onDownloadClick = (event) => {
+    const link = event.target?.closest?.("a");
+    if (!link) return;
+    const parsed = fakeDownloadUrl(link);
+    if (!parsed) return;
     event.preventDefault();
+    serveDownload(link, parsed);
+  };
+  // A detached anchor never reaches `document`, and the Files list builds one
+  // for its `d` shortcut; the phone action sheet navigates from a button. Both
+  // are real navigation, so both are caught here rather than in the app.
+  const realAnchorClick = HTMLAnchorElement.prototype.click;
+  if (realAnchorClick) {
+    const patchedClick = function () {
+      const parsed = fakeDownloadUrl(this);
+      if (parsed) return serveDownload(this, parsed);
+      return realAnchorClick.call(this);
+    };
+    patchedClick.__mockNative = realAnchorClick.__mockNative ?? realAnchorClick;
+    HTMLAnchorElement.prototype.click = patchedClick;
+  }
+  const serveDownload = (link, parsed) => {
     dispatch("GET", link.href, undefined, {}, {})
       .then((result) => {
         if (result.status >= 400) throw new Error(`[mock] ${result.status} ${link.href}`);

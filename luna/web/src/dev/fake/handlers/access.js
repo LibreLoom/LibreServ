@@ -18,7 +18,8 @@
 import { del, fail, get, json, patch, post, put, raw } from "../engine.js";
 import { nextId } from "../world.js";
 import { photoKey } from "../photos.js";
-import { bytesFor } from "./files.js";
+import { bytesFor, needDrive } from "./files.js";
+import { privateBoundary, pathContains } from "../policy.js";
 import { fsOf } from "../fsmodel.js";
 
 const sharing = (w) => {
@@ -383,6 +384,57 @@ function syntheticBytes(name) {
  * @param {Array<any>} entries
  * @returns {{entries: Array<any>}}
  */
+/**
+ * `link_reaches`: a link may not reach into a private item unless that item's
+ * own folder is at or above the shared path — a link on `Photos` must never
+ * serve `Photos/Private/notes.txt`, while a link on the private folder itself
+ * still works.
+ *
+ * @param {any} world
+ * @param {any} link
+ * @param {string} rel path relative to the shared folder — not the name of the
+ *   folder itself, which is already the tail of `link.path`
+ * @returns {boolean}
+ */
+function linkReaches(world, link, rel, driveId, subjectPath) {
+  const drive = driveId || link.drive_id || "d1";
+  // A link row carries no path of its own — the shared folder is the subject's,
+  // so an empty `link.path` here would compare against nothing.
+  const linkPath = String(subjectPath ?? link.path ?? "").replace(/^\/+|\/+$/g, "");
+  const full = [linkPath, rel].filter(Boolean).join("/");
+  let boundary;
+  try {
+    // `fsOf` builds the demo tree on first touch; `privateBoundary` alone reads
+    // an empty map and would find nothing to refuse.
+    fsOf(world, drive);
+    boundary = privateBoundary(world, drive, full);
+  } catch {
+    return true;
+  }
+  if (!boundary) return true;
+  // The boundary must be the link itself or a folder *above* it — a link on a
+  // private folder still opens. A private item inside the share is what gets
+  // refused, and `pathContains` is inclusive, so the boundary has to be
+  // strictly above the link path rather than merely contained by it.
+  return boundary.path === linkPath || pathContains(boundary.path, linkPath);
+}
+
+/**
+ * files::content_disposition_filename: a name that cannot break the header, and
+ * never empty. Without it a name holding a quote truncates at the quote.
+ *
+ * @param {string} name
+ * @returns {string}
+ */
+function dispositionName(name) {
+  const cleaned = String(name ?? "")
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f"\\/:]/g, "")
+    .slice(0, 180)
+    .trim();
+  return !cleaned || cleaned === "." || cleaned === ".." ? "download" : cleaned;
+}
+
 function listing(entries) {
   return { entries: entries.map(({ children: _children, ...rest }) => rest) };
 }
@@ -458,14 +510,17 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
   }
   // A guest who opens a folder sees that folder's entries, not the root again.
   const tree = treeOf(world, params.token, r.s);
-  if (!segments.length) return listing(tree);
+  if (!segments.length) return listing(tree.filter((e) => linkReaches(world, r.l, e.name, r.s.drive_id, r.s.path)));
   let level = tree;
-  for (const seg of segments) {
+  for (const [i, seg] of segments.entries()) {
+    const soFar = segments.slice(0, i + 1).join("/");
     const found = level?.find?.((e) => e.name === seg && e.kind === "dir");
-    if (!found) return fail(404, "Not found.");
+    // Walking *through* a private folder is reaching into it, so it answers
+    // 404 rather than walking on and merely hiding what's below.
+    if (!found || !linkReaches(world, r.l, soFar, r.s.drive_id, r.s.path)) return fail(404, "Not found.");
     level = found.children || [];
   }
-  return listing(level);
+  return listing(level.filter((e) => linkReaches(world, r.l, [...segments, e.name].join("/"), r.s.drive_id, r.s.path)));
 });
 publicGet("/s/:token/stat", ({ world, params, headers }) => {
   const r = open(world, params.token, headers);
@@ -502,6 +557,13 @@ publicGet("/s/:token/file", ({ world, params, query, headers }) => {
     ? { name: r.s.name || name, kind: "file" }
     : inTree(treeOf(world, params.token, r.s), segments);
   if (!entry) return fail(404, "Not found.");
+  if (!r.s.is_file && !linkReaches(world, r.l, rel, r.s.drive_id, r.s.path)) return fail(404, "Not found.");
+  // An ejected drive serves nothing, exactly as it serves nothing over REST.
+  try {
+    needDrive(world, r.s.drive_id || "d1");
+  } catch {
+    return fail(404, "Not found.");
+  }
   // Serve recognisable bytes for the kind, the same ones the drive's own
   // content route hands out, so a shared image or PDF actually previews.
   const nodeFor = (full) => {
@@ -523,7 +585,7 @@ publicGet("/s/:token/file", ({ world, params, query, headers }) => {
   // image previews and a shared PDF is a PDF rather than text wearing its name.
   const [data, type] = node ? bytesFor(node) : syntheticBytes(entry.name);
   return raw(data, type, 200, {
-    ...(query.download === "1" ? { "Content-Disposition": `attachment; filename="${entry.name}"` } : {}),
+    ...(query.download === "1" ? { "Content-Disposition": `attachment; filename="${dispositionName(entry.name)}"` } : {}),
   });
 });
 
