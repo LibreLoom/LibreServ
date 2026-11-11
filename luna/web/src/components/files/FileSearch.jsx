@@ -738,7 +738,7 @@ export default function FileSearch() {
                             </Link>
                           </li>
                         ))}
-                        {!showAllSettings && (settings.results?.length ?? 0) > 4 && (
+                        {!showAllSettings && (settings.results?.filter((hit) => hit !== bestSetting).length ?? 0) > 4 && (
                           <li data-slot="file-search-item">
                             <Button data-slot="file-search-link" variant="ghost" surface="secondary" size="sm" onClick={(event) => expandResults(event, () => setShowAllSettings(true))}>Show more settings</Button>
                           </li>
