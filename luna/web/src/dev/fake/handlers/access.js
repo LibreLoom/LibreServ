@@ -13,7 +13,7 @@
 //     failAdd, failLink,      // make adding a person / making a link fail
 //     tree:     { [token]: entries for a folder link },
 //   }
-//   link = { id, token, caps, password, has_password, expires_at, disabled, download_limit,
+//   link = { id, token, caps, password, has_password, expires_at, disabled,
 //            downloads, form, kind }
 import { del, fail, get, json, patch, post, put, raw } from "../engine.js";
 import { nextId } from "../world.js";
@@ -278,16 +278,13 @@ const header = (h, name) => {
 };
 
 /** Runs every check a real link goes through; returns an error answer or the link. */
-function open(w, token, headers, { download = false } = {}) {
+function open(w, token, headers) {
   const hit = lookup(w, token);
   if (!hit) return { err: fail(404, "Not found.") };
   const { s, l } = hit;
   if (l.disabled) return { err: fail(403, "This link has been turned off.") };
   if (l.expires_at && l.expires_at < nowSec()) return { err: fail(410, "This link has expired.") };
   if (l.password && header(headers, "x-share-password") !== l.password) return { err: fail(401, "This link needs its password.") };
-  if (download && l.download_limit != null && (l.downloads || 0) >= l.download_limit) {
-    return { err: fail(403, "This link has reached its download limit.") };
-  }
   return { s, l };
 }
 
@@ -320,7 +317,7 @@ function treeOf(w, token, s) {
  */
 function syntheticBytes(name) {
   const lower = String(name || "").toLowerCase();
-  if (/\.(png|jpe?g|gif|webp|avif)$/.test(lower)) return bytesFor({ sample: "png" });
+  if (/\.(png|jpe?g|gif|webp|avif|bmp|ico)$/.test(lower)) return bytesFor({ sample: "png" });
   if (/\.pdf$/.test(lower)) return bytesFor({ sample: "pdf" });
   return [new TextEncoder().encode(`This is ${name}.\n`), "text/plain; charset=utf-8"];
 }
@@ -388,10 +385,12 @@ publicGet("/s/:token/items", ({ world, params, query, headers }) => {
 });
 
 publicGet("/s/:token/list", ({ world, params, query, headers }) => {
-  const r = open(world, params.token, headers, { download: true });
+  const r = open(world, params.token, headers);
   if (r.err) return r.err;
-  // A drop box promises nobody can see what is in it, so it has no listing.
-  if (r.l.caps === "upload" || r.s.kind === "album") return fail(404, "Not found.");
+  // lunad's public_list requires a path subject with view access: an album or a
+  // link whose only job is answering cannot browse a folder. A drop box
+  // promises nobody can see what is in it, so it has no listing either.
+  if (r.s.kind !== "path" || r.l.caps === "upload" || r.l.caps === "respond") return fail(404, "Not found.");
   // A single-file link still gets a listing, because its page mounts a file
   // browser: that browser must show the one shared file, not an error. Asking
   // for anything else under it is refused.
@@ -422,12 +421,13 @@ publicGet("/s/:token/stat", ({ world, params, headers }) => {
 // so without this route a link's editor showed "{}" — the router's answer for
 // a path nothing matched — as if that were the file's text.
 publicGet("/s/:token/file", ({ world, params, query, headers }) => {
-  const r = open(world, params.token, headers, { download: query.download === "1" });
+  const r = open(world, params.token, headers);
   if (r.err) return r.err;
-  // An upload-only link is a drop box: it has no file list and no file to read.
-  // Serving one would contradict the screen that promises nobody can see the
-  // folder's contents.
-  if (r.l.caps === "upload") return fail(404, "Not found.");
+  // Same subject and capability rule as lunad's public_file: only a path link
+  // with view access serves bytes. An upload-only link is a drop box, and an
+  // answering-only or album link has no file to read — serving one would
+  // contradict screens that promise as much.
+  if (r.s.kind !== "path" || r.l.caps === "upload" || r.l.caps === "respond") return fail(404, "Not found.");
   // Repeated or trailing separators are harmless to a person typing a path, so
   // collapse them once and use the same segments for the walk and the lookup.
   // Otherwise `Holiday//notes.txt` would pass the walk but miss the real file.

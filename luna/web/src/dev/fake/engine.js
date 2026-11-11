@@ -44,7 +44,7 @@ function faultMessage(method, path) {
     // Taking a photo out of Favorites or an album does not delete the photo,
     // so a failure there must not say it does.
     if (/\/gallery\/favorites/.test(path)) return says("take that photo out of Favorites");
-    if (/\/gallery\/albums\/[^/]+\/items/.test(path)) return says("take that photo out of the album");
+    if (/\/gallery\/albums\/[^/]+\/[^/]+\/items/.test(path)) return says("take that photo out of the album");
     return says("delete that");
   }
   if (/\/device-tokens/.test(path)) return says("load your apps and access tokens");

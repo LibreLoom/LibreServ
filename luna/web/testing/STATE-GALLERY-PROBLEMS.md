@@ -122,8 +122,9 @@ Now: `To edit this file, download it and save a copy as a .docx file in another 
 Saying "upload it here" pointed a read-only member at a button they may not have, and
 Luna has no way to convert a PDF itself, so the hint names Download instead.
 
-CSV and other formats that really can convert still read `You can open this file in the
-editing view by converting it to a .xlsx file.` with a `Convert & open` button.
+A member who can write still gets the in-place offer for formats that really can
+convert: `You can open this file in the editing view by converting it to a .xlsx file.`
+with a `Convert & open` button.
 
 ### 5. A failed token list was shown as "no tokens yet" — **fixed**
 

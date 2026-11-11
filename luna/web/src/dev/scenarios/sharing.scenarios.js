@@ -400,14 +400,6 @@ export default [
     check: ["Says the link has been turned off", "Not shown as 'expired' or 'missing'"],
   },
   {
-    id: "public/download-limit",
-    area: "Public link",
-    title: "Link that hit its download limit",
-    url: "/s/toklimit",
-    seed: (w) => { guest(w); subject(w, { links: [{ ...link({ caps: "view", download_limit: 5, downloads: 5 }), token: "toklimit" }] }); },
-    check: ["Says the link has reached its download limit", "Offers no download buttons that will fail"],
-  },
-  {
     id: "public/offline",
     area: "Public link",
     title: "Opening a link with no connection",
