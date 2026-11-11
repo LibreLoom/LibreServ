@@ -857,6 +857,10 @@ func (s *TailscaleService) statusLocked() TailscaleStatus {
 		st.State, st.ResidualExposure = "error", true
 		return st
 	}
+	if tailscaleFileExists(filepath.Join(s.dir, "reset-required")) {
+		st.State, st.Error = "error", "Tailscale access cleanup is incomplete. Try connecting again or sign out of Tailscale."
+		return st
+	}
 	if b, e := os.ReadFile(filepath.Join(s.dir, "approval-url")); e == nil {
 		st.ApprovalURL = strings.TrimSpace(string(b))
 		if kind, e := os.ReadFile(filepath.Join(s.dir, "approval-type")); e == nil {

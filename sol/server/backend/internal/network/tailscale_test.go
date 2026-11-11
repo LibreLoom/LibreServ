@@ -148,6 +148,17 @@ func TestVerifiedStopClearsExposureWhenSavedAccessCannotBeCleared(t *testing.T) 
 	}
 }
 
+func TestPendingCleanupRemainsVisibleWithoutWarning(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "reset-required"), []byte("1"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	st := (&TailscaleService{dir: dir}).statusLocked()
+	if st.State != "error" || st.ResidualExposure || st.Error != "Tailscale access cleanup is incomplete. Try connecting again or sign out of Tailscale." {
+		t.Fatalf("pending cleanup status: %#v", st)
+	}
+}
+
 func TestFailedFirstConnectDoesNotEnableRestore(t *testing.T) {
 	dir := t.TempDir()
 	cli, daemon := filepath.Join(dir, "cli"), filepath.Join(dir, "daemon")

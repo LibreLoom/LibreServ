@@ -667,6 +667,13 @@ fn status_json(data: &Path, port: u16) -> Value {
         out["residual_exposure"] = json!(true);
         return out;
     }
+    if root(data).join("reset-required").exists() {
+        out["state"] = json!("error");
+        out["error"] = json!(
+            "Tailscale access cleanup is incomplete. Try connecting again or sign out of Tailscale."
+        );
+        return out;
+    }
     if port == 0 && (enabled(data) || state(data).exists()) {
         out["state"] = json!("error");
         out["error"] =
@@ -1639,6 +1646,20 @@ mod tests {
         assert!(!root(dir.path()).join("stop-failed").exists());
         assert_ne!(status_json(dir.path(), 8090)["residual_exposure"], true);
         assert!(root(dir.path()).join("reset-required").exists());
+    }
+
+    #[test]
+    fn pending_cleanup_remains_visible_without_warning() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root(dir.path())).unwrap();
+        std::fs::write(root(dir.path()).join("reset-required"), "1").unwrap();
+        let status = status_json(dir.path(), 8090);
+        assert_eq!(status["state"], "error");
+        assert_eq!(
+            status["error"],
+            "Tailscale access cleanup is incomplete. Try connecting again or sign out of Tailscale."
+        );
+        assert_ne!(status["residual_exposure"], true);
     }
 
     #[test]
