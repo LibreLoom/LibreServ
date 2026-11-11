@@ -375,6 +375,18 @@ function syntheticBytes(name) {
  * @param {string[]} segments
  * @returns {any} the file entry, or null
  */
+/**
+ * A listing answer, with the tree's own `children` removed. The field exists so
+ * the fake can walk a folder; lunad never sends it, and the contract comparison
+ * rejects it as `$.entries[].children`.
+ *
+ * @param {Array<any>} entries
+ * @returns {{entries: Array<any>}}
+ */
+function listing(entries) {
+  return { entries: entries.map(({ children: _children, ...rest }) => rest) };
+}
+
 function inTree(tree, segments) {
   if (!segments.length) return null;
   let level = tree;
@@ -442,18 +454,18 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
   if (!segments) return fail(400, "That folder isn't part of this shared link.");
   if (r.s.is_file) {
     if (segments.length) return fail(404, "Not found.");
-    return { entries: [{ name: r.s.name, kind: "file", size: 120_000, modified: nowSec() - 86400, hidden: false }] };
+    return listing([{ name: r.s.name, kind: "file", size: 120_000, modified: nowSec() - 86400, hidden: false }]);
   }
   // A guest who opens a folder sees that folder's entries, not the root again.
   const tree = treeOf(world, params.token, r.s);
-  if (!segments.length) return { entries: tree };
+  if (!segments.length) return listing(tree);
   let level = tree;
   for (const seg of segments) {
     const found = level?.find?.((e) => e.name === seg && e.kind === "dir");
     if (!found) return fail(404, "Not found.");
     level = found.children || [];
   }
-  return { entries: level };
+  return listing(level);
 });
 publicGet("/s/:token/stat", ({ world, params, headers }) => {
   const r = open(world, params.token, headers);

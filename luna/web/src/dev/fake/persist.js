@@ -5,9 +5,21 @@
 
 const KEY = "luna.mockWorld";
 
-// JSON has no Set; worlds may hold one.
-const replacer = (_k, v) => (v instanceof Set ? { __set: [...v] } : v);
-const reviver = (_k, v) => (v && typeof v === "object" && Array.isArray(v.__set) ? new Set(v.__set) : v);
+// JSON has no Set and no Map; worlds may hold either.
+const replacer = (_k, v) => {
+  if (v instanceof Set) return { __set: [...v] };
+  // A Map round-trips as `{}` otherwise, which comes back as a plain object —
+  // so a link unlocked before a reload would throw on the next request.
+  if (v instanceof Map) return { __map: [...v] };
+  return v;
+};
+const reviver = (_k, v) => {
+  if (v && typeof v === "object") {
+    if (Array.isArray(v.__set)) return new Set(v.__set);
+    if (Array.isArray(v.__map)) return new Map(v.__map);
+  }
+  return v;
+};
 
 export function saveState(scenarioId, state) {
   try {

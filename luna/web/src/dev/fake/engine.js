@@ -297,6 +297,11 @@ export function installFake({ world, scenario, now, restored = {} }) {
   // What each element was last asked to show. A reply that arrives after the
   // element moved on (or lost its src) must not put the old picture back.
   const wanted = new WeakMap();
+  // Bumped per installation so a callback from a replaced world can tell it is
+  // stale, even when the element and href it remembers still look current.
+  window.__mockGeneration = (window.__mockGeneration || 0) + 1;
+  const generation = window.__mockGeneration;
+
   const swapSrc = (el, url) => {
     const href = typeof url === "string" ? url : String(url?.href ?? url ?? "");
     // Whatever the element is asked for now, a reply already in flight is no
@@ -320,12 +325,18 @@ export function installFake({ world, scenario, now, restored = {} }) {
       const settle = () => blobs.delete(href);
       request.then(settle, settle);
     }
+    // A reply that arrives after the harness moved on to another world must
+    // not paint: the newer installation owns the element now, and its own
+    // `wanted` has already said what belongs there.
+    const mine = generation;
     blobs.get(href)
       .then((blobUrl) => {
+        if (mine !== window.__mockGeneration) return;
         if (wanted.get(el) !== href) return;
         realSetters.get(el)?.call(el, blobUrl);
       })
       .catch(() => {
+        if (mine !== window.__mockGeneration) return;
         if (wanted.get(el) !== href) return;
         el.dispatchEvent(new Event("error"));
       });
@@ -402,7 +413,10 @@ export function installFake({ world, scenario, now, restored = {} }) {
         const url = URL.createObjectURL(new Blob([result.bytes ?? result.text], { type: result.headers?.["Content-Type"] || "application/octet-stream" }));
         const a = document.createElement("a");
         a.href = url;
-        a.download = link.getAttribute("download") || parsed.pathname.split("/").pop() || "download";
+        // The answer already names the file; the URL does not (a drive
+        // download ends in `/content`). Prefer what the fake said.
+        const said = /filename="([^"]+)"/.exec(result.headers?.["Content-Disposition"] || "")?.[1];
+        a.download = link.getAttribute("download") || said || parsed.pathname.split("/").pop() || "download";
         a.rel = "noopener";
         document.body.appendChild(a);
         a.click();
@@ -413,9 +427,19 @@ export function installFake({ world, scenario, now, restored = {} }) {
   };
   // One listener however many times the harness reinstalls; the handler reads
   // the current dispatch and isFake through its closure on this installation.
-  if (window.__mockDownloadClick) document.removeEventListener("click", window.__mockDownloadClick, true);
+  // `auxclick` too: middle-clicking a Download opens it in a new tab otherwise,
+  // which the dev server proxies to a real lunad that has never heard of it.
+  const onAuxClick = (event) => {
+    if (event.button === 1) onDownloadClick(event);
+  };
+  if (window.__mockDownloadClick) {
+    document.removeEventListener("click", window.__mockDownloadClick, true);
+    document.removeEventListener("auxclick", window.__mockAuxClick, true);
+  }
   window.__mockDownloadClick = onDownloadClick;
+  window.__mockAuxClick = onAuxClick;
   document.addEventListener("click", onDownloadClick, true);
+  document.addEventListener("auxclick", onAuxClick, true);
 
   const RealWS = window.WebSocket;
   class FakeWS extends EventTarget {
