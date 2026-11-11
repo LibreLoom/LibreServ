@@ -346,8 +346,12 @@ export function installFake({ world, scenario, now, restored = {} }) {
         realSet.call(this, value);
       },
     });
-    const realAttr = Ctor.prototype.setAttribute;
-    if (realAttr && !realAttr.__mockPatched) {
+    // The native methods are kept once and the wrapper replaced on every
+    // installation: a wrapper closes over this installation's dispatcher and
+    // fault rules, so reusing the first one would keep answering from a world
+    // the harness has already replaced.
+    const realAttr = Ctor.prototype.setAttribute?.__mockNative ?? Ctor.prototype.setAttribute;
+    if (realAttr) {
       const patched = function (name, value) {
         if (String(name).toLowerCase() === "src" && this.src !== undefined) {
           realSetters.set(this, realSet);
@@ -358,10 +362,11 @@ export function installFake({ world, scenario, now, restored = {} }) {
         return realAttr.call(this, name, value);
       };
       patched.__mockPatched = true;
+      patched.__mockNative = realAttr;
       Ctor.prototype.setAttribute = patched;
     }
-    const realRemove = Ctor.prototype.removeAttribute;
-    if (realRemove && !realRemove.__mockPatched) {
+    const realRemove = Ctor.prototype.removeAttribute?.__mockNative ?? Ctor.prototype.removeAttribute;
+    if (realRemove) {
       const patched = function (name) {
         // Taking the attribute off cancels a reply still on its way, so a
         // removed picture cannot reappear on its own.
@@ -369,11 +374,49 @@ export function installFake({ world, scenario, now, restored = {} }) {
         return realRemove.call(this, name);
       };
       patched.__mockPatched = true;
+      patched.__mockNative = realRemove;
       Ctor.prototype.removeAttribute = patched;
     }
   }
 
   // ── WebSocket: live co-editing needs the real daemon ───────────────────────
+  // A Download is a plain `<a download>`: the browser navigates, so neither the
+  // fetch patch nor the media patch sees it, and the dev server proxies `/s/`
+  // to the real lunad — which does not know these tokens. Catch the click and
+  // hand over the fake's own bytes instead.
+  const onDownloadClick = (event) => {
+    // Two shapes: the `download` attribute, or the link a share page builds
+    // with `?download=1` and no attribute. Both leave the page as a navigation.
+    const link = event.target?.closest?.("a");
+    if (!link) return;
+    let parsed;
+    try { parsed = new URL(link.href, window.location.origin); } catch { return; }
+    if (parsed.origin !== window.location.origin || !isFake(parsed.pathname)) return;
+    const isDownload =
+      link.hasAttribute("download") || parsed.searchParams.get("download") === "1";
+    if (!isDownload) return;
+    event.preventDefault();
+    dispatch("GET", link.href, undefined, {}, {})
+      .then((result) => {
+        if (result.status >= 400) throw new Error(`[mock] ${result.status} ${link.href}`);
+        const url = URL.createObjectURL(new Blob([result.bytes ?? result.text], { type: result.headers?.["Content-Type"] || "application/octet-stream" }));
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = link.getAttribute("download") || parsed.pathname.split("/").pop() || "download";
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      })
+      .catch(() => link.dispatchEvent(new Event("error")));
+  };
+  // One listener however many times the harness reinstalls; the handler reads
+  // the current dispatch and isFake through its closure on this installation.
+  if (window.__mockDownloadClick) document.removeEventListener("click", window.__mockDownloadClick, true);
+  window.__mockDownloadClick = onDownloadClick;
+  document.addEventListener("click", onDownloadClick, true);
+
   const RealWS = window.WebSocket;
   class FakeWS extends EventTarget {
     constructor(url, protocols) {

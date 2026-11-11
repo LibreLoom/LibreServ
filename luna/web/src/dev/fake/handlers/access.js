@@ -179,7 +179,11 @@ patch("/api/v1/access/links/:id", ({ world, params, body }) => {
   if (!hit) return fail(404, "That link no longer exists.");
   if (body.caps !== undefined) hit.l.caps = body.caps;
   if (body.expires_in_days !== undefined) hit.l.expires_at = body.expires_in_days ? nowSec() + body.expires_in_days * 86400 : null;
-  if (body.password !== undefined) hit.l.password = body.password || "";
+  if (body.password !== undefined) {
+    hit.l.password = body.password || "";
+    // A fresh password is a fresh proof: anything unlocked before it is void.
+    proofsOf(world).delete(hit.l.id);
+  }
   return {};
 });
 del("/api/v1/access/links/:id", ({ world, params }) => {
@@ -277,9 +281,15 @@ const header = (h, name) => {
   return k ? String(h[k]) : "";
 };
 
-// Link id -> the password that was proved right, standing in for lunad's proof
-// cookie. Keyed by the password itself so changing it invalidates the unlock.
-const proofs = new Map();
+// Per world: link id -> the password that was proved right, standing in for
+// lunad's proof cookie. Scoped to the world because the harness installs a new
+// one repeatedly in a single runtime, and an unlock must not survive into a
+// world that happens to reuse the id. Cleared whenever a password is set, as
+// lunad re-salts its hash on every change — so A → B → A does not unlock.
+const proofsOf = (w) => {
+  if (!w.__proofs) w.__proofs = new Map();
+  return w.__proofs;
+};
 
 /** Runs every check a real link goes through; returns an error answer or the link. */
 function open(w, token, headers) {
@@ -293,6 +303,7 @@ function open(w, token, headers) {
   // header — present that instead. Remember the unlock the same way, so a photo
   // behind a password is not refused after the folder next to it opened fine.
   if (l.password) {
+    const proofs = proofsOf(w);
     const given = header(headers, "x-share-password");
     const unlocked = proofs.get(l.id) === l.password;
     if (given && given === l.password) proofs.set(l.id, l.password);
@@ -313,10 +324,12 @@ function linkSegments(raw) {
   const extra = String(raw ?? "").trim();
   if (extra.startsWith("/") || extra.includes("\\")) return null;
   if (!extra) return [];
-  const segments = extra.split("/");
-  if (segments.some((seg) => seg === "." || seg === "..")) return null;
-  // `a//b` and `a/b` name the same item, as in lunad.
-  return segments.filter(Boolean);
+  // Rust's path components drop an interior `.` (`a/./b` reads as `a/b`) but
+  // keep a leading one, so `./a` is still refused. `..` is refused anywhere.
+  const segments = extra.split("/").filter(Boolean);
+  if (segments[0] === ".") return null;
+  if (segments.some((seg) => seg === "..")) return null;
+  return segments.filter((seg) => seg !== ".");
 }
 
 function treeOf(w, token, s) {

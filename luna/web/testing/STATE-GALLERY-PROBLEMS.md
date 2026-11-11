@@ -23,7 +23,7 @@ Status values: **open** (found, not fixed yet) · **fixed** (code changed, needs
 | Area | Scenarios | Audited | Problems found | Fixed |
 | --- | ---: | ---: | ---: | ---: |
 | Sign-in | 7 | 7 | 0 | 0 |
-| Dashboard | 33 | 33 | 2 | 2 |
+| Dashboard | 33 | 33 | 3 | 3 |
 | Files | 121 | 121 | 4 | 4 |
 | Photos | 41 | 41 | 3 | 3 |
 | Recovery | 2 | 2 | 0 | 0 |
@@ -34,11 +34,11 @@ Status values: **open** (found, not fixed yet) · **fixed** (code changed, needs
 | Sharing sheet | 15 | 15 | 1 | 1 |
 | Public link | 18 | 18 | 1 | 1 |
 | Forms | 4 | 4 | 0 | 0 |
-| **Total** | **318** | **318** | **14** | **14** |
+| **Total** | **318** | **318** | **15** | **15** |
 
-Rows count each area a problem reached, so the 14 is entries rather than distinct
-problems: #6 is one fix visible in Settings and in Shared. There are 13 numbered
-problems (§1–§13).
+The 15 counts each area a problem reached, not distinct problems — there are 13
+(§1–§13). Two reach more than one area: §3 shows up in Files and in Photos, and §6 in
+Settings and in Shared.
 
 The 318 is the inventory that was audited. `public/download-limit` has since been
 removed for describing a Luna feature that does not exist, so the gallery now lists
