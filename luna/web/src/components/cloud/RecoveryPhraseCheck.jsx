@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import { phraseToEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { shakeElement } from "@libreloom/ui/utils/shake.js";
@@ -133,7 +133,7 @@ export default function RecoveryPhraseCheck({
           lengthKnown={lengthKnown}
           strict={strict}
         />
-        {message && <PageNotice variant="error">{message}</PageNotice>}
+        {message && <InlineError>{message}</InlineError>}
         <div className="flex flex-wrap items-center justify-end gap-2">
           {refused && onLost && (
             <Button type="button" variant="ghost" surface="secondary" size="sm" onClick={onLost}>

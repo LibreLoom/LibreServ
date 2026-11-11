@@ -14,7 +14,8 @@ it's plain XML, loaded into the editor and written back on save.
    (classified before image/text so the embedded diagram wins over the
    preview it carries).
 2. The editor is the stock draw.io webapp served by lunad at `/drawio` from
-   `{data_dir}/drawio`, loaded in a same-origin iframe with
+   the pack in the OS image (`/usr/share/luna/drawio`; a dev run may use a
+   copy in `{data_dir}/drawio`), loaded in a same-origin iframe with
    `embed=1&proto=json&stealth=1&noExitBtn=1&saveAndExit=0` (`ui=dark` when
    Luna is in dark mode; `noSaveBtn=1` for view-only opens). `stealth=1`
    disables draw.io's own realtime channel (the one that phones home to
@@ -109,21 +110,33 @@ NOTICE.luna.txt                  attribution (the pack can ship in the ISO)
 The war's `WEB-INF/` and `META-INF/` (Java server classes Luna never runs)
 are excluded during extraction.
 
-## Shipping the pack (install ISO)
+## Shipping the pack (inside the OS image)
 
 `make drawio-pack` (or `scripts/build-drawio-pack.sh`) produces
 `os/dist/drawio-pack.tar.zst` — the whole pack as a self-describing `drawio/`
-dir. `build-iso.sh` builds it automatically when missing,
-`os/build/iso.sh` puts it next to the OS image on the ISO, and
-`rapidinstall.sh` verifies its sha256 and extracts it onto `LUNA_DATA` — so
-diagram editing works on first boot with no download. A device installed
-without the pack shows the normal "not installed" card on diagram files.
+dir.
+
+The pack is a program file, so it lives in the OS image, not on the data
+partition. The release tool builds it before the rootfs and mounts it in;
+`os/lib/build-rootfs.d/035.frag` extracts it to `/usr/share/luna/drawio`.
+A release cut refuses an image without it (`LUNA_PACKS_REQUIRED=1`); a dev
+build only warns. `os/build-iso.sh` builds the packs into `os/dist/` before its
+`os/build-rootfs.sh` step, so a dev image carries them too. lunad serves it from
+there (`crates/lunad/src/packs.rs`): the image's copy wins, and a
+`{data_dir}/drawio` copy is honoured next, so a box from an older ISO keeps its
+editors until it updates. A device whose image lacks the pack shows the normal
+"not installed" card on diagram files.
+
+There is no separate pack update: a new pack is a new OS image, which
+**Install update** replaces as a whole, and a feed without an `os` part offers
+nothing. See
+[the feed contract](../../infra/ci-source/internal/feed/README.md).
 
 ## Endpoints
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /drawio/**` | Static webapp pack via one wildcard route — mounted at boot only when `{data_dir}/drawio` exists |
+| `GET /drawio/**` | Static webapp pack via one wildcard route — mounted at boot when the pack is present in the image (or a data-dir copy from an older install) |
 | `GET /api/v1/collab/ws` | Member collab room (presence, opaque diff patches, save election) — the same endpoint EuroOffice uses |
 | `GET /s/{token}/collab/ws` | Guest collab room for a shared diagram or whiteboard. Refuses anything that is not a `.drawio` / `.drawio.svg` / `.drawio.png` / `.excalidraw` file |
 

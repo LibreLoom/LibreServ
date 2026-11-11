@@ -4,7 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
-import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import { postJson, apiErrorMessage } from "../../lib/api";
@@ -63,7 +63,7 @@ export default function AddPersonModal({
     <ModalCard open={open} title="Add a person" onClose={onClose} overlayClassName={overlayClassName}>
       {({ close }) => (
         <div className="space-y-3">
-          {error && <PageNotice variant="error">{error}</PageNotice>}
+          {error && <InlineError>{error}</InlineError>}
           <ShakeTarget shake={error}>
             <Dropdown
               options={people.map((u) => ({ value: u.id, label: u.display_name || u.username }))}

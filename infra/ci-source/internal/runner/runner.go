@@ -820,7 +820,7 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 	// Node tests share one warmed node_modules and one npm cache per workdir
 	// (populated by warmCaches before the workers start), so every test that
 	// touches the same project skips a full cold install.
-	if strings.HasPrefix(t.Container, "node:") && strings.Contains(t.Command, "npm") {
+	if isNpmTest(t) {
 		shared := filepath.Join(cacheDir, "npm", npmWorkDirSlug(t.WorkDir))
 		os.MkdirAll(filepath.Join(shared, "node_modules"), 0755)
 		os.MkdirAll(filepath.Join(shared, "npm-cache"), 0755)
@@ -1276,7 +1276,7 @@ func (r *Runner) warmNodeTasks(testList []*tests.Test) []warmTask {
 	seen := make(map[string]bool)
 	var tasks []warmTask
 	for _, t := range testList {
-		if !strings.HasPrefix(t.Container, "node:") || !strings.Contains(t.Command, "npm") {
+		if !isNpmTest(t) {
 			continue
 		}
 		if seen[t.WorkDir] {
@@ -1299,6 +1299,13 @@ func (r *Runner) warmNodeTasks(testList []*tests.Test) []warmTask {
 		})
 	}
 	return tasks
+}
+
+// isNpmTest reports whether t runs an npm script. A few tests run npm in an
+// image that isn't a node:* one — the Playwright e2e test in particular — and
+// they all still need the workdir's shared node_modules bound in.
+func isNpmTest(t *tests.Test) bool {
+	return strings.Contains(t.Command, "npm")
 }
 
 // npmWorkDirSlug turns a container workdir like /repo/sol/server/frontend into

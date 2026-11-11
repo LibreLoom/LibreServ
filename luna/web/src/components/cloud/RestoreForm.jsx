@@ -1,58 +1,31 @@
+import { useState } from "react";
 import PropTypes from "prop-types";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
-import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
+import { phraseToEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
+import PhraseWordsInput from "./PhraseWordsInput.jsx";
 
-/**
- * Text box for the recovery phrase (12 or 24 words). A layered field: it sits on a card (secondary), so it
- * takes the primary surface and reads as an inset.
- * @param {{
- *   value: string,
- *   onChange: (value: string) => void,
- *   label?: string,
- *   placeholder?: string,
- *   fieldRef?: import("react").Ref<HTMLTextAreaElement>,
- *   rows?: number,
- * }} props
- */
-export function PhraseField({
-  value,
-  onChange,
-  label = "Recovery phrase",
-  placeholder,
-  fieldRef,
-  rows = 3,
-}) {
-  return (
-    <label className="block space-y-1.5">
-      <span className="text-primary text-sm">{label}</span>
-      <textarea
-        ref={fieldRef}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        rows={rows}
-        autoComplete="off"
-        spellCheck={false}
-        autoCapitalize="none"
-        className="w-full resize-none rounded-large-element surface-primary border border-transparent p-3 text-sm outline-none focus:border-accent motion-safe:transition-colors"
-      />
-    </label>
-  );
+/** The boxes for one phrase, kept as a string so the caller can send it as-is. */
+function wordsToBoxes(words, count) {
+  const parsed = words ? words.split(" ") : [];
+  return Array.from({ length: count }, (_, i) => parsed[i] ?? "");
 }
 
-PhraseField.propTypes = {
-  value: PropTypes.string.isRequired,
-  onChange: PropTypes.func.isRequired,
-  label: PropTypes.string,
-  placeholder: PropTypes.string,
-  fieldRef: PropTypes.oneOfType([PropTypes.func, PropTypes.object]),
-  rows: PropTypes.number,
-};
+/** A whole phrase, or the sentence saying why the boxes do not make one. */
+function phraseProblem(boxes) {
+  if (boxes.some((word) => !word)) return "";
+  try {
+    phraseToEntropy(boxes.join(" "));
+    return "";
+  } catch {
+    return "These words don't form a recovery phrase. A word may be wrong or out of order.";
+  }
+}
 
 /**
- * The form both "bring back" cards share: a phrase box, the warning about where to type it,
- * an inline error, and one submit button.
+ * The form both "bring back" cards share: the numbered word boxes, the warning
+ * about where to type it, an inline error, and one submit button.
  * @param {{
  *   words: string,
  *   onWords: (value: string) => void,
@@ -60,25 +33,51 @@ PhraseField.propTypes = {
  *   error?: string,
  *   pending?: boolean,
  *   submitLabel: string,
- *   fieldRef?: import("react").Ref<HTMLTextAreaElement>,
+ *   fieldRef?: import("react").Ref<HTMLDivElement>,
  *   progress?: { type?: string, message?: string, processed?: number, total?: number, snapshots?: number, already_indexed?: number, skipped?: number } | null,
  *   onCancel?: () => void,
  * }} props
  */
 export default function RestoreForm({ words, onWords, onSubmit, error = "", pending = false, submitLabel, fieldRef, progress = null, onCancel }) {
+  const [count, setCount] = useState(() => (wordsToBoxes(words, 24).filter(Boolean).length > 12 ? 24 : 12));
+  const boxes = wordsToBoxes(words, count);
+  const complete = boxes.every(Boolean);
+  const problem = phraseProblem(boxes);
+
+  function changeBoxes(next) {
+    onWords(next.slice(0, count).join(" "));
+  }
+
+  function changeCount(next) {
+    const nextBoxes = wordsToBoxes(words, next);
+    setCount(next);
+    onWords(nextBoxes.join(" "));
+  }
+
   return (
     <form onSubmit={onSubmit} className="space-y-3">
-      <PhraseField
-        value={words}
-        onChange={onWords}
-        fieldRef={fieldRef}
-        placeholder="Your recovery phrase, with a space between each word"
-      />
+      <div ref={fieldRef} className="space-y-2">
+        <p className="text-primary text-sm">Recovery phrase</p>
+        <PhraseWordsInput
+          count={count}
+          words={boxes}
+          onChange={changeBoxes}
+          onCountChange={changeCount}
+          lengthKnown={false}
+        />
+      </div>
       <p className="text-primary text-sm">
         Only type your recovery phrase on this Luna or on <InlinePill>connect.luna.libreloom.org</InlinePill>.
       </p>
-      {error && <PageNotice variant="error">{error}</PageNotice>}
-      <Button type="submit" variant="primary" size="sm" loading={pending} disabled={pending || !words.trim()}>
+      {problem && <p className="text-primary text-sm" role="alert">{problem}</p>}
+      {error && <InlineError>{error}</InlineError>}
+      <Button
+        type="submit"
+        variant="primary"
+        size="sm"
+        loading={pending}
+        disabled={pending || !complete || Boolean(problem)}
+      >
         {submitLabel}
       </Button>
       {pending && onCancel && progress?.type !== "finishing" && (

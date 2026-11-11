@@ -59,7 +59,7 @@ describe("PhraseReplaceFlow, change", () => {
     const phrase = await pasteOldPhrase(user);
     expect(await screen.findByText("Could someone else have your phrase?")).toBeInTheDocument();
     expect(onProve).toHaveBeenCalledWith({ phrase });
-    expect(screen.getByRole("button", { name: "No, it's only mine" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /No, it's only mine/ })).toBeInTheDocument();
     expect(screen.getByText("Someone may have it", { selector: "button *, button" })).toBeInTheDocument();
   });
 
@@ -80,7 +80,7 @@ describe("PhraseReplaceFlow, change", () => {
     const user = userEvent.setup();
     const { onSave } = setup();
     await pasteOldPhrase(user);
-    await user.click(await screen.findByRole("button", { name: "No, it's only mine" }));
+    await user.click(await screen.findByRole("button", { name: /No, it's only mine/ }));
     const newPhrase = await confirmNewPhrase(user);
     await user.click(screen.getByRole("button", { name: "Save recovery phrase" }));
     expect(onSave).toHaveBeenCalledWith({ exposed: false, newPhrase });
@@ -100,7 +100,7 @@ describe("PhraseReplaceFlow, change", () => {
     const user = userEvent.setup();
     setup();
     await pasteOldPhrase(user);
-    await user.click(await screen.findByRole("button", { name: "No, it's only mine" }));
+    await user.click(await screen.findByRole("button", { name: /No, it's only mine/ }));
     expect(screen.getAllByRole("listitem")).toHaveLength(12);
     await user.click(screen.getByRole("radio", { name: "24 words" }));
     expect(screen.getAllByRole("listitem")).toHaveLength(24);
@@ -124,7 +124,7 @@ describe("PhraseReplaceFlow, change", () => {
     const user = userEvent.setup();
     setup();
     await pasteOldPhrase(user);
-    await user.click(await screen.findByRole("button", { name: "No, it's only mine" }));
+    await user.click(await screen.findByRole("button", { name: /No, it's only mine/ }));
     expect(screen.getByText("Your new recovery phrase")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "I wrote it down" }));
     expect(screen.getByText("Confirm your new phrase")).toBeInTheDocument();
@@ -134,7 +134,7 @@ describe("PhraseReplaceFlow, change", () => {
     const user = userEvent.setup();
     const { onSave } = setup();
     await pasteOldPhrase(user);
-    await user.click(await screen.findByRole("button", { name: "No, it's only mine" }));
+    await user.click(await screen.findByRole("button", { name: /No, it's only mine/ }));
     await user.click(screen.getByRole("button", { name: "I wrote it down" }));
     await user.click(screen.getByRole("button", { name: "Save recovery phrase" }));
     expect(await screen.findByText(/doesn't match. Check what you wrote down./)).toBeInTheDocument();
@@ -145,7 +145,7 @@ describe("PhraseReplaceFlow, change", () => {
     const user = userEvent.setup();
     const { rerender, onProve, onSave, onClose } = setup();
     await pasteOldPhrase(user);
-    await user.click(await screen.findByRole("button", { name: "No, it's only mine" }));
+    await user.click(await screen.findByRole("button", { name: /No, it's only mine/ }));
     await user.click(screen.getByRole("button", { name: "I wrote it down" }));
     rerender(<PhraseReplaceFlow kind="change" onProve={onProve} onSave={onSave} onClose={onClose} busy />);
     expect(screen.getByRole("button", { name: /Save recovery phrase/ })).toBeDisabled();
@@ -155,7 +155,7 @@ describe("PhraseReplaceFlow, change", () => {
     const user = userEvent.setup();
     const { rerender, onProve, onSave, onClose } = setup();
     await pasteOldPhrase(user);
-    await user.click(await screen.findByRole("button", { name: "No, it's only mine" }));
+    await user.click(await screen.findByRole("button", { name: /No, it's only mine/ }));
     await user.click(screen.getByRole("button", { name: "I wrote it down" }));
     rerender(<PhraseReplaceFlow kind="change" onProve={onProve} onSave={onSave} onClose={onClose} error="Could not save your recovery phrase. Try again." />);
     expect(screen.getByText("Could not save your recovery phrase. Try again.")).toBeInTheDocument();
@@ -166,7 +166,7 @@ describe("PhraseReplaceFlow, change", () => {
     const spies = [vi.spyOn(console, "log"), vi.spyOn(console, "info"), vi.spyOn(console, "warn"), vi.spyOn(console, "error"), vi.spyOn(console, "debug")].map((spy) => spy.mockImplementation(() => {}));
     setup();
     await pasteOldPhrase(user);
-    await user.click(await screen.findByRole("button", { name: "No, it's only mine" }));
+    await user.click(await screen.findByRole("button", { name: /No, it's only mine/ }));
     const first = screen.getAllByRole("listitem")[0].textContent.replace(/^\d+\./, "");
     for (const spy of spies) {
       expect(JSON.stringify(spy.mock.calls)).not.toContain(first);
@@ -178,7 +178,7 @@ describe("PhraseReplaceFlow, change", () => {
     const user = userEvent.setup();
     const { rerender, onProve, onSave, onClose } = setup();
     await pasteOldPhrase(user);
-    await user.click(await screen.findByRole("button", { name: "No, it's only mine" }));
+    await user.click(await screen.findByRole("button", { name: /No, it's only mine/ }));
     rerender(<PhraseReplaceFlow kind="change" open={false} onProve={onProve} onSave={onSave} onClose={onClose} />);
     rerender(<PhraseReplaceFlow kind="change" onProve={onProve} onSave={onSave} onClose={onClose} />);
     expect(await screen.findByText("Enter your current phrase")).toBeInTheDocument();
@@ -262,7 +262,7 @@ describe("PhraseReplaceFlow, lost", () => {
     const user = userEvent.setup();
     lost();
     await toQuestion(user);
-    expect(screen.getByRole("button", { name: "No, it's just lost" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /No, it's just lost/ })).toBeInTheDocument();
     expect(screen.getByText(/Luna keeps your older private items for 30 days/)).toBeInTheDocument();
     expect(screen.getByText("Luna removes your older private items now.")).toBeInTheDocument();
     expect(screen.getByText(MAY_HAVE_IT)).toBeInTheDocument();
@@ -272,7 +272,7 @@ describe("PhraseReplaceFlow, lost", () => {
     const user = userEvent.setup();
     lost();
     await toQuestion(user);
-    await user.click(screen.getByRole("button", { name: label }));
+    await user.click(screen.getByRole("button", { name: new RegExp(label) }));
     expect(screen.queryByText("Delete older private versions?")).not.toBeInTheDocument();
   });
 
@@ -280,7 +280,7 @@ describe("PhraseReplaceFlow, lost", () => {
     const user = userEvent.setup();
     const { onProve } = lost();
     await toQuestion(user);
-    await user.click(screen.getByRole("button", { name: "No, it's just lost" }));
+    await user.click(screen.getByRole("button", { name: /No, it's just lost/ }));
     const field = screen.getByLabelText("Your Luna password");
     expect(field).toHaveAttribute("type", "password");
     expect(field).toHaveAttribute("autocomplete", "off");
@@ -294,7 +294,7 @@ describe("PhraseReplaceFlow, lost", () => {
     const user = userEvent.setup();
     lost({ onProve: vi.fn(async () => false) });
     await toQuestion(user);
-    await user.click(screen.getByRole("button", { name: "Someone may have it" }));
+    await user.click(screen.getByRole("button", { name: /Someone may have it/ }));
     await user.type(screen.getByLabelText("Your Luna password"), "nope");
     await user.click(screen.getByRole("button", { name: "Continue" }));
     expect(await screen.findByText("That is not your Luna password. Try again.")).toBeInTheDocument();
@@ -305,7 +305,7 @@ describe("PhraseReplaceFlow, lost", () => {
     const user = userEvent.setup();
     lost({ error: "Too many wrong tries. Try again in 10 minutes." });
     await toQuestion(user);
-    await user.click(screen.getByRole("button", { name: "No, it's just lost" }));
+    await user.click(screen.getByRole("button", { name: /No, it's just lost/ }));
     expect(screen.getByText("Too many wrong tries. Try again in 10 minutes.")).toBeInTheDocument();
   });
 
@@ -313,7 +313,7 @@ describe("PhraseReplaceFlow, lost", () => {
     const user = userEvent.setup();
     lost({ onProve: vi.fn(async () => { throw new Error("Could not reach Luna."); }) });
     await toQuestion(user);
-    await user.click(screen.getByRole("button", { name: "No, it's just lost" }));
+    await user.click(screen.getByRole("button", { name: /No, it's just lost/ }));
     await user.type(screen.getByLabelText("Your Luna password"), "x");
     await user.click(screen.getByRole("button", { name: "Continue" }));
     expect(await screen.findByText("Could not reach Luna.")).toBeInTheDocument();
@@ -326,7 +326,7 @@ describe("PhraseReplaceFlow, lost", () => {
     const user = userEvent.setup();
     const { onSave } = lost();
     await toQuestion(user);
-    await user.click(screen.getByRole("button", { name: label }));
+    await user.click(screen.getByRole("button", { name: new RegExp(label) }));
     await user.type(screen.getByLabelText("Your Luna password"), "pw");
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await screen.findByText("Your new recovery phrase");
@@ -342,7 +342,7 @@ describe("PhraseReplaceFlow, refused password and double save", () => {
   async function toConfirm(user, onSave) {
     const utils = render(<PhraseReplaceFlow {...props} onSave={onSave} />);
     await user.click(screen.getByRole("button", { name: "Continue" }));
-    await user.click(await screen.findByRole("button", { name: "No, it's just lost" }));
+    await user.click(await screen.findByRole("button", { name: /No, it's just lost/ }));
     await user.type(screen.getByLabelText("Your Luna password"), "wrong one");
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await screen.findByText("Your new recovery phrase");

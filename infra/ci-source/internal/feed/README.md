@@ -13,7 +13,7 @@ touches another.
 |---|---|---|
 | `sol` | Sol binaries (amd64, arm64) | Sol in-app updater, `sol/install.sh` |
 | `sol-connect` | server binary + web bundle | shared Connect `deploy.sh` |
-| `luna` | lunad (musl) + OS image when the OS changed + factory ISO | lunad updater |
+| `luna` | the OS image (daemon, packs and all) + factory ISO | lunad updater |
 | `luna-desktop` | Flatpak bundle, Windows installer | Flatpak repo (Linux), feed (Windows) |
 | `luna-android` | APK | F-Droid; sideload |
 | `luna-connect` | server binary + web bundle | shared Connect `deploy.sh` |
@@ -89,12 +89,9 @@ its version is newer than beta's current one (else beta users never leave
   "published": "2026-10-12T14:03:00Z",
   "notes": "markdown",
   "parts": [
-    { "name": "lunad", "os": "linux", "arch": "amd64",
-      "file": "lunad-linux-amd64-musl", "size": 27778648, "sha256": "…",
-      "urls": ["…/generic/luna/0.4.0/lunad-linux-amd64-musl"] },
     { "name": "os", "os": "linux", "arch": "amd64",
       "file": "luna-os-x86_64.img.xz", "size": 412000000, "sha256": "…",
-      "urls": ["…/generic/luna/0.3.0/luna-os-x86_64.img.xz"] }
+      "urls": ["…/generic/luna/0.4.0/luna-os-x86_64.img.xz"] }
   ],
   "api": { "version": 3, "oldest_supported": 2 }
 }
@@ -102,17 +99,19 @@ its version is newer than beta's current one (else beta users never leave
 
 `published` is UTC, exactly `YYYY-MM-DDTHH:MM:SSZ`, so plain string comparison
 orders it (bash receivers rely on that). Every part has `os` ∈ {`linux`,
-`windows`, `android`, `any`} and `arch` ∈ {`amd64`, `arm64`, `any`}. A part
-may point at an earlier version's file when that part didn't change (the OS
-image).
+`windows`, `android`, `any`} and `arch` ∈ {`amd64`, `arm64`, `any`}.
+
+A `luna` release always ships its own files: the whole system is the image, so
+there is nothing to reuse from an earlier version. (Until 0.0.4 the daemon was
+a separate part and the image was skipped when its inputs looked unchanged —
+which produced a release whose package held only a daemon binary.)
 
 | Unit | Part | os | arch | File |
 |---|---|---|---|---|
 | `sol` | `sol` | linux | amd64, arm64 | `sol-linux-<arch>` |
 | `sol-connect`, `luna-connect` | `server` | linux | amd64 | `<unit>-server-linux-amd64` |
 | | `web` | any | any | `<unit>-web.tar.gz` |
-| `luna` | `lunad` | linux | amd64 (musl) | `lunad-linux-amd64-musl` |
-| | `os` | linux | amd64 | `luna-os-x86_64.img.xz` |
+| `luna` | `os` | linux | amd64 | `luna-os-x86_64.img.xz` |
 | | `installer` | linux | amd64 | `luna-rapidinstall-x86_64.iso.xz` |
 | `luna-desktop` | `flatpak` | linux | amd64 | `luna-desktop-x86_64.flatpak` |
 | | `windows` | windows | amd64 | `Luna-Desktop-Setup-x86_64.exe` |
@@ -138,6 +137,11 @@ site files (`index.html` …) at the top for `luna-connect`
    check `size` and `sha256` before using anything.
 5. Compare versions as strict semver, including `-beta.N`. Same or lower than
    installed → no update.
+
+There is no `packs` part and no daemon part. The editor packs (EuroOffice,
+drawio) and lunad itself are inside the OS image, so they update with it. A
+`luna` feed lists `os` and `installer`, and nothing executable is ever written
+to the data partition.
 6. In a package's `SHA256SUMS.txt`, match the file name field exactly, never as
    a substring.
 
@@ -156,8 +160,9 @@ site files (`index.html` …) at the top for `luna-connect`
   the inactive slot, then store the hash). The factory installer and flasher
   must write `os-image.sha256` as the sha256 of the exact `.img.xz` the feed
   lists, or a fresh box offers a reflash on its first check.
-- **`luna-run`** runs whichever of `/var/lib/luna/bin/lunad` and the baked lunad
-  is newer (`lunad --version`).
+- **The daemon is not updated on its own.** lunad runs from the OS image
+  (`/usr/local/bin/lunad`); a new daemon means a new image, and the A/B slots
+  make that safe.
 - **Luna Desktop on Linux** has no in-app updater. CI builds a plain bundle
   (branch = channel, no `--repo-url`/`--gpg-keys`) that is only the Flatpak
   repo server's input (`infra/flatpak-repo/`); people install the bundle the

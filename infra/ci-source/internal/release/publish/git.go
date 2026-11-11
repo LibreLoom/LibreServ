@@ -117,7 +117,9 @@ func (g Git) FindBump(ctx context.Context, remote, branch, unit string) (version
 }
 
 // Preflight checks the repository is ready for a cut: clean tree, on branch,
-// nothing unpushed, and the tag free locally and on every remote given.
+// and the tag free locally and on every remote given. Whether branch holds
+// commits the push remote is missing is CheckPushed; a resume must skip it
+// because Bump recovers its own release commit.
 func (g Git) Preflight(ctx context.Context, branch, tag string, remotes ...string) error {
 	if st, err := g.run(ctx, "status", "--porcelain", "--untracked-files=no"); err != nil {
 		return err
@@ -143,6 +145,30 @@ func (g Git) Preflight(ctx context.Context, branch, tag string, remotes ...strin
 		if out != "" {
 			return &TagExistsError{Tag: tag, Remote: r}
 		}
+	}
+	return nil
+}
+
+// unpushedCommitsErr is Bump's and preflight's refusal when branch holds
+// commits the push remote does not have.
+func unpushedCommitsErr(branch, n, upstream string) error {
+	return fmt.Errorf("%s has %s local commit(s) that are not on %s; push or drop them before a cut", branch, n, upstream)
+}
+
+// CheckPushed fetches remote's branch and makes sure HEAD holds no commit the
+// remote is missing, so a cut fails in preflight instead of at the bump step,
+// after its tests have run.
+func (g Git) CheckPushed(ctx context.Context, remote, branch string) error {
+	upstream := remote + "/" + branch
+	if _, err := g.run(ctx, "fetch", "--quiet", remote, "+refs/heads/"+branch+":refs/remotes/"+upstream); err != nil {
+		return err
+	}
+	n, err := g.run(ctx, "rev-list", "--count", upstream+"..HEAD")
+	if err != nil {
+		return err
+	}
+	if n != "0" {
+		return unpushedCommitsErr(branch, n, upstream)
 	}
 	return nil
 }
@@ -320,7 +346,7 @@ func (g Git) Bump(ctx context.Context, remote, branch, subject string, push bool
 			return "", err
 		}
 		if n != "0" {
-			return "", fmt.Errorf("%s has %s local commit(s) that are not on %s; push or drop them before a cut", branch, n, upstream)
+			return "", unpushedCommitsErr(branch, n, upstream)
 		}
 	}
 	paths, err := apply(g.Dir)

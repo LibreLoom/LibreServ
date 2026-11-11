@@ -8,7 +8,7 @@ const READ_ONLY_HINT =
   "Luna can open files here but cannot save changes. Check the filesystem, or a write-lock switch on the stick — not the cable or USB port.";
 
 const LOCKED_HINT =
-  "This drive is encrypted and its password has not been entered since Luna started. An Admin can unlock it in Luna's web page.";
+  "This drive is encrypted and locked. Anyone with access to this drive can unlock it.";
 
 /**
  * The drive card's status pill: the one thing most worth knowing about the
@@ -30,7 +30,7 @@ export default function DriveStatusPill({ drive, health }) {
   if (drive.state === "missing") return <Pill variant="warning">Unplugged</Pill>;
   if (drive.state === "ejected") return <Pill variant="info">Ejected</Pill>;
   // A conversion holds the drive for hours; that is the state worth showing.
-  if (isConvertingDrive(drive)) return <Pill variant="info">Encrypting</Pill>;
+  if (isConvertingDrive(drive)) return <Pill variant="info">Formatting</Pill>;
   // Locked before "can't open": a locked drive has no mount, and that is not a
   // fault. It needs a password, not a repair.
   if (isLockedDrive(drive)) {

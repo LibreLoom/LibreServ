@@ -97,13 +97,8 @@ function stubFetch(sourceBody) {
   });
 }
 
-async function openAdvanced(user) {
-  await user.click(await screen.findByRole("button", { name: /^Update source$/i }));
-  await user.click(await screen.findByRole("button", { name: /Feed address and signing keys/i }));
-}
-
 async function openEditor(user) {
-  await openAdvanced(user);
+  await user.click(await screen.findByRole("button", { name: "Updates" }));
   await user.click(await screen.findByRole("button", { name: /Edit update source/i }));
 }
 
@@ -141,8 +136,11 @@ describe("AboutCategory", () => {
     expect(screen.queryByText(/Waiting for an address/i)).toBeNull();
     expect(await screen.findByRole("heading", { name: "System updates" })).toBeTruthy();
     expect(await screen.findByRole("button", { name: /Check for updates/i })).toBeTruthy();
-    expect(screen.getByText("Default source")).toBeTruthy();
-    expect(screen.getByText(FEED_URL)).toBeTruthy();
+    // The Updates section starts closed; open it to reach the source row.
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Updates" }));
+    expect(screen.getByText("Update source")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Edit update source/i })).toBeTruthy();
     expect(await screen.findByRole("heading", { name: "System checks" })).toBeTruthy();
   });
 
@@ -202,7 +200,7 @@ describe("AboutCategory", () => {
   it("keeps Luna Connect closed and opens a device-token modal from Advanced", async () => {
     const user = userEvent.setup();
     renderPage(stubFetch());
-    await screen.findByText("Default source");
+    await screen.findByText("Update source");
 
     expect(screen.getByText("Set or remove the Luna Connect device token here.")).toBeTruthy();
     expect(screen.queryByLabelText("Device token from Luna Connect")).toBeNull();
@@ -245,7 +243,7 @@ describe("AboutCategory", () => {
       return baseFetch(path, options);
     });
     renderPage(fetchImpl);
-    await screen.findByText("Default source");
+    await screen.findByText("Update source");
 
     await user.click(screen.getByRole("button", { name: /^Luna Connect$/i }));
     await user.click(screen.getByRole("button", { name: /Change device token/i }));
@@ -255,7 +253,7 @@ describe("AboutCategory", () => {
     expect(screen.queryByRole("button", { name: /Turn Luna Connect off/i })).toBeNull();
   });
 
-  it("flags a custom source when keys differ from the built-in key", async () => {
+  it("opens a custom source with its own address and the custom-key hint", async () => {
     const user = userEvent.setup();
     renderPage(stubFetch({
       ...SOURCE_RESPONSE,
@@ -264,9 +262,12 @@ describe("AboutCategory", () => {
       effective_keys: ["RWCUSTOM"],
       default_keys: false,
     }));
-    await openAdvanced(user);
-    expect(await screen.findByText("Custom source")).toBeTruthy();
-    expect(screen.getByText("https://staging.feeds.test/feeds")).toBeTruthy();
+    await openEditor(user);
+    const feedInput = /** @type {HTMLInputElement} */ (screen.getByPlaceholderText(FEED_URL));
+    expect(feedInput.value).toBe("https://staging.feeds.test/feeds");
+    expect(
+      screen.getByText(/Clear the field and save to go back to Luna's built-in release key\./),
+    ).toBeTruthy();
   });
 
   it("opens the edit modal with the warning copy and prefilled fields", async () => {
@@ -275,7 +276,7 @@ describe("AboutCategory", () => {
     await openEditor(user);
 
     expect(
-      await screen.findByText(/Only change these if your updates come from somewhere else/i),
+      await screen.findByText(/Only change this if you want Luna to get updates elsewhere/i),
     ).toBeTruthy();
     expect(screen.getByLabelText(/What these settings control/i)).toBeTruthy();
     const feedInput = /** @type {HTMLInputElement} */ (screen.getByPlaceholderText(FEED_URL));

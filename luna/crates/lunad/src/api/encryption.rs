@@ -1,55 +1,48 @@
-//! Encryption: the drive's encryption state, and unlocking/locking it.
-//!
-//! Turning encryption on or off **wipes the drive**. There is no in-place
-//! conversion: the drive is reformatted, keeping its identity, and the files
-//! that were on it are gone. That is why every path here goes through the same
-//! wipe confirmation the plain format flow uses — one rule, one dialog, no
-//! second way to destroy a drive.
-//!
-//! Two permissions live here and they are deliberately different:
-//!
-//! - **Unlocking** is open to anyone who can already read the drive. If a
-//!   person can see the files, they already have everything the password
-//!   protects, so withholding the button buys nothing. The rate limit is what
-//!   makes that safe.
-//! - **Encrypting and decrypting** are Admin-only, matching Remove and Eject.
-//!   They change the drive itself, not the session.
-
+//! Non-destructive operations on encrypted drives.
 use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 use crate::AppState;
 use crate::api::response::{json_error, json_error_code};
-use crate::drives::luks;
 use crate::drives::vault::{self, UnlockError};
+
+type ApiError = (StatusCode, Json<serde_json::Value>);
 
 #[derive(Serialize)]
 struct EncryptionJson {
     drive_id: String,
     label: String,
-    /// The drive on disk is a LUKS2 container.
     encrypted: bool,
-    /// The container is open right now.
     unlocked: bool,
-    /// A format is running on this drive right now.
     converting: bool,
-    /// The drive is plugged in.
     present: bool,
-    /// The filesystem inside, once known.
     fs_type: String,
-    /// Whether Luna can set this drive up as encrypted, and why not when it
-    /// can't. Wiping is what makes almost any drive eligible, so a refusal is
-    /// now about the drive being absent or busy rather than its format.
-    can_encrypt: bool,
-    cannot_encrypt_reason: String,
+    status: &'static str,
 }
 
 #[derive(Deserialize)]
 struct PasswordBody {
     password: String,
+}
+impl Drop for PasswordBody {
+    fn drop(&mut self) {
+        self.password.zeroize();
+    }
+}
+#[derive(Deserialize)]
+struct ChangePasswordBody {
+    current_password: String,
+    new_password: String,
+}
+impl Drop for ChangePasswordBody {
+    fn drop(&mut self) {
+        self.current_password.zeroize();
+        self.new_password.zeroize();
+    }
 }
 
 pub fn router() -> Router<AppState> {
@@ -57,585 +50,630 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/drives/{id}/encryption", get(state))
         .route("/api/v1/drives/{id}/unlock", post(unlock))
         .route("/api/v1/drives/{id}/lock", post(lock))
-        .route("/api/v1/drives/{id}/encrypt", post(encrypt))
-        .route("/api/v1/drives/{id}/decrypt", post(decrypt))
-        .route("/api/v1/drives/{id}/reformat", post(reformat_plain))
+        .route("/api/v1/drives/{id}/password", post(change_password))
+        .route("/api/v1/drives/{name}/unlock-and-add", post(unlock_and_add))
 }
 
-/// The encryption page's whole view of a drive.
+fn row(state: &AppState, id: &str) -> Result<crate::db::DriveRow, ApiError> {
+    crate::db::with_db(
+        &state.db,
+        || anyhow::anyhow!("db lock poisoned"),
+        |conn| crate::db::get_drive(conn, id),
+    )
+    .map_err(|_| internal())?
+    .ok_or_else(unknown_drive)
+}
+fn authorize(state: &AppState, user: &crate::auth::CurrentUser, id: &str) -> Result<(), ApiError> {
+    let allowed = crate::db::with_db(
+        &state.db,
+        || anyhow::anyhow!("db lock poisoned"),
+        |conn| Ok(crate::auth::has_drive_access(user, conn, id)),
+    )
+    .unwrap_or(false);
+    if allowed {
+        Ok(())
+    } else {
+        Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have access to this drive.",
+        ))
+    }
+}
+fn ready(row: &crate::db::DriveRow) -> Result<(), ApiError> {
+    if row.state == "missing" || row.state == "ejected" {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "This drive is unplugged. Plug it in and try again.",
+        ));
+    }
+    if row.converting {
+        return Err(json_error_code(
+            StatusCode::LOCKED,
+            "drive_converting",
+            crate::files::DRIVE_CONVERTING_MSG,
+        ));
+    }
+    if !row.encrypted {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "This drive isn't encrypted.",
+        ));
+    }
+    Ok(())
+}
+fn limit(state: &AppState, user: &crate::auth::CurrentUser, id: &str) -> Result<(), ApiError> {
+    if state
+        .unlock_limiter
+        .allow(&format!("unlock:{}:{}", user.id, id))
+    {
+        Ok(())
+    } else {
+        Err(json_error_code(
+            StatusCode::TOO_MANY_REQUESTS,
+            "too_many_tries",
+            "Too many wrong tries. Wait a few minutes, then try again.",
+        ))
+    }
+}
+fn failure(err: UnlockError) -> ApiError {
+    match err {
+        UnlockError::WrongPassword => json_error_code(
+            StatusCode::UNAUTHORIZED,
+            "wrong_password",
+            "That password didn't work.",
+        ),
+        other => json_error(StatusCode::BAD_REQUEST, other.message()),
+    }
+}
+
+fn verified_mount(state: &AppState, row: &crate::db::DriveRow) -> bool {
+    if row.mount_point.is_empty() || !state.drive_manager.luks().is_open(&row.id) {
+        return false;
+    }
+    let mount = std::path::Path::new(&row.mount_point);
+    state.drive_manager.mounter().is_mounted(mount)
+        && luna_core::marker::read_marker(mount)
+            .ok()
+            .flatten()
+            .is_some_and(|marker| marker.id == row.id)
+}
+
 async fn state(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
-) -> Result<Json<EncryptionJson>, (StatusCode, Json<serde_json::Value>)> {
-    let row = crate::db::with_db(
-        &state.db,
-        || anyhow::anyhow!("db lock poisoned"),
-        |conn| crate::db::get_drive(conn, &id),
-    )
-    .map_err(|_| internal())?
-    .ok_or_else(unknown_drive)?;
-
-    // Members may see the state of a drive they can reach — they need to know
-    // why it is unavailable — but not the server plumbing.
-    let allowed = crate::db::with_db(
-        &state.db,
-        || anyhow::anyhow!("db lock poisoned"),
-        |conn| Ok(crate::auth::has_drive_access(&user, conn, &id)),
-    )
-    .unwrap_or(false);
-    if !allowed {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "You don't have access to this drive.",
-        ));
-    }
-
+) -> Result<Json<EncryptionJson>, ApiError> {
+    authorize(&state, &user, &id)?;
+    let row = row(&state, &id)?;
     let present = row.state != "missing" && row.state != "ejected";
-
-    let (can_encrypt, cannot_encrypt_reason) = if row.encrypted {
-        (false, String::new())
+    let (status, unlocked) = if row.converting {
+        let formatting = crate::db::with_db(&state.db, || anyhow::anyhow!("db lock poisoned"), |conn| {
+            Ok(conn.query_row("SELECT EXISTS(SELECT 1 FROM drive_format_operations WHERE drive_id=?1 AND state IN ('queued','running'))", [&id], |r| r.get::<_, bool>(0))?)
+        }).unwrap_or(false);
+        (
+            if formatting {
+                "formatting"
+            } else {
+                "unavailable"
+            },
+            false,
+        )
+    } else if !present || !row.encrypted {
+        ("unavailable", false)
+    } else if !state.drive_manager.luks().is_open(&id) {
+        ("locked", false)
+    } else if verified_mount(&state, &row) {
+        ("unlocked", true)
     } else {
-        encryptability(&row)
+        ("unavailable", false)
     };
-
     Ok(Json(EncryptionJson {
         drive_id: row.id,
         label: row.label,
         encrypted: row.encrypted,
-        unlocked: row.encrypted && !row.locked,
+        unlocked,
         converting: row.converting,
         present,
         fs_type: row.fs_type,
-        can_encrypt,
-        cannot_encrypt_reason,
+        status,
     }))
 }
 
-/// Whether this drive can be set up as encrypted, and the plain reason when it
-/// cannot.
-///
-/// Wiping is what makes this simple: any drive Luna can see and reach can be
-/// reformatted, whatever was on it. A refusal is therefore about the drive
-/// being absent or held by something else, never about its current format.
-fn encryptability(row: &crate::db::DriveRow) -> (bool, String) {
-    if row.state == "missing" || row.state == "ejected" {
-        return (false, "Plug this drive in to encrypt it.".to_string());
-    }
-    if row.converting {
-        return (
-            false,
-            "Luna is already working on this drive. Wait for that to finish.".to_string(),
-        );
-    }
-    (true, String::new())
-}
-
-fn device_path(name: &str) -> String {
-    if name.starts_with('/') {
-        name.to_string()
-    } else {
-        format!("/dev/{name}")
-    }
-}
-
-/// Unlock a drive. Anyone who can read it may do this; the rate limit is what
-/// keeps a Member with a live session from guessing.
 async fn unlock(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
     Json(body): Json<PasswordBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let row = crate::db::with_db(
-        &state.db,
-        || anyhow::anyhow!("db lock poisoned"),
-        |conn| crate::db::get_drive(conn, &id),
-    )
+) -> Result<Json<serde_json::Value>, ApiError> {
+    authorize(&state, &user, &id)?;
+    let _guard = state.db.drive_lock(&id).lock_owned().await;
+    let _closing = state.drive_manager.begin_closing(&id);
+    let row = row(&state, &id)?;
+    ready(&row)?;
+    if verified_mount(&state, &row) {
+        return Ok(Json(
+            serde_json::json!({"ok": true, "already_unlocked": true}),
+        ));
+    }
+    limit(&state, &user, &id)?;
+    let st = state.clone();
+    let drive = id.clone();
+    tokio::task::spawn_blocking(move || {
+        let _guard = _guard;
+        let _closing = _closing;
+        let partition = st
+            .drive_manager
+            .luks_partition(&row.device)
+            .map_err(|e| json_error(StatusCode::BAD_REQUEST, e.to_string()))?;
+        let mount = vault::unlock_drive(
+            st.drive_manager.mounter(),
+            st.drive_manager.luks(),
+            &st.data_dir,
+            &drive,
+            &partition,
+            &body.password,
+        )
+        .map_err(failure)?;
+        if crate::db::with_db(
+            &st.db,
+            || anyhow::anyhow!("db lock poisoned"),
+            |conn| vault::record_unlocked(conn, &drive, &mount),
+        )
+        .is_err()
+        {
+            let _ = vault::lock_drive(
+                st.drive_manager.mounter(),
+                st.drive_manager.luks(),
+                &drive,
+                &mount,
+            );
+            return Err(internal());
+        }
+        let mount = std::path::PathBuf::from(mount);
+        st.search_index.watch_mount(&drive, mount.clone());
+        st.gallery.watch_mount(&drive, mount);
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
     .map_err(|_| internal())?
-    .ok_or_else(unknown_drive)?;
+}
 
-    let allowed = crate::db::with_db(
-        &state.db,
-        || anyhow::anyhow!("db lock poisoned"),
-        |conn| Ok(crate::auth::has_drive_access(&user, conn, &id)),
-    )
-    .unwrap_or(false);
-    if !allowed {
+/// Add an existing encrypted Luna drive after proving its password and identity.
+async fn unlock_and_add(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Path(name): Path<String>,
+    Json(body): Json<PasswordBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if user.role != "admin" {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "You don't have access to this drive.",
+            "Only an Admin can add a drive.",
         ));
     }
-    if !row.encrypted {
+    if body.password.is_empty() {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            "This drive isn't encrypted, so it doesn't need a password.",
+            "Enter this drive's password.",
         ));
     }
-    if row.converting {
-        return Err(json_error_code(
-            StatusCode::LOCKED,
-            "drive_converting",
-            crate::files::DRIVE_CONVERTING_MSG,
+    let guard = state
+        .db
+        .drive_lock(&format!("format-device:{name}"))
+        .lock_owned()
+        .await;
+    let busy: bool = crate::db::with_db(&state.db, || anyhow::anyhow!("db lock poisoned"), |conn| {
+        Ok(conn.query_row("SELECT EXISTS(SELECT 1 FROM drive_format_operations WHERE device=?1 AND state IN ('queued','running'))", [&name], |r| r.get(0))?)
+    }).map_err(|_| internal())?;
+    if busy {
+        return Err(json_error(
+            StatusCode::CONFLICT,
+            "Luna is already formatting this drive.",
         ));
     }
-    if !row.locked && !row.mount_point.is_empty() {
-        // Already open — nothing to do, and asking for the password again
-        // would be a confusing way to say so.
-        return Ok(Json(
-            serde_json::json!({ "ok": true, "already_unlocked": true }),
-        ));
-    }
-
-    // Per user, per drive: five wrong tries then a wait. Keyed on the user so
-    // one person cannot spend the whole household's attempts.
-    let key = format!("unlock:{}:{}", user.id, id);
-    if !state.unlock_limiter.allow(&key) {
-        return Err(json_error_code(
-            StatusCode::TOO_MANY_REQUESTS,
-            "too_many_tries",
-            "Too many wrong tries. Wait a few minutes, then try again.",
-        ));
-    }
-
-    let (manager, data_dir, drive_id, device) = (
-        state.drive_manager.clone(),
-        state.data_dir.clone(),
-        row.id.clone(),
-        device_path(&row.device),
-    );
-    let password = body.password;
-    let result = tokio::task::spawn_blocking(move || {
-        vault::unlock_drive(
-            manager.mounter(),
-            manager.luks(),
-            &data_dir,
-            &drive_id,
-            &device,
-            &password,
-        )
+    limit(&state, &user, &name)?;
+    let st = state.clone();
+    let disk = name.clone();
+    let (result, guard, body) = tokio::task::spawn_blocking(move || {
+        let result = (|| {
+            let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
+            let device = crate::drives::detect::scan_with_dev_mocks(
+                std::path::Path::new("/sys/block"),
+                &mounts,
+            )
+            .into_iter()
+            .find(|d| d.name == disk && d.is_storage_candidate())
+            .ok_or_else(|| {
+                json_error(
+                    StatusCode::NOT_FOUND,
+                    "Luna can't see this drive. Plug it in and try again.",
+                )
+            })?;
+            let partition = st
+                .drive_manager
+                .luks_partition(&disk)
+                .map_err(|e| json_error(StatusCode::BAD_REQUEST, e.to_string()))?;
+            let marker = vault::inspect_identity(
+                st.drive_manager.mounter(),
+                st.drive_manager.luks(),
+                &st.data_dir,
+                &partition,
+                &body.password,
+            )
+            .map_err(failure)?;
+            Ok::<_, ApiError>((device, marker))
+        })();
+        (result, guard, body)
     })
     .await
     .map_err(|_| internal())?;
-
-    match result {
-        Ok(mount_point) => {
-            crate::db::with_db(
-                &state.db,
-                || anyhow::anyhow!("db lock poisoned"),
-                |conn| vault::record_unlocked(conn, &id, &mount_point),
-            )
-            .map_err(|_| internal())?;
-            // The drive just became readable: re-arm what indexes it.
-            let mount = std::path::PathBuf::from(&mount_point);
-            state.search_index.watch_mount(&id, mount.clone());
-            state.gallery.watch_mount(&id, mount);
-            Ok(Json(serde_json::json!({ "ok": true })))
+    let (device, marker) = result?;
+    let id = marker.id.clone();
+    let drive_guard = state.db.drive_lock(&id).lock_owned().await;
+    let st = state.clone();
+    tokio::task::spawn_blocking(move || {
+        let _guard = guard;
+        let _drive_guard = drive_guard;
+        let _closing = st.drive_manager.begin_closing(&id);
+        let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
+        let same =
+            crate::drives::detect::scan_with_dev_mocks(std::path::Path::new("/sys/block"), &mounts)
+                .into_iter()
+                .any(|d| {
+                    d.name == device.name
+                        && d.is_storage_candidate()
+                        && d.diskseq == device.diskseq
+                        && d.size_bytes == device.size_bytes
+                });
+        if !same {
+            return Err(json_error(
+                StatusCode::CONFLICT,
+                "This drive changed. Plug it in and try again.",
+            ));
         }
-        Err(UnlockError::WrongPassword) => Err(json_error_code(
-            StatusCode::UNAUTHORIZED,
-            "wrong_password",
-            "That password didn't work.",
-        )),
-        Err(UnlockError::NotPresent) => Err(json_error(
-            StatusCode::BAD_REQUEST,
-            "This drive is unplugged. Plug it in and try again.",
-        )),
-        Err(other) => Err(json_error(StatusCode::BAD_REQUEST, other.message())),
-    }
+        if row(&st, &id).is_ok() {
+            return Err(json_error(
+                StatusCode::CONFLICT,
+                "Luna already knows this drive. Find it in your drives to unlock it.",
+            ));
+        }
+        let partition = st
+            .drive_manager
+            .luks_partition(&device.name)
+            .map_err(|e| json_error(StatusCode::BAD_REQUEST, e.to_string()))?;
+        let mount = vault::unlock_drive(
+            st.drive_manager.mounter(),
+            st.drive_manager.luks(),
+            &st.data_dir,
+            &id,
+            &partition,
+            &body.password,
+        )
+        .map_err(failure)?;
+        let registered = crate::db::with_db(
+            &st.db,
+            || anyhow::anyhow!("db lock poisoned"),
+            |conn| {
+                let tx = conn.unchecked_transaction()?;
+                if crate::db::get_drive(&tx, &id)?.is_some() {
+                    anyhow::bail!("drive already exists");
+                }
+                crate::db::upsert_drive(
+                    &tx,
+                    &id,
+                    &marker.label,
+                    "as_is",
+                    "ext4",
+                    &device.name,
+                    &mount,
+                )?;
+                crate::db::set_drive_encrypted(&tx, &id, true)?;
+                crate::db::set_drive_locked(&tx, &id, false)?;
+                tx.commit()?;
+                Ok(())
+            },
+        );
+        if registered.is_err() {
+            let _ = vault::lock_drive(
+                st.drive_manager.mounter(),
+                st.drive_manager.luks(),
+                &id,
+                &mount,
+            );
+            return Err(internal());
+        }
+        let path = std::path::PathBuf::from(mount);
+        st.search_index.watch_mount(&id, path.clone());
+        st.gallery.watch_mount(&id, path);
+        Ok(Json(serde_json::json!({"ok": true, "drive_id": id})))
+    })
+    .await
+    .map_err(|_| internal())?
 }
 
-/// Lock a drive: flush, unmount, then close the container.
+fn hold_background_work(
+    state: &AppState,
+    id: &str,
+) -> Result<
+    (
+        Vec<crate::backup::drive_backup::RunSlot>,
+        Vec<crate::backup::cloud::run::RunSlot>,
+    ),
+    ApiError,
+> {
+    let (working, protections) = crate::db::with_db(&state.db, || anyhow::anyhow!("db lock poisoned"), |conn| {
+        let working: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE state IN ('running','queued') AND (from_drive=?1 OR to_drive=?1))", [id], |row| row.get(0))?;
+        let protections = crate::db::list_protections(conn)?.into_iter().filter(|p| p.source_drive == id || p.target_drive == id).collect::<Vec<_>>();
+        Ok((working, protections))
+    }).map_err(|_| internal())?;
+    let busy = || {
+        json_error(
+            StatusCode::CONFLICT,
+            "Wait for copies and backups using this drive to finish, then try locking it again.",
+        )
+    };
+    if working {
+        return Err(busy());
+    }
+    let mut local = Vec::new();
+    let mut cloud = Vec::new();
+    for protection in protections {
+        local.push(
+            crate::backup::drive_backup::try_hold(&state.db, &protection.id).ok_or_else(busy)?,
+        );
+        cloud.push(
+            crate::backup::cloud::run::RunSlot::take(&state.db, &protection.id).ok_or_else(busy)?,
+        );
+    }
+    Ok((local, cloud))
+}
+
 async fn lock(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let row = crate::db::with_db(
-        &state.db,
-        || anyhow::anyhow!("db lock poisoned"),
-        |conn| crate::db::get_drive(conn, &id),
-    )
-    .map_err(|_| internal())?
-    .ok_or_else(unknown_drive)?;
-
-    let allowed = crate::db::with_db(
-        &state.db,
-        || anyhow::anyhow!("db lock poisoned"),
-        |conn| Ok(crate::auth::has_drive_access(&user, conn, &id)),
-    )
-    .unwrap_or(false);
-    if !allowed {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "You don't have access to this drive.",
-        ));
-    }
-    if !row.encrypted {
-        return Err(json_error(
-            StatusCode::BAD_REQUEST,
-            "This drive isn't encrypted, so there's nothing to lock.",
-        ));
-    }
-    if row.converting {
-        return Err(json_error_code(
-            StatusCode::LOCKED,
-            "drive_converting",
-            crate::files::DRIVE_CONVERTING_MSG,
-        ));
-    }
-
-    // Buffered saves must land before the unmount, exactly like Eject.
-    state.ram_cache.begin_close(&id);
-    let _ = state
-        .ram_cache
-        .flush_drive_dirty(&id, std::path::Path::new(&row.mount_point));
-
-    let (manager, mount_point, drive_id) = (
-        state.drive_manager.clone(),
-        row.mount_point.clone(),
-        row.id.clone(),
-    );
-    tokio::task::spawn_blocking(move || {
-        vault::lock_drive(manager.mounter(), manager.luks(), &drive_id, &mount_point)
-    })
-    .await
-    .map_err(|_| internal())?
-    .map_err(|e| json_error(StatusCode::BAD_REQUEST, e.to_string()))?;
-
-    crate::db::with_db(
-        &state.db,
-        || anyhow::anyhow!("db lock poisoned"),
-        |conn| vault::record_locked(conn, &id),
-    )
-    .map_err(|_| internal())?;
-
-    // Nothing can read it now: drop the watchers and the RAM cache.
-    state.gallery.unwatch_mount(&id);
-    state.search_index.unwatch_mount(&id);
-    state.ram_cache.drop_drive(&id);
-
-    Ok(Json(serde_json::json!({ "ok": true })))
-}
-
-/// Turn encryption on for a drive: wipe it to ext4 inside a LUKS2 container.
-///
-/// Admin-only, and destructive. The caller has already shown the wipe
-/// confirmation — the same one the plain format flow uses — so this handler
-/// does not ask again; it only re-checks that the drive is still eligible.
-async fn encrypt(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-    Path(id): Path<String>,
-    Json(body): Json<PasswordBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    reformat(state, user, id, Some(body.password)).await
-}
-
-/// Turn encryption off for a drive: wipe it to a plain exFAT drive.
-///
-/// Asks for the password even though it is about to be destroyed: it proves
-/// the person knows it rather than merely sitting at an unlocked session, and
-/// it is the last moment before the files become readable to anyone.
-async fn decrypt(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-    Path(id): Path<String>,
-    Json(body): Json<PasswordBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    reformat(state, user, id, Some(body.password)).await
-}
-
-/// Reformat a drive to plain exFAT, keeping its identity. This is the "start
-/// over" path for a drive that is not encrypted.
-///
-/// Refused on an encrypted drive: without a password this would be a way to
-/// destroy an encrypted drive's contents without proving you know the
-/// password, which is exactly what the decrypt flow exists to prevent.
-async fn reformat_plain(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-    Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let row = crate::db::with_db(
-        &state.db,
-        || anyhow::anyhow!("db lock poisoned"),
-        |conn| crate::db::get_drive(conn, &id),
-    )
-    .map_err(|_| internal())?
-    .ok_or_else(unknown_drive)?;
-    if row.encrypted {
-        return Err(json_error(
-            StatusCode::BAD_REQUEST,
-            "This drive is encrypted. Enter its password to decrypt it.",
-        ));
-    }
-    reformat(state, user, id, None).await
-}
-
-/// Wipe a drive and give it a new filesystem, keeping its identity.
-///
-/// `password` present means "make it encrypted"; absent means "make it plain".
-/// Both directions are the same operation — a reformat — so they share one
-/// implementation, and the only difference is the [`format::Target`].
-///
-/// The drive keeps its id and gets a fresh marker, so shares, access grants,
-/// gallery indexes and backup rules survive. That is the whole reason this is
-/// a reformat rather than a remove-and-add.
-async fn reformat(
-    state: AppState,
-    user: crate::auth::CurrentUser,
-    id: String,
-    password: Option<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    if user.role != "admin" {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "Only an Admin can change whether a drive is encrypted.",
-        ));
-    }
-    let row = crate::db::with_db(
-        &state.db,
-        || anyhow::anyhow!("db lock poisoned"),
-        |conn| crate::db::get_drive(conn, &id),
-    )
-    .map_err(|_| internal())?
-    .ok_or_else(unknown_drive)?;
-
-    let (can, reason) = encryptability(&row);
-    if !can {
-        return Err(json_error(StatusCode::BAD_REQUEST, reason));
-    }
-    if let Some(pw) = &password
-        && pw.is_empty()
-    {
-        return Err(json_error(
-            StatusCode::BAD_REQUEST,
-            "Enter a password for this drive.",
-        ));
-    }
-
-    // Hold the drive exclusively for the whole run. This stops browse, uploads,
-    // WebDAV, gallery indexing and backups in one place, because they all go
-    // through `drive_root()`.
+) -> Result<Json<serde_json::Value>, ApiError> {
+    authorize(&state, &user, &id)?;
+    let _guard = state.db.drive_lock(&id).lock_owned().await;
     let _closing = state.drive_manager.begin_closing(&id);
+    let row = row(&state, &id)?;
+    ready(&row)?;
+    if state.collab.drive_is_active(&id) || state.office_docs.drive_is_active(&id) {
+        return Err(json_error(
+            StatusCode::CONFLICT,
+            "Close documents open from this drive, then try locking it again.",
+        ));
+    }
     crate::db::with_db(
         &state.db,
         || anyhow::anyhow!("db lock poisoned"),
         |conn| crate::db::set_drive_converting(conn, &id, true),
     )
     .map_err(|_| internal())?;
-
-    let guard = state.db.drive_lock(&id).lock_owned().await;
-
-    let db = state.db.clone();
-    let manager = state.drive_manager.clone();
-    let drive_id = id.clone();
-    let label = row.label.clone();
-    let disk = row.device.clone();
-    let encrypted = password.is_some();
-
-    tokio::task::spawn_blocking(move || {
-        let _guard = guard;
-        // The container (if any) must be closed before the disk is wiped.
-        let _ = manager.luks().close(&drive_id);
-        let target = match &password {
-            Some(_) => crate::drives::format::Target::encrypted(&label),
-            None => crate::drives::format::Target::plain(&label),
+    let gate = OperationGate {
+        state: state.clone(),
+        id: id.clone(),
+    };
+    state.ram_cache.begin_close(&id);
+    let st = state.clone();
+    let drive = id.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let _guard = _guard;
+        let _closing = _closing;
+        let _gate = gate;
+        let _ram_close = RamClose {
+            state: st.clone(),
+            id: drive.clone(),
         };
-        let made = crate::drives::format::run(
-            manager.probe(),
-            manager.luks(),
-            manager.mkfs(),
-            &disk,
-            &target,
-            password.as_deref().unwrap_or(""),
-            |point| manager.mounter().unmount(point),
-        );
-        // Whatever happened, the drive is no longer held by a format.
-        let _ = crate::db::with_db(
-            &db,
-            || anyhow::anyhow!("db lock poisoned"),
-            |conn| crate::db::set_drive_converting(conn, &drive_id, false),
-        );
-        match made {
-            Ok(made) => {
-                // The wipe destroyed the marker, so put the drive back into
-                // use under the same id: shares, grants, gallery index and
-                // backup rules all key on it.
-                let remounted = crate::db::with_db(
-                    &db,
-                    || anyhow::anyhow!("db lock poisoned"),
-                    |conn| {
-                        manager.remount_after_format(
-                            conn,
-                            &drive_id,
-                            &label,
-                            made.encrypted,
-                            password.as_deref().unwrap_or(""),
-                        )
-                    },
-                );
-                let _ = crate::db::with_db(
-                    &db,
-                    || anyhow::anyhow!("db lock poisoned"),
-                    |conn| {
-                        crate::db::set_drive_encrypted(conn, &drive_id, made.encrypted)?;
-                        crate::db::set_drive_fs_type(conn, &drive_id, made.filesystem.as_str())
-                    },
-                );
-                match remounted {
-                    Ok(mount_point) => {
-                        // An encrypted drive stays locked until its password is
-                        // entered again: the key went with the format.
-                        let _ = crate::db::with_db(
-                            &db,
-                            || anyhow::anyhow!("db lock poisoned"),
-                            |conn| {
-                                if made.encrypted {
-                                    crate::db::set_drive_locked(conn, &drive_id, true)
-                                } else {
-                                    crate::db::set_drive_locked(conn, &drive_id, false)?;
-                                    crate::db::set_drive_mount_point(conn, &drive_id, &mount_point)
-                                }
-                            },
-                        );
-                        tracing::info!(drive = %drive_id, encrypted, "drive reformatted");
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            drive = %drive_id,
-                            error = %e,
-                            "drive reformatted but could not be reopened"
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                // The drive has no filesystem Luna can use until someone
-                // formats it again. Say so rather than leaving it looking
-                // healthy: `converting` is already cleared above.
-                tracing::warn!(drive = %drive_id, error = %e, "drive reformat did not finish");
-            }
+        let _background = hold_background_work(&st, &drive)?;
+        if !st.ram_cache.dirty_rels_for_drive(&drive).is_empty()
+            && (row.mount_point.is_empty()
+                || st
+                    .ram_cache
+                    .flush_drive_dirty(&drive, std::path::Path::new(&row.mount_point))
+                    .is_err())
+        {
+            return Err(json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't finish saving files on this drive. Wait a moment and try again.",
+            ));
         }
-    });
-
-    Ok(Json(serde_json::json!({ "ok": true, "started": true })))
+        st.gallery.unwatch_mount(&drive);
+        st.search_index.unwatch_mount(&drive);
+        let canonical_mount = vault::mount_point_for(&st.data_dir, &drive);
+        let mount_point = if row.mount_point.is_empty() {
+            canonical_mount.to_string_lossy().into_owned()
+        } else {
+            row.mount_point.clone()
+        };
+        if let Err(e) = vault::lock_drive(
+            st.drive_manager.mounter(),
+            st.drive_manager.luks(),
+            &drive,
+            &mount_point,
+        ) {
+            // If closing the mapper failed after unmount, try to restore access.
+            if !row.mount_point.is_empty()
+                && !st
+                    .drive_manager
+                    .mounter()
+                    .is_mounted(std::path::Path::new(&row.mount_point))
+                && st.drive_manager.luks().is_open(&drive)
+            {
+                let _ = vault::mount_container(st.drive_manager.mounter(), &st.data_dir, &drive);
+            }
+            if !row.mount_point.is_empty()
+                && st
+                    .drive_manager
+                    .mounter()
+                    .is_mounted(std::path::Path::new(&row.mount_point))
+            {
+                let mount = std::path::PathBuf::from(&row.mount_point);
+                st.search_index.watch_mount(&drive, mount.clone());
+                st.gallery.watch_mount(&drive, mount);
+            } else {
+                let _ = crate::db::with_db(
+                    &st.db,
+                    || anyhow::anyhow!("db lock poisoned"),
+                    |conn| crate::db::set_drive_mount_point(conn, &drive, ""),
+                );
+            }
+            return Err(json_error(StatusCode::BAD_REQUEST, e.to_string()));
+        }
+        crate::db::with_db(
+            &st.db,
+            || anyhow::anyhow!("db lock poisoned"),
+            |conn| vault::record_locked(conn, &drive),
+        )
+        .map_err(|_| internal())?;
+        st.ram_cache.drop_drive(&drive);
+        Ok(())
+    })
+    .await
+    .unwrap_or_else(|_| Err(internal()));
+    result?;
+    Ok(Json(serde_json::json!({"ok": true})))
 }
 
-fn unknown_drive() -> (StatusCode, Json<serde_json::Value>) {
+async fn change_password(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Path(id): Path<String>,
+    Json(body): Json<ChangePasswordBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if user.role != "admin" {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an Admin can change this drive's password.",
+        ));
+    }
+    authorize(&state, &user, &id)?;
+    if body.new_password.is_empty() || body.current_password.is_empty() {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Enter the current and new passwords.",
+        ));
+    }
+    let _guard = state.db.drive_lock(&id).lock_owned().await;
+    let _closing = state.drive_manager.begin_closing(&id);
+    let row = row(&state, &id)?;
+    ready(&row)?;
+    limit(&state, &user, &id)?;
+    let manager = state.drive_manager.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let result = manager.luks_partition(&row.device).and_then(|partition| {
+            manager
+                .luks()
+                .change_password(&partition, &body.current_password, &body.new_password)
+        });
+        (result, _guard, _closing)
+    })
+    .await
+    .map_err(|_| internal())?;
+    let (result, _guard, _closing) = result;
+    result.map_err(|e| {
+        if e.to_string() == "That password didn't work." {
+            failure(UnlockError::WrongPassword)
+        } else {
+            json_error(StatusCode::BAD_REQUEST, e.to_string())
+        }
+    })?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+// Prevent new file operations during unmount, even if the request is dropped.
+struct OperationGate {
+    state: AppState,
+    id: String,
+}
+impl Drop for OperationGate {
+    fn drop(&mut self) {
+        let _ = crate::db::with_db(
+            &self.state.db,
+            || anyhow::anyhow!("db lock poisoned"),
+            |conn| crate::db::set_drive_converting(conn, &self.id, false),
+        );
+    }
+}
+
+struct RamClose {
+    state: AppState,
+    id: String,
+}
+impl Drop for RamClose {
+    fn drop(&mut self) {
+        self.state.ram_cache.end_close(&self.id);
+    }
+}
+
+fn unknown_drive() -> ApiError {
     json_error_code(
         StatusCode::NOT_FOUND,
         "unknown_drive",
         "Luna doesn't know this drive.",
     )
 }
-
-fn internal() -> (StatusCode, Json<serde_json::Value>) {
+fn internal() -> ApiError {
     json_error(
         StatusCode::INTERNAL_SERVER_ERROR,
-        "Luna couldn't read this drive's settings. Try again.",
+        "Luna couldn't finish with this drive. Try again.",
     )
 }
 
-/// The profile a new container is formatted with, for the docs and tests.
 pub fn profile() -> (&'static str, &'static str, &'static str) {
-    (luks::CIPHER, luks::KEY_BITS, luks::SECTOR_BYTES)
+    (
+        crate::drives::luks::CIPHER,
+        crate::drives::luks::KEY_BITS,
+        crate::drives::luks::SECTOR_BYTES,
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt;
 
-    #[test]
-    fn any_filesystem_can_be_encrypted_because_the_drive_is_wiped() {
-        // The old in-place design could only convert ext4, because only ext4
-        // can be shrunk. Wiping removes that limit entirely: the format the
-        // drive happens to have now is irrelevant.
-        for fs in ["exfat", "ext4", "vfat", "ntfs", ""] {
-            let row = crate::db::DriveRow {
-                id: "d1".into(),
-                label: "Photos".into(),
-                state: "as_is".into(),
-                fs_type: fs.into(),
-                device: "sdb1".into(),
-                mount_point: "/mnt/d1".into(),
-                encrypted: false,
-                locked: false,
-                converting: false,
-            };
-            let (ok, reason) = encryptability(&row);
-            assert!(ok, "{fs} should be encryptable now, got: {reason}");
-            assert!(reason.is_empty());
+    fn drive() -> crate::db::DriveRow {
+        crate::db::DriveRow {
+            id: "d1".into(),
+            label: "Photos".into(),
+            state: "as_is".into(),
+            fs_type: "ext4".into(),
+            device: "sdb".into(),
+            mount_point: String::new(),
+            encrypted: true,
+            locked: true,
+            converting: false,
         }
     }
 
     #[test]
-    fn a_drive_already_being_formatted_is_refused() {
-        let row = crate::db::DriveRow {
-            id: "d1".into(),
-            label: "Photos".into(),
-            state: "as_is".into(),
-            fs_type: "exfat".into(),
-            device: "sdb1".into(),
-            mount_point: "/mnt/d1".into(),
-            encrypted: false,
-            locked: false,
-            converting: true,
-        };
-        let (ok, reason) = encryptability(&row);
-        assert!(!ok);
-        assert!(reason.contains("already working on this drive"));
+    fn absent_and_formatting_drives_cannot_be_changed() {
+        let mut row = drive();
+        row.state = "missing".into();
+        assert_eq!(ready(&row).unwrap_err().0, StatusCode::BAD_REQUEST);
+        row.state = "as_is".into();
+        row.converting = true;
+        let (status, body) = ready(&row).unwrap_err();
+        assert_eq!(status, StatusCode::LOCKED);
+        assert_eq!(body.0["code"], "drive_converting");
     }
 
-    #[test]
-    fn an_unplugged_drive_says_to_plug_it_in() {
-        let row = crate::db::DriveRow {
-            id: "d1".into(),
-            label: "Photos".into(),
-            state: "missing".into(),
-            fs_type: "ext4".into(),
-            device: "sdb1".into(),
-            mount_point: String::new(),
-            encrypted: false,
-            locked: false,
-            converting: false,
-        };
-        let (ok, reason) = encryptability(&row);
-        assert!(!ok);
-        assert_eq!(reason, "Plug this drive in to encrypt it.");
-    }
-
-    #[test]
-    fn the_frozen_profile_is_the_one_the_plan_settled_on() {
-        let (cipher, key, sector) = profile();
-        assert_eq!(cipher, "aes-xts-plain64");
-        assert_eq!(key, "512");
-        assert_eq!(sector, "512");
-    }
-
-    #[test]
-    fn a_device_name_is_turned_into_a_path() {
-        assert_eq!(device_path("sdb1"), "/dev/sdb1");
-        // An already-absolute name is left alone.
-        assert_eq!(device_path("/dev/sdb1"), "/dev/sdb1");
-    }
-
-    // ── Through HTTP: the gate the UI actually depends on ──────────────────
-
-    use axum::body::Body;
-    use axum::http::{Method, Request as HttpReq, StatusCode};
-    use tower::ServiceExt;
-
-    fn app(dir: &std::path::Path, mount: &str) -> (crate::AppState, String) {
+    /// A state with one encrypted, locked drive on a mock mount and an Admin token.
+    fn app(dir: &std::path::Path) -> (crate::AppState, String) {
         let conn = crate::db::open(&dir.join("luna.db")).unwrap();
-        let mock = crate::drives::mount::shared_mock();
-        let manager = std::sync::Arc::new(crate::drives::DriveManager::new(mock, dir));
+        let manager = std::sync::Arc::new(crate::drives::DriveManager::new(
+            crate::drives::mount::shared_mock(),
+            dir,
+        ));
         let state = crate::AppState::new(conn, manager, dir);
         {
             let conn = state.db.lock().unwrap();
-            crate::db::upsert_drive(&conn, "d1", "Photos", "as_is", "ext4", "sdz", mount).unwrap();
+            crate::db::upsert_drive(&conn, "d1", "Photos", "as_is", "ext4", "sdb", "").unwrap();
+            crate::db::set_drive_encrypted(&conn, "d1", true).unwrap();
+            crate::db::set_drive_locked(&conn, "d1", true).unwrap();
         }
         let admin = state
             .auth
@@ -645,178 +683,81 @@ mod tests {
         (state, token)
     }
 
-    async fn call(
+    async fn get(
         state: &crate::AppState,
         token: &str,
-        method: Method,
         uri: &str,
-        body: Option<serde_json::Value>,
     ) -> (StatusCode, serde_json::Value) {
         let router = axum::Router::new()
             .merge(super::router())
-            .merge(crate::api::files::router())
             .layer(axum::middleware::from_fn_with_state(
                 state.clone(),
                 crate::auth::guard,
             ))
             .with_state(state.clone());
-        let builder = HttpReq::builder()
-            .method(method)
-            .uri(uri)
-            .header("authorization", format!("Bearer {token}"));
-        let request = match body {
-            Some(v) => builder
-                .header("content-type", "application/json")
-                .body(Body::from(v.to_string()))
-                .unwrap(),
-            None => builder.body(Body::empty()).unwrap(),
-        };
-        let response = router.oneshot(request).await.unwrap();
+        let response = router
+            .oneshot(
+                Request::get(uri)
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         let status = response.status();
         let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
             .await
             .unwrap();
-        let value = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
-        (status, value)
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
+        )
     }
 
-    #[tokio::test]
-    async fn a_locked_drive_answers_423_with_a_code_the_ui_can_route_on() {
-        let dir = tempfile::tempdir().unwrap();
-        let mount = dir.path().join("m");
-        std::fs::create_dir_all(&mount).unwrap();
-        let (state, token) = app(dir.path(), mount.to_str().unwrap());
-        {
-            let conn = state.db.lock().unwrap();
-            crate::db::set_drive_encrypted(&conn, "d1", true).unwrap();
-            crate::db::set_drive_locked(&conn, "d1", true).unwrap();
-        }
-        // Browsing the drive is refused before anything touches the filesystem.
-        let (status, body) =
-            call(&state, &token, Method::GET, "/api/v1/drives/d1/files", None).await;
-        assert_eq!(status, StatusCode::LOCKED);
-        assert_eq!(body["code"], "drive_locked");
-        assert!(
-            body["error"]
-                .as_str()
-                .unwrap()
-                .contains("unlock it in Luna's web page")
-        );
-    }
-
-    #[tokio::test]
-    async fn a_converting_drive_answers_423_with_its_own_code() {
-        let dir = tempfile::tempdir().unwrap();
-        let mount = dir.path().join("m");
-        std::fs::create_dir_all(&mount).unwrap();
-        let (state, token) = app(dir.path(), mount.to_str().unwrap());
-        {
-            let conn = state.db.lock().unwrap();
-            crate::db::set_drive_converting(&conn, "d1", true).unwrap();
-        }
-        let (status, body) =
-            call(&state, &token, Method::GET, "/api/v1/drives/d1/files", None).await;
-        assert_eq!(status, StatusCode::LOCKED);
-        assert_eq!(body["code"], "drive_converting");
-    }
-
+    /// The web UI reads protection state from this route, so its shape is
+    /// recorded into the contract fixture the fake lunad is checked against.
     #[tokio::test]
     async fn the_encryption_state_reports_a_locked_drive() {
         let dir = tempfile::tempdir().unwrap();
-        let mount = dir.path().join("m");
-        std::fs::create_dir_all(&mount).unwrap();
-        let (state, token) = app(dir.path(), mount.to_str().unwrap());
-        {
-            let conn = state.db.lock().unwrap();
-            crate::db::set_drive_encrypted(&conn, "d1", true).unwrap();
-            crate::db::set_drive_locked(&conn, "d1", true).unwrap();
-        }
-        let (status, body) = call(
-            &state,
-            &token,
-            Method::GET,
-            "/api/v1/drives/d1/encryption",
-            None,
-        )
-        .await;
+        let (state, token) = app(dir.path());
+        let (status, body) = get(&state, &token, "/api/v1/drives/d1/encryption").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["encrypted"], true);
         assert_eq!(body["unlocked"], false);
         assert_eq!(body["present"], true);
+        assert_eq!(body["status"], "locked");
+        assert_eq!(body["converting"], false);
     }
 
     #[tokio::test]
-    async fn unlocking_an_unencrypted_drive_says_so() {
+    async fn old_destructive_endpoints_are_not_registered() {
         let dir = tempfile::tempdir().unwrap();
-        let mount = dir.path().join("m");
-        std::fs::create_dir_all(&mount).unwrap();
-        let (state, token) = app(dir.path(), mount.to_str().unwrap());
-        let (status, body) = call(
-            &state,
-            &token,
-            Method::POST,
-            "/api/v1/drives/d1/unlock",
-            Some(serde_json::json!({ "password": "x" })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(body["error"].as_str().unwrap().contains("isn't encrypted"));
-    }
-
-    #[tokio::test]
-    async fn encrypting_a_non_ext4_drive_is_allowed_because_it_wipes() {
-        let dir = tempfile::tempdir().unwrap();
-        let mount = dir.path().join("m");
-        std::fs::create_dir_all(&mount).unwrap();
-        let (state, token) = app(dir.path(), mount.to_str().unwrap());
-        {
-            let conn = state.db.lock().unwrap();
-            // Most drives are exFAT, and that is the case that cannot convert.
-            crate::db::upsert_drive(
-                &conn,
-                "d1",
-                "Photos",
-                "as_is",
-                "exfat",
-                "sdz",
-                mount.to_str().unwrap(),
-            )
-            .unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let manager = std::sync::Arc::new(crate::drives::DriveManager::new(
+            crate::drives::mount::shared_mock(),
+            dir.path(),
+        ));
+        let state = crate::AppState::new(conn, manager, dir.path());
+        for action in ["encrypt", "decrypt", "reformat"] {
+            let response = router()
+                .with_state(state.clone())
+                .oneshot(
+                    Request::post(format!("/api/v1/drives/d1/{action}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
-        let (status, body) = call(
-            &state,
-            &token,
-            Method::POST,
-            "/api/v1/drives/d1/encrypt",
-            Some(serde_json::json!({ "password": "hunter22hunter1" })),
-        )
-        .await;
-        // Starting the job is all this asserts: the wipe itself needs real
-        // disk tools, which a unit test must not run.
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["started"], true);
     }
 
-    #[tokio::test]
-    async fn a_member_cannot_start_encryption() {
-        let dir = tempfile::tempdir().unwrap();
-        let mount = dir.path().join("m");
-        std::fs::create_dir_all(&mount).unwrap();
-        let (state, _token) = app(dir.path(), mount.to_str().unwrap());
-        let member = state
-            .auth
-            .register("Sam", "Sam", "hunter22hunter1", "user")
-            .unwrap();
-        let token = state.auth.issue(&member).unwrap();
-        let (status, body) = call(
-            &state,
-            &token,
-            Method::POST,
-            "/api/v1/drives/d1/encrypt",
-            Some(serde_json::json!({ "password": "x" })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::FORBIDDEN);
-        assert!(body["error"].as_str().unwrap().contains("Only an Admin"));
+    #[test]
+    fn wrong_password_has_a_distinct_response() {
+        let (status, body) = failure(UnlockError::WrongPassword);
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(body.0["code"], "wrong_password");
+        let (status, _) = failure(UnlockError::Other("Mount failed".into()));
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 }

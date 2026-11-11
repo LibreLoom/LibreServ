@@ -162,6 +162,17 @@ impl CollabHub {
         format!("{drive_id}\n{path}")
     }
 
+    /// Storage transitions must not detach a drive beneath an active editor.
+    /// A busy hub is conservatively treated as active; callers can retry.
+    pub fn drive_is_active(&self, drive_id: &str) -> bool {
+        let prefix = format!("{drive_id}\n");
+        self.inner.try_lock().map_or(true, |hub| {
+            hub.rooms
+                .iter()
+                .any(|(key, room)| key.starts_with(&prefix) && !room.peers.is_empty())
+        })
+    }
+
     pub async fn join(
         &self,
         room_key: String,

@@ -1,46 +1,10 @@
-//! Deciding whether a wipe needs a waiting period, and what to show while it
-//! runs.
-//!
-//! Two questions, both answered from the drive itself rather than from a
-//! guess:
-//!
-//! - **Does it hold anything?** Measured in bytes used beyond what a fresh
-//!   filesystem of that kind already occupies. A freshly formatted exFAT drive
-//!   reports tens of kilobytes in use with nothing on it, so counting raw used
-//!   bytes would call an empty drive full.
-//! - **What is on it?** The top-level names, so the person can see what they
-//!   are about to lose instead of reading a number.
-//!
-//! The rule that consumes this lives in the API: a drive with nothing
-//! meaningful is one confirmation, anything else is a wait. Keeping the
-//! measurement here means the threshold is one constant with one test.
+//! Read-only contents measurements for drive inspection and format review.
+//! All formats require the same review; byte usage never decides whether
+//! files matter or whether a person may skip the waiting period.
 
 use std::path::Path;
 
-use luna_core::scan::{TopLevelEntry, TopLevelSummary, scan_top_level};
-
-/// Used bytes a fresh filesystem already reports, by kind.
-///
-/// Measured, not guessed: a freshly made 2 TB exFAT reports 2.25 MiB used, a
-/// 200 GB one 512 KiB, a 4 GB one 96 KiB, and a fresh ext4 reports 28 KiB at
-/// any size. The number grows with the size of the drive because the FAT and
-/// allocation tables do, so the allowance is generous rather than exact — it
-/// only has to separate "empty" from "has files", and being a little high
-/// costs nothing while being low would call an empty drive full.
-const OVERHEAD_ALLOWANCE: u64 = 16 * 1024 * 1024;
-
-/// Does a drive reporting `used_bytes` hold anything a person would miss?
-///
-/// The one rule, in one place: callers that only have a measurement — the
-/// Add-drive inspector, which never builds a full [`Contents`] — must reach
-/// the same answer as the ones that do.
-pub fn holds_something(used_bytes: Option<u64>) -> bool {
-    match used_bytes {
-        Some(used) => used > OVERHEAD_ALLOWANCE,
-        // Could not measure it. Assume the worst.
-        None => true,
-    }
-}
+use luna_core::scan::{TopLevelSummary, scan_top_level};
 
 /// Bytes in use on the filesystem at `mount_point`.
 ///
@@ -80,33 +44,13 @@ pub struct Contents {
 }
 
 impl Contents {
-    /// A drive Luna could not look inside. Treated as holding something: the
-    /// alternative is telling someone a drive is empty when it is not.
+    /// Unknown contents must never be described as an empty drive.
     pub fn unknown() -> Contents {
         Contents {
             used_bytes: None,
             summary: TopLevelSummary::default(),
             readable: false,
         }
-    }
-
-    /// Does this drive hold anything a person would miss?
-    ///
-    /// True when bytes are in use beyond filesystem overhead, or when the
-    /// filesystem could not be read at all. A drive that is merely *large*
-    /// does not qualify: overhead is subtracted first.
-    pub fn is_meaningful(&self) -> bool {
-        holds_something(self.used_bytes)
-    }
-
-    /// The names to show in the confirmation, folders first.
-    pub fn names(&self) -> Vec<&TopLevelEntry> {
-        self.summary.entries.iter().collect()
-    }
-
-    /// How many things are on the drive, hidden names excluded.
-    pub fn count(&self) -> u64 {
-        self.summary.folders + self.summary.files
     }
 }
 
@@ -143,75 +87,31 @@ pub fn inspect_with(
 mod tests {
     use super::*;
 
-    fn contents(used: Option<u64>) -> Contents {
-        Contents {
-            used_bytes: used,
-            summary: TopLevelSummary::default(),
-            readable: true,
-        }
-    }
-
     #[test]
-    fn a_fresh_drive_holds_nothing_meaningful() {
-        // A fresh exFAT reports a few hundred KiB with nothing on it.
-        assert!(!contents(Some(96 * 1024)).is_meaningful());
-        assert!(!contents(Some(2_250_000)).is_meaningful());
-        assert!(!contents(Some(0)).is_meaningful());
-    }
-
-    #[test]
-    fn a_drive_with_files_on_it_is_meaningful() {
-        assert!(contents(Some(OVERHEAD_ALLOWANCE + 1)).is_meaningful());
-        assert!(contents(Some(1024 * 1024 * 1024)).is_meaningful());
-    }
-
-    #[test]
-    fn an_unreadable_drive_is_treated_as_holding_something() {
-        // Never tell someone a drive is empty when Luna could not look.
-        assert!(contents(None).is_meaningful());
-        assert!(Contents::unknown().is_meaningful());
-        assert!(!Contents::unknown().readable);
-    }
-
-    #[test]
-    fn the_allowance_covers_a_large_fresh_exfat() {
-        // Measured on a fresh 2 TB exFAT: 2.25 MiB used, nothing on it.
-        assert!(!contents(Some(2_359_296)).is_meaningful());
-    }
-
-    #[test]
-    fn a_drive_that_is_not_mounted_cannot_be_inspected() {
-        let looked = inspect(Path::new("/luna/no/such/mount"), false);
-        assert!(!looked.readable);
-        assert!(looked.is_meaningful());
-    }
-
-    #[test]
-    fn an_unmounted_drive_is_not_measured_even_if_the_folder_exists() {
-        // A stale mount point left on the system disk: measuring it would
-        // report the system disk and demand a waiting period for a drive that
-        // is not there.
+    fn an_unmounted_folder_is_never_measured_as_the_drive() {
         let dir = tempfile::tempdir().unwrap();
-        let looked = inspect(dir.path(), false);
+        let looked = inspect_with(dir.path(), false, |_| {
+            panic!("must not measure a stale mount")
+        });
         assert!(!looked.readable);
-        assert!(looked.is_meaningful());
+        assert_eq!(looked.used_bytes, None);
     }
 
     #[test]
-    fn a_mounted_drive_is_measured() {
+    fn small_files_are_listed_without_an_emptiness_threshold() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("holiday.jpg"), b"x").unwrap();
         let looked = inspect_with(dir.path(), true, |_| Some(96 * 1024));
         assert!(looked.readable);
         assert_eq!(looked.summary.files, 1);
+        assert_eq!(looked.summary.entries[0].name, "holiday.jpg");
         assert_eq!(looked.used_bytes, Some(96 * 1024));
     }
 
     #[test]
-    fn a_mounted_drive_with_files_needs_the_wait() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("holiday.jpg"), b"x").unwrap();
-        let looked = inspect_with(dir.path(), true, |_| Some(4 * 1024 * 1024 * 1024));
-        assert!(looked.is_meaningful());
+    fn missing_drive_has_unknown_contents() {
+        let looked = inspect(Path::new("/luna/no/such/mount"), false);
+        assert!(!looked.readable);
+        assert_eq!(looked.used_bytes, None);
     }
 }

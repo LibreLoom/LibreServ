@@ -50,14 +50,12 @@ function ColorInput({ label, value, onChange, description }) {
   };
 
   return (
-    <div className="rounded-large-element border-2 border-primary/10 p-3 space-y-2.5">
+    <div className="flex items-center justify-between gap-3 rounded-large-element surface-primary px-4 py-3">
       <div className="min-w-0">
-        <div className="font-medium text-primary text-sm">{label}</div>
-        {description && (
-          <div className="text-xs mt-0.5">{description}</div>
-        )}
+        <div className="text-sm">{label}</div>
+        {description && <div className="text-xs mt-0.5">{description}</div>}
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         <input
           type="color"
           value={value || "#000000"}
@@ -66,7 +64,7 @@ function ColorInput({ label, value, onChange, description }) {
           // rounded input alone leaves the corners poking out. Round the swatch
           // itself (and drop its default padding/border) to match.
           className={cn(
-            "w-8 h-8 p-0 rounded-full cursor-pointer border border-primary/20 bg-transparent appearance-none overflow-hidden shrink-0",
+            "w-8 h-8 p-0 rounded-full cursor-pointer border border-secondary/20 bg-transparent appearance-none overflow-hidden shrink-0",
             "[&::-webkit-color-swatch-wrapper]:p-0",
             "[&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-full",
             "[&::-moz-color-swatch]:border-0 [&::-moz-color-swatch]:rounded-full",
@@ -78,7 +76,11 @@ function ColorInput({ label, value, onChange, description }) {
           value={inputValue}
           onChange={handleChange}
           placeholder="#000000"
-          className={cn("flex-1 min-w-0 px-2 py-1 text-sm font-mono rounded-pill bg-primary/10 border-2 text-primary outline-none focus:border-accent", isValid && "border-primary/20", !isValid && "border-error")}
+          className={cn(
+            "w-[6.5rem] min-w-0 px-3 py-1.5 text-sm font-mono rounded-pill surface-secondary border-2 outline-none focus:border-accent",
+            isValid && "border-secondary/20",
+            !isValid && "border-error",
+          )}
           aria-label={`${label} hex value`}
         />
       </div>
@@ -299,105 +301,101 @@ export default function AppearanceCategory() {
             iconOff={Palette}
           />
 
-          <div
-            className={cn("overflow-hidden transition-all ease-[var(--motion-easing-emphasized)]", showCustomColors ? "max-h-[100dvh] opacity-100 mt-4 pb-4" : "max-h-0 opacity-0")}
-            style={{ transitionDuration: "var(--motion-duration-medium2)" }}
-          >
-            <div className="pt-4 border-t border-primary/10 pb-4">
-              <div className="font-mono text-[11px] mb-3">Color presets</div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                {COLOR_PRESETS.map((preset) => (
-                  <ColorPreset
-                    key={preset.label}
-                    label={preset.label}
-                    colors={preset.colors}
-                    previewColors={presetPreview(preset.colors)}
-                    currentColors={editingDarkPalette ? darkColors : colors}
-                    onSelect={handlePresetSelect}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-primary/10 pb-4">
-              <div className="text-xs font-medium mb-3">
-                {darkMode ? "Dark mode colors" : "Light mode colors"}
-              </div>
-              <div className="grid gap-2.5 sm:grid-cols-3">
-                <ColorInput
-                  label="Primary"
-                  description="Main background color"
-                  value={colors?.primary || "#ffffff"}
-                  onChange={(v) => handleColorChange("primary", v)}
-                />
-                <ColorInput
-                  label="Secondary"
-                  description="Main text and elements"
-                  value={colors?.secondary || "#000000"}
-                  onChange={(v) => handleColorChange("secondary", v)}
-                />
-                <ColorInput
-                  label="Accent"
-                  description="Highlights and emphasis"
-                  value={colors?.accent || "#767676"}
-                  onChange={(v) => handleColorChange("accent", v)}
-                />
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <Toggle
-                checked={useSeparateDarkColors}
-                onChange={() => setUseSeparateDarkColors(!useSeparateDarkColors)}
-                label="Separate dark mode colors"
-                description="Use different colors when dark mode is active"
-              />
-
-              <div
-                className={cn("overflow-hidden transition-all ease-[var(--motion-easing-emphasized)]", useSeparateDarkColors ? "max-h-96 opacity-100 pb-4 mt-4" : "max-h-0 opacity-0")}
-                style={{ transitionDuration: "var(--motion-duration-medium2)" }}
-              >
-                <div className="pt-4 border-t border-primary/10">
-                  <div className="text-xs font-medium mb-3">
-                    {darkMode ? "Dark mode colors (active)" : "Dark mode colors"}
-                  </div>
-                  <div className="grid gap-2.5 sm:grid-cols-3">
-                    <ColorInput
-                      label="Primary (Dark)"
-                      description="Background in dark mode"
-                      value={darkColors?.primary || "#000000"}
-                      onChange={(v) => handleDarkColorChange("primary", v)}
+          {showCustomColors && (
+            <div className="mt-4 pb-4 space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
+              <div className="pt-4 border-t border-primary/10">
+                <div className="text-sm mb-3">Color presets</div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                  {COLOR_PRESETS.map((preset) => (
+                    <ColorPreset
+                      key={preset.label}
+                      label={preset.label}
+                      colors={preset.colors}
+                      previewColors={presetPreview(preset.colors)}
+                      currentColors={editingDarkPalette ? darkColors : colors}
+                      onSelect={handlePresetSelect}
                     />
-                    <ColorInput
-                      label="Secondary (Dark)"
-                      description="Text in dark mode"
-                      value={darkColors?.secondary || "#ffffff"}
-                      onChange={(v) => handleDarkColorChange("secondary", v)}
-                    />
-                    <ColorInput
-                      label="Accent (Dark)"
-                      description="Highlights in dark mode"
-                      value={darkColors?.accent || "#767676"}
-                      onChange={(v) => handleDarkColorChange("accent", v)}
-                    />
-                  </div>
+                  ))}
                 </div>
               </div>
-            </div>
 
-            <div className="mt-4 pt-4 border-t border-primary/10">
-              <Button
-                variant="ghost"
-                surface="secondary"
-                size="sm"
-                onClick={handleReset}
-                aria-label="Reset colors to default"
-              >
-                <RotateCcw size={ICON_SIZE.sm} />
-                <span>Reset to Default</span>
-              </Button>
+              <div className="pt-4 border-t border-primary/10">
+                <div className="text-sm mb-3">
+                  {darkMode ? "Dark mode colors" : "Light mode colors"}
+                </div>
+                <div className="space-y-2">
+                  <ColorInput
+                    label="Primary"
+                    description="Main background color"
+                    value={colors?.primary || "#ffffff"}
+                    onChange={(v) => handleColorChange("primary", v)}
+                  />
+                  <ColorInput
+                    label="Secondary"
+                    description="Main text and elements"
+                    value={colors?.secondary || "#000000"}
+                    onChange={(v) => handleColorChange("secondary", v)}
+                  />
+                  <ColorInput
+                    label="Accent"
+                    description="Highlights and emphasis"
+                    value={colors?.accent || "#767676"}
+                    onChange={(v) => handleColorChange("accent", v)}
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-primary/10">
+                <Toggle
+                  checked={useSeparateDarkColors}
+                  onChange={() => setUseSeparateDarkColors(!useSeparateDarkColors)}
+                  label="Separate dark mode colors"
+                  description="Use different colors when dark mode is active"
+                />
+
+                {useSeparateDarkColors && (
+                  <div className="mt-4 pt-4 border-t border-primary/10 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
+                    <div className="text-sm mb-3">
+                      {darkMode ? "Dark mode colors (active)" : "Dark mode colors"}
+                    </div>
+                    <div className="space-y-2">
+                      <ColorInput
+                        label="Primary (Dark)"
+                        description="Background in dark mode"
+                        value={darkColors?.primary || "#000000"}
+                        onChange={(v) => handleDarkColorChange("primary", v)}
+                      />
+                      <ColorInput
+                        label="Secondary (Dark)"
+                        description="Text in dark mode"
+                        value={darkColors?.secondary || "#ffffff"}
+                        onChange={(v) => handleDarkColorChange("secondary", v)}
+                      />
+                      <ColorInput
+                        label="Accent (Dark)"
+                        description="Highlights in dark mode"
+                        value={darkColors?.accent || "#767676"}
+                        onChange={(v) => handleDarkColorChange("accent", v)}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-4 border-t border-primary/10 flex justify-end">
+                <Button
+                  variant="ghost"
+                  surface="secondary"
+                  size="sm"
+                  onClick={handleReset}
+                  aria-label="Reset colors to default"
+                >
+                  <RotateCcw size={ICON_SIZE.sm} />
+                  <span>Reset to default</span>
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </SettingsCard>
 

@@ -369,7 +369,7 @@ describe("DashboardPage", () => {
       expect(screen.queryByRole("heading", { name: "Your folders" })).not.toBeInTheDocument();
     });
 
-    it("titles the drive column Your folders for Members and has no Shared with you card", async () => {
+    it("titles the drive column Your files for Members and has no Shared with you card", async () => {
       stubDashboardFetch({
         username: "jamie",
         role: "user",
@@ -378,8 +378,9 @@ describe("DashboardPage", () => {
         access: [FILE_GRANT],
       });
       renderDashboard();
-      expect(await screen.findByRole("heading", { name: "Your folders" })).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "Your files" })).toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: "Drives" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Your folders" })).not.toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: "Shared with you" })).not.toBeInTheDocument();
       expect(screen.queryByText("Shared with you")).not.toBeInTheDocument();
     });

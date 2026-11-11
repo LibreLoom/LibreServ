@@ -91,8 +91,12 @@ assert_file_has "$ISO_SH" 'LUNAASSETS' "ISO must carry the writable LUNAASSETS f
 assert_file_has "$ISO_SH" 'append_partition 3' "LUNAASSETS must be appended as partition 3"
 assert_file_has "$ISO_SH" 'console.sh' "ISO build must copy console helpers onto the ISO"
 assert_file_has "$ISO_SH" 'factory-assets.sh' "ISO build must copy factory assets helpers onto the ISO"
-assert_file_has "$ISO_SH" 'eurooffice-pack.tar.zst' "ISO must carry the EuroOffice pack"
-assert_file_has "$ISO_SH" 'drawio-pack.tar.zst' "ISO must carry the draw.io pack"
+assert_file_has "$OSROOT/lib/build-rootfs.d/035.frag" 'PACK_DEST="$ROOTFS/usr/share/luna"' \
+	"the editor packs must be baked into the OS image"
+assert_file_lacks "$ISO_SH" 'eurooffice-pack.tar.zst' \
+	"the ISO must not carry the EuroOffice pack: it is inside the image"
+assert_file_lacks "$ISO_SH" 'drawio-pack.tar.zst' \
+	"the ISO must not carry the draw.io pack: it is inside the image"
 assert_file_has "$ISO_SH" 'map %s /luna/%s' "ISO build must map the payload to /luna"
 assert_file_has "$ISO_SH" 'img.xz' "ISO must carry the released .img.xz"
 assert_file_lacks "$LIVE_SH" '^[^#]*(podman|sudo|--privileged)' "live build must stay rootless"

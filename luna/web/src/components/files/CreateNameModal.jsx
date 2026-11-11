@@ -3,7 +3,7 @@ import PropTypes from "prop-types";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
-import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 
 /**
  * Name prompt for creating or renaming a folder or file. Opens with the
@@ -79,7 +79,7 @@ export default function CreateNameModal({
             <p className="mt-2 text-sm text-primary">{hint}</p>
           ) : null}
           {error ? (
-            <PageNotice variant="error" className="mt-2">{error}</PageNotice>
+            <InlineError className="mt-2">{error}</InlineError>
           ) : null}
           <div className="mt-4 flex gap-3">
             <Button variant="primary" type="submit" loading={busy}>

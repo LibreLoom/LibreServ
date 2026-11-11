@@ -600,7 +600,86 @@ fn ownerless(conn: &rusqlite::Connection) -> Vec<(PathBuf, Item)> {
 }
 
 pub fn ownerless_total(conn: &rusqlite::Connection) -> usize {
-    ownerless(conn).len()
+    ownerless_folders(conn).len()
+}
+
+/// One ownerless private folder, as the Admin cleanup card lists it.
+#[derive(Clone, Debug)]
+pub struct OwnerlessFolder {
+    pub drive_id: String,
+    pub drive_label: String,
+    pub path: String,
+}
+
+impl OwnerlessFolder {
+    pub fn name(&self) -> &str {
+        self.path.rsplit('/').next().unwrap_or(&self.path)
+    }
+}
+
+/// The ownerless private folders on every connected drive, top-level only.
+/// A nested private item belongs to the folder that holds it, so listing it
+/// again would offer the same thing twice.
+pub fn ownerless_folders(conn: &rusqlite::Connection) -> Vec<OwnerlessFolder> {
+    let mut out = Vec::new();
+    for drive in crate::db::list_drives(conn).unwrap_or_default() {
+        if drive.mount_point.is_empty() || (drive.state != "as_is" && drive.state != "readonly") {
+            continue;
+        }
+        let root = PathBuf::from(&drive.mount_point);
+        let mut items: Vec<Item> = under(&root, "")
+            .into_iter()
+            .filter(|item| !owner_known(conn, &item.owner))
+            .filter(|item| root.join(&item.path).is_dir())
+            .collect();
+        items.sort_by(|a, b| a.path.cmp(&b.path));
+        let mut kept: Vec<String> = Vec::new();
+        for item in items {
+            if kept
+                .iter()
+                .any(|parent| item.path.starts_with(&format!("{parent}/")))
+            {
+                continue;
+            }
+            kept.push(item.path.clone());
+            out.push(OwnerlessFolder {
+                drive_id: drive.id.clone(),
+                drive_label: drive.label.clone(),
+                path: item.path,
+            });
+        }
+    }
+    out
+}
+
+/// Give one ownerless private folder to `user_id`. Its nested private items
+/// move with it. Returns false when the path is unknown or already owned.
+pub fn adopt_ownerless_folder(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    path: &str,
+    user_id: &str,
+) -> bool {
+    let Some(drive) = crate::db::get_drive(conn, drive_id).ok().flatten() else {
+        return false;
+    };
+    if drive.mount_point.is_empty() {
+        return false;
+    }
+    let root = PathBuf::from(&drive.mount_point);
+    let path = canonical(path);
+    let candidates: Vec<Item> = under(&root, &path)
+        .into_iter()
+        .filter(|item| !owner_known(conn, &item.owner))
+        .collect();
+    if !candidates.iter().any(|item| item.path == path) {
+        return false;
+    }
+    let mut moved = false;
+    for item in candidates {
+        moved |= set_owner(&root, &item.path, user_id).unwrap_or(false);
+    }
+    moved
 }
 
 /// Give every ownerless private item to `user_id`. Returns how many moved.
@@ -710,6 +789,57 @@ pub fn orphaned(conn: &rusqlite::Connection) -> OrphanReport {
         owners,
         offline_drives: offline,
     }
+}
+
+/// What giving a removed person's private items to someone else did.
+#[derive(Default)]
+pub struct GiveReport {
+    pub moved: usize,
+    pub skipped_readonly: Vec<String>,
+    pub failed_drives: Vec<String>,
+    pub offline_drives: Vec<String>,
+}
+
+/// Hand every private item a removed person owns to `target`, on mounted,
+/// writable drives. Items in Trash are left alone: they are already deleted,
+/// and the target would not see them. Read-only drives are reported, not
+/// changed. Nothing is copied or moved on disk — only the owner changes, so
+/// paths and contents stay exactly where they were.
+pub fn give_orphan(
+    conn: &rusqlite::Connection,
+    owner: &str,
+    target: &str,
+) -> anyhow::Result<GiveReport> {
+    let mut report = GiveReport::default();
+    for drive in crate::db::list_drives(conn)? {
+        if drive.mount_point.is_empty() || !matches!(drive.state.as_str(), "as_is" | "readonly") {
+            report.offline_drives.push(drive.label);
+            continue;
+        }
+        let root = Path::new(&drive.mount_point);
+        if drive.state == "readonly" {
+            if !owned_paths(root, owner).is_empty() {
+                report.skipped_readonly.push(drive.label);
+            }
+            continue;
+        }
+        let mut failed = false;
+        for item in under(root, "")
+            .into_iter()
+            .filter(|item| item.owner == owner)
+        {
+            match set_owner(root, &item.path, target) {
+                Ok(true) => report.moved += 1,
+                Ok(false) => {}
+                Err(_) => failed = true,
+            }
+        }
+        crate::files::note_write(conn, &drive.id, "");
+        if failed {
+            report.failed_drives.push(drive.label);
+        }
+    }
+    Ok(report)
 }
 
 /// Permanently delete every private item a deleted person owns, wherever it

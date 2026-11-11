@@ -35,17 +35,16 @@ afterEach(() => {
 });
 
 describe("PhraseWriteDown", () => {
-  it("shows 12 numbered words with the heading, the lead and the leave warning", () => {
+  it("shows 12 numbered words with the heading and the lead", () => {
     renderWriteDown();
     expect(screen.getByRole("heading", { name: "Write down your recovery phrase" })).toBeInTheDocument();
     expect(shownWords()).toHaveLength(12);
-    expect(screen.getByText(/locks your/)).toBeInTheDocument();
+    expect(screen.getByText(/They open your/)).toBeInTheDocument();
     expect(screen.getByText("cloud backups")).toBeInTheDocument();
     expect(
-      screen.getByText("Write these 12 words on paper, in order. If you lose them, no one can open your cloud backups for you, including us."),
+      screen.getByText(/Write these 12 words on paper, in order\./),
     ).toBeInTheDocument();
-    expect(screen.getByText("12 words are enough for most people.")).toBeInTheDocument();
-    expect(screen.getByText("Leaving this page before you finish makes a new phrase.")).toBeInTheDocument();
+    expect(screen.getByText(/12 words are enough for most people/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "I wrote it down" })).toBeInTheDocument();
   });
 

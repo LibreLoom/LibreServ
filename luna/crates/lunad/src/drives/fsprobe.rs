@@ -38,6 +38,17 @@ pub trait FsProbe: Send + Sync {
     /// whole disk. No filesystem: [`super::format`] decides which one, so the
     /// same prep serves a plain drive and an encrypted one.
     fn prepare_disk(&self, disk: &str) -> anyhow::Result<String>;
+    /// Recheck attachment between the individual destructive disk tools.
+    fn prepare_disk_checked(
+        &self,
+        disk: &str,
+        check: &dyn Fn() -> anyhow::Result<()>,
+    ) -> anyhow::Result<String> {
+        check()?;
+        let partition = self.prepare_disk(disk)?;
+        check()?;
+        Ok(partition)
+    }
 }
 
 #[derive(Clone, Default)]
@@ -49,7 +60,15 @@ impl FsProbe for CommandFsProbe {
     }
 
     fn prepare_disk(&self, disk: &str) -> anyhow::Result<String> {
-        prepare_disk_cmd(disk)
+        prepare_disk_cmd(disk, &|| Ok(()))
+    }
+
+    fn prepare_disk_checked(
+        &self,
+        disk: &str,
+        check: &dyn Fn() -> anyhow::Result<()>,
+    ) -> anyhow::Result<String> {
+        prepare_disk_cmd(disk, check)
     }
 }
 
@@ -231,9 +250,6 @@ pub(crate) fn probe_disk_sysfs(
         };
         let size_bytes = read_size_bytes(&size_dir).unwrap_or(0);
         let (fs_type, label) = blkid(&format!("/dev/{name}")).unwrap_or_default();
-        if fs_type.is_empty() && name != disk {
-            continue;
-        }
         out.push(FsInfo {
             name,
             fs_type,
@@ -334,13 +350,14 @@ pub fn parse_blkid_export(text: &str) -> Option<(String, String)> {
 ///
 /// No filesystem: [`super::format`] decides which one, so the same prep
 /// serves a plain drive and an encrypted one.
-fn prepare_disk_cmd(disk: &str) -> anyhow::Result<String> {
+fn prepare_disk_cmd(disk: &str, check: &dyn Fn() -> anyhow::Result<()>) -> anyhow::Result<String> {
     let dev = format!("/dev/{disk}");
     if !Path::new(&dev).exists() {
         anyhow::bail!("Luna can't see that USB stick. Plug it in and try again.");
     }
     // Disk tools need real root (they write the device), but wipefs still
     // parses attacker-provided signatures — run them hardened.
+    check()?;
     let wipe = match crate::sandbox::which("wipefs") {
         Some(bin) => {
             let mut cmd = crate::sandbox::hardened(&bin);
@@ -365,6 +382,7 @@ fn prepare_disk_cmd(disk: &str) -> anyhow::Result<String> {
         ),
     }
 
+    check()?;
     let Some(sfdisk_bin) = crate::sandbox::which("sfdisk") else {
         anyhow::bail!("Luna couldn't prepare this USB. The box is missing a disk tool (sfdisk).");
     };
@@ -396,6 +414,7 @@ fn prepare_disk_cmd(disk: &str) -> anyhow::Result<String> {
     let part = first_partition_name(disk);
     let part_dev = format!("/dev/{part}");
     for _ in 0..30 {
+        check()?;
         if Path::new(&part_dev).exists() {
             break;
         }

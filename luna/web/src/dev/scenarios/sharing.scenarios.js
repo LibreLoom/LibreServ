@@ -80,7 +80,15 @@ export default [
         w.sharing.withMe.push({ id: `wm${i}`, kind: "path", drive_id: "d1", drive_label: "Family photos", path: `Shared/Folder ${i + 1}`, album_id: "", name: `Folder ${i + 1}`, is_file: i % 4 === 0, caps: i % 3 ? "view" : "full", shared_by: "Max", exists: true });
       }
     },
-    check: ["Both tabs scroll and the table stays aligned", "Search 'Trip 7' narrows both lists; a nonsense search says 'Nothing matches'", "Long name is cut off cleanly", "Phone width shows cards, not a squashed table"],
+    check: ["Both tabs scroll and the table stays aligned", "Search 'Trip 7' narrows both lists; a nonsense search says 'Nothing matches'", "Press / outside a field: the Find a shared item box gets focus", "Hover a row: no hairlines between the cells", "Long name is cut off cleanly", "Phone width shows cards, not a squashed table"],
+  },
+  {
+    id: "shared/loading",
+    area: "Shared",
+    title: "Shared page is slow to load",
+    url: "/shared",
+    faults: [{ match: "GET /api/v1/access/mine", mode: "slow:6000" }],
+    check: ["The loading line sits centred in the page, like Photos", "It does not jump when the list arrives", "The tabs and search appear after loading"],
   },
   {
     id: "shared/with-me-states",
@@ -336,6 +344,20 @@ export default [
     url: "/s/tokfile",
     seed: (w) => { guest(w); subject(w, { path: "Docs/plan.pdf", name: "plan.pdf", is_file: true, links: [{ ...link({ caps: "view" }), token: "tokfile" }] }); },
     check: ["Shows the one file by name with Download", "No folder navigation"],
+  },
+  {
+    id: "public/file-edit",
+    area: "Public link",
+    title: "Single text file link with edit",
+    url: "/s/tokfileedit",
+    seed: (w) => { guest(w); subject(w, { path: "Docs/notes.txt", name: "notes.txt", is_file: true, links: [{ ...link({ caps: "full" }), token: "tokfileedit" }] }); },
+    realLunadOnly: "Saving through a full link writes the file on the drive and live presence needs the real collab hub; the fake has no link file contents.",
+    check: [
+      "The text editor opens with the file's words",
+      "Type: the status pill says Unsaved; Save (and Ctrl+S) says Saved",
+      "Close and reopen: the change is still there under the same file name",
+      "Open the same link in a second window: the Live peers row shows the other editor",
+    ],
   },
   {
     id: "public/password",

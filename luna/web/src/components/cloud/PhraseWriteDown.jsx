@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import { AlertCircle } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { entropyToPhrase, newEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
-import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { shakeElement } from "@libreloom/ui/utils/shake.js";
 import { apiErrorMessage } from "../../lib/api";
 import { WordBox } from "./PhraseWordsInput.jsx";
@@ -30,23 +29,13 @@ function pickCheckPositions(count) {
   return [0, 1, 2].map((n) => Math.floor(n * third + Math.random() * third));
 }
 
-/** Inline error: the icon carries the red, the words stay plain text. */
-function InlineError({ children }) {
-  return (
-    <p role="alert" className="flex items-start gap-2 text-sm text-primary">
-      <AlertCircle size={ICON_SIZE.sm} className="mt-0.5 shrink-0 text-error" aria-hidden="true" />
-      <span>{children}</span>
-    </p>
-  );
-}
-
 /**
  * Makes a new recovery phrase, shows it to write down, asks for three of its words back, then hands
  * the phrase's entropy to `onSave`. Not a modal: the caller puts it on a card (`surface`).
  * - `onSave(entropy)` may be async. If it rejects, the message shows here and the person stays on the
  *   confirm step. `busy` / `error` let a caller that saves some other way (a mutation) report the same.
  * - `titles` are the two step headings; a `null` one is left out (a caller that has its own heading).
- * - `intro` replaces the opening sentence (`null` leaves it out).
+ * - `intro` adds an opening paragraph before the write-down sentence.
  * - `onStepChange("show" | "confirm")` tells the caller which step is on screen.
  * The words live only in this component's state. Until the save finishes, closing the tab asks first.
  * @param {{
@@ -181,18 +170,7 @@ export default function PhraseWriteDown({
     }
   }
 
-  const lead =
-    intro === undefined ? (
-      <p className="text-primary text-sm">
-        Your recovery phrase locks your{" "}
-        <TermHint surface={surface} content="Copies of your files kept online with Luna Connect. You can turn this on later.">
-          cloud backups
-        </TermHint>{" "}
-        so only you can open them.
-      </p>
-    ) : (
-      intro
-    );
+  const lead = intro === undefined ? null : intro;
 
   if (step === "show") {
     return (
@@ -200,7 +178,11 @@ export default function PhraseWriteDown({
         {titles.show && <Heading className="font-mono font-normal text-xl text-primary">{titles.show}</Heading>}
         {lead}
         <p className="text-primary text-sm">
-          {`Write these ${words.length} words on paper, in order. If you lose them, no one can open your cloud backups for you, including us.`}
+          {`Write these ${words.length} words on paper, in order. They open your `}
+          <TermHint surface={surface} content="Copies of your files kept online with Luna Connect. You can turn this on later.">
+            cloud backups
+          </TermHint>
+          {`; if you lose them, nobody can, including us.`}
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <SegmentedControl
@@ -212,8 +194,8 @@ export default function PhraseWriteDown({
           />
           <p className="text-primary text-sm">
             {words.length === 24
-              ? "24 words take longer to write down but add extra protection for backups you keep for years."
-              : "12 words are enough for most people."}
+              ? "24 words add extra protection for backups you keep for years. They take longer to write down."
+              : "12 words are enough for most people. Choose 24 for extra protection if you'll keep backups for years."}
           </p>
         </div>
         {/* Columns follow the card's own width, not the window's: these cards are
@@ -244,7 +226,6 @@ export default function PhraseWriteDown({
             I wrote it down
           </Button>
         </div>
-        <p className="text-primary text-xs">Leaving this page before you finish makes a new phrase.</p>
       </div>
     );
   }

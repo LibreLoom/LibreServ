@@ -55,10 +55,10 @@ describe("shareSource", () => {
     vi.unstubAllGlobals();
   });
 
-  it("marks guests as non-collab so editors stay off the hub", () => {
+  it("lets guests into the same presence rooms as members", () => {
     const source = shareSource({ token: "abc", kind: "folder" });
     expect(source.guest).toBe(true);
-    expect(source.collab).toBe(false);
+    expect(source.collab).toBe(true);
   });
 
   it("reads form responses through the link-scoped route with the password header", async () => {

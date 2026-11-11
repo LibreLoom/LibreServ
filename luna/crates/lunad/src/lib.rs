@@ -61,6 +61,7 @@ pub mod hibp;
 pub mod jobs;
 pub mod net;
 pub mod office;
+pub mod packs;
 pub mod password;
 pub mod private;
 pub mod rate_limit;
@@ -162,7 +163,10 @@ impl AppState {
         drive_manager: Arc<DriveManager>,
         data_dir: &std::path::Path,
     ) -> Self {
+        crate::sandbox::disable_daemon_core_dumps().expect("disable daemon core dumps");
         private::install();
+        crate::drives::format_lifecycle::startup(&conn, &drive_manager)
+            .expect("reconcile interrupted drive formats");
         let db = Arc::new(crate::Db::new(conn));
         let secret =
             crate::secrets::ensure_jwt_secret(data_dir, &db.lock().unwrap()).expect("jwt secret");

@@ -124,7 +124,9 @@ export default function PrivateRestoreCard() {
           Luna lost its list of your private items in the cloud. Enter your recovery phrase to find them again.
         </p>
         <p className="text-primary text-sm">
-          Your phrase stays in this browser.{" "}
+          Your phrase is the key to sealed copies of Luna&apos;s private-file key kept with Luna
+          Connect. This browser checks each copy against Luna&apos;s public key, opens it, and sends
+          Luna only the opened key — your phrase never leaves this browser.{" "}
           <InfoHint
             label="Where your phrase goes"
             content="Your browser opens the list with your phrase and gives Luna only the file list. Luna never sees the phrase."

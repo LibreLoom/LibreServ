@@ -278,68 +278,6 @@ if [ -z "${_os_hash:-}" ] || ! _record_os_image_hash "$_data_mnt" "$_os_hash"; t
 	exit 1
 fi
 
-# EuroOffice pack: browser-side office editor assets on LUNA_DATA (~1 GB
-# extracted). Missing/corrupt pack is a loud warning, not a failed install —
-# everything else works and the pack can be added later.
-_eopack=""
-for _cand in "$HERE/eurooffice-pack.tar.zst" "$HERE/../eurooffice-pack.tar.zst"; do
-	if [ -f "$_cand" ]; then
-		_eopack="$_cand"
-		break
-	fi
-done
-if [ -z "$_eopack" ]; then
-	echo
-	echo "NOTE: no office editor pack on this media — office editing will be"
-	echo "unavailable until the pack is installed into /var/lib/luna/eurooffice."
-elif ! command -v zstd >/dev/null 2>&1; then
-	echo
-	echo "WARNING: zstd is missing in the installer — office pack skipped." >&2
-elif [ ! -f "$_eopack.sha256" ] || \
-	! (cd "$(dirname "$_eopack")" && sha256sum -c "$(basename "$_eopack").sha256" >/dev/null 2>&1); then
-	echo
-	echo "WARNING: office pack checksum missing or failed — skipping it." >&2
-else
-	echo
-	echo "Installing the office editor pack (about a gigabyte, one-time)…"
-	if zstd -dc "$_eopack" | tar -x -C "$_data_mnt" && [ -f "$_data_mnt/eurooffice/web-apps/apps/api/documents/api.js" ]; then
-		echo "Office pack installed."
-	else
-		rm -rf "$_data_mnt/eurooffice"
-		echo "WARNING: office pack did not extract cleanly — removed the partial copy." >&2
-	fi
-fi
-
-# draw.io pack: the self-hosted diagram editor webapp (~150 MB extracted).
-# Same deal — a missing/corrupt pack warns but doesn't fail the install.
-_diopack=""
-for _cand in "$HERE/drawio-pack.tar.zst" "$HERE/../drawio-pack.tar.zst"; do
-	if [ -f "$_cand" ]; then
-		_diopack="$_cand"
-		break
-	fi
-done
-if [ -z "$_diopack" ]; then
-	echo
-	echo "NOTE: no diagram editor pack on this media — diagram editing will be"
-	echo "unavailable until the pack is installed into /var/lib/luna/drawio."
-elif ! command -v zstd >/dev/null 2>&1; then
-	echo
-	echo "WARNING: zstd is missing in the installer — diagram pack skipped." >&2
-elif [ ! -f "$_diopack.sha256" ] || \
-	! (cd "$(dirname "$_diopack")" && sha256sum -c "$(basename "$_diopack").sha256" >/dev/null 2>&1); then
-	echo
-	echo "WARNING: diagram pack checksum missing or failed — skipping it." >&2
-else
-	echo
-	echo "Installing the diagram editor pack…"
-	if zstd -dc "$_diopack" | tar -x -C "$_data_mnt" && [ -f "$_data_mnt/drawio/index.html" ]; then
-		echo "Diagram pack installed."
-	else
-		rm -rf "$_data_mnt/drawio"
-		echo "WARNING: diagram pack did not extract cleanly — removed the partial copy." >&2
-	fi
-fi
 umount "$_data_mnt" 2>/dev/null || true
 
 echo "Remove the USB stick if you used one."

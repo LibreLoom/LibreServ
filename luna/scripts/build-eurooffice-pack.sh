@@ -1,7 +1,7 @@
 #!/bin/sh
 # Build os/dist/eurooffice-pack.tar.zst — the trimmed EuroOffice pack baked
-# into the install ISO. rapidinstall.sh extracts it onto LUNA_DATA so office
-# editing works on first boot with no runtime download.
+# into the OS image. The rootfs step unpacks it to /usr/share/luna/eurooffice,
+# so office editing works on first boot with no runtime download.
 #
 # Source pack: $EUROOFFICE_DIR (default $LUNA_DATA_DIR/eurooffice → luna/dev).
 # When no pack exists, runs install-eurooffice-assets.sh into os/work first —
@@ -39,7 +39,7 @@ mkdir -p "$OUT"
 echo "Packing $PACK_SRC → $TARBALL (help dirs excluded)…"
 tmp="$TARBALL.tmp"
 # Pack the eurooffice/ dir itself so the tarball is self-describing and
-# extracts straight onto LUNA_DATA.
+# unpacks straight into the image's pack root (/usr/share/luna).
 tar -C "$(dirname "$PACK_SRC")" --exclude='*/resources/help' -cf - eurooffice |
 	zstd -19 -T0 -o "$tmp"
 mv "$tmp" "$TARBALL"

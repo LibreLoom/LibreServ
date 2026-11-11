@@ -105,12 +105,13 @@ function useOverlayPresence(active) {
  *   onClose: () => void,
  *   onSaved?: () => void,
  *   onOpenPath?: (path: string) => void,
+ *   onShare?: () => void,
  *   open?: boolean,
  *   canWrite?: boolean,
  *   name?: string,
  * }} props
  */
-export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath, open = true, canWrite = true, name: nameProp = "" }) {
+export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath, onShare, open = true, canWrite = true, name: nameProp = "" }) {
   const { addToast } = useToast();
   const source = useFileSource();
   const guest = source.guest === true;
@@ -281,6 +282,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
         sessionKey={previewKey}
         isClosing={editorOverlay.isClosing}
         canWrite={canWrite}
+        onShare={onShare}
         editorKind={frameView.isOffice ? "office" : frameView.isForm ? "form" : frameView.isDiagram ? "diagram" : frameView.isWhiteboard ? "whiteboard" : "text"}
         onClose={onClose}
       >
@@ -469,8 +471,8 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
             /* color-scan: ignore-next-line cinema full-screen backdrop */
             "fixed inset-0 z-[80] flex items-center justify-center bg-black",
             fullViewOverlay.isClosing
-              ? "fullscreen-overlay-exit file-viewer-exit"
-              : "fullscreen-overlay-enter file-viewer-enter",
+              ? "file-viewer-exit"
+              : "file-viewer-enter",
           )}
         >
           <button
@@ -540,6 +542,7 @@ FileViewer.propTypes = {
   onClose: PropTypes.func.isRequired,
   onSaved: PropTypes.func,
   onOpenPath: PropTypes.func,
+  onShare: PropTypes.func,
   open: PropTypes.bool,
   canWrite: PropTypes.bool,
   name: PropTypes.string,

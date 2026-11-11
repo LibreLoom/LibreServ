@@ -1,25 +1,19 @@
 import { useState } from "react";
-import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Shield, Trash2, User, UserX } from "lucide-react";
-import Page from "@libreloom/ui/components/ui/Page.jsx";
-import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
+import { KeyRound, Shield, Trash2, User } from "lucide-react";
+import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
-import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
-import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import PasswordStrengthChecklist from "@libreloom/ui/components/common/PasswordStrengthChecklist.jsx";
-import FieldLabel from "@libreloom/ui/components/common/forms/FieldLabel.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { meetsPasswordPolicy, passwordPolicyError } from "@libreloom/ui/lib/passwordPolicy.js";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
-import { apiErrorMessage, deleteJson, getJson, patchJson } from "../lib/api";
-import { DISPLAY_NAME_MAX, USERNAME_POLICY_HINT, isValidUsername } from "../lib/usernamePolicy";
-import { useAuth } from "../context/AuthContext";
-import FormInput from "../components/common/forms/FormInput";
-import usePageTitle from "../hooks/usePageTitle.js";
+import { apiErrorMessage, deleteJson, getJson, patchJson } from "../../../lib/api";
+import { DISPLAY_NAME_MAX, USERNAME_POLICY_HINT, isValidUsername } from "../../../lib/usernamePolicy";
+import FormInput from "../../common/forms/FormInput";
 
 const ROLE_OPTIONS = [
   { value: "user", label: "Member" },
@@ -31,61 +25,30 @@ const ROLE_HINTS = {
   user: "A Member can use folders and albums shared with them. They cannot manage users, drives, or Luna settings.",
 };
 
-const USERS_PATH = "/settings#users";
-
 /**
- * Full-page editor for one person on this Luna (Settings → Users → Edit).
- * Your own account is edited in Settings → Security, so self links redirect.
+ * Edit one other person on this Luna, in the same modal shape as Add a user.
+ * Your own account is edited in Settings → Security, so this is only mounted
+ * for someone else (the Users list opens it from the row).
+ *
+ * @param {{
+ *   target: { id: string, username: string, display_name?: string, role: string } | null,
+ *   onClose: () => void,
+ * }} props
  */
-export default function EditUserPage() {
-  const { id } = useParams();
-  const { user: me } = useAuth();
-  const users = useQuery({
-    queryKey: ["users"],
-    queryFn: () => getJson("/api/v1/users"),
-  });
-
-  const titled = (users.data || []).find((u) => u.id === id);
-  usePageTitle(titled ? `Edit ${titled.display_name || titled.username}` : "Edit user");
-
-  if (id === me?.id) return <Navigate to="/settings#security" replace />;
-
-  if (users.isLoading) return <Page title="Edit user" />;
-
-  if (users.isError) {
-    return (
-      <Page title="Edit user">
-        <PageNotice variant="error">
-          {apiErrorMessage(users.error, "Couldn't load this person. Refresh the page to try again.")}
-        </PageNotice>
-      </Page>
-    );
-  }
-
-  const target = (users.data || []).find((u) => u.id === id);
-  if (!target) {
-    return (
-      <Page title="Edit user">
-        <EmptyState
-          icon={UserX}
-          title="This person isn't on this Luna"
-          description="They may have been removed. Go back to Users to see everyone who can sign in."
-          action={
-            <Button asChild variant="primary" size="sm">
-              <Link to={USERS_PATH}>Back to Users</Link>
-            </Button>
-          }
-        />
-      </Page>
-    );
-  }
-
-  // Keyed so switching between people resets the form.
-  return <EditUserForm key={target.id} target={target} />;
+export default function EditUserModal({ target, onClose }) {
+  return (
+    <ModalCard
+      open={target != null}
+      title={target ? `Edit ${target.display_name || target.username}` : "Edit user"}
+      onClose={onClose}
+      size="lg"
+    >
+      {target ? <EditUserBody key={target.id} target={target} onClose={onClose} /> : null}
+    </ModalCard>
+  );
 }
 
-function EditUserForm({ target }) {
-  const navigate = useNavigate();
+function EditUserBody({ target, onClose }) {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const [name, setName] = useState(target.display_name || target.username);
@@ -133,7 +96,7 @@ function EditUserForm({ target }) {
         duration: data?.warning ? 10000 : undefined,
       });
       queryClient.invalidateQueries({ queryKey: ["users"] });
-      navigate(USERS_PATH);
+      onClose();
     },
     onError: (err) => {
       haptic("error");
@@ -142,7 +105,7 @@ function EditUserForm({ target }) {
   });
 
   // Removing someone keeps their private folders on the drives, hidden from
-  // everyone — say how many before confirming (same check as the Users list).
+  // everyone — say how many before confirming.
   const privateCountQuery = useQuery({
     queryKey: ["user-private-count", target.id],
     queryFn: () => getJson(`/api/v1/users/${target.id}/private-count`),
@@ -157,7 +120,7 @@ function EditUserForm({ target }) {
       addToast({ type: "success", message: `Removed ${displayLabel}.` });
       queryClient.invalidateQueries({ queryKey: ["users"] });
       queryClient.invalidateQueries({ queryKey: ["private-orphans"] });
-      navigate(USERS_PATH);
+      onClose();
     },
     onError: (err) => {
       haptic("error");
@@ -173,9 +136,10 @@ function EditUserForm({ target }) {
   }
 
   return (
-    <Page title={`Edit ${displayLabel}`} titleId="edit-user-title">
-      <form onSubmit={onSubmit} className="space-y-4" aria-labelledby="edit-user-title" noValidate>
-        <SettingsCard icon={User} title="Profile" index={0}>
+    <>
+      <form id="edit-user-form" onSubmit={onSubmit} className="space-y-5" noValidate>
+        <section className="rounded-large-element surface-primary p-4 space-y-3">
+          <h3 className="font-mono text-sm">Profile</h3>
           <FormInput
             label="Name"
             name="edit-user-name"
@@ -184,6 +148,7 @@ function EditUserForm({ target }) {
             placeholder="Their name"
             error={nameError}
             hint="Shown around Luna, like on shared folders."
+            surface="primary"
             required
           />
           <FormInput
@@ -199,18 +164,20 @@ function EditUserForm({ target }) {
                 ? `They'll sign in as "${usernameClean}" from now on.`
                 : "What they type to sign in."
             }
+            surface="primary"
             required
-            className="mb-0"
           />
-        </SettingsCard>
+        </section>
 
-        <SettingsCard icon={Shield} title="Role" index={1}>
-          <div className="flex items-center gap-1">
-            <FieldLabel htmlFor="edit-user-role" surface="secondary">
+        <section className="rounded-large-element surface-primary p-4 space-y-3">
+          <h3 className="font-mono text-sm">Role</h3>
+          <div className="flex items-center gap-1 pl-5">
+            <label htmlFor="edit-user-role" className="font-mono text-sm text-secondary">
               What they can do on this Luna
-            </FieldLabel>
+            </label>
             <InfoHint
               label="Admin and Member"
+              surface="primary"
               content={`${ROLE_HINTS.admin} ${ROLE_HINTS.user}`}
             />
           </div>
@@ -221,14 +188,17 @@ function EditUserForm({ target }) {
             onChange={setRole}
             fullWidth
             size="form"
+            bg="primary"
             aria-label="Role"
           />
-          <p className="text-primary text-xs mt-2">{ROLE_HINTS[role] || ROLE_HINTS.user}</p>
-        </SettingsCard>
+          <p className="text-sm">{ROLE_HINTS[role] || ROLE_HINTS.user}</p>
+        </section>
 
-        <SettingsCard icon={KeyRound} title="Password" index={2}>
-          <p className="text-primary text-sm mb-3">
-            Set a new password if {displayLabel} forgot theirs. You don't need their old one. Leave this blank to keep it.
+        <section className="rounded-large-element surface-primary p-4 space-y-3">
+          <h3 className="font-mono text-sm">Password</h3>
+          <p className="text-sm">
+            Set a new password if {displayLabel} forgot theirs. You don't need their old one. Leave
+            this blank to keep it.
           </p>
           <FormInput
             label="New password"
@@ -239,38 +209,23 @@ function EditUserForm({ target }) {
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Leave blank to keep the current password"
             autoComplete="new-password"
-            className="mb-0"
+            surface="primary"
           />
-          {password ? <PasswordStrengthChecklist password={password} /> : null}
+          {password ? <PasswordStrengthChecklist password={password} surface="primary" /> : null}
           {password ? (
-            <p className="text-primary text-xs mt-2">
+            <p className="text-sm">
               Saving signs {displayLabel} out on every device. Tell them the new password.
             </p>
           ) : null}
-        </SettingsCard>
+        </section>
 
-        {error && <PageNotice variant="error">{error}</PageNotice>}
+        {error ? <InlineError>{error}</InlineError> : null}
 
-        <div className="flex flex-wrap justify-end gap-2">
-          <Button asChild variant="outline" surface="primary">
-            <Link to={USERS_PATH}>Cancel</Link>
-          </Button>
-          <Button
-            type="submit"
-            variant="secondary"
-            surface="primary"
-            loading={save.isPending}
-            disabled={invalid || !dirty}
-          >
-            Save changes
-          </Button>
-        </div>
-      </form>
-
-      <div className="mt-8">
-        <SettingsCard icon={Trash2} title="Remove from this Luna" index={3}>
-          <p className="text-primary text-sm mb-4">
-            {displayLabel} won&apos;t be able to sign in anymore and loses access to everything shared with them.
+        <section className="rounded-large-element surface-primary p-4 space-y-3">
+          <h3 className="font-mono text-sm">Remove from this Luna</h3>
+          <p className="text-sm">
+            {displayLabel} won't be able to sign in anymore and loses access to everything shared
+            with them.
           </p>
           <Button
             variant="accent"
@@ -281,8 +236,8 @@ function EditUserForm({ target }) {
           >
             Remove {displayLabel}
           </Button>
-        </SettingsCard>
-      </div>
+        </section>
+      </form>
 
       <ConfirmModal
         open={confirmRemove}
@@ -305,7 +260,24 @@ function EditUserForm({ target }) {
           setConfirmRemove(false);
           setRemoveError(null);
         }}
+        overlayClassName={NESTED_OVERLAY_CLASS}
       />
-    </Page>
+
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="outline" surface="secondary" onClick={onClose} disabled={save.isPending}>
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          form="edit-user-form"
+          variant="primary"
+          surface="secondary"
+          loading={save.isPending}
+          disabled={invalid || !dirty}
+        >
+          Save changes
+        </Button>
+      </div>
+    </>
   );
 }

@@ -17,6 +17,8 @@ import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSecti
 import ValueDisplay from "@libreloom/ui/components/common/ValueDisplay.jsx";
 import ShareSheet, { ShareButton } from "../components/share/ShareSheet.jsx";
 import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
+import DriveEncryptionSheet from "../components/drives/DriveEncryptionSheet.jsx";
+import FormatDriveSheet from "../components/drives/FormatDriveSheet.jsx";
 import InspectModal from "../components/files/InspectModal.jsx";
 import useCanProtect from "../hooks/useCanProtect";
 import { FileSearchButton } from "../components/files/FileSearch";
@@ -30,7 +32,8 @@ import useReleaseInspectedDrive from "../hooks/useReleaseInspectedDrive.js";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
 import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
-import { driveEncryptionLine, encryptionHref, isConvertingDrive, isLockedDrive, isUnopenable } from "../lib/drives.js";
+import { announceFormat } from "../lib/formatNotifications.js";
+import { driveEncryptionLine, isConvertingDrive, isLockedDrive, isUnopenable } from "../lib/drives.js";
 import useDriveHealth from "../hooks/useDriveHealth.js";
 import DriveHealthDetails from "../components/files/DriveHealthDetails.jsx";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
@@ -299,12 +302,26 @@ function DetectedContents({ peek }) {
   );
 }
 
-function DetectedCard({ drive, onOpen }) {
+function DetectedCard({ drive, onOpen, onFormat }) {
   // A card reader with nothing in it reports a size of 0.
   const empty = !drive.size_bytes;
   const title = drive.model || "New drive";
   const fs = prettyFsType(drive.fs_type);
   const kind = drive.usb ? "USB drive" : drive.removable ? "Removable drive" : "Built-in drive";
+  const { addToast } = useToast();
+  const observedFormat = useRef("");
+  const formats = useQuery({
+    queryKey: ["format-operations", `device=${encodeURIComponent(drive.name)}`],
+    queryFn: () => getJson(`/api/v1/drive-format/operations?device=${encodeURIComponent(drive.name)}`),
+    enabled: !empty && !isMockUnknownDrive(drive.name),
+    refetchInterval: (query) => query.state.data?.operations?.some((op) => ["queued", "running"].includes(op.state)) ? 1500 : false,
+  });
+  const latestFormat = formats.data?.operations?.[0];
+  const activeFormat = latestFormat && ["queued", "running"].includes(latestFormat.state) ? latestFormat : null;
+  useEffect(() => {
+    if (activeFormat) observedFormat.current = activeFormat.id;
+    else if (latestFormat && observedFormat.current === latestFormat.id) announceFormat(latestFormat, addToast);
+  }, [activeFormat, latestFormat, addToast]);
   // A read-only look inside (lunad mounts it read-only and lets go again).
   const peek = useQuery({
     queryKey: ["drive-peek", detectedDriveKey(drive)],
@@ -312,7 +329,7 @@ function DetectedCard({ drive, onOpen }) {
       isMockUnknownDrive(drive.name)
         ? Promise.resolve({ ...mockInspectResult(), sample: mockInspectResult().entries })
         : getJson(`/api/v1/drives/${encodeURIComponent(drive.name)}/peek`),
-    enabled: !empty,
+    enabled: !empty && !activeFormat,
     // A good answer is kept for as long as this media stays in; a failed one
     // is tried again so one hiccup doesn't stick until the page reloads.
     staleTime: Infinity,
@@ -324,7 +341,7 @@ function DetectedCard({ drive, onOpen }) {
     <Card icon={HardDrive} title={title}>
       <div className="flex flex-col gap-2">
         <ValueDisplay label="Size" value={empty ? "Nothing inserted" : formatBytes(drive.size_bytes)} />
-        {empty ? null : <DetectedContents peek={peek} />}
+        {activeFormat ? <p className="text-sm">Formatting: {activeFormat.phase}</p> : empty ? null : <DetectedContents peek={peek} />}
         {drive.read_only ? (
           <Callout tone="warning">Read-only: Luna can&apos;t save files to this drive.</Callout>
         ) : null}
@@ -343,9 +360,7 @@ function DetectedCard({ drive, onOpen }) {
         </CollapsibleSection>
       </div>
       <div className="mt-3">
-        <Button size="sm" variant="outline" disabled={empty} onClick={() => onOpen(drive)}>
-          Add drive
-        </Button>
+        {activeFormat || (latestFormat && ["failed", "interrupted"].includes(latestFormat.state)) ? <Button size="sm" variant="outline" onClick={() => onFormat(drive)}>Format details</Button> : <Button size="sm" variant="outline" disabled={empty} onClick={() => onOpen(drive)}>Add drive</Button>}
       </div>
     </Card>
   );
@@ -356,17 +371,26 @@ const CANT_OPEN_MESSAGE =
 const LOCKED_MESSAGE =
   "Locked. Enter the password to open this drive and see its files.";
 const CONVERTING_MESSAGE =
-  "Being encrypted. This drive is unavailable until that finishes.";
+  "Being formatted. This drive is unavailable until that finishes.";
 const CANT_OPEN_HINT =
   "Luna knows this drive but couldn't open it. This can happen after it was pulled out without Eject, or when the drive has a problem. Unplug it, wait a few seconds, and plug it back in. If that doesn't help, the drive may be failing.";
 
-function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect }) {
+function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect, onEncryption, onFormat }) {
   const location = useLocation();
+  const formats = useQuery({ queryKey: ["format-operations", `drive_id=${encodeURIComponent(drive.id)}`], queryFn: () => getJson(`/api/v1/drive-format/operations?drive_id=${encodeURIComponent(drive.id)}`), enabled: !!onFormat, refetchInterval: (q) => q.state.data?.operations?.some((op) => ["queued", "running"].includes(op.state)) ? 1500 : false });
+  const latestFormat = formats.data?.operations?.[0];
+  const activeFormat = latestFormat && ["queued", "running"].includes(latestFormat.state) ? latestFormat : null;
+  const { addToast } = useToast();
+  const observedFormat = useRef("");
+  useEffect(() => {
+    if (activeFormat) observedFormat.current = activeFormat.id;
+    else if (latestFormat && observedFormat.current === latestFormat.id) announceFormat(latestFormat, addToast);
+  }, [activeFormat, latestFormat, addToast]);
   const cardRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const unopenable = isUnopenable(drive);
   // Ready means Luna can open it: the storage bar, Browse and the other drive actions apply.
   const locked = isLockedDrive(drive);
-  const converting = isConvertingDrive(drive);
+  const converting = isConvertingDrive(drive) || !!activeFormat;
   // Ready means Luna can open it: the storage bar, Browse and the other drive
   // actions apply. A locked or converting drive is present but not open.
   const ready = (drive.state === "as_is" || drive.state === "readonly") && !unopenable && !locked && !converting;
@@ -408,6 +432,8 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect 
         title={drive.label}
         headerActions={<DriveStatusPill drive={drive} health={health.data} />}
       >
+        {activeFormat && <p className="text-primary text-sm">Formatting: {activeFormat.phase}</p>}
+        {latestFormat && !activeFormat && <p className="text-primary text-sm">{latestFormat.state === "succeeded" ? "Format complete." : latestFormat.state === "interrupted" ? "Format interrupted." : "Format failed."} Open Format for details.</p>}
         {statusMessage ? (
           <p className="text-primary text-sm">
             {statusMessage}
@@ -433,13 +459,13 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect 
               <Link to={`/files/${drive.id}`}>Browse files</Link>
             </Button>
           )}
-          {/* Every drive links here: a plain drive can be encrypted, a locked
-              one unlocked, and the card only carries the one-line state. */}
-          <Button size="sm" variant="outline" asChild>
-            <Link to={encryptionHref(drive)}>
-              {encryptionLine || "Encryption"}
-            </Link>
+          {/* Every drive opens the encryption sheet: a plain drive can be
+              encrypted, a locked one unlocked, and the card only carries the
+              one-line state. */}
+          <Button size="sm" variant="outline" onClick={() => onEncryption(drive)}>
+            {encryptionLine || "Encryption"}
           </Button>
+          {onFormat && <Button size="sm" variant="outline" onClick={() => onFormat(drive)}>Format</Button>}
           {showHealth && ready && (
             <Button size="sm" variant="outline" onClick={() => onEject(drive)}>
               Eject safely
@@ -500,6 +526,9 @@ export default function FilesPage() {
   const [actionError, setActionError] = useState(null);
   const [sharingDrive, setSharingDrive] = useState(null);
   const [protectingDrive, setProtectingDrive] = useState(null);
+  const [encryptionDrive, setEncryptionDrive] = useState(null);
+  const [formatTarget, setFormatTarget] = useState(null);
+  const [formatOpen, setFormatOpen] = useState(false);
   const protectAvailable = useCanProtect(isAdmin);
   const unknownDrives = withDevMockDetected(detected.data);
   // The dashboard's "New drive detected" card links to #unrecognized-drives. The drives load after
@@ -655,6 +684,8 @@ export default function FilesPage() {
               onRemove={(d) => setRemoveTarget(d)}
               onShare={(d) => setSharingDrive({ id: d.id, path: "" })}
               onProtect={protectAvailable ? (d) => setProtectingDrive({ id: d.id, path: "" }) : undefined}
+              onEncryption={(d) => setEncryptionDrive(d)}
+              onFormat={isAdmin ? (d) => { setFormatTarget({ drive: d, encrypted: false }); setFormatOpen(true); } : undefined}
             />
           ))}
         </div>
@@ -675,6 +706,7 @@ export default function FilesPage() {
               <DetectedCard
                 key={drive.name}
                 drive={drive}
+                onFormat={(d) => { setFormatTarget({ drive: d, encrypted: false }); setFormatOpen(true); }}
                 onOpen={(d) => {
                   inspect.reset();
                   adopt.reset();
@@ -702,6 +734,13 @@ export default function FilesPage() {
         path={protectingDrive?.path || ""}
         onClose={() => setProtectingDrive(null)}
       />
+      <DriveEncryptionSheet
+        open={encryptionDrive != null}
+        drive={encryptionDrive}
+        onClose={() => setEncryptionDrive(null)}
+        onFormat={(drive, encrypted) => { setEncryptionDrive(null); setFormatTarget({ drive, encrypted }); setFormatOpen(true); }}
+      />
+      <FormatDriveSheet open={formatOpen} drive={formatTarget?.drive} initialEncrypted={formatTarget?.encrypted} onClose={() => setFormatOpen(false)} />
       <ModalCard
         open={ejectTarget != null}
         title="Eject this drive safely?"
@@ -790,6 +829,7 @@ export default function FilesPage() {
         result={inspect.data}
         error={inspect.isError ? "Luna couldn't look at this drive safely. Make sure it's plugged in and try again." : null}
         onClose={() => { releaseInspectedDrive(inspectFor); setInspectFor(null); inspect.reset(); adopt.reset(); }}
+        onFormat={async (drive) => { await releaseInspectedDrive(drive); setInspectFor(null); inspect.reset(); setFormatTarget({ drive, encrypted: false }); setFormatOpen(true); }}
         onAdopt={(label, erase) => adopt.mutateAsync({ drive: inspectFor, label, erase })}
         adoptError={adoptError}
         adopting={adopt.isPending}

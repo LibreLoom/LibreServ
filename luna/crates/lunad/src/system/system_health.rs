@@ -637,7 +637,9 @@ const OFFICE_EDITORS: &[(&str, &str, &str)] = &[
 const FILES_KEPT: &str = "Your files are still on your drives and can be downloaded.";
 
 fn add_feature_checks(checks: &mut Checks, data_dir: &Path, probes: &Probes) {
-    let office = data_dir.join("eurooffice");
+    // The packs ship in the OS image; a data-dir copy is only a fallback for a
+    // box from an older ISO, so ask `packs` where they actually are.
+    let office = crate::packs::dir(data_dir, "eurooffice");
     let all_nouns: Vec<&str> = OFFICE_EDITORS.iter().map(|(_, noun, _)| *noun).collect();
     let mut missing: Vec<&str> = OFFICE_SHARED
         .iter()
@@ -702,7 +704,7 @@ fn add_feature_checks(checks: &mut Checks, data_dir: &Path, probes: &Probes) {
             ));
     }
 
-    let drawio = data_dir.join("drawio");
+    let drawio = crate::packs::dir(data_dir, "drawio");
     let marker_ok = std::fs::read_to_string(drawio.join("pack.json"))
         .ok()
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
