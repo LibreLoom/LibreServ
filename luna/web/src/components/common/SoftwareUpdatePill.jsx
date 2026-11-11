@@ -12,12 +12,16 @@ import { haptic } from "@libreloom/ui/utils/haptics.js";
 export default function SoftwareUpdatePill() {
   const { data, isLoading, error } = useSoftwareUpdates();
 
-  if (isLoading || error || !data?.update_available) return null;
+  // A failed install still needs saying even when nothing newer is out — that
+  // is exactly when the pill would otherwise vanish and leave someone thinking
+  // it worked.
+  const failed = Boolean(data?.os_update_failed);
+  if (isLoading || error || (!data?.update_available && !failed)) return null;
 
-  const version = data.latest_version || "Update";
-  // An update that failed to start leaves the pill saying "ready", which reads
-  // as if nothing went wrong. Say what happened instead.
-  const failed = Boolean(data.os_update_failed);
+  // Name the version that failed, not whatever release happens to be newest:
+  // a later release is not the one that broke.
+  const failedVersion = typeof data.os_update_failed === "object" ? data.os_update_failed.version : "";
+  const version = (failed ? failedVersion || data.latest_version : data.latest_version) || "Update";
 
   return (
     <Link

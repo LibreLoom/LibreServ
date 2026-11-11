@@ -227,10 +227,9 @@ path. The scenario now reads `1 person and 1 link shared through Photos`.
 `public/file-edit`
 
 A guest reads a shared file's contents from the link (`/s/:token/file`), not from the
-drive API. The fake registered every other `/s/:token` route but not that one, so the
-request fell through to the dev server and the editor rendered the router's answer for
-an unknown path — a literal `{}` — as if that were the file's text. The editor was
-right; the fake was missing a route. Added it: a single-file link serves its own file,
+drive API. The fake had that route, but as a placeholder that answered `{}` to every
+request, so the editor rendered a literal `{}` as if that were the file's text. The
+editor was right; the route was a stub. Filled it in: a single-file link serves its own file,
 a folder link serves an entry from its tree, and an upload-only link (a drop box) is
 refused, since that screen promises nobody can see the folder's contents. When the
 linked file is a real drive file the route serves that file's bytes — for a folder link

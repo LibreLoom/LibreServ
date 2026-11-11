@@ -110,8 +110,9 @@ export function removeRecentItem(username, { driveId, path }) {
  * Turn a router location into a recent item, or null when the route is not
  * a browsable drive object (drive list, trash, settings, …). Mirrors
  * FilePage's viewerPath rules: `?file=`/`?open=` or a bare `#name` hash
- * counts as a file only when Luna can actually open it; otherwise the
- * surrounding folder is what the user is really looking at.
+ * counts as a file when it names one — that includes a kind Luna cannot show,
+ * because the viewer opens to explain that and offer a download. Only a route
+ * naming no file leaves the surrounding folder as what the user is looking at.
  *
  * @param {{ pathname: string, search?: string, hash?: string }} location
  * @returns {Omit<RecentItem, "at"> | null}

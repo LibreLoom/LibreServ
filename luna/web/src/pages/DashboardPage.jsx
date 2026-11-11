@@ -174,8 +174,13 @@ export default function DashboardPage() {
 
   // Mirrors when SoftwareUpdatePill and SystemHealthPill render something. Only a slot that holds a
   // pill is passed to the header; otherwise it gets none.
+  // Matches SoftwareUpdatePill: a failed install shows even when no newer
+  // release is available, so the header must reserve a slot for it.
   const updateReady =
-    isAdmin && !updates.isLoading && !updates.error && Boolean(updates.data?.update_available);
+    isAdmin &&
+    !updates.isLoading &&
+    !updates.error &&
+    Boolean(updates.data?.update_available || updates.data?.os_update_failed);
   const pillShown =
     isAdmin &&
     !systemHealth.isLoading &&
