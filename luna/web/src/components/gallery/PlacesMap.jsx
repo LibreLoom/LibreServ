@@ -443,7 +443,7 @@ export default function PlacesMap({
       <EmptyState
         icon={MapPin}
         title="Couldn't load places"
-        description="Luna couldn't load where your photos were taken. Try again, or check that your photos have location data."
+        description="Luna couldn't load where your photos were taken."
         action={
           onRetry ? (
             <Button variant="outline" surface="secondary" size="sm" onClick={onRetry}>

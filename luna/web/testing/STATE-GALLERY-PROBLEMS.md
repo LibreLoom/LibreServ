@@ -1,6 +1,8 @@
 # State gallery problems
 
-Audit of every scenario in the state gallery (`/__states`), 318 scenarios.
+Audit of every scenario in the state gallery (`/__states`). The audit covered the
+318 scenarios the gallery held at the time; one fake-only scenario has since been
+removed (see §14), leaving 317 today.
 
 Two passes:
 
@@ -33,6 +35,10 @@ Status values: **open** (found, not fixed yet) · **fixed** (code changed, needs
 | Public link | 18 | 18 | 0 | 0 |
 | Forms | 4 | 4 | 0 | 0 |
 | **Total** | **318** | **318** | **13** | **13** |
+
+The 318 is the inventory that was audited. `public/download-limit` has since been
+removed for describing a Luna feature that does not exist, so the gallery now lists
+317 — 17 of them Public link.
 
 Counts are the gallery's own `area` values. Settings splits into Luna Connect (20),
 Security (7), About (7), Users (6), Appearance (2) and the general settings page (4),
