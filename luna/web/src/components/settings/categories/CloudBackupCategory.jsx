@@ -44,14 +44,16 @@ function CloudBackupRow({ backup, onRun, onRunAnyway, missingSource, onCheck, on
               {runError.kind === "start" ? `Luna couldn't start this backup. ${runError.message}` : runError.message}
             </PageNotice>
           )}
-          {active && (!runError || backup.state !== "failing") ? (
-            <BackupStatusNotice
-              state={backup.state}
-              lastError={backup.last_error}
-              lastOkAt={backup.last_ok_at}
-              surface="secondary"
-              staleText="Luna copies files to the cloud every 6 hours."
-            />
+          {active ? (
+            runError?.kind === "run" && backup.state === "failing" ? null : (
+              <BackupStatusNotice
+                state={backup.state}
+                lastError={backup.last_error}
+                lastOkAt={backup.last_ok_at}
+                surface="secondary"
+                staleText="Luna copies files to the cloud every 6 hours."
+              />
+            )
           ) : (
             <p>{backup.stop_reason || "This cloud backup has stopped."}</p>
           )}

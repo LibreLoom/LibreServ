@@ -865,6 +865,23 @@ describe("FilePage", () => {
       expect(renameCall(fetchMock)).toBeTruthy();
     });
 
+    it("keeps the drive read-only reason when rename returns a conflict status", async () => {
+      const message = "This drive is read-only right now, so Luna can't change it.";
+      const fetchMock = stubFilesApi({
+        "": [
+          { name: "notes.txt", kind: "file", size: 1, modified: 0, hidden: false },
+        ],
+        __renameFail: message,
+      });
+      renderFiles();
+      await startRename("notes.txt", "ideas.txt");
+
+      const dialog = await screen.findByRole("dialog", { name: "Rename notes.txt" });
+      expect(await within(dialog).findByText(message)).toBeInTheDocument();
+      expect(within(dialog).queryByText("An item with this name is already here. Choose another name.")).toBeNull();
+      expect(renameCall(fetchMock)).toBeTruthy();
+    });
+
     it("says where a form's answers stay when it stops being a form", async () => {
       const fetchMock = stubFilesApi({ ...listing });
       renderFiles();

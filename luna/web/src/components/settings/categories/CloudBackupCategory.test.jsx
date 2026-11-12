@@ -328,6 +328,24 @@ describe("CloudBackupCategory", () => {
     expect(within(card).queryByText("Last copy failed")).toBeNull();
   });
 
+  it("does not say an active failing backup has stopped after a run error", async () => {
+    const message = "The cloud connection was interrupted.";
+    stubApi({
+      connected: true,
+      backups: [{ ...sampleBackup, state: "failing", last_error: message }],
+      runResponse: { problem: message },
+    });
+    renderCard();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Back up now" }));
+
+    const card = (await screen.findByText("Pictures")).closest('[data-slot="backup-item"]');
+    if (!(card instanceof HTMLElement)) throw new Error("Expected Pictures backup card");
+    expect(await within(card).findByText(message)).toBeInTheDocument();
+    expect(within(card).queryByText("This cloud backup has stopped.")).toBeNull();
+    expect(within(card).queryByText(/Luna copies files to the cloud every 6 hours/)).toBeNull();
+  });
+
   it("asks before deleting and then calls the delete route", async () => {
     const fetchMock = stubApi({ connected: true, backups: [sampleBackup] });
     renderCard();

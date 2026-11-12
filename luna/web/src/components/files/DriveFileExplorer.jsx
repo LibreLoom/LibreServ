@@ -421,8 +421,11 @@ export default function DriveFileExplorer({
     },
     onError: (err) => {
       haptic("error");
+      const isNameConflict = err instanceof ApiError
+        && err.status === 409
+        && /already (?:here|there|exists|taken)/i.test(err.message);
       setActionError(
-        err instanceof ApiError && err.status === 409
+        isNameConflict
           ? "An item with this name is already here. Choose another name."
           : apiErrorMessage(err, "Couldn't rename that. Try again."),
       );
