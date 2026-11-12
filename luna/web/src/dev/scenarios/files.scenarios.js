@@ -120,27 +120,20 @@ export default [
 
   // ── Drive condition ───────────────────────────────────────────────────────
   {
-    id: "files/encryption",
+    id: "files/drive-needs-setup",
     area: A,
-    title: "Turn encryption on",
+    title: "Plugged-in drive Luna can't use yet (blank or installer)",
     url: "/files",
-    seed: (w) => { demo(w); },
-    check: [
-      "Encryption on the Family photos card opens a sheet, not a page",
-      "The sheet says Not encrypted and explains what that means",
-      "Set up encryption opens Format with encryption selected and asks for the password twice",
-      "Review lists the partitions and contents and waits 30 seconds before formatting",
-      "Formatting shows its actual phase and reports completion only when the operation succeeds",
-      "The encrypted drive is unlocked and ready after a successful format",
-    ],
+    seed: (w) => { demo(w); w.detected = [{ name: "sdb", model: "Blank USB stick", size_bytes: 16_000_000_000, fs_type: null, readable: false, needs_setup: true }]; },
+    check: ["The Unrecognized drives card says Blank, or a format Luna can't read", "It says Setting up new drives isn't available in this version yet", "Add drive is disabled, and there is no Format or Erase button anywhere"],
   },
   {
-    id: "files/encryption-locked",
+    id: "files/drive-encrypted",
     area: A,
-    title: "Encrypted drive, locked",
+    title: "Plugged-in encrypted drive",
     url: "/files",
-    seed: (w) => { demo(w); w.drives[0].encrypted = true; w.drives[0].locked = true; w.drives[0].fs_type = "ext4"; },
-    check: ["Open Encryption on the card: it says Encrypted and locked; Unlock asks for the password", "A wrong password stays inline", "The right password unlocks and says so"],
+    seed: (w) => { demo(w); w.detected = [{ name: "sdb", model: "Locked USB stick", size_bytes: 16_000_000_000, fs_type: "crypto_LUKS", readable: false, encrypted: true }]; },
+    check: ["The Unrecognized drives card says Encrypted", "It says Luna can't open encrypted drives in this version yet", "Add drive is disabled, and there is no password box or Unlock button anywhere"],
   },
   {
     id: "files/readonly-drive", area: A, title: "Read-only drive", url: "/files/d1",

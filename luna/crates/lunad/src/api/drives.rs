@@ -25,12 +25,6 @@ struct DriveJson {
     writable: bool,
     /// The requesting user's capabilities on the drive root, server-stamped.
     caps: String,
-    /// The drive on disk is a LUKS2 container.
-    encrypted: bool,
-    /// Its container is not open, so there is nothing to browse.
-    locked: bool,
-    /// Formatting holds the drive exclusively.
-    converting: bool,
 }
 
 #[derive(Serialize)]
@@ -57,12 +51,13 @@ struct InspectEntryJson {
 #[derive(Serialize)]
 struct PeekJson {
     readable: bool,
-    /// An encrypted Luna drive whose password has not been entered.
-    locked: bool,
+    /// The drive is encrypted, which Luna can't open.
+    encrypted: bool,
     fs_type: Option<String>,
     /// The drive was set up by a Luna before.
     has_marker: bool,
-    needs_erase: bool,
+    /// Blank, damaged, another system's format, or installer media.
+    needs_setup: bool,
     folders: u64,
     files: u64,
     /// A few non-hidden top-level names (folders first).
@@ -82,13 +77,11 @@ struct InspectionJson {
     unreadable: u64,
     /// Non-hidden top-level names (folders first), for the Add-drive preview.
     entries: Vec<InspectEntryJson>,
-    needs_erase: bool,
+    needs_setup: bool,
     readable: bool,
     writable: bool,
-    /// An encrypted Luna drive that needs its password before it can be added.
-    locked: bool,
-    /// Bytes currently used, when Luna can measure the mounted filesystem.
-    used_bytes: Option<u64>,
+    /// The drive is encrypted, which Luna can't open.
+    encrypted: bool,
 }
 
 /// Home-dashboard snapshot for one adopted drive. Space is `statvfs`;
@@ -109,14 +102,6 @@ struct DriveSummaryJson {
 #[derive(Deserialize)]
 struct AdoptBody {
     label: String,
-    #[serde(default)]
-    erase: bool,
-    /// Set up this drive as a new encrypted drive. Destructive, like `erase`,
-    /// and needs `password`.
-    #[serde(default)]
-    encrypted: bool,
-    #[serde(default)]
-    password: String,
 }
 
 pub fn router() -> Router<AppState> {
@@ -161,9 +146,8 @@ async fn list(
             .map(|d| {
                 let id = d.id.clone();
                 let mut json: DriveJson = d.into();
-                // Checked before Members' mount path is blanked below. A
-                // locked drive has nothing mounted, whatever the row says.
-                json.mounted = !json.locked && state.drive_manager.mount_is_live(&json.mount_point);
+                // Checked before Members' mount path is blanked below.
+                json.mounted = state.drive_manager.mount_is_live(&json.mount_point);
                 json.writable = admin || crate::auth::has_write_on_drive(&user, &conn, &id);
                 json.caps =
                     crate::access::caps_to_str(crate::auth::caps_on_path(&user, &conn, &id, ""));
@@ -312,10 +296,10 @@ async fn peek(
     sample.truncate(5);
     Ok(Json(PeekJson {
         readable: peek.readable,
-        locked: peek.locked,
+        encrypted: peek.encrypted,
         fs_type: peek.fs_type,
         has_marker: peek.has_marker,
-        needs_erase: peek.needs_erase,
+        needs_setup: peek.needs_setup,
         folders,
         files,
         sample,
@@ -369,11 +353,10 @@ async fn inspect(
                 kind: e.kind,
             })
             .collect(),
-        needs_erase: inspection.needs_erase,
+        needs_setup: inspection.needs_setup,
         readable: inspection.readable,
         writable: inspection.writable,
-        locked: inspection.locked,
-        used_bytes: inspection.used_bytes,
+        encrypted: inspection.encrypted,
     }))
 }
 
@@ -385,13 +368,6 @@ async fn adopt(
 ) -> Result<Json<DriveJson>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
     let _device_guard = lock_idle_device(&state, &name).await?;
-    if body.erase || body.encrypted || !body.password.is_empty() {
-        return Err(json_error_code(
-            StatusCode::BAD_REQUEST,
-            "format_review_required",
-            "Use Format to choose the settings and review everything that will be erased.",
-        ));
-    }
     let label = body.label.trim().to_string();
     if label.is_empty() || label.len() > 80 {
         return Err(json_error(
@@ -413,7 +389,7 @@ async fn adopt(
         crate::db::with_db(
             &db,
             || anyhow::anyhow!("db lock poisoned"),
-            |conn| manager.adopt(conn, &device, &label, false),
+            |conn| manager.adopt(conn, &device, &label),
         )
     })
     .await
@@ -534,12 +510,6 @@ async fn closed_drive(
             "Luna is already working on this drive. Wait until it finishes.",
         )
     })?;
-    if original.converting {
-        return Err(json_error(
-            StatusCode::CONFLICT,
-            "Review this drive's format status before ejecting or removing it.",
-        ));
-    }
     state.ram_cache.begin_close(id);
     let cache_guard = CacheCloseGuard {
         cache: state.ram_cache.clone(),
@@ -809,14 +779,14 @@ async fn find_device(name: &str) -> Option<crate::drives::detect::DetectedDrive>
     .flatten()
 }
 
-/// Temporary mounts and adoption share the formatter's physical-device lock.
+/// Temporary mounts and adoption share one lock per physical device.
 async fn lock_idle_device(
     state: &AppState,
     name: &str,
 ) -> Result<tokio::sync::OwnedMutexGuard<()>, (StatusCode, Json<serde_json::Value>)> {
     let guard = state
         .db
-        .drive_lock(&format!("format-device:{name}"))
+        .drive_lock(&format!("device:{name}"))
         .try_lock_owned()
         .map_err(|_| {
             json_error_code(
@@ -825,24 +795,6 @@ async fn lock_idle_device(
                 "Luna is already working on this drive. Wait until it finishes.",
             )
         })?;
-    let conn = state.db.lock().map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't read this drive's settings. Try again.",
-        )
-    })?;
-    let busy: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM drive_format_operations WHERE device = ?1 AND state IN ('queued', 'running'))",
-        [name], |row| row.get(0),
-    ).map_err(|_| json_error(StatusCode::INTERNAL_SERVER_ERROR, "Luna couldn't check whether this drive is busy. Try again."))?;
-    if busy {
-        return Err(json_error_code(
-            StatusCode::CONFLICT,
-            "drive_formatting",
-            "Luna is formatting this drive. Wait until it finishes.",
-        ));
-    }
-    drop(conn);
     Ok(guard)
 }
 
@@ -861,31 +813,27 @@ fn require_admin(
 fn plain_adopt_error(err: &anyhow::Error) -> String {
     let text = err.to_string();
     let lower = text.to_ascii_lowercase();
-    // needs_erase adopt path — unique phrasing so lock-switch copy does not match.
-    if lower.contains("erase and add this drive")
-        || lower.contains("moved any files you want to keep")
-    {
-        crate::drives::INSTALLER_USB_MESSAGE.into()
+    if text == crate::drives::NEEDS_SETUP_MESSAGE {
+        crate::drives::NEEDS_SETUP_MESSAGE.into()
+    } else if text == crate::drives::ENCRYPTED_MESSAGE {
+        crate::drives::ENCRYPTED_MESSAGE.into()
     } else if lower.contains("no space")
         || lower.contains("disk full")
         || lower.contains("file too large")
         || lower.contains("os error 28")
     {
         "This drive is full, so Luna couldn't put its sticker file on it. Free some space and try again.".into()
-    } else if lower.contains("format it before")
+    } else if lower.contains("will not accept new files")
+        || lower.contains("lock switch")
         || lower.contains("read-only")
         || lower.contains("os error 30")
     {
-        crate::drives::NEEDS_FORMAT_MESSAGE.into()
-    } else if lower.contains("will not accept new files") || lower.contains("lock switch") {
         crate::drives::WRITE_REJECTED_MESSAGE.into()
     } else if lower.contains("could not mark") {
         "Luna couldn't put its sticker file on this drive. Unplug it, plug it back in, and try again.".into()
     } else if lower.contains("system disk") {
         "That's the drive Luna runs from. Luna won't use its own system drive for your files."
             .into()
-    } else if lower.contains("will only erase a usb stick") {
-        "Luna can only erase a USB stick, not the computer's own disk.".into()
     } else if lower.contains("give the drive a name") {
         "Give the drive a name first.".into()
     } else if lower.contains("added but could not be read back") {
@@ -947,9 +895,6 @@ impl From<crate::db::DriveRow> for DriveJson {
             mounted: false,
             writable: false,
             caps: String::new(),
-            encrypted: d.encrypted,
-            locked: d.locked,
-            converting: d.converting,
         }
     }
 }
@@ -1136,30 +1081,28 @@ mod tests {
     }
 
     #[test]
-    fn needs_erase_error_is_plain_language() {
-        let err = anyhow::anyhow!("{}", crate::drives::INSTALLER_USB_MESSAGE);
-        let needs_erase = super::plain_adopt_error(&err);
-        assert!(needs_erase.contains("Erase and add this drive"));
-        assert!(!needs_erase.to_ascii_lowercase().contains("installer"));
+    fn needs_setup_error_is_plain_language() {
+        let err = anyhow::anyhow!("{}", crate::drives::NEEDS_SETUP_MESSAGE);
+        let needs_setup = super::plain_adopt_error(&err);
+        assert_eq!(needs_setup, crate::drives::NEEDS_SETUP_MESSAGE);
+        assert!(!needs_setup.to_ascii_lowercase().contains("installer"));
 
         let raw = anyhow::anyhow!(
             "Luna could not mark this drive as its own. could not write the marker: Read-only file system (os error 30)"
         );
         let plain = super::plain_adopt_error(&raw);
-        assert_eq!(plain, crate::drives::NEEDS_FORMAT_MESSAGE);
+        assert_eq!(plain, crate::drives::WRITE_REJECTED_MESSAGE);
         assert!(!plain.contains("os error"));
-        assert!(!plain.contains("Erase and add this drive"));
     }
 
     #[test]
-    fn marker_full_and_generic_are_not_needs_erase() {
+    fn marker_full_and_generic_are_not_needs_setup() {
         let full = anyhow::anyhow!(
             "Luna could not mark this drive as its own. could not write the marker: No space left on device (os error 28)"
         );
         let full_plain = super::plain_adopt_error(&full);
         assert!(full_plain.contains("full"));
         assert!(!full_plain.to_ascii_lowercase().contains("installer"));
-        assert!(!full_plain.contains("Erase and add this drive"));
 
         let other = anyhow::anyhow!(
             "Luna could not mark this drive as its own. could not write the marker: Permission denied (os error 13)"
@@ -1249,9 +1192,7 @@ mod tests {
             mount_readonly: false,
             diskseq: None,
         };
-        let row = drive_manager
-            .adopt(&conn, &device, "Photos", false)
-            .unwrap();
+        let row = drive_manager.adopt(&conn, &device, "Photos").unwrap();
         let state = crate::AppState::new(conn, drive_manager, dir.path());
         let admin = state
             .auth

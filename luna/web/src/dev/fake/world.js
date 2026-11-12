@@ -54,10 +54,6 @@ export function drive(over = {}) {
     device: `sd${id}`,
     fs_type: "exfat",
     mounted: true,
-    // Encryption is off for every drive until someone turns it on.
-    encrypted: false,
-    locked: false,
-    converting: false,
     ...over,
   };
 }
@@ -160,7 +156,6 @@ export function baseWorld() {
         // contract test compares this shape against lunad's own output, so a
         // tidy-looking `more: ""` here is a lie about the API.
         drive_tools: { category: "Drive tools", message: "Luna can add and eject drives.", status: "passed" },
-        erase_tools: { category: "Erase tools", message: "Erase tools are installed.", status: "passed" },
         heic_tools: { category: "Photos", message: "iPhone photo support installed.", status: "passed" },
         logs_path_writable: passed("Storage", "Luna can write to its log folder."),
         network: { category: "Network", message: "Connected to your router or modem, with a path to the internet.", status: "passed" },

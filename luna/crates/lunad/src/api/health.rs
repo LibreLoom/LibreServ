@@ -312,9 +312,6 @@ mod tests {
             "blkid",
             "mount",
             "umount",
-            "wipefs",
-            "sfdisk",
-            "mkfs.exfat",
             "smartctl",
             "fstrim",
             "grub-editenv",
@@ -409,13 +406,7 @@ mod tests {
             .await
             .unwrap();
         let passing: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        for name in [
-            "erase_tools",
-            "heic_tools",
-            "office_pack",
-            "smart_tool",
-            "video_tools",
-        ] {
+        for name in ["heic_tools", "office_pack", "smart_tool", "video_tools"] {
             assert_eq!(passing["checks"][name]["status"], "passed", "{name}");
             assert!(passing["checks"][name].get("more").is_none(), "{name}");
             assert!(passing["checks"][name].get("details").is_none(), "{name}");

@@ -58,7 +58,7 @@ function stubDrivesApi(extra = {}) {
     }
     if (u.endsWith("/peek")) {
       return new Response(JSON.stringify({
-        readable: true, fs_type: "exfat", has_marker: false, needs_erase: false,
+        readable: true, fs_type: "exfat", has_marker: false, needs_setup: false,
         folders: 1, files: 1, sample: [{ name: "Photos", kind: "folder" }, { name: "a.txt", kind: "file" }],
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
@@ -204,7 +204,7 @@ describe("FilesPage", () => {
           return inspectGate.then(() => new Response(JSON.stringify({
             device: "sdb", model: "64GB PSSD", fs_type: "exfat",
             mount_point: "/mnt", mounted_by_luna: true, has_marker: false,
-            folders: 1, files: 1, unreadable: 0, needs_erase: false,
+            folders: 1, files: 1, unreadable: 0, needs_setup: false,
             readable: true, writable: true,
             entries: [{ name: "Photos", kind: "folder" }, { name: "notes.txt", kind: "file" }],
           }), { status: 200, headers: { "Content-Type": "application/json" } }));
@@ -365,13 +365,13 @@ describe("FilesPage", () => {
 
   it("tells the admin what is on each unrecognized drive before they add it", async () => {
     const peeks = {
-      sdb: { readable: true, fs_type: "exfat", has_marker: false, needs_erase: false,
+      sdb: { readable: true, fs_type: "exfat", has_marker: false, needs_setup: false,
         folders: 2, files: 10, sample: [
           { name: "Holiday", kind: "folder" }, { name: "Taxes", kind: "folder" }, { name: "notes.txt", kind: "file" },
         ] },
-      sdc: { readable: true, fs_type: "exfat", has_marker: false, needs_erase: false,
+      sdc: { readable: true, fs_type: "exfat", has_marker: false, needs_setup: false,
         folders: 0, files: 0, sample: [] },
-      sdd: { readable: false, fs_type: null, has_marker: false, needs_erase: false,
+      sdd: { readable: false, fs_type: null, has_marker: false, needs_setup: false,
         folders: 0, files: 0, sample: [] },
     };
     stubDrivesApi({
@@ -392,7 +392,7 @@ describe("FilesPage", () => {
     expect(screen.getByText("Holiday, Taxes, notes.txt and 9 more")).toBeInTheDocument();
     expect(await screen.findByText("Empty")).toBeInTheDocument();
     expect(await screen.findByText("Can't read it")).toBeInTheDocument();
-    expect(screen.getByText(/may be blank or need formatting/i)).toBeInTheDocument();
+    expect(screen.getByText(/may be blank or damaged/i)).toBeInTheDocument();
   });
 
   it("says nothing about contents when the look inside fails, and keeps Add drive", async () => {
@@ -622,7 +622,7 @@ describe("FilesPage", () => {
     expect(screen.getByRole("button", { name: /^Remove$/i })).toBeInTheDocument();
   });
 
-  it("offers to erase an installer USB instead of writing a marker", async () => {
+  it("says an installer USB can't be set up yet instead of writing a marker", async () => {
     const { default: userEvent } = await import("@testing-library/user-event");
     stubDrivesApi({
       fetch: (u) => {
@@ -636,7 +636,7 @@ describe("FilesPage", () => {
           return new Response(JSON.stringify({
             device: "sdb", model: "Lexar USB Flash Drive", fs_type: "iso9660",
             mount_point: "/mnt", mounted_by_luna: true, has_marker: false,
-            folders: 12, files: 7, unreadable: 0, needs_erase: true,
+            folders: 12, files: 7, unreadable: 0, needs_setup: true,
             readable: true, writable: false,
             entries: [
               { name: "EFI", kind: "folder" },
@@ -651,14 +651,14 @@ describe("FilesPage", () => {
     renderPage();
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
-    expect(await screen.findByText(/12 folders and 7 files/i)).toBeInTheDocument();
+    expect(await screen.findByText("Setting up new drives isn't available in this version yet.", { selector: "p" })).toBeInTheDocument();
     expect(screen.getByText("EFI")).toBeInTheDocument();
     expect(screen.getByText("boot")).toBeInTheDocument();
     expect(screen.getByText("luna.iso")).toBeInTheDocument();
-    expect(screen.getByText(/erases all files and partitions/i)).toBeInTheDocument();
     expect(screen.queryByText(/Luna installer/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/tiny/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Format drive/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Add this drive/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Format/i })).not.toBeInTheDocument();
   });
 
   it("refuses Add when the drive is not writable", async () => {
@@ -675,7 +675,7 @@ describe("FilesPage", () => {
           return new Response(JSON.stringify({
             device: "sdc", model: "Locked Stick", fs_type: "vfat",
             mount_point: "/mnt", mounted_by_luna: false, has_marker: false,
-            folders: 1, files: 2, unreadable: 0, needs_erase: false,
+            folders: 1, files: 2, unreadable: 0, needs_setup: false,
             readable: true, writable: false,
             entries: [
               { name: "Photos", kind: "folder" },
@@ -695,7 +695,8 @@ describe("FilesPage", () => {
     expect(screen.getByText("Photos")).toBeInTheDocument();
     expect(screen.getByText("notes.txt")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Add this drive/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Format drive/i })).toBeInTheDocument();
+    expect(screen.getByText(/can't save files to this drive/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Format/i })).not.toBeInTheDocument();
   });
 
   it("labels Browse files on adopted drives", async () => {
@@ -944,7 +945,7 @@ describe("FilesPage", () => {
           return new Response(JSON.stringify({
             device: "sde", model: "Tiny Stick", fs_type: "vfat",
             mount_point: "/mnt", mounted_by_luna: true, has_marker: false,
-            folders: 1, files: 1, unreadable: 0, needs_erase: false,
+            folders: 1, files: 1, unreadable: 0, needs_setup: false,
             readable: true, writable: true,
             entries: [
               { name: "Photos", kind: "dir" },
@@ -978,7 +979,7 @@ describe("FilesPage", () => {
           return new Response(JSON.stringify({
             device: "sde", model: "Tiny Stick", fs_type: "vfat",
             mount_point: "/mnt", mounted_by_luna: true, has_marker: false,
-            folders: 3, files: 12, unreadable: 0, needs_erase: false,
+            folders: 3, files: 12, unreadable: 0, needs_setup: false,
             readable: true, writable: true,
             entries: [
               { name: "Videos", kind: "folder" },
@@ -1002,12 +1003,20 @@ describe("FilesPage", () => {
     expect(screen.queryByText(/at the top of the drive/i)).not.toBeInTheDocument();
   });
 
-  it("says a blank or unreadable drive can be erased and set up", () => {
+  it("says a blank or unreadable drive can't be set up yet", () => {
     const info = describePeek({
-      readable: false, needs_erase: true, has_marker: false, folders: 0, files: 0, sample: [],
+      readable: false, needs_setup: true, has_marker: false, folders: 0, files: 0, sample: [],
     });
     expect(info.value).toBe("Blank, or a format Luna can't read");
-    expect(info.note).toMatch(/erases what/i);
+    expect(info.note).toBe("Setting up new drives isn't available in this version yet.");
+  });
+
+  it("says an encrypted drive can't be opened yet", () => {
+    const info = describePeek({
+      readable: false, encrypted: true, has_marker: false, folders: 0, files: 0, sample: [],
+    });
+    expect(info.value).toBe("Encrypted");
+    expect(info.note).toBe("Luna can't open encrypted drives in this version yet.");
   });
 
 

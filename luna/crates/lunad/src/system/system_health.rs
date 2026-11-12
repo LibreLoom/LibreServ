@@ -882,30 +882,6 @@ fn add_drive_tool_checks(checks: &mut Checks, probes: &Probes) {
             .more("NTFS is the format Windows uses for its own drives and often for external hard drives. Drives in other formats, like exFAT or FAT32, still work.");
     }
 
-    let mut missing = probes.missing(&["wipefs", "sfdisk"]);
-    if !probes.has_program("mkfs.exfat") && !probes.has_program("mkfs.vfat") {
-        missing.push("mkfs.exfat");
-    }
-    if missing.is_empty() {
-        checks.add(
-            "erase_tools",
-            "drives",
-            PASSED,
-            "Luna can erase a drive while adding it.",
-            None,
-        );
-    } else {
-        checks
-            .add(
-                "erase_tools",
-                "drives",
-                WARNING,
-                "Luna can't erase drives.",
-                Some(json!({ "missing": missing })),
-            )
-            .more("Erasing clears a drive and formats it for Luna when you add it, and a tool for that is missing. Drives you add without erasing still work.");
-    }
-
     if probes.has_program("smartctl") {
         checks.add(
             "smart_tool",
@@ -1552,9 +1528,6 @@ mod tests {
         "blkid",
         "mount",
         "umount",
-        "wipefs",
-        "sfdisk",
-        "mkfs.exfat",
         "smartctl",
         "fstrim",
         "grub-editenv",
@@ -1655,7 +1628,6 @@ mod tests {
             "heic_tools",
             "drive_tools",
             "ntfs_support",
-            "erase_tools",
             "smart_tool",
             "trim_tool",
             "os_update_tools",

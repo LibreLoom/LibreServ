@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { HardDrive, Trash2 } from "lucide-react";
@@ -12,8 +12,6 @@ import { describeDriveHealth } from "../lib/driveHealth.js";
 import { FileSearchButton } from "../components/files/FileSearch";
 import DriveFileExplorer from "../components/files/DriveFileExplorer";
 import DriveMenu from "../components/files/DriveMenu";
-import DriveEncryptionSheet from "../components/drives/DriveEncryptionSheet.jsx";
-import FormatDriveSheet from "../components/drives/FormatDriveSheet.jsx";
 import useDriveMove from "../hooks/useDriveMove";
 import { getDrives, getJson } from "../lib/api";
 import { folderHref, isTrashPath, pathBasename, TRASH_PATH, trashDisplayName } from "../lib/paths";
@@ -22,13 +20,10 @@ import useMovedLinkForwarding from "../hooks/useMovedLinkForwarding.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 import { useAuth } from "../context/AuthContext";
 import { CAP, hasCapOnDrive, memberWritableRoots } from "../lib/shareTree.js";
-import { isConvertingDrive, isLockedDrive, isPresentDrive, isUnopenable } from "../lib/drives.js";
+import { isPresentDrive, isUnopenable } from "../lib/drives.js";
 
 export default function FilePage() {
   const { id } = useParams();
-  const [encryptionOpen, setEncryptionOpen] = useState(false);
-  const [formatOpen, setFormatOpen] = useState(false);
-  const [formatEncrypted, setFormatEncrypted] = useState(false);
   const {
     path,
     selectPath,
@@ -58,9 +53,7 @@ export default function FilePage() {
   const moveFilesMutation = useDriveMove({ driveId: id, driveLabel: drive?.label });
 
   const unopenable = drive != null && isUnopenable(drive);
-  const locked = drive != null && isLockedDrive(drive);
-  const converting = drive != null && isConvertingDrive(drive);
-  const browsable = drive != null && drive.state !== "missing" && !unopenable && !locked && !converting;
+  const browsable = drive != null && drive.state !== "missing" && !unopenable;
   // Only an Admin sees a drive's health; a failing or worn drive still browses.
   const health = useDriveHealth(drive ?? { id: id ?? "" }, isAdmin && drive != null);
   const healthCopy = health.data ? describeDriveHealth(health.data) : null;
@@ -170,10 +163,6 @@ export default function FilePage() {
         />
       )}
 
-      {drive && drive.state !== "missing" && locked && <EmptyState className="mt-4" icon={HardDrive} title="Drive locked" description="Unlock this drive to open the files you have access to." action={<Button size="sm" variant="primary" onClick={() => setEncryptionOpen(true)}>Unlock drive</Button>} />}
-      {drive && drive.state !== "missing" && converting && <EmptyState className="mt-4" icon={HardDrive} title="Formatting drive" description="This drive is unavailable while formatting finishes." />}
-      <DriveEncryptionSheet open={encryptionOpen} drive={drive} onClose={() => setEncryptionOpen(false)} onFormat={(_drive, encrypted) => { setEncryptionOpen(false); setFormatEncrypted(encrypted); setFormatOpen(true); }} />
-      <FormatDriveSheet open={formatOpen} drive={drive} initialEncrypted={formatEncrypted} onClose={() => setFormatOpen(false)} />
       {drive && unopenable && (
         <EmptyState
           className="mt-4"

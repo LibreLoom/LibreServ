@@ -513,9 +513,9 @@ def part_drives(vm, lu, fx):
         check(f"[{kind}] preview wrote nothing to the stick", image_root_listing(kind, img) == before, str(image_root_listing(kind, img)))
         c, b = lu.post(f"/api/v1/drives/{d['name']}/inspect")
         check(f"[{kind}] inspect reads the stick", c == 200 and b.get("readable") and b.get("fs_type"), str(b))
-        c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": "", "erase": False})
+        c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": ""})
         check(f"[{kind}] an empty drive name is refused", c == 400, f"{c} {b}")
-        c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": f"My {kind}", "erase": False})
+        c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": f"My {kind}"})
         check(f"[{kind}] stick is added", c == 200 and b.get("id"), f"{c} {b}")
         if c != 200:
             continue
@@ -758,7 +758,7 @@ def part_drive_lifecycle(vm, lu, fx):
     check("[life] stick shows up", d is not None)
     if not d:
         return
-    c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": "Life", "erase": False})
+    c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": "Life"})
     check("[life] stick is added", c == 200, f"{c} {b}")
     did = b.get("id")
     c, b = lu.post(f"/api/v1/drives/{did}/eject")
@@ -820,26 +820,14 @@ def part_foreign_drives(vm, lu, fx):
             continue
         c, b = lu.get(f"/api/v1/drives/{d['name']}/peek")
         show(f"{kind} peek", (c, b))
-        check(f"[{kind}] preview says it cannot be read or needs erasing", c == 200 and (b.get("needs_erase") or not b.get("readable")), f"{c} {b}")
+        check(f"[{kind}] preview says it cannot be read or needs setting up", c == 200 and (b.get("needs_setup") or not b.get("readable")), f"{c} {b}")
         c2, b2 = lu.post(f"/api/v1/drives/{d['name']}/inspect")
         show(f"{kind} inspect", (c2, b2))
-        c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": f"Fresh {kind}", "erase": False})
-        check(f"[{kind}] adding without erasing is refused with a plain message", c == 400 and isinstance(b, dict) and "erase" in b.get("error", "").lower(), f"{c} {b}")
         pre = sh(f"sha256sum {img}").split()[0]
-        c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": f"Fresh {kind}", "erase": True})
-        check(f"[{kind}] adding with erase works", c == 200 and b.get("id"), f"{c} {b}")
-        if c == 200:
-            did = b["id"]
-            data = os.urandom(50_000)
-            c, b, _ = upload(lu, did, "after-erase.bin", data)
-            check(f"[{kind}] the erased drive takes an upload", c == 200, f"{c} {b}")
-            c, got = download(lu, did, "after-erase.bin")
-            check(f"[{kind}] and gives it back", c == 200 and got == data)
-            c, b = lu.post(f"/api/v1/drives/{did}/eject")
-            check(f"[{kind}] eject works", c == 200, f"{c} {b}")
-            out = sh(f"file -s {img} 2>/dev/null; blkid {img} 2>/dev/null; dumpe2fs -h {img} 2>&1 | head -3", check_rc=False)
-            check(f"[{kind}] the drive now has a partition with a filesystem", "ID=0x7" in out or "ID=0xc" in out or "ID=0xb" in out or "ext" in out.lower() or "fat" in out.lower(), out[:200])
-            say(f"    filesystem made: {out.strip().splitlines()[:2]}")
+        c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": f"Fresh {kind}"})
+        check(f"[{kind}] adding is refused with a plain message", c == 400 and isinstance(b, dict) and "isn't available" in b.get("error", ""), f"{c} {b}")
+        post = sh(f"sha256sum {img}").split()[0]
+        check(f"[{kind}] and the drive is left untouched", pre == post)
         unplug(vm, lu, f"u-{kind}", d["name"])
     for kind in ("exfat", "ntfs"):
         img = copy_fixture(fx, kind, kind + "-t")
@@ -849,7 +837,7 @@ def part_foreign_drives(vm, lu, fx):
             continue
         c, b = lu.get(f"/api/v1/drives/{d['name']}/peek")
         check(f"[{kind}] preview reads the drive", c == 200 and b.get("readable") and b.get("fs_type"), f"{c} {b}")
-        c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": f"My {kind}", "erase": False})
+        c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": f"My {kind}"})
         check(f"[{kind}] drive is added", c == 200 and b.get("id"), f"{c} {b}")
         if c == 200:
             did = b["id"]
@@ -934,7 +922,7 @@ def stage_resilience():
     lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done"})
     d = detected(lu, lambda x: True, 60)
     check("the stick plugged at boot is offered", bool(d))
-    c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Resil", "erase": False})
+    c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Resil"})
     did = b.get("id")
     check("added", c == 200 and did, f"{c} {b}")
     data = os.urandom(2_000_000)
@@ -973,7 +961,7 @@ def stage_resilience():
     # the stick stays plugged in across several restarts, together with a second one
     img2 = copy_fixture(fx, "fat32", "resil2")
     d2 = plug(vm, lu, "u-resil2", img2)
-    c, b = lu.post(f"/api/v1/drives/{d2['name']}/adopt", {"label": "Second", "erase": False}) if d2 else (0, {})
+    c, b = lu.post(f"/api/v1/drives/{d2['name']}/adopt", {"label": "Second"}) if d2 else (0, {})
     did2 = b.get("id")
     check("a second stick is added", c == 200 and did2, f"{c} {b}")
     for n in (1, 2, 3):
@@ -1289,7 +1277,7 @@ def stage_wyse():
         vm.quit()
         return
     t1 = time.time()
-    c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Family", "erase": False}, timeout=120)
+    c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Family"}, timeout=120)
     D = b.get("id") if isinstance(b, dict) else None
     check("[wyse] the family drive is added", c == 200 and D, f"{c} {b}")
     say(f"    adopting took {time.time() - t1:.0f}s")
@@ -1534,7 +1522,7 @@ def stage_bigfiles():
     set_test_phrase(lu)
     lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done"})
     d = detected(lu, lambda x: True, 60)
-    c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Big", "erase": False})
+    c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Big"})
     D = b.get("id")
     check("the 3.5 GB drive is added", c == 200 and D, f"{c} {b}")
     c, b = lu.get(f"/api/v1/drives/{D}/summary")
@@ -1633,10 +1621,10 @@ def stage_app():
     set_test_phrase(lu)
     lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done", "name": "E2E Luna"})
     d = detected(lu, lambda x: True, 60)
-    c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Main", "erase": False})
+    c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Main"})
     A = b.get("id")
     d2 = plug(vm, lu, "u-app-b", b_img)
-    c, b = lu.post(f"/api/v1/drives/{d2['name']}/adopt", {"label": "Backup", "erase": False})
+    c, b = lu.post(f"/api/v1/drives/{d2['name']}/adopt", {"label": "Backup"})
     B = b.get("id")
     check("two drives are added", bool(A and B), f"{A} {B}")
     c, bd = lu.get("/api/v1/drives")
@@ -1768,7 +1756,7 @@ def stage_eject_busy():
     set_test_phrase(lu)
     lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done"})
     d = detected(lu, lambda x: True, 60)
-    c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Lots of files", "erase": False})
+    c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Lots of files"})
     D = b.get("id")
     check("the drive with 20,000 files is added", c == 200 and D, f"{c} {b}")
     t0 = time.time()
@@ -1800,7 +1788,7 @@ def stage_reset():
     set_test_phrase(lu)
     lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done", "name": "Reset me"})
     d = detected(lu, lambda x: True, 60)
-    c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Keep my files", "erase": False})
+    c, b = lu.post(f"/api/v1/drives/{d[0]['name']}/adopt", {"label": "Keep my files"})
     D = b.get("id")
     check("a drive is added", c == 200 and D, f"{c} {b}")
     data = os.urandom(500_000)
@@ -1833,7 +1821,7 @@ def stage_reset():
     d2 = detected(lu2, lambda x: True, 60)
     check("the stick is offered as a new drive again", bool(d2))
     if d2:
-        c, b = lu2.post(f"/api/v1/drives/{d2[0]['name']}/adopt", {"label": "Again", "erase": False})
+        c, b = lu2.post(f"/api/v1/drives/{d2[0]['name']}/adopt", {"label": "Again"})
         D2 = b.get("id")
         check("and can be added again", c == 200 and D2, f"{c} {b}")
         c, got = download(lu2, D2, "precious.bin")
@@ -2368,7 +2356,7 @@ def stage_lab():
     lu.post("/api/v1/setup", {"setup_completed": True})
     fx = make_fixtures()
     d = plug(vm, lu, "u-lab", fx["fat32"])
-    c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": "Lab", "erase": False})
+    c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": "Lab"})
     say(f"LAB READY drive={b.get('id')}")
     open(f"{WORK}/lab.drive", "w").write(b.get("id", ""))
     if os.path.exists(f"{WORK}/lab.stop"):

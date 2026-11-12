@@ -184,3 +184,27 @@ They now say so instead of dead-ending.
 
 Drives that are already set up (have a `.luna-*` marker, plain filesystem) keep
 working: listing, adding, mounting, health, eject, remove.
+
+Where the messages live: `drives/mod.rs` (`NEEDS_SETUP_MESSAGE`,
+`ENCRYPTED_MESSAGE`), `api/drives.rs` (`plain_adopt_error`), `InspectModal.jsx`,
+`FilesPage.jsx` (`describePeek`). The Add drive button is disabled for drives
+that report `needs_setup` or `encrypted`. The API fields `needs_erase` and
+`locked` became `needs_setup` and `encrypted` on peek/inspect; the drive list
+lost `encrypted`, `locked` and `converting`; adopt only takes `label`.
+
+## Left in place on purpose
+
+- `os/` still installs cryptsetup, exFAT/ext4 tools, `sfdisk`, `wipefs`;
+  `os/lib/flash-disk.sh` writes the OS image and is unrelated.
+- `drives/mount.rs` keeps the mount/umount deadlines and the `DriveUnresponsive`
+  error (and `is_unresponsive`, now only used by its own tests); they harden
+  plain mounting too.
+- The daemon still disables core dumps (`sandbox::disable_daemon_core_dumps`);
+  the cloud recovery phrase passes through it as well.
+- `backup/cloud/identity::copy_to_drive_at` still runs when a drive is added.
+- `docs/drive-encryption/plan.md` is unchanged and now describes removed code.
+- `web/src/dev/contract/lunad-responses.json` is stale (still has the removed
+  routes and drive fields) until the next full luna run regenerates it.
+- Existing dev databases may still carry the old `drives.encrypted/locked/converting`
+  columns and the two `drive_format_*` tables; nothing reads or writes them
+  (no migration, per the early-development rule).

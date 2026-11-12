@@ -137,8 +137,6 @@ pub struct AppState {
     pub auth: Arc<crate::auth::AuthService>,
     pub connect: Arc<crate::net::connect::ConnectService>,
     pub login_limiter: Arc<crate::rate_limit::RateLimiter>,
-    /// Wrong passwords on an encrypted drive: per user, per drive.
-    pub unlock_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub dav_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub share_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub public_upload_limiter: Arc<crate::rate_limit::RateLimiter>,
@@ -165,8 +163,6 @@ impl AppState {
     ) -> Self {
         crate::sandbox::disable_daemon_core_dumps().expect("disable daemon core dumps");
         private::install();
-        crate::drives::format_lifecycle::startup(&conn, &drive_manager)
-            .expect("reconcile interrupted drive formats");
         let db = Arc::new(crate::Db::new(conn));
         let secret =
             crate::secrets::ensure_jwt_secret(data_dir, &db.lock().unwrap()).expect("jwt secret");
@@ -195,14 +191,6 @@ impl AppState {
                 db.clone(),
                 std::time::Duration::from_secs(300),
                 10,
-            )),
-            // Five wrong passwords on a drive, then a five-minute wait. A
-            // Member with a live session can unlock a drive they can already
-            // read, so this is what keeps guessing from being free.
-            unlock_limiter: Arc::new(crate::rate_limit::RateLimiter::new(
-                db.clone(),
-                std::time::Duration::from_secs(300),
-                5,
             )),
             dav_limiter: Arc::new(crate::rate_limit::RateLimiter::new(
                 db.clone(),

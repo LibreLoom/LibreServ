@@ -249,30 +249,8 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
         );
         ",
     )?;
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS drive_format_plans (
-            id TEXT PRIMARY KEY, owner TEXT NOT NULL, body TEXT NOT NULL,
-            fingerprint TEXT NOT NULL, expires_at INTEGER NOT NULL,
-            review_ready_at INTEGER, operation_id TEXT
-        );
-        CREATE TABLE IF NOT EXISTS drive_format_operations (
-            id TEXT PRIMARY KEY, plan_id TEXT UNIQUE NOT NULL, drive_id TEXT,
-            device TEXT NOT NULL, label TEXT NOT NULL, state TEXT NOT NULL,
-            phase TEXT NOT NULL, error TEXT, destructive_started INTEGER NOT NULL,
-            encrypted INTEGER NOT NULL, filesystem TEXT NOT NULL
-        );",
-    )?;
     // Thin upgrade path for boxes that already had an older CREATE.
     ensure_column(&conn, "drives", "mount_point", "TEXT NOT NULL DEFAULT ''")?;
-    // Encryption. `encrypted` is a property of the drive on disk; `locked` is
-    // whether its container is open right now, which is false after every boot
-    // because the key only ever lived in the kernel. `converting` marks a drive
-    // held exclusively by an in-place conversion.
-    ensure_column(&conn, "drives", "encrypted", "INTEGER NOT NULL DEFAULT 0")?;
-    ensure_column(&conn, "drives", "locked", "INTEGER NOT NULL DEFAULT 0")?;
-    ensure_column(&conn, "drives", "converting", "INTEGER NOT NULL DEFAULT 0")?;
-    // Interrupted formatting is reconciled against the durable operation
-    // record during AppState startup; it must not be silently made usable.
     // Trim the tables that otherwise grow without bound. Cheap, and it runs
     // before anything can read them.
     let _ = trim_housekeeping(&conn);
@@ -361,35 +339,9 @@ pub struct DriveRow {
     pub fs_type: String,
     pub device: String,
     pub mount_point: String,
-    /// The drive on disk is a LUKS2 container. A property of the drive, not of
-    /// the session: it stays true while the drive is locked.
-    pub encrypted: bool,
-    /// The container is not open, so there is nothing mounted and no files can
-    /// be read. False after every boot — the key only ever lived in the kernel.
-    pub locked: bool,
-    /// An in-place conversion holds this drive exclusively.
-    pub converting: bool,
 }
 
-impl DriveRow {
-    /// The drive is present and healthy, but its container is not open.
-    pub fn is_locked(&self) -> bool {
-        self.encrypted && self.locked
-    }
-
-    /// Files can be read right now: present, mounted, not locked, and not
-    /// mid-conversion.
-    pub fn is_readable(&self) -> bool {
-        !self.mount_point.is_empty()
-            && self.state != "missing"
-            && self.state != "ejected"
-            && !self.locked
-            && !self.converting
-    }
-}
-
-const DRIVE_COLS: &str =
-    "id, label, state, fs_type, device, mount_point, encrypted, locked, converting";
+const DRIVE_COLS: &str = "id, label, state, fs_type, device, mount_point";
 
 fn drive_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DriveRow> {
     Ok(DriveRow {
@@ -399,9 +351,6 @@ fn drive_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DriveRow> {
         fs_type: row.get(3)?,
         device: row.get(4)?,
         mount_point: row.get(5)?,
-        encrypted: row.get::<_, i64>(6)? != 0,
-        locked: row.get::<_, i64>(7)? != 0,
-        converting: row.get::<_, i64>(8)? != 0,
     })
 }
 
@@ -542,63 +491,6 @@ pub fn set_drive_state(conn: &Connection, id: &str, state: &str) -> anyhow::Resu
     conn.execute(
         "UPDATE drives SET state = ?2, updated_at = ?3 WHERE id = ?1",
         params![id, state, now_unix()],
-    )?;
-    Ok(())
-}
-
-/// Record whether the drive's container is open. Locking also clears the mount
-/// point: a locked drive has nothing mounted, and leaving a stale path behind
-/// would let a file operation reach an empty directory and blame the drive.
-pub fn set_drive_locked(conn: &Connection, id: &str, locked: bool) -> anyhow::Result<()> {
-    if locked {
-        conn.execute(
-            "UPDATE drives SET locked = 1, mount_point = '', updated_at = ?2 WHERE id = ?1",
-            params![id, now_unix()],
-        )?;
-    } else {
-        conn.execute(
-            "UPDATE drives SET locked = 0, updated_at = ?2 WHERE id = ?1",
-            params![id, now_unix()],
-        )?;
-    }
-    Ok(())
-}
-
-/// Mark a drive as encrypted (or not) and, for a fresh format, unlocked.
-pub fn set_drive_encrypted(conn: &Connection, id: &str, encrypted: bool) -> anyhow::Result<()> {
-    conn.execute(
-        "UPDATE drives SET encrypted = ?2, updated_at = ?3 WHERE id = ?1",
-        params![id, if encrypted { 1 } else { 0 }, now_unix()],
-    )?;
-    Ok(())
-}
-
-/// Record where a reformatted drive is mounted, without touching its
-/// encryption flags. Used after a wipe, when the drive keeps its identity but
-/// gets a fresh mount point.
-pub fn set_drive_mount_point(conn: &Connection, id: &str, mount_point: &str) -> anyhow::Result<()> {
-    conn.execute(
-        "UPDATE drives SET mount_point = ?2, updated_at = ?3 WHERE id = ?1",
-        params![id, mount_point, now_unix()],
-    )?;
-    Ok(())
-}
-
-/// Record the filesystem a reformat put on the drive, so the next mount and
-/// the encryption page describe it correctly without waiting for a rescan.
-pub fn set_drive_fs_type(conn: &Connection, id: &str, fs_type: &str) -> anyhow::Result<()> {
-    conn.execute(
-        "UPDATE drives SET fs_type = ?2, updated_at = ?3 WHERE id = ?1",
-        params![id, fs_type, now_unix()],
-    )?;
-    Ok(())
-}
-
-/// Hold the drive exclusively for a conversion, or release it.
-pub fn set_drive_converting(conn: &Connection, id: &str, converting: bool) -> anyhow::Result<()> {
-    conn.execute(
-        "UPDATE drives SET converting = ?2, updated_at = ?3 WHERE id = ?1",
-        params![id, if converting { 1 } else { 0 }, now_unix()],
     )?;
     Ok(())
 }

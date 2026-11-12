@@ -40,18 +40,9 @@ export const CASES = {
   "GET /api/v1/users/:id/private-count": { url: (w) => { const u = (w.users || []).find((x) => x?.id); return u ? `/api/v1/users/${q(u.id)}/private-count` : null; } },
 
   // Drives
-  "GET /api/v1/drive-format/capabilities": plain("/api/v1/drive-format/capabilities"),
-  "GET /api/v1/drive-format/operations": { url: (w) => { const d = driveId(w); return d ? `/api/v1/drive-format/operations?drive_id=${q(d)}` : null; } },
-  "GET /api/v1/drive-format/operations/:id": { skip: "Requires a durable format operation, absent from the recorded fixtures." },
-  "POST /api/v1/drive-format/plans": { skip: "Requires a disposable drive for a destructive workflow." },
-  "POST /api/v1/drive-format/plans/:id/review": { skip: "Requires a fresh format plan." },
-  "POST /api/v1/drive-format/plans/:id/start": { skip: "Requires a reviewed plan and erases the drive." },
-  "POST /api/v1/drives/:name/unlock-and-add": { skip: "Requires a locked encrypted drive and its password." },
-  "POST /api/v1/drives/:id/password": { skip: "Requires an unlocked encrypted drive and its current password." },
   "GET /api/v1/drives": plain("/api/v1/drives"),
   "GET /api/v1/drives/detected": plain("/api/v1/drives/detected"),
   "GET /api/v1/drives/:id/summary": onDrive((w, d) => `/api/v1/drives/${q(d)}/summary`),
-  "GET /api/v1/drives/:id/encryption": onDrive((w, d) => `/api/v1/drives/${q(d)}/encryption`),
   "GET /api/v1/drives/:id/health": onDrive((w, d) => `/api/v1/drives/${q(d)}/health`),
   "GET /api/v1/drives/:name/peek": { url: (w) => { const dev = detectedName(w); return dev ? `/api/v1/drives/${q(dev)}/peek` : null; } },
   // The app sends POST (FilesPage.jsx); lunad only has POST. The GET case checks the method.

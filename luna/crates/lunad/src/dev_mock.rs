@@ -268,7 +268,7 @@ mod tests {
         let device = detected_drive_at(&vol, true, "sdmock_photos", "Mock Photos Drive").unwrap();
         let mgr = DriveManager::new(Arc::new(CommandMounter), root.path());
         let conn = crate::db::open(&root.path().join("luna.db")).unwrap();
-        let row = mgr.adopt(&conn, &device, "Portable SSD", false);
+        let row = mgr.adopt(&conn, &device, "Portable SSD");
         if let Err(e) = &row {
             panic!("adopt failed: {e:#}");
         }
