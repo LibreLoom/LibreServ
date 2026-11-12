@@ -50,6 +50,11 @@ function subjectSubtitle(row) {
   return "Whole drive";
 }
 
+function sharedErrorMessage(error, fallback) {
+  if (error?.status >= 500) return fallback;
+  return apiErrorMessage(error, fallback);
+}
+
 function CapsPill({ caps, album, file }) {
   const variant = caps === "full" ? "success" : caps === "upload" ? "warning" : "info";
   return <Pill variant={variant}>{capsLabel(caps, { album, file })}</Pill>;
@@ -71,6 +76,7 @@ export default function SharedPage() {
   const mine = useQuery({
     queryKey: ["access-mine"],
     queryFn: () => getJson("/api/v1/access/mine"),
+    retry: false,
   });
 
   const leave = useMutation({
@@ -87,7 +93,7 @@ export default function SharedPage() {
     },
     onError: (err) => {
       haptic("error");
-      setLeaveError(apiErrorMessage(err, "Couldn't leave that share. Try again."));
+      setLeaveError(sharedErrorMessage(err, "Couldn't leave that share. Try again."));
     },
   });
 
@@ -102,6 +108,10 @@ export default function SharedPage() {
     || (row.drive_label || "").toLowerCase().includes(query);
   const shownWithMe = withMe.filter(matches);
   const shownSharing = sharing.filter(matches);
+  const tabs = [
+    { value: "with_me", label: "Shared with you" },
+    ...(isAdmin || sharing.length > 0 ? [{ value: "manage", label: "Manage sharing" }] : []),
+  ];
 
   return (
     <MotionConfig reducedMotion="user">
@@ -114,7 +124,18 @@ export default function SharedPage() {
       )}
       {mine.isError && (
         <PageNotice variant="error">
-          {apiErrorMessage(mine.error, "Couldn't load sharing. Refresh and try again.")}
+          <div className="space-y-3" role="alert">
+            <p>{sharedErrorMessage(mine.error, "Couldn't load sharing. Refresh and try again.")}</p>
+            <Button
+              size="sm"
+              variant="outline"
+              surface="primary"
+              loading={mine.isFetching}
+              onClick={() => mine.refetch()}
+            >
+              Try again
+            </Button>
+          </div>
         </PageNotice>
       )}
 
@@ -126,10 +147,7 @@ export default function SharedPage() {
               value={tab}
               onChange={setChosenTab}
               aria-label="Shared items"
-              options={[
-                { value: "with_me", label: "Shared with you" },
-                { value: "manage", label: "Manage sharing" },
-              ]}
+              options={tabs}
             />
             <label className="flex min-w-48 flex-1 items-center gap-2 rounded-pill border-2 border-transparent surface-secondary px-3 py-1 focus-within:border-accent motion-safe:transition-colors">
               <Search size={14} className="shrink-0" aria-hidden="true" />

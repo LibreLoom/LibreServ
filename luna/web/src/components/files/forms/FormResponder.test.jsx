@@ -66,6 +66,37 @@ beforeEach(() => {
 });
 
 describe("FormResponder", () => {
+  it("keeps answers after a failed submission and allows retry", async () => {
+    let fail = true;
+    const fetchMock = vi.fn(async (_url, options = {}) => {
+      if (options.method === "POST") {
+        return fail
+          ? new Response(JSON.stringify({ error: "The form could not be reached." }), {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            })
+          : okJson({ ok: true, id: "r-retry", edit_token: "retry-token" });
+      }
+      return okJson({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderResponder(FORM);
+
+    fireEvent.click(await screen.findByRole("radio", { name: "Yes" }));
+    fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Ari Lane" } });
+    fireEvent.click(screen.getByRole("button", { name: /Send answers/i }));
+
+    expect(await screen.findByText("The form could not be reached.")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Yes" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByLabelText("Your name")).toHaveValue("Ari Lane");
+    expect(screen.getByRole("button", { name: /Send answers/i })).toBeEnabled();
+
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: /Send answers/i }));
+    expect(await screen.findByText(/Response submitted/i)).toBeInTheDocument();
+    expect(lastPost(fetchMock).answers).toEqual({ q_1: "Yes", q_2: "Ari Lane" });
+  });
+
   it("edit links open every question on one page and save through the respond endpoint", async () => {
     const fetchMock = vi.fn(async (_url, options = {}) => {
       if (options.method === "POST") {

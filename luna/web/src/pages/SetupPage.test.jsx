@@ -1,8 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import SetupPage from "./SetupPage";
+import LoginPage from "./LoginPage";
 import { AuthProvider } from "../context/AuthContext";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
@@ -41,6 +42,9 @@ function stubFetch({
     if (u.includes("/auth/me")) {
       if (me) return jsonResponse(me);
       return jsonResponse({}, 401);
+    }
+    if (u.includes("/auth/login") && method === "POST") {
+      return jsonResponse({ id: "u1", username: "max", display_name: "Max", role: "admin" });
     }
     if (u.includes("/auth/status")) {
       return jsonResponse({ has_admin: hasAdmin, connect_active: connectActive });
@@ -95,6 +99,25 @@ function renderSetup(initialEntry = "/setup") {
         <ToastProvider>
           <AuthProvider>
             <SetupPage />
+          </AuthProvider>
+        </ToastProvider>
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+
+function renderSetupWithLogin() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={["/setup"]}>
+        <ToastProvider>
+          <AuthProvider>
+            <Routes>
+              <Route path="/setup" element={<SetupPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/" element={<div>Dashboard route</div>} />
+            </Routes>
           </AuthProvider>
         </ToastProvider>
       </MemoryRouter>
@@ -162,6 +185,54 @@ describe("SetupPage", () => {
     const nameInput = screen.getByLabelText(/What's your name/i);
     expect(nameInput).toBeTruthy();
     expect(document.activeElement).toBe(nameInput);
+  });
+
+  it("backs from the first account field to the system check and keeps the entered name", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        setup: {
+          name: "Luna",
+          setup_completed: false,
+          current_step: "account",
+          step_data: { network_connected: true, preflight_passed: true },
+        },
+      }),
+    );
+    renderSetup();
+
+    const nameInput = await screen.findByLabelText(/What's your name/i);
+    fireEvent.change(nameInput, { target: { value: "Max's Luna" } });
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+
+    expect(await screen.findByRole("heading", { name: /System check/i })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
+
+    const resumedNameInput = await screen.findByLabelText(/What's your name/i);
+    expect(resumedNameInput).toHaveValue("Max's Luna");
+  });
+
+  it("returns to unfinished setup after signing in to finish it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        hasAdmin: true,
+        setup: {
+          name: "Luna",
+          setup_completed: false,
+          current_step: "name",
+          step_data: { account_completed: true },
+        },
+      }),
+    );
+    renderSetupWithLogin();
+
+    fireEvent.click(await screen.findByRole("link", { name: "Sign in" }));
+    fireEvent.change(await screen.findByLabelText("Username"), { target: { value: "max" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "task-owned-test-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+
+    expect(await screen.findByRole("heading", { name: "Name your Luna" })).toBeTruthy();
   });
 
   it("does not attach a substep slide/pop class to the name field on first account paint", async () => {

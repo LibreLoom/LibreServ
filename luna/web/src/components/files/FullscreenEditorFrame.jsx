@@ -69,6 +69,10 @@ function useIsMdUp() {
  *   - `onSaveStateChange(hasUnsaved)` — report dirty state. `false` means
  *     "everything is saved" and clears any save error, so only call it on
  *     a real save, not on initial load.
+ *   - `onSaveError(message)` — report an autosave failure so the frame can
+ *     show a visible retry action while keeping the draft open.
+ *   - `onLoadStatus(status)` — report whether the file is loading, ready, or
+ *     could not be opened.
  *   - `requestClose()` — the guarded close path (dirty → guard modal).
  *
  * `sessionKey` should change when a different file/editor mounts inside
@@ -85,6 +89,8 @@ function useIsMdUp() {
  *   children: (api: {
  *     onRegisterSave: (save: (() => Promise<unknown>) | null) => void,
  *     onSaveStateChange: (hasUnsaved: boolean) => void,
+ *     onSaveError: (message: string) => void,
+ *     onLoadStatus: (status: "loading" | "error" | "ready") => void,
  *     requestClose: () => void,
  *   }) => import("react").ReactNode,
  * }} props
@@ -105,6 +111,7 @@ export default function FullscreenEditorFrame({
   const [hasUnsaved, setHasUnsaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [loadStatus, setLoadStatus] = useState("loading");
   const saveFnRef = useRef(/** @type {(() => Promise<unknown>) | null} */ (null));
   // "Document Unsaved" guard modal. The ref mirrors the state so the window
   // capture-phase Escape handler can yield to the modal without re-registering.
@@ -161,6 +168,7 @@ export default function FullscreenEditorFrame({
     setHasUnsaved(false);
     setSaving(false);
     setSaveError("");
+    setLoadStatus("loading");
     setConfirmClose(false);
     setMounted(false);
     setLoaders({});
@@ -309,17 +317,19 @@ export default function FullscreenEditorFrame({
     onClose();
   }
 
-  // Exactly three save states — the file is either saved or it isn't, so
-  // there is no "just now" window and no clock time. A failed save is not a
-  // fourth state: its message takes the pill's place until the next save
-  // clears it, the same way the rail's tooltip shows it.
+  // The status reports a load failure before any save state. Save errors
+  // take the pill's place until the next save clears them.
   const saveLabel = saving
     ? "Saving…"
-    : saveError
-      ? saveError
-      : hasUnsaved
-        ? "Unsaved"
-        : "Saved";
+    : loadStatus === "loading"
+      ? "Opening…"
+      : loadStatus === "error"
+      ? "Couldn't open file"
+      : saveError
+        ? saveError
+        : hasUnsaved
+          ? "Unsaved"
+          : "Saved";
 
   return (
     <>
@@ -454,9 +464,28 @@ export default function FullscreenEditorFrame({
               )}
               <div className="relative flex min-h-0 min-w-0 flex-1 flex-col surface-primary">
                 <EditorLoadingContext.Provider value={loadingApi}>
+                  {saveError && !confirmClose && hasUnsaved ? (
+                    <div className="flex shrink-0 items-start gap-3 border-b border-error/30 bg-error/20 p-3">
+                      <PageNotice variant="error" className="min-w-0 flex-1">
+                        {saveError}
+                      </PageNotice>
+                      <Button
+                        variant="outline"
+                        surface="primary"
+                        size="sm"
+                        loading={saving}
+                        disabled={!saveReady || saving}
+                        onClick={() => void runSave()}
+                      >
+                        Try again
+                      </Button>
+                    </div>
+                  ) : null}
                   {children({
                     onRegisterSave: handleRegisterSave,
                     onSaveStateChange: handleSaveState,
+                    onSaveError: setSaveError,
+                    onLoadStatus: setLoadStatus,
                     requestClose,
                   })}
                 </EditorLoadingContext.Provider>

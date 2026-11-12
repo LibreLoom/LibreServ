@@ -73,6 +73,29 @@ describe("PhotoLightbox scroll lock", () => {
   });
 });
 
+describe("PhotoLightbox slideshow", () => {
+  it("stops at the last photo instead of wrapping to the first", () => {
+    vi.useFakeTimers();
+    try {
+      const onIndexChange = vi.fn();
+      const onSlideshowChange = vi.fn();
+      renderLightbox({
+        index: photos.length - 1,
+        slideshow: true,
+        onIndexChange,
+        onSlideshowChange,
+      });
+
+      act(() => { vi.advanceTimersByTime(4000); });
+
+      expect(onIndexChange).not.toHaveBeenCalled();
+      expect(onSlideshowChange).toHaveBeenCalledWith(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("PhotoLightbox guest mode", () => {
   it("hides favorite, album, share, trash, and folder actions", () => {
     renderLightbox({ mode: "guest" });

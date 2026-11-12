@@ -80,6 +80,14 @@ export async function buildSettingsIndex(categories, wrap, { onError } = {}) {
     try {
       const html = renderToStaticMarkup(/** @type {any} */ (wrap(createElement(Component))));
       const doc = new DOMParser().parseFromString(html, "text/html");
+      // Search previews describe settings, not the transient state of queries
+      // that happen to be pending while the category is rendered off-screen.
+      // Keep pending/error placeholders out of the index; the live page remains
+      // responsible for showing those states.
+      doc.body.querySelectorAll('[aria-busy="true"]').forEach((el) => el.remove());
+      doc.body.querySelectorAll("[data-settings-description]").forEach((el) => {
+        if (/^(checking|loading)\b/i.test(el.textContent?.trim() || "")) el.textContent = "";
+      });
       for (const item of extractSettingsItems(doc.body)) {
         hits.push({ ...item, categoryId: id, categoryLabel: label });
       }

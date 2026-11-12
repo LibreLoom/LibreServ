@@ -316,6 +316,28 @@ describe("ShareSheet", () => {
     });
   });
 
+  it("keeps the link and confirmation open with a retry message after removal fails", async () => {
+    stubApi((path) => subjectBody(path, {
+      links: [{ id: "l1", caps: "view", url: "/s/tok1", can_manage: true }],
+    }));
+    const baseFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url, init = {}) => {
+      if (String(url).endsWith("/api/v1/access/links/l1") && init.method === "DELETE") {
+        return json({ error: "Injected 500" }, 500);
+      }
+      return baseFetch(url, init);
+    }));
+    renderSheet();
+    fireEvent.click(await screen.findByRole("button", { name: "Remove this link" }));
+    const confirm = await screen.findByRole("dialog", { name: /Remove link/i });
+    fireEvent.click(within(confirm).getByRole("button", { name: "Remove link" }));
+
+    expect(await within(confirm).findByText("Couldn't remove this link. Try again.")).toBeInTheDocument();
+    expect(within(confirm).queryByText("Injected 500")).toBeNull();
+    expect(confirm).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Remove this link/i })).toBeInTheDocument();
+  });
+
   it("names the parent but shows no button when it can't be inspected", async () => {
     stubApi((path) => subjectBody(path, {
       my_caps: "view",
@@ -327,6 +349,23 @@ describe("ShareSheet", () => {
     renderSheet();
     expect(await screen.findByText(/1 person shared through family/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /View .* shares/ })).not.toBeInTheDocument();
+  });
+
+  it("explains why a viewer cannot change sharing", async () => {
+    stubApi((path) => subjectBody(path, {
+      my_caps: "view",
+      members: [{ id: "m1", user_id: "u2", name: "Sam", caps: "view", can_manage: false, can_remove: false }],
+      links: [{ id: "l1", caps: "view", has_password: false, can_manage: false }],
+    }));
+    renderSheet();
+    expect(await screen.findByText(
+      "Your access lets you see who can open this, but not change sharing. Ask an Admin or someone with sharing access to make a change.",
+    )).toBeInTheDocument();
+    expect(screen.getByText("Sam")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add a person" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Access for Sam")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Link settings" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove this link" })).not.toBeInTheDocument();
   });
 
   it("never shows a cached address on a link the caller can't manage", async () => {

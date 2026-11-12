@@ -82,6 +82,12 @@ function stubFilesApi(byPath) {
       return new Response(JSON.stringify({ ok: true, path: full }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     if (u.includes("/files/rename") && method === "POST") {
+      if (byPath.__renameFail) {
+        return new Response(JSON.stringify({ error: byPath.__renameFail }), {
+          status: 409,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     if (u.includes("/files/content")) {
@@ -370,6 +376,7 @@ describe("FilePage", () => {
     fireEvent.drop(item, { dataTransfer });
     // The question is a row in the file task card, not a dialog.
     const dock = await screen.findByRole("region", { name: "File tasks" });
+    fireEvent.click(within(dock).getByRole("button", { name: "Show details" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     fireEvent.click(await within(dock).findByRole("button", { name: "Move anyway" }));
     await waitFor(() => expect(posts).toHaveLength(2));
@@ -607,11 +614,30 @@ describe("FilePage", () => {
     expect(emptyBtn).toBeEnabled();
     fireEvent.click(emptyBtn);
     const dialog = await screen.findByRole("dialog", { name: "Empty trash?" });
+    expect(within(dialog).getByText(/permanently delete all 1 item in Trash/i)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Empty trash" }));
     // The dialog hands the work to the file task card, where the failure stays.
     const dock = await screen.findByRole("region", { name: "File tasks" });
+    fireEvent.click(within(dock).getByRole("button", { name: "Show details" }));
     expect(await within(dock).findByText("Request failed (500)")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("counts every item before emptying the trash", async () => {
+    stubFilesApi({
+      ".luna-trash": [
+        { name: "171-photo.jpg", kind: "file", size: 12, modified: 0, hidden: false },
+        { name: "172-tax", kind: "dir", size: 0, modified: 0, hidden: false },
+      ],
+    });
+    renderFiles("/files/d1?path=.luna-trash");
+    fireEvent.click(await screen.findByRole("button", { name: "Empty trash" }));
+    const dialog = await screen.findByRole("dialog", { name: "Empty trash?" });
+    expect(within(dialog).getByText(/permanently delete all 2 items in Trash/i)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Keep it all" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Empty trash?" })).not.toBeInTheDocument();
+    });
   });
 
   it("draws no job cards on the page; running jobs belong to the file task card", async () => {
@@ -672,6 +698,7 @@ describe("FilePage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start copying" }));
     // The picker closes and the failure stays in the file task card, with no toast.
     const dock = await screen.findByRole("region", { name: "File tasks" });
+    fireEvent.click(within(dock).getByRole("button", { name: "Show details" }));
     expect(await within(dock).findByText(/Couldn't reach Luna/i)).toBeInTheDocument();
     expect(within(dock).getByRole("button", { name: "Try again" })).toBeInTheDocument();
     // The picker plays its exit animation (300 ms) before it unmounts.
@@ -700,6 +727,7 @@ describe("FilePage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));
     fireEvent.click(await screen.findByRole("button", { name: "Start copying" }));
     const dock = await screen.findByRole("region", { name: "File tasks" });
+    fireEvent.click(within(dock).getByRole("button", { name: "Show details" }));
     fireEvent.click(await within(dock).findByRole("button", { name: "Copy anyway" }));
     await waitFor(() => expect(posts).toHaveLength(3));
     expect(posts.map((body) => body.from_path)).toEqual(["Private/Nested", "Private/file.txt", "Private/file.txt"]);
@@ -814,6 +842,27 @@ describe("FilePage", () => {
       await waitFor(() => {
         expect(JSON.parse(renameCall(fetchMock)[1].body)).toEqual({ path: "Trips.2024", new_name: "Trips" });
       });
+    });
+
+    it("describes a folder name conflict without calling it a file", async () => {
+      const fetchMock = stubFilesApi({
+        "": [
+          { name: "notes.txt", kind: "file", size: 1, modified: 0, hidden: false },
+          { name: "Taxes", kind: "dir", size: 0, modified: 0, hidden: false },
+        ],
+        __renameFail: "A file with this name is already here. Choose another name.",
+      });
+      renderFiles();
+      await startRename("notes.txt", "Taxes");
+      const warning = await screen.findByText("Remove the .txt ending?");
+      fireEvent.click(within(/** @type {HTMLElement} */ (warning.closest("[role='dialog']"))).getByRole("button", { name: "Rename" }));
+
+      const dialog = await screen.findByRole("dialog", { name: "Rename notes.txt" });
+      expect(await within(dialog).findByText("An item with this name is already here. Choose another name.")).toBeInTheDocument();
+      expect(within(dialog).queryByText("A file with this name is already here. Choose another name.")).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "notes.txt" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Taxes" })).toBeInTheDocument();
+      expect(renameCall(fetchMock)).toBeTruthy();
     });
 
     it("says where a form's answers stay when it stops being a form", async () => {

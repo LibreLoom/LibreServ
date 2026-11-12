@@ -45,4 +45,27 @@ describe("ResetLunaCard", () => {
     // A wrong password stays inside the dialog.
     expect(await within(dialog).findByText(/password is wrong/i)).toBeTruthy();
   });
+
+  it("shows a reset-specific server error and keeps the password for retry", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ error: "Injected 500" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderCard();
+
+    await user.click(screen.getByRole("button", { name: "Reset this Luna" }));
+    const dialog = await screen.findByRole("dialog", { name: "Reset this Luna?" });
+    const password = within(dialog).getByLabelText(/Type your password/i);
+    await user.type(password, "audit-only");
+    await user.click(within(dialog).getByRole("button", { name: "Reset this Luna" }));
+
+    expect(await within(dialog).findByText("Couldn't reset this Luna. Try again.")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Injected 500")).toBeNull();
+    expect(password).toHaveValue("audit-only");
+    expect(dialog).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

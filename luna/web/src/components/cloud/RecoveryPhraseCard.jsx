@@ -233,7 +233,7 @@ export default function RecoveryPhraseCard() {
 
   let body;
   if (status.isPending) {
-    body = <p className="px-4 py-3 text-primary text-sm">Checking your recovery phrase…</p>;
+    body = <p aria-busy="true" className="px-4 py-3 text-primary text-sm">Checking your recovery phrase…</p>;
   } else if (status.isError) {
     body = <p className="px-4 py-3 text-primary text-sm">Could not load your recovery phrase. Try again later.</p>;
   } else if (!isSet) {

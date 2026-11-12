@@ -18,6 +18,9 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   // True after a live session was found dead, so LoginPage can say why.
   const [sessionEnded, setSessionEnded] = useState(false);
+  // A flow that deliberately ends this session can leave a specific notice
+  // for the sign-in screen after the protected page unmounts.
+  const [sessionNotice, setSessionNotice] = useState(null);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -150,6 +153,7 @@ export function AuthProvider({ children }) {
     // Cookie session only — login JSON has no JWT. fetch uses credentials: include.
     const me = await postJson("/api/v1/auth/login", { username, password });
     setSessionEnded(false);
+    setSessionNotice(null);
     setUser(me);
     return me;
   }, []);
@@ -175,15 +179,16 @@ export function AuthProvider({ children }) {
   // the session themselves (password change, sign out everywhere, an update
   // that restarts Luna) use this instead of bouncing to /login — every open
   // tab then keeps its place and comes back to it after signing in.
-  const endSession = useCallback(() => {
+  const endSession = useCallback((notice = null) => {
     setSessionEnded(false);
+    setSessionNotice(notice);
     setUser(null);
   }, []);
 
   // Stable between renders so consumers only update when auth state changes.
   const value = useMemo(
-    () => ({ user, setup, hasAdmin, loading, sessionEnded, login, register, logout, endSession, refresh }),
-    [user, setup, hasAdmin, loading, sessionEnded, login, register, logout, endSession, refresh],
+    () => ({ user, setup, hasAdmin, loading, sessionEnded, sessionNotice, login, register, logout, endSession, refresh }),
+    [user, setup, hasAdmin, loading, sessionEnded, sessionNotice, login, register, logout, endSession, refresh],
   );
 
   return (

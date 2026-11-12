@@ -193,9 +193,11 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
       setRemovingLink(null);
       setLinkError(null);
     },
-    onError: (err) => {
+    onError: () => {
       haptic("error");
-      setLinkError(apiErrorMessage(err, "Couldn't remove that link."));
+      // The confirmation stays open and the link stays listed so the person
+      // can retry. Don't expose server response text for this action.
+      setLinkError("Couldn't remove this link. Try again.");
     },
   });
 
@@ -290,6 +292,11 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
                 </div>
               )}
             </div>
+          )}
+          {subj && !iCanShare && (
+            <PageNotice variant="info">
+              Your access lets you see who can open this, but not change sharing. Ask an Admin or someone with sharing access to make a change.
+            </PageNotice>
           )}
           {sheetError && <PageNotice variant="error">{sheetError}</PageNotice>}
           {stateQuery.isLoading && (

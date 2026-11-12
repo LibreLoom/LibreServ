@@ -18,11 +18,13 @@ import BackupStatusNotice from "../../common/BackupStatusNotice.jsx";
 import CloudRestoreCard from "../../cloud/CloudRestoreCard.jsx";
 import PrivateRestoreCard from "../../cloud/PrivateRestoreCard.jsx";
 import RecoveryPhraseCard from "../../cloud/RecoveryPhraseCard.jsx";
+import { getRestoreStatus, RESTORE_QUERY_KEY } from "../../../lib/cloudRestore";
 
-function CloudBackupRow({ backup, onRun, onRunAnyway, missingSource, onCheck, onDelete, busy }) {
+function CloudBackupRow({ backup, onRun, onRunAnyway, missingSource, onCheck, onDelete, busy, runError }) {
   const active = backup.status === "active";
+  const displayedBackup = runError ? { ...backup, state: "failing", last_error: runError } : backup;
   const item = {
-    ...backup,
+    ...displayedBackup,
     kind: "cloud",
     destination: "Cloud",
     source_name: backup.source_name || backup.source_path || "Whole drive",
@@ -38,7 +40,9 @@ function CloudBackupRow({ backup, onRun, onRunAnyway, missingSource, onCheck, on
             {backup.source_drive_name ? `On ${backup.source_drive_name}` : "Whole drive"}
             {size ? ` · ${size} in the cloud` : ""}
           </p>
-          {active ? (
+          {runError ? (
+            <PageNotice variant="error" surface="secondary">{runError}</PageNotice>
+          ) : active ? (
             <BackupStatusNotice
               state={backup.state}
               lastError={backup.last_error}
@@ -98,6 +102,7 @@ export default function CloudBackupCategory() {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const [error, setError] = useState(null);
+  const [runError, setRunError] = useState(null);
   const [deleting, setDeleting] = useState(null);
   // Set when a run stopped because the source looks missing; holds the backup id for "Back up anyway".
   const [missingSourceId, setMissingSourceId] = useState(null);
@@ -117,10 +122,16 @@ export default function CloudBackupCategory() {
     refetchInterval: 30_000,
     enabled: connected,
   });
+  const restoreStatus = useQuery({
+    queryKey: RESTORE_QUERY_KEY,
+    queryFn: getRestoreStatus,
+    enabled: connected && isAdmin,
+  });
 
   // Missing from older status replies: treat as on file, so only a clear false blocks backups.
   const cardOnFile = connect.data?.card_on_file !== false;
   const backups = cloudQuery.data || [];
+  const cloudVersionsExist = (restoreStatus.data?.cloud_snapshots || 0) > 0;
 
   const runBackup = useMutation({
     mutationFn: (/** @type {{id: string, acceptMissing?: boolean}} */ { id, acceptMissing = false }) =>
@@ -129,11 +140,13 @@ export default function CloudBackupCategory() {
       // A problem stays on this card, next to the backup, not in a success toast.
       if (res?.problem) {
         haptic("error");
-        setError(res.problem);
+        setError(null);
+        setRunError({ backupId: id, message: res.problem });
         setMissingSourceId(res.source_missing === true && !acceptMissing ? id : null);
         return;
       }
       setMissingSourceId(null);
+      setRunError(null);
       setError(null);
       addToast({
         type: "success",
@@ -142,9 +155,10 @@ export default function CloudBackupCategory() {
           : "Luna is still copying. The status updates when it finishes.",
       });
     },
-    onError: (err) => {
+    onError: (err, { id }) => {
       haptic("error");
-      setError(apiErrorMessage(err));
+      setError(null);
+      setRunError({ backupId: id, message: apiErrorMessage(err) });
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["cloud-backups"] }),
   });
@@ -213,9 +227,11 @@ export default function CloudBackupCategory() {
                   Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>. Cloud backup can start after that.
                 </p>
               )}
-              <p className="text-primary text-sm">
-                Nothing is backed up to the cloud yet. Open a drive or folder, press the shield (Back up) button, then use Back up to the cloud.
-              </p>
+              {!cloudVersionsExist && (
+                <p className="text-primary text-sm">
+                  Nothing is backed up to the cloud yet. Open a drive or folder, press the shield (Back up) button, then use Back up to the cloud.
+                </p>
+              )}
             </div>
           ) : (
             <div className="space-y-3">
@@ -231,6 +247,7 @@ export default function CloudBackupCategory() {
                 <CloudBackupRow
                   key={backup.id}
                   backup={backup}
+                  runError={runError?.backupId === backup.id ? runError.message : null}
                   busy={busy}
                   missingSource={missingSourceId === backup.id || backup.source_missing === true}
                   onRun={(b) => runBackup.mutate({ id: b.id })}

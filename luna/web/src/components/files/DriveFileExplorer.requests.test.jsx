@@ -30,10 +30,10 @@ const TRASHED = ["a", "b", "c"].map((n) => ({
 }));
 
 /**
- * @param {{ path?: string, listing: any[], failing?: string, failWith?: string }} opts
+ * @param {{ path?: string, listing: any[], failing?: string, failWith?: string, driveState?: string }} opts
  *   `failing`: a file name whose request fails with `failWith`.
  */
-function renderExplorer({ path, listing, failing = "", failWith = "Luna is busy." }) {
+function renderExplorer({ path, listing, failing = "", failWith = "Luna is busy.", driveState = "mounted" }) {
   const calls = [];
   vi.stubGlobal("fetch", vi.fn(async (url, init = {}) => {
     const u = String(url);
@@ -46,7 +46,7 @@ function renderExplorer({ path, listing, failing = "", failWith = "Luna is busy.
     if (u.endsWith("/api/v1/auth/me")) return json({ id: "u1", username: "max", role: "admin" });
     if (u.endsWith("/api/v1/auth/status")) return json({ has_admin: true });
     if (u.endsWith("/api/v1/setup")) return json({ setup_completed: true });
-    if (u.endsWith("/api/v1/drives")) return json([{ id: "d1", label: "Photos", state: "mounted" }]);
+    if (u.endsWith("/api/v1/drives")) return json([{ id: "d1", label: "Photos", state: driveState }]);
     if (u.endsWith("/api/v1/connect/status")) return json({ connect_active: true });
     if (method === "DELETE" && u.includes("/files?path=")) {
       return decodeURIComponent(u).includes(failing) && failing ? json({ error: failWith }, 500) : json({ ok: true });
@@ -81,6 +81,21 @@ function renderExplorer({ path, listing, failing = "", failWith = "Luna is busy.
 describe("DriveFileExplorer long requests", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it("explains a read-only drive and hides actions that would change it", async () => {
+    renderExplorer({ listing: FILES, driveState: "readonly" });
+
+    await screen.findByText("a.txt");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "This drive is read-only. You can open and download files, but you can't change them.",
+    );
+    expect(screen.queryByRole("button", { name: "New" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Upload" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rename a.txt" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Move to trash a.txt" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy a.txt" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Download a.txt" })).toBeInTheDocument();
+  });
+
   it("trashes a selection in the file task card and carries on past one failure", async () => {
     const { calls } = renderExplorer({ listing: FILES, failing: "b.txt" });
     // The rows must be there before selecting, or the select-all ticks an
@@ -93,6 +108,7 @@ describe("DriveFileExplorer long requests", () => {
 
     // The dialog hands the work over and closes; the failure lives in its row.
     const dock = await screen.findByRole("region", { name: "File tasks" });
+    fireEvent.click(within(dock).getByRole("button", { name: "Show details" }));
     expect(await within(dock).findByText("Luna is busy.")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     const deletes = calls.filter(([method]) => method === "DELETE");
@@ -111,6 +127,7 @@ describe("DriveFileExplorer long requests", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete permanently" }));
 
     const dock = await screen.findByRole("region", { name: "File tasks" });
+    fireEvent.click(within(dock).getByRole("button", { name: "Show details" }));
     expect(await within(dock).findByText("Luna is busy.")).toBeInTheDocument();
     expect(within(dock).getByText("Deleted 2 of 3 items permanently")).toBeInTheDocument();
     expect(calls.filter(([method, url]) => method === "POST" && url.includes("/files/purge"))).toHaveLength(3);
@@ -134,6 +151,7 @@ describe("DriveFileExplorer long requests", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Empty trash" }));
 
     const dock = await screen.findByRole("region", { name: "File tasks" });
+    fireEvent.click(within(dock).getByRole("button", { name: "Show details" }));
     expect(await within(dock).findByText("Luna couldn't reach the drive.")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     const purge = calls.find(([method, url]) => method === "POST" && url.includes("/files/purge"));

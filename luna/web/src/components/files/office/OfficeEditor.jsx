@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import PropTypes from "prop-types";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
@@ -23,6 +24,7 @@ import OfficeIssueCard from "./OfficeIssueCard.jsx";
  *   onSaveStateChange?: (hasUnsaved: boolean) => void,
  *   onRegisterSave?: (save: (() => Promise<unknown>) | null) => void,
  *   onUnavailable?: () => void,
+ *   onLoadStatus?: (status: "loading" | "error" | "ready") => void,
  *   missing?: boolean,
  * }} props
  */
@@ -36,10 +38,15 @@ export default function OfficeEditor({
   onSaveStateChange,
   onRegisterSave,
   onUnavailable,
+  onLoadStatus,
   missing = false,
 }) {
   const source = useFileSource();
   const name = pathBasename(path) || path;
+
+  useEffect(() => {
+    if (missing) onLoadStatus?.("error");
+  }, [missing, onLoadStatus]);
 
   if (missing) {
     return (
@@ -76,6 +83,7 @@ export default function OfficeEditor({
       onRegisterSave={onRegisterSave}
       onUnavailable={onUnavailable}
       onClose={onClose}
+      onLoadStatus={onLoadStatus}
     />
   );
 }
@@ -90,5 +98,6 @@ OfficeEditor.propTypes = {
   onSaveStateChange: PropTypes.func,
   onRegisterSave: PropTypes.func,
   onUnavailable: PropTypes.func,
+  onLoadStatus: PropTypes.func,
   missing: PropTypes.bool,
 };

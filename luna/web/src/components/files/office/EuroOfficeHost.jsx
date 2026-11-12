@@ -70,6 +70,7 @@ function publicAssetUrl(path) {
  *   onPresenceChange?: (label: string) => void,
  *   onSaveStateChange?: (hasUnsaved: boolean) => void,
  *   onRegisterSave?: (save: (() => Promise<unknown>) | null) => void,
+ *   onLoadStatus?: (status: "loading" | "error" | "ready") => void,
  *   onUnavailable?: () => void,
  *   onClose?: () => void,
  * }} props
@@ -82,6 +83,7 @@ export default function EuroOfficeHost({
   onPresenceChange,
   onSaveStateChange,
   onRegisterSave,
+  onLoadStatus,
   onUnavailable,
   onClose,
 }) {
@@ -150,6 +152,10 @@ export default function EuroOfficeHost({
   const [selfPeerId, setSelfPeerId] = useState(/** @type {number | null} */ (null));
   const name = pathBasename(path) || path;
   const uiTheme = resolvedTheme === "dark" ? "theme-dark" : "theme-light";
+
+  useEffect(() => {
+    onLoadStatus?.(status);
+  }, [status, onLoadStatus]);
 
   useEffect(() => {
     // No room without a real file — an empty path 404s the upgrade, which
@@ -813,6 +819,7 @@ EuroOfficeHost.propTypes = {
   onPresenceChange: PropTypes.func,
   onSaveStateChange: PropTypes.func,
   onRegisterSave: PropTypes.func,
+  onLoadStatus: PropTypes.func,
   onUnavailable: PropTypes.func,
   onClose: PropTypes.func,
 };

@@ -284,7 +284,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
         editorKind={frameView.isOffice ? "office" : frameView.isForm ? "form" : frameView.isDiagram ? "diagram" : frameView.isWhiteboard ? "whiteboard" : "text"}
         onClose={onClose}
       >
-        {({ onRegisterSave, onSaveStateChange, requestClose }) => (
+        {({ onRegisterSave, onSaveStateChange, onSaveError, onLoadStatus, requestClose }) => (
           <Suspense fallback={null}>
           <EditorMountedSignal />
           {frameView.isOffice ? (
@@ -299,6 +299,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               onRegisterSave={onRegisterSave}
               onUnavailable={handleOfficeUnavailable}
               missing={officeMissingView}
+              onLoadStatus={onLoadStatus}
             />
           ) : frameView.isDiagram ? (
             <DiagramEditor
@@ -310,6 +311,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               onPresenceChange={setEditorPresence}
               onSaveStateChange={onSaveStateChange}
               onRegisterSave={onRegisterSave}
+              onLoadStatus={onLoadStatus}
               requestClose={requestClose}
             />
           ) : frameView.isWhiteboard ? (
@@ -322,6 +324,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               onPresenceChange={setEditorPresence}
               onSaveStateChange={onSaveStateChange}
               onRegisterSave={onRegisterSave}
+              onLoadStatus={onLoadStatus}
               requestClose={requestClose}
             />
           ) : frameView.isForm ? (
@@ -333,6 +336,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               onSaved={onSaved}
               onRegisterSave={onRegisterSave}
               onSaveStateChange={onSaveStateChange}
+              onLoadStatus={onLoadStatus}
             />
           ) : (
             <TextFileEditor
@@ -344,6 +348,8 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               onSaved={onSaved}
               onRegisterSave={onRegisterSave}
               onSaveStateChange={onSaveStateChange}
+              onSaveError={onSaveError}
+              onLoadStatus={onLoadStatus}
             />
           )}
           </Suspense>

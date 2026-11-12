@@ -27,6 +27,8 @@ const STATUS_OK = { scanning: false, pending: 0, busy: false };
  *   albumsHold?: Promise<void>,
  *   galleryHold?: Promise<void>,
  *   galleryItems?: unknown[] | null,
+ *   galleryFailOnce?: boolean,
+ *   placesFailOnce?: boolean,
  *   role?: string,
  *   drives?: unknown[] | null,
  * }} [options]
@@ -37,15 +39,17 @@ function stubGalleryFetch({
   albumsHold,
   galleryHold,
   galleryItems,
+  galleryFailOnce = false,
+  placesFailOnce = false,
   role = "admin",
   drives = [
     { id: "a", label: "Family" },
     { id: "b", label: "Travel" },
   ],
 } = {}) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (url) => {
+  let galleryFailuresRemaining = galleryFailOnce ? 1 : 0;
+  let placesFailuresRemaining = placesFailOnce ? 1 : 0;
+  const fetchMock = vi.fn(async (url) => {
       const u = String(url);
       if (u.includes("/auth/me") || u.endsWith("/auth/status")) {
         return new Response(
@@ -77,6 +81,13 @@ function stubGalleryFetch({
         });
       }
       if (u.includes("/gallery/places")) {
+        if (placesFailuresRemaining > 0) {
+          placesFailuresRemaining -= 1;
+          return new Response(JSON.stringify({ error: "Injected 500" }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
         return new Response(JSON.stringify(places), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -97,6 +108,13 @@ function stubGalleryFetch({
       }
       if (u.includes("/gallery")) {
         if (galleryHold) await galleryHold;
+        if (galleryFailuresRemaining > 0) {
+          galleryFailuresRemaining -= 1;
+          return new Response(JSON.stringify({ error: "Luna couldn't read your photos." }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
         const items =
           galleryItems !== undefined
             ? galleryItems
@@ -128,8 +146,9 @@ function stubGalleryFetch({
         );
       }
       return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
-    }),
-  );
+    });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
 
 /**
@@ -200,6 +219,28 @@ describe("GalleryPage photo upload", () => {
     await waitFor(() => {
       expect(opens.some(([method, url]) => method !== "GET" && /upload/.test(String(url)))).toBe(true);
     });
+  });
+});
+
+describe("GalleryPage bulk trash confirmation", () => {
+  it("uses singular copy for one selected photo and plural copy for multiple photos", async () => {
+    stubGalleryFetch();
+    const user = userEvent.setup();
+    renderGallery();
+
+    await user.click(await screen.findByRole("button", { name: "Select" }));
+    await user.click(await screen.findByRole("button", { name: "one.jpg" }));
+    await user.click(screen.getByRole("button", { name: "Trash" }));
+    expect(
+      screen.getByText("Luna will move 1 item to Trash. You can restore them from Files later."),
+    ).toBeTruthy();
+
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "two.jpg" }));
+    await user.click(screen.getByRole("button", { name: "Trash" }));
+    expect(
+      screen.getByText("Luna will move 2 items to Trash. You can restore them from Files later."),
+    ).toBeTruthy();
   });
 });
 
@@ -378,6 +419,20 @@ describe("GalleryPage", () => {
     expect(await screen.findByLabelText("one.jpg")).toBeInTheDocument();
     expect(screen.getByLabelText("two.jpg")).toBeInTheDocument();
     expect(screen.getByRole("radiogroup")).toBeInTheDocument();
+  });
+
+  it("offers a retry after the photo library request fails", async () => {
+    const fetchMock = stubGalleryFetch({ galleryFailOnce: true });
+    const user = userEvent.setup();
+    renderGallery();
+
+    expect(await screen.findByText("Luna couldn't read your photos.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByLabelText("one.jpg")).toBeInTheDocument();
+    expect(screen.queryByText("Luna couldn't read your photos.")).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/gallery?")).length)
+      .toBeGreaterThanOrEqual(2);
   });
 
   it("points Admins to Files when there is nothing to look in", async () => {
@@ -656,6 +711,19 @@ describe("GalleryPage", () => {
     expect(empty).toBeTruthy();
     const clip = empty?.closest("[data-slot=card-clip]") || empty?.closest("[data-slot=card]");
     expect(clip?.className).toMatch(/pop-in/);
+  });
+
+  it("shows a retry after Places fails to load and keeps the true empty state distinct", async () => {
+    window.history.replaceState(null, "", "/gallery#places");
+    const fetchMock = stubGalleryFetch({ placesFailOnce: true });
+    const user = userEvent.setup();
+    renderGallery();
+
+    expect(await screen.findByText("Places couldn't load")).toBeInTheDocument();
+    expect(screen.queryByText("No places yet")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("No places yet")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/gallery/places"))).toHaveLength(2);
   });
 
   it("updates the hash when a segment is selected", async () => {
@@ -1560,6 +1628,68 @@ describe("GalleryPage", () => {
         return ((c[1]?.method) || "GET").toUpperCase() !== "DELETE";
       }),
     ).toBe(true);
+  });
+
+  it("leaves a vanished album and clears its stale actions after a 404", async () => {
+    const album = {
+      id: "alb-gone",
+      home_drive_id: "a",
+      name: "Vacation",
+      item_count: 2,
+      shared: false,
+    };
+    let albumListCalls = 0;
+    const fetchMock = vi.fn(async (url) => {
+      const u = String(url);
+      if (u.endsWith("/drives")) {
+        return new Response(JSON.stringify([{ id: "a", label: "Family" }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/status")) {
+        return new Response(JSON.stringify(STATUS_OK), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/albums") && !u.includes("/items")) {
+        albumListCalls += 1;
+        return new Response(JSON.stringify(albumListCalls === 1 ? [album] : []), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery?") && u.includes("album_id=alb-gone")) {
+        return new Response(JSON.stringify({ error: "That album no longer exists." }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery?")) {
+        return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/gallery#albums");
+    const user = userEvent.setup();
+    renderGallery();
+
+    expect(await screen.findByText("Vacation")).toBeInTheDocument();
+    await user.click(screen.getByText("Vacation"));
+
+    expect(await screen.findByText("No albums yet")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rename album Vacation" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Share album Vacation" })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(([url]) => String(url).includes("/api/v1/gallery/albums")),
+      ).toBe(true);
+    });
   });
 
   it("opens the share sheet when clicking Share on an album card", async () => {

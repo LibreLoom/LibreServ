@@ -28,6 +28,7 @@ import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import {
+  ApiError,
   apiErrorMessage,
   getDrives,
   getJson,
@@ -194,6 +195,8 @@ export default function DriveFileExplorer({
     return data.filter(isPresentDrive);
   }, [guest, propDrives, drivesQuery.data]);
   const writableDrives = useMemo(() => availableDrives.filter(isWritableDrive), [availableDrives]);
+  const currentDrive = availableDrives.find((drive) => drive.id === driveId);
+  const driveIsReadOnly = !guest && currentDrive?.state === "readonly";
 
   const access = useQuery({
     queryKey: ["my-access"],
@@ -217,8 +220,8 @@ export default function DriveFileExplorer({
       ? CAP_MANAGE
       : capsForPath(path);
   const trashVisible = !guest && (isAdmin || hasCapOnDrive(access.data, driveId, CAP.EDIT));
-  const folderCanUpload = !inTrash && (myFolderCaps & CAP.UPLOAD) !== 0;
-  const folderCanEdit = inTrash ? trashVisible : (myFolderCaps & CAP.EDIT) !== 0;
+  const folderCanUpload = !driveIsReadOnly && !inTrash && (myFolderCaps & CAP.UPLOAD) !== 0;
+  const folderCanEdit = !driveIsReadOnly && (inTrash ? trashVisible : (myFolderCaps & CAP.EDIT) !== 0);
   const folderCanShare = !inTrash && (myFolderCaps & CAP.SHARE) !== 0;
   const backupsHref = backupsAvailable && !inTrash && path === "" ? folderHref(driveId, BACKUPS_PATH) : null;
   // Upload-only links can write but never read — downloads stay hidden.
@@ -268,6 +271,7 @@ export default function DriveFileExplorer({
     queryFn: () => source.listDir(driveId, TRASH_PATH),
     enabled: inTrash && path === TRASH_PATH,
   });
+  const trashCount = trashListing.data?.length ?? 0;
 
   /** The query keys a change to `paths` (and the folder in view) makes stale. */
   function staleKeys(paths = [path]) {
@@ -417,7 +421,11 @@ export default function DriveFileExplorer({
     },
     onError: (err) => {
       haptic("error");
-      setActionError(apiErrorMessage(err, "Couldn't rename that. Try again."));
+      setActionError(
+        err instanceof ApiError && err.status === 409
+          ? "An item with this name is already here. Choose another name."
+          : apiErrorMessage(err, "Couldn't rename that. Try again."),
+      );
     },
   });
 
@@ -609,9 +617,11 @@ export default function DriveFileExplorer({
       : isAdmin
         ? CAP_MANAGE
         : capsOnPath(access.data, driveId, capPath);
-    const rowCanEdit = guest
-      ? (guestCaps & CAP.EDIT) !== 0 && !source.isFile
-      : (rowCaps & CAP.EDIT) !== 0;
+    const rowCanEdit = !driveIsReadOnly && (
+      guest
+        ? (guestCaps & CAP.EDIT) !== 0 && !source.isFile
+        : (rowCaps & CAP.EDIT) !== 0
+    );
     const rowCanShare = !guest && !trashChild && (rowCaps & CAP.SHARE) !== 0;
 
     /**
@@ -653,7 +663,7 @@ export default function DriveFileExplorer({
         run: () => window.location.assign(source.downloadHref(driveId, ctx.fullPath, ctx.entry.kind)),
       });
     }
-    if (trashChild && ctx.path === TRASH_PATH) {
+    if (!driveIsReadOnly && trashChild && ctx.path === TRASH_PATH) {
       actions.push({
         key: "restore",
         label: "Restore",
@@ -671,7 +681,7 @@ export default function DriveFileExplorer({
         },
       });
     }
-    if (!guest) {
+    if (!guest && (!driveIsReadOnly || writableDrives.length > 0)) {
       actions.push({
         key: "copy",
         label: "Copy",
@@ -715,7 +725,7 @@ export default function DriveFileExplorer({
       });
     }
     return actions;
-  }, [access.data, driveId, guest, guestCaps, source, isAdmin, showProtect, canView, inBackups]);
+  }, [access.data, driveId, guest, guestCaps, source, isAdmin, showProtect, canView, inBackups, driveIsReadOnly, writableDrives]);
 
   const renderRowActions = useCallback((ctx) => {
     if (inBackups) return <BackupRowActions driveId={driveId} ctx={ctx} onVersions={openVersions} />;
@@ -801,6 +811,12 @@ export default function DriveFileExplorer({
           error={actionError}
         />
       ) : (
+      <>
+      {driveIsReadOnly && (
+        <div role="status" className="mb-3 rounded-large-element surface-secondary px-4 py-3 text-primary text-sm">
+          This drive is read-only. You can open and download files, but you can&apos;t change them.
+        </div>
+      )}
       <FileSourceProvider source={inBackups ? bSource : source}>
       <FileBrowser
         driveId={driveId}
@@ -839,7 +855,9 @@ export default function DriveFileExplorer({
         onShare={guest || inTrash ? undefined : (ctx) => setAccessTarget({
           path: ctx.fullPath,
         })}
-        onCopy={guest ? undefined : (paths) => setTransfer({ kind: "copy", paths })}
+        onCopy={guest || (driveIsReadOnly && writableDrives.length === 0)
+          ? undefined
+          : (paths) => setTransfer({ kind: "copy", paths })}
         onMove={folderCanEdit && !source.isFile ? (paths) => setTransfer({ kind: "move", paths }) : undefined}
         onRename={folderCanEdit && !source.isFile ? (ctx) => {
           setActionError(null);
@@ -893,7 +911,7 @@ export default function DriveFileExplorer({
         })()}
         headerExtra={inTrash && path === TRASH_PATH ? (
           <>
-            <Button
+            {!driveIsReadOnly && <Button
               variant="outline"
               surface="secondary"
               size="sm"
@@ -905,14 +923,14 @@ export default function DriveFileExplorer({
             >
               <Trash2 size={14} aria-hidden="true" />
               Empty trash
-            </Button>
+            </Button>}
             {headerExtra}
           </>
         ) : headerExtra}
         renderSelectionActions={inTrash ? (paths, rows) => {
           // Restore only works on whole top-level trash entries — a mixed
           // or nested selection doesn't get the button at all.
-          if (paths.length === 0 || !paths.every((p) => parentPath(p) === TRASH_PATH)) return null;
+          if (driveIsReadOnly || paths.length === 0 || !paths.every((p) => parentPath(p) === TRASH_PATH)) return null;
           const rowsByPath = new Map(rows.map((r) => [r.fullPath, r]));
           return (
             <Button
@@ -945,6 +963,7 @@ export default function DriveFileExplorer({
         renderRowSheetActions={renderRowSheetActions}
       />
       </FileSourceProvider>
+      </>
       )}
 
       {versionsFile && (
@@ -961,7 +980,7 @@ export default function DriveFileExplorer({
         driveId={driveId}
         path={viewerPath || ""}
         name={viewerPath === "" && source.isFile ? driveLabel : undefined}
-        canWrite={!inTrash && (guest
+        canWrite={!driveIsReadOnly && !inTrash && (guest
           ? (guestCaps & CAP.EDIT) !== 0
           : isAdmin || (capsForPath(viewerPath || "") & CAP.EDIT) !== 0)}
         onClose={() => setViewerPath(null)}
@@ -985,8 +1004,8 @@ export default function DriveFileExplorer({
             : `${transfer?.paths.length || 0} items`;
           return transfer?.kind === "move" ? `Move ${one}` : `Copy ${one}`;
         })()}
-        drives={writableDrives.length > 0 ? writableDrives : [{ id: driveId, label: driveLabel }]}
-        initialDriveId={driveId}
+        drives={writableDrives.length > 0 ? writableDrives : (driveIsReadOnly ? [] : [{ id: driveId, label: driveLabel }])}
+        initialDriveId={driveIsReadOnly ? writableDrives[0]?.id : driveId}
         initialPath={inTrash ? "" : path}
         movingPaths={transfer?.kind === "move" ? transfer.paths : []}
         confirmLabel={transfer?.kind === "move" ? "Start moving" : "Start copying"}
@@ -1180,8 +1199,7 @@ export default function DriveFileExplorer({
         {({ close }) => (
           <>
             <p className="text-primary text-sm">
-              Everything in Trash will be deleted permanently. Luna cannot get
-              any of it back after this.
+              This will permanently delete all {trashCount} {trashCount === 1 ? "item" : "items"} in Trash. Luna cannot restore them.
             </p>
             <div className="mt-4 flex gap-3">
               <Button

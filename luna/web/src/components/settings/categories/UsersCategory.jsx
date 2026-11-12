@@ -36,6 +36,8 @@ export default function UsersCategory() {
     queryKey: ["users"],
     queryFn: () => getJson("/api/v1/users"),
     enabled: user?.role === "admin",
+    // Keep the failure visible so the person can choose when to retry.
+    retry: false,
   });
 
   const createMutation = useMutation({
@@ -157,6 +159,7 @@ export default function UsersCategory() {
   useStrandedErrorToast(error, actionModalOpen, () => setError(null));
 
   const list = users.data || [];
+  const adminCount = list.filter((person) => person.role === "admin").length;
   const loading = users.isLoading;
   const showList = !loading && !users.isError && list.length > 0;
   const showEmpty = !loading && !users.isError && list.length === 0;
@@ -166,7 +169,18 @@ export default function UsersCategory() {
       <div data-slot="users-category" className={userToDelete ? "pop-out" : "pop-in"}>
         {users.isError && (
           <PageNotice variant="error" className="mb-4">
-            {String(users.error?.message || "Couldn't load users. Try again.")}
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-sm">Couldn't load people. Try again.</p>
+              <Button
+                size="sm"
+                variant="outline"
+                surface="primary"
+                disabled={users.isFetching}
+                onClick={() => users.refetch()}
+              >
+                Try again
+              </Button>
+            </div>
           </PageNotice>
         )}
 
@@ -360,6 +374,7 @@ export default function UsersCategory() {
                       noRowClick: true,
                       render: (row) => {
                         const isSelf = row.id === user?.id;
+                        const isSoleAdmin = isSelf && row.role === "admin" && adminCount === 1;
                         return (
                           <span className="flex items-center justify-center gap-1">
                             <Button
@@ -388,6 +403,12 @@ export default function UsersCategory() {
                             >
                               <Trash2 size={16} aria-hidden="true" />
                             </Button>
+                            {isSoleAdmin && (
+                              <InfoHint
+                                label="Why can't I remove the only Admin?"
+                                content="You can't remove the only Admin. Add another person, make them an Admin, then sign in as them to remove this account."
+                              />
+                            )}
                           </span>
                         );
                       },

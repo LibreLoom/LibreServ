@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import CloudBackupCategory from "./CloudBackupCategory.jsx";
@@ -17,7 +17,13 @@ function stubApi({
   connected = true,
   cardOnFile = true,
   backups = [],
+  restoreStatus = /** @type {{needed: boolean, cloud_snapshots: number, indexed_snapshots: number, signing_public?: string}} */ ({
+    needed: false,
+    cloud_snapshots: 0,
+    indexed_snapshots: 0,
+  }),
   runResponse = /** @type {any} */ ({ done: true }),
+  runError = null,
   phrase = /** @type {any} */ ({ set: false }),
 } = {}) {
   const fetchMock = vi.fn(async (url, options = {}) => {
@@ -25,8 +31,17 @@ function stubApi({
     if (url === "/api/v1/auth/status") return json({ has_admin: true, connect_active: connected });
     if (url === "/api/v1/connect/status") return json({ connect_active: connected, card_on_file: cardOnFile });
     if (url === "/api/v1/cloud/phrase" && method === "GET") return json(phrase);
+    if (url === "/api/v1/cloud/restore" && method === "GET") return json(restoreStatus);
     if (url === "/api/v1/cloud/backups" && method === "GET") return json(backups);
-    if (/\/run(\?|$)/.test(url) && method === "POST") return json(runResponse);
+    if (/\/run(\?|$)/.test(url) && method === "POST") {
+      if (runError) {
+        return new Response(JSON.stringify({ error: runError }), {
+          status: 502,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return json(runResponse);
+    }
     if (url.endsWith("/check") && method === "POST") return json({ done: true });
     if (url.startsWith("/api/v1/cloud/backups/") && method === "DELETE") return json({});
     return json({});
@@ -223,6 +238,20 @@ describe("CloudBackupCategory", () => {
     expect(screen.getByRole("heading", { name: "Cloud backup" })).toBeInTheDocument();
   });
 
+  it("does not call cloud backup empty when restore status has unindexed cloud versions", async () => {
+    stubApi({
+      connected: true,
+      backups: [],
+      restoreStatus: { needed: true, cloud_snapshots: 14, indexed_snapshots: 0, signing_public: "test-public-key" },
+    });
+    renderCard();
+
+    expect(await screen.findByText((_, element) =>
+      element?.tagName === "P" && element.textContent.includes("14 versions are in the cloud"),
+    )).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing is backed up to the cloud yet/)).toBeNull();
+  });
+
   it("lists each cloud backup with its size and actions", async () => {
     stubApi({ connected: true, backups: [sampleBackup] });
     renderCard();
@@ -255,6 +284,25 @@ describe("CloudBackupCategory", () => {
         "/api/v1/cloud/backups/b1/run",
         expect.objectContaining({ method: "POST" }),
       ),
+    );
+  });
+
+  it("shows a failed run on its backup card and replaces the stale success status", async () => {
+    const message = "Luna Connect couldn't be reached. Check your internet connection and try again.";
+    const fetchMock = stubApi({ connected: true, backups: [sampleBackup], runError: message });
+    renderCard();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Back up now" }));
+
+    const card = (await screen.findByText("Pictures")).closest('[data-slot="backup-item"]');
+    if (!(card instanceof HTMLElement)) throw new Error("Expected Pictures backup card");
+    const notice = await within(card).findByText(message);
+    expect(notice.closest('[data-slot="backup-item"]')).toBe(card);
+    expect(within(card).getByText("Last copy failed")).toBeInTheDocument();
+    expect(within(card).queryByText("Backup successful")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/cloud/backups/b1/run",
+      expect.objectContaining({ method: "POST" }),
     );
   });
 

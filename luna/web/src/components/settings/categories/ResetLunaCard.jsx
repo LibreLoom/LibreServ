@@ -25,7 +25,11 @@ export default function ResetLunaCard({ index = 0 }) {
     mutationFn: () => postJson("/api/v1/system/factory-reset", { confirm: true, password }),
     onSuccess: () => { window.location.href = "/setup"; },
     // The dialog is open and owns this error.
-    onError: (err) => setError(apiErrorMessage(err)),
+    onError: (err) => setError(
+      /** @type {Error & { status?: number }} */ (err)?.status >= 500
+        ? "Couldn't reset this Luna. Try again."
+        : apiErrorMessage(err, "Couldn't reset this Luna. Try again."),
+    ),
   });
 
   function close() {

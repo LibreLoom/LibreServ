@@ -175,14 +175,18 @@ function CreateTokenModal({ open, busy, error, onClose, onSubmit }) {
           </label>
           <input
             id="token-name"
+            aria-describedby="token-name-guidance"
             className="mt-2 w-full rounded-pill surface-primary border-2 border-secondary/30 px-4 py-2 text-sm outline-none focus:border-accent"
             placeholder="Kitchen Mac, photo backup, script"
             value={name}
-            maxLength={100}
+            maxLength={80}
             ref={nameRef}
             onChange={(e) => setName(e.target.value)}
           />
         </ShakeTarget>
+        <p id="token-name-guidance" className="text-primary text-xs">
+          Give this device a name between 1 and 80 characters.
+        </p>
         <Dropdown
           options={TOKEN_EXPIRY_OPTIONS}
           value={days}
@@ -252,14 +256,15 @@ function ProfileCard() {
     onSuccess: (data) => {
       // When the breach service could not answer, Luna allowed the password
       // unchecked and says so — the person should hear it, not guess it.
-      addToast({
+      const notice = {
         type: data?.warning ? "info" : "success",
         message: "Password changed. Sign in again with your new password.",
         description: data?.warning || undefined,
         duration: data?.warning ? 10000 : undefined,
-      });
-      // Sign-in replaces this page in place, so the URL stays on Settings.
-      endSession?.();
+      };
+      // The Settings page unmounts as sign-in replaces it, so deliver this
+      // notice from the sign-in screen after the session ends.
+      endSession?.(notice);
     },
     onError: (err) => setPasswordError(apiErrorMessage(err, "Couldn't change your password. Try again.")),
   });
@@ -405,10 +410,12 @@ export default function AccessCategory() {
   const [showQr, setShowQr] = useState(false);
   const [usageFor, setUsageFor] = useState(null);
   const [nowUnix] = useState(() => Math.floor(Date.now() / 1000));
+  const [confirmingSignOutApps, setConfirmingSignOutApps] = useState(false);
 
   const tokens = useQuery({
     queryKey: ["device-tokens"],
     queryFn: () => getJson("/api/v1/device-tokens"),
+    retry: false,
   });
   const usage = useQuery({
     queryKey: ["device-token-usage", usageFor],
@@ -500,12 +507,29 @@ export default function AccessCategory() {
           <Button
             variant="accent"
             loading={signOutApps.isPending}
-            onClick={() => signOutApps.mutate()}
+            onClick={() => setConfirmingSignOutApps(true)}
           >
             Sign out all apps
           </Button>
         </SettingsRow>
       </SettingsCard>
+
+      <ConfirmModal
+        open={confirmingSignOutApps}
+        variant="danger"
+        title="Sign out all apps?"
+        confirmLabel="Sign out all apps"
+        loading={signOutApps.isPending}
+        onClose={() => setConfirmingSignOutApps(false)}
+        onConfirm={() => {
+          signOutApps.mutate();
+          setConfirmingSignOutApps(false);
+        }}
+      >
+        <p className="text-primary text-sm">
+          All app and access tokens will stop working right away. Each app on a phone or computer will need a new access token.
+        </p>
+      </ConfirmModal>
 
       <SettingsCard icon={Smartphone} title="Apps and access tokens" index={1}>
         <p className="text-primary text-sm">
@@ -570,7 +594,24 @@ export default function AccessCategory() {
               New access token
             </Button>
           </div>
-          {tokenList.length === 0 ? (
+          {tokens.isError ? (
+            <div className="px-4 pb-4">
+              <PageNotice variant="error">
+                <div className="flex flex-wrap items-center gap-3">
+                  <p className="text-sm">Couldn't load access tokens. Try again.</p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    surface="primary"
+                    disabled={tokens.isFetching}
+                    onClick={() => tokens.refetch()}
+                  >
+                    Try again
+                  </Button>
+                </div>
+              </PageNotice>
+            </div>
+          ) : tokenList.length === 0 ? (
             <div className="px-4 pb-4">
               <Pill>No apps or access tokens are set up yet.</Pill>
             </div>

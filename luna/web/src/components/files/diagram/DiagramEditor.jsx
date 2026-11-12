@@ -59,6 +59,7 @@ const PATCH_ATTEMPTS = 3;
  *   onPresenceChange?: (label: string) => void,
  *   onRegisterSave?: (save: (() => Promise<unknown>) | null) => void,
  *   onSaveStateChange?: (hasUnsaved: boolean) => void,
+ *   onLoadStatus?: (status: "loading" | "error" | "ready") => void,
  *   requestClose?: () => void,
  * }} props
  */
@@ -75,6 +76,7 @@ DiagramEditor.propTypes = {
   onPresenceChange: PropTypes.func,
   onRegisterSave: PropTypes.func,
   onSaveStateChange: PropTypes.func,
+  onLoadStatus: PropTypes.func,
   requestClose: PropTypes.func,
 };
 
@@ -90,6 +92,7 @@ function EditorSession({
   onPresenceChange,
   onRegisterSave,
   onSaveStateChange,
+  onLoadStatus,
   requestClose,
 }) {
   const name = pathBasename(path) || path;
@@ -168,6 +171,10 @@ function EditorSession({
 
   const presenceStatus =
     phase === "ready" ? "ready" : phase === "error" || phase === "missing" ? "error" : "loading";
+
+  useEffect(() => {
+    onLoadStatus?.(presenceStatus);
+  }, [presenceStatus, onLoadStatus]);
 
   useEffect(() => {
     onPresenceChangeRef.current?.(

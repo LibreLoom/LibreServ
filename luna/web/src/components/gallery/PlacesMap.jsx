@@ -355,6 +355,8 @@ ClusterMarkers.propTypes = {
  * @param {{
  *   places?: Array<any>,
  *   loading?: boolean,
+ *   error?: boolean,
+ *   onRetry?: () => void,
  *   filtered?: boolean,
  *   onSelect?: (place: any) => void,
  *   onDrawArea?: () => void,
@@ -365,6 +367,8 @@ ClusterMarkers.propTypes = {
 export default function PlacesMap({
   places,
   loading = false,
+  error = false,
+  onRetry,
   filtered = false,
   onSelect,
   onDrawArea = undefined,
@@ -430,6 +434,21 @@ export default function PlacesMap({
         <p className="text-sm font-mono">Loading places…</p>
         <Spinner size="lg" decorative className="text-secondary" />
       </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <EmptyState
+        icon={MapPin}
+        title="Places couldn't load"
+        description="Check Luna's connection and try again."
+        action={
+          <Button variant="outline" surface="secondary" onClick={onRetry}>
+            Try again
+          </Button>
+        }
+      />
     );
   }
 
@@ -586,6 +605,8 @@ export default function PlacesMap({
 PlacesMap.propTypes = {
   places: PropTypes.arrayOf(PropTypes.object),
   loading: PropTypes.bool,
+  error: PropTypes.bool,
+  onRetry: PropTypes.func,
   filtered: PropTypes.bool,
   onSelect: PropTypes.func,
   onDrawArea: PropTypes.func,

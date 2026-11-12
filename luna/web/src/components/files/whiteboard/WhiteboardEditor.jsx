@@ -221,6 +221,7 @@ WhiteboardErrorBoundary.propTypes = {
  *   onPresenceChange?: (label: string) => void,
  *   onRegisterSave?: (save: (() => Promise<unknown>) | null) => void,
  *   onSaveStateChange?: (hasUnsaved: boolean) => void,
+ *   onLoadStatus?: (status: "loading" | "error" | "ready") => void,
  *   requestClose?: () => void,
  *   onRetry?: () => void,
  * }} props
@@ -255,6 +256,7 @@ WhiteboardEditor.propTypes = {
   onPresenceChange: PropTypes.func,
   onRegisterSave: PropTypes.func,
   onSaveStateChange: PropTypes.func,
+  onLoadStatus: PropTypes.func,
   requestClose: PropTypes.func,
   onRetry: PropTypes.func,
 };
@@ -269,6 +271,7 @@ function EditorSession({
   onPresenceChange,
   onRegisterSave,
   onSaveStateChange,
+  onLoadStatus,
   onRetry,
 }) {
   const name = pathBasename(path) || path;
@@ -344,6 +347,15 @@ function EditorSession({
       : phase === "error"
         ? "error"
         : "loading";
+
+  useEffect(() => {
+    const loadStatus = phase === "error"
+      ? "error"
+      : phase === "ready" && initialData && editorReady
+        ? "ready"
+        : "loading";
+    onLoadStatus?.(loadStatus);
+  }, [phase, initialData, editorReady, onLoadStatus]);
 
   useEffect(() => {
     onPresenceChangeRef.current?.(
@@ -797,5 +809,6 @@ EditorSession.propTypes = {
   onPresenceChange: PropTypes.func,
   onRegisterSave: PropTypes.func,
   onSaveStateChange: PropTypes.func,
+  onLoadStatus: PropTypes.func,
   onRetry: PropTypes.func,
 };

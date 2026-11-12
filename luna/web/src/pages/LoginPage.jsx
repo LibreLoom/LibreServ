@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { login as loginQuips } from "../lib/greetings.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import StepTransition from "@libreloom/ui/components/common/StepTransition.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { shakeElement } from "@libreloom/ui/utils/shake.js";
@@ -32,7 +33,7 @@ export default function LoginPage() {
   const [errorStatus, setErrorStatus] = useState(null);
   const [fieldErrors, setFieldErrors] = useState(/** @type {{ username?: string, password?: string }} */ ({}));
 
-  const { login, hasAdmin, loading: authLoading, sessionEnded } = useAuth();
+  const { login, hasAdmin, loading: authLoading, sessionEnded, sessionNotice } = useAuth();
   const loginQuip = useMemo(() => getLoginQuip(), []);
 
   useEffect(() => {
@@ -41,17 +42,19 @@ export default function LoginPage() {
     }
   }, [authLoading, hasAdmin, navigate]);
 
-  // Landed here because the session ended mid-use (password changed,
-  // signed out elsewhere) — say so instead of a silent bounce.
+  // Generic session expiry gets a toast. Intentional actions such as password
+  // changes use the persistent notice below so the result stays visible while
+  // the person signs in again.
   useEffect(() => {
-    if (!sessionEnded) {
+    if (!sessionEnded && !sessionNotice) {
       sessionToastShown = false;
       return;
     }
     if (sessionToastShown) return;
     sessionToastShown = true;
+    if (sessionNotice) return;
     addToast({ type: "info", message: "You were signed out. Sign in again to keep going." });
-  }, [sessionEnded, addToast]);
+  }, [sessionEnded, sessionNotice, addToast]);
 
   // Where to send the user after a successful login — the page they were
   // trying to reach, or home.
@@ -123,6 +126,10 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(username.trim(), password);
+      // A successful sign-in replaces this in-place page, so the effect below
+      // cannot reset its module-level dedupe flag before the component unmounts.
+      // Clear it here so the next session-ending action can announce itself.
+      sessionToastShown = false;
       addToast({ type: "success", message: "Signed in." });
       if (!inPlace) navigate(returnTo, { replace: true });
     } catch (err) {
@@ -146,6 +153,12 @@ export default function LoginPage() {
             <span className="text-primary font-mono text-2xl block text-center">
               Luna
             </span>
+            {sessionNotice && (
+              <PageNotice className="mt-6" surface="secondary">
+                <p>{sessionNotice.message}</p>
+                {sessionNotice.description && <p className="mt-1">{sessionNotice.description}</p>}
+              </PageNotice>
+            )}
             <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
             <StepTransition step="form" order={LOGIN_STEPS}>
               <span className="text-primary font-mono text-xl font-normal block text-center">

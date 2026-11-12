@@ -33,6 +33,20 @@ function Devices() {
   );
 }
 
+function PendingSettings() {
+  return (
+    <SettingsCard title="Cloud backup">
+      <SettingsRow label="Recovery phrase" description="">
+        <span />
+      </SettingsRow>
+      <p aria-busy="true">Checking your recovery phrase…</p>
+      <SettingsRow label="Cloud backup" description="Your files are copied every 6 hours">
+        <span />
+      </SettingsRow>
+    </SettingsCard>
+  );
+}
+
 /** @returns {never} */
 function Broken() {
   throw new Error("needs live data");
@@ -73,6 +87,17 @@ describe("settings search", () => {
     expect(searchSettings(index, "dark theme").map((h) => h.title)).toEqual(["Color Scheme"]);
     expect(searchSettings(index, "nope")).toEqual([]);
     expect(searchSettings(index, "   ")).toEqual([]);
+  });
+
+  it("does not expose transient checking text as a search preview", async () => {
+    const index = await buildSettingsIndex([
+      { id: "cloud", label: "Cloud backup", Component: PendingSettings },
+    ], (node) => node);
+    expect(searchSettings(index, "recovery")[0]).toMatchObject({
+      title: "Recovery phrase",
+      text: "",
+    });
+    expect(searchSettings(index, "checking")).toEqual([]);
   });
 
   it("ignores case and accents", () => {

@@ -102,6 +102,17 @@ describe("PlacesMap", () => {
     expect(document.querySelector("[data-slot=spinner]")).toBeTruthy();
   });
 
+  it("shows a retry action instead of the empty state when places fail to load", async () => {
+    const onRetry = vi.fn();
+    const user = userEvent.setup();
+    render(<PlacesMap places={[]} error onRetry={onRetry} onSelect={vi.fn()} />);
+
+    expect(screen.getByText("Places couldn't load")).toBeInTheDocument();
+    expect(screen.queryByText("No places yet")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
+
   it("shows a bare map, not an empty state, when filters match nothing", () => {
     render(<PlacesMap places={[]} filtered onSelect={vi.fn()} />);
     expect(screen.queryByText(/No places yet/i)).toBeNull();

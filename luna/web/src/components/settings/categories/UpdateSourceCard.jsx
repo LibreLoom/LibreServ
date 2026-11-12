@@ -219,7 +219,16 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
       onSaved(data);
       onClose();
     },
-    onError: (err) => setSaveError(apiErrorMessage(err)),
+    onError: (err) => {
+      // Server failures often include internal details such as a proxy's raw
+      // response. Keep the form-specific recovery guidance in the open modal.
+      const fallback = "Couldn't save the update source. Try again.";
+      setSaveError(
+        /** @type {Error & { status?: number }} */ (err)?.status >= 500
+          ? fallback
+          : apiErrorMessage(err, fallback),
+      );
+    },
   });
 
   const handleSave = () => {

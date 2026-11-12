@@ -48,6 +48,7 @@ function renderFrame({ canWrite = true, onClose = vi.fn() } = {}) {
       </FullscreenEditorFrame>
     </ToastProvider>,
   );
+  act(() => api.onLoadStatus("ready"));
   return { ...view, api, onClose };
 }
 

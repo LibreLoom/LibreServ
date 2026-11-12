@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, fireEvent, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import FileViewer from "./FileViewer.jsx";
 import { FileSourceProvider } from "../../lib/fileSource.jsx";
 
@@ -23,8 +25,10 @@ const officeMocks = vi.hoisted(() => ({
   editorProps: /** @type {Record<string, any>} */ ({}),
 }));
 vi.mock("./office/EuroOfficeHost.jsx", () => ({
-  default: (props) => {
+  default: function MockEuroOfficeHost(props) {
+    const { onLoadStatus } = props;
     officeMocks.editorProps = props;
+    useEffect(() => onLoadStatus?.("ready"), [onLoadStatus]);
     return <div data-testid="office-editor" />;
   },
 }));
@@ -35,8 +39,10 @@ const formMocks = vi.hoisted(() => ({
   editorProps: /** @type {Record<string, any>} */ ({}),
 }));
 vi.mock("./forms/FormBuilder.jsx", () => ({
-  default: (props) => {
+  default: function MockFormBuilder(props) {
+    const { onLoadStatus } = props;
     formMocks.editorProps = props;
+    useEffect(() => onLoadStatus?.("ready"), [onLoadStatus]);
     return <div data-testid="form-builder" />;
   },
 }));
@@ -48,8 +54,10 @@ const diagramMocks = vi.hoisted(() => ({
   editorProps: /** @type {Record<string, any>} */ ({}),
 }));
 vi.mock("./diagram/DiagramEditor.jsx", () => ({
-  default: (props) => {
+  default: function MockDiagramEditor(props) {
+    const { onLoadStatus } = props;
     diagramMocks.editorProps = props;
+    useEffect(() => onLoadStatus?.("ready"), [onLoadStatus]);
     return <div data-testid="diagram-editor" />;
   },
 }));
@@ -326,6 +334,37 @@ describe("FileViewer text editor (fullscreen)", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows a load error instead of a blank editor and retries the file request", async () => {
+    let failRead = true;
+    const fetchMock = vi.fn(async (url, init = {}) => {
+      const u = String(url);
+      const method = (init.method || "GET").toUpperCase();
+      if (u.includes("/files/content") && method === "GET") {
+        return failRead
+          ? new Response(JSON.stringify({ error: "The drive could not be reached." }), {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            })
+          : new Response("recovered text", { status: 200, headers: { "Content-Type": "text/plain" } });
+      }
+      return new Response("{}", { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<FileViewer open driveId="d1" path="notes/note.txt" onClose={() => {}} />);
+
+    expect(await screen.findByText("The drive could not be reached.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Contents of note.txt")).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/files/content"))).toHaveLength(1);
+
+    failRead = false;
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByLabelText("Contents of note.txt")).toBeInTheDocument();
+    await waitFor(() => expect(cmText()).toBe("recovered text"));
+    expect(screen.queryByText("The drive could not be reached.")).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/files/content"))).toHaveLength(2);
+  });
+
   it("saves an existing text file with overwrite=1", async () => {
     const fetchMock = mockTextFetch();
 
@@ -430,6 +469,62 @@ describe("FileViewer text editor (fullscreen)", () => {
     );
     expect(upload).toBeTruthy();
     await waitFor(() => expect(saveBtn).toBeDisabled());
+  }, 10_000);
+
+  it("shows an autosave failure and retries without losing the edited text", async () => {
+    let failUpload = true;
+    const message = "Luna couldn't save this file. Check that the drive is connected and try again.";
+    const fetchMock = vi.fn(async (url, init = {}) => {
+      const u = String(url);
+      const method = (init.method || "GET").toUpperCase();
+      if (u.includes("/files/content") && method === "GET") {
+        return new Response("hello", { status: 200, headers: { "Content-Type": "text/plain" } });
+      }
+      if (u.includes("/files/upload") && method === "POST") {
+        return failUpload
+          ? new Response(JSON.stringify({ error: message }), {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            })
+          : new Response(JSON.stringify({ name: "note.txt" }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            });
+      }
+      return new Response("{}", { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <FileViewer
+        open
+        driveId="d1"
+        path="notes/note.txt"
+        onClose={() => {}}
+      />,
+    );
+
+    await screen.findByLabelText("Contents of note.txt");
+    await waitFor(() => expect(cmText()).toBe("hello"));
+    await cmReplace("draft that must stay");
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.now() + 3_000);
+      await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/files/upload"))).toBe(true));
+      expect(await screen.findByText(message)).toBeInTheDocument();
+      expect(cmText()).toBe("draft that must stay");
+      expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+
+      failUpload = false;
+      await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+      await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
+      expect(cmText()).toBe("draft that must stay");
+      expect(screen.queryByText(message)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   }, 10_000);
 
   it("guards a dirty close and saves before closing", async () => {
@@ -846,6 +941,7 @@ describe("FileViewer fullscreen office overlay", () => {
     act(() => officeMocks.editorProps.onSaveStateChange(true));
     expect(saveBtn).toBeEnabled();
     expect(saveBtn.className).toContain("surface-primary");
+    fireEvent.keyDown(document, { key: "Tab" });
     saveBtn.focus();
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Unsaved");
 

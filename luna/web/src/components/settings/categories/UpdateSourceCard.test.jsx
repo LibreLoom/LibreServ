@@ -169,6 +169,34 @@ describe("UpdateSourceCard", () => {
     });
   });
 
+  it("keeps the edited address and gives a retry message after a server save failure", async () => {
+    let attempts = 0;
+    const fetchMock = stub({
+      onPut: (body) => {
+        attempts += 1;
+        return attempts === 1
+          ? json({ error: "Injected 500" }, 500)
+          : json({ ...SOURCE, ...body });
+      },
+    });
+    const user = userEvent.setup();
+    renderCard();
+    const dialog = await openEditor(user);
+    const feed = dialog.querySelector("#us-feed-url");
+    await user.clear(feed);
+    await user.type(feed, "https://friends.example.net/feeds");
+    await user.click(within(dialog).getByRole("button", { name: "Save changes" }));
+
+    expect(await within(dialog).findByText("Couldn't save the update source. Try again.")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Injected 500")).toBeNull();
+    expect(feed).toHaveValue("https://friends.example.net/feeds");
+    expect(dialog).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(puts(fetchMock)).toHaveLength(2));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Update source" })).toBeNull());
+  });
+
   it("sends a different signer's key when one is entered", async () => {
     const fetchMock = stub();
     const user = userEvent.setup();

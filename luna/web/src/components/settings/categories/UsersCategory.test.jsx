@@ -160,6 +160,41 @@ describe("UsersCategory", () => {
     expect(await screen.findByLabelText(/What Admin means/i)).toBeTruthy();
   });
 
+  it("explains why the only Admin cannot be removed", async () => {
+    stubFetch({
+      users: [{ id: "1", username: "max", display_name: "Max", role: "admin" }],
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    const remove = await screen.findByRole("button", { name: "Remove Max" });
+    expect(remove).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Why can't I remove the only Admin?" }));
+    expect(await screen.findByText(/Add another person, make them an Admin, then sign in as them/)).toBeTruthy();
+  });
+
+  it("shows a retry after the people list fails to load", async () => {
+    stubFetch();
+    const baseFetch = globalThis.fetch;
+    let fail = true;
+    vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+      if (String(url).endsWith("/api/v1/users") && (!init || !init.method || init.method === "GET") && fail) {
+        return jsonResponse({ error: "Injected 500" }, 500);
+      }
+      return baseFetch(url, init);
+    }));
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText("Couldn't load people. Try again.")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).toBeNull();
+    fail = false;
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+    expect(screen.getByText("Alex")).toBeInTheDocument();
+  });
+
   it("asks before removing a user", async () => {
     stubFetch();
     const user = userEvent.setup();

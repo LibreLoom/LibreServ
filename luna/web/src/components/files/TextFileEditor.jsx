@@ -51,6 +51,8 @@ const HYDRATE_POLL_MS = 50;
  *   onSaved?: () => void,
  *   onRegisterSave: (save: (() => Promise<unknown>) | null) => void,
  *   onSaveStateChange: (hasUnsaved: boolean) => void,
+ *   onSaveError?: (message: string) => void,
+ *   onLoadStatus?: (status: "loading"|"error"|"ready") => void,
  * }} props
  */
 export default function TextFileEditor(props) {
@@ -66,6 +68,8 @@ TextFileEditor.propTypes = {
   onSaved: PropTypes.func,
   onRegisterSave: PropTypes.func.isRequired,
   onSaveStateChange: PropTypes.func.isRequired,
+  onSaveError: PropTypes.func,
+  onLoadStatus: PropTypes.func,
 };
 
 /**
@@ -80,6 +84,8 @@ function EditorSession({
   onSaved,
   onRegisterSave,
   onSaveStateChange,
+  onSaveError,
+  onLoadStatus,
 }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(/** @type {string|null} */ (null));
@@ -89,6 +95,7 @@ function EditorSession({
   const [connStatus, setConnStatus] = useState("connecting");
   const [mdMode, setMdMode] = useState(/** @type {"write"|"source"|"read"} */ (canWrite ? "write" : "read"));
   const [stats, setStats] = useState({ line: 1, col: 1, words: 0 });
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const source = useFileSource();
   // Guests have no session for the collab hub — solo mode seeds the doc
   // straight from the file and saves through the link instead.
@@ -127,6 +134,10 @@ function EditorSession({
 
   useEffect(() => {
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset the editor's request state when its source changes
+    setLoading(true);
+    setError(null);
+    onLoadStatus?.("loading");
     const onDocUpdate = () => {
       setDocVersion((v) => v + 1);
       // Remote ops count too — a peer's edit also leaves the doc ahead of
@@ -147,6 +158,7 @@ function EditorSession({
             })();
         if (cancelled) return;
         setBaseline(body);
+        onLoadStatus?.("ready");
         sync.adoptContent(body);
         // With the hub, the file seeds the doc only after its welcome. Until
         // then the doc is empty by timing, and typing into it would block the
@@ -157,7 +169,9 @@ function EditorSession({
         }
       } catch (err) {
         if (!cancelled) {
-          setError(apiErrorMessage(err, "Luna couldn't open this file. Try downloading it."));
+          const message = apiErrorMessage(err, "Luna couldn't open this file. Try again.");
+          setError(message);
+          onLoadStatus?.("error");
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -171,7 +185,7 @@ function EditorSession({
       // the same document must survive into the second mount.
       sync.disconnect();
     };
-  }, [sync, driveId, path, source]);
+  }, [sync, driveId, path, source, loadAttempt, onLoadStatus]);
 
   // Dirty only counts once the shared doc is hydrated — between the fetch
   // resolving (baseline set) and the seed/sync landing, the doc is empty by
@@ -200,10 +214,13 @@ function EditorSession({
       onSaved?.();
       onSaveStateChange(false);
       return true;
+    } catch (err) {
+      onSaveError?.(apiErrorMessage(err, "Couldn't save. Try again."));
+      throw err;
     } finally {
       savingRef.current = false;
     }
-  }, [source, driveId, path, name, onSaved, onSaveStateChange]);
+  }, [source, driveId, path, name, onSaved, onSaveStateChange, onSaveError]);
   const saveRef = useRef(save);
   saveRef.current = save;
 
@@ -249,7 +266,9 @@ function EditorSession({
 
   const peerNames = peers.map((p) => p.username).join(", ");
   const connNote =
-    connStatus === "open"
+    error
+      ? ""
+      : connStatus === "open"
       ? peers.length > 0
         ? `Editing together: ${peerNames}`
         : ""
@@ -327,7 +346,12 @@ function EditorSession({
         {loading ? (
           <EditorLoadingScreen label={`Opening ${name}`} />
         ) : error ? (
-          <PageNotice variant="error">{error}</PageNotice>
+          <div className="space-y-3">
+            <PageNotice variant="error">{error}</PageNotice>
+            <Button variant="outline" surface="primary" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>
+              Try again
+            </Button>
+          </div>
         ) : isMarkdown ? (
           <MarkdownEditor
             sync={sync}
@@ -385,4 +409,5 @@ EditorSession.propTypes = {
   onSaved: PropTypes.func,
   onRegisterSave: PropTypes.func.isRequired,
   onSaveStateChange: PropTypes.func.isRequired,
+  onSaveError: PropTypes.func,
 };

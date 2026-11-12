@@ -327,19 +327,12 @@ FormField.propTypes = {
 // Focus is sent immediately to the visible text entry box on mount and
 // on every substep transition.
 
-function AccountStep({ hasAdmin, onContinue, connectActive }) {
+function AccountStep({ hasAdmin, onContinue, onBack, connectActive, form, setForm }) {
   const { user, register, login } = useAuth();
   const { addToast } = useToast();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const needsDeviceToken = isPublicLunaHost() && connectActive;
-  const [form, setForm] = useState({
-    display_name:     "",
-    username:         "",
-    password:         "",
-    confirm_password: "",
-    setup_secret:     "",
-  });
   const [showPw, setShowPw]         = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [fieldError, setFieldError] = useState(null);
@@ -372,11 +365,11 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
     const fromQuery = readDeviceCodeFromSearch(searchParams);
     if (!fromQuery) return;
     consumedQueryTokenRef.current = true;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot ?token= seed from URL
     setForm((f) => ({ ...f, setup_secret: fromQuery }));
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot ?token= seed from URL
     setHideSetupSecretStep(true);
     setSearchParams(stripDeviceCodeFromSearch(searchParams), { replace: true });
-  }, [searchParams, setSearchParams]);
+  }, [searchParams, setForm, setSearchParams]);
 
   const setField = (name, value) => {
     setForm((f) => ({ ...f, [name]: value }));
@@ -503,7 +496,10 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
       await login(form.username.trim(), pw);
       onContinue();
     } catch (err) {
-      const message = err?.message || "Couldn't create your account. Try again.";
+      const responseMessage = err?.message || "";
+      const message = !responseMessage || /^(?:Luna )?couldn't do that\. Try again\.?$/i.test(responseMessage)
+        ? "Your account wasn't created. Check that Luna is connected to your network, then try again."
+        : responseMessage;
       setFieldError(message);
       // Silent token failed — reveal the device-token field so the user can paste a new one.
       if (hideSetupSecretStep && needsDeviceToken) {
@@ -592,7 +588,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
           <TextLink
             to="/login"
             surface="secondary"
-            state={{ from: "/setup" }}
+            state={{ from: { pathname: "/setup" } }}
             className="font-mono text-sm underline underline-offset-4"
           >
             Sign in
@@ -738,11 +734,11 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
         )}
 
         <div className="flex items-center gap-3 mt-8">
-          {authSubStep > 0 && (
+          {(authSubStep > 0 || onBack) && (
             <Button
               type="button"
               variant="outline"
-              onClick={goSubPrev}
+              onClick={authSubStep > 0 ? goSubPrev : onBack}
               disabled={submitting}
               className="shrink-0 px-4 py-4"
               aria-label="Back"
@@ -775,7 +771,16 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
 AccountStep.propTypes = {
   hasAdmin: PropTypes.bool.isRequired,
   onContinue: PropTypes.func.isRequired,
+  onBack: PropTypes.func,
   connectActive: PropTypes.bool.isRequired,
+  form: PropTypes.shape({
+    display_name: PropTypes.string.isRequired,
+    username: PropTypes.string.isRequired,
+    password: PropTypes.string.isRequired,
+    confirm_password: PropTypes.string.isRequired,
+    setup_secret: PropTypes.string.isRequired,
+  }).isRequired,
+  setForm: PropTypes.func.isRequired,
 };
 
 // ─── STEP: Name ───────────────────────────────────────────────────────────────
@@ -948,6 +953,13 @@ export default function SetupPage() {
   const prevStepRef = useRef(null);
   const [hasAdmin, setHasAdmin] = useState(false);
   const [deviceName, setDeviceName] = useState("Luna");
+  const [accountForm, setAccountForm] = useState({
+    display_name: "",
+    username: "",
+    password: "",
+    confirm_password: "",
+    setup_secret: "",
+  });
   const { saveProgress, flushProgress } = useSetupProgress();
   const progressRef = useRef(/** @type {{ step?: string, stepData?: Record<string, unknown> }} */ ({}));
   const savingRef = useRef(false);
@@ -1114,6 +1126,9 @@ export default function SetupPage() {
     const data = { ...(progressRef.current.stepData || {}), account_completed: true };
     advanceStep(STEP.NAME, data);
   }, [advanceStep]);
+  const handleAccountBack = useCallback(() => {
+    advanceStep(STEP.PREFLIGHT, progressRef.current.stepData || {});
+  }, [advanceStep]);
 
   const handleFinish = useCallback(async (name) => {
     // Flush any in-flight progress save, then mark setup complete.
@@ -1146,7 +1161,10 @@ export default function SetupPage() {
       <AccountStep
         hasAdmin={hasAdmin}
         onContinue={handleAccountContinue}
+        onBack={hasAdmin ? undefined : handleAccountBack}
         connectActive={connectActive}
+        form={accountForm}
+        setForm={setAccountForm}
       />
     );
   } else if (shownStep === STEP.NAME) {

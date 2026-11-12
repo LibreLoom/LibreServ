@@ -125,6 +125,7 @@ const ROW_EXIT = { opacity: 0, height: 0, transition: { duration: 0.16 } };
  *   onSaved?: () => void,
  *   onRegisterSave: (save: (() => Promise<unknown>) | null) => void,
  *   onSaveStateChange: (hasUnsaved: boolean) => void,
+ *   onLoadStatus?: (status: "loading" | "error" | "ready") => void,
  * }} props
  */
 export default function FormBuilder(props) {
@@ -143,6 +144,7 @@ FormBuilder.propTypes = {
   onSaved: PropTypes.func,
   onRegisterSave: PropTypes.func.isRequired,
   onSaveStateChange: PropTypes.func.isRequired,
+  onLoadStatus: PropTypes.func,
 };
 
 /**
@@ -154,6 +156,7 @@ FormBuilder.propTypes = {
  *   onSaved?: () => void,
  *   onRegisterSave: (save: (() => Promise<unknown>) | null) => void,
  *   onSaveStateChange: (hasUnsaved: boolean) => void,
+ *   onLoadStatus?: (status: "loading" | "error" | "ready") => void,
  * }} props
  */
 function BuilderSession({
@@ -164,6 +167,7 @@ function BuilderSession({
   onSaved,
   onRegisterSave,
   onSaveStateChange,
+  onLoadStatus,
 }) {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
@@ -176,6 +180,10 @@ function BuilderSession({
   const [doc, setDoc] = useState(/** @type {any} */ (null));
   /** Canonical JSON on the drive — the dirty baseline. */
   const [baseline, setBaseline] = useState(/** @type {string | null} */ (null));
+
+  useEffect(() => {
+    onLoadStatus?.(loading ? "loading" : error ? "error" : "ready");
+  }, [loading, error, onLoadStatus]);
   const [tab, setTab] = useState(/** @type {"questions" | "responses"} */ ("questions"));
   // "sheet" opens the Sharing sheet; "link" goes straight to a new responses link.
   const [sharing, setSharing] = useState(/** @type {false | "sheet" | "link"} */ (false));

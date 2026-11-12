@@ -94,6 +94,15 @@ import {
 const GALLERY_DOWNLOAD_MAX = 200;
 const GALLERY_DOWNLOAD_FILENAME = "photos.zip";
 
+function hasHttpStatus(error, status) {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "status" in error &&
+      error.status === status,
+  );
+}
+
 /**
  * Save a download without buffering the whole response when the browser
  * supports the File System Access API. Older browsers use a Blob fallback.
@@ -1024,6 +1033,20 @@ export default function GalleryPage() {
     gallery.isError && !looking
       ? apiErrorMessage(gallery.error, "Luna couldn't open the gallery. Try again.")
       : null;
+
+  // An album can disappear while its detail page is open (for example, when
+  // another person deletes it). A 404 means the scoped view and its actions
+  // are no longer usable, so return to the Albums list.
+  useEffect(() => {
+    if (!albumView || !gallery.isError || !hasHttpStatus(gallery.error, 404)) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- discard the stale album view after its 404 response
+    setAlbumView(null);
+    setShareAlbum(null);
+    setRenameAlbum(null);
+    setError(null);
+    queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
+  }, [albumView, gallery.error, gallery.isError, queryClient]);
+
   const noPhotos =
     !looking &&
     !indexing &&
@@ -1240,7 +1263,28 @@ export default function GalleryPage() {
       queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
       queryClient.invalidateQueries({ queryKey: ["gallery"] });
     },
-    onError: (err) => {
+    onError: (err, album) => {
+      if (hasHttpStatus(err, 404)) {
+        setTrashAlbum(null);
+        setAlbumView((current) =>
+          current && current.id === album.id && current.home_drive_id === album.home_drive_id
+            ? null
+            : current,
+        );
+        setShareAlbum((current) =>
+          current && current.id === album.id && current.home_drive_id === album.home_drive_id
+            ? null
+            : current,
+        );
+        setRenameAlbum((current) =>
+          current && current.id === album.id && current.home_drive_id === album.home_drive_id
+            ? null
+            : current,
+        );
+        queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
+        queryClient.invalidateQueries({ queryKey: ["gallery"] });
+        return;
+      }
       haptic("error");
       setError(apiErrorMessage(err));
     },
@@ -1740,7 +1784,18 @@ export default function GalleryPage() {
       )}
       {showPageLevelError(galleryLoadError, actionModalOpen) && (
         <PageNotice variant="error" className="mb-4">
-          {galleryLoadError}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p>{galleryLoadError}</p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              surface="primary"
+              onClick={() => gallery.refetch()}
+            >
+              Try again
+            </Button>
+          </div>
         </PageNotice>
       )}
 
@@ -2102,6 +2157,8 @@ export default function GalleryPage() {
             <PlacesMap
               places={places.data || NO_PLACES}
               loading={places.isLoading}
+              error={places.isError}
+              onRetry={() => places.refetch()}
               filtered={filterActiveCount > 0}
               drawMode={placesDrawMode}
               onDrawModeChange={setPlacesDrawMode}
@@ -2331,7 +2388,7 @@ export default function GalleryPage() {
         }}
         onConfirm={() => trashBulk && trashMany.mutate(trashBulk)}
         title="Move selected to trash?"
-        message={`Luna will move ${trashBulk?.length || 0} items to Trash. You can restore them from Files later.`}
+        message={`Luna will move ${trashBulk?.length || 0} ${trashBulk?.length === 1 ? "item" : "items"} to Trash. You can restore them from Files later.`}
         variant="danger-undoable"
         confirmLabel="Move to trash"
         loading={trashMany.isPending}

@@ -251,10 +251,14 @@ export default function PhotoLightbox({
   useEffect(() => {
     if (!slideshow || isClosing || photos.length < 2) return undefined;
     const id = setInterval(() => {
-      onIndexChange(index >= photos.length - 1 ? 0 : index + 1);
+      if (index >= photos.length - 1) {
+        onSlideshowChange?.(false);
+        return;
+      }
+      onIndexChange(index + 1);
     }, 4000);
     return () => clearInterval(id);
-  }, [slideshow, isClosing, index, photos.length, onIndexChange]);
+  }, [slideshow, isClosing, index, photos.length, onIndexChange, onSlideshowChange]);
 
   /** Width of one pane + gap — the distance of a full slide step. */
   const slideStep = useCallback(() => {

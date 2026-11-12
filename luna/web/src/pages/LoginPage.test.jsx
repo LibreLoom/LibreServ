@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import LoginPage from "./LoginPage";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 import { findContrastProblems } from "@libreloom/ui/test/contrast.js";
 
 function stubFetch({ setupCompleted = true, loginOk = true } = {}) {
@@ -108,6 +109,44 @@ describe("LoginPage", () => {
     // Back on the page you were on — not bounced to home.
     expect(await screen.findByText("DRIVES PAGE")).toBeInTheDocument();
     expect(screen.queryByText("LUNA HOME")).not.toBeInTheDocument();
+  });
+
+  it("shows the completed action notice after a session-ending change", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      const u = String(url);
+      const json = (value) => new Response(JSON.stringify(value), {
+        status: 200, headers: { "Content-Type": "application/json" },
+      });
+      if (u.endsWith("/api/v1/auth/me")) return json({ id: "1", username: "max", role: "admin" });
+      if (u.endsWith("/api/v1/auth/status")) return json({ has_admin: true });
+      if (u.endsWith("/api/v1/setup")) return json({ name: "Luna", setup_completed: true });
+      return json({});
+    }));
+    function Guard() {
+      const { user, endSession } = useAuth();
+      return user
+        ? <button type="button" onClick={() => endSession({ type: "success", message: "Password changed. Sign in again with your new password." })}>Change password</button>
+        : <LoginPage />;
+    }
+    render(
+      <ToastProvider>
+        <MemoryRouter initialEntries={["/settings"]}>
+          <AuthProvider>
+            <Routes><Route path="/settings" element={<Guard />} /></Routes>
+            <Toaster />
+          </AuthProvider>
+        </MemoryRouter>
+      </ToastProvider>
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Change password" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Password changed. Sign in again with your new password.");
+    expect(screen.getByText("Sign in to continue.")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Username", { selector: "input" }), { target: { value: "max" } });
+    fireEvent.change(screen.getByLabelText("Password", { selector: "input" }), { target: { value: "hunter22hunter" } });
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Change password" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Password changed. Sign in again with your new password.");
   });
 
   it("names each empty field and clears its message when corrected", async () => {

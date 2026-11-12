@@ -86,11 +86,19 @@ describe("SharedPage", () => {
   it("defaults members to Shared with you and opens files at the file", async () => {
     stubApi();
     renderPage();
+    expect(await screen.findByRole("radio", { name: "Manage sharing" })).toBeInTheDocument();
     expect(await screen.findByText("report.pdf")).toBeInTheDocument();
     const open = screen.getAllByRole("link", { name: "Open" })
       .find((a) => a.closest("tr")?.textContent?.includes("report.pdf"));
     expect(open).toHaveAttribute("href", "/files/d1?path=docs%2Freport.pdf");
     expect(screen.getAllByRole("cell", { name: "Max" }).length).toBeGreaterThan(0);
+  });
+
+  it("does not offer Manage sharing to a member with no items they can manage", async () => {
+    stubApi({ role: "user", mine: { sharing: [], with_me: [] } });
+    renderPage();
+    expect(await screen.findByText("Nothing shared with you yet")).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "Manage sharing" })).not.toBeInTheDocument();
   });
 
   it("marks gone items Unavailable with no Open", async () => {
@@ -136,6 +144,49 @@ describe("SharedPage", () => {
     await waitFor(() => {
       expect(calls.some(([m, u]) => m === "DELETE" && u.endsWith("/access/members/m1"))).toBe(true);
     });
+  });
+
+  it("keeps the leave dialog open with a plain retry message after a server error", async () => {
+    stubApi();
+    const baseFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url, init = {}) => {
+      if (String(url).match(/\/api\/v1\/access\/members\/[^/]+$/) && init.method === "DELETE") {
+        return json({ error: "Injected 500" }, 500);
+      }
+      return baseFetch(url, init);
+    }));
+    renderPage();
+    const row = (await screen.findByRole("cell", { name: "docs" })).closest("tr");
+    fireEvent.click(within(row).getByRole("button", { name: "Leave" }));
+    const dialog = await screen.findByRole("dialog", { name: /Leave docs/i });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Leave" }));
+    expect(await within(dialog).findByText("Couldn't leave that share. Try again.")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Injected 500")).not.toBeInTheDocument();
+    expect(screen.getByText("docs")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Leave" })).toBeEnabled();
+  });
+
+  it("shows a retry action when the Shared list fails to load", async () => {
+    stubApi();
+    let mineCalls = 0;
+    const baseFetch = globalThis.fetch;
+    let fail = true;
+    vi.stubGlobal("fetch", vi.fn(async (url, init = {}) => {
+      if (String(url).endsWith("/api/v1/access/mine") && fail) {
+        mineCalls += 1;
+        return json({ error: "Injected 500" }, 500);
+      }
+      if (String(url).endsWith("/api/v1/access/mine")) mineCalls += 1;
+      return baseFetch(url, init);
+    }));
+    renderPage();
+    expect(await screen.findByText("Couldn't load sharing. Refresh and try again.")).toBeInTheDocument();
+    expect(screen.queryByText("Injected 500")).not.toBeInTheDocument();
+    expect(mineCalls).toBe(1);
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("report.pdf")).toBeInTheDocument();
+    expect(mineCalls).toBe(2);
   });
 
   it("admins with nothing shared land on Manage sharing", async () => {

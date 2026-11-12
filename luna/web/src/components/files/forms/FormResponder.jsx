@@ -382,6 +382,7 @@ function Responder({
           (data && data.error) || "Luna couldn't send your answers. Check your connection and send again.",
         );
       }
+      setSubmitting(false);
       const id = typeof data?.id === "string" ? data.id : responseId;
       const issued = allowEdits && data && typeof data.edit_token === "string" ? data.edit_token : "";
       writeCookie(cookieName("done", token), "1");
@@ -399,6 +400,7 @@ function Responder({
       setStage("done");
       haptic("success");
     } catch (err) {
+      setSubmitting(false);
       haptic("error");
       setSubmitError(apiErrorMessage(err, "Luna couldn't send your answers. Check your connection and send again."));
     } finally {
@@ -462,7 +464,11 @@ function Responder({
           />
         </StageMotion>
       ) : (
-        <StageMotion key={`form-${session}`} className="flex min-h-0 flex-1 flex-col">
+        <StageMotion
+          key={`form-${session}`}
+          className="flex min-h-0 flex-1 flex-col"
+          onAnimationComplete={() => setSubmitting(false)}
+        >
           <form
             className="flex min-h-0 flex-1 flex-col overflow-y-auto"
             noValidate
@@ -571,7 +577,7 @@ Responder.propTypes = FormResponder.propTypes;
 const SPRING = { type: "spring", stiffness: 520, damping: 42, mass: 0.9 };
 
 /** Screens cross-fade and rise when the stage changes. */
-function StageMotion({ children, className = "flex min-h-0 flex-1 flex-col" }) {
+function StageMotion({ children, className = "flex min-h-0 flex-1 flex-col", ...props }) {
   return (
     <Motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -579,6 +585,7 @@ function StageMotion({ children, className = "flex min-h-0 flex-1 flex-col" }) {
       exit={{ opacity: 0, y: -8 }}
       transition={{ duration: 0.22, ease: [0.2, 0, 0, 1] }}
       className={className}
+      {...props}
     >
       {children}
     </Motion.div>
@@ -588,6 +595,7 @@ function StageMotion({ children, className = "flex min-h-0 flex-1 flex-col" }) {
 StageMotion.propTypes = {
   children: PropTypes.node,
   className: PropTypes.string,
+  onAnimationComplete: PropTypes.func,
 };
 
 /**

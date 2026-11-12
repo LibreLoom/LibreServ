@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import AccessCategory from "./AccessCategory.jsx";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
+import { AuthProvider, useAuth } from "../../../context/AuthContext.jsx";
+import LoginPage from "../../../pages/LoginPage.jsx";
 
 function stubFetch(tokens = []) {
   vi.stubGlobal("fetch", vi.fn(async (url, init) => {
@@ -41,6 +45,12 @@ function renderAccess() {
   );
 }
 
+function AuthenticatedAccess() {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  return user ? <AccessCategory /> : <LoginPage />;
+}
+
 describe("AccessCategory", () => {
   beforeEach(() => {
     stubFetch();
@@ -58,11 +68,23 @@ describe("AccessCategory", () => {
     expect(screen.queryByText(/Luna cannot show a list of every browser/i)).toBeNull();
   });
 
-  it("signs out every app through revoke-devices", async () => {
+  it("asks before signing out every app", async () => {
     const { userEvent } = await import("@testing-library/user-event");
     const user = userEvent.setup();
     renderAccess();
     await user.click(await screen.findByRole("button", { name: "Sign out all apps" }));
+    const dialog = await screen.findByRole("dialog", { name: "Sign out all apps?" });
+    expect(within(dialog).getByText(/All app and access tokens will stop working right away/)).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    const callsAfterCancel = /** @type {any} */ (fetch).mock.calls;
+    expect(callsAfterCancel.some(([u, init]) => (
+      String(u).includes("/auth/revoke-devices") && init?.method === "POST"
+    ))).toBe(false);
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sign out all apps?" })).toBeNull());
+    await user.click(screen.getByRole("button", { name: "Sign out all apps" }));
+    const confirmDialog = await screen.findByRole("dialog", { name: "Sign out all apps?" });
+    await user.click(within(confirmDialog).getByRole("button", { name: "Sign out all apps" }));
     await waitFor(() => {
       const calls = /** @type {any} */ (fetch).mock.calls;
       expect(calls.some(([u, init]) => String(u).includes("/auth/revoke-devices") && init?.method === "POST")).toBe(true);
@@ -83,6 +105,31 @@ describe("AccessCategory", () => {
     expect(screen.getByRole("button", { name: /Revoke token/i })).toBeTruthy();
   });
 
+  it("shows a retry after the access token list fails to load", async () => {
+    stubFetch([{ id: "t1", name: "Kitchen Mac", last_used_at: null }]);
+    let fail = true;
+    const baseFetch = globalThis.fetch;
+    const fetchMock = vi.fn(async (url, init) => {
+      if (String(url).includes("/device-tokens") && (init?.method || "GET") === "GET" && fail) {
+        return new Response(JSON.stringify({ error: "Injected 500" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return baseFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = (await import("@testing-library/user-event")).default.setup();
+    renderAccess();
+
+    expect(await screen.findByText("Couldn't load access tokens. Try again.")).toBeInTheDocument();
+    expect(screen.queryByText("No apps or access tokens are set up yet.")).toBeNull();
+    fail = false;
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Kitchen Mac")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/device-tokens"))).toHaveLength(2);
+  });
+
   it("opens token creation in a modal from the token list", async () => {
     stubFetch([{ id: "t1", name: "Kitchen Mac", last_used_at: null }]);
     const { userEvent } = await import("@testing-library/user-event");
@@ -93,9 +140,57 @@ describe("AccessCategory", () => {
 
     await user.click(screen.getByRole("button", { name: /New access token/i }));
     const dialog = await screen.findByRole("dialog", { name: /New access token/i });
-    const input = within(dialog).getByLabelText(/Name this app/i);
+    const input = /** @type {HTMLInputElement} */ (within(dialog).getByLabelText(/Name this app/i));
     await waitFor(() => expect(input).toHaveFocus());
+    expect(within(dialog).getByText("Give this device a name between 1 and 80 characters.")).toBeInTheDocument();
+    expect(input.maxLength).toBe(80);
     expect(within(dialog).getByRole("button", { name: /Create access token/i })).toBeDisabled();
+    await user.type(input, "a".repeat(81));
+    expect(input).toHaveValue("a".repeat(80));
+    expect(within(dialog).getByRole("button", { name: /Create access token/i })).toBeEnabled();
+  });
+
+  it("shows the password-change notice after the real profile form ends the session", async () => {
+    const json = (value) => new Response(JSON.stringify(value), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+    vi.stubGlobal("fetch", vi.fn(async (url, init = {}) => {
+      const path = String(url);
+      if (path.endsWith("/api/v1/auth/me") && init.method === "PATCH") {
+        return json({ ok: true, signed_out: true, message: "Password changed." });
+      }
+      if (path.endsWith("/api/v1/auth/me")) {
+        return json({ id: "u1", username: "max", display_name: "Max", role: "admin" });
+      }
+      if (path.endsWith("/api/v1/auth/status")) return json({ has_admin: true });
+      if (path.endsWith("/api/v1/setup")) return json({ setup_completed: true });
+      if (path.endsWith("/api/v1/device-tokens")) return json([]);
+      return new Response("Not found", { status: 404 });
+    }));
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+    render(
+      <ToastProvider>
+        <QueryClientProvider client={client}>
+          <MemoryRouter initialEntries={["/settings"]}>
+            <AuthProvider>
+              <AuthenticatedAccess />
+              <Toaster />
+            </AuthProvider>
+          </MemoryRouter>
+        </QueryClientProvider>
+      </ToastProvider>,
+    );
+
+    await user.type(await screen.findByLabelText("Current password"), "correct");
+    await user.type(screen.getByLabelText("New password"), "New-luna-password-2026!");
+    await user.click(screen.getByRole("button", { name: "Change password" }));
+
+    expect(await screen.findByText("Password changed. Sign in again with your new password.")).toBeInTheDocument();
+    expect(screen.getByText("Sign in to continue.")).toBeInTheDocument();
   });
 
   it("token list items animate height on expand/collapse", async () => {

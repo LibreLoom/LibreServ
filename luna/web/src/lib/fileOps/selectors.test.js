@@ -248,6 +248,7 @@ describe("copy and errors", () => {
     expect(classifyError({ status: 0, message: "x" }, "upload")).toMatchObject({ retryable: true, offline: true });
     expect(classifyError({ status: 401, message: "Sign in again." }, "upload")).toMatchObject({ retryable: true, message: "Sign in again." });
     expect(classifyError({ status: 503, code: "queue_full", message: "Busy." }, "copy")).toMatchObject({ queueFull: true });
+    expect(classifyError({ status: 500, message: "Upload failed." }, "upload")).toMatchObject({ retryable: true, offline: false });
     expect(classifyError({ status: 409, code: "keep_both_unsupported", message: "No." }, "copy")).toMatchObject({ retryable: false, message: "No." });
     expect(classifyError({ status: 409, code: "exists", data: { existing_kind: "dir" }, message: "x" }, "upload").decision).toMatchObject({ existingKind: "dir", options: ["keep_both", "skip"] });
     expect(classifyError({ status: 409, code: "exists", message: "x" }, "copy", { sameFolder: true }).decision.options).toEqual(["keep_both", "skip"]);
