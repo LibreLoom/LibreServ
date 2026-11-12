@@ -1,5 +1,8 @@
 # Drive encryption and formatting
 
+> **Superseded** by [`../drive-format/plan.md`](../drive-format/plan.md). This file
+> describes code removed in `05801e3e` (last present at `e29a2c2c`).
+
 Encryption and formatting are separate systems. Encryption manages a container
 and its credentials; formatting executes an explicit plan for new storage.
 Neither lock, unlock nor password change may create a filesystem or erase data.
