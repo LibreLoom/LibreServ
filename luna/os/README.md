@@ -16,12 +16,15 @@ disk both boot in either firmware mode.
 #    part of the image, so they must exist before the rootfs is built:
 make eurooffice-pack drawio-pack        # → os/dist/*-pack.tar.zst
 #    The rootfs lives in a podman volume; ownership is right inside the user
-#    namespace and nothing runs as root.
+#    namespace and nothing runs as root. build-rootfs.sh mounts os/dist (or
+#    LUNA_PACKS_DIR) at /in/packs and 035.frag unpacks both packs into it.
 ./os/build-rootfs.sh                  # rootfs → volume luna-os-rootfs
 ./os/make-image.sh                    # → os/dist/luna-os-x86_64.img.xz (+ .sha256)
 #    The .img.xz is compressed once. The OTA update part, the installer ISO and
 #    the box's os-image.sha256 all use these exact bytes. Skipped when the OS
-#    inputs did not change (os/build/input-hash.sh). LUNA_OS_FORCE=1 rebuilds
+#    inputs did not change (os/build/input-hash.sh) and no pack is newer than
+#    the image — a pack built after the image leaves that image stale, so
+#    rebuild both steps. LUNA_OS_FORCE=1 rebuilds
 #    anyway — and a changed lunad always needs one, because the daemon is
 #    inside the image.
 

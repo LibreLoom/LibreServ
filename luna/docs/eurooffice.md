@@ -92,10 +92,14 @@ dictionaries.
 
 The pack is a program file, so it lives in the OS image, not on the data
 partition. The release tool builds it before the rootfs and mounts it in;
-`os/lib/build-rootfs.d/035.frag` extracts it to `/usr/share/luna/eurooffice`.
+`os/lib/build-rootfs.d/035.frag` unpacks the tarball into the pack root
+(`/usr/share/luna`), landing it at `/usr/share/luna/eurooffice`. The tarball
+already carries its own `eurooffice/` top-level dir, so it is never unpacked
+into a `eurooffice/` dir of its own (that nests `eurooffice/eurooffice/`).
 A release cut refuses an image without it (`LUNA_PACKS_REQUIRED=1`); a dev
 build only warns. `os/build-iso.sh` builds the packs into `os/dist/` before its
-`os/build-rootfs.sh` step, so a dev image carries them too. lunad serves it from
+`os/build-rootfs.sh` step, and `build-rootfs.sh` mounts `os/dist` (or
+`LUNA_PACKS_DIR`) at `/in/packs`, so a dev image carries them too. lunad serves it from
 there (`crates/lunad/src/packs.rs`): the image's copy wins, and a
 `{data_dir}/eurooffice` copy is honoured next, so a box from an older ISO keeps
 its editors until it updates. A device whose image lacks the pack shows the
