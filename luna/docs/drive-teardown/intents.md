@@ -6,8 +6,9 @@ does not start blind.
 
 - **Last commit with the full code: `e29a2c2c55be99a6a0f726112c3fc8a4ed62228c`.**
   Find anything below with `git show e29a2c2c:<path>`.
-- The design write-up is still in [`../drive-encryption/plan.md`](../drive-encryption/plan.md).
-  It is the best statement of intent; read it first.
+- The old design write-up is in [`../drive-encryption/plan.md`](../drive-encryption/plan.md).
+  It is marked superseded by [`../drive-format/plan.md`](../drive-format/plan.md), the
+  rebuild plan; read the rebuild plan first.
 - Origin commits: `02b86f46` (2026-11-02, LUKS2 + in-place conversion), `722e5f96`
   (one format backend, encryption by wiping), `0144fd5f` (deadlines on every disk
   tool), `3babf20c` (2026-11-08, separate encryption from formatting; durable
@@ -202,7 +203,8 @@ lost `encrypted`, `locked` and `converting`; adopt only takes `label`.
 - The daemon still disables core dumps (`sandbox::disable_daemon_core_dumps`);
   the cloud recovery phrase passes through it as well.
 - `backup/cloud/identity::copy_to_drive_at` still runs when a drive is added.
-- `docs/drive-encryption/plan.md` is unchanged and now describes removed code.
+- `docs/drive-encryption/plan.md` describes the removed code; its banner points to
+  the rebuild plan.
 - `web/src/dev/contract/lunad-responses.json` is stale (still has the removed
   routes and drive fields) until the next full luna run regenerates it.
 - Existing dev databases may still carry the old `drives.encrypted/locked/converting`
