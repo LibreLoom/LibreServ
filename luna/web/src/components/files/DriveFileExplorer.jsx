@@ -1006,7 +1006,7 @@ export default function DriveFileExplorer({
         })()}
         drives={writableDrives.length > 0 ? writableDrives : (driveIsReadOnly ? [] : [{ id: driveId, label: driveLabel }])}
         initialDriveId={driveIsReadOnly ? writableDrives[0]?.id : driveId}
-        initialPath={inTrash ? "" : path}
+        initialPath={inTrash || driveIsReadOnly ? "" : path}
         movingPaths={transfer?.kind === "move" ? transfer.paths : []}
         confirmLabel={transfer?.kind === "move" ? "Start moving" : "Start copying"}
         busy={guestTransferMutation.isPending}

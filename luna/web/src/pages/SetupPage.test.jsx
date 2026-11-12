@@ -446,6 +446,47 @@ describe("SetupPage", () => {
     expect(screen.getByText(/nobody else on the internet/i)).toBeTruthy();
   });
 
+  it("says the account was created when automatic sign-in fails afterward", async () => {
+    const fallback = stubFetch();
+    const fetchMock = vi.fn((url, init) => {
+      const path = String(url);
+      const method = (init?.method || "GET").toUpperCase();
+      if (path.includes("/auth/register") && method === "POST") {
+        return Promise.resolve(jsonResponse({ id: "u1", username: "alex", role: "admin" }));
+      }
+      if (path.includes("/auth/login") && method === "POST") {
+        return Promise.resolve(jsonResponse({ error: "Luna is busy." }, 503));
+      }
+      return fallback(url, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSetup();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Begin setup/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
+    fireEvent.change(await screen.findByLabelText(/Pick a username/i), { target: { value: "alex" } });
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+    fireEvent.change(await screen.findByLabelText(/Choose a password/i), { target: { value: "SecurePass123!" } });
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+    fireEvent.change(await screen.findByLabelText(/Confirm your password/i), { target: { value: "SecurePass123!" } });
+    fireEvent.click(screen.getByRole("button", { name: /Create account/i }));
+
+    expect(await screen.findByText(/Your account was created, but Luna couldn't sign you in/i)).toBeTruthy();
+    const retry = screen.getByRole("button", { name: "Try signing in" });
+    expect(retry).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
+    const registration = fetchMock.mock.calls.find(([url, init]) => String(url).includes("/auth/register") && init?.method === "POST");
+    expect(JSON.parse(registration[1].body)).toMatchObject({ username: "alex", password: "SecurePass123!" });
+
+    fireEvent.click(retry);
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.filter(([url, init]) => String(url).includes("/auth/register") && init?.method === "POST")).toHaveLength(1);
+      expect(fetchMock.mock.calls.filter(([url, init]) => String(url).includes("/auth/login") && init?.method === "POST")).toHaveLength(2);
+    });
+  });
+
   it("skips Luna Connect device token on a public hostname when Connect is inactive", async () => {
     vi.stubGlobal("fetch", stubFetch({
       network: { ethernet_connected: true, has_default_route: true, ipv4: ["192.168.1.8"] },

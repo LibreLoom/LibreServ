@@ -336,6 +336,7 @@ function AccountStep({ hasAdmin, onContinue, onBack, connectActive, form, setFor
   const [showPw, setShowPw]         = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [fieldError, setFieldError] = useState(null);
+  const [accountCreated, setAccountCreated] = useState(false);
   const [authSubStep, setAuthSubStep] = useState(0);
   const [authSubDir, setAuthSubDir]   = useState("right");
   // When Connect linked with ?token=, skip the device-token substep (still send it on register).
@@ -484,41 +485,52 @@ function AccountStep({ hasAdmin, onContinue, onBack, connectActive, form, setFor
     }
     setSubmitting(true);
     setFieldError(null);
-    try {
+    let created;
+    if (!accountCreated) {
       const displayName = form.display_name.trim() || form.username.trim();
-      const created = await register(form.username.trim(), displayName, pw, needsDeviceToken ? form.setup_secret.trim() : undefined);
+      try {
+        created = await register(form.username.trim(), displayName, pw, needsDeviceToken ? form.setup_secret.trim() : undefined);
+      } catch (err) {
+        const responseMessage = err?.message || "";
+        const message = !responseMessage || /^(?:Luna )?couldn't do that\. Try again\.?$/i.test(responseMessage)
+          ? "Your account wasn't created. Check that Luna is connected to your network, then try again."
+          : responseMessage;
+        setFieldError(message);
+        // Silent token failed — reveal the device-token field so the user can paste a new one.
+        if (hideSetupSecretStep && needsDeviceToken) {
+          setHideSetupSecretStep(false);
+          authSubAnimatedRef.current = true;
+          setAuthSubDir("right");
+          setAuthSubStep(authFields.length);
+        } else {
+          const lower = message.toLowerCase();
+          if (lower.includes("username") || lower.includes("user name")) {
+            jumpToField("username");
+          } else if (lower.includes("password")) {
+            jumpToField("password");
+          } else if (lower.includes("name") && !lower.includes("user")) {
+            jumpToField("display_name");
+          }
+        }
+        setSubmitting(false);
+        return;
+      }
+      setAccountCreated(true);
       // Luna could not check the password against known breaches (no
       // internet, or the breach service is down). The account is created —
       // say so, so the first password is not an unchecked one by accident.
       if (created?.warning) {
         addToast({ type: "info", message: created.warning, duration: 10000 });
       }
-      await login(form.username.trim(), pw);
-      onContinue();
-    } catch (err) {
-      const responseMessage = err?.message || "";
-      const message = !responseMessage || /^(?:Luna )?couldn't do that\. Try again\.?$/i.test(responseMessage)
-        ? "Your account wasn't created. Check that Luna is connected to your network, then try again."
-        : responseMessage;
-      setFieldError(message);
-      // Silent token failed — reveal the device-token field so the user can paste a new one.
-      if (hideSetupSecretStep && needsDeviceToken) {
-        setHideSetupSecretStep(false);
-        authSubAnimatedRef.current = true;
-        setAuthSubDir("right");
-        setAuthSubStep(authFields.length);
-      } else {
-        const lower = message.toLowerCase();
-        if (lower.includes("username") || lower.includes("user name")) {
-          jumpToField("username");
-        } else if (lower.includes("password")) {
-          jumpToField("password");
-        } else if (lower.includes("name") && !lower.includes("user")) {
-          jumpToField("display_name");
-        }
-      }
-      setSubmitting(false);
     }
+    try {
+      await login(form.username.trim(), pw);
+    } catch {
+      setFieldError("Your account was created, but Luna couldn't sign you in. Try signing in with the username and password you just chose.");
+      setSubmitting(false);
+      return;
+    }
+    onContinue();
   };
 
   const handleSubSubmit = async (e) => {
@@ -739,7 +751,7 @@ function AccountStep({ hasAdmin, onContinue, onBack, connectActive, form, setFor
               type="button"
               variant="outline"
               onClick={authSubStep > 0 ? goSubPrev : onBack}
-              disabled={submitting}
+              disabled={submitting || accountCreated}
               className="shrink-0 px-4 py-4"
               aria-label="Back"
             >
@@ -755,7 +767,9 @@ function AccountStep({ hasAdmin, onContinue, onBack, connectActive, form, setFor
             className="group py-4 font-mono hover:scale-[1.02]"
           >
             {isLastAuthSubStep ? (
-              submitting ? "Creating account…" : "Create account"
+              submitting
+                ? accountCreated ? "Signing in…" : "Creating account…"
+                : accountCreated ? "Try signing in" : "Create account"
             ) : (
               <>
                 Continue

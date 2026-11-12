@@ -22,9 +22,8 @@ import { getRestoreStatus, RESTORE_QUERY_KEY } from "../../../lib/cloudRestore";
 
 function CloudBackupRow({ backup, onRun, onRunAnyway, missingSource, onCheck, onDelete, busy, runError }) {
   const active = backup.status === "active";
-  const displayedBackup = runError ? { ...backup, state: "failing", last_error: runError } : backup;
   const item = {
-    ...displayedBackup,
+    ...backup,
     kind: "cloud",
     destination: "Cloud",
     source_name: backup.source_name || backup.source_path || "Whole drive",
@@ -40,9 +39,12 @@ function CloudBackupRow({ backup, onRun, onRunAnyway, missingSource, onCheck, on
             {backup.source_drive_name ? `On ${backup.source_drive_name}` : "Whole drive"}
             {size ? ` · ${size} in the cloud` : ""}
           </p>
-          {runError ? (
-            <PageNotice variant="error" surface="secondary">{runError}</PageNotice>
-          ) : active ? (
+          {runError && (
+            <PageNotice variant="error" surface="secondary">
+              {runError.kind === "start" ? `Luna couldn't start this backup. ${runError.message}` : runError.message}
+            </PageNotice>
+          )}
+          {active && (!runError || backup.state !== "failing") ? (
             <BackupStatusNotice
               state={backup.state}
               lastError={backup.last_error}
@@ -136,12 +138,15 @@ export default function CloudBackupCategory() {
   const runBackup = useMutation({
     mutationFn: (/** @type {{id: string, acceptMissing?: boolean}} */ { id, acceptMissing = false }) =>
       postJson(`/api/v1/cloud/backups/${id}/run${acceptMissing ? "?accept_missing=true" : ""}`, {}),
-    onSuccess: (res, { id, acceptMissing = false }) => {
+    onMutate: ({ id }) => ({
+      lastOkAtAtRun: cloudQuery.data?.find((backup) => backup.id === id)?.last_ok_at || 0,
+    }),
+    onSuccess: (res, { id, acceptMissing = false }, context) => {
       // A problem stays on this card, next to the backup, not in a success toast.
       if (res?.problem) {
         haptic("error");
         setError(null);
-        setRunError({ backupId: id, message: res.problem });
+        setRunError({ backupId: id, message: res.problem, kind: "run", lastOkAtAtRun: context?.lastOkAtAtRun || 0 });
         setMissingSourceId(res.source_missing === true && !acceptMissing ? id : null);
         return;
       }
@@ -158,7 +163,7 @@ export default function CloudBackupCategory() {
     onError: (err, { id }) => {
       haptic("error");
       setError(null);
-      setRunError({ backupId: id, message: apiErrorMessage(err) });
+      setRunError({ backupId: id, message: apiErrorMessage(err), kind: "start" });
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["cloud-backups"] }),
   });
@@ -247,7 +252,11 @@ export default function CloudBackupCategory() {
                 <CloudBackupRow
                   key={backup.id}
                   backup={backup}
-                  runError={runError?.backupId === backup.id ? runError.message : null}
+                  runError={(() => {
+                    if (runError?.backupId !== backup.id) return null;
+                    if (runError.kind === "run" && backup.state === "ok" && backup.last_ok_at > runError.lastOkAtAtRun) return null;
+                    return runError;
+                  })()}
                   busy={busy}
                   missingSource={missingSourceId === backup.id || backup.source_missing === true}
                   onRun={(b) => runBackup.mutate({ id: b.id })}

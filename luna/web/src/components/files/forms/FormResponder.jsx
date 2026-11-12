@@ -467,7 +467,6 @@ function Responder({
         <StageMotion
           key={`form-${session}`}
           className="flex min-h-0 flex-1 flex-col"
-          onAnimationComplete={() => setSubmitting(false)}
         >
           <form
             className="flex min-h-0 flex-1 flex-col overflow-y-auto"
@@ -595,7 +594,6 @@ function StageMotion({ children, className = "flex min-h-0 flex-1 flex-col", ...
 StageMotion.propTypes = {
   children: PropTypes.node,
   className: PropTypes.string,
-  onAnimationComplete: PropTypes.func,
 };
 
 /**

@@ -97,6 +97,33 @@ describe("FormResponder", () => {
     expect(lastPost(fetchMock).answers).toEqual({ q_1: "Yes", q_2: "Ari Lane" });
   });
 
+  it("keeps the send button disabled for the whole pending request after the form animation", async () => {
+    /** @type {(response: Response) => void} */
+    let finishPost = () => {};
+    const fetchMock = vi.fn((_url, options = {}) => {
+      if (options.method === "POST") {
+        return new Promise((resolve) => { finishPost = resolve; });
+      }
+      return Promise.resolve(okJson({}));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderResponder(FORM);
+
+    fireEvent.click(await screen.findByRole("radio", { name: "Yes" }));
+    const send = screen.getByRole("button", { name: /Send answers/i });
+    fireEvent.click(send);
+    expect(send).toBeDisabled();
+
+    // StageMotion finishes in 220ms. A pending network request must continue
+    // to own the disabled state after that unrelated animation completes.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(send).toBeDisabled();
+    expect(fetchMock.mock.calls.filter(([, options]) => options?.method === "POST")).toHaveLength(1);
+
+    finishPost(okJson({ ok: true, id: "r-pending", edit_token: "pending-token" }));
+    expect(await screen.findByText(/Response submitted/i)).toBeInTheDocument();
+  });
+
   it("edit links open every question on one page and save through the respond endpoint", async () => {
     const fetchMock = vi.fn(async (_url, options = {}) => {
       if (options.method === "POST") {

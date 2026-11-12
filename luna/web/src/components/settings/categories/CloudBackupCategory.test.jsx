@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import CloudBackupCategory from "./CloudBackupCategory.jsx";
@@ -52,13 +52,14 @@ function stubApi({
 
 function renderCard() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const view = render(
     <QueryClientProvider client={client}>
       <ToastProvider>
         <CloudBackupCategory />
       </ToastProvider>
     </QueryClientProvider>,
   );
+  return { ...view, client };
 }
 
 const sampleBackup = {
@@ -287,7 +288,7 @@ describe("CloudBackupCategory", () => {
     );
   });
 
-  it("shows a failed run on its backup card and replaces the stale success status", async () => {
+  it("keeps a failed start separate from the backup's last successful status", async () => {
     const message = "Luna Connect couldn't be reached. Check your internet connection and try again.";
     const fetchMock = stubApi({ connected: true, backups: [sampleBackup], runError: message });
     renderCard();
@@ -296,14 +297,35 @@ describe("CloudBackupCategory", () => {
 
     const card = (await screen.findByText("Pictures")).closest('[data-slot="backup-item"]');
     if (!(card instanceof HTMLElement)) throw new Error("Expected Pictures backup card");
-    const notice = await within(card).findByText(message);
+    const notice = await within(card).findByText(`Luna couldn't start this backup. ${message}`);
     expect(notice.closest('[data-slot="backup-item"]')).toBe(card);
-    expect(within(card).getByText("Last copy failed")).toBeInTheDocument();
-    expect(within(card).queryByText("Backup successful")).toBeNull();
+    expect(within(card).getByText("Backup successful")).toBeInTheDocument();
+    expect(within(card).queryByText("Last copy failed")).toBeNull();
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/v1/cloud/backups/b1/run",
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  it("clears a run problem when refreshed backup data confirms a newer successful copy", async () => {
+    const message = "The cloud connection was interrupted.";
+    const list = [sampleBackup];
+    stubApi({ connected: true, backups: list, runResponse: { problem: message } });
+    const { client } = renderCard();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Back up now" }));
+    expect(await screen.findByText(message)).toBeInTheDocument();
+
+    list[0] = { ...sampleBackup, state: "ok", last_ok_at: sampleBackup.last_ok_at + 60 };
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["cloud-backups"] });
+    });
+
+    await waitFor(() => expect(screen.queryByText(message)).toBeNull());
+    const card = screen.getByText("Pictures").closest('[data-slot="backup-item"]');
+    if (!(card instanceof HTMLElement)) throw new Error("Expected Pictures backup card");
+    expect(within(card).getByText("Backup successful")).toBeInTheDocument();
+    expect(within(card).queryByText("Last copy failed")).toBeNull();
   });
 
   it("asks before deleting and then calls the delete route", async () => {

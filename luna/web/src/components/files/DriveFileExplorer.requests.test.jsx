@@ -30,10 +30,11 @@ const TRASHED = ["a", "b", "c"].map((n) => ({
 }));
 
 /**
- * @param {{ path?: string, listing: any[], failing?: string, failWith?: string, driveState?: string }} opts
+ * @param {{ path?: string, listing: any[], failing?: string, failWith?: string, driveState?: string, drives?: any[] }} opts
  *   `failing`: a file name whose request fails with `failWith`.
  */
-function renderExplorer({ path, listing, failing = "", failWith = "Luna is busy.", driveState = "mounted" }) {
+function renderExplorer({ path, listing, failing = "", failWith = "Luna is busy.", driveState = "mounted", drives = null }) {
+  const availableDrives = drives || [{ id: "d1", label: "Photos", state: driveState }];
   const calls = [];
   vi.stubGlobal("fetch", vi.fn(async (url, init = {}) => {
     const u = String(url);
@@ -46,7 +47,7 @@ function renderExplorer({ path, listing, failing = "", failWith = "Luna is busy.
     if (u.endsWith("/api/v1/auth/me")) return json({ id: "u1", username: "max", role: "admin" });
     if (u.endsWith("/api/v1/auth/status")) return json({ has_admin: true });
     if (u.endsWith("/api/v1/setup")) return json({ setup_completed: true });
-    if (u.endsWith("/api/v1/drives")) return json([{ id: "d1", label: "Photos", state: driveState }]);
+    if (u.endsWith("/api/v1/drives")) return json(availableDrives);
     if (u.endsWith("/api/v1/connect/status")) return json({ connect_active: true });
     if (method === "DELETE" && u.includes("/files?path=")) {
       return decodeURIComponent(u).includes(failing) && failing ? json({ error: failWith }, 500) : json({ ok: true });
@@ -94,6 +95,26 @@ describe("DriveFileExplorer long requests", () => {
     expect(screen.queryByRole("button", { name: "Move to trash a.txt" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy a.txt" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Download a.txt" })).toBeInTheDocument();
+  });
+
+  it("starts a copy from a read-only folder at the writable drive root", async () => {
+    const { calls } = renderExplorer({
+      path: "Nested",
+      listing: FILES,
+      drives: [
+        { id: "d1", label: "Photos", state: "readonly" },
+        { id: "d2", label: "Documents", state: "mounted" },
+      ],
+    });
+
+    await screen.findByText("a.txt");
+    fireEvent.click(screen.getByRole("button", { name: "Copy a.txt" }));
+
+    await waitFor(() => {
+      expect(calls.some(([method, url]) => method === "GET" && url.includes("/drives/d2/files?path="))).toBe(true);
+    });
+    const destinationList = calls.find(([method, url]) => method === "GET" && url.includes("/drives/d2/files?path="));
+    expect(destinationList[1]).toMatch(/path=$/);
   });
 
   it("trashes a selection in the file task card and carries on past one failure", async () => {
