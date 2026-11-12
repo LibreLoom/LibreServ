@@ -57,5 +57,5 @@ Do not publish 8787. Do not include the atlas-bot service in this compose file.
 
 Never privileged. Never mount the host container socket.
 Never mount `/stack` except the secrets env_file.
-Never take atlas-bot or ai-proxy down. Do not merge PRs. Do not start this container
+Never take atlas-bot or ai-gateway down. Do not merge PRs. Do not start this container
 from the agent box; deploy is a host operator job.
