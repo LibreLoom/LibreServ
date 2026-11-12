@@ -893,14 +893,36 @@ BuilderSession.propTypes = {
   onSaveStateChange: PropTypes.func.isRequired,
 };
 
+// Every textarea resizes itself to its text. Measuring one at a time (write
+// height:auto, read scrollHeight) forces a full layout per textarea, so a form
+// with a few hundred of them spent tens of seconds in layout when it opened.
+// Resizes are queued and done in three passes — reset all, read all, write all —
+// which costs two layouts however many textareas there are.
+const growQueue = new Set();
+let growScheduled = false;
+function flushGrow() {
+  growScheduled = false;
+  const els = [...growQueue].filter((el) => el.isConnected);
+  growQueue.clear();
+  for (const el of els) el.style.height = "auto";
+  const heights = els.map((el) => el.scrollHeight);
+  els.forEach((el, i) => {
+    el.style.height = `${heights[i]}px`;
+  });
+}
+function queueGrow(el) {
+  growQueue.add(el);
+  if (!growScheduled) {
+    growScheduled = true;
+    queueMicrotask(flushGrow);
+  }
+}
+
 /** A textarea that grows with what's typed, so nothing hides behind a scrollbar. */
 function AutoGrowTextarea({ value, onChange, className, ...rest }) {
   const ref = useRef(/** @type {HTMLTextAreaElement | null} */ (null));
   useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    if (ref.current) queueGrow(ref.current);
   }, [value]);
   return (
     <textarea

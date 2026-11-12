@@ -23,12 +23,26 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 // Heavy viewers and editors (CodeMirror, forms, diagrams, whiteboard, office)
 // load only when a file of that kind is opened.
 const loadTextFileEditor = () => import("./TextFileEditor.jsx");
+const loadFormBuilder = () => import("./forms/FormBuilder.jsx");
+const loadOfficeEditor = () => import("./office/OfficeEditor.jsx");
+const loadDiagramEditor = () => import("./diagram/DiagramEditor.jsx");
+const loadWhiteboardEditor = () => import("./whiteboard/WhiteboardEditor.jsx");
 const TextFileEditor = lazy(loadTextFileEditor);
-const FormBuilder = lazy(() => import("./forms/FormBuilder.jsx"));
+const FormBuilder = lazy(loadFormBuilder);
 const KindViewer = lazy(() => import("./viewers/KindViewer.jsx"));
-const OfficeEditor = lazy(() => import("./office/OfficeEditor.jsx"));
-const DiagramEditor = lazy(() => import("./diagram/DiagramEditor.jsx"));
-const WhiteboardEditor = lazy(() => import("./whiteboard/WhiteboardEditor.jsx"));
+const OfficeEditor = lazy(loadOfficeEditor);
+const DiagramEditor = lazy(loadDiagramEditor);
+const WhiteboardEditor = lazy(loadWhiteboardEditor);
+
+// The frame holds back the editor until its opening fade is over, so the
+// editor's code is fetched the moment a file is opened instead of when the
+// editor finally mounts.
+const loadEditorFor = (kind) =>
+  kind === "office" ? loadOfficeEditor
+    : kind === "form" ? loadFormBuilder
+      : kind === "diagram" ? loadDiagramEditor
+        : kind === "whiteboard" ? loadWhiteboardEditor
+          : loadTextFileEditor;
 
 // Text and Markdown are the commonest files to open. Fetch their editor while
 // the browser is idle so the first open doesn't wait on the download.
@@ -278,6 +292,11 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   }, [previewKey, onClose]);
 
   const editorActive = open && fullscreenEditor && !dismissed;
+  // Start the editor's download as soon as the file opens (see loadEditorFor).
+  const editorKindKey = isOffice ? "office" : isForm ? "form" : isDiagram ? "diagram" : isWhiteboard ? "whiteboard" : "text";
+  useEffect(() => {
+    if (editorActive) void loadEditorFor(editorKindKey)().catch(() => {});
+  }, [editorActive, editorKindKey]);
   // Fullscreen shells animate out after `open`/`expanded` drop — keep them
   // mounted until the exit keyframes finish.
   const editorOverlay = useOverlayPresence(editorActive);
