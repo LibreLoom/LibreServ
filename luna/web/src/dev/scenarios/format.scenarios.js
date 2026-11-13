@@ -1,4 +1,8 @@
 // Erasing a drive (FormatDriveFlow). Handlers live in ../fake/handlers/format.js.
+// The flow has no button of its own: in the app it opens only from the Add-drive
+// window (a drive Luna can't use as it is) and, later, the encryption hand-offs.
+// Scenarios that need it for any other drive open it through the dev page
+// /__flow/format?device=<name>[&password=<pw>] (dev/flows/FormatFlowHarness.jsx).
 // Every erase runs a phase every 1.5 s unless a scenario says otherwise, so a whole
 // run takes about ten seconds; the refresh scenarios stretch it so there is time to reload.
 import { seedRun } from "../fake/handlers/format.js";
@@ -9,6 +13,7 @@ const photos = [
   { kind: "file", name: "passport-scan.pdf" }, { kind: "file", name: "notes.txt" },
 ];
 const stick = (over = {}) => ({ name: "sdb", model: "SanDisk USB stick", size_bytes: 32_000_000_000, fs_type: "exfat", readable: true, entries: photos, ...over });
+const FLOW = "/__flow/format";
 const walk = ["Preview names the drive, its size, and its folders and files", "Erase drive sits under the contents, disabled with a countdown from 30; nothing to fill in", "After the countdown: Erase drive → named steps move along → Drive is ready", "Open drive lands on the new, empty drive"];
 
 /** @type {import("./registry.js").Scenario[]} */
@@ -19,12 +24,12 @@ export default [
     check: ["The card says the drive is blank and that using it erases what's on it", "Add drive → Erase and set up opens the erase window: This drive is blank", "The Erase drive button is enabled at once, with no countdown", "Erase → steps → Drive is ready → Open drive", "The Unrecognized drives card is gone and the drive is on the Files page"],
   },
   {
-    id: "format/drive-with-files", area: A, title: "USB stick with files: 30 second wait", url: "/files",
+    id: "format/drive-with-files", area: A, title: "USB stick with files: 30 second wait", url: `${FLOW}?device=sdb`,
     seed: (w) => { w.detected = [stick({ volume_label: "BACKUP2019" })]; },
-    check: ["Add drive → Add this drive still works as before", ...walk],
+    check: ["(Opened on the dev page: a readable stick is added as it is, so the app never erases it)", ...walk, "On /files, Add drive offers Add this drive and no erase"],
   },
   {
-    id: "format/preview-states", area: A, title: "Unreadable, locked, installer and mixed drives", url: "/files",
+    id: "format/preview-states", area: A, title: "Unreadable, locked, installer and mixed drives", url: FLOW,
     seed: (w) => {
       w.detected = [
         stick({ name: "sdb", model: "Damaged SD card", fs_type: "ntfs", readable: false, entries: [] }),
@@ -42,22 +47,31 @@ export default [
         }),
       ];
     },
-    check: ["Each drive's preview opens with a plain headline: Luna can't read this drive / installer disk", "Each part says in one sentence why its contents can't be shown", "Every one of them waits 30 seconds before the erase button works", "No word like filesystem, partition or LUKS appears anywhere"],
+    check: ["Open each drive from the dev page's list", "Each drive's preview opens with a plain headline: Luna can't read this drive / installer disk", "Each part says in one sentence why its contents can't be shown", "Every one of them waits 30 seconds before the erase button works", "No word like filesystem, partition or LUKS appears anywhere"],
   },
   {
-    id: "format/failure-mid-run", area: A, title: "The erase fails while writing", url: "/files",
+    id: "format/failure-mid-run", area: A, title: "The erase fails while writing", url: `${FLOW}?device=sdb`,
     seed: (w) => { w.detected = [stick({ formatFailAt: "formatting", formatFailMessage: "This drive stopped responding, so Luna couldn't erase it. Unplug it, plug it back in, and try again." })]; },
-    check: ["Steps move along, then the window says The erase didn't finish", "It says the old files may already be gone", "Look at the drive again returns to the preview", "No toast appears for the failure, and the drive is still in Unrecognized drives"],
+    check: ["Steps move along, then the window says The erase didn't finish", "It says the old files may already be gone", "Look at the drive again returns to the preview", "No toast appears for the failure, and on /files the drive is still in Unrecognized drives"],
   },
   {
-    id: "format/fails-before-erasing", area: A, title: "The erase fails before anything is touched", url: "/files",
+    id: "format/fails-before-erasing", area: A, title: "The erase fails before anything is touched", url: `${FLOW}?device=sdb`,
     seed: (w) => { w.detected = [stick({ formatFailAt: "releasing" })]; },
-    check: ["The window says Nothing was erased. The drive is as it was.", "Close, then Add drive works as before"],
+    check: ["The window says Nothing was erased. The drive is as it was.", "Close, then on /files Add drive works as before"],
   },
   {
-    id: "format/start-refused", area: A, title: "Start refused (old preview, wrong drive, busy)", url: "/files",
+    id: "format/start-refused", area: A, title: "Start refused (old preview, wrong drive, busy)", url: `${FLOW}?device=sdb`,
     seed: (w) => { w.detected = [stick({ swappedAtStart: true })]; },
     check: ["After the countdown, Erase drive shows: This isn't the drive that was shown", "The button becomes Look at the drive again and gives a fresh preview", "Other codes: break the request in Break things, or set busy / missingTool / filesAppearedAtStart on the detected drive"],
+  },
+  {
+    id: "format/erase-registered", area: A, title: "Erase a drive Luna already has", url: FLOW,
+    check: ["(The app has no Erase drive button; encryption's Protect / Remove protection will open this)", "Open the Family photos drive from the dev page's list", "The preview lists its real top-level folders", "The screen says share links and folder access go and whole-drive access stays", "After the erase it is still called Family photos, and Browse files shows it empty"],
+  },
+  {
+    id: "format/with-password", area: A, title: "Erase with a password (as the encryption sheet will)", url: `${FLOW}?device=sdb&password=correct%20horse%2042`,
+    seed: (w) => { w.detected = [stick({ model: "Blank USB stick", fs_type: null, readable: false, needs_setup: true, entries: [] })]; },
+    check: ["The screen says there is no way to recover the password", "Still no choice of format or encryption anywhere", "The steps include protecting the drive with the password"],
   },
   {
     id: "format/refresh-mid-format", area: A, title: "Reload while a new drive is being erased", url: "/files",

@@ -33,6 +33,8 @@ const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 const SettingsPage = lazy(loadSettingsPage);
 const PublicSharePage = lazy(() => import("./pages/PublicSharePage"));
 const RecoveryWizardPage = lazy(() => import("./pages/RecoveryWizardPage"));
+// Dev only: opens flows that have no button of their own, for the state gallery.
+const FormatFlowHarness = import.meta.env.DEV ? lazy(() => import("./dev/flows/FormatFlowHarness.jsx")) : null;
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -149,6 +151,7 @@ export default function App() {
                 <Route path="/shared" element={<SharedPage />} />
                 <Route path="/photos" element={<PhotosToGalleryRedirect />} />
                 <Route path="/settings" element={<SettingsPage />} />
+                {FormatFlowHarness && <Route path="/__flow/format" element={<FormatFlowHarness />} />}
               </Route>
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
