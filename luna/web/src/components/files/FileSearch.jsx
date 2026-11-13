@@ -580,7 +580,7 @@ export default function FileSearch() {
                 </p>
               )}
 
-              {users.isError && user?.role === "admin" && (
+              {peopleFailed && trimmed.length >= MIN_SEARCH_LENGTH && (
                 <PageNotice variant="error" className="mb-3">Could not search people. <Button variant="outline" surface="primary" size="sm" onClick={() => users.refetch()}>Try again</Button></PageNotice>
               )}
 
@@ -716,7 +716,7 @@ export default function FileSearch() {
                         <li role="presentation" className="px-1 pt-2 text-xs font-mono text-primary">People</li>
                         {people.slice(0, expandedGroups.includes("People") ? undefined : 4).map((person) => (
                           <li key={person.id} data-slot="file-search-item">
-                            <Link data-slot="file-search-link" aria-label={[person.display_name, person.username].filter(Boolean).join(", ")} to={person.id === user?.id ? "/settings#security" : `/settings/users/${encodeURIComponent(person.id)}`} onClick={() => beginClose("medium")} className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent">
+                            <Link data-slot="file-search-link" aria-label={[person.display_name, person.username].filter(Boolean).join(", ")} to={person.id === user?.id ? "/settings#security" : "/settings#users"} onClick={() => beginClose("medium")} className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent">
                               <span className="block">{person.display_name || person.username}</span>
                               {person.display_name && person.username && person.display_name !== person.username && <span className="block text-sm"><InlinePill>{person.username}</InlinePill></span>}
                             </Link>

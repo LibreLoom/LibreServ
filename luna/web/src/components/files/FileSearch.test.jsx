@@ -791,7 +791,7 @@ describe("FileSearch", () => {
     await openSearchOverlay();
     fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "alcie" } });
     if (role === "admin") {
-      expect(await screen.findByRole("link", { name: /Alice, alice/i })).toHaveAttribute("href", "/settings/users/p1");
+      expect(await screen.findByRole("link", { name: /Alice, alice/i })).toHaveAttribute("href", "/settings#users");
       expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/v1/users/directory"))).toBe(true);
       expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/v1/users"))).toBe(false);
     } else {
@@ -850,6 +850,10 @@ describe("FileSearch", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "zzqzxnomatch" } });
     expect(await screen.findByText(/Could not search people/i)).toBeInTheDocument();
     expect(screen.queryByText("Searching people…")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "z" } });
+    expect(screen.queryByText(/Could not search people/i)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "" } });
+    expect(screen.queryByText(/Could not search people/i)).not.toBeInTheDocument();
   });
 
   it("refreshes people when search is reopened", async () => {
@@ -863,7 +867,7 @@ describe("FileSearch", () => {
     people.splice(0, 1, { id: "p2", username: "alicia", display_name: "Alicia" });
     await openSearchOverlay();
     fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "alicia" } });
-    expect(await screen.findByRole("link", { name: /Alicia, alicia/i })).toHaveAttribute("href", "/settings/users/p2");
+    expect(await screen.findByRole("link", { name: /Alicia, alicia/i })).toHaveAttribute("href", "/settings#users");
   });
 
   it("waits for people and distinguishes matching names by username", async () => {
@@ -879,8 +883,20 @@ describe("FileSearch", () => {
     expect(await screen.findByText("Searching people…")).toBeInTheDocument();
     expect(screen.queryByText("Nothing matched")).not.toBeInTheDocument();
     release();
-    expect(await screen.findByRole("link", { name: /Alice, alice-one/i })).toHaveAttribute("href", "/settings/users/a1");
-    expect(screen.getByRole("link", { name: /Alice, alice-two/i })).toHaveAttribute("href", "/settings/users/a2");
+    expect(await screen.findByRole("link", { name: /Alice, alice-one/i })).toHaveAttribute("href", "/settings#users");
+    expect(screen.getByRole("link", { name: /Alice, alice-two/i })).toHaveAttribute("href", "/settings#users");
+  });
+
+  it("navigates a person result to the existing Users settings category", async () => {
+    function Location() {
+      const { pathname, hash } = useLocation();
+      return <output aria-label="Current page">{pathname + hash}</output>;
+    }
+    renderSearch([], { people: [{ id: "p1", username: "alice", display_name: "Alice" }], extra: <Location /> });
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "alice" } });
+    fireEvent.click(await screen.findByRole("link", { name: /Alice, alice/i }));
+    await waitFor(() => expect(screen.getByLabelText("Current page")).toHaveTextContent("/settings#users"));
   });
 
   it("searches all files and folders without a filter", async () => {
