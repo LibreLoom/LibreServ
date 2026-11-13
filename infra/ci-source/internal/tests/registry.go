@@ -710,9 +710,9 @@ func addReleaseSlowTest() {
 		// other, and the volume prefix keeps the whole set away from
 		// release-integration's — two npm ci/vite pairs on one node_modules
 		// volume corrupt it (ENOTEMPTY, gutted trees behind a matching stamp).
-		Command:     "LIBRESERV_RELEASE_VOLUME_PREFIX=libreserv-release-slow- LIBRESERV_RELEASE_SLOW_TESTS=1 go test -count=1 -p 1 -timeout 120m ./internal/release/...",
-		WorkDir:     "/repo/infra/ci-source",
-		Timeout:     150 * time.Minute,
+		Command: "LIBRESERV_RELEASE_VOLUME_PREFIX=libreserv-release-slow- LIBRESERV_RELEASE_SLOW_TESTS=1 go test -count=1 -p 1 -timeout 120m ./internal/release/...",
+		WorkDir: "/repo/infra/ci-source",
+		Timeout: 150 * time.Minute,
 	})
 }
 
