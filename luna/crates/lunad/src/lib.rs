@@ -153,6 +153,8 @@ pub struct AppState {
     pub search_index: Arc<crate::files::search_indexer::SearchIndexer>,
     pub collab: std::sync::Arc<crate::office::collab::CollabHub>,
     pub office_docs: std::sync::Arc<crate::office::office_docs::OfficeDocHub>,
+    /// Drive erase previews and runs, in memory (`drives::format`).
+    pub format: Arc<crate::drives::format::FormatService>,
 }
 
 impl AppState {
@@ -224,6 +226,7 @@ impl AppState {
             search_index: crate::files::search_indexer::SearchIndexer::start(),
             collab: Arc::new(crate::office::collab::CollabHub::new()),
             office_docs: Arc::new(crate::office::office_docs::OfficeDocHub::new()),
+            format: Arc::new(crate::drives::format::FormatService::default()),
         }
     }
 

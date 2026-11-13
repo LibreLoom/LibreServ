@@ -241,6 +241,40 @@ pub fn output_limited(cmd: &mut Command, timeout: Duration) -> io::Result<std::p
     collect(child, timeout)
 }
 
+/// Run a [`hardened`] command with `input` on its stdin, then wait for it with
+/// a deadline. For tools that take a secret (a drive password) or a script on
+/// stdin: nothing sensitive ever reaches a command line, where `/proc` would
+/// show it to every process. stdout is discarded, so a chatty tool can never
+/// fill a pipe nobody is reading; stderr is captured for the error message.
+///
+/// A tool that exits before reading its input (a bad device, say) is not an
+/// error here: the broken pipe is ignored and its exit status and stderr say
+/// what went wrong.
+pub fn output_with_input(
+    cmd: &mut Command,
+    input: &[u8],
+    timeout: Duration,
+) -> io::Result<std::process::Output> {
+    use std::io::Write;
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        match stdin.write_all(input) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::BrokenPipe => {}
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(e);
+            }
+        }
+        // Dropping the handle closes the pipe, which is the only "end of input".
+    }
+    collect(child, timeout)
+}
+
 fn collect(mut child: Child, timeout: Duration) -> io::Result<std::process::Output> {
     let status = wait_timeout(&mut child, timeout)?;
     let mut stdout = Vec::new();

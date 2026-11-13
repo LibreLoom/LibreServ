@@ -25,6 +25,13 @@ struct DriveJson {
     writable: bool,
     /// The requesting user's capabilities on the drive root, server-stamped.
     caps: String,
+    /// The drive is being erased right now. Sent only while true, so a UI treats
+    /// a missing key as false.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    formatting: bool,
+    /// The erase in progress, for an Admin whose page was refreshed mid-run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -38,6 +45,12 @@ struct DetectedDriveJson {
     fs_type: Option<String>,
     /// The system mounted it read-only (e.g. a locked SD card).
     read_only: bool,
+    /// The drive is being erased right now. Sent only while true.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    formatting: bool,
+    /// The erase in progress, so a refreshed page can find it again.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -148,6 +161,11 @@ async fn list(
                 let mut json: DriveJson = d.into();
                 // Checked before Members' mount path is blanked below.
                 json.mounted = state.drive_manager.mount_is_live(&json.mount_point);
+                let run = state.format.running_on_device(&json.device);
+                json.formatting = run.is_some() || crate::drives::format::drive_is_formatting(&id);
+                if admin {
+                    json.format_id = run.map(|r| r.id);
+                }
                 json.writable = admin || crate::auth::has_write_on_drive(&user, &conn, &id);
                 json.caps =
                     crate::access::caps_to_str(crate::auth::caps_on_path(&user, &conn, &id, ""));
@@ -234,15 +252,20 @@ async fn detected(
                     && (d.removable || d.usb || d.mount_point.is_some())
                     && !known_devices.contains(&d.name)
             })
-            .map(|d| DetectedDriveJson {
-                name: d.name,
-                model: d.model,
-                size_bytes: d.size_bytes,
-                removable: d.removable,
-                usb: d.usb,
-                mount_point: d.mount_point,
-                fs_type: d.fs_type,
-                read_only: d.mount_readonly,
+            .map(|d| {
+                let run = state.format.running_on_device(&d.name);
+                DetectedDriveJson {
+                    formatting: run.is_some(),
+                    format_id: run.map(|r| r.id),
+                    name: d.name,
+                    model: d.model,
+                    size_bytes: d.size_bytes,
+                    removable: d.removable,
+                    usb: d.usb,
+                    mount_point: d.mount_point,
+                    fs_type: d.fs_type,
+                    read_only: d.mount_readonly,
+                }
             })
             .collect(),
     ))
@@ -765,7 +788,7 @@ async fn drive_summary(
 }
 
 /// The sysfs scan reads /proc + the mock-drive dir — run off the async worker.
-async fn find_device(name: &str) -> Option<crate::drives::detect::DetectedDrive> {
+pub(crate) async fn find_device(name: &str) -> Option<crate::drives::detect::DetectedDrive> {
     // No /proc/mounts off Linux (e.g. macOS dev hosts) — mock drives still scan.
     let name = name.to_string();
     tokio::task::spawn_blocking(move || {
@@ -780,7 +803,7 @@ async fn find_device(name: &str) -> Option<crate::drives::detect::DetectedDrive>
 }
 
 /// Temporary mounts and adoption share one lock per physical device.
-async fn lock_idle_device(
+pub(crate) async fn lock_idle_device(
     state: &AppState,
     name: &str,
 ) -> Result<tokio::sync::OwnedMutexGuard<()>, (StatusCode, Json<serde_json::Value>)> {
@@ -798,7 +821,7 @@ async fn lock_idle_device(
     Ok(guard)
 }
 
-fn require_admin(
+pub(crate) fn require_admin(
     user: crate::auth::CurrentUser,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
     if user.role != "admin" {
@@ -895,6 +918,8 @@ impl From<crate::db::DriveRow> for DriveJson {
             mounted: false,
             writable: false,
             caps: String::new(),
+            formatting: false,
+            format_id: None,
         }
     }
 }

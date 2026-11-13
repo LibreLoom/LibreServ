@@ -13,9 +13,10 @@
 //! - Luna only unmounts mount points it created, except USB/removable sticks
 //!   that the OS mounted read-only (iso9660 installer media, or an automount
 //!   left `ro`). Those are remounted read-write.
-//! - Luna does not format or encrypt drives (removed for a redesign, see
-//!   `docs/drive-teardown/intents.md`): a drive that has no filesystem Luna can
+//! - Adopt never erases or formats. A drive that has no filesystem Luna can
 //!   use is reported as needing setup, and an encrypted drive as encrypted.
+//!   Erasing a drive is a separate, explicit flow with exactly one
+//!   implementation: [`format`] (see `docs/drive-format/plan.md`).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -140,6 +141,27 @@ pub struct DriveManager {
     /// so a background scan does not mount the same stick every few seconds. Cleared by
     /// every call that adopts, inspects, peeks, writes, ejects, releases or removes a drive.
     marker_memo: Arc<std::sync::Mutex<MarkerMemo>>,
+    /// Kernel names of disks a format is erasing right now. Background scans
+    /// must not mount or probe them: a read-only mount in the middle of a wipe
+    /// would pin the old partition table and could even resurrect the old
+    /// filesystem.
+    formatting_devices: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+}
+
+/// Keeps a disk out of background probing until dropped. See
+/// [`DriveManager::begin_formatting_device`].
+pub struct FormattingDeviceGuard {
+    devices: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    name: String,
+}
+
+impl Drop for FormattingDeviceGuard {
+    fn drop(&mut self) {
+        self.devices
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.name);
+    }
 }
 
 /// Keeps a drive out of background reconciliation until dropped.
@@ -179,6 +201,7 @@ impl DriveManager {
             look_lock: Arc::new(std::sync::Mutex::new(())),
             closing: Arc::default(),
             marker_memo: Arc::default(),
+            formatting_devices: Arc::default(),
         }
     }
 
@@ -191,7 +214,7 @@ impl DriveManager {
     }
 
     /// Drop every remembered marker id. Called whenever a drive is changed on purpose.
-    fn forget_marker_memo(&self) {
+    pub(crate) fn forget_marker_memo(&self) {
         self.marker_memo
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -208,6 +231,41 @@ impl DriveManager {
             closing: self.closing.clone(),
             id: id.to_string(),
         }
+    }
+
+    /// Mark a disk as being erased until the guard is dropped. Reconcile and the
+    /// boot-time recovery scan leave it alone (they see no markers on it), so
+    /// nothing mounts it under the format. Unlike filtering the disk out of
+    /// `detected`, a registered drive on it is not marked `missing`.
+    pub fn begin_formatting_device(&self, name: &str) -> FormattingDeviceGuard {
+        self.formatting_devices
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(name.to_string());
+        FormattingDeviceGuard {
+            devices: self.formatting_devices.clone(),
+            name: name.to_string(),
+        }
+    }
+
+    pub fn is_formatting_device(&self, name: &str) -> bool {
+        self.formatting_devices
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(name)
+    }
+
+    /// The lock every temporary look-inside mount takes, so two of them never
+    /// fight over one mount point.
+    pub(crate) fn look_guard(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.look_lock.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Where a partition is briefly mounted read-only to show what is on it
+    /// before it is erased.
+    pub(crate) fn format_look_point(&self, partition: &str) -> PathBuf {
+        self.foreign_base
+            .join(format!("fmt-{}", sanitize(partition)))
     }
 
     fn is_closing(&self, id: &str) -> bool {
@@ -1055,6 +1113,11 @@ impl DriveManager {
         if let Some(mp) = device.mount_point.as_deref() {
             return ids_at(Path::new(mp));
         }
+        // A disk being erased has no markers worth reading, and mounting it
+        // would get in the way.
+        if self.is_formatting_device(&device.name) {
+            return Vec::new();
+        }
         // A stick we already read under this plug-in gets no second mount.
         let memo_key = device.diskseq.map(|seq| (device.name.clone(), seq));
         if let Some(key) = &memo_key
@@ -1207,7 +1270,7 @@ impl DriveManager {
         device: &DetectedDrive,
         f: impl FnOnce(&Path) -> R,
     ) -> Option<R> {
-        if device.mount_point.is_some() {
+        if device.mount_point.is_some() || self.is_formatting_device(&device.name) {
             return None;
         }
         let choice = self.choice_for(device);
@@ -1230,11 +1293,11 @@ impl DriveManager {
         Some(out)
     }
 
-    fn foreign_mount_point(&self, device_name: &str) -> PathBuf {
+    pub(crate) fn foreign_mount_point(&self, device_name: &str) -> PathBuf {
         self.foreign_base.join(sanitize(device_name))
     }
 
-    fn adopted_mount_point(&self, id: &str) -> PathBuf {
+    pub(crate) fn adopted_mount_point(&self, id: &str) -> PathBuf {
         self.adopted_base.join(id)
     }
 
@@ -1251,7 +1314,7 @@ impl DriveManager {
 }
 
 /// Write out everything the kernel still holds for the filesystem at `path`.
-fn sync_filesystem(path: &Path) -> std::io::Result<()> {
+pub(crate) fn sync_filesystem(path: &Path) -> std::io::Result<()> {
     use std::os::fd::AsRawFd;
     let dir = std::fs::File::open(path)?;
     #[cfg(target_os = "linux")]
@@ -2468,6 +2531,7 @@ mod tests {
 
 pub mod detect;
 pub mod drive_db;
+pub mod format;
 pub mod fsprobe;
 pub mod fstrim;
 pub mod layout;

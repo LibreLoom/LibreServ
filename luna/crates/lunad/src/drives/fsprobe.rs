@@ -3,7 +3,8 @@
 //! The rapidinstall ISO is an isohybrid: the whole stick mounts as `iso9660`,
 //! which the kernel will not write to. After install, people plug that same
 //! Lexar/etc. stick back in as storage. Luna must notice and explain that it
-//! can't use it as it is. Luna does not erase or format drives.
+//! can't use it as it is. Probing never writes; erasing a drive is the separate
+//! `drives::format` flow.
 
 use std::path::Path;
 use std::process::{Command, Stdio};

@@ -225,6 +225,11 @@ pub fn drive_root(conn: &rusqlite::Connection, drive_id: &str) -> Result<DriveRo
     if drive.mount_point.is_empty() || drive.state == "missing" || drive.state == "ejected" {
         return Err(FilesError::UnknownDrive);
     }
+    // A drive being erased is unmounted, so its mount folder is an empty folder
+    // on the system disk. Nothing may read or write there.
+    if crate::drives::format::drive_is_formatting(drive_id) {
+        return Err(FilesError::UnknownDrive);
+    }
     Ok(drive)
 }
 
