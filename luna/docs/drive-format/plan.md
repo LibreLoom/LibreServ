@@ -102,6 +102,8 @@ affected backup rules are cleared (lift `invalidate_formatted_contents`).
   to 32 MiB..1 GiB (the 2 GiB Wyse OOM). One keyslot. **No recovery:** forget the
   password, lose the files, and the UI says so plainly before formatting.
 - Password change: add new keyslot, verify, remove old (Admin, needs current one).
+- Who: **unlock** is open to anyone who can see the drive; **lock** and **change
+  password** are Admin only.
 - Startup never mounts an encrypted drive; after a boot they're all locked.
   After a daemon-only restart, check mapper + mount + marker before deciding.
   Locked drives must be visible: a dashboard notice ("2 drives are locked, so

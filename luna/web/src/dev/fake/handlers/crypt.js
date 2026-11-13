@@ -84,6 +84,7 @@ post("/api/v1/drives/:id/unlock", ({ world, user, params, body }) => {
 });
 
 post("/api/v1/drives/:id/lock", ({ world, user, params }) => {
+  if (!isAdmin(user)) throw fail(403, "Only an Admin can lock this drive.");
   authorize(world, user, params.id);
   const d = driveOf(world, params.id);
   ready(world, d);

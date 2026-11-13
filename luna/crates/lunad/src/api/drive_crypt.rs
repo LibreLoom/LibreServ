@@ -456,6 +456,14 @@ async fn lock(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    // Unlocking is for anyone who can see the drive; locking is Admin only, so a
+    // Member can't shut a drive away from everyone else.
+    if user.role != "admin" {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an Admin can lock this drive.",
+        ));
+    }
     authorize(&state, &user, &id)?;
     let first = row(&state, &id)?;
     ready(&state, &first)?;
@@ -783,7 +791,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_member_who_can_see_the_drive_can_unlock_and_lock_it_but_a_stranger_cannot() {
+    async fn a_member_who_can_see_the_drive_can_unlock_it_but_not_lock_it_and_a_stranger_cannot() {
         let h = harness();
         let (status, _) = call(
             &h,
@@ -795,8 +803,8 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK);
         let (status, _) = call(&h, "POST", &h.uri("lock"), None, &h.member).await;
-        assert_eq!(status, StatusCode::OK);
-        assert!(drive(&h).locked);
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(!drive(&h).locked);
         // No access at all.
         let stranger = h
             .state
