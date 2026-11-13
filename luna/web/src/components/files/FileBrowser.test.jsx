@@ -1631,6 +1631,15 @@ describe("FileBrowser inline states", () => {
     expect(card).not.toBe(empty);
   });
 
+  it("leaves the New/Upload hint out when neither control is on screen", async () => {
+    // View-only member on a writable drive: the drive accepts uploads, but
+    // this person has no Upload cap, so no Upload button or drop target.
+    stubListing({ "": [] });
+    renderBrowser({ multiSelect: false, enableUploadDrop: false });
+    expect(await screen.findByText("There's nothing here.")).toBeInTheDocument();
+    expect(screen.queryByText(/Use New or Upload/i)).toBeNull();
+  });
+
   it("renders both the trash row and the empty state inside the list card on an empty drive", async () => {
     stubListing({ "": [] });
     renderBrowser({

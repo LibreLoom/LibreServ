@@ -2234,7 +2234,7 @@ export default function FileBrowser({
               className={`flex flex-col items-center justify-center gap-2 py-20 px-3 text-center select-none font-mono text-base sm:text-lg ${fg}`}
             >
               {emptyTitle || "There's nothing here."}
-              {!emptyTitle && !isPicker && (folderActions || uploadButton) && (
+              {!emptyTitle && !isPicker && (folderActions || (enableUploadDrop && uploadButton)) && (
                 <p className={`font-sans text-sm ${fg}`}>Use New or Upload to add files to this folder.</p>
               )}
             </li>
@@ -2314,6 +2314,7 @@ FileBrowser.propTypes = {
   renderSelectionActions: PropTypes.func,
   enableDownload: PropTypes.bool,
   enableUploadDrop: PropTypes.bool,
+  uploadButton: PropTypes.bool,
   linkNavigation: PropTypes.bool,
   folderHref: PropTypes.func,
   fileHref: PropTypes.func,

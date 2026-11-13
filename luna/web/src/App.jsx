@@ -59,7 +59,8 @@ function RequireAuth({ children }) {
         <p className="font-mono text-lg">Luna isn't answering</p>
         <p className="max-w-sm text-sm text-secondary">
           This device cannot reach Luna right now. Check that it is on the same
-          network as Luna, then reload this page once Luna is back.
+          network as Luna — this page will pick up where it left off on its own
+          once Luna answers.
         </p>
       </div>
     ) : (

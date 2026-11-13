@@ -80,6 +80,19 @@ describe("ConnectDeviceCodeForm", () => {
     await waitFor(() => expect(calls(fetchMock, "DELETE")).toHaveLength(1));
   });
 
+  it("closes the confirm and shows the server's words when removal fails", async () => {
+    const fetchMock = stub({ status: { connect_active: true }, onDelete: () => json({ error: "Luna could not remove the token. Try again." }, 500) });
+    const user = userEvent.setup();
+    renderForm();
+    await user.click(await screen.findByRole("button", { name: "Remove device token" }));
+    const dialog = await screen.findByRole("dialog", { name: /Remove device token/i });
+    await user.click(within(dialog).getByRole("button", { name: "Remove device token" }));
+    await waitFor(() => expect(calls(fetchMock, "DELETE")).toHaveLength(1));
+    // The dialog steps aside so the inline error is readable.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await screen.findByRole("alert")).toHaveTextContent("Luna could not remove the token");
+  });
+
   it("hides Remove when there is no token", async () => {
     stub({ status: { connect_active: false } });
     renderForm();
