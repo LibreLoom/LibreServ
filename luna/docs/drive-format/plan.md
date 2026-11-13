@@ -104,6 +104,8 @@ affected backup rules are cleared (lift `invalidate_formatted_contents`).
 - Password change: add new keyslot, verify, remove old (Admin, needs current one).
 - Startup never mounts an encrypted drive; after a boot they're all locked.
   After a daemon-only restart, check mapper + mount + marker before deciding.
+  Locked drives must be visible: a dashboard notice ("2 drives are locked, so
+  backups are paused") so nobody finds out weeks later.
 - One gate: `files::drive_root()` refuses a locked drive (HTTP 423), which covers
   browse, uploads, WebDAV, gallery, search and backups.
 - Per-user, per-drive unlock rate limit (five tries).
@@ -119,11 +121,22 @@ case-insensitive name collisions; no Unix permissions (the read-only-drive
 behaviour); no symlinks or xattrs; no journal (run `fsck.exfat` on mount after an
 unclean unplug). Fix gaps in the files layer, not in the format flow.
 
+No journal is the real cost of exFAT on a box that's always on, and the RAM write
+cache widens the window a power cut can corrupt. NTFS (read-only on Mac), FAT32
+(4 GB files) and UDF (inconsistent support) are worse, so exFAT stays. Hardening is
+a **release blocker**: flush writes to exFAT drives promptly (short cache
+write-back, no long-held dirty data), and `fsck.exfat` before mounting after any
+unclean stop.
+
 ## Frontend (`luna/web`)
 
 ### `FormatDriveFlow` (one component)
 
 `<FormatDriveFlow device={…} password={optional} onDone={…} onCancel={…} />`
+
+The 30-second wait is friction, not proof; the Preview is what stops a wrong-drive
+erase, so it must show recognisable contents (top folders and file names, counts,
+sizes used), not just a size and partition count.
 
 Steps: **Preview** (what's on the drive; "Luna can't read this drive" when it
 can't) → **Confirm** (the erase button, disabled with a visible countdown until
