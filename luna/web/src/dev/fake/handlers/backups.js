@@ -182,6 +182,9 @@ post("/api/v1/cloud/backups", ({ world, user, body }) => {
     return backupJson(world, existing, user);
   }
   if (!world.connect?.enabled && !world.connectActive) throw fail(400, "Luna could not set up its backup identity. Try again, or contact your Admin.");
+  if ((world.connect?.connect_active ?? world.connectActive) && world.connect?.backup_unlocked !== true) {
+    throw fail(402, "Add a payment card at Luna Connect (connect.luna.libreloom.org), then start the cloud backup.");
+  }
   const parent = coveringBackup(world, { id: "probe", kind: "cloud", source_drive: src, source_path: norm, target_drive: "", private_owner: owner });
   if (parent) throw refusal(`Included in the backup of "${folderName(parent.source_path, label(world, src))}".`);
   const row = makeCloudBackup({

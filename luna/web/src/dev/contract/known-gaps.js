@@ -22,4 +22,14 @@ export const KNOWN_GAPS = [
     path: "$.device_token_error",
     reason: "lunad sends device_token_error only when the saved token is unusable (serde skips None), and no lunad API test records that state, so the fixture has no key for it. The fake emits it for the dashboard's Needs you row (lib/needsYou.js). Remove this once a lunad test GETs /connect/status with a rejected token.",
   },
+  {
+    key: "GET /api/v1/connect/status",
+    path: "$.cloud_backup",
+    reason: "lunad now sends cloud_backup (not_linked / no_payment / ready) in place of card_on_file; the recorded fixture predates it. Remove this and the card_on_file entry after the next full ./ci run -p luna rewrites lunad-responses.json.",
+  },
+  {
+    key: "GET /api/v1/connect/status",
+    path: "$.card_on_file",
+    reason: "lunad no longer sends card_on_file (replaced by cloud_backup); the recorded fixture predates that. Remove with the cloud_backup entry after the next full ./ci run -p luna.",
+  },
 ];

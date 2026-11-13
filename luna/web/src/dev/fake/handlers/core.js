@@ -512,7 +512,9 @@ get("/api/v1/network/status", ({ world, user }) => {
 get("/api/v1/connect/status", ({ world, user }) => {
   const admin = isAdmin(user) || world.users.length === 0;
   const { device_code: code, ...rest } = world.connect;
-  const status = { connect_active: false, enabled: false, base_url: "https://connect.luna.libreloom.org", tunnel_active: false, backup_unlocked: false, paired: false, unclaimed: false, backup_sources: [], card_on_file: true, device_code: code ?? null, domain: null, hostname: null, subdomain: null, ...rest };
+  const status = { enabled: false, base_url: "https://connect.luna.libreloom.org", tunnel_active: false, backup_unlocked: false, paired: false, unclaimed: false, backup_sources: [], device_code: code ?? null, domain: null, hostname: null, subdomain: null, connect_active: world.connectActive, ...rest };
+  // lunad's one answer to "can cloud backup store anything?" (net/connect.rs status_for).
+  status.cloud_backup = !status.connect_active || status.device_token_error ? "not_linked" : status.backup_unlocked ? "ready" : "no_payment";
   // lunad sends device_token_error only when the saved token is unusable (serde skips None),
   // and the dashboard's "Needs you" row is built from it (lib/needsYou.js).
   if (status.device_token_error) Object.assign(status, { enabled: false, paired: false, unclaimed: false, tunnel_active: false });

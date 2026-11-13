@@ -86,6 +86,10 @@ enum TokenCheck {
     Unknown,
 }
 
+pub const CLOUD_BACKUP_NOT_LINKED: &str = "not_linked";
+pub const CLOUD_BACKUP_NO_PAYMENT: &str = "no_payment";
+pub const CLOUD_BACKUP_READY: &str = "ready";
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ConnectStatus {
     /// True when `{data_dir}/device-token` exists and holds a valid device token.
@@ -97,6 +101,9 @@ pub struct ConnectStatus {
     pub subdomain: Option<String>,
     pub tunnel_active: bool,
     pub backup_unlocked: bool,
+    /// Whether cloud backup can store anything: `not_linked` (no working device token),
+    /// `no_payment` (linked, but Luna Connect has no active payment card), or `ready`.
+    pub cloud_backup: &'static str,
     pub paired: bool,
     pub unclaimed: bool,
     pub device_code: Option<String>,
@@ -209,6 +216,13 @@ impl ConnectService {
         {
             tunnel_err = Some(TUNNEL_NOT_RUNNING_MSG.to_string());
         }
+        status.cloud_backup = if !status.connect_active || token_error.is_some() {
+            CLOUD_BACKUP_NOT_LINKED
+        } else if !status.backup_unlocked {
+            CLOUD_BACKUP_NO_PAYMENT
+        } else {
+            CLOUD_BACKUP_READY
+        };
         status.device_token_error = token_error;
         status.connect_unreachable = unreachable;
         status.tunnel_error = tunnel_err;
@@ -262,6 +276,7 @@ impl ConnectService {
             subdomain: None,
             tunnel_active: false,
             backup_unlocked: false,
+            cloud_backup: CLOUD_BACKUP_NOT_LINKED,
             paired: false,
             unclaimed: true,
             device_code: None,
@@ -316,6 +331,7 @@ impl ConnectService {
                 .get("backup_unlocked")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false),
+            cloud_backup: CLOUD_BACKUP_NOT_LINKED,
             paired: enabled,
             unclaimed: !enabled,
             // Permanent device token stays available after claim so HDMI (and
@@ -973,6 +989,19 @@ impl ConnectService {
             .get("backup_unlocked")
             .and_then(|v| v.as_bool())
             .unwrap_or(false)
+    }
+
+    /// Record that Luna Connect refused to store a cloud copy for a missing payment card, so
+    /// the UI says so before the next status pull confirms it.
+    pub fn mark_backup_locked(&self) {
+        let mut state = self.load();
+        if state.get("backup_unlocked").and_then(|v| v.as_bool()) == Some(false) {
+            return;
+        }
+        state["backup_unlocked"] = json!(false);
+        if let Err(err) = self.save(&state) {
+            tracing::warn!(error = ?err, "could not record that cloud backup needs a payment card");
+        }
     }
 
     fn ensure_tunnel(&self) -> Result<(), ConnectError> {

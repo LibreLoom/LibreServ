@@ -24,7 +24,9 @@ function stubApi({
   const fetchMock = vi.fn(async (url, options = {}) => {
     const method = options.method || "GET";
     if (url === "/api/v1/auth/status") return json({ has_admin: true, connect_active: connected });
-    if (url === "/api/v1/connect/status") return json({ connect_active: connected, card_on_file: cardOnFile });
+    if (url === "/api/v1/connect/status") {
+      return json({ connect_active: connected, cloud_backup: !connected ? "not_linked" : cardOnFile ? "ready" : "no_payment" });
+    }
     if (url === "/api/v1/cloud/phrase" && method === "GET") return json(phrase);
     if (url === "/api/v1/cloud/backups" && method === "GET") return json(backups);
     if (/\/run(\?|$)/.test(url) && method === "POST") return json(runResponse);

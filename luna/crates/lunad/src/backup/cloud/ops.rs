@@ -37,8 +37,9 @@ const USER_LIST_FAILED: &str =
 /// Start of the message Luna Connect sends with a 402 when the account has no payment card.
 /// `StoreError::Rejected` keeps only the message, so the status code is matched through it.
 const CARD_REQUIRED_PREFIX: &str = "Add a payment card at connect.luna.libreloom.org";
-/// Account-wide meta key: "1" while the last cloud run was refused for a missing card, "" otherwise.
-const CARD_MARKER: &str = "cloud_payment_required";
+/// Why a new cloud backup is refused while Luna Connect has no active payment card.
+pub const NO_PAYMENT_REFUSAL: &str =
+    "Add a payment card at Luna Connect (connect.luna.libreloom.org), then start the cloud backup.";
 
 fn lock(db: &crate::Db) -> std::sync::MutexGuard<'_, Connection> {
     db.lock().unwrap_or_else(|p| p.into_inner())
@@ -67,9 +68,9 @@ pub fn create(
     source_drive: &str,
     source_path: &str,
 ) -> Result<ProtectionRow, Refused> {
-    // A new backup means the account may now have a card, so an earlier refusal stops counting.
-    if let Err(err) = clear_card_marker(db) {
-        tracing::warn!(error = %err, "could not clear the card marker");
+    // Luna Connect would refuse every copy, so don't start a backup that can only sit paused.
+    if connect.is_connect_active() && !connect.backup_unlocked() {
+        return Err(Refused(NO_PAYMENT_REFUSAL.to_string()));
     }
     let norm = crate::access::normalize_subject_path(source_path);
 
@@ -286,38 +287,18 @@ pub fn run(
             None => users_problem.to_string(),
         });
     }
-    if let Err(err) = note_card_marker(db, outcome.problem.as_deref()) {
-        tracing::warn!(error = %err, "could not record the payment card state");
+    // Luna Connect refused for a missing card: say so now instead of at the next status pull.
+    if outcome
+        .problem
+        .as_deref()
+        .is_some_and(|p| p.contains(CARD_REQUIRED_PREFIX))
+    {
+        connect.mark_backup_locked();
     }
     if let Err(err) = record(db, id, now, &outcome) {
         tracing::warn!(error = %err, id, "could not record a cloud backup run");
     }
     outcome
-}
-
-/// Set the card marker when Luna Connect refused a run for a missing card, and clear it on a
-/// clean run. A run that failed for another reason leaves it as it was.
-fn note_card_marker(db: &crate::Db, problem: Option<&str>) -> anyhow::Result<()> {
-    let conn = lock(db);
-    match problem {
-        Some(message) if message.contains(CARD_REQUIRED_PREFIX) => {
-            db::set_meta(&conn, CARD_MARKER, "1")
-        }
-        Some(_) => Ok(()),
-        None => db::set_meta(&conn, CARD_MARKER, ""),
-    }
-}
-
-/// Forget an earlier card refusal, so the next run asks Luna Connect again.
-fn clear_card_marker(db: &crate::Db) -> anyhow::Result<()> {
-    let conn = lock(db);
-    db::set_meta(&conn, CARD_MARKER, "")
-}
-
-/// True while Luna Connect says this account has no payment card for cloud backups.
-pub fn card_on_file(db: &crate::Db) -> bool {
-    let conn = lock(db);
-    !matches!(db::get_meta(&conn, CARD_MARKER), Ok(Some(v)) if v == "1")
 }
 
 /// Send the signed user list and each user's self-sealed key copy to `store`, so Connect can
@@ -831,13 +812,6 @@ pub fn delete(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> any
             format!("cloud_rotate:{id}")
         ],
     )?;
-    // With no cloud backup left, no run can be refused for a card, so the marker goes too.
-    if !db::list_protections(&conn)?
-        .iter()
-        .any(|p| p.kind == db::PROTECTION_CLOUD)
-    {
-        db::set_meta(&conn, CARD_MARKER, "")?;
-    }
     Ok(())
 }
 
@@ -1470,11 +1444,18 @@ mod tests {
         }
     }
 
+    /// Pretend Luna Connect last said cloud backup is (or isn't) paid for.
+    fn set_unlocked(connect: &ConnectService, unlocked: bool) {
+        connect
+            .save(&serde_json::json!({ "backup_unlocked": unlocked }))
+            .unwrap();
+    }
+
     #[test]
-    fn a_missing_card_clears_card_on_file_and_a_clean_run_sets_it_back() {
+    fn a_card_refusal_marks_cloud_backup_unpaid() {
         let s = setup();
         let id = make_backup(&s);
-        assert!(card_on_file(&s.db), "no run yet: nothing refused");
+        set_unlocked(&s.connect, true);
 
         let refused = run(
             &s.db,
@@ -1493,56 +1474,14 @@ mod tests {
                 .contains(CARD_REQUIRED_PREFIX),
             "{refused:?}"
         );
-        assert!(!card_on_file(&s.db));
-
-        let ok = run(&s.db, &id, &MemoryStore::new(), &s.connect, "", false, NOW);
-        assert_eq!(ok.problem, None);
-        assert!(card_on_file(&s.db));
+        assert!(!s.connect.backup_unlocked());
     }
 
     #[test]
-    fn creating_a_backup_clears_an_old_card_refusal() {
-        let s = setup();
-        db::set_meta(&lock(&s.db), CARD_MARKER, "1").unwrap();
-        assert!(!card_on_file(&s.db));
-        make_backup(&s);
-        assert!(card_on_file(&s.db));
-    }
-
-    #[test]
-    fn deleting_the_last_cloud_backup_clears_the_card_refusal() {
+    fn other_refusals_leave_cloud_backup_paid() {
         let s = setup();
         let id = make_backup(&s);
-        db::set_meta(&lock(&s.db), CARD_MARKER, "1").unwrap();
-        delete(&s.db, &id, &MemoryStore::new(), NOW).unwrap();
-        assert!(card_on_file(&s.db));
-    }
-
-    #[test]
-    fn deleting_one_of_two_cloud_backups_keeps_the_card_refusal() {
-        let s = setup();
-        let first = make_backup(&s);
-        fs::create_dir_all(s._dir.path().join(&s.src).join("Pics")).unwrap();
-        create(&s.db, &s.connect, &s.admin, &s.src, "Pics").unwrap();
-        db::set_meta(&lock(&s.db), CARD_MARKER, "1").unwrap();
-        delete(&s.db, &first, &MemoryStore::new(), NOW).unwrap();
-        assert!(!card_on_file(&s.db));
-    }
-
-    #[test]
-    fn other_refusals_leave_the_card_marker_alone() {
-        let s = setup();
-        let id = make_backup(&s);
-        run(
-            &s.db,
-            &id,
-            &NoCard(MemoryStore::new()),
-            &s.connect,
-            "",
-            false,
-            NOW,
-        );
-        assert!(!card_on_file(&s.db));
+        set_unlocked(&s.connect, true);
 
         let outcome = run(
             &s.db,
@@ -1554,7 +1493,28 @@ mod tests {
             NOW,
         );
         assert_eq!(outcome.problem.as_deref(), Some(USER_LIST_FAILED));
-        assert!(!card_on_file(&s.db));
+        assert!(s.connect.backup_unlocked());
+    }
+
+    #[test]
+    fn a_linked_luna_without_payment_cannot_start_a_cloud_backup() {
+        let s = setup();
+        // Saving the state first creates the Connect folder the token goes in.
+        set_unlocked(&s.connect, false);
+        fs::write(
+            s._dir
+                .path()
+                .join("connect")
+                .join(crate::net::connect::DEVICE_TOKEN_FILE),
+            "ABCD-EFGH-JKMN-PQRS-TVWX",
+        )
+        .unwrap();
+        assert!(s.connect.is_connect_active());
+
+        let refused = create(&s.db, &s.connect, &s.admin, &s.src, "Docs").unwrap_err();
+        assert_eq!(refused.0, NO_PAYMENT_REFUSAL);
+        let conn = lock(&s.db);
+        assert!(db::list_protections(&conn).unwrap().is_empty());
     }
 
     #[test]

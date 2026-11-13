@@ -437,6 +437,9 @@ fn run_answer(outcome: &CloudOutcome) -> Value {
 /// A refusal about who may do something is 403; anything else is 400.
 /// "Included in the backup of …" is a 400: it says why nothing is needed, not who may do it.
 fn refusal_status(msg: &str) -> StatusCode {
+    if msg == ops::NO_PAYMENT_REFUSAL {
+        return StatusCode::PAYMENT_REQUIRED;
+    }
     if msg.starts_with("You need")
         || msg.starts_with("Only an Admin")
         || (msg.starts_with("Only ") && msg.ends_with("can back up this item."))

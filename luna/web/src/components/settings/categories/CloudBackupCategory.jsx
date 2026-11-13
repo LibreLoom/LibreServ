@@ -159,8 +159,8 @@ export default function CloudBackupCategory() {
     enabled: connected,
   });
 
-  // Missing from older status replies: treat as on file, so only a clear false blocks backups.
-  const cardOnFile = connect.data?.card_on_file !== false;
+  // Linked is not enough: Luna Connect stores nothing until the account has an active payment card.
+  const needsPayment = connected && connect.data?.cloud_backup === "no_payment";
   const backups = cloudQuery.data || [];
 
   const runBackup = useMutation({
@@ -276,7 +276,7 @@ export default function CloudBackupCategory() {
             </div>
           ) : backups.length === 0 ? (
             <div className="space-y-3">
-              {!cardOnFile && (
+              {needsPayment && (
                 <p className="text-primary text-sm">
                   Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>. Cloud backup can start after that.
                 </p>
@@ -287,7 +287,7 @@ export default function CloudBackupCategory() {
             </div>
           ) : (
             <div className="space-y-3">
-              {!cardOnFile && (
+              {needsPayment && (
                 <p className="text-primary text-sm">
                   Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>. Backups stay paused until then.
                 </p>

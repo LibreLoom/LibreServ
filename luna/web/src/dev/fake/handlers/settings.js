@@ -46,7 +46,8 @@ post("/api/v1/connect/device-token", ({ world, user, body }) => {
   if (!token) return fail(400, "Paste the device token first.");
   if (token === "bad") return fail(401, DEVICE_TOKEN_REJECTED);
   const { device_token_error: _gone, ...rest } = world.connect;
-  world.connect = { ...rest, enabled: true, connect_active: true };
+  // The fake Connect account already has a payment card, so cloud backup works right away.
+  world.connect = { backup_unlocked: true, ...rest, enabled: true, connect_active: true };
   world.connectActive = true;
   return {};
 });

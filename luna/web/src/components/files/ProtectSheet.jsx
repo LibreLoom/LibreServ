@@ -191,14 +191,15 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const tooFewDrives = driveList.length < 2;
   const hasBackups = matchingBackups.length > 0 || driveCovers.length > 0;
   const cloudConnected = Boolean(connect.data?.connect_active);
-  // Missing from older status replies: treat as on file, so only a clear false blocks backups.
-  const cardOnFile = connect.data?.card_on_file !== false;
+  // Linked is not enough: Luna Connect stores nothing until the account has an active payment card.
+  const needsPayment = cloudConnected && connect.data?.cloud_backup === "no_payment";
+  const cloudReady = connect.data?.cloud_backup === "ready";
   // Why a cloud backup can't run right now, in plain words; null when nothing stops it.
   const cloudPausedReason = connect.isPending
     ? null
     : !cloudConnected
     ? "Paused because this Luna isn't linked to Luna Connect. An Admin can add the device token in Settings → About."
-    : !cardOnFile
+    : needsPayment
       ? "Paused because Luna Connect has no payment card on file."
       : null;
   const cloudBackup = (cloudQuery.data || []).find(
@@ -559,7 +560,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                         ? `Luna copies this ${thingLabel} to the cloud every 6 hours.`
                         : `Copy the latest files from this ${thingLabel} off-site. Luna copies them every 6 hours.`}
                     </p>
-                    {!cardOnFile && (
+                    {needsPayment && (
                       <p className="text-sm">
                         Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>.{" "}
                         {cloudBackup ? "Backups stay paused until then." : "Cloud backup can start after that."}
@@ -675,7 +676,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                   surface="primary"
                   fullWidth
                   loading={createCloud.isPending}
-                  disabled={createCloud.isPending}
+                  disabled={createCloud.isPending || !cloudReady}
                   onClick={() => (noPhrase ? setSettingUpPhrase(true) : createCloud.mutate())}
                 >
                   Back up to the cloud
