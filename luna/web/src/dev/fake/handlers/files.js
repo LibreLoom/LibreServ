@@ -391,7 +391,15 @@ del("/api/v1/drives/:id/files", ({ world, user, params, query }) => {
   needWritable(world, driveId);
   if (!path) throw badPath();
   const fs = fsOf(world, driveId);
-  if (!fs.nodes[path]) throw notFound();
+  if (!fs.nodes[path]) {
+    // Photos live outside the drive tree in the fake, so a photo delete arrives with no
+    // backing file here. Drop the photo from the library instead of saying it is gone.
+    const photos = world.photos || [];
+    const at = photos.findIndex((p) => p.drive_id === driveId && p.path === path);
+    if (at < 0) throw notFound();
+    photos.splice(at, 1);
+    return { ok: true };
+  }
   const trashPath = moveToTrash(world, driveId, path);
   return { ok: true, trash_path: trashPath };
 });

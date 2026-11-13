@@ -15,7 +15,7 @@
 //   }
 //   link = { id, token, caps, password, has_password, expires_at, disabled, download_limit,
 //            downloads, form, kind }
-import { del, fail, get, json, patch, post, put } from "../engine.js";
+import { del, fail, get, json, patch, post, put, raw } from "../engine.js";
 import { nextId } from "../world.js";
 import { photoKey } from "../photos.js";
 
@@ -283,7 +283,7 @@ function open(w, token, headers, { download = false } = {}) {
   if (l.disabled) return { err: fail(403, "This link has been turned off.") };
   if (l.expires_at && l.expires_at < nowSec()) return { err: fail(410, "This link has expired.") };
   if (l.password && header(headers, "x-share-password") !== l.password) return { err: fail(401, "This link needs its password.") };
-  if (download && l.download_limit != null && (l.downloads || 0) >= l.download_limit) {
+  if (l.download_limit != null && (l.downloads || 0) >= l.download_limit) {
     return { err: fail(403, "This link has reached its download limit.") };
   }
   return { s, l };
@@ -292,6 +292,9 @@ function open(w, token, headers, { download = false } = {}) {
 function treeOf(w, token, s) {
   const t = sharing(w).tree?.[token];
   if (t) return t;
+  if (s.is_file) {
+    return [{ name: s.name, kind: "file", size: 120_000, modified: nowSec() - 86400, hidden: false }];
+  }
   return [
     { name: "Holiday", kind: "dir", size: 0, modified: nowSec() - 86400 * 30, hidden: false },
     { name: "Menu.pdf", kind: "file", size: 220_000, modified: nowSec() - 86400 * 3, hidden: false },
@@ -387,4 +390,9 @@ post("/s/:token/respond", ({ world, params, headers, body }) => {
 post("/s/:token/respond-file", () => ({ name: "attachment.png" }), { public: true });
 get("/s/:token/form-image", () => json({}), { public: true });
 get("/s/:token/file", () => json({}), { public: true });
+get("/s/:token/zip", ({ world, params, headers }) => {
+  const r = open(world, params.token, headers, { download: true });
+  if (r.err) return r.err;
+  return raw(new Uint8Array(22), "application/zip", 200, { "Content-Disposition": `attachment; filename="${r.s.name || "share"}.zip"` });
+}, { public: true });
 

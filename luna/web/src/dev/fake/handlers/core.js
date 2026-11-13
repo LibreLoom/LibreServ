@@ -40,8 +40,9 @@ post("/api/v1/auth/login", ({ world, body }) => {
 post("/api/v1/auth/logout", ({ world }) => { world.sessionUserId = null; return { ok: true }; }, { public: true });
 
 post("/api/v1/auth/register", ({ world, user, body }) => {
-  const hasUsers = world.users.length > 0;
-  if (hasUsers) {
+  // Same hasAdmin keying as GET /api/v1/setup: in the setup race the second
+  // wizard registers without a session and must get the 409, not a 401.
+  if (world.hasAdmin) {
     if (!user) return fail(401, "Sign in to Luna first.");
     if (!isAdmin(user)) return fail(403, "Only an Admin can manage accounts.");
   } else if (world.setupSecret && body.setup_secret !== world.setupSecret) {
@@ -51,9 +52,9 @@ post("/api/v1/auth/register", ({ world, user, body }) => {
   if (bad) return bad;
   const username = String(body.username).trim().toLowerCase();
   if (world.users.some((u) => u.username === username)) return fail(409, "That username is already taken.");
-  const created = makeUser({ username, display_name: body.display_name || body.username, role: hasUsers ? "user" : "admin" });
+  const created = makeUser({ username, display_name: body.display_name || body.username, role: world.hasAdmin ? "user" : "admin" });
   world.users.push(created);
-  if (!hasUsers) { world.hasAdmin = true; world.sessionUserId = created.id; world.phrase = { ...world.phrase, set: false }; }
+  if (!world.hasAdmin) { world.hasAdmin = true; world.sessionUserId = created.id; world.phrase = { ...world.phrase, set: false }; }
   return userJson(created);
 }, { public: true });
 
@@ -84,7 +85,10 @@ post("/api/v1/auth/revoke-devices", ({ world }) => {
 
 // ── Setup ───────────────────────────────────────────────────────────────────
 get("/api/v1/setup", ({ world, user }) => {
-  if (world.users.length > 0 && !user) return fail(401, "Sign in to Luna first.");
+  // Key on hasAdmin, not users.length: the username-taken scenario simulates a
+  // setup race (an account registered while another wizard was open), where
+  // the resuming wizard must still read setup and reach the account form.
+  if (world.hasAdmin && !user) return fail(401, "Sign in to Luna first.");
   const sd = world.setup?.step_data ?? {};
   return { ...world.setup, step_data: { network_connected: sd.network_connected ?? true, ...(sd.preflight_passed !== undefined ? { preflight_passed: sd.preflight_passed } : {}) } };
 }, { public: true });
@@ -477,6 +481,10 @@ post("/api/v1/drives/:id/unlock", ({ world, user, params, body }) => {
   const d = findDrive(world, params.id);
   if (!isAdmin(user) && !hasDriveAccess(world, user, d.id)) return fail(403, "You don't have access to this drive.");
   if (!d.encrypted) return fail(400, "This drive isn't encrypted, so it doesn't need a password.");
+  // A wrong password stays inline: only the password set at encrypt time opens the drive.
+  if (d.encryption_password != null && String(body.password ?? "") !== d.encryption_password) {
+    return fail(401, "That password didn't work.");
+  }
   if (!String(body.password ?? "").length) return fail(401, "That password didn't work.");
   d.locked = false;
   return { ok: true };
@@ -511,6 +519,7 @@ post("/api/v1/drives/:id/encrypt", ({ world, user, params, body }) => {
     d.encrypted = true;
     d.locked = true;
     d.fs_type = "ext4";
+    d.encryption_password = String(body.password);
   });
   return { ok: true, started: true };
 });
@@ -519,6 +528,9 @@ post("/api/v1/drives/:id/decrypt", ({ world, user, params, body }) => {
   driveGate(user);
   const d = findDrive(world, params.id);
   if (!d.encrypted) return fail(400, "This drive isn't encrypted, so there's nothing to decrypt.");
+  if (d.encryption_password != null && String(body.password ?? "") !== d.encryption_password) {
+    return fail(401, "That password didn't work.");
+  }
   if (!String(body.password ?? "").length) return fail(401, "That password didn't work.");
   // Decrypting wipes to a plain exFAT drive.
   runFormat(d, () => {

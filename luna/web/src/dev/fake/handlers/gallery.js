@@ -33,6 +33,7 @@ function albumRow(w, a) {
     id: a.id,
     home_drive_id: a.home_drive_id,
     name: a.name,
+    owner_user_id: a.owner_user_id,
     locked: Boolean(a.locked),
     item_count: a.fakeCount ?? keys.length,
     cover_thumb: cover?.thumb || a.cover_thumb || "",
@@ -78,6 +79,15 @@ del("/api/v1/gallery/albums/:drive/:id", ({ world, user, params }) => {
   world.albums = world.albums.filter((x) => x !== a);
   delete world.albumItems[a.id];
   return {};
+});
+
+get("/api/v1/gallery/albums/:drive/:id/items", ({ world, params }) => {
+  const a = albumOf(world, params.drive, params.id);
+  if (!a) return fail(404, "That album no longer exists.");
+  return (world.albumItems[a.id] || []).map((k) => {
+    const at = k.indexOf("\0");
+    return { drive_id: k.slice(0, at), path: k.slice(at + 1) };
+  });
 });
 
 post("/api/v1/gallery/albums/:drive/:id/items", ({ world, params, body }) => {

@@ -104,7 +104,7 @@ export function viewerSamples(world, driveId = "d1") {
   f("report.docx", { size: 22_000, sample: "bin" });
   f("sheet.xlsx", { size: 18_000, sample: "bin" });
   f("sketch.drawio", { size: 3_000, text: "<mxfile></mxfile>" });
-  f("board.whiteboard", { size: 2_000, text: "{}" });
+  f("board.excalidraw", { size: 2_000, text: "{}" });
   f("rsvp.lunaform", {
     text: JSON.stringify({
       version: 1,
