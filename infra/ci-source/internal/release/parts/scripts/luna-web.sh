@@ -12,14 +12,13 @@ if [ "$(cat "$stamp" 2>/dev/null || true)" = "$key" ] && [ -f /web-out/index.htm
 	echo "==> web bundle unchanged ($key), skipping"
 	exit 0
 fi
-# The node image is part of the key: a new Node reinstalls the modules.
-want=$({ cat shared/ui/package-lock.json luna/web/package-lock.json; printf 'node-image=%s\n' "${NODE_IMAGE:-}"; } | sha256sum | cut -d' ' -f1)
+# Reinstall every time: npm ci is deterministic and minutes-cheap next to the
+# build, and it is what repairs a tree an interrupted or racing run gutted —
+# a volume stamped before its tree was wrecked would otherwise skip the one
+# step that could fix it.
 for d in shared/ui luna/web; do
-	if [ "$(cat "$d/node_modules/.libreserv-lock" 2>/dev/null || true)" != "$want" ]; then
-		echo "==> npm ci ($d)"
-		(cd "$d" && npm ci --no-audit --no-fund)
-		echo "$want" > "$d/node_modules/.libreserv-lock"
-	fi
+	echo "==> npm ci ($d)"
+	(cd "$d" && npm ci --no-audit --no-fund)
 done
 echo "==> vite build"
 cd luna/web

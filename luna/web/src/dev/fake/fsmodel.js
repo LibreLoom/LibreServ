@@ -105,6 +105,17 @@ export function viewerSamples(world, driveId = "d1") {
   f("sheet.xlsx", { size: 18_000, sample: "bin" });
   f("sketch.drawio", { size: 3_000, text: "<mxfile></mxfile>" });
   f("board.whiteboard", { size: 2_000, text: "{}" });
+  f("rsvp.lunaform", {
+    text: JSON.stringify({
+      version: 1,
+      title: "Family reunion RSVP",
+      settings: { collecting: true },
+      questions: [
+        { v: 1, id: "q_1", type: "short_text", label: "Your name?", required: true, config: {} },
+        { v: 1, id: "q_2", type: "choice", label: "Can you come?", config: { options: ["Yes", "No", "Maybe"] } },
+      ],
+    }),
+  });
 }
 
 // ── Tree queries ────────────────────────────────────────────────────────────

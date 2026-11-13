@@ -25,6 +25,10 @@ const ROW_SLIDE =
 
 const MD_UP_QUERY = "(min-width: 768px)";
 
+// color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
+const CARD_SLIDE =
+  "cursor-pointer motion-safe:transition-[translate,background-color] duration-200 ease-[var(--motion-easing-standard)] hover:motion-safe:translate-x-0.5 active:motion-safe:translate-x-0 hover:bg-[color-mix(in_oklab,var(--secondary)_85%,var(--primary))]";
+
 /**
  * jsdom has no layout CSS, so mobile-card mode picks one chrome via matchMedia.
  * Missing matchMedia (SSR / some tests) is treated as desktop.
@@ -82,7 +86,7 @@ function AddRowButton({ addRow, className }) {
 }
 
 /**
- * @param {{ columns: any, data: any, rowKey: any, scrollable?: any, maxHeight?: any, className?: string, headClassName?: string, onRowClick?: (row: any, rowIndex: number) => void, mobileCards?: boolean, striped?: boolean, addRow?: TableAddRow }} _
+ * @param {{ columns: any, data: any, rowKey: any, scrollable?: any, maxHeight?: any, className?: string, headClassName?: string, onRowClick?: (row: any, rowIndex: number) => void, mobileCards?: boolean, renderMobileCard?: (row: any, columns: any) => any, striped?: boolean, addRow?: TableAddRow }} _
  */
 export default function Table({
   columns,
@@ -94,6 +98,7 @@ export default function Table({
   headClassName = "",
   onRowClick,
   mobileCards = false,
+  renderMobileCard,
   striped = false,
   addRow,
 }) {
@@ -114,13 +119,32 @@ export default function Table({
             const key = rowKey ? row[rowKey] : rowIndex;
             return (
               <li key={key}>
+                {renderMobileCard ? (
+                  <article
+                    className={cn(
+                      "rounded-large-element text-primary p-3",
+                      striped && rowIndex % 2 === 1 ? CELL_BG_STRIPE : CELL_BG,
+                      onRowClick && CARD_SLIDE,
+                    )}
+                    onClick={
+                      onRowClick
+                        ? () => {
+                            if (window.getSelection()?.toString()) return;
+                            haptic("selection");
+                            onRowClick(row, rowIndex);
+                          }
+                        : undefined
+                    }
+                  >
+                    {renderMobileCard(row, columns)}
+                  </article>
+                ) : (
                 <article
                   className={cn(
                     "rounded-large-element text-primary p-4 flex flex-col gap-3",
                     striped && rowIndex % 2 === 1 ? CELL_BG_STRIPE : CELL_BG,
                     onRowClick &&
-                      // color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
-                      "cursor-pointer motion-safe:transition-[translate,background-color] duration-200 ease-[var(--motion-easing-standard)] hover:motion-safe:translate-x-0.5 active:motion-safe:translate-x-0 hover:bg-[color-mix(in_oklab,var(--secondary)_85%,var(--primary))]",
+                      CARD_SLIDE,
                   )}
                   onClick={
                     onRowClick
@@ -168,6 +192,7 @@ export default function Table({
                     </div>
                   )}
                 </article>
+                )}
               </li>
             );
           })}
@@ -213,8 +238,13 @@ export default function Table({
                   key={key}
                   className={cn(
                     "group",
-                    onRowClick &&
-                      "cursor-pointer motion-safe:transition-[translate] duration-200 ease-[var(--motion-easing-standard)] hover:motion-safe:translate-x-0.5 active:motion-safe:translate-x-0",
+                    // The whole row slides on hover. `will-change: transform`
+                    // keeps the cells in one composited layer: without it,
+                    // Chrome rasterises each cell's background on its own and
+                    // a row stopped at a fractional offset shows hairline
+                    // seams between them.
+                    onRowClick && "cursor-pointer hover:will-change-transform",
+                    onRowClick && ROW_SLIDE,
                   )}
                   onClick={
                     onRowClick
@@ -239,10 +269,7 @@ export default function Table({
                       col.hidden ? `hidden ${col.hidden}:table-cell` : "",
                       // The tint has to live on the cells — that is where
                       // bg-secondary is, and a transition on the <tr> would never
-                      // fire for it. It has to be OPAQUE: a translucent fill is
-                      // painted per cell, so at the fractional offsets the row
-                      // passes through mid-slide the shared edges blend twice and
-                      // show as vertical hairlines between the cells.
+                      // fire for it. Keep it OPAQUE.
                       onRowClick
                         // color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
                         ? "motion-safe:transition-[background-color] duration-200 ease-[var(--motion-easing-standard)] group-hover:bg-[color-mix(in_oklab,var(--secondary)_85%,var(--primary))]"
@@ -302,6 +329,7 @@ Table.propTypes = {
   headClassName: PropTypes.string,
   onRowClick: PropTypes.func,
   mobileCards: PropTypes.bool,
+  renderMobileCard: PropTypes.func,
   striped: PropTypes.bool,
   addRow: PropTypes.shape({
     label: PropTypes.string.isRequired,

@@ -7,6 +7,7 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { apiErrorMessage, withCsrfHeaders } from "../../../lib/api.js";
 import { newEditToken } from "../../../lib/formDocument.js";
@@ -552,7 +553,7 @@ function Responder({
                 </AnimatePresence>
               )}
 
-              {submitError && <PageNotice variant="error">{submitError}</PageNotice>}
+              {submitError && <InlineError>{submitError}</InlineError>}
 
               {shown.length > 0 && (
                 <Motion.div layout="position" transition={SPRING} className="flex justify-end">

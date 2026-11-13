@@ -35,7 +35,7 @@ export default [
       w.users.push(m);
       w.sessionUserId = "u2";
     },
-    check: ["No admin-only cards on the dashboard", "/settings/users/u1 is blocked, not blank", "Settings hides admin categories"],
+    check: ["No admin-only cards on the dashboard", "Settings hides the Users and About categories", "A direct /settings#users hash falls back instead of showing the list"],
   },
   {
     id: "auth/member-needs-phrase",
@@ -51,7 +51,7 @@ export default [
       "Settings → Cloud backup shows Recovery phrase as Not set up, with a Set up button",
       "Set up opens the phrase dialog; saving it fills in the card",
     ],
-    url: "/settings#cloud_backup",
+    url: "/settings#luna_connect",
   },
   {
     id: "auth/session-dies-mid-use",

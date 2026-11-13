@@ -173,6 +173,10 @@ export default function SystemUpdatesCard({ index = 0 }) {
   };
 
   const hasUpdate = updateInfo?.update_available;
+  // The offer may be the build of a source the Admin just switched Luna to, in
+  // which case it is the first thing to install, not an upgrade.
+  const fromNewSource = updateInfo?.from_new_source === true;
+  const olderThanRunning = updateInfo?.feed_is_newer === false;
   const isUpToDate = updateInfo && !hasUpdate;
   const notChecked = !updateInfo && !updates.isLoading;
 
@@ -226,6 +230,13 @@ export default function SystemUpdatesCard({ index = 0 }) {
               </span>
             )}
           </div>
+
+          {hasUpdate && fromNewSource && (
+            <p className="mb-4 text-sm">
+              You changed where Luna gets its updates. This is the version that source has —
+              installing it switches Luna to that build.
+            </p>
+          )}
 
           {failedUpdate && (
             <PageNotice variant="warning" className="mb-4">
@@ -310,7 +321,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
                 className="justify-center font-sans"
               >
                 <ExternalLink size={ICON_SIZE.md} aria-hidden="true" />
-                See what&apos;s new in {updateInfo.latest_version}
+                {olderThanRunning ? "See what's in" : "See what's new in"} {updateInfo.latest_version}
               </Button>
 
               {!updating && (
@@ -359,7 +370,9 @@ export default function SystemUpdatesCard({ index = 0 }) {
           retrying
             ? "Luna will install the update again and restart. Your files stay put."
             : updateInfo
-            ? `Luna will download version ${updateInfo.latest_version}, install it, and restart. Your files stay put.`
+            ? fromNewSource
+              ? `Luna will download version ${updateInfo.latest_version} from the source you set, install it, and restart. Your files stay put.`
+              : `Luna will download version ${updateInfo.latest_version}, install it, and restart. Your files stay put.`
             : "Install the available update?"
         }
         variant="warning"

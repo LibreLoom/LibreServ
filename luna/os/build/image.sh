@@ -5,7 +5,7 @@
 #   in:  the rootfs tree at ROOTFS (default /rootfs, read-only is fine)
 #   out: OUT/luna-os-x86_64.img.xz            the release asset, compressed once
 #        OUT/luna-os-x86_64.img.xz.sha256     "<hash>  luna-os-x86_64.img.xz"
-#        OUT/luna-os-x86_64.img.xz.inputs     OS_INPUT_HASH, when set
+#        OUT/luna-os-x86_64.img.xz.inputs     OS_INPUT_HASH, when set (dev skip)
 #   env: SIZE_MB (default: the A/B slot size from lib/disk.sh), XZ_THREADS,
 #        XZ_MEM (compressor memory cap), OS_INPUT_HASH
 #
@@ -53,6 +53,8 @@ rm -f "$RAW"
 SHA="$(sha256sum "$XZTMP" | awk '{print $1}')"
 mv -f "$XZTMP" "$OUT/$NAME"
 printf '%s  %s\n' "$SHA" "$NAME" > "$OUT/$NAME.sha256"
+# The dev wrappers pass OS_INPUT_HASH so they can skip an unchanged rebuild.
+# The release tool does not: it always builds the image.
 if [ -n "${OS_INPUT_HASH:-}" ]; then
 	printf '%s\n' "$OS_INPUT_HASH" > "$OUT/$NAME.inputs"
 else

@@ -20,12 +20,13 @@ import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useFileSource } from "../../lib/fileSource.jsx";
 import { CAP, capsBits } from "../../lib/access.js";
-import { isFormFile } from "../../lib/fileKinds.js";
+import { openableKind, isFormFile } from "../../lib/fileKinds.js";
 import { joinPath } from "../../lib/paths.js";
 import FormResponseBadge from "./forms/FormResponseBadge.jsx";
 import PrivateBadge from "../private/PrivateBadge.jsx";
 import { PropertiesButton } from "./PropertiesSheet.jsx";
 import { canOpenRow, displayNameOf, useIsSmUp } from "./fileRowUtils.js";
+import { warmTextEditor } from "./editorWarm.js";
 
 /**
  * One file or folder row. Memoized: a row only re-renders when its own entry,
@@ -89,6 +90,10 @@ function FileRow({
 
   const openable = canOpenRow(entry, displayName, trashView);
   const isDir = entry.kind === "dir";
+  // A text-ish file will open in the CodeMirror editor; fetch that chunk as
+  // soon as the pointer says this row is the likely target.
+  const warmsEditor = !isDir && openable
+    && ["text", "markdown", "csv", "notebook", "calendar", "contact", "geo"].includes(openableKind(entry.name));
   const showFormBadge = !isPicker && !trashView
     && (!source.guest || ((source.capsBits ?? 0) & CAP.VIEW) !== 0)
     && entry.kind === "file" && isFormFile(entry.name);
@@ -280,7 +285,9 @@ function FileRow({
       onPointerDown: () => api.prefetchFolder(fullPath, true),
       onFocus: () => api.prefetchFolder(fullPath, true),
     }
-    : {};
+    : warmsEditor
+      ? { onPointerEnter: () => warmTextEditor(), onFocus: () => warmTextEditor() }
+      : {};
   const linkClass = `flex items-center gap-2 min-w-0 ${fg} hover:underline`;
   const buttonClass = `flex items-center gap-2 min-w-0 text-left ${fg} hover:underline`;
 

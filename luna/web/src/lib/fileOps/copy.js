@@ -381,7 +381,7 @@ export function opMeta(op) {
  * segments: text stays put, numbers roll like the file explorer's count.
  *
  * @param {any} op
- * @returns {Array<string | { number: number, suffix?: string } | { size: number, decimals: number, unit: string }>}
+ * @returns {Array<string | { number: number, suffix?: string } | { percent: number } | { size: number, decimals: number, unit: string }>}
  */
 export function opMetaParts(op) {
   if (op.kind === "upload" || op.kind === "gallery") {
@@ -406,7 +406,7 @@ export function opMetaParts(op) {
     if (!op.bytesTotal) return [text.starting];
     const pct = Math.round(Math.min(100, (op.bytesDone / op.bytesTotal) * 100));
     return [
-      { number: pct, suffix: "%" },
+      { percent: pct },
       " · ",
       sizePart(op.bytesDone),
       " of ",

@@ -482,9 +482,12 @@ fn install_rights(
     dest: &Path,
     want_overwrite: bool,
 ) -> Result<bool, UploadError> {
+    if let Some(link_id) = row.principal.strip_prefix("link:") {
+        return link_install_rights(conn, link_id, row, dest, want_overwrite);
+    }
     let Some(uid) = row.principal.strip_prefix("user:") else {
-        // `link:` sessions are upload-only drop boxes, and rows predating
-        // principals have no user to re-verify — neither may overwrite.
+        // Rows predating principals have no creator to re-verify; they may
+        // never overwrite.
         return Ok(false);
     };
     let Some(u) = db::get_user(conn, uid).map_err(UploadError::Db)? else {
@@ -515,6 +518,41 @@ fn install_rights(
         &rel,
         crate::access::CAP_EDIT,
     ))
+}
+
+/// Re-check a public-link upload at install time. A link's full-access grant
+/// is what lets a guest replace the shared file — the session itself is only
+/// a staging area, and its principal must still hold edit on the target.
+fn link_install_rights(
+    conn: &Connection,
+    link_id: &str,
+    row: &UploadRow,
+    dest: &Path,
+    want_overwrite: bool,
+) -> Result<bool, UploadError> {
+    let Some(link) = db::get_access_link(conn, link_id).map_err(UploadError::Db)? else {
+        return Err(UploadError::Denied);
+    };
+    if crate::access::link_expired(&link) || link.drive_id != row.drive_id {
+        return Err(UploadError::Denied);
+    }
+    if !want_overwrite || !dest.exists() {
+        return Ok(false);
+    }
+    if link.caps & crate::access::CAP_EDIT == 0 || link.subject_kind == crate::access::KIND_ALBUM {
+        return Err(UploadError::Denied);
+    }
+    let rel = crate::gallery::gallery_indexer::join_rel(&row.path, &row.name);
+    let in_scope = if link.path.is_empty() {
+        true
+    } else {
+        let base = link.path.trim_end_matches('/');
+        rel == base || rel.starts_with(&format!("{base}/"))
+    };
+    if !in_scope {
+        return Err(UploadError::Denied);
+    }
+    Ok(true)
 }
 
 /// Pick the first free name in `dir` by appending ` (n)` before the extension,
@@ -818,10 +856,30 @@ mod tests {
         std::fs::write(Path::new(&root).join("report.pdf"), b"original").unwrap();
         let up = {
             let conn = db.lock().unwrap();
+            // A real drop-box link: upload-only, so the public route masks
+            // `overwrite` to false before `complete` ever sees it.
+            crate::db::insert_access_link(
+                &conn,
+                &crate::db::AccessLinkRow {
+                    id: "l1".into(),
+                    token_hash: "hash-l1".into(),
+                    token: String::new(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: drive.clone(),
+                    path: String::new(),
+                    album_id: String::new(),
+                    caps: crate::access::CAP_UPLOAD,
+                    password_hash: String::new(),
+                    expires_at: None,
+                    created_by: String::new(),
+                    created_at: crate::db::now_unix(),
+                },
+            )
+            .unwrap();
             create_scoped(&conn, &drive, "", "report.pdf", 4, "link:l1").unwrap()
         };
         write_chunk(&db, &up.id, 0, &[7u8; 4]).unwrap();
-        let entry = complete(&db, &up.id, true, true, None).unwrap();
+        let entry = complete(&db, &up.id, false, true, None).unwrap();
         assert_eq!(entry.name, "report (1).pdf");
         assert_eq!(
             std::fs::read(Path::new(&root).join("report.pdf")).unwrap(),

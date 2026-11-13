@@ -687,7 +687,7 @@ describe("RecoveryPhraseCard, refused password and moving advice", () => {
     mockRole = "user";
     routePhraseApi({ status: paused });
     renderCard();
-    expect(await screen.findByText(/Connect storage is full, so the move is paused\. Nothing old was deleted\./)).toBeInTheDocument();
+    expect(await screen.findByText(/Connect storage is full, so the update is paused\. Nothing old was deleted\./)).toBeInTheDocument();
     expect(screen.queryByText(/add storage on Luna Connect/)).toBeNull();
     expect(screen.getByText(/An Admin can free up space or add storage/)).toBeInTheDocument();
   });

@@ -23,6 +23,7 @@ function stubFetch({
   adopted = [],
   orphans = { owners: [], offline_drives: [] },
   cleaned = [],
+  given = [],
   cleanupResult = { ok: true, skipped_readonly: [], failed_drives: [], offline_drives: [] },
   createResponse = /** @type {{ id: string, username: string, display_name: string, role: string, warning?: string }} */ ({ id: "3", username: "new", display_name: "New", role: "user" }),
   users = [
@@ -44,17 +45,29 @@ function stubFetch({
         return jsonResponse({ count: privateCount });
       }
       if (u.endsWith("/api/v1/private/ownerless")) {
-        return jsonResponse({ count: ownerless });
+        return jsonResponse({
+          count: ownerless,
+          items: Array.from({ length: ownerless }, (_, i) => ({
+            drive_id: "d1",
+            drive_label: "Photos",
+            path: `Imported ${i + 1}`,
+            name: `Imported ${i + 1}`,
+          })),
+        });
       }
       if (u.endsWith("/api/v1/private/orphans")) {
         return jsonResponse(orphans);
+      }
+      if (u.includes("/api/v1/private/orphans/") && init?.method === "POST" && u.endsWith("/give")) {
+        given.push({ url: u, body: JSON.parse(init.body || "{}") });
+        return jsonResponse({ ok: true, moved: 1, skipped_readonly: [], failed_drives: [], offline_drives: [] });
       }
       if (u.includes("/api/v1/private/orphans/") && init?.method === "DELETE") {
         cleaned.push(u);
         return jsonResponse(cleanupResult);
       }
       if (u.endsWith("/adopt-private") && init?.method === "POST") {
-        adopted.push(u);
+        adopted.push({ url: u, body: JSON.parse(init.body || "{}") });
         return jsonResponse({ count: ownerless });
       }
       if (u.includes("/api/v1/users/") && init?.method === "DELETE") {
@@ -139,11 +152,9 @@ describe("UsersCategory", () => {
     const articles = within(cards).getAllByRole("article");
     expect(articles).toHaveLength(2);
 
-    expect(within(articles[0]).getByText("Name")).toBeTruthy();
+    // The phone card drops the column headings and shows the values only.
     expect(within(articles[0]).getByText("Demo")).toBeTruthy();
-    expect(within(articles[0]).getByText("Username")).toBeTruthy();
     expect(within(articles[0]).getByText("demouser")).toBeTruthy();
-    expect(within(articles[0]).getByText("Role")).toBeTruthy();
     expect(within(articles[0]).getByText("Admin")).toBeTruthy();
     expect(within(articles[0]).getByLabelText(/What Admin means/i)).toBeTruthy();
 
@@ -232,17 +243,21 @@ describe("UsersCategory", () => {
     expect(screen.queryByText(/private folder/i)).toBeNull();
   });
 
-  it("offers to give ownerless private folders to someone", async () => {
+  it("offers to give each ownerless private folder to someone", async () => {
     const adopted = [];
     stubFetch({ ownerless: 2, adopted });
     const user = userEvent.setup();
     renderPage();
-    expect(await screen.findByText(/2 private folders came from another Luna and have no owner\./)).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Give private folders to" }));
+    expect(await screen.findByText(/2 private folders came from another Luna/)).toBeTruthy();
+    const row = /** @type {HTMLElement} */ (screen.getByText("Imported 1").closest("li"));
+    await user.click(within(row).getByRole("button", { name: "Give…" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Who should get these private folders" }));
     await user.click(await screen.findByRole("option", { name: "Alex" }));
-    await user.click(screen.getByRole("button", { name: "Give" }));
+    await user.click(within(dialog).getByRole("button", { name: /^Give$/ }));
     await vi.waitFor(() => expect(adopted).toHaveLength(1));
-    expect(adopted[0]).toMatch(/\/api\/v1\/users\/2\/adopt-private$/);
+    expect(adopted[0].url).toMatch(/\/api\/v1\/users\/2\/adopt-private$/);
+    expect(adopted[0].body).toEqual({ drive_id: "d1", path: "Imported 1" });
   });
 
   it("lists private folders left by removed people and deletes them on confirm", async () => {
@@ -264,7 +279,9 @@ describe("UsersCategory", () => {
     const user = userEvent.setup();
     renderPage();
     expect(await screen.findByText("Private folders left behind")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: /Delete private folders left by Sam/i }));
+    await user.click(screen.getByRole("button", { name: /Manage private folders left by Sam/i }));
+    const manage = await screen.findByRole("dialog");
+    await user.click(within(manage).getByRole("button", { name: /Delete these folders/i }));
     await user.click(await screen.findByRole("button", { name: /^Delete permanently$/i }));
     await vi.waitFor(() => expect(cleaned).toHaveLength(1));
     expect(cleaned[0]).toMatch(/\/api\/v1\/private\/orphans\/gone1$/);
@@ -278,7 +295,9 @@ describe("UsersCategory", () => {
     const user = userEvent.setup();
     renderPage();
     expect(await screen.findByText(/1 item in Trash on Photos/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Delete private folders left by Sam/ }));
+    await user.click(screen.getByRole("button", { name: /Manage private folders left by Sam/ }));
+    const manage = await screen.findByRole("dialog");
+    await user.click(within(manage).getByRole("button", { name: /Delete these folders/i }));
     await user.click(await screen.findByRole("button", { name: /^Delete permanently$/ }));
     expect(await screen.findByText("Some private content remains.")).toBeInTheDocument();
     expect(screen.queryByText("Private content deleted.")).not.toBeInTheDocument();
@@ -290,7 +309,7 @@ describe("UsersCategory", () => {
     renderPage();
 
     // Floating trigger is icon-only (Sol-style big plus) with aria-label.
-    await screen.findByRole("link", { name: /Edit Alex/i });
+    await screen.findByRole("button", { name: /Edit Alex/i });
     await user.click(await screen.findByRole("button", { name: /^Add user$/i }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("heading", { name: /Add a user/i })).toBeTruthy();
@@ -365,7 +384,7 @@ describe("UsersCategory", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await screen.findByRole("link", { name: /Edit Alex/i });
+    await screen.findByRole("button", { name: /Edit Alex/i });
     await user.click(await screen.findByRole("button", { name: /^Add user$/i }));
     const dialog = await screen.findByRole("dialog");
     await user.type(within(dialog).getByLabelText(/^Name$/i), "Jamie");
@@ -424,12 +443,15 @@ describe("UsersCategory", () => {
     expect(within(items[items.length - 1]).getByRole("button", { name: /^Add user$/i })).toBeInTheDocument();
   });
 
-  it("links Edit to a full page for others and to Settings for yourself", async () => {
+  it("opens Edit as a modal for others and links yourself to Settings", async () => {
     stubFetch();
+    const user = userEvent.setup();
     renderPage();
 
-    expect(await screen.findByRole("link", { name: /Edit Alex/i })).toHaveAttribute("href", "/settings/users/2");
-    expect(screen.getByRole("link", { name: /Edit Demo/i })).toHaveAttribute("href", "/settings#security");
+    expect(await screen.findByRole("link", { name: /Edit Demo/i })).toHaveAttribute("href", "/settings#security");
+    await user.click(await screen.findByRole("button", { name: /Edit Alex/i }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: /Edit Alex/i })).toBeTruthy();
   });
 
   it("links to settings security when editing yourself instead of opening modal", async () => {

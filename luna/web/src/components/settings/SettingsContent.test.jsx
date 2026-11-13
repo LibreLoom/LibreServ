@@ -12,16 +12,18 @@ vi.mock("./categories/AboutCategory.jsx", () => ({ default: () => <section aria-
 import SettingsContent from "./SettingsContent.jsx";
 
 describe("SettingsContent", () => {
-  it("titles and draws the Cloud backup category", () => {
+  it("sends the retired Cloud backup id to the merged Luna Connect entry", () => {
     render(<SettingsContent category="cloud_backup" />);
-    expect(screen.getByRole("heading", { level: 1, name: "Cloud backup" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Luna Connect" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "luna connect" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "cloud backup" })).toBeTruthy();
   });
 
-  it("titles and draws the Luna Connect category", () => {
+  it("titles and draws the Luna Connect category with cloud backup inside", () => {
     render(<SettingsContent category="luna_connect" />);
     expect(screen.getByRole("heading", { level: 1, name: "Luna Connect" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "luna connect" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "cloud backup" })).toBeTruthy();
   });
 
   it("falls back to Appearance for the retired External services id, not a card", () => {

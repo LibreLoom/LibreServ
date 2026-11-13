@@ -151,10 +151,6 @@ pub fn create(
             )));
         }
     }
-    // An encrypted drive's files must not land in the clear on a plain one.
-    if let Some(message) = refuse_plaintext_backup(conn, source_drive, target_drive) {
-        return Err(refuse(message));
-    }
 
     if let Some(existing) = db::find_protection(
         conn,
@@ -363,18 +359,6 @@ fn run_inner(
             now,
         );
     };
-
-    // Step 2b: the pairing still has to be safe. Checked on every run, not
-    // only at create, because either drive can be reformatted afterwards —
-    // encrypting the source or decrypting the target would otherwise turn an
-    // allowed backup into one that writes the source's files in the clear.
-    if let Some(message) = with_conn(db, |c| {
-        refuse_plaintext_backup(c, &row.source_drive, &row.target_drive)
-    }) {
-        // Hard: retrying changes nothing, a person has to encrypt the target
-        // or pick a different one.
-        return fail(db, id, &message, true, now);
-    }
 
     // Step 3: the source drive must be connected. Its folder can't be read,
     // so the deleted-files clock freezes until it is back.
@@ -979,44 +963,6 @@ struct Target {
     layout: Layout,
     label: String,
     limits: drive_store::FsLimits,
-    /// The drive is a LUKS2 container. Recorded so a backup can refuse to put
-    /// an encrypted drive's files, in the clear, onto a plain one.
-    encrypted: bool,
-}
-
-/// Is this drive encrypted? Reads the row rather than the mount, because the
-/// question is about the drive, not what happens to be open right now.
-fn drive_is_encrypted(conn: &Connection, drive_id: &str) -> bool {
-    db::get_drive(conn, drive_id)
-        .ok()
-        .flatten()
-        .is_some_and(|d| d.encrypted)
-}
-
-/// Refuse a pairing that would write an encrypted drive's files in the clear.
-///
-/// Encryption protects a drive's contents at rest. Copying those contents onto
-/// an unencrypted drive undoes that completely — the backup is plaintext, and
-/// whoever picks up the backup drive reads everything. So the rule is: an
-/// encrypted source may only be backed up to an encrypted target.
-///
-/// The other direction is fine. A plain source onto an encrypted target is
-/// strictly more protection than the source had.
-///
-/// Returns the refusal in plain words, or `None` when the pairing is allowed.
-fn refuse_plaintext_backup(
-    conn: &Connection,
-    source_drive: &str,
-    target_drive: &str,
-) -> Option<String> {
-    if !drive_is_encrypted(conn, source_drive) || drive_is_encrypted(conn, target_drive) {
-        return None;
-    }
-    let source = drive_label(conn, source_drive);
-    let target = drive_label(conn, target_drive);
-    Some(format!(
-        "{source} is encrypted, but {target} isn't. A backup of an encrypted drive has to go on an encrypted drive, or it would be readable by anyone who picks it up."
-    ))
 }
 
 fn connected(conn: &Connection, drive_id: &str) -> Option<Target> {
@@ -1029,7 +975,6 @@ fn connected(conn: &Connection, drive_id: &str) -> Option<Target> {
         layout,
         label: label_or_default(&drive.label),
         limits,
-        encrypted: drive.encrypted,
     })
 }
 
@@ -1228,78 +1173,6 @@ mod tests {
     fn make_backup(s: &Setup) -> String {
         let conn = s.db.lock().unwrap();
         create(&conn, &s.admin, &s.src, "Docs", &s.tgt).unwrap().id
-    }
-
-    /// Mark a drive encrypted or not, the way the encryption page does.
-    fn set_encrypted(s: &Setup, drive_id: &str, encrypted: bool) {
-        let conn = s.db.lock().unwrap();
-        db::set_drive_encrypted(&conn, drive_id, encrypted).unwrap();
-    }
-
-    #[test]
-    fn an_encrypted_drive_cannot_be_backed_up_to_a_plain_one() {
-        // The whole point of encrypting a drive is that its contents are
-        // unreadable at rest. A plaintext copy on a plain drive gives that
-        // away, and nothing else in the system would notice.
-        let s = setup();
-        set_encrypted(&s, &s.src, true);
-        let conn = s.db.lock().unwrap();
-        let refused = create(&conn, &s.admin, &s.src, "Docs", &s.tgt).unwrap_err();
-        assert!(refused.0.contains("encrypted"), "got: {}", refused.0);
-        assert!(
-            refused.0.contains("Backup"),
-            "names the target: {}",
-            refused.0
-        );
-    }
-
-    #[test]
-    fn an_encrypted_drive_can_be_backed_up_to_an_encrypted_one() {
-        // Both sides protected: the copy is as safe as the original.
-        let s = setup();
-        set_encrypted(&s, &s.src, true);
-        set_encrypted(&s, &s.tgt, true);
-        let conn = s.db.lock().unwrap();
-        assert!(create(&conn, &s.admin, &s.src, "Docs", &s.tgt).is_ok());
-    }
-
-    #[test]
-    fn a_plain_drive_can_be_backed_up_to_an_encrypted_one() {
-        // Strictly more protection than the source had, so not refused.
-        let s = setup();
-        set_encrypted(&s, &s.tgt, true);
-        let conn = s.db.lock().unwrap();
-        assert!(create(&conn, &s.admin, &s.src, "Docs", &s.tgt).is_ok());
-    }
-
-    #[test]
-    fn encrypting_the_source_later_stops_an_existing_backup() {
-        // A backup can be created while both drives are plain, then the
-        // source is encrypted. The rule has to be re-checked on every run or
-        // the next one silently writes the files in the clear.
-        let s = setup();
-        let id = make_backup(&s);
-        set_encrypted(&s, &s.src, true);
-
-        let outcome = run(&s.db, &id, NOW).unwrap();
-        let problem = outcome.problem.expect("the run must refuse");
-        assert!(problem.contains("encrypted"), "got: {problem}");
-        // Hard: retrying cannot fix it, a person has to act.
-        assert!(row(&s, &id).hard);
-    }
-
-    #[test]
-    fn decrypting_the_target_later_stops_an_existing_backup() {
-        // The same hazard from the other side: the backup was fine while the
-        // target was encrypted, and stops being fine when it isn't.
-        let s = setup();
-        set_encrypted(&s, &s.src, true);
-        set_encrypted(&s, &s.tgt, true);
-        let id = make_backup(&s);
-        set_encrypted(&s, &s.tgt, false);
-
-        let outcome = run(&s.db, &id, NOW).unwrap();
-        assert!(outcome.problem.is_some_and(|p| p.contains("encrypted")));
     }
 
     fn row(s: &Setup, id: &str) -> ProtectionRow {

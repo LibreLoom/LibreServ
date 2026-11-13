@@ -38,7 +38,7 @@ export default [
     check: [
       "Add a user with a short password (under 12) and see the rule explained",
       "Add one named 'max' and see 'username is taken'",
-      "Add a good one and it appears in the list",
+      "Add a good one and it appears in the list", "The Role row has breathing room above it, not jammed under Password",
       "Removing someone asks first and then removes them",
     ],
   },
@@ -73,14 +73,23 @@ export default [
       addDir(w, "d1", "Imported A", { private: true });
       addDir(w, "d1", "Imported B", { private: true });
     },
-    check: ["Two removed people listed with where their folders are (Alex: 3 folders and 1 item in Trash)", "Delete is disabled for the read-only one", "A line says Old USB isn't connected", "'Give to' flow hands the 2 ownerless folders to someone"],
+    check: [
+      "Two removed people listed with where their folders are (Alex: 3 folders and 1 item in Trash)",
+      "Each has a Manage button; Kit's delete is disabled because the drive is read-only",
+      "A line says Old USB isn't connected",
+      "The ownerless card lists Imported A and Imported B, each with its own Give control; giving one leaves the other",
+    ],
   },
   {
     id: "settings/users-last-admin",
     area: "Settings: Users",
-    title: "Last Admin tries to leave",
-    url: "/settings/users/u1",
-    check: ["Removing yourself is blocked with a plain message", "Changing your own role to Member is refused, with a reason"],
+    title: "Your own row is not editable",
+    url: "/settings#users",
+    check: [
+      "Your own row has no Remove action",
+      "Clicking your own row goes to Settings → Security, not an edit modal",
+      "Members cannot open the Users category at all",
+    ],
   },
   {
     id: "settings/users-load-fails",
@@ -101,43 +110,49 @@ export default [
   },
   // ── Edit user ─────────────────────────────────────────────────────────────
   {
-    id: "settings/edit-user-other",
+    id: "settings/edit-user",
     area: "Edit user",
     title: "Editing another person",
-    url: "/settings/users/u2",
+    url: "/settings#users",
     seed: withPeople,
-    check: ["Name, role and password can change", "Weak password is refused with the rule", "Saving returns to Users with a toast", "Remove asks first"],
+    check: [
+      "Open the pencil (or click the row) for Sam: an Edit Sam modal opens over Settings, shaped like Add a user",
+      "Name, role and password can change; a weak password is refused with the rule",
+      "Saving closes the modal, returns to the list and shows a toast",
+      "Remove asks first inside the same modal",
+    ],
   },
   {
     id: "settings/edit-user-self",
     area: "Edit user",
     title: "Editing yourself",
-    url: "/settings/users/u1",
-    check: ["Removing yourself isn't offered or is explained", "Page still loads"],
-  },
-  {
-    id: "settings/edit-user-missing",
-    area: "Edit user",
-    title: "Person doesn't exist",
-    url: "/settings/users/nobody",
-    check: ["Friendly 'not found' with a way back to Users"],
-  },
-  {
-    id: "settings/edit-user-member-blocked",
-    area: "Edit user",
-    title: "Member opens the edit page",
-    url: "/settings/users/u1",
-    seed: asMember,
-    check: ["Blocked with an explanation, not a blank page"],
+    url: "/settings#users",
+    seed: withPeople,
+    check: [
+      "Clicking your own row opens Settings → Security, not an edit modal",
+      "No remove action is offered for yourself",
+    ],
   },
   {
     id: "settings/edit-user-save-fails",
     area: "Edit user",
-    title: "Saving fails",
-    url: "/settings/users/u2",
+    title: "Saving a person fails",
+    url: "/settings#users",
     seed: withPeople,
     faults: [{ match: "PATCH /api/v1/users/*", mode: "500", message: "Luna could not update users. Try again." }],
-    check: ["Error shows on the page and typed changes stay"],
+    check: [
+      "Error shows inside the modal and typed changes stay",
+      "Cancel closes the modal without changing the row",
+    ],
+  },
+  {
+    id: "settings/edit-user-phone",
+    area: "Edit user",
+    title: "Editing a person on a phone",
+    url: "/settings#users",
+    seed: withPeople,
+    viewport: "phone",
+    check: ["The modal fits the screen and scrolls", "Save and Cancel stay reachable", "Nothing scrolls sideways"],
   },
   // ── Security (access) ─────────────────────────────────────────────────────
   {
@@ -169,7 +184,7 @@ export default [
     area: "Settings: Appearance",
     title: "Appearance, light and dark",
     url: "/settings#appearance",
-    check: ["Changing theme and colors applies at once", "Everything stays readable in both modes", "Choice survives Reload only if it is meant to"],
+    check: ["Changing theme and colors applies at once", "Custom colors shows presets and three compact colour rows; Reset to default sits at the bottom", "Everything stays readable in both modes", "Choice survives Reload only if it is meant to"],
   },
   {
     id: "settings/appearance-phone",
@@ -224,7 +239,7 @@ export default [
   // ── Cloud backup & restore ────────────────────────────────────────────────
   {
     id: "settings/connect-off",
-    area: "Settings: Cloud backup",
+    area: "Settings: Luna Connect",
     title: "Luna Connect is off",
     url: "/settings",
     check: [
@@ -235,9 +250,9 @@ export default [
   },
   {
     id: "settings/cloud-backups",
-    area: "Settings: Cloud backup",
+    area: "Settings: Luna Connect",
     title: "Cloud backups: ok, source missing, check problem",
-    url: "/settings#cloud_backup",
+    url: "/settings#luna_connect",
     seed: (w) => {
       w.connect = { enabled: true, connect_active: true, card_on_file: true };
       w.connectActive = true;
@@ -247,30 +262,30 @@ export default [
         cloudBackup({ source_name: "Taxes", check_problem: "The cloud copy could not be read." }),
       ];
     },
-    check: ["Run now works on the first", "'Run anyway' appears only for the missing folder and then succeeds", "Check works and clears the problem", "Delete asks first"],
+    check: ["The page holds both the Luna Connect address and cloud backup", "Run now works on the first", "'Run anyway' appears only for the missing folder and then succeeds", "Check works and clears the problem", "Delete asks first", "While one backup runs, only that row's buttons show it working"],
   },
   {
     id: "settings/cloud-no-card",
-    area: "Settings: Cloud backup",
+    area: "Settings: Luna Connect",
     title: "Connect on but no payment card",
-    url: "/settings#cloud_backup",
+    url: "/settings#luna_connect",
     seed: (w) => { w.connect = { enabled: true, connect_active: true, card_on_file: false }; w.connectActive = true; w.cloudBackups = [cloudBackup()]; },
     check: ["Says a card is needed before backing up, and where to add it"],
   },
   {
     id: "settings/cloud-run-fails",
-    area: "Settings: Cloud backup",
+    area: "Settings: Luna Connect",
     title: "Running a cloud backup fails",
-    url: "/settings#cloud_backup",
+    url: "/settings#luna_connect",
     seed: (w) => { w.connect = { enabled: true, connect_active: true, card_on_file: true }; w.connectActive = true; w.cloudBackups = [cloudBackup()]; },
     faults: [{ match: "POST /api/v1/cloud/backups/*/run", mode: "502", message: "Luna Connect couldn't be reached. Check your internet connection and try again." }],
     check: ["Problem stays on the backup card, not a toast"],
   },
   {
     id: "settings/phrase-not-set",
-    area: "Settings: Cloud backup",
+    area: "Settings: Luna Connect",
     title: "No recovery phrase yet",
-    url: "/settings#cloud_backup",
+    url: "/settings#luna_connect",
     seed: (w) => {
       w.connect = { enabled: true, connect_active: true, card_on_file: true };
       w.connectActive = true;
@@ -279,14 +294,15 @@ export default [
     check: [
       "Recovery phrase shows a 'Not set up' pill and a Set up button",
       "Set up opens the phrase dialog with the 12/24 switch",
-      "Saving fills the card in as Ready",
+      "The dialog says why someone would choose 24 words before you pick",
+      "Saving closes the dialog and the card says Ready",
     ],
   },
   {
     id: "settings/phrase-check-wrong",
-    area: "Settings: Cloud backup",
+    area: "Settings: Luna Connect",
     title: "Recovery phrase check with the wrong words",
-    url: "/settings#cloud_backup",
+    url: "/settings#luna_connect",
     seed: (w) => {
       w.connect = { enabled: true, connect_active: true, card_on_file: true };
       w.connectActive = true;
@@ -298,9 +314,9 @@ export default [
   },
   {
     id: "settings/restore-needed",
-    area: "Settings: Cloud backup",
+    area: "Settings: Luna Connect",
     title: "Restore: Luna lost its list of cloud backups",
-    url: "/settings#cloud_backup",
+    url: "/settings#luna_connect",
     seed: (w) => {
       w.connect = { enabled: true, connect_active: true, card_on_file: true };
       w.connectActive = true;
@@ -310,9 +326,9 @@ export default [
   },
   {
     id: "settings/restore-private-needed",
-    area: "Settings: Cloud backup",
+    area: "Settings: Luna Connect",
     title: "Restore: private backups list lost",
-    url: "/settings#cloud_backup",
+    url: "/settings#luna_connect",
     seed: (w) => {
       w.connect = { enabled: true, connect_active: true, card_on_file: true };
       w.connectActive = true;
@@ -322,9 +338,9 @@ export default [
   },
   {
     id: "settings/phrase-24-words",
-    area: "Settings: Cloud backup",
+    area: "Settings: Luna Connect",
     title: "Recovery phrase check for a 24-word phrase",
-    url: "/settings#cloud_backup",
+    url: "/settings#luna_connect",
     seed: (w) => {
       w.connect = { enabled: true, connect_active: true, card_on_file: true };
       w.connectActive = true;
@@ -335,9 +351,9 @@ export default [
   },
   {
     id: "settings/phrase-set-check-due",
-    area: "Settings: Cloud backup",
+    area: "Settings: Luna Connect",
     title: "Recovery phrase check is due",
-    url: "/settings#cloud_backup",
+    url: "/settings#luna_connect",
     seed: (w) => {
       w.connect = { enabled: true, connect_active: true, card_on_file: true };
       w.connectActive = true;
@@ -352,9 +368,9 @@ export default [
   },
   {
     id: "settings/phrase-change",
-    area: "Settings: Cloud backup",
+    area: "Settings: Luna Connect",
     title: "Changing the phrase with the wrong old phrase",
-    url: "/settings#cloud_backup",
+    url: "/settings#luna_connect",
     seed: (w) => { setPhrase(w); w.phraseWrong = true; },
     check: [
       "Change phrase asks for the current phrase first",
@@ -364,9 +380,9 @@ export default [
   },
   {
     id: "settings/phrase-change-exposed",
-    area: "Settings: Cloud backup",
+    area: "Settings: Luna Connect",
     title: "Changing the phrase because someone may have it",
-    url: "/settings#cloud_backup",
+    url: "/settings#luna_connect",
     seed: (w) => setPhrase(w),
     check: [
       "Current phrase is accepted, then 'Could someone else have your phrase?' appears",
@@ -379,9 +395,9 @@ export default [
   },
   {
     id: "settings/phrase-lost-exposed",
-    area: "Settings: Cloud backup",
+    area: "Settings: Luna Connect",
     title: "Lost phrase that may have been found",
-    url: "/settings#cloud_backup",
+    url: "/settings#luna_connect",
     seed: (w) => setPhrase(w),
     check: [
       "'Get a new phrase' confirm names the private items that can't be opened",
@@ -391,9 +407,9 @@ export default [
   },
   {
     id: "settings/phrase-lost",
-    area: "Settings: Cloud backup",
+    area: "Settings: Luna Connect",
     title: "Lost phrase, nobody else has it",
-    url: "/settings#cloud_backup",
+    url: "/settings#luna_connect",
     seed: (w) => {
       setPhrase(w, { old_phrase_copies: { count: 2, removed_at: at(-30 * DAY) } });
       w.passwordWrong = true;
@@ -407,9 +423,9 @@ export default [
   },
   {
     id: "settings/phrase-resealing",
-    area: "Settings: Cloud backup",
+    area: "Settings: Luna Connect",
     title: "Cloud backups still moving to the new phrase",
-    url: "/settings#cloud_backup",
+    url: "/settings#luna_connect",
     seed: (w) => setPhrase(w, { resealing: true }),
     check: [
       "The card says 'Updating your cloud backups to the new phrase…' under the phrase row",
@@ -419,9 +435,9 @@ export default [
   },
   {
     id: "settings/phrase-moving",
-    area: "Settings: Cloud backup",
+    area: "Settings: Luna Connect",
     title: "Cloud backups moving to the new phrase in the background",
-    url: "/settings#cloud_backup",
+    url: "/settings#luna_connect",
     seed: (w) => {
       setPhrase(w);
       w.phrase.moving = { percent: 40.9, paused_full: false };
@@ -435,9 +451,9 @@ export default [
   },
   {
     id: "settings/phrase-moving-full",
-    area: "Settings: Cloud backup",
+    area: "Settings: Luna Connect",
     title: "Move paused because Connect storage is full",
-    url: "/settings#cloud_backup",
+    url: "/settings#luna_connect",
     seed: (w) => {
       setPhrase(w);
       w.phrase.moving = { percent: 40, paused_full: true };
@@ -493,11 +509,66 @@ export default [
     check: ["Checks are grouped, failures first", "Luna's own storage shows what is using the disk, biggest first", "Free up space clears the temporary files and says how much", "Update now starts the update", "Open source licenses open and close"],
   },
   {
+    id: "settings/updates-from-new-source",
+    area: "Settings: About",
+    title: "Updates after changing the update source",
+    url: "/settings#about",
+    seed: (w) => {
+      // Luna just moved to this source, so its build is offered even though it
+      // is the version already running.
+      w.updates = {
+        update_available: true,
+        current_version: "1.4.2",
+        latest_version: "1.4.2",
+        feed_is_newer: false,
+        from_new_source: true,
+        release_notes: "## 1.4.2\n\nA build from this Luna's own update source.",
+      };
+      w.updateSource = {
+        ...w.updateSource,
+        feed_url: "https://updates.example.net/feeds",
+        default_keys: false,
+        keys: ["RWSELFSIGNED"],
+        effective_keys: ["RWSELFSIGNED"],
+      };
+    },
+    check: [
+      "Status says 1.4.2 available even though that is the running version",
+      "A line says the update source changed and this is the version it has",
+      "Update now installs that build and says it comes from the source you set",
+    ],
+  },
+  {
     id: "settings/update-source",
     area: "Settings: About",
     title: "Update source",
     url: "/settings#about",
-    check: ["Switching the source saves and says so", "A bad address is refused clearly"],
+    check: [
+      "Changing Stable ↔ Beta keeps the feed address and says it saved",
+      "Updates opens as one section: the channel and the source each on their own pill row",
+      "The source row shows Edit update source, not the address or a default/custom pill",
+      "Edit update source opens with the warning and prefilled fields",
+      "A bad address or key is refused inline and the old value stays",
+    ],
+  },
+  {
+    id: "settings/update-source-lan-feed",
+    area: "Settings: About",
+    title: "Update source on a network address",
+    url: "/settings#about",
+    seed: (w) => {
+      w.updateSource = {
+        ...w.updateSource,
+        feed_url: "https://192.168.1.10/feeds",
+        default_keys: false,
+        effective_keys: ["RWCUSTOM"],
+      };
+    },
+    check: [
+      "The editor opens on the network address",
+      "Switching Stable ↔ Beta saves without the private-network error",
+      "The feed address stays 192.168.1.10",
+    ],
   },
   {
     id: "settings/update-source-fails",

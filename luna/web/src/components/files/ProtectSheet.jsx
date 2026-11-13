@@ -6,7 +6,7 @@ import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
-import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import LayeredPill from "@libreloom/ui/components/ui/LayeredPill.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import IconCircle from "@libreloom/ui/components/ui/IconCircle.jsx";
@@ -377,7 +377,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
         }
         onClose={onClose}
       >
-        {error && <PageNotice variant="error" className="mb-3">{error}</PageNotice>}
+        {error && <InlineError className="mb-3">{error}</InlineError>}
 
         <div className="mb-5 space-y-1">
           {isOthersPrivate ? (

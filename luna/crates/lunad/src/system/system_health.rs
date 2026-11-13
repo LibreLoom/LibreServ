@@ -637,7 +637,9 @@ const OFFICE_EDITORS: &[(&str, &str, &str)] = &[
 const FILES_KEPT: &str = "Your files are still on your drives and can be downloaded.";
 
 fn add_feature_checks(checks: &mut Checks, data_dir: &Path, probes: &Probes) {
-    let office = data_dir.join("eurooffice");
+    // The packs ship in the OS image; a data-dir copy is only a fallback for a
+    // box from an older ISO, so ask `packs` where they actually are.
+    let office = crate::packs::dir(data_dir, "eurooffice");
     let all_nouns: Vec<&str> = OFFICE_EDITORS.iter().map(|(_, noun, _)| *noun).collect();
     let mut missing: Vec<&str> = OFFICE_SHARED
         .iter()
@@ -702,7 +704,7 @@ fn add_feature_checks(checks: &mut Checks, data_dir: &Path, probes: &Probes) {
             ));
     }
 
-    let drawio = data_dir.join("drawio");
+    let drawio = crate::packs::dir(data_dir, "drawio");
     let marker_ok = std::fs::read_to_string(drawio.join("pack.json"))
         .ok()
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
@@ -878,30 +880,6 @@ fn add_drive_tool_checks(checks: &mut Checks, probes: &Probes) {
                 Some(json!({ "missing": ["ntfs3"] })),
             )
             .more("NTFS is the format Windows uses for its own drives and often for external hard drives. Drives in other formats, like exFAT or FAT32, still work.");
-    }
-
-    let mut missing = probes.missing(&["wipefs", "sfdisk"]);
-    if !probes.has_program("mkfs.exfat") && !probes.has_program("mkfs.vfat") {
-        missing.push("mkfs.exfat");
-    }
-    if missing.is_empty() {
-        checks.add(
-            "erase_tools",
-            "drives",
-            PASSED,
-            "Luna can erase a drive while adding it.",
-            None,
-        );
-    } else {
-        checks
-            .add(
-                "erase_tools",
-                "drives",
-                WARNING,
-                "Luna can't erase drives.",
-                Some(json!({ "missing": missing })),
-            )
-            .more("Erasing clears a drive and formats it for Luna when you add it, and a tool for that is missing. Drives you add without erasing still work.");
     }
 
     if probes.has_program("smartctl") {
@@ -1550,9 +1528,6 @@ mod tests {
         "blkid",
         "mount",
         "umount",
-        "wipefs",
-        "sfdisk",
-        "mkfs.exfat",
         "smartctl",
         "fstrim",
         "grub-editenv",
@@ -1653,7 +1628,6 @@ mod tests {
             "heic_tools",
             "drive_tools",
             "ntfs_support",
-            "erase_tools",
             "smart_tool",
             "trim_tool",
             "os_update_tools",

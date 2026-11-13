@@ -50,6 +50,19 @@ export default [
     check: ["List stays smooth while scrolling", "Sorting by name, size, age is quick", "Filter box narrows instantly", "Select-all says how many are selected"],
   },
   {
+    id: "files/open-close-speed",
+    area: A,
+    title: "Opening and closing a file in a huge folder",
+    url: "/files/d1?path=Big",
+    seed: (w) => { blank(w); addMany(w, "d1", "Big", 5000); addFile(w, "d1", "Big/notes.txt", { text: "hello" }); },
+    check: [
+      "Open notes.txt: the loading screen appears immediately and the editor follows without the list freezing",
+      "Close it: the list is interactive immediately, with no extra pause",
+      "Repeat five times: each open and close feels the same, with no growing delay",
+      "Scroll position and selection are unchanged after closing",
+    ],
+  },
+  {
     id: "files/long-names", area: A, title: "Very long file names", url: "/files/d1?path=Long",
     seed: (w) => {
       blank(w);
@@ -107,6 +120,22 @@ export default [
 
   // ── Drive condition ───────────────────────────────────────────────────────
   {
+    id: "files/drive-needs-setup",
+    area: A,
+    title: "Plugged-in drive Luna can't use yet (blank or installer)",
+    url: "/files",
+    seed: (w) => { demo(w); w.detected = [{ name: "sdb", model: "Blank USB stick", size_bytes: 16_000_000_000, fs_type: null, readable: false, needs_setup: true }]; },
+    check: ["The Unrecognized drives card says Blank, or a format Luna can't read", "It says Setting up new drives isn't available in this version yet", "Add drive is disabled, and there is no Format or Erase button anywhere"],
+  },
+  {
+    id: "files/drive-encrypted",
+    area: A,
+    title: "Plugged-in encrypted drive",
+    url: "/files",
+    seed: (w) => { demo(w); w.detected = [{ name: "sdb", model: "Locked USB stick", size_bytes: 16_000_000_000, fs_type: "crypto_LUKS", readable: false, encrypted: true }]; },
+    check: ["The Unrecognized drives card says Encrypted", "It says Luna can't open encrypted drives in this version yet", "Add drive is disabled, and there is no password box or Unlock button anywhere"],
+  },
+  {
     id: "files/readonly-drive", area: A, title: "Read-only drive", url: "/files/d1",
     seed: (w) => { demo(w); w.drives[0].state = "readonly"; },
     check: ["Browsing and opening work", "New, upload, rename, delete are hidden or disabled with a reason", "Trying anyway (drag a file in) gives a plain 'read-only' message"],
@@ -139,7 +168,7 @@ export default [
   {
     id: "files/health-unknown", area: A, title: "Drive gives no health report", url: "/files/d1",
     seed: (w) => { demo(w); w.health.d1 = smartHealth({ available: false, reason: "no_report", verdict: "unknown", overall: "unknown", model: null, serial: null, temperature_c: null, reallocated_sectors: null, pending_sectors: null, uncorrectable_sectors: null }); },
-    check: ["Drive health says Luna got no report from this drive, in plain words", "No warning notice above the files"],
+    check: ["No Drive health section and no health pill appear", "No warning notice above the files"],
   },
   {
     id: "files/drive-healthy-details", area: A, title: "Healthy drive, a little warm", url: "/files/d1",
@@ -241,7 +270,7 @@ export default [
       "Drag a folder with sub-folders onto the list → one row named after the folder, and the drive gets the same tree",
       "An empty folder inside it is made on the drive too, at every level, and counts in the card (\"Made 2 folders in Documents\")",
       "A folder holding only empty folders still finishes and says what it made, never \"0 of 0 files\"",
-      "Pick a folder from the Upload menu → the menu says empty folders inside it aren't copied, because the browser can't see them; dragging the folder does copy them",
+      "Pick a folder from the Upload menu → it has no 'skips empty folders' second line; an empty pick explains that the browser can't see empty folders and to drag the folder instead",
       "Pick an empty folder, or one holding only empty folders → it says that folder has no files instead of doing nothing",
       "Pick the same folder twice in a row → the second pick uploads again",
       "Cancel during the walk → it stops, and the card says Cancelled rather than claiming the folder went up",
@@ -349,7 +378,11 @@ export default [
   {
     id: "files/private-ownerless", area: A, title: "Private folders that belong to nobody", url: "/settings#users",
     seed: (w) => { demo(w); w.users.push(user({ id: "u2", username: "sam", display_name: "Sam" })); addDir(w, "d1", "Imported A", { private: true }); addDir(w, "d1", "Imported B", { private: true }); },
-    check: ["Admin sees '2 private folders have no owner' and can give them to someone", "After giving, the notice disappears"],
+    check: [
+      "Admin sees a Private folders without an owner card listing Imported A and Imported B, each with its drive",
+      "Each row has its own Give to… and Give; giving one leaves the other",
+      "After both are given, the card disappears",
+    ],
   },
   {
     id: "files/private-move-out", area: A, title: "Move something out of a private folder", url: "/files/d1?path=Diary",
@@ -551,7 +584,34 @@ export default [
     seed: (w) => { viewerSamples(w); w.drives[0].state = "readonly"; },
     check: ["No Edit button, or it explains why", "Reading works"],
   },
-  { id: "files/edit-markdown", area: A, title: "Edit markdown with preview", url: open("readme.md"), seed: viewerSamples, check: ["Toolbar bold/italic/list work", "Table editing works", "Read mode and edit mode show the same text"] },
+  { id: "files/edit-markdown", area: A, title: "Edit markdown with preview", url: open("readme.md"), seed: viewerSamples, check: ["Toolbar bold/italic/list work", "Table editing works", "Read mode and edit mode show the same text", "Ctrl-click (⌘-click on a Mac) the link in write and source mode: it opens in a new tab", "The fullscreen sidebar has Share, and it opens the sharing sheet"] },
+  {
+    id: "files/edit-form",
+    area: A,
+    title: "Edit a form",
+    url: open("rsvp.lunaform"),
+    seed: viewerSamples,
+    check: [
+      "The builder loads the title and both questions",
+      "Editing a question marks the file unsaved; Save says Saved",
+      "Responses tab opens and shows its empty state",
+      "The fullscreen sidebar has Share, and it opens the sharing sheet",
+    ],
+  },
+  {
+    id: "files/edit-form-collab",
+    area: A,
+    title: "Two people editing one form",
+    url: open("rsvp.lunaform"),
+    seed: viewerSamples,
+    realLunadOnly: "Live co-editing needs the real lunad collab hub; the fake has no WebSocket.",
+    check: [
+      "Open the form in two browsers as two people",
+      "Click into question 1 in one: the other shows a coloured outline and a name chip on question 1",
+      "Move to question 2: the highlight follows, without any text cursor",
+      "The name chip uses each person's colour",
+    ],
+  },
   {
     id: "files/edit-office", area: A, title: "Open a Word document", url: open("report.docx"), seed: viewerSamples,
     realLunadOnly: "The document editor (EuroOffice) needs the real lunad office service; the fake answers 'not available'.",

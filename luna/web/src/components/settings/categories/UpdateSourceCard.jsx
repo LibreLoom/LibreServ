@@ -4,11 +4,9 @@ import { AlertTriangle, Rss } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
-import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
-import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
-import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import ConnectDeviceCodeForm from "../ConnectDeviceCodeForm.jsx";
 import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
@@ -60,9 +58,6 @@ export default function UpdateSourceCard({ index = 3 }) {
   });
 
   const s = source.data || {};
-  const customized =
-    source.data != null &&
-    (!s.default_keys || (s.defaults && s.feed_url !== s.defaults.feed_url));
 
   const onSaved = (data) => {
     queryClient.setQueryData(["updates-source"], (old) => {
@@ -75,11 +70,7 @@ export default function UpdateSourceCard({ index = 3 }) {
 
   const changeChannel = useMutation({
     mutationFn: (/** @type {string} */ channel) =>
-      putJson("/api/v1/system/updates/source", {
-        feed_url: s.feed_url,
-        channel,
-        keys: signingKeysForSave(signingKeysForDisplay(s), s),
-      }),
+      putJson("/api/v1/system/updates/source", { channel }),
     onSuccess: (data) => {
       addToast({ type: "success", message: "Update channel saved." });
       onSaved(data);
@@ -105,59 +96,57 @@ export default function UpdateSourceCard({ index = 3 }) {
           </div>
         </CollapsibleSection>
 
-        <CollapsibleSection title="Update source" mono pill>
-          <div className="space-y-4 mb-1">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="text-primary text-sm">
+        {/* One section for everything about updates: the channel the release
+            comes down from and where Luna reads it. Each control is its own
+            pill row, so the two never read as one line. */}
+        <CollapsibleSection title="Updates" mono pill>
+          <div className="space-y-3 mb-1">
+            <div
+              className="surface-primary rounded-pill px-4 py-2.5 flex flex-wrap items-center justify-between gap-3"
+              role="group"
+              aria-labelledby="update-channel-label"
+            >
+              <div className="text-secondary text-sm" id="update-channel-label">
                 Update channel{" "}
                 <InfoHint
+                  surface="primary"
                   label="What the update channel is"
                   content="Stable gets releases once they are tested. Beta gets new versions sooner and may have bugs. You can switch back to Stable at any time; Luna never installs an older version."
                 />
               </div>
               <SegmentedControl
                 aria-label="Update channel"
-                surface="secondary"
+                surface="primary"
                 value={s.channel || "stable"}
                 options={CHANNEL_OPTIONS}
                 onChange={(channel) => {
                   if (source.data && channel !== s.channel) changeChannel.mutate(channel);
                 }}
               />
+              {changeChannel.isError && (
+                <InlineError className="text-secondary w-full">
+                  {apiErrorMessage(changeChannel.error)}
+                </InlineError>
+              )}
             </div>
-            {changeChannel.isError && (
-              <PageNotice variant="error">{apiErrorMessage(changeChannel.error)}</PageNotice>
-            )}
 
-            <CollapsibleSection title="Feed address and signing keys" size="xs" pill>
-              <div className="p-4 mb-3 rounded-large-element bg-warning/20 border-2 border-warning/30">
-                <div className="flex items-center gap-3">
-                  <AlertTriangle size={ICON_SIZE.lg} className="text-warning flex-shrink-0" aria-hidden="true" />
-                  <p className="text-sm text-primary">
-                    Only change these if your updates come from somewhere else.{" "}
-                    <InfoHint
-                      label="What these settings control"
-                      content="They control where Luna itself gets its software updates — not your files, photos, or backups. A wrong value can stop Luna from updating, so leave these as-is unless you're pointing Luna at a different update source."
-                    />
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 mb-3">
-                <Pill variant={customized ? "warning" : "success"}>
-                  {customized ? "Custom source" : "Default source"}
-                </Pill>
-                <InlinePill className="break-all">{s.feed_url || "…"}</InlinePill>
-              </div>
+            <div
+              className="surface-primary rounded-pill px-4 py-2.5 flex flex-wrap items-center justify-between gap-3"
+              role="group"
+              aria-labelledby="update-source-label"
+            >
+              <h3 className="text-secondary text-sm" id="update-source-label">Update source</h3>
               <Button
                 type="button"
                 variant="outline"
-                surface="secondary"
+                surface="primary"
+                size="sm"
                 onClick={() => setModalOpen(true)}
               >
                 <Rss size={ICON_SIZE.sm} aria-hidden="true" />
                 Edit update source
               </Button>
-            </CollapsibleSection>
+            </div>
           </div>
         </CollapsibleSection>
       </div>
@@ -272,9 +261,21 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
     <ModalCard open={open} title="Update source" onClose={onClose}>
       {({ close }) => (
         <div className="space-y-4">
+          <div className="p-4 rounded-large-element bg-warning/20 border-2 border-warning/30">
+            <div className="flex items-center gap-3">
+              <AlertTriangle size={ICON_SIZE.lg} className="text-primary flex-shrink-0" aria-hidden="true" />
+              <p className="text-sm text-primary">
+                Only change this if you want Luna to get updates elsewhere.{" "}
+                <InfoHint
+                  label="What these settings control"
+                  content="They control where Luna itself gets its software updates — not your files, photos, or backups. A wrong value can stop Luna from updating, so leave these as-is unless you're pointing Luna at a different update source."
+                />
+              </p>
+            </div>
+          </div>
           <p className="text-primary text-sm">
-            Where Luna reads its list of updates — for the software on this Luna, not your files or
-            backups.
+            Where Luna gets software updates from. This is for this Luna's server software, not
+            your files or backups.
           </p>
 
           <div className="space-y-1">
@@ -327,7 +328,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
             </p>
           </div>
 
-          {saveError && <PageNotice variant="error">{saveError}</PageNotice>}
+          {saveError && <InlineError>{saveError}</InlineError>}
 
           <div className="flex gap-2 pt-1">
             <Button

@@ -163,15 +163,21 @@ async fn save_source(
     Json(body): Json<SourceBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_admin(&user)?;
+    // A source body may omit `feed_url` and `keys` (the channel toggle sends
+    // only `channel`). Those keep what Luna is using now, so switching
+    // channels never re-validates — or re-resolves — the existing feed.
+    let current = state.updates.settings();
     let settings = UpdateSettings {
-        feed_url: body.feed_url.unwrap_or_default(),
+        feed_url: body.feed_url.unwrap_or_else(|| current.feed_url.clone()),
         channel: body.channel.unwrap_or_default(),
-        keys: body.keys.unwrap_or_default(),
+        keys: body.keys.unwrap_or_else(|| current.keys.clone()),
     };
-    let keys = match crate::system::updates::validate_settings(&settings) {
-        Ok(keys) => keys,
-        Err(message) => return Err(json_error(StatusCode::BAD_REQUEST, message)),
-    };
+    let keys =
+        match crate::system::updates::validate_settings_against(&settings, Some(&current.feed_url))
+        {
+            Ok(keys) => keys,
+            Err(message) => return Err(json_error(StatusCode::BAD_REQUEST, message)),
+        };
 
     let stored = UpdateSettings {
         feed_url: settings.feed_url.trim().trim_end_matches('/').to_string(),
@@ -280,13 +286,9 @@ mod tests {
         }
     }
     struct NoopInstall;
-    impl Installer for NoopInstall {
-        fn install_lunad(&self, _bytes: &[u8]) -> Result<(), UpdateError> {
-            Ok(())
-        }
-    }
+    impl Installer for NoopInstall {}
 
-    const FEED_JSON: &str = r#"{"format":1,"unit":"luna","channel":"stable","version":"0.9.0","published":"2026-10-12T14:03:00Z","notes":"hello luna","parts":[{"name":"lunad","os":"linux","arch":"ARCH","file":"lunad-linux-amd64-musl","size":3,"sha256":"3a2d1f1ad8a24b0e0cbd9f1fae1f8bbd0c4b3c6c1d4b6f6c8b1a1d1f1f1f1f1f","urls":["http://dl.test/lunad"]}]}"#;
+    const FEED_JSON: &str = r#"{"format":1,"unit":"luna","channel":"stable","version":"0.9.0","published":"2026-10-12T14:03:00Z","notes":"hello luna","parts":[{"name":"os","os":"linux","arch":"ARCH","file":"luna-os-x86_64.img.xz","size":3,"sha256":"3a2d1f1ad8a24b0e0cbd9f1fae1f8bbd0c4b3c6c1d4b6f6c8b1a1d1f1f1f1f1f","urls":["http://dl.test/os"]}]}"#;
 
     fn app() -> (axum::Router, String, crate::AppState) {
         let arch = match std::env::consts::ARCH {
@@ -373,9 +375,6 @@ mod tests {
 
     struct FailedInstall(std::sync::Mutex<Option<String>>);
     impl Installer for FailedInstall {
-        fn install_lunad(&self, _bytes: &[u8]) -> Result<(), UpdateError> {
-            Ok(())
-        }
         fn read_os_failed(&self) -> Option<String> {
             self.0.lock().unwrap().clone().map(|_| "deadbeef".into())
         }
@@ -576,6 +575,19 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn source_put_channel_only_keeps_the_feed_and_keys() {
+        let (router, token, state) = app();
+        let response = router
+            .oneshot(put(&token, r#"{"channel":"beta"}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let got = state.updates.settings();
+        assert_eq!(got.feed_url, "http://feeds.test");
+        assert_eq!(got.channel, "beta");
+    }
+
+    #[tokio::test]
     async fn source_is_admin_only() {
         let (router, _token, state) = app();
         // Second registered user is a plain member.
@@ -618,9 +630,11 @@ mod tests {
         assert!(crate::system::updates::load_settings(&state.db.lock().unwrap()).is_some());
 
         // …then restore this binary's defaults: the stored row goes away.
+        // `keys: []` says "use the built-in release key"; omitting the field
+        // would keep the keys Luna is using now, which is not a reset.
         let d = crate::system::updates::default_settings();
         let body = format!(
-            r#"{{"feed_url":"{}","channel":"{}"}}"#,
+            r#"{{"feed_url":"{}","channel":"{}","keys":[]}}"#,
             d.feed_url, d.channel
         );
         let response = router.oneshot(put(&token, &body)).await.unwrap();

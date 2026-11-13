@@ -80,9 +80,9 @@ eurooffice-assets:
 	LUNA_DATA_DIR="$(DATA_DIR)" EUROOFFICE_IMAGE="$(DS_IMAGE)" \
 		bash scripts/install-eurooffice-assets.sh
 
-# Release pack: os/dist/eurooffice-pack.tar.zst, baked into the install ISO
-# and extracted onto LUNA_DATA by rapidinstall. Reuses the dev pack when
-# present (EUROOFFICE_DIR to point elsewhere); fetches it otherwise.
+# Release pack: os/dist/eurooffice-pack.tar.zst, unpacked into the OS image at
+# /usr/share/luna/eurooffice by the rootfs step (035.frag). Reuses the dev pack
+# when present (EUROOFFICE_DIR to point elsewhere); fetches it otherwise.
 eurooffice-pack:
 	LUNA_DATA_DIR="$(DATA_DIR)" sh scripts/build-eurooffice-pack.sh
 
@@ -95,9 +95,9 @@ drawio:
 		DRAWIO_SHA256="$(DRAWIO_SHA256)" \
 		bash scripts/install-drawio-assets.sh
 
-# Release pack: os/dist/drawio-pack.tar.zst, baked into the install ISO and
-# extracted onto LUNA_DATA by rapidinstall. Reuses the dev pack when present
-# (DRAWIO_DIR to point elsewhere); fetches it otherwise.
+# Release pack: os/dist/drawio-pack.tar.zst, unpacked into the OS image at
+# /usr/share/luna/drawio by the rootfs step (035.frag). Reuses the dev pack
+# when present (DRAWIO_DIR to point elsewhere); fetches it otherwise.
 drawio-pack:
 	LUNA_DATA_DIR="$(DATA_DIR)" sh scripts/build-drawio-pack.sh
 

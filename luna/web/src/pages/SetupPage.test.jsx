@@ -428,7 +428,7 @@ describe("SetupPage", () => {
       network: { ethernet_connected: true, has_default_route: true, ipv4: ["192.168.1.8"] },
       connectActive: true,
     }));
-    vi.stubGlobal("location", { ...window.location, hostname: "photos.luna.servers.libreloom.org" });
+    vi.stubGlobal("location", { ...window.location, hostname: "photos.luna.servers.libreloom.org", pathname: "/setup" });
     renderSetup();
     fireEvent.click(await screen.findByRole("button", { name: /Begin setup/i }));
     expect(await screen.findByRole("heading", { name: /System check/i })).toBeTruthy();
@@ -492,7 +492,7 @@ describe("SetupPage", () => {
       network: { ethernet_connected: true, has_default_route: true, ipv4: ["192.168.1.8"] },
       connectActive: false,
     }));
-    vi.stubGlobal("location", { ...window.location, hostname: "photos.luna.servers.libreloom.org" });
+    vi.stubGlobal("location", { ...window.location, hostname: "photos.luna.servers.libreloom.org", pathname: "/setup" });
     renderSetup();
     fireEvent.click(await screen.findByRole("button", { name: /Begin setup/i }));
     expect(await screen.findByRole("heading", { name: /System check/i })).toBeTruthy();
@@ -544,7 +544,7 @@ describe("SetupPage", () => {
       })(url, init);
     });
     vi.stubGlobal("fetch", fetchMock);
-    vi.stubGlobal("location", { ...window.location, hostname: "photos.luna.servers.libreloom.org" });
+    vi.stubGlobal("location", { ...window.location, hostname: "photos.luna.servers.libreloom.org", pathname: "/setup" });
 
     renderSetup("/setup?token=ABCD-EFGH-IJKM-NPQR-STUV");
     fireEvent.click(await screen.findByRole("button", { name: /Begin setup/i }));

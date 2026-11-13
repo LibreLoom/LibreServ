@@ -25,12 +25,6 @@ struct DriveJson {
     writable: bool,
     /// The requesting user's capabilities on the drive root, server-stamped.
     caps: String,
-    /// The drive on disk is a LUKS2 container.
-    encrypted: bool,
-    /// Its container is not open, so there is nothing to browse.
-    locked: bool,
-    /// An in-place conversion holds the drive.
-    converting: bool,
 }
 
 #[derive(Serialize)]
@@ -57,43 +51,17 @@ struct InspectEntryJson {
 #[derive(Serialize)]
 struct PeekJson {
     readable: bool,
-    /// An encrypted Luna drive whose password has not been entered.
-    locked: bool,
+    /// The drive is encrypted, which Luna can't open.
+    encrypted: bool,
     fs_type: Option<String>,
     /// The drive was set up by a Luna before.
     has_marker: bool,
-    needs_erase: bool,
+    /// Blank, damaged, another system's format, or installer media.
+    needs_setup: bool,
     folders: u64,
     files: u64,
     /// A few non-hidden top-level names (folders first).
     sample: Vec<InspectEntryJson>,
-}
-
-/// What a wipe would destroy, for the confirmation dialog.
-///
-/// One shape for every flow that wipes a drive — plain reformat, encryption
-/// on, encryption off — so the dialog is the same dialog and the rule about
-/// when a person has to wait lives in one place.
-#[derive(Serialize)]
-struct WipePreviewJson {
-    drive_id: String,
-    label: String,
-    /// Bytes in use beyond what a fresh filesystem occupies.
-    used_bytes: Option<u64>,
-    /// True when the drive holds something a person would miss. False means a
-    /// single confirmation is enough; true means the waiting period applies.
-    meaningful: bool,
-    /// The filesystem that will be put on the drive.
-    target_fs: String,
-    /// Whether the drive will be encrypted afterwards.
-    target_encrypted: bool,
-    /// Top-level names, folders first, for the list in the dialog.
-    entries: Vec<InspectEntryJson>,
-    /// How many top-level folders and files there are in total.
-    folders: u64,
-    files: u64,
-    /// False when Luna could not look inside, which is treated as meaningful.
-    readable: bool,
 }
 
 #[derive(Serialize)]
@@ -109,19 +77,11 @@ struct InspectionJson {
     unreadable: u64,
     /// Non-hidden top-level names (folders first), for the Add-drive preview.
     entries: Vec<InspectEntryJson>,
-    needs_erase: bool,
+    needs_setup: bool,
     readable: bool,
     writable: bool,
-    /// An encrypted Luna drive that needs its password before it can be added.
-    locked: bool,
-    /// Bytes in use beyond what a fresh filesystem occupies. The Add-drive
-    /// flow uses this to apply the same "does this hold anything?" rule as
-    /// every other wipe, rather than counting files.
-    used_bytes: Option<u64>,
-    /// True when the drive holds something a person would miss, so wiping it
-    /// has to wait. Decided here, next to the rule itself, so the UI cannot
-    /// disagree with the daemon about what "empty" means.
-    meaningful: bool,
+    /// The drive is encrypted, which Luna can't open.
+    encrypted: bool,
 }
 
 /// Home-dashboard snapshot for one adopted drive. Space is `statvfs`;
@@ -142,14 +102,6 @@ struct DriveSummaryJson {
 #[derive(Deserialize)]
 struct AdoptBody {
     label: String,
-    #[serde(default)]
-    erase: bool,
-    /// Set up this drive as a new encrypted drive. Destructive, like `erase`,
-    /// and needs `password`.
-    #[serde(default)]
-    encrypted: bool,
-    #[serde(default)]
-    password: String,
 }
 
 pub fn router() -> Router<AppState> {
@@ -164,11 +116,6 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/drives/{id}/remove", post(remove))
         .route("/api/v1/drives/{id}/health", get(drive_health))
         .route("/api/v1/drives/{id}/summary", get(drive_summary))
-        .route("/api/v1/drives/{id}/wipe-preview", get(wipe_preview))
-        .route(
-            "/api/v1/drives/{id}/wipe-preview/{intent}",
-            get(wipe_preview_for),
-        )
 }
 
 async fn list(
@@ -199,9 +146,8 @@ async fn list(
             .map(|d| {
                 let id = d.id.clone();
                 let mut json: DriveJson = d.into();
-                // Checked before Members' mount path is blanked below. A
-                // locked drive has nothing mounted, whatever the row says.
-                json.mounted = !json.locked && state.drive_manager.mount_is_live(&json.mount_point);
+                // Checked before Members' mount path is blanked below.
+                json.mounted = state.drive_manager.mount_is_live(&json.mount_point);
                 json.writable = admin || crate::auth::has_write_on_drive(&user, &conn, &id);
                 json.caps =
                     crate::access::caps_to_str(crate::auth::caps_on_path(&user, &conn, &id, ""));
@@ -310,6 +256,7 @@ async fn peek(
     Path(name): Path<String>,
 ) -> Result<Json<PeekJson>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
+    let _device_guard = lock_idle_device(&state, &name).await?;
     let device = find_device(&name).await.ok_or_else(|| {
         json_error(
             StatusCode::NOT_FOUND,
@@ -317,14 +264,17 @@ async fn peek(
         )
     })?;
     let manager = state.drive_manager.clone();
-    let peek = tokio::task::spawn_blocking(move || manager.peek(&device))
-        .await
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't look inside this drive. Try again.",
-            )
-        })?;
+    let peek = tokio::task::spawn_blocking(move || {
+        let _device_guard = _device_guard;
+        manager.peek(&device)
+    })
+    .await
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't look inside this drive. Try again.",
+        )
+    })?;
     let mut sample: Vec<InspectEntryJson> = peek
         .summary
         .entries
@@ -346,10 +296,10 @@ async fn peek(
     sample.truncate(5);
     Ok(Json(PeekJson {
         readable: peek.readable,
-        locked: peek.locked,
+        encrypted: peek.encrypted,
         fs_type: peek.fs_type,
         has_marker: peek.has_marker,
-        needs_erase: peek.needs_erase,
+        needs_setup: peek.needs_setup,
         folders,
         files,
         sample,
@@ -362,6 +312,7 @@ async fn inspect(
     Path(name): Path<String>,
 ) -> Result<Json<InspectionJson>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
+    let _device_guard = lock_idle_device(&state, &name).await?;
     let device = find_device(&name).await.ok_or_else(|| {
         json_error(
             StatusCode::NOT_FOUND,
@@ -370,16 +321,19 @@ async fn inspect(
     })?;
     // Inspect mounts and probes the drive — off the async worker.
     let manager = state.drive_manager.clone();
-    let inspection = tokio::task::spawn_blocking(move || manager.inspect(&device))
-        .await
-        .ok()
-        .and_then(|r| r.ok())
-        .ok_or_else(|| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't look at this drive safely. Make sure it's plugged in and try again.",
-            )
-        })?;
+    let inspection = tokio::task::spawn_blocking(move || {
+        let _device_guard = _device_guard;
+        manager.inspect(&device)
+    })
+    .await
+    .ok()
+    .and_then(|r| r.ok())
+    .ok_or_else(|| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't look at this drive safely. Make sure it's plugged in and try again.",
+        )
+    })?;
     Ok(Json(InspectionJson {
         device: inspection.device,
         model: inspection.model,
@@ -399,12 +353,10 @@ async fn inspect(
                 kind: e.kind,
             })
             .collect(),
-        needs_erase: inspection.needs_erase,
+        needs_setup: inspection.needs_setup,
         readable: inspection.readable,
         writable: inspection.writable,
-        locked: inspection.locked,
-        used_bytes: inspection.used_bytes,
-        meaningful: crate::drives::wipe::holds_something(inspection.used_bytes),
+        encrypted: inspection.encrypted,
     }))
 }
 
@@ -415,6 +367,7 @@ async fn adopt(
     Json(body): Json<AdoptBody>,
 ) -> Result<Json<DriveJson>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
+    let _device_guard = lock_idle_device(&state, &name).await?;
     let label = body.label.trim().to_string();
     if label.is_empty() || label.len() > 80 {
         return Err(json_error(
@@ -431,27 +384,12 @@ async fn adopt(
     // Adopt mounts and probes the drive while holding the DB lock — off the
     // async worker so a slow disk can't stall unrelated requests.
     let (manager, db) = (state.drive_manager.clone(), state.db.clone());
-    let erase = body.erase;
-    let encrypted = body.encrypted;
-    let password = body.password;
-    if encrypted && password.is_empty() {
-        return Err(json_error(
-            StatusCode::BAD_REQUEST,
-            "Enter a password for this drive.",
-        ));
-    }
     let row = tokio::task::spawn_blocking(move || {
+        let _device_guard = _device_guard;
         crate::db::with_db(
             &db,
             || anyhow::anyhow!("db lock poisoned"),
-            |conn| {
-                if encrypted {
-                    // A new encrypted drive is always a fresh format.
-                    manager.adopt_encrypted(conn, &device, &label, &password)
-                } else {
-                    manager.adopt(conn, &device, &label, erase)
-                }
-            },
+            |conn| manager.adopt(conn, &device, &label),
         )
     })
     .await
@@ -476,6 +414,7 @@ async fn release(
     Path(name): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
+    let _device_guard = lock_idle_device(&state, &name).await?;
     state.drive_manager.release_foreign(&name).map_err(|err| {
         tracing::warn!(error = %err, drive = %name, "could not release an inspected drive");
         json_error(
@@ -552,9 +491,36 @@ async fn closed_drive(
     id: &str,
     unmount: impl Fn() -> Result<(), (StatusCode, Json<serde_json::Value>)> + Send + 'static,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let original = crate::db::with_db(
+        &state.db,
+        || anyhow::anyhow!("db lock poisoned"),
+        |conn| crate::db::get_drive(conn, id),
+    )
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't read this drive's settings.",
+        )
+    })?
+    .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know this drive."))?;
+    let device_guard = lock_idle_device(state, &original.device).await?;
+    let drive_guard = state.db.drive_lock(id).try_lock_owned().map_err(|_| {
+        json_error(
+            StatusCode::CONFLICT,
+            "Luna is already working on this drive. Wait until it finishes.",
+        )
+    })?;
     state.ram_cache.begin_close(id);
+    let cache_guard = CacheCloseGuard {
+        cache: state.ram_cache.clone(),
+        id: id.to_string(),
+    };
     let (st, drive) = (state.clone(), id.to_string());
-    let result = tokio::task::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
+        // The blocking operation owns these even if its HTTP request closes.
+        let _device_guard = device_guard;
+        let _drive_guard = drive_guard;
+        let _cache_guard = cache_guard;
         // Background scans leave this drive alone until we're done with it.
         let _closing = st.drive_manager.begin_closing(&drive);
         flush_dirty_before_unmount(&st, &drive)?;
@@ -604,9 +570,19 @@ async fn closed_drive(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't finish with this drive. Try again.",
         ))
-    });
-    state.ram_cache.end_close(id);
-    result
+    })
+}
+
+/// HTTP cancellation must not strand the RAM cache in its closing state.
+struct CacheCloseGuard {
+    cache: crate::drives::ram_cache::RamCache,
+    id: String,
+}
+
+impl Drop for CacheCloseGuard {
+    fn drop(&mut self) {
+        self.cache.end_close(&self.id);
+    }
 }
 
 /// Persist any dirty RAM writes for this drive before eject/remove.
@@ -803,124 +779,23 @@ async fn find_device(name: &str) -> Option<crate::drives::detect::DetectedDrive>
     .flatten()
 }
 
-/// What a wipe of this drive would destroy.
-///
-/// Read-only: it looks and reports, and changes nothing. Both the plain
-/// reformat flow and the encryption flow call it, so a person sees the same
-/// list and the same waiting rule whichever one they started.
-/// What a wipe would destroy, for the flow the caller is about to run.
-///
-/// The intent is explicit rather than inferred from the drive's current
-/// encryption: a plain reformat of an unencrypted drive and an encryption of
-/// the same drive wipe identically but leave very different drives behind, and
-/// the dialog has to say which.
-async fn wipe_preview_for(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-    Path((id, intent)): Path<(String, String)>,
-) -> Result<Json<WipePreviewJson>, (StatusCode, Json<serde_json::Value>)> {
-    let target = match intent.as_str() {
-        "encrypt" => Some((crate::drives::format::Filesystem::Ext4, true)),
-        "decrypt" | "reformat" => Some((crate::drives::format::Filesystem::Exfat, false)),
-        _ => None,
-    };
-    let Some((filesystem, encrypted)) = target else {
-        return Err(json_error(
-            StatusCode::BAD_REQUEST,
-            "Luna doesn't know what to do with this drive.",
-        ));
-    };
-    wipe_preview_inner(state, user, id, filesystem, encrypted).await
-}
-
-async fn wipe_preview(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-    Path(id): Path<String>,
-) -> Result<Json<WipePreviewJson>, (StatusCode, Json<serde_json::Value>)> {
-    // Without an intent, describe the drive as it is now: a preview of wiping
-    // it back to plain. The flows themselves always pass an intent.
-    wipe_preview_inner(
-        state,
-        user,
-        id,
-        crate::drives::format::Filesystem::Exfat,
-        false,
-    )
-    .await
-}
-
-async fn wipe_preview_inner(
-    state: AppState,
-    user: crate::auth::CurrentUser,
-    id: String,
-    target_filesystem: crate::drives::format::Filesystem,
-    target_encrypted: bool,
-) -> Result<Json<WipePreviewJson>, (StatusCode, Json<serde_json::Value>)> {
-    require_admin(user)?;
-    let row = crate::db::with_db(
-        &state.db,
-        || anyhow::anyhow!("db lock poisoned"),
-        |conn| crate::db::get_drive(conn, &id),
-    )
-    .map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't read this drive's settings. Try again.",
-        )
-    })?
-    .ok_or_else(|| {
-        json_error_code(
-            StatusCode::NOT_FOUND,
-            "unknown_drive",
-            "Luna doesn't know this drive.",
-        )
-    })?;
-
-    // A locked or absent drive cannot be listed. `inspect` reports that as
-    // unreadable, which the confirmation treats as "holds something" — the
-    // safe direction, since Luna genuinely cannot see what is on it.
-    let mount_point = row.mount_point.clone();
-    // Ask the same Mounter everything else uses, rather than guessing from the
-    // path: a stale mount point on the system disk would otherwise be measured
-    // as if it were the drive.
-    let manager = state.drive_manager.clone();
-    let contents = tokio::task::spawn_blocking(move || {
-        let path = std::path::Path::new(&mount_point);
-        let mounted = !mount_point.is_empty() && manager.mounter().is_mounted(path);
-        crate::drives::wipe::inspect(path, mounted)
-    })
-    .await
-    .map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't look inside this drive. Try again.",
-        )
-    })?;
-
-    let entries: Vec<InspectEntryJson> = contents
-        .summary
-        .entries
-        .iter()
-        .take(50)
-        .map(|e| InspectEntryJson {
-            name: e.name.clone(),
-            kind: e.kind.clone(),
-        })
-        .collect();
-
-    Ok(Json(WipePreviewJson {
-        drive_id: row.id,
-        label: row.label,
-        used_bytes: contents.used_bytes,
-        meaningful: contents.is_meaningful(),
-        target_fs: target_filesystem.as_str().to_string(),
-        target_encrypted,
-        entries,
-        folders: contents.summary.folders,
-        files: contents.summary.files,
-        readable: contents.readable,
-    }))
+/// Temporary mounts and adoption share one lock per physical device.
+async fn lock_idle_device(
+    state: &AppState,
+    name: &str,
+) -> Result<tokio::sync::OwnedMutexGuard<()>, (StatusCode, Json<serde_json::Value>)> {
+    let guard = state
+        .db
+        .drive_lock(&format!("device:{name}"))
+        .try_lock_owned()
+        .map_err(|_| {
+            json_error_code(
+                StatusCode::CONFLICT,
+                "drive_busy",
+                "Luna is already working on this drive. Wait until it finishes.",
+            )
+        })?;
+    Ok(guard)
 }
 
 fn require_admin(
@@ -938,31 +813,27 @@ fn require_admin(
 fn plain_adopt_error(err: &anyhow::Error) -> String {
     let text = err.to_string();
     let lower = text.to_ascii_lowercase();
-    // needs_erase adopt path — unique phrasing so lock-switch copy does not match.
-    if lower.contains("erase and add this drive")
-        || lower.contains("moved any files you want to keep")
-    {
-        crate::drives::INSTALLER_USB_MESSAGE.into()
+    if text == crate::drives::NEEDS_SETUP_MESSAGE {
+        crate::drives::NEEDS_SETUP_MESSAGE.into()
+    } else if text == crate::drives::ENCRYPTED_MESSAGE {
+        crate::drives::ENCRYPTED_MESSAGE.into()
     } else if lower.contains("no space")
         || lower.contains("disk full")
         || lower.contains("file too large")
         || lower.contains("os error 28")
     {
         "This drive is full, so Luna couldn't put its sticker file on it. Free some space and try again.".into()
-    } else if lower.contains("format it before")
+    } else if lower.contains("will not accept new files")
+        || lower.contains("lock switch")
         || lower.contains("read-only")
         || lower.contains("os error 30")
     {
-        crate::drives::NEEDS_FORMAT_MESSAGE.into()
-    } else if lower.contains("will not accept new files") || lower.contains("lock switch") {
         crate::drives::WRITE_REJECTED_MESSAGE.into()
     } else if lower.contains("could not mark") {
         "Luna couldn't put its sticker file on this drive. Unplug it, plug it back in, and try again.".into()
     } else if lower.contains("system disk") {
         "That's the drive Luna runs from. Luna won't use its own system drive for your files."
             .into()
-    } else if lower.contains("will only erase a usb stick") {
-        "Luna can only erase a USB stick, not the computer's own disk.".into()
     } else if lower.contains("give the drive a name") {
         "Give the drive a name first.".into()
     } else if lower.contains("added but could not be read back") {
@@ -1024,9 +895,6 @@ impl From<crate::db::DriveRow> for DriveJson {
             mounted: false,
             writable: false,
             caps: String::new(),
-            encrypted: d.encrypted,
-            locked: d.locked,
-            converting: d.converting,
         }
     }
 }
@@ -1081,158 +949,6 @@ mod tests {
             .await
             .unwrap();
         serde_json::from_slice(&bytes).unwrap()
-    }
-
-    use crate::drives::mount::Mounter;
-
-    /// Write `bytes` of filler into `dir` so a wipe preview has something to
-    /// find. Real bytes, because the preview measures the filesystem.
-    fn fill(dir: &std::path::Path, bytes: usize) {
-        std::fs::create_dir_all(dir).unwrap();
-        std::fs::write(dir.join("holiday.jpg"), vec![0u8; bytes]).unwrap();
-    }
-
-    #[tokio::test]
-    async fn a_wipe_preview_of_an_empty_drive_needs_no_waiting() {
-        let dir = tempfile::tempdir().unwrap();
-        let mock = crate::drives::mount::shared_mock();
-        let mount = dir.path().join("mounts/drives/d1");
-        std::fs::create_dir_all(&mount).unwrap();
-        let (state, token) = app_with_mount(&mock, dir.path(), mount.to_str().unwrap());
-        // A real drive is mounted; the preview only measures a live mount.
-        mock.mount("/dev/sdz", &mount, false).unwrap();
-
-        // The measurement is what a fresh filesystem reports: overhead only.
-        // Using the real one would measure whatever disk this test runs on,
-        // which says nothing about the drive.
-        let contents = crate::drives::wipe::inspect_with(&mount, true, |_| Some(96 * 1024));
-        assert!(!contents.is_meaningful());
-
-        let preview = get_json(&state, &token, "/api/v1/drives/d1/wipe-preview/encrypt").await;
-        assert_eq!(preview["readable"], true);
-        assert_eq!(preview["readable"], true);
-        assert_eq!(preview["folders"], 0);
-        assert_eq!(preview["files"], 0);
-        // An unencrypted drive becomes encrypted, so that is the target.
-        assert_eq!(preview["target_encrypted"], true);
-        assert_eq!(preview["target_fs"], "ext4");
-    }
-
-    #[tokio::test]
-    async fn a_wipe_preview_of_a_drive_with_files_needs_the_wait() {
-        let dir = tempfile::tempdir().unwrap();
-        let mock = crate::drives::mount::shared_mock();
-        let mount = dir.path().join("mounts/drives/d1");
-        // Bigger than any filesystem overhead allowance.
-        fill(&mount, 32 * 1024 * 1024);
-        let (state, token) = app_with_mount(&mock, dir.path(), mount.to_str().unwrap());
-        mock.mount("/dev/sdz", &mount, false).unwrap();
-
-        let preview = get_json(&state, &token, "/api/v1/drives/d1/wipe-preview/encrypt").await;
-        assert_eq!(preview["files"], 1);
-        assert_eq!(preview["entries"][0]["name"], "holiday.jpg");
-        // Whether that needs a wait is decided by the measurement, which the
-        // unit tests above cover without depending on this host's disks.
-        let contents =
-            crate::drives::wipe::inspect_with(&mount, true, |_| Some(4 * 1024 * 1024 * 1024));
-        assert!(contents.is_meaningful());
-    }
-
-    #[tokio::test]
-    async fn a_wipe_preview_of_an_encrypted_drive_targets_plain_exfat() {
-        let dir = tempfile::tempdir().unwrap();
-        let mock = crate::drives::mount::shared_mock();
-        let mount = dir.path().join("mounts/drives/d1");
-        std::fs::create_dir_all(&mount).unwrap();
-        let (state, token) = app_with_mount(&mock, dir.path(), mount.to_str().unwrap());
-        {
-            let conn = state.db.lock().unwrap();
-            db::set_drive_encrypted(&conn, "d1", true).unwrap();
-            db::set_drive_locked(&conn, "d1", true).unwrap();
-        }
-
-        let preview = get_json(&state, &token, "/api/v1/drives/d1/wipe-preview/decrypt").await;
-        assert_eq!(preview["target_encrypted"], false);
-        assert_eq!(preview["target_fs"], "exfat");
-        // A locked drive cannot be listed, so it must count as holding
-        // something rather than being called empty.
-        assert_eq!(preview["readable"], false);
-        assert_eq!(preview["meaningful"], true);
-    }
-
-    #[tokio::test]
-    async fn a_plain_reformat_does_not_claim_it_will_encrypt() {
-        // The same unencrypted drive, two intents, two different targets. If
-        // the preview guessed from the drive's current state, "Reformat" would
-        // promise encryption it is not going to do.
-        let dir = tempfile::tempdir().unwrap();
-        let mock = crate::drives::mount::shared_mock();
-        let mount = dir.path().join("mounts/drives/d1");
-        std::fs::create_dir_all(&mount).unwrap();
-        let (state, token) = app_with_mount(&mock, dir.path(), mount.to_str().unwrap());
-        mock.mount("/dev/sdz", &mount, false).unwrap();
-
-        let encrypt = get_json(&state, &token, "/api/v1/drives/d1/wipe-preview/encrypt").await;
-        assert_eq!(encrypt["target_encrypted"], true);
-        assert_eq!(encrypt["target_fs"], "ext4");
-
-        let reformat = get_json(&state, &token, "/api/v1/drives/d1/wipe-preview/reformat").await;
-        assert_eq!(reformat["target_encrypted"], false);
-        assert_eq!(reformat["target_fs"], "exfat");
-    }
-
-    #[tokio::test]
-    async fn a_wipe_preview_with_an_unknown_intent_is_refused() {
-        let dir = tempfile::tempdir().unwrap();
-        let mock = crate::drives::mount::shared_mock();
-        let mount = dir.path().join("mounts/drives/d1");
-        std::fs::create_dir_all(&mount).unwrap();
-        let (state, token) = app_with_mount(&mock, dir.path(), mount.to_str().unwrap());
-        let router = axum::Router::new()
-            .merge(super::router())
-            .layer(axum::middleware::from_fn_with_state(
-                state.clone(),
-                crate::auth::guard,
-            ))
-            .with_state(state.clone());
-        let response = tower::ServiceExt::oneshot(
-            router,
-            axum::http::Request::builder()
-                .uri("/api/v1/drives/d1/wipe-preview/destroy")
-                .header("Authorization", format!("Bearer {token}"))
-                .body(axum::body::Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
-    }
-
-    #[tokio::test]
-    async fn a_wipe_preview_of_an_unknown_drive_is_404() {
-        let dir = tempfile::tempdir().unwrap();
-        let mock = crate::drives::mount::shared_mock();
-        let mount = dir.path().join("mounts/drives/d1");
-        std::fs::create_dir_all(&mount).unwrap();
-        let (state, token) = app_with_mount(&mock, dir.path(), mount.to_str().unwrap());
-        let router = axum::Router::new()
-            .merge(super::router())
-            .layer(axum::middleware::from_fn_with_state(
-                state.clone(),
-                crate::auth::guard,
-            ))
-            .with_state(state.clone());
-        let response = tower::ServiceExt::oneshot(
-            router,
-            axum::http::Request::builder()
-                .uri("/api/v1/drives/nope/wipe-preview")
-                .header("Authorization", format!("Bearer {token}"))
-                .body(axum::body::Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
@@ -1365,30 +1081,28 @@ mod tests {
     }
 
     #[test]
-    fn needs_erase_error_is_plain_language() {
-        let err = anyhow::anyhow!("{}", crate::drives::INSTALLER_USB_MESSAGE);
-        let needs_erase = super::plain_adopt_error(&err);
-        assert!(needs_erase.contains("Erase and add this drive"));
-        assert!(!needs_erase.to_ascii_lowercase().contains("installer"));
+    fn needs_setup_error_is_plain_language() {
+        let err = anyhow::anyhow!("{}", crate::drives::NEEDS_SETUP_MESSAGE);
+        let needs_setup = super::plain_adopt_error(&err);
+        assert_eq!(needs_setup, crate::drives::NEEDS_SETUP_MESSAGE);
+        assert!(!needs_setup.to_ascii_lowercase().contains("installer"));
 
         let raw = anyhow::anyhow!(
             "Luna could not mark this drive as its own. could not write the marker: Read-only file system (os error 30)"
         );
         let plain = super::plain_adopt_error(&raw);
-        assert_eq!(plain, crate::drives::NEEDS_FORMAT_MESSAGE);
+        assert_eq!(plain, crate::drives::WRITE_REJECTED_MESSAGE);
         assert!(!plain.contains("os error"));
-        assert!(!plain.contains("Erase and add this drive"));
     }
 
     #[test]
-    fn marker_full_and_generic_are_not_needs_erase() {
+    fn marker_full_and_generic_are_not_needs_setup() {
         let full = anyhow::anyhow!(
             "Luna could not mark this drive as its own. could not write the marker: No space left on device (os error 28)"
         );
         let full_plain = super::plain_adopt_error(&full);
         assert!(full_plain.contains("full"));
         assert!(!full_plain.to_ascii_lowercase().contains("installer"));
-        assert!(!full_plain.contains("Erase and add this drive"));
 
         let other = anyhow::anyhow!(
             "Luna could not mark this drive as its own. could not write the marker: Permission denied (os error 13)"
@@ -1478,9 +1192,7 @@ mod tests {
             mount_readonly: false,
             diskseq: None,
         };
-        let row = drive_manager
-            .adopt(&conn, &device, "Photos", false)
-            .unwrap();
+        let row = drive_manager.adopt(&conn, &device, "Photos").unwrap();
         let state = crate::AppState::new(conn, drive_manager, dir.path());
         let admin = state
             .auth
@@ -1647,15 +1359,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ejecting_an_unknown_drive_says_so_plainly() {
+    async fn ejecting_or_removing_an_unknown_drive_says_so_plainly() {
         let app = drive_app();
-        let (status, body) = post(&app, "/api/v1/drives/not-a-drive/eject", &app.admin).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        let message = body["error"].as_str().unwrap();
-        assert!(
-            !message.contains('/') && !message.contains("sdz"),
-            "{message}"
-        );
+        for uri in [
+            "/api/v1/drives/not-a-drive/eject",
+            "/api/v1/drives/not-a-drive/remove",
+        ] {
+            let (status, body) = post(&app, uri, &app.admin).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+            let message = body["error"].as_str().unwrap();
+            assert!(
+                !message.contains('/') && !message.contains("sdz"),
+                "{uri}: {message}"
+            );
+        }
     }
 
     #[tokio::test]

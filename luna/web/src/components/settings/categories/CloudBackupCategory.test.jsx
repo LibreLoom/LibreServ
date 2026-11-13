@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import CloudBackupCategory from "./CloudBackupCategory.jsx";
 
@@ -55,7 +56,9 @@ function renderCard() {
   const view = render(
     <QueryClientProvider client={client}>
       <ToastProvider>
-        <CloudBackupCategory />
+        <MemoryRouter>
+          <CloudBackupCategory />
+        </MemoryRouter>
       </ToastProvider>
     </QueryClientProvider>,
   );
@@ -154,9 +157,8 @@ describe("CloudBackupCategory", () => {
   it("with Connect off, an Admin sees the phrase card and a line pointing at the device token, with no list", async () => {
     const fetchMock = stubApi({ connected: false });
     renderCard();
-    expect(
-      await screen.findByText("Cloud backup needs Luna Connect. Add your device token in Settings → About → Advanced."),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Add your device token in/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open Advanced/ })).toHaveAttribute("href", "/settings#about");
     expect(screen.getByText("Recovery phrase")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Back up now" })).toBeNull();
     const asked = fetchMock.mock.calls.map(([url]) => String(url));
@@ -262,7 +264,6 @@ describe("CloudBackupCategory", () => {
     expect(screen.getByRole("button", { name: "Back up now" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Check" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
-    expect(screen.getByText(/costs \$8 per terabyte each month/)).toBeInTheDocument();
   });
 
   it("says when a cloud backup has stopped finishing", async () => {

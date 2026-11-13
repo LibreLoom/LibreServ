@@ -4,6 +4,7 @@ import { FolderUp, UploadCloud } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { filesFromFileList, takeDropped } from "../../lib/collectUploadFiles.js";
 import { hasLunaPaths, hasOsFiles, readLunaDrive, readLunaPaths } from "../../lib/dnd.js";
@@ -49,7 +50,7 @@ export default function UploadFilesPanel({
 
   return (
     <Card title={title}>
-      {shownError && <PageNotice variant="error" className="mb-3">{shownError}</PageNotice>}
+      {shownError && <InlineError className="mb-3">{shownError}</InlineError>}
       {pickNotice && <PageNotice variant="info" className="mb-3">{pickNotice}</PageNotice>}
       <div
         className={cn(

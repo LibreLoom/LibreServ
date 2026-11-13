@@ -28,6 +28,7 @@ export default function PhraseSetupModal({
     queryClient.invalidateQueries({ queryKey: PHRASE_QUERY_KEY });
     await refresh();
     onSaved?.();
+    onClose();
   }
 
   return (

@@ -57,11 +57,10 @@ Not covered: code comments, logs, internal docs. Dashboard greetings (pigeons, s
 
 ## Running tests
 
-- **After an edit, run `./ci check`.** It prints the static checks (format, vet, lint, typecheck, colour scan) that the current diff can affect, and stops. `./ci check -r` runs them; `./ci check -f` widens to every check. Checks run on the host when this machine has the toolchain for them and in their container when it does not, which is the fast path and needs no flag; `--host` forces the host, `--podman` forces containers. This is the inner loop — it is seconds, not minutes, and it catches a broken edit without running product logic.
-- **Tests are the unattended pass, not the inner loop.** Run them through `./ci run --profile <profile>` when asked to verify a change properly (or when a release needs it). Never run `cargo test`, `npx vitest`, `npm test`, `go test` or any other runner directly, not even to read one output value or check one test. No focused `./ci` target? Wait for the full run.
-- Flags are `-x` for one letter, `--long` for more: `./ci run -p quick`, `./ci check -r`.
-- A full luna run takes 15–30 minutes. Start it in the background and poll its log for the `EXIT` line. Never start a second run while one is going, and a shell exit is not a result.
-- CPU, memory and parallelism bounds live in `.ci.conf` (default: gentle) and cap all `./ci` runs together. Never pass `--session` unless the user says so.
+- After an edit, `./ci check -r` is the whole loop: it runs the static checks (format, vet, lint, typecheck, colour scan) your diff can affect — seconds, not minutes — and stops. Plain `./ci check` only lists them. `-f` runs every static check in the whole monorepo (`./ci check -f -r`), not just your diff's — the slow sweep, so only when asked.
+- Checks run on the host when this machine has the toolchain for them and in their container when it does not, which is the fast path and needs no flag; `--host` forces the host, `--podman` forces containers.
+- You never start a test run — `./ci run --profile <profile>`, `cargo test`, `npx vitest`, `npm test`, `go test`, any runner, not even to read one output value. A run happens only when the user tells you to verify a change or the release process requires it. Don't propose one: if `./ci check` cannot cover a change, say that and move on.
+- When a run is authorized: start it in the background and poll its log for the `EXIT` line (a full luna run takes 15–30 minutes; a shell exit is not a result). One run at a time. Bounds live in `.ci.conf` (default: gentle); never pass `--session` unless told. Flags are `-x` short, `--long` long.
 - Test runs rewrite `luna/web/testing/results.json`, `luna/crates/lunad/src/backup/cloud/fixture.json` and `luna/web/src/dev/contract/lunad-responses.json` (the JSON shapes lunad's API tests see; written only by a full `./ci run -p luna`). Don't hand-edit them. Keep them out of feature commits unless regenerating them, and commit them separately as `test(luna): ...` or `chore(luna): ...`. If a lunad response changes shape, fix the fake lunad (`luna/web/src/dev/fake/`) in the feature commit, or add an entry with a reason to `luna/web/src/dev/contract/known-gaps.js`.
 - A failure in a file you didn't touch: re-run once via `./ci`. Report it as flaky only if it then passes. Never skip it silently.
 - Never commit a phase or task with failing or unfinished verification without saying so in the commit body.
@@ -112,7 +111,7 @@ Sync with the animation. Never buzz on hover, scroll, or typing. Never double-bu
 ## Git
 
 - **`origin` (GitHub) and `forgejo` (gt.plainskill.net) are ONE repository, kept identical by a mirror.** Fetch, merge, and diff against the branch's upstream (usually `origin`) only; never treat them as divergent or remark that they match.
-- **Push once** to the upstream remote; the mirror copies it. Never dual-push commits or branches — it races the mirror. If a forge looks behind, wait.
+- **Push** to the upstream remote; the mirror copies it. Never dual-push commits or branches — it races the mirror. If a forge looks behind, wait.
 - **Tags don't sync.** Push release tags to the forge the consumer fetches (Connect servers pull Forgejo), or deploy with `deploy.sh --head` / an explicit SHA.
 - Conventional commits (`feat(scope): …`, `fix(scope): …`); branches `feat/`, `fix/`, `docs/`, `chore/`.
 

@@ -18,7 +18,9 @@ import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 /** Hash without `#`. In-app Links use history.push, so we read the router location. */
 function categoryFromHash(hash, allowedCategoryIds) {
   const raw = String(hash || "").replace(/^#/, "");
-  return allowedCategoryIds.includes(raw) ? raw : null;
+  // Cloud backup is part of Luna Connect now; old links still land there.
+  const id = raw === "cloud_backup" ? "luna_connect" : raw;
+  return allowedCategoryIds.includes(id) ? id : null;
 }
 
 function useIsDesktop() {

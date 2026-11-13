@@ -617,13 +617,13 @@ describe("FileBrowser", () => {
       expect(await screen.findByText("That folder has no files in it.")).toBeInTheDocument();
     });
 
-    it("says at the menu that the picker skips empty folders", async () => {
+    it("does not mention empty folders in the upload menu", async () => {
       folderSupport(true);
       stubListing({ "": [] });
       renderBrowser({ multiSelect: false, enableUploadDrop: true, onUploadFiles: vi.fn() });
       fireEvent.click(await screen.findByRole("button", { name: "Upload" }));
       const menu = await screen.findByRole("menu", { name: "Upload" });
-      expect(within(menu).getByText("Skips empty folders")).toBeInTheDocument();
+      expect(within(menu).queryByText(/empty folders/i)).toBeNull();
     });
 
     it("keeps a plain Upload button when the browser cannot pick folders", async () => {

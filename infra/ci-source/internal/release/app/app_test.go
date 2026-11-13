@@ -382,6 +382,31 @@ func TestPreflightReportsProblems(t *testing.T) {
 	}
 }
 
+func TestPreflightRefusesUnpushedCommits(t *testing.T) {
+	w := newWorld(t)
+	os.WriteFile(filepath.Join(w.repo, "keys", "late.txt"), []byte("x"), 0o644)
+	git(t, w.repo, "add", "keys/late.txt")
+	git(t, w.repo, "commit", "-q", "-m", "todo: push me")
+	rep := w.app.Preflight(context.Background(), CutRequest{Unit: "fake", Channel: "stable"})
+	if rep.OK() {
+		t.Fatal("unpushed commit passed")
+	}
+	var detail string
+	for _, c := range rep.Checks {
+		if c.Name == "git" {
+			detail = c.Detail
+		}
+	}
+	if !strings.Contains(detail, "push or drop") {
+		t.Fatalf("git check %q", detail)
+	}
+	if _, err := w.app.Cut(context.Background(), CutRequest{Unit: "fake", Channel: "stable"}); err == nil {
+		t.Fatal("cut ran with unpushed commits")
+	} else if !strings.Contains(err.Error(), "push or drop") {
+		t.Fatalf("want the unpushed error, got %v", err)
+	}
+}
+
 func TestCutAndVerifyEndToEnd(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
@@ -540,35 +565,39 @@ func TestBumpFiles(t *testing.T) {
 
 func TestResolveSpecs(t *testing.T) {
 	dir := t.TempDir()
-	for _, f := range []string{"lunad-linux-amd64-musl"} {
-		must(t, os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o644))
-	}
 	specs := DefaultFileSpecs("luna")
-	reused := func(name string) (publish.PartSpec, bool) {
-		return publish.PartSpec{Version: "0.3.0", Size: 5, SHA256: "ab"}, true
+	// A luna release ships the image and the installer, and nothing else.
+	if len(specs) != 2 || specs[0].File != "luna-os-x86_64.img.xz" || specs[1].File != "luna-rapidinstall-x86_64.iso.xz" {
+		t.Fatalf("luna parts %+v", specs)
 	}
-	parts, err := resolveSpecs("luna", "stable", dir, specs, reused)
+	// Neither file present: the cut refuses rather than reusing an older one.
+	if _, err := resolveSpecs("luna", "stable", dir, specs); err == nil || !strings.Contains(err.Error(), "luna-os-x86_64.img.xz") {
+		t.Fatalf("missing image: %v", err)
+	}
+	must(t, os.WriteFile(filepath.Join(dir, "luna-os-x86_64.img.xz"), []byte("x"), 0o644))
+	if _, err := resolveSpecs("luna", "stable", dir, specs); err == nil || !strings.Contains(err.Error(), "luna-rapidinstall-x86_64.iso.xz") {
+		t.Fatalf("missing installer: %v", err)
+	}
+	must(t, os.WriteFile(filepath.Join(dir, "luna-rapidinstall-x86_64.iso.xz"), []byte("x"), 0o644))
+	parts, err := resolveSpecs("luna", "stable", dir, specs)
 	must(t, err)
-	if len(parts) != 3 || parts[0].Version != "" || parts[1].Version != "0.3.0" || parts[1].File != "luna-os-x86_64.img.xz" {
+	if len(parts) != 2 || parts[0].Version != "" || parts[1].Version != "" {
 		t.Fatalf("parts %+v", parts)
 	}
-	if _, err := resolveSpecs("luna", "stable", dir, specs, func(string) (publish.PartSpec, bool) { return publish.PartSpec{}, false }); err == nil || !strings.Contains(err.Error(), "no earlier release") {
-		t.Fatalf("no prior: %v", err)
-	}
-	// a missing non-reusable file is an error
-	if _, err := resolveSpecs("sol", "stable", dir, DefaultFileSpecs("sol"), nil); err == nil || !strings.Contains(err.Error(), "sol-linux-amd64") {
+	// a missing file is an error
+	if _, err := resolveSpecs("sol", "stable", dir, DefaultFileSpecs("sol")); err == nil || !strings.Contains(err.Error(), "sol-linux-amd64") {
 		t.Fatalf("missing: %v", err)
 	}
 	// desktop: a beta cut needs only the beta flatpak and the installer
 	must(t, os.WriteFile(filepath.Join(dir, "luna-desktop-beta-x86_64.flatpak"), []byte("x"), 0o644))
 	must(t, os.WriteFile(filepath.Join(dir, "Luna-Desktop-Setup-x86_64.exe"), []byte("x"), 0o644))
-	parts, err = resolveSpecs("luna-desktop", "beta", dir, DefaultFileSpecs("luna-desktop"), nil)
+	parts, err = resolveSpecs("luna-desktop", "beta", dir, DefaultFileSpecs("luna-desktop"))
 	must(t, err)
 	if len(parts) != 2 {
 		t.Fatalf("desktop beta parts %+v", parts)
 	}
 	// a stable cut also feeds beta, so it needs both bundles
-	if _, err := resolveSpecs("luna-desktop", "stable", dir, DefaultFileSpecs("luna-desktop"), nil); err == nil {
+	if _, err := resolveSpecs("luna-desktop", "stable", dir, DefaultFileSpecs("luna-desktop")); err == nil {
 		t.Fatal("stable cut without the stable flatpak passed")
 	}
 	if got := versionInURL("https://x/api/packages/LibreLoom/generic/luna/0.3.0/luna-os-x86_64.img.xz", "luna", "luna-os-x86_64.img.xz"); got != "0.3.0" {

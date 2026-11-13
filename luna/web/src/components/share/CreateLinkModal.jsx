@@ -5,7 +5,7 @@ import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
-import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { patchJson, postJson, apiErrorMessage } from "../../lib/api";
 import { capsHint, capsLabel, capsOptions, rememberLinkUrl } from "../../lib/access.js";
@@ -159,7 +159,7 @@ export default function CreateLinkModal({
     >
       {({ close }) => (
         <div className="space-y-3">
-          {error && <PageNotice variant="error">{error}</PageNotice>}
+          {error && <InlineError>{error}</InlineError>}
           <Dropdown
             options={options}
             value={picked}

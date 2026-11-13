@@ -231,13 +231,13 @@ export default function DashboardPage() {
 
             {showDrivesColumn && (
               <div className="min-w-0 space-y-4">
-                <h2 className="font-mono font-normal text-lg">{isAdmin ? "Drives" : "Your folders"}</h2>
+                <h2 className="font-mono font-normal text-lg">{isAdmin ? "Drives" : "Your files"}</h2>
 
                 {drivesFailed && (
                   <PageNotice variant="error">
                     <div className="space-y-3" role="alert">
                       <p>
-                        {isAdmin ? "Luna couldn't load your drives." : "Luna couldn't load your folders."}
+                        {isAdmin ? "Luna couldn't load your drives." : "Luna couldn't load your files."}
                       </p>
                       <Button
                         size="sm"

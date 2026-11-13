@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import CardButton from "@libreloom/ui/components/ui/CardButton.jsx";
+import { ChevronRight } from "lucide-react";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
-import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import { entropyToPhrase } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { shakeElement } from "@libreloom/ui/utils/shake.js";
 import RecoveryPhraseCheck from "./RecoveryPhraseCheck.jsx";
@@ -23,15 +26,35 @@ const LOST_PRIVATE_LINES = {
   exposed: "Luna removes your older private items now.",
 };
 
-/** One answer to "Could someone else have your phrase?": the button, then what it does. */
-function Answer({ label, lines, onPick, disabled = false }) {
+/**
+ * One answer to "Could someone else have your phrase?": a card you pick, with
+ * what happens written inside it. The consequences belong to the choice, so
+ * they cannot be read apart from it.
+ */
+function Answer({ label, lines, onPick, caution = false }) {
   return (
-    <div className="space-y-2">
-      <CardButton actionLabel={label} className="mt-0 py-4" onClick={disabled ? undefined : onPick}>{label}</CardButton>
-      {lines.map((line) => (
-        <p key={line} className="text-primary text-sm">{line}</p>
-      ))}
-    </div>
+    <button
+      type="button"
+      onClick={() => {
+        haptic("medium");
+        onPick();
+      }}
+      className={cn(
+        "flex h-full w-full flex-col rounded-large-element border-2 p-4 text-left motion-safe:transition-colors",
+        caution ? "border-accent/40 hover:border-accent" : "border-transparent",
+        "surface-primary hover:ring-2 hover:ring-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+      )}
+    >
+      <span className="flex items-start justify-between gap-2">
+        <span className="font-mono text-sm">{label}</span>
+        <ChevronRight size={ICON_SIZE.md} aria-hidden="true" className="mt-0.5 shrink-0" />
+      </span>
+      <span className="mt-2 space-y-1.5 text-sm">
+        {lines.map((line) => (
+          <span key={line} className="block">{line}</span>
+        ))}
+      </span>
+    </button>
   );
 }
 
@@ -39,7 +62,7 @@ Answer.propTypes = {
   label: PropTypes.string.isRequired,
   lines: PropTypes.arrayOf(PropTypes.string).isRequired,
   onPick: PropTypes.func.isRequired,
-  disabled: PropTypes.bool,
+  caution: PropTypes.bool,
 };
 
 /**
@@ -224,8 +247,8 @@ export default function PhraseReplaceFlow({
 
   if (step === "question") {
     return (
-      <ModalCard open={open} title="Could someone else have your phrase?" onClose={onClose} size="md">
-        <div className="space-y-5">
+      <ModalCard open={open} title="Could someone else have your phrase?" onClose={onClose} size="lg">
+        <div className="grid gap-3 sm:grid-cols-2">
           <Answer
             label={lost ? "No, it's just lost" : "No, it's only mine"}
             lines={["Nothing uploads again.", ...(privateLine ? [privateLine.safe] : [])]}
@@ -235,6 +258,7 @@ export default function PhraseReplaceFlow({
             label="Someone may have it"
             lines={[MAY_HAVE_IT, CONNECT_NOTE, ...(privateLine ? [privateLine.exposed] : [])]}
             onPick={() => answer(true)}
+            caution
           />
         </div>
       </ModalCard>
@@ -255,7 +279,7 @@ export default function PhraseReplaceFlow({
               className="w-full rounded-pill surface-primary border border-transparent px-4 py-2 text-sm outline-none focus:border-accent motion-safe:transition-colors"
             />
           </label>
-          {shownError && <PageNotice variant="error">{shownError}</PageNotice>}
+          {shownError && <InlineError>{shownError}</InlineError>}
           <div className="flex justify-end">
             <Button type="submit" variant="primary" size="sm" loading={proving} disabled={proving || busy || !password}>
               Continue

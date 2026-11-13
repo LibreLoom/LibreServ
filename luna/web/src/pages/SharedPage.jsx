@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { AnimatePresence, MotionConfig, motion as Motion } from "motion/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
@@ -13,6 +13,7 @@ import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
+import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import ShareSheet from "../components/share/ShareSheet.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
@@ -72,6 +73,15 @@ export default function SharedPage() {
   const [leaveError, setLeaveError] = useState(null);
   const [chosenTab, setChosenTab] = useState(null);
   const [search, setSearch] = useState("");
+  const searchRef = useRef(/** @type {HTMLInputElement | null} */ (null));
+
+  useShortcut("/", () => {
+    const input = searchRef.current;
+    if (!input) return false;
+    input.focus();
+    input.select();
+    return true;
+  }, { label: "Search shared items", group: "Search", priority: 1 });
 
   const mine = useQuery({
     queryKey: ["access-mine"],
@@ -117,9 +127,9 @@ export default function SharedPage() {
     <MotionConfig reducedMotion="user">
     <Page title="Shared" titleId="shared-title">
       {mine.isLoading && (
-        <div className="flex items-center gap-2 py-4 text-secondary" role="status">
-          <Spinner size="sm" decorative />
-          <p className="text-sm">Loading…</p>
+        <div className="flex items-center justify-center gap-3 py-20 text-secondary" role="status">
+          <p className="text-sm font-mono">Loading…</p>
+          <Spinner size="lg" decorative className="text-secondary" />
         </div>
       )}
       {mine.isError && (
@@ -152,6 +162,7 @@ export default function SharedPage() {
             <label className="flex min-w-48 flex-1 items-center gap-2 rounded-pill border-2 border-transparent surface-secondary px-3 py-1 focus-within:border-accent motion-safe:transition-colors">
               <Search size={14} className="shrink-0" aria-hidden="true" />
               <input
+                ref={searchRef}
                 type="text"
                 className="min-w-0 flex-1 appearance-none border-0 bg-transparent text-sm text-primary shadow-none outline-none no-focus-outline"
                 placeholder="Find a shared item"

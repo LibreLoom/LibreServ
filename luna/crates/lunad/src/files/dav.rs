@@ -21,7 +21,7 @@ use dav_server::fakels::FakeLs;
 use crate::files::dav_fs::GrantFs;
 
 use crate::AppState;
-use crate::api::response::{json_error, json_error_code};
+use crate::api::response::json_error;
 use crate::auth::{CurrentUser, has_drive_access};
 
 pub fn router() -> Router<AppState> {
@@ -216,22 +216,6 @@ fn dav_handler_for(
         return Err(json_error(
             StatusCode::BAD_REQUEST,
             "This drive is not connected.",
-        ));
-    }
-    // A locked or converting drive must fail loudly here: Finder and Explorer
-    // would otherwise show an empty folder and invite a write into nothing.
-    if drive.locked {
-        return Err(json_error_code(
-            StatusCode::LOCKED,
-            "drive_locked",
-            crate::files::DRIVE_LOCKED_MSG,
-        ));
-    }
-    if drive.converting {
-        return Err(json_error_code(
-            StatusCode::LOCKED,
-            "drive_converting",
-            crate::files::DRIVE_CONVERTING_MSG,
         ));
     }
     if !has_drive_access(&user, &conn, &drive.id) {

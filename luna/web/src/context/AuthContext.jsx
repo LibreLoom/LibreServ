@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { UNAUTHORIZED_EVENT, getJson, postJson } from "../lib/api";
 
 const AuthContext = createContext(undefined);
@@ -22,7 +22,6 @@ export function AuthProvider({ children }) {
   // for the sign-in screen after the protected page unmounts.
   const [sessionNotice, setSessionNotice] = useState(null);
   const navigate = useNavigate();
-  const location = useLocation();
 
   // Keep the latest navigate in a ref so the startup effect below can stay
   // stable. In a BrowserRouter, useNavigate() returns a NEW function whenever
@@ -90,7 +89,10 @@ export function AuthProvider({ children }) {
   // single time on mount — NOT on every route change.
   useEffect(() => {
     let alive = true;
-    const path = location.pathname;
+    // Read the path once instead of subscribing to the router: a hook here
+    // re-rendered the provider on every ?file= / #hash change, so opening a
+    // file re-rendered the whole app tree.
+    const path = typeof window !== "undefined" ? window.location.pathname : "";
     (async () => {
       const { me, setup: setupState, hasAdmin: adminExists, unreachable } = await refresh();
       if (!alive) return;

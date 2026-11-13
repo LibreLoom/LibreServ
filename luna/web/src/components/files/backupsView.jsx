@@ -13,6 +13,7 @@ import { ActionTooltipGroup, InfoHint, Tooltip } from "@libreloom/ui/components/
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 
 const DAY_S = 24 * 60 * 60;
 const KEPT_DAYS = 30;
@@ -65,7 +66,7 @@ export function VersionsModal({ driveId, backup, file, onClose }) {
       onClose={onClose}
     >
       <p className="mb-3 text-sm text-primary">{NEVER_REPLACE_HINT}</p>
-      {restoreError && <PageNotice variant="error" className="mb-3">{restoreError}</PageNotice>}
+      {restoreError && <InlineError className="mb-3">{restoreError}</InlineError>}
       {versions.isPending && (
         <div className="flex justify-center py-6">
           <Spinner />

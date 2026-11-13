@@ -1,5 +1,36 @@
 import { useRef, useLayoutEffect, useEffect } from "react";
 
+// A page that mounts hundreds of buttons at once (a long form, a big table of
+// actions) used to measure each one on its own: write, read, write — and every
+// read forces a layout of the whole page, so the cost grew with the square of
+// the count (a 300-question form spent tens of seconds in layout). The first
+// few measurements of a burst still run on the spot; the rest are queued and
+// measured together in four passes, which costs two layouts however many
+// there are. A first measurement only pins the width the element already has,
+// so deferring it by a microtask is invisible.
+const INLINE_FIRST_PROBES = 8;
+let probeBurst = 0;
+/** @type {Array<{ read: () => void, hide: () => void, measure: () => void, apply: () => void }>} */
+let deferredProbes = [];
+
+function flushDeferredProbes() {
+  const batch = deferredProbes;
+  deferredProbes = [];
+  batch.forEach((p) => p.read());
+  batch.forEach((p) => p.hide());
+  batch.forEach((p) => p.measure());
+  batch.forEach((p) => p.apply());
+}
+
+function deferFirstProbe(probe) {
+  if (probeBurst === 0) queueMicrotask(() => { probeBurst = 0; });
+  probeBurst += 1;
+  if (probeBurst <= INLINE_FIRST_PROBES) return false;
+  if (deferredProbes.length === 0) queueMicrotask(flushDeferredProbes);
+  deferredProbes.push(probe);
+  return true;
+}
+
 /**
  * useSmoothResize — smoothly transitions an element's dimensions when its
  * content changes (e.g. "Copy" → "Copied", or a dropdown label swap).
@@ -57,6 +88,49 @@ export function useSmoothResize(ref, options = {}) {
     const contentSig = `${el.className}\u0000${el.textContent}`;
     if (init.current && contentSig === lastContentSig.current) return;
     lastContentSig.current = contentSig;
+
+    if (!init.current) {
+      let renderedW = 0;
+      let savedW0 = "";
+      let savedH0 = "";
+      let nextW0 = 0;
+      let nextH0 = 0;
+      const deferred = deferFirstProbe({
+        read: () => {
+          renderedW = el.offsetWidth;
+          savedW0 = el.style.width;
+          savedH0 = el.style.height;
+        },
+        hide: () => {
+          el.style.width = "max-content";
+          el.style.height = "auto";
+        },
+        measure: () => {
+          nextW0 = el.offsetWidth;
+          nextH0 = el.offsetHeight;
+        },
+        apply: () => {
+          el.style.width = savedW0;
+          el.style.height = savedH0;
+          if (nextW0 === 0 && nextH0 === 0) {
+            // Hidden: retry on a later render, like the inline path.
+            init.current = false;
+            lastContentSig.current = null;
+            return;
+          }
+          baselineTransition.current = el.style.transition;
+          layoutControlled.current = animateX && renderedW !== nextW0;
+          prevW.current = nextW0;
+          prevH.current = nextH0;
+          if (animateX && !layoutControlled.current) el.style.width = `${nextW0}px`;
+          if (animateY) el.style.height = `${nextH0}px`;
+        },
+      });
+      if (deferred) {
+        init.current = true;
+        return;
+      }
+    }
 
     const renderedW = el.offsetWidth; // width as laid out right now
     const savedW = el.style.width;
