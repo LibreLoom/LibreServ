@@ -200,6 +200,31 @@ async fn created_file_link_resolves_publicly() {
 }
 
 #[tokio::test]
+async fn file_link_lists_only_the_shared_file_not_its_parent_or_siblings() {
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(mount.path().join("docs")).unwrap();
+    std::fs::write(mount.path().join("docs/readme.txt"), "hello").unwrap();
+    std::fs::write(mount.path().join("docs/private-notes.txt"), "secret").unwrap();
+    let (_dir, app) = test_app(mount.path());
+    let (cookie, csrf) = admin(&app).await;
+    let link = make_link(
+        &app,
+        &cookie,
+        &csrf,
+        r#"{"kind":"file","drive_id":"photos","path":"docs/readme.txt","caps":"view"}"#,
+    )
+    .await;
+    let token = link["token"].as_str().unwrap();
+
+    let (status, body) = public_get(&app, &format!("/s/{token}/list")).await;
+    assert_eq!(status, 200, "{body}");
+    let entries = body["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["name"], "readme.txt");
+    assert_ne!(entries[0]["name"], "private-notes.txt");
+}
+
+#[tokio::test]
 async fn link_to_a_trashed_item_resolves_publicly() {
     let mount = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(mount.path().join("docs")).unwrap();
