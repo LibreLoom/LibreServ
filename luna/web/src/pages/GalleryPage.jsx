@@ -1259,8 +1259,12 @@ export default function GalleryPage() {
     /** @param {GalleryAlbum} album */
     mutationFn: (album) =>
       deleteJson(`/api/v1/gallery/albums/${album.home_drive_id}/${album.id}`),
+    onMutate: () => {
+      setError(null);
+    },
     onSuccess: (_data, album) => {
       addToast({ type: "success", message: "Album deleted." });
+      setError(null);
       setTrashAlbum(null);
       setAlbumView((current) =>
         current && current.id === album.id && current.home_drive_id === album.home_drive_id
@@ -1272,6 +1276,7 @@ export default function GalleryPage() {
     },
     onError: (err, album) => {
       if (isMissingAlbumError(err)) {
+        setError(null);
         setTrashAlbum(null);
         setAlbumView((current) =>
           current && current.id === album.id && current.home_drive_id === album.home_drive_id

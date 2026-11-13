@@ -15,7 +15,7 @@ import GalleryPage, {
   saveDownloadResponse,
   cancelDownloadResponse,
 } from "./GalleryPage";
-import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import { ToastProvider, useToastList } from "@libreloom/ui/context/ToastContext.jsx";
 import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
 
 const STATUS_OK = { scanning: false, pending: 0, busy: false };
@@ -180,10 +180,16 @@ function stubUploadXhr() {
   return opens;
 }
 
-function renderGallery({ withShortcuts = false } = {}) {
+function ToastMessageProbe() {
+  const toasts = useToastList();
+  return <div>{toasts.map((toast) => <span key={toast.id}>{toast.message}</span>)}</div>;
+}
+
+function renderGallery({ withShortcuts = false, withToastMessages = false } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ToastProvider>
+    {withToastMessages && <ToastMessageProbe />}
     <QueryClientProvider client={client}>
       <FileOpsProvider>
       <MemoryRouter>
@@ -1638,6 +1644,8 @@ describe("GalleryPage", () => {
       item_count: 2,
       shared: false,
     };
+    let driveMounted = false;
+    let albumDeleted = false;
     const fetchMock = vi.fn(async (url, init = {}) => {
       const u = String(url);
       const method = (init.method || "GET").toUpperCase();
@@ -1654,13 +1662,17 @@ describe("GalleryPage", () => {
         });
       }
       if (u.includes("/gallery/albums/a/alb-offline") && method === "DELETE") {
+        if (driveMounted) {
+          albumDeleted = true;
+          return new Response(null, { status: 204 });
+        }
         return new Response(JSON.stringify({ error: "This drive isn't mounted." }), {
           status: 404,
           headers: { "Content-Type": "application/json" },
         });
       }
       if (u.includes("/gallery/albums") && method === "GET") {
-        return new Response(JSON.stringify([album]), {
+        return new Response(JSON.stringify(albumDeleted ? [] : [album]), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
@@ -1676,7 +1688,7 @@ describe("GalleryPage", () => {
     vi.stubGlobal("fetch", fetchMock);
     window.history.replaceState(null, "", "/gallery#albums");
     const user = userEvent.setup();
-    renderGallery();
+    renderGallery({ withToastMessages: true });
 
     expect(await screen.findByText("Vacation")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Delete album Vacation" }));
@@ -1686,9 +1698,19 @@ describe("GalleryPage", () => {
     expect(dialog).toBeInTheDocument();
     expect(await screen.findByText("This drive isn't mounted.")).toBeInTheDocument();
     expect(screen.getByText("Vacation")).toBeInTheDocument();
+
+    driveMounted = true;
+    await user.click(screen.getByRole("button", { name: /^Delete album$/i }));
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Delete album?" })).not.toBeInTheDocument();
+    });
+    expect(await screen.findByText("No albums yet")).toBeInTheDocument();
+    expect(screen.queryByText("This drive isn't mounted.")).not.toBeInTheDocument();
+    expect(albumDeleted).toBe(true);
+    expect(await screen.findByText("Album deleted.")).toBeInTheDocument();
   });
 
-  it("returns to the album list when delete confirms the album is already gone", async () => {
+  it("clears the drive error when delete confirms the album is already gone", async () => {
     const album = {
       id: "alb-gone",
       home_drive_id: "a",
@@ -1697,6 +1719,7 @@ describe("GalleryPage", () => {
       shared: false,
     };
     let albumListCalls = 0;
+    let deleteCalls = 0;
     const fetchMock = vi.fn(async (url, init = {}) => {
       const u = String(url);
       const method = (init.method || "GET").toUpperCase();
@@ -1713,6 +1736,13 @@ describe("GalleryPage", () => {
         });
       }
       if (u.includes("/gallery/albums/a/alb-gone") && method === "DELETE") {
+        deleteCalls += 1;
+        if (deleteCalls === 1) {
+          return new Response(JSON.stringify({ error: "This drive isn't mounted." }), {
+            status: 404,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
         return new Response(JSON.stringify({ error: "Luna doesn't know that album." }), {
           status: 404,
           headers: { "Content-Type": "application/json" },
@@ -1736,16 +1766,19 @@ describe("GalleryPage", () => {
     vi.stubGlobal("fetch", fetchMock);
     window.history.replaceState(null, "", "/gallery#albums");
     const user = userEvent.setup();
-    renderGallery();
+    renderGallery({ withToastMessages: true });
 
     expect(await screen.findByText("Vacation")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Delete album Vacation" }));
     await user.click(await screen.findByRole("button", { name: /^Delete album$/i }));
+    expect(await screen.findByText("This drive isn't mounted.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^Delete album$/i }));
 
     await waitFor(() => {
       expect(screen.queryByRole("heading", { name: "Delete album?" })).not.toBeInTheDocument();
     });
     expect(await screen.findByText("No albums yet")).toBeInTheDocument();
+    expect(screen.queryByText("This drive isn't mounted.")).not.toBeInTheDocument();
   });
 
   it("leaves a vanished album and clears its stale actions after a 404", async () => {
