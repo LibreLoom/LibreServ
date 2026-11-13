@@ -276,14 +276,14 @@ const header = (h, name) => {
 };
 
 /** Runs every check a real link goes through; returns an error answer or the link. */
-function open(w, token, headers, { download: _download = false } = {}) {
+function open(w, token, headers, { download = false } = {}) {
   const hit = lookup(w, token);
   if (!hit) return { err: fail(404, "Not found.") };
   const { s, l } = hit;
   if (l.disabled) return { err: fail(403, "This link has been turned off.") };
   if (l.expires_at && l.expires_at < nowSec()) return { err: fail(410, "This link has expired.") };
   if (l.password && header(headers, "x-share-password") !== l.password) return { err: fail(401, "This link needs its password.") };
-  if (l.download_limit != null && (l.downloads || 0) >= l.download_limit) {
+  if (download && l.download_limit != null && (l.downloads || 0) >= l.download_limit) {
     return { err: fail(403, "This link has reached its download limit.") };
   }
   return { s, l };

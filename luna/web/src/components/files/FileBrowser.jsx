@@ -2234,7 +2234,7 @@ export default function FileBrowser({
               className={`flex flex-col items-center justify-center gap-2 py-20 px-3 text-center select-none font-mono text-base sm:text-lg ${fg}`}
             >
               {emptyTitle || "There's nothing here."}
-              {!emptyTitle && !isPicker && (folderActions || enableUploadDrop) && (
+              {!emptyTitle && !isPicker && (folderActions || uploadButton) && (
                 <p className={`font-sans text-sm ${fg}`}>Use New or Upload to add files to this folder.</p>
               )}
             </li>

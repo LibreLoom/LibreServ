@@ -58,6 +58,9 @@ export default function ConnectDeviceCodeForm({ surface = "secondary" }) {
     },
     onError: (err) => {
       haptic("error");
+      // Close the confirm so the inline error on the form is visible — the
+      // dialog would otherwise sit over it with no message.
+      setConfirmRemove(false);
       setError(apiErrorMessage(err));
     },
   });

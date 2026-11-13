@@ -1053,7 +1053,6 @@ export default function GalleryPage() {
     if (!(gallery.error instanceof ApiError) || gallery.error.status !== 404) return;
     /* eslint-disable-next-line react-hooks/set-state-in-effect -- reacting to a finished query, not render state */
     setAlbumGoneNotice(apiErrorMessage(gallery.error, "That album no longer exists."));
-    /* eslint-disable-next-line react-hooks/set-state-in-effect -- same query result */
     setAlbumView(null);
     queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
   }, [gallery.isError, gallery.error, albumView, queryClient]);
