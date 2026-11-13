@@ -41,7 +41,7 @@ const queryClient = new QueryClient({
 });
 
 function RequireAuth({ children }) {
-  const { user, setup, hasAdmin, loading } = useAuth();
+  const { user, setup, hasAdmin, loading, unreachable } = useAuth();
   if (loading) return null;
   if (setup?.setup_completed === false || (!user && hasAdmin === false)) {
     return <Navigate to="/setup" replace />;
@@ -50,7 +50,22 @@ function RequireAuth({ children }) {
   // session dies mid-use (password changed, signed out elsewhere) every open
   // tab lands on the sign-in form together, and each returns to its own page
   // after signing in — instead of every tab being dragged to /login.
-  if (!user) return <LoginPage />;
+  // A fresh load while Luna is unreachable shows a reachability notice
+  // instead: the sign-in form would imply you are signed out, which nobody
+  // knows yet.
+  if (!user) {
+    return unreachable ? (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+        <p className="font-mono text-lg">Luna isn't answering</p>
+        <p className="max-w-sm text-sm text-secondary">
+          This device cannot reach Luna right now. Check that it is on the same
+          network as Luna, then reload this page once Luna is back.
+        </p>
+      </div>
+    ) : (
+      <LoginPage />
+    );
+  }
   return children;
 }
 

@@ -24,12 +24,27 @@ function FitBounds({ points }) {
   const map = useMap();
   useEffect(() => {
     if (!points.length) return;
-    if (points.length === 1) {
-      map.setView([points[0].lat, points[0].lon], 10);
-      return;
-    }
-    const bounds = points.map((p) => [p.lat, p.lon]);
-    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+    const fit = () => {
+      // A zero-sized container (mid-animation, hidden tab) computes nonsense
+      // bounds — wait until the map has a real size, then fit once.
+      const size = map.getSize();
+      if (!size.x || !size.y) return false;
+      if (points.length === 1) {
+        map.setView([points[0].lat, points[0].lon], 10);
+      } else {
+        const bounds = points.map((p) => [p.lat, p.lon]);
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+      }
+      return true;
+    };
+    if (fit()) return undefined;
+    const container = map.getContainer?.();
+    if (!container || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(() => {
+      if (fit()) observer.disconnect();
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
   }, [map, points]);
   return null;
 }

@@ -451,6 +451,21 @@ function EditorSession({
     [pushCollaborators],
   );
 
+  // Excalidraw 0.18 renders its main-menu and extra-tools triggers without an
+  // accessible name (upstream gap). Name them once the toolbar is in the DOM.
+  useEffect(() => {
+    if (!editorReady) return;
+    const t = setTimeout(() => {
+      const name = (sel, label) => {
+        const el = document.querySelector(sel);
+        if (el && !el.getAttribute("aria-label")) el.setAttribute("aria-label", label);
+      };
+      name('[data-testid="main-menu-trigger"]', "Menu");
+      name(".App-toolbar__extra-tools-trigger", "More tools");
+    }, 300);
+    return () => clearTimeout(t);
+  }, [editorReady]);
+
   // A peer dragging a shape sends an update per frame (or several, when
   // their frames outpace ours) — apply at most one scene per frame here.
   const remoteRafRef = useRef(/** @type {number | null} */ (null));

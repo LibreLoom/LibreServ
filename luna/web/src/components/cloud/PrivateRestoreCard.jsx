@@ -132,6 +132,13 @@ export default function PrivateRestoreCard() {
             content="Your browser opens the list with your phrase and gives Luna only the file list. Luna never sees the phrase."
           />
         </p>
+        {Number(status.data.scopes) > 0 && (
+          <p className="text-primary text-sm">
+            {Number(status.data.scopes) === 1
+              ? "1 private area is"
+              : `${Number(status.data.scopes)} private areas are`} in the cloud.
+          </p>
+        )}
 
         <RestoreForm
           words={words}

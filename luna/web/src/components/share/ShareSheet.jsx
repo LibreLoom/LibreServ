@@ -147,7 +147,14 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
   for (const row of [...inheritedMembers, ...inheritedLinks]) {
     const from = row.inherited_from;
     if (!from?.drive_id) continue;
-    parentByKey.set(`${from.kind}:${from.drive_id}:${from.path}`, from);
+    const k = `${from.kind}:${from.drive_id}:${from.path}`;
+    const prev = parentByKey.get(k);
+    // One parent, one button: if any grant through this parent can be
+    // inspected, the parent counts as inspectable — don't let a
+    // can_inspect:false row (say a link) erase an inspectable one.
+    if (!prev || (prev.can_inspect === false && from.can_inspect !== false)) {
+      parentByKey.set(k, from);
+    }
   }
   const parentSources = [...parentByKey.values()];
   const inspectableParents = parentSources.filter((p) => p.can_inspect !== false);

@@ -159,6 +159,7 @@ AccessTokenItem.propTypes = {
 function CreateTokenModal({ open, busy, error, onClose, onSubmit }) {
   const [name, setName] = useState("");
   const [days, setDays] = useState("");
+  const [nameError, setNameError] = useState(null);
   const nameRef = useRef(/** @type {HTMLInputElement|null} */ (null));
   return (
     <ModalCard open={open} title="New access token" onClose={onClose} initialFocusRef={nameRef}>
@@ -166,7 +167,12 @@ function CreateTokenModal({ open, busy, error, onClose, onSubmit }) {
         className="space-y-3"
         onSubmit={(e) => {
           e.preventDefault();
-          if (name.trim()) onSubmit({ name: name.trim(), days });
+          if (!name.trim()) {
+            setNameError("Give this device a name between 1 and 80 characters.");
+            return;
+          }
+          setNameError(null);
+          onSubmit({ name: name.trim(), days });
         }}
       >
         <ShakeTarget shake={error}>
@@ -180,7 +186,10 @@ function CreateTokenModal({ open, busy, error, onClose, onSubmit }) {
             value={name}
             maxLength={100}
             ref={nameRef}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setNameError(null);
+              setName(e.target.value);
+            }}
           />
         </ShakeTarget>
         <Dropdown
@@ -191,9 +200,9 @@ function CreateTokenModal({ open, busy, error, onClose, onSubmit }) {
           bg="primary"
           aria-label="When this token stops working"
         />
-        {error && <PageNotice variant="error">{error}</PageNotice>}
+        {(nameError || error) && <PageNotice variant="error">{nameError || error}</PageNotice>}
         <div className="flex gap-3">
-          <Button variant="primary" type="submit" fullWidth loading={busy} disabled={!name.trim()}>
+          <Button variant="primary" type="submit" fullWidth loading={busy}>
             Create access token
           </Button>
           <Button variant="outline" type="button" onClick={onClose} disabled={busy}>
@@ -570,7 +579,11 @@ export default function AccessCategory() {
               New access token
             </Button>
           </div>
-          {tokenList.length === 0 ? (
+          {tokens.isError ? (
+            <div className="px-4 pb-4">
+              <PageNotice variant="error">{String(tokens.error?.message || "Couldn't load your access tokens.")}</PageNotice>
+            </div>
+          ) : tokenList.length === 0 ? (
             <div className="px-4 pb-4">
               <Pill>No apps or access tokens are set up yet.</Pill>
             </div>

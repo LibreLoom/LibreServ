@@ -48,8 +48,10 @@ let lastUnauthorizedAt = 0;
 
 function notifyUnauthorized(path) {
   if (typeof window === "undefined") return;
-  // /auth/* answers 401 for bad logins; those never mean the session ended.
-  if (String(path).startsWith("/api/v1/auth/")) return;
+  // Only login/register answer 401 for bad credentials. A 401 on anything
+  // else — including PATCH /auth/me — means the session died; the /auth/me
+  // re-check in AuthContext sorts out false positives anyway.
+  if (/^\/api\/v1\/auth\/(login|register)$/.test(String(path))) return;
   const now = Date.now();
   if (now - lastUnauthorizedAt < UNAUTHORIZED_COALESCE_MS) return;
   lastUnauthorizedAt = now;

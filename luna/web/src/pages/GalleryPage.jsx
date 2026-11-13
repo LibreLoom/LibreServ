@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   Image as ImageIcon,
   Lock,
+  MapPin,
   Pencil,
   Plus,
   PlugZap,
@@ -460,6 +461,9 @@ export default function GalleryPage() {
     lastSegmentOrder.current = segmentOrder;
   }, [segmentOrder]);
   const [error, setError] = useState(null);
+  // A album that vanished while it was open: kept here so the message survives
+  // the trip back to the Albums list.
+  const [albumGoneNotice, setAlbumGoneNotice] = useState(/** @type {string|null} */ (null));
   const { addToast } = useToast();
   const fileOps = useFileOps();
   const [q, setQ] = useState("");
@@ -506,7 +510,6 @@ export default function GalleryPage() {
   const [jumpTarget, setJumpTarget] = useState(
     /** @type {{ ymd: string, label: string }|null} */ (null),
   );
-  const jumpPagesRef = useRef(0);
   const [columns, setColumns] = useState(readGridCols);
   const [lockedGate, setLockedGate] = useState(null);
   const dropZoneRef = useRef(/** @type {HTMLDivElement|null} */ (null));
@@ -608,6 +611,7 @@ export default function GalleryPage() {
   const tryOpenAlbum = useCallback(
     /** @param {GalleryAlbum} album */
     (album) => {
+      setAlbumGoneNotice(null);
       if (album.locked) {
         try {
           if (sessionStorage.getItem(unlockKey(album)) === "1") {
@@ -696,6 +700,7 @@ export default function GalleryPage() {
       if (!SEGMENT_IDS.includes(next) || next === activeSegment) return;
       setPlacesDrawMode(false);
       setAlbumView(null);
+      setAlbumGoneNotice(null);
       setViewLabel(null);
       setDuplicatesView(false);
       setFilters({ ...EMPTY_FILTERS });
@@ -886,7 +891,7 @@ export default function GalleryPage() {
   });
 
   const duplicates = useQuery({
-    queryKey: ["gallery-duplicates"],
+    queryKey: ["gallery", "duplicates"],
     queryFn: () => getJson("/api/v1/gallery/duplicates?limit=50"),
     enabled: duplicatesView,
   });
@@ -1040,6 +1045,14 @@ export default function GalleryPage() {
     gallery.isError && !looking
       ? apiErrorMessage(gallery.error, "Luna couldn't open the gallery. Try again.")
       : null;
+  // The album this page is showing is gone (deleted elsewhere, or vanished):
+  // say so and land back on the Albums list instead of showing a dead album.
+  useEffect(() => {
+    if (!gallery.isError || !albumView || gallery.error?.status !== 404) return;
+    setAlbumGoneNotice(apiErrorMessage(gallery.error, "That album no longer exists."));
+    setAlbumView(null);
+    queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
+  }, [gallery.isError, gallery.error, albumView, queryClient]);
   const noPhotos =
     !looking &&
     !indexing &&
@@ -1455,16 +1468,14 @@ export default function GalleryPage() {
       || (newest != null && target >= newest)
       || undated
       || !gallery.hasNextPage;
-    if (!covered && jumpPagesRef.current < 50) {
+    if (!covered) {
       if (!gallery.isFetchingNextPage) {
-        jumpPagesRef.current += 1;
         gallery.fetchNextPage();
       }
       return;
     }
     const nearest = nearestDayKey(photos, target);
     setJumpTarget(null);
-    jumpPagesRef.current = 0;
     if (!nearest) return;
     const reduced =
       typeof window.matchMedia === "function"
@@ -1767,13 +1778,32 @@ export default function GalleryPage() {
       )}
       {showPageLevelError(galleryLoadError, actionModalOpen) && (
         <PageNotice variant="error" className="mb-4">
-          {galleryLoadError}
+          <>
+            <p>{galleryLoadError}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-3"
+              onClick={() => {
+                setError(null);
+                gallery.refetch();
+              }}
+            >
+              Try again
+            </Button>
+          </>
         </PageNotice>
       )}
 
       {statusLastError && (activeSegment === "library" || photos.length > 0) && (
         <PageNotice variant="warning" className="mb-4">
           {statusLastError}
+        </PageNotice>
+      )}
+
+      {albumGoneNotice && !albumView && (
+        <PageNotice variant="warning" className="mb-4">
+          {albumGoneNotice}
         </PageNotice>
       )}
 
@@ -2024,6 +2054,17 @@ export default function GalleryPage() {
           icon={ImageIcon}
           title="No matches"
           description={`Nothing matched “${search}”${albumView ? " in this album" : ""}. Try another word or clear the search.`}
+          action={
+            <Button
+              variant="outline"
+              onClick={() => {
+                setQ("");
+                setSearch("");
+              }}
+            >
+              Clear search
+            </Button>
+          }
         />
       )}
 
@@ -2039,7 +2080,7 @@ export default function GalleryPage() {
         />
       )}
 
-      <div className="relative overflow-x-clip">
+      <div className={placesMapOverview ? "relative flex min-h-0 flex-1 flex-col overflow-x-clip" : "relative overflow-x-clip"}>
       <AnimatePresence mode="popLayout" initial={false} custom={pageDirection}>
         <Motion.div
           key={pageKey}
@@ -2135,7 +2176,28 @@ export default function GalleryPage() {
         />
       )}
 
-      {placesMapOverview && (
+      {placesMapOverview &&
+        (places.isError ? (
+          <EmptyState
+            icon={MapPin}
+            title="Places couldn't load"
+            description={apiErrorMessage(
+              places.error,
+              "Luna couldn't load the map of your photos. Check your connection and try again.",
+            )}
+            action={
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setError(null);
+                  places.refetch();
+                }}
+              >
+                Try again
+              </Button>
+            }
+          />
+        ) : (
         <div className="flex min-h-0 flex-1 flex-col">
           <Suspense fallback={null}>
             <PlacesMap
@@ -2163,7 +2225,7 @@ export default function GalleryPage() {
             />
           </Suspense>
         </div>
-      )}
+        ))}
 
       {albumEmpty && (
         <EmptyState
@@ -2533,7 +2595,6 @@ export default function GalleryPage() {
         open={jumpOpen}
         onClose={() => setJumpOpen(false)}
         onJump={(ymd) => {
-          jumpPagesRef.current = 0;
           const bounds = dayBoundsLocal(ymd);
           // Jumping scrolls the timeline — leave single-day/duplicates/month-day
           // views first so there is a timeline position to land on.

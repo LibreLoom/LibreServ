@@ -58,6 +58,8 @@ const NAV_IMPULSE_STEPS_S = 1.6;
 const PRIME_DELAY_MS = 320;
 /** Minimum px before a touch gesture picks a horizontal/vertical axis. */
 const AXIS_LOCK_PX = 8;
+/** A vertical drag past this many pixels closes the viewer (phone swipe-down). */
+const SWIPE_CLOSE_PX = 110;
 /** Rubber-band tension when dragging past the first/last photo. */
 const RUBBER_BAND_C = 0.55;
 
@@ -682,6 +684,12 @@ export default function PhotoLightbox({
     let dest;
     let flicking = false;
     if (g.axis !== "h" || cancelled) {
+      // A deliberate downward drag on the photo closes the viewer.
+      const dy = (e.changedTouches?.[0]?.clientY ?? 0) - g.y0;
+      if (g.axis === "v" && !cancelled && dy >= SWIPE_CLOSE_PX) {
+        requestClose();
+        return;
+      }
       // Vertical grabs and cancelled touches just release at the nearest pane.
       dest = Math.round(curFloat);
     } else {

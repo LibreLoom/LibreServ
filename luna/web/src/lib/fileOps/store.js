@@ -97,8 +97,10 @@ export function createFileOpsStore({
   addToast,
   haptic = () => {},
   now = Date.now,
-  setTimer = setTimeout,
-  clearTimer = clearTimeout,
+  // Bound: a captured-then-detached `setTimeout` can lose its receiver and throw
+  // "Illegal invocation" in environments that wrap the global timers.
+  setTimer = setTimeout.bind(globalThis),
+  clearTimer = clearTimeout.bind(globalThis),
   initialOps = [],
   api = { getJson, postJson, deleteJson },
   storage,
@@ -332,6 +334,12 @@ export function createFileOpsStore({
     const i = op.items.indexOf(item);
     if (i < 0) return;
     op.items.splice(i, 1);
+    // Nothing left to show: a card that only held this row would otherwise
+    // sit there claiming finished work it never did.
+    if (op.items.length === 0 && op.state !== "preparing" && op.state !== "running" && op.state !== "waiting") {
+      removeOp(op);
+      return;
+    }
     touch(op);
     emit(true);
   }
@@ -675,6 +683,10 @@ export function createFileOpsStore({
     if (!op) return;
     op.items = op.items.filter((i) => i.state !== "failed");
     op.error = null;
+    if (op.items.length === 0) {
+      removeOp(op);
+      return;
+    }
     touch(op);
     settle(op);
   }

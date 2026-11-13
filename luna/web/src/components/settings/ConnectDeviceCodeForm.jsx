@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import PropTypes from "prop-types";
 import { TriangleAlert } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { deleteJson, getJson, postJson, apiErrorMessage } from "../../lib/api";
 import { cn } from "@libreloom/ui/lib/utils.js";
@@ -22,6 +23,7 @@ export default function ConnectDeviceCodeForm({ surface = "secondary" }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState(null);
   const [saved, setSaved] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const status = useQuery({
     queryKey: ["connect-status"],
     queryFn: () => getJson("/api/v1/connect/status"),
@@ -147,12 +149,22 @@ export default function ConnectDeviceCodeForm({ surface = "secondary" }) {
             fullWidth
             loading={removeToken.isPending}
             disabled={saveCode.isPending}
-            onClick={() => removeToken.mutate()}
+            onClick={() => setConfirmRemove(true)}
           >
             Remove device token
           </Button>
         )}
       </div>
+      <ConfirmModal
+        open={confirmRemove}
+        title="Remove device token"
+        message="Remove the device token? Luna Connect turns off: the public address, cloud backup, and remote access all stop until a new token is saved."
+        confirmLabel="Remove device token"
+        variant="danger"
+        loading={removeToken.isPending}
+        onConfirm={() => removeToken.mutate()}
+        onClose={() => setConfirmRemove(false)}
+      />
     </div>
   );
 }

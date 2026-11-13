@@ -217,8 +217,13 @@ export default function DriveFileExplorer({
       ? CAP_MANAGE
       : capsForPath(path);
   const trashVisible = !guest && (isAdmin || hasCapOnDrive(access.data, driveId, CAP.EDIT));
-  const folderCanUpload = !inTrash && (myFolderCaps & CAP.UPLOAD) !== 0;
-  const folderCanEdit = inTrash ? trashVisible : (myFolderCaps & CAP.EDIT) !== 0;
+  // A read-only drive accepts no writes at all, whatever the grants say. The
+  // drive row arrives with the drives list; until it does, assume writable.
+  const driveWritable = guest
+    ? true
+    : (() => { const row = availableDrives.find((d) => d.id === driveId); return !row || isWritableDrive(row); })();
+  const folderCanUpload = !inTrash && driveWritable && (myFolderCaps & CAP.UPLOAD) !== 0;
+  const folderCanEdit = inTrash ? trashVisible : driveWritable && (myFolderCaps & CAP.EDIT) !== 0;
   const folderCanShare = !inTrash && (myFolderCaps & CAP.SHARE) !== 0;
   const backupsHref = backupsAvailable && !inTrash && path === "" ? folderHref(driveId, BACKUPS_PATH) : null;
   // Upload-only links can write but never read — downloads stay hidden.
@@ -253,11 +258,23 @@ export default function DriveFileExplorer({
     enabled: inTrash,
   });
   const trashedFrom = trashStat.data?.trashed_from;
+  // The trail inside trash reads "Trash / <where it came from> / <item name>".
+  // The on-disk trash path is one segment shorter than the original location
+  // (the whole trashed tree collapses into one `{nonce}-name` entry), so the
+  // item's own name can't come from the path segments — it's appended as an
+  // extra crumb below, after the parent it sat in.
+  let trashNameCrumb = null;
   let segmentLabel;
   if (inTrash) {
     const origin = String(trashedFrom || "");
-    const labels = ["Trash", ...origin.split("/").filter(Boolean)];
-    segmentLabel = (/** @type {string} */ segment, /** @type {number} */ i) => labels[i] ?? segment;
+    const labels = ["Trash", ...(parentPath(origin) || "").split("/").filter(Boolean)];
+    const segCount = String(path).split("/").filter(Boolean).length;
+    if (origin && segCount === labels.length) {
+      trashNameCrumb = trashDisplayName(path);
+    }
+    segmentLabel = (/** @type {string} */ segment, /** @type {number} */ i) => (i < labels.length
+      ? labels[i]
+      : trashDisplayName(String(path).split("/").slice(0, i + 1).join("/")));
   }
 
   // The trash listing — same query key as FileBrowser's, so this shares the
@@ -440,8 +457,10 @@ export default function DriveFileExplorer({
   function startTransfer(/** @type {{ driveId: string, path: string }} */ dest) {
     if (!transfer) return;
     const toDrive = dest.driveId || driveId;
-    const toLabel = dest.path
-      ? pathBasename(dest.path)
+    // "." is the drive's top level; name it like one, never as a folder called ".".
+    const toPath = dest.path === "." ? "" : dest.path;
+    const toLabel = toPath
+      ? pathBasename(toPath)
       : toDrive === driveId
         ? driveLabel
         : availableDrives.find((d) => d.id === toDrive)?.label || "";
@@ -453,7 +472,7 @@ export default function DriveFileExplorer({
         name: isTrashPath(p) ? trashDisplayName(p) : pathBasename(p),
       })),
       toDrive,
-      toPath: dest.path,
+      toPath,
       toLabel,
     });
   }
@@ -611,7 +630,7 @@ export default function DriveFileExplorer({
         : capsOnPath(access.data, driveId, capPath);
     const rowCanEdit = guest
       ? (guestCaps & CAP.EDIT) !== 0 && !source.isFile
-      : (rowCaps & CAP.EDIT) !== 0;
+      : driveWritable && (rowCaps & CAP.EDIT) !== 0;
     const rowCanShare = !guest && !trashChild && (rowCaps & CAP.SHARE) !== 0;
 
     /**
@@ -824,13 +843,17 @@ export default function DriveFileExplorer({
         folderHref={folderHref}
         fileHref={rowFileHref}
         enableDownload={canView}
-        enableUploadDrop={!inTrash && folderCanUpload}
+        // Keep the drop target alive on a read-only drive: a drag-in is the
+        // one way to "try anyway", and the server's plain read-only message
+        // is the reason the buttons above are gone.
+        enableUploadDrop={!inTrash && (myFolderCaps & CAP.UPLOAD) !== 0}
+        uploadButton={driveWritable}
         dense={dense}
         multiSelect
         selectPath={selectPath}
         onSelectPathApplied={onSelectPathApplied}
         onSelectedPathsChange={(paths) => { selectedRef.current = paths; }}
-        onUploadFiles={folderCanUpload ? uploadFiles : undefined}
+        onUploadFiles={!inTrash && (myFolderCaps & CAP.UPLOAD) !== 0 ? uploadFiles : undefined}
         onInternalMove={folderCanEdit && !source.isFile ? (paths, destFolder, destDriveId, sourceDriveId) =>
           guest
             ? shareMoveMutation.mutate({ paths, dest: destFolder })
@@ -868,6 +891,12 @@ export default function DriveFileExplorer({
           const trashChildFolder = inTrash && path !== TRASH_PATH;
           return (
             <>
+              {trashNameCrumb ? (
+                <span key="trash-name-crumb" className="flex items-center gap-2 min-w-0">
+                  <span aria-hidden="true">/</span>
+                  <span>{trashNameCrumb}</span>
+                </span>
+              ) : null}
               {!guest && !trashChildFolder && folderCanShare && (
                 <ShareButton
                   label={label}
@@ -961,7 +990,7 @@ export default function DriveFileExplorer({
         driveId={driveId}
         path={viewerPath || ""}
         name={viewerPath === "" && source.isFile ? driveLabel : undefined}
-        canWrite={!inTrash && (guest
+        canWrite={!inTrash && driveWritable && (guest
           ? (guestCaps & CAP.EDIT) !== 0
           : isAdmin || (capsForPath(viewerPath || "") & CAP.EDIT) !== 0)}
         onShare={!guest && !inTrash && viewerPath && (isAdmin || (capsForPath(viewerPath) & CAP.SHARE) !== 0)
@@ -1186,6 +1215,11 @@ export default function DriveFileExplorer({
               Everything in Trash will be deleted permanently. Luna cannot get
               any of it back after this.
             </p>
+            {trashListing.data?.length ? (
+              <p className="text-secondary text-sm mt-1">
+                Trash holds {trashListing.data.length} {trashListing.data.length === 1 ? "item" : "items"}.
+              </p>
+            ) : null}
             <div className="mt-4 flex gap-3">
               <Button
                 variant="danger"

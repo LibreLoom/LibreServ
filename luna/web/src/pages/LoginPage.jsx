@@ -54,8 +54,11 @@ export default function LoginPage() {
   }, [sessionEnded, addToast]);
 
   // Where to send the user after a successful login — the page they were
-  // trying to reach, or home.
-  const returnTo = location.state?.from?.pathname || "/";
+  // trying to reach, or home. `from` may be a location object (RequireAuth's
+  // in-place form) or a plain path string (the setup wizard's sign-in link).
+  const returnTo = typeof location.state?.from === "string"
+    ? location.state.from
+    : location.state?.from?.pathname || "/";
   // RequireAuth renders this page in place of the page you were on, so the URL
   // never moves to /login. Signing in then just swaps your page back in; only
   // the real /login route needs to navigate anywhere.

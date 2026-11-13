@@ -23,7 +23,7 @@ import { failedText, text } from "./copy.js";
  * }} Classified
  */
 
-const RETRYABLE_STATUS = new Set([0, 401, 408, 429, 502, 503, 504]);
+const RETRYABLE_STATUS = new Set([0, 401, 408, 429, 500, 502, 503, 504]);
 
 /** @param {unknown} err */
 export function isAbort(err) {

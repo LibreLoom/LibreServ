@@ -21,7 +21,7 @@ import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useFileSource } from "../../lib/fileSource.jsx";
 import { CAP, capsBits } from "../../lib/access.js";
 import { openableKind, isFormFile } from "../../lib/fileKinds.js";
-import { joinPath } from "../../lib/paths.js";
+import { joinPath, parentPath } from "../../lib/paths.js";
 import FormResponseBadge from "./forms/FormResponseBadge.jsx";
 import PrivateBadge from "../private/PrivateBadge.jsx";
 import { PropertiesButton } from "./PropertiesSheet.jsx";
@@ -389,6 +389,11 @@ function FileRow({
 
       <div className="flex items-center gap-2 flex-1 min-w-0">
         {name}
+        {/* Trash rows say where the item came from — the API sends it, and
+            without it several trashed files with the same name are alike. */}
+        {entry.original_path && parentPath(entry.original_path) ? (
+          <span className="text-xs text-secondary shrink-0 truncate">from {parentPath(entry.original_path)}</span>
+        ) : null}
         {entry.private || entry.in_private ? (
           <PrivateBadge
             className={fg}

@@ -18,6 +18,10 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   // True after a live session was found dead, so LoginPage can say why.
   const [sessionEnded, setSessionEnded] = useState(false);
+  // True when the last refresh could not reach Luna at all. RequireAuth uses
+  // it to show "cannot reach Luna" instead of the sign-in form on a fresh
+  // load while Luna is offline.
+  const [unreachable, setUnreachable] = useState(false);
   const navigate = useNavigate();
 
   // Keep the latest navigate in a ref so the startup effect below can stay
@@ -63,8 +67,10 @@ export function AuthProvider({ children }) {
     // send the user to the setup wizard and make a restart look like lost
     // setup. Keep the state we already have and say nothing was learned.
     if (meFailed && setupFailed && statusFailed) {
+      setUnreachable(true);
       return { me: null, setup: null, hasAdmin: null, unreachable: true };
     }
+    setUnreachable(false);
 
     if (!meFailed) setUser(me || null);
 
@@ -118,6 +124,21 @@ export function AuthProvider({ children }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- location.pathname intentionally omitted: the setup check runs once at startup
   }, [refresh]);
 
+  // While Luna is unreachable (restart after an update, no connection), keep
+  // asking every few seconds. When Luna answers again the same page picks up
+  // where it was — no manual reload. A fresh Luna still gets its setup detour.
+  useEffect(() => {
+    if (!unreachable) return undefined;
+    const timer = setInterval(async () => {
+      const res = await refresh();
+      if (res.unreachable) return;
+      if (!res.hasAdmin && !res.me && window.location.pathname !== "/setup") {
+        navigateRef.current("/setup", { replace: true });
+      }
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [unreachable, refresh]);
+
   // Any API call that comes back 401 lands here. Ask /auth/me whether the
   // session really ended (a 401 can also be a wrong password or device token);
   // if it did, drop the user so RequireAuth shows the sign-in form in place of
@@ -153,8 +174,12 @@ export function AuthProvider({ children }) {
     const me = await postJson("/api/v1/auth/login", { username, password });
     setSessionEnded(false);
     setUser(me);
+    // Setup reads are signed-in only, so a signed-out page load left `setup`
+    // null. Re-read it now, or the incomplete-setup guard in RequireAuth can't
+    // fire and a mid-setup sign-in drops the user on the dashboard.
+    await refresh();
     return me;
-  }, []);
+  }, [refresh]);
 
   const register = useCallback(async (username, displayName, password, setupSecret) => {
     const body = {
@@ -184,8 +209,8 @@ export function AuthProvider({ children }) {
 
   // Stable between renders so consumers only update when auth state changes.
   const value = useMemo(
-    () => ({ user, setup, hasAdmin, loading, sessionEnded, login, register, logout, endSession, refresh }),
-    [user, setup, hasAdmin, loading, sessionEnded, login, register, logout, endSession, refresh],
+    () => ({ user, setup, hasAdmin, loading, sessionEnded, unreachable, login, register, logout, endSession, refresh }),
+    [user, setup, hasAdmin, loading, sessionEnded, unreachable, login, register, logout, endSession, refresh],
   );
 
   return (

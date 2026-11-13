@@ -78,9 +78,12 @@ function folderListingError(error) {
   if (code === "not_found") return FOLDER_GONE_MESSAGE;
   const unplugged =
     code === "unknown_drive" ||
-    message.toLowerCase().includes("drive") ||
     (error && "status" in error && error.status === 404);
-  if (unplugged) return UNPLUGGED_DRIVE_MESSAGE;
+  if (unplugged) {
+    // The server said why in its own words; otherwise the canned text.
+    if (code === "unknown_drive" && message) return message;
+    return UNPLUGGED_DRIVE_MESSAGE;
+  }
   return message || "Luna couldn't open this folder. Try again.";
 }
 import { filesFromFileList, takeDropped } from "../../lib/collectUploadFiles.js";
@@ -289,6 +292,7 @@ function compareEntries(a, b, sortKey) {
  *   renderSelectionActions?: (paths: string[], rows: FileBrowserRowContext[]) => import("react").ReactNode,
  *   enableDownload?: boolean,
  *   enableUploadDrop?: boolean,
+ *   uploadButton?: boolean,
  *   linkNavigation?: boolean,
  *   folderHref?: (driveId: string, folderPath: string) => string,
  *   fileHref?: (driveId: string, filePath: string) => string,
@@ -338,6 +342,8 @@ export default function FileBrowser({
   renderSelectionActions,
   enableDownload = true,
   enableUploadDrop = false,
+  // The visible Upload button; the drop target and inputs stay with `enableUploadDrop`.
+  uploadButton = true,
   linkNavigation = false,
   folderHref = defaultFolderHref,
   fileHref = defaultFileHref,
@@ -350,7 +356,7 @@ export default function FileBrowser({
   backupsHref = null,
   toolbarExtra = null,
   folderActions = null,
-  emptyTitle = "There's nothing here.",
+  emptyTitle,
   surface = "secondary",
   isPickBlocked = undefined,
   className = "",
@@ -1340,7 +1346,7 @@ export default function FileBrowser({
               }}
             />
           ) : null}
-          {canPickFolder ? (
+          {canPickFolder && uploadButton ? (
             <Dropdown
               menu
               menuLabel="Upload"
@@ -2225,9 +2231,12 @@ export default function FileBrowser({
           ) : (
             <li
               data-slot="empty-state"
-              className={`flex items-center justify-center py-20 px-3 text-center select-none font-mono text-base sm:text-lg ${fg}`}
+              className={`flex flex-col items-center justify-center gap-2 py-20 px-3 text-center select-none font-mono text-base sm:text-lg ${fg}`}
             >
               {emptyTitle || "There's nothing here."}
+              {!emptyTitle && (
+                <p className="font-sans text-sm text-secondary">Use New or Upload to add files to this folder.</p>
+              )}
             </li>
           )}
         </ul>
