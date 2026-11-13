@@ -452,18 +452,35 @@ function EditorSession({
   );
 
   // Excalidraw 0.18 renders its main-menu and extra-tools triggers without an
-  // accessible name (upstream gap). Name them once the toolbar is in the DOM.
+  // accessible name (upstream gap). Name them once the toolbar is in the DOM —
+  // retried, not on a fixed timer, since the toolbar's mount time varies.
   useEffect(() => {
     if (!editorReady) return;
-    const t = setTimeout(() => {
-      const name = (sel, label) => {
-        const el = document.querySelector(sel);
+    const host = hostRef.current;
+    if (!host) return;
+    let tries = 0;
+    let timer = /** @type {number | undefined} */ (undefined);
+    const name = () => {
+      const named = (sel, label) => {
+        const el = host.querySelector(sel);
         if (el && !el.getAttribute("aria-label")) el.setAttribute("aria-label", label);
       };
-      name('[data-testid="main-menu-trigger"]', "Menu");
-      name(".App-toolbar__extra-tools-trigger", "More tools");
-    }, 300);
-    return () => clearTimeout(t);
+      named('[data-testid="main-menu-trigger"]', "Menu");
+      named(".App-toolbar__extra-tools-trigger", "More tools");
+    };
+    const done = () =>
+      Boolean(
+        host.querySelector('[data-testid="main-menu-trigger"]')?.getAttribute("aria-label") &&
+          host.querySelector(".App-toolbar__extra-tools-trigger")?.getAttribute("aria-label"),
+      );
+    const tick = () => {
+      name();
+      if (done()) return;
+      if (++tries > 40) return; // ~4s of retries, then give up quietly
+      timer = window.setTimeout(tick, 100);
+    };
+    tick();
+    return () => window.clearTimeout(timer);
   }, [editorReady]);
 
   // A peer dragging a shape sends an update per frame (or several, when

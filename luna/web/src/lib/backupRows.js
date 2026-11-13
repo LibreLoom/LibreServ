@@ -77,7 +77,7 @@ export function backupStatus(b, now = Date.now()) {
   if (b.kind === "cloud" && b.moving) {
     return b.moving.paused_full
       ? { label: "Connect storage is full — move paused", variant: "warning" }
-      : { label: `Moving to your new phrase · ${movingPercent(b.moving)}%`, variant: "default" };
+      : { label: `Updating your cloud backups to the new phrase · ${movingPercent(b.moving)}%`, variant: "default" };
   }
   if (!b.last_ok_at) return { label: "No copy yet", variant: "default" };
   return { label: "Backup successful", variant: "success" };

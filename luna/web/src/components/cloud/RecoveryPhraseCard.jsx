@@ -63,7 +63,6 @@ function useMoveEta(pct) {
     const seconds = (now - first.at) / 1000;
     const moved = pct - first.pct;
     if (seconds >= 20 && moved > 0) {
-      /* eslint-disable-next-line react-hooks/set-state-in-effect -- derived from the poll, not render state */
       setEta(etaText((100 - pct) / (moved / seconds)));
     }
   }, [pct]);

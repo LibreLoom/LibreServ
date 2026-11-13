@@ -121,7 +121,6 @@ export function AuthProvider({ children }) {
     return () => {
       alive = false;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- location.pathname intentionally omitted: the setup check runs once at startup
   }, [refresh]);
 
   // While Luna is unreachable (restart after an update, no connection), keep
@@ -177,9 +176,20 @@ export function AuthProvider({ children }) {
     // Setup reads are signed-in only, so a signed-out page load left `setup`
     // null. Re-read it now, or the incomplete-setup guard in RequireAuth can't
     // fire and a mid-setup sign-in drops the user on the dashboard.
-    await refresh();
+    //
+    // Deliberately NOT a full refresh(): a /auth/me read right after login can
+    // come back stale (or be mocked to always say "not signed in") and would
+    // wipe the user we just set — the stale-me clobber this file warns about.
+    // Only setup/status are re-read here; `user` keeps the login response.
+    const [setupState, authStatus] = await Promise.all([
+      getJson("/api/v1/setup").catch(() => null),
+      getJson("/api/v1/auth/status").catch(() => null),
+    ]);
+    if (setupState) setSetup(setupState);
+    // A successful login proves an account exists, so fall back to that.
+    setHasAdmin(authStatus != null ? Boolean(authStatus.has_admin) : true);
     return me;
-  }, [refresh]);
+  }, []);
 
   const register = useCallback(async (username, displayName, password, setupSecret) => {
     const body = {

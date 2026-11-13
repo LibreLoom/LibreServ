@@ -184,7 +184,7 @@ function CreateTokenModal({ open, busy, error, onClose, onSubmit }) {
             className="mt-2 w-full rounded-pill surface-primary border-2 border-secondary/30 px-4 py-2 text-sm outline-none focus:border-accent"
             placeholder="Kitchen Mac, photo backup, script"
             value={name}
-            maxLength={100}
+            maxLength={80}
             ref={nameRef}
             onChange={(e) => {
               setNameError(null);
@@ -202,7 +202,7 @@ function CreateTokenModal({ open, busy, error, onClose, onSubmit }) {
         />
         {(nameError || error) && <PageNotice variant="error">{nameError || error}</PageNotice>}
         <div className="flex gap-3">
-          <Button variant="primary" type="submit" fullWidth loading={busy}>
+          <Button variant="primary" type="submit" fullWidth loading={busy} disabled={!name.trim()}>
             Create access token
           </Button>
           <Button variant="outline" type="button" onClick={onClose} disabled={busy}>

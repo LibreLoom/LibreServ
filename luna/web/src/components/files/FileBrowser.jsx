@@ -1386,7 +1386,7 @@ export default function FileBrowser({
                 </Button>
               )}
             />
-          ) : (
+          ) : uploadButton ? (
             <Button
               variant="outline"
               surface={surface}
@@ -1397,7 +1397,7 @@ export default function FileBrowser({
               <UploadCloud size={14} aria-hidden="true" />
               Upload
             </Button>
-          )}
+          ) : null}
         </>
       ) : null}
     </>
@@ -2234,8 +2234,8 @@ export default function FileBrowser({
               className={`flex flex-col items-center justify-center gap-2 py-20 px-3 text-center select-none font-mono text-base sm:text-lg ${fg}`}
             >
               {emptyTitle || "There's nothing here."}
-              {!emptyTitle && (
-                <p className="font-sans text-sm text-secondary">Use New or Upload to add files to this folder.</p>
+              {!emptyTitle && !isPicker && (folderActions || enableUploadDrop) && (
+                <p className={`font-sans text-sm ${fg}`}>Use New or Upload to add files to this folder.</p>
               )}
             </li>
           )}

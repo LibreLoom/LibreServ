@@ -447,7 +447,7 @@ export default [
       w.albumItems.al1 = w.photos.map(photoKey);
       w.sharing.subjects[0].links.push({ ...link({ caps: "view" }), token: "tokalbum" });
     },
-    check: ["Three columns fit; the action buttons wrap", "Large view: a swipe moves to the next photo; the Close button closes it"], // NOTE: check updated — the lightbox navigates by swipe and closes by button/Escape; swipe-to-dismiss is not a thing it does.
+    check: ["Three columns fit; the action buttons wrap", "Large view: a swipe moves to the next photo; a downward swipe or the Close button closes it"], // NOTE: swipe-down-to-close added in the P58 audit fix (PhotoLightbox endGesture, dy >= 110px).
   },
 
   // ── Forms ────────────────────────────────────────────────────────────────

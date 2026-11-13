@@ -276,7 +276,7 @@ const header = (h, name) => {
 };
 
 /** Runs every check a real link goes through; returns an error answer or the link. */
-function open(w, token, headers, { download = false } = {}) {
+function open(w, token, headers, { download: _download = false } = {}) {
   const hit = lookup(w, token);
   if (!hit) return { err: fail(404, "Not found.") };
   const { s, l } = hit;

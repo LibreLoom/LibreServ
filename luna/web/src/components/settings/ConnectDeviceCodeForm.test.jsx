@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
@@ -67,12 +67,16 @@ describe("ConnectDeviceCodeForm", () => {
     expect(screen.queryByText("Device token saved.")).toBeNull();
   });
 
-  it("offers Remove only when a token exists, and removes it", async () => {
+  it("offers Remove only when a token exists, and removes it after a confirm", async () => {
     const fetchMock = stub({ status: { connect_active: true } });
     const user = userEvent.setup();
     renderForm();
     const remove = await screen.findByRole("button", { name: "Remove device token" });
     await user.click(remove);
+    // Removing turns off Luna Connect entirely, so it asks first.
+    expect(calls(fetchMock, "DELETE")).toHaveLength(0);
+    const dialog = await screen.findByRole("dialog", { name: /Remove device token/i });
+    await user.click(within(dialog).getByRole("button", { name: "Remove device token" }));
     await waitFor(() => expect(calls(fetchMock, "DELETE")).toHaveLength(1));
   });
 

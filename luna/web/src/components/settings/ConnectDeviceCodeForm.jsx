@@ -54,6 +54,7 @@ export default function ConnectDeviceCodeForm({ surface = "secondary" }) {
       setError(null);
       setSaved(false);
       setCode("");
+      setConfirmRemove(false);
     },
     onError: (err) => {
       haptic("error");

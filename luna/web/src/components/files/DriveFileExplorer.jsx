@@ -734,7 +734,7 @@ export default function DriveFileExplorer({
       });
     }
     return actions;
-  }, [access.data, driveId, guest, guestCaps, source, isAdmin, showProtect, canView, inBackups]);
+  }, [access.data, driveId, guest, guestCaps, source, isAdmin, showProtect, canView, inBackups, driveWritable]);
 
   const renderRowActions = useCallback((ctx) => {
     if (inBackups) return <BackupRowActions driveId={driveId} ctx={ctx} onVersions={openVersions} />;
@@ -1216,7 +1216,7 @@ export default function DriveFileExplorer({
               any of it back after this.
             </p>
             {trashListing.data?.length ? (
-              <p className="text-secondary text-sm mt-1">
+              <p className="text-primary text-sm mt-1">
                 Trash holds {trashListing.data.length} {trashListing.data.length === 1 ? "item" : "items"}.
               </p>
             ) : null}

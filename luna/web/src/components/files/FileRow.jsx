@@ -392,7 +392,7 @@ function FileRow({
         {/* Trash rows say where the item came from — the API sends it, and
             without it several trashed files with the same name are alike. */}
         {entry.original_path && parentPath(entry.original_path) ? (
-          <span className="text-xs text-secondary shrink-0 truncate">from {parentPath(entry.original_path)}</span>
+          <span className={`text-xs ${fg} shrink-0 truncate`}>from {parentPath(entry.original_path)}</span>
         ) : null}
         {entry.private || entry.in_private ? (
           <PrivateBadge

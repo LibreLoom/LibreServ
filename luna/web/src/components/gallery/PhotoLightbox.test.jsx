@@ -238,6 +238,39 @@ describe("PhotoLightbox swipe navigation", () => {
     }
   });
 
+  it("closes on a committed downward swipe", () => {
+    vi.useFakeTimers();
+    try {
+      const onClose = vi.fn();
+      renderLightbox({ onClose });
+      const el = stage();
+      fireEvent.touchStart(el, { changedTouches: [{ clientX: 300, clientY: 200 }] });
+      fireEvent.touchMove(el, { changedTouches: [{ clientX: 300, clientY: 280 }] });
+      fireEvent.touchMove(el, { changedTouches: [{ clientX: 300, clientY: 340 }] });
+      fireEvent.touchEnd(el, { changedTouches: [{ clientX: 300, clientY: 340 }] });
+      act(() => { vi.advanceTimersByTime(1500); });
+      expect(onClose).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not close on a short downward drag", () => {
+    vi.useFakeTimers();
+    try {
+      const onClose = vi.fn();
+      renderLightbox({ onClose });
+      const el = stage();
+      fireEvent.touchStart(el, { changedTouches: [{ clientX: 300, clientY: 200 }] });
+      fireEvent.touchMove(el, { changedTouches: [{ clientX: 300, clientY: 260 }] });
+      fireEvent.touchEnd(el, { changedTouches: [{ clientX: 300, clientY: 260 }] });
+      act(() => { vi.advanceTimersByTime(1500); });
+      expect(onClose).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("snaps back without navigating on a short swipe", () => {
     vi.useFakeTimers();
     try {

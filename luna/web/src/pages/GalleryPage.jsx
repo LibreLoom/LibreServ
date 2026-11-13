@@ -61,6 +61,7 @@ import { useAuth } from "../context/AuthContext";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useShortcut, useShortcutsSheet } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import {
+  ApiError,
   apiErrorMessage,
   apiFetch,
   deleteJson,
@@ -1048,8 +1049,11 @@ export default function GalleryPage() {
   // The album this page is showing is gone (deleted elsewhere, or vanished):
   // say so and land back on the Albums list instead of showing a dead album.
   useEffect(() => {
-    if (!gallery.isError || !albumView || gallery.error?.status !== 404) return;
+    if (!gallery.isError || !albumView) return;
+    if (!(gallery.error instanceof ApiError) || gallery.error.status !== 404) return;
+    /* eslint-disable-next-line react-hooks/set-state-in-effect -- reacting to a finished query, not render state */
     setAlbumGoneNotice(apiErrorMessage(gallery.error, "That album no longer exists."));
+    /* eslint-disable-next-line react-hooks/set-state-in-effect -- same query result */
     setAlbumView(null);
     queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
   }, [gallery.isError, gallery.error, albumView, queryClient]);
@@ -1457,6 +1461,11 @@ export default function GalleryPage() {
     }
   }, [gallery]);
 
+  // Cap the pages a single date jump may fetch, so a target beyond everything
+  // loaded cannot walk the whole library. Past the cap it lands on the
+  // closest loaded day instead.
+  const jumpPagesRef = useRef(0);
+
   // Date jump: keep fetching pages until the loaded span reaches the target
   // day, then scroll the closest day header into view.
   useEffect(() => {
@@ -1468,9 +1477,10 @@ export default function GalleryPage() {
       || (newest != null && target >= newest)
       || undated
       || !gallery.hasNextPage;
-    if (!covered) {
+    if (!covered && jumpPagesRef.current < 50) {
       if (!gallery.isFetchingNextPage) {
         gallery.fetchNextPage();
+        jumpPagesRef.current += 1;
       }
       return;
     }
@@ -1782,6 +1792,7 @@ export default function GalleryPage() {
             <p>{galleryLoadError}</p>
             <Button
               variant="outline"
+              surface="primary"
               size="sm"
               className="mt-3"
               onClick={() => {
@@ -2595,6 +2606,7 @@ export default function GalleryPage() {
         open={jumpOpen}
         onClose={() => setJumpOpen(false)}
         onJump={(ymd) => {
+          jumpPagesRef.current = 0;
           const bounds = dayBoundsLocal(ymd);
           // Jumping scrolls the timeline — leave single-day/duplicates/month-day
           // views first so there is a timeline position to land on.
