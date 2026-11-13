@@ -173,6 +173,12 @@ pub fn create_scoped(
     size: u64,
     principal: &str,
 ) -> Result<Upload, UploadError> {
+    let root = files::drive_root(conn, drive_id)?.mount_point;
+    let rules = files::fsrules::rules_at(Path::new(&root));
+    rules.check_name(name.trim()).map_err(FilesError::from)?;
+    rules
+        .check_size(name.trim(), size)
+        .map_err(FilesError::from)?;
     let name = files::safe_name(name).map_err(|_| {
         FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,

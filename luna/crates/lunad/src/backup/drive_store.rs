@@ -471,6 +471,9 @@ pub struct FsLimits {
     pub case_insensitive: bool,
     /// Largest file it can hold (FAT: 4 GiB - 1).
     pub max_file: Option<u64>,
+    /// Names can't hold `: * ? " < > | \\`, control characters, or end in a
+    /// dot or space (exFAT/FAT).
+    pub reserved_chars: bool,
 }
 
 /// The limits of the filesystem holding `target_root`, read from
@@ -495,17 +498,19 @@ fn limits_for_fs(fstype: &str) -> FsLimits {
         "exfat" | "fuseblk" => FsLimits {
             case_insensitive: true,
             max_file: None,
+            reserved_chars: true,
         },
         "vfat" | "fat" | "fat32" | "msdos" => FsLimits {
             case_insensitive: true,
             max_file: Some(FAT32_MAX_FILE),
+            reserved_chars: true,
         },
         _ => FsLimits::default(),
     }
 }
 
 /// The filesystem type of the most specific mount containing `path`.
-fn fs_type_at(mounts: &str, path: &Path) -> Option<String> {
+pub(crate) fn fs_type_at(mounts: &str, path: &Path) -> Option<String> {
     let mut best: Option<(usize, String)> = None;
     for line in mounts.lines() {
         let mut fields = line.split_whitespace();
@@ -988,6 +993,7 @@ mod tests {
             FsLimits {
                 case_insensitive: true,
                 max_file: Some(FAT32_MAX_FILE),
+                reserved_chars: true,
             }
         );
         let disk = fs_type_at(mounts, Path::new("/run/media/max/My Disk")).unwrap();
@@ -996,6 +1002,7 @@ mod tests {
             FsLimits {
                 case_insensitive: true,
                 max_file: None,
+                reserved_chars: true,
             }
         );
         let root = fs_type_at(mounts, Path::new("/home/max")).unwrap();
@@ -1010,6 +1017,7 @@ mod tests {
             FsLimits {
                 case_insensitive: true,
                 max_file: None,
+                reserved_chars: true,
             }
         );
     }

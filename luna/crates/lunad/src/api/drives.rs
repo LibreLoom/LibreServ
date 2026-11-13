@@ -37,6 +37,10 @@ struct DriveJson {
     /// The erase in progress, for an Admin whose page was refreshed mid-run.
     #[serde(skip_serializing_if = "Option::is_none")]
     format_id: Option<String>,
+    /// Plain words about a check Luna ran when it last opened this drive
+    /// (it wasn't shut down properly). Sent only when there is one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repair_notice: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -920,7 +924,11 @@ fn plain_remove_error(err: &anyhow::Error) -> String {
 
 impl From<crate::db::DriveRow> for DriveJson {
     fn from(d: crate::db::DriveRow) -> Self {
+        let repair_notice =
+            crate::drives::fsck::notice_for(std::path::Path::new(&d.mount_point), &d.label)
+                .map(|n| n.message);
         Self {
+            repair_notice,
             id: d.id,
             label: d.label,
             state: d.state,

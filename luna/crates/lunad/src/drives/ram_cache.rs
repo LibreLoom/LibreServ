@@ -139,7 +139,7 @@ pub fn note_drive_write(drive_id: &str) {
     *g.entry(drive_id.to_string()).or_insert(0) += 1;
 }
 
-fn drive_write_gen(drive_id: &str) -> u64 {
+pub fn drive_write_gen(drive_id: &str) -> u64 {
     let g = DRIVE_WRITE_GEN.lock().unwrap_or_else(|e| e.into_inner());
     g.get(drive_id).copied().unwrap_or(0)
 }
@@ -721,6 +721,7 @@ impl RamCache {
         if !landed {
             return Ok(false);
         }
+        note_drive_write(drive_id);
         self.invalidate_listing(drive_id, &parent_rel(rel));
         // The landing bumps the parent dir's mtime, but the index compares
         // stamps — a landing inside the filesystem's timestamp granularity

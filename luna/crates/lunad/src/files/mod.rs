@@ -2350,6 +2350,11 @@ pub fn mkdir_as(
             "parent folder does not exist",
         )));
     }
+    if let Some(leaf) = rel.rsplit('/').next() {
+        fsrules::rules_at(&root)
+            .check_name(leaf)
+            .map_err(FilesError::from)?;
+    }
     let private = begin_private(&root, &rel, &path, private_owner)?;
     let path = if private {
         resolve_for_create_nofollow(&root, &rel)?
@@ -2408,6 +2413,9 @@ pub fn create(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> Result<
             "parent folder does not exist",
         )));
     }
+    fsrules::rules_at(&root)
+        .check_name(leaf)
+        .map_err(FilesError::from)?;
     match std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -2498,15 +2506,27 @@ pub fn rename(
     if crate::private::item_at(&root, &new_real).is_some() {
         return Err(already_exists());
     }
+    let rules = fsrules::rules_at(&root);
+    rules.check_name(&new_name).map_err(FilesError::from)?;
     let dest = parent.join(private_leaf.as_deref().unwrap_or(&dest_name));
-    if private_leaf.is_some() {
+    if private_leaf.is_none()
+        && rules.case_insensitive
+        && fsrules::is_case_only_change(&path, &dest)
+    {
+        // exFAT answers "taken" because the new spelling finds this very
+        // entry, so a capitals-only rename takes its own path.
+        fsrules::rename_case_only(&path, &dest).map_err(FilesError::Io)?;
+    } else if private_leaf.is_some() {
         if resolve_child(&root, &new_real).is_ok() {
             return Err(already_exists());
         }
     } else {
         // No-replace move keeps the never-overwrites contract honest under
         // concurrency; plain rename(2) would silently overwrite.
-        rename_noreplace(&path, &dest).map_err(FilesError::Io)?;
+        match rename_noreplace(&path, &dest) {
+            Err(e) if noreplace_unavailable(&e) => install_by_exclusive_rename(&path, &dest)?,
+            other => other.map_err(FilesError::Io)?,
+        }
     }
     if let Err(e) = crate::private::repath(&root, &rel, &new_real) {
         // A private item never moved on disk; anything else did.
@@ -2605,6 +2625,11 @@ pub fn move_rel(
             "destination folder does not exist",
         )));
     }
+    if let Some(leaf) = to_rel.rsplit('/').next() {
+        fsrules::rules_at(&root)
+            .check_name(leaf)
+            .map_err(FilesError::from)?;
+    }
     // A private item keeps its `.luna-` disk name wherever it lands; the
     // real destination name must be free of plain and private items alike.
     let to = match crate::private::disk_leaf(&root, &from_rel) {
@@ -2688,6 +2713,7 @@ mod tests;
 pub mod dav;
 mod dav_fs;
 pub mod forwarding;
+pub mod fsrules;
 pub mod index;
 pub mod recents;
 pub mod search;
@@ -2751,5 +2777,51 @@ mod restore_folder_tests {
         assert!(restore_from_trash(&conn, &id, &trash_rel, "Blocked/note.txt").is_err());
         assert!(root.join("Blocked").is_file());
         assert!(root.join(real_rel(&root, &trash_rel).as_ref()).exists());
+    }
+
+    fn exfat_drive() -> (tempfile::TempDir, rusqlite::Connection, String, PathBuf) {
+        let (dir, conn, id) = drive_dir();
+        let root = PathBuf::from(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point);
+        fsrules::force_rules_for_tests(
+            &root,
+            fsrules::FsRules {
+                reserved_chars: true,
+                case_insensitive: true,
+                max_file: None,
+            },
+        );
+        (dir, conn, id, root)
+    }
+
+    fn bad_name_of(e: FilesError) -> Option<fsrules::NameProblem> {
+        match e {
+            FilesError::Io(io) => fsrules::problem_of(&io).cloned(),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn exfat_refuses_reserved_characters_before_creating_anything() {
+        let (_dir, conn, id, root) = exfat_drive();
+        let e = create(&conn, &id, "a:b.txt").unwrap_err();
+        assert!(matches!(
+            bad_name_of(e),
+            Some(fsrules::NameProblem::Char { ch: ':', .. })
+        ));
+        assert!(mkdir(&conn, &id, "what?").is_err());
+        create(&conn, &id, "ok.txt").unwrap();
+        let e = rename(&conn, &id, "ok.txt", "no|pipe.txt").unwrap_err();
+        assert!(bad_name_of(e).is_some());
+        assert!(root.join("ok.txt").exists());
+        mkdir(&conn, &id, "Dir").unwrap();
+        let e = move_rel(&conn, &id, "ok.txt", "Dir/q*.txt").unwrap_err();
+        assert!(bad_name_of(e).is_some());
+        assert!(root.join("ok.txt").exists());
+    }
+
+    #[test]
+    fn a_drive_that_takes_every_character_still_does() {
+        let (_dir, conn, id) = drive_dir();
+        create(&conn, &id, "a:b.txt").unwrap();
     }
 }

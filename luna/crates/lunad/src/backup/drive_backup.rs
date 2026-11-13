@@ -902,18 +902,32 @@ fn plan_names(
     let mut out = Vec::new();
     let mut kept = Vec::new();
     for entry in walked {
+        // A name the target's format can't hold is saved with `_` in place of
+        // each refused character, and says so.
+        let rel_for_target = if limits.reserved_chars {
+            let fixed = sanitize_rel_for_target(&entry.rel);
+            if fixed != entry.rel {
+                notes.push(format!(
+                    "{} has characters {target_name}'s format can't hold, so it was saved as {fixed}.",
+                    entry.rel
+                ));
+            }
+            fixed
+        } else {
+            entry.rel.clone()
+        };
         if limits.max_file.is_some_and(|max| entry.size > max) {
             notes.push(format!(
                 "{} is too big for {target_name}'s format (largest 4 GB).",
                 entry.rel
             ));
-            kept.push(entry.rel.clone());
+            kept.push(rel_for_target.clone());
             continue;
         }
-        if taken.insert(name_key(&entry.rel, limits)) {
-            out.push((entry.rel.clone(), entry));
+        if taken.insert(name_key(&rel_for_target, limits)) {
+            out.push((rel_for_target, entry));
         } else {
-            let alt = free_alt_name(&entry.rel, limits, &mut taken);
+            let alt = free_alt_name(&rel_for_target, limits, &mut taken);
             notes.push(format!(
                 "{} has the same name as another file on {target_name} apart from capitals, so it was saved as {alt}.",
                 entry.rel
@@ -922,6 +936,30 @@ fn plan_names(
         }
     }
     (out, notes, kept)
+}
+
+/// Replace each character the target's format refuses with `_`, folder by
+/// folder, and drop a trailing dot or space.
+fn sanitize_rel_for_target(rel: &str) -> String {
+    rel.split('/')
+        .map(|seg| {
+            let mut out: String = seg
+                .chars()
+                .map(|c| {
+                    if c.is_control() || crate::files::fsrules::RESERVED_CHARS.contains(&c) {
+                        '_'
+                    } else {
+                        c
+                    }
+                })
+                .collect();
+            while out.len() > 1 && (out.ends_with('.') || out.ends_with(' ')) {
+                out.pop();
+            }
+            out
+        })
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn name_key(rel: &str, limits: drive_store::FsLimits) -> String {
@@ -1786,10 +1824,12 @@ mod tests {
         let blind = drive_store::FsLimits {
             case_insensitive: true,
             max_file: None,
+            reserved_chars: false,
         };
         let exact = drive_store::FsLimits {
             case_insensitive: false,
             max_file: None,
+            reserved_chars: false,
         };
         assert_eq!(name_key("Docs/A.txt", blind), name_key("docs/a.txt", blind));
         assert_ne!(name_key("Docs/A.txt", exact), name_key("docs/a.txt", exact));
@@ -1942,6 +1982,7 @@ mod tests {
         let limits = drive_store::FsLimits {
             case_insensitive: true,
             max_file: Some(100),
+            reserved_chars: false,
         };
         let (out, notes, kept) = plan_names(
             vec![
@@ -2030,6 +2071,7 @@ mod tests {
             drive_store::FsLimits {
                 case_insensitive: false,
                 max_file: Some(5),
+                reserved_chars: false,
             },
         );
         let walked = scope::walk(&docs(&s)).unwrap();
@@ -2071,6 +2113,7 @@ mod tests {
             drive_store::FsLimits {
                 case_insensitive: true,
                 max_file: None,
+                reserved_chars: false,
             },
         );
         let walked = scope::walk(&docs(&s)).unwrap();

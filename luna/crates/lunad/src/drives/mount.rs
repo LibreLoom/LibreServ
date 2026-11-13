@@ -171,6 +171,9 @@ impl Mounter for CommandMounter {
     }
 
     fn remount(&self, target: &Path, read_only: bool) -> anyhow::Result<()> {
+        if !read_only && crate::drives::fsck::is_unrepaired(target) {
+            anyhow::bail!("this drive could not be repaired and stays read-only");
+        }
         let out = run_bounded(
             Command::new("mount").args(remount_args(target, read_only)),
             MOUNT_TIMEOUT,
@@ -194,6 +197,19 @@ impl Mounter for CommandMounter {
         fs_type: Option<&str>,
     ) -> anyhow::Result<()> {
         std::fs::create_dir_all(target)?;
+        // exFAT has no journal: a volume left dirty by a power cut is repaired
+        // before anything mounts it read-write, and one that can't be
+        // repaired opens read-only. Read-only mounts only wait out a repair.
+        let mut read_only = read_only;
+        if read_only {
+            crate::drives::fsck::wait_idle(device);
+        } else if crate::drives::fsck::before_rw_mount(
+            &crate::drives::fsck::CommandExfatTools,
+            device,
+            target,
+        ) {
+            read_only = true;
+        }
         let out = run_bounded(
             Command::new("mount").args(mount_args(device, target, read_only, fs_type)),
             MOUNT_TIMEOUT,

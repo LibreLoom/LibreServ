@@ -1239,6 +1239,7 @@ pub fn finish_comprehensive(
         let rw_name = format!("drive_{}_read_write", drive.id);
         let smart_name = format!("drive_{}_smart", drive.id);
         let drive_details = json!({ "drive_id": drive.id, "drive_label": label });
+        let repair_details = drive_details.clone();
 
         if drive.state == "readonly" {
             checks
@@ -1291,6 +1292,18 @@ pub fn finish_comprehensive(
                     Some(drive_details),
                 )
                 .more("Luna tried to save a test file there and couldn't.");
+        }
+
+        if let Some(n) = crate::drives::fsck::notice_for(Path::new(&drive.mount_point), &label) {
+            checks
+                .add(
+                    &format!("drive_{}_repair", drive.id),
+                    "drives",
+                    if n.repaired { WARNING } else { FAILED },
+                    n.message,
+                    Some(repair_details),
+                )
+                .more(n.more);
         }
 
         if smart::applicable(&drive.device) {

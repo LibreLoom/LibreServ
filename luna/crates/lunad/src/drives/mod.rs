@@ -35,6 +35,16 @@ use crate::drives::fsprobe::{
 };
 use crate::drives::mount::Mounter;
 
+/// Why a drive can't be written to when adding it: a drive Luna checked and
+/// couldn't repair says so; anything else is the lock-switch message.
+fn write_rejected_message(mount_point: &Path) -> String {
+    if crate::drives::fsck::is_unrepaired(mount_point) {
+        "Luna found problems on this drive that it couldn't fix. Check it on a Windows or Mac computer, then try again.".into()
+    } else {
+        WRITE_REJECTED_MESSAGE.into()
+    }
+}
+
 /// A blank, damaged, foreign-format or installer-media drive: Luna can't use it as it is.
 pub const NEEDS_SETUP_MESSAGE: &str = "Setting up new drives isn't available in this version yet.";
 /// An encrypted drive: Luna can't open it.
@@ -526,12 +536,12 @@ impl DriveManager {
                 }
                 Err(_) => {
                     self.cleanup_adopt_mount(&mount_point, mounted_by_luna);
-                    anyhow::bail!("{WRITE_REJECTED_MESSAGE}");
+                    anyhow::bail!("{}", write_rejected_message(&mount_point));
                 }
             }
             if probe_writable(&mount_point).is_err() {
                 self.cleanup_adopt_mount(&mount_point, mounted_by_luna);
-                anyhow::bail!("{WRITE_REJECTED_MESSAGE}");
+                anyhow::bail!("{}", write_rejected_message(&mount_point));
             }
         }
 
@@ -1416,7 +1426,7 @@ impl DriveManager {
 }
 
 /// Write out everything the kernel still holds for the filesystem at `path`.
-pub(crate) fn sync_filesystem(path: &Path) -> std::io::Result<()> {
+pub fn sync_filesystem(path: &Path) -> std::io::Result<()> {
     use std::os::fd::AsRawFd;
     let dir = std::fs::File::open(path)?;
     #[cfg(target_os = "linux")]
@@ -2634,7 +2644,9 @@ mod tests {
 pub mod crypt;
 pub mod detect;
 pub mod drive_db;
+pub mod flusher;
 pub mod format;
+pub mod fsck;
 pub mod fsprobe;
 pub mod fstrim;
 pub mod layout;

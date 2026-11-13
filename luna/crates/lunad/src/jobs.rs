@@ -446,6 +446,14 @@ fn prepare(
             }
         }
     }
+    // A tree copied onto another drive must fit that drive's format: refuse
+    // before the first byte is written, not halfway through a copy.
+    if from_drive != to_drive {
+        let rules = files::fsrules::rules_at(&to_root);
+        if rules.is_restricted() {
+            check_tree_fits(&rules, &src, &name).map_err(FilesError::from)?;
+        }
+    }
     let user_row = db::get_user(conn, user_id)
         .map_err(JobError::Db)?
         .ok_or(JobError::Denied)?;
@@ -490,6 +498,53 @@ fn prepare(
         dest_rel,
         private_root,
     })
+}
+
+/// Walk the tree about to be copied and check every name and size against the
+/// destination's rules. `top` is the name the item lands under.
+fn check_tree_fits(
+    rules: &files::fsrules::FsRules,
+    src: &Path,
+    top: &str,
+) -> Result<(), files::fsrules::NameProblem> {
+    rules.check_name(top)?;
+    let Ok(meta) = std::fs::symlink_metadata(src) else {
+        return Ok(());
+    };
+    if !meta.is_dir() {
+        return rules.check_size(top, meta.len());
+    }
+    let mut stack = vec![src.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(read) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut names: Vec<String> = Vec::new();
+        for entry in read.flatten() {
+            let Some(disk) = entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            let private = crate::private::is_private_disk_name(&disk);
+            if files::is_internal_temp(&disk) && !private {
+                continue;
+            }
+            let Ok(m) = std::fs::symlink_metadata(entry.path()) else {
+                continue;
+            };
+            // A private folder is stored under a `.luna-` name; its real
+            // name is what lands on the destination.
+            let name = files::leaf_of(&entry.path()).unwrap_or(disk);
+            rules.check_name(&name)?;
+            if m.is_dir() {
+                stack.push(entry.path());
+            } else {
+                rules.check_size(&name, m.len())?;
+            }
+            names.push(name);
+        }
+        files::fsrules::check_siblings(rules, names.iter().map(String::as_str))?;
+    }
+    Ok(())
 }
 
 /// Bytes in a form's own files folder (question pictures, attachments) —
@@ -1208,6 +1263,10 @@ fn copy_plain_tree(
             copy_plain_tree(&entry.path(), &target, st, count_bytes)?;
         } else if meta.is_file() {
             let bytes = std::fs::copy(entry.path(), &target).map_err(JobError::Io)?;
+            // No journal on exFAT: the copied file must be on the drive.
+            if let Ok(f) = std::fs::File::open(&target) {
+                let _ = f.sync_all();
+            }
             if count_bytes {
                 st.done += bytes;
             }
@@ -1293,6 +1352,9 @@ fn plain_job_error(err: &JobError) -> String {
             "One of these drives is locked. Unlock it, then try again.".into()
         }
         JobError::Files(FilesError::MissingDriveDb) => files::MISSING_DRIVE_DB_MSG.into(),
+        JobError::Files(FilesError::Io(e)) if files::fsrules::problem_of(e).is_some() => {
+            files::fsrules::problem_of(e).map(|p| p.to_string()).unwrap_or_default()
+        }
         JobError::Files(FilesError::Path(_)) => "Luna can't use that path.".into(),
         JobError::Io(e) if e.kind() == std::io::ErrorKind::NotFound => {
             "A file disappeared while Luna was copying it.".into()

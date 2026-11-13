@@ -1724,6 +1724,17 @@ async fn upload(
             Some("file") => {
                 check_access(&state, &user, &id, &dest_rel, crate::access::CAP_UPLOAD)?;
                 let original = field.file_name().unwrap_or("file").to_string();
+                // A name this drive's format can't hold is refused first,
+                // naming the character, before anything is written.
+                let drive_root = crate::db::with_db(
+                    &state.db,
+                    || FilesError::UnknownDrive,
+                    |conn| files::drive_root(conn, &id),
+                )
+                .map_err(map_files_err)?;
+                files::fsrules::rules_at(std::path::Path::new(&drive_root.mount_point))
+                    .check_name(original.trim())
+                    .map_err(|p| map_files_err(p.into()))?;
                 let mut name = files::safe_name(&original).map_err(|_| {
                     json_error(
                         StatusCode::BAD_REQUEST,
@@ -2251,6 +2262,10 @@ pub(crate) fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
         }
         FilesError::Io(e) if e.kind() == std::io::ErrorKind::InvalidInput => {
             json_error(StatusCode::BAD_REQUEST, "Luna can't open that path.")
+        }
+        FilesError::Io(ref e) if files::fsrules::problem_of(e).is_some() => {
+            let p = files::fsrules::problem_of(e).expect("checked");
+            json_error_code(StatusCode::BAD_REQUEST, p.code(), p.to_string())
         }
         // A name the drive itself refuses (too long, or characters its
         // format can't hold) is the name's fault, not the drive's.

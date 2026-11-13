@@ -339,6 +339,28 @@ get("/api/v1/drives/:id/files/content", ({ world, user, params, query }) => {
   return raw(data, type, 200, query.download === "1" ? { "Content-Disposition": `attachment; filename="${base(rel)}"` } : {});
 });
 
+// ── Names the drive's format can't hold (files/fsrules.rs) ──────────────────
+/** exFAT and FAT drives refuse these characters; ext4 takes every one. */
+const FAT_LIKE = /^(exfat|vfat|fat|fat32|msdos|fuseblk)$/i;
+const RESERVED = /[:*?"<>|\\]/;
+const restricted = (world, driveId) => FAT_LIKE.test(driveRow(world, driveId)?.fs_type || "");
+/** NameProblem::code and message, as lunad's map_files_err sends them. */
+function nameProblem(world, driveId, name) {
+  if (!restricted(world, driveId)) return null;
+  const bad = RESERVED.exec(name);
+  if (bad) return fail(400, `Names on this drive can't contain "${bad[0]}". Remove it from "${name}" and try again.`, "bad_name");
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(name)) return fail(400, `Names on this drive can't contain hidden control characters. Rename "${name}" and try again.`, "bad_name");
+  if (/[. ]$/.test(name)) return fail(400, `Names on this drive can't end with a dot or a space. Remove it from "${name}" and try again.`, "bad_name");
+  return null;
+}
+/** A node that differs from `path` only in capitals, on a drive that ignores them. */
+function caseTwin(world, driveId, fs, path) {
+  if (!restricted(world, driveId)) return null;
+  const low = path.toLowerCase();
+  return Object.keys(fs.nodes).find((k) => k !== path && k.toLowerCase() === low) || null;
+}
+
 // ── Changes: create, mkdir, rename, delete ──────────────────────────────────
 function newItem(kind) {
   return ({ world, user, params, body }) => {
@@ -351,10 +373,12 @@ function newItem(kind) {
     needDrive(world, driveId);
     needWritable(world, driveId);
     const name = base(path);
+    const refused = nameProblem(world, driveId, name);
+    if (refused) throw refused;
     if (ILLEGAL.test(name) || name === TRASH) throw badPath();
     const fs = fsOf(world, driveId);
     if (folder && fs.nodes[folder]?.kind !== "dir") throw fail(404, "Luna can't find the parent folder. Open it and try again.");
-    if (fs.nodes[path]) throw fail(409, kind === "dir" ? "A folder with this name is already here. Choose another name." : "A file with this name is already here. Choose another name.");
+    if (fs.nodes[path] || caseTwin(world, driveId, fs, path)) throw fail(409, kind === "dir" ? "A folder with this name is already here. Choose another name." : "A file with this name is already here. Choose another name.");
     fs.nodes[path] = { kind, ...(kind === "file" ? { size: 0, text: "" } : {}), modified: nowS(), ...(kind === "dir" && body.private ? { private: true, owner: user.id } : {}) };
     if (fs.nodes[folder]) fs.nodes[folder].modified = nowS();
     return { ok: true, path };
@@ -368,6 +392,8 @@ post("/api/v1/drives/:id/files/rename", ({ world, user, params, body }) => {
   const path = requestPath(body.path);
   checkAccess(world, user, driveId, path, CAP_EDIT);
   needDrive(world, driveId);
+  const refused = nameProblem(world, driveId, String(body.new_name ?? "").trim());
+  if (refused) throw refused;
   const newName = safeName(body.new_name);
   if (ILLEGAL.test(newName)) throw badPath();
   needWritable(world, driveId);
@@ -376,7 +402,9 @@ post("/api/v1/drives/:id/files/rename", ({ world, user, params, body }) => {
   if (!fs.nodes[path]) throw notFound();
   const to = join(parentOf(path), newName);
   if (to === path) return { ok: true };
-  if (fs.nodes[to]) throw fail(409, "A file with this name is already here. Choose another name.");
+  // A capitals-only rename is the same entry, so it is allowed; any other case twin is taken.
+  const twin = caseTwin(world, driveId, fs, to);
+  if (fs.nodes[to] || (twin && twin !== path)) throw fail(409, "A file with this name is already here. Choose another name.");
   for (const k of descendants(fs, path)) {
     fs.nodes[k === path ? to : to + k.slice(path.length)] = fs.nodes[k];
     delete fs.nodes[k];
@@ -477,6 +505,8 @@ post("/api/v1/drives/:id/files/upload", async ({ world, user, params, query, bod
   checkAccess(world, user, driveId, folder, CAP_UPLOAD);
   const file = body.file;
   if (!file || typeof file === "string") throw fail(400, "Choose a file to upload first.");
+  const refused = nameProblem(world, driveId, String(file.name || "file").trim());
+  if (refused) throw refused;
   const name = (() => { try { return safeName(file.name || "file"); } catch { throw fail(400, SAVE_FAIL); } })();
   if (ILLEGAL.test(name)) throw fail(400, SAVE_FAIL);
   needDrive(world, driveId);
@@ -521,6 +551,8 @@ post("/api/v1/uploads", ({ world, user, body }) => {
   if (!hasCap(world, user, driveId, folder, CAP_UPLOAD)) throw fail(403, NO_SAVE);
   if (Number(body.size) > MAX_FILE_BYTES) throw fail(400, "Luna can't accept files larger than 1 TB.");
   needDrive(world, driveId);
+  const refused = nameProblem(world, driveId, String(body.name ?? "").trim());
+  if (refused) throw refused;
   let name;
   try { name = safeName(body.name); } catch { throw fail(500, "Luna couldn't finish this upload. Check the drive and try again."); }
   // Look before taking the bytes: a taken name needs a decision, and a drive with too little room says so now.

@@ -407,6 +407,42 @@ async fn async_main() -> anyhow::Result<()> {
         }
     }));
 
+    // exFAT and FAT drives have no journal: write out what the kernel holds a
+    // few seconds after a change instead of leaving it for the kernel's own
+    // half-minute timer, so a power cut loses as little as possible.
+    let flush_state = state.clone();
+    bg_tasks.push(tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(lunad::drives::flusher::TICK);
+        let mut planner = lunad::drives::flusher::Planner::default();
+        loop {
+            ticker.tick().await;
+            let drives = flush_state
+                .db
+                .lock()
+                .ok()
+                .and_then(|conn| lunad::db::list_drives(&conn).ok());
+            let Some(drives) = drives else { continue };
+            let mut live = Vec::new();
+            for d in drives {
+                if d.mount_point.is_empty() || (d.state != "as_is" && d.state != "readonly") {
+                    continue;
+                }
+                let mount = std::path::PathBuf::from(&d.mount_point);
+                if !lunad::files::fsrules::rules_at(&mount).is_restricted() {
+                    continue;
+                }
+                live.push(d.id.clone());
+                let generation = lunad::drives::ram_cache::drive_write_gen(&d.id);
+                if planner.due(&d.id, generation, std::time::Instant::now()) {
+                    let _ =
+                        tokio::task::spawn_blocking(move || lunad::drives::sync_filesystem(&mount))
+                            .await;
+                }
+            }
+            planner.retain(&live);
+        }
+    }));
+
     // luna-boot-ok confirms the boot after lunad is up, so look for it often
     // until a freshly installed OS image has settled.
     let updates_settle = state.updates.clone();

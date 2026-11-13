@@ -305,6 +305,12 @@ fn map_job_err(err: JobError) -> (StatusCode, Json<Value>) {
             json_error(StatusCode::BAD_REQUEST, "Luna can't use that path.")
         }
         JobError::Files(crate::files::FilesError::Io(ref e))
+            if crate::files::fsrules::problem_of(e).is_some() =>
+        {
+            let p = crate::files::fsrules::problem_of(e).expect("checked");
+            json_error_code(StatusCode::BAD_REQUEST, p.code(), p.to_string())
+        }
+        JobError::Files(crate::files::FilesError::Io(ref e))
             if e.kind() == std::io::ErrorKind::InvalidInput =>
         {
             json_error(StatusCode::BAD_REQUEST, "Luna can't use that path.")
