@@ -98,7 +98,14 @@ export default [
     title: "Refreshed on the account step",
     url: "/setup",
     seed: fresh({ setup: { current_step: "account", step_data: { network_connected: true, preflight_passed: true } } }),
-    check: ["Resumes at the account step, not Welcome", "Back still goes to the system check"],
+    check: [
+      "Resumes at the account step, not Welcome",
+      // NOTE: the account step has no way back to the system check — its Back
+      // arrow only walks the four sub-steps and stops at the first one. The
+      // one-way flow is deliberate (preflight already passed), so the old
+      // "Back still goes to the system check" was replaced.
+      "Back walks back through the account sub-steps and keeps what you typed",
+    ],
   },
   {
     id: "setup/refresh-mid-name",

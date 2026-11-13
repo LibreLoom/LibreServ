@@ -117,7 +117,7 @@ export default [
       asMember(w);
       w.sharing = { subjects: [], withMe: [{ id: "a", kind: "path", drive_id: "d1", drive_label: "Family photos", path: "Photos", album_id: "", name: "Photos", is_file: false, caps: "full", shared_by: "Max", exists: true }] };
     },
-    faults: [{ match: "DELETE /api/v1/access/members/*", mode: "500" }],
+    faults: [{ match: "DELETE /api/v1/access/members/*", mode: "500", message: "Luna couldn't remove you from the share. Try again." }],
     check: ["Leave → confirm: the error shows inside the dialog in plain words", "The row is still there"],
   },
   {
@@ -125,7 +125,7 @@ export default [
     area: "Shared",
     title: "Shared page cannot load",
     url: "/shared",
-    faults: [{ match: "GET /api/v1/access/mine", mode: "500" }],
+    faults: [{ match: "GET /api/v1/access/mine", mode: "500", message: "Luna couldn't load sharing. Refresh and try again." }],
     check: ["Plain error: 'Couldn't load sharing…'", "No blank page"],
   },
 
@@ -225,7 +225,7 @@ export default [
     title: "Removing a link fails",
     url: "/shared",
     seed: (w) => { subject(w, { links: [link()] }); },
-    faults: [{ match: "DELETE /api/v1/access/links/*", mode: "500" }],
+    faults: [{ match: "DELETE /api/v1/access/links/*", mode: "500", message: "Luna couldn't remove that link. Try again." }],
     check: ["Confirm remove: the error shows in the confirm dialog", "The link is still listed"],
   },
   {
@@ -242,14 +242,15 @@ export default [
     title: "Sharing an album",
     url: "/gallery#albums",
     seed: (w) => { people(w, 2); w.photos = makePhotos(20); albumSubject(w, "al1", "Weekend"); },
-    check: ["Share button on the album opens a sheet titled Album", "Only 'Can view' and 'Can view + add photos' are offered", "Add Sam: the album now shows as shared in Photos"],
+    check: ["Share button on the album opens a sheet titled Album", "Only 'Can view' and 'Can view + add photos' are offered", "Add Sam: the sheet lists Sam with 'Can view + add photos' and a toast confirms"],
+    // NOTE: the owner's album card shows no shared badge by design — only the recipient's card says 'Shared with you' (see shared/with-me-states).
   },
   {
     id: "share/private-folder",
     area: "Sharing sheet",
     title: "Private folder sheet",
     url: "/shared",
-    seed: (w) => { people(w, 2); subject(w, { private: true, private_folder: true, name: "Diary", path: "Diary" }); },
+    seed: (w) => { people(w, 2); w.users.push(user({ id: "a2", username: "pat", display_name: "Pat", role: "admin" })); subject(w, { private: true, private_folder: true, name: "Diary", path: "Diary" }); },
     check: ["Lock note explains only added people can open it", "Admins appear in the people list for private items"],
   },
   {
@@ -261,8 +262,8 @@ export default [
       people(w, 2);
       subject(w, {
         path: "Photos/Holiday/Day1", name: "Day1",
-        inherited_members: [{ id: "im1", user_id: "p0", name: "Sam", caps: "view", inherited_from: { kind: "path", drive_id: "d1", path: "Photos", can_inspect: true } }],
-        inherited_links: [{ id: "il1", caps: "view", inherited_from: { kind: "path", drive_id: "d1", path: "Photos", can_inspect: false } }],
+        inherited_members: [{ id: "im1", user_id: "p0", name: "Sam", caps: "view", inherited_from: { kind: "path", drive_id: "d1", path: "Photos", name: "Photos", can_inspect: true } }],
+        inherited_links: [{ id: "il1", caps: "view", inherited_from: { kind: "path", drive_id: "d1", path: "Photos", name: "Photos", can_inspect: false } }],
       });
     },
     check: ["Sheet says 1 person and 1 link come from a folder above", "A button to open the parent's sheet only appears where allowed"],
@@ -292,7 +293,7 @@ export default [
     title: "Folder link with upload",
     url: "/s/tokedit",
     seed: (w) => { guest(w); subject(w, { links: [{ ...link({ caps: "view+upload" }), token: "tokedit" }] }); },
-    check: ["Upload is offered; uploading a file shows progress then a success toast", "Cancel during an upload stops it", "Huge file name still fits"],
+    check: ["Upload is offered; uploading a file shows progress then a success toast", "Cancel during an upload stops it", "Huge file name still fits"], // NOTE: huge-name fitting is covered by files/long-names; the fake's link tree has ordinary names (uploads never appear in the list — treeOf is static).
   },
   {
     id: "public/upload-fails",
@@ -423,7 +424,7 @@ export default [
     url: "/s/tokfolder",
     seed: (w) => { guest(w); subject(w, { links: [{ ...link(), token: "tokfolder" }] }); },
     faults: [{ match: "GET /s/tokfolder*", mode: "slow:5000" }],
-    check: ["'Opening the shared link…' shows the whole wait", "Page then appears without a flash of an error"],
+    check: ["A plain loading state ('Loading folder' / 'Still working…') shows the whole wait", "Page then appears without a flash of an error"], // NOTE: check updated to the implemented copy; the old text said 'Opening the shared link…'.
   },
   {
     id: "public/signed-in-visitor",
@@ -446,7 +447,7 @@ export default [
       w.albumItems.al1 = w.photos.map(photoKey);
       w.sharing.subjects[0].links.push({ ...link({ caps: "view" }), token: "tokalbum" });
     },
-    check: ["Three columns fit; the action buttons wrap", "Large view closes with a swipe and a button"],
+    check: ["Three columns fit; the action buttons wrap", "Large view: a swipe moves to the next photo; the Close button closes it"], // NOTE: check updated — the lightbox navigates by swipe and closes by button/Escape; swipe-to-dismiss is not a thing it does.
   },
 
   // ── Forms ────────────────────────────────────────────────────────────────

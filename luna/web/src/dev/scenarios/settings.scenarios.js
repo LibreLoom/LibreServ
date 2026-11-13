@@ -243,8 +243,8 @@ export default [
     title: "Luna Connect is off",
     url: "/settings",
     check: [
-      "Cloud backup is in the sidebar, with the recovery phrase card and the line saying it needs Luna Connect",
-      "Luna Connect is not in the sidebar",
+      "Luna Connect is in the sidebar and cloud backup lives there with it, recovery phrase card included",
+      "The page says Luna Connect is off and shows the recovery phrase card",
       "Settings opens on Appearance",
     ],
   },
@@ -444,7 +444,7 @@ export default [
       w.cloudBackups = [cloudBackup({ moving: { percent: 40.9, paused_full: false } })];
     },
     check: [
-      "The card says 'Moving to your new phrase · 40%' under the phrase row",
+      "The card says 'Updating your cloud backups to the new phrase · 40%' under the phrase row",
       "The cloud backup row in All backups says the same",
       "Nothing shows a problem: no warning pill, no toast, no Needs you entry",
     ],
@@ -471,7 +471,7 @@ export default [
     area: "Settings: Luna Connect",
     title: "Remote access off",
     url: "/settings#luna_connect",
-    check: ["Explains what turning it on does", "Entering a device token ('bad' is refused) turns it on"],
+    check: ["Shows Luna Connect as Off, with what it is for (a public address, cloud backup) and an Open Luna Connect link", "The device token lives in Settings → About → Advanced; entering a bad one there is refused"],
   },
   {
     id: "settings/remote-on",
@@ -569,7 +569,7 @@ export default [
     title: "Luna Connect for an Admin",
     url: "/settings#luna_connect",
     seed: (w) => { w.connect = { enabled: true, connect_active: true, card_on_file: true }; w.connectActive = true; },
-    check: ["Luna Connect category shows for an Admin, with the remote access card", "Cloud backup is also in the sidebar, above Luna Connect"],
+    check: ["Luna Connect category shows for an Admin, with the remote access card and cloud backup in the same entry"],
   },
   // ── Whole-page ────────────────────────────────────────────────────────────
   {
@@ -578,7 +578,7 @@ export default [
     title: "Member sees fewer categories",
     url: "/settings",
     seed: asMember,
-    check: ["No Users or About, and no Cloud backup or Luna Connect while Connect is off", "/settings#users falls back to an allowed page"],
+    check: ["No Users or About; the Luna Connect entry stays visible (Off) with cloud backup in it, like for an Admin", "/settings#users falls back to an allowed page"],
   },
   {
     id: "settings/search",

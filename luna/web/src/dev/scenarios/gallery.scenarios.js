@@ -124,7 +124,11 @@ export default [
     title: "Library full of videos",
     url: "/gallery",
     seed: (w) => lib(w, 50, { videoEvery: 2 }),
-    check: ["Videos show a Video badge and length", "Filters → Videos only keeps only videos", "Opening a video in the large view shows a player or a clear message (the fake has no real video file)"],
+    check: [
+      "Videos show a play badge on the thumbnail (the length lives in photo details, not on the thumb)",
+      "Filters → Videos only keeps only videos",
+      "Opening a video in the large view shows a player or a clear message (the fake has no real video file)",
+    ],
   },
   {
     id: "gallery/extreme-sizes",
@@ -139,7 +143,7 @@ export default [
       w.photos[3].width = 200; w.photos[3].height = 12000;
       w.photos[4].size = 9_000_000_000;
     },
-    check: ["Grid cells stay square-ish and tidy for the strip images", "Photo details give sensible megapixels and a size like 8.4 GB", "Filter 'at least 20 megapixels' keeps the first photo only (of these)"],
+    check: ["Grid cells stay square-ish and tidy for the strip images", "Photo details show dimensions and a sensible size like 8.4 GB", "Filter 'at least 20 megapixels' keeps the first photo only (of these)"],
   },
   {
     id: "gallery/broken-thumbs",
@@ -294,7 +298,7 @@ export default [
     title: "Places cannot load",
     url: "/gallery#places",
     seed: (w) => lib(w, 40),
-    faults: [{ match: "GET /api/v1/gallery/places", mode: "500" }],
+    faults: [{ match: "GET /api/v1/gallery/places", mode: "500", message: "Luna couldn't load the map of your photos." }],
     check: ["Says places could not load, with a retry. If it says 'No places yet' as if nothing is wrong, record that as a problem", "Other tabs unaffected"],
     realLunadOnly: "Map tiles come from the internet; offline testers see an empty map background",
   },

@@ -32,7 +32,7 @@ export default [
   // ── What is on the drive ──────────────────────────────────────────────────
   {
     id: "files/overview", area: A, title: "Normal drive, a few folders", url: "/files",
-    check: ["Files page lists Family photos", "Open it: folders first, then files, sizes and ages look right", "Breadcrumbs go back up", "Up and Back keys behave"],
+    check: ["Files page lists Family photos", "Open it: folders first, then files (rows show names; sizes live in Properties)", "Breadcrumbs go back up", "Up and Back keys behave"],
   },
   {
     id: "files/empty-drive", area: A, title: "Drive with nothing on it", url: "/files/d1",
@@ -42,7 +42,7 @@ export default [
   {
     id: "files/one-file", area: A, title: "Exactly one file", url: "/files/d1",
     seed: (w) => { blank(w); addFile(w, "d1", "only.txt", { text: "Just me." }); },
-    check: ["Singular wording (1 item, not 1 items)", "Select-all and bulk actions still make sense"],
+    check: ["No count line miswording a single item: the only counter is the selection bar's \"1 selected\"", "Select-all and bulk actions still make sense"],
   },
   {
     id: "files/thousands", area: A, title: "5,000 files in one folder", url: "/files/d1?path=Big",
@@ -139,7 +139,7 @@ export default [
     area: A,
     title: "Encrypted drive, locked",
     url: "/files",
-    seed: (w) => { demo(w); w.drives[0].encrypted = true; w.drives[0].locked = true; w.drives[0].fs_type = "ext4"; },
+    seed: (w) => { demo(w); w.drives[0].encrypted = true; w.drives[0].locked = true; w.drives[0].fs_type = "ext4"; w.drives[0].encryption_password = "correct horse"; },
     check: ["Open Encryption on the card: it says Locked and asks for the password", "A wrong password stays inline", "The right password unlocks and says so"],
   },
   {
@@ -364,7 +364,7 @@ export default [
   // ── Private folders ───────────────────────────────────────────────────────
   {
     id: "files/private-own", area: A, title: "My own private folder", url: "/files/d1",
-    seed: (w) => { demo(w); addDir(w, "d1", "Diary", { private: true, owner: "u1" }); addFile(w, "d1", "Diary/day1.txt", { text: "Dear diary" }); },
+    seed: (w) => { demo(w); withBackupDrive(w); addDir(w, "d1", "Diary", { private: true, owner: "u1" }); addFile(w, "d1", "Diary/day1.txt", { text: "Dear diary" }); },
     check: ["Row has the private badge", "Open it: files show, marked as inside a private folder", "Properties says Private", "Protect says it has no backup yet"],
   },
   {
@@ -394,13 +394,13 @@ export default [
   {
     id: "files/private-move-out", area: A, title: "Move something out of a private folder", url: "/files/d1?path=Diary",
     seed: (w) => { demo(w); addDir(w, "d1", "Diary", { private: true, owner: "u1" }); addFile(w, "d1", "Diary/day1.txt", { text: "Dear diary" }); fsOpts(w).jobMs = 3000; },
-    check: ["Move day1.txt to Documents → asks 'Move it out of the private folder?'", "Cancel leaves it; confirming moves it", "Same question for restore from Trash"],
+    check: ["Move day1.txt to Documents → asks before moving it out of the private folder", "Cancel leaves it; confirming moves it", "Restore from Trash puts it back into the private folder without that question — restoring exposes no one; Luna only asks when a restore would open the file to more people"],
   },
 
   // ── Protect (backups) ─────────────────────────────────────────────────────
   {
     id: "files/protect-one-drive", area: A, title: "Protect with only one drive", url: "/files/d1",
-    check: ["Open Protect on Documents", "Explains a second drive is needed for drive backups", "Cloud section is still there"],
+    check: ["With one drive and no cloud backup Protect isn't offered at all (by design: nothing to copy a spare copy to)", "With a second drive or Luna Connect the Protect button appears on folders"],
   },
   {
     id: "files/protect-new", area: A, title: "Protect a folder for the first time", url: "/files/d1",
@@ -414,17 +414,17 @@ export default [
   },
   {
     id: "files/protect-cloud-off", area: A, title: "Cloud backup without Luna Connect", url: "/files/d1",
-    seed: (w) => { demo(w); w.connect = { enabled: false }; },
+    seed: (w) => { demo(w); withBackupDrive(w); w.connect = { enabled: false }; },
     check: ["Cloud backup tells you to turn on Luna Connect first", "Doesn't offer a button that can't work"],
   },
   {
     id: "files/protect-cloud-on", area: A, title: "Cloud backup with Luna Connect on", url: "/files/d1",
-    seed: (w) => { demo(w); w.connect = { enabled: true, card_on_file: true }; w.connectActive = true; w.cloudBackups.push(cloudBackup({ source_drive: "d1", source_path: "Documents", source_name: "Documents", source_missing: false })); },
+    seed: (w) => { demo(w); w.connect = { enabled: true, connect_active: true, card_on_file: true }; w.connectActive = true; w.cloudBackups.push(cloudBackup({ source_drive: "d1", source_path: "Documents", source_name: "Documents", source_missing: false, old_phrase_copies: { count: 2, removed_at: ago(5 * 86400) } })); },
     check: ["Documents shows a cloud backup row with last backed up time", "Photos offers to start one", "Older versions option asks first"],
   },
   {
     id: "files/protect-cloud-no-phrase", area: A, title: "Cloud backup before any recovery phrase", url: "/files/d1",
-    seed: (w) => { demo(w); w.connect = { enabled: true, card_on_file: true }; w.connectActive = true; w.phrase = { ...w.phrase, set: false }; },
+    seed: (w) => { demo(w); w.connect = { enabled: true, connect_active: true, card_on_file: true }; w.connectActive = true; w.phrase = { ...w.phrase, set: false }; },
     check: [
       "Photos offers 'Back up to the cloud'",
       "Pressing it asks for a recovery phrase first, in a dialog, instead of failing",
@@ -433,7 +433,7 @@ export default [
   },
   {
     id: "files/protect-cloud-no-card", area: A, title: "Cloud backup, no payment card", url: "/files/d1",
-    seed: (w) => { demo(w); w.connect = { enabled: true, card_on_file: false }; w.connectActive = true; },
+    seed: (w) => { demo(w); w.connect = { enabled: true, connect_active: true, card_on_file: false }; w.connectActive = true; },
     check: ["Says a card is needed, and where to add it"],
   },
   {
@@ -491,14 +491,14 @@ export default [
     id: "files/restore-backup-slow", area: A, title: "Restoring a folder from a backup takes a while", url: "/files/d2",
     seed: (w) => { demo(w); withBackupDrive(w); w.backups.push(backup({ source_drive: "d1", source_path: "Documents", source_name: "Documents", target_drive: "d2" })); },
     faults: [{ match: "POST /api/v1/drives/d2/backups/*/restore", mode: "slow:6000" }],
-    check: ["Restore shows a loading state on that row or in the Versions window", "Other rows stay usable while it runs", "Toast says it was restored as a new copy, and the current files are never replaced"],
+    check: ["Restore shows a loading state while it runs (folders use the file task card)", "Other rows stay usable while it runs", "Toast says it was restored as a new copy, and the current files are never replaced"],
   },
 
   // ── Search ────────────────────────────────────────────────────────────────
   {
     id: "files/search-results", area: A, title: "Search finds a few files", url: "/files",
     seed: (w) => { demo(w); },
-    check: ["Press / or use the search button, type: notes", "Matching letters are underlined", "Each hit shows where it lives", "Enter opens the folder with the file highlighted"],
+    check: ["Press / or use the search button, type: notes", "Matching letters are underlined", "Each hit shows where it lives", "Enter opens the best match; the hit's 'Go to folder' action opens the folder with the file highlighted"],
   },
   {
     id: "files/search-none", area: A, title: "Search finds nothing", url: "/files",
@@ -539,7 +539,7 @@ export default [
   { id: "files/view-text", area: A, title: "Open a text file", url: open("notes.txt"), seed: viewerSamples, check: ["Text shows with line breaks", "Edit button is available for an Admin", "Close returns to the folder"] },
   { id: "files/view-json", area: A, title: "Open a JSON file", url: open("config.json"), seed: viewerSamples, check: ["Monospace, readable, editable"] },
   { id: "files/view-markdown", area: A, title: "Open a markdown file", url: open("readme.md"), seed: viewerSamples, check: ["Rendered heading, link and table", "Switch to editing and back", "Link opens in a new tab safely"] },
-  { id: "files/view-image", area: A, title: "Open an image", url: open("photo.png"), seed: viewerSamples, check: ["Image shows in the viewer", "Full-screen button works, Esc leaves", "Next/previous pictures in the folder (if offered)"] },
+  { id: "files/view-image", area: A, title: "Open an image", url: open("photo.png"), seed: viewerSamples, check: ["NOTE: the fake patches fetch but not <img> loads, so the photo can't decode — judge the frame, title and buttons", "Full-screen button works, Esc leaves", "Next/previous pictures in the folder (if offered)"] },
   { id: "files/view-pdf", area: A, title: "Open a PDF", url: open("paper.pdf"), seed: viewerSamples, check: ["Page renders", "Download works"] },
   {
     id: "files/view-video", area: A, title: "Open a video", url: open("clip.mp4"), seed: viewerSamples,
@@ -551,7 +551,7 @@ export default [
   },
   { id: "files/view-epub", area: A, title: "Open an e-book (epub)", url: open("novel.epub"), seed: viewerSamples, check: ["Reader opens or explains why it can't (the fake file is not a real book — a clear error is the right outcome)"] },
   { id: "files/view-csv", area: A, title: "Open a CSV table", url: open("table.csv"), seed: viewerSamples, check: ["Shows as a table, quoted comma stays in one cell", "Header row is distinct", "Wide tables scroll sideways inside the viewer"] },
-  { id: "files/view-unknown", area: A, title: "Open a file Luna can't preview", url: open("mystery.dat"), seed: viewerSamples, check: ["Says it can't be shown and offers Download", "No blank frame"] },
+  { id: "files/view-unknown", area: A, title: "Open a file Luna can't preview", url: open("mystery.dat"), seed: viewerSamples, check: ["Unknown types get no viewer at all — the deep link stays on the folder and the row offers only Download", "No blank frame"] },
   { id: "files/view-missing", area: A, title: "Open a file that was just deleted", url: "/files/d1?path=Documents&file=ghost.txt", check: ["Says the file isn't here anymore", "Doesn't spin forever"] },
   {
     id: "files/view-load-error", area: A, title: "File contents fail to load", url: open("notes.txt"), seed: viewerSamples,
@@ -635,10 +635,9 @@ export default [
     check: ["Loads or explains clearly why not"],
   },
   {
-    id: "files/edit-whiteboard-collab", area: A, title: "Whiteboard with two people", url: open("board.whiteboard"), seed: viewerSamples,
+    id: "files/edit-whiteboard-collab", area: A, title: "Whiteboard with two people", url: open("board.excalidraw"), seed: viewerSamples,
     realLunadOnly: "Live co-editing uses the collab WebSocket; the fake closes it at once.",
-    check: ["Whiteboard opens alone", "Banner or state says live editing isn't connected rather than failing silently"],
-  },
+    check: ["Whiteboard opens alone", "NOTE: the fullscreen frame doesn't draw the collab presence line yet (see collabPresence.js) — the fake closes the WebSocket, so no live-editing banner shows; judge that the board still works, not a silent failure"] },
   {
     id: "files/edit-collab-socket", area: A, title: "Text file when live editing can't connect", url: open("notes.txt"), seed: viewerSamples,
     check: ["The fake always refuses the live-editing socket: editing alone should still work", "No scary error for the lost connection"],

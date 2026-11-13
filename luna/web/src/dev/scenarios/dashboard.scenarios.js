@@ -247,7 +247,9 @@ export default [
     id: "dashboard/recents-none",
     area: "Dashboard",
     title: "Nothing opened recently",
-    check: ["Recent files card has a friendly empty state"],
+    // RecentsCard renders nothing when there is nothing to resume — an empty
+    // card would only repeat what the rest of the calm dashboard already says.
+    check: ["No Recents card: with nothing opened lately the section stays out of the way"],
   },
   {
     id: "dashboard/recents-many",
@@ -267,6 +269,14 @@ export default [
     seed: (w) => {
       w.users.push(user({ id: "u2", username: "sam", display_name: "Sam" }));
       w.albums = Array.from({ length: 9 }, (_, i) => ({ id: `a${i}`, home_drive_id: "d1", name: `Album ${i + 1}`, owner_user_id: i % 2 ? "u1" : "u2", fakeCount: i * 7, shared_with: ["u1", "u2"], created_at: at(i * DAY) }));
+      // The shared-albums card is a Member feature and reads /me/access, so run as
+      // Sam and seed one album share subject per album.
+      w.sessionUserId = "u2";
+      (w.sharing ||= { subjects: [], withMe: [] }).subjects.push(...w.albums.map((a, i) => ({
+        kind: "album", drive_id: "d1", drive_label: "Family photos", path: "", album_id: a.id,
+        name: a.name, is_file: false, owner_id: a.owner_user_id, my_caps: "view", private: false,
+        members: [{ id: `m${i}`, user_id: "u2", caps: "view" }], links: [],
+      })));
     },
     check: ["Albums card handles nine albums", "Open one to see it work"],
   },
