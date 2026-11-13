@@ -325,19 +325,43 @@ func (h AccountHandler) CancelBilling(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
+	// The card only goes with the cloud copies: storage nobody pays for is never kept.
+	// Bill this month so far first, then delete. Stored data or a billable month
+	// means a final invoice; an account that never stored anything just stops.
+	avgBytes, egressBytes := billing.AccountPeriodUsage(h.DB, acct.ID)
+	stored := storageUsed(h.DB, acct.ID)
+	owesThisMonth := billing.MonthMills(avgBytes, egressBytes) > 0
+	var hasCard int
+	var status, itemID string
+	_ = h.DB.QueryRow(`SELECT has_card, billing_status, COALESCE(stripe_subscription_item_id, '') FROM accounts WHERE id = ?`, acct.ID).Scan(&hasCard, &status, &itemID)
+	// Detach the subscription first: Stripe's webhooks for this cancel (subscription
+	// deleted, the final invoice paid or failed) then match no account, so they can't
+	// start the 30-day countdown or its mails for copies we delete now.
+	if _, err := h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = 'canceled', stripe_subscription_id = '', stripe_subscription_item_id = '' WHERE id = ?`, acct.ID); err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not turn off payment. Nothing was charged or deleted. Try again in a few minutes.")
+		return
+	}
 	if acct.StripeSub != "" {
-		if err := billing.CancelSubscription(acct.StripeSub); err != nil {
-			writeBillingErr(w, err, "Could not turn off payment. Try again in a few minutes.")
+		var err error
+		if owesThisMonth || stored > 0 {
+			billing.ReportAccountUsage(h.DB, acct.ID)
+			err = billing.CancelSubscriptionFinal(acct.StripeSub)
+		} else {
+			err = billing.CancelSubscription(acct.StripeSub)
+		}
+		if err != nil {
+			_, _ = h.DB.Exec(`UPDATE accounts SET has_card = ?, billing_status = ?, stripe_subscription_id = ?, stripe_subscription_item_id = ? WHERE id = ?`,
+				hasCard, status, acct.StripeSub, itemID, acct.ID)
+			writeBillingErr(w, err, "Could not turn off payment. Nothing was charged or deleted. Try again in a few minutes.")
 			return
 		}
 	}
-	deadline := scheduleBackupPurge(h.DB, acct.ID)
-	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = 'canceled', stripe_subscription_id = '', stripe_subscription_item_id = '' WHERE id = ?`, acct.ID)
-	markAndSendPurgeWarning(h.Deps, acct.ID, acct.Email, 0, deadline)
+	if stored > 0 {
+		deleteCloudCopiesNow(h.Deps, acct.ID, acct.Email)
+	}
 	JSON(w, http.StatusOK, map[string]any{
-		"ok":                 true,
-		"backup_purge_after": deadline,
-		"message":            "Payment is off. We keep your cloud copies for 30 days. Download anything you need before then.",
+		"ok":      true,
+		"message": "Payment is off and your cloud copies are being deleted.",
 	})
 }
 

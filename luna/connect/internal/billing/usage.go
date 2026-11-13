@@ -283,6 +283,30 @@ func ReportUsage(db *database.DB) {
 		return
 	}
 
+	reportUsageFor(db, "", storageMeter)
+}
+
+// ReportAccountUsage sends one account's month-so-far usage to Stripe right
+// away, so a final invoice (CancelSubscriptionFinal) bills up to this moment
+// instead of up to the last hourly report.
+func ReportAccountUsage(db *database.DB, accountID string) {
+	if db == nil || accountID == "" {
+		return
+	}
+	providers.RefreshStripe()
+	if !config.C.Stripe.Ready() {
+		return
+	}
+	storageMeter := strings.TrimSpace(config.C.Stripe.MeterEventName)
+	if storageMeter == "" {
+		slog.Warn("stripe meter events skipped: meter_event_name not set")
+		return
+	}
+	reportUsageFor(db, accountID, storageMeter)
+}
+
+// reportUsageFor reports every billed account, or only accountID when it is set.
+func reportUsageFor(db *database.DB, accountID, storageMeter string) {
 	period := PeriodKeyUTC(time.Now())
 	usages, err := LoadPeriodUsage(db, period)
 	if err != nil {
@@ -293,6 +317,9 @@ func ReportUsage(db *database.DB) {
 	egressMeter := strings.TrimSpace(config.C.Stripe.EgressMeterEventName)
 	now := time.Now().Unix()
 	for _, u := range usages {
+		if accountID != "" && u.AccountID != accountID {
+			continue
+		}
 		if !strings.HasPrefix(u.CustomerID, "cus_") {
 			slog.Warn("skip meter event: not a stripe customer id")
 			continue

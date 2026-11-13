@@ -111,6 +111,22 @@ describe("BackupsPage", () => {
     expect(screen.getByRole("button", { name: /Keep payment on/i })).toBeTruthy();
   });
 
+  it("says turning payment off charges the month and deletes stored copies", () => {
+    renderTab({ me: { has_card: true, estimated_month: 4.2, stored_bytes: 5_000_000_000 } });
+    fireEvent.click(screen.getByRole("button", { name: /Turn off payment/i }));
+    expect(screen.getByText(/delete your cloud copies\?/i)).toBeTruthy();
+    expect(screen.getByText(/about \$4\.20/)).toBeTruthy();
+    expect(screen.getByText(/can't be undone/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Charge and delete copies" })).toBeTruthy();
+  });
+
+  it("charges and deletes nothing when nothing is stored", () => {
+    renderTab({ me: { has_card: true, estimated_month: 0, stored_bytes: 0 } });
+    fireEvent.click(screen.getByRole("button", { name: /Turn off payment/i }));
+    expect(screen.getByText("Nothing is stored, so nothing is charged or deleted.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Charge and delete copies" })).toBeNull();
+  });
+
   it("shows remaining days and add-card when a purge clock is running", () => {
     const later = Math.floor(Date.now() / 1000) + 10 * 86400;
     renderTab({

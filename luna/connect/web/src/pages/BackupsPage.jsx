@@ -69,7 +69,10 @@ function EmptyStorageState({ paired }) {
   );
 }
 
-function CancelPaymentSection({ confirmCancel, setConfirmCancel, busy, onCancel }) {
+function CancelPaymentSection({ confirmCancel, setConfirmCancel, busy, onCancel, storedBytes, estimatedMonth }) {
+  // The card only goes with the cloud copies, so turning payment off deletes them.
+  const stored = Number(storedBytes || 0) > 0;
+  const owed = Number(estimatedMonth || 0);
   if (!confirmCancel) {
     return (
       <section className="space-y-2" aria-labelledby="backup-actions-heading">
@@ -88,14 +91,29 @@ function CancelPaymentSection({ confirmCancel, setConfirmCancel, busy, onCancel 
       aria-labelledby="backup-cancel-heading"
     >
       <h4 id="backup-cancel-heading" className="font-mono text-sm">
-        Turn off payment?
+        {stored ? "Turn off payment and delete your cloud copies?" : "Turn off payment?"}
       </h4>
-      <p className="text-sm leading-relaxed">
-        Payment stops today. We keep your cloud copies for 30 days. Download anything you need before then. After 30 days we delete them.
-      </p>
+      {stored ? (
+        <>
+          <p className="text-sm leading-relaxed">
+            Your cloud copies can only stay while a card pays for them. Download anything you need first.
+          </p>
+          <ul className="text-sm leading-relaxed list-disc pl-5 space-y-1">
+            <li>We charge this month so far to your card now: about ${owed.toFixed(2)}.</li>
+            <li>We delete every cloud copy right away. This can't be undone.</li>
+            <li>Your files on Luna stay as they are.</li>
+          </ul>
+        </>
+      ) : (
+        <p className="text-sm leading-relaxed">
+          {owed > 0
+            ? `Nothing is stored. We charge this month so far to your card now: about $${owed.toFixed(2)}.`
+            : "Nothing is stored, so nothing is charged or deleted."}
+        </p>
+      )}
       <div className="flex flex-col sm:flex-row gap-2">
         <Button variant="destructive" size="lg" loading={busy} onClick={onCancel}>
-          Turn off payment
+          {stored ? "Charge and delete copies" : "Turn off payment"}
         </Button>
         <Button variant="outline" size="lg" onClick={() => setConfirmCancel(false)}>
           Keep payment on
@@ -320,13 +338,15 @@ export function BackupsTab({ me, lunas, paired, onRefresh, setError, error }) {
       <Card className="animate-fade-in-up" data-testid="backups-purging">
         <CardHeader>
           <div className="flex flex-wrap items-center gap-2">
-            <CardTitle>Payment is off</CardTitle>
-            <Badge variant="warning">Deleting soon</Badge>
+            <CardTitle>{me.billing_status === "canceled" ? "Payment is off" : "Payment didn't go through"}</CardTitle>
+            <Badge variant="warning">{daysLeft === 0 ? "Deleting" : "Deleting soon"}</Badge>
           </div>
         </CardHeader>
         <CardContent className="space-y-5">
           <p className="text-sm leading-relaxed">
-            We still have your cloud copies for {daysLeft === 1 ? "1 more day" : `${daysLeft} more days`}. Download anything you need before they are gone.
+            {daysLeft === 0
+              ? "We're deleting your cloud copies now."
+              : `We still have your cloud copies for ${daysLeft === 1 ? "1 more day" : `${daysLeft} more days`}. Add a card to keep them, or download anything you need before they are gone.`}
           </p>
           <Separator />
           <section className="space-y-3" aria-labelledby="backup-reactivate-heading">
@@ -373,6 +393,8 @@ export function BackupsTab({ me, lunas, paired, onRefresh, setError, error }) {
             setConfirmCancel={setConfirmCancel}
             busy={busy}
             onCancel={cancelPayment}
+            storedBytes={me.stored_bytes}
+            estimatedMonth={me.estimated_month}
           />
           {error && <p className="text-sm text-error">{error}</p>}
         </CardContent>

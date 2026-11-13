@@ -300,6 +300,26 @@ func cancelOrphan(subID string) {
 	}
 }
 
+// CancelSubscriptionFinal ends the subscription now and bills the usage it has
+// not invoiced yet (this month so far) on a final invoice, charged to the card
+// on file. Without InvoiceNow, Stripe drops that usage and the month is free.
+// Report the account's latest usage first (ReportAccountUsage): the invoice
+// bills whatever the meters hold at that moment.
+func CancelSubscriptionFinal(subID string) error {
+	if subID == "" || DevBypass() {
+		return nil
+	}
+	if err := requireLiveStripe(); err != nil {
+		return err
+	}
+	stripe.Key = config.C.Stripe.SecretKey
+	_, err := subscription.Cancel(subID, &stripe.SubscriptionCancelParams{
+		InvoiceNow: stripe.Bool(true),
+		Prorate:    stripe.Bool(false),
+	})
+	return err
+}
+
 func CancelSubscription(subID string) error {
 	if subID == "" || DevBypass() {
 		return nil

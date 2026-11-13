@@ -187,6 +187,36 @@ func purgeUnlinkedLunas(deps Deps, now int64) {
 	}
 }
 
+// deleteCloudCopiesNow deletes an account's cloud copies right after it turned
+// off payment. The purge is recorded as due now (with the 30-day mails marked
+// sent), so ProcessRetention finishes it if this process stops partway; only
+// the "deleted" mail below goes out.
+// runInBackground starts slow work a request should not wait for. Tests swap it
+// for a direct call so they can check the result.
+var runInBackground = func(f func()) { go f() }
+
+func deleteCloudCopiesNow(deps Deps, accountID, email string) {
+	if _, err := deps.DB.Exec(`UPDATE accounts SET backup_purge_after = ?, purge_mail_day = ? WHERE id = ?`,
+		time.Now().Unix(), backupRetentionDays, accountID); err != nil {
+		slog.Error("schedule immediate backup purge", "account", accountID, "err", err)
+	}
+	runInBackground(func() {
+		if err := accounts.PurgeStorage(context.Background(), deps.DB, deps.Store, accountID); err != nil {
+			slog.Error("purge storage after payment off; retention retries it", "account", accountID, "err", err)
+			return
+		}
+		_, _ = deps.DB.Exec(`UPDATE accounts SET backup_purge_after = NULL WHERE id = ?`, accountID)
+		email = strings.TrimSpace(email)
+		if deps.Mail == nil || email == "" {
+			return
+		}
+		if err := deps.Mail.Send(email, "Your cloud copies were deleted",
+			"You turned off payment for cloud backup, so we deleted the cloud copies for this account. Your files on Luna are not affected. Add a card at connect.luna.libreloom.org to start cloud backup again."); err != nil {
+			slog.Warn("payment-off deletion mail failed", "err", err)
+		}
+	})
+}
+
 func purgeAccountBackups(deps Deps, accountID, email string) {
 	if err := accounts.PurgeStorage(context.Background(), deps.DB, deps.Store, accountID); err != nil {
 		slog.Error("purge storage", "account", accountID, "err", err)
