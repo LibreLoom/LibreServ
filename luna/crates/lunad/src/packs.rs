@@ -71,7 +71,10 @@ mod tests {
         assert_eq!(dir_in(&image, &data, "drawio"), image.join("drawio"));
 
         // Neither, and the image root exists: report the image, its real home.
-        assert_eq!(dir_in(&image, &data, "eurooffice"), image.join("eurooffice"));
+        assert_eq!(
+            dir_in(&image, &data, "eurooffice"),
+            image.join("eurooffice")
+        );
         assert!(!dir_in(&image, &data, "eurooffice").is_dir());
 
         // Neither, and there is no image root (a dev run): the data dir.
