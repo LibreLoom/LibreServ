@@ -302,20 +302,38 @@ export default function CloudBackupCategory() {
             </div>
           ) : backups.length === 0 ? (
             <div className="space-y-3">
-              {!cardOnFile && (
-                <p className="text-primary text-sm">
-                  Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>. Cloud backup can start after that.
-                </p>
-              )}
               {!isAdmin && (
                 <p className="text-primary text-sm">
                   An Admin can check whether Luna has backups stored in the cloud.
                 </p>
               )}
-              {isAdmin && restoreStatus.isSuccess && !cloudVersionsExist && (
+              {!cardOnFile && (
                 <p className="text-primary text-sm">
-                  Nothing is backed up to the cloud yet. Open a drive or folder, press the shield (Back up) button, then use Back up to the cloud.
+                  Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>. Cloud backup can start after that.
                 </p>
+              )}
+              {cloudQuery.isError ? (
+                <div className="space-y-3">
+                  <PageNotice variant="error">Luna couldn't load cloud backups.</PageNotice>
+                  <Button
+                    variant="outline"
+                    surface="secondary"
+                    size="sm"
+                    onClick={() => cloudQuery.refetch()}
+                  >
+                    Try again
+                  </Button>
+                </div>
+              ) : cloudQuery.isPending ? (
+                <p className="text-primary text-sm" role="status">Checking cloud backups…</p>
+              ) : (
+                <>
+                  {isAdmin && cloudQuery.isSuccess && restoreStatus.isSuccess && !cloudVersionsExist && (
+                    <p className="text-primary text-sm">
+                      Nothing is backed up to the cloud yet. Open a drive or folder, press the shield (Back up) button, then use Back up to the cloud.
+                    </p>
+                  )}
+                </>
               )}
             </div>
           ) : (

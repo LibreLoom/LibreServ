@@ -241,7 +241,7 @@ describe("AuthProvider endSession", () => {
         <div>
           <span>{user ? `USER ${user.username}` : "NO USER"}</span>
           <span>AT {pathname}</span>
-          <button type="button" onClick={endSession}>END</button>
+          <button type="button" onClick={() => endSession()}>END</button>
         </div>
       );
     }

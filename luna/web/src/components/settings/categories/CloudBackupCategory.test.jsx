@@ -18,6 +18,8 @@ function stubApi({
   connected = true,
   cardOnFile = true,
   backups = [],
+  backupsError = null,
+  onBackupsPending = null,
   restoreStatus = /** @type {{needed: boolean, cloud_snapshots: number, indexed_snapshots: number, signing_public?: string}} */ ({
     needed: false,
     cloud_snapshots: 0,
@@ -45,7 +47,19 @@ function stubApi({
       }
       return json(restoreStatus);
     }
-    if (url === "/api/v1/cloud/backups" && method === "GET") return json(backups);
+    if (url === "/api/v1/cloud/backups" && method === "GET") {
+      if (onBackupsPending) {
+        return new Promise((resolve) => onBackupsPending(() => resolve(json(backups))));
+      }
+      const message = typeof backupsError === "function" ? backupsError() : backupsError;
+      if (message) {
+        return new Response(JSON.stringify({ error: message }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return json(backups);
+    }
     if (/\/run(\?|$)/.test(url) && method === "POST") {
       if (runError) {
         return new Response(JSON.stringify({ error: runError }), {
@@ -267,6 +281,45 @@ describe("CloudBackupCategory", () => {
     renderCard();
     expect(await screen.findByText(/Nothing is backed up to the cloud yet/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Cloud backup" })).toBeInTheDocument();
+  });
+
+  it("waits for the backup list before saying that nothing is backed up", async () => {
+    /** @type {(() => void)|null} */
+    let finishBackups = null;
+    stubApi({
+      connected: true,
+      backups: [],
+      onBackupsPending: (finish) => { finishBackups = finish; },
+    });
+    renderCard();
+
+    expect(await screen.findByRole("heading", { name: "Cloud backup" })).toBeInTheDocument();
+    expect(await screen.findByText("Checking cloud backups…")).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing is backed up to the cloud yet/)).toBeNull();
+
+    await act(async () => finishBackups?.());
+    expect(await screen.findByText(/Nothing is backed up to the cloud yet/)).toBeInTheDocument();
+  });
+
+  it("shows a retry when the backup list fails instead of treating Members as empty", async () => {
+    mockRole = "member";
+    let shouldFail = true;
+    const fetchMock = stubApi({
+      connected: true,
+      backups: [],
+      backupsError: () => (shouldFail ? "Internal database details" : null),
+    });
+    renderCard();
+
+    expect(await screen.findByText("Luna couldn't load cloud backups.")).toBeInTheDocument();
+    expect(screen.queryByText("Internal database details")).toBeNull();
+    expect(screen.queryByText(/Nothing is backed up to the cloud yet/)).toBeNull();
+    expect(screen.getByText("An Admin can check whether Luna has backups stored in the cloud.")).toBeInTheDocument();
+
+    shouldFail = false;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("An Admin can check whether Luna has backups stored in the cloud.")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/v1/cloud/backups")).toHaveLength(2);
   });
 
   it("does not make a whole-cloud empty claim for Members who cannot load restore status", async () => {
