@@ -75,9 +75,15 @@ impl From<ToolError> for FormatError {
     }
 }
 
+/// Anything unplanned (database, file or marker errors) goes to the log; the
+/// person gets one plain sentence, never raw error text.
 impl From<anyhow::Error> for FormatError {
     fn from(e: anyhow::Error) -> Self {
-        FormatError::Other(e.to_string())
+        tracing::warn!(error = %format!("{e:#}"), "drive erase hit an unexpected error");
+        FormatError::Other(
+            "Luna couldn't finish setting up this drive. Unplug it, plug it back in, and try again."
+                .into(),
+        )
     }
 }
 
@@ -415,7 +421,11 @@ fn register_real(
             if crate::drives::mount::is_unresponsive(&e) {
                 FormatError::Unresponsive
             } else {
-                FormatError::Other(format!("Luna couldn't open the new drive. {e}"))
+                tracing::warn!(error = %e, "could not mount the newly made drive");
+                FormatError::Other(
+                    "Luna couldn't open the new drive. Unplug it, plug it back in, and try again."
+                        .into(),
+                )
             }
         })?;
     if !manager.mounter().is_mounted(target) {
@@ -1208,6 +1218,14 @@ mod tests {
             db::get_drive(&conn, "d-closed").unwrap().unwrap().state,
             "ejected"
         );
+    }
+
+    #[test]
+    fn unexpected_errors_never_reach_the_person_raw() {
+        let said =
+            FormatError::from(anyhow::anyhow!("SQLITE_BUSY: database is locked")).to_string();
+        assert!(!said.contains("SQLITE"), "{said}");
+        assert!(said.contains("try again"));
     }
 
     #[test]

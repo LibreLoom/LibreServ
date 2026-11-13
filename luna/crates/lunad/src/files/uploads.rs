@@ -21,7 +21,9 @@ use crate::files::{self, FileEntry, FilesError};
 fn drive_db_for(central: &Connection, drive_id: &str) -> Result<Connection, UploadError> {
     let drive = db::get_drive(central, drive_id)
         .map_err(UploadError::Db)?
-        .filter(|d| !d.mount_point.is_empty())
+        .filter(|d| {
+            !d.mount_point.is_empty() && !crate::drives::format::drive_is_formatting(drive_id)
+        })
         .ok_or_else(|| UploadError::Db(anyhow::anyhow!("drive is not mounted")))?;
     crate::drives::drive_db::open_migrating(Path::new(&drive.mount_point), central, drive_id)
         .map_err(UploadError::Db)
@@ -33,7 +35,10 @@ fn find_upload(central: &Connection, id: &str) -> Result<(UploadRow, Connection)
         // A drive that filled up is marked "readonly" until it is free again; its
         // uploads must stay findable, or the browser is told the upload does not
         // exist instead of being told the drive is full.
-        if drive.mount_point.is_empty() || !matches!(drive.state.as_str(), "as_is" | "readonly") {
+        if drive.mount_point.is_empty()
+            || !matches!(drive.state.as_str(), "as_is" | "readonly")
+            || crate::drives::format::drive_is_formatting(&drive.id)
+        {
             continue;
         }
         let Ok(dconn) = crate::drives::drive_db::open_migrating(

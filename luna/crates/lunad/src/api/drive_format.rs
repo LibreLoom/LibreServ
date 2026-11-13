@@ -104,28 +104,13 @@ fn look(
     }
     let preview = format::preview_now(&state.drive_manager, state.format.tools(), name)
         .ok_or_else(not_here)?;
-    let registered = registered_on(state, name).map_err(|_| {
+    let registered = format::registered_on(state, name).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't read your drives. Try again.",
         )
     })?;
     Ok((preview, registered))
-}
-
-/// The registered drive on this disk. A drive that is unplugged (`missing`) is
-/// not on any disk, even if a new stick took its kernel name.
-fn registered_on(state: &AppState, device: &str) -> anyhow::Result<Option<String>> {
-    crate::db::with_db(
-        &state.db,
-        || anyhow::anyhow!("db lock poisoned"),
-        |conn| {
-            Ok(crate::db::list_drives(conn)?
-                .into_iter()
-                .find(|d| d.device == device && d.state != "missing")
-                .map(|d| d.id))
-        },
-    )
 }
 
 fn preview_json(state: &AppState, stored: &StoredPreview) -> Value {
@@ -244,12 +229,23 @@ async fn start(
     // Re-check: same physical disk and layout, and a no-wait verdict still holds.
     let (st, name, previewed) = (state.clone(), identity.name.clone(), identity.clone());
     let require_empty = stored.preview.empty;
+    let previewed_drive = stored.registered_drive.clone();
     let verdict = tokio::task::spawn_blocking(move || {
         let Some(now) = format::identity_now(&st.drive_manager, &name, true) else {
             return Err(drive_changed());
         };
         if !now.same_disk(&previewed) {
             return Err(drive_changed());
+        }
+        // Adding a drive only writes a marker file, so the layout can't tell
+        // that the disk became (or stopped being) a registered drive since the
+        // preview. A run must quiesce exactly the drive it was told about.
+        if format::registered_on(&st, &name).ok() != Some(previewed_drive) {
+            return Err(json_error_code(
+                StatusCode::CONFLICT,
+                "preview_stale",
+                "This drive was added or removed since the preview. Look at the drive again.",
+            ));
         }
         if require_empty
             && !format::preview_now(&st.drive_manager, st.format.tools(), &name)

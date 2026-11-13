@@ -220,7 +220,10 @@ fn first_line(text: &str) -> String {
     line.trim().chars().take(200).collect()
 }
 
-/// Run `tool` with `args`, `input` on stdin, and a deadline.
+const TRY_AGAIN: &str = "Unplug the drive, plug it back in, and try again.";
+
+/// Run `tool` with `args`, `input` on stdin, and a deadline. What the tool
+/// printed goes to the log; the person gets one plain sentence.
 fn run_tool(
     tool: &'static str,
     args: &[String],
@@ -235,34 +238,32 @@ fn run_tool(
         if e.kind() == std::io::ErrorKind::TimedOut {
             ToolError::TimedOut(tool)
         } else {
-            ToolError::Failed(format!("{what} {e}"))
+            tracing::warn!(tool, error = %e, "a disk tool could not run");
+            ToolError::Failed(format!("{what} {TRY_AGAIN}"))
         }
     })?;
     if out.status.success() {
         return Ok(());
     }
+    let said = String::from_utf8_lossy(&out.stderr);
+    tracing::warn!(tool, status = ?out.status, said = %first_line(&said), "a disk tool failed");
     Err(ToolError::Failed(format!(
         "{what} {}",
-        plain_tool_error(&String::from_utf8_lossy(&out.stderr))
+        plain_tool_error(&said).unwrap_or(TRY_AGAIN)
     )))
 }
 
-/// cryptsetup and friends write for an operator. Turn the cases a person can
-/// act on into plain words and keep everything else to one short line.
-pub fn plain_tool_error(said: &str) -> String {
+/// cryptsetup and friends write for an operator. Only the cases a person can
+/// act on become words; anything else is logged and the caller says to try again.
+pub fn plain_tool_error(said: &str) -> Option<&'static str> {
     let lower = said.to_ascii_lowercase();
     if lower.contains("is busy") || lower.contains("in use") {
-        return "Something is still using this drive.".into();
+        return Some("Something is still using this drive.");
     }
     if lower.contains("cannot allocate memory") || lower.contains("out of memory") {
-        return "This Luna ran out of memory.".into();
+        return Some("This Luna ran out of memory.");
     }
-    let line = first_line(said);
-    if line.is_empty() {
-        "The drive refused the request.".into()
-    } else {
-        line
-    }
+    None
 }
 
 fn partition_names(sys_block: &Path, disk: &str) -> Vec<String> {
@@ -634,14 +635,15 @@ mod tests {
     }
 
     #[test]
-    fn tool_errors_become_plain_words() {
+    fn tool_errors_become_plain_words_and_never_show_raw_output() {
         assert_eq!(
             plain_tool_error("Device /dev/sdb1 is busy."),
-            "Something is still using this drive."
+            Some("Something is still using this drive.")
         );
-        assert_eq!(plain_tool_error(""), "The drive refused the request.");
+        assert_eq!(plain_tool_error("wipefs: ioctl failed at 0x1fe"), None);
+        assert_eq!(plain_tool_error(""), None);
         assert_eq!(
-            plain_tool_error("\n\nwipefs: bad thing\nmore"),
+            first_line("\n\nwipefs: bad thing\nmore"),
             "wipefs: bad thing"
         );
     }

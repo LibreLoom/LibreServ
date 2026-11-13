@@ -165,6 +165,47 @@ pub fn preview_now(manager: &DriveManager, tools: &dyn DiskTools, name: &str) ->
     Some(inspect::inspect_disk(&env, &det, is_mock_device(name)))
 }
 
+/// The registered drive on this disk. A drive that is unplugged (`missing`) is
+/// not on any disk, even if a new stick took its kernel name.
+pub fn registered_on(state: &AppState, device: &str) -> anyhow::Result<Option<String>> {
+    crate::db::with_db(
+        &state.db,
+        || anyhow::anyhow!("db lock poisoned"),
+        |conn| {
+            Ok(crate::db::list_drives(conn)?
+                .into_iter()
+                .find(|d| d.device == device && d.state != "missing")
+                .map(|d| d.id))
+        },
+    )
+}
+
+/// After a run that failed before writing anything, a registered drive is
+/// intact but unmounted. Reconcile (which the `/drives/detected` poll also runs)
+/// mounts it again by its marker; do it now rather than wait for the next poll,
+/// and re-arm the indexers.
+fn remount_after_abort(state: &AppState) {
+    let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
+    let detected = detect::scan_with_dev_mocks(std::path::Path::new(SYS_BLOCK), &mounts);
+    let snapshot = crate::db::with_db(
+        &state.db,
+        || anyhow::anyhow!("db lock poisoned"),
+        crate::db::list_drives,
+    )
+    .unwrap_or_default();
+    let plan = state.drive_manager.reconcile_scan(&snapshot, &detected);
+    let remounted = crate::db::with_db(
+        &state.db,
+        || anyhow::anyhow!("db lock poisoned"),
+        |conn| state.drive_manager.reconcile_apply(conn, plan),
+    )
+    .unwrap_or_default();
+    for (id, mount) in remounted {
+        state.search_index.watch_mount(&id, mount.clone());
+        state.gallery.watch_mount(&id, mount);
+    }
+}
+
 /// Run the erase for real: the worker half of a start. Blocking; the caller
 /// holds the disk lock (and the drive lock) for as long as this runs.
 pub fn execute(state: &AppState, handle: &Run, req: &run::Request) {
@@ -206,6 +247,9 @@ pub fn execute(state: &AppState, handle: &Run, req: &run::Request) {
         Ok(Err(failure)) => {
             tracing::warn!(device = %req.identity.name, error = %failure.error, erased = failure.erased, "drive erase failed");
             handle.finish_err(&failure.error.to_string(), failure.erased);
+            if !failure.erased && req.drive_id.is_some() {
+                remount_after_abort(state);
+            }
         }
         Err(_) => {
             tracing::error!(device = %req.identity.name, "drive erase panicked");

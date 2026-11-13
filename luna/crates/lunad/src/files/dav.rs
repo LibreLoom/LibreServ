@@ -218,6 +218,13 @@ fn dav_handler_for(
             "This drive is not connected.",
         ));
     }
+    // Being erased: its mount folder is an empty folder on the system disk.
+    if crate::drives::format::drive_is_formatting(&drive.id) {
+        return Err(json_error(
+            StatusCode::CONFLICT,
+            "Luna is erasing this drive right now. Try again when it finishes.",
+        ));
+    }
     if !has_drive_access(&user, &conn, &drive.id) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
