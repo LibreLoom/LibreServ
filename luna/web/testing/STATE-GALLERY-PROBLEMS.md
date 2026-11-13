@@ -67,6 +67,43 @@ its own box, and a control with no name or icon — and read the file viewer's o
 mounts outside `<main>` and so was invisible to the earlier sweep (32 scenarios). Each new
 check was proved able to fail by injecting a violation, then re-run on a clean page.
 
+### Re-run after the review fixes
+
+The two runs above predate the fixes the code review produced, which changed the fake's
+request layer (media swapping, downloads, link proofs). The whole gallery was therefore
+walked again, twice, from a clean start on the current code, with a second, harder driver
+alongside the first. The gallery holds 317 scenarios now: `public/download-limit` was
+removed as fake-only (§14).
+
+| Run | Hardened audit | Original audit |
+| --- | --- | --- |
+| 1 | 317 / 317, 0 findings | 317 / 317, 0 findings |
+| 2 | 317 / 317, 0 findings | 317 / 317, 0 findings |
+
+The hardened driver cross-checks a scenario's own Download control (fetching the URL and
+asserting real bytes come back), reads raw machine text (`TypeError`, `[object Object]`,
+errno codes, braces), bold monospace at any weight, heading order, images pointing at a
+raw API URL, and pages stuck on `Loading`. Every added check was proved able to fail by
+injecting one violation into a clean page first.
+
+Three checks were written, tried, and retired: a bare `Delete` button, an empty state with
+no button, and a `download` whose subject is deliberately missing. All three produced far
+more false positives than findings — a row action is named by its row and its confirm
+dialog, these empty states already say what will fill them, and a download of an empty
+trash is *supposed* to 404 — so they do not belong in a pass that has to stay trustworthy.
+
+These runs found three real defects, all in the fake rather than the product:
+
+- **No `/s/:token/zip` handler.** An album's `Download album` and a folder's `Download`
+  hit the router's 501 and did nothing, while lunad zips them. Added, matching lunad's
+  three branches: album zip, folder zip, and a file link handing back the file itself.
+- **The `view` gate was too strict.** lunad refuses only when `caps & CAP_VIEW == 0`, so a
+  `view+upload` link still zips; the first version of the handler refused it.
+- **A photo's Download 404'd.** The lightbox downloads through
+  `/files/content?download=1`, which reads only the file tree, but seeded photos live in
+  the photo index and never enter the tree. The fake now falls back to that index, so a
+  photo the person can see can also be saved.
+
 ---
 
 ## Problems

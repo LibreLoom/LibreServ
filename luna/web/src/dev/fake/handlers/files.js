@@ -327,6 +327,23 @@ get("/api/v1/drives/:id/files/content", ({ world, user, params, query }) => {
   } else {
     node = rel ? fs.nodes[rel] : { kind: "dir" };
   }
+  // A gallery photo is a real file on the drive in lunad, but the seeded photo
+  // library never enters the tree, so the lightbox's Download would 404 against
+  // a file it is visibly showing. Fall back to the photo index.
+  if (!node) {
+    const photo = (world.photos || []).find((ph) => ph.drive_id === driveId && ph.path === rel);
+    if (photo) {
+      const ext = (photo.path.split(".").pop() || "").toLowerCase();
+      // The seeds carry no pixels for a photo; a 1x1 PNG stands in for an image
+      // so the download is real bytes, and filler for video.
+      const [data, type] = ext === "jpg" || ext === "jpeg" ? [PNG, "image/jpeg"]
+        : ext === "png" ? [PNG, "image/png"]
+        : ext === "heic" ? [PNG, "image/heic"]
+        : [new Uint8Array(2048), "video/mp4"];
+      return raw(data, type, 200,
+        query.download === "1" ? { "Content-Disposition": `attachment; filename="${base(rel)}"` } : {});
+    }
+  }
   if (!node) throw gone();
   if (node.kind === "dir") {
     if (query.download !== "1") throw fail(400, "That's a folder. Use Download to save it as a zip file.");

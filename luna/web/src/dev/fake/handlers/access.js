@@ -522,6 +522,40 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
   }
   return listing(level.filter((e) => linkReaches(world, r.l, [...segments, e.name].join("/"), r.s.drive_id, r.s.path)));
 });
+// `GET /s/:token/zip`: an album link zips the album, a folder link zips that
+// folder, and a link to one file hands back the file itself. Without this the
+// album page's "Download album" hit the router's 501 and did nothing.
+publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
+  const r = open(world, params.token, headers);
+  if (r.err) return r.err;
+  // lunad's gate is `caps & CAP_VIEW == 0`, so "view+upload" may still zip.
+  if (!String(r.l.caps || "").includes("view")) return fail(404, "Not found.");
+  if (r.s.kind === "album") {
+    // A real zip would be megabytes of real photos; the harness only needs the
+    // download to happen and the name to be right.
+    return raw(new TextEncoder().encode(`PK\x05\x06${"\0".repeat(18)}`), "application/zip", 200, {
+      "Content-Disposition": `attachment; filename="${dispositionName(r.s.name || "album")}.zip"`,
+    });
+  }
+  if (r.s.kind !== "path") return fail(404, "Not found.");
+  const segments = linkSegments(query.path);
+  if (!segments) return fail(400, "That folder isn't part of this shared link.");
+  if (r.s.is_file) {
+    if (segments.length) return fail(400, "That file isn't part of this shared link.");
+    const [data, type] = syntheticBytes(r.s.name || "download");
+    return raw(data, type, 200, {
+      "Content-Disposition": `attachment; filename="${dispositionName(r.s.name || "download")}"`,
+    });
+  }
+  const tree = treeOf(world, params.token, r.s);
+  const target = segments.length ? inTree(tree, segments) : null;
+  if (segments.length && !target) return fail(404, "Not found.");
+  const base = segments.length ? segments[segments.length - 1] : (r.s.name || "download");
+  return raw(new TextEncoder().encode(`PK\x05\x06${"\0".repeat(18)}`), "application/zip", 200, {
+    "Content-Disposition": `attachment; filename="${dispositionName(base)}.zip"`,
+  });
+});
+
 publicGet("/s/:token/stat", ({ world, params, headers }) => {
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
