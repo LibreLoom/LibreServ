@@ -1,0 +1,77 @@
+<section id="luna-search-resources" data-viz-composition>
+  <style>
+    #luna-search-resources { display: grid; gap: calc(var(--font-size-base) * 1); color: var(--foreground); }
+    #luna-search-resources .resource-title { padding-inline-end: 90px; }
+    #luna-search-resources .resource-heading { display: grid; gap: calc(var(--font-size-base) * .25); }
+    #luna-search-resources .resource-lifecycle { display: grid; gap: calc(var(--font-size-base) * 1); }
+    #luna-search-resources .resource-row { display: grid; grid-template-columns: 1fr 2fr; gap: calc(var(--font-size-base) * .5); }
+    #luna-search-resources .resource-row > div { display: grid; gap: calc(var(--font-size-base) * .25); }
+    #luna-search-resources .resource-stage { display: grid; gap: calc(var(--font-size-base) * .5); }
+    #luna-search-resources [hidden] { display: none; }
+    @media (max-width: 480px) { #luna-search-resources .resource-row { grid-template-columns: 1fr; } }
+  </style>
+  <div class="resource-heading resource-title">
+    <h2>Search resource costs</h2>
+    <span class="text-small">Illustrative estimates · one active worker · not measured on Wyse</span>
+  </div>
+  <div data-viz-container aria-label="Illustrative additional working memory: static text embedding about 40 MiB, OCR about 125 MiB, image embedding with both encoders loaded about 400 MiB."></div>
+  <script type="application/json" data-viz-chart>
+    {
+      "id": "luna-search-working-memory",
+      "title": "Additional working RAM while processing (MiB)",
+      "description": "Approximate planning examples, not peak limits. Excludes Luna, the OS and retrieval indexes. CPU time is compared below, not CPU utilization percentages.",
+      "height": 230,
+      "spec": {
+        "type": "horizontalBar",
+        "y": "Workload",
+        "x": "Estimated MiB",
+        "xLabel": "MiB · approximate",
+        "xDomain": [0, 500],
+        "showValues": true,
+        "showLegend": false,
+        "sortOrder": "original"
+      },
+      "columns": ["Workload", "Estimated MiB"],
+      "rows": [["Static text embedding", 40], ["OCR", 125], ["Image embedding", 400]]
+    }
+  </script>
+  <details>
+    <summary>Model and memory assumptions</summary>
+    <div class="resource-lifecycle">
+      <div class="resource-row"><span>Static text</span><span>256-dimensional retrieval model, float32 table: about 30 MiB of weights, plus tokenizer and small buffers. Text extraction is separate.</span></div>
+      <div class="resource-row"><span>OCR</span><span>Tesseract fast, one language and one bounded page. 125 MiB is an illustrative midpoint of the earlier 50–200 MiB estimate, not a measured average or limit.</span></div>
+      <div class="resource-row"><span>Image embedding</span><span>MobileCLIP2-S0, float32, both encoders resident: about 285 MiB of raw weights, plus runtime, image buffers and activations. 400 MiB is illustrative; peak usage can be higher.</span></div>
+      <div class="resource-row"><span>Quantization</span><span>Ideal 8-bit raw weights: about 7.5 MiB for the text model; 71 MiB for both image-search encoders. Runtime memory does not shrink by the same factor.</span></div>
+    </div>
+  </details>
+  <hr>
+  <div class="resource-heading">
+    <h3>When the work happens</h3>
+    <span class="text-small">Compare CPU work per item, not percentage: any busy worker can occupy a core.</span>
+  </div>
+  <div class="nav nav-pills" role="tablist" aria-label="Processing stage">
+    <button class="nav-link active" id="luna-resource-indexing-tab" type="button" role="tab" aria-controls="luna-resource-indexing" aria-selected="true">Indexing</button>
+    <button class="nav-link" id="luna-resource-query-tab" type="button" role="tab" aria-controls="luna-resource-query" aria-selected="false">Searching</button>
+    <button class="nav-link" id="luna-resource-off-tab" type="button" role="tab" aria-controls="luna-resource-off" aria-selected="false">Disabled</button>
+  </div>
+  <div class="resource-lifecycle" id="luna-resource-indexing" role="tabpanel" aria-labelledby="luna-resource-indexing-tab">
+    <div class="resource-row"><span>Static text embedding</span><div><span>Small CPU work per passage</span><span class="text-small">Token lookup → average vectors. No transformer inference.</span></div></div>
+    <div class="resource-row"><span>OCR</span><div><span>Substantial, variable CPU work per page</span><span class="text-small">Decode → prepare image → locate and recognize text.</span></div></div>
+    <div class="resource-row"><span>Image embedding</span><div><span>Substantial CPU work per image</span><span class="text-small">Decode → resize → image encoder. No assumed speed ranking against OCR.</span></div></div>
+  </div>
+  <div class="resource-lifecycle" id="luna-resource-query" role="tabpanel" aria-labelledby="luna-resource-query-tab" hidden>
+    <div class="resource-row"><span>Static text embedding</span><div><span>Small query-encoding cost</span><span class="text-small">Then search the stored vectors; retrieval cost grows with the index.</span></div></div>
+    <div class="resource-row"><span>OCR</span><div><span>No OCR inference</span><span class="text-small">Search the saved text. OCR worker can be fully unloaded.</span></div></div>
+    <div class="resource-row"><span>Image embedding</span><div><span>Paired text encoder still required</span><span class="text-small">About 242 MiB of float32 text weights alone; image encoder can unload. Excludes runtime and retrieval.</span></div></div>
+  </div>
+  <div class="resource-lifecycle" id="luna-resource-off" role="tabpanel" aria-labelledby="luna-resource-off-tab" hidden>
+    <div class="resource-row"><span>Inference workers</span><div><span>No worker CPU or resident model memory after exit</span><span class="text-small">Saved indexes remain on disk; ordinary search has its own resource cost.</span></div></div>
+    <div class="resource-row"><span>Health check</span><div><span>Neural search: Off — insufficient available memory</span><span class="text-small">Proposed behavior: ordinary search continues; no toast or blocking error.</span></div></div>
+  </div>
+</section>
+<script type="module">
+  import { mountChart } from "https://persistent.oaistatic.com/plugins/visualize/charts/1.2.3/element.js";
+  const root = document.getElementById("luna-search-resources");
+  const config = JSON.parse(root.querySelector("[data-viz-chart]").textContent);
+  mountChart(root.querySelector("[data-viz-container]"), config);
+</script>
