@@ -61,7 +61,7 @@ function ViewerFallback() {
 }
 
 /** Match `file-viewer-out` duration in index.css (the fade the editor shell uses). */
-const FULLSCREEN_EXIT_MS = 150;
+const FULLSCREEN_EXIT_MS = 250;
 
 function prefersReducedMotion() {
   return typeof window !== "undefined"
@@ -73,7 +73,7 @@ function prefersReducedMotion() {
  * Hold a portaled fullscreen overlay mounted while its exit animation plays —
  * same deferred-unmount pattern as FileSearch/ModalCard. `present` follows
  * `active` up synchronously (so the enter animation starts on the same commit)
- * and drops one `fullscreen-overlay-out` duration after `active` goes false.
+ * and drops one `file-viewer-out` duration after `active` goes false.
  *
  * @param {boolean} active
  * @returns {{ present: boolean, isClosing: boolean }}
