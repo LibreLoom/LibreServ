@@ -179,9 +179,8 @@ function CreateTokenModal({ open, busy, error, onClose, onSubmit }) {
             className="mt-2 w-full rounded-pill surface-primary border-2 border-secondary/30 px-4 py-2 text-sm outline-none focus:border-accent"
             placeholder="Kitchen Mac, photo backup, script"
             value={name}
-            maxLength={80}
             ref={nameRef}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => setName(Array.from(e.target.value).slice(0, 80).join(""))}
           />
         </ShakeTarget>
         <p id="token-name-guidance" className="text-primary text-xs">

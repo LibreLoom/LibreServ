@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import AccessCategory from "./AccessCategory.jsx";
@@ -143,10 +143,12 @@ describe("AccessCategory", () => {
     const input = /** @type {HTMLInputElement} */ (within(dialog).getByLabelText(/Name this app/i));
     await waitFor(() => expect(input).toHaveFocus());
     expect(within(dialog).getByText("Give this device a name between 1 and 80 characters.")).toBeInTheDocument();
-    expect(input.maxLength).toBe(80);
+    expect(input).not.toHaveAttribute("maxLength");
     expect(within(dialog).getByRole("button", { name: /Create access token/i })).toBeDisabled();
     await user.type(input, "a".repeat(81));
     expect(input).toHaveValue("a".repeat(80));
+    fireEvent.change(input, { target: { value: "😀".repeat(81) } });
+    expect(input).toHaveValue("😀".repeat(80));
     expect(within(dialog).getByRole("button", { name: /Create access token/i })).toBeEnabled();
   });
 

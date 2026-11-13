@@ -1776,7 +1776,7 @@ async fn patch_album(
                 "Luna couldn't open that album.",
             )
         })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
+        .ok_or_else(missing_album_error)?;
     if !can_manage_album(&user, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
@@ -1870,7 +1870,7 @@ async fn add_items(
                 "Luna couldn't open that album.",
             )
         })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
+        .ok_or_else(missing_album_error)?;
     let can_add = can_contribute_album(&state, &user, &home, &album);
     if !can_add {
         return Err(json_error(
@@ -1994,7 +1994,7 @@ async fn remove_item(
                 "Luna couldn't open that album.",
             )
         })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
+        .ok_or_else(missing_album_error)?;
     // album_items carries no added_by, so own-vs-others can't be told apart —
     // removing is a manage act (owner/Admin), not a contributor one.
     if !can_manage_album(&user, &album) {
@@ -2033,7 +2033,7 @@ async fn list_items(
                 "Luna couldn't open that album.",
             )
         })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
+        .ok_or_else(missing_album_error)?;
     if !can_view_album(&state, &user, &home, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
@@ -2118,7 +2118,7 @@ async fn cover(
                 "Luna couldn't open that album.",
             )
         })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
+        .ok_or_else(missing_album_error)?;
     if !can_view_album(&state, &user, &home, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,

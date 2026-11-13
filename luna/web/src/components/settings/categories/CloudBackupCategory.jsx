@@ -236,7 +236,7 @@ export default function CloudBackupCategory() {
     },
     onError: (err) => {
       haptic("error");
-      setError(apiErrorMessage(err));
+      setError(cloudBackupErrorMessage(err, "Luna couldn't check this backup. Try again."));
     },
     onSettled: (_data, _err, id) => {
       setPending((prev) => {
@@ -258,7 +258,7 @@ export default function CloudBackupCategory() {
     onError: (err) => {
       haptic("error");
       setDeleting(null);
-      setError(apiErrorMessage(err));
+      setError(cloudBackupErrorMessage(err, "Luna couldn't delete this backup. Try again."));
     },
   });
 
@@ -305,6 +305,11 @@ export default function CloudBackupCategory() {
               {!cardOnFile && (
                 <p className="text-primary text-sm">
                   Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>. Cloud backup can start after that.
+                </p>
+              )}
+              {!isAdmin && (
+                <p className="text-primary text-sm">
+                  An Admin can check whether Luna has backups stored in the cloud.
                 </p>
               )}
               {isAdmin && restoreStatus.isSuccess && !cloudVersionsExist && (

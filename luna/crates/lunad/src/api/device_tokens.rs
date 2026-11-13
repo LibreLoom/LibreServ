@@ -81,7 +81,7 @@ async fn create(
     Json(body): Json<CreateBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let name = body.name.trim();
-    if name.is_empty() || name.len() > 80 {
+    if name.is_empty() || name.chars().count() > 80 {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
             "Give this device a name between 1 and 80 characters.",
@@ -350,6 +350,36 @@ mod tests {
                 "Give this device a name between 1 and 80 characters."
             );
         }
+    }
+
+    #[tokio::test]
+    async fn name_limit_counts_unicode_characters_not_utf8_bytes() {
+        let h = harness();
+        let name = "😀".repeat(80);
+        let (status, _) = send(
+            &h,
+            Method::POST,
+            "/api/v1/device-tokens",
+            &h.jamie,
+            Some(json!({ "name": name })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let name = "😀".repeat(81);
+        let (status, body) = send(
+            &h,
+            Method::POST,
+            "/api/v1/device-tokens",
+            &h.jamie,
+            Some(json!({ "name": name })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            body["error"],
+            "Give this device a name between 1 and 80 characters."
+        );
     }
 
     #[tokio::test]

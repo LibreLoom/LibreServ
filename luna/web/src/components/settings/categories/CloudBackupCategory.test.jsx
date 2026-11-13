@@ -26,6 +26,8 @@ function stubApi({
   runResponse = /** @type {any} */ ({ done: true }),
   runError = null,
   runErrorStatus = 502,
+  checkError = null,
+  deleteError = null,
   restoreStatusError = null,
   phrase = /** @type {any} */ ({ set: false }),
 } = {}) {
@@ -53,8 +55,24 @@ function stubApi({
       }
       return json(runResponse);
     }
-    if (url.endsWith("/check") && method === "POST") return json({ done: true });
-    if (url.startsWith("/api/v1/cloud/backups/") && method === "DELETE") return json({});
+    if (url.endsWith("/check") && method === "POST") {
+      if (checkError) {
+        return new Response(JSON.stringify({ error: checkError }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return json({ done: true });
+    }
+    if (url.startsWith("/api/v1/cloud/backups/") && method === "DELETE") {
+      if (deleteError) {
+        return new Response(JSON.stringify({ error: deleteError }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return json({});
+    }
     return json({});
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -261,7 +279,27 @@ describe("CloudBackupCategory", () => {
       fetchMock.mock.calls.some(([url]) => String(url) === "/api/v1/cloud/backups"),
     ).toBe(true));
     expect(screen.queryByText(/Nothing is backed up to the cloud yet/)).toBeNull();
+    expect(screen.getByText("An Admin can check whether Luna has backups stored in the cloud.")).toBeInTheDocument();
     expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContain("/api/v1/cloud/restore");
+  });
+
+  it("uses safe fallback messages when checking or deleting a backup fails on the server", async () => {
+    stubApi({
+      connected: true,
+      backups: [sampleBackup],
+      checkError: "Internal database details",
+      deleteError: "Proxy connection string",
+    });
+    renderCard();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Check" }));
+    expect(await screen.findByText("Luna couldn't check this backup. Try again.")).toBeInTheDocument();
+    expect(screen.queryByText("Internal database details")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete cloud backup" }));
+    expect(await screen.findByText("Luna couldn't delete this backup. Try again.")).toBeInTheDocument();
+    expect(screen.queryByText("Proxy connection string")).toBeNull();
   });
 
   it("does not show the cloud empty claim while restore status fails", async () => {

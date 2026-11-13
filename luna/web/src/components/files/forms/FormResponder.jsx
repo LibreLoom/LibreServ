@@ -383,7 +383,6 @@ function Responder({
           (data && data.error) || "Luna couldn't send your answers. Check your connection and send again.",
         );
       }
-      setSubmitting(false);
       const id = typeof data?.id === "string" ? data.id : responseId;
       const issued = allowEdits && data && typeof data.edit_token === "string" ? data.edit_token : "";
       writeCookie(cookieName("done", token), "1");
@@ -401,7 +400,6 @@ function Responder({
       setStage("done");
       haptic("success");
     } catch (err) {
-      setSubmitting(false);
       haptic("error");
       setSubmitError(apiErrorMessage(err, "Luna couldn't send your answers. Check your connection and send again."));
     } finally {

@@ -1019,6 +1019,31 @@ async fn missing_album_responses_use_a_stable_code_for_detail_and_delete() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(body["code"], "gallery_album_not_found");
+
+    for (method, uri, body) in [
+        (
+            "PATCH",
+            "/api/v1/gallery/albums/d-photos/missing",
+            r#"{"name":"Renamed"}"#,
+        ),
+        (
+            "POST",
+            "/api/v1/gallery/albums/d-photos/missing/items",
+            r#"{"items":[]}"#,
+        ),
+        (
+            "DELETE",
+            "/api/v1/gallery/albums/d-photos/missing/items",
+            r#"{"drive_id":"d-photos","path":"pic.jpg"}"#,
+        ),
+        ("GET", "/api/v1/gallery/albums/d-photos/missing/items", ""),
+        ("GET", "/api/v1/gallery/albums/d-photos/missing/cover", ""),
+    ] {
+        let (status, body) =
+            call_json(&f.router, json_req(method, uri, &f.admin_token, body)).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{method} {uri}");
+        assert_eq!(body["code"], "gallery_album_not_found", "{method} {uri}");
+    }
 }
 
 #[tokio::test]
