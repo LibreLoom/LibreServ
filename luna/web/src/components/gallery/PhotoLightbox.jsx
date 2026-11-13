@@ -32,7 +32,7 @@ const PhotoInfoPanel = lazy(() => import("./PhotoInfoPanel.jsx"));
 
 /** @typedef {import("./PhotoThumb.jsx").GalleryPhoto} GalleryPhoto */
 
-/** Match `fullscreen-overlay-out` duration in index.css. */
+/** Match `file-viewer-out` duration in index.css. */
 const FULLSCREEN_EXIT_MS = 250;
 /** Breathing room between panes so neighbors peek in like a carousel. */
 const PANE_GAP_PX = 12;
@@ -722,9 +722,7 @@ export default function PhotoLightbox({
       data-mode={mode}
       className={cn(
         `fixed inset-0 ${LIGHTBOX_Z_CLASS} flex flex-col overscroll-none surface-primary`,
-        isClosing
-          ? "fullscreen-overlay-exit file-viewer-exit"
-          : "fullscreen-overlay-enter file-viewer-enter",
+        isClosing ? "file-viewer-exit" : "file-viewer-enter",
       )}
     >
       <div className="flex items-center justify-between gap-3 px-4 py-3">

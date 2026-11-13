@@ -96,7 +96,6 @@ describe("PhotoLightbox fullscreen animations", () => {
   it("applies the unified fullscreen enter animation on open", () => {
     renderLightbox();
     const dialog = screen.getByRole("dialog", { name: "one.jpg" });
-    expect(dialog).toHaveClass("fullscreen-overlay-enter");
     expect(dialog).toHaveClass("file-viewer-enter");
   });
 
@@ -107,11 +106,10 @@ describe("PhotoLightbox fullscreen animations", () => {
       renderLightbox({ onClose });
 
       const dialog = screen.getByRole("dialog", { name: "one.jpg" });
-      expect(dialog).toHaveClass("fullscreen-overlay-enter");
+      expect(dialog).toHaveClass("file-viewer-enter");
 
       fireEvent.click(screen.getByLabelText("Close"));
 
-      expect(dialog).toHaveClass("fullscreen-overlay-exit");
       expect(dialog).toHaveClass("file-viewer-exit");
       expect(onClose).not.toHaveBeenCalled();
 
@@ -132,11 +130,11 @@ describe("PhotoLightbox fullscreen animations", () => {
       renderLightbox({ onClose });
 
       const dialog = screen.getByRole("dialog", { name: "one.jpg" });
-      expect(dialog).toHaveClass("fullscreen-overlay-enter");
+      expect(dialog).toHaveClass("file-viewer-enter");
 
       fireEvent.keyDown(window, { key: "Escape" });
 
-      expect(dialog).toHaveClass("fullscreen-overlay-exit");
+      expect(dialog).toHaveClass("file-viewer-exit");
       expect(onClose).not.toHaveBeenCalled();
 
       vi.advanceTimersByTime(250);
@@ -163,7 +161,7 @@ describe("PhotoLightbox fullscreen animations", () => {
       );
 
       const dialog = screen.getByRole("dialog", { name: "one.jpg" });
-      expect(dialog).toHaveClass("fullscreen-overlay-enter");
+      expect(dialog).toHaveClass("file-viewer-enter");
 
       rerender(
         <MemoryRouter>
@@ -177,7 +175,7 @@ describe("PhotoLightbox fullscreen animations", () => {
         </MemoryRouter>,
       );
 
-      expect(dialog).toHaveClass("fullscreen-overlay-exit");
+      expect(dialog).toHaveClass("file-viewer-exit");
       expect(onClose).not.toHaveBeenCalled();
 
       vi.advanceTimersByTime(250);

@@ -47,7 +47,6 @@ export default function DotMatrixLoader({
   decorative = false,
   bare = false,
   wavePeriodMs = WAVE_PERIOD_MS,
-  waveSpeedMs: _waveSpeedMs, // accepted for old callers; the swell is one band now
   ...props
 }) {
   const fieldRef = useRef(/** @type {HTMLDivElement | null} */ (null));
@@ -172,6 +171,5 @@ DotMatrixLoader.propTypes = {
   label: PropTypes.string,
   decorative: PropTypes.bool,
   bare: PropTypes.bool,
-  waveSpeedMs: PropTypes.number,
   wavePeriodMs: PropTypes.number,
 };
