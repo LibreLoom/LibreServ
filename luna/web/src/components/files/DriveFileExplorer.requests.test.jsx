@@ -82,6 +82,19 @@ function renderExplorer({ path, listing, failing = "", failWith = "Luna is busy.
 describe("DriveFileExplorer long requests", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it("uses singular wording when emptying the trash with one item", async () => {
+    renderExplorer({ path: ".luna-trash", listing: [TRASHED[0]] });
+
+    const emptyBtn = await screen.findByRole("button", { name: "Empty trash" });
+    await waitFor(() => expect(emptyBtn).toBeEnabled());
+    fireEvent.click(emptyBtn);
+
+    const dialog = await screen.findByRole("dialog", { name: "Empty trash?" });
+    expect(within(dialog).getByText(
+      "This will permanently delete the item in Trash. Luna cannot restore it.",
+    )).toBeInTheDocument();
+  });
+
   it("explains a read-only drive and hides actions that would change it", async () => {
     renderExplorer({ listing: FILES, driveState: "readonly" });
 
@@ -171,6 +184,9 @@ describe("DriveFileExplorer long requests", () => {
     await waitFor(() => expect(emptyBtn).toBeEnabled());
     fireEvent.click(emptyBtn);
     const dialog = await screen.findByRole("dialog", { name: "Empty trash?" });
+    expect(within(dialog).getByText(
+      "This will permanently delete all 3 items in Trash. Luna cannot restore them.",
+    )).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Empty trash" }));
 
     const dock = await screen.findByRole("region", { name: "File tasks" });

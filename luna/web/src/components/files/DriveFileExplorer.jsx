@@ -1205,7 +1205,9 @@ export default function DriveFileExplorer({
         {({ close }) => (
           <>
             <p className="text-primary text-sm">
-              This will permanently delete all {trashCount} {trashCount === 1 ? "item" : "items"} in Trash. Luna cannot restore them.
+              {trashCount === 1
+                ? "This will permanently delete the item in Trash. Luna cannot restore it."
+                : `This will permanently delete all ${trashCount} items in Trash. Luna cannot restore them.`}
             </p>
             <div className="mt-4 flex gap-3">
               <Button

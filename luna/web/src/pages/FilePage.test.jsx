@@ -615,7 +615,9 @@ describe("FilePage", () => {
     expect(emptyBtn).toBeEnabled();
     fireEvent.click(emptyBtn);
     const dialog = await screen.findByRole("dialog", { name: "Empty trash?" });
-    expect(within(dialog).getByText(/permanently delete all 1 item in Trash/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(
+      "This will permanently delete the item in Trash. Luna cannot restore it.",
+    )).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Empty trash" }));
     // The dialog hands the work to the file task card, where the failure stays.
     const dock = await screen.findByRole("region", { name: "File tasks" });
