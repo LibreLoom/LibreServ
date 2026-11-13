@@ -991,7 +991,7 @@ async fn member_view_gets_opaque_cover_url_and_item_ids() {
 }
 
 #[tokio::test]
-async fn missing_album_responses_use_a_stable_code_for_detail_and_delete() {
+async fn missing_album_responses_use_a_stable_code_everywhere() {
     let f = album_fixture().await;
 
     let (status, body) = call_json(

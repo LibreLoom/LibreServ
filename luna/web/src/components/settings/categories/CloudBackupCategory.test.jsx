@@ -20,6 +20,7 @@ function stubApi({
   backups = [],
   backupsError = null,
   onBackupsPending = null,
+  onRestoreStatusPending = null,
   restoreStatus = /** @type {{needed: boolean, cloud_snapshots: number, indexed_snapshots: number, signing_public?: string}} */ ({
     needed: false,
     cloud_snapshots: 0,
@@ -39,8 +40,12 @@ function stubApi({
     if (url === "/api/v1/connect/status") return json({ connect_active: connected, card_on_file: cardOnFile });
     if (url === "/api/v1/cloud/phrase" && method === "GET") return json(phrase);
     if (url === "/api/v1/cloud/restore" && method === "GET") {
-      if (restoreStatusError) {
-        return new Response(JSON.stringify({ error: restoreStatusError }), {
+      if (onRestoreStatusPending) {
+        return new Promise((resolve) => onRestoreStatusPending(() => resolve(json(restoreStatus))));
+      }
+      const message = typeof restoreStatusError === "function" ? restoreStatusError() : restoreStatusError;
+      if (message) {
+        return new Response(JSON.stringify({ error: message }), {
           status: 500,
           headers: { "Content-Type": "application/json" },
         });
@@ -299,6 +304,42 @@ describe("CloudBackupCategory", () => {
 
     await act(async () => finishBackups?.());
     expect(await screen.findByText(/Nothing is backed up to the cloud yet/)).toBeInTheDocument();
+  });
+
+  it("shows progress while the Admin restore status is loading", async () => {
+    /** @type {(() => void)|null} */
+    let finishRestoreStatus = null;
+    stubApi({
+      connected: true,
+      backups: [],
+      onRestoreStatusPending: (finish) => { finishRestoreStatus = finish; },
+    });
+    renderCard();
+
+    expect(await screen.findByText("Checking cloud backup status…")).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing is backed up to the cloud yet/)).toBeNull();
+
+    await act(async () => finishRestoreStatus?.());
+    expect(await screen.findByText(/Nothing is backed up to the cloud yet/)).toBeInTheDocument();
+  });
+
+  it("offers a retry when the Admin restore status cannot be checked", async () => {
+    let shouldFail = true;
+    const fetchMock = stubApi({
+      connected: true,
+      backups: [],
+      restoreStatusError: () => (shouldFail ? "Internal database details" : null),
+    });
+    renderCard();
+
+    expect(await screen.findByText("Luna couldn't check cloud backup status.")).toBeInTheDocument();
+    expect(screen.queryByText("Internal database details")).toBeNull();
+    expect(screen.queryByText(/Nothing is backed up to the cloud yet/)).toBeNull();
+
+    shouldFail = false;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText(/Nothing is backed up to the cloud yet/)).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/v1/cloud/restore")).toHaveLength(2);
   });
 
   it("shows a retry when the backup list fails instead of treating Members as empty", async () => {

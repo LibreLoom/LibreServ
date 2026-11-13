@@ -328,6 +328,22 @@ export default function CloudBackupCategory() {
                 <p className="text-primary text-sm" role="status">Checking cloud backups…</p>
               ) : (
                 <>
+                  {isAdmin && cloudQuery.isSuccess && restoreStatus.isPending && (
+                    <p className="text-primary text-sm" role="status">Checking cloud backup status…</p>
+                  )}
+                  {isAdmin && cloudQuery.isSuccess && restoreStatus.isError && (
+                    <div className="space-y-3">
+                      <PageNotice variant="error">Luna couldn't check cloud backup status.</PageNotice>
+                      <Button
+                        variant="outline"
+                        surface="secondary"
+                        size="sm"
+                        onClick={() => restoreStatus.refetch()}
+                      >
+                        Try again
+                      </Button>
+                    </div>
+                  )}
                   {isAdmin && cloudQuery.isSuccess && restoreStatus.isSuccess && !cloudVersionsExist && (
                     <p className="text-primary text-sm">
                       Nothing is backed up to the cloud yet. Open a drive or folder, press the shield (Back up) button, then use Back up to the cloud.
