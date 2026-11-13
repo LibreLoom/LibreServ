@@ -103,6 +103,12 @@ function hasHttpStatus(error, status) {
   );
 }
 
+function isMissingAlbumError(error) {
+  return hasHttpStatus(error, 404)
+    && (error.message === "Luna doesn't know that album."
+      || error.message === "That album no longer exists.");
+}
+
 /**
  * Save a download without buffering the whole response when the browser
  * supports the File System Access API. Older browsers use a Blob fallback.
@@ -1035,10 +1041,11 @@ export default function GalleryPage() {
       : null;
 
   // An album can disappear while its detail page is open (for example, when
-  // another person deletes it). A 404 means the scoped view and its actions
-  // are no longer usable, so return to the Albums list.
+  // another person deletes it). Only an album-not-found response makes its
+  // scoped view stale; a drive-not-mounted 404 must keep the view and explain
+  // the failure so the person can retry after reconnecting the drive.
   useEffect(() => {
-    if (!albumView || !gallery.isError || !hasHttpStatus(gallery.error, 404)) return;
+    if (!albumView || !gallery.isError || !isMissingAlbumError(gallery.error)) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- discard the stale album view after its 404 response
     setAlbumView(null);
     setShareAlbum(null);
@@ -1264,7 +1271,7 @@ export default function GalleryPage() {
       queryClient.invalidateQueries({ queryKey: ["gallery"] });
     },
     onError: (err, album) => {
-      if (hasHttpStatus(err, 404)) {
+      if (isMissingAlbumError(err)) {
         setTrashAlbum(null);
         setAlbumView((current) =>
           current && current.id === album.id && current.home_drive_id === album.home_drive_id
@@ -1636,6 +1643,7 @@ export default function GalleryPage() {
     || albumPick != null
     || trashPhoto != null
     || trashBulk != null
+    || trashAlbum != null
     || sharePhoto != null
     || shareAlbum != null
     || renameAlbum != null

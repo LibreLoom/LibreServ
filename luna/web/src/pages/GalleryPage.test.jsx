@@ -1630,6 +1630,124 @@ describe("GalleryPage", () => {
     ).toBe(true);
   });
 
+  it("keeps the delete confirmation open when the album drive is not mounted", async () => {
+    const album = {
+      id: "alb-offline",
+      home_drive_id: "a",
+      name: "Vacation",
+      item_count: 2,
+      shared: false,
+    };
+    const fetchMock = vi.fn(async (url, init = {}) => {
+      const u = String(url);
+      const method = (init.method || "GET").toUpperCase();
+      if (u.endsWith("/drives")) {
+        return new Response(JSON.stringify([{ id: "a", label: "Family" }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/status")) {
+        return new Response(JSON.stringify(STATUS_OK), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/albums/a/alb-offline") && method === "DELETE") {
+        return new Response(JSON.stringify({ error: "This drive isn't mounted." }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/albums") && method === "GET") {
+        return new Response(JSON.stringify([album]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery?")) {
+        return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/gallery#albums");
+    const user = userEvent.setup();
+    renderGallery();
+
+    expect(await screen.findByText("Vacation")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Delete album Vacation" }));
+    await user.click(await screen.findByRole("button", { name: /^Delete album$/i }));
+
+    const dialog = await screen.findByRole("heading", { name: "Delete album?" });
+    expect(dialog).toBeInTheDocument();
+    expect(await screen.findByText("This drive isn't mounted.")).toBeInTheDocument();
+    expect(screen.getByText("Vacation")).toBeInTheDocument();
+  });
+
+  it("returns to the album list when delete confirms the album is already gone", async () => {
+    const album = {
+      id: "alb-gone",
+      home_drive_id: "a",
+      name: "Vacation",
+      item_count: 2,
+      shared: false,
+    };
+    let albumListCalls = 0;
+    const fetchMock = vi.fn(async (url, init = {}) => {
+      const u = String(url);
+      const method = (init.method || "GET").toUpperCase();
+      if (u.endsWith("/drives")) {
+        return new Response(JSON.stringify([{ id: "a", label: "Family" }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/status")) {
+        return new Response(JSON.stringify(STATUS_OK), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/albums/a/alb-gone") && method === "DELETE") {
+        return new Response(JSON.stringify({ error: "Luna doesn't know that album." }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery/albums") && method === "GET") {
+        albumListCalls += 1;
+        return new Response(JSON.stringify(albumListCalls === 1 ? [album] : []), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/gallery?")) {
+        return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/gallery#albums");
+    const user = userEvent.setup();
+    renderGallery();
+
+    expect(await screen.findByText("Vacation")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Delete album Vacation" }));
+    await user.click(await screen.findByRole("button", { name: /^Delete album$/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Delete album?" })).not.toBeInTheDocument();
+    });
+    expect(await screen.findByText("No albums yet")).toBeInTheDocument();
+  });
+
   it("leaves a vanished album and clears its stale actions after a 404", async () => {
     const album = {
       id: "alb-gone",
