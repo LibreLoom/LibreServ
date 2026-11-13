@@ -1,7 +1,8 @@
 import { describeDriveHealth } from "./driveHealth.js";
 import { isUnopenable } from "./drives.js";
 import { formatBytes } from "./formatBytes.js";
-import { buildBackupItems, buildPhraseItem } from "./needsYouBackups.js";
+import { buildBackupItems, buildPhraseItem, visibleBackupRows } from "./needsYouBackups.js";
+import { isPausedByLock, lockedDrives, lockedDrivesTitle } from "./driveCrypt.js";
 import { buildSystemCheckItems } from "./needsYouChecks.js";
 
 /**
@@ -55,11 +56,41 @@ export function buildNeedsYouItems(input) {
   const items = [];
   if (isAdmin) items.push(...buildAdminItems(input));
 
+  // Everyone who can see a drive can unlock it, so everyone is told it is locked.
+  const lockedItem = buildLockedItem({ drives: input?.drives, backupRows, isAdmin, userId });
+  if (lockedItem) items.push(lockedItem);
+
   items.push(...buildBackupItems({ backupRows, isAdmin, userId, now: input?.now }));
   const phraseItem = buildPhraseItem({ backupRows, phrase: input?.phrase ?? null, isAdmin, userId });
   if (phraseItem) items.push(phraseItem);
 
   return items.sort(byRankThenId);
+}
+
+/**
+ * One row for every locked drive the viewer can see. It says backups are paused
+ * only when a backup the viewer can see really is waiting on a locked drive.
+ * An Admin goes to the drive's card, which has the password prompt and the
+ * protection sheet; a Member goes to the drive, which asks for the password.
+ * @param {{ drives?: Array<{ id: string, label: string, encrypted?: boolean, locked?: boolean }>, backupRows?: import("./backupRows.js").BackupRow[], isAdmin: boolean, userId: string }} input
+ * @returns {NeedsYouItem | null}
+ */
+function buildLockedItem({ drives, backupRows, isAdmin, userId }) {
+  const locked = lockedDrives(drives);
+  if (locked.length === 0) return null;
+  const paused = visibleBackupRows(backupRows, { isAdmin, userId }).some(isPausedByLock);
+  const names = locked.flatMap((d, i) => (i === 0 ? [{ name: d.label }] : [", ", { name: d.label }]));
+  const href = isAdmin
+    ? (locked.length === 1 ? `/files#drive-${locked[0].id}` : "/files")
+    : (locked.length === 1 ? `/files/${locked[0].id}` : "/files");
+  return {
+    id: "drives-locked",
+    rank: 20,
+    tone: "warning",
+    title: lockedDrivesTitle(locked, paused),
+    detail: locked.length > 1 ? ["Locked: ", ...names] : "Enter its password to open its files.",
+    action: { label: locked.length === 1 ? "Unlock" : "Unlock them", href },
+  };
 }
 
 /**

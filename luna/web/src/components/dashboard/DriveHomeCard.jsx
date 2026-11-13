@@ -6,7 +6,8 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import DriveStatusPill from "../common/DriveStatusPill.jsx";
 import useDriveHealth from "../../hooks/useDriveHealth.js";
-import { isUnopenable } from "../../lib/drives.js";
+import UnlockPrompt from "../drives/UnlockPrompt.jsx";
+import { isLocked, isUnopenable } from "../../lib/drives.js";
 import { getJson } from "../../lib/api.js";
 import { formatBytes } from "../../lib/formatBytes.js";
 import { folderHref as driveFolderHref } from "../../lib/paths.js";
@@ -40,7 +41,7 @@ function pathDepth(path) {
  * unplugged or the summary is still loading.
  *
  * @param {{
- *   drive: { id: string, label?: string, state: "as_is" | "readonly" | "missing" | "ejected", mounted?: boolean },
+ *   drive: { id: string, label?: string, state: "as_is" | "readonly" | "missing" | "ejected", mounted?: boolean, encrypted?: boolean, locked?: boolean },
  *   isAdmin?: boolean,
  *   grants?: any[],
  *   showSeeAllShared?: boolean,
@@ -52,7 +53,8 @@ export default function DriveHomeCard({
   grants = [],
   showSeeAllShared = false,
 }) {
-  const ready = drive.state === "as_is" || drive.state === "readonly";
+  const locked = isLocked(drive) && drive.state !== "missing" && drive.state !== "ejected";
+  const ready = (drive.state === "as_is" || drive.state === "readonly") && !locked;
   const unopenable = isUnopenable(drive);
   const health = useDriveHealth(drive, isAdmin);
   const summary = useQuery({
@@ -105,7 +107,15 @@ export default function DriveHomeCard({
     ) : null;
 
   let body;
-  if (unopenable) {
+  if (locked) {
+    // Anyone who can see the drive may unlock it, so the prompt is right here.
+    body = (
+      <div className="space-y-3">
+        <p className="text-primary text-sm">Locked. Enter the password to open its files.</p>
+        <UnlockPrompt driveId={drive.id} />
+      </div>
+    );
+  } else if (unopenable) {
     body = isAdmin ? (
       <div className="space-y-3">
         <p className="text-primary text-sm">

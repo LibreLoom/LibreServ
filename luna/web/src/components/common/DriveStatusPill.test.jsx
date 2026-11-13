@@ -24,6 +24,12 @@ describe("DriveStatusPill", () => {
     expect(container.firstChild).toBeNull();
   });
 
+  it("renders Locked for a protected drive that is closed, not Can't open", () => {
+    render(<DriveStatusPill drive={{ state: "as_is", mounted: false, encrypted: true, locked: true }} />);
+    expect(screen.getByText("Locked")).toBeInTheDocument();
+    expect(screen.queryByText("Can't open")).toBeNull();
+  });
+
   it("renders Ready for as_is drive", () => {
     render(<DriveStatusPill drive={{ state: "as_is" }} />);
     expect(screen.getByText("Ready")).toBeInTheDocument();

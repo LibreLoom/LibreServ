@@ -7,12 +7,22 @@ import { postJson } from "./api.js";
 import { isMockUnknownDrive } from "./devMockDrives.js";
 
 /**
+ * The drive is protected with a password and is closed right now. It is not
+ * broken: it needs its password, and its mount is gone on purpose.
+ * @param {{ encrypted?: boolean, locked?: boolean }} drive
+ */
+export function isLocked(drive) {
+  return Boolean(drive.encrypted && drive.locked);
+}
+
+/**
  * Luna knows this drive and it is plugged in, but Luna can't open it (its
- * mount is gone). Its files and free space aren't available.
- * @param {{ state?: string, mounted?: boolean }} drive
+ * mount is gone). Its files and free space aren't available. A locked drive
+ * is not this: it just needs its password.
+ * @param {{ state?: string, mounted?: boolean, encrypted?: boolean, locked?: boolean }} drive
  */
 export function isUnopenable(drive) {
-  return (drive.state === "as_is" || drive.state === "readonly") && drive.mounted === false;
+  return (drive.state === "as_is" || drive.state === "readonly") && drive.mounted === false && !isLocked(drive);
 }
 
 /**

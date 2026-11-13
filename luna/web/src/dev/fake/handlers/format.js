@@ -93,6 +93,7 @@ function settle(world, run) {
     // The run leaves an encrypted drive open; a plain reformat clears the flag.
     existing.encrypted = run.encrypted;
     existing.locked = false;
+    existing.password = run.password;
     world.fs = { ...(world.fs || {}), [existing.id]: { nodes: {}, trash: [] } };
     world.summaries[existing.id] = summary(existing.id, { used_bytes: 0, shortcuts: [] });
     return;
@@ -102,7 +103,7 @@ function settle(world, run) {
   world.detected = world.detected.filter((d) => d.name !== run.device);
   world.drives.push({
     id, label: run.label, state: "as_is", device: run.device, fs_type: run.encrypted ? "ext4" : "exfat",
-    mount_point: `/mnt/${id}`, mounted: true, encrypted: run.encrypted, locked: false,
+    mount_point: `/mnt/${id}`, mounted: true, encrypted: run.encrypted, locked: false, password: run.password,
   });
   world.fs = { ...(world.fs || {}), [id]: { nodes: {}, trash: [] } };
   world.summaries[id] = summary(id, { used_bytes: 0, shortcuts: [] });
@@ -163,12 +164,15 @@ function registeredPreview(world, row) {
   const folders = entries.filter((e) => e.kind === "folder").length;
   const sum = world.summaries[row.id];
   const size = sum?.total_bytes ?? 64 * GB;
+  // The look is at the raw disk (inspect.rs): an encrypted drive's container can't be read
+  // from outside, locked or not, so it shows as locked with nothing listed and always waits.
+  const sealed = Boolean(row.encrypted);
   const part = {
-    name: `${row.device}1`, size_bytes: size, fs_type: row.fs_type ?? "exfat", label: row.label,
-    state: entries.length === 0 ? "empty" : "has_files", used_bytes: sum?.used_bytes ?? null,
-    folders, files: entries.length - folders, unreadable: 0, entries,
+    name: `${row.device}1`, size_bytes: size, fs_type: sealed ? "crypto_LUKS" : row.fs_type ?? "exfat", label: sealed ? "" : row.label,
+    state: sealed ? "locked" : entries.length === 0 ? "empty" : "has_files", used_bytes: sealed ? null : sum?.used_bytes ?? null,
+    folders: sealed ? 0 : folders, files: sealed ? 0 : entries.length - folders, unreadable: 0, entries: sealed ? [] : entries,
   };
-  return { blank: false, signatures: ["gpt", part.fs_type], partitions: [part], empty: entries.length === 0, serial: row.serial ?? null };
+  return { blank: false, signatures: ["gpt", part.fs_type], partitions: [part], empty: !sealed && entries.length === 0, serial: row.serial ?? null };
 }
 
 // ── Routes ──────────────────────────────────────────────────────────────────
@@ -235,6 +239,8 @@ post("/api/v1/drive-format/start", ({ world, user, body }) => {
     id, device: held.device, driveId: held.registeredDrive, label, encrypted, phases: phasesFor(encrypted),
     startedMs: Date.now(), startedAt: now, phaseMs: knob.formatPhaseMs ?? 1500,
     failAt: knob.formatFailAt ?? null, failMessage: knob.formatFailMessage ?? "", settled: false,
+    // Dev only: the drive row remembers the password so a scenario can lock and unlock it afterwards.
+    password: encrypted ? String(body.password) : undefined,
   };
   return json(statusOf(world, runs(world)[id]), 202);
 });

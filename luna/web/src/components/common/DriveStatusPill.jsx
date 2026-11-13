@@ -2,7 +2,9 @@ import PropTypes from "prop-types";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { describeDriveHealth } from "../../lib/driveHealth.js";
-import { isUnopenable } from "../../lib/drives.js";
+import { Lock } from "lucide-react";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { isLocked, isUnopenable } from "../../lib/drives.js";
 
 const READ_ONLY_HINT =
   "Luna can open files here but cannot save changes. Check the filesystem, or a write-lock switch on the stick — not the cable or USB port.";
@@ -17,7 +19,7 @@ const READ_ONLY_HINT =
  * (or pass undefined while it loads) and the pill says nothing about health.
  *
  * @param {{
- *   drive: { state: string, mounted?: boolean } | null,
+ *   drive: { state: string, mounted?: boolean, encrypted?: boolean, locked?: boolean } | null,
  *   health?: import("../../lib/driveHealth.js").DriveHealthReport | null,
  * }} props
  */
@@ -25,6 +27,14 @@ export default function DriveStatusPill({ drive, health }) {
   if (!drive) return null;
   if (drive.state === "missing") return <Pill variant="warning">Unplugged</Pill>;
   if (drive.state === "ejected") return <Pill variant="info">Ejected</Pill>;
+  if (isLocked(drive)) {
+    return (
+      <Pill variant="info">
+        <Lock size={ICON_SIZE.xs} aria-hidden="true" />
+        <TermHint content="This drive is protected with a password. Its files open once someone enters it.">Locked</TermHint>
+      </Pill>
+    );
+  }
   if (isUnopenable(drive)) return <Pill variant="warning">Can't open</Pill>;
 
   const copy = health ? describeDriveHealth(health) : null;
@@ -47,6 +57,8 @@ DriveStatusPill.propTypes = {
   drive: PropTypes.shape({
     state: PropTypes.string.isRequired,
     mounted: PropTypes.bool,
+    encrypted: PropTypes.bool,
+    locked: PropTypes.bool,
   }),
   health: PropTypes.object,
 };

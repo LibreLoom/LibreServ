@@ -12,6 +12,7 @@ import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import IconCircle from "@libreloom/ui/components/ui/IconCircle.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { InfoHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import PausedByLockNote from "../protect/PausedByLockNote.jsx";
 import { deleteJson, getDrives, getJson, postJson, apiErrorMessage } from "../../lib/api";
 import { getPhraseStatus, PHRASE_QUERY_KEY } from "../../lib/cloudPhrase";
 import { formatRecentAgo } from "../../lib/recentItems.js";
@@ -433,12 +434,16 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                       </>
                     ) : b.status === "active" ? (
                       <>
-                        <LayeredPill actionLabel={b.target_drive_name}>{backupHeadline(b)}</LayeredPill>
+                        <LayeredPill actionLabel={b.target_drive_name}>{b.paused === "locked" ? "Paused" : backupHeadline(b)}</LayeredPill>
+                        {b.paused === "locked" ? (
+                          <PausedByLockNote backup={b} />
+                        ) : (
                         <BackupStatusNotice
                           state={b.state}
                           lastError={b.last_error}
                           lastOkAt={b.last_ok_at}
                                                   />
+                        )}
                       </>
                     ) : (
                       <>

@@ -21,6 +21,8 @@ import { formatRecentAgo } from "./recentItems";
  *   check_problem?: string | null,
  *   source_missing?: boolean,
  *   hard?: boolean,
+ *   paused?: "locked" | null,
+ *   locked_drive_names?: string[],
  * }} BackupRow
  */
 
@@ -55,6 +57,8 @@ export function buildBackupRows(driveList = [], cloudList = []) {
  */
 export function needsALook(b) {
   if (b.status !== "active") return false;
+  // Waiting for a drive's password is not a fault in the backup.
+  if (b.paused === "locked") return false;
   if (b.state === "failing" || b.state === "stale") return true;
   return b.kind === "cloud" && (!!b.check_problem || !!b.source_missing);
 }
@@ -70,6 +74,7 @@ export function backupStatus(b, now = Date.now()) {
   if (b.kind === "cloud" && b.status === "active" && b.source_missing) {
     return { label: "Original is missing", variant: "warning" };
   }
+  if (b.paused === "locked") return { label: "Paused", variant: "warning" };
   if (b.state === "failing") return { label: "Last copy failed", variant: "error" };
   if (b.state === "stale") return { label: lastBackedUpLine(b.last_ok_at, now), variant: "warning" };
   if (b.kind === "cloud" && b.check_problem) return { label: "Check failed", variant: "warning" };
@@ -132,7 +137,12 @@ export function groupByCreator(list, users) {
 export function backupHeadline(rows) {
   if (rows.length === 0) return "No backups yet";
   const count = rows.filter(needsALook).length;
-  if (count === 0) return "All backed up";
+  if (count === 0) {
+    const paused = rows.filter((b) => b.status === "active" && b.paused === "locked").length;
+    if (paused === 1) return "1 backup is paused";
+    if (paused > 1) return `${paused} backups are paused`;
+    return "All backed up";
+  }
   if (count === 1) return "1 backup needs a look";
   return `${count} backups need a look`;
 }

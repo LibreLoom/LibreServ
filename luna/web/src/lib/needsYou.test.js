@@ -854,4 +854,36 @@ describe("purity", () => {
   it("gives the same rows for the same input", () => {
     expect(buildNeedsYouItems(fullAdminInput())).toStrictEqual(buildNeedsYouItems(fullAdminInput()));
   });
+
+  describe("locked drives", () => {
+    const locked = (id, label) => drive({ id, label, mounted: false, encrypted: true, locked: true });
+    const paused = { id: "b1", kind: "drive", status: "active", state: "failing", paused: "locked", locked_drive_names: ["Photos"], source_name: "Photos", created_by: "admin", private: false, last_ok_at: 1 };
+
+    it("says one locked drive by name and links an Admin to its card", () => {
+      const items = buildNeedsYouItems(emptyInput({ drives: [locked("d1", "Photos")] }));
+      const row = items.find((i) => i.id === "drives-locked");
+      expect(row.title).toEqual([{ name: "Photos" }, " is locked."]);
+      expect(row.action.href).toBe("/files#drive-d1");
+    });
+
+    it("counts several, and says backups are paused only when one really is", () => {
+      const drives = [locked("d1", "Photos"), locked("d2", "Backup")];
+      const without = buildNeedsYouItems(emptyInput({ drives })).find((i) => i.id === "drives-locked");
+      expect(without.title).toEqual(["2 drives are locked."]);
+      const withPaused = buildNeedsYouItems(emptyInput({ drives, backupRows: [paused] }));
+      expect(withPaused.find((i) => i.id === "drives-locked").title).toEqual(["2 drives are locked, so backups are paused."]);
+      // The paused backup is explained by that row, not repeated as a failure.
+      expect(withPaused.some((i) => i.id.startsWith("backup:"))).toBe(false);
+    });
+
+    it("shows a Member the row and sends them to the drive, where the prompt is", () => {
+      const items = buildNeedsYouItems({ ...emptyInput({ drives: [locked("d1", "Photos")] }), ...MEMBER });
+      expect(items.find((i) => i.id === "drives-locked").action.href).toBe("/files/d1");
+    });
+
+    it("is not reported as a drive Luna can't open", () => {
+      const items = buildNeedsYouItems(emptyInput({ drives: [locked("d1", "Photos")] }));
+      expect(items.some((i) => i.id.startsWith("drive-unopenable"))).toBe(false);
+    });
+  });
 });

@@ -107,6 +107,16 @@ get("/api/v1/backups/covered", ({ world, user, query }) => {
   return out;
 });
 
+/** drive_backup::not_ready: a locked drive asks for its password, any other says to connect it. */
+const notReady = (world, id) => (driveRow(world, id)?.locked ? `Unlock ${label(world, id)} first, then try again.` : `Connect ${label(world, id)} first, then try again.`);
+/** drive_backup::waiting_for. */
+const waitingFor = (world, id) => (driveRow(world, id)?.locked ? `Waiting: ${label(world, id)} is locked. Unlock it to carry on with backups.` : `Waiting: ${label(world, id)} isn't connected.`);
+/** drive_backup::refuse_plaintext_backup: an encrypted drive's files never land in the clear on a plain one. */
+function plaintextRefusal(world, src, target) {
+  if (!driveRow(world, src)?.encrypted || driveRow(world, target)?.encrypted) return null;
+  return `${label(world, src)} is encrypted, but ${label(world, target)} isn't. A backup of an encrypted drive has to go on an encrypted drive, or it would be readable by anyone who picks it up.`;
+}
+
 const refusal = (msg) => {
   const whoMay = msg.startsWith("You need") || msg.startsWith("Only an Admin") || (msg.startsWith("Only ") && msg.endsWith("can back up this item."));
   return fail(whoMay ? 403 : 400, msg);
@@ -127,11 +137,13 @@ post("/api/v1/backups", ({ world, user, body }) => {
     const who = world.users.find((u) => u.id === owner);
     throw refusal(`Only ${who?.display_name || who?.username || owner} can back up this item.`);
   }
-  if (!driveUsable(world, src)) throw refusal(`Connect ${label(world, src)} first, then try again.`);
+  if (!driveUsable(world, src)) throw refusal(notReady(world, src));
   const node = norm ? fsOf(world, src).nodes[norm] : { kind: "dir" };
   if (!node) throw refusal(`Luna can't find "${folderName(norm, label(world, src))}" on ${label(world, src)}.`);
   if (node.kind !== "dir") throw refusal("Only folders and whole drives can be backed up.");
-  if (!driveUsable(world, target)) throw refusal(`Connect ${label(world, target)} first, then try again.`);
+  if (!driveUsable(world, target)) throw refusal(notReady(world, target));
+  const plaintext = plaintextRefusal(world, src, target);
+  if (plaintext) throw refusal(plaintext);
   if (existing) {
     if (existing.status === "source_gone") { existing.status = "active"; existing.stop_reason = ""; }
     return backupJson(world, existing, user);
@@ -154,6 +166,10 @@ post("/api/v1/backups/:id/run", ({ world, user, params }) => {
   const row = world.backups.find((b) => b.id === params.id);
   if (!row) throw noBackup();
   if (!visibleTo(world, row, user)) throw noBackup();
+  const plaintext = plaintextRefusal(world, row.source_drive, row.target_drive);
+  if (plaintext) return { done: false, problem: plaintext };
+  const lockedId = [row.target_drive, row.source_drive].find((id) => driveRow(world, id)?.locked);
+  if (lockedId) return { done: false, problem: waitingFor(world, lockedId) };
   const problem = fsOpts(world).backupProblem;
   if (problem) return { done: false, problem };
   Object.assign(row, { last_ok_at: nowS(), state: "ok", first_done: true, last_error: "", hard: false });

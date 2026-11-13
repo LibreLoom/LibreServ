@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MOCK_UNKNOWN_PSSD_NAME } from "./devMockDrives.js";
-import { isPresentDrive, isWritableDrive, releaseInspectedDrive } from "./drives.js";
+import { isLocked, isPresentDrive, isUnopenable, isWritableDrive, releaseInspectedDrive } from "./drives.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -17,6 +17,21 @@ describe("drive state predicates", () => {
     expect(isPresentDrive({ state: "readonly" })).toBe(true);
     expect(isWritableDrive({ state: "readonly" })).toBe(false);
     expect(isWritableDrive({ state: "ready" })).toBe(true);
+  });
+});
+
+describe("locked drives", () => {
+  const locked = { state: "as_is", mounted: false, encrypted: true, locked: true };
+
+  it("is locked only when protected and closed", () => {
+    expect(isLocked(locked)).toBe(true);
+    expect(isLocked({ ...locked, locked: false })).toBe(false);
+    expect(isLocked({ locked: true })).toBe(false);
+  });
+
+  it("is not a drive Luna can't open, even though its mount is gone on purpose", () => {
+    expect(isUnopenable(locked)).toBe(false);
+    expect(isUnopenable({ state: "as_is", mounted: false })).toBe(true);
   });
 });
 

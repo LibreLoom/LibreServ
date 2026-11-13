@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
-import { HardDrive, Trash2 } from "lucide-react";
+import { HardDrive, Lock, Trash2 } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
@@ -20,7 +20,9 @@ import useMovedLinkForwarding from "../hooks/useMovedLinkForwarding.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 import { useAuth } from "../context/AuthContext";
 import { CAP, hasCapOnDrive, memberWritableRoots } from "../lib/shareTree.js";
-import { isPresentDrive, isUnopenable } from "../lib/drives.js";
+import { isLocked, isPresentDrive, isUnopenable } from "../lib/drives.js";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import UnlockPrompt from "../components/drives/UnlockPrompt.jsx";
 
 export default function FilePage() {
   const { id } = useParams();
@@ -53,7 +55,8 @@ export default function FilePage() {
   const moveFilesMutation = useDriveMove({ driveId: id, driveLabel: drive?.label });
 
   const unopenable = drive != null && isUnopenable(drive);
-  const browsable = drive != null && drive.state !== "missing" && !unopenable;
+  const locked = drive != null && isLocked(drive) && drive.state !== "missing" && drive.state !== "ejected";
+  const browsable = drive != null && drive.state !== "missing" && !unopenable && !locked;
   // Only an Admin sees a drive's health; a failing or worn drive still browses.
   const health = useDriveHealth(drive ?? { id: id ?? "" }, isAdmin && drive != null);
   const healthCopy = health.data ? describeDriveHealth(health.data) : null;
@@ -161,6 +164,17 @@ export default function FilePage() {
             </Button>
           }
         />
+      )}
+
+      {drive && locked && (
+        <Card className="mt-4 max-w-lg" icon={Lock} title="This drive is locked">
+          <div className="space-y-3">
+            <p className="text-primary text-sm">
+              <InlinePill>{drive.label}</InlinePill> is protected with a password. Enter it to open its files.
+            </p>
+            <UnlockPrompt driveId={drive.id} />
+          </div>
+        </Card>
       )}
 
       {drive && unopenable && (

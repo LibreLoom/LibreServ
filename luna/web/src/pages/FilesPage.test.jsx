@@ -1035,12 +1035,12 @@ describe("FilesPage", () => {
     expect(screen.getByText(/Being erased and set up/)).toBeInTheDocument();
   });
 
-  it("says an encrypted drive can't be opened yet", () => {
+  it("says a protected drive needs its password, not that Luna can't open it", () => {
     const info = describePeek({
       readable: false, encrypted: true, has_marker: false, folders: 0, files: 0, sample: [],
     });
-    expect(info.value).toBe("Encrypted");
-    expect(info.note).toBe("Luna can't open encrypted drives in this version yet.");
+    expect(info.value).toBe("Protected with a password");
+    expect(info.note).toBe("Add drive asks for the password.");
   });
 
 

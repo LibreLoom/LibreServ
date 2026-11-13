@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
+import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import DriveHomeCard from "./DriveHomeCard.jsx";
 
 function jsonResponse(body, status = 200) {
@@ -45,12 +46,14 @@ function renderCard(props = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <MemoryRouter>
-      <QueryClientProvider client={client}>
-        <DriveHomeCard
-          drive={{ id: "d1", label: "Family photos", state: "as_is" }}
-          {...props}
-        />
-      </QueryClientProvider>
+      <ToastProvider>
+        <QueryClientProvider client={client}>
+          <DriveHomeCard
+            drive={{ id: "d1", label: "Family photos", state: "as_is" }}
+            {...props}
+          />
+        </QueryClientProvider>
+      </ToastProvider>
     </MemoryRouter>,
   );
   return client;
@@ -484,5 +487,16 @@ describe("DriveHomeCard when the summary fails", () => {
     renderCard();
     expect(await screen.findByText("Open this drive to see your files.")).toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+});
+
+describe("DriveHomeCard when the drive is locked", () => {
+  it("shows the Locked pill and the password prompt, not Can't open or Browse files", async () => {
+    stubSummary("never");
+    renderCard({ drive: { id: "d1", label: "Family photos", state: "as_is", mounted: false, encrypted: true, locked: true } });
+    expect(screen.getByText("Locked")).toBeInTheDocument();
+    expect(screen.getByLabelText("Drive password")).toBeInTheDocument();
+    expect(screen.queryByText("Can't open")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Browse files" })).not.toBeInTheDocument();
   });
 });

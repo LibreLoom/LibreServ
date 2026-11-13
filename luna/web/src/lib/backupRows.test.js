@@ -197,3 +197,17 @@ describe("privateGroups", () => {
     expect(privateGroups(null, [])).toEqual([]);
   });
 });
+
+describe("backups paused by a locked drive", () => {
+  const paused = () => drive({ status: "active", state: "failing", paused: "locked", locked_drive_names: ["Photos"] });
+
+  it("is Paused, not a failure, and needs no look", () => {
+    expect(backupStatus(paused())).toEqual({ label: "Paused", variant: "warning" });
+    expect(needsALook(paused())).toBe(false);
+  });
+
+  it("is said in the headline instead of All backed up", () => {
+    expect(backupHeadline([paused()])).toBe("1 backup is paused");
+    expect(backupHeadline([paused(), paused()])).toBe("2 backups are paused");
+  });
+});
