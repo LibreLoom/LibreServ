@@ -99,7 +99,12 @@ export default function SharedPage() {
 
   const sharing = mine.data?.sharing || [];
   const withMe = mine.data?.with_me || [];
-  const tab = chosenTab ?? (isAdmin && withMe.length === 0 ? "manage" : "with_me");
+  const tabs = [
+    { value: "with_me", label: "Shared with you" },
+    ...(isAdmin || sharing.length > 0 ? [{ value: "manage", label: "Manage sharing" }] : []),
+  ];
+  const requestedTab = chosenTab ?? (isAdmin && withMe.length === 0 ? "manage" : "with_me");
+  const tab = tabs.some((option) => option.value === requestedTab) ? requestedTab : "with_me";
   const query = search.trim().toLowerCase();
   const matches = (row) =>
     !query
@@ -108,11 +113,6 @@ export default function SharedPage() {
     || (row.drive_label || "").toLowerCase().includes(query);
   const shownWithMe = withMe.filter(matches);
   const shownSharing = sharing.filter(matches);
-  const tabs = [
-    { value: "with_me", label: "Shared with you" },
-    ...(isAdmin || sharing.length > 0 ? [{ value: "manage", label: "Manage sharing" }] : []),
-  ];
-
   return (
     <MotionConfig reducedMotion="user">
     <Page title="Shared" titleId="shared-title">

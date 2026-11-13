@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
@@ -65,7 +65,7 @@ function stubApi({ role = "user", mine = { sharing: SHARING, with_me: WITH_ME } 
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const view = render(
     <ToastProvider>
       <QueryClientProvider client={client}>
         <MemoryRouter>
@@ -76,6 +76,7 @@ function renderPage() {
       </QueryClientProvider>
     </ToastProvider>,
   );
+  return { ...view, client };
 }
 
 afterEach(() => {
@@ -99,6 +100,24 @@ describe("SharedPage", () => {
     renderPage();
     expect(await screen.findByText("Nothing shared with you yet")).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "Manage sharing" })).not.toBeInTheDocument();
+  });
+
+  it("returns to Shared with you when a member loses their last manageable item", async () => {
+    stubApi({ role: "user", mine: { sharing: SHARING, with_me: WITH_ME } });
+    const { client } = renderPage();
+    fireEvent.click(await screen.findByRole("radio", { name: "Manage sharing" }));
+    expect(await screen.findByText("family")).toBeInTheDocument();
+
+    act(() => {
+      client.setQueryData(["access-mine"], { sharing: [], with_me: WITH_ME });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("radio", { name: "Manage sharing" })).not.toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "Shared with you" })).toHaveAttribute("aria-checked", "true");
+    });
+    expect(await screen.findByText("report.pdf")).toBeInTheDocument();
+    expect(screen.queryByText("Nothing shared yet")).not.toBeInTheDocument();
   });
 
   it("marks gone items Unavailable with no Open", async () => {
