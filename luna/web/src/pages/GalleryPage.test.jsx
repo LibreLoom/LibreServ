@@ -182,7 +182,16 @@ function stubUploadXhr() {
 
 function ToastMessageProbe() {
   const toasts = useToastList();
-  return <div>{toasts.map((toast) => <span key={toast.id}>{toast.message}</span>)}</div>;
+  return (
+    <div>
+      {toasts.map((toast) => (
+        <div key={toast.id}>
+          <span>{toast.message}</span>
+          {toast.description && <span>{toast.description}</span>}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function renderGallery({ withShortcuts = false, withToastMessages = false } = {}) {
@@ -213,7 +222,7 @@ describe("GalleryPage photo upload", () => {
   it("sends a dropped photo through the file operation store", async () => {
     stubGalleryFetch({ drives: [{ id: "a", label: "Family", state: "as_is", mount_point: "/mnt/a" }] });
     const opens = stubUploadXhr();
-    renderGallery();
+    renderGallery({ withToastMessages: true });
     await screen.findByRole("button", { name: /rescan/i }).catch(() => null);
     const photo = new File(["x"], "beach.jpg", { type: "image/jpeg" });
     const drop = new Event("drop", { bubbles: true, cancelable: true });
@@ -229,19 +238,30 @@ describe("GalleryPage photo upload", () => {
 });
 
 describe("GalleryPage bulk trash confirmation", () => {
-  it("uses singular copy for one selected photo and plural copy for multiple photos", async () => {
+  it("uses singular copy for one selected photo and in its success toast", async () => {
     stubGalleryFetch();
     const user = userEvent.setup();
-    renderGallery();
+    renderGallery({ withToastMessages: true });
 
     await user.click(await screen.findByRole("button", { name: "Select" }));
     await user.click(await screen.findByRole("button", { name: "one.jpg" }));
     await user.click(screen.getByRole("button", { name: "Trash" }));
     expect(
-      screen.getByText("Luna will move 1 item to Trash. You can restore them from Files later."),
+      screen.getByText("Luna will move 1 item to Trash. You can restore it from Files later."),
     ).toBeTruthy();
 
-    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Move to trash" }));
+    expect(await screen.findByText("Moved to Trash.")).toBeInTheDocument();
+    expect(await screen.findByText("You can restore it from Files → Trash.")).toBeInTheDocument();
+  });
+
+  it("uses plural copy for multiple selected photos", async () => {
+    stubGalleryFetch();
+    const user = userEvent.setup();
+    renderGallery();
+
+    await user.click(await screen.findByRole("button", { name: "Select" }));
+    await user.click(screen.getByRole("button", { name: "one.jpg" }));
     await user.click(screen.getByRole("button", { name: "two.jpg" }));
     await user.click(screen.getByRole("button", { name: "Trash" }));
     expect(
@@ -1747,7 +1767,10 @@ describe("GalleryPage", () => {
             headers: { "Content-Type": "application/json" },
           });
         }
-        return new Response(JSON.stringify({ error: "Luna doesn't know that album." }), {
+        return new Response(JSON.stringify({
+          code: "gallery_album_not_found",
+          error: "Luna doesn't know that album.",
+        }), {
           status: 404,
           headers: { "Content-Type": "application/json" },
         });
@@ -1816,7 +1839,10 @@ describe("GalleryPage", () => {
         });
       }
       if (u.includes("/gallery?") && u.includes("album_id=alb-gone")) {
-        return new Response(JSON.stringify({ error: "That album no longer exists." }), {
+        return new Response(JSON.stringify({
+          code: "gallery_album_not_found",
+          error: "Luna doesn't know that album.",
+        }), {
           status: 404,
           headers: { "Content-Type": "application/json" },
         });

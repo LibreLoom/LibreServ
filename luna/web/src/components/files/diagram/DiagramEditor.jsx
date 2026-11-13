@@ -632,5 +632,6 @@ EditorSession.propTypes = {
   onPresenceChange: PropTypes.func,
   onRegisterSave: PropTypes.func,
   onSaveStateChange: PropTypes.func,
+  onLoadStatus: PropTypes.func,
   requestClose: PropTypes.func,
 };

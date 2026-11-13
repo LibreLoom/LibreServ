@@ -12,7 +12,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
 
 use crate::AppState;
-use crate::api::response::json_error;
+use crate::api::response::{json_error, json_error_code};
 use crate::gallery::{self, ListFilter};
 
 const THUMB_CACHE_CONTROL: &str = "private, max-age=3600, must-revalidate";
@@ -20,6 +20,14 @@ const GALLERY_DOWNLOAD_ZIP_MAX: usize = 200;
 
 type ApiError = (StatusCode, Json<Value>);
 type DriveMounts = Vec<(String, PathBuf)>;
+
+fn missing_album_error() -> ApiError {
+    json_error_code(
+        StatusCode::NOT_FOUND,
+        "gallery_album_not_found",
+        "Luna doesn't know that album.",
+    )
+}
 
 fn is_admin(user: &crate::auth::CurrentUser) -> bool {
     user.role == "admin"
@@ -535,9 +543,7 @@ async fn timeline(
                         "Luna couldn't open that album.",
                     )
                 })?
-                .ok_or_else(|| {
-                    json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album.")
-                })?;
+                .ok_or_else(missing_album_error)?;
             if !can_view_album(&state, &user, home, &album) {
                 return Err(json_error(
                     StatusCode::FORBIDDEN,
@@ -1746,7 +1752,7 @@ async fn get_album(
                 "Luna couldn't open that album.",
             )
         })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
+        .ok_or_else(missing_album_error)?;
     if !can_view_album(&state, &user, &home, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
@@ -1829,7 +1835,7 @@ async fn delete_album(
                 "Luna couldn't open that album.",
             )
         })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
+        .ok_or_else(missing_album_error)?;
     if !can_manage_album(&user, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,

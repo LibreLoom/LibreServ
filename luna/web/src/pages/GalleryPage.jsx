@@ -105,9 +105,7 @@ function hasHttpStatus(error, status) {
 }
 
 function isMissingAlbumError(error) {
-  return hasHttpStatus(error, 404)
-    && (error.message === "Luna doesn't know that album."
-      || error.message === "That album no longer exists.");
+  return hasHttpStatus(error, 404) && error.code === "gallery_album_not_found";
 }
 
 /**
@@ -1183,7 +1181,7 @@ export default function GalleryPage() {
       addToast({
         type: "success",
         message: items.length === 1 ? "Moved to Trash." : `Moved ${items.length} items to Trash.`,
-        description: "You can restore them from Files → Trash.",
+        description: `You can restore ${items.length === 1 ? "it" : "them"} from Files → Trash.`,
       });
       queryClient.invalidateQueries({ queryKey: ["gallery"] });
     },
@@ -2444,7 +2442,7 @@ export default function GalleryPage() {
         }}
         onConfirm={() => trashBulk && trashMany.mutate(trashBulk)}
         title="Move selected to trash?"
-        message={`Luna will move ${trashBulk?.length || 0} ${trashBulk?.length === 1 ? "item" : "items"} to Trash. You can restore them from Files later.`}
+        message={`Luna will move ${trashBulk?.length || 0} ${trashBulk?.length === 1 ? "item" : "items"} to Trash. You can restore ${trashBulk?.length === 1 ? "it" : "them"} from Files later.`}
         variant="danger-undoable"
         confirmLabel="Move to trash"
         loading={trashMany.isPending}

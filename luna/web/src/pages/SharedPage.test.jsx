@@ -199,7 +199,11 @@ describe("SharedPage", () => {
       return baseFetch(url, init);
     }));
     renderPage();
-    expect(await screen.findByText("Couldn't load sharing. Refresh and try again.")).toBeInTheDocument();
+    const error = await screen.findByText("Couldn't load sharing. Refresh and try again.");
+    const notice = error.closest('[data-slot="page-notice"]');
+    if (!(notice instanceof HTMLElement)) throw new Error("Expected a shared error notice");
+    expect(within(notice).getByRole("status")).toContainElement(error);
+    expect(within(notice).queryByRole("alert")).toBeNull();
     expect(screen.queryByText("Injected 500")).not.toBeInTheDocument();
     expect(mineCalls).toBe(1);
     fail = false;

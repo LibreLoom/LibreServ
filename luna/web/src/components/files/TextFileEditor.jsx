@@ -410,4 +410,5 @@ EditorSession.propTypes = {
   onRegisterSave: PropTypes.func.isRequired,
   onSaveStateChange: PropTypes.func.isRequired,
   onSaveError: PropTypes.func,
+  onLoadStatus: PropTypes.func,
 };

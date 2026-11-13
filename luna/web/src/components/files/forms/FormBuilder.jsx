@@ -899,6 +899,7 @@ BuilderSession.propTypes = {
   onSaved: PropTypes.func,
   onRegisterSave: PropTypes.func.isRequired,
   onSaveStateChange: PropTypes.func.isRequired,
+  onLoadStatus: PropTypes.func,
 };
 
 // Every textarea resizes itself to its text. Measuring one at a time (write

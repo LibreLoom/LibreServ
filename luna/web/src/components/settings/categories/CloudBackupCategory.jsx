@@ -22,6 +22,11 @@ import PrivateRestoreCard from "../../cloud/PrivateRestoreCard.jsx";
 import RecoveryPhraseCard from "../../cloud/RecoveryPhraseCard.jsx";
 import { getRestoreStatus, RESTORE_QUERY_KEY } from "../../../lib/cloudRestore";
 
+function cloudBackupErrorMessage(error, fallback) {
+  if (error?.status >= 500) return fallback;
+  return apiErrorMessage(error, fallback);
+}
+
 /**
  * A settings path — Settings › About › Advanced — with lucide chevrons between
  * the steps, so the arrow is a drawn glyph rather than a typed character.
@@ -206,7 +211,7 @@ export default function CloudBackupCategory() {
     onError: (err, { id }) => {
       haptic("error");
       setError(null);
-      setRunError({ backupId: id, message: apiErrorMessage(err), kind: "start" });
+      setRunError({ backupId: id, message: cloudBackupErrorMessage(err, "Try again."), kind: "start" });
     },
     onSettled: (_data, _err, { id }) => {
       setPending((prev) => {
@@ -302,7 +307,7 @@ export default function CloudBackupCategory() {
                   Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>. Cloud backup can start after that.
                 </p>
               )}
-              {!cloudVersionsExist && (
+              {isAdmin && restoreStatus.isSuccess && !cloudVersionsExist && (
                 <p className="text-primary text-sm">
                   Nothing is backed up to the cloud yet. Open a drive or folder, press the shield (Back up) button, then use Back up to the cloud.
                 </p>

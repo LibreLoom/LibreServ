@@ -25,6 +25,8 @@ function stubApi({
   }),
   runResponse = /** @type {any} */ ({ done: true }),
   runError = null,
+  runErrorStatus = 502,
+  restoreStatusError = null,
   phrase = /** @type {any} */ ({ set: false }),
 } = {}) {
   const fetchMock = vi.fn(async (url, options = {}) => {
@@ -32,12 +34,20 @@ function stubApi({
     if (url === "/api/v1/auth/status") return json({ has_admin: true, connect_active: connected });
     if (url === "/api/v1/connect/status") return json({ connect_active: connected, card_on_file: cardOnFile });
     if (url === "/api/v1/cloud/phrase" && method === "GET") return json(phrase);
-    if (url === "/api/v1/cloud/restore" && method === "GET") return json(restoreStatus);
+    if (url === "/api/v1/cloud/restore" && method === "GET") {
+      if (restoreStatusError) {
+        return new Response(JSON.stringify({ error: restoreStatusError }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return json(restoreStatus);
+    }
     if (url === "/api/v1/cloud/backups" && method === "GET") return json(backups);
     if (/\/run(\?|$)/.test(url) && method === "POST") {
       if (runError) {
         return new Response(JSON.stringify({ error: runError }), {
-          status: 502,
+          status: runErrorStatus,
           headers: { "Content-Type": "application/json" },
         });
       }
@@ -241,6 +251,27 @@ describe("CloudBackupCategory", () => {
     expect(screen.getByRole("heading", { name: "Cloud backup" })).toBeInTheDocument();
   });
 
+  it("does not make a whole-cloud empty claim for Members who cannot load restore status", async () => {
+    mockRole = "member";
+    const fetchMock = stubApi({ connected: true, backups: [] });
+    renderCard();
+
+    expect(await screen.findByRole("heading", { name: "Cloud backup" })).toBeInTheDocument();
+    await waitFor(() => expect(
+      fetchMock.mock.calls.some(([url]) => String(url) === "/api/v1/cloud/backups"),
+    ).toBe(true));
+    expect(screen.queryByText(/Nothing is backed up to the cloud yet/)).toBeNull();
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContain("/api/v1/cloud/restore");
+  });
+
+  it("does not show the cloud empty claim while restore status fails", async () => {
+    stubApi({ connected: true, backups: [], restoreStatusError: "Internal database details" });
+    renderCard();
+
+    expect(await screen.findByRole("heading", { name: "Cloud backup" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/Nothing is backed up to the cloud yet/)).toBeNull());
+  });
+
   it("does not call cloud backup empty when restore status has unindexed cloud versions", async () => {
     stubApi({
       connected: true,
@@ -290,15 +321,16 @@ describe("CloudBackupCategory", () => {
   });
 
   it("keeps a failed start separate from the backup's last successful status", async () => {
-    const message = "Luna Connect couldn't be reached. Check your internet connection and try again.";
-    const fetchMock = stubApi({ connected: true, backups: [sampleBackup], runError: message });
+    const message = "Internal database details";
+    const fetchMock = stubApi({ connected: true, backups: [sampleBackup], runError: message, runErrorStatus: 500 });
     renderCard();
 
     fireEvent.click(await screen.findByRole("button", { name: "Back up now" }));
 
     const card = (await screen.findByText("Pictures")).closest('[data-slot="backup-item"]');
     if (!(card instanceof HTMLElement)) throw new Error("Expected Pictures backup card");
-    const notice = await within(card).findByText(`Luna couldn't start this backup. ${message}`);
+    const notice = await within(card).findByText("Luna couldn't start this backup. Try again.");
+    expect(within(card).queryByText(message)).toBeNull();
     expect(notice.closest('[data-slot="backup-item"]')).toBe(card);
     expect(within(card).getByText("Backup successful")).toBeInTheDocument();
     expect(within(card).queryByText("Last copy failed")).toBeNull();

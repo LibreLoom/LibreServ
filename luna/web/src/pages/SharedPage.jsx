@@ -134,7 +134,7 @@ export default function SharedPage() {
       )}
       {mine.isError && (
         <PageNotice variant="error">
-          <div className="space-y-3" role="alert">
+          <div className="space-y-3">
             <p>{sharedErrorMessage(mine.error, "Couldn't load sharing. Refresh and try again.")}</p>
             <Button
               size="sm"

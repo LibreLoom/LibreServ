@@ -991,6 +991,37 @@ async fn member_view_gets_opaque_cover_url_and_item_ids() {
 }
 
 #[tokio::test]
+async fn missing_album_responses_use_a_stable_code_for_detail_and_delete() {
+    let f = album_fixture().await;
+
+    let (status, body) = call_json(
+        &f.router,
+        json_req(
+            "GET",
+            "/api/v1/gallery?album_id=missing&album_home=d-photos",
+            &f.admin_token,
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["code"], "gallery_album_not_found");
+
+    let (status, body) = call_json(
+        &f.router,
+        json_req(
+            "DELETE",
+            "/api/v1/gallery/albums/d-photos/missing",
+            &f.admin_token,
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["code"], "gallery_album_not_found");
+}
+
+#[tokio::test]
 async fn list_items_drops_symlinked_rows() {
     let f = album_fixture().await;
     // Row pointing through a symlink — could never serve, so it must
