@@ -71,7 +71,7 @@ export default [
   {
     id: "format/with-password", area: A, title: "Erase with a password (as the encryption sheet will)", url: `${FLOW}?device=sdb&password=correct%20horse%2042`,
     seed: (w) => { w.detected = [stick({ model: "Blank USB stick", fs_type: null, readable: false, needs_setup: true, entries: [] })]; },
-    check: ["The screen says there is no way to recover the password", "Still no choice of format or encryption anywhere", "The steps include protecting the drive with the password"],
+    check: ["The screen says the drive will be protected with the password (the no-recovery warning belongs to the screen that asked for it)", "Still no choice of format or encryption anywhere", "The steps include protecting the drive with the password"],
   },
   {
     id: "format/refresh-mid-format", area: A, title: "Reload while a new drive is being erased", url: "/files",

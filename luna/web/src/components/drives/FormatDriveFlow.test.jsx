@@ -128,11 +128,12 @@ describe("FormatDriveFlow", () => {
     expect(start.body).toEqual({ preview_id: "p1", label: "SanDisk USB stick" });
   });
 
-  it("sends the password it was given, and warns that it can't be recovered", async () => {
+  it("sends the password it was given, and leaves the no-recovery warning to the caller", async () => {
     const calls = stub({ previewBody: preview({ empty: true, partitions: [], ready_at: nowS() }) });
     show({ password: "correct horse 42" });
     await looked();
-    expect(screen.getByText(/no way to recover it/)).toBeInTheDocument();
+    expect(screen.getByText("The drive will be protected with the password you chose.")).toBeInTheDocument();
+    expect(screen.queryByText(/no way to recover/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Erase drive" }));
     await screen.findByRole("list", { name: "Erase progress" });
     expect(calls.find((c) => c.url.endsWith("/start")).body.password).toBe("correct horse 42");

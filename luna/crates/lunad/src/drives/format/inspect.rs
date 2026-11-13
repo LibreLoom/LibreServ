@@ -473,6 +473,30 @@ fn look_inside(env: &Env, name: &str, fs_type: &str) -> Option<(RootScan, Option
     Some((scan, used))
 }
 
+/// Where an open LUKS container on partition `name` is mounted, if it is:
+/// its device-mapper holder (`/sys/block/<disk>/<name>/holders/dm-N`) found in
+/// `/proc/mounts` by `dm-N` or by its mapper name. Read-only use: never opens
+/// or mounts anything.
+fn open_container_mount(env: &Env, name: &str) -> Option<PathBuf> {
+    let holders = match detect::parent_device(name).filter(|p| p != name) {
+        Some(disk) => env.sys_block.join(disk).join(name).join("holders"),
+        None => env.sys_block.join(name).join("holders"),
+    };
+    let mounts = detect::parse_mounts(env.proc_mounts);
+    std::fs::read_dir(holders)
+        .ok()?
+        .flatten()
+        .find_map(|entry| {
+            let dm = entry.file_name().to_string_lossy().into_owned();
+            let mapper = read_trimmed(&env.sys_block.join(&dm).join("dm/name"));
+            [Some(dm), mapper]
+                .into_iter()
+                .flatten()
+                .find_map(|key| mounts.get(&key).and_then(|m| m.first()))
+                .map(|m| PathBuf::from(&m.mount_point))
+        })
+}
+
 fn preview_of(
     env: &Env,
     name: &str,
@@ -496,7 +520,26 @@ fn preview_of(
         return part;
     }
     if is_luks_type(fs_type) {
-        part.state = PartitionState::Locked;
+        // An unlocked container (Remove protection on a drive Luna has open)
+        // is read through its live mount, so the person sees their files
+        // before erasing them. A closed one can't be read: locked.
+        let Some(root) = open_container_mount(env, name) else {
+            part.state = PartitionState::Locked;
+            return part;
+        };
+        let scan = scan_root(&root, false, &[]);
+        part.used_bytes = crate::drives::summary::disk_space(&root).map(|s| s.used_bytes);
+        part.folders = scan.folders;
+        part.files = scan.files;
+        part.unreadable = scan.unreadable;
+        part.state = if scan.listing_failed {
+            PartitionState::Unreadable
+        } else if scan.os_only() {
+            PartitionState::Empty
+        } else {
+            PartitionState::HasFiles
+        };
+        part.entries = scan.entries;
         return part;
     }
     let installer = is_intrinsically_read_only(fs_type);
@@ -1014,6 +1057,25 @@ mod tests {
         let locked = inspect_disk(&env, &det, false);
         assert!(!locked.empty);
         assert_eq!(locked.partitions[0].state, PartitionState::Locked);
+
+        // Unlocked and mounted (Remove protection): its files are listed.
+        let open = tempfile::tempdir().unwrap();
+        fs::write(open.path().join("tax-2024.pdf"), b"x").unwrap();
+        fs::create_dir_all(sys.join("sdb/sdb1/holders/dm-3")).unwrap();
+        fs::create_dir_all(sys.join("dm-3/dm")).unwrap();
+        fs::write(sys.join("dm-3/dm/name"), "luna-d1\n").unwrap();
+        let mounts = format!(
+            "/dev/mapper/luna-d1 {} ext4 rw 0 0\n",
+            open.path().display()
+        );
+        let env = Env {
+            proc_mounts: &mounts,
+            ..env
+        };
+        let opened = inspect_disk(&env, &det, false);
+        assert!(!opened.empty);
+        assert_eq!(opened.partitions[0].state, PartitionState::HasFiles);
+        assert_eq!(opened.partitions[0].entries[0].name, "tax-2024.pdf");
     }
 
     #[test]

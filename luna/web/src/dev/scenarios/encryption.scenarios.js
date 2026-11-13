@@ -105,7 +105,7 @@ export default [
   {
     id: "encryption/remove-protection", area: A, title: "Remove protection (erases the drive)", url: "/files",
     seed: (w) => { encryptDrive(w, "d1", { locked: false }); },
-    check: [SHEET, "Remove protection says plainly that it erases everything on the drive and can't be undone", "The caution button is Remove protection and erase; Back returns to the sheet", "The erase window waits 30 seconds with the drive shown as locked (its files can't be listed)", "After it finishes the card is Ready, the sheet says Not protected, and there is no pill saying Locked"],
+    check: [SHEET, "Remove protection says plainly that it erases everything on the drive and can't be undone", "The caution button is Remove protection and erase; Back returns to the sheet", "The erase window lists the drive's own folders and files (it is unlocked) and waits 30 seconds", "After it finishes the card is Ready, the sheet says Not protected, and there is no pill saying Locked"],
   },
   {
     id: "encryption/sheet-unplugged", area: A, title: "Sheet on an unplugged protected drive", url: "/files",

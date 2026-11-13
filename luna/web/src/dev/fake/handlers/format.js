@@ -164,11 +164,11 @@ function registeredPreview(world, row) {
   const folders = entries.filter((e) => e.kind === "folder").length;
   const sum = world.summaries[row.id];
   const size = sum?.total_bytes ?? 64 * GB;
-  // The look is at the raw disk (inspect.rs): an encrypted drive's container can't be read
-  // from outside, locked or not, so it shows as locked with nothing listed and always waits.
-  const sealed = Boolean(row.encrypted);
+  // Like inspect.rs: a locked container can't be read, so it shows as locked with nothing
+  // listed and always waits; an unlocked one is read through its live mount.
+  const sealed = Boolean(row.encrypted && row.locked);
   const part = {
-    name: `${row.device}1`, size_bytes: size, fs_type: sealed ? "crypto_LUKS" : row.fs_type ?? "exfat", label: sealed ? "" : row.label,
+    name: `${row.device}1`, size_bytes: size, fs_type: row.encrypted ? "crypto_LUKS" : row.fs_type ?? "exfat", label: row.encrypted ? "" : row.label,
     state: sealed ? "locked" : entries.length === 0 ? "empty" : "has_files", used_bytes: sealed ? null : sum?.used_bytes ?? null,
     folders: sealed ? 0 : folders, files: sealed ? 0 : entries.length - folders, unreadable: 0, entries: sealed ? [] : entries,
   };

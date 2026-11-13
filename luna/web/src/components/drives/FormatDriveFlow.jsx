@@ -235,12 +235,8 @@ function LookStep({ preview, name, password, starting, error, ready, clockMs, on
           this drive&apos;s backups stop until you set them up again.
         </p>
       )}
-      {password && (
-        <p className="text-sm">
-          The drive will be protected with the password you chose. There is no way to recover it: if it&apos;s lost,
-          the files on the drive are lost too.
-        </p>
-      )}
+      {/* The caller that collected the password already said it can't be recovered. */}
+      {password && <p className="text-sm">The drive will be protected with the password you chose.</p>}
       {cantProtect && <InlineError>Password protection isn&apos;t available for this drive.</InlineError>}
       {expired && !error && <InlineError>Luna&apos;s look at this drive is out of date. Look at the drive again.</InlineError>}
       {error && <InlineError>{error.message}</InlineError>}
