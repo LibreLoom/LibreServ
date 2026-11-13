@@ -8,6 +8,7 @@ import {
 import { nextId, smartHealth, summary, user as makeUser } from "../world.js";
 import { interruptJobs } from "../jobs.js";
 import { fsOf, nowS } from "../fsmodel.js";
+import { formatFields } from "./format.js";
 
 const unmounted = (id) => ({ id, mounted: false, total_bytes: null, free_bytes: null, used_bytes: null, folders: null, files: null, shortcuts: [] });
 const healthy = () => smartHealth();
@@ -312,6 +313,8 @@ get("/api/v1/drives", ({ world, user }) => world.drives
       mounted: d.mounted !== false && world.summaries[d.id]?.mounted !== false,
       writable: admin || hasWriteOnDrive(world, user, d.id),
       caps: capsToStr(capsOnPath(world, user, d.id, "")),
+      // Only while an erase is running, like lunad: a missing key means false.
+      ...formatFields(world, user, d.device),
     };
   }));
 
@@ -320,6 +323,7 @@ get("/api/v1/drives/detected", ({ world, user }) => {
   return world.detected.map((d) => ({
     name: d.name, model: d.model ?? "", size_bytes: d.size_bytes ?? 0, removable: d.removable ?? true, usb: d.usb ?? true,
     mount_point: d.mount_point ?? null, fs_type: d.fs_type ?? null, read_only: Boolean(d.read_only),
+    ...formatFields(world, user, d.name),
   }));
 });
 

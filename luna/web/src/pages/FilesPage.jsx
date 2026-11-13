@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- page exports helpers used by tests */
 import { useEffect, useRef, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, HardDrive, PlugZap } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
@@ -18,6 +18,7 @@ import ValueDisplay from "@libreloom/ui/components/common/ValueDisplay.jsx";
 import ShareSheet, { ShareButton } from "../components/share/ShareSheet.jsx";
 import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
 import InspectModal from "../components/files/InspectModal.jsx";
+import FormatDriveFlow from "../components/drives/FormatDriveFlow.jsx";
 import useCanProtect from "../hooks/useCanProtect";
 import { FileSearchButton } from "../components/files/FileSearch";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
@@ -256,7 +257,7 @@ export function describePeek(peek) {
       value: "Blank, or a format Luna can't read",
       includes: "",
       history: "",
-      note: "Setting up new drives isn't available in this version yet.",
+      note: "Using it with Luna erases what's on it.",
     };
   }
   if (!peek.readable) {
@@ -264,7 +265,7 @@ export function describePeek(peek) {
       value: "Can't read it",
       includes: "",
       history: "",
-      note: "It may be blank or damaged.",
+      note: "It may be blank or damaged. Using it with Luna erases what's on it.",
     };
   }
   if (peek.needs_setup) {
@@ -272,7 +273,7 @@ export function describePeek(peek) {
       value: "Installer disk",
       includes: "",
       history: "",
-      note: "Setting up new drives isn't available in this version yet.",
+      note: "Using it with Luna erases what's on it.",
     };
   }
   const history = peek.has_marker ? "Used with Luna before" : "";
@@ -307,7 +308,7 @@ function DetectedContents({ peek }) {
   );
 }
 
-function DetectedCard({ drive, onOpen }) {
+function DetectedCard({ drive, onOpen, onErase }) {
   // A card reader with nothing in it reports a size of 0.
   const empty = !drive.size_bytes;
   const title = drive.model || "New drive";
@@ -328,13 +329,17 @@ function DetectedCard({ drive, onOpen }) {
     refetchInterval: (query) => (query.state.status === "error" ? 15_000 : false),
     refetchOnWindowFocus: false,
   });
-  // Luna can't set up blank drives or open encrypted ones yet; the card says why.
-  const cannotAdd = Boolean(peek.data?.encrypted || peek.data?.needs_setup);
+  // Luna can't open encrypted drives yet; the card says why.
+  const encrypted = Boolean(peek.data?.encrypted);
+  // Blank, damaged, another system's format, or installer media: Luna has to erase it first.
+  const needsErase = Boolean(peek.data && !encrypted && (peek.data.needs_setup || !peek.data.readable));
+  // The dev review drive isn't a real disk, so there is nothing to erase.
+  const canErase = !isMockUnknownDrive(drive.name);
   return (
     <Card icon={HardDrive} title={title}>
       <div className="flex flex-col gap-2">
         <ValueDisplay label="Size" value={empty ? "Nothing inserted" : formatBytes(drive.size_bytes)} />
-        {empty ? null : <DetectedContents peek={peek} />}
+        {empty ? null : drive.formatting ? <p className="text-primary text-sm">Being erased and set up. This drive is unavailable until that finishes.</p> : <DetectedContents peek={peek} />}
         {drive.read_only ? (
           <Callout tone="warning">Read-only: Luna can&apos;t save files to this drive.</Callout>
         ) : null}
@@ -353,7 +358,14 @@ function DetectedCard({ drive, onOpen }) {
         </CollapsibleSection>
       </div>
       <div className="mt-3">
-        <Button size="sm" variant="outline" disabled={empty || cannotAdd} onClick={() => onOpen(drive)}>Add drive</Button>
+        {drive.formatting ? (
+          // Members never see this card; only an Admin gets the run's id.
+          drive.format_id && <Button size="sm" variant="outline" onClick={() => onErase(drive)}>Show progress</Button>
+        ) : needsErase && canErase ? (
+          <Button size="sm" variant="outline" onClick={() => onErase(drive)}>Erase and add drive</Button>
+        ) : (
+          <Button size="sm" variant="outline" disabled={empty || encrypted} onClick={() => onOpen(drive)}>Add drive</Button>
+        )}
       </div>
     </Card>
   );
@@ -361,16 +373,21 @@ function DetectedCard({ drive, onOpen }) {
 
 const CANT_OPEN_MESSAGE =
   "Luna can't open this drive right now, so its files and free space aren't available.";
+const ERASING_MESSAGE =
+  "Being erased and set up. This drive is unavailable until that finishes.";
 const CANT_OPEN_HINT =
   "Luna knows this drive but couldn't open it. This can happen after it was pulled out without Eject, or when the drive has a problem. Unplug it, wait a few seconds, and plug it back in. If that doesn't help, the drive may be failing.";
 
-function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect }) {
+function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect, onErase }) {
   const location = useLocation();
   const cardRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const unopenable = isUnopenable(drive);
   // Ready means Luna can open it: the storage bar, Browse and the other drive
   // actions apply.
-  const ready = (drive.state === "as_is" || drive.state === "readonly") && !unopenable;
+  const erasing = drive.formatting === true;
+  const ready = (drive.state === "as_is" || drive.state === "readonly") && !unopenable && !erasing;
+  // Erase is for a drive that is plugged in; a missing or ejected one has nothing to erase.
+  const canErase = Boolean(onErase) && drive.state !== "missing" && drive.state !== "ejected";
   const health = useDriveHealth(drive, !!showHealth);
   const summary = useQuery({
     queryKey: ["drive-summary", drive.id],
@@ -431,6 +448,12 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect 
               <Link to={`/files/${drive.id}`}>Browse files</Link>
             </Button>
           )}
+          {canErase && erasing && drive.format_id && (
+            <Button size="sm" variant="outline" onClick={() => onErase(drive)}>Show progress</Button>
+          )}
+          {canErase && !erasing && (
+            <Button size="sm" variant="outline" onClick={() => onErase(drive)}>Erase drive</Button>
+          )}
           {showHealth && ready && (
             <Button size="sm" variant="outline" onClick={() => onEject(drive)}>
               Eject safely
@@ -457,6 +480,7 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect 
 function driveStatusMessage(drive) {
   if (drive.state === "missing") return "Unplugged. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.";
   if (drive.state === "ejected") return "Ejected. Plug it back in to use files again.";
+  if (drive.formatting) return ERASING_MESSAGE;
   if (isUnopenable(drive)) return CANT_OPEN_MESSAGE;
   if (drive.state === "readonly") {
     return "Read only — Luna cannot save here. Usually a filesystem issue, or a write-lock switch on the stick.";
@@ -469,6 +493,7 @@ export default function FilesPage() {
   const { addToast } = useToast();
   const releaseInspectedDrive = useReleaseInspectedDrive();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const drives = useQuery({
@@ -489,6 +514,8 @@ export default function FilesPage() {
   const [actionError, setActionError] = useState(null);
   const [sharingDrive, setSharingDrive] = useState(null);
   const [protectingDrive, setProtectingDrive] = useState(null);
+  // The one erase window. `device` is the disk to look at; `format_id` reopens a run in progress.
+  const [eraseDevice, setEraseDevice] = useState(null);
   const protectAvailable = useCanProtect(isAdmin);
   const unknownDrives = withDevMockDetected(detected.data);
   // The dashboard's "New drive detected" card links to #unrecognized-drives. The drives load after
@@ -644,6 +671,7 @@ export default function FilesPage() {
               onRemove={(d) => setRemoveTarget(d)}
               onShare={(d) => setSharingDrive({ id: d.id, path: "" })}
               onProtect={protectAvailable ? (d) => setProtectingDrive({ id: d.id, path: "" }) : undefined}
+              onErase={isAdmin ? (d) => setEraseDevice({ name: d.device, label: d.label, format_id: d.format_id }) : undefined}
             />
           ))}
         </div>
@@ -664,6 +692,7 @@ export default function FilesPage() {
               <DetectedCard
                 key={drive.name}
                 drive={drive}
+                onErase={(d) => setEraseDevice({ name: d.name, model: d.model, label: d.model || "", format_id: d.format_id })}
                 onOpen={(d) => {
                   inspect.reset();
                   adopt.reset();
@@ -773,6 +802,13 @@ export default function FilesPage() {
         )}
       </ModalCard>
 
+      {eraseDevice && (
+        <FormatDriveFlow
+          device={eraseDevice}
+          onCancel={() => setEraseDevice(null)}
+          onDone={(driveId) => { setEraseDevice(null); navigate(`/files/${driveId}`); }}
+        />
+      )}
       <InspectModal
         open={inspectFor != null}
         drive={inspectFor}
@@ -780,6 +816,14 @@ export default function FilesPage() {
         error={inspect.isError ? "Luna couldn't look at this drive safely. Make sure it's plugged in and try again." : null}
         onClose={() => { releaseInspectedDrive(inspectFor); setInspectFor(null); inspect.reset(); adopt.reset(); }}
         onAdopt={(label) => adopt.mutateAsync({ drive: inspectFor, label })}
+        onErase={async (d) => {
+          // Looking at the drive takes its lock, so let go of the read-only look first.
+          await releaseInspectedDrive(d);
+          setInspectFor(null);
+          inspect.reset();
+          adopt.reset();
+          setEraseDevice({ name: d.name, model: d.model, label: d.model || "", format_id: d.format_id });
+        }}
         adoptError={adoptError}
         adopting={adopt.isPending}
       />

@@ -4,6 +4,7 @@
 import "./files.js";
 import "./backups.js";
 import "./core.js";
+import "./format.js";
 import "./settings.js";
 import "./gallery.js";
 import "./access.js";

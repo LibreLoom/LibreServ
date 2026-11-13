@@ -15,10 +15,20 @@ it("says plainly that Luna can't open an encrypted drive, and offers no way forw
   expect(screen.queryByLabelText("Drive password")).toBeNull();
 });
 
-it("says plainly that a drive that needs setting up can't be added yet", () => {
-  show({ needs_setup: true, readable: true, writable: false, entries: [], folders: 0, files: 0 });
-  expect(screen.getByText("Setting up new drives isn't available in this version yet.")).toBeInTheDocument();
+it("offers to erase a drive that needs setting up, and never adds it as it is", async () => {
+  const onErase = vi.fn(async () => {});
+  render(<InspectModal open drive={drive} result={{ needs_setup: true, readable: true, writable: false, entries: [], folders: 0, files: 0 }} error={null} adoptError={null} adopting={false} onClose={() => {}} onAdopt={() => {}} onErase={onErase} />);
+  expect(screen.getByText(/It has to be erased first/)).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Add this drive" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Protect with a password" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Erase and set up" }));
+  await waitFor(() => expect(onErase).toHaveBeenCalledWith(drive));
+});
+
+it("treats a damaged drive the same way, not as a locked switch", () => {
+  render(<InspectModal open drive={drive} result={{ readable: false, writable: false, entries: [] }} error={null} adoptError={null} adopting={false} onClose={() => {}} onAdopt={() => {}} onErase={() => {}} />);
+  expect(screen.getByText(/It has to be erased first/)).toBeInTheDocument();
+  expect(screen.queryByText(/lock switch/)).toBeNull();
 });
 
 it("adds a readable, writable drive under the name the person chose", async () => {

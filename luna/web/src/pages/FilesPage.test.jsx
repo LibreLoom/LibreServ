@@ -622,7 +622,7 @@ describe("FilesPage", () => {
     expect(screen.getByRole("button", { name: /^Remove$/i })).toBeInTheDocument();
   });
 
-  it("says an installer USB can't be set up yet instead of writing a marker", async () => {
+  it("offers to erase an installer USB instead of writing a marker", async () => {
     const { default: userEvent } = await import("@testing-library/user-event");
     stubDrivesApi({
       fetch: (u) => {
@@ -651,7 +651,8 @@ describe("FilesPage", () => {
     renderPage();
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
-    expect(await screen.findByText("Setting up new drives isn't available in this version yet.", { selector: "p" })).toBeInTheDocument();
+    expect(await screen.findByText(/It has to be erased first/, { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Erase and set up" })).toBeInTheDocument();
     expect(screen.getByText("EFI")).toBeInTheDocument();
     expect(screen.getByText("boot")).toBeInTheDocument();
     expect(screen.getByText("luna.iso")).toBeInTheDocument();
@@ -1003,12 +1004,33 @@ describe("FilesPage", () => {
     expect(screen.queryByText(/at the top of the drive/i)).not.toBeInTheDocument();
   });
 
-  it("says a blank or unreadable drive can't be set up yet", () => {
+  it("says a blank or unreadable drive has to be erased to be used", () => {
     const info = describePeek({
       readable: false, needs_setup: true, has_marker: false, folders: 0, files: 0, sample: [],
     });
     expect(info.value).toBe("Blank, or a format Luna can't read");
-    expect(info.note).toBe("Setting up new drives isn't available in this version yet.");
+    expect(info.note).toBe("Using it with Luna erases what's on it.");
+  });
+
+  it("offers to erase a blank drive, and to show progress on one being erased", async () => {
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives/detected")) {
+          return new Response(JSON.stringify([
+            { name: "sdb", model: "Blank stick", size_bytes: 8000000000, removable: true, usb: true, mount_point: null, fs_type: null },
+            { name: "sdc", model: "Busy stick", size_bytes: 8000000000, removable: true, usb: true, mount_point: null, fs_type: null, formatting: true, format_id: "fr1" },
+          ]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/drives/sdb/peek")) {
+          return new Response(JSON.stringify({ readable: false, needs_setup: true, has_marker: false, folders: 0, files: 0, sample: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    expect(await screen.findByRole("button", { name: "Erase and add drive" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Show progress" })).toBeInTheDocument();
+    expect(screen.getByText(/Being erased and set up/)).toBeInTheDocument();
   });
 
   it("says an encrypted drive can't be opened yet", () => {
@@ -1019,6 +1041,19 @@ describe("FilesPage", () => {
     expect(info.note).toBe("Luna can't open encrypted drives in this version yet.");
   });
 
+
+  it("lets an Admin erase a drive, and shows progress while one is being erased", async () => {
+    stubDrivesApi({ fetch: driveFetch(D1, OK_HEALTH) });
+    const first = renderPage();
+    expect(await screen.findByRole("button", { name: "Erase drive" })).toBeInTheDocument();
+    first.unmount();
+    stubDrivesApi({ fetch: driveFetch({ ...D1, formatting: true, format_id: "fr1" }, OK_HEALTH) });
+    renderPage();
+    expect(await screen.findByRole("button", { name: "Show progress" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Erase drive" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Browse files/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Being erased and set up/)).toBeInTheDocument();
+  });
 
   it("shows a failing drive with a Failing pill and no Ready", async () => {
     stubDrivesApi({ fetch: driveFetch(D1, FAILING_HEALTH) });

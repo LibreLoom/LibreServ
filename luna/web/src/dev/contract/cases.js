@@ -49,6 +49,9 @@ export const CASES = {
   "GET /api/v1/drives/:name/inspect": { url: (w) => { const dev = (w.drives || []).find((d) => d?.device)?.device; return dev ? `/api/v1/drives/${q(dev)}/inspect` : null; } },
   "POST /api/v1/drives/:name/inspect": { url: (w) => { const dev = (w.drives || []).find((d) => d?.device)?.device; return dev ? `/api/v1/drives/${q(dev)}/inspect` : null; }, body: () => ({}) },
 
+  // Erasing a drive. A run exists only in worlds a scenario seeded with one.
+  "GET /api/v1/drive-format/:id": { url: (w) => { const id = Object.keys(w.formatRuns || {})[0]; return id ? `/api/v1/drive-format/${q(id)}` : null; } },
+
   // System
   "GET /health": plain("/health"),
   "GET /api/v1/health": plain("/api/v1/health"),

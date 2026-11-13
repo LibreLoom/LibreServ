@@ -14,6 +14,8 @@ export default function InspectModal({
   error,
   onClose,
   onAdopt,
+  onErase = null,
+  onProtect = null,
   adoptError,
   adopting
 }) {
@@ -31,9 +33,14 @@ export default function InspectModal({
       {!result && !error && <p role="status">Checking the drive…</p>}
       {error && <InlineError>{error}</InlineError>}
       {result && <>
-        {!result.encrypted && !result.needs_setup && <p className="text-sm">{describeInspectSummary(result)}</p>}
+        {!result.encrypted && !result.needs_setup && result.readable && <p className="text-sm">{describeInspectSummary(result)}</p>}
         {result.entries?.length > 0 && <div className="surface-primary rounded-large-element p-4"><p className="font-mono text-sm">On this drive</p><ul className="mt-2 space-y-1">{result.entries.map(entry => <li key={`${entry.kind}:${entry.name}`}><InlinePill>{entry.name}</InlinePill></li>)}</ul>{Number(result.files) + Number(result.folders) > result.entries.length && <p className="text-secondary text-xs mt-2">Showing items at the <TermHint content={ROOT_TERM_HINT} surface="primary">root</TermHint> of the drive.</p>}</div>}
-        {result.encrypted ? <p className="text-sm">Luna can't open encrypted drives in this version yet.</p> : result.needs_setup ? <p className="text-sm">Setting up new drives isn't available in this version yet.</p> : result.readable && result.writable ? <>
+        {result.encrypted ? <p className="text-sm">Luna can't open encrypted drives in this version yet.</p> : result.needs_setup || !result.readable ? <>
+          <p className="text-sm">Luna can't use this drive as it is. It has to be erased first, which removes everything on it.</p>
+          {onErase && <Button variant="accent" onClick={() => Promise.resolve(onErase(drive)).catch(() => {})}>Erase and set up</Button>}
+          {/* Step 4 (encryption) hands off here: protect the drive with a password before the one erase. */}
+          {onErase && onProtect && <Button variant="outline" onClick={() => Promise.resolve(onProtect(drive)).catch(() => {})}>Protect with a password</Button>}
+        </> : result.writable ? <>
           <div className="flex items-center gap-3">
             <Info size={18} className="shrink-0" aria-hidden="true" />
             <p className="text-sm">Adding it writes a <InlinePill>.luna</InlinePill> database file at the <TermHint content={ROOT_TERM_HINT}>root</TermHint> of the drive. Your files are untouched.</p>
