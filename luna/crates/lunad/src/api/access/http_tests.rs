@@ -1170,7 +1170,7 @@ async fn guest_collab_ws_view_only_follows_and_bad_targets_are_refused() {
     let mount = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(mount.path().join("family")).unwrap();
     std::fs::write(mount.path().join("family/plan.drawio"), "<mxfile/>").unwrap();
-    std::fs::write(mount.path().join("family/note.txt"), "hi").unwrap();
+    std::fs::write(mount.path().join("family/note.docx"), "hi").unwrap();
     let (_dir, app) = test_app(mount.path());
     let (cookie, csrf) = admin(&app).await;
     let view = make_link(
@@ -1205,10 +1205,11 @@ async fn guest_collab_ws_view_only_follows_and_bad_targets_are_refused() {
     .await;
     let denied = ws_next_text(&mut res).await.unwrap();
     assert_eq!(denied["type"], "error", "{denied}");
-    // Escapes, non-diagrams, and missing files are refused pre-upgrade.
+    // Escapes, non-document files, and missing files are refused pre-upgrade.
+    // (Text and form files are allowed: a guest joins their room too.)
     let res = ws_connect(addr, &ws(&token, "../plan.drawio"), &[]).await;
     assert_eq!(res.status, 400, "{}", res.head);
-    let res = ws_connect(addr, &ws(&token, "note.txt"), &[]).await;
+    let res = ws_connect(addr, &ws(&token, "note.docx"), &[]).await;
     assert_eq!(res.status, 400, "{}", res.head);
     let res = ws_connect(addr, &ws(&token, "missing.drawio"), &[]).await;
     assert_eq!(res.status, 404, "{}", res.head);
@@ -2006,4 +2007,58 @@ async fn one_link_cannot_drive_another_links_upload() {
     )
     .await;
     assert_eq!(res.status(), 200);
+}
+
+#[tokio::test]
+async fn full_file_link_can_replace_the_shared_file() {
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(mount.path().join("docs")).unwrap();
+    std::fs::write(mount.path().join("docs/plan.txt"), b"old").unwrap();
+    let (_dir, app) = test_app(mount.path());
+    let (cookie, csrf) = admin(&app).await;
+    let body = r#"{"kind":"path","drive_id":"photos","path":"docs/plan.txt","caps":"full"}"#;
+    let token = make_link(&app, &cookie, &csrf, body).await["token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // A full link is the one case where a guest may save over the file the
+    // link points at. The overwrite used to be refused by install_rights,
+    // which treated every link session as an upload-only drop box.
+    let res = call(
+        &app,
+        json_req(
+            Method::POST,
+            &format!("/s/{token}/upload"),
+            r#"{"name":"plan.txt","size":3}"#,
+            None,
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), 200);
+    let up = body_json(res).await;
+    let upload_id = up["upload_id"].as_str().unwrap();
+    let res = call(
+        &app,
+        put_chunk(&format!("/s/{token}/upload/{upload_id}"), b"new"),
+    )
+    .await;
+    assert_eq!(res.status(), 200);
+    let res = call(
+        &app,
+        json_req(
+            Method::POST,
+            &format!("/s/{token}/upload/{upload_id}/complete?overwrite=1"),
+            "{}",
+            None,
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), 200);
+    assert_eq!(
+        std::fs::read(mount.path().join("docs/plan.txt")).unwrap(),
+        b"new"
+    );
 }

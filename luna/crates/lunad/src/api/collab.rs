@@ -277,10 +277,10 @@ fn guest_collab_upgrade(
     ws: WebSocketUpgrade,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
     let rel = crate::api::access::link_file(state, link, &query.path)?;
-    if !is_collab_doc_name(&rel) {
+    if !is_guest_collab_doc_name(&rel) {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            "Live editing on a shared link is for diagram and whiteboard files.",
+            "Live editing on a shared link is for text, form, diagram and whiteboard files.",
         ));
     }
     let can_write = link.caps & crate::access::CAP_EDIT != 0;
@@ -320,6 +320,22 @@ fn is_whiteboard_name(path: &str) -> bool {
 /// Excalidraw whiteboards. Anything else stays member-only.
 fn is_collab_doc_name(path: &str) -> bool {
     is_diagram_name(path) || is_whiteboard_name(path)
+}
+
+/// Text-ish files the web editor opens in the same shared-document shell.
+fn is_text_doc_name(path: &str) -> bool {
+    let base = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
+    base.ends_with(".txt")
+        || base.ends_with(".md")
+        || base.ends_with(".markdown")
+        || base.ends_with(".lunaform")
+}
+
+/// Rooms a link guest may join. Guests get no office room: the collaborative
+/// editor is signed-in only. Text and forms use the same Yjs room as members,
+/// with writes still gated by CAP_EDIT.
+fn is_guest_collab_doc_name(path: &str) -> bool {
+    is_collab_doc_name(path) || is_text_doc_name(path)
 }
 
 /// A diagram or whiteboard file just hit disk (or the dirty cache a reader
@@ -574,8 +590,8 @@ mod tests {
         assert_eq!(member_caps_now(&state, "guest:l1", "d", "a.drawio"), None);
     }
 
-    /// The guest-room allowlist: diagrams and whiteboards only. A guest
-    /// must never reach a text or office room.
+    /// The guest-room allowlist: text, forms, diagrams and whiteboards.
+    /// A guest must never reach an office room.
     #[test]
     fn collab_doc_names_gate_the_guest_room() {
         for ok in [
@@ -584,18 +600,20 @@ mod tests {
             "arch.drawio.png",
             "sketch.excalidraw",
             "dir/Plan.EXCALIDRAW",
+            "notes.txt",
+            "docs/readme.md",
+            "forms/rsvp.lunaform",
         ] {
-            assert!(is_collab_doc_name(ok), "{ok}");
+            assert!(is_guest_collab_doc_name(ok), "{ok}");
         }
         for no in [
-            "notes.txt",
             "a.docx",
             "data.json",
             "a.drawio.zip",
             "excalidraw.png",
             "a.svg",
         ] {
-            assert!(!is_collab_doc_name(no), "{no}");
+            assert!(!is_guest_collab_doc_name(no), "{no}");
         }
     }
 }

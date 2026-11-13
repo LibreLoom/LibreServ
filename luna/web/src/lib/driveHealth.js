@@ -44,8 +44,6 @@
 const COPY_NOW = "Copy your files to another drive now.";
 const KEEP_AND_BACK_UP = "Keep using it, and make sure it's backed up.";
 const WATCH_SUMMARY = "Still working. Keep using it, and make sure its files are backed up.";
-const NO_REPORT_HINT =
-  "Hard drives keep a health report that Luna reads. Some USB cases don't pass it on. Luna can still use the drive, but it can't warn you early.";
 
 /**
  * @param {HealthSignal[]} signals
@@ -126,15 +124,10 @@ export function describeDriveHealth(health) {
     };
   }
 
-  return {
-    verdict: "unknown",
-    pill: { variant: "muted", label: "Health unknown" },
-    summary: "Luna couldn't read this hard drive's health report.",
-    hint: NO_REPORT_HINT,
-    needsYou: null,
-    rows: buildRows(health, signals),
-    steps: [],
-  };
+  // A drive whose report Luna can't read is not a fault: many USB cases never
+  // pass the report on, and the drive still works. Say nothing rather than
+  // warn someone about a drive that is probably fine.
+  return null;
 }
 
 /** @param {HealthSignal | undefined} top */

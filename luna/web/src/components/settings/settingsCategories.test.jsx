@@ -6,35 +6,27 @@ vi.mock("./categories/RemoteCategory.jsx", () => ({ default: () => <section aria
 
 import { visibleCategories } from "./settingsCategories.js";
 import { CATEGORY_COMPONENTS } from "./categoryComponents.js";
-import CloudBackupCategory from "./categories/CloudBackupCategory.jsx";
-import RemoteCategory from "./categories/RemoteCategory.jsx";
+import LunaConnectCategory from "./categories/LunaConnectCategory.jsx";
 
 const ids = (isAdmin, connectActive) => visibleCategories(isAdmin, connectActive).map((c) => c.id);
 
 describe("visibleCategories", () => {
-  it("Member with Connect off sees Cloud backup (the recovery phrase card) but not Luna Connect", () => {
-    expect(ids(false, false)).toContain("cloud_backup");
-    expect(ids(false, false)).not.toContain("luna_connect");
+  it("gives everyone one Luna Connect entry, with cloud backup inside", () => {
+    for (const isAdmin of [false, true]) {
+      expect(ids(isAdmin, false)).toContain("luna_connect");
+      expect(ids(isAdmin, true)).toContain("luna_connect");
+      expect(ids(isAdmin, false)).not.toContain("cloud_backup");
+    }
   });
 
-  it("Admin with Connect off sees Cloud backup but not Luna Connect", () => {
-    expect(ids(true, false)).toContain("cloud_backup");
-    expect(ids(true, false)).not.toContain("luna_connect");
+  it("still hides Admin-only categories from Members", () => {
+    expect(ids(false, true)).not.toContain("users");
+    expect(ids(false, true)).not.toContain("about");
+    expect(ids(true, true)).toContain("users");
   });
 
-  it("Member with Connect on sees Cloud backup only", () => {
-    const list = ids(false, true);
-    expect(list).toContain("cloud_backup");
-    expect(list).not.toContain("luna_connect");
-  });
-
-  it("Admin with Connect on sees both, Cloud backup first and then Luna Connect", () => {
-    const list = ids(true, true);
-    expect(list.slice(0, 2)).toEqual(["cloud_backup", "luna_connect"]);
-  });
-
-  it("defaults to Connect off when the flag is left out", () => {
-    expect(visibleCategories(true)).toEqual(visibleCategories(true, false));
+  it("keeps Luna Connect before Appearance", () => {
+    expect(ids(true, true).slice(0, 2)).toEqual(["luna_connect", "appearance"]);
   });
 
   it("never offers the retired External services category", () => {
@@ -45,17 +37,16 @@ describe("visibleCategories", () => {
 });
 
 describe("category components", () => {
-  it("maps Cloud backup and Luna Connect to their own cards", () => {
-    expect(CATEGORY_COMPONENTS.cloud_backup).toBe(CloudBackupCategory);
-    expect(CATEGORY_COMPONENTS.luna_connect).toBe(RemoteCategory);
+  it("maps the merged entry and the old Cloud backup id to the same component", () => {
+    expect(CATEGORY_COMPONENTS.cloud_backup).toBe(LunaConnectCategory);
+    expect(CATEGORY_COMPONENTS.luna_connect).toBe(LunaConnectCategory);
     expect(CATEGORY_COMPONENTS.external_services).toBeUndefined();
   });
 
-  it("draws a card for each new category", () => {
-    const Cloud = CATEGORY_COMPONENTS.cloud_backup;
+  it("draws the connect card and the cloud backup card together", () => {
     const Connect = CATEGORY_COMPONENTS.luna_connect;
-    render(<><Cloud /><Connect /></>);
-    expect(screen.getByRole("region", { name: "cloud backup" })).toBeTruthy();
+    render(<Connect />);
     expect(screen.getByRole("region", { name: "luna connect" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "cloud backup" })).toBeTruthy();
   });
 });

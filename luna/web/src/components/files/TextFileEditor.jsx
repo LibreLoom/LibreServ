@@ -23,7 +23,7 @@ const AUTOSAVE_RETRY_MS = 5_000;
 const AUTOSAVE_TICK_MS = 250;
 
 const HYDRATE_TIMEOUT_MS = 10_000;
-const HYDRATE_POLL_MS = 50;
+const HYDRATE_POLL_MS = 10;
 
 /**
  * Fullscreen plaintext/markdown editor — the writable counterpart to the

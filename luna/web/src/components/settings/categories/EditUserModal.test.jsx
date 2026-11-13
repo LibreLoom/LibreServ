@@ -2,11 +2,8 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { AuthProvider } from "../context/AuthContext";
-import { ThemeProvider } from "@libreloom/ui/context/ThemeContext.jsx";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
-import EditUserPage from "./EditUserPage";
+import EditUserModal from "./EditUserModal.jsx";
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -15,10 +12,7 @@ function jsonResponse(body, status = 200) {
   });
 }
 
-const USERS = [
-  { id: "1", username: "demouser", display_name: "Demo", role: "admin" },
-  { id: "2", username: "alex", display_name: "Alex", role: "user" },
-];
+const ALEX = { id: "2", username: "alex", display_name: "Alex", role: "user" };
 
 let patches;
 let deletes;
@@ -31,12 +25,6 @@ function stubFetch() {
     vi.fn(async (url, init) => {
       const u = String(url);
       const method = init?.method || "GET";
-      if (u.endsWith("/api/v1/auth/me")) {
-        return jsonResponse({ id: "1", username: "demouser", role: "admin", display_name: "Demo" });
-      }
-      if (u.endsWith("/api/v1/auth/status")) return jsonResponse({ has_admin: true });
-      if (u.endsWith("/api/v1/setup")) return jsonResponse({ setup_completed: true });
-      if (u.endsWith("/api/v1/users") && method === "GET") return jsonResponse(USERS);
       if (u.endsWith("/private-count")) return jsonResponse({ count: 2 });
       if (u.includes("/api/v1/users/") && method === "DELETE") {
         deletes.push(u);
@@ -51,27 +39,19 @@ function stubFetch() {
   );
 }
 
-function renderAt(id) {
+function renderModal(onClose = vi.fn()) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  render(
     <ToastProvider>
-      <MemoryRouter initialEntries={[`/settings/users/${id}`]}>
-        <ThemeProvider>
-          <QueryClientProvider client={client}>
-            <AuthProvider>
-              <Routes>
-                <Route path="/settings/users/:id" element={<EditUserPage />} />
-                <Route path="/settings" element={<div>SETTINGS PAGE USERS LIST</div>} />
-              </Routes>
-            </AuthProvider>
-          </QueryClientProvider>
-        </ThemeProvider>
-      </MemoryRouter>
+      <QueryClientProvider client={client}>
+        <EditUserModal target={ALEX} onClose={onClose} />
+      </QueryClientProvider>
     </ToastProvider>,
   );
+  return onClose;
 }
 
-describe("EditUserPage", () => {
+describe("EditUserModal", () => {
   beforeEach(() => {
     window.matchMedia = (query) => ({
       matches: false,
@@ -90,17 +70,17 @@ describe("EditUserPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("is a full page with profile, role, password, and remove sections", async () => {
-    renderAt("2");
+  it("opens as a modal with profile, role, password and remove sections", async () => {
+    renderModal();
     expect(await screen.findByRole("heading", { name: /Edit Alex/ })).toBeInTheDocument();
     for (const title of ["Profile", "Role", "Password", "Remove from this Luna"]) {
       expect(screen.getByText(title)).toBeInTheDocument();
     }
   });
 
-  it("saves only the fields that changed, then returns to Users", async () => {
+  it("saves only the fields that changed, then closes", async () => {
     const user = userEvent.setup();
-    renderAt("2");
+    const onClose = renderModal();
     const username = await screen.findByLabelText(/Username/);
     const save = screen.getByRole("button", { name: /Save changes/ });
     expect(save).toBeDisabled();
@@ -113,12 +93,12 @@ describe("EditUserPage", () => {
     await waitFor(() => expect(patches).toHaveLength(1));
     expect(patches[0].url).toMatch(/\/api\/v1\/users\/2$/);
     expect(patches[0].body).toEqual({ username: "alex.k" });
-    expect(await screen.findByText(/USERS LIST/)).toBeInTheDocument();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
   it("checks a new password and warns it signs them out", async () => {
     const user = userEvent.setup();
-    renderAt("2");
+    renderModal();
     await user.type(await screen.findByLabelText(/New password/i), "hunter22hunter1");
     expect(screen.getByText(/Saving signs Alex out on every device/)).toBeInTheDocument();
     expect(screen.getByText("✓ Acceptable")).toBeInTheDocument();
@@ -127,7 +107,7 @@ describe("EditUserPage", () => {
 
   it("blocks an invalid username before saving", async () => {
     const user = userEvent.setup();
-    renderAt("2");
+    renderModal();
     const username = await screen.findByLabelText(/Username/);
     await user.clear(username);
     await user.type(username, "a b");
@@ -135,25 +115,14 @@ describe("EditUserPage", () => {
     expect(screen.getByRole("button", { name: /Save changes/ })).toBeDisabled();
   });
 
-  it("sends you to Settings to edit your own account", async () => {
-    renderAt("1");
-    expect(await screen.findByText(/SETTINGS PAGE/)).toBeInTheDocument();
-  });
-
-  it("asks before removing someone, then returns to Users", async () => {
+  it("asks before removing someone, then closes", async () => {
     const user = userEvent.setup();
-    renderAt("2");
+    const onClose = renderModal();
     await user.click(await screen.findByRole("button", { name: /^Remove Alex$/ }));
     expect(await screen.findByText(/Their 2 private folders stay on the drives/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^Remove$/ }));
     await waitFor(() => expect(deletes).toHaveLength(1));
     expect(deletes[0]).toMatch(/\/api\/v1\/users\/2$/);
-    expect(await screen.findByText(/USERS LIST/)).toBeInTheDocument();
-  });
-
-  it("explains when the person no longer exists", async () => {
-    renderAt("missing");
-    expect(await screen.findByText(/This person isn't on this Luna/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Back to Users/ })).toHaveAttribute("href", "/settings#users");
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 });

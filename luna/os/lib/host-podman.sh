@@ -51,5 +51,13 @@ luna_os_image_current() {
 	_f="$_dist/luna-os-${ARCH:-x86_64}.img.xz"
 	[ -z "${LUNA_OS_FORCE:-}" ] || return 1
 	[ -s "$_f" ] && [ -s "$_f.sha256" ] && [ -s "$_f.inputs" ] || return 1
-	[ "$(cat "$_f.inputs")" = "$(luna_os_input_hash)" ]
+	[ "$(cat "$_f.inputs")" = "$(luna_os_input_hash)" ] || return 1
+	# The editor packs are inside the image but not in the OS input hash, so a
+	# pack built after the image leaves that image stale.
+	for _p in eurooffice-pack.tar.zst drawio-pack.tar.zst; do
+		if [ -f "$_dist/$_p" ] && [ ! "$_f" -nt "$_dist/$_p" ]; then
+			return 1
+		fi
+	done
+	return 0
 }

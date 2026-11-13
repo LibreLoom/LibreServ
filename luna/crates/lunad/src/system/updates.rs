@@ -1,11 +1,14 @@
-//! Software updates from the signed Luna feed (`luna/<channel>.json`).
+//! System updates from the signed Luna feed (`luna/<channel>.json`).
 //!
 //! The feed format and its rules live in `luna_feed` (spec:
-//! `infra/ci-source/internal/feed/README.md`). Two parts matter here: `lunad` (the daemon,
-//! installed under LUNA_DATA) and `os` (an `.img.xz` slot image). When the
-//! OS part's SHA256 differs from the hash stored on LUNA_DATA, that image is
-//! decompressed onto the inactive A/B slot in the same Install update
-//! (tryboot). The Settings UI does not differentiate OS vs software.
+//! `infra/ci-source/internal/feed/README.md`). A luna release has one part,
+//! `os`: an `.img.xz` slot image holding the whole system (lunad,
+//! luna-console, cloudflared and the editor packs). When its SHA256 differs
+//! from the hash stored on LUNA_DATA, the image is decompressed onto the
+//! inactive A/B slot (tryboot) and the box reboots into it.
+//!
+//! Nothing is installed onto the data partition: it holds data only. There is
+//! no daemon-only update, because the daemon is part of the image.
 //!
 //! Apply is tap-to-update only — never silent.
 
@@ -40,8 +43,8 @@ const BOOT_OK_MARKER: &str = "/run/luna/boot-ok";
 /// Newest feed `published` seen per unit + channel (replay protection).
 const FEED_SEEN_FILE: &str = "update-feed-seen.json";
 /// OS slot images are streamed to disk, never held in RAM. Cap (on the
-/// decompressed image) matches the 1280 MiB A/B slot plus a little headroom.
-const OS_IMAGE_MAX_BYTES: u64 = 1536 * 1024 * 1024;
+/// decompressed image) matches the 2048 MiB A/B slot plus a little headroom.
+const OS_IMAGE_MAX_BYTES: u64 = 2304 * 1024 * 1024;
 
 /// Committed Luna minisign public key (`keys/luna.minisign.pub`).
 /// This is Luna’s production trust root (separate from Sol).
@@ -99,6 +102,18 @@ pub struct UpdateInfo {
     /// True when applying will (or did) write an OS slot and reboot the box.
     #[serde(default)]
     pub reboot_required: bool,
+    /// The feed's version is newer than the running one. Absent = newer.
+    #[serde(default = "true_value")]
+    pub feed_is_newer: bool,
+    /// The offer follows a change of update source: this build is what the
+    /// source the Admin set publishes, not necessarily an upgrade. Stays set
+    /// until that build is installed.
+    #[serde(default)]
+    pub from_new_source: bool,
+}
+
+fn true_value() -> bool {
+    true
 }
 
 pub trait HttpGet: Send + Sync {
@@ -116,15 +131,6 @@ pub trait HttpGet: Send + Sync {
 }
 
 pub trait Installer: Send + Sync {
-    fn install_lunad(&self, bytes: &[u8]) -> Result<(), UpdateError>;
-
-    /// Install from a file already streamed to disk. Default reads into memory
-    /// — production overrides this so a 2 GiB box never holds the binary in RAM.
-    fn install_lunad_file(&self, path: &Path) -> Result<(), UpdateError> {
-        let bytes = std::fs::read(path).map_err(|e| UpdateError::Other(e.to_string()))?;
-        self.install_lunad(&bytes)
-    }
-
     /// `bytes` is the whole `.img.xz` as published.
     fn install_os_image(&self, bytes: &[u8]) -> Result<(), UpdateError> {
         let _ = bytes;
@@ -247,8 +253,10 @@ impl HttpGet for UreqHttp {
     }
 }
 
-/// Install lunad under `$data_dir/bin/` (LUNA_DATA) and OS images into the
-/// inactive A/B slot. OpenRC's `luna-run` prefers the data-dir binary.
+/// Install OS images into the inactive A/B slot.
+///
+/// Nothing else is installed: lunad itself, cloudflared and the editor packs
+/// all live in the OS image, so an update is an image update.
 pub struct DataDirInstaller {
     pub data_dir: PathBuf,
 }
@@ -263,37 +271,9 @@ impl DataDirInstaller {
     fn hash_path(&self) -> PathBuf {
         self.data_dir.join(OS_HASH_FILE)
     }
-
-    fn lunad_path(&self) -> PathBuf {
-        self.data_dir.join("bin").join("lunad")
-    }
 }
 
 impl Installer for DataDirInstaller {
-    fn install_lunad(&self, bytes: &[u8]) -> Result<(), UpdateError> {
-        let bin_dir = self.data_dir.join("bin");
-        std::fs::create_dir_all(&bin_dir).map_err(|e| UpdateError::Other(e.to_string()))?;
-        let exec = self.lunad_path();
-        let tmp = exec.with_extension("update-tmp");
-        {
-            let mut f =
-                std::fs::File::create(&tmp).map_err(|e| UpdateError::Other(e.to_string()))?;
-            f.write_all(bytes)
-                .map_err(|e| UpdateError::Other(e.to_string()))?;
-            f.sync_all()
-                .map_err(|e| UpdateError::Other(e.to_string()))?;
-        }
-        swap_exec(&exec, &tmp)
-    }
-
-    fn install_lunad_file(&self, src: &Path) -> Result<(), UpdateError> {
-        let bin_dir = self.data_dir.join("bin");
-        std::fs::create_dir_all(&bin_dir).map_err(|e| UpdateError::Other(e.to_string()))?;
-        let exec = self.lunad_path();
-        let staged = stage_beside(src, &exec)?;
-        swap_exec(&exec, &staged)
-    }
-
     fn install_os_image(&self, bytes: &[u8]) -> Result<(), UpdateError> {
         let (part, inactive) = inactive_slot_device()?;
         write_os_slot(&RealSlotOps, &part, inactive, || {
@@ -400,101 +380,6 @@ impl Installer for DataDirInstaller {
         std::fs::rename(&tmp, &path).map_err(|e| UpdateError::Other(e.to_string()))?;
         Ok(())
     }
-}
-
-fn chmod_755(path: &Path) -> Result<(), UpdateError> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(path)
-            .map_err(|e| UpdateError::Other(e.to_string()))?
-            .permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(path, perms).map_err(|e| UpdateError::Other(e.to_string()))?;
-    }
-    Ok(())
-}
-
-/// Place `src` next to `dest` as `dest.update-tmp`, copying across devices
-/// when rename would fail.
-fn stage_beside(src: &Path, dest: &Path) -> Result<PathBuf, UpdateError> {
-    let staged = dest.with_extension("update-tmp");
-    if src == staged {
-        return Ok(staged);
-    }
-    if std::fs::rename(src, &staged).is_err() {
-        std::fs::copy(src, &staged).map_err(|e| UpdateError::Other(e.to_string()))?;
-        let _ = std::fs::remove_file(src);
-    }
-    Ok(staged)
-}
-
-/// Swap `tmp` into `exec` with renameat2 when possible so a power cut cannot
-/// leave no binary at `exec`.
-fn swap_exec(exec: &Path, tmp: &Path) -> Result<(), UpdateError> {
-    chmod_755(tmp)?;
-    let backup = PathBuf::from(format!("{}.old", exec.display()));
-    if exec.exists() {
-        #[cfg(unix)]
-        {
-            use std::ffi::CString;
-            use std::os::unix::ffi::OsStrExt;
-            let to_c = |p: &Path| -> Result<CString, UpdateError> {
-                CString::new(p.as_os_str().as_bytes())
-                    .map_err(|_| UpdateError::Other("NUL byte in binary path".into()))
-            };
-            let exec_c = to_c(exec)?;
-            let tmp_c = to_c(tmp)?;
-            #[cfg(target_os = "linux")]
-            let rc = {
-                // musl 1.2.x has SYS_renameat2 but no renameat2() wrapper; use syscall.
-                const RENAME_EXCHANGE: libc::c_uint = 2;
-                unsafe {
-                    libc::syscall(
-                        libc::SYS_renameat2,
-                        libc::AT_FDCWD,
-                        exec_c.as_ptr(),
-                        libc::AT_FDCWD,
-                        tmp_c.as_ptr(),
-                        RENAME_EXCHANGE,
-                    )
-                }
-            };
-            #[cfg(target_os = "macos")]
-            let rc = {
-                // macOS: same atomic swap via renamex_np(RENAME_SWAP).
-                unsafe { libc::renamex_np(exec_c.as_ptr(), tmp_c.as_ptr(), libc::RENAME_SWAP) }
-            };
-            #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
-            let rc = -1;
-            if rc == 0 {
-                let _ = std::fs::remove_file(&backup);
-                let _ = std::fs::rename(tmp, &backup);
-            } else {
-                std::fs::rename(exec, &backup).map_err(|e| UpdateError::Other(e.to_string()))?;
-                if let Err(e) = std::fs::rename(tmp, exec) {
-                    let _ = std::fs::rename(&backup, exec);
-                    return Err(UpdateError::Other(e.to_string()));
-                }
-            }
-        }
-        #[cfg(not(unix))]
-        {
-            std::fs::rename(exec, &backup).map_err(|e| UpdateError::Other(e.to_string()))?;
-            if let Err(e) = std::fs::rename(tmp, exec) {
-                let _ = std::fs::rename(&backup, exec);
-                return Err(UpdateError::Other(e.to_string()));
-            }
-        }
-    } else {
-        std::fs::rename(tmp, exec).map_err(|e| UpdateError::Other(e.to_string()))?;
-    }
-    if let Some(parent) = exec.parent()
-        && let Ok(dir) = std::fs::File::open(parent)
-    {
-        let _ = dir.sync_all();
-    }
-    Ok(())
 }
 
 /// What `settle_pending` decided.
@@ -1110,6 +995,23 @@ pub fn load_settings(conn: &Connection) -> Option<UpdateSettings> {
     Some(settings)
 }
 
+/// The source Luna actually uses: every stored field with an empty value falls
+/// back to the env/compiled-in default. A partially stored row (an older
+/// client sent only the channel) still resolves to a complete source.
+pub fn effective_settings(conn: &Connection) -> UpdateSettings {
+    let stored = load_settings(conn).unwrap_or_default();
+    let defaults = default_settings();
+    UpdateSettings {
+        feed_url: first_nonempty(&stored.feed_url, &defaults.feed_url),
+        channel: first_nonempty(&stored.channel, &defaults.channel),
+        keys: if stored.keys.is_empty() {
+            defaults.keys
+        } else {
+            stored.keys
+        },
+    }
+}
+
 /// Persist the update source. An all-default body deletes the row so the DB
 /// stays clean and future compiled-in default changes apply.
 pub fn save_settings(conn: &Connection, settings: &UpdateSettings) -> anyhow::Result<()> {
@@ -1153,13 +1055,29 @@ fn normalize_pub_keys(entries: &[String]) -> Result<Vec<String>, &'static str> {
 /// Validate an admin-supplied update source. Returns a plain-language reason
 /// the save was refused, ready to show in the UI.
 pub fn validate_settings(settings: &UpdateSettings) -> Result<Vec<String>, &'static str> {
+    validate_settings_against(settings, None)
+}
+
+/// Validate a save, but accept a feed address that is unchanged from the one
+/// Luna is already using. Re-resolving an existing public feed can fail on a
+/// network whose DNS answers with a LAN address; changing only the channel
+/// must not be blocked by that.
+pub fn validate_settings_against(
+    settings: &UpdateSettings,
+    current_feed_url: Option<&str>,
+) -> Result<Vec<String>, &'static str> {
     let feed_url = settings.feed_url.trim();
     if feed_url.is_empty() {
         return Err(
             "The feed address needs a value. Put in the old address if you want to keep it.",
         );
     }
-    crate::system::update_host::validate_feed_url_host(feed_url)?;
+    let unchanged = current_feed_url
+        .map(|current| current.trim().trim_end_matches('/') == feed_url.trim_end_matches('/'))
+        .unwrap_or(false);
+    if !unchanged {
+        crate::system::update_host::validate_feed_url_host(feed_url)?;
+    }
     if !CHANNELS.contains(&settings.channel.trim()) {
         return Err("Pick Stable or Beta as the update channel.");
     }
@@ -1173,9 +1091,7 @@ pub fn validate_settings(settings: &UpdateSettings) -> Result<Vec<String>, &'sta
 /// What one successful feed read tells us.
 struct Resolved {
     info: UpdateInfo,
-    lunad: Part,
     os: Option<Part>,
-    lunad_newer: bool,
     os_needed: bool,
 }
 
@@ -1184,6 +1100,11 @@ pub struct UpdateService {
     installer: Box<dyn Installer>,
     active: Mutex<ActiveSource>,
     cache: Mutex<Option<(Instant, UpdateInfo)>>,
+    /// Set when the admin points Luna at a different feed address: the next
+    /// check takes that source at its word instead of comparing it with what
+    /// the previous source published, and offers its build even when its
+    /// version is not newer. Cleared once that build is installed.
+    adopt_source: Mutex<bool>,
 }
 
 impl UpdateService {
@@ -1200,18 +1121,13 @@ impl UpdateService {
     /// Build the service from persisted settings, falling back to env vars and
     /// compiled-in defaults for every unset field.
     pub fn from_db(conn: &Connection, data_dir: &Path) -> Self {
-        let stored = load_settings(conn).unwrap_or_default();
-        let d = default_settings();
+        let effective = effective_settings(conn);
         Self::with_keys(
             Box::new(UreqHttp),
             Box::new(DataDirInstaller::new(data_dir)),
-            first_nonempty(&stored.feed_url, &d.feed_url),
-            first_nonempty(&stored.channel, &d.channel),
-            if stored.keys.is_empty() {
-                d.keys
-            } else {
-                stored.keys
-            },
+            effective.feed_url,
+            effective.channel,
+            effective.keys,
         )
     }
 
@@ -1244,6 +1160,7 @@ impl UpdateService {
             installer,
             active: Mutex::new(active_from(feed_url, channel, keys)),
             cache: Mutex::new(None),
+            adopt_source: Mutex::new(false),
         }
     }
 
@@ -1305,8 +1222,14 @@ impl UpdateService {
             keys
         };
         warn_on_custom_keys(&keys);
+        let moved = self.active.lock().unwrap().feed_url != feed_url;
         *self.active.lock().unwrap() = active_from(feed_url, channel, keys);
         *self.cache.lock().unwrap() = None;
+        if moved {
+            // A different feed address is a different lineage of releases, not
+            // a replay of this one. Offer what it publishes straight away.
+            *self.adopt_source.lock().unwrap() = true;
+        }
     }
 
     pub fn check(&self, current_version: &str, force: bool) -> Result<UpdateInfo, UpdateError> {
@@ -1349,6 +1272,11 @@ impl UpdateService {
             .installer
             .read_feed_seen(UNIT, &src.channel)
             .unwrap_or_default();
+        let adopt = *self.adopt_source.lock().unwrap();
+        // The admin pointed Luna at a different feed address: don't hold it to
+        // the newest publish date recorded for the old one, and offer its
+        // build even when the version isn't higher.
+        let newest_seen = if adopt { "" } else { seen.as_str() };
         let verified = feed::check(
             &body,
             &sig,
@@ -1356,16 +1284,16 @@ impl UpdateService {
             &feed::Request {
                 unit: UNIT,
                 channel: &src.channel,
-                part: "lunad",
+                part: "os",
                 os: FEED_OS,
                 arch,
                 installed_version: current_version,
-                newest_published_seen: &seen,
+                newest_published_seen: newest_seen,
             },
         )
         .map_err(map_feed_error)?;
 
-        if verified.feed.published.as_str() > seen.as_str()
+        if (adopt || verified.feed.published.as_str() > seen.as_str())
             && let Err(e) =
                 self.installer
                     .write_feed_seen(UNIT, &src.channel, &verified.feed.published)
@@ -1375,8 +1303,10 @@ impl UpdateService {
 
         let os = feed::select_part(&verified.feed.parts, "os", FEED_OS, arch).cloned();
         // Never move to an older release: an OS image only counts when the
-        // feed is not behind what is running.
-        let os_needed = !verified.older
+        // feed is not behind what is running. A source the admin just chose is
+        // taken as-is, so its image counts even when its version is lower.
+        let feed_offer = verified.newer || adopt;
+        let os_needed = (!verified.older || adopt)
             && match (&os, self.installer.read_os_hash()) {
                 (Some(part), Some(local)) => {
                     let same =
@@ -1394,17 +1324,17 @@ impl UpdateService {
         let info = UpdateInfo {
             current_version: current_version.to_string(),
             latest_version: verified.feed.version.clone(),
-            update_available: verified.newer || os_needed,
+            update_available: feed_offer || os_needed,
             release_notes: verified.feed.notes.clone(),
             checksum: verified.part.sha256.clone(),
             binary_name: verified.part.file.clone(),
             reboot_required: os_needed,
+            feed_is_newer: verified.newer,
+            from_new_source: adopt,
         };
         Ok(Resolved {
             info,
-            lunad: verified.part,
             os,
-            lunad_newer: verified.newer,
             os_needed,
         })
     }
@@ -1414,16 +1344,6 @@ impl UpdateService {
         let mut info = resolved.info.clone();
         if !info.update_available {
             return Err(UpdateError::NoneAvailable);
-        }
-
-        if resolved.lunad_newer {
-            let max = crate::budget::limits().update_download_bytes;
-            let tmp = self.download_verified(&resolved.lunad, max)?;
-            if let Err(e) = self.installer.install_lunad_file(&tmp) {
-                let _ = std::fs::remove_file(&tmp);
-                return Err(e);
-            }
-            let _ = std::fs::remove_file(&tmp);
         }
 
         if resolved.os_needed
@@ -1562,7 +1482,6 @@ mod tests {
     /// Records what the service installed and remembers state in memory.
     #[derive(Default)]
     struct RecInstaller {
-        lunad: Mutex<Vec<u8>>,
         os: Mutex<Vec<u8>>,
         os_hash: Mutex<Option<String>>,
         os_pending: Mutex<Option<String>>,
@@ -1571,10 +1490,6 @@ mod tests {
     }
 
     impl Installer for Arc<RecInstaller> {
-        fn install_lunad(&self, bytes: &[u8]) -> Result<(), UpdateError> {
-            *self.lunad.lock().unwrap() = bytes.to_vec();
-            Ok(())
-        }
         fn install_os_image(&self, bytes: &[u8]) -> Result<(), UpdateError> {
             *self.os.lock().unwrap() = bytes.to_vec();
             Ok(())
@@ -1623,15 +1538,14 @@ mod tests {
             .into_bytes()
     }
 
-    /// A feed with a lunad part and an optional os part, both downloadable
-    /// from `http://dl.test/<file>`.
+    /// A feed with the one part a Luna release ships: the OS image, which
+    /// carries the daemon and the editor packs inside it.
     struct Release<'a> {
         version: &'a str,
         published: &'a str,
         channel: &'a str,
         unit: &'a str,
-        lunad: &'a [u8],
-        os: Option<&'a [u8]>,
+        os: &'a [u8],
     }
 
     impl Default for Release<'_> {
@@ -1641,8 +1555,7 @@ mod tests {
                 published: "2026-10-12T14:03:00Z",
                 channel: "stable",
                 unit: "luna",
-                lunad: b"lunad-v0.4.0",
-                os: None,
+                os: b"os-image-v1",
             }
         }
     }
@@ -1650,18 +1563,11 @@ mod tests {
     impl Release<'_> {
         fn feed_json(&self) -> String {
             let arch = feed_arch();
-            let mut parts = vec![format!(
-                r#"{{"name":"lunad","os":"linux","arch":"{arch}","file":"lunad-linux-amd64-musl","size":{},"sha256":"{}","urls":["http://dl.test/lunad"]}}"#,
-                self.lunad.len(),
-                sha(self.lunad)
+            let parts = [format!(
+                r#"{{"name":"os","os":"linux","arch":"{arch}","file":"luna-os-x86_64.img.xz","size":{},"sha256":"{}","urls":["http://dl.test/os"]}}"#,
+                self.os.len(),
+                sha(self.os)
             )];
-            if let Some(os) = self.os {
-                parts.push(format!(
-                    r#"{{"name":"os","os":"linux","arch":"{arch}","file":"luna-os-x86_64.img.xz","size":{},"sha256":"{}","urls":["http://dl.test/os"]}}"#,
-                    os.len(),
-                    sha(os)
-                ));
-            }
             format!(
                 r#"{{"format":1,"unit":"{}","channel":"{}","version":"{}","published":"{}","notes":"notes for {}","parts":[{}]}}"#,
                 self.unit,
@@ -1689,10 +1595,7 @@ mod tests {
             let mut map = HashMap::new();
             map.insert(format!("{FEED}/luna/stable.json"), (200, body.clone()));
             map.insert(format!("{FEED}/luna/stable.json.minisig"), (200, sig));
-            map.insert("http://dl.test/lunad".into(), (200, self.lunad.to_vec()));
-            if let Some(os) = self.os {
-                map.insert("http://dl.test/os".into(), (200, os.to_vec()));
-            }
+            map.insert("http://dl.test/os".into(), (200, self.os.to_vec()));
             let installer = Arc::new(RecInstaller::default());
             let svc = UpdateService::with_keys(
                 Box::new(MapHttp { map }),
@@ -1740,8 +1643,8 @@ mod tests {
         assert!(info.update_available);
         assert!(!info.reboot_required);
         assert_eq!(info.release_notes, "notes for 0.4.0");
-        assert_eq!(info.checksum, sha(b"lunad-v0.4.0"));
-        assert_eq!(info.binary_name, "lunad-linux-amd64-musl");
+        assert_eq!(info.checksum, sha(b"os-image-v1"));
+        assert_eq!(info.binary_name, "luna-os-x86_64.img.xz");
     }
 
     #[test]
@@ -1759,12 +1662,13 @@ mod tests {
     }
 
     #[test]
-    fn apply_installs_the_lunad_part() {
+    fn apply_installs_the_os_image() {
         let (svc, inst) = Release::default().service();
+        *inst.os_hash.lock().unwrap() = Some("old-os-hash".into());
         let info = svc.apply("0.3.0").unwrap();
-        assert!(!info.reboot_required);
-        assert_eq!(*inst.lunad.lock().unwrap(), b"lunad-v0.4.0");
-        assert!(inst.os.lock().unwrap().is_empty());
+        // The image is the update, so applying one always asks for a reboot.
+        assert!(info.reboot_required);
+        assert_eq!(*inst.os.lock().unwrap(), b"os-image-v1");
     }
 
     #[test]
@@ -1777,11 +1681,11 @@ mod tests {
         let mut map = HashMap::new();
         map.insert(format!("{FEED}/luna/stable.json"), (200, body));
         map.insert(format!("{FEED}/luna/stable.json.minisig"), (200, sig));
-        map.insert(
-            "http://dl.test/lunad".into(),
-            (200, b"LUNAD-V0.4.0".to_vec()),
-        );
+        map.insert("http://dl.test/os".into(), (200, b"OS-IMAGE-V1".to_vec()));
         let installer = Arc::new(RecInstaller::default());
+        // A box always records the image it runs; without one Luna never
+        // re-flashes (it must not be surprised by an update it cannot explain).
+        *installer.os_hash.lock().unwrap() = Some("installed-image".into());
         let svc = UpdateService::with_keys(
             Box::new(MapHttp { map }),
             Box::new(installer.clone()),
@@ -1790,7 +1694,7 @@ mod tests {
             vec![pk.to_base64()],
         );
         assert_eq!(svc.apply("0.3.0").unwrap_err(), UpdateError::Checksum);
-        assert!(installer.lunad.lock().unwrap().is_empty());
+        assert!(installer.os.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -1803,7 +1707,7 @@ mod tests {
         let KeyPair { sk, .. } = KeyPair::generate_unencrypted_keypair().unwrap();
         let (svc, inst) = r.service_with(&sk, other);
         assert_eq!(svc.apply("0.3.0").unwrap_err(), UpdateError::BadSignature);
-        assert!(inst.lunad.lock().unwrap().is_empty());
+        assert!(inst.os.lock().unwrap().is_empty());
 
         let svc = UpdateService::with_keys(
             Box::new(MapHttp {
@@ -1893,19 +1797,18 @@ mod tests {
     #[test]
     fn os_part_with_a_different_hash_is_applied_and_hash_stored() {
         let r = Release {
-            os: Some(b"os-image-v2"),
+            os: b"os-image-v2",
             ..Release::default()
         };
         let (svc, inst) = r.service();
         *inst.os_hash.lock().unwrap() = Some("old-os-hash".into());
-        // Same lunad version, different OS hash: still an update that reboots.
+        // A different image than the one installed: an update that reboots.
         let info = svc.check("0.4.0", true).unwrap();
         assert!(info.update_available);
         assert!(info.reboot_required);
         let applied = svc.apply("0.4.0").unwrap();
         assert!(applied.reboot_required);
         assert_eq!(*inst.os.lock().unwrap(), b"os-image-v2");
-        assert!(inst.lunad.lock().unwrap().is_empty(), "lunad is not newer");
         // Not recorded as installed until the new slot has booted.
         assert_eq!(*inst.os_hash.lock().unwrap(), Some("old-os-hash".into()));
         assert_eq!(*inst.os_pending.lock().unwrap(), Some(sha(b"os-image-v2")));
@@ -1916,7 +1819,7 @@ mod tests {
     #[test]
     fn an_image_that_already_failed_to_boot_is_not_offered_again() {
         let r = Release {
-            os: Some(b"os-image-v2"),
+            os: b"os-image-v2",
             ..Release::default()
         };
         let (svc, inst) = r.service();
@@ -2160,7 +2063,7 @@ mod tests {
     #[test]
     fn os_part_is_skipped_when_hash_matches_unknown_or_feed_is_older() {
         let r = Release {
-            os: Some(b"os-image-v2"),
+            os: b"os-image-v2",
             ..Release::default()
         };
         let (svc, inst) = r.service();
@@ -2208,11 +2111,6 @@ mod tests {
     fn data_dir_installer_remembers_hash_and_feed_dates() {
         let dir = tempfile::tempdir().unwrap();
         let inst = DataDirInstaller::new(dir.path());
-        inst.install_lunad(b"hello-lunad").unwrap();
-        assert_eq!(
-            std::fs::read(dir.path().join("bin/lunad")).unwrap(),
-            b"hello-lunad"
-        );
         inst.write_os_hash("abc123").unwrap();
         assert_eq!(inst.read_os_hash().as_deref(), Some("abc123"));
 
@@ -2358,12 +2256,28 @@ mod tests {
     }
 
     #[test]
+    fn unchanged_feed_is_not_revalidated() {
+        // A LAN feed is refused when it is new, but saving the channel must
+        // not re-resolve a feed Luna is already using (split-horizon DNS maps
+        // a public name to a LAN address on some networks).
+        let settings = UpdateSettings {
+            feed_url: "https://192.168.1.10/feeds/".into(),
+            channel: "beta".into(),
+            keys: vec![],
+        };
+        assert!(validate_settings_against(&settings, Some("https://192.168.1.10/feeds")).is_ok());
+        assert!(validate_settings_against(&settings, Some("https://192.168.1.11/feeds")).is_err());
+        assert!(validate_settings_against(&settings, None).is_err());
+    }
+
+    #[test]
     fn custom_source_with_custom_key_installs() {
         // The acceptance case for pointing Luna at a staging feed.
         let (svc, inst) = Release::default().service();
         assert!(!svc.using_default_keys());
+        *inst.os_hash.lock().unwrap() = Some("installed-image".into());
         svc.apply("0.1.0").unwrap();
-        assert_eq!(*inst.lunad.lock().unwrap(), b"lunad-v0.4.0");
+        assert_eq!(*inst.os.lock().unwrap(), b"os-image-v1");
     }
 
     #[test]

@@ -764,7 +764,7 @@ describe("Needs you on the dashboard", () => {
       const fetchMock = stubDashboardFetch({ role: "user", backups: [backupRow()] });
       renderDashboard();
       await settle(fetchMock, MEMBER_QUERIES);
-      expect(screen.getByRole("heading", { name: "Your folders" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Your files" })).toBeInTheDocument();
       expect(screen.queryByRole("region", { name: "Needs you" })).not.toBeInTheDocument();
     });
   });

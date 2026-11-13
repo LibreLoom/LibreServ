@@ -1,7 +1,14 @@
 #!/bin/sh
 # Input hash of the Luna OS image: sha256 over everything that goes into the
-# rootfs and the slot image, and NOT over lunad or luna-console (lunad updates
-# itself over the air, so a new lunad alone never needs a new OS image).
+# rootfs and the slot image.
+#
+# lunad and luna-console are NOT hashed here, and that is not an omission: the
+# release tool builds them from the same commit as this image, and the image's
+# version is the release version, so a new daemon always means a new image.
+# Nothing updates the daemon on its own any more (the whole system is the
+# image), which is exactly why the old "lunad updates itself over the air, so
+# exclude it" reasoning had to go: it let a release ship no image at all.
+#
 # Plain POSIX sh + sha256sum: runs on the host, in CI, or in any container.
 #
 #   usage: input-hash.sh            prints the hex hash

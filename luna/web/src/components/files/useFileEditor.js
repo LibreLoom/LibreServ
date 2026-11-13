@@ -24,6 +24,7 @@ import {
 } from "@codemirror/view";
 import { defaultKeymap, indentWithTab } from "@codemirror/commands";
 import { markdown, insertNewlineContinueMarkup } from "@codemirror/lang-markdown";
+import { syntaxTree } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { GFM } from "@lezer/markdown";
@@ -91,6 +92,39 @@ function actionCommand(action) {
     return true;
   };
 }
+
+/**
+ * The address of the Markdown link around `pos`, or null when the caret is
+ * not inside one. Relative addresses are left alone: only something a browser
+ * can open is returned.
+ */
+function linkAddressAt(view, pos) {
+  let node = syntaxTree(view.state).resolveInner(pos, -1);
+  for (let cur = node; cur; cur = cur.parent) {
+    const url = cur.name === "URL" ? cur : cur.getChild("URL");
+    if (url) {
+      const address = view.state.sliceDoc(url.from, url.to).trim();
+      if (/^(https?:|mailto:)/i.test(address)) return address;
+      return null;
+    }
+  }
+  return null;
+}
+
+// Ctrl/Cmd-click opens a link without leaving the editor. A plain click has to
+// keep placing the caret, or the text could never be edited.
+const markdownLinkClicks = EditorView.domEventHandlers({
+  click(event, view) {
+    if (!(event.metaKey || event.ctrlKey)) return false;
+    const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+    if (pos == null) return false;
+    const address = linkAddressAt(view, pos);
+    if (!address) return false;
+    event.preventDefault();
+    window.open(address, "_blank", "noopener,noreferrer");
+    return true;
+  },
+});
 
 /** Toolbar actions on real shortcuts, plus Enter that continues lists. */
 const markdownKeymap = keymap.of([
@@ -190,6 +224,7 @@ export function useFileEditor({
             ]),
             yCollab(ytext, awareness || undefined, { undoManager }),
             isMarkdown ? markdownKeymap : [],
+            isMarkdown ? markdownLinkClicks : [],
             keymap.of([
               ...yUndoManagerKeymap,
               ...searchKeymap,

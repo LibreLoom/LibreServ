@@ -262,6 +262,13 @@ fn mount_args(device: &str, target: &Path, read_only: bool, fs_type: Option<&str
         // vfat has no permission bits: map to the usual 644/755 so files
         // are daemon-owned, not world-everything.
         args.push(format!("{mode},utf8,fmask=0133,dmask=0022,{HARDEN}"));
+    } else if read_only && matches!(fs.as_str(), "ext2" | "ext3" | "ext4") {
+        // A plain read-only ext mount may replay the journal and write.
+        args.push(format!("ro,noload,{HARDEN}"));
+    } else if read_only && fs == "xfs" {
+        args.push(format!("ro,norecovery,{HARDEN}"));
+    } else if read_only && fs == "btrfs" {
+        args.push(format!("ro,nologreplay,{HARDEN}"));
     } else {
         args.push(format!("{mode},{HARDEN}"));
     }
@@ -398,6 +405,21 @@ mod tests {
 
     fn args(device: &str, read_only: bool, fs: Option<&str>) -> Vec<String> {
         mount_args(device, Path::new("/run/luna/mnt/d1"), read_only, fs)
+    }
+
+    #[test]
+    fn read_only_inspection_disables_journal_replay() {
+        for (filesystem, option) in [
+            ("ext4", "noload"),
+            ("xfs", "norecovery"),
+            ("btrfs", "nologreplay"),
+        ] {
+            assert!(
+                args("/dev/sdb1", true, Some(filesystem))
+                    .iter()
+                    .any(|arg| arg.split(',').any(|part| part == option))
+            );
+        }
     }
 
     #[test]

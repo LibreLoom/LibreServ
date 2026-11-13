@@ -181,7 +181,7 @@ function BuilderSession({
   const [sharing, setSharing] = useState(/** @type {false | "sheet" | "link"} */ (false));
   const [peers, setPeers] = useState(/** @type {import("../collabDocSync.js").PeerInfo[]} */ ([]));
   const [connStatus, setConnStatus] = useState(solo ? "open" : "connecting");
-  const [focusHere, setFocusHere] = useState(/** @type {{ id: string, name: string }[]} */ ([]));
+  const [focusHere, setFocusHere] = useState(/** @type {{ id: string, name: string, color: string }[]} */ ([]));
   /** Pending warn-and-allow confirmation for edits that touch answered data. */
   const [confirm, setConfirm] = useState(/** @type {null | { title: string, message: string, run: () => void }} */ (null));
   const [pickingImageFor, setPickingImageFor] = useState(/** @type {string | null} */ (null));
@@ -265,14 +265,19 @@ function BuilderSession({
     };
     const onAware = () => {
       const localId = sync.ydoc.clientID;
-      /** @type {{ id: string, name: string }[]} */
+      /** @type {{ id: string, name: string, color: string }[]} */
       const here = [];
       for (const [clientId, state] of sync.awareness.getStates()) {
         if (clientId === localId) continue;
         const id = state?.questionId;
         if (typeof id !== "string" || !id) continue;
         const peerName = state?.user?.name;
-        here.push({ id, name: typeof peerName === "string" && peerName ? peerName : "Someone" });
+        const peerColor = state?.user?.color;
+        here.push({
+          id,
+          name: typeof peerName === "string" && peerName ? peerName : "Someone",
+          color: typeof peerColor === "string" && peerColor ? peerColor : "var(--accent)",
+        });
       }
       setFocusHere(here);
     };
@@ -888,14 +893,36 @@ BuilderSession.propTypes = {
   onSaveStateChange: PropTypes.func.isRequired,
 };
 
+// Every textarea resizes itself to its text. Measuring one at a time (write
+// height:auto, read scrollHeight) forces a full layout per textarea, so a form
+// with a few hundred of them spent tens of seconds in layout when it opened.
+// Resizes are queued and done in three passes — reset all, read all, write all —
+// which costs two layouts however many textareas there are.
+const growQueue = new Set();
+let growScheduled = false;
+function flushGrow() {
+  growScheduled = false;
+  const els = [...growQueue].filter((el) => el.isConnected);
+  growQueue.clear();
+  for (const el of els) el.style.height = "auto";
+  const heights = els.map((el) => el.scrollHeight);
+  els.forEach((el, i) => {
+    el.style.height = `${heights[i]}px`;
+  });
+}
+function queueGrow(el) {
+  growQueue.add(el);
+  if (!growScheduled) {
+    growScheduled = true;
+    queueMicrotask(flushGrow);
+  }
+}
+
 /** A textarea that grows with what's typed, so nothing hides behind a scrollbar. */
 function AutoGrowTextarea({ value, onChange, className, ...rest }) {
   const ref = useRef(/** @type {HTMLTextAreaElement | null} */ (null));
   useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    if (ref.current) queueGrow(ref.current);
   }, [value]);
   return (
     <textarea
@@ -1085,6 +1112,7 @@ function QuestionCard({
 
   const showOther = question.config?.allowOther === true;
   const watching = watcherLine(watchers);
+  const watcherColor = watchers[0]?.color || "var(--accent)";
   const labels = Array.isArray(question.config?.options) ? question.config.options : [];
   const ids = Array.isArray(question.config?.optionIds) ? question.config.optionIds : [];
   const options = labels.map((label, i) => ({ id: ids[i] || `i${i}`, label }));
@@ -1093,8 +1121,16 @@ function QuestionCard({
     <div
       ref={cardRef}
       className="rounded-large-element surface-secondary p-5 space-y-3"
+      // Presence is question-shaped, like a selected spreadsheet cell: the
+      // card that someone is working in gets their colour, with no cursor
+      // tracking. Pointer-down counts too, because buttons and menus inside
+      // the card never take DOM focus.
+      style={watching ? { outline: `2px solid ${watcherColor}`, outlineOffset: "2px" } : undefined}
       onFocus={onFocus}
-      onBlur={onBlur}
+      onPointerDown={onFocus}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) onBlur?.();
+      }}
     >
       <div className="flex items-center gap-2">
         {canWrite && (
@@ -1142,6 +1178,19 @@ function QuestionCard({
           {index + 1} of {count}
         </span>
         <div className="min-w-0 flex-1" />
+        {watching ? (
+          <span
+            className="inline-flex max-w-48 items-center gap-1.5 rounded-chip border-2 border-primary/20 surface-primary px-2 py-0.5 text-xs"
+            title={watching}
+          >
+            <span
+              className="size-2 shrink-0 rounded-full"
+              style={{ backgroundColor: watcherColor }}
+              aria-hidden="true"
+            />
+            <span className="truncate">{watching}</span>
+          </span>
+        ) : null}
         {canWrite ? (
           <Dropdown
             options={TYPE_OPTIONS}
@@ -1217,19 +1266,6 @@ function QuestionCard({
           disabled={!canWrite}
         />
       ) : null}
-
-      <AnimatePresence initial={false}>
-        {watching ? (
-          <Motion.p
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            className="text-xs"
-          >
-            {watching}
-          </Motion.p>
-        ) : null}
-      </AnimatePresence>
 
       <QuestionFace
         question={question}

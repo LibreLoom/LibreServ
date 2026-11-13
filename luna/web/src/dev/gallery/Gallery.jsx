@@ -24,7 +24,7 @@ export default function Gallery() {
   const [selectedId, setSelectedId] = useState(() => hashId() || scenarios[0]?.id);
   const [filter, setFilter] = useState("");
   const [only, setOnly] = useState("all");
-  const [viewport, setViewport] = useState("desktop");
+  const [viewportOverride, setViewportOverride] = useState(null);
   const [theme, setTheme] = useState("");
   const [frameKey, setFrameKey] = useState(0);
   const [snap, setSnap] = useState(null);
@@ -40,6 +40,13 @@ export default function Gallery() {
   const draftsRef = useRef({});
 
   const scenario = scenarios.find((s) => s.id === selectedId) || scenarios[0];
+
+  // A scenario that only makes sense on a phone (or tablet) opens that way.
+  // Switching the control afterwards is the tester's call and sticks for that
+  // scenario; picking another one goes back to what it declares.
+  const scenarioViewport = scenario?.viewport || "desktop";
+  const viewport = viewportOverride?.id === scenario?.id ? viewportOverride.value : scenarioViewport;
+  const setViewport = (value) => setViewportOverride({ id: scenario?.id, value });
 
   useEffect(() => { loadResults().then(setResults); }, []);
   const selectedRef = useRef(selectedId);
@@ -116,10 +123,17 @@ export default function Gallery() {
     return { ...c, untested: scenarios.length - c.pass - c.fail - c.skip - c.retest };
   }, [results]);
 
+  // Next/previous follow what the left list shows (grouped by area, in the
+  // category's order), not the raw source-file order.
+  const orderedVisible = useMemo(
+    () => grouped.flatMap(([, list]) => list),
+    [grouped],
+  );
+
   const pick = useCallback((id) => { setSelectedId(id); setFrameKey((k) => k + 1); setSnap(null); }, []);
   const step = (dir) => {
-    const i = visible.findIndex((s) => s.id === scenario?.id);
-    const next = visible[Math.min(visible.length - 1, Math.max(0, i + dir))];
+    const i = orderedVisible.findIndex((s) => s.id === scenario?.id);
+    const next = orderedVisible[Math.min(orderedVisible.length - 1, Math.max(0, i + dir))];
     if (next) pick(next.id);
   };
 
@@ -241,6 +255,7 @@ export default function Gallery() {
               Needs real Luna: {scenario.realLunadOnly}
             </p>
           )}
+          <h3 className="mb-1 font-mono text-xs">What to check</h3>
           <ul className="list-disc space-y-1 pl-5 text-sm">
             {scenario.check.length ? scenario.check.map((c) => <li key={c}>{c}</li>) : <li>Look for anything odd, unclear or broken.</li>}
           </ul>

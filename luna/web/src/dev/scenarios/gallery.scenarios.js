@@ -25,6 +25,19 @@ export default [
     check: ["Grid fills with colored pictures, newest first", "Library · Albums · Places · Favorites tabs all open", "Click a photo: it opens large; arrows and Escape work", "Heart a photo, then check Favorites: it is there"],
   },
   {
+    id: "gallery/segment-motion",
+    area: "Photos",
+    title: "Moving between the photo pages",
+    url: "/gallery",
+    seed: (w) => { lib(w, 24); },
+    check: [
+      "Library → Albums: the albums page slides in from the right as the selector pill moves right",
+      "Albums → Library: the grid comes back from the left",
+      "Open an album: its page slides in from the right",
+      "With Reduce Motion on, the pages change without sliding",
+    ],
+  },
+  {
     id: "gallery/empty",
     area: "Photos",
     title: "Empty library",

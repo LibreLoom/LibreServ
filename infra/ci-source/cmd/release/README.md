@@ -73,7 +73,7 @@ a failed cut on the same commit.
   never the checkout itself.
 - Scripts that call podman themselves can't run inside a job container; the
   engine runs those steps as their own jobs.
-- Parts form a graph (web → lunad → rootfs → OS image → installer) and run in
+- Parts form a graph (web → lunad → packs → rootfs → OS image → installer) and run in
   parallel up to `--jobs`, with memory-heavy jobs capped.
 
 ## Rootless notes
@@ -85,9 +85,11 @@ a failed cut on the same commit.
   `luna-os-x86_64.img.xz` (exact bytes the feed lists); `rapidinstall.sh` /
   `flash-disk.sh` stream `xz -dc` onto both slots and write `os-image.sha256`.
 - **OS image:** `mkfs.ext4 -d` into a plain file; the rootfs lives in a podman
-  volume so ownership stays correct. `.img.xz` is compressed once. It is rebuilt
-  only when the rootfs inputs change (lunad updates itself); otherwise the
-  feed's `os`/`installer` parts point at the version that last built them.
+  volume so ownership stays correct. `.img.xz` is compressed once. The image is
+  the whole system — lunad, luna-console, cloudflared and the editor packs are
+  all inside it — so every luna release builds and ships it, plus the installer.
+  Nothing is reused from an earlier version: that reuse is how 0.0.4 published a
+  package holding only a daemon binary.
 - **Flatpak:** flatpak-builder's bubblewrap needs nested user namespaces. Run
   with `--security-opt seccomp=unconfined --security-opt label=disable
   --security-opt unmask=ALL`, plus `--cap-add SYS_ADMIN --cap-add NET_ADMIN` for

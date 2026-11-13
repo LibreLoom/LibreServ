@@ -82,18 +82,33 @@ x2t/x2t.js + x2t.wasm                browser-side converter (CryptPad build)
 fonts-manifest.json                  TTF list the worker fetches
 ```
 
-## Shipping the pack (install ISO)
+## Shipping the pack (inside the OS image)
 
 `make eurooffice-pack` (or `scripts/build-eurooffice-pack.sh`) produces
 `os/dist/eurooffice-pack.tar.zst` — the pack minus `web-apps/*/resources/help`
 (~500MB of offline-help PNGs; the Help menu is already hidden via
 `customization.help: false`). Everything else ships: every font, all 50
-dictionaries. `build-iso.sh` builds it automatically when missing,
-`os/build/iso.sh` puts it next to the OS image on the ISO, and
-`rapidinstall.sh` verifies its sha256 and extracts it onto `LUNA_DATA` — so
-office editing works on first boot with no download. Extraction needs `zstd`
-in the installer image (in `luna.list.chroot`). A device installed without
-the pack shows the normal "not installed" card on office files.
+dictionaries.
+
+The pack is a program file, so it lives in the OS image, not on the data
+partition. The release tool builds it before the rootfs and mounts it in;
+`os/lib/build-rootfs.d/035.frag` unpacks the tarball into the pack root
+(`/usr/share/luna`), landing it at `/usr/share/luna/eurooffice`. The tarball
+already carries its own `eurooffice/` top-level dir, so it is never unpacked
+into a `eurooffice/` dir of its own (that nests `eurooffice/eurooffice/`).
+A release cut refuses an image without it (`LUNA_PACKS_REQUIRED=1`); a dev
+build only warns. `os/build-iso.sh` builds the packs into `os/dist/` before its
+`os/build-rootfs.sh` step, and `build-rootfs.sh` mounts `os/dist` (or
+`LUNA_PACKS_DIR`) at `/in/packs`, so a dev image carries them too. lunad serves it from
+there (`crates/lunad/src/packs.rs`): the image's copy wins, and a
+`{data_dir}/eurooffice` copy is honoured next, so a box from an older ISO keeps
+its editors until it updates. A device whose image lacks the pack shows the
+normal "not installed" card on office files.
+
+There is no separate pack update: a new pack is a new OS image, which
+**Install update** replaces as a whole, and a feed without an `os` part offers
+nothing. See
+[the feed contract](../../infra/ci-source/internal/feed/README.md).
 
 ## Endpoints (all cookie-authed except where noted)
 

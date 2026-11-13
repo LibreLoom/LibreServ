@@ -19,6 +19,7 @@ import {
   SPRING,
 } from "../../../lib/fileOps/motion.js";
 import { dockInfo, visibleOps } from "../../../lib/fileOps/selectors.js";
+import PercentPill from "./PercentPill.jsx";
 import RollingText from "./RollingText.jsx";
 import FileOpRow from "./FileOpRow.jsx";
 
@@ -64,7 +65,7 @@ function SummaryLine({ parts }) {
         {pct != null && (
           <>
             {" · "}
-            <RollingNumber value={Math.round(pct)} />%
+            <PercentPill value={Math.round(pct)} />
           </>
         )}
         {need > 0 && !lead && count == null && <> · {need} need you</>}

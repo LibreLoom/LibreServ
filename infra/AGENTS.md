@@ -38,7 +38,7 @@ keys/               # release signing keys — public raw-URL path, do not move
 ## Releases (`./release`, repo root)
 
 - Six release units (`sol`, `sol-connect`, `luna`, `luna-desktop`, `luna-android`, `luna-connect`), each with its own version, `<unit>/vX.Y.Z` tag, files and signed feed. Connect servers deploy from the signed feeds. The old `v*`, `luna-v*`, `connect-v*` and `luna-connect-v*` tags are retired.
-- Luna release assets: lunad binary, OS slot image, factory ISO (`luna` unit); Flatpak and Windows installer (MinGW cross + NSIS, unsigned — SmartScreen warns) (`luna-desktop`); signed Android APK (`luna-android`).
+- Luna release assets: OS slot image and factory ISO (`luna` unit) — the image carries the whole system (lunad, luna-console, cloudflared, the editor packs), and every release ships both, never reused from an earlier version; Flatpak and Windows installer (MinGW cross + NSIS, unsigned — SmartScreen warns) (`luna-desktop`); signed Android APK (`luna-android`).
 - Android APK: signed when `LUNA_ANDROID_KEYSTORE`/`_B64` + passwords are in env, else debug-signed fallback with a warning. F-Droid builds/signs its own from the `luna-android/v*` tag.
 - Minisign secrets resolve per product: `LUNA_RELEASE_MINISIG_PK` / `SOL_RELEASE_MINISIG_PK` env, `MINISIGN_SECRET_KEY` (path or contents), then `~/.minisign/*.key`. Public keys committed in `keys/` at root — the path is public API (Sol and lunad embed them at build time; the Connect deploy script and Flatpak repo server read them from the checkout).
 - Tool docs: `ci-source/cmd/release/README.md`; feed format and release units: `ci-source/internal/feed/README.md`.

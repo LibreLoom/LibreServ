@@ -1,6 +1,6 @@
 import { useEffect, useId, useImperativeHandle, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import { AlertCircle, Check } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
@@ -200,13 +200,6 @@ export function WordBox({
                 state === "invalid" ? "border-error" : "border-transparent focus:border-accent",
               )}
             />
-            {state === "valid" && (
-              <Check
-                size={ICON_SIZE.sm}
-                aria-hidden="true"
-                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-success motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-50 motion-safe:duration-150"
-              />
-            )}
             {state === "invalid" && (
               <AlertCircle
                 size={ICON_SIZE.sm}

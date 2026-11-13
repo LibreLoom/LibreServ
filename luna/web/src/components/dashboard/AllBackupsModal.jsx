@@ -79,7 +79,7 @@ function BackupRow({ backup, onOpen, onRun, running, member = false }) {
         note={
           (!active || backup.moving) && (
             <>
-              {backup.moving && <MovingNote moving={backup.moving} member={member} />}
+              {backup.moving && <MovingNote moving={backup.moving} member={member} surface="primary" />}
               {!active && backup.stop_reason && <p>{backup.stop_reason}</p>}
               {!active && (
                 <p>

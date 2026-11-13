@@ -8,7 +8,7 @@ import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
-import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import { Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
@@ -291,7 +291,7 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
               )}
             </div>
           )}
-          {sheetError && <PageNotice variant="error">{sheetError}</PageNotice>}
+          {sheetError && <InlineError>{sheetError}</InlineError>}
           {stateQuery.isLoading && (
             <div className="flex items-center gap-2 py-2 text-primary" role="status">
               <Spinner size="sm" decorative />
@@ -326,7 +326,7 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                          <span className="text-secondary text-xs truncate">{m.name}</span>
+                          <span className="font-mono text-secondary text-xs truncate">{m.name}</span>
                           {canManage ? (
                             <Dropdown
                               options={options}
@@ -463,7 +463,7 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
                         <CopyableValue
                           className="mt-2"
                           value={url}
-                          copyLabel="Copy address"
+                          copyLabel="Copy link"
                           ariaLabel="Share link address"
                           surface="primary"
                         />

@@ -192,7 +192,7 @@ describe("describeDriveHealth", () => {
     expect(copy.needsYou.title).toBe(title);
   });
 
-  it("explains a hard drive whose report could not be read", () => {
+  it("says nothing for a hard drive whose report could not be read", () => {
     const copy = describeDriveHealth({
       ...BASE,
       available: false,
@@ -204,13 +204,7 @@ describe("describeDriveHealth", () => {
       pending_sectors: null,
       uncorrectable_sectors: null,
     });
-    expect(copy.pill).toEqual({ variant: "muted", label: "Health unknown" });
-    expect(copy.summary).toBe("Luna couldn't read this hard drive's health report.");
-    expect(copy.hint).toContain("Some USB cases don't pass it on.");
-    expect(copy.needsYou).toBeNull();
-    expect(copy.steps).toEqual([]);
-    expect(row(copy, "self-check").value).toBe("Not reported");
-    expect(row(copy, "temperature")).toBeUndefined();
+    expect(copy).toBeNull();
   });
 
   it("shows unreadable blocks as failing and adds a row for each extra signal", () => {

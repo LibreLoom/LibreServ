@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- page exports helpers used by tests */
 import { lazy, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
+import { AnimatePresence, motion as Motion, useReducedMotion } from "motion/react";
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -214,6 +215,15 @@ const SEGMENTS = [
 
 const SEGMENT_IDS = SEGMENTS.map((s) => s.value);
 const DEFAULT_SEGMENT = "library";
+// Segment pages move like the shared page and the form builder's tabs: the
+// multiway selector's pill slides, and the page follows it in from that side.
+const PAGE_SLIDE = {
+  enter: (/** @type {number} */ dir) => ({ x: `${100 * dir}%`, opacity: 0.6 }),
+  shown: { x: 0, opacity: 1 },
+  leave: (/** @type {number} */ dir) => ({ x: `${-100 * dir}%`, opacity: 0.6 }),
+};
+/** @type {import("motion/react").Transition} */
+const PAGE_SPRING = { type: "spring", duration: 0.35, bounce: 0.12 };
 const GRID_COLS_KEY = "luna.photos.gridCols";
 const ON_THIS_DAY_DISMISS_KEY = "luna.photos.onThisDay.dismissed";
 
@@ -443,6 +453,12 @@ export default function GalleryPage() {
 
   const [segment, setSegment] = useState(initialHash.segment || DEFAULT_SEGMENT);
   const activeSegment = SEGMENT_IDS.includes(segment) ? segment : DEFAULT_SEGMENT;
+  const segmentOrder = SEGMENT_IDS.indexOf(activeSegment);
+  const lastSegmentOrder = useRef(segmentOrder);
+  const pageDirection = segmentOrder >= lastSegmentOrder.current ? 1 : -1;
+  useEffect(() => {
+    lastSegmentOrder.current = segmentOrder;
+  }, [segmentOrder]);
   const [error, setError] = useState(null);
   const { addToast } = useToast();
   const fileOps = useFileOps();
@@ -1610,6 +1626,17 @@ export default function GalleryPage() {
     duplicatesView ||
     (filterActiveCount > 0 && !placesMapOverview);
 
+  // One key per page inside Photos. Detail views push in from the right; the
+  // four segments follow the direction the multiway selector moved.
+  const pageKey = duplicatesView
+    ? "duplicates"
+    : albumView
+      ? `album:${albumView.id}`
+      : viewLabel
+        ? `view:${viewLabel}`
+        : `${activeSegment}:${filters.place?.key || (filters.monthDay ? "month-day" : "")}`;
+  const reduceMotion = useReducedMotion();
+
   // Cheap probe: does the library hold photos taken on today's month-day in
   // previous years? It only drives the dismissable "On this day" pill — the
   // view itself is just the monthDay filter.
@@ -2012,6 +2039,18 @@ export default function GalleryPage() {
         />
       )}
 
+      <div className="relative overflow-x-clip">
+      <AnimatePresence mode="popLayout" initial={false} custom={pageDirection}>
+        <Motion.div
+          key={pageKey}
+          custom={pageDirection}
+          variants={PAGE_SLIDE}
+          initial="enter"
+          animate="shown"
+          exit="leave"
+          transition={reduceMotion ? { duration: 0 } : PAGE_SPRING}
+          className={placesMapOverview ? "flex min-h-0 flex-1 flex-col" : "min-w-0"}
+        >
       {activeSegment === "albums" && !albumView && !viewLabel && !duplicatesView && filterActiveCount === 0 && (
         <AlbumsPanel
           albums={albums.data || []}
@@ -2229,6 +2268,10 @@ export default function GalleryPage() {
           ))}
         </div>
       )}
+
+        </Motion.div>
+      </AnimatePresence>
+      </div>
 
       <SelectionActionBar
         count={selection.selectedCount}

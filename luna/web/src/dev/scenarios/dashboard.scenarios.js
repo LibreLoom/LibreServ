@@ -276,7 +276,7 @@ export default [
     area: "Dashboard",
     title: "Member, nothing wrong",
     seed: (w) => member(w),
-    check: ["No admin-only rows or cards", "No 403 errors shown to the Member"],
+    check: ["No admin-only rows or cards", "The drive column is titled Your files", "No 403 errors shown to the Member"],
   },
   {
     id: "dashboard/member-with-problems",

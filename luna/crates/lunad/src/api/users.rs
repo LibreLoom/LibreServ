@@ -38,6 +38,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/users/{id}/adopt-private", post(adopt_private))
         .route("/api/v1/private/orphans", get(orphans))
         .route("/api/v1/private/orphans/{owner}", delete(purge_orphan))
+        .route("/api/v1/private/orphans/{owner}/give", post(give_orphan))
 }
 
 fn require_admin(user: &crate::auth::CurrentUser) -> Result<(), (StatusCode, Json<Value>)> {
@@ -354,23 +355,39 @@ async fn private_count(
     ))
 }
 
-/// Private items that came with a drive from another Luna and have no owner.
+#[derive(Deserialize, Default)]
+struct AdoptPrivate {
+    #[serde(default)]
+    drive_id: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
+}
+
+/// Private folders that came with a drive from another Luna and have no owner.
 async fn ownerless_count(
     State(state): State<AppState>,
     Extension(admin): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_admin(&admin)?;
     let conn = lock_db(&state)?;
-    Ok(Json(
-        json!({ "count": crate::private::ownerless_total(&conn) }),
-    ))
+    let folders = crate::private::ownerless_folders(&conn);
+    Ok(Json(json!({
+        "count": folders.len(),
+        "items": folders.iter().map(|f| json!({
+            "drive_id": f.drive_id,
+            "drive_label": f.drive_label,
+            "path": f.path,
+            "name": f.name(),
+        })).collect::<Vec<_>>(),
+    })))
 }
 
-/// Give every ownerless private item to this person.
+/// Give one ownerless private folder, or every one, to this person.
 async fn adopt_private(
     State(state): State<AppState>,
     Extension(admin): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
+    body: axum::body::Bytes,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_admin(&admin)?;
     let conn = lock_db(&state)?;
@@ -383,9 +400,23 @@ async fn adopt_private(
             "Luna doesn't know that person.",
         ));
     }
-    Ok(Json(
-        json!({ "count": crate::private::adopt_ownerless(&conn, &id) }),
-    ))
+    let body: AdoptPrivate = if body.is_empty() {
+        AdoptPrivate::default()
+    } else {
+        serde_json::from_slice(&body).map_err(|_| {
+            json_error(
+                StatusCode::BAD_REQUEST,
+                "That request wasn't valid. Choose a person and try again.",
+            )
+        })?
+    };
+    let count = match (body.drive_id.as_deref(), body.path.as_deref()) {
+        (Some(drive_id), Some(path)) => usize::from(crate::private::adopt_ownerless_folder(
+            &conn, drive_id, path, &id,
+        )),
+        _ => crate::private::adopt_ownerless(&conn, &id),
+    };
+    Ok(Json(json!({ "count": count })))
 }
 
 /// Private folders a removed person still owns — their files stay on the
@@ -451,6 +482,61 @@ async fn purge_orphan(
     }
     Ok(Json(json!({
         "ok": report.failed_drives.is_empty() && report.skipped_readonly.is_empty() && report.offline_drives.is_empty(),
+        "skipped_readonly": report.skipped_readonly,
+        "failed_drives": report.failed_drives,
+        "offline_drives": report.offline_drives,
+    })))
+}
+
+#[derive(Deserialize)]
+struct GiveOrphan {
+    user_id: String,
+}
+
+/// Give every private folder a removed person still owns to someone on this
+/// Luna. Their files stay where they are; only the owner changes.
+async fn give_orphan(
+    State(state): State<AppState>,
+    Extension(admin): Extension<crate::auth::CurrentUser>,
+    Path(owner): Path<String>,
+    Json(body): Json<GiveOrphan>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_admin(&admin)?;
+    let conn = lock_db(&state)?;
+    if crate::db::get_user(&conn, &body.user_id)
+        .map_err(|_| map_err(AuthError::Db(anyhow::anyhow!("db"))))?
+        .is_none()
+    {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "Luna doesn't know that person.",
+        ));
+    }
+    let is_orphan = conn
+        .prepare("SELECT 1 FROM deleted_users WHERE id = ?1")
+        .and_then(|mut s| s.exists(rusqlite::params![owner]))
+        .unwrap_or(false);
+    if !is_orphan {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Luna can only give away private folders after their owner is removed.",
+        ));
+    }
+    let report = crate::private::give_orphan(&conn, &owner, &body.user_id).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna could not finish giving those private folders. Refresh this page and try again.",
+        )
+    })?;
+    let drives = crate::db::list_drives(&conn).unwrap_or_default();
+    drop(conn);
+    for drive in drives {
+        state.ram_cache.invalidate_listing_tree(&drive.id, "");
+        state.gallery.rescan(&drive.id);
+    }
+    Ok(Json(json!({
+        "ok": report.failed_drives.is_empty() && report.skipped_readonly.is_empty() && report.offline_drives.is_empty(),
+        "moved": report.moved,
         "skipped_readonly": report.skipped_readonly,
         "failed_drives": report.failed_drives,
         "offline_drives": report.offline_drives,
@@ -916,6 +1002,51 @@ mod tests {
         assert_eq!(body["ok"], true);
         let (status, _) = send(&h, "DELETE", &purge, &h.member_token, None).await;
         assert_eq!(status, 401);
+    }
+
+    #[tokio::test]
+    async fn giving_orphans_needs_an_admin_a_removed_owner_and_a_real_person() {
+        let h = harness();
+        let give = format!("/api/v1/private/orphans/{}/give", h.member_id);
+        let give_body = Some(json!({ "user_id": h.admin_id }));
+
+        // Members cannot hand private folders around.
+        let (status, _) = send(&h, "POST", &give, &h.member_token, give_body.clone()).await;
+        assert_eq!(status, 403);
+
+        // The recipient has to be someone on this Luna.
+        let (status, _) = send(
+            &h,
+            "POST",
+            &give,
+            &h.admin_token,
+            Some(json!({ "user_id": "nobody" })),
+        )
+        .await;
+        assert_eq!(status, 404);
+
+        // A live person's private folders are not orphans.
+        let (status, body) = send(&h, "POST", &give, &h.admin_token, give_body.clone()).await;
+        assert_eq!(status, 400);
+        assert_eq!(
+            body["error"],
+            "Luna can only give away private folders after their owner is removed."
+        );
+
+        // After removal the same call succeeds (there is nothing on a drive to
+        // move in this harness, so it reports zero).
+        send(
+            &h,
+            "DELETE",
+            &format!("/api/v1/users/{}", h.member_id),
+            &h.admin_token,
+            None,
+        )
+        .await;
+        let (status, body) = send(&h, "POST", &give, &h.admin_token, give_body).await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["moved"], 0);
     }
 
     // ---- the last Admin who can open cloud backups ----------------------

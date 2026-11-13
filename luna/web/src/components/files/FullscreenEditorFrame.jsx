@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
-import { Save, X } from "lucide-react";
+import { Save, Share2, X } from "lucide-react";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
-import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import { useSmoothResize } from "@libreloom/ui/hooks/useSmoothResize.js";
 import { apiErrorMessage } from "../../lib/api.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
@@ -29,6 +29,53 @@ function prefersReducedMotion() {
     typeof window.matchMedia === "function" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches
   );
+}
+
+/**
+ * True once the overlay's entrance animation is over. The editor mounts then,
+ * not during the fade: building a big document takes hundreds of
+ * milliseconds on the main thread, and doing it mid-fade drops frames. A
+ * browser without the Web Animations API (jsdom), reduced motion, or no
+ * running animation mounts at once; a stuck animation can hold it back at
+ * most SETTLE_MAX_MS.
+ */
+const SETTLE_MAX_MS = 600;
+function useEntranceSettled(overlayRef, sessionKey, isClosing) {
+  const canWait = () =>
+    typeof document !== "undefined" &&
+    typeof document.getAnimations === "function" &&
+    !prefersReducedMotion();
+  const [settled, setSettled] = useState(() => !canWait());
+  const [scope, setScope] = useState(sessionKey);
+  // While the frame is fading out, `sessionKey` changes because the parent
+  // closed the file. That is not a new document: keep the editor mounted
+  // through the fade, or it would be torn down while still on screen.
+  if (scope !== sessionKey && !isClosing) {
+    setScope(sessionKey);
+    setSettled(!canWait());
+  }
+  useEffect(() => {
+    if (settled) return undefined;
+    let cancelled = false;
+    const done = () => {
+      if (!cancelled) requestAnimationFrame(() => !cancelled && setSettled(true));
+    };
+    const el = overlayRef.current;
+    const running = el && typeof el.getAnimations === "function"
+      ? el.getAnimations().filter((a) => a.playState === "running")
+      : [];
+    if (!running.length) {
+      done();
+      return () => { cancelled = true; };
+    }
+    const timer = setTimeout(() => !cancelled && setSettled(true), SETTLE_MAX_MS);
+    Promise.all(running.map((a) => a.finished.catch(() => {}))).then(done);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [settled, overlayRef, sessionKey]);
+  return settled;
 }
 
 /**
@@ -80,6 +127,7 @@ function useIsMdUp() {
  *   sessionKey: string,
  *   isClosing?: boolean,
  *   canWrite?: boolean,
+ *   onShare?: (() => void) | null,
  *   editorKind?: string,
  *   onClose: () => void,
  *   children: (api: {
@@ -94,6 +142,7 @@ export default function FullscreenEditorFrame({
   sessionKey,
   isClosing = false,
   canWrite = true,
+  onShare = null,
   editorKind = "office",
   onClose,
   children,
@@ -119,6 +168,8 @@ export default function FullscreenEditorFrame({
   // rather than with a `motion-safe:` class.
   const savePillRef = useRef(/** @type {HTMLSpanElement | null} */ (null));
   useSmoothResize(savePillRef, { x: !prefersReducedMotion() });
+  const overlayRef = useRef(/** @type {HTMLDivElement|null} */ (null));
+  const entered = useEntranceSettled(overlayRef, sessionKey, isClosing);
   const closeRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
   const cancelRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
   // Tracks whether this session already claimed initial focus — keeps the
@@ -154,7 +205,9 @@ export default function FullscreenEditorFrame({
   // previous editor's dirty flag or save thunk can't leak across. Render-
   // phase reset, same pattern as FileViewer's previewKey scope.
   const [sessionScope, setSessionScope] = useState(sessionKey);
-  if (sessionScope !== sessionKey) {
+  // (Not while closing: the parent changes the key as it closes the file, and
+  // resetting then would flash the loading screen over the fading document.)
+  if (sessionScope !== sessionKey && !isClosing) {
     setSessionScope(sessionKey);
     saveFnRef.current = null;
     setSaveReady(false);
@@ -309,6 +362,22 @@ export default function FullscreenEditorFrame({
     onClose();
   }
 
+  // The editor's element is built once per render, except while the frame
+  // fades out: then the last one is reused. The same element object makes
+  // React skip the whole editor subtree, so closing a big document doesn't
+  // re-render all of it (a long form took hundreds of ms) while it fades.
+  const editorNodeRef = useRef(/** @type {import("react").ReactNode} */ (null));
+  if (!isClosing) {
+    editorNodeRef.current = entered
+      ? children({
+          onRegisterSave: handleRegisterSave,
+          onSaveStateChange: handleSaveState,
+          requestClose,
+        })
+      : null;
+  }
+  const editorNode = editorNodeRef.current;
+
   // Exactly three save states — the file is either saved or it isn't, so
   // there is no "just now" window and no clock time. A failed save is not a
   // fourth state: its message takes the pill's place until the next save
@@ -325,6 +394,7 @@ export default function FullscreenEditorFrame({
     <>
       {createPortal(
         <div
+          ref={overlayRef}
           role="dialog"
           aria-modal="true"
           aria-label={name}
@@ -332,8 +402,8 @@ export default function FullscreenEditorFrame({
           className={cn(
             "fixed inset-0 z-[80] flex flex-col surface-primary",
             isClosing
-              ? "fullscreen-overlay-exit file-viewer-exit"
-              : "fullscreen-overlay-enter file-viewer-enter",
+              ? "file-viewer-exit"
+              : "file-viewer-enter",
           )}
         >
           <div className="flex min-h-0 flex-1">
@@ -367,6 +437,20 @@ export default function FullscreenEditorFrame({
                     </span>
                   </div>
                   <div className="flex shrink-0 flex-col items-center gap-2 pt-2">
+                    {onShare ? (
+                      <Button
+                        variant="ghost"
+                        surface="secondary"
+                        size="icon"
+                        smoothResize={false}
+                        haptic="light"
+                        onClick={onShare}
+                        aria-label="Share"
+                        tooltip="Share"
+                      >
+                        <Share2 size={ICON_SIZE.xl} aria-hidden="true" />
+                      </Button>
+                    ) : null}
                     {canWrite ? (
                       /* Dirty state reads on the button itself: inverted
                          primary fill when there are changes to save, muted
@@ -438,6 +522,19 @@ export default function FullscreenEditorFrame({
                       </Pill>
                     </span>
                   ) : null}
+                  {onShare ? (
+                    <Button
+                      variant="ghost"
+                      surface="secondary"
+                      size="iconSm"
+                      smoothResize={false}
+                      haptic="light"
+                      onClick={onShare}
+                      aria-label="Share"
+                    >
+                      <Share2 size={ICON_SIZE.lg} aria-hidden="true" />
+                    </Button>
+                  ) : null}
                   <Button
                     ref={closeRef}
                     variant="ghost"
@@ -454,11 +551,7 @@ export default function FullscreenEditorFrame({
               )}
               <div className="relative flex min-h-0 min-w-0 flex-1 flex-col surface-primary">
                 <EditorLoadingContext.Provider value={loadingApi}>
-                  {children({
-                    onRegisterSave: handleRegisterSave,
-                    onSaveStateChange: handleSaveState,
-                    requestClose,
-                  })}
+                  {editorNode}
                 </EditorLoadingContext.Provider>
                 {showLoader ? (
                   <>
@@ -489,11 +582,7 @@ export default function FullscreenEditorFrame({
             <p className="text-sm text-primary">
               Closing now loses everything you changed since the last save.
             </p>
-            {saveError ? (
-              <PageNotice variant="error" surface="secondary">
-                {saveError}
-              </PageNotice>
-            ) : null}
+            {saveError ? <InlineError>{saveError}</InlineError> : null}
             <div className="flex flex-col gap-3">
               <Button
                 ref={cancelRef}
@@ -540,6 +629,7 @@ FullscreenEditorFrame.propTypes = {
   sessionKey: PropTypes.string.isRequired,
   isClosing: PropTypes.bool,
   canWrite: PropTypes.bool,
+  onShare: PropTypes.func,
   editorKind: PropTypes.string,
   onClose: PropTypes.func.isRequired,
   children: PropTypes.func.isRequired,

@@ -151,7 +151,13 @@ get("/api/v1/users/:id/private-count", ({ world, user, params }) => {
 });
 get("/api/v1/private/ownerless", ({ world, user }) => {
   gate(user);
-  return { count: ownerlessItems(world).length };
+  const items = ownerlessItems(world).map((it) => ({
+    drive_id: it.driveId,
+    drive_label: world.drives.find((d) => d.id === it.driveId)?.label || it.driveId,
+    path: it.path,
+    name: it.path.split("/").pop() || it.path,
+  }));
+  return { count: items.length, items };
 });
 
 function ownerlessItems(world) {
@@ -163,12 +169,15 @@ function ownerlessItems(world) {
   }
   return out;
 }
-post("/api/v1/users/:id/adopt-private", ({ world, user, params }) => {
+post("/api/v1/users/:id/adopt-private", ({ world, user, params, body }) => {
   gate(user);
   if (!world.users.some((u) => u.id === params.id)) return fail(404, "Luna doesn't know that person.");
   const items = ownerlessItems(world);
-  for (const it of items) world.fs[it.driveId].nodes[it.path].owner = params.id;
-  return { count: items.length };
+  const one = body?.drive_id && body?.path
+    ? items.filter((it) => it.driveId === body.drive_id && it.path === body.path)
+    : items;
+  for (const it of one) world.fs[it.driveId].nodes[it.path].owner = params.id;
+  return { count: one.length };
 });
 
 patch("/api/v1/users/:id", ({ world, user, params, body }) => {
@@ -266,6 +275,28 @@ del("/api/v1/private/orphans/:owner", ({ world, user, params }) => {
   return { ok: !skipped.length && !offline.length, skipped_readonly: skipped, failed_drives: [], offline_drives: offline };
 });
 
+post("/api/v1/private/orphans/:owner/give", ({ world, user, params, body }) => {
+  gate(user);
+  if (!world.users.some((u) => u.id === body?.user_id)) return fail(404, "Luna doesn't know that person.");
+  if (!(world.deletedUsers || []).some((u) => u.id === params.owner)) {
+    return fail(400, "Luna can only give away private folders after their owner is removed.");
+  }
+  let moved = 0;
+  const skipped = [];
+  const offline = [];
+  for (const d of world.drives) {
+    const mounted = (d.state === "as_is" || d.state === "readonly") && world.summaries[d.id]?.mounted !== false;
+    if (!mounted) { offline.push(d.label); continue; }
+    const mine = privateUnder(world, d.id, "").filter((i) => i.owner === params.owner);
+    if (d.state === "readonly") { if (mine.length) skipped.push(d.label); continue; }
+    for (const item of mine) {
+      world.fs[d.id].nodes[item.path].owner = body.user_id;
+      moved++;
+    }
+  }
+  return { ok: !skipped.length && !offline.length, moved, skipped_readonly: skipped, failed_drives: [], offline_drives: offline };
+});
+
 // ── Drives ──────────────────────────────────────────────────────────────────
 const DRIVES_ONLY = "Only an Admin can manage drives.";
 const driveGate = (user) => requireAdmin(user, DRIVES_ONLY);
@@ -279,9 +310,6 @@ get("/api/v1/drives", ({ world, user }) => world.drives
       // Device node and OS mount path are server plumbing.
       device: admin ? d.device : "", mount_point: admin ? (d.mount_point ?? `/mnt/${d.id}`) : "",
       mounted: d.mounted !== false && world.summaries[d.id]?.mounted !== false,
-      encrypted: Boolean(d.encrypted),
-      locked: Boolean(d.locked),
-      converting: Boolean(d.converting),
       writable: admin || hasWriteOnDrive(world, user, d.id),
       caps: capsToStr(capsOnPath(world, user, d.id, "")),
     };
@@ -306,16 +334,11 @@ post("/api/v1/drives/:name/inspect", ({ world, user, params }) => {
   const d = findDetected(world, params.name);
   if (d.inspectFails) return fail(500, "Luna couldn't look at this drive safely. Make sure it's plugged in and try again.");
   const entries = d.entries ?? [{ kind: "folder", name: "Photos" }, { kind: "file", name: "readme.txt" }];
-  // The daemon measures the drive and decides whether a wipe has to wait;
-  // the fake does the same from the entry count so `npm run dev` shows the
-  // real flow either way.
-  const usedBytes = d.used_bytes ?? (entries.length > 0 ? 4 * 1024 * 1024 * 1024 : 96 * 1024);
   return {
     device: d.name, model: d.model ?? "", fs_type: d.fs_type ?? null, mount_point: d.mount_point ?? `/run/luna/inspect/${d.name}`,
     mounted_by_luna: true, has_marker: Boolean(d.has_marker), folders: entries.filter((e) => e.kind === "folder").length,
     files: entries.filter((e) => e.kind === "file").length, unreadable: d.unreadable ?? 0, entries,
-    needs_erase: Boolean(d.needs_erase), readable: d.readable ?? true, writable: d.writable ?? !d.read_only,
-    used_bytes: usedBytes, meaningful: d.meaningful ?? usedBytes > 16 * 1024 * 1024,
+    needs_setup: Boolean(d.needs_setup), encrypted: Boolean(d.encrypted), readable: d.readable ?? true, writable: d.writable ?? !d.read_only,
   };
 });
 get("/api/v1/drives/:name/peek", ({ world, user, params }) => {
@@ -325,7 +348,7 @@ get("/api/v1/drives/:name/peek", ({ world, user, params }) => {
   const sample = [...entries].sort((a, b) => Number(a.kind !== "folder") - Number(b.kind !== "folder") || a.name.localeCompare(b.name));
   const folders = sample.filter((e) => e.kind === "folder").length;
   return {
-    readable: d.readable ?? true, fs_type: d.fs_type ?? null, has_marker: Boolean(d.has_marker), needs_erase: Boolean(d.needs_erase),
+    readable: d.readable ?? true, fs_type: d.fs_type ?? null, has_marker: Boolean(d.has_marker), needs_setup: Boolean(d.needs_setup), encrypted: Boolean(d.encrypted),
     folders, files: sample.length - folders, sample: sample.slice(0, 5),
   };
 });
@@ -340,15 +363,14 @@ post("/api/v1/drives/:name/adopt", ({ world, user, params, body }) => {
   const label = String(body.label ?? "").trim();
   if (!label || label.length > 80) return fail(400, "Give this drive a name between 1 and 80 characters.");
   const found = findDetected(world, params.name);
+  if (found.encrypted) return fail(400, "Luna couldn't add this drive. Luna can't open encrypted drives in this version yet.");
+  if (found.needs_setup) return fail(400, "Luna couldn't add this drive. Setting up new drives isn't available in this version yet.");
   world.detected = world.detected.filter((d) => d.name !== params.name);
   const id = nextId("d");
-  const encrypted = Boolean(body.encrypted);
-  if (encrypted && !String(body.password ?? "").trim()) return fail(400, "Enter a password for this drive.");
   const row = {
     id, label, state: "as_is", device: params.name,
-    // An encrypted drive is always ext4 inside its container.
-    fs_type: encrypted ? "ext4" : (found.fs_type || "ext4"),
-    mount_point: `/mnt/${id}`, encrypted, locked: false, converting: false,
+    fs_type: found.fs_type || "ext4",
+    mount_point: `/mnt/${id}`,
   };
   world.drives.push(row);
   world.summaries[id] = summary(id, { shortcuts: [] });
@@ -357,14 +379,14 @@ post("/api/v1/drives/:name/adopt", ({ world, user, params, body }) => {
 post("/api/v1/drives/:id/eject", ({ world, user, params }) => {
   driveGate(user);
   const d = world.drives.find((x) => x.id === params.id);
-  if (!d) return fail(400, "Luna doesn't know this drive.");
+  if (!d) return fail(404, "Luna doesn't know this drive.");
   d.state = "ejected";
   world.summaries[params.id] = unmounted(params.id);
   return { ok: true };
 });
 post("/api/v1/drives/:id/remove", ({ world, user, params }) => {
   driveGate(user);
-  if (!world.drives.some((x) => x.id === params.id)) return fail(400, "Luna doesn't know this drive.");
+  if (!world.drives.some((x) => x.id === params.id)) return fail(404, "Luna doesn't know this drive.");
   world.drives = world.drives.filter((d) => d.id !== params.id);
   delete world.summaries[params.id];
   return { ok: true };
@@ -374,115 +396,6 @@ get("/api/v1/drives/:id/health", ({ world, user, params }) => {
   if (!world.drives.some((d) => d.id === params.id)) return fail(404, "Luna doesn't know this drive.");
   return Object.hasOwn(world.health, params.id) ? world.health[params.id] : healthy();
 });
-// ── Encryption ──────────────────────────────────────────────────────────────
-// Unlocking is open to anyone who can read the drive; encrypting and
-// decrypting are Admin-only, matching the server.
-const findDrive = (world, id) => {
-  const d = world.drives.find((x) => x.id === id);
-  if (!d) throw fail(404, "Luna doesn't know this drive.");
-  return d;
-};
-
-get("/api/v1/drives/:id/encryption", ({ world, user, params }) => {
-  const d = findDrive(world, params.id);
-  if (!isAdmin(user) && !hasDriveAccess(world, user, d.id)) return fail(403, "You don't have access to this drive.");
-  const present = d.state !== "missing" && d.state !== "ejected";
-  // Encrypting wipes the drive, so the format it has now does not matter.
-  const canEncrypt = !d.encrypted && present && !d.converting;
-  return {
-    drive_id: d.id,
-    label: d.label,
-    encrypted: Boolean(d.encrypted),
-    unlocked: Boolean(d.encrypted) && !d.locked,
-    converting: Boolean(d.converting),
-    present,
-    fs_type: d.fs_type,
-    can_encrypt: canEncrypt,
-    cannot_encrypt_reason: canEncrypt || d.encrypted
-      ? ""
-      : d.converting
-        ? "Luna is already working on this drive. Wait for that to finish."
-        : "Plug this drive in to encrypt it.",
-  };
-});
-
-// What a wipe would destroy. Read-only, and shared by every flow that wipes:
-// the plain reformat, encryption on, and encryption off.
-const wipePreviewFor = (world, user, params, intent) => {
-  driveGate(user);
-  const d = findDrive(world, params.id);
-  const peek = world.peek?.[d.device] || {};
-  const folders = peek.folders ?? 0;
-  const files = peek.files ?? 0;
-  const used = peek.used_bytes ?? 0;
-  const readable = d.state !== "missing" && d.state !== "ejected" && !d.locked;
-  // A fresh filesystem already reports some bytes in use; the server allows
-  // for that, and so does this.
-  const meaningful = !readable || used > 16 * 1024 * 1024;
-  // The intent decides the target, not the drive's current state.
-  const encrypted = intent === "encrypt";
-  return {
-    drive_id: d.id,
-    label: d.label,
-    used_bytes: readable ? used : null,
-    meaningful,
-    target_fs: encrypted ? "ext4" : "exfat",
-    target_encrypted: encrypted,
-    entries: (peek.sample || []).map((e) => ({ name: e.name, kind: e.kind })),
-    folders,
-    files,
-    readable,
-  };
-};
-
-get("/api/v1/drives/:id/wipe-preview/:intent", ({ world, user, params }) =>
-  wipePreviewFor(world, user, params, params.intent),
-);
-get("/api/v1/drives/:id/wipe-preview", ({ world, user, params }) =>
-  wipePreviewFor(world, user, params, "reformat"),
-);
-
-post("/api/v1/drives/:id/unlock", ({ world, user, params, body }) => {
-  const d = findDrive(world, params.id);
-  if (!isAdmin(user) && !hasDriveAccess(world, user, d.id)) return fail(403, "You don't have access to this drive.");
-  if (!d.encrypted) return fail(400, "This drive isn't encrypted, so it doesn't need a password.");
-  if (!String(body.password ?? "").length) return fail(401, "That password didn't work.");
-  d.locked = false;
-  return { ok: true };
-});
-
-post("/api/v1/drives/:id/lock", ({ world, user, params }) => {
-  const d = findDrive(world, params.id);
-  if (!isAdmin(user) && !hasDriveAccess(world, user, d.id)) return fail(403, "You don't have access to this drive.");
-  if (!d.encrypted) return fail(400, "This drive isn't encrypted, so there's nothing to lock.");
-  d.locked = true;
-  return { ok: true };
-});
-
-post("/api/v1/drives/:id/encrypt", ({ world, user, params, body }) => {
-  driveGate(user);
-  const d = findDrive(world, params.id);
-  if (d.encrypted) return fail(400, "This drive is already encrypted.");
-  if (!String(body.password ?? "").length) return fail(400, "Enter a password for this drive.");
-  // The drive is wiped to ext4 inside a container, so its old format is gone.
-  d.encrypted = true;
-  d.locked = true;
-  d.fs_type = "ext4";
-  return { ok: true, started: true };
-});
-
-post("/api/v1/drives/:id/decrypt", ({ world, user, params, body }) => {
-  driveGate(user);
-  const d = findDrive(world, params.id);
-  if (!d.encrypted) return fail(400, "This drive isn't encrypted, so there's nothing to decrypt.");
-  if (!String(body.password ?? "").length) return fail(401, "That password didn't work.");
-  // Decrypting wipes to a plain exFAT drive.
-  d.encrypted = false;
-  d.locked = false;
-  d.fs_type = "exfat";
-  return { ok: true, started: true };
-});
-
 get("/api/v1/drives/:id/summary", ({ world, user, params }) => {
   const id = params.id;
   if (!world.drives.some((d) => d.id === id)) return fail(404, "Luna doesn't know this drive.");
@@ -536,6 +449,7 @@ get("/api/v1/system/updates", ({ world, user }) => {
   const { os_update_failed: failed, ...rest } = world.updates;
   return {
     binary_name: "lunad", checksum: "", reboot_required: false, release_notes: "",
+    feed_is_newer: false, from_new_source: false,
     latest_version: rest.current_version, ...rest,
     os_update_failed: failed ? (typeof failed === "object" ? failed : { version: world.updates.latest_version ?? "" }) : null,
   };
@@ -558,8 +472,23 @@ post("/api/v1/system/updates/os-failed/clear", ({ world, user }) => {
 get("/api/v1/system/updates/source", ({ world, user }) => { updatesGate(user); return world.updateSource; });
 put("/api/v1/system/updates/source", ({ world, user, body }) => {
   updatesGate(user);
-  world.updateSource = { ...body, ok: true };
-  return world.updateSource;
+  const current = world.updateSource || {};
+  // lunad keeps fields the body leaves out, so the channel toggle sends only
+  // `channel` and never re-resolves the feed it is already using.
+  const feedUrl = body.feed_url !== undefined ? String(body.feed_url).trim() : undefined;
+  const currentFeed = String(current.feed_url || "").trim().replace(/\/+$/, "");
+  if (feedUrl !== undefined && feedUrl.replace(/\/+$/, "") !== currentFeed && /^https:\/\/(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|localhost|\[::1\])/i.test(feedUrl)) {
+    return fail(400, "That feed address points at a private or local network. Use a public address for updates.");
+  }
+  const next = {
+    ...current,
+    ...(body.feed_url !== undefined ? { feed_url: body.feed_url } : {}),
+    ...(body.channel !== undefined ? { channel: body.channel } : {}),
+    ...(body.keys !== undefined ? { keys: body.keys } : {}),
+    ok: true,
+  };
+  world.updateSource = next;
+  return next;
 });
 post("/api/v1/system/factory-reset", ({ world, user, body }) => {
   requireAdmin(user, "Only an Admin can reset this Luna.");
@@ -601,7 +530,7 @@ get("/api/v1/cloud/phrase", ({ world }) => ({
   check_due: Boolean(world.phrase?.check_due),
   last_checked_at: world.phrase?.last_checked_at ?? 0,
   phrase_words: world.phrase?.phrase_words ?? 0,
-  moving: null,
+  moving: world.phrase?.moving ?? null,
   old_phrase_copies: world.phrase?.old_phrase_copies ?? { count: 0, removed_at: null },
   resealing: Boolean(world.phrase?.resealing),
 }));

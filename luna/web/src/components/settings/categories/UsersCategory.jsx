@@ -13,22 +13,41 @@ import Table from "@libreloom/ui/components/common/Table.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { apiErrorMessage, deleteJson, getJson, postJson } from "../../../lib/api";
 import { useAuth } from "../../../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import CreateUserForm from "../../common/forms/CreateUserForm";
+import EditUserModal from "./EditUserModal.jsx";
 import useStrandedErrorToast from "../../../hooks/useStrandedErrorToast";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+
+/** One line of what a removed person left behind, drive by drive. */
+function orphanDriveLine(owner) {
+  return owner.drives
+    .map((d) => {
+      const trash = Number(d.trash_count) || 0;
+      const folders = d.count - trash;
+      const counts = [
+        folders ? `${folders} ${folders === 1 ? "folder" : "folders"}` : "",
+        trash ? `${trash} ${trash === 1 ? "item" : "items"} in Trash` : "",
+      ].filter(Boolean).join(", ");
+      return `${counts} on ${d.drive_label}${d.readonly ? " (read-only)" : ""}`;
+    })
+    .join(" · ");
+}
 
 export default function UsersCategory() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { user } = useAuth();
-  // You edit yourself in Settings → Security; everyone else gets a full page.
-  const editPath = (row) => (row.id === user?.id ? "/settings#security" : `/settings/users/${row.id}`);
+  // You edit yourself in Settings → Security; everyone else opens the same
+  // kind of modal Add a user uses.
+  const SELF_SECURITY = "/settings#security";
   const { addToast } = useToast();
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [error, setError] = useState(null);
   const [userToDelete, setUserToDelete] = useState(null);
 
@@ -116,25 +135,45 @@ export default function UsersCategory() {
     retry: false,
   });
   const ownerlessCount = Number(ownerlessQuery.data?.count) || 0;
-  const [adoptId, setAdoptId] = useState("");
-  const adoptMutation = useMutation({
-    mutationFn: (/** @type {string} */ id) => postJson(`/api/v1/users/${id}/adopt-private`, {}),
-    onSuccess: (data) => {
-      const n = Number(data?.count) || 0;
+  const ownerless = ownerlessQuery.data?.items || [];
+
+  // One modal for both kinds: give an ownerless folder away, or manage the
+  // folders a removed person left behind (give them away or delete them).
+  const [giveTarget, setGiveTarget] = useState(
+    /** @type {null | { kind: "ownerless", folder: any } | { kind: "orphan", owner: any }} */ (null),
+  );
+  const [giveTo, setGiveTo] = useState("");
+  const [giveError, setGiveError] = useState("");
+  const giveMutation = useMutation({
+    mutationFn: (/** @type {{ userId: string, target: any }} */ vars) => {
+      const { userId, target } = vars;
+      if (target.kind === "ownerless") {
+        return postJson(`/api/v1/users/${userId}/adopt-private`, {
+          drive_id: target.folder.drive_id,
+          path: target.folder.path,
+        });
+      }
+      return postJson(`/api/v1/private/orphans/${target.owner.user_id}/give`, { user_id: userId });
+    },
+    onSuccess: (_data, vars) => {
+      const person = list.find((u) => u.id === vars.userId);
+      const name = person ? person.display_name || person.username : "them";
       addToast({
         type: "success",
-        message: n === 1 ? "1 private folder given." : `${n} private folders given.`,
+        message: vars.target.kind === "ownerless"
+          ? `Gave ${vars.target.folder.name || vars.target.folder.path} to ${name}.`
+          : `Gave ${vars.target.owner.display_name || vars.target.owner.username}'s private folders to ${name}.`,
       });
-      setAdoptId("");
+      setGiveTarget(null);
+      setGiveTo("");
+      setGiveError("");
       queryClient.invalidateQueries({ queryKey: ["ownerless-private"] });
+      queryClient.invalidateQueries({ queryKey: ["private-orphans"] });
+      queryClient.invalidateQueries({ queryKey: ["users"] });
     },
     onError: (err) => {
       haptic("error");
-      addToast({
-        type: "error",
-        message: "Couldn't give the private folders.",
-        description: apiErrorMessage(err, "Try again."),
-      });
+      setGiveError(apiErrorMessage(err, "Couldn't give those private folders. Try again."));
     },
   });
 
@@ -171,35 +210,63 @@ export default function UsersCategory() {
         )}
 
         {ownerlessCount > 0 && (
-          <PageNotice variant="warning" className="mb-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <p className="text-sm">
-                {ownerlessCount === 1
-                  ? "1 private folder came from another Luna and has no owner."
-                  : `${ownerlessCount} private folders came from another Luna and have no owner.`}{" "}
-                Only an Admin can open {ownerlessCount === 1 ? "it" : "them"} until you give{" "}
-                {ownerlessCount === 1 ? "it" : "them"} to someone.
-              </p>
-              <Dropdown
-                options={list.map((u) => ({ value: u.id, label: u.display_name || u.username }))}
-                value={adoptId}
-                onChange={setAdoptId}
-                placeholder="Give to…"
-                bg="secondary"
-                size="form"
-                aria-label="Give private folders to"
-              />
-              <Button
-                size="sm"
-                variant="secondary"
-                surface="primary"
-                disabled={!adoptId || adoptMutation.isPending}
-                onClick={() => adoptMutation.mutate(adoptId)}
-              >
-                Give
-              </Button>
-            </div>
-          </PageNotice>
+          <section className="mb-4" aria-label="Private folders without an owner">
+            <Card surface="primary" padding>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="font-mono text-secondary text-sm">
+                    Private folders without an owner
+                  </h2>
+                  <p className="text-secondary text-sm mt-1">
+                    {ownerlessCount === 1
+                      ? "1 private folder came from another Luna."
+                      : `${ownerlessCount} private folders came from another Luna.`}{" "}
+                    Only an Admin can open {ownerlessCount === 1 ? "it" : "them"} until you give{" "}
+                    {ownerlessCount === 1 ? "it" : "them"} to someone.
+                  </p>
+                </div>
+                <Pill variant="warning">{ownerlessCount}</Pill>
+              </div>
+
+              {ownerless.length === 0 ? (
+                <p className="text-secondary text-sm mt-3">
+                  Refresh this page to see {ownerlessCount === 1 ? "it" : "them"}.
+                </p>
+              ) : (
+                <ul className="mt-3 space-y-2" aria-label="Private folders without an owner">
+                  {ownerless.map((folder) => {
+                    const key = `${folder.drive_id}:${folder.path}`;
+                    const name = folder.name || folder.path.split("/").pop() || folder.path;
+                    return (
+                      <li
+                        key={key}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-large-element surface-secondary p-3"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm text-primary">
+                            <InlinePill>{name}</InlinePill>
+                          </p>
+                          <p className="text-xs text-primary mt-0.5">{folder.drive_label}</p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          surface="secondary"
+                          onClick={() => {
+                            setGiveTo("");
+                            setGiveError("");
+                            setGiveTarget({ kind: "ownerless", folder });
+                          }}
+                        >
+                          Give…
+                        </Button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </Card>
+          </section>
         )}
 
         {(orphans.length > 0 || orphanOffline.length > 0) && (
@@ -225,26 +292,23 @@ export default function UsersCategory() {
                         {" "}(removed)
                       </p>
                       <p className="text-xs text-primary mt-0.5">
-                        {o.drives
-                          .map((d) => {
-                            const trash = Number(d.trash_count) || 0;
-                            const folders = d.count - trash;
-                            const counts = [folders ? `${folders} ${folders === 1 ? "folder" : "folders"}` : "", trash ? `${trash} ${trash === 1 ? "item" : "items"} in Trash` : ""].filter(Boolean).join(", ");
-                            return `${counts} on ${d.drive_label}${d.readonly ? " (read-only)" : ""}`;
-                          })
-                          .join(" · ")}
+                        {orphanDriveLine(o)}
                         {" — nobody can open "}
                         {o.total === 1 ? "it" : "them"}
                       </p>
                     </div>
                     <Button
                       size="sm"
-                      variant="danger"
-                      disabled={cleanMutation.isPending || o.drives.every((d) => d.readonly)}
-                      onClick={() => setOrphanToClean(o)}
-                      aria-label={`Delete private folders left by ${o.display_name || o.username}`}
+                      variant="outline"
+                      surface="secondary"
+                      onClick={() => {
+                        setGiveTo("");
+                        setGiveError("");
+                        setGiveTarget({ kind: "orphan", owner: o });
+                      }}
+                      aria-label={`Manage private folders left by ${o.display_name || o.username}`}
                     >
-                      Delete permanently
+                      Manage
                     </Button>
                   </li>
                 ))}
@@ -362,17 +426,29 @@ export default function UsersCategory() {
                         const isSelf = row.id === user?.id;
                         return (
                           <span className="flex items-center justify-center gap-1">
-                            <Button
-                              asChild
-                              variant="ghost"
-                              size="iconSm"
-                              surface="secondary"
-                              aria-label={`Edit ${row.display_name || row.username}`}
-                            >
-                              <Link to={editPath(row)}>
+                            {isSelf ? (
+                              <Button
+                                asChild
+                                variant="ghost"
+                                size="iconSm"
+                                surface="secondary"
+                                aria-label={`Edit ${row.display_name || row.username}`}
+                              >
+                                <Link to={SELF_SECURITY}>
+                                  <Pencil size={16} aria-hidden="true" />
+                                </Link>
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="iconSm"
+                                surface="secondary"
+                                aria-label={`Edit ${row.display_name || row.username}`}
+                                onClick={() => setEditing(row)}
+                              >
                                 <Pencil size={16} aria-hidden="true" />
-                              </Link>
-                            </Button>
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="iconSm"
@@ -395,7 +471,9 @@ export default function UsersCategory() {
                   ]}
                   data={list}
                   rowKey="id"
-                  onRowClick={(row) => navigate(editPath(row))}
+                  onRowClick={(row) => (
+                    row.id === user?.id ? navigate(SELF_SECURITY) : setEditing(row)
+                  )}
                   addRow={{
                     label: "Add user",
                     onClick: () => {
@@ -404,6 +482,21 @@ export default function UsersCategory() {
                     },
                   }}
                   mobileCards
+                  renderMobileCard={(row, columns) => {
+                    const cell = (key) => columns.find((col) => col.key === key)?.render?.(row, 0);
+                    return (
+                      <div className="flex items-center gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex min-w-0 items-center gap-2">{cell("display_name")}</div>
+                          <div className="mt-1 flex flex-wrap items-center gap-2">
+                            {cell("username")}
+                            {cell("role")}
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">{cell("actions")}</div>
+                      </div>
+                    );
+                  }}
                 />
               </div>
             )}
@@ -442,6 +535,105 @@ export default function UsersCategory() {
           setError(null);
         }}
       />
+
+      <EditUserModal target={editing} onClose={() => setEditing(null)} />
+
+      <ModalCard
+        open={!!giveTarget}
+        title={
+          giveTarget?.kind === "ownerless"
+            ? "Give this private folder away"
+            : `Private folders left by ${giveTarget?.owner?.display_name || giveTarget?.owner?.username || ""}`
+        }
+        onClose={() => {
+          setGiveTarget(null);
+          setGiveTo("");
+          setGiveError("");
+        }}
+        size="md"
+      >
+        {giveTarget && (
+          <div className="space-y-4">
+            {giveTarget.kind === "ownerless" ? (
+              <p className="text-primary text-sm">
+                Choose who should get{" "}
+                <InlinePill>{giveTarget.folder.name || giveTarget.folder.path.split("/").pop() || giveTarget.folder.path}</InlinePill>{" "}
+                and everything inside it. It becomes their private folder.
+              </p>
+            ) : (
+              <>
+                <p className="text-primary text-sm">
+                  {orphanDriveLine(giveTarget.owner)} — nobody can open{" "}
+                  {giveTarget.owner.total === 1 ? "it" : "them"} right now.
+                </p>
+                <p className="text-primary text-sm">
+                  Giving them to someone makes them that person&apos;s private folders. Their files stay where they are. Items in Trash stay behind for deletion.
+                </p>
+              </>
+            )}
+
+            <div className="space-y-2">
+              <p className="text-primary text-sm">
+                {giveTarget.kind === "ownerless" ? "Give to" : "Give them to"}
+              </p>
+              <Dropdown
+                options={list.map((u) => ({ value: u.id, label: u.display_name || u.username }))}
+                value={giveTo}
+                onChange={setGiveTo}
+                placeholder="Choose someone"
+                fullWidth
+                bg="primary"
+                size="form"
+                aria-label="Who should get these private folders"
+              />
+              {giveError && <InlineError>{giveError}</InlineError>}
+              <div className="flex flex-wrap justify-end gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  surface="secondary"
+                  onClick={() => {
+                    setGiveTarget(null);
+                    setGiveTo("");
+                    setGiveError("");
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  surface="secondary"
+                  disabled={!giveTo}
+                  loading={giveMutation.isPending}
+                  onClick={() => giveMutation.mutate({ userId: giveTo, target: giveTarget })}
+                >
+                  Give
+                </Button>
+              </div>
+            </div>
+
+            {giveTarget.kind === "orphan" && (
+              <div className="space-y-2 border-t border-primary/10 pt-4">
+                <p className="text-primary text-sm">
+                  Deleting removes these folders and the files deleted from them for good. Read-only and disconnected drives are skipped.
+                </p>
+                <Button
+                  variant="danger"
+                  surface="secondary"
+                  disabled={cleanMutation.isPending || giveTarget.owner.drives.every((d) => d.readonly)}
+                  onClick={() => {
+                    setOrphanToClean(giveTarget.owner);
+                    setGiveTarget(null);
+                    setGiveTo("");
+                    setGiveError("");
+                  }}
+                >
+                  Delete these folders
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </ModalCard>
 
       <ConfirmModal
         open={!!orphanToClean}

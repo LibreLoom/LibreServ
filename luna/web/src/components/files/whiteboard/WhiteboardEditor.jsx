@@ -44,7 +44,7 @@ const SETTLE_TIMEOUT_MS = 1_000;
 /** Give a silent room this long to answer the sync handshake before
  * mounting whatever the doc holds (the in-sync fallback seeds anyway). */
 const HYDRATE_TIMEOUT_MS = 10_000;
-const HYDRATE_POLL_MS = 50;
+const HYDRATE_POLL_MS = 10;
 
 const EMPTY_OBJECT = Object.freeze({});
 

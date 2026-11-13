@@ -37,6 +37,11 @@ async function fillPassword(page, password = PASSWORD) {
   await page.locator("#recovery-confirm").fill(password);
 }
 
+async function chooseAccount(page, label) {
+  await page.getByLabel("Account to recover").click();
+  await page.getByRole("option", { name: label }).click();
+}
+
 async function downloadFile(page, user, password, filename) {
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download recovery file" }).click();
@@ -53,7 +58,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("downloads a token-bound file with exact filename and JSON bytes", async ({ page }) => {
-  await page.getByLabel("One existing account").check();
+  await chooseAccount(page, "One existing account");
   await page.getByLabel("Username").fill("Sam");
   await page.locator("#device-token").fill(DEVICE_TOKEN);
   await fillPassword(page, "éééééééééa1");
@@ -84,11 +89,12 @@ test("keeps recovery instructions and section headings readable in light and dar
     await expectReadableText(skipLink);
 
     for (const locator of [
-      page.getByText("The file contains your new password in readable text."),
-      page.getByRole("heading", { name: "Choose the account" }),
+      page.getByText("Put this file on a USB drive to set a new password when Luna starts. Your password never leaves this device."),
+      page.getByRole("heading", { name: "Who is it for?" }),
       page.getByText("This Luna has a device token", { exact: true }),
       page.getByRole("heading", { name: "Device token" }),
       page.getByRole("heading", { name: "Set a new password" }),
+      page.getByText("The selected accounts will be signed out on their other devices."),
       page.getByText("A recovery file does not change the password while Luna is already running."),
     ]) {
       await expectReadableText(locator);
@@ -128,7 +134,7 @@ test("encodes every daemon account selector in the downloaded file", async ({ pa
   ];
 
   for (const [label, selector, username] of selectors) {
-    await page.getByLabel(label).check();
+    await chooseAccount(page, label);
     if (username) await page.getByLabel("Username").fill(username);
     await page.locator("#device-token").fill(DEVICE_TOKEN);
     await fillPassword(page);
@@ -138,7 +144,7 @@ test("encodes every daemon account selector in the downloaded file", async ({ pa
 });
 
 test("announces field errors and associates them with the invalid input", async ({ page }) => {
-  await page.getByLabel("One existing account").check();
+  await chooseAccount(page, "One existing account");
   await page.getByLabel("Username").fill("bad name");
   await page.locator("#device-token").fill(DEVICE_TOKEN);
   await fillPassword(page);
@@ -159,11 +165,15 @@ test("supports keyboard access to the skip link and account choices", async ({ p
   await page.keyboard.press("Enter");
   await expect(page.getByRole("main")).toBeFocused();
 
-  const admins = page.getByRole("radio", { name: "All Admin accounts" });
-  await admins.focus();
+  const trigger = page.getByLabel("Account to recover");
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("listbox")).toBeVisible();
   await page.keyboard.press("ArrowDown");
-  await expect(page.getByRole("radio", { name: "All Member accounts" })).toBeFocused();
-  await expect(page.getByRole("radio", { name: "All Member accounts" })).toBeChecked();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(trigger).toHaveText(/All Member accounts/);
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
 });
 
 test("shows a recovery-file error and allows a successful retry", async ({ page }) => {

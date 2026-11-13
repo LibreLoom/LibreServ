@@ -306,6 +306,9 @@ func (a *App) preflight(ctx context.Context, req CutRequest, lk *feedLookup) *Pr
 		if err == nil {
 			err = g.Preflight(ctx, "main", tag, push, forge)
 		}
+		if err == nil {
+			err = g.CheckPushed(ctx, push, "main")
+		}
 		if err != nil {
 			add("git", CheckFail, err.Error())
 		} else if push == forge {
@@ -483,7 +486,7 @@ func (a *App) cutResolve(req CutRequest, lk *feedLookup) func(ctx context.Contex
 			return r, err
 		}
 		var err error
-		if r.Parts, err = resolveSpecs(req.Unit, req.Channel, outDir, specs, lk.priorPart(ctx)); err != nil {
+		if r.Parts, err = resolveSpecs(req.Unit, req.Channel, outDir, specs); err != nil {
 			return r, err
 		}
 		if req.Unit == "luna" {

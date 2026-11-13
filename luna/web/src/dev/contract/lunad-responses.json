@@ -353,14 +353,13 @@
     }
   ],
   "GET /api/v1/drives/{id}/encryption": {
-    "can_encrypt": "boolean",
-    "cannot_encrypt_reason": "string",
     "converting": "boolean",
     "drive_id": "string",
     "encrypted": "boolean",
     "fs_type": "string",
     "label": "string",
     "present": "boolean",
+    "status": "string",
     "unlocked": "boolean"
   },
   "GET /api/v1/drives/{id}/files": [
@@ -416,23 +415,6 @@
       "string"
     ],
     "total_bytes": "null|number",
-    "used_bytes": "null|number"
-  },
-  "GET /api/v1/drives/{id}/wipe-preview/{intent}": {
-    "drive_id": "string",
-    "entries": [
-      {
-        "kind": "string",
-        "name": "string"
-      }
-    ],
-    "files": "number",
-    "folders": "number",
-    "label": "string",
-    "meaningful": "boolean",
-    "readable": "boolean",
-    "target_encrypted": "boolean",
-    "target_fs": "string",
     "used_bytes": "null|number"
   },
   "GET /api/v1/forms/responses": {
@@ -749,6 +731,8 @@
     "binary_name": "string",
     "checksum": "string",
     "current_version": "string",
+    "feed_is_newer": "boolean",
+    "from_new_source": "boolean",
     "latest_version": "string",
     "os_update_failed": {
       "$oneOf": [
@@ -998,10 +982,6 @@
   "POST /api/v1/drives/{id}/eject": {
     "ok": "boolean"
   },
-  "POST /api/v1/drives/{id}/encrypt": {
-    "ok": "boolean",
-    "started": "boolean"
-  },
   "POST /api/v1/drives/{id}/files/create": {
     "ok": "boolean",
     "path": "string"
@@ -1080,6 +1060,13 @@
       "id": "string",
       "name": "string"
     }
+  },
+  "POST /api/v1/private/orphans/{owner}/give": {
+    "failed_drives": [],
+    "moved": "number",
+    "offline_drives": [],
+    "ok": "boolean",
+    "skipped_readonly": []
   },
   "POST /api/v1/setup": {
     "current_step": "string",
@@ -1174,6 +1161,13 @@
     "received": "number",
     "size": "number",
     "upload_id": "string"
+  },
+  "POST /s/{token}/upload/{id}/complete": {
+    "hidden": "boolean",
+    "kind": "string",
+    "modified": "number",
+    "name": "string",
+    "size": "number"
   },
   "PUT /api/v1/cloud/phrase": {
     "rescope_failed": "number",

@@ -312,9 +312,6 @@ mod tests {
             "blkid",
             "mount",
             "umount",
-            "wipefs",
-            "sfdisk",
-            "mkfs.exfat",
             "smartctl",
             "fstrim",
             "grub-editenv",
@@ -350,9 +347,10 @@ mod tests {
             whiteboard_editor: true,
             whiteboard_fonts: true,
         };
-        // EuroOffice and the diagram pack are files in the data folder, so a
-        // passing office_pack and diagram_pack need them on disk.
-        let office = state.data_dir.join("eurooffice");
+        // A passing office_pack and diagram_pack need the packs on disk. On a
+        // test machine there is no image pack root, so `packs::dir` gives the
+        // data folder and they can be written there.
+        let office = crate::packs::dir(&state.data_dir, "eurooffice");
         for rel in [
             "web-apps/apps/api/documents/api.js",
             "x2t/x2t.js",
@@ -366,7 +364,7 @@ mod tests {
             std::fs::write(&path, "x").unwrap();
         }
         std::fs::create_dir_all(office.join("fonts")).unwrap();
-        let drawio = state.data_dir.join("drawio");
+        let drawio = crate::packs::dir(&state.data_dir, "drawio");
         std::fs::create_dir_all(&drawio).unwrap();
         std::fs::write(drawio.join("pack.json"), r#"{"pack":"luna-drawio"}"#).unwrap();
         std::fs::write(drawio.join("index.html"), "x").unwrap();
@@ -408,13 +406,7 @@ mod tests {
             .await
             .unwrap();
         let passing: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        for name in [
-            "erase_tools",
-            "heic_tools",
-            "office_pack",
-            "smart_tool",
-            "video_tools",
-        ] {
+        for name in ["heic_tools", "office_pack", "smart_tool", "video_tools"] {
             assert_eq!(passing["checks"][name]["status"], "passed", "{name}");
             assert!(passing["checks"][name].get("more").is_none(), "{name}");
             assert!(passing["checks"][name].get("details").is_none(), "{name}");
@@ -577,12 +569,17 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert!(v["total_bytes"].as_u64().unwrap() > 0);
         let items = v["items"].as_array().unwrap();
-        let office = items
+        // The editor packs are in the OS image, not on the data partition, so
+        // they are not a row here even when an old box still has a copy.
+        assert!(
+            !items.iter().any(|i| i["id"] == "office_pack"),
+            "software is not the data partition's: {items:?}"
+        );
+        let temporary_row = items
             .iter()
-            .find(|i| i["id"] == "office_pack")
-            .expect("office pack row");
-        assert_eq!(office["removable"], false);
-        assert!(office["bytes"].as_u64().unwrap() >= 64 * 1024);
+            .find(|i| i["id"] == "temporary")
+            .expect("temporary files row");
+        assert!(temporary_row["bytes"].as_u64().unwrap() >= 8192);
         let temporary = items
             .iter()
             .find(|i| i["id"] == "temporary")

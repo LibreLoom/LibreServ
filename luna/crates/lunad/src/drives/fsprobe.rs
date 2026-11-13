@@ -1,19 +1,12 @@
-//! Probe a disk's filesystems and (optionally) turn installer media into
-//! a writable data USB.
+//! Probe a disk's filesystems and pick what Luna can mount.
 //!
 //! The rapidinstall ISO is an isohybrid: the whole stick mounts as `iso9660`,
 //! which the kernel will not write to. After install, people plug that same
-//! Lexar/etc. stick back in as storage. Luna must notice, explain, and — only
-//! after an explicit erase — wipe the ISO layout and put a real filesystem on it.
+//! Lexar/etc. stick back in as storage. Luna must notice and explain that it
+//! can't use it as it is. Luna does not erase or format drives.
 
-use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::Arc;
-
-/// How long `sfdisk` gets to write a partition table. It writes a few sectors,
-/// so anything approaching this means the stick has stopped answering.
-const SFDISK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// One whole disk or partition as `blkid` (or a test double) reported it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,20 +17,17 @@ pub struct FsInfo {
     pub size_bytes: u64,
 }
 
-/// Where Luna should mount, and whether the stick is installer media.
+/// Where Luna should mount, and whether the drive needs setting up first
+/// (installer media, which Luna can't write to).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MountChoice {
     pub name: String,
     pub fs_type: String,
-    pub needs_erase: bool,
+    pub needs_setup: bool,
 }
 
 pub trait FsProbe: Send + Sync {
     fn probe_disk(&self, disk: &str) -> Vec<FsInfo>;
-    /// Clear every signature off `disk` and give it one partition spanning the
-    /// whole disk. No filesystem: [`super::format`] decides which one, so the
-    /// same prep serves a plain drive and an encrypted one.
-    fn prepare_disk(&self, disk: &str) -> anyhow::Result<String>;
 }
 
 #[derive(Clone, Default)]
@@ -47,21 +37,12 @@ impl FsProbe for CommandFsProbe {
     fn probe_disk(&self, disk: &str) -> Vec<FsInfo> {
         probe_disk_sysfs(Path::new("/sys/block"), disk, blkid_export)
     }
-
-    fn prepare_disk(&self, disk: &str) -> anyhow::Result<String> {
-        prepare_disk_cmd(disk)
-    }
 }
 
-pub fn shared_command_probe() -> Arc<CommandFsProbe> {
-    Arc::new(CommandFsProbe)
-}
-
-/// Test double: canned `blkid` results and recorded prepare calls.
+/// Test double: canned `blkid` results.
 #[derive(Default)]
 pub struct MockFsProbe {
     pub disks: std::sync::Mutex<std::collections::HashMap<String, Vec<FsInfo>>>,
-    pub formats: std::sync::Mutex<Vec<String>>,
 }
 
 impl FsProbe for MockFsProbe {
@@ -72,13 +53,6 @@ impl FsProbe for MockFsProbe {
             .get(disk)
             .cloned()
             .unwrap_or_default()
-    }
-
-    fn prepare_disk(&self, disk: &str) -> anyhow::Result<String> {
-        self.formats.lock().unwrap().push(disk.to_string());
-        // The real probe names the first partition it created; the mock has to
-        // agree, or the caller mounts a partition name that never appears.
-        Ok(first_partition_name(disk))
     }
 }
 
@@ -121,13 +95,13 @@ pub fn is_esp_like(info: &FsInfo) -> bool {
     fat && info.size_bytes > 0 && info.size_bytes < 64 * 1024 * 1024
 }
 
-/// A LUKS container is a candidate drive, not an unreadable one. It is
-/// deliberately excluded from [`is_writable_type`]: there is no filesystem to
-/// mount until the container is opened, so treating it as a filesystem would
-/// make `peek` try to mount it read-only and report "Can't open" for a
-/// perfectly good encrypted drive.
+/// blkid's type for a LUKS (encrypted) partition. Luna can't open these, but it
+/// must recognise them: otherwise an encrypted drive would be described as
+/// blank or damaged. Deliberately excluded from [`is_writable_type`].
+pub const LUKS_TYPE: &str = "crypto_luks";
+
 pub fn is_luks_type(fs: &str) -> bool {
-    crate::drives::luks::is_luks_type(fs)
+    fs.eq_ignore_ascii_case(LUKS_TYPE)
 }
 
 /// Prefer a real data partition over the whole-disk ISO9660 view of an isohybrid USB.
@@ -140,10 +114,10 @@ pub fn pick_mount_source(disk: &str, parts: &[FsInfo]) -> MountChoice {
         return MountChoice {
             name: best.name.clone(),
             fs_type: best.fs_type.clone(),
-            needs_erase: false,
+            needs_setup: false,
         };
     }
-    // An encrypted drive: nothing to mount, but nothing to erase either. It is
+    // An encrypted drive: nothing Luna can mount, but not blank either. It is
     // the largest such partition that matters, matching the data-partition rule.
     if let Some(luks) = parts
         .iter()
@@ -153,7 +127,7 @@ pub fn pick_mount_source(disk: &str, parts: &[FsInfo]) -> MountChoice {
         return MountChoice {
             name: luks.name.clone(),
             fs_type: luks.fs_type.clone(),
-            needs_erase: false,
+            needs_setup: false,
         };
     }
     if let Some(whole) = parts.iter().find(|p| p.name == disk) {
@@ -161,14 +135,14 @@ pub fn pick_mount_source(disk: &str, parts: &[FsInfo]) -> MountChoice {
             return MountChoice {
                 name: disk.to_string(),
                 fs_type: whole.fs_type.clone(),
-                needs_erase: false,
+                needs_setup: false,
             };
         }
         if is_intrinsically_read_only(&whole.fs_type) {
             return MountChoice {
                 name: disk.to_string(),
                 fs_type: whole.fs_type.clone(),
-                needs_erase: true,
+                needs_setup: true,
             };
         }
     }
@@ -180,7 +154,7 @@ pub fn pick_mount_source(disk: &str, parts: &[FsInfo]) -> MountChoice {
                 .find(|p| is_intrinsically_read_only(&p.fs_type))
                 .map(|p| p.fs_type.clone())
                 .unwrap_or_default(),
-            needs_erase: true,
+            needs_setup: true,
         };
     }
     MountChoice {
@@ -190,29 +164,8 @@ pub fn pick_mount_source(disk: &str, parts: &[FsInfo]) -> MountChoice {
             .find(|p| p.name == disk)
             .map(|p| p.fs_type.clone())
             .unwrap_or_default(),
-        needs_erase: false,
+        needs_setup: false,
     }
-}
-
-pub fn first_partition_name(disk: &str) -> String {
-    if disk.starts_with("nvme") || disk.starts_with("mmcblk") {
-        format!("{disk}p1")
-    } else {
-        format!("{disk}1")
-    }
-}
-
-pub fn sanitize_volume_label(label: &str) -> String {
-    let cleaned: String = label
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { ' ' })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    let trimmed = cleaned.trim();
-    let out = if trimmed.is_empty() { "LUNA" } else { trimmed };
-    out.chars().take(11).collect()
 }
 
 pub(crate) fn probe_disk_sysfs(
@@ -231,9 +184,6 @@ pub(crate) fn probe_disk_sysfs(
         };
         let size_bytes = read_size_bytes(&size_dir).unwrap_or(0);
         let (fs_type, label) = blkid(&format!("/dev/{name}")).unwrap_or_default();
-        if fs_type.is_empty() && name != disk {
-            continue;
-        }
         out.push(FsInfo {
             name,
             fs_type,
@@ -329,96 +279,6 @@ pub fn parse_blkid_export(text: &str) -> Option<(String, String)> {
     }
 }
 
-/// Clear every signature off the disk and give it one partition spanning
-/// the whole disk. Returns the partition name.
-///
-/// No filesystem: [`super::format`] decides which one, so the same prep
-/// serves a plain drive and an encrypted one.
-fn prepare_disk_cmd(disk: &str) -> anyhow::Result<String> {
-    let dev = format!("/dev/{disk}");
-    if !Path::new(&dev).exists() {
-        anyhow::bail!("Luna can't see that USB stick. Plug it in and try again.");
-    }
-    // Disk tools need real root (they write the device), but wipefs still
-    // parses attacker-provided signatures — run them hardened.
-    let wipe = match crate::sandbox::which("wipefs") {
-        Some(bin) => {
-            let mut cmd = crate::sandbox::hardened(&bin);
-            cmd.args(["-af", &dev]).stderr(Stdio::piped());
-            crate::sandbox::output_limited(&mut cmd, std::time::Duration::from_secs(60))
-        }
-        None => Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "wipefs missing",
-        )),
-    };
-    match wipe {
-        Ok(o) if o.status.success() => {}
-        Ok(o) => {
-            anyhow::bail!(
-                "Luna couldn't clear the old installer layout. {}",
-                String::from_utf8_lossy(&o.stderr).trim()
-            );
-        }
-        Err(_) => anyhow::bail!(
-            "Luna couldn't prepare this USB. The box is missing a disk tool (wipefs)."
-        ),
-    }
-
-    let Some(sfdisk_bin) = crate::sandbox::which("sfdisk") else {
-        anyhow::bail!("Luna couldn't prepare this USB. The box is missing a disk tool (sfdisk).");
-    };
-    let mut sfdisk = {
-        let mut cmd = crate::sandbox::hardened(&sfdisk_bin);
-        cmd.arg(&dev)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped());
-        cmd.spawn()?
-    };
-    {
-        let mut stdin = sfdisk
-            .stdin
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("Luna couldn't prepare this USB."))?;
-        stdin.write_all(b"label: dos\n,+,7\n")?;
-    }
-    // Bounded: a stick that stops answering would otherwise hold the format
-    // open forever, with the drive stuck in `converting` and no way out.
-    let sfdisk_out = crate::sandbox::collect_output(sfdisk, SFDISK_TIMEOUT)?;
-    if !sfdisk_out.status.success() {
-        anyhow::bail!(
-            "Luna couldn't set up this USB. {}",
-            String::from_utf8_lossy(&sfdisk_out.stderr).trim()
-        );
-    }
-
-    let part = first_partition_name(disk);
-    let part_dev = format!("/dev/{part}");
-    for _ in 0..30 {
-        if Path::new(&part_dev).exists() {
-            break;
-        }
-        if let Some(blockdev) = crate::sandbox::which("blockdev") {
-            let mut cmd = crate::sandbox::hardened(&blockdev);
-            cmd.args(["--rereadpt", &dev]);
-            let _ = crate::sandbox::run_limited(&mut cmd, std::time::Duration::from_secs(15));
-        }
-        if let Some(partprobe) = crate::sandbox::which("partprobe") {
-            let mut cmd = crate::sandbox::hardened(&partprobe);
-            cmd.arg(&dev);
-            let _ = crate::sandbox::run_limited(&mut cmd, std::time::Duration::from_secs(15));
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-    if !Path::new(&part_dev).exists() {
-        anyhow::bail!(
-            "Luna prepared the USB but the new partition did not appear. Unplug it, plug it back in, and try again."
-        );
-    }
-    Ok(part)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -441,7 +301,7 @@ mod tests {
             },
         ];
         let choice = pick_mount_source("sdb", &parts);
-        assert!(choice.needs_erase);
+        assert!(choice.needs_setup);
         assert_eq!(choice.name, "sdb");
         assert_eq!(choice.fs_type, "iso9660");
     }
@@ -463,7 +323,7 @@ mod tests {
             },
         ];
         let choice = pick_mount_source("sdb", &parts);
-        assert!(!choice.needs_erase);
+        assert!(!choice.needs_setup);
         assert_eq!(choice.name, "sdb1");
         assert_eq!(choice.fs_type, "vfat");
     }
@@ -475,21 +335,6 @@ mod tests {
             parse_blkid_export(text),
             Some(("iso9660".into(), "LUNAINST".into()))
         );
-    }
-
-    #[test]
-    fn volume_label_fits_fat() {
-        assert_eq!(
-            sanitize_volume_label("Lexar USB Flash Drive"),
-            "Lexar USB F"
-        );
-        assert_eq!(sanitize_volume_label("!!!"), "LUNA");
-    }
-
-    #[test]
-    fn first_partition_nvme_uses_p() {
-        assert_eq!(first_partition_name("nvme0n1"), "nvme0n1p1");
-        assert_eq!(first_partition_name("sdb"), "sdb1");
     }
 
     #[test]
@@ -513,7 +358,7 @@ mod tests {
         );
         let choice = pick_mount_source("sdb", &infos);
         assert_eq!(choice.name, "sdb1");
-        assert!(!choice.needs_erase);
+        assert!(!choice.needs_setup);
     }
 }
 

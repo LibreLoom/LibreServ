@@ -14,79 +14,11 @@
     "theme": "scenario default"
   },
   "auth/member-needs-phrase": {
-    "note": "Card doesn't smoothly resize when you switch between word counts. There are also a few layout issues. I'd also like to mention that the user is not required to have a recovery phrase — it's only for cloud backup, so this gate should never be used. Simply a setup wizard when the user chooses to cloud backup.",
-    "at": "2026-10-29T04:04:02.349Z",
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-07T21:42:49.217Z",
     "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1793246537157,
-        "method": "POST",
-        "path": "/api/v1/cloud/identity",
-        "status": 200,
-        "note": "",
-        "body": "{\"luna_id\":\"luna-1\",\"signing_public\":\"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBw==\"}"
-      },
-      {
-        "t": 1793246537157,
-        "method": "POST",
-        "path": "/api/v1/cloud/identity",
-        "status": 200,
-        "note": "",
-        "body": "{\"luna_id\":\"luna-1\",\"signing_public\":\"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBw==\"}"
-      },
-      {
-        "t": 1793246537109,
-        "method": "GET",
-        "path": "/api/v1/auth/status",
-        "status": 200,
-        "note": "",
-        "body": "{\"has_admin\":true,\"connect_active\":false}"
-      },
-      {
-        "t": 1793246537109,
-        "method": "GET",
-        "path": "/api/v1/setup",
-        "status": 200,
-        "note": "",
-        "body": "{\"name\":\"Luna\",\"setup_completed\":true,\"current_step\":\"done\",\"step_data\":{\"network_connected\":true}}"
-      },
-      {
-        "t": 1793246537109,
-        "method": "GET",
-        "path": "/api/v1/auth/status",
-        "status": 200,
-        "note": "",
-        "body": "{\"has_admin\":true,\"connect_active\":false}"
-      },
-      {
-        "t": 1793246537109,
-        "method": "GET",
-        "path": "/api/v1/setup",
-        "status": 200,
-        "note": "",
-        "body": "{\"name\":\"Luna\",\"setup_completed\":true,\"current_step\":\"done\",\"step_data\":{\"network_connected\":true}}"
-      },
-      {
-        "t": 1793246537106,
-        "method": "GET",
-        "path": "/api/v1/auth/me",
-        "status": 200,
-        "note": "",
-        "body": "{\"id\":\"u2\",\"username\":\"sam\",\"display_name\":\"Sam\",\"role\":\"user\",\"phrase_set\":false}"
-      },
-      {
-        "t": 1793246537105,
-        "method": "GET",
-        "path": "/api/v1/auth/me",
-        "status": 200,
-        "note": "",
-        "body": "{\"id\":\"u2\",\"username\":\"sam\",\"display_name\":\"Sam\",\"role\":\"user\",\"phrase_set\":false}"
-      }
-    ]
+    "theme": "scenario default"
   },
   "auth/session-dies-mid-use": {
     "status": "pass",
@@ -2101,6 +2033,27 @@
     "viewport": "desktop",
     "theme": "scenario default"
   },
+  "files/edit-form": {
+    "status": "pass",
+    "note": "Doesn't work in states gallery. I'll test later.",
+    "at": "2026-11-07T22:53:00.168Z",
+    "viewport": "tablet",
+    "theme": "scenario default"
+  },
+  "files/edit-form-collab": {
+    "status": "pass",
+    "note": "Doesn't work in dev.",
+    "at": "2026-11-07T22:54:48.332Z",
+    "viewport": "tablet",
+    "theme": "scenario default"
+  },
+  "files/edit-markdown": {
+    "status": "pass",
+    "note": "One cannot actually click links in source or write mode.",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "tablet",
+    "theme": "scenario default"
+  },
   "files/empty-drive": {
     "note": "@plainskill needs to review the new file operations card.",
     "at": "2026-11-01T22:16:15.923Z",
@@ -2232,6 +2185,20 @@
       }
     ]
   },
+  "files/encryption": {
+    "status": "pass",
+    "note": "Encryption management card it poorly layed out. Redesign.",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "files/encryption-locked": {
+    "status": "pass",
+    "note": "Locked -> Unlock\n\nWhen the card is opened, a password dialogue should just show and grab focus. Enter submits. It's dumb not to show it.",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
   "files/failing-drive": {
     "status": "pass",
     "note": "",
@@ -2249,7 +2216,7 @@
   "files/health-unknown": {
     "status": "pass",
     "note": "",
-    "at": "2026-11-01T22:24:51.021Z",
+    "at": "2026-11-07T22:16:18.085Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
@@ -2912,10 +2879,24 @@
     "viewport": "desktop",
     "theme": "scenario default"
   },
+  "files/open-close-speed": {
+    "status": "pass",
+    "note": "Opening a file is still slow/stuttery AF. ",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
   "files/overview": {
     "status": "pass",
     "note": "",
     "at": "2026-10-21T03:36:07.815Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "files/private-ownerless": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-07T22:49:04.047Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
@@ -3652,120 +3633,11 @@
     "theme": "scenario default"
   },
   "files/upload-folder": {
-    "note": "Folder uploads aren't supported properly yet.",
-    "at": "2026-10-22T04:27:02.623Z",
+    "status": "pass",
+    "note": "Holy crap the expanded modal looks like an unstable mess when uploading a lot of small files. Let's stabilize it.",
+    "at": "2026-11-08T01:28:57.231Z",
     "viewport": "desktop",
-    "theme": "scenario default",
-    "faults": [],
-    "offline": false,
-    "latency": 0,
-    "lastRequests": [
-      {
-        "t": 1792324800404,
-        "method": "GET",
-        "path": "/api/v1/jobs",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800404,
-        "method": "GET",
-        "path": "/api/v1/private-backups/mine",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800404,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800404,
-        "method": "GET",
-        "path": "/api/v1/private-backups/item?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800404,
-        "method": "GET",
-        "path": "/api/v1/cloud/backups",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800404,
-        "method": "GET",
-        "path": "/api/v1/connect/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800404,
-        "method": "GET",
-        "path": "/api/v1/backups?drive=d1&path=",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800403,
-        "method": "GET",
-        "path": "/api/v1/drives/d1/files?path=Documents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800141,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800095,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800091,
-        "method": "POST",
-        "path": "/api/v1/me/recents",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800091,
-        "method": "GET",
-        "path": "/api/v1/drives",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800034,
-        "method": "GET",
-        "path": "/api/v1/auth/status",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800034,
-        "method": "GET",
-        "path": "/api/v1/setup",
-        "status": 200,
-        "note": ""
-      },
-      {
-        "t": 1792324800034,
-        "method": "GET",
-        "path": "/api/v1/auth/status",
-        "status": 200,
-        "note": ""
-      }
-    ]
+    "theme": "scenario default"
   },
   "files/upload-huge": {
     "status": "pass",
@@ -4140,6 +4012,237 @@
     "status": "pass",
     "note": "",
     "at": "2026-11-02T02:21:18.432Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "gallery/segment-motion": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-07T23:03:02.276Z",
+    "viewport": "tablet",
+    "theme": "scenario default"
+  },
+  "public/file-edit": {
+    "status": "pass",
+    "note": "needs real luna.",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "tablet",
+    "theme": "scenario default"
+  },
+  "recovery/create": {
+    "status": "pass",
+    "note": "this ui is still fucking shit. it doesn't use our components. the layout is poor.",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "recovery/phone-dark": {
+    "status": "pass",
+    "note": "no better than desktop.",
+    "at": "2026-11-07T22:39:08.302Z",
+    "viewport": "phone",
+    "theme": "scenario default"
+  },
+  "settings/appearance": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-07T23:02:58.067Z",
+    "viewport": "tablet",
+    "theme": "scenario default"
+  },
+  "settings/cloud-backups": {
+    "status": "pass",
+    "note": "it looks like all the buttons use the same piece of storage to detect if they are in a loading state, causing them all to react on a click of a single button.\n## Page Feedback: /settings#luna_connect\n**Viewport:** 820×1000\n\n### 1. <CloudBackupCategory> <SettingsCard> <Card> <CloudBackupRow> <BackupItem> <Button> button \"Back up anyway\"\n**Location:** .space-y-3 > .rounded-large-element > .flex > .inline-flex\n**Source:** @fs/home/plainskill/Projects/LibreServ/shared/ui/components/ui/Button.jsx:103:23\n**React:** <CloudBackupCategory> <SettingsCard> <Card> <CloudBackupRow> <BackupItem> <Button>\n**Feedback:** for example, i click this and\n\n### 2. <CloudBackupCategory> <SettingsCard> <Card> <CloudBackupRow> <BackupItem> <Button> button \"Back up now\"\n**Location:** .space-y-3 > .rounded-large-element > .flex > .inline-flex\n**Source:** @fs/home/plainskill/Projects/LibreServ/shared/ui/components/ui/Button.jsx:103:23\n**React:** <CloudBackupCategory> <SettingsCard> <Card> <CloudBackupRow> <BackupItem> <Button>\n**Feedback:** this button will also go into a loading state",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "tablet",
+    "theme": "scenario default"
+  },
+  "settings/cloud-no-card": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-07T23:01:10.594Z",
+    "viewport": "tablet",
+    "theme": "scenario default"
+  },
+  "settings/cloud-run-fails": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-07T23:01:18.382Z",
+    "viewport": "tablet",
+    "theme": "scenario default"
+  },
+  "settings/edit-user": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-07T22:49:14.827Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "settings/edit-user-phone": {
+    "status": "pass",
+    "note": "The table doesn't scale to mobile. The modal does.",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "tablet",
+    "theme": "scenario default"
+  },
+  "settings/edit-user-save-fails": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-07T22:49:35.467Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "settings/edit-user-self": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-07T22:49:23.438Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "settings/phrase-24-words": {
+    "status": "pass",
+    "note": "Recovery phrase\n24 words · Not checked yet should be a card, not a section.",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "settings/phrase-change": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-07T22:29:42.442Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "settings/phrase-change-exposed": {
+    "status": "pass",
+    "note": "Could someone else have your phrase? card is utter shit. Whoever made this clearly never took classes in UI. The inline checkmarks must be removed everywhere.",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "settings/phrase-check-wrong": {
+    "status": "pass",
+    "note": "The inline checkmarks are misleading. Remove them.",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "settings/phrase-lost": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-07T22:35:30.719Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "settings/phrase-lost-exposed": {
+    "status": "pass",
+    "note": "We have a lot of errors that show in cards. The way the card that asks you to very word #x, y, and z is beautiful. I hate the current convention of doing it with a critical-colored card. Let's move future and existing errors to look like the one in that card where applicable.",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "settings/phrase-moving": {
+    "status": "pass",
+    "note": "drop Cloud backup costs $8 per terabyte each month. from the cloud backup card\n\nno such row, btw. \n\nis this a duplicate of http://localhost:3001/__states#settings%2Fphrase-resealing? \n\nthere should only be one such ui anyway, and it should be good...",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "settings/phrase-moving-full": {
+    "status": "pass",
+    "note": "bro no errors fucking show",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "settings/phrase-not-set": {
+    "status": "pass",
+    "note": "Set up your recovery phrase card is far too wordy. If all the words are necessary, you're gonna need to do some layout & UX magic. ",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "settings/phrase-resealing": {
+    "status": "pass",
+    "note": "Updating your cloud backups to the new phrase… is of concern for cloud backups, not the phrase itself. The user also expects progress & ETA.",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "settings/phrase-set-check-due": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-07T22:27:12.792Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "settings/restore-needed": {
+    "status": "pass",
+    "note": "I'm skeptical whether this actually works. The user doesn't have access to the actual Luna key. Explain the crypto behind this to the user.",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "tablet",
+    "theme": "scenario default"
+  },
+  "settings/restore-private-needed": {
+    "status": "pass",
+    "note": "We're not using the right recovery phrase UI. We  have better UI than this built, we just aren't using it here.",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "tablet",
+    "theme": "scenario default"
+  },
+  "settings/update-source": {
+    "status": "pass",
+    "note": "i think this card was re-done: Update source\nWhere Luna reads its list of updates.\n\nDefault source\nhttps://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/feedsEdit update source\n\nit's now successfully enshitified.",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "settings/update-source-lan-feed": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-07T22:45:34.223Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "settings/users-many": {
+    "status": "pass",
+    "note": "## Page Feedback: /settings#users\n**Viewport:** 2113×1370\n\n### 1. <PageOutlet> <RenderedRoute> <SettingsPage> <Page> <SettingsSidebar> <Card> text font\n**Location:** .w-[28%] > .rounded-large-element > .mt-4 > .px-3\n**Source:** @fs/home/plainskill/Projects/LibreServ/shared/ui/hooks/useAnimatedHeight.jsx:16:20\n**React:** <PageOutlet> <RenderedRoute> <SettingsPage> <Page> <SettingsSidebar> <Card>\n**Feedback:** what the hell is this? remove it.\n## Page Feedback: /settings#users\n**Viewport:** 2113×1370\n\n### 1. <SettingsContent> <UsersCategory> <EditUserModal> <ModalCard> <Card> <EditUserBody> flex items\n**Location:** .rounded-large-element > #edit-user-form > .rounded-large-element > .flex\n**Source:** src/components/settings/categories/EditUserModal.jsx:55:23\n**React:** <SettingsContent> <UsersCategory> <EditUserModal> <ModalCard> <Card> <EditUserBody>\n**Feedback:** broken layout\n",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "settings/users-orphans": {
+    "status": "pass",
+    "note": "Love this UI so much more, still has some issues.\n## Page Feedback: /settings#users\n**Viewport:** 2113×1370\n\n### 1. <RenderedRoute> <SettingsPage> <Page> <SettingsContent> <UsersCategory> <Card> flex items\n**Location:** .p-5 > .mt-3 > .flex > .flex\n**Source:** @fs/home/plainskill/Projects/LibreServ/shared/ui/hooks/useAnimatedHeight.jsx:16:20\n**React:** <RenderedRoute> <SettingsPage> <Page> <SettingsContent> <UsersCategory> <Card>\n**Feedback:** firstly, redesign this section\n\n### 2. <SettingsPage> <Page> <SettingsContent> <UsersCategory> <Card> <Button> button [Delete private folders left by Alex]\n**Location:** .p-5 > .mt-3 > .flex > .inline-flex\n**Source:** @fs/home/plainskill/Projects/LibreServ/shared/ui/components/ui/Button.jsx:103:23\n**React:** <SettingsPage> <Page> <SettingsContent> <UsersCategory> <Card> <Button>\n**Feedback:** secondly, this should instead be a manage button that allows it to be given to another user or deleted permenantly.",
+    "at": "2026-11-08T01:28:57.231Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "share/links-all-states": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-07T22:51:36.380Z",
+    "viewport": "tablet",
+    "theme": "scenario default"
+  },
+  "share/many-people": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-07T22:50:59.048Z",
+    "viewport": "tablet",
+    "theme": "scenario default"
+  },
+  "shared/loading": {
+    "status": "pass",
+    "note": "",
+    "at": "2026-11-07T22:16:24.869Z",
+    "viewport": "desktop",
+    "theme": "scenario default"
+  },
+  "shared/many": {
+    "status": "pass",
+    "note": "Removing the effect is not fixing it. Your job was to fix it.",
+    "at": "2026-11-08T01:28:57.231Z",
     "viewport": "desktop",
     "theme": "scenario default"
   }

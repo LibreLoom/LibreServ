@@ -428,7 +428,9 @@ fn private_items_answer_to_their_owner_not_to_admins_or_wide_grants() {
     ));
 
     // An item whose owner this Luna doesn't know belongs to nobody: only
-    // an Admin can reach it.
+    // an Admin can reach it. The folder has to exist on disk — the cleanup
+    // list offers real folders, and adopting one rewrites its marker.
+    std::fs::create_dir_all(mount.join("Family/Orphan")).unwrap();
     crate::private::create(&mount, "Family/Orphan", "someone-else").unwrap();
     assert!(can_access(
         &admin_u,

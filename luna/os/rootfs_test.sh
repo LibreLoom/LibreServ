@@ -113,8 +113,10 @@ assert_file_has "$BUILD" 'LABEL=LUNA_DATA /var/lib/luna' \
 	"rootfs must mount the data partition at /var/lib/luna"
 assert_file_has "$BUILD" 'luna-root-ro' \
 	"rootfs must remount root read-only + noatime"
-assert_file_has "$BUILD" 'luna-run' \
-	"rootfs must prefer /var/lib/luna/bin/lunad for daemon OTA"
+assert_file_has "$BUILD" 'command="/usr/local/bin/lunad"' \
+	"rootfs must run the daemon baked into the OS image"
+assert_file_lacks "$BUILD" '/var/lib/luna/bin/lunad' \
+	"no daemon may live on the data partition: the whole system is the image"
 assert_file_has "$BUILD" 'util-linux' \
 	"rootfs must include util-linux (provides fstrim)"
 assert_file_has "$ASSEMBLER" 'build-rootfs.d' \

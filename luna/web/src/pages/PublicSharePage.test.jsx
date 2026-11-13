@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 import { FileOpsProvider } from "../context/FileOpsContext.jsx";
@@ -58,8 +58,10 @@ function renderPage({ client } = {}) {
 
 function NavButtons() {
   const navigate = useNavigate();
+  const location = useLocation();
   return (
     <>
+      <output data-testid="share-location">{location.search}</output>
       <button onClick={() => navigate("/s/def")}>switch link</button>
       <button onClick={() => navigate("/s/abc?file=report.pdf")}>open file deep link</button>
     </>
@@ -405,10 +407,15 @@ describe("PublicSharePage", () => {
 
     fireEvent.click(fileRowLink());
     expect(await screen.findByRole("dialog", dialogName, SLOW)).toBeInTheDocument();
+    expect(screen.getByTestId("share-location")).toHaveTextContent("file=report.pdf");
 
     closeViewer();
     await waitFor(() =>
       expect(screen.queryByRole("dialog", dialogName)).not.toBeInTheDocument(), SLOW);
+
+    // The exit animation hides the dialog before its close callback clears
+    // the file parameter. Wait for that navigation before opening it again.
+    await waitFor(() => expect(screen.getByTestId("share-location")).toHaveTextContent(/^$/), SLOW);
 
     fireEvent.click(screen.getByRole("button", { name: "open file deep link" }));
     expect(await screen.findByRole("dialog", dialogName, SLOW)).toBeInTheDocument();
@@ -538,9 +545,9 @@ describe("PublicSharePage", () => {
     fireEvent.change(/** @type {HTMLInputElement} */ (picker), {
       target: { files: [new File(["1"], "a.txt"), new File(["2"], "b.txt")] },
     });
-    const dock = await screen.findByRole("region", { name: "File tasks" });
-    fireEvent.click(within(dock).getByRole("button", { name: "Show details" }));
-    expect(await within(dock).findByText("Choose one file to replace this file.")).toBeInTheDocument();
+    // The card starts collapsed; open it so the picker's hint shows.
+    fireEvent.click(await screen.findByRole("button", { name: "Show details" }));
+    expect(await screen.findByText("Choose one file to replace this file.")).toBeInTheDocument();
   });
 
   it("scopes the guest move picker to the shared drive and invalidates its listing on mkdir", async () => {

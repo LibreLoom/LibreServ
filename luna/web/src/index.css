@@ -312,8 +312,20 @@ textarea::placeholder {
     }
 }
 
-.fullscreen-overlay-enter,
-.file-viewer-enter {
+/* File viewers fade only. The editor mount lands on the main thread during
+   the opening, and scaling a full-viewport layer at the same time made the
+   entrance stutter; a fade runs on the compositor, so it survives that work. */
+@keyframes file-viewer-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes file-viewer-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+.fullscreen-overlay-enter {
     /* No will-change here: this class stays on for the editor's whole life,
        and a held will-change keeps the full-viewport overlay (Excalidraw's
        canvases, EuroOffice's iframe) on its own compositor layer long after
@@ -321,10 +333,18 @@ textarea::placeholder {
     animation: fullscreen-overlay-in var(--motion-duration-medium3) var(--motion-easing-emphasized-decelerate) backwards;
 }
 
-.fullscreen-overlay-exit,
-.file-viewer-exit {
+.fullscreen-overlay-exit {
     animation: fullscreen-overlay-out var(--motion-duration-medium1) var(--motion-easing-emphasized-accelerate) both;
     will-change: transform, opacity;
+}
+
+.file-viewer-enter {
+    animation: file-viewer-in var(--motion-duration-medium3) var(--motion-easing-emphasized-decelerate) backwards;
+}
+
+.file-viewer-exit {
+    animation: file-viewer-out var(--motion-duration-short3) var(--motion-easing-emphasized-accelerate) both;
+    will-change: opacity;
 }
 
 @media (prefers-reduced-motion: reduce) {

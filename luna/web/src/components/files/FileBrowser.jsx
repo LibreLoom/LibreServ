@@ -94,6 +94,7 @@ import {
   readLunaPaths,
 } from "../../lib/dnd.js";
 import FileRow from "./FileRow.jsx";
+import { warmTextEditor } from "./editorWarm.js";
 import { canOpenRow, displayNameOf } from "./fileRowUtils.js";
 import PrivateBadge from "../private/PrivateBadge.jsx";
 import PropertiesSheet, { PropertiesButton } from "./PropertiesSheet.jsx";
@@ -132,13 +133,6 @@ function cssEscape(value) {
 /** `webkitdirectory` picks a whole folder; React's input types don't list it. */
 const FOLDER_INPUT = { webkitdirectory: "" };
 
-/**
- * The picker hands back a flat list of files, so an empty folder inside the
- * picked one never reaches us. Say so at the choice — short, because the menu
- * truncates a second line — and explain it where a pick came back empty.
- */
-const PICK_FOLDER_NOTE = "Skips empty folders";
-
 /** Folder pickers need `webkitdirectory`; a few browsers lack it. */
 function browserCanPickFolder() {
   return typeof document !== "undefined" && "webkitdirectory" in document.createElement("input");
@@ -146,7 +140,7 @@ function browserCanPickFolder() {
 
 const UPLOAD_MENU_OPTIONS = [
   { value: "files", label: "Upload files", icon: UploadCloud },
-  { value: "folder", label: "Upload a folder", icon: FolderUp, sub: PICK_FOLDER_NOTE },
+  { value: "folder", label: "Upload a folder", icon: FolderUp },
 ];
 
 const SORT_OPTIONS = [
@@ -448,6 +442,13 @@ export default function FileBrowser({
     }
     savingNamesRef.current = new Set(entries.filter((e) => e?.saving).map((e) => e.name));
   }, [listing.data, addToast]);
+
+  // Warm the text editor as soon as the folder is on screen. It is the most
+  // common file to open, and its chunk landing mid-click is what made the
+  // opening animation stutter the first time.
+  useEffect(() => {
+    warmTextEditor();
+  }, []);
 
   // A file path answers `list` with a one-entry "folder" containing the
   // file itself — member file grants are virtual roots whose ancestors are
@@ -1346,11 +1347,6 @@ export default function FileBrowser({
               options={UPLOAD_MENU_OPTIONS}
               value=""
               align="end"
-              // The folder row carries a second line ("Skips empty folders"),
-              // which would otherwise join the item's accessible name — a
-              // screen reader would read the explanation as part of the
-              // action. Name the action; leave the line as the description.
-              optionProps={(option) => (option.sub ? { "aria-label": option.label } : undefined)}
               onChange={(choice) => {
                 if (choice === "folder") folderPicker.current?.click();
                 else filePicker.current?.click();

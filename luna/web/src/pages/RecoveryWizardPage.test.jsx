@@ -16,6 +16,11 @@ function deviceTokenInput() {
   return screen.getByLabelText("Device token*", { exact: true });
 }
 
+function chooseAccount(label) {
+  fireEvent.click(screen.getByLabelText("Account to recover"));
+  fireEvent.click(screen.getByRole("option", { name: label }));
+}
+
 describe("RecoveryWizardPage", () => {
   let clicked;
   let clickedAnchor;
@@ -33,7 +38,7 @@ describe("RecoveryWizardPage", () => {
 
   it("downloads token-bound JSON for the selected existing user", async () => {
     renderPage();
-    fireEvent.click(screen.getByLabelText("One existing account"));
+    chooseAccount("One existing account");
     fireEvent.change(screen.getByLabelText(/^Username/), { target: { value: "Sam" } });
     fireEvent.change(deviceTokenInput(), { target: { value: "ABCD-EFGH-JKLM-NPQR" } });
     fillPasswords();
@@ -77,7 +82,7 @@ describe("RecoveryWizardPage", () => {
     ["All accounts", "g-all"],
   ])("supports the %s account selector", async (label, selector) => {
     renderPage();
-    fireEvent.click(screen.getByLabelText(label));
+    chooseAccount(label);
     fireEvent.click(screen.getByLabelText("This Luna has a device token"));
     fillPasswords();
     fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
@@ -86,7 +91,7 @@ describe("RecoveryWizardPage", () => {
 
   it("encodes a new Admin selector and validates the username", async () => {
     renderPage();
-    fireEvent.click(screen.getByLabelText("Create a new Admin account"));
+    chooseAccount("Create a new Admin account");
     fireEvent.change(screen.getByLabelText(/^Username/), { target: { value: "Casey" } });
     fireEvent.click(screen.getByLabelText("This Luna has a device token"));
     fillPasswords();
@@ -96,7 +101,7 @@ describe("RecoveryWizardPage", () => {
 
   it("encodes the fallback selector for an existing or new Admin account", async () => {
     renderPage();
-    fireEvent.click(screen.getByLabelText("Use an account or create it if missing"));
+    chooseAccount("Use an account or create it if missing");
     fireEvent.change(screen.getByLabelText(/^Username/), { target: { value: "Jordan-1" } });
     fireEvent.click(screen.getByLabelText("This Luna has a device token"));
     fillPasswords();
@@ -106,7 +111,7 @@ describe("RecoveryWizardPage", () => {
 
   it.each(["ab", "a".repeat(33), "bad name"])("rejects username %s", (username) => {
     renderPage();
-    fireEvent.click(screen.getByLabelText("Create a new Admin account"));
+    chooseAccount("Create a new Admin account");
     fireEvent.change(screen.getByLabelText(/^Username/), { target: { value: username } });
     fireEvent.click(screen.getByLabelText("This Luna has a device token"));
     fillPasswords();

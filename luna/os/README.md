@@ -12,14 +12,21 @@ disk both boot in either firmware mode.
 #    cargo build --release -p lunad
 #    or set LUNAD_BIN=/path/to/lunad
 
-# 2. OS image (rootless Podman, no sudo). The rootfs lives in a podman volume;
-#    ownership is right inside the user namespace and nothing runs as root.
+# 2. Editor packs, then the OS image (rootless Podman, no sudo). The packs are
+#    part of the image, so they must exist before the rootfs is built:
+make eurooffice-pack drawio-pack        # → os/dist/*-pack.tar.zst
+#    The rootfs lives in a podman volume; ownership is right inside the user
+#    namespace and nothing runs as root. build-rootfs.sh mounts os/dist (or
+#    LUNA_PACKS_DIR) at /in/packs and 035.frag unpacks both packs into it.
 ./os/build-rootfs.sh                  # rootfs → volume luna-os-rootfs
-./os/make-image.sh                    # → os/dist/luna-os-x86_64.img.xz (+ .sha256, .inputs)
+./os/make-image.sh                    # → os/dist/luna-os-x86_64.img.xz (+ .sha256)
 #    The .img.xz is compressed once. The OTA update part, the installer ISO and
 #    the box's os-image.sha256 all use these exact bytes. Skipped when the OS
-#    inputs did not change (os/build/input-hash.sh; lunad is not an input).
-#    LUNA_OS_FORCE=1 rebuilds anyway.
+#    inputs did not change (os/build/input-hash.sh) and no pack is newer than
+#    the image — a pack built after the image leaves that image stale, so
+#    rebuild both steps. LUNA_OS_FORCE=1 rebuilds
+#    anyway — and a changed lunad always needs one, because the daemon is
+#    inside the image.
 
 # 3. Rapidinstall ISO (`dd` to a USB stick), rootless, no live-build
 #    Debian live (mmdebstrap + squashfs + grub-mkrescue) boots the installer
@@ -59,13 +66,13 @@ podman, named-volume caches, `--memory` limit via `LUNA_BUILD_MEMORY`).
 
 | Step | Script (inside) | Container | In | Out |
 |---|---|---|---|---|
-| rootfs | `build/rootfs.sh` | `build/Containerfile.os` | `/luna/os` (ro), `LUNAD_BIN`, `LUNA_CONSOLE_BIN`, optional `LUNA_CACHE_DIR` | tree at `/rootfs` (volume) |
-| image | `build/image.sh` | `build/Containerfile.os` | `/rootfs`, `/luna/os`, `OS_INPUT_HASH` | `/out/luna-os-x86_64.img.xz` + `.sha256` + `.inputs` |
-| ISO | `build/iso.sh` | `build/Containerfile.iso` | `/luna/os`, `/payload` (the `.img.xz` + packs), optional `/cache` | `/out/luna-rapidinstall-x86_64.iso` |
+| rootfs | `build/rootfs.sh` | `build/Containerfile.os` | `/luna/os` (ro), `LUNAD_BIN`, `LUNA_CONSOLE_BIN`, `/in/packs`, optional `LUNA_CACHE_DIR` | tree at `/rootfs` (volume) |
+| image | `build/image.sh` | `build/Containerfile.os` | `/rootfs`, `/luna/os` | `/out/luna-os-x86_64.img.xz` + `.sha256` |
+| ISO | `build/iso.sh` | `build/Containerfile.iso` | `/luna/os`, `/payload` (the `.img.xz`), optional `/cache` | `/out/luna-rapidinstall-x86_64.iso` |
 
-`build/input-hash.sh` prints the OS input hash (rootfs scripts, pins, slot size;
-not lunad). A box records the sha256 of the exact `.img.xz` as
-`os-image.sha256`, which is what the update feed lists for the `os` part.
+`build/input-hash.sh` prints the OS input hash (rootfs scripts, pins, slot
+size). A box records the sha256 of the exact `.img.xz` as `os-image.sha256`,
+which is what the update feed lists for the `os` part.
 
 ## End-to-end test (QEMU, rootless)
 
@@ -82,9 +89,10 @@ in one podman container; nothing is installed on the host and nothing needs root
 ./os/iso/e2e.sh lab                  # boot, set up, and wait so you can poke at it
 ```
 
-It needs a current ISO and slot image. `lunad` is not an input of the slot image,
-so after changing it rebuild with `LUNA_OS_FORCE=1 ./os/make-image.sh` (the
-install stage fails loudly if the lunad inside the image is not the one just built).
+It needs a current ISO and slot image. Everything the system runs — lunad,
+luna-console, cloudflared, the editor packs — is inside the slot image, so after
+changing any of it rebuild with `LUNA_OS_FORCE=1 ./os/make-image.sh` (the install
+stage fails loudly if the lunad inside the image is not the one just built).
 Work files and logs go to `os/dist/e2e/` (several GiB, sparse); the guest's serial
 log is `<name>.serial.log`. For the checks only, the harness gives the installed
 disk a serial console and a root shell on it and points Connect at the mock in
@@ -140,16 +148,23 @@ public key embedded at build time from `keys/luna.minisign.pub`. The feed
 lists the files in the Forgejo generic package registry; Luna checks each one's
 size and sha256 before use. A missing feed means nothing is published yet.
 
-- `lunad` — `lunad-linux-amd64-musl` (or arm64), the daemon
-- `os` — `luna-os-x86_64.img.xz`, only when the OS changed
+- `os` — `luna-os-x86_64.img.xz`, the whole system: lunad, luna-console,
+  cloudflared and the editor packs are all inside it
+- `installer` — `luna-rapidinstall-x86_64.iso.xz`, the factory ISO
 
-An admin taps **Install update** in Settings. Luna installs a newer `lunad`
-under `/var/lib/luna/bin/lunad` on the data partition, checking the signature
-then the checksum. When the feed's `os` part has a sha256 that differs from
-`/var/lib/luna/os-image.sha256`, the same tap writes that image to the inactive
-OS slot and reboots into it (GRUB tryboot; a bad boot falls back). Settings does
-not split “software” vs “system” — OS need and apply are automatic from the
-hash. A missing or wrong signature installs nothing.
+Every release ships both. Nothing is reused from an earlier version, because
+the image *is* the product.
+
+An admin taps **Install update** in Settings. When the feed's `os` part has a
+sha256 that differs from `/var/lib/luna/os-image.sha256`, that tap writes the
+image to the inactive OS slot and reboots into it (GRUB tryboot; a bad boot
+falls back). There is no separate software update: a new daemon is a new image.
+Settings does not split “software” vs “system”. A missing or wrong signature
+installs nothing.
+
+**The data partition holds data only.** No daemon, no cloudflared, no editor
+packs: those are program files and they live in the image, replaced as a whole
+by an OS update. A binary that never changes is not data.
 
 Env overrides `LUNA_UPDATES_FEED` and `LUNA_UPDATES_CHANNEL` seed the defaults.
 An admin can instead set the feed address, channel, and trusted minisign keys in
