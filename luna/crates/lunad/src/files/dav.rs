@@ -21,7 +21,7 @@ use dav_server::fakels::FakeLs;
 use crate::files::dav_fs::GrantFs;
 
 use crate::AppState;
-use crate::api::response::json_error;
+use crate::api::response::{json_error, json_error_code};
 use crate::auth::{CurrentUser, has_drive_access};
 
 pub fn router() -> Router<AppState> {
@@ -212,6 +212,16 @@ fn dav_handler_for(
             "Luna doesn't know this drive.",
         ));
     };
+    // A locked drive must fail loudly here: Finder and Explorer would otherwise
+    // show an empty folder and invite a write into nothing. A locked drive has
+    // no mount point, so this comes first.
+    if drive.locked || crate::drives::crypt::vault::drive_is_locking(&drive.id) {
+        return Err(json_error_code(
+            StatusCode::LOCKED,
+            "drive_locked",
+            crate::files::DRIVE_LOCKED_MSG,
+        ));
+    }
     if drive.mount_point.is_empty() {
         return Err(json_error(
             StatusCode::BAD_REQUEST,

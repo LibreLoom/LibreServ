@@ -302,7 +302,22 @@ fn backup_json(
     let target_label = drive_label(conn, &row.target_drive);
     let covered_by = drive_backup::covered_by(conn, row)
         .map(|(parent, _)| json!({ "path": parent.source_path, "name": folder_name(&parent.source_path, &source_label) }));
+    // A backup whose source or backup drive is locked is paused until it is
+    // unlocked; the dashboard's "drives are locked, so backups are paused"
+    // notice counts these.
+    let locked_drives: Vec<String> = [&row.source_drive, &row.target_drive]
+        .into_iter()
+        .filter(|id| {
+            db::get_drive(conn, id)
+                .ok()
+                .flatten()
+                .is_some_and(|d| d.locked)
+        })
+        .map(|id| drive_label(conn, id))
+        .collect();
     json!({
+        "paused": if locked_drives.is_empty() { Value::Null } else { json!("locked") },
+        "locked_drive_names": locked_drives,
         "covered_by": covered_by,
         "id": row.id,
         "kind": row.kind,

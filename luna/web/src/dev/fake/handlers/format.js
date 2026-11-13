@@ -90,6 +90,9 @@ function settle(world, run) {
     existing.state = "as_is";
     existing.fs_type = run.encrypted ? "ext4" : "exfat";
     existing.mounted = true;
+    // The run leaves an encrypted drive open; a plain reformat clears the flag.
+    existing.encrypted = run.encrypted;
+    existing.locked = false;
     world.fs = { ...(world.fs || {}), [existing.id]: { nodes: {}, trash: [] } };
     world.summaries[existing.id] = summary(existing.id, { used_bytes: 0, shortcuts: [] });
     return;
@@ -99,7 +102,7 @@ function settle(world, run) {
   world.detected = world.detected.filter((d) => d.name !== run.device);
   world.drives.push({
     id, label: run.label, state: "as_is", device: run.device, fs_type: run.encrypted ? "ext4" : "exfat",
-    mount_point: `/mnt/${id}`, mounted: true,
+    mount_point: `/mnt/${id}`, mounted: true, encrypted: run.encrypted, locked: false,
   });
   world.fs = { ...(world.fs || {}), [id]: { nodes: {}, trash: [] } };
   world.summaries[id] = summary(id, { used_bytes: 0, shortcuts: [] });

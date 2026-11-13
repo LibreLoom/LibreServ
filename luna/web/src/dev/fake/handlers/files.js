@@ -20,6 +20,7 @@ export { addDir, addFile, addMany, demoTree, fsOf, fsOpts, fsRaw, viewerSamples,
 // ── Messages (api/files.rs map_files_err and friends) ───────────────────────
 const UNKNOWN_DRIVE = "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.";
 export const MISSING_DRIVE_DB = "Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again. Your files stay on the drive, but items in its Trash won't show up after you add it again.";
+const DRIVE_LOCKED = "This drive is locked. Enter its password to open its files.";
 const notFound = () => fail(404, "Luna can't find that file or folder.", "not_found");
 const gone = () => fail(404, "This file doesn't exist anymore.", "not_found");
 const badPath = () => fail(400, "Luna can't open that path.");
@@ -27,6 +28,8 @@ const readOnlyDrive = () => fail(409, "This drive is read-only right now, so Lun
 
 /** files::drive_root. */
 export function needDrive(world, id) {
+  // A locked drive is there and healthy: 423, so the client asks for the password.
+  if (driveRow(world, id)?.locked) throw fail(423, DRIVE_LOCKED, "drive_locked");
   if (!driveUsable(world, id)) throw fail(404, UNKNOWN_DRIVE, "unknown_drive");
   if (world.driveDbMissing?.includes(id)) throw fail(500, MISSING_DRIVE_DB, "missing_drive_db");
   return driveRow(world, id);

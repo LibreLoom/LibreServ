@@ -333,10 +333,10 @@ mod tests {
     fn harness() -> Harness {
         let dir = tempfile::tempdir().unwrap();
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
-        let manager = Arc::new(crate::drives::DriveManager::new(
-            crate::drives::mount::shared_mock(),
-            dir.path(),
-        ));
+        let manager = Arc::new(
+            crate::drives::DriveManager::new(crate::drives::mount::shared_mock(), dir.path())
+                .with_luks(Arc::new(crate::drives::crypt::luks::MockLuks::default())),
+        );
         let mut state = AppState::new(conn, manager, dir.path());
         let clock = Arc::new(AtomicI64::new(10_000));
         let tools = Arc::new(MockTools::default());

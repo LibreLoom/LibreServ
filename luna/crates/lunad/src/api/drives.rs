@@ -25,6 +25,11 @@ struct DriveJson {
     writable: bool,
     /// The requesting user's capabilities on the drive root, server-stamped.
     caps: String,
+    /// The drive is encrypted (a password protects its files).
+    encrypted: bool,
+    /// An encrypted drive that is not open: its files are unavailable, and
+    /// backups of it wait, until someone enters its password.
+    locked: bool,
     /// The drive is being erased right now. Sent only while true, so a UI treats
     /// a missing key as false.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -475,7 +480,14 @@ async fn eject(
             crate::db::with_db(
                 &st.db,
                 || anyhow::anyhow!("db lock poisoned"),
-                |conn| crate::db::set_drive_state(conn, &drive, "ejected"),
+                |conn| {
+                    crate::db::set_drive_state(conn, &drive, "ejected")?;
+                    // Ejecting an encrypted drive closes its container too.
+                    if row.encrypted {
+                        crate::db::set_drive_locked(conn, &drive, true)?;
+                    }
+                    Ok(())
+                },
             )
         };
         mark_ejected()
@@ -918,6 +930,8 @@ impl From<crate::db::DriveRow> for DriveJson {
             mounted: false,
             writable: false,
             caps: String::new(),
+            encrypted: d.encrypted,
+            locked: d.locked,
             formatting: false,
             format_id: None,
         }

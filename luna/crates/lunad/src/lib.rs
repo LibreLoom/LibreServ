@@ -137,6 +137,8 @@ pub struct AppState {
     pub auth: Arc<crate::auth::AuthService>,
     pub connect: Arc<crate::net::connect::ConnectService>,
     pub login_limiter: Arc<crate::rate_limit::RateLimiter>,
+    /// Wrong passwords on an encrypted drive: per user, per drive.
+    pub unlock_guard: Arc<crate::rate_limit::UnlockGuard>,
     pub dav_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub share_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub public_upload_limiter: Arc<crate::rate_limit::RateLimiter>,
@@ -165,6 +167,11 @@ impl AppState {
     ) -> Self {
         crate::sandbox::disable_daemon_core_dumps().expect("disable daemon core dumps");
         private::install();
+        // After a boot every encrypted drive is locked; after a daemon-only
+        // restart one stays open only if mapper, mount and marker agree.
+        if let Err(e) = crate::drives::crypt::vault::startup(&conn, &drive_manager) {
+            tracing::warn!(error = %e, "could not settle encrypted drives at startup");
+        }
         let db = Arc::new(crate::Db::new(conn));
         let secret =
             crate::secrets::ensure_jwt_secret(data_dir, &db.lock().unwrap()).expect("jwt secret");
@@ -194,6 +201,7 @@ impl AppState {
                 std::time::Duration::from_secs(300),
                 10,
             )),
+            unlock_guard: Arc::new(crate::rate_limit::UnlockGuard::new(db.clone())),
             dav_limiter: Arc::new(crate::rate_limit::RateLimiter::new(
                 db.clone(),
                 std::time::Duration::from_secs(300),

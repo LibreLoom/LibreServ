@@ -34,6 +34,31 @@ export const KNOWN_GAPS = [
   },
   {
     key: "GET /api/v1/drives",
+    path: "$[].encrypted",
+    reason: "lunad now sends encrypted and locked on every drive (drives.encrypted and drives.locked came back with the encryption rebuild); the recorded fixture predates them. Remove these entries after the next full ./ci run -p luna rewrites lunad-responses.json.",
+  },
+  {
+    key: "GET /api/v1/drives",
+    path: "$[].locked",
+    reason: "lunad now sends encrypted and locked on every drive (drives.encrypted and drives.locked came back with the encryption rebuild); the recorded fixture predates them. Remove these entries after the next full ./ci run -p luna rewrites lunad-responses.json.",
+  },
+  {
+    key: "GET /api/v1/drives/{}/encryption",
+    path: "*",
+    reason: "The recorder has no lunad test that GETs this route yet; its shape and every status are covered by lunad API tests in api/drive_crypt.rs. Remove this after the next full ./ci run -p luna records it.",
+  },
+  {
+    key: "GET /api/v1/backups",
+    path: "$[].paused",
+    reason: "lunad now sends paused (\"locked\" or null) and locked_drive_names on every drive backup, so the dashboard can say backups are paused while a drive is locked; the recorded fixture predates them, and cloud backups never carry them. Remove these entries after the next full ./ci run -p luna rewrites lunad-responses.json.",
+  },
+  {
+    key: "GET /api/v1/backups",
+    path: "$[].locked_drive_names",
+    reason: "lunad now sends paused (\"locked\" or null) and locked_drive_names on every drive backup, so the dashboard can say backups are paused while a drive is locked; the recorded fixture predates them, and cloud backups never carry them. Remove these entries after the next full ./ci run -p luna rewrites lunad-responses.json.",
+  },
+  {
+    key: "GET /api/v1/drives",
     path: "$[].formatting",
     reason: "lunad sends formatting and format_id only while a drive is being erased (serde skips them otherwise), and the recorded fixture predates the erase rebuild, so it has no key for them. The fake emits them in the Drive erase scenarios. Remove this after the next full ./ci run -p luna rewrites lunad-responses.json.",
   },

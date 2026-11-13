@@ -1250,6 +1250,18 @@ pub fn finish_comprehensive(
                     Some(drive_details),
                 )
                 .more("The drive is read-only.");
+        } else if drive.locked {
+            // Locked on purpose: nothing to open, and a test file must not be
+            // written into the empty folder. Backups wait for the password.
+            checks
+                .add(
+                    &rw_name,
+                    "drives",
+                    WARNING,
+                    format!("{label} is locked."),
+                    Some(drive_details),
+                )
+                .more("Enter its password in Files to open it and carry on with its backups.");
         } else if drive.mount_point.is_empty() {
             // No live Luna mount (the drive was pulled out or never opened).
             checks

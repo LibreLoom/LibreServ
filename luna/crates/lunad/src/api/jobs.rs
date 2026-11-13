@@ -292,6 +292,11 @@ fn map_job_err(err: JobError) -> (StatusCode, Json<Value>) {
             StatusCode::NOT_FOUND,
             "Luna doesn't know one of these drives. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.",
         ),
+        JobError::Files(crate::files::FilesError::Locked) => json_error_code(
+            StatusCode::LOCKED,
+            "drive_locked",
+            "One of these drives is locked. Unlock it, then try again.",
+        ),
         JobError::Files(crate::files::FilesError::MissingDriveDb) => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             crate::files::MISSING_DRIVE_DB_MSG,

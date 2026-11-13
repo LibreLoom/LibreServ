@@ -90,6 +90,53 @@ impl ShareAuthGuard {
     }
 }
 
+/// Wrong passwords on an encrypted drive: per user, per drive. Five wrong
+/// tries lock that user out of that drive for a minute, doubling with every
+/// further wrong try. Only wrong passwords count: a right one clears the
+/// count, and a request that is refused for another reason (the drive is
+/// unplugged, a different drive was plugged in) costs nothing. Changing the
+/// password tests the current one, so it counts here too.
+pub struct UnlockGuard {
+    db: Arc<crate::Db>,
+}
+
+/// Wrong tries before the lockout starts.
+const UNLOCK_MAX_FAILURES: u32 = 5;
+
+impl UnlockGuard {
+    pub fn new(db: Arc<crate::Db>) -> Self {
+        Self { db }
+    }
+
+    fn key(user_id: &str, drive: &str) -> String {
+        format!("unlock:{user_id}:{drive}")
+    }
+
+    /// Is this user locked out of this drive right now?
+    pub fn is_locked(&self, user_id: &str, drive: &str) -> bool {
+        let Ok(conn) = self.db.lock() else {
+            return true;
+        };
+        db::share_auth_locked(&conn, &Self::key(user_id, drive)).unwrap_or(true)
+    }
+
+    /// Record a wrong password. Returns true if now locked out.
+    pub fn record_failure(&self, user_id: &str, drive: &str) -> bool {
+        let Ok(conn) = self.db.lock() else {
+            return true;
+        };
+        db::share_auth_failure(&conn, &Self::key(user_id, drive), UNLOCK_MAX_FAILURES)
+            .unwrap_or(true)
+    }
+
+    /// A right password: forget the wrong tries.
+    pub fn clear_success(&self, user_id: &str, drive: &str) {
+        if let Ok(conn) = self.db.lock() {
+            let _ = db::share_auth_clear(&conn, &Self::key(user_id, drive));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,5 +189,34 @@ mod tests {
         // link-wide count an attacker is burning.
         guard.clear_success("s1", "203.0.113.200");
         assert!(guard.is_locked("s1", "203.0.113.200"));
+    }
+
+    #[test]
+    fn five_wrong_unlock_tries_lock_one_user_out_of_one_drive_only() {
+        let guard = UnlockGuard::new(test_db());
+        for _ in 0..4 {
+            assert!(!guard.record_failure("u1", "d1"));
+            assert!(!guard.is_locked("u1", "d1"));
+        }
+        assert!(
+            guard.record_failure("u1", "d1"),
+            "the fifth wrong try locks"
+        );
+        assert!(guard.is_locked("u1", "d1"));
+        assert!(!guard.is_locked("u1", "d2"), "another drive is unaffected");
+        assert!(!guard.is_locked("u2", "d1"), "another user is unaffected");
+    }
+
+    #[test]
+    fn right_passwords_never_add_up_to_a_lockout() {
+        let guard = UnlockGuard::new(test_db());
+        for _ in 0..4 {
+            guard.record_failure("u1", "d1");
+        }
+        guard.clear_success("u1", "d1");
+        for _ in 0..4 {
+            assert!(!guard.record_failure("u1", "d1"));
+        }
+        assert!(!guard.is_locked("u1", "d1"));
     }
 }

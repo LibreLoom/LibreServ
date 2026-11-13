@@ -313,6 +313,7 @@ get("/api/v1/drives", ({ world, user }) => world.drives
       mounted: d.mounted !== false && world.summaries[d.id]?.mounted !== false,
       writable: admin || hasWriteOnDrive(world, user, d.id),
       caps: capsToStr(capsOnPath(world, user, d.id, "")),
+      encrypted: Boolean(d.encrypted), locked: Boolean(d.encrypted && d.locked),
       // Only while an erase is running, like lunad: a missing key means false.
       ...formatFields(world, user, d.device),
     };
@@ -367,7 +368,7 @@ post("/api/v1/drives/:name/adopt", ({ world, user, params, body }) => {
   const label = String(body.label ?? "").trim();
   if (!label || label.length > 80) return fail(400, "Give this drive a name between 1 and 80 characters.");
   const found = findDetected(world, params.name);
-  if (found.encrypted) return fail(400, "Luna couldn't add this drive. Luna can't open encrypted drives in this version yet.");
+  if (found.encrypted) return fail(400, "Luna couldn't add this drive. This drive is encrypted. Enter its password to add it.");
   if (found.needs_setup) return fail(400, "Luna couldn't add this drive. Setting up new drives isn't available in this version yet.");
   world.detected = world.detected.filter((d) => d.name !== params.name);
   const id = nextId("d");
@@ -385,6 +386,8 @@ post("/api/v1/drives/:id/eject", ({ world, user, params }) => {
   const d = world.drives.find((x) => x.id === params.id);
   if (!d) return fail(404, "Luna doesn't know this drive.");
   d.state = "ejected";
+  // Ejecting an encrypted drive closes its container too.
+  if (d.encrypted) { d.locked = true; d.mounted = false; }
   world.summaries[params.id] = unmounted(params.id);
   return { ok: true };
 });

@@ -50,6 +50,12 @@ function canDelete(world, row, user) {
   return isAdmin(user) || (row.created_by === user.id && visibleTo(world, row, user));
 }
 
+/** A backup whose source or backup drive is locked waits for the password (api/backups.rs). */
+function pausedBy(world, row) {
+  const locked = [row.source_drive, row.target_drive].filter((id) => driveRow(world, id)?.locked).map((id) => label(world, id));
+  return { paused: locked.length ? "locked" : null, locked_drive_names: locked };
+}
+
 function backupJson(world, row, user) {
   const now = nowS();
   const srcLabel = label(world, row.source_drive);
@@ -60,7 +66,7 @@ function backupJson(world, row, user) {
     covered_by: parent ? { path: parent.source_path, name: folderName(parent.source_path, srcLabel) } : null,
     source_drive_name: row.source_drive_name ?? srcLabel,
     source_name: row.source_name ?? folderName(row.source_path, srcLabel),
-    ...(row.kind === "cloud" ? { next_check: (row.last_checked_at ? row.last_checked_at + 14 * 86400 : now), size: row.size ?? 0, old_phrase_copies: row.old_phrase_copies ?? null, moving: row.moving ?? null } : { hard: row.hard ?? false, target_drive_name: row.target_drive_name ?? label(world, row.target_drive) }),
+    ...(row.kind === "cloud" ? { next_check: (row.last_checked_at ? row.last_checked_at + 14 * 86400 : now), size: row.size ?? 0, old_phrase_copies: row.old_phrase_copies ?? null, moving: row.moving ?? null } : { hard: row.hard ?? false, target_drive_name: row.target_drive_name ?? label(world, row.target_drive), ...pausedBy(world, row) }),
     state: row.state ?? healthOf(row, now),
     can_delete: canDelete(world, row, user),
     private: Boolean(owner),

@@ -38,7 +38,7 @@ use crate::drives::mount::Mounter;
 /// A blank, damaged, foreign-format or installer-media drive: Luna can't use it as it is.
 pub const NEEDS_SETUP_MESSAGE: &str = "Setting up new drives isn't available in this version yet.";
 /// An encrypted drive: Luna can't open it.
-pub const ENCRYPTED_MESSAGE: &str = "Luna can't open encrypted drives in this version yet.";
+pub const ENCRYPTED_MESSAGE: &str = "This drive is encrypted. Enter its password to add it.";
 pub const WRITE_REJECTED_MESSAGE: &str = "This drive will not accept new files right now. If it has a lock switch, slide it to unlock, then try again.";
 
 /// A removable drive with no filesystem Luna recognises (blank, damaged, or
@@ -102,6 +102,8 @@ pub enum ReconcileWrite {
 pub struct ReconcilePlan {
     writes: Vec<ReconcileWrite>,
     remount_ids: Vec<String>,
+    /// Encrypted drives whose container is not open. Recorded as locked.
+    lock_ids: Vec<String>,
 }
 
 impl ReconcilePlan {
@@ -128,6 +130,8 @@ type MarkerMemo = HashMap<(String, u64), Vec<String>>;
 pub struct DriveManager {
     mounter: Arc<dyn Mounter>,
     probe: Arc<dyn FsProbe>,
+    /// The one `cryptsetup` wrapper (real, or a mock in tests).
+    luks: Arc<dyn crate::drives::crypt::luks::Luks>,
     foreign_base: PathBuf,
     adopted_base: PathBuf,
     /// Serializes the temporary look-inside mounts (peek, inspect) so two
@@ -196,6 +200,7 @@ impl DriveManager {
         Self {
             mounter,
             probe,
+            luks: Arc::new(crate::drives::crypt::luks::CommandLuks),
             foreign_base: data_dir.join("mounts/foreign"),
             adopted_base: data_dir.join("mounts/drives"),
             look_lock: Arc::new(std::sync::Mutex::new(())),
@@ -211,6 +216,16 @@ impl DriveManager {
 
     pub fn probe(&self) -> &dyn FsProbe {
         self.probe.as_ref()
+    }
+
+    pub fn luks(&self) -> &dyn crate::drives::crypt::luks::Luks {
+        self.luks.as_ref()
+    }
+
+    /// Swap in a test double for the LUKS commands.
+    pub fn with_luks(mut self, luks: Arc<dyn crate::drives::crypt::luks::Luks>) -> Self {
+        self.luks = luks;
+        self
     }
 
     /// Drop every remembered marker id. Called whenever a drive is changed on purpose.
@@ -717,6 +732,9 @@ impl DriveManager {
         }
         self.eject_unmount(&drive)?;
         db::set_drive_state(conn, id, "ejected")?;
+        if drive.encrypted {
+            db::set_drive_locked(conn, id, true)?;
+        }
         Ok(())
     }
 
@@ -726,6 +744,10 @@ impl DriveManager {
     pub fn eject_unmount(&self, drive: &db::DriveRow) -> anyhow::Result<()> {
         self.forget_marker_memo();
         if drive.mount_point.is_empty() {
+            // A locked drive has no mount; make sure its key is gone too.
+            if drive.encrypted {
+                self.luks.close(&drive.id)?;
+            }
             return Ok(());
         }
         let target = Path::new(&drive.mount_point);
@@ -739,6 +761,10 @@ impl DriveManager {
                 }
             })?;
             let _ = std::fs::remove_dir(target);
+            // Ejecting an encrypted drive locks it: the key goes with the mount.
+            if drive.encrypted {
+                self.luks.close(&drive.id)?;
+            }
         } else if target.is_dir() {
             // The OS mounted this drive, so Luna leaves the mount alone — but
             // "safe to unplug" must not be said while the kernel still holds
@@ -766,6 +792,9 @@ impl DriveManager {
             db::delete_drive_cascade(conn, id)?;
             return Ok(());
         }
+        if drive.encrypted {
+            return self.remove_encrypted(conn, &drive);
+        }
         match self.clear_marker_for_remove(&drive) {
             Ok(()) => {}
             Err(_) if drive.state == "readonly" => {
@@ -781,6 +810,33 @@ impl DriveManager {
             }
         }
         db::delete_drive_cascade(conn, id)?;
+        Ok(())
+    }
+
+    /// Remove an encrypted drive. A locked one can't be opened to delete its
+    /// marker, so it is only forgotten (adding it again reads the marker back).
+    /// An unlocked one loses its marker, then is locked away.
+    fn remove_encrypted(&self, conn: &Connection, drive: &db::DriveRow) -> anyhow::Result<()> {
+        if !drive.locked && !drive.mount_point.is_empty() {
+            let root = Path::new(&drive.mount_point);
+            if self.mounter.is_mounted(root) {
+                if remove_marker(root, &drive.id).is_err() {
+                    anyhow::bail!(
+                        "Luna couldn't remove its sticker file from this drive. Try again."
+                    );
+                }
+                self.mounter.unmount(root).map_err(|e| {
+                    if mount::is_busy(&e) {
+                        anyhow::anyhow!("Close any files open from this drive, then try again.")
+                    } else {
+                        anyhow::anyhow!("Luna couldn't unmount this drive.")
+                    }
+                })?;
+                let _ = std::fs::remove_dir(root);
+            }
+        }
+        self.luks.close(&drive.id)?;
+        db::delete_drive_cascade(conn, &drive.id)?;
         Ok(())
     }
 
@@ -965,6 +1021,11 @@ impl DriveManager {
             if self.is_closing(&row.id) {
                 continue;
             }
+            // Its marker is inside the container, so there is nothing to probe.
+            if row.encrypted {
+                self.reconcile_encrypted(row, detected, &mut plan);
+                continue;
+            }
             let mut present_by_name = detected.iter().any(|d| d.name == row.device);
             // Kernel names are reused: after a stick is pulled, the next stick
             // plugged in is `sdb` again. A missing drive only counts as back
@@ -1053,6 +1114,42 @@ impl DriveManager {
         plan
     }
 
+    /// Reconcile one encrypted drive. Reconcile never opens a container, so
+    /// presence is by kernel name (a missing drive must also still carry a
+    /// LUKS container; unlocking then proves which drive it is), and whatever
+    /// the state, a drive whose container is not open and mounted is locked.
+    fn reconcile_encrypted(
+        &self,
+        row: &db::DriveRow,
+        detected: &[DetectedDrive],
+        plan: &mut ReconcilePlan,
+    ) {
+        let here = detected.iter().find(|d| d.name == row.device);
+        let present = here.is_some_and(|d| {
+            row.state != "missing"
+                || crate::drives::crypt::vault::luks_partition(self, &d.name).is_ok()
+        });
+        match row.state.as_str() {
+            "as_is" | "readonly" | "ejected" if !present => plan.set_state(&row.id, "missing"),
+            "missing" if present => plan.set_state(&row.id, "as_is"),
+            _ => {}
+        }
+        if row.locked {
+            // Nothing should be open for a locked drive; a leftover from a
+            // crash mid-unlock must not keep the key in the kernel.
+            if self.luks.is_open(&row.id) {
+                crate::drives::crypt::vault::close_for_lock(self, row);
+            }
+            return;
+        }
+        if !present || !crate::drives::crypt::vault::is_open_and_mounted(self, row) {
+            // Pulled out, closed behind our back, or left half-open by a crash
+            // or an aborted format: close what is open and record it as locked.
+            crate::drives::crypt::vault::close_for_lock(self, row);
+            plan.lock_ids.push(row.id.clone());
+        }
+    }
+
     /// The DB half of reconcile: apply the writes the scan collected, then
     /// resolve each re-mounted drive's fresh mount path for gallery re-arm.
     pub fn reconcile_apply(
@@ -1073,6 +1170,11 @@ impl DriveManager {
             }
         }
         let mut remounted = Vec::new();
+        for id in plan.lock_ids {
+            // A locked drive has no mount point, so record that too: a stale
+            // path would let a file operation reach an empty directory.
+            db::set_drive_locked(conn, &id, true)?;
+        }
         for id in plan.remount_ids {
             push_remount(&mut remounted, conn, &id);
         }
@@ -2529,6 +2631,7 @@ mod tests {
     }
 }
 
+pub mod crypt;
 pub mod detect;
 pub mod drive_db;
 pub mod format;

@@ -5,7 +5,8 @@
 //! `docs/drive-format/plan.md`.
 //!
 //! - [`inspect`]: read-only look at a physical disk and the **empty verdict**.
-//! - [`tools`]: `wipefs`, `sfdisk`, `mkfs.*`, `cryptsetup` behind a trait.
+//! - [`tools`]: `wipefs`, `sfdisk`, `mkfs.*` behind a trait. LUKS lives in
+//!   `drives::crypt::luks`, the one `cryptsetup` wrapper.
 //! - [`run`]: the erase itself. The only caller of the destructive tools.
 //!
 //! This file holds what the HTTP layer shares between requests, all **in
@@ -220,6 +221,7 @@ pub fn execute(state: &AppState, handle: &Run, req: &run::Request) {
         let ctx = run::Ctx {
             state,
             tools: state.format.tools(),
+            luks: state.drive_manager.luks(),
             hooks: run::Hooks {
                 identity: &identity,
                 still_empty: &still_empty,
@@ -229,7 +231,7 @@ pub fn execute(state: &AppState, handle: &Run, req: &run::Request) {
             sys_block: std::path::Path::new(SYS_BLOCK),
             pacing: run::Pacing {
                 mock_step: state.format.mock_step,
-                ..run::Pacing::default()
+                busy_retry: state.format.busy_retry,
             },
         };
         run::run(&ctx, req)
@@ -366,6 +368,9 @@ pub struct FormatService {
     clock: Arc<dyn Fn() -> i64 + Send + Sync>,
     /// How long each simulated step of a mock drive's run takes.
     pub mock_step: Duration,
+    /// How long to wait between tries while an unmount reports "busy" (the
+    /// erase and locking a drive both retry).
+    pub busy_retry: Duration,
     previews: Mutex<HashMap<String, StoredPreview>>,
     runs: Mutex<HashMap<String, Arc<Run>>>,
 }
@@ -390,6 +395,7 @@ impl FormatService {
             tools,
             clock,
             mock_step: Duration::from_millis(700),
+            busy_retry: run::Pacing::default().busy_retry,
             previews: Mutex::default(),
             runs: Mutex::default(),
         }

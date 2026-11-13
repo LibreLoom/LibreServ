@@ -609,6 +609,10 @@ fn files_to_fs(e: crate::files::FilesError) -> FsError {
         crate::files::FilesError::Path(p) => JailedFs::map_err(p),
         crate::files::FilesError::Io(e) => io_to_fs(e),
         crate::files::FilesError::UnknownDrive => FsError::NotFound,
+        // A locked drive is unavailable, not missing. Forbidden makes a client
+        // show the reason rather than an empty folder; `dav_handler_for`
+        // refuses first with a 423 and a `code`, so this is the in-band fallback.
+        crate::files::FilesError::Locked => FsError::Forbidden,
         crate::files::FilesError::MissingDriveDb | crate::files::FilesError::Db(_) => {
             FsError::GeneralFailure
         }

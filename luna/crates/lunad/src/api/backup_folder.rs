@@ -211,6 +211,7 @@ fn store_home(conn: &rusqlite::Connection, drive_id: &str) -> Result<(PathBuf, L
             StatusCode::CONFLICT,
             "Connect that drive to see its backups.",
         ),
+        FilesError::Locked => fail(StatusCode::LOCKED, "Unlock that drive to see its backups."),
         _ => fail(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't read that drive. Try again.",

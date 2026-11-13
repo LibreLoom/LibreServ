@@ -2,11 +2,10 @@
 //!
 //! Every external call here has a deadline: a stick that stops answering must
 //! end in an error the person can read, never a format that hangs forever.
-//! Passwords travel on stdin only (`--key-file -`), never on a command line,
-//! where `/proc/<pid>/cmdline` would show them to every process on the box.
 //!
 //! **Only `run.rs` may call the destructive methods** (`erase_signatures`,
-//! `write_partition_table`, `make_exfat`, `make_ext4`, `luks_format`).
+//! `write_partition_table`, `make_exfat`, `make_ext4`, and `luks_format` on
+//! the `Luks` trait in `drives/crypt/luks.rs`, the one `cryptsetup` wrapper).
 //! `list_signatures` only reads, and is what `inspect.rs` uses. A test in
 //! `run.rs` scans the daemon's sources for any other caller.
 //!
@@ -14,41 +13,10 @@
 //! fallback: a Luna missing `mkfs.exfat` says so instead of quietly making a
 //! different filesystem.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crate::sandbox;
-
-/// Mapper names are prefixed so a mapping Luna owns is recognisable in
-/// `/dev/mapper` and can never collide with a distro's own.
-pub const MAPPER_PREFIX: &str = "luna-vault-";
-
-pub fn mapper_name(drive_id: &str) -> String {
-    format!("{MAPPER_PREFIX}{drive_id}")
-}
-
-pub fn mapper_path(drive_id: &str) -> PathBuf {
-    Path::new("/dev/mapper").join(mapper_name(drive_id))
-}
-
-/// The LUKS2 profile. Frozen: once drives exist in the wild, changing any of
-/// this breaks every future reader.
-pub const CIPHER: &str = "aes-xts-plain64";
-pub const KEY_BITS: &str = "512";
-pub const SECTOR_BYTES: &str = "512";
-
-/// Argon2id's memory cost is in KiB. LUKS2's 1 GiB default OOM-killed a 2 GiB
-/// Wyse, so the cost follows this box's RAM and is recorded in the header, which
-/// is where unlocking reads it back from.
-pub const MIN_PBKDF_KIB: u32 = 32 * 1024;
-pub const MAX_PBKDF_KIB: u32 = 1024 * 1024;
-
-/// Argon2id memory for a new container: an eighth of the box's RAM, never
-/// trivially cheap to attack (32 MiB) and never near the OOM line (1 GiB).
-pub fn pbkdf_kib_from(ram_bytes: u64) -> u32 {
-    let eighth_kib = ram_bytes / 8 / 1024;
-    eighth_kib.clamp(MIN_PBKDF_KIB as u64, MAX_PBKDF_KIB as u64) as u32
-}
 
 /// Deadlines. Generous for the work, short enough that a dead stick is
 /// reported while the person is still watching.
@@ -56,9 +24,6 @@ const WIPE_TIMEOUT: Duration = Duration::from_secs(120);
 const PARTITION_TIMEOUT: Duration = Duration::from_secs(120);
 const EXFAT_TIMEOUT: Duration = Duration::from_secs(600);
 const EXT4_TIMEOUT: Duration = Duration::from_secs(900);
-const LUKS_FORMAT_TIMEOUT: Duration = Duration::from_secs(300);
-const LUKS_OPEN_TIMEOUT: Duration = Duration::from_secs(180);
-const LUKS_CLOSE_TIMEOUT: Duration = Duration::from_secs(60);
 const LIST_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long a new partition's device node gets to appear after the table is written.
 const PARTITION_APPEAR: Duration = Duration::from_secs(20);
@@ -71,6 +36,9 @@ pub enum ToolError {
         "This drive stopped responding, so Luna couldn't finish. Unplug it, plug it back in, and try again."
     )]
     TimedOut(&'static str),
+    /// A password that opens none of a container's keyslots.
+    #[error("That password didn't work.")]
+    WrongPassword,
     #[error("{0}")]
     Failed(String),
 }
@@ -115,25 +83,6 @@ pub trait DiskTools: Send + Sync {
 
     /// Destructive: `mkfs.ext4 -m 0`.
     fn make_ext4(&self, device: &str, label: &str) -> Result<(), ToolError>;
-
-    /// Destructive: a new LUKS2 container with one keyslot. The password goes
-    /// on stdin.
-    fn luks_format(
-        &self,
-        device: &str,
-        label: &str,
-        password: &str,
-        pbkdf_kib: u32,
-    ) -> Result<(), ToolError>;
-
-    /// Open the container as the drive's mapper (`luna-vault-<id>`).
-    fn luks_open(&self, device: &str, drive_id: &str, password: &str) -> Result<(), ToolError>;
-
-    /// Close the drive's mapper, wiping the volume key from the kernel. Already
-    /// closed is success.
-    fn luks_close(&self, drive_id: &str) -> Result<(), ToolError>;
-
-    fn luks_is_open(&self, drive_id: &str) -> bool;
 }
 
 /// The filesystem label, kept to what every system accepts. The drive's
@@ -163,48 +112,6 @@ pub fn volume_label(label: &str, max_chars: usize) -> String {
 pub const EXFAT_LABEL_MAX: usize = 15;
 pub const EXT4_LABEL_MAX: usize = 16;
 
-pub fn luks_format_args(device: &str, label: &str, pbkdf_kib: u32) -> Vec<String> {
-    [
-        "luksFormat",
-        "--batch-mode",
-        "--type",
-        "luks2",
-        "--cipher",
-        CIPHER,
-        "--key-size",
-        KEY_BITS,
-        "--sector-size",
-        SECTOR_BYTES,
-        "--pbkdf",
-        "argon2id",
-        "--pbkdf-memory",
-        &pbkdf_kib.to_string(),
-        "--label",
-        label,
-        "--key-file",
-        "-",
-        device,
-    ]
-    .into_iter()
-    .map(String::from)
-    .collect()
-}
-
-pub fn luks_open_args(device: &str, drive_id: &str) -> Vec<String> {
-    [
-        "luksOpen",
-        "--key-file",
-        "-",
-        "--type",
-        "luks2",
-        device,
-        &mapper_name(drive_id),
-    ]
-    .into_iter()
-    .map(String::from)
-    .collect()
-}
-
 /// The sfdisk script for one partition spanning the disk. The empty start and
 /// size mean "first aligned sector" and "all the rest".
 pub fn sfdisk_script(kind: PartitionKind) -> String {
@@ -215,12 +122,12 @@ pub fn sfdisk_script(kind: PartitionKind) -> String {
 #[derive(Clone, Default)]
 pub struct CommandTools;
 
-fn first_line(text: &str) -> String {
+pub(crate) fn first_line(text: &str) -> String {
     let line = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
     line.trim().chars().take(200).collect()
 }
 
-const TRY_AGAIN: &str = "Unplug the drive, plug it back in, and try again.";
+pub(crate) const TRY_AGAIN: &str = "Unplug the drive, plug it back in, and try again.";
 
 /// Run `tool` with `args`, `input` on stdin, and a deadline. What the tool
 /// printed goes to the log; the person gets one plain sentence.
@@ -395,49 +302,6 @@ impl DiskTools for CommandTools {
             "Luna couldn't prepare this drive.",
         )
     }
-
-    fn luks_format(
-        &self,
-        device: &str,
-        label: &str,
-        password: &str,
-        pbkdf_kib: u32,
-    ) -> Result<(), ToolError> {
-        run_tool(
-            "cryptsetup",
-            &luks_format_args(device, label, pbkdf_kib),
-            password.as_bytes(),
-            LUKS_FORMAT_TIMEOUT,
-            "Luna couldn't set up the password on this drive.",
-        )
-    }
-
-    fn luks_open(&self, device: &str, drive_id: &str, password: &str) -> Result<(), ToolError> {
-        run_tool(
-            "cryptsetup",
-            &luks_open_args(device, drive_id),
-            password.as_bytes(),
-            LUKS_OPEN_TIMEOUT,
-            "Luna couldn't open the new protected drive.",
-        )
-    }
-
-    fn luks_close(&self, drive_id: &str) -> Result<(), ToolError> {
-        if !self.luks_is_open(drive_id) {
-            return Ok(());
-        }
-        run_tool(
-            "cryptsetup",
-            &["luksClose".into(), mapper_name(drive_id)],
-            b"",
-            LUKS_CLOSE_TIMEOUT,
-            "Luna couldn't close this protected drive.",
-        )
-    }
-
-    fn luks_is_open(&self, drive_id: &str) -> bool {
-        mapper_path(drive_id).exists()
-    }
 }
 
 /// `wipefs --json` prints nothing at all for a device with no signatures, and
@@ -476,12 +340,6 @@ pub struct MockTools {
     pub signatures: std::sync::Mutex<std::collections::HashMap<String, Vec<String>>>,
     /// Fail this method (by name, such as `"make_exfat"`) with `ToolError::Failed`.
     pub fail_at: std::sync::Mutex<Option<&'static str>>,
-    /// Mappers considered open.
-    pub open: std::sync::Mutex<std::collections::HashSet<String>>,
-    /// The `pbkdf_kib` the last `luks_format` was given.
-    pub pbkdf: std::sync::Mutex<Option<u32>>,
-    /// The password the last `luks_*` call was given (tests only; never logged).
-    pub last_password: std::sync::Mutex<Option<String>>,
 }
 
 impl MockTools {
@@ -539,71 +397,11 @@ impl DiskTools for MockTools {
     fn make_ext4(&self, device: &str, label: &str) -> Result<(), ToolError> {
         self.record("make_ext4", &format!("{device} {label}"))
     }
-
-    fn luks_format(
-        &self,
-        device: &str,
-        label: &str,
-        password: &str,
-        pbkdf_kib: u32,
-    ) -> Result<(), ToolError> {
-        *self.pbkdf.lock().unwrap() = Some(pbkdf_kib);
-        *self.last_password.lock().unwrap() = Some(password.to_string());
-        self.record("luks_format", &format!("{device} {label}"))
-    }
-
-    fn luks_open(&self, device: &str, drive_id: &str, password: &str) -> Result<(), ToolError> {
-        *self.last_password.lock().unwrap() = Some(password.to_string());
-        self.record("luks_open", &format!("{device} {drive_id}"))?;
-        self.open.lock().unwrap().insert(drive_id.to_string());
-        Ok(())
-    }
-
-    fn luks_close(&self, drive_id: &str) -> Result<(), ToolError> {
-        self.record("luks_close", drive_id)?;
-        self.open.lock().unwrap().remove(drive_id);
-        Ok(())
-    }
-
-    fn luks_is_open(&self, drive_id: &str) -> bool {
-        self.open.lock().unwrap().contains(drive_id)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn argon2_memory_follows_ram_within_bounds() {
-        // A 2 GiB Wyse: an eighth, well under the cap.
-        assert_eq!(pbkdf_kib_from(2 * 1024 * 1024 * 1024), 256 * 1024);
-        assert_eq!(pbkdf_kib_from(0), MIN_PBKDF_KIB);
-        assert_eq!(pbkdf_kib_from(64 * 1024 * 1024), MIN_PBKDF_KIB);
-        assert_eq!(pbkdf_kib_from(64 * 1024 * 1024 * 1024), MAX_PBKDF_KIB);
-    }
-
-    #[test]
-    fn mapper_names_are_prefixed_and_per_drive() {
-        assert_eq!(mapper_name("abc"), "luna-vault-abc");
-        assert_eq!(mapper_path("abc"), Path::new("/dev/mapper/luna-vault-abc"));
-    }
-
-    #[test]
-    fn the_password_is_never_on_a_command_line() {
-        // The secret is not a parameter of the argument builders at all; the
-        // only way to give cryptsetup one is stdin.
-        let format = luks_format_args("/dev/sdb1", "Photos", 262144);
-        let open = luks_open_args("/dev/sdb1", "d1");
-        for args in [&format, &open] {
-            let at = args.iter().position(|a| a == "--key-file").unwrap();
-            assert_eq!(args[at + 1], "-", "the key must come from stdin");
-        }
-        assert!(format.contains(&"argon2id".to_string()));
-        assert!(format.contains(&"aes-xts-plain64".to_string()));
-        assert!(format.contains(&"512".to_string()));
-        assert!(open.contains(&"luna-vault-d1".to_string()));
-    }
 
     #[test]
     fn the_partition_script_uses_the_right_type_for_each_kind() {

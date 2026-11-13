@@ -10,6 +10,7 @@ pub mod connect;
 #[cfg(test)]
 pub(crate) mod contract;
 pub mod device_tokens;
+pub mod drive_crypt;
 pub mod drive_format;
 pub mod drives;
 pub mod forms;
@@ -55,6 +56,7 @@ pub fn router() -> Router<AppState> {
         .merge(network::router())
         .merge(setup::router())
         .merge(drives::router())
+        .merge(drive_crypt::router())
         .merge(drive_format::router())
         .merge(collab::router())
         .merge(files::router())

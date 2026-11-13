@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use crate::AppState;
 use crate::api::files::parse_range;
-use crate::api::response::json_error;
+use crate::api::response::{json_error, json_error_code};
 use crate::files::uploads::{self, UploadError};
 use crate::files::{self, FilesError};
 
@@ -342,6 +342,11 @@ fn map_upload_err(err: UploadError) -> (StatusCode, Json<Value>) {
         UploadError::Files(crate::files::FilesError::UnknownDrive) => json_error(
             StatusCode::NOT_FOUND,
             "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.",
+        ),
+        UploadError::Files(crate::files::FilesError::Locked) => json_error_code(
+            StatusCode::LOCKED,
+            "drive_locked",
+            crate::files::DRIVE_LOCKED_MSG,
         ),
         UploadError::Files(crate::files::FilesError::MissingDriveDb) => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,

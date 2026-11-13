@@ -47,6 +47,8 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             fs_type TEXT NOT NULL DEFAULT '',
             device TEXT NOT NULL DEFAULT '',
             mount_point TEXT NOT NULL DEFAULT '',
+            encrypted INTEGER NOT NULL DEFAULT 0,
+            locked INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
@@ -308,6 +310,9 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
         "origin",
         "TEXT NOT NULL DEFAULT ''",
     )?;
+    // Dev databases made before drive encryption came back lack these columns.
+    ensure_column(&conn, "drives", "encrypted", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(&conn, "drives", "locked", "INTEGER NOT NULL DEFAULT 0")?;
     // CAP_SHARE split: members who held "full" were subtree managers under
     // the old model — keep their manage rights. View/upload grants never
     // carried share-management, so they gain nothing.
@@ -339,9 +344,15 @@ pub struct DriveRow {
     pub fs_type: String,
     pub device: String,
     pub mount_point: String,
+    /// The drive is a LUKS2 container with ext4 inside. Set by the format run
+    /// and by adding an encrypted drive; never guessed from a mount.
+    pub encrypted: bool,
+    /// An encrypted drive whose container is not open. A locked drive has no
+    /// mount point, and `files::drive_root` refuses it.
+    pub locked: bool,
 }
 
-const DRIVE_COLS: &str = "id, label, state, fs_type, device, mount_point";
+const DRIVE_COLS: &str = "id, label, state, fs_type, device, mount_point, encrypted, locked";
 
 fn drive_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DriveRow> {
     Ok(DriveRow {
@@ -351,6 +362,8 @@ fn drive_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DriveRow> {
         fs_type: row.get(3)?,
         device: row.get(4)?,
         mount_point: row.get(5)?,
+        encrypted: row.get::<_, i64>(6)? != 0,
+        locked: row.get::<_, i64>(7)? != 0,
     })
 }
 
@@ -517,6 +530,34 @@ pub fn update_drive_placement(
             params![id, device, state, now],
         )?;
     }
+    Ok(())
+}
+
+/// Record that a drive's container is open or not. Locking also clears the
+/// mount point: a locked drive has nothing mounted, and a stale path would let
+/// a file operation reach an empty folder and blame the drive.
+pub fn set_drive_locked(conn: &Connection, id: &str, locked: bool) -> anyhow::Result<()> {
+    if locked {
+        conn.execute(
+            "UPDATE drives SET locked = 1, mount_point = '', updated_at = ?2 WHERE id = ?1",
+            params![id, now_unix()],
+        )?;
+    } else {
+        conn.execute(
+            "UPDATE drives SET locked = 0, updated_at = ?2 WHERE id = ?1",
+            params![id, now_unix()],
+        )?;
+    }
+    Ok(())
+}
+
+/// Mark a drive encrypted (or not). A drive is only ever marked encrypted
+/// together with an open container, so `locked` is cleared too.
+pub fn set_drive_encrypted(conn: &Connection, id: &str, encrypted: bool) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE drives SET encrypted = ?2, locked = 0, updated_at = ?3 WHERE id = ?1",
+        params![id, encrypted as i64, now_unix()],
+    )?;
     Ok(())
 }
 

@@ -1289,6 +1289,9 @@ fn plain_job_error(err: &JobError) -> String {
         JobError::Files(FilesError::UnknownDrive) => {
             "Luna doesn't know one of these drives. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.".into()
         }
+        JobError::Files(FilesError::Locked) => {
+            "One of these drives is locked. Unlock it, then try again.".into()
+        }
         JobError::Files(FilesError::MissingDriveDb) => files::MISSING_DRIVE_DB_MSG.into(),
         JobError::Files(FilesError::Path(_)) => "Luna can't use that path.".into(),
         JobError::Io(e) if e.kind() == std::io::ErrorKind::NotFound => {

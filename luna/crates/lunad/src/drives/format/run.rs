@@ -32,10 +32,10 @@ use zeroize::Zeroizing;
 
 use super::inspect::DiskIdentity;
 use super::tools::{
-    DiskTools, EXFAT_LABEL_MAX, EXT4_LABEL_MAX, PartitionKind, ToolError, mapper_path,
-    pbkdf_kib_from, volume_label,
+    DiskTools, EXFAT_LABEL_MAX, EXT4_LABEL_MAX, PartitionKind, ToolError, volume_label,
 };
 use super::{FormattingDriveGuard, Phase};
+use crate::drives::crypt::luks::{Luks, mapper_path, pbkdf_kib_from};
 use crate::drives::{DriveManager, drive_db};
 use crate::{AppState, db};
 
@@ -70,6 +70,7 @@ impl From<ToolError> for FormatError {
         match e {
             ToolError::Missing(tool) => FormatError::MissingTool(tool.to_string()),
             ToolError::TimedOut(_) => FormatError::Unresponsive,
+            ToolError::WrongPassword => FormatError::Other(ToolError::WrongPassword.to_string()),
             ToolError::Failed(message) => FormatError::Other(message),
         }
     }
@@ -147,6 +148,8 @@ impl Default for Pacing {
 pub struct Ctx<'a> {
     pub state: &'a AppState,
     pub tools: &'a dyn DiskTools,
+    /// The one `cryptsetup` wrapper. Only this module may call `luks_format`.
+    pub luks: &'a dyn Luks,
     pub hooks: Hooks<'a>,
     pub progress: &'a dyn Fn(Phase),
     pub sys_block: &'a Path,
@@ -284,7 +287,7 @@ fn run_inner(
 
     (ctx.progress)(Phase::Releasing);
     if let Some(drive_id) = req.drive_id.as_deref() {
-        let (quiesced, drive) = quiesce(state, drive_id, &ctx.pacing)?;
+        let (quiesced, drive) = quiesce(state, drive_id, &ctx.pacing, Purpose::Erase)?;
         stage.previous = Some(drive);
         stage.quiesced = Some(quiesced);
         // No files code touches the drive from here: its mount folder is about
@@ -299,9 +302,9 @@ fn run_inner(
         unmount_disk(manager, &ctx.hooks, &ctx.pacing)?;
         // A mapping Luna left open would hold the partition and block the new table.
         if req.drive_id.is_some() {
-            ctx.tools.luks_close(id)?;
+            ctx.luks.close(id)?;
         }
-        if ctx.tools.luks_is_open(id) || has_holders(ctx.sys_block, disk) {
+        if ctx.luks.is_open(id) || has_holders(ctx.sys_block, disk) {
             return Err(FormatError::Busy);
         }
     }
@@ -362,10 +365,10 @@ fn run_inner(
         (ctx.progress)(Phase::Encrypting);
         // Memory follows this box's RAM, and is recorded in the header.
         let kib = pbkdf_kib_from(crate::budget::meminfo().total_bytes);
-        ctx.tools.luks_format(&part_dev, &label, password, kib)?;
+        ctx.luks.luks_format(&part_dev, &label, password, kib)?;
         attached()?;
         // Open straight as the drive's own mapper: the result stays unlocked.
-        ctx.tools.luks_open(&part_dev, id, password)?;
+        ctx.luks.open(&part_dev, id, password)?;
         (mapper_path(id).to_string_lossy().into_owned(), "ext4")
     } else {
         (part_dev.clone(), "exfat")
@@ -392,7 +395,7 @@ fn run_inner(
         Ok(Outcome { drive, encrypted })
     })();
     if made.is_err() && encrypted {
-        let _ = ctx.tools.luks_close(id);
+        let _ = ctx.luks.close(id);
     }
     made
 }
@@ -490,6 +493,10 @@ fn commit(
             &req.identity.name,
             &target.to_string_lossy(),
         )?;
+        // Registered with its protection state, so no later reconcile can try
+        // to mount a container, and a plain reformat clears an old flag. An
+        // encrypted drive is left unlocked: the run just opened it.
+        db::set_drive_encrypted(&tx, id, req.password.is_some())?;
         let row =
             db::get_drive(&tx, id)?.context("Luna couldn't read this drive's new settings.")?;
         tx.commit()?;
@@ -598,19 +605,38 @@ fn registered_mount_live(state: &AppState, drive: &db::DriveRow) -> bool {
         })
 }
 
+/// Why a drive is being taken out of use. Only changes the words of a refusal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Purpose {
+    Erase,
+    Lock,
+}
+
+impl Purpose {
+    /// The end of "...then try ___ again."
+    fn trying(self) -> &'static str {
+        match self {
+            Purpose::Erase => "erasing it",
+            Purpose::Lock => "locking it",
+        }
+    }
+}
+
 /// Refuse active work, flush pending saves, stop indexing, then unmount the
 /// registered drive. Returns the drive as it was, for undoing a failure that
-/// happens before the first write.
+/// happens before the first write. Used by the erase and by locking a drive.
 pub fn quiesce(
     state: &AppState,
     id: &str,
     pacing: &Pacing,
+    purpose: Purpose,
 ) -> Result<(Quiesced, db::DriveRow), FormatError> {
     let other = |msg: &str| FormatError::Other(msg.to_string());
+    let trying = purpose.trying();
     if state.collab.drive_is_active(id) || state.office_docs.drive_is_active(id) {
-        return Err(other(
-            "Close documents open from this drive, then try erasing it again.",
-        ));
+        return Err(FormatError::Other(format!(
+            "Close documents open from this drive, then try {trying} again."
+        )));
     }
     let (drive, protections) = {
         let conn = state
@@ -637,9 +663,9 @@ pub fn quiesce(
             )
             .map_err(anyhow::Error::from)?;
         if working != 0 {
-            return Err(other(
-                "Wait for copies and moves using this drive to finish, then try erasing it again.",
-            ));
+            return Err(FormatError::Other(format!(
+                "Wait for copies and moves using this drive to finish, then try {trying} again."
+            )));
         }
         let protections = db::list_protections(&conn)?
             .into_iter()
@@ -652,14 +678,16 @@ pub fn quiesce(
     for protection in protections {
         backups.push(
             crate::backup::drive_backup::try_hold(&state.db, &protection.id).ok_or_else(|| {
-                other("Wait for backups using this drive to finish, then try erasing it again.")
+                FormatError::Other(format!(
+                    "Wait for backups using this drive to finish, then try {trying} again."
+                ))
             })?,
         );
         cloud.push(
             crate::backup::cloud::run::RunSlot::take(&state.db, &protection.id).ok_or_else(|| {
-                other(
-                    "Wait for cloud backups using this drive to finish, then try erasing it again.",
-                )
+                FormatError::Other(format!(
+                    "Wait for cloud backups using this drive to finish, then try {trying} again."
+                ))
             })?,
         );
     }
@@ -672,9 +700,10 @@ pub fn quiesce(
     };
     if !state.ram_cache.dirty_rels_for_drive(id).is_empty() && !registered_mount_live(state, &drive)
     {
-        return Err(other(
-            "Luna still has unsaved files for this drive. Reconnect it and let those saves finish before erasing it.",
-        ));
+        return Err(FormatError::Other(match purpose {
+            Purpose::Erase => "Luna still has unsaved files for this drive. Reconnect it and let those saves finish before erasing it.".to_string(),
+            Purpose::Lock => "Luna still has unsaved files for this drive. Reconnect it and let those saves finish before locking it.".to_string(),
+        }));
     }
     if !drive.mount_point.is_empty() {
         state
@@ -698,7 +727,12 @@ pub fn quiesce(
                 } else if crate::drives::mount::is_busy(&e) {
                     FormatError::Busy
                 } else {
-                    other("Luna couldn't unmount this drive. Nothing has been erased.")
+                    match purpose {
+                        Purpose::Erase => {
+                            other("Luna couldn't unmount this drive. Nothing has been erased.")
+                        }
+                        Purpose::Lock => other("Luna couldn't unmount this drive. Try again."),
+                    }
                 }
             })?;
         }
@@ -709,7 +743,7 @@ pub fn quiesce(
 /// Luna's own photo and search scans keep folders open while they run, which
 /// makes an unmount fail as "busy" for a moment. Try again before blaming the
 /// person.
-fn unmount_with_retry(
+pub(crate) fn unmount_with_retry(
     manager: &DriveManager,
     target: &Path,
     pacing: &Pacing,
@@ -813,6 +847,7 @@ pub fn invalidate_formatted_contents(conn: &Connection, id: &str) -> anyhow::Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::drives::crypt::luks::MockLuks;
     use crate::drives::format::inspect::PartitionLayout;
     use crate::drives::format::tools::MockTools;
     use std::sync::Mutex;
@@ -845,6 +880,7 @@ mod tests {
         dir: tempfile::TempDir,
         state: AppState,
         tools: MockTools,
+        luks: MockLuks,
         mock: std::sync::Arc<crate::drives::mount::MockMounter>,
         phases: Mutex<Vec<Phase>>,
         sys: PathBuf,
@@ -866,6 +902,7 @@ mod tests {
                 dir,
                 state,
                 tools: MockTools::default(),
+                luks: MockLuks::default(),
                 mock,
                 phases: Mutex::new(Vec::new()),
                 sys,
@@ -889,6 +926,7 @@ mod tests {
             let ctx = Ctx {
                 state: &self.state,
                 tools: &self.tools,
+                luks: &self.luks,
                 hooks: Hooks {
                     identity: &identity,
                     still_empty: &still_empty,
@@ -916,12 +954,13 @@ mod tests {
     }
 
     /// Did any destructive tool run?
-    fn wrote(tools: &MockTools) -> bool {
-        tools.calls().iter().any(|c| {
-            ["erase_", "write_", "make_", "luks_format"]
-                .iter()
-                .any(|m| c.starts_with(m))
-        })
+    fn wrote(fx: &Fixture) -> bool {
+        fx.luks.count("luks_format") > 0
+            || fx.tools.calls().iter().any(|c| {
+                ["erase_", "write_", "make_"]
+                    .iter()
+                    .any(|m| c.starts_with(m))
+            })
     }
 
     fn methods(tools: &MockTools) -> Vec<String> {
@@ -962,7 +1001,12 @@ mod tests {
         assert_eq!(mounts.len(), 1);
         assert_eq!(mounts[0].0, "/dev/sdz1");
         assert!(!mounts[0].2, "the new drive is mounted read-write");
-        assert!(fx.tools.open.lock().unwrap().is_empty());
+        assert!(fx.luks.open.lock().unwrap().is_empty());
+        assert!(fx.luks.calls().is_empty());
+        // Registered as a plain drive.
+        let conn = fx.state.db.lock().unwrap();
+        let row = db::get_drive(&conn, &outcome.drive.id).unwrap().unwrap();
+        assert!(!row.encrypted && !row.locked);
     }
 
     #[test]
@@ -988,9 +1032,10 @@ mod tests {
         let outcome = fx.run(&request(Some("hunter22hunter1"))).unwrap();
         let id = &outcome.drive.id;
         let calls = fx.tools.calls();
+        let luks = fx.luks.calls();
         assert!(calls.contains(&"write_partition_table /dev/sdz Luks".to_string()));
-        assert!(calls.contains(&"luks_format /dev/sdz1 Family photos".to_string()));
-        assert!(calls.contains(&format!("luks_open /dev/sdz1 {id}")));
+        assert!(luks.contains(&"luks_format /dev/sdz1 Family photos".to_string()));
+        assert!(luks.contains(&format!("open /dev/sdz1 {id}")));
         // ext4 goes on the mapper, not on the partition.
         let mapper = mapper_path(id).to_string_lossy().into_owned();
         assert!(
@@ -1001,9 +1046,16 @@ mod tests {
         assert!(outcome.encrypted);
         assert_eq!(outcome.drive.fs_type, "ext4");
         // Left open: ready to use, nothing closed.
-        assert!(fx.tools.luks_is_open(id));
+        assert!(fx.luks.is_open(id));
+        // Registered as encrypted and unlocked, so reconcile never mounts it
+        // and a reboot (not this run) is what locks it.
+        {
+            let conn = fx.state.db.lock().unwrap();
+            let row = db::get_drive(&conn, id).unwrap().unwrap();
+            assert!(row.encrypted && !row.locked);
+        }
         // Argon2 memory is an eighth of RAM, clamped.
-        let kib = fx.tools.pbkdf.lock().unwrap().unwrap();
+        let kib = fx.luks.pbkdf.lock().unwrap().unwrap();
         assert!((32 * 1024..=1024 * 1024).contains(&kib));
         // The mount is on the mapper.
         assert_eq!(fx.mock.mounts.lock().unwrap()[0].0, mapper);
@@ -1052,7 +1104,7 @@ mod tests {
         let err = fx.run(&req).unwrap_err();
         assert!(matches!(err.error, FormatError::NoLongerEmpty));
         assert!(!err.erased);
-        assert!(!wrote(&fx.tools));
+        assert!(!wrote(&fx));
         // A previewed-and-waited erase does not need the drive to be empty.
         req.require_empty = false;
         assert!(fx.run(&req).is_ok());
@@ -1076,7 +1128,7 @@ mod tests {
         let err = fx.run(&request(Some("hunter22hunter1"))).unwrap_err();
         assert!(err.erased);
         assert!(
-            fx.tools.open.lock().unwrap().is_empty(),
+            fx.luks.open.lock().unwrap().is_empty(),
             "no key left in the kernel"
         );
     }
@@ -1264,6 +1316,7 @@ mod tests {
         let ctx = Ctx {
             state: ctx_state,
             tools: &fx.tools,
+            luks: &fx.luks,
             hooks: Hooks {
                 identity: &|_| None,
                 still_empty: &|| true,
@@ -1326,8 +1379,12 @@ mod tests {
                 .unwrap()
                 .to_string_lossy()
                 .into_owned();
-            // The erase itself, and the tools' own definitions and mock.
-            if rel.ends_with("drives/format/run.rs") || rel.ends_with("drives/format/tools.rs") {
+            // The erase itself, and the tools' own definitions and mocks
+            // (`luks_format` is defined, and only defined, in `crypt/luks.rs`).
+            if rel.ends_with("drives/format/run.rs")
+                || rel.ends_with("drives/format/tools.rs")
+                || rel.ends_with("drives/crypt/luks.rs")
+            {
                 continue;
             }
             let text = std::fs::read_to_string(&file).unwrap();
