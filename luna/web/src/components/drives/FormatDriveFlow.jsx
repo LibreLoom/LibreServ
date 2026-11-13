@@ -13,7 +13,6 @@ import { formatBytes } from "../../lib/formatBytes.js";
 import FormatPreview from "./FormatPreview.jsx";
 
 const API = "/api/v1/drive-format";
-const FIELD = "mt-2 w-full rounded-pill surface-primary border-2 border-secondary/30 px-4 py-2 text-sm no-focus-outline focus:border-accent";
 
 /** Runs whose "done" toast has already been shown, so reopening never repeats it. */
 const announced = new Set();
@@ -24,9 +23,14 @@ const felt = new Set();
  * The one way Luna erases a drive: look, confirm, erase, done. Nothing else in
  * the app erases anything.
  *
- * Steps: Preview (what is on the drive) → Confirm (name it, wait out the
- * countdown if the drive isn't verified empty) → Formatting (named steps,
- * safe to close and come back to) → Done or Failed.
+ * Steps: Look (what is on the drive, with the Erase button below it) →
+ * Formatting (named steps, safe to close and come back to) → Done or Failed.
+ *
+ * The look step is the safeguard. When the server can't verify the drive is
+ * empty, Erase stays disabled for the server's wait, and the only thing on
+ * screen during it is the drive's contents: nothing to fill in, nothing else
+ * to do but look. The drive keeps its current name (a drive Luna has keeps
+ * its name; a new one takes its volume name or model), so there is no field.
  *
  * The caller decides whether the drive is protected with a password: passing
  * `password` makes an encrypted drive, passing none makes a plain one. There
@@ -50,8 +54,6 @@ export default function FormatDriveFlow({ device, password, open = true, onDone,
   const { addToast } = useToast();
   const [attempt, setAttempt] = useState(0);
   const [runId, setRunId] = useState(device.format_id || null);
-  const [confirming, setConfirming] = useState(false);
-  const [label, setLabel] = useState(device.label || device.model || "My drive");
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState(/** @type {{ message: string, fresh: boolean } | null} */ (null));
   const [ready, setReady] = useState(/** @type {{ readyAt: number, skew: number } | null} */ (null));
@@ -104,18 +106,19 @@ export default function FormatDriveFlow({ device, password, open = true, onDone,
     client.invalidateQueries({ queryKey: ["drives-detected"] });
   }, [status, client]);
 
-  const confirmStep = !runId && confirming && Boolean(preview.data);
+  const looking = !runId && Boolean(preview.data);
   // Redraw while the countdown runs; nothing else needs a clock.
   useEffect(() => {
-    if (!confirmStep) return undefined;
+    if (!looking) return undefined;
     const timer = setInterval(() => setClockMs(Date.now()), 500);
     return () => clearInterval(timer);
-  }, [confirmStep]);
+  }, [looking]);
+
+  const label = driveLabel(device, preview.data);
 
   const lookAgain = () => {
     setAttempt((n) => n + 1);
     setRunId(null);
-    setConfirming(false);
     setStartError(null);
     setReady(null);
   };
@@ -125,7 +128,7 @@ export default function FormatDriveFlow({ device, password, open = true, onDone,
     setStarting(true);
     setStartError(null);
     try {
-      const body = { preview_id: preview.data.preview_id, label: label.trim() };
+      const body = { preview_id: preview.data.preview_id, label };
       const first = await postJson(`${API}/start`, password ? { ...body, password } : body);
       client.setQueryData(["drive-format-run", first.id], first);
       setRunId(first.id);
@@ -149,9 +152,8 @@ export default function FormatDriveFlow({ device, password, open = true, onDone,
 
   const name = device.model || device.label || device.name;
   const lost = run.isError && /** @type {any} */ (run.error)?.status === 404;
-  let title = "What's on this drive";
+  let title = "Erase this drive?";
   if (runId) title = status?.done ? "Drive is ready" : status?.failed ? "The erase didn't finish" : "Erasing this drive";
-  else if (confirmStep) title = "Erase this drive?";
 
   return (
     <ModalCard open={open} onClose={onCancel} title={title}>
@@ -177,29 +179,19 @@ export default function FormatDriveFlow({ device, password, open = true, onDone,
                 <Button variant="outline" onClick={close}>Close</Button>
               </div>
             </>
-          ) : confirming ? (
-            <ConfirmStep
+          ) : (
+            <LookStep
               preview={preview.data}
               name={preview.data.device?.model || name}
-              label={label}
-              onLabel={setLabel}
               password={password}
               starting={starting}
               error={startError}
               ready={ready}
               clockMs={clockMs}
-              onBack={() => { setConfirming(false); setStartError(null); }}
               onErase={start}
               onLookAgain={lookAgain}
+              onCancel={close}
             />
-          ) : (
-            <>
-              <FormatPreview preview={preview.data} />
-              <div className="flex gap-3">
-                <Button onClick={() => { setClockMs(Date.now()); setConfirming(true); }}>Continue</Button>
-                <Button variant="outline" onClick={close}>Cancel</Button>
-              </div>
-            </>
           )}
         </div>
       )}
@@ -207,7 +199,16 @@ export default function FormatDriveFlow({ device, password, open = true, onDone,
   );
 }
 
-function ConfirmStep({ preview, name, label, onLabel, password, starting, error, ready, clockMs, onBack, onErase, onLookAgain }) {
+/**
+ * The name the erased drive gets: the one it already has in Luna, else the
+ * name its first part carries, else its model.
+ */
+function driveLabel(device, preview) {
+  const firstPart = preview?.partitions?.find((p) => p.label)?.label;
+  return (device.label || firstPart || device.model || preview?.device?.model || "Drive").trim().slice(0, 80);
+}
+
+function LookStep({ preview, name, password, starting, error, ready, clockMs, onErase, onLookAgain, onCancel }) {
   const clientNow = clockMs;
   const readyAt = ready?.readyAt ?? preview.ready_at;
   const skew = ready?.skew ?? preview.skew;
@@ -216,9 +217,10 @@ function ConfirmStep({ preview, name, label, onLabel, password, starting, error,
   const cantProtect = Boolean(password) && preview.can_encrypt === false;
   const registered = Boolean(preview.registered_drive_id);
   const waiting = seconds > 0 && !expired;
-  const canErase = seconds === 0 && !expired && !cantProtect && label.trim().length > 0;
+  const canErase = seconds === 0 && !expired && !cantProtect;
   return (
     <>
+      <FormatPreview preview={preview} />
       {preview.empty ? (
         <p className="text-sm"><InlinePill>{name}</InlinePill> has nothing on it, so there is nothing to lose.</p>
       ) : (
@@ -229,36 +231,19 @@ function ConfirmStep({ preview, name, label, onLabel, password, starting, error,
       )}
       {registered && (
         <p className="text-sm">
-          This drive is already added to Luna. People with access to the whole drive keep it. Share links and
-          folder-by-folder access are removed, and this drive&apos;s backups stop until you set them up again.
+          People with access to the whole drive keep it. Share links and folder-by-folder access are removed, and
+          this drive&apos;s backups stop until you set them up again.
         </p>
       )}
-      {password ? (
+      {password && (
         <p className="text-sm">
           The drive will be protected with the password you chose. There is no way to recover it: if it&apos;s lost,
           the files on the drive are lost too.
         </p>
-      ) : (
-        <p className="text-sm">Luna will set it up as one drive that Windows, Mac, and Linux computers can open.</p>
       )}
-      <label className="block text-sm">
-        Drive name
-        <input
-          className={FIELD}
-          value={label}
-          maxLength={80}
-          placeholder="e.g. Photos drive"
-          onChange={(e) => onLabel(e.target.value)}
-        />
-      </label>
       {cantProtect && <InlineError>Password protection isn&apos;t available for this drive.</InlineError>}
       {expired && !error && <InlineError>Luna&apos;s look at this drive is out of date. Look at the drive again.</InlineError>}
       {error && <InlineError>{error.message}</InlineError>}
-      {waiting && (
-        <p className="text-sm" role="timer">
-          You can erase this drive in {seconds} {seconds === 1 ? "second" : "seconds"}. The pause gives you time to check it&apos;s the right drive.
-        </p>
-      )}
       <div className="flex flex-wrap gap-3">
         {expired || error?.fresh ? (
           <Button onClick={onLookAgain}>Look at the drive again</Button>
@@ -267,7 +252,7 @@ function ConfirmStep({ preview, name, label, onLabel, password, starting, error,
             {waiting ? `Erase drive (${seconds})` : "Erase drive"}
           </Button>
         )}
-        <Button variant="outline" onClick={onBack}>Back</Button>
+        <Button variant="outline" onClick={onCancel}>Cancel</Button>
       </div>
     </>
   );

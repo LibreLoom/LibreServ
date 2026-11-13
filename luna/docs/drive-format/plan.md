@@ -134,13 +134,16 @@ unclean stop.
 
 `<FormatDriveFlow device={…} password={optional} onDone={…} onCancel={…} />`
 
-The 30-second wait is friction, not proof; the Preview is what stops a wrong-drive
-erase, so it must show recognisable contents (top folders and file names, counts,
-sizes used), not just a size and partition count.
+The 30-second wait is friction, not proof; the Look step is what stops a
+wrong-drive erase, so it must show recognisable contents (top folders and file
+names, counts, sizes used), not just a size and partition count. During the wait
+the only thing on screen is the contents: **nothing to fill in or do** (no name
+field, no separate confirm step), so the wait is spent looking. The drive keeps
+its name (registered name, else volume name, else model).
 
-Steps: **Preview** (what's on the drive; "Luna can't read this drive" when it
-can't) → **Confirm** (the erase button, disabled with a visible countdown until
-`ready_at` when the drive isn't verified empty) → **Formatting** (named phases) →
+Steps: **Look** (what's on the drive, with the erase button underneath it,
+disabled with a countdown until `ready_at` when the drive isn't verified empty;
+"Luna can't read this drive" when it can't) → **Formatting** (named phases) →
 **Done** (opens the drive) or **Failed** (what happened, whether anything was
 erased, what to try).
 
@@ -149,10 +152,12 @@ the caller as `password`. Closing it mid-run is safe; reopening finds the run.
 
 ### Who opens it
 
+**The flow is never a user-facing action of its own.** There is no "Erase drive"
+button anywhere; the flow only appears as a step inside a task that needs it.
+
 | Entry point | Opens the flow with |
 | --- | --- |
-| Add drive: blank, damaged, foreign-format or installer stick | no password; a "Protect with a password" link hands off to the encryption sheet first *(default)* so nobody erases twice |
-| Drive card → Erase drive | no password (or the drive's current protection choice, asked in one line) |
+| Add drive window, when the drive can't be used as it is (blank, damaged, foreign-format, installer stick) | no password; a "Protect with a password" link hands off to the encryption sheet first *(default)* so nobody erases twice |
 | Encryption sheet → Protect this drive | the password (collected twice, with the no-recovery warning) |
 | Encryption sheet → Remove protection | no password; the sheet says this erases the drive |
 | Encrypted drive Luna can't open (forgotten password, foreign LUKS) | no password; "Erase and start over" |

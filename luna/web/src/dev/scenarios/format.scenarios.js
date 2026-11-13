@@ -9,14 +9,14 @@ const photos = [
   { kind: "file", name: "passport-scan.pdf" }, { kind: "file", name: "notes.txt" },
 ];
 const stick = (over = {}) => ({ name: "sdb", model: "SanDisk USB stick", size_bytes: 32_000_000_000, fs_type: "exfat", readable: true, entries: photos, ...over });
-const walk = ["Preview names the drive, its size, and its folders and files", "Continue → Confirm shows the drive name field", "Erase drive stays disabled with a countdown from 30", "After the countdown: Erase drive → named steps move along → Drive is ready", "Open drive lands on the new, empty drive"];
+const walk = ["Preview names the drive, its size, and its folders and files", "Erase drive sits under the contents, disabled with a countdown from 30; nothing to fill in", "After the countdown: Erase drive → named steps move along → Drive is ready", "Open drive lands on the new, empty drive"];
 
 /** @type {import("./registry.js").Scenario[]} */
 export default [
   {
     id: "format/empty-drive", area: A, title: "Blank USB stick: no wait", url: "/files",
     seed: (w) => { w.detected = [stick({ model: "Blank USB stick", fs_type: null, readable: false, needs_setup: true, entries: [] })]; },
-    check: ["The card says the drive is blank and that using it erases what's on it", "Erase and add drive opens the preview: This drive is blank", "Continue → the Erase drive button is enabled at once, with no countdown", "Erase → steps → Drive is ready → Open drive", "The Unrecognized drives card is gone and the drive is on the Files page"],
+    check: ["The card says the drive is blank and that using it erases what's on it", "Add drive → Erase and set up opens the erase window: This drive is blank", "The Erase drive button is enabled at once, with no countdown", "Erase → steps → Drive is ready → Open drive", "The Unrecognized drives card is gone and the drive is on the Files page"],
   },
   {
     id: "format/drive-with-files", area: A, title: "USB stick with files: 30 second wait", url: "/files",
@@ -43,10 +43,6 @@ export default [
       ];
     },
     check: ["Each drive's preview opens with a plain headline: Luna can't read this drive / installer disk", "Each part says in one sentence why its contents can't be shown", "Every one of them waits 30 seconds before the erase button works", "No word like filesystem, partition or LUKS appears anywhere"],
-  },
-  {
-    id: "format/erase-registered", area: A, title: "Erase a drive Luna already has", url: "/files",
-    check: ["The Family photos card has an Erase drive button (Admin only)", "Preview lists its real top-level folders", "Confirm explains what is kept and what is removed", "The name field starts as Family photos and the new name sticks", "Browse files after: the drive is empty"],
   },
   {
     id: "format/failure-mid-run", area: A, title: "The erase fails while writing", url: "/files",

@@ -1012,7 +1012,7 @@ describe("FilesPage", () => {
     expect(info.note).toBe("Using it with Luna erases what's on it.");
   });
 
-  it("offers to erase a blank drive, and to show progress on one being erased", async () => {
+  it("never offers to erase from a card, and shows progress on a drive being erased", async () => {
     stubDrivesApi({
       fetch: (u) => {
         if (u.endsWith("/drives/detected")) {
@@ -1028,7 +1028,9 @@ describe("FilesPage", () => {
       },
     });
     renderPage();
-    expect(await screen.findByRole("button", { name: "Erase and add drive" })).toBeEnabled();
+    // A blank drive is added like any other: the Add-drive window hands off to the erase.
+    expect(await screen.findByRole("button", { name: "Add drive" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /Erase/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show progress" })).toBeInTheDocument();
     expect(screen.getByText(/Being erased and set up/)).toBeInTheDocument();
   });
@@ -1042,10 +1044,11 @@ describe("FilesPage", () => {
   });
 
 
-  it("lets an Admin erase a drive, and shows progress while one is being erased", async () => {
+  it("has no Erase drive button, and shows progress while a drive is being erased", async () => {
     stubDrivesApi({ fetch: driveFetch(D1, OK_HEALTH) });
     const first = renderPage();
-    expect(await screen.findByRole("button", { name: "Erase drive" })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: /Browse files/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Erase/ })).not.toBeInTheDocument();
     first.unmount();
     stubDrivesApi({ fetch: driveFetch({ ...D1, formatting: true, format_id: "fr1" }, OK_HEALTH) });
     renderPage();

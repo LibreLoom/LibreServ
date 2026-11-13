@@ -61,10 +61,7 @@ function show(props = {}) {
   return handlers;
 }
 
-const goToConfirm = async () => {
-  fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
-  await screen.findByText("Erase this drive?");
-};
+const looked = () => screen.findByText("Erase this drive?");
 
 describe("FormatDriveFlow", () => {
   it("shows what is on the drive before anything else", async () => {
@@ -75,8 +72,9 @@ describe("FormatDriveFlow", () => {
     expect(screen.getByText("Family photos")).toBeInTheDocument();
     expect(screen.getByText("passport-scan.pdf")).toBeInTheDocument();
     expect(screen.getByText(/2 folders, 3 files, 12 GB used/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Erase drive/ })).toBeNull();
+    // The contents and the Erase button share one screen: nothing to fill in.
+    expect(screen.getByRole("button", { name: /^Erase drive/ })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 
   it("says plainly when Luna can't read the drive, installer media or a locked part", async () => {
@@ -108,35 +106,32 @@ describe("FormatDriveFlow", () => {
     const server = nowS() - 3600;
     stub({ previewBody: preview({ now: server, issued_at: server, ready_at: server + 30, expires_at: server + 900 }) });
     show();
-    await goToConfirm();
+    await looked();
     const erase = screen.getByRole("button", { name: /^Erase drive \((29|30)\)$/ });
     expect(erase).toBeDisabled();
-    expect(screen.getByRole("timer")).toHaveTextContent(/You can erase this drive in (29|30) seconds/);
-    expect(screen.getByLabelText("Drive name")).toHaveValue("SanDisk USB stick");
+    expect(screen.queryByRole("textbox")).toBeNull();
     // Nothing to choose: no filesystem, no encryption.
     expect(screen.queryByText(/filesystem|exFAT|encrypt/i)).toBeNull();
     expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
-  it("lets an empty drive be erased at once, and starts the run with the chosen name", async () => {
+  it("lets an empty drive be erased at once, keeping the drive's name", async () => {
     const calls = stub({ previewBody: preview({ empty: true, blank: true, partitions: [], used_bytes: null, ready_at: nowS() }) });
     show();
     expect(await screen.findByText("This drive is blank.")).toBeInTheDocument();
-    await goToConfirm();
-    expect(screen.queryByRole("timer")).toBeNull();
-    fireEvent.change(screen.getByLabelText("Drive name"), { target: { value: "Photos" } });
+    await looked();
     const erase = screen.getByRole("button", { name: "Erase drive" });
     expect(erase).toBeEnabled();
     fireEvent.click(erase);
     expect(await screen.findByRole("list", { name: "Erase progress" })).toBeInTheDocument();
     const start = calls.find((c) => c.url.endsWith("/start"));
-    expect(start.body).toEqual({ preview_id: "p1", label: "Photos" });
+    expect(start.body).toEqual({ preview_id: "p1", label: "SanDisk USB stick" });
   });
 
   it("sends the password it was given, and warns that it can't be recovered", async () => {
     const calls = stub({ previewBody: preview({ empty: true, partitions: [], ready_at: nowS() }) });
     show({ password: "correct horse 42" });
-    await goToConfirm();
+    await looked();
     expect(screen.getByText(/no way to recover it/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Erase drive" }));
     await screen.findByRole("list", { name: "Erase progress" });
@@ -147,7 +142,7 @@ describe("FormatDriveFlow", () => {
   it("refuses a password for a drive that can't be protected, before anything is sent", async () => {
     stub({ previewBody: preview({ empty: true, partitions: [], can_encrypt: false, ready_at: nowS() }) });
     show({ password: "correct horse 42" });
-    await goToConfirm();
+    await looked();
     expect(screen.getByText("Password protection isn't available for this drive.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Erase drive" })).toBeDisabled();
   });
@@ -158,7 +153,7 @@ describe("FormatDriveFlow", () => {
       startError: { status: 409, body: { error: "raw server text", code: "preview_stale" } },
     });
     show();
-    await goToConfirm();
+    await looked();
     fireEvent.click(screen.getByRole("button", { name: "Erase drive" }));
     expect(await screen.findByText("Something on this drive changed since you looked. Look at the drive again.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Look at the drive again" })).toBeInTheDocument();

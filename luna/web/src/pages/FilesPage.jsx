@@ -308,7 +308,12 @@ function DetectedContents({ peek }) {
   );
 }
 
-function DetectedCard({ drive, onOpen, onErase }) {
+/**
+ * A drive Luna hasn't added. "Add drive" opens the Add-drive window, which is
+ * where a drive that has to be erased first hands off to FormatDriveFlow; the
+ * card itself never offers to erase. `onShowProgress` reopens a running erase.
+ */
+function DetectedCard({ drive, onOpen, onShowProgress }) {
   // A card reader with nothing in it reports a size of 0.
   const empty = !drive.size_bytes;
   const title = drive.model || "New drive";
@@ -331,10 +336,6 @@ function DetectedCard({ drive, onOpen, onErase }) {
   });
   // Luna can't open encrypted drives yet; the card says why.
   const encrypted = Boolean(peek.data?.encrypted);
-  // Blank, damaged, another system's format, or installer media: Luna has to erase it first.
-  const needsErase = Boolean(peek.data && !encrypted && (peek.data.needs_setup || !peek.data.readable));
-  // The dev review drive isn't a real disk, so there is nothing to erase.
-  const canErase = !isMockUnknownDrive(drive.name);
   return (
     <Card icon={HardDrive} title={title}>
       <div className="flex flex-col gap-2">
@@ -360,9 +361,7 @@ function DetectedCard({ drive, onOpen, onErase }) {
       <div className="mt-3">
         {drive.formatting ? (
           // Members never see this card; only an Admin gets the run's id.
-          drive.format_id && <Button size="sm" variant="outline" onClick={() => onErase(drive)}>Show progress</Button>
-        ) : needsErase && canErase ? (
-          <Button size="sm" variant="outline" onClick={() => onErase(drive)}>Erase and add drive</Button>
+          drive.format_id && <Button size="sm" variant="outline" onClick={() => onShowProgress(drive)}>Show progress</Button>
         ) : (
           <Button size="sm" variant="outline" disabled={empty || encrypted} onClick={() => onOpen(drive)}>Add drive</Button>
         )}
@@ -378,7 +377,7 @@ const ERASING_MESSAGE =
 const CANT_OPEN_HINT =
   "Luna knows this drive but couldn't open it. This can happen after it was pulled out without Eject, or when the drive has a problem. Unplug it, wait a few seconds, and plug it back in. If that doesn't help, the drive may be failing.";
 
-function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect, onErase }) {
+function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect, onShowProgress }) {
   const location = useLocation();
   const cardRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const unopenable = isUnopenable(drive);
@@ -386,8 +385,6 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
   // actions apply.
   const erasing = drive.formatting === true;
   const ready = (drive.state === "as_is" || drive.state === "readonly") && !unopenable && !erasing;
-  // Erase is for a drive that is plugged in; a missing or ejected one has nothing to erase.
-  const canErase = Boolean(onErase) && drive.state !== "missing" && drive.state !== "ejected";
   const health = useDriveHealth(drive, !!showHealth);
   const summary = useQuery({
     queryKey: ["drive-summary", drive.id],
@@ -448,11 +445,10 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
               <Link to={`/files/${drive.id}`}>Browse files</Link>
             </Button>
           )}
-          {canErase && erasing && drive.format_id && (
-            <Button size="sm" variant="outline" onClick={() => onErase(drive)}>Show progress</Button>
-          )}
-          {canErase && !erasing && (
-            <Button size="sm" variant="outline" onClick={() => onErase(drive)}>Erase drive</Button>
+          {/* No Erase button: erasing is never an action of its own, only a
+              step inside a flow that needs it (FormatDriveFlow). */}
+          {onShowProgress && erasing && drive.format_id && (
+            <Button size="sm" variant="outline" onClick={() => onShowProgress(drive)}>Show progress</Button>
           )}
           {showHealth && ready && (
             <Button size="sm" variant="outline" onClick={() => onEject(drive)}>
@@ -671,7 +667,7 @@ export default function FilesPage() {
               onRemove={(d) => setRemoveTarget(d)}
               onShare={(d) => setSharingDrive({ id: d.id, path: "" })}
               onProtect={protectAvailable ? (d) => setProtectingDrive({ id: d.id, path: "" }) : undefined}
-              onErase={isAdmin ? (d) => setEraseDevice({ name: d.device, label: d.label, format_id: d.format_id }) : undefined}
+              onShowProgress={isAdmin ? (d) => setEraseDevice({ name: d.device, label: d.label, format_id: d.format_id }) : undefined}
             />
           ))}
         </div>
@@ -692,7 +688,7 @@ export default function FilesPage() {
               <DetectedCard
                 key={drive.name}
                 drive={drive}
-                onErase={(d) => setEraseDevice({ name: d.name, model: d.model, label: d.model || "", format_id: d.format_id })}
+                onShowProgress={(d) => setEraseDevice({ name: d.name, model: d.model, label: d.model || "", format_id: d.format_id })}
                 onOpen={(d) => {
                   inspect.reset();
                   adopt.reset();
@@ -816,7 +812,8 @@ export default function FilesPage() {
         error={inspect.isError ? "Luna couldn't look at this drive safely. Make sure it's plugged in and try again." : null}
         onClose={() => { releaseInspectedDrive(inspectFor); setInspectFor(null); inspect.reset(); adopt.reset(); }}
         onAdopt={(label) => adopt.mutateAsync({ drive: inspectFor, label })}
-        onErase={async (d) => {
+        // The dev review drive isn't a real disk, so there is nothing to erase.
+        onErase={isMockUnknownDrive(inspectFor?.name) ? undefined : async (d) => {
           // Looking at the drive takes its lock, so let go of the read-only look first.
           await releaseInspectedDrive(d);
           setInspectFor(null);
