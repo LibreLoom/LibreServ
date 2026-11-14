@@ -3,6 +3,16 @@
 /** @type {{ key: string, path: string, reason: string }[]} */
 export const KNOWN_GAPS = [
   {
+    key: "GET /api/v1/system/health/check",
+    path: "$.checks.search_inside.details",
+    reason: "The CI container that records lunad's responses has no pdftotext or tesseract, so lunad reports search_inside as a warning (with details and more); the fake shows the OS image, where both are installed and the row passes.",
+  },
+  {
+    key: "GET /api/v1/system/health/check",
+    path: "$.checks.search_inside.more",
+    reason: "Same as search_inside.details: the recording container lacks the PDF and OCR tools the OS image ships.",
+  },
+  {
     key: "GET /api/v1/cloud/restore-private/records/{}",
     path: "*",
     reason: "The recorder has no caller-owned signed Connect records for this route; private record authorization and pagination are covered by lunad API tests and disposable-provider browser fixtures.",
@@ -21,60 +31,5 @@ export const KNOWN_GAPS = [
     key: "GET /api/v1/connect/status",
     path: "$.device_token_error",
     reason: "lunad sends device_token_error only when the saved token is unusable (serde skips None), and no lunad API test records that state, so the fixture has no key for it. The fake emits it for the dashboard's Needs you row (lib/needsYou.js). Remove this once a lunad test GETs /connect/status with a rejected token.",
-  },
-  {
-    key: "GET /api/v1/connect/status",
-    path: "$.cloud_backup",
-    reason: "lunad now sends cloud_backup (not_linked / no_payment / ready) in place of card_on_file; the recorded fixture predates it. Remove this and the card_on_file entry after the next full ./ci run -p luna rewrites lunad-responses.json.",
-  },
-  {
-    key: "GET /api/v1/connect/status",
-    path: "$.card_on_file",
-    reason: "lunad no longer sends card_on_file (replaced by cloud_backup); the recorded fixture predates that. Remove with the cloud_backup entry after the next full ./ci run -p luna.",
-  },
-  {
-    key: "GET /api/v1/drives",
-    path: "$[].encrypted",
-    reason: "lunad now sends encrypted and locked on every drive (drives.encrypted and drives.locked came back with the encryption rebuild); the recorded fixture predates them. Remove these entries after the next full ./ci run -p luna rewrites lunad-responses.json.",
-  },
-  {
-    key: "GET /api/v1/drives",
-    path: "$[].locked",
-    reason: "lunad now sends encrypted and locked on every drive (drives.encrypted and drives.locked came back with the encryption rebuild); the recorded fixture predates them. Remove these entries after the next full ./ci run -p luna rewrites lunad-responses.json.",
-  },
-  {
-    key: "GET /api/v1/drives/{}/encryption",
-    path: "*",
-    reason: "The recorder has no lunad test that GETs this route yet; its shape and every status are covered by lunad API tests in api/drive_crypt.rs. Remove this after the next full ./ci run -p luna records it.",
-  },
-  {
-    key: "GET /api/v1/backups",
-    path: "$[].paused",
-    reason: "lunad now sends paused (\"locked\" or null) and locked_drive_names on every drive backup, so the dashboard can say backups are paused while a drive is locked; the recorded fixture predates them, and cloud backups never carry them. Remove these entries after the next full ./ci run -p luna rewrites lunad-responses.json.",
-  },
-  {
-    key: "GET /api/v1/backups",
-    path: "$[].locked_drive_names",
-    reason: "lunad now sends paused (\"locked\" or null) and locked_drive_names on every drive backup, so the dashboard can say backups are paused while a drive is locked; the recorded fixture predates them, and cloud backups never carry them. Remove these entries after the next full ./ci run -p luna rewrites lunad-responses.json.",
-  },
-  {
-    key: "GET /api/v1/drives",
-    path: "$[].formatting",
-    reason: "lunad sends formatting and format_id only while a drive is being erased (serde skips them otherwise), and the recorded fixture predates the erase rebuild, so it has no key for them. The fake emits them in the Drive erase scenarios. Remove this after the next full ./ci run -p luna rewrites lunad-responses.json.",
-  },
-  {
-    key: "GET /api/v1/drives",
-    path: "$[].format_id",
-    reason: "lunad sends formatting and format_id only while a drive is being erased (serde skips them otherwise), and the recorded fixture predates the erase rebuild, so it has no key for them. The fake emits them in the Drive erase scenarios. Remove this after the next full ./ci run -p luna rewrites lunad-responses.json.",
-  },
-  {
-    key: "GET /api/v1/drives/detected",
-    path: "$[].formatting",
-    reason: "lunad sends formatting and format_id only while a drive is being erased (serde skips them otherwise), and the recorded fixture predates the erase rebuild, so it has no key for them. The fake emits them in the Drive erase scenarios. Remove this after the next full ./ci run -p luna rewrites lunad-responses.json.",
-  },
-  {
-    key: "GET /api/v1/drives/detected",
-    path: "$[].format_id",
-    reason: "lunad sends formatting and format_id only while a drive is being erased (serde skips them otherwise), and the recorded fixture predates the erase rebuild, so it has no key for them. The fake emits them in the Drive erase scenarios. Remove this after the next full ./ci run -p luna rewrites lunad-responses.json.",
   },
 ];
