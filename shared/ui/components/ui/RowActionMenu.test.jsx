@@ -16,7 +16,7 @@ function renderMenu(actions) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("RowActionMenu", () => {
-  it("opens one sheet from the lightning button", async () => {
+  it("opens one sheet from the three-dot button", async () => {
     renderMenu([
       { key: "share", label: "Share", icon: Users, run: vi.fn() },
       { key: "delete", label: "Move to trash", icon: Trash2, danger: true, run: vi.fn() },

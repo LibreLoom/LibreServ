@@ -250,7 +250,7 @@ describe("FileSearch", () => {
     expect(screen.getByRole("button", { name: /Move beach.jpg to trash/i })).toBeInTheDocument();
   });
 
-  it("shows one lightning-bolt button on phones that opens the actions", async () => {
+  it("shows one three-dot button on phones that opens the actions", async () => {
     const original = window.matchMedia;
     window.matchMedia = (query) => /** @type {any} */ ({
       matches: false,

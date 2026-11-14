@@ -18,7 +18,7 @@ import { newPasswordProblem } from "../../lib/driveCrypt.js";
 const NO_RECOVERY = "There is no way to get this password back. If you forget it, the files on this drive are lost.";
 
 /**
- * Password protection for one drive, for an Admin. Shows whether the drive is
+ * Encryption (password protection) for one drive, for an Admin. Shows whether the drive is
  * protected and open, and offers what fits:
  *
  * - a plain drive: Protect with a password
@@ -40,7 +40,7 @@ const NO_RECOVERY = "There is no way to get this password back. If you forget it
  */
 export default function DriveEncryptionSheet({ open = true, drive, onClose, onProtect, onRemove }) {
   return (
-    <ModalCard open={open && drive != null} onClose={onClose} title="Password protection">
+    <ModalCard open={open && drive != null} onClose={onClose} title="Encryption">
       {({ close }) => drive && <SheetBody drive={drive} close={close} onProtect={onProtect} onRemove={onRemove} />}
     </ModalCard>
   );

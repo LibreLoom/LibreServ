@@ -1,6 +1,6 @@
 import { useState } from "react";
 import PropTypes from "prop-types";
-import { Zap } from "lucide-react";
+import { Ellipsis } from "lucide-react";
 import Button from "./Button.jsx";
 import CardButton from "./CardButton.jsx";
 import ModalCard from "../cards/ModalCard.jsx";
@@ -67,8 +67,9 @@ RowActionSheet.propTypes = {
 };
 
 /**
- * The small-screen row action button: one lightning button that opens a sheet
- * of the row's actions, instead of a wall of icons squeezing the name away.
+ * The actions button: one three-dot button that opens a sheet of the row's
+ * actions, instead of a wall of icons squeezing the name away. Phone rows use
+ * it for everything; drive cards use it on every screen for their rare actions.
  *
  * Universal Search and the file explorer each used to own a copy of this, and
  * they drifted — one sheet's destructive row kept the danger card's extra
@@ -88,22 +89,25 @@ RowActionSheet.propTypes = {
  *   actions?: RowAction[],
  *   renderSheet?: (close: () => void) => import('react').ReactNode,
  *   surface?: "primary" | "secondary",
+ *   size?: "md" | "sm",
  * }} props
+ *
+ * `size="sm"` matches the small buttons beside it on a card's button row.
  */
-export default function RowActionMenu({ label, actions, renderSheet, surface = "secondary" }) {
+export default function RowActionMenu({ label, actions, renderSheet, surface = "secondary", size = "md" }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <Button
         variant="outline"
         surface={surface}
-        size="icon"
-        className="size-11"
+        size={size === "sm" ? "iconSm" : "icon"}
+        className={size === "sm" ? undefined : "size-11"}
         aria-label={`Actions for ${label}`}
         aria-haspopup="dialog"
         onClick={() => setOpen(true)}
       >
-        <Zap size={24} aria-hidden="true" />
+        <Ellipsis size={size === "sm" ? 16 : 24} aria-hidden="true" />
       </Button>
       <ModalCard open={open} title={label} size="sm" onClose={() => setOpen(false)}>
         {({ close }) => (renderSheet ? renderSheet(close) : <RowActionSheet actions={actions} close={close} />)}
@@ -125,4 +129,5 @@ RowActionMenu.propTypes = {
   })),
   renderSheet: PropTypes.func,
   surface: PropTypes.oneOf(["primary", "secondary"]),
+  size: PropTypes.oneOf(["md", "sm"]),
 };

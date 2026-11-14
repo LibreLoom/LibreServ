@@ -184,7 +184,7 @@ function FileRow({
   }
 
   function renderActions() {
-    // Phones get one lightning button that opens every action, as in search
+    // Phones get one three-dot button that opens every action, as in search
     // results. This must come before renderRowActions: the explorer supplies
     // its own action row, and on a phone that row is a wall of buttons that
     // squeezes the file name down to nothing.

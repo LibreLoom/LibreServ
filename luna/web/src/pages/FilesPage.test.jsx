@@ -114,6 +114,22 @@ function driveFetch(drive, health) {
 
 const D1 = { id: "d1", label: "Photos Drive", state: "as_is", fs_type: "ext4", device: "sdz", mounted: true };
 
+/**
+ * Open a drive card's actions (the three-dot button at the right of its
+ * button row) and return the sheet. Only Browse files sits on the card.
+ */
+async function openDriveActions() {
+  fireEvent.click((await screen.findAllByRole("button", { name: /^Actions for / }))[0]);
+  return screen.findByRole("dialog");
+}
+
+/** Click one of a drive card's actions; returns once the sheet has closed. */
+async function clickDriveAction(user, name) {
+  const sheet = await openDriveActions();
+  await user.click(within(sheet).getByRole("button", { name }));
+  await waitFor(() => expect(sheet).not.toBeInTheDocument());
+}
+
 function renderPage(initialEntry = "/files") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -618,8 +634,9 @@ describe("FilesPage", () => {
     expect(await screen.findByText(/^Ejected$/i)).toBeInTheDocument();
     expect(screen.getByText(/Plug it back in to use files again/i)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Open files/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Eject safely/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Remove$/i })).toBeInTheDocument();
+    const sheet = await openDriveActions();
+    expect(within(sheet).queryByRole("button", { name: /Eject safely/i })).not.toBeInTheDocument();
+    expect(within(sheet).getByRole("button", { name: /^Remove$/i })).toBeInTheDocument();
   });
 
   it("offers to erase an installer USB instead of writing a marker", async () => {
@@ -740,12 +757,12 @@ describe("FilesPage", () => {
       },
     });
     renderPage();
-    expect(await screen.findByRole("button", { name: /^Remove$/i })).toBeInTheDocument();
+    expect((await screen.findAllByRole("button", { name: /^Actions for / })).length).toBeGreaterThan(0);
     expect(screen.queryByText(/No health report/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/doesn't mean anything is wrong/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/doesn't tell Luna its temperature/i)).not.toBeInTheDocument();
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^Remove$/i }));
+    await clickDriveAction(user, /^Remove$/i);
     expect(await screen.findByRole("heading", { name: /Remove this drive/i })).toBeInTheDocument();
     expect(screen.getByText(/drive database/i)).toBeInTheDocument();
   });
@@ -775,7 +792,7 @@ describe("FilesPage", () => {
     });
     renderPage();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Eject safely/i }));
+    await clickDriveAction(user, /Eject safely/i);
     expect(await screen.findByRole("heading", { name: /Eject this drive safely/i })).toBeInTheDocument();
     expect(
       screen.getByText((_, node) =>
@@ -810,7 +827,7 @@ describe("FilesPage", () => {
     });
     renderPage();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /^Remove$/i }));
+    await clickDriveAction(user, /^Remove$/i);
     expect(await screen.findByRole("heading", { name: /Remove this drive/i })).toBeInTheDocument();
     expect(
       screen.getByText((_, node) =>
@@ -837,7 +854,7 @@ describe("FilesPage", () => {
     });
     renderPage();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /^Remove$/i }));
+    await clickDriveAction(user, /^Remove$/i);
     expect(await screen.findByRole("heading", { name: /Remove this drive/i })).toBeInTheDocument();
     expect(
       screen.getByText((_, node) =>
@@ -872,7 +889,7 @@ describe("FilesPage", () => {
     });
     renderPage();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /^Remove$/i }));
+    await clickDriveAction(user, /^Remove$/i);
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: /^Remove$/i }));
     await waitFor(() => {
@@ -902,7 +919,7 @@ describe("FilesPage", () => {
     });
     renderPage();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /^Remove$/i }));
+    await clickDriveAction(user, /^Remove$/i);
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: /^Remove$/i }));
     await waitFor(() => {
@@ -1092,9 +1109,10 @@ describe("FilesPage", () => {
     expect(await screen.findByText(/Luna can't open this drive right now, so its files and free space aren't available\./)).toBeInTheDocument();
     expect(screen.getByText(/^Can't open$/)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Browse files/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Eject safely/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/Storage will show/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Remove$/i })).toBeInTheDocument();
+    const sheet = await openDriveActions();
+    expect(within(sheet).queryByRole("button", { name: /Eject safely/i })).not.toBeInTheDocument();
+    expect(within(sheet).getByRole("button", { name: /^Remove$/i })).toBeInTheDocument();
   });
 
 });

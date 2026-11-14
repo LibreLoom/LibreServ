@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderOpen, HardDrive, PlugZap } from "lucide-react";
+import { FolderOpen, HardDrive, Lock, PlugZap, Shield, Trash2, Unplug, Users } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
@@ -11,12 +11,13 @@ import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import Callout from "@libreloom/ui/components/common/Callout.jsx";
 import DriveStatusPill from "../components/common/DriveStatusPill.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import RowActionMenu from "@libreloom/ui/components/ui/RowActionMenu.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import ValueDisplay from "@libreloom/ui/components/common/ValueDisplay.jsx";
 import ShareSheet, { ShareButton } from "../components/share/ShareSheet.jsx";
-import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
+import ProtectSheet from "../components/files/ProtectSheet";
 import InspectModal from "../components/files/InspectModal.jsx";
 import FormatDriveFlow from "../components/drives/FormatDriveFlow.jsx";
 import DriveEncryptionSheet from "../components/drives/DriveEncryptionSheet.jsx";
@@ -401,6 +402,14 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
   const statusMessage = driveStatusMessage(drive);
   const hashId = `drive-${drive.id}`;
   const targeted = location.hash === `#${hashId}`;
+  /** @type {import("@libreloom/ui/components/ui/RowActionMenu.jsx").RowAction[]} */
+  const actions = [
+    onShare && ready && { key: "share", label: "Share", icon: Users, run: () => onShare(drive) },
+    onProtect && ready && { key: "backup", label: "Back up", icon: Shield, run: () => onProtect(drive) },
+    onEncryption && (ready || locked) && { key: "encryption", label: "Encryption", icon: Lock, run: () => onEncryption(drive) },
+    showHealth && ready && { key: "eject", label: "Eject safely", icon: Unplug, run: () => onEject(drive) },
+    showHealth && { key: "remove", label: "Remove", icon: Trash2, danger: true, run: () => onRemove(drive) },
+  ].filter(Boolean);
 
   // The dashboard links to #drive-{id}. The drives load after the page does, so the
   // browser's own hash scrolling can't find the card; do it once it shows.
@@ -447,6 +456,8 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
             <AdoptedDriveDetails drive={drive} />
           </div>
         ) : null}
+        {/* Browse files is what people press; everything else is rare and
+            sits behind the actions button at the far right. */}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {ready && (
             <Button size="sm" variant="primary" asChild>
@@ -458,24 +469,10 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
           {onShowProgress && erasing && drive.format_id && (
             <Button size="sm" variant="outline" onClick={() => onShowProgress(drive)}>Show progress</Button>
           )}
-          {showHealth && ready && (
-            <Button size="sm" variant="outline" onClick={() => onEject(drive)}>
-              Eject safely
-            </Button>
-          )}
-          {showHealth && (
-            <Button size="sm" variant="accent" onClick={() => onRemove(drive)}>
-              Remove
-            </Button>
-          )}
-          {onShare && ready && (
-            <ShareButton label={drive.label} onClick={() => onShare(drive)} />
-          )}
-          {onProtect && ready && (
-            <ProtectButton label={drive.label} onClick={() => onProtect(drive)} />
-          )}
-          {onEncryption && (ready || locked) && (
-            <Button size="sm" variant="outline" onClick={() => onEncryption(drive)}>Password protection</Button>
+          {actions.length > 0 && (
+            <div className="ml-auto">
+              <RowActionMenu label={drive.label} actions={actions} size="sm" />
+            </div>
           )}
         </div>
       </Card>

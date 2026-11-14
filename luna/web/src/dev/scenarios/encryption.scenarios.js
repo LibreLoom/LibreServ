@@ -1,5 +1,5 @@
 // Password-protected drives: locked and unlocked cards, the unlock prompt, the
-// Password protection sheet, Protect and Remove protection (both hand off to the
+// Encryption sheet, Protect and Remove protection (both hand off to the
 // one erase window), adding an encrypted drive, the dashboard notice and paused
 // backups. Handlers live in ../fake/handlers/crypt.js (and format.js for the erase).
 //
@@ -10,7 +10,7 @@ import { encryptDrive } from "../fake/handlers/crypt.js";
 
 const A = "Encryption";
 const GB = 1_000_000_000;
-const SHEET = "Open Password protection on the card";
+const SHEET = "Open Encryption from the card's three-dot button";
 
 const second = (w) => {
   w.drives.push(drive({ id: "d2", label: "Backup drive" }));
@@ -34,7 +34,7 @@ export default [
   {
     id: "encryption/locked-card", area: A, title: "A locked drive's card (Admin)", url: "/files",
     seed: (w) => { encryptDrive(w, "d1"); },
-    check: ["Pill says Locked, with a lock icon", "The card says it is locked and asks for the password: no storage bar, no Browse files, no Eject", "Password protection button is there", "The right password (correct-horse-1) opens it: one toast, card turns Ready with Browse files"],
+    check: ["Pill says Locked, with a lock icon", "The card says it is locked and asks for the password: no storage bar, no Browse files, no Eject", "Encryption is in the card's three-dot button", "The right password (correct-horse-1) opens it: one toast, card turns Ready with Browse files"],
   },
   {
     id: "encryption/locked-card-dark", area: A, title: "A locked drive's card, dark", url: "/files", theme: "dark",
@@ -49,7 +49,7 @@ export default [
   {
     id: "encryption/locked-member", area: A, title: "A Member whose shared drive is locked", url: "/files",
     seed: (w) => { asMember(w); encryptDrive(w, "d1"); },
-    check: ["The shared folder's card says the drive is locked and asks for the password: a Member may unlock", "No Password protection, Lock, Eject or Remove anywhere", "After unlocking, Open appears"],
+    check: ["The shared folder's card says the drive is locked and asks for the password: a Member may unlock", "No Encryption, Lock, Eject or Remove anywhere", "After unlocking, Open appears"],
   },
   {
     id: "encryption/locked-member-dashboard", area: A, title: "Dashboard for a Member: drive locked", url: "/",
@@ -73,7 +73,7 @@ export default [
     faults: [{ match: "POST /api/v1/drives/d1/unlock", mode: "409", code: "drive_busy", message: "Luna is already working on this drive. Wait until it finishes." }],
     check: ["The message shows under the field with no shake and no toast", "The password stays typed so they can try again"],
   },
-  // ── The Password protection sheet ─────────────────────────────────────────
+  // ── The Encryption sheet ─────────────────────────────────────────
   {
     id: "encryption/sheet-plain", area: A, title: "Sheet on a drive with no password", url: "/files",
     check: [SHEET, "It says Not protected and that anyone who plugs the drive into a computer can read it", "Protect with a password is the one button; the line under it says it erases the drive first", "No Lock, Change password or Remove protection"],
@@ -126,12 +126,12 @@ export default [
   {
     id: "encryption/add-blank-protect", area: A, title: "Blank drive: protect it while adding", url: "/files",
     seed: (w) => { w.detected = [{ name: "sdb", model: "Blank USB stick", size_bytes: 32 * GB, fs_type: null, readable: false, needs_setup: true, entries: [] }]; },
-    check: ["Add drive offers Erase and set up and Protect with a password", "Protect with a password asks for the password twice, with the no-recovery warning, inside the window", "Continue closes it and opens the one erase window with the password (no wait: the drive is blank)", "Done: the drive is Ready and Password protection says Protected · Unlocked. Nothing was erased twice"],
+    check: ["Add drive offers Erase and set up and Protect with a password", "Protect with a password asks for the password twice, with the no-recovery warning, inside the window", "Continue closes it and opens the one erase window with the password (no wait: the drive is blank)", "Done: the drive is Ready and Encryption says Protected · Unlocked. Nothing was erased twice"],
   },
   {
     id: "encryption/add-readable-no-protect", area: A, title: "A readable drive is added as it is", url: "/files",
     seed: (w) => { w.detected = [{ name: "sdb", model: "SanDisk USB stick", size_bytes: 32 * GB, fs_type: "exfat", readable: true, entries: [{ kind: "folder", name: "Photos" }] }]; },
-    check: ["Add drive offers Add this drive only: no Erase, no Protect, because adding changes nothing on it", "Afterwards the card's Password protection offers Protect with a password"],
+    check: ["Add drive offers Add this drive only: no Erase, no Protect, because adding changes nothing on it", "Afterwards the card's Encryption offers Protect with a password"],
   },
   // ── Dashboard and backups ─────────────────────────────────────────────────
   {
@@ -155,12 +155,12 @@ export default [
       encryptDrive(w, "d1", { locked: false }); encryptDrive(w, "d2", { locked: false });
       w.backups = [backup({ source_drive: "d1", source_drive_name: "Family photos", target_drive: "d2", target_drive_name: "Backup drive", last_ok_at: at(3600) })];
     },
-    check: ["Lock the Backup drive from its Password protection sheet", "Open Back up on Family photos: the backup says Paused, with Paused until Backup drive is unlocked", "Back up now says Waiting: Backup drive is locked", "Unlock the drive: the backup is back to normal"],
+    check: ["Lock the Backup drive from its Encryption sheet", "Open Back up on Family photos: the backup says Paused, with Paused until Backup drive is unlocked", "Back up now says Waiting: Backup drive is locked", "Unlock the drive: the backup is back to normal"],
   },
   {
     id: "encryption/backup-to-plain-refused", area: A, title: "Back up a protected drive to a plain one", url: "/files",
     seed: (w) => { second(w); encryptDrive(w, "d1", { locked: false }); },
-    check: ["Open Back up on the protected drive and choose the plain Backup drive", "The sheet shows Luna's own message: a backup of an encrypted drive has to go on an encrypted drive", "No backup was created", "Protect the Backup drive first (Password protection → Protect), then the backup is accepted"],
+    check: ["Open Back up on the protected drive and choose the plain Backup drive", "The sheet shows Luna's own message: a backup of an encrypted drive has to go on an encrypted drive", "No backup was created", "Protect the Backup drive first (Encryption → Protect), then the backup is accepted"],
   },
   {
     id: "encryption/backup-to-locked-refused", area: A, title: "Back up to a locked drive", url: "/files",
@@ -171,6 +171,6 @@ export default [
   {
     id: "encryption/member-cannot-manage", area: A, title: "A Member can't lock or change protection", url: "/files",
     seed: (w) => { asMember(w); encryptDrive(w, "d1", { locked: false }); },
-    check: ["The Member's Files page has no Password protection, Lock or Remove", "Sign in as Admin: the card has Password protection", "In the Break things panel, send POST /api/v1/drives/d1/lock as the Member: the fake answers Only an Admin can lock this drive"],
+    check: ["The Member's Files page has no Encryption, Lock or Remove", "Sign in as Admin: the card has Encryption", "In the Break things panel, send POST /api/v1/drives/d1/lock as the Member: the fake answers Only an Admin can lock this drive"],
   },
 ];
