@@ -216,12 +216,14 @@ export default function DriveFileExplorer({
     : isAdmin
       ? CAP_MANAGE
       : capsForPath(path);
-  const trashVisible = !guest && (isAdmin || hasCapOnDrive(access.data, driveId, CAP.EDIT));
   // A read-only drive accepts no writes at all, whatever the grants say. The
   // drive row arrives with the drives list; until it does, assume writable.
   const driveWritable = guest
     ? true
     : (() => { const row = availableDrives.find((d) => d.id === driveId); return !row || isWritableDrive(row); })();
+  // No writes means no Trash either: there is nothing to restore or delete
+  // for good, so the link and the in-trash actions stay off read-only drives.
+  const trashVisible = !guest && driveWritable && (isAdmin || hasCapOnDrive(access.data, driveId, CAP.EDIT));
   const folderCanUpload = !inTrash && driveWritable && (myFolderCaps & CAP.UPLOAD) !== 0;
   const folderCanEdit = inTrash ? trashVisible : driveWritable && (myFolderCaps & CAP.EDIT) !== 0;
   const folderCanShare = !inTrash && (myFolderCaps & CAP.SHARE) !== 0;
@@ -846,7 +848,7 @@ export default function DriveFileExplorer({
         // Keep the drop target alive on a read-only drive: a drag-in is the
         // one way to "try anyway", and the server's plain read-only message
         // is the reason the buttons above are gone.
-        enableUploadDrop={!inTrash && (myFolderCaps & CAP.UPLOAD) !== 0}
+        enableUploadDrop={!inTrash && driveWritable && (myFolderCaps & CAP.UPLOAD) !== 0}
         uploadButton={driveWritable}
         dense={dense}
         multiSelect

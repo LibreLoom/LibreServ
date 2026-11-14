@@ -327,6 +327,52 @@ describe("AuthProvider when Luna is unreachable", () => {
     expect(screen.getByText("ADMIN UNKNOWN")).toBeInTheDocument();
   });
 
+  it("leaves /recover alone when the poll answers with no Admin yet", async () => {
+    vi.useFakeTimers();
+    try {
+      // Luna is down when the recovery page loads, then comes back mid-flow
+      // still without an Admin — exactly the state /recover exists for.
+      let up = false;
+      vi.stubGlobal("fetch", vi.fn(async (url) => {
+        if (!up) throw new TypeError("Failed to fetch");
+        const u = String(url);
+        if (u.endsWith("/api/v1/auth/me")) {
+          return new Response("null", { status: 401 });
+        }
+        if (u.endsWith("/api/v1/auth/status")) {
+          return json({ has_admin: false });
+        }
+        if (u.endsWith("/api/v1/setup")) {
+          return json({ name: "Luna", setup_completed: false });
+        }
+        return new Response("{}", { status: 404 });
+      }));
+
+      render(
+        <MemoryRouter initialEntries={["/recover"]}>
+          <AuthProvider>
+            <Routes>
+              <Route path="/" element={<div>LUNA HOME</div>} />
+              <Route path="/setup" element={<div>SETUP WIZARD</div>} />
+              <Route path="/recover" element={<div>RECOVERY WIZARD</div>} />
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      );
+
+      // Let the failing bootstrap settle, then let the poll reach a live Luna.
+      await vi.advanceTimersByTimeAsync(0);
+      up = true;
+      await vi.advanceTimersByTimeAsync(5000);
+
+      // The recovery page survives: a fresh Luna must not bounce it to setup.
+      expect(screen.getByText("RECOVERY WIZARD")).toBeInTheDocument();
+      expect(screen.queryByText("SETUP WIZARD")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps the setup state it already had when a later refresh finds Luna unreachable", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url) => {
       const u = String(url);

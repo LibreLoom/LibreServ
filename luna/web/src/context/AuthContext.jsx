@@ -131,7 +131,14 @@ export function AuthProvider({ children }) {
     const timer = setInterval(async () => {
       const res = await refresh();
       if (res.unreachable) return;
-      if (!res.hasAdmin && !res.me && window.location.pathname !== "/setup") {
+      // /recover stays reachable before an account exists, exactly like the
+      // startup effect above — a recovery flow must not be yanked to setup
+      // the moment Luna answers with no admin.
+      if (
+        !res.hasAdmin &&
+        !res.me &&
+        !["/setup", "/recover"].includes(window.location.pathname)
+      ) {
         navigateRef.current("/setup", { replace: true });
       }
     }, 5000);
