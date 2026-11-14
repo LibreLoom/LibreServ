@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	stripego "github.com/stripe/stripe-go/v76"
-	"github.com/stripe/stripe-go/v76/webhook"
+	stripego "github.com/stripe/stripe-go/v87"
+	"github.com/stripe/stripe-go/v87/webhook"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"

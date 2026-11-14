@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/stripe/stripe-go/v76"
+	"github.com/stripe/stripe-go/v87"
 	"golang.org/x/crypto/bcrypt"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/auth"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"

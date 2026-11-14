@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stripe/stripe-go/v76"
-	"github.com/stripe/stripe-go/v76/customer"
-	"github.com/stripe/stripe-go/v76/paymentintent"
-	"github.com/stripe/stripe-go/v76/setupintent"
-	"github.com/stripe/stripe-go/v76/subscription"
+	"github.com/stripe/stripe-go/v87"
+	"github.com/stripe/stripe-go/v87/customer"
+	"github.com/stripe/stripe-go/v87/paymentintent"
+	"github.com/stripe/stripe-go/v87/setupintent"
+	"github.com/stripe/stripe-go/v87/subscription"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 )

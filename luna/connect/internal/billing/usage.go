@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stripe/stripe-go/v76"
-	"github.com/stripe/stripe-go/v76/billing/meterevent"
+	"github.com/stripe/stripe-go/v87"
+	"github.com/stripe/stripe-go/v87/billing/meterevent"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 )
