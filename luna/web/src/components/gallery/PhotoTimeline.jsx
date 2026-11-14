@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- timeline exports grouping helpers used by GalleryPage and tests */
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Check, ChevronDown } from "lucide-react";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
@@ -205,6 +205,12 @@ function daySectionEqual(prev, next) {
   return true;
 }
 
+// Photos drawn in the first frame a timeline mounts; the rest follow in a
+// background render React can pause. A page sliding in (SlidePages) can then
+// start moving at once instead of waiting for every thumbnail, and the rest
+// lands below the fold a moment later.
+const FIRST_PAINT_PHOTOS = 36;
+
 /**
  * Date-grouped infinite photo grid.
  *
@@ -254,9 +260,27 @@ export default function PhotoTimeline({
     return [...map.values()];
   }, [photos]);
 
+  const [drawAll, setDrawAll] = useState(photos.length <= FIRST_PAINT_PHOTOS);
+  useEffect(() => {
+    if (!drawAll) startTransition(() => setDrawAll(true));
+  }, [drawAll]);
+  const shownGroups = useMemo(() => {
+    if (drawAll) return groups;
+    const out = [];
+    let left = FIRST_PAINT_PHOTOS;
+    for (const group of groups) {
+      if (left <= 0) break;
+      out.push(group.items.length <= left ? group : { ...group, items: group.items.slice(0, left) });
+      left -= group.items.length;
+    }
+    return out;
+  }, [drawAll, groups]);
+
   useEffect(() => {
     const el = sentinel.current;
-    if (!el || !hasMore) return undefined;
+    // Not before every photo is drawn: the short first frame would show the
+    // sentinel and fetch a page nobody scrolled to.
+    if (!el || !hasMore || !drawAll) return undefined;
     const io = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) onLoadMore?.();
@@ -265,7 +289,7 @@ export default function PhotoTimeline({
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [hasMore, onLoadMore, photos.length]);
+  }, [hasMore, onLoadMore, photos.length, drawAll]);
 
   useEffect(() => {
     function endDrag() {
@@ -310,7 +334,7 @@ export default function PhotoTimeline({
 
   return (
     <div className="relative space-y-8" data-slot="photo-timeline">
-      {groups.map((group) => (
+      {shownGroups.map((group) => (
         <DaySection
           key={group.key}
           group={group}
