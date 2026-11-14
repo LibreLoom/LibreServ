@@ -601,6 +601,14 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
     if (segments.length) return fail(400, "That file isn't part of this shared link.");
     return serveSharedFile(world, r, "", r.s.name || "download");
   }
+  // `public_zip` resolves the entry through `confined_read`, which fails on a
+  // drive it cannot reach, so a wiped or ejected drive zips nothing. Serving
+  // an empty zip here would tell the guest the folder was empty instead.
+  try {
+    needDrive(world, r.s.drive_id || "d1");
+  } catch {
+    return fail(404, "The shared files aren't available right now.");
+  }
   const tree = treeOf(world, params.token, r.s);
   // A folder is the normal thing to zip, so walk the tree for any entry rather
   // than `inTree`, which deliberately returns null for a directory.
