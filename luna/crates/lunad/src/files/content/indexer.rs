@@ -17,6 +17,7 @@ use std::time::Duration;
 use rusqlite::{Connection, params};
 
 use super::formats::{self, Format};
+use super::meaning;
 use super::store::{self, Pending, State};
 use super::worker::{self, Outcome};
 
@@ -30,6 +31,8 @@ const MEMORY_TRIES: u32 = 24;
 /// A breath between files, so a slow disk keeps serving people first.
 const PACE: Duration = Duration::from_millis(15);
 const IDLE_POLL: Duration = Duration::from_millis(500);
+/// Files embedded per step of the meaning top-up.
+const MEANING_STEP: usize = 16;
 
 enum Msg {
     Kick { drive_id: String, full: bool },
@@ -186,7 +189,8 @@ fn pass(
         }
     }
     requeue_gallery_deferred(&conn, drive_id)?;
-    let left = store::pending_count(&conn, drive_id, ocr)?;
+    let left =
+        store::pending_count(&conn, drive_id, ocr)? + meaning::backfill_left(&conn, drive_id)?;
     set_progress(shared, drive_id, |p| {
         p.reading = true;
         p.left = left;
@@ -211,6 +215,21 @@ fn pass(
             set_progress(shared, drive_id, |p| p.left = p.left.saturating_sub(1));
             thread::sleep(PACE);
         }
+    }
+    // Meaning vectors for the text read so far (and for text read before
+    // the model was installed). In small steps, so an unplug stops it soon.
+    loop {
+        if !still_mounted(shared, drive_id, root) {
+            return Ok(());
+        }
+        let done = meaning::backfill(&conn, drive_id, MEANING_STEP)?;
+        if done == 0 {
+            break;
+        }
+        set_progress(shared, drive_id, |p| {
+            p.left = p.left.saturating_sub(done as u64)
+        });
+        thread::sleep(PACE);
     }
     if full {
         let gone = store::sweep_orphans(&conn, drive_id)?;
@@ -263,11 +282,7 @@ fn read_one(conn: &Connection, drive_id: &str, root: &Path, file: &Pending) -> a
     let outcome = worker::extract_file(&path, format, file.size.max(0) as u64);
     match outcome {
         Outcome::Text(text) if text.trim().is_empty() => save(State::Empty, "", None),
-        Outcome::Text(text) => {
-            save(State::Text, "", Some(&text))?;
-            super::meaning::after_text(conn, drive_id, file, &text);
-            Ok(())
-        }
+        Outcome::Text(text) => save(State::Text, "", Some(&text)),
         Outcome::Protected => save(State::Protected, "", None),
         Outcome::TooBig => save(State::TooBig, "", None),
         Outcome::Unavailable => save(State::Unavailable, "", None),

@@ -62,6 +62,7 @@ fastcdc = "3"
 calamine = "0.38.0"
 cfb = "0.16.0"
 encoding_rs = "0.8.44"
+unicode-normalization = "0.1.26"
 
 [build-dependencies]
 semver.workspace = true

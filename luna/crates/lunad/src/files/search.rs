@@ -88,6 +88,8 @@ pub struct Candidate {
     /// The `content_docs` row when the match came from the file's text, so
     /// the snippet can be made once access is checked.
     pub doc: Option<i64>,
+    /// For a meaning match: the passage (char start, length) it came from.
+    pub passage: Option<(i64, i64)>,
 }
 
 /// Most rows the index returns to the ranker per step.
@@ -237,6 +239,7 @@ fn search_drive_with_limits(
                             hit,
                             rank,
                             doc: None,
+                            passage: None,
                         });
                     }
                 }
@@ -276,19 +279,47 @@ fn search_drive_with_limits(
                         },
                         hit: found.hit,
                         doc: Some(found.doc),
+                        passage: None,
                     });
                 }
             }
-            Err(rusqlite::Error::SqliteFailure(code, _))
-                if code.code == rusqlite::ErrorCode::OperationInterrupted =>
-            {
-                incomplete = true;
+            Err(e) if interrupted(&e) => incomplete = true,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    // Passages about the same thing, in other words.
+    if !incomplete && let Some(qv) = crate::files::content::meaning::query_vector(&query.words) {
+        match crate::files::content::meaning::candidates(conn, drive_id, &qv, kind) {
+            Ok(hits) => {
+                for found in hits {
+                    if !seen.insert((found.hit.parent.clone(), found.hit.name.clone())) {
+                        continue;
+                    }
+                    let len = search_rank::normalize(&found.hit.name).len();
+                    out.push(Candidate {
+                        rank: Rank {
+                            tier: Tier::Meaning,
+                            score: ((1.0 - found.similarity).clamp(0.0, 2.0) * 1_000_000.0) as u32,
+                            typos: 0,
+                            file: 1,
+                            len,
+                        },
+                        hit: found.hit,
+                        doc: Some(found.doc),
+                        passage: Some(found.passage),
+                    });
+                }
             }
+            Err(e) if interrupted(&e) => incomplete = true,
             Err(e) => return Err(e.into()),
         }
     }
     out.sort_by(|a, b| a.rank.cmp(&b.rank));
     Ok((out, incomplete))
+}
+
+fn interrupted(e: &rusqlite::Error) -> bool {
+    matches!(e, rusqlite::Error::SqliteFailure(code, _) if code.code == rusqlite::ErrorCode::OperationInterrupted)
 }
 
 /// Content matches per drive, best first. Ranked by the index, so this is a

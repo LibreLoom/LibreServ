@@ -84,6 +84,7 @@ pub fn ensure_schema(conn: &Connection) -> anyhow::Result<()> {
             tokenize = 'porter unicode61 remove_diacritics 2'
          );",
     )?;
+    super::meaning::ensure_schema(conn)?;
     Ok(())
 }
 
@@ -214,6 +215,7 @@ pub fn record(
         )?;
     }
     tx.execute("DELETE FROM content_vecs WHERE doc_id = ?1", params![id])?;
+    tx.execute("DELETE FROM content_meaning WHERE doc_id = ?1", params![id])?;
     tx.commit()?;
     Ok(id)
 }
@@ -239,6 +241,7 @@ pub fn sweep_orphans(conn: &Connection, drive_id: &str) -> anyhow::Result<usize>
         tx.execute("DELETE FROM content_fts WHERE rowid = ?1", params![id])?;
         tx.execute("DELETE FROM content_docs WHERE id = ?1", params![id])?;
         tx.execute("DELETE FROM content_vecs WHERE doc_id = ?1", params![id])?;
+        tx.execute("DELETE FROM content_meaning WHERE doc_id = ?1", params![id])?;
     }
     tx.commit()?;
     Ok(ids.len())

@@ -189,12 +189,21 @@ fn visible_hits(
             })
             .as_deref();
         let (private, in_private) = private_flags(root, &full);
-        let snippet = match (candidate.doc, expr, root) {
-            (Some(doc), Some(expr), Some(root)) => drive_dbs
+        // Snippets are read here, after the access check, never before.
+        let snippet = match (candidate.doc, root) {
+            (Some(doc), Some(root)) => drive_dbs
                 .entry(hit.drive_id.clone())
                 .or_insert_with(|| crate::drives::drive_db::open(root).ok())
                 .as_ref()
-                .and_then(|db| crate::files::content::query::snippet(db, doc, expr))
+                .and_then(|db| match candidate.passage {
+                    Some(passage) => {
+                        crate::files::content::meaning::passage_snippet(db, doc, passage)
+                            .map(|text| vec![(text, false)])
+                    }
+                    None => {
+                        expr.and_then(|expr| crate::files::content::query::snippet(db, doc, expr))
+                    }
+                })
                 .map(|parts| {
                     parts
                         .into_iter()
@@ -414,6 +423,7 @@ mod tests {
                 modified: 1,
             },
             doc: None,
+            passage: None,
             rank: crate::files::search_rank::Rank {
                 tier,
                 score: 0,

@@ -11,6 +11,7 @@
 pub mod extract;
 pub mod formats;
 pub mod indexer;
+pub mod m2v;
 pub mod meaning;
 pub mod ocr;
 pub mod photos;
