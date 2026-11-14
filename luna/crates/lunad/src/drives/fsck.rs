@@ -34,8 +34,6 @@ const NOTICE_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 /// Bit 1 of the boot sector's `VolumeFlags` (offset 106): the volume has
 /// changes the driver hasn't finished writing.
 const VOLUME_DIRTY: u16 = 1 << 1;
-/// Bit 2: a read or write failed on this media.
-const MEDIA_FAILURE: u16 = 1 << 2;
 const FLAGS_OFFSET: usize = 106;
 
 /// `VolumeFlags` from the first sector of a device, or `None` when that sector
@@ -52,16 +50,28 @@ pub fn parse_volume_flags(boot: &[u8]) -> Option<u16> {
 
 /// Was this volume left in the middle of something?
 ///
-/// Only the dirty bit counts. The media-failure bit records that a read or
-/// write once failed; `fsck.exfat` leaves it set, so acting on it would
+/// Only the dirty bit counts. The media-failure bit (bit 2) records that a
+/// read or write once failed; `fsck.exfat` leaves it set, so acting on it would
 /// re-check the drive (and tell the person it was repaired) on every mount.
 pub fn is_unclean(flags: u16) -> bool {
     flags & VOLUME_DIRTY != 0
 }
 
-/// Did a read or write on this media ever fail?
-pub fn has_media_failure(flags: u16) -> bool {
-    flags & MEDIA_FAILURE != 0
+/// Is the exFAT volume on `device` dirty? False for anything else.
+pub fn is_dirty(device: &str) -> bool {
+    CommandExfatTools
+        .volume_flags(device)
+        .is_some_and(is_unclean)
+}
+
+/// Is `device` mounted anywhere right now?
+fn is_mounted(device: &str) -> bool {
+    let real = std::fs::canonicalize(device).unwrap_or_else(|_| PathBuf::from(device));
+    std::fs::read_to_string("/proc/mounts")
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| l.split_whitespace().next())
+        .any(|src| std::fs::canonicalize(src).unwrap_or_else(|_| PathBuf::from(src)) == real)
 }
 
 /// How a `fsck.exfat` run ended.
@@ -84,6 +94,8 @@ pub trait ExfatTools: Send + Sync {
     /// Run `fsck.exfat` on `device`: `safe_only` repairs only what is safe
     /// (`-p`), otherwise everything it can (`-y`).
     fn repair(&self, device: &str, safe_only: bool) -> FsckExit;
+    /// Is `device` mounted anywhere right now?
+    fn is_mounted(&self, device: &str) -> bool;
 }
 
 /// The real tools.
@@ -91,6 +103,10 @@ pub trait ExfatTools: Send + Sync {
 pub struct CommandExfatTools;
 
 impl ExfatTools for CommandExfatTools {
+    fn is_mounted(&self, device: &str) -> bool {
+        is_mounted(device)
+    }
+
     fn volume_flags(&self, device: &str) -> Option<u16> {
         let mut file = std::fs::File::open(device).ok()?;
         let mut boot = [0u8; 512];
@@ -145,6 +161,15 @@ pub fn check(tools: &dyn ExfatTools, device: &str) -> Outcome {
         return Outcome::Clean;
     };
     if !is_unclean(flags) {
+        return Outcome::Clean;
+    }
+    // A second mount of a volume already mounted elsewhere shares its state;
+    // repairing it underneath that mount would corrupt it.
+    if tools.is_mounted(device) {
+        tracing::warn!(
+            device,
+            "exFAT drive is dirty but mounted elsewhere; not checking it"
+        );
         return Outcome::Clean;
     }
     tracing::info!(
@@ -262,7 +287,7 @@ pub fn notice_for(target: &Path, label: &str) -> Option<Notice> {
     match note.outcome {
         Outcome::Checked if note.at.elapsed() < NOTICE_TTL => Some(Notice {
             repaired: true,
-            message: format!("{label} wasn't shut down properly, so Luna checked it. Nothing on it was damaged."),
+            message: format!("{label} wasn't shut down properly, so Luna checked it and found no problems."),
             more: "This happens after a power cut or when a drive is unplugged without ejecting it. Files saved just before that may be missing, so check your latest uploads.".into(),
         }),
         Outcome::Repaired if note.at.elapsed() < NOTICE_TTL => Some(Notice {
@@ -328,6 +353,9 @@ pub struct MockExfatTools {
 
 #[cfg(test)]
 impl ExfatTools for MockExfatTools {
+    fn is_mounted(&self, _device: &str) -> bool {
+        false
+    }
     fn volume_flags(&self, _device: &str) -> Option<u16> {
         self.flags
     }
@@ -369,7 +397,6 @@ mod tests {
         // Media failure alone: fsck.exfat never clears it, so it can't
         // send every mount through a check.
         assert!(!is_unclean(parse_volume_flags(&boot(4)).unwrap()));
-        assert!(has_media_failure(4));
         let mut ntfs = boot(2);
         ntfs[3..11].copy_from_slice(b"NTFS    ");
         assert_eq!(parse_volume_flags(&ntfs), None);
@@ -402,7 +429,7 @@ mod tests {
             Path::new("/m/e")
         ));
         let n = notice_for(Path::new("/m/e"), "Photos").unwrap();
-        assert!(!n.message.contains("fixed"));
+        assert!(n.message.contains("found no problems"));
     }
 
     #[test]

@@ -379,6 +379,11 @@ impl DriveManager {
         // fair game — it flips right back to RO.
         let writable = if choice.needs_setup {
             false
+        } else if mounted_by_luna && fsck::is_dirty(&device_path(&choice.name)) {
+            // A dirty exFAT volume isn't flipped to read-write for the probe:
+            // only a mount that checks it first may do that. Adding it
+            // checks it, and a drive that can't be repaired fails there.
+            true
         } else if mounted_by_luna {
             self.probe_writability(&mount_point, true)
         } else if device.mount_readonly {
@@ -478,16 +483,19 @@ impl DriveManager {
         }
     }
 
-    /// Adopt a drive as-is: ensure a writable mount, write the marker, then
-    /// record it. On any failure before the DB row, the drive is untouched.
-    /// Luna never erases or formats a drive here.
     /// Repair an exFAT drive left dirty before [`Self::adopt`] mounts it, so
     /// the repair runs before the caller takes the database lock rather than
-    /// under it. Skips a drive that is mounted: it can't be checked in use,
-    /// and adopt's own mount checks it once it has unmounted it.
+    /// under it. Luna's own read-only look-inside mount (left by inspect) is
+    /// dropped first: a volume is never checked while mounted. A mount Luna
+    /// didn't make is left alone.
     pub fn check_before_adopt(&self, device: &DetectedDrive) {
-        if device.mount_point.is_some() {
-            return;
+        if let Some(existing) = &device.mount_point {
+            let existing = Path::new(existing);
+            if existing != self.foreign_mount_point(&device.name)
+                || self.mounter.unmount(existing).is_err()
+            {
+                return;
+            }
         }
         let choice = self.choice_for(device);
         if choice.name.is_empty() || is_luks_type(&choice.fs_type) {
@@ -496,6 +504,9 @@ impl DriveManager {
         fsck::precheck(&fsck::CommandExfatTools, &device_path(&choice.name));
     }
 
+    /// Adopt a drive as-is: ensure a writable mount, write the marker, then
+    /// record it. On any failure before the DB row, the drive is untouched.
+    /// Luna never erases or formats a drive here.
     pub fn adopt(
         &self,
         conn: &Connection,
