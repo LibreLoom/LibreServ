@@ -418,3 +418,21 @@ What a browser pass must still prove before the count can restart:
 4. A `"full"` link can list, zip and read (finding 2).
 5. Photo browsing does not retain blob URLs (finding 6), and a second
    `installFake()` does not chain the old anchor click (finding 5).
+
+## Verification pass: every scenario rendered twice, nothing found
+
+All 317 scenarios were rendered in a real browser twice in a row on the same
+code, each frame at its own viewport and theme, and each settled before it was
+read. Both sweeps found nothing, so the list above stands as fixed.
+
+The eight scenarios that stay "slow or intentional" (the `*-slow` states, the
+all-slowed settings page, the loading state on Shared, and the intentionally
+broken thumbnails) were each loaded again and their content read, rather than
+being cleared on the grounds that they eventually appeared. That check found
+`settings/all-slow-phone-dark` was never actually blank: a probe that dropped
+the URL's `#security` fragment had been opening a different panel. With the
+fragment kept, the Security page renders in full.
+
+One static check is worth knowing about: `scan:colors` reports the word
+"white" inside a check description in `sharing.scenarios.js`. It is prose, not
+a colour token, and the line predates this branch.
