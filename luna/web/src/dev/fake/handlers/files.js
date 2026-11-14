@@ -436,6 +436,7 @@ post("/api/v1/drives/:id/files/purge", ({ world, user, params, body }) => {
   if (path === TRASH) {
     // Everyone empties only the entries they can see; someone else's private item stays.
     needDrive(world, driveId);
+    needWritable(world, driveId);
     checkTrashList(world, user, driveId);
     for (const row of trashRows(world, user, driveId, TRASH)) {
       const rel = `${TRASH}/${row.name}`;
@@ -447,6 +448,7 @@ post("/api/v1/drives/:id/files/purge", ({ world, user, params, body }) => {
   checkTrashItem(world, user, driveId, path);
   checkNoForeignPrivate(world, user, driveId, path);
   needDrive(world, driveId);
+  needWritable(world, driveId);
   const { entry, sub } = trashEntry(fs(), path);
   if (!entry) throw notFound();
   if (sub) throw fail(400, "Luna only permanently removes files that are already in the trash.");

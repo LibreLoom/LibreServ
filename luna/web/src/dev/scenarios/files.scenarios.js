@@ -207,6 +207,11 @@ export default [
     check: ["Restore re-creates Vanished/Deep and puts lost.txt back there", "Nothing breaks"],
   },
   {
+    id: "files/trash-readonly-deep-link", area: A, title: "Trash on a read-only drive, opened by link", url: "/files/d1?path=.luna-trash",
+    seed: (w) => { demo(w); w.drives[0].state = "readonly"; trashed(w, "old-notes.txt", "Documents"); },
+    check: ["The trashed item shows with where it came from", "No Empty trash, Restore, or Delete permanently anywhere"],
+  },
+  {
     id: "files/trash-empty-all", area: A, title: "Empty the whole trash", url: "/files/d1?path=.luna-trash",
     seed: (w) => { demo(w); for (let i = 0; i < 12; i += 1) trashed(w, `junk ${i}.txt`); },
     check: ["Empty trash asks first and counts the items", "After confirming the list is empty and the toast says so", "Fail it (fault on POST …/files/purge) → error stays visible"],

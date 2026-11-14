@@ -926,19 +926,23 @@ export default function DriveFileExplorer({
         })()}
         headerExtra={inTrash && path === TRASH_PATH ? (
           <>
-            <Button
-              variant="outline"
-              surface="secondary"
-              size="sm"
-              disabled={!trashListing.data?.length}
-              onClick={() => {
-                setActionError(null);
-                setEmptyTrashOpen(true);
-              }}
-            >
-              <Trash2 size={14} aria-hidden="true" />
-              Empty trash
-            </Button>
+            {/* Same gate as the Trash link and the Restore actions: a
+            read-only drive gets no in-trash actions, deep link or not. */}
+            {folderCanEdit && (
+              <Button
+                variant="outline"
+                surface="secondary"
+                size="sm"
+                disabled={!trashListing.data?.length}
+                onClick={() => {
+                  setActionError(null);
+                  setEmptyTrashOpen(true);
+                }}
+              >
+                <Trash2 size={14} aria-hidden="true" />
+                Empty trash
+              </Button>
+            )}
             {headerExtra}
           </>
         ) : headerExtra}

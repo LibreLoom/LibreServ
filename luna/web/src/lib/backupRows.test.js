@@ -90,6 +90,18 @@ describe("needsALook", () => {
     expect(needsALook(drive())).toBe(false);
   });
 
+  it("lets a running phrase move speak for stale, failing, and check problems", () => {
+    // The move is fixing the copy; the row says Updating, so the dashboard
+    // must not call the same backup out of date at the same time.
+    expect(needsALook(cloud({ state: "stale", last_ok_at: 1000, moving: { percent: 40 } }))).toBe(false);
+    expect(needsALook(cloud({ state: "failing", moving: { percent: 40 } }))).toBe(false);
+    expect(needsALook(cloud({ check_problem: "The copy could not be read.", moving: { percent: 40 } }))).toBe(false);
+  });
+
+  it("still flags a paused move", () => {
+    expect(needsALook(cloud({ state: "stale", last_ok_at: 1000, moving: { percent: 40, paused_full: true } }))).toBe(true);
+  });
+
   it("does not flag stopped or deleted-source backups", () => {
     expect(needsALook(drive({ state: "failing", status: "stopped" }))).toBe(false);
     expect(needsALook(drive({ state: "failing", status: "source_gone" }))).toBe(false);
