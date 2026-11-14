@@ -1,6 +1,6 @@
 # Billing: move to Stripe Managed Payments (handoff notes)
 
-Status as of 2026-11-13: **gate passed; $1 check and credits designed and sandbox-tested; code not
+Status as of 2026-11-13: **gate passed; $1 check and credits (Stripe credit grants) designed and sandbox-tested; code not
 started.** Next: the build plan below. Resume here.
 
 ## Decisions made
@@ -107,30 +107,44 @@ Tested in the sandbox:
   and tax parameters can't be set on invoice items.
 - A `duration=once` `amount_off` coupon on the **subscription** works ($8.00 − $1.00, VAT on $7.00 =
   $1.33, total $8.33) but is used up by whatever invoice comes next, even a $0 month.
-- **Use this:** a discount on the **draft invoice**. On `invoice.created` (subscription invoice, status
-  `draft`, subtotal > 0) with credit balance > 0: create a coupon `amount_off=min(balance, subtotal)`,
-  `duration=once`, `max_redemptions=1`, add it to the draft (`discounts[0][coupon]`), and debit the
-  ledger once with the invoice id. Sandbox: $8.00 − $2.50, VAT on $5.50 = $1.05, paid $6.55. Discounts
-  reduce the taxed amount, so the $1 (already taxed when bought) isn't taxed twice. The "Turn off
-  payment" final invoice is a draft too: apply the same discount before finalizing it. Remove the
-  `invoice.paid` debit.
+- A coupon on the **draft invoice** also works ($8.00 − $2.50, VAT on $5.50 = $1.05, paid $6.55), but
+  needs an `invoice.created` webhook, a throwaway coupon per invoice, and our own ledger.
+- **Use this: Stripe billing credits (credit grants).** Tested 2026-11-13 on a Managed Payments
+  subscription: `POST /v1/billing/credit_grants` with `category=paid`, `amount[monetary][value]=100`,
+  `applicability_config[scope][price_type]=metered` (`credgr_test_61VkvrIQ0ZLCLUk4V412YkLLziVSuL9s`).
+  The finalized invoice applied it as a pre-tax credit (`total_pretax_credit_amounts`, credit balance
+  transaction `cbtxn_test_61VkvsXUa75wLvRVI412YkLLziVSuJ3g`): $8.00 − $1.00, VAT on $7.00 = $1.33,
+  paid $8.33. It also worked on the "Turn off payment" final invoice (cancel with `invoice_now`, then
+  finalize).
+  - Credits apply after discounts and **before tax**, so the $1 (taxed when bought) isn't taxed twice.
+  - Stripe keeps the balance: each finalized invoice uses what it can and the rest carries over, so a
+    $0 month wastes nothing. Applied only at finalization, so previews can show credit a later invoice
+    takes.
+  - The $1 check is `category=paid`; admin goodwill credits are `category=promotional`. Optional
+    `expires_at`. Max 100 unused grants per customer.
+  - Not the customer invoice balance: that applies **after** tax and would tax the $1 twice.
+  - Our `account_credits` / `credit_transactions` tables and `applyCreditsFromInvoice` go away; balance
+    and history come from the credit balance summary and credit balance transactions APIs.
+  - The grant needs the Stripe customer to exist, which it does once the $1 checkout completes.
 
 ## Build plan (what changes in Connect)
 
 1. **Stripe config:** every product used gets tax code `txcd_10010001`, every price
    `tax_behavior=exclusive`. Add a one-time $1 "Cloud backup credit" price (new config field next to
    `price_id`). Webhook events: `checkout.session.completed`, `customer.subscription.*`,
-   `invoice.created`, `invoice.paid`, `invoice.payment_failed`, `invoice.payment_action_required`.
+   `invoice.paid`, `invoice.payment_failed`, `invoice.payment_action_required`.
 2. **$1 check:** `VerifyHuman` returns a Checkout URL instead of charging; `ChargeOneDollar` goes; the
-   webhook writes `oss_payments` + `AddCredit(100)`. The web onboarding card form becomes a redirect
+   webhook writes `oss_payments` and creates a $1 `paid` credit grant. The web onboarding card form becomes a redirect
    button plus a return page that waits until the webhook lands.
 3. **Subscribe:** `AttachCard` returns a subscription Checkout URL (both metered prices, saved-card
    filter); `billing.Subscribe` / `VerifyCard` / SetupIntent code go. The webhook stores the
    subscription id and item and unlocks backups. A locked account (failed payment) can start a new
    checkout, which fixes the "no way back" bug.
-4. **Credits:** draft-invoice discount above; drop the `invoice.paid` debit.
+4. **Credits:** Stripe credit grants (above). Admin "Add credit" creates a `promotional` grant; the
+   account and admin pages read the balance from Stripe. Drop our credit tables and the `invoice.paid`
+   debit.
 5. **Cancel:** `CancelBilling` and `customer.subscription.deleted` share "final charge, then delete
-   copies". Finalize and pay the final draft (after applying credit) instead of waiting an hour.
+   copies". Finalize and pay the final draft instead of waiting an hour (credits apply on finalize).
 6. **Copy:** "plus tax" on `MonthlyCostHighlight`, the pricing table, the turn-off confirm and the $1
    step; say the charge shows as `LINK.COM*` on the card statement.
 7. **Live Dashboard:** turn on Managed Payments in the live account (eligibility review) and check the
