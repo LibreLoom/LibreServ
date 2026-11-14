@@ -104,13 +104,50 @@ pub fn search_all(
     query: &Query,
     kind: KindFilter,
 ) -> anyhow::Result<(Vec<Candidate>, bool)> {
+    // What photos show: one text embedding for every drive.
+    let photo_q = if kind == KindFilter::Folders {
+        None
+    } else {
+        crate::files::content::photos::query_vector(&query.norm)
+    };
+    let photo_q = photo_q.as_ref();
     let (mut all, incomplete) = std::thread::scope(|scope| {
         let handles: Vec<_> = drives
             .iter()
             .map(|drive| {
                 scope.spawn(move || {
                     let conn = crate::drives::drive_db::open(&drive.mount)?;
-                    search_drive_bounded(&conn, &drive.id, query, kind)
+                    let (mut hits, limited) = search_drive_bounded(&conn, &drive.id, query, kind)?;
+                    if let Some(q) = photo_q {
+                        let seen: HashSet<(String, String)> = hits
+                            .iter()
+                            .map(|c| (c.hit.parent.clone(), c.hit.name.clone()))
+                            .collect();
+                        match crate::files::content::photos::candidates(&conn, &drive.id, q, kind) {
+                            Ok(found) => hits.extend(
+                                found
+                                    .into_iter()
+                                    .filter(|(hit, _)| {
+                                        !seen.contains(&(hit.parent.clone(), hit.name.clone()))
+                                    })
+                                    .map(|(hit, sim)| Candidate {
+                                        rank: Rank {
+                                            tier: Tier::Photo,
+                                            score: ((1.0 - sim).clamp(0.0, 2.0) * 1_000_000.0)
+                                                as u32,
+                                            typos: 0,
+                                            file: 1,
+                                            len: search_rank::normalize(&hit.name).len(),
+                                        },
+                                        hit,
+                                        doc: None,
+                                        passage: None,
+                                    }),
+                            ),
+                            Err(e) => tracing::debug!(error = %e, "photo search on a drive failed"),
+                        }
+                    }
+                    Ok::<_, anyhow::Error>((hits, limited))
                 })
             })
             .collect();

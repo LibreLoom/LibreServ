@@ -8,6 +8,8 @@
 //! access checks as name results; snippets are made only for files the
 //! person may open.
 
+pub mod clip;
+pub mod clip_tok;
 pub mod extract;
 pub mod formats;
 pub mod indexer;

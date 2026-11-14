@@ -285,6 +285,9 @@ pub fn thumb_path(drive_root: &Path, drive_id: &str, rel: &str) -> Option<PathBu
     thumbs_dir(drive_root).map(|d| thumb_path_in(&d, drive_id, rel))
 }
 
+/// The thumbnail recipe version, part of photo search's index version.
+pub(crate) const THUMB_RECIPE: u32 = THUMB_GEN;
+
 fn thumb_path_in(thumb_dir: &Path, drive_id: &str, rel: &str) -> PathBuf {
     let key = format!("{drive_id}:{rel}");
     let hash = blake3::hash(key.as_bytes()).to_hex().to_string();
@@ -1491,6 +1494,23 @@ fn query_drive_photos(
     if parsed_q.as_ref().is_some_and(|p| !p.is_empty()) {
         q_pat.clear();
     }
+    // Photo search and text read from photos widen what the free-text words
+    // match: the words left over after dates, places and the like are
+    // compared with what each photo shows. Every other filter still applies.
+    let leftover = match parsed_q.as_ref() {
+        Some(p) if !p.is_empty() => p.like_terms.join(" "),
+        Some(_) => filter.q.as_deref().unwrap_or("").trim().to_string(),
+        None => String::new(),
+    };
+    let widened = if leftover.is_empty() {
+        "[]".to_string()
+    } else {
+        let paths: Vec<String> =
+            crate::files::content::photos::gallery_matches(conn, drive_id, &leftover)
+                .into_iter()
+                .collect();
+        serde_json::to_string(&paths).unwrap_or_else(|_| "[]".into())
+    };
 
     let mut sql = "SELECT p.path, p.name, p.size, COALESCE(NULLIF(p.taken_at, 0), p.mtime),
                 p.width, p.height, p.kind, p.lat, p.lon, p.place_label, p.has_thumb,
@@ -1503,7 +1523,8 @@ fn query_drive_photos(
          LEFT JOIN favorites f ON f.path = p.path AND f.user_id = ?1
          WHERE (?2 = '' OR p.name LIKE ?2 COLLATE NOCASE OR p.path LIKE ?2 COLLATE NOCASE
                 OR p.camera_make LIKE ?2 COLLATE NOCASE OR p.camera_model LIKE ?2 COLLATE NOCASE
-                OR p.lens LIKE ?2 COLLATE NOCASE)
+                OR p.lens LIKE ?2 COLLATE NOCASE
+                OR p.path IN (SELECT value FROM json_each(?32)))
            AND (?3 = 0 OR COALESCE(NULLIF(p.taken_at, 0), p.mtime) >= ?3)
            AND (?4 = 0 OR COALESCE(NULLIF(p.taken_at, 0), p.mtime) <= ?4)
            AND (?5 = '' OR (p.lat IS NOT NULL AND p.lon IS NOT NULL
@@ -1590,6 +1611,7 @@ fn query_drive_photos(
         album_membership.into(),
         drive_id.to_string().into(),
         month_day.to_string().into(),
+        widened.into(),
     ];
     if let Some(pq) = parsed_q.as_ref().filter(|p| !p.is_empty()) {
         append_query_clauses(&mut sql, &mut binds, pq);
@@ -1668,9 +1690,10 @@ fn query_drive_photos(
     Ok(photos)
 }
 
-/// Append `q`-parser predicates to the base query. Binds continue at `?32`
-/// (the base statement uses `?1..=?31`; `?30` is the drive id, `?31` the
-/// month-day filter). Values the parser produced as integers are inlined —
+/// Append `q`-parser predicates to the base query. Binds continue at `?33`
+/// (the base statement uses `?1..=?32`; `?30` is the drive id, `?31` the
+/// month-day filter, `?32` the JSON list of photos that photo search or
+/// their read text matched). Values the parser produced as integers are inlined —
 /// only user text goes through binds, so there is no injection surface.
 fn append_query_clauses(
     sql: &mut String,
@@ -1696,10 +1719,13 @@ fn append_query_clauses(
                         WHERE ai.drive_id = ?30 AND ai.path = p.path)"
         )
     };
-    let mut n = 31usize;
+    let mut n = 32usize;
     for term in &pq.like_terms {
         n += 1;
-        sql.push_str(&format!(" AND ({})", text_match(&format!("?{n}"))));
+        sql.push_str(&format!(
+            " AND ({} OR p.path IN (SELECT value FROM json_each(?32)))",
+            text_match(&format!("?{n}"))
+        ));
         binds.push(like(term));
     }
     // All place alternatives OR into one group — "paris london" means

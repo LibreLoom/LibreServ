@@ -493,6 +493,8 @@ fn worker_loop(
                 Ok(report) => {
                     found_count.store(report.found, Ordering::Relaxed);
                     *scan_error.lock().unwrap() = None;
+                    // New thumbnails: photo search can look at them now.
+                    crate::files::content::indexer::nudge_drive(&drive_id);
                 }
                 Err(e) => {
                     tracing::warn!(drive_id, error = %e, "gallery catch-up scan failed");

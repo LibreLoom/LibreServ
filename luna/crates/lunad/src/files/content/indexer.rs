@@ -18,6 +18,7 @@ use rusqlite::{Connection, params};
 
 use super::formats::{self, Format};
 use super::meaning;
+use super::photos;
 use super::store::{self, Pending, State};
 use super::worker::{self, Outcome};
 
@@ -33,6 +34,8 @@ const PACE: Duration = Duration::from_millis(15);
 const IDLE_POLL: Duration = Duration::from_millis(500);
 /// Files embedded per step of the meaning top-up.
 const MEANING_STEP: usize = 16;
+/// Photos embedded per step of the photo-search top-up.
+const PHOTO_STEP: usize = 8;
 
 enum Msg {
     Kick { drive_id: String, full: bool },
@@ -64,6 +67,20 @@ pub struct ContentIndexer {
     shared: Arc<Shared>,
 }
 
+static NUDGE: Mutex<Option<Sender<Msg>>> = Mutex::new(None);
+
+/// Ask the content reader to look at a drive again (the gallery calls this
+/// after making thumbnails, which photo search reads). A no-op when no
+/// reader runs.
+pub fn nudge_drive(drive_id: &str) {
+    if let Some(tx) = NUDGE.lock().unwrap().as_ref() {
+        let _ = tx.send(Msg::Kick {
+            drive_id: drive_id.to_string(),
+            full: false,
+        });
+    }
+}
+
 impl ContentIndexer {
     pub fn start() -> Arc<Self> {
         let (tx, rx) = mpsc::channel::<Msg>();
@@ -73,6 +90,7 @@ impl ContentIndexer {
             .name("luna-content-indexer".into())
             .spawn(move || run(rx, worker_shared))
             .expect("spawn content indexer");
+        *NUDGE.lock().unwrap() = Some(tx.clone());
         Arc::new(Self { tx, shared })
     }
 
@@ -188,50 +206,76 @@ fn pass(
             store::retry_unavailable(&conn, drive_id, Format::Image)?;
         }
     }
-    requeue_gallery_deferred(&conn, drive_id)?;
-    let left =
-        store::pending_count(&conn, drive_id, ocr)? + meaning::backfill_left(&conn, drive_id)?;
-    set_progress(shared, drive_id, |p| {
-        p.reading = true;
-        p.left = left;
-    });
-    loop {
-        let batch = store::pending(&conn, drive_id, ocr, BATCH)?;
-        if batch.is_empty() {
-            break;
+    // Photo search can release camera photos to OCR, so a second round
+    // reads those.
+    for _round in 0..2 {
+        requeue_gallery_deferred(&conn, drive_id)?;
+        let left = store::pending_count(&conn, drive_id, ocr)?
+            + meaning::backfill_left(&conn, drive_id)?
+            + photos::pending_count(&conn);
+        set_progress(shared, drive_id, |p| {
+            p.reading = true;
+            p.left = left;
+        });
+        loop {
+            let batch = store::pending(&conn, drive_id, ocr, BATCH)?;
+            if batch.is_empty() {
+                break;
+            }
+            for file in batch {
+                if !still_mounted(shared, drive_id, root) {
+                    return Ok(());
+                }
+                // Other drives' kicks wait; this drive's re-kicks are absorbed.
+                while let Ok(msg) = rx.try_recv() {
+                    queue(msg, queued);
+                }
+                if !wait_for_memory() {
+                    anyhow::bail!("not enough free memory to read files");
+                }
+                read_one(&conn, drive_id, root, &file)?;
+                set_progress(shared, drive_id, |p| p.left = p.left.saturating_sub(1));
+                thread::sleep(PACE);
+            }
         }
-        for file in batch {
+        // Meaning vectors for the text read so far (and for text read before
+        // the model was installed). In small steps, so an unplug stops it soon.
+        loop {
             if !still_mounted(shared, drive_id, root) {
                 return Ok(());
             }
-            // Other drives' kicks wait; this drive's re-kicks are absorbed.
-            while let Ok(msg) = rx.try_recv() {
-                queue(msg, queued);
+            let done = meaning::backfill(&conn, drive_id, MEANING_STEP)?;
+            if done == 0 {
+                break;
             }
-            if !wait_for_memory() {
-                anyhow::bail!("not enough free memory to read files");
-            }
-            read_one(&conn, drive_id, root, &file)?;
-            set_progress(shared, drive_id, |p| p.left = p.left.saturating_sub(1));
+            set_progress(shared, drive_id, |p| {
+                p.left = p.left.saturating_sub(done as u64)
+            });
             thread::sleep(PACE);
         }
-    }
-    // Meaning vectors for the text read so far (and for text read before
-    // the model was installed). In small steps, so an unplug stops it soon.
-    loop {
-        if !still_mounted(shared, drive_id, root) {
-            return Ok(());
+        // What the gallery's thumbnails show.
+        loop {
+            if !wait_for_memory() {
+                anyhow::bail!("not enough free memory for photo search");
+            }
+            let mounted = || still_mounted(shared, drive_id, root);
+            let done = photos::backfill(&conn, drive_id, root, PHOTO_STEP, &mounted)?;
+            if done == 0 || !mounted() {
+                break;
+            }
+            set_progress(shared, drive_id, |p| {
+                p.left = p.left.saturating_sub(done as u64)
+            });
         }
-        let done = meaning::backfill(&conn, drive_id, MEANING_STEP)?;
-        if done == 0 {
+        // Camera photos that photo search just judged to be documents are
+        // pending again now; read them in a second round.
+        requeue_gallery_deferred(&conn, drive_id)?;
+        if store::pending_count(&conn, drive_id, ocr)? == 0 {
             break;
         }
-        set_progress(shared, drive_id, |p| {
-            p.left = p.left.saturating_sub(done as u64)
-        });
-        thread::sleep(PACE);
     }
     if full {
+        photos::sweep(&conn)?;
         let gone = store::sweep_orphans(&conn, drive_id)?;
         if gone > 0 {
             tracing::debug!(drive_id, gone, "dropped text of deleted files");

@@ -85,6 +85,7 @@ pub fn ensure_schema(conn: &Connection) -> anyhow::Result<()> {
          );",
     )?;
     super::meaning::ensure_schema(conn)?;
+    super::photos::ensure_schema(conn)?;
     Ok(())
 }
 

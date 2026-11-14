@@ -311,8 +311,18 @@ fn collect(mut child: Child, timeout: Duration) -> io::Result<std::process::Outp
     })
 }
 
-#[cfg(target_os = "linux")]
+/// Start a sandboxed child that lunad talks to over stdin and stdout (a
+/// long-lived worker). The caller owns the pipes and must reap the child.
+pub fn spawn_piped(cmd: &mut Command, io: &SandboxIo) -> io::Result<Child> {
+    spawn_with(cmd, io, true)
+}
+
 fn spawn_sandboxed(cmd: &mut Command, io: &SandboxIo) -> io::Result<Child> {
+    spawn_with(cmd, io, false)
+}
+
+#[cfg(target_os = "linux")]
+fn spawn_with(cmd: &mut Command, io: &SandboxIo, piped: bool) -> io::Result<Child> {
     use std::os::unix::process::CommandExt;
     let dups = io.dups.clone();
     let (uid, gid) = nobody_ids();
@@ -361,20 +371,36 @@ fn spawn_sandboxed(cmd: &mut Command, io: &SandboxIo) -> io::Result<Child> {
             Ok(())
         });
     }
-    cmd.env_clear()
-        .env("PATH", SAFE_PATH)
-        .current_dir("/")
-        .stdin(Stdio::null());
+    pipes(cmd, piped);
     cmd.spawn()
 }
 
 #[cfg(not(target_os = "linux"))]
-fn spawn_sandboxed(cmd: &mut Command, _io: &SandboxIo) -> io::Result<Child> {
-    cmd.env_clear()
-        .env("PATH", SAFE_PATH)
-        .current_dir("/")
-        .stdin(Stdio::null());
+fn spawn_with(cmd: &mut Command, _io: &SandboxIo, piped: bool) -> io::Result<Child> {
+    pipes(cmd, piped);
     cmd.spawn()
+}
+
+/// Scrubbed environment, cwd `/`, and stdin from `/dev/null` — or, for a
+/// worker, stdin and stdout as pipes to lunad.
+fn pipes(cmd: &mut Command, piped: bool) {
+    // Keep whatever env the caller set on purpose (e.g. OMP_THREAD_LIMIT):
+    // env_clear() then re-adding PATH drops the inherited environment only.
+    let wanted: Vec<(std::ffi::OsString, std::ffi::OsString)> = cmd
+        .get_envs()
+        .filter_map(|(k, v)| v.map(|v| (k.to_owned(), v.to_owned())))
+        .collect();
+    cmd.env_clear().env("PATH", SAFE_PATH).current_dir("/");
+    for (k, v) in wanted {
+        if k != "PATH" {
+            cmd.env(k, v);
+        }
+    }
+    if piped {
+        cmd.stdin(Stdio::piped()).stdout(Stdio::piped());
+    } else {
+        cmd.stdin(Stdio::null());
+    }
 }
 
 /// `nobody`'s uid/gid, resolved once via getpwnam (65534/65534 fallback —
