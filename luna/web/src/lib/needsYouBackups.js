@@ -47,14 +47,14 @@ export function visibleBackupRows(backupRows, viewer = {}) {
  * @returns {NeedsYouItem["title"]}
  */
 function backupTitle(row) {
+  if (row.kind === "cloud" && row.source_missing) {
+    return [{ name: row.source_name }, " backup can't find its original"];
+  }
   if (row.kind === "cloud" && row.moving?.paused_full) {
     return [{ name: row.source_name }, " backup update is paused"];
   }
   if (row.state === "failing") return [{ name: row.source_name }, " backup didn't finish"];
   if (row.state === "stale") return [{ name: row.source_name }, " backup is out of date"];
-  if (row.kind === "cloud" && row.source_missing) {
-    return [{ name: row.source_name }, " backup can't find its original"];
-  }
   return [{ name: row.source_name }, " backup needs a look"];
 }
 
@@ -71,9 +71,16 @@ function plainError(error) {
  * @param {number | undefined} now
  * @returns {NeedsYouItem["detail"]}
  */
-function backupDetail(row, now) {
+function backupDetail(row, now, isAdmin = false) {
+  if (row.kind === "cloud" && row.source_missing) {
+    return row.last_error ? plainError(row.last_error) : MISSING_SOURCE_DETAIL;
+  }
   if (row.kind === "cloud" && row.moving?.paused_full) {
-    return "Connect storage is full. Free up space or add storage to continue.";
+    // Same member/admin split as the card's MovingNote: a Member cannot
+    // free up Connect storage, only an Admin can.
+    return isAdmin
+      ? "Connect storage is full. Free up space or add storage to continue."
+      : "Connect storage is full, so the update is paused. An Admin can free up space or add storage.";
   }
   const error = row.last_error ? plainError(row.last_error) : "";
   const driveName = row.kind === "drive" ? row.destination : "";
@@ -95,13 +102,13 @@ function backupDetail(row, now) {
  * @param {number | undefined} now
  * @returns {NeedsYouItem}
  */
-function backupItem(row, now) {
+function backupItem(row, now, isAdmin) {
   return {
     id: `backup:${row.kind}:${row.id}`,
     rank: 40,
     tone: "problem",
     title: backupTitle(row),
-    detail: backupDetail(row, now),
+    detail: backupDetail(row, now, isAdmin),
     action: {
       label: "Open",
       ariaLabel: `Open ${row.source_name} backup`,
@@ -127,7 +134,7 @@ function byId(a, b) {
 export function buildBackupItems({ backupRows, isAdmin, userId, now } = {}) {
   return visibleBackupRows(backupRows, { isAdmin, userId })
     .filter(needsALook)
-    .map((row) => backupItem(row, now))
+    .map((row) => backupItem(row, now, isAdmin))
     .sort(byId);
 }
 

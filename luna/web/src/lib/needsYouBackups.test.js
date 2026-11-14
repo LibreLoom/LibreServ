@@ -168,12 +168,34 @@ describe("buildBackupItems", () => {
     // The shape settings/phrase-moving-full seeds: state ok, last copy an
     // hour old, move stuck because Connect storage is full. The fallback
     // "the last copy did not finish" would be false here.
+    const now = 1_000_000 * 1000;
     const [item] = buildBackupItems({
-      backupRows: [cloud({ state: "ok", last_ok_at: 1_000_000, moving: { percent: 40, paused_full: true } })],
+      backupRows: [cloud({ state: "ok", last_ok_at: now / 1000 - 3600, moving: { percent: 40, paused_full: true } })],
       ...ADMIN,
+      now,
     });
     expect(item.title).toEqual([{ name: "Documents" }, " backup update is paused"]);
     expect(item.detail).toBe("Connect storage is full. Free up space or add storage to continue.");
+  });
+
+  it("tells a Member that an Admin must free up Connect storage", () => {
+    const [item] = buildBackupItems({
+      backupRows: [cloud({ state: "ok", moving: { percent: 40, paused_full: true } })],
+      isAdmin: false,
+      userId: "member",
+    });
+    expect(item.detail).toBe("Connect storage is full, so the update is paused. An Admin can free up space or add storage.");
+  });
+
+  it("keeps the missing-source headline over a paused move, like the row does", () => {
+    // backupStatus checks source_missing before moving; the Needs you item
+    // must not contradict the row for a paused move on a missing source.
+    const [item] = buildBackupItems({
+      backupRows: [cloud({ source_missing: true, state: "ok", moving: { percent: 40, paused_full: true } })],
+      ...ADMIN,
+    });
+    expect(item.title).toEqual([{ name: "Documents" }, " backup can't find its original"]);
+    expect(item.detail).toBe(MISSING);
   });
 
   it("prefers the reason text over the missing-source detail", () => {
