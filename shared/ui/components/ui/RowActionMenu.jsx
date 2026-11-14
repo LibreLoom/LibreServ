@@ -29,26 +29,40 @@ import ModalCard from "../cards/ModalCard.jsx";
  * @param {{ actions: RowAction[], close: () => void }} props
  */
 export function RowActionSheet({ actions, close }) {
+  const pick = ({ href, run }) => {
+    close();
+    if (href) window.location.assign(href);
+    else run?.();
+  };
+  const plain = actions.filter((a) => !a.danger);
+  const danger = actions.filter((a) => a.danger);
   return (
     <div className="grid gap-2">
-      {actions.map(({ key, label, icon: Icon, danger, to, href, run }) => (
+      {plain.map(({ key, label, icon: Icon, to, href, run }) => (
         <CardButton
           key={key}
-          variant={danger ? "danger" : "default"}
           action={to}
           actionLabel={label}
           icon={Icon}
           align="start"
           className="mt-0"
-          onClick={() => {
-            close();
-            if (href) window.location.assign(href);
-            else run?.();
-          }}
+          onClick={() => pick({ href, run })}
         >
           {label}
         </CardButton>
       ))}
+      {/* Destructive actions sit apart at the end, smaller than the rest:
+          the sheet must never make removing something the biggest target. */}
+      {danger.length > 0 ? (
+        <div className={`flex flex-wrap justify-end gap-2${plain.length > 0 ? " mt-2" : ""}`}>
+          {danger.map(({ key, label, icon: Icon, href, run }) => (
+            <Button key={key} variant="accent" size="sm" onClick={() => pick({ href, run })}>
+              {Icon ? <Icon size={14} aria-hidden="true" /> : null}
+              {label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
