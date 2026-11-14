@@ -331,8 +331,18 @@ export function installFake({ world, scenario, now, restored = {} }) {
     const mine = generation;
     blobs.get(href)
       .then((blobUrl) => {
-        if (mine !== window.__mockGeneration) return;
-        if (wanted.get(el) !== href) return;
+        // Two ways a finished reply is not used: the world was replaced, or the
+        // element asked for something else. Either way the URL it allocated is
+        // ours to release — nothing will read it, and left alone it pins the
+        // body until the document unloads.
+        if (mine !== window.__mockGeneration) {
+          URL.revokeObjectURL(blobUrl);
+          return;
+        }
+        if (wanted.get(el) !== href) {
+          URL.revokeObjectURL(blobUrl);
+          return;
+        }
         realSetters.get(el)?.call(el, blobUrl);
       })
       .catch(() => {
@@ -407,8 +417,13 @@ export function installFake({ world, scenario, now, restored = {} }) {
     let parsed;
     try { parsed = new URL(link.href, window.location.origin); } catch { return null; }
     if (parsed.origin !== window.location.origin || !isFake(parsed.pathname)) return null;
+    // Three shapes: the `download` attribute, the `?download=1` link a share
+    // page builds, and a public link's `/s/:token/zip`, which is a download
+    // even though it carries neither.
     const isDownload =
-      link.hasAttribute("download") || parsed.searchParams.get("download") === "1";
+      link.hasAttribute("download") ||
+      parsed.searchParams.get("download") === "1" ||
+      /^\/s\/[^/]+\/zip\/?$/.test(parsed.pathname);
     return isDownload ? parsed : null;
   };
   const onDownloadClick = (event) => {
@@ -424,12 +439,16 @@ export function installFake({ world, scenario, now, restored = {} }) {
   // are real navigation, so both are caught here rather than in the app.
   const realAnchorClick = HTMLAnchorElement.prototype.click;
   if (realAnchorClick) {
+    // Unwrap to the browser's own click, not the previous installation's
+    // wrapper: that one closes over a dispatcher for a world already replaced,
+    // and chaining would keep every earlier world alive.
+    const nativeClick = realAnchorClick.__mockNative ?? realAnchorClick;
     const patchedClick = function () {
       const parsed = fakeDownloadUrl(this);
       if (parsed) return serveDownload(this, parsed);
-      return realAnchorClick.call(this);
+      return nativeClick.call(this);
     };
-    patchedClick.__mockNative = realAnchorClick.__mockNative ?? realAnchorClick;
+    patchedClick.__mockNative = nativeClick;
     HTMLAnchorElement.prototype.click = patchedClick;
   }
   const serveDownload = (link, parsed) => {

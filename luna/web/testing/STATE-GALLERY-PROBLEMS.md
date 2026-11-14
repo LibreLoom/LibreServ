@@ -310,3 +310,111 @@ folder now lists that folder rather than the root again.
 | `share/links-all-states` | An expired link still offers "Copy link" | **Not a bug for this audit.** The state reads correctly ("expired"), which is what the scenario asks. Offering to copy a dead link is a poor affordance worth a separate change, but it is new behaviour, not a repair. |
 | `files/edit-form` | The builder's question input has no label | **Not a bug.** It is the preview of what the person answering will see, and it is `pointer-events-none` — nobody can type into it. Worth naming the check so it skips inert controls. |
 | `auth/signed-in-admin` | The greeting printed twice | The second copy is the hidden measurer (`opacity: 0`, `aria-hidden`, zero size) that keeps the header from jumping. |
+
+## Fourth pass (gpt-6.1-sol loop continues): a deleted owner left links open
+
+Found while exercising the share routes adversarially in the browser rather than
+by reading them.
+
+lunad has **two** deleted-owner gates, and the fake only had the second:
+
+- `load_link` (`access_public.rs:58`) — for every link, before anything else: if
+  the link's own subject sits inside a private item whose owner is deleted, the
+  link returns `gone()`. It runs whether or not anything private sits *below*
+  the link.
+- `link_reaches` (`access_public.rs:1023`) — per entry, only where a private
+  boundary exists below the link.
+
+The fix for the third review added the second and stopped there. So a share
+built **on** a private folder whose owner was deleted still listed, still zipped
+and still served its files: 200 on all three. That is the case `load_link`
+exists to close, and the fake was answering past it.
+
+Added the missing gate in `open()` (the shared entry for all public routes).
+Proven both directions by planting a private folder that really holds the share:
+
+| Owner state | `/list` | `/zip` |
+|---|---|---|
+| alive | 200 | 200 |
+| deleted | 404 | 404 |
+| restored | 200 | 200 |
+
+Restoring the owner reopens the link, so the gate closes on the deleted owner
+rather than on something incidental.
+
+Also re-checked the six corrections from the third review by calling the routes
+directly: root and folder zips return `application/zip` with `PK` magic; a zip
+asked for a single file returns that file (`text/plain`, `notes.txt`) instead of
+an empty `notes.txt.zip`; and `..`, absolute paths and `../..` escaping the
+share are all refused with the named error.
+
+## Third review (gpt-6.1-sol): six findings, verified, fixes held
+
+An independent review at `8397f196` reported six defects. All six were confirmed
+against the code and the Rust backend before any fix, and all six are in the
+fake — none in product code.
+
+| # | Where | What is wrong |
+|---|---|---|
+| 1 | `engine.js` `fakeDownloadUrl` | `/s/:token/zip` carries neither a `download` attribute nor `?download=1`, so "Download album" and the folder Download escaped the fake and hit the real proxy. |
+| 2 | `access.js` `/zip` | The capability gate matched `"view"` as a substring, so `"full"` (CAP_ALL, which includes CAP_VIEW) was refused. Four scenarios share that way. |
+| 3 | `access.js` `linkReaches` | Rust also requires the boundary's owner not be deleted; the fake ignored the owner, so a link inside a deleted owner's private folder stayed open. Single-file `/file` skipped the check entirely. |
+| 4 | `access.js` `/zip` | Rust serves the file itself when the target is not a directory; the fake returned zip bytes, or an empty zip named `notes.txt.zip`. |
+| 5 | `engine.js` anchor `click` | The patch called the previous wrapper instead of unwrapping `__mockNative`, chaining every earlier dispatcher and world. |
+| 6 | `engine.js` media blobs | A blob URL was created per media response and never revoked; the map entry was dropped, the URL leaked. |
+
+All six are now corrected in the working tree and every file bundles cleanly
+(esbuild, no output written). They are **not yet verified in a browser**, and
+nothing is committed — disk was the limit both times.
+
+Two more sites were found while fixing them. The capability gate was wrong in
+three routes, not one: `/list`, `/zip` and `/file` each substring-matched a
+single capsule, so `"full"` was refused everywhere. `/file` also skipped
+`linkReaches` for single-file links, which is the easiest leak of the three —
+a link pointing straight at one private file. Both routes now split
+`caps` on `+` and test membership, and `/file` checks reachability like the
+others. `serveSharedFile` is the one place that answers with a file's real
+bytes, so `/zip` and `/file` cannot drift apart again.
+
+### Capacity blocker
+
+`/` is 184G with **149M free (100% used)**. The gallery evidence this branch
+produces is small (2.5M); the pressure is other sessions' archives in the shared
+scratch directory (`/home/fluffy-bunny-23/coding/tmp` 2.2G, mostly other
+projects; `/tmp` 24G, mostly other agents' baselines). None of it is this
+branch's to delete, and clearing caches was ruled out. Fixing 3, 4 and 6 is
+small, but verifying them needs a browser sweep that writes screenshots, so the
+work is paused rather than risk filling the disk mid-write.
+
+**Consequence for the clean-pass claim:** the two clean passes recorded above
+were on `d92e7d90` and `8397f196`. Any fix resets that count, so two consecutive
+full clean passes must be re-earned on the final code once capacity allows.
+
+### Second blocker: no browser on this machine
+
+Verifying the six corrections needs a browser, and there is none. The
+`chromium-browser` package is a transitional stub that delegates to the Chromium
+snap; the installed snap (3594, `latest/stable`) is missing its payload —
+`/usr/lib/chromium-browser/chrome` does not exist, the snap's `gpu-2604`
+content directory is empty, and `chromium:gpu-2604` is disconnected so
+`/snap/bin/chromium` exits without rendering. The previous snap revision (3581)
+fails identically, `apt-cache policy chromium` has no candidate, and a
+filesystem-wide search finds no `chrome` or `headless_shell` binary.
+
+Reconnecting a snap slot or reinstalling needs root; this account is uid 1002.
+So the six fixes are **statically verified only** — `./ci check -r` passes
+(format, lint, colour scan, typecheck over `src`, which includes the fake), and
+both changed files bundle cleanly with esbuild. No browser has exercised them.
+
+What a browser pass must still prove before the count can restart:
+
+1. `/s/tokfolder/zip?path=Holiday` → 200 zip; `?path=Holiday/notes.txt` → the
+   file itself with `Content-Disposition: ...; filename="notes.txt"`, not
+   `notes.txt.zip` (finding 4).
+2. A link inside a private folder whose owner is in `deletedUsers` → 404, and a
+   single-file link pointing straight at a private file → 404 (finding 3).
+3. "Download album" and folder Download produce a real browser download through
+   the fake, not a request to the real backend (finding 1).
+4. A `"full"` link can list, zip and read (finding 2).
+5. Photo browsing does not retain blob URLs (finding 6), and a second
+   `installFake()` does not chain the old anchor click (finding 5).

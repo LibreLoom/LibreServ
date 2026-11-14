@@ -299,6 +299,22 @@ function open(w, token, headers) {
   const { s, l } = hit;
   if (l.disabled) return { err: fail(403, "This link has been turned off.") };
   if (l.expires_at && l.expires_at < nowSec()) return { err: fail(410, "This link has expired.") };
+  // lunad's `load_link` gate, which runs for every link before anything else:
+  // when the link's own subject sits inside a private item whose owner is
+  // deleted, the item stays private rather than becoming readable, so the link
+  // closes. `linkReaches` only covers items *below* a link, so a share built on
+  // the private item itself has to be refused here or it would stay open.
+  if (s.kind === "path" && s.drive_id) {
+    try {
+      fsOf(w, s.drive_id);
+      const own = privateBoundary(w, s.drive_id, String(s.path ?? "").replace(/^\/+|\/+$/g, ""));
+      if (own && (w.deletedUsers || []).some((u) => u.id === own.owner)) {
+        return { err: fail(404, "Not found.") };
+      }
+    } catch {
+      // No tree to inspect: leave the link open, as `link_reaches` does.
+    }
+  }
   // lunad hands back a proof cookie once the password is right, and later
   // requests — including the ones a media element makes, which cannot carry a
   // header — present that instead. Remember the unlock the same way, so a photo
@@ -412,6 +428,11 @@ function linkReaches(world, link, rel, driveId, subjectPath) {
     return true;
   }
   if (!boundary) return true;
+  // `owner_state(conn, &b.owner) != Deleted` first, then the path test: when a
+  // private item's owner is deleted, the item stays private instead of
+  // becoming readable, so a link inside it must close.
+  const deleted = (world.deletedUsers || []).some((u) => u.id === boundary.owner);
+  if (deleted) return false;
   // The boundary must be the link itself or a folder *above* it — a link on a
   // private folder still opens. A private item inside the share is what gets
   // refused, and `pathContains` is inclusive, so the boundary has to be
@@ -498,7 +519,11 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
   // lunad's public_list requires a path subject with view access: an album or a
   // link whose only job is answering cannot browse a folder. A drop box
   // promises nobody can see what is in it, so it has no listing either.
-  if (r.s.kind !== "path" || r.l.caps === "upload" || r.l.caps === "respond") return fail(404, "Not found.");
+  const caps = String(r.l.caps || "").split("+").filter(Boolean);
+  // "full" is CAP_ALL, which includes CAP_VIEW; a drop box ("upload") and an
+  // answering-only link ("respond") carry no view at all, so they list nothing.
+  const canView = caps.includes("view") || caps.includes("full") || caps.includes("read");
+  if (r.s.kind !== "path" || !canView) return fail(404, "Not found.");
   // A single-file link still gets a listing, because its page mounts a file
   // browser: that browser must show the one shared file, not an error. Asking
   // for anything else under it is refused.
@@ -525,11 +550,43 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
 // `GET /s/:token/zip`: an album link zips the album, a folder link zips that
 // folder, and a link to one file hands back the file itself. Without this the
 // album page's "Download album" hit the router's 501 and did nothing.
+/**
+ * `public_zip` serves the file itself when the target is not a directory, and
+ * `public_file` serves it always. Both must answer with the drive's real bytes
+ * when there is a node, so a shared file downloads as itself rather than as
+ * filler wearing its name.
+ *
+ * @param {any} world
+ * @param {any} r      the opened link plus its subject
+ * @param {string} rel share-relative path ("" for a single-file share)
+ * @param {string} name the filename to offer
+ */
+function serveSharedFile(world, r, rel, name) {
+  const drive = r.s.drive_id || "d1";
+  const full = [r.s.path, rel].filter(Boolean).join("/").replace(/^\/+|\/+$/g, "");
+  let node = null;
+  if (full) {
+    try {
+      node = fsOf(world, drive).nodes?.[full] || null;
+    } catch {
+      node = null;
+    }
+  }
+  const [data, type] = node ? bytesFor(node) : syntheticBytes(name);
+  return raw(data, type, 200, {
+    "Content-Disposition": `attachment; filename="${dispositionName(name)}"`,
+  });
+}
+
 publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
-  // lunad's gate is `caps & CAP_VIEW == 0`, so "view+upload" may still zip.
-  if (!String(r.l.caps || "").includes("view")) return fail(404, "Not found.");
+  // lunad's gate is `caps & CAP_VIEW == 0`. "full" is CAP_ALL, which includes
+  // CAP_VIEW, and a capsule like "view+upload" does too — so split, never
+  // substring-match, or "full" is wrongly refused.
+  const caps = String(r.l.caps || "").split("+").filter(Boolean);
+  const canView = caps.includes("view") || caps.includes("full") || caps.includes("read");
+  if (!canView) return fail(404, "Not found.");
   if (r.s.kind === "album") {
     // A real zip would be megabytes of real photos; the harness only needs the
     // download to happen and the name to be right.
@@ -542,10 +599,7 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
   if (!segments) return fail(400, "That folder isn't part of this shared link.");
   if (r.s.is_file) {
     if (segments.length) return fail(400, "That file isn't part of this shared link.");
-    const [data, type] = syntheticBytes(r.s.name || "download");
-    return raw(data, type, 200, {
-      "Content-Disposition": `attachment; filename="${dispositionName(r.s.name || "download")}"`,
-    });
+    return serveSharedFile(world, r, "", r.s.name || "download");
   }
   const tree = treeOf(world, params.token, r.s);
   // A folder is the normal thing to zip, so walk the tree for any entry rather
@@ -565,6 +619,10 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
     // reading, or a guest could zip a folder the link may see but never enter.
     if (!linkReaches(world, r.l, segments.join("/"), r.s.drive_id, r.s.path))
       return fail(404, "Not found.");
+    // `public_zip` checks the resolved target: only a directory is zipped, and
+    // anything else is the file itself. Without this, `?path=Holiday/notes.txt`
+    // answers with an empty zip wearing the name `notes.txt.zip`.
+    if (found.kind !== "dir") return serveSharedFile(world, r, segments.join("/"), found.name);
   }
   const base = segments.length ? segments[segments.length - 1] : (r.s.name || "download");
   return raw(new TextEncoder().encode(`PK\x05\x06${"\0".repeat(18)}`), "application/zip", 200, {
@@ -588,7 +646,9 @@ publicGet("/s/:token/file", ({ world, params, query, headers }) => {
   // with view access serves bytes. An upload-only link is a drop box, and an
   // answering-only or album link has no file to read — serving one would
   // contradict screens that promise as much.
-  if (r.s.kind !== "path" || r.l.caps === "upload" || r.l.caps === "respond") return fail(404, "Not found.");
+  const caps = String(r.l.caps || "").split("+").filter(Boolean);
+  const canView = caps.includes("view") || caps.includes("full") || caps.includes("read");
+  if (r.s.kind !== "path" || !canView) return fail(404, "Not found.");
   const segments = linkSegments(query.path);
   if (!segments) {
     return fail(400, "That file isn't part of this shared link.");
@@ -607,7 +667,9 @@ publicGet("/s/:token/file", ({ world, params, query, headers }) => {
     ? { name: r.s.name || name, kind: "file" }
     : inTree(treeOf(world, params.token, r.s), segments);
   if (!entry) return fail(404, "Not found.");
-  if (!r.s.is_file && !linkReaches(world, r.l, rel, r.s.drive_id, r.s.path)) return fail(404, "Not found.");
+  // Every shape goes through the boundary check, single-file links included: a
+  // link pointing straight at a private file is the easiest one to leak.
+  if (!linkReaches(world, r.l, rel, r.s.drive_id, r.s.path)) return fail(404, "Not found.");
   // An ejected drive serves nothing, exactly as it serves nothing over REST.
   try {
     needDrive(world, r.s.drive_id || "d1");
