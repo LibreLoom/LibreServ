@@ -29,6 +29,7 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import ShareSheet from "../../share/ShareSheet.jsx";
 import EditorLoadingScreen from "../EditorLoadingScreen.jsx";
 import FormResponses from "./FormResponses.jsx";
+import SlidePages from "../../common/SlidePages.jsx";
 import FormInput from "../../common/forms/FormInput.jsx";
 import FileBrowser from "../FileBrowser.jsx";
 import {
@@ -92,18 +93,6 @@ const SPRING = { type: "spring", stiffness: 520, damping: 42, mass: 0.9 };
 const CARD_ENTER = { opacity: 0, scale: 0.97 };
 const CARD_SHOWN = { opacity: 1, scale: 1 };
 const CARD_EXIT = { opacity: 0, scale: 0.94, transition: { duration: 0.18 } };
-// Tabs move like a carousel, the way the tab bar reads: Responses sits right
-// of Questions, so going there pushes the page left and the new one follows it
-// in from the right — both at once, on the same kind of spring (350ms, a touch
-// of overshoot) as the tab bar's sliding pill. Variants, not inline objects, so
-// the leaving page reads the new direction from AnimatePresence's `custom`.
-const TAB_SLIDE = {
-  enter: (/** @type {number} */ dir) => ({ x: `${100 * dir}%`, opacity: 0.6 }),
-  shown: { x: 0, opacity: 1 },
-  leave: (/** @type {number} */ dir) => ({ x: `${-100 * dir}%`, opacity: 0.6 }),
-};
-/** @type {import("motion/react").Transition} */
-const TAB_SPRING = { type: "spring", duration: 0.35, bounce: 0.12 };
 const ROW_ENTER = { opacity: 0, height: 0, y: -6 };
 const ROW_SHOWN = { opacity: 1, height: "auto", y: 0 };
 const ROW_EXIT = { opacity: 0, height: 0, transition: { duration: 0.16 } };
@@ -177,6 +166,7 @@ function BuilderSession({
   /** Canonical JSON on the drive — the dirty baseline. */
   const [baseline, setBaseline] = useState(/** @type {string | null} */ (null));
   const [tab, setTab] = useState(/** @type {"questions" | "responses"} */ ("questions"));
+  const tabScrollRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   // "sheet" opens the Sharing sheet; "link" goes straight to a new responses link.
   const [sharing, setSharing] = useState(/** @type {false | "sheet" | "link"} */ (false));
   const [peers, setPeers] = useState(/** @type {import("../collabDocSync.js").PeerInfo[]} */ ([]));
@@ -500,7 +490,6 @@ function BuilderSession({
   const orderedIds = dragOrder
     ? dragOrder.filter((id) => byId.has(id))
     : questions.map((q) => q.id);
-  const tabDirection = tab === "responses" ? 1 : -1;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -557,23 +546,20 @@ function BuilderSession({
           {connNote}
         </p>
       ) : null}
-      <div className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+      <div ref={tabScrollRef} className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         {loading || (!error && !doc) ? (
           <EditorLoadingScreen label={`Opening ${name}`} />
         ) : error ? (
           <div className="p-4"><PageNotice variant="error">{error}</PageNotice></div>
         ) : (
-          <AnimatePresence mode="popLayout" initial={false} custom={tabDirection}>
-            <Motion.div
-              key={tab}
-              custom={tabDirection}
-              variants={TAB_SLIDE}
-              initial="enter"
-              animate="shown"
-              exit="leave"
-              transition={TAB_SPRING}
-              className="min-h-full"
-            >
+          // Responses sits right of Questions, as in the tab bar.
+          <SlidePages
+            pageKey={tab}
+            position={tab === "responses" ? 1 : 0}
+            scrollRef={tabScrollRef}
+            className="min-h-full"
+            innerClassName="min-h-full"
+          >
               {tab === "responses" ? (
                 <FormResponses
                   driveId={driveId}
@@ -836,8 +822,7 @@ function BuilderSession({
                   </Motion.section>
                 </div>
               )}
-            </Motion.div>
-          </AnimatePresence>
+          </SlidePages>
         )}
       </div>
 

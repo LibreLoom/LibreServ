@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- page exports helpers used by tests */
-import { lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import { AnimatePresence, motion as Motion, useReducedMotion } from "motion/react";
+import { useReducedMotion } from "motion/react";
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -53,6 +53,7 @@ import DayJumpModal, {
   nearestDayKey,
 } from "../components/gallery/DayJumpModal.jsx";
 import PhotoThumb from "../components/gallery/PhotoThumb.jsx";
+import SlidePages from "../components/common/SlidePages.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
@@ -215,17 +216,6 @@ const SEGMENTS = [
 
 const SEGMENT_IDS = SEGMENTS.map((s) => s.value);
 const DEFAULT_SEGMENT = "library";
-// Segment pages move like the form builder's tabs: the multiway selector's
-// pill slides, the old page leaves that way and the new one follows it in.
-// Both pages share one grid cell, so neither drops out of the flow and the
-// box keeps the taller page's height until the old one has gone.
-const PAGE_SLIDE = {
-  enter: (/** @type {number} */ dir) => ({ x: `${100 * dir}%`, opacity: 0.6 }),
-  shown: { x: 0, opacity: 1 },
-  leave: (/** @type {number} */ dir) => ({ x: `${-100 * dir}%`, opacity: 0.6 }),
-};
-/** @type {import("motion/react").Transition} */
-const PAGE_SPRING = { type: "spring", duration: 0.35, bounce: 0.12 };
 const GRID_COLS_KEY = "luna.photos.gridCols";
 const ON_THIS_DAY_DISMISS_KEY = "luna.photos.onThisDay.dismissed";
 
@@ -1639,111 +1629,30 @@ export default function GalleryPage() {
           }`;
   const reduceMotion = useReducedMotion();
 
-  // The slide's direction is set once, when the page changes, and held until
-  // the next change: a re-render mid-slide (photos arriving) must not turn
-  // the leaving page around. Segments follow the selector; opening a detail
-  // view comes in from the right and Back returns from the left.
-  const pageDepth = detailChrome ? 1 : 0;
-  const [pageMotion, setPageMotion] = useState({
-    key: pageKey,
-    depth: pageDepth,
-    order: segmentOrder,
-    dir: 1,
-    moved: false,
-    map: placesMapOverview,
-    mapLingers: false,
-  });
-  if (pageMotion.key !== pageKey) {
-    const dir =
-      pageDepth !== pageMotion.depth
-        ? Math.sign(pageDepth - pageMotion.depth)
-        : segmentOrder !== pageMotion.order
-          ? Math.sign(segmentOrder - pageMotion.order)
-          : 1;
-    setPageMotion({
-      key: pageKey,
-      depth: pageDepth,
-      order: segmentOrder,
-      dir,
-      moved: true,
-      map: placesMapOverview,
-      mapLingers: pageMotion.map && !placesMapOverview && !reduceMotion,
-    });
-  }
-  const pageDirection = pageMotion.dir;
+  // Where this page sits for the slide (SlidePages): detail views sit past
+  // the segments, so opening one comes in from the right and Back returns
+  // from the left; segments follow the selector.
+  const pagePosition = [detailChrome ? 1 : 0, segmentOrder];
+
   // The map page fills the window (fixed-height Page). Leaving it, the page
   // keeps that layout until the map has slid out: resizing the leaving map
   // makes it drop and redraw its tiles mid-slide.
-  const mapLayout = placesMapOverview || pageMotion.mapLingers;
-
-  // Window scroll as of the last scroll event, so a page change still knows
-  // where the reader was after the new page's height has clamped it.
-  const pageScrollRef = useRef(typeof window !== "undefined" ? window.scrollY : 0);
-  useEffect(() => {
-    const onScroll = () => {
-      pageScrollRef.current = window.scrollY;
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-  const slideBoxRef = useRef(/** @type {HTMLDivElement|null} */ (null));
-  const shownPageKey = useRef(pageKey);
-  // Every page keeps its place on screen through a switch. A new page starts
-  // at the top of the window, so the window scrolls up and each leaving page
-  // is lifted by the same distance: it slides out exactly where the reader saw
-  // it. A page called back while it is still sliding out is reused, so the
-  // window scrolls back to its lift instead and it returns where it was (the
-  // other pages shift down by that much, a negative lift). The box clips at
-  // its top edge while any page is shifted, so none can cover the toolbar. (Scrolling only to the box's top is not enough:
-  // a short new page would clamp the scroll once the old page leaves.)
-  useLayoutEffect(() => {
-    if (shownPageKey.current === pageKey) return;
-    shownPageKey.current = pageKey;
-    const box = slideBoxRef.current;
-    if (!box) return;
-    const pages = /** @type {HTMLElement[]} */ ([...box.children]);
-    const liftOf = (/** @type {HTMLElement|null} */ inner) => Number(inner?.dataset.lift) || 0;
-    const coming = pages.find((page) => page.dataset.galleryPage === pageKey);
-    const target = liftOf(/** @type {HTMLElement|null} */ (coming?.firstElementChild ?? null));
-    const before = pageScrollRef.current;
-    if (before !== target) window.scrollTo({ top: target, behavior: "instant" });
-    const moved = Math.round(before - window.scrollY);
-    pageScrollRef.current = window.scrollY;
-    // The deep-link `?y=` must not carry the old page's depth to the new one.
-    scrollPosRef.current = window.scrollY;
-    let anyLifted = false;
-    for (const page of pages) {
-      const inner = /** @type {HTMLElement|null} */ (page.firstElementChild);
-      if (!inner) continue;
-      const lift = page === coming ? 0 : liftOf(inner) + moved;
-      if (lift !== 0) {
-        inner.dataset.lift = String(lift);
-        inner.style.transform = `translateY(${-lift}px)`;
-        anyLifted = true;
-      } else {
-        delete inner.dataset.lift;
-        inner.style.transform = "";
-      }
-    }
-    box.style.clipPath = anyLifted ? "inset(0 0 -100000px 0)" : "";
-  }, [pageKey]);
-  // A page that slid in already showed its rows, cards and thumbnails; turn
-  // their entrance off for good before lifting the hold, or every one of them
-  // would fade in again as the page lands. Pieces that mount later (the next
-  // batch of photos, a new chip row) keep their entrance.
-  const handlePageShown = useCallback((/** @type {string} */ key) => {
-    const page = /** @type {HTMLElement[]} */ ([...(slideBoxRef.current?.children || [])]).find(
-      (el) => el.dataset.galleryPage === key,
-    );
-    if (!page?.hasAttribute("data-entering")) return;
-    for (const el of page.querySelectorAll(".animate-nav-slide-in, .animate-cascade-in")) {
-      /** @type {HTMLElement} */ (el).style.animation = "none";
-    }
-    page.removeAttribute("data-entering");
-  }, []);
+  const [mapPage, setMapPage] = useState({ key: pageKey, map: placesMapOverview, lingers: false });
+  if (mapPage.key !== pageKey) {
+    setMapPage({
+      key: pageKey,
+      map: placesMapOverview,
+      lingers: mapPage.map && !placesMapOverview && !reduceMotion,
+    });
+  }
+  const mapLayout = placesMapOverview || mapPage.lingers;
   const handlePagesSettled = useCallback(() => {
-    if (slideBoxRef.current) slideBoxRef.current.style.clipPath = "";
-    setPageMotion((m) => (m.mapLingers ? { ...m, mapLingers: false } : m));
+    setMapPage((m) => (m.lingers ? { ...m, lingers: false } : m));
+  }, []);
+  // A switch scrolls the new page to the top; the deep-link `?y=` must not
+  // carry the old page's depth to it.
+  const handlePageChange = useCallback(() => {
+    scrollPosRef.current = window.scrollY;
   }, []);
 
   // Cheap probe: does the library hold photos taken on today's month-day in
@@ -1839,27 +1748,15 @@ export default function GalleryPage() {
         rescanPending={rescan.isPending}
         onOpenShortcuts={shortcutsSheet ? shortcutsSheet.open : undefined}
       />
-      <div
-        ref={slideBoxRef}
-        className={`grid overflow-x-clip ${mapLayout ? "min-h-0 flex-1 grid-rows-[minmax(0,1fr)]" : ""}`}
+      <SlidePages
+        pageKey={pageKey}
+        position={pagePosition}
+        onPageChange={handlePageChange}
+        onSettled={handlePagesSettled}
+        className={mapLayout ? "min-h-0 flex-1 grid-rows-[minmax(0,1fr)]" : ""}
+        pageClassName={placesMapOverview ? "flex min-h-0 flex-col" : ""}
+        innerClassName={placesMapOverview ? "flex min-h-0 flex-1 flex-col" : undefined}
       >
-      <AnimatePresence initial={false} custom={pageDirection} onExitComplete={handlePagesSettled}>
-        <Motion.div
-          key={pageKey}
-          data-gallery-page={pageKey}
-          data-entering={pageMotion.moved ? "" : undefined}
-          custom={pageDirection}
-          variants={PAGE_SLIDE}
-          initial={reduceMotion ? false : "enter"}
-          animate="shown"
-          exit="leave"
-          transition={reduceMotion ? { duration: 0 } : PAGE_SPRING}
-          onAnimationComplete={(name) => {
-            if (name === "shown") handlePageShown(pageKey);
-          }}
-          className={`col-start-1 row-start-1 min-w-0 ${placesMapOverview ? "flex min-h-0 flex-col" : ""}`}
-        >
-        <div className={placesMapOverview ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {filterChips.length > 0 && (
         <div
           key={filterChips.map((c) => c.id).join(",")}
@@ -2387,10 +2284,7 @@ export default function GalleryPage() {
         </div>
       )}
 
-        </div>
-        </Motion.div>
-      </AnimatePresence>
-      </div>
+      </SlidePages>
 
       <SelectionActionBar
         count={selection.selectedCount}
