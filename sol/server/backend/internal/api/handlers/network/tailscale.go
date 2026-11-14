@@ -20,6 +20,10 @@ func tailscaleFailure(w http.ResponseWriter, action string, err error) {
 		JSONError(w, http.StatusBadGateway, "Sol could not save Tailscale startup information. Check Sol's storage and try again.")
 		return
 	}
+	if strings.HasPrefix(err.Error(), "a previous Tailscale start could not be verified: ") {
+		JSONError(w, http.StatusBadGateway, "A previous Tailscale start could not be verified.")
+		return
+	}
 	switch err.Error() {
 	case "Sol is shutting down", "Tailscale is off. Restart Sol and try turning on private access again.", "Tailscale is starting. Try connecting again shortly", "Tailscale is starting. Try reconnecting again shortly", "Tailscale is starting. Try turning on access again shortly":
 		message = strings.TrimSuffix(err.Error(), ".") + "."
