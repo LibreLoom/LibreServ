@@ -848,7 +848,7 @@ export default function DriveFileExplorer({
         // Keep the drop target alive on a read-only drive: a drag-in is the
         // one way to "try anyway", and the server's plain read-only message
         // is the reason the buttons above are gone.
-        enableUploadDrop={!inTrash && driveWritable && (myFolderCaps & CAP.UPLOAD) !== 0}
+        enableUploadDrop={!inTrash && (myFolderCaps & CAP.UPLOAD) !== 0}
         uploadButton={driveWritable}
         dense={dense}
         multiSelect

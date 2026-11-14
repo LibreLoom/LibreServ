@@ -329,7 +329,11 @@ describe("AuthProvider when Luna is unreachable", () => {
 
   it("leaves /recover alone when the poll answers with no Admin yet", async () => {
     vi.useFakeTimers();
+    const savedPath = window.location.pathname;
     try {
+      // The poll reads window.location.pathname, not the router's — put the
+      // browser itself on /recover, like a reload during recovery would.
+      window.history.replaceState(null, "", "/recover");
       // Luna is down when the recovery page loads, then comes back mid-flow
       // still without an Admin — exactly the state /recover exists for.
       let up = false;
@@ -348,9 +352,15 @@ describe("AuthProvider when Luna is unreachable", () => {
         return new Response("{}", { status: 404 });
       }));
 
+      function Probe() {
+        const { unreachable } = useAuth();
+        return <span>{unreachable ? "LUNA DOWN" : "LUNA ANSWERED"}</span>;
+      }
+
       render(
         <MemoryRouter initialEntries={["/recover"]}>
           <AuthProvider>
+            <Probe />
             <Routes>
               <Route path="/" element={<div>LUNA HOME</div>} />
               <Route path="/setup" element={<div>SETUP WIZARD</div>} />
@@ -360,15 +370,19 @@ describe("AuthProvider when Luna is unreachable", () => {
         </MemoryRouter>
       );
 
-      // Let the failing bootstrap settle, then let the poll reach a live Luna.
+      // Wait for the failing bootstrap to settle into the unreachable state —
+      // only then is the five-second poll actually installed.
       await vi.advanceTimersByTimeAsync(0);
+      expect(screen.getByText("LUNA DOWN")).toBeInTheDocument();
       up = true;
       await vi.advanceTimersByTimeAsync(5000);
 
       // The recovery page survives: a fresh Luna must not bounce it to setup.
+      expect(screen.getByText("LUNA ANSWERED")).toBeInTheDocument();
       expect(screen.getByText("RECOVERY WIZARD")).toBeInTheDocument();
       expect(screen.queryByText("SETUP WIZARD")).not.toBeInTheDocument();
     } finally {
+      window.history.replaceState(null, "", savedPath);
       vi.useRealTimers();
     }
   });

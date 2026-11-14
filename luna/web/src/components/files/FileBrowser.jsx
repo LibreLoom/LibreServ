@@ -846,12 +846,12 @@ export default function FileBrowser({
     if (!filePicker.current) return false;
     filePicker.current.click();
     return true;
-  }, { label: "Upload files", group: "Files", enabled: keysOn && enableUploadDrop });
+  }, { label: "Upload files", group: "Files", enabled: keysOn && enableUploadDrop && uploadButton });
   useShortcut("Shift+U", () => {
     if (!folderPicker.current) return false;
     folderPicker.current.click();
     return true;
-  }, { label: "Upload a folder", group: "Files", enabled: keysOn && enableUploadDrop && canPickFolder });
+  }, { label: "Upload a folder", group: "Files", enabled: keysOn && enableUploadDrop && uploadButton && canPickFolder });
   const listingForbidden = Boolean(
     listing.isError
       && forbiddenState
