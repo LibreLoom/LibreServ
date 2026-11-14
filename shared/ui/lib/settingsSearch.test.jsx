@@ -40,6 +40,7 @@ function PendingSettings() {
         <span />
       </SettingsRow>
       <p aria-busy="true">Checking your recovery phrase…</p>
+      <p data-settings-search-exclude="true" role="status">Checking cloud backup status…</p>
       <SettingsRow label="Cloud backup" description="Your files are copied every 6 hours">
         <span />
       </SettingsRow>

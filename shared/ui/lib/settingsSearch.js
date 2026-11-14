@@ -84,7 +84,9 @@ export async function buildSettingsIndex(categories, wrap, { onError } = {}) {
       // that happen to be pending while the category is rendered off-screen.
       // Keep pending/error placeholders out of the index; the live page remains
       // responsible for showing those states.
-      doc.body.querySelectorAll('[aria-busy="true"]').forEach((el) => el.remove());
+      // Use a data marker for ordinary live regions so search filtering does not
+      // change their accessibility semantics.
+      doc.body.querySelectorAll('[aria-busy="true"], [data-settings-search-exclude="true"]').forEach((el) => el.remove());
       doc.body.querySelectorAll("[data-settings-description]").forEach((el) => {
         if (/^(checking|loading)\b/i.test(el.textContent?.trim() || "")) el.textContent = "";
       });

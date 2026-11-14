@@ -326,11 +326,11 @@ export default function CloudBackupCategory() {
                   </Button>
                 </div>
               ) : cloudQuery.isPending ? (
-                <p className="text-primary text-sm" role="status">Checking cloud backups…</p>
+                <p data-settings-search-exclude="true" className="text-primary text-sm" role="status">Checking cloud backups…</p>
               ) : (
                 <>
                   {isAdmin && cloudQuery.isSuccess && restoreStatus.isPending && (
-                    <p aria-busy="true" className="text-primary text-sm" role="status">Checking cloud backup status…</p>
+                    <p data-settings-search-exclude="true" className="text-primary text-sm" role="status">Checking cloud backup status…</p>
                   )}
                   {isAdmin && cloudQuery.isSuccess && restoreStatus.isError && (
                     <div className="space-y-3">

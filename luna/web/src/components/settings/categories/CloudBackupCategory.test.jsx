@@ -300,7 +300,8 @@ describe("CloudBackupCategory", () => {
     renderCard();
 
     expect(await screen.findByRole("heading", { name: "Cloud backup" })).toBeInTheDocument();
-    expect(await screen.findByText("Checking cloud backups…")).toBeInTheDocument();
+    expect(await screen.findByText("Checking cloud backups…"))
+      .toHaveAttribute("data-settings-search-exclude", "true");
     expect(screen.queryByText(/Nothing is backed up to the cloud yet/)).toBeNull();
 
     await act(async () => finishBackups?.());
@@ -317,7 +318,10 @@ describe("CloudBackupCategory", () => {
     });
     renderCard();
 
-    expect(await screen.findByText("Checking cloud backup status…")).toHaveAttribute("aria-busy", "true");
+    const status = await screen.findByText("Checking cloud backup status…");
+    expect(status).toHaveAttribute("data-settings-search-exclude", "true");
+    expect(status).toHaveAttribute("role", "status");
+    expect(status).not.toHaveAttribute("aria-busy");
     expect(screen.queryByText(/Nothing is backed up to the cloud yet/)).toBeNull();
 
     await act(async () => finishRestoreStatus?.());
