@@ -68,7 +68,7 @@ Payments run through **Stripe Managed Payments**: Stripe (through Link) is the m
 7. **Card check** — the one-time $1 check (DIY onboarding) is its own Managed Payments Checkout. Its product is created inline ("Cloud backup credit", tax code `txcd_10010001`), so nothing to set up. The card is saved, and the cloud backup Checkout offers it again in one click. The $1 comes back as a $1 Stripe credit grant.
 8. **Credit** — account credit is Stripe billing credits (credit grants, metered prices only). Stripe takes it off cloud backup invoices before tax. Admin → Accounts → Credit creates promotional grants.
 9. **Webhook** — endpoint `https://<host>/api/v1/billing/webhook`, API version `2026-10-28.endive` (what stripe-go v87 sends), events `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`.
-10. **Card changes and failed payments** — customers update the card at link.com (the API can't set it on a Managed Payments subscription); Stripe retries the open invoice and `invoice.paid` unlocks backups again.
+10. **Card changes and failed payments** — customers update the card at link.com (the API can't set it on a Managed Payments subscription). When a retry of the open invoice succeeds, `invoice.paid` unlocks backups again. Whether a card update on Link triggers a retry at once is not confirmed.
 
 Empty keys refuse paid routes (fail closed). `stripe.enabled: false` by itself does **not** unlock cloud backup.
 

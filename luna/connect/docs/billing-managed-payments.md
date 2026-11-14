@@ -1,7 +1,7 @@
 # Billing: move to Stripe Managed Payments (handoff notes)
 
 Status as of 2026-11-13: **built.** Commits `c2d6486d` (stripe-go v87), `7bf9fe9b` (backend), `34e35268`
-(web). Not yet done: Go tests and vitest were not run, no end-to-end run against a real Connect with the
+(web), `01402b2e` (claim race fix). Not yet done: Go tests and vitest were not run, no end-to-end run against a real Connect with the
 sandbox, and the Stripe Dashboard steps below. Resume at "What's left".
 
 ## Decisions made
@@ -132,7 +132,8 @@ Tested in the sandbox:
 
 1. **Run the tests:** `go test ./...` in `luna/connect` and vitest in `luna/connect/web` (neither run
    yet), or a full `./ci run`.
-2. **End-to-end in the sandbox:** run Connect with the sandbox keys and `stripe listen` forwarding to
+2. **End-to-end in the sandbox:** set `server.base_url` to the local address first (it defaults to
+   production, and Stripe sends the browser back there). Run Connect with the sandbox keys and `stripe listen` forwarding to
    `/api/v1/billing/webhook`, then: DIY signup → $1 checkout → device token; turn on cloud backup →
    one-click subscribe; admin credit; Turn off payment. Webhook signing secret from `stripe listen`.
 3. **Stripe Dashboard (sandbox, then live):** see README "Stripe Dashboard setup" steps 0–10. In short:
