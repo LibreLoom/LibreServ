@@ -2,19 +2,19 @@
   "format": 1,
   "unit": "luna-connect",
   "channel": "stable",
-  "version": "0.0.3",
-  "published": "2026-11-06T03:51:19Z",
-  "notes": "I'm lazy. No notes for you.\n\n- feat(luna-connect): floor cloud backup at $3 a month, and add a credit ledger\n- fix(web): close 472 type holes tsgo found that tsc silently skipped\n- fix(deps): update packages with published security fixes\n- test(luna): wait for account detail and subdomain edit in AdminAccountsPage\n- fix(luna): recovery phrase review fixes\n- feat(luna): recovery phrase phase 5 — remove older private versions at once\n- feat(luna): recovery phrase phase 3 — change, replace, and lost-phrase flows\n- feat(luna): recovery phrase phase 1 — phrase setup, check, and restore flow\n- fix(luna-connect): restore jsdom's localStorage under newer Node in tests\n- fix(ci): review and CI fixes for the release build and Luna checks\n- feat(luna): hybrid Ed25519 + ML-DSA-65 signatures\n- feat(luna): optional 24-word recovery phrase\n- feat(luna): hybrid X25519 + ML-KEM-768 sealing for cloud backup keys\n- fix: typecheck, formatting and lint failures found by the full test run\n- test(connect): live Backblaze lifecycle test; correct audit note on the B2 key\n- fix(connect): let the database lock pick the one job leader\n",
+  "version": "0.0.4",
+  "published": "2026-11-14T18:35:54Z",
+  "notes": "- fix(connect): link the unpaid bill's page; fix Backups states found in e2e\n- fix(connect): Turn off payment billed $0 — schedule the end so Stripe bills the month\n- docs(connect): base_url for local Stripe runs; don't overstate Link retries\n- fix(connect): don't cancel a subscription the other checkout path stored\n- docs(connect): Managed Payments setup and what's left\n- feat(connect): pay on Stripe's page, and say prices are before tax\n- feat(connect): bill through Stripe Managed Payments checkout\n- chore(connect): upgrade stripe-go v76 → v87.1.0\n- docs(connect): use Stripe credit grants for account credit\n- docs(connect): $1 check and credits under Managed Payments, build plan\n- docs(connect): Managed Payments gate passed with metered prices\n- docs(connect): hand-off notes for the move to Stripe Managed Payments\n- feat(connect): bill the month and delete cloud copies when payment is turned off\n- fix(luna): drop the plug-in card from the Connect device-token step\n",
   "parts": [
     {
       "name": "server",
       "os": "linux",
       "arch": "amd64",
       "file": "luna-connect-server-linux-amd64",
-      "size": 18137248,
-      "sha256": "839b681b18878a5ef0564f33642bdfb8087b6b6d8655e1c52e9f19a3120a6659",
+      "size": 18563232,
+      "sha256": "ac2be26e8c51910db2914762eeefeaf58fd8dc98d8494270d805a77a45182edf",
       "urls": [
-        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna-connect/0.0.3/luna-connect-server-linux-amd64"
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna-connect/0.0.4/luna-connect-server-linux-amd64"
       ]
     },
     {
@@ -22,10 +22,10 @@
       "os": "any",
       "arch": "any",
       "file": "luna-connect-web.tar.gz",
-      "size": 1089134,
-      "sha256": "24ac8538d8992e44e51e9e59035edfd5e0903fa19db887d9fabef44faee15acd",
+      "size": 1086432,
+      "sha256": "f52a0679d9244a533a09cebd22a3ee72685a293d4177edd89dd2c21b0fdcdcf6",
       "urls": [
-        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna-connect/0.0.3/luna-connect-web.tar.gz"
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna-connect/0.0.4/luna-connect-web.tar.gz"
       ]
     }
   ]
