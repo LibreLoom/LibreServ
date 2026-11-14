@@ -1701,7 +1701,7 @@ export default function GalleryPage() {
     shownPageKey.current = pageKey;
     const box = slideBoxRef.current;
     if (!box) return;
-    const pages = /** @type {HTMLElement[]} */ ([...box.querySelectorAll(":scope > [data-gallery-page]")]);
+    const pages = /** @type {HTMLElement[]} */ ([...box.children]);
     const liftOf = (/** @type {HTMLElement|null} */ inner) => Number(inner?.dataset.lift) || 0;
     const coming = pages.find((page) => page.dataset.galleryPage === pageKey);
     const target = liftOf(/** @type {HTMLElement|null} */ (coming?.firstElementChild ?? null));
@@ -1727,6 +1727,20 @@ export default function GalleryPage() {
     }
     box.style.clipPath = anyLifted ? "inset(0 0 -100000px 0)" : "";
   }, [pageKey]);
+  // A page that slid in already showed its rows, cards and thumbnails; turn
+  // their entrance off for good before lifting the hold, or every one of them
+  // would fade in again as the page lands. Pieces that mount later (the next
+  // batch of photos, a new chip row) keep their entrance.
+  const handlePageShown = useCallback((/** @type {string} */ key) => {
+    const page = /** @type {HTMLElement[]} */ ([...(slideBoxRef.current?.children || [])]).find(
+      (el) => el.dataset.galleryPage === key,
+    );
+    if (!page?.hasAttribute("data-entering")) return;
+    for (const el of page.querySelectorAll(".animate-nav-slide-in, .animate-cascade-in")) {
+      /** @type {HTMLElement} */ (el).style.animation = "none";
+    }
+    page.removeAttribute("data-entering");
+  }, []);
   const handlePagesSettled = useCallback(() => {
     if (slideBoxRef.current) slideBoxRef.current.style.clipPath = "";
     setPageMotion((m) => (m.mapLingers ? { ...m, mapLingers: false } : m));
@@ -1841,8 +1855,7 @@ export default function GalleryPage() {
           exit="leave"
           transition={reduceMotion ? { duration: 0 } : PAGE_SPRING}
           onAnimationComplete={(name) => {
-            if (name !== "shown") return;
-            document.querySelector(`[data-gallery-page="${CSS.escape(pageKey)}"]`)?.removeAttribute("data-entering");
+            if (name === "shown") handlePageShown(pageKey);
           }}
           className={`col-start-1 row-start-1 min-w-0 ${placesMapOverview ? "flex min-h-0 flex-col" : ""}`}
         >

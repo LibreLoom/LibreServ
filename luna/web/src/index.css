@@ -545,8 +545,8 @@ textarea::placeholder {
 
 /* A Photos page sliding in already moves; its rows, cards and thumbnails
    don't add their own entrance on top. */
-[data-entering] .animate-nav-slide-in,
-[data-entering] .animate-cascade-in {
+[data-gallery-page][data-entering] .animate-nav-slide-in,
+[data-gallery-page][data-entering] .animate-cascade-in {
     animation: none;
 }
 

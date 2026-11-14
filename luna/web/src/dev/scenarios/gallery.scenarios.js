@@ -44,6 +44,22 @@ export default [
     ],
   },
   {
+    id: "gallery/segment-motion-slow",
+    area: "Photos",
+    title: "Moving between the photo pages while photos load slowly",
+    url: "/gallery",
+    seed: (w) => {
+      lib(w, 150, { favEvery: 4, spanDays: 60 });
+      album(w, "al-trip", "Summer trip", {}, w.photos.slice(0, 40));
+    },
+    faults: [{ match: "GET /api/v1/gallery", mode: "slow:400" }],
+    check: [
+      "Library → Favorites → Library: each page slides all the way and never turns around while its photos arrive",
+      "The loading message slides with its page; nothing above the pages jumps",
+      "Photos that arrive after a page has landed fade in; photos already shown don't fade in again",
+    ],
+  },
+  {
     id: "gallery/empty",
     area: "Photos",
     title: "Empty library",
