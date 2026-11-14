@@ -115,8 +115,8 @@ func TestPrivateSwitchWithoutListenerClearsOldPublicAccess(t *testing.T) {
 		}
 	}
 	svc := &TailscaleService{dir: dir, listenerReady: make(chan struct{})}
-	if _, err := svc.serveLocked(false); err == nil {
-		t.Fatal("expected unavailable listener")
+	if _, err := svc.serveLocked(false); err == nil || err.Error() != "Tailscale is off. Restart Sol and try turning on private access again." {
+		t.Fatalf("expected stopped-node guidance, got %v", err)
 	}
 	state, err := os.ReadFile(filepath.Join(dir, "tailscaled.state"))
 	if err != nil || strings.Contains(string(state), "_serve/") || !strings.Contains(string(state), "identity") || tailscaleFileExists(filepath.Join(dir, "restore-serve")) {
@@ -134,6 +134,15 @@ func TestPrivateSwitchWithoutListenerRetainsUnverifiedStop(t *testing.T) {
 	svc := &TailscaleService{dir: dir, listenerReady: make(chan struct{})}
 	if _, err := svc.serveLocked(false); err == nil || !tailscaleFileExists(filepath.Join(dir, "stop-failed")) || !tailscaleFileExists(filepath.Join(dir, "reset-required")) {
 		t.Fatalf("unverified stop did not retain cleanup intent: %v", err)
+	}
+}
+
+func TestLaunchIntentErrorsDistinguishExistingRecordFromStorageFailure(t *testing.T) {
+	if err := tailscaleLaunchIntentError(os.ErrExist); !strings.Contains(err.Error(), "previous Tailscale start") {
+		t.Fatalf("existing record: %v", err)
+	}
+	if err := tailscaleLaunchIntentError(os.ErrPermission); !strings.Contains(err.Error(), "save Tailscale startup information") {
+		t.Fatalf("storage failure: %v", err)
 	}
 }
 

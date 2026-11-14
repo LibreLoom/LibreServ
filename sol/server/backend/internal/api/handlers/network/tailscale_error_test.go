@@ -16,6 +16,7 @@ func TestTailscaleFailureUsesAccurateGuidance(t *testing.T) {
 		{"connect Tailscale first", "Connect Tailscale first."},
 		{"Tailscale is starting but not responding yet", "Sol's remote access is starting. Wait a moment and try again."},
 		{"Tailscale's private listener stopped", "Sol can't offer remote access right now. Restart Sol and try again."},
+		{"Tailscale is off. Restart Sol and try turning on private access again.", "Tailscale is off. Restart Sol and try turning on private access again."},
 	} {
 		w := httptest.NewRecorder()
 		tailscaleFailure(w, "connect to Tailscale", errors.New(tc.input))

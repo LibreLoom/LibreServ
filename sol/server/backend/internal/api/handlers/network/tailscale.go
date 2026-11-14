@@ -17,7 +17,7 @@ func tailscaleFailure(w http.ResponseWriter, action string, err error) {
 	slog.Error("Tailscale action failed", "action", action, "error", err)
 	message := "Sol could not " + action + ". Try again."
 	switch err.Error() {
-	case "Sol is shutting down", "Connect Tailscale first", "Tailscale is starting. Try connecting again shortly", "Tailscale is starting. Try reconnecting again shortly", "Tailscale is starting. Try turning on access again shortly":
+	case "Sol is shutting down", "Tailscale is off. Restart Sol and try turning on private access again.", "Tailscale is starting. Try connecting again shortly", "Tailscale is starting. Try reconnecting again shortly", "Tailscale is starting. Try turning on access again shortly":
 		message = strings.TrimSuffix(err.Error(), ".") + "."
 	case "connect Tailscale first":
 		message = "Connect Tailscale first."

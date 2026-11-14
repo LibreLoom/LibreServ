@@ -9,6 +9,8 @@ Pending live verification:
 - [ ] Funnel forwarding headers and reachability outside the tailnet
 - [ ] Headscale HTTPS certificate and private reachability
 - [ ] Real reboot restores the selected mode
+- [ ] On each supported data filesystem, verify no-replace launch-intent
+  publication and directory sync; unsupported operations must prevent startup.
 - Android client: not verified, waived by the user.
 
 Current PR209 status: the user authorized an isolated test, then paused it

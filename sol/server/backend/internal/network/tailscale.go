@@ -753,6 +753,14 @@ func (s *TailscaleService) writeLaunchIntent(value string, exclusive bool) error
 	defer dir.Close()
 	return dir.Sync()
 }
+
+func tailscaleLaunchIntentError(err error) error {
+	if errors.Is(err, os.ErrExist) {
+		return fmt.Errorf("a previous Tailscale start could not be verified: %w", err)
+	}
+	return fmt.Errorf("could not save Tailscale startup information: %w", err)
+}
+
 func (s *TailscaleService) ensureDaemon() error {
 	if s.shuttingDown {
 		return errors.New("Sol is shutting down")
@@ -799,7 +807,7 @@ func (s *TailscaleService) ensureDaemon() error {
 		return err
 	}
 	if err := s.writeLaunchIntent("pending "+boot, true); err != nil {
-		return fmt.Errorf("a previous Tailscale start could not be verified: %w", err)
+		return tailscaleLaunchIntentError(err)
 	}
 	if err := os.Remove(filepath.Join(s.dir, "stop-verified")); err != nil && !os.IsNotExist(err) {
 		return err
@@ -1365,6 +1373,9 @@ func (s *TailscaleService) serveLocked(public bool) (TailscaleStatus, error) {
 		}
 	}
 	if err := s.requireWebListener(); err != nil {
+		if !public {
+			return TailscaleStatus{}, errors.New("Tailscale is off. Restart Sol and try turning on private access again.")
+		}
 		return TailscaleStatus{}, err
 	}
 	if err := s.ensureDaemon(); err != nil {

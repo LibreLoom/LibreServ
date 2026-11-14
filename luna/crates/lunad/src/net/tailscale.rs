@@ -204,10 +204,20 @@ fn begin_launch(data: &Path) -> Result<(), String> {
         .and_then(|_| file.as_file().sync_all())
         .map_err(|e| e.to_string())?;
     file.persist_noclobber(root(data).join("launch-intent"))
-        .map_err(|_| "A previous Tailscale start could not be verified.".to_string())?;
+        .map_err(|error| launch_intent_error(&error.error))?;
     std::fs::File::open(root(data))
         .and_then(|dir| dir.sync_all())
         .map_err(|e| e.to_string())
+}
+
+fn launch_intent_error(error: &std::io::Error) -> String {
+    if error.kind() == std::io::ErrorKind::AlreadyExists {
+        "A previous Tailscale start could not be verified.".into()
+    } else {
+        tracing::warn!(%error, "Could not record Tailscale startup intent");
+        "Luna could not save Tailscale startup information. Check Luna's storage and try again."
+            .into()
+    }
 }
 
 fn persist_reset_intent(data: &Path) -> Result<(), String> {
@@ -954,9 +964,20 @@ fn serve_inner(data: &Path, port: u16, public: bool) -> Result<Value, String> {
         persist_reset_intent(data)?;
         clear_access_if_required(data)?;
     }
-    require_proxy(port)?;
-    let target = super::tailscale_socket::target(data)
-        .ok_or("Tailscale's private listener is unavailable.")?;
+    if let Err(error) = require_proxy(port) {
+        return Err(if public {
+            error
+        } else {
+            "Tailscale is off. Restart Luna and try turning on private access again.".into()
+        });
+    }
+    let target = super::tailscale_socket::target(data).ok_or({
+        if public {
+            "Tailscale's private listener is unavailable."
+        } else {
+            "Tailscale is off. Restart Luna and try turning on private access again."
+        }
+    })?;
     ensure_daemon(data)?;
     let _ = std::fs::remove_file(root(data).join("approval-url"));
     let _ = std::fs::remove_file(root(data).join("approval-type"));
@@ -1601,6 +1622,18 @@ mod tests {
     }
 
     #[test]
+    fn launch_intent_errors_distinguish_existing_record_from_storage_failure() {
+        assert!(
+            launch_intent_error(&std::io::Error::from(std::io::ErrorKind::AlreadyExists))
+                .contains("previous Tailscale start")
+        );
+        assert!(
+            launch_intent_error(&std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+                .contains("storage")
+        );
+    }
+
+    #[test]
     fn launch_intent_does_not_replace_existing_record() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(root(dir.path())).unwrap();
@@ -1731,7 +1764,10 @@ mod tests {
             r#"{"_serve/old":"e30=","identity":"keep"}"#,
         )
         .unwrap();
-        assert!(serve_inner(dir.path(), 0, false).is_err());
+        assert_eq!(
+            serve_inner(dir.path(), 0, false).unwrap_err(),
+            "Tailscale is off. Restart Luna and try turning on private access again."
+        );
         let saved = std::fs::read_to_string(state(dir.path())).unwrap();
         assert!(!saved.contains("_serve/"));
         assert!(saved.contains("identity"));
