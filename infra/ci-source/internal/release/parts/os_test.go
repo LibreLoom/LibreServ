@@ -1,13 +1,9 @@
 package parts
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,13 +33,15 @@ func TestOSGraph(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The packs are built before the rootfs and mounted into it: they are part
+	// of the image, not of the installer ISO.
 	want := map[string][]string{
 		"luna/os:hash":                   nil,
-		"luna/os:rootfs":                 {"luna/os:hash", "luna/lunad"},
+		"luna/os:rootfs":                 {"luna/os:hash", "luna/lunad", "luna/installer:pack-eurooffice", "luna/installer:pack-drawio"},
 		"luna/os:image":                  {"luna/os:rootfs"},
 		"luna/os":                        {"luna/os:image"},
 		"luna/installer:live":            {"luna/os:hash"},
-		"luna/installer:iso":             {"luna/installer:live", "luna/os", "luna/installer:pack-eurooffice", "luna/installer:pack-drawio"},
+		"luna/installer:iso":             {"luna/installer:live", "luna/os"},
 		"luna/installer:pack-eurooffice": {"luna/os:hash"},
 		"luna/installer:pack-drawio":     {"luna/os:hash"},
 		"luna/installer":                 {"luna/installer:iso"},
@@ -70,24 +68,17 @@ func TestOSGraph(t *testing.T) {
 }
 
 func TestDecide(t *testing.T) {
-	same := func() (string, error) { return "h1", nil }
-	other := func() (string, error) { return "h0", nil }
-	broken := func() (string, error) { return "", errors.New("HTTP 404") }
+	// There is no "reuse the last release's file" case any more: every release
+	// builds its own image, so only a local cache of identical inputs can
+	// stand in for a build.
 	for _, tc := range []struct {
 		name string
 		in   decideIn
 		want osAction
 	}{
-		{"same as the release", decideIn{hash: "h1", released: same, releasedVersion: "0.4.0"}, osReuse},
-		{"same as the release, also cached", decideIn{hash: "h1", released: same, cached: true}, osReuse},
-		{"named wins over the release", decideIn{force: true, hash: "h1", released: same}, osBuild},
-		{"named wins over the cache", decideIn{force: true, hash: "h1", cached: true}, osBuild},
-		{"changed, cached", decideIn{hash: "h1", released: other, cached: true}, osCached},
-		{"changed, not cached", decideIn{hash: "h1", released: other}, osBuild},
-		{"release unreadable", decideIn{hash: "h1", released: broken}, osBuild},
-		{"release unreadable, cached", decideIn{hash: "h1", released: broken, cached: true}, osCached},
-		{"dev build, cached", decideIn{hash: "h1", cached: true}, osCached},
-		{"dev build, nothing", decideIn{hash: "h1"}, osBuild},
+		{"named wins over the cache", decideIn{force: true, cached: true}, osBuild},
+		{"cached", decideIn{cached: true}, osCached},
+		{"nothing", decideIn{}, osBuild},
 	} {
 		got, why := decide(tc.in)
 		if got != tc.want || why == "" {
@@ -156,57 +147,20 @@ func TestInstallerKey(t *testing.T) {
 	}
 }
 
+func TestOSImageKeyFollowsPacks(t *testing.T) {
+	k1 := osImageKey("os1", map[string]string{"eurooffice": "aa", "drawio": "bb"})
+	if k2 := osImageKey("os1", map[string]string{"drawio": "bb", "eurooffice": "aa"}); k2 != k1 {
+		t.Fatal("key depends on map order")
+	}
+	if k2 := osImageKey("os2", map[string]string{"eurooffice": "aa", "drawio": "bb"}); k2 == k1 {
+		t.Fatal("a new OS input hash must change the key")
+	}
+	if k2 := osImageKey("os1", map[string]string{"eurooffice": "aa", "drawio": "cc"}); k2 == k1 {
+		t.Fatal("a changed pack must change the image key")
+	}
+}
+
 func sum(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
-
-func TestFetchInputsAndReleased(t *testing.T) {
-	img := "pretend this is an xz image"
-	mux := http.NewServeMux()
-	mux.HandleFunc("/f/luna-os-x86_64.img.xz.inputs", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("abc123\n")) })
-	mux.HandleFunc("/f/luna-os-x86_64.img.xz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(img)) })
-	mux.HandleFunc("/f/bad.img.xz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("something else")) })
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-	ctx := context.Background()
-
-	if got, err := fetchInputs(ctx, srv.URL+"/f/luna-os-x86_64.img.xz"); err != nil || got != "abc123" {
-		t.Fatalf("fetchInputs %q %v", got, err)
-	}
-	if _, err := fetchInputs(ctx, srv.URL+"/f/missing"); err == nil || !strings.Contains(err.Error(), "404") {
-		t.Fatalf("missing inputs: %v", err)
-	}
-
-	b := lunaCtx(t, "luna", "0.4.1")
-	rel := engine.Released{Version: "0.4.0", URL: srv.URL + "/f/luna-os-x86_64.img.xz", SHA256: sum(img), Size: int64(len(img))}
-	p, err := fetchReleased(ctx, b, t.Logf, rel)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := os.ReadFile(p); string(got) != img {
-		t.Fatalf("downloaded %q", got)
-	}
-	// second call hits the cache: the server may be gone
-	srv.Close()
-	if p2, err := fetchReleased(ctx, b, t.Logf, rel); err != nil || p2 != p {
-		t.Fatalf("cached fetch %q %v", p2, err)
-	}
-}
-
-func TestFetchReleasedRejectsWrongBytes(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("tampered")) }))
-	defer srv.Close()
-	b := lunaCtx(t, "luna", "0.4.1")
-	rel := engine.Released{Version: "0.4.0", URL: srv.URL + "/x", SHA256: sum("the real image")}
-	_, err := fetchReleased(context.Background(), b, t.Logf, rel)
-	if err == nil || !strings.Contains(err.Error(), "does not match the feed") {
-		t.Fatalf("err %v", err)
-	}
-	if left, _ := filepath.Glob(filepath.Join(b.Engine.CacheDir(), "luna-released", "*")); len(left) != 0 {
-		t.Fatalf("a rejected download was kept: %v", left)
-	}
-	if _, err := fetchReleased(context.Background(), b, t.Logf, engine.Released{URL: srv.URL}); err == nil {
-		t.Fatal("a release without a sha256 was accepted")
-	}
-}
 
 func TestFinishFile(t *testing.T) {
 	b := lunaCtx(t, "luna", "0.4.1")
@@ -218,9 +172,7 @@ func TestFinishFile(t *testing.T) {
 	if err := finishFile(b, t.Logf, "os", OSFile, "luna-os", "key1", osBuild, osSidecars(OSFile)); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(filepath.Join(out, OSFile+InputsSuffix)); string(got) != "key1\n" {
-		t.Fatalf("inputs %q", got)
-	}
+
 	if !cacheHas(b, "luna-os", "key1", OSFile) {
 		t.Fatal("not cached")
 	}
@@ -241,17 +193,7 @@ func TestFinishFile(t *testing.T) {
 	if got, _ := os.ReadFile(filepath.Join(b2.PartOutDir("os"), OSFile)); string(got) != "img2" {
 		t.Fatalf("linked %q", got)
 	}
-	if _, err := os.Stat(filepath.Join(b2.PartOutDir("os"), OSFile+InputsSuffix)); err != nil {
-		t.Fatal(err)
-	}
-	// reuse: nothing is produced
-	b3 := lunaCtx(t, "luna", "0.4.3")
-	if err := finishFile(b3, t.Logf, "os", OSFile, "luna-os", "key2", osReuse, osSidecars(OSFile)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(b3.PartOutDir("os"), OSFile)); err == nil {
-		t.Fatal("reuse produced a file")
-	}
+
 	// build that produced nothing is an error
 	b4 := lunaCtx(t, "luna", "0.4.4")
 	if err := finishFile(b4, t.Logf, "os", OSFile, "luna-os", "key3", osBuild, osSidecars(OSFile)); err == nil {
@@ -275,7 +217,7 @@ func TestOSSpecs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	image, err := osImageSpec(b, "deadbeef")
+	image, err := osImageSpec(b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,8 +247,8 @@ func TestOSSpecs(t *testing.T) {
 	}
 	os.MkdirAll(filepath.Join(b.SrcDir, "luna", "os"), 0o755)
 	osdir := filepath.Join(b.SrcDir, "luna", "os") + ":/luna/os:ro"
-	check("rootfs", rootfs, "luna-os", osdir, engine.VolumePrefix+"luna-os-rootfs:/rootfs", engine.VolumePrefix+"luna-os-cache:/cache", "/in/lunad:ro", "/in/console:ro", "LUNAD_BIN")
-	check("image", image, "luna-os", osdir, engine.VolumePrefix+"luna-os-rootfs:/rootfs", b.PartOutDir("os")+":/out", "OS_INPUT_HASH")
+	check("rootfs", rootfs, "luna-os", osdir, engine.VolumePrefix+"luna-os-rootfs:/rootfs", engine.VolumePrefix+"luna-os-cache:/cache", "/in/lunad:ro", "/in/console:ro", "/in/packs:ro", "LUNAD_BIN")
+	check("image", image, "luna-os", osdir, engine.VolumePrefix+"luna-os-rootfs:/rootfs", b.PartOutDir("os")+":/out")
 	check("live", live, "luna-iso", osdir, engine.VolumePrefix+"luna-iso-cache:/cache", "LIVE_ONLY")
 	check("iso", iso, "luna-iso", osdir, payload+":/payload:ro", b.PartOutDir("installer")+":/out", engine.VolumePrefix+"luna-iso-cache:/cache")
 	if strings.Join(rootfs.Cmd, " ") != "sh /luna/os/build/rootfs.sh" || strings.Join(image.Cmd, " ") != "sh /luna/os/build/image.sh" ||

@@ -22,12 +22,35 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 
 // Heavy viewers and editors (CodeMirror, forms, diagrams, whiteboard, office)
 // load only when a file of that kind is opened.
-const TextFileEditor = lazy(() => import("./TextFileEditor.jsx"));
-const FormBuilder = lazy(() => import("./forms/FormBuilder.jsx"));
+const loadTextFileEditor = () => import("./TextFileEditor.jsx");
+const loadFormBuilder = () => import("./forms/FormBuilder.jsx");
+const loadOfficeEditor = () => import("./office/OfficeEditor.jsx");
+const loadDiagramEditor = () => import("./diagram/DiagramEditor.jsx");
+const loadWhiteboardEditor = () => import("./whiteboard/WhiteboardEditor.jsx");
+const TextFileEditor = lazy(loadTextFileEditor);
+const FormBuilder = lazy(loadFormBuilder);
 const KindViewer = lazy(() => import("./viewers/KindViewer.jsx"));
-const OfficeEditor = lazy(() => import("./office/OfficeEditor.jsx"));
-const DiagramEditor = lazy(() => import("./diagram/DiagramEditor.jsx"));
-const WhiteboardEditor = lazy(() => import("./whiteboard/WhiteboardEditor.jsx"));
+const OfficeEditor = lazy(loadOfficeEditor);
+const DiagramEditor = lazy(loadDiagramEditor);
+const WhiteboardEditor = lazy(loadWhiteboardEditor);
+
+// The frame holds back the editor until its opening fade is over, so the
+// editor's code is fetched the moment a file is opened instead of when the
+// editor finally mounts.
+const loadEditorFor = (kind) =>
+  kind === "office" ? loadOfficeEditor
+    : kind === "form" ? loadFormBuilder
+      : kind === "diagram" ? loadDiagramEditor
+        : kind === "whiteboard" ? loadWhiteboardEditor
+          : loadTextFileEditor;
+
+// Text and Markdown are the commonest files to open. Fetch their editor while
+// the browser is idle so the first open doesn't wait on the download.
+if (typeof window !== "undefined") {
+  const warm = () => void loadTextFileEditor().catch(() => {});
+  if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(warm, { timeout: 4000 });
+  else setTimeout(warm, 2000);
+}
 
 function ViewerFallback() {
   return (
@@ -37,8 +60,8 @@ function ViewerFallback() {
   );
 }
 
-/** Match `fullscreen-overlay-out` duration in index.css. */
-const FULLSCREEN_EXIT_MS = 250;
+/** Match `file-viewer-out` duration in index.css (the fade the editor shell uses). */
+const FULLSCREEN_EXIT_MS = 150;
 
 function prefersReducedMotion() {
   return typeof window !== "undefined"
@@ -256,7 +279,24 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
 
   const canFullView = kind === "image" || kind === "video";
 
-  const editorActive = open && fullscreenEditor;
+  // The parent's `open` follows the URL, which lands a router transition
+  // later. Dismissing here as well starts the exit fade in the click's own
+  // commit instead of after that round trip. The flag is scoped to the open
+  // session (`previewKey` changes once the parent closes it).
+  const [dismissedKey, setDismissedKey] = useState(/** @type {string|null} */ (null));
+  const dismissed = dismissedKey === previewKey;
+  if (dismissedKey !== null && !dismissed) setDismissedKey(null);
+  const handleClose = useCallback(() => {
+    setDismissedKey(previewKey);
+    onClose();
+  }, [previewKey, onClose]);
+
+  const editorActive = open && fullscreenEditor && !dismissed;
+  // Start the editor's download as soon as the file opens (see loadEditorFor).
+  const editorKindKey = isOffice ? "office" : isForm ? "form" : isDiagram ? "diagram" : isWhiteboard ? "whiteboard" : "text";
+  useEffect(() => {
+    if (editorActive) void loadEditorFor(editorKindKey)().catch(() => {});
+  }, [editorActive, editorKindKey]);
   // Fullscreen shells animate out after `open`/`expanded` drop — keep them
   // mounted until the exit keyframes finish.
   const editorOverlay = useOverlayPresence(editorActive);
@@ -284,7 +324,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
         canWrite={canWrite}
         onShare={onShare}
         editorKind={frameView.isOffice ? "office" : frameView.isForm ? "form" : frameView.isDiagram ? "diagram" : frameView.isWhiteboard ? "whiteboard" : "text"}
-        onClose={onClose}
+        onClose={handleClose}
       >
         {({ onRegisterSave, onSaveStateChange, requestClose }) => (
           <Suspense fallback={null}>
@@ -295,7 +335,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               path={frameView.path}
               canWrite={canWrite}
               onSaved={onSaved}
-              onClose={onClose}
+              onClose={handleClose}
               onPresenceChange={setEditorPresence}
               onSaveStateChange={onSaveStateChange}
               onRegisterSave={onRegisterSave}
@@ -308,7 +348,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               path={frameView.path}
               canWrite={canWrite}
               onSaved={onSaved}
-              onClose={onClose}
+              onClose={handleClose}
               onPresenceChange={setEditorPresence}
               onSaveStateChange={onSaveStateChange}
               onRegisterSave={onRegisterSave}
@@ -320,7 +360,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               path={frameView.path}
               canWrite={canWrite}
               onSaved={onSaved}
-              onClose={onClose}
+              onClose={handleClose}
               onPresenceChange={setEditorPresence}
               onSaveStateChange={onSaveStateChange}
               onRegisterSave={onRegisterSave}

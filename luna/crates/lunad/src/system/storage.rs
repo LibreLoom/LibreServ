@@ -1,9 +1,10 @@
 //! What is using Luna's own disk, and the parts of it that can be cleared.
 //!
-//! Luna keeps its software, its settings, the editor packs and the temporary
-//! copies of documents being edited on one small built-in disk. The packs are
-//! the bulk of it and can't go (the editors need them); the temporary copies
-//! and half-downloaded updates are the parts that grow and can be swept.
+//! Luna's software — the daemon, cloudflared, the editor packs — ships in the
+//! OS image and takes no room here. This disk holds the settings, the
+//! temporary copies of documents being edited and the logs; the temporary
+//! copies and half-downloaded updates are the parts that grow and can be
+//! swept.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -49,27 +50,6 @@ struct Part {
 }
 
 const PARTS: &[Part] = &[
-    Part {
-        id: "office_pack",
-        label: "Office editor",
-        paths: &["eurooffice"],
-        files: false,
-        removable: false,
-    },
-    Part {
-        id: "diagram_pack",
-        label: "Diagram editor",
-        paths: &["drawio"],
-        files: false,
-        removable: false,
-    },
-    Part {
-        id: "software",
-        label: "Luna's software",
-        paths: &["bin"],
-        files: false,
-        removable: false,
-    },
     Part {
         id: "temporary",
         label: "Temporary files from open documents",
@@ -295,8 +275,10 @@ mod tests {
     }
 
     #[test]
-    fn names_the_packs_and_leaves_out_what_is_not_there() {
+    fn lists_only_data_and_leaves_out_what_is_not_there() {
         let d = dir();
+        // An old box still carries the packs on its data partition. They are
+        // software, not data, so they are not reported as Luna's disk use.
         std::fs::create_dir_all(d.path().join("eurooffice/sdkjs")).unwrap();
         std::fs::write(d.path().join("eurooffice/sdkjs/a.js"), vec![0u8; 4096]).unwrap();
         std::fs::create_dir_all(d.path().join("logs")).unwrap();
@@ -304,22 +286,19 @@ mod tests {
 
         let report = report(d.path());
         let ids: Vec<&str> = report.items.iter().map(|i| i.id.as_str()).collect();
-        assert!(ids.contains(&"office_pack"), "{ids:?}");
         assert!(ids.contains(&"logs"), "{ids:?}");
         assert!(
-            !ids.contains(&"drawio"),
-            "no drawio folder, so no row: {ids:?}"
+            !ids.contains(&"office_pack") && !ids.contains(&"software"),
+            "software lives in the image, not on the data partition: {ids:?}"
         );
-        let pack = report.items.iter().find(|i| i.id == "office_pack").unwrap();
-        assert!(pack.bytes >= 4096);
-        assert!(!pack.removable);
+        assert!(!ids.contains(&"drawio"), "no drawio folder: {ids:?}");
     }
 
     #[test]
     fn items_are_biggest_first() {
         let d = dir();
-        std::fs::create_dir_all(d.path().join("eurooffice")).unwrap();
-        std::fs::write(d.path().join("eurooffice/big"), vec![0u8; 200_000]).unwrap();
+        std::fs::create_dir_all(d.path().join("updates")).unwrap();
+        std::fs::write(d.path().join("updates/big"), vec![0u8; 200_000]).unwrap();
         std::fs::create_dir_all(d.path().join("logs")).unwrap();
         std::fs::write(d.path().join("logs/small"), vec![0u8; 4096]).unwrap();
 

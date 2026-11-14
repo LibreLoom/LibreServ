@@ -286,13 +286,9 @@ mod tests {
         }
     }
     struct NoopInstall;
-    impl Installer for NoopInstall {
-        fn install_lunad(&self, _bytes: &[u8]) -> Result<(), UpdateError> {
-            Ok(())
-        }
-    }
+    impl Installer for NoopInstall {}
 
-    const FEED_JSON: &str = r#"{"format":1,"unit":"luna","channel":"stable","version":"0.9.0","published":"2026-10-12T14:03:00Z","notes":"hello luna","parts":[{"name":"lunad","os":"linux","arch":"ARCH","file":"lunad-linux-amd64-musl","size":3,"sha256":"3a2d1f1ad8a24b0e0cbd9f1fae1f8bbd0c4b3c6c1d4b6f6c8b1a1d1f1f1f1f1f","urls":["http://dl.test/lunad"]}]}"#;
+    const FEED_JSON: &str = r#"{"format":1,"unit":"luna","channel":"stable","version":"0.9.0","published":"2026-10-12T14:03:00Z","notes":"hello luna","parts":[{"name":"os","os":"linux","arch":"ARCH","file":"luna-os-x86_64.img.xz","size":3,"sha256":"3a2d1f1ad8a24b0e0cbd9f1fae1f8bbd0c4b3c6c1d4b6f6c8b1a1d1f1f1f1f1f","urls":["http://dl.test/os"]}]}"#;
 
     fn app() -> (axum::Router, String, crate::AppState) {
         let arch = match std::env::consts::ARCH {
@@ -379,9 +375,6 @@ mod tests {
 
     struct FailedInstall(std::sync::Mutex<Option<String>>);
     impl Installer for FailedInstall {
-        fn install_lunad(&self, _bytes: &[u8]) -> Result<(), UpdateError> {
-            Ok(())
-        }
         fn read_os_failed(&self) -> Option<String> {
             self.0.lock().unwrap().clone().map(|_| "deadbeef".into())
         }
@@ -637,9 +630,11 @@ mod tests {
         assert!(crate::system::updates::load_settings(&state.db.lock().unwrap()).is_some());
 
         // …then restore this binary's defaults: the stored row goes away.
+        // `keys: []` says "use the built-in release key"; omitting the field
+        // would keep the keys Luna is using now, which is not a reset.
         let d = crate::system::updates::default_settings();
         let body = format!(
-            r#"{{"feed_url":"{}","channel":"{}"}}"#,
+            r#"{{"feed_url":"{}","channel":"{}","keys":[]}}"#,
             d.feed_url, d.channel
         );
         let response = router.oneshot(put(&token, &body)).await.unwrap();

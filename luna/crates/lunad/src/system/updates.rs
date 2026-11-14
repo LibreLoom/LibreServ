@@ -1,11 +1,14 @@
-//! Software updates from the signed Luna feed (`luna/<channel>.json`).
+//! System updates from the signed Luna feed (`luna/<channel>.json`).
 //!
 //! The feed format and its rules live in `luna_feed` (spec:
-//! `infra/ci-source/internal/feed/README.md`). Two parts matter here: `lunad` (the daemon,
-//! installed under LUNA_DATA) and `os` (an `.img.xz` slot image). When the
-//! OS part's SHA256 differs from the hash stored on LUNA_DATA, that image is
-//! decompressed onto the inactive A/B slot in the same Install update
-//! (tryboot). The Settings UI does not differentiate OS vs software.
+//! `infra/ci-source/internal/feed/README.md`). A luna release has one part,
+//! `os`: an `.img.xz` slot image holding the whole system (lunad,
+//! luna-console, cloudflared and the editor packs). When its SHA256 differs
+//! from the hash stored on LUNA_DATA, the image is decompressed onto the
+//! inactive A/B slot (tryboot) and the box reboots into it.
+//!
+//! Nothing is installed onto the data partition: it holds data only. There is
+//! no daemon-only update, because the daemon is part of the image.
 //!
 //! Apply is tap-to-update only — never silent.
 
@@ -39,19 +42,9 @@ const OS_FAILED_FILE: &str = "os-image.failed";
 const BOOT_OK_MARKER: &str = "/run/luna/boot-ok";
 /// Newest feed `published` seen per unit + channel (replay protection).
 const FEED_SEEN_FILE: &str = "update-feed-seen.json";
-/// Feed part carrying the editor packs as one tar.xz whose top-level
-/// entries are the pack folders (`eurooffice/`, `drawio/`). Optional: feeds
-/// without it leave the packs on the device alone.
-const PACKS_PART: &str = "packs";
-/// Data-dir marker holding the sha256 of the packs blob applied last, so the
-/// same blob is never unpacked twice.
-const PACKS_MARKER: &str = "packs.sha256";
-/// The only pack folders a packs blob may carry. Anything else in the
-/// archive refuses the whole blob before a file lands on disk.
-const KNOWN_PACKS: [&str; 2] = ["eurooffice", "drawio"];
 /// OS slot images are streamed to disk, never held in RAM. Cap (on the
-/// decompressed image) matches the 1280 MiB A/B slot plus a little headroom.
-const OS_IMAGE_MAX_BYTES: u64 = 1536 * 1024 * 1024;
+/// decompressed image) matches the 2048 MiB A/B slot plus a little headroom.
+const OS_IMAGE_MAX_BYTES: u64 = 2304 * 1024 * 1024;
 
 /// Committed Luna minisign public key (`keys/luna.minisign.pub`).
 /// This is Luna’s production trust root (separate from Sol).
@@ -109,6 +102,18 @@ pub struct UpdateInfo {
     /// True when applying will (or did) write an OS slot and reboot the box.
     #[serde(default)]
     pub reboot_required: bool,
+    /// The feed's version is newer than the running one. Absent = newer.
+    #[serde(default = "true_value")]
+    pub feed_is_newer: bool,
+    /// The offer follows a change of update source: this build is what the
+    /// source the Admin set publishes, not necessarily an upgrade. Stays set
+    /// until that build is installed.
+    #[serde(default)]
+    pub from_new_source: bool,
+}
+
+fn true_value() -> bool {
+    true
 }
 
 pub trait HttpGet: Send + Sync {
@@ -126,28 +131,12 @@ pub trait HttpGet: Send + Sync {
 }
 
 pub trait Installer: Send + Sync {
-    fn install_lunad(&self, bytes: &[u8]) -> Result<(), UpdateError>;
-
-    /// Install from a file already streamed to disk. Default reads into memory
-    /// — production overrides this so a 2 GiB box never holds the binary in RAM.
-    fn install_lunad_file(&self, path: &Path) -> Result<(), UpdateError> {
-        let bytes = std::fs::read(path).map_err(|e| UpdateError::Other(e.to_string()))?;
-        self.install_lunad(&bytes)
-    }
-
     /// `bytes` is the whole `.img.xz` as published.
     fn install_os_image(&self, bytes: &[u8]) -> Result<(), UpdateError> {
         let _ = bytes;
         Err(UpdateError::Other(
             "This Luna cannot apply an OS image update here.".into(),
         ))
-    }
-
-    /// Apply the packs blob: unpack it over the staged folders, then swap each
-    /// known pack into place under `data_dir`. Default: this Luna keeps no
-    /// packs (dev builds without the editor).
-    fn install_packs_file(&self, _blob: &Path, _sha256: &str) -> Result<(), UpdateError> {
-        Ok(())
     }
 
     /// Stream-decompress the `.img.xz` at `path` onto the inactive A/B partition.
@@ -264,8 +253,10 @@ impl HttpGet for UreqHttp {
     }
 }
 
-/// Install lunad under `$data_dir/bin/` (LUNA_DATA) and OS images into the
-/// inactive A/B slot. OpenRC's `luna-run` prefers the data-dir binary.
+/// Install OS images into the inactive A/B slot.
+///
+/// Nothing else is installed: lunad itself, cloudflared and the editor packs
+/// all live in the OS image, so an update is an image update.
 pub struct DataDirInstaller {
     pub data_dir: PathBuf,
 }
@@ -280,37 +271,9 @@ impl DataDirInstaller {
     fn hash_path(&self) -> PathBuf {
         self.data_dir.join(OS_HASH_FILE)
     }
-
-    fn lunad_path(&self) -> PathBuf {
-        self.data_dir.join("bin").join("lunad")
-    }
 }
 
 impl Installer for DataDirInstaller {
-    fn install_lunad(&self, bytes: &[u8]) -> Result<(), UpdateError> {
-        let bin_dir = self.data_dir.join("bin");
-        std::fs::create_dir_all(&bin_dir).map_err(|e| UpdateError::Other(e.to_string()))?;
-        let exec = self.lunad_path();
-        let tmp = exec.with_extension("update-tmp");
-        {
-            let mut f =
-                std::fs::File::create(&tmp).map_err(|e| UpdateError::Other(e.to_string()))?;
-            f.write_all(bytes)
-                .map_err(|e| UpdateError::Other(e.to_string()))?;
-            f.sync_all()
-                .map_err(|e| UpdateError::Other(e.to_string()))?;
-        }
-        swap_exec(&exec, &tmp)
-    }
-
-    fn install_lunad_file(&self, src: &Path) -> Result<(), UpdateError> {
-        let bin_dir = self.data_dir.join("bin");
-        std::fs::create_dir_all(&bin_dir).map_err(|e| UpdateError::Other(e.to_string()))?;
-        let exec = self.lunad_path();
-        let staged = stage_beside(src, &exec)?;
-        swap_exec(&exec, &staged)
-    }
-
     fn install_os_image(&self, bytes: &[u8]) -> Result<(), UpdateError> {
         let (part, inactive) = inactive_slot_device()?;
         write_os_slot(&RealSlotOps, &part, inactive, || {
@@ -329,30 +292,6 @@ impl Installer for DataDirInstaller {
         write_os_slot(&RealSlotOps, &part, inactive, || {
             decompress_xz_streaming(src, &part, OS_IMAGE_MAX_BYTES)
         })
-    }
-
-    /// Unpack the packs blob and swap each pack folder into place under the
-    /// data dir. The feed's sha256 for the blob decides skip: same hash,
-    /// already applied, nothing touched.
-    fn install_packs_file(&self, blob: &Path, sha256: &str) -> Result<(), UpdateError> {
-        // Lowercased like the OS slot hash: the download check is
-        // case-insensitive, so the marker comparison must be too.
-        let sha256 = sha256.to_lowercase();
-        if sha256.is_empty()
-            || read_trimmed(&self.data_dir.join(PACKS_MARKER)).as_deref() == Some(sha256.as_str())
-        {
-            return Ok(());
-        }
-        let staging = self.data_dir.join(".packs-staging");
-        let _ = std::fs::remove_dir_all(&staging);
-        std::fs::create_dir_all(&staging).map_err(|e| UpdateError::Other(e.to_string()))?;
-        let applied = (|| {
-            let packs = unpack_packs(blob, &staging)?;
-            swap_packs(&staging, &packs, &self.data_dir)
-        })();
-        let _ = std::fs::remove_dir_all(&staging);
-        applied?;
-        write_atomic(&self.data_dir.join(PACKS_MARKER), &sha256)
     }
 
     fn staging_dir(&self) -> PathBuf {
@@ -441,101 +380,6 @@ impl Installer for DataDirInstaller {
         std::fs::rename(&tmp, &path).map_err(|e| UpdateError::Other(e.to_string()))?;
         Ok(())
     }
-}
-
-fn chmod_755(path: &Path) -> Result<(), UpdateError> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(path)
-            .map_err(|e| UpdateError::Other(e.to_string()))?
-            .permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(path, perms).map_err(|e| UpdateError::Other(e.to_string()))?;
-    }
-    Ok(())
-}
-
-/// Place `src` next to `dest` as `dest.update-tmp`, copying across devices
-/// when rename would fail.
-fn stage_beside(src: &Path, dest: &Path) -> Result<PathBuf, UpdateError> {
-    let staged = dest.with_extension("update-tmp");
-    if src == staged {
-        return Ok(staged);
-    }
-    if std::fs::rename(src, &staged).is_err() {
-        std::fs::copy(src, &staged).map_err(|e| UpdateError::Other(e.to_string()))?;
-        let _ = std::fs::remove_file(src);
-    }
-    Ok(staged)
-}
-
-/// Swap `tmp` into `exec` with renameat2 when possible so a power cut cannot
-/// leave no binary at `exec`.
-fn swap_exec(exec: &Path, tmp: &Path) -> Result<(), UpdateError> {
-    chmod_755(tmp)?;
-    let backup = PathBuf::from(format!("{}.old", exec.display()));
-    if exec.exists() {
-        #[cfg(unix)]
-        {
-            use std::ffi::CString;
-            use std::os::unix::ffi::OsStrExt;
-            let to_c = |p: &Path| -> Result<CString, UpdateError> {
-                CString::new(p.as_os_str().as_bytes())
-                    .map_err(|_| UpdateError::Other("NUL byte in binary path".into()))
-            };
-            let exec_c = to_c(exec)?;
-            let tmp_c = to_c(tmp)?;
-            #[cfg(target_os = "linux")]
-            let rc = {
-                // musl 1.2.x has SYS_renameat2 but no renameat2() wrapper; use syscall.
-                const RENAME_EXCHANGE: libc::c_uint = 2;
-                unsafe {
-                    libc::syscall(
-                        libc::SYS_renameat2,
-                        libc::AT_FDCWD,
-                        exec_c.as_ptr(),
-                        libc::AT_FDCWD,
-                        tmp_c.as_ptr(),
-                        RENAME_EXCHANGE,
-                    )
-                }
-            };
-            #[cfg(target_os = "macos")]
-            let rc = {
-                // macOS: same atomic swap via renamex_np(RENAME_SWAP).
-                unsafe { libc::renamex_np(exec_c.as_ptr(), tmp_c.as_ptr(), libc::RENAME_SWAP) }
-            };
-            #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
-            let rc = -1;
-            if rc == 0 {
-                let _ = std::fs::remove_file(&backup);
-                let _ = std::fs::rename(tmp, &backup);
-            } else {
-                std::fs::rename(exec, &backup).map_err(|e| UpdateError::Other(e.to_string()))?;
-                if let Err(e) = std::fs::rename(tmp, exec) {
-                    let _ = std::fs::rename(&backup, exec);
-                    return Err(UpdateError::Other(e.to_string()));
-                }
-            }
-        }
-        #[cfg(not(unix))]
-        {
-            std::fs::rename(exec, &backup).map_err(|e| UpdateError::Other(e.to_string()))?;
-            if let Err(e) = std::fs::rename(tmp, exec) {
-                let _ = std::fs::rename(&backup, exec);
-                return Err(UpdateError::Other(e.to_string()));
-            }
-        }
-    } else {
-        std::fs::rename(tmp, exec).map_err(|e| UpdateError::Other(e.to_string()))?;
-    }
-    if let Some(parent) = exec.parent()
-        && let Ok(dir) = std::fs::File::open(parent)
-    {
-        let _ = dir.sync_all();
-    }
-    Ok(())
 }
 
 /// What `settle_pending` decided.
@@ -819,58 +663,6 @@ fn decompress_xz_streaming(src: &Path, dest: &Path, max_bytes: u64) -> Result<()
         output.write_all(&buf[..n]).map_err(io)?;
     }
     output.sync_all().map_err(io)?;
-    Ok(())
-}
-
-/// Unpack the packs blob into `staging` and name the packs it carries. Only
-/// the two known pack folders are ever swapped into the data dir — anything
-/// else in the archive lands in `staging` and is discarded with it.
-fn unpack_packs(blob: &Path, staging: &Path) -> Result<Vec<String>, UpdateError> {
-    let io = |e: std::io::Error| UpdateError::Other(e.to_string());
-    let file = std::fs::File::open(blob).map_err(io)?;
-    let buf = std::io::BufReader::with_capacity(256 * 1024, file);
-    let mut archive = tar::Archive::new(lzma_rust2::XzReader::new(buf, false));
-    archive
-        .unpack(staging)
-        .map_err(|e| UpdateError::Other(format!("the packs could not be unpacked: {e}")))?;
-    let mut packs: Vec<String> = Vec::new();
-    for name in KNOWN_PACKS {
-        // Only a real directory may be swapped in — a symlink named like a
-        // pack is not one.
-        if let Ok(meta) = std::fs::symlink_metadata(staging.join(name)) {
-            if meta.is_dir() {
-                packs.push(name.to_string());
-            }
-        }
-    }
-    if packs.is_empty() {
-        return Err(UpdateError::Other(
-            "the packs blob carried no pack Luna knows".into(),
-        ));
-    }
-    Ok(packs)
-}
-
-/// Swap the packed folders in `staging` into the data dir, one rename each:
-/// the old pack steps aside first, so a swap that fails midway leaves the
-/// previous pack intact.
-fn swap_packs(staging: &Path, packs: &[String], data_dir: &Path) -> Result<(), UpdateError> {
-    for pack in packs {
-        let staged = staging.join(pack);
-        let dest = data_dir.join(pack);
-        if dest.exists() {
-            let old = data_dir.join(format!(".{pack}-old"));
-            let _ = std::fs::remove_dir_all(&old);
-            std::fs::rename(&dest, &old).map_err(|e| UpdateError::Other(e.to_string()))?;
-            if let Err(e) = std::fs::rename(&staged, &dest) {
-                let _ = std::fs::rename(&old, &dest);
-                return Err(UpdateError::Other(e.to_string()));
-            }
-            let _ = std::fs::remove_dir_all(&old);
-        } else if let Err(e) = std::fs::rename(&staged, &dest) {
-            return Err(UpdateError::Other(e.to_string()));
-        }
-    }
     Ok(())
 }
 
@@ -1299,10 +1091,7 @@ pub fn validate_settings_against(
 /// What one successful feed read tells us.
 struct Resolved {
     info: UpdateInfo,
-    lunad: Part,
     os: Option<Part>,
-    packs: Option<Part>,
-    lunad_newer: bool,
     os_needed: bool,
 }
 
@@ -1311,6 +1100,11 @@ pub struct UpdateService {
     installer: Box<dyn Installer>,
     active: Mutex<ActiveSource>,
     cache: Mutex<Option<(Instant, UpdateInfo)>>,
+    /// Set when the admin points Luna at a different feed address: the next
+    /// check takes that source at its word instead of comparing it with what
+    /// the previous source published, and offers its build even when its
+    /// version is not newer. Cleared once that build is installed.
+    adopt_source: Mutex<bool>,
 }
 
 impl UpdateService {
@@ -1366,6 +1160,7 @@ impl UpdateService {
             installer,
             active: Mutex::new(active_from(feed_url, channel, keys)),
             cache: Mutex::new(None),
+            adopt_source: Mutex::new(false),
         }
     }
 
@@ -1427,8 +1222,14 @@ impl UpdateService {
             keys
         };
         warn_on_custom_keys(&keys);
+        let moved = self.active.lock().unwrap().feed_url != feed_url;
         *self.active.lock().unwrap() = active_from(feed_url, channel, keys);
         *self.cache.lock().unwrap() = None;
+        if moved {
+            // A different feed address is a different lineage of releases, not
+            // a replay of this one. Offer what it publishes straight away.
+            *self.adopt_source.lock().unwrap() = true;
+        }
     }
 
     pub fn check(&self, current_version: &str, force: bool) -> Result<UpdateInfo, UpdateError> {
@@ -1471,6 +1272,11 @@ impl UpdateService {
             .installer
             .read_feed_seen(UNIT, &src.channel)
             .unwrap_or_default();
+        let adopt = *self.adopt_source.lock().unwrap();
+        // The admin pointed Luna at a different feed address: don't hold it to
+        // the newest publish date recorded for the old one, and offer its
+        // build even when the version isn't higher.
+        let newest_seen = if adopt { "" } else { seen.as_str() };
         let verified = feed::check(
             &body,
             &sig,
@@ -1478,16 +1284,16 @@ impl UpdateService {
             &feed::Request {
                 unit: UNIT,
                 channel: &src.channel,
-                part: "lunad",
+                part: "os",
                 os: FEED_OS,
                 arch,
                 installed_version: current_version,
-                newest_published_seen: &seen,
+                newest_published_seen: newest_seen,
             },
         )
         .map_err(map_feed_error)?;
 
-        if verified.feed.published.as_str() > seen.as_str()
+        if (adopt || verified.feed.published.as_str() > seen.as_str())
             && let Err(e) =
                 self.installer
                     .write_feed_seen(UNIT, &src.channel, &verified.feed.published)
@@ -1497,8 +1303,10 @@ impl UpdateService {
 
         let os = feed::select_part(&verified.feed.parts, "os", FEED_OS, arch).cloned();
         // Never move to an older release: an OS image only counts when the
-        // feed is not behind what is running.
-        let os_needed = !verified.older
+        // feed is not behind what is running. A source the admin just chose is
+        // taken as-is, so its image counts even when its version is lower.
+        let feed_offer = verified.newer || adopt;
+        let os_needed = (!verified.older || adopt)
             && match (&os, self.installer.read_os_hash()) {
                 (Some(part), Some(local)) => {
                     let same =
@@ -1516,18 +1324,17 @@ impl UpdateService {
         let info = UpdateInfo {
             current_version: current_version.to_string(),
             latest_version: verified.feed.version.clone(),
-            update_available: verified.newer || os_needed,
+            update_available: feed_offer || os_needed,
             release_notes: verified.feed.notes.clone(),
             checksum: verified.part.sha256.clone(),
             binary_name: verified.part.file.clone(),
             reboot_required: os_needed,
+            feed_is_newer: verified.newer,
+            from_new_source: adopt,
         };
         Ok(Resolved {
             info,
-            lunad: verified.part,
             os,
-            packs: feed::select_part(&verified.feed.parts, PACKS_PART, FEED_OS, arch).cloned(),
-            lunad_newer: verified.newer,
             os_needed,
         })
     }
@@ -1537,16 +1344,6 @@ impl UpdateService {
         let mut info = resolved.info.clone();
         if !info.update_available {
             return Err(UpdateError::NoneAvailable);
-        }
-
-        if resolved.lunad_newer {
-            let max = crate::budget::limits().update_download_bytes;
-            let tmp = self.download_verified(&resolved.lunad, max)?;
-            if let Err(e) = self.installer.install_lunad_file(&tmp) {
-                let _ = std::fs::remove_file(&tmp);
-                return Err(e);
-            }
-            let _ = std::fs::remove_file(&tmp);
         }
 
         if resolved.os_needed
@@ -1565,17 +1362,6 @@ impl UpdateService {
             info.reboot_required = true;
         } else {
             info.reboot_required = false;
-        }
-
-        // Editor packs ride the same feed: download once, verify, unpack, then
-        // swap into the data dir. A failed swap leaks no partial pack — each
-        // pack is replaced by a single rename from the staged copy.
-        if let Some(packs) = &resolved.packs {
-            let max = crate::budget::limits().update_download_bytes;
-            let tmp = self.download_verified(packs, max)?;
-            let applied = self.installer.install_packs_file(&tmp, &packs.sha256);
-            let _ = std::fs::remove_file(&tmp);
-            applied?;
         }
 
         *self.cache.lock().unwrap() = None;
@@ -1696,7 +1482,6 @@ mod tests {
     /// Records what the service installed and remembers state in memory.
     #[derive(Default)]
     struct RecInstaller {
-        lunad: Mutex<Vec<u8>>,
         os: Mutex<Vec<u8>>,
         os_hash: Mutex<Option<String>>,
         os_pending: Mutex<Option<String>>,
@@ -1705,10 +1490,6 @@ mod tests {
     }
 
     impl Installer for Arc<RecInstaller> {
-        fn install_lunad(&self, bytes: &[u8]) -> Result<(), UpdateError> {
-            *self.lunad.lock().unwrap() = bytes.to_vec();
-            Ok(())
-        }
         fn install_os_image(&self, bytes: &[u8]) -> Result<(), UpdateError> {
             *self.os.lock().unwrap() = bytes.to_vec();
             Ok(())
@@ -1757,15 +1538,14 @@ mod tests {
             .into_bytes()
     }
 
-    /// A feed with a lunad part and an optional os part, both downloadable
-    /// from `http://dl.test/<file>`.
+    /// A feed with the one part a Luna release ships: the OS image, which
+    /// carries the daemon and the editor packs inside it.
     struct Release<'a> {
         version: &'a str,
         published: &'a str,
         channel: &'a str,
         unit: &'a str,
-        lunad: &'a [u8],
-        os: Option<&'a [u8]>,
+        os: &'a [u8],
     }
 
     impl Default for Release<'_> {
@@ -1775,8 +1555,7 @@ mod tests {
                 published: "2026-10-12T14:03:00Z",
                 channel: "stable",
                 unit: "luna",
-                lunad: b"lunad-v0.4.0",
-                os: None,
+                os: b"os-image-v1",
             }
         }
     }
@@ -1784,18 +1563,11 @@ mod tests {
     impl Release<'_> {
         fn feed_json(&self) -> String {
             let arch = feed_arch();
-            let mut parts = vec![format!(
-                r#"{{"name":"lunad","os":"linux","arch":"{arch}","file":"lunad-linux-amd64-musl","size":{},"sha256":"{}","urls":["http://dl.test/lunad"]}}"#,
-                self.lunad.len(),
-                sha(self.lunad)
+            let parts = [format!(
+                r#"{{"name":"os","os":"linux","arch":"{arch}","file":"luna-os-x86_64.img.xz","size":{},"sha256":"{}","urls":["http://dl.test/os"]}}"#,
+                self.os.len(),
+                sha(self.os)
             )];
-            if let Some(os) = self.os {
-                parts.push(format!(
-                    r#"{{"name":"os","os":"linux","arch":"{arch}","file":"luna-os-x86_64.img.xz","size":{},"sha256":"{}","urls":["http://dl.test/os"]}}"#,
-                    os.len(),
-                    sha(os)
-                ));
-            }
             format!(
                 r#"{{"format":1,"unit":"{}","channel":"{}","version":"{}","published":"{}","notes":"notes for {}","parts":[{}]}}"#,
                 self.unit,
@@ -1823,10 +1595,7 @@ mod tests {
             let mut map = HashMap::new();
             map.insert(format!("{FEED}/luna/stable.json"), (200, body.clone()));
             map.insert(format!("{FEED}/luna/stable.json.minisig"), (200, sig));
-            map.insert("http://dl.test/lunad".into(), (200, self.lunad.to_vec()));
-            if let Some(os) = self.os {
-                map.insert("http://dl.test/os".into(), (200, os.to_vec()));
-            }
+            map.insert("http://dl.test/os".into(), (200, self.os.to_vec()));
             let installer = Arc::new(RecInstaller::default());
             let svc = UpdateService::with_keys(
                 Box::new(MapHttp { map }),
@@ -1874,8 +1643,8 @@ mod tests {
         assert!(info.update_available);
         assert!(!info.reboot_required);
         assert_eq!(info.release_notes, "notes for 0.4.0");
-        assert_eq!(info.checksum, sha(b"lunad-v0.4.0"));
-        assert_eq!(info.binary_name, "lunad-linux-amd64-musl");
+        assert_eq!(info.checksum, sha(b"os-image-v1"));
+        assert_eq!(info.binary_name, "luna-os-x86_64.img.xz");
     }
 
     #[test]
@@ -1893,12 +1662,13 @@ mod tests {
     }
 
     #[test]
-    fn apply_installs_the_lunad_part() {
+    fn apply_installs_the_os_image() {
         let (svc, inst) = Release::default().service();
+        *inst.os_hash.lock().unwrap() = Some("old-os-hash".into());
         let info = svc.apply("0.3.0").unwrap();
-        assert!(!info.reboot_required);
-        assert_eq!(*inst.lunad.lock().unwrap(), b"lunad-v0.4.0");
-        assert!(inst.os.lock().unwrap().is_empty());
+        // The image is the update, so applying one always asks for a reboot.
+        assert!(info.reboot_required);
+        assert_eq!(*inst.os.lock().unwrap(), b"os-image-v1");
     }
 
     #[test]
@@ -1911,11 +1681,11 @@ mod tests {
         let mut map = HashMap::new();
         map.insert(format!("{FEED}/luna/stable.json"), (200, body));
         map.insert(format!("{FEED}/luna/stable.json.minisig"), (200, sig));
-        map.insert(
-            "http://dl.test/lunad".into(),
-            (200, b"LUNAD-V0.4.0".to_vec()),
-        );
+        map.insert("http://dl.test/os".into(), (200, b"OS-IMAGE-V1".to_vec()));
         let installer = Arc::new(RecInstaller::default());
+        // A box always records the image it runs; without one Luna never
+        // re-flashes (it must not be surprised by an update it cannot explain).
+        *installer.os_hash.lock().unwrap() = Some("installed-image".into());
         let svc = UpdateService::with_keys(
             Box::new(MapHttp { map }),
             Box::new(installer.clone()),
@@ -1924,7 +1694,7 @@ mod tests {
             vec![pk.to_base64()],
         );
         assert_eq!(svc.apply("0.3.0").unwrap_err(), UpdateError::Checksum);
-        assert!(installer.lunad.lock().unwrap().is_empty());
+        assert!(installer.os.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -1937,7 +1707,7 @@ mod tests {
         let KeyPair { sk, .. } = KeyPair::generate_unencrypted_keypair().unwrap();
         let (svc, inst) = r.service_with(&sk, other);
         assert_eq!(svc.apply("0.3.0").unwrap_err(), UpdateError::BadSignature);
-        assert!(inst.lunad.lock().unwrap().is_empty());
+        assert!(inst.os.lock().unwrap().is_empty());
 
         let svc = UpdateService::with_keys(
             Box::new(MapHttp {
@@ -2027,19 +1797,18 @@ mod tests {
     #[test]
     fn os_part_with_a_different_hash_is_applied_and_hash_stored() {
         let r = Release {
-            os: Some(b"os-image-v2"),
+            os: b"os-image-v2",
             ..Release::default()
         };
         let (svc, inst) = r.service();
         *inst.os_hash.lock().unwrap() = Some("old-os-hash".into());
-        // Same lunad version, different OS hash: still an update that reboots.
+        // A different image than the one installed: an update that reboots.
         let info = svc.check("0.4.0", true).unwrap();
         assert!(info.update_available);
         assert!(info.reboot_required);
         let applied = svc.apply("0.4.0").unwrap();
         assert!(applied.reboot_required);
         assert_eq!(*inst.os.lock().unwrap(), b"os-image-v2");
-        assert!(inst.lunad.lock().unwrap().is_empty(), "lunad is not newer");
         // Not recorded as installed until the new slot has booted.
         assert_eq!(*inst.os_hash.lock().unwrap(), Some("old-os-hash".into()));
         assert_eq!(*inst.os_pending.lock().unwrap(), Some(sha(b"os-image-v2")));
@@ -2050,7 +1819,7 @@ mod tests {
     #[test]
     fn an_image_that_already_failed_to_boot_is_not_offered_again() {
         let r = Release {
-            os: Some(b"os-image-v2"),
+            os: b"os-image-v2",
             ..Release::default()
         };
         let (svc, inst) = r.service();
@@ -2294,7 +2063,7 @@ mod tests {
     #[test]
     fn os_part_is_skipped_when_hash_matches_unknown_or_feed_is_older() {
         let r = Release {
-            os: Some(b"os-image-v2"),
+            os: b"os-image-v2",
             ..Release::default()
         };
         let (svc, inst) = r.service();
@@ -2307,140 +2076,6 @@ mod tests {
         // Feed older than what is running: never go backwards, OS included.
         *inst.os_hash.lock().unwrap() = Some("different".into());
         assert!(!svc.check("0.5.0", true).unwrap().update_available);
-    }
-
-    #[test]
-    fn packs_blob_installs_packs_and_writes_the_marker() {
-        let dir = tempfile::tempdir().unwrap();
-        let blob = packs_blob(
-            dir.path(),
-            &[
-                ("eurooffice/sdkjs/word/sdk-all-min.js", b"office js"),
-                ("drawio/index.html", b"diagram html"),
-            ],
-        );
-        let inst = DataDirInstaller::new(dir.path());
-        inst.install_packs_file(&blob, "hash-1").unwrap();
-        assert_eq!(
-            std::fs::read(dir.path().join("eurooffice/sdkjs/word/sdk-all-min.js")).unwrap(),
-            b"office js"
-        );
-        assert_eq!(
-            std::fs::read(dir.path().join("drawio/index.html")).unwrap(),
-            b"diagram html"
-        );
-        assert_eq!(
-            read_trimmed(&dir.path().join(PACKS_MARKER)).as_deref(),
-            Some("hash-1")
-        );
-        assert!(!dir.path().join(".packs-staging").exists());
-    }
-
-    #[test]
-    fn packs_blob_replaces_the_old_pack_and_removes_the_aside_copy() {
-        let dir = tempfile::tempdir().unwrap();
-        let old = dir.path().join("eurooffice");
-        std::fs::create_dir_all(&old).unwrap();
-        std::fs::write(old.join("old.js"), b"old pack").unwrap();
-        let blob = packs_blob(dir.path(), &[("eurooffice/new.js", b"new pack")]);
-        let inst = DataDirInstaller::new(dir.path());
-        inst.install_packs_file(&blob, "hash-2").unwrap();
-        assert!(!old.join("old.js").exists(), "old pack swapped out");
-        assert_eq!(std::fs::read(old.join("new.js")).unwrap(), b"new pack");
-        assert!(!dir.path().join(".eurooffice-old").exists());
-    }
-
-    #[test]
-    fn packs_blob_is_skipped_when_the_marker_matches() {
-        let dir = tempfile::tempdir().unwrap();
-        let blob = packs_blob(dir.path(), &[("eurooffice/a.js", b"first")]);
-        let inst = DataDirInstaller::new(dir.path());
-        inst.install_packs_file(&blob, "Hash-1").unwrap();
-        // The marker is stored lowercase and compared case-insensitively, so
-        // even a different-case hash skips — a junk file is fine here.
-        assert_eq!(
-            read_trimmed(&dir.path().join(PACKS_MARKER)).as_deref(),
-            Some("hash-1")
-        );
-        let junk = dir.path().join("junk.tar.xz");
-        std::fs::write(&junk, b"not xz").unwrap();
-        inst.install_packs_file(&junk, "HASH-1").unwrap();
-        assert_eq!(
-            std::fs::read(dir.path().join("eurooffice/a.js")).unwrap(),
-            b"first"
-        );
-        // A different hash reinstalls from whatever blob it is handed.
-        let blob2 = packs_blob(dir.path(), &[("eurooffice/a.js", b"second")]);
-        inst.install_packs_file(&blob2, "hash-2").unwrap();
-        assert_eq!(
-            std::fs::read(dir.path().join("eurooffice/a.js")).unwrap(),
-            b"second"
-        );
-        assert_eq!(
-            read_trimmed(&dir.path().join(PACKS_MARKER)).as_deref(),
-            Some("hash-2")
-        );
-    }
-
-    #[test]
-    fn packs_blob_without_a_known_pack_is_refused_and_keeps_the_old_one() {
-        let dir = tempfile::tempdir().unwrap();
-        let old = dir.path().join("eurooffice");
-        std::fs::create_dir_all(&old).unwrap();
-        std::fs::write(old.join("a.js"), b"still here").unwrap();
-        let blob = packs_blob(dir.path(), &[("something-else/x", b"no")]);
-        let inst = DataDirInstaller::new(dir.path());
-        assert!(inst.install_packs_file(&blob, "hash-3").is_err());
-        assert_eq!(std::fs::read(old.join("a.js")).unwrap(), b"still here");
-        assert!(read_trimmed(&dir.path().join(PACKS_MARKER)).is_none());
-        assert!(!dir.path().join(".packs-staging").exists());
-    }
-
-    /// Build a tar.xz packs blob at `dir/packs.tar.xz` from `(path, bytes)`
-    /// file entries.
-    fn packs_blob(dir: &Path, entries: &[(&str, &[u8])]) -> PathBuf {
-        let mut tar = tar::Builder::new(Vec::new());
-        for (path, data) in entries {
-            let mut header = tar::Header::new_gnu();
-            header.set_size(data.len() as u64);
-            header.set_mode(0o644);
-            header.set_cksum();
-            tar.append_data(&mut header, path, *data).unwrap();
-        }
-        write_xz(dir, tar.into_inner().unwrap())
-    }
-
-    /// XZ-compress `raw` into `dir/packs.tar.xz`.
-    fn write_xz(dir: &Path, raw: Vec<u8>) -> PathBuf {
-        let out = dir.join("packs.tar.xz");
-        let mut w = lzma_rust2::XzWriter::new(
-            std::fs::File::create(&out).unwrap(),
-            lzma_rust2::XzOptions::with_preset(1),
-        )
-        .unwrap();
-        w.write_all(&raw).unwrap();
-        w.finish().unwrap();
-        out
-    }
-
-    #[test]
-    fn packs_blob_with_a_symlinked_pack_dir_is_refused() {
-        let dir = tempfile::tempdir().unwrap();
-        let old = dir.path().join("eurooffice");
-        std::fs::create_dir_all(&old).unwrap();
-        std::fs::write(old.join("a.js"), b"still here").unwrap();
-        let mut tar = tar::Builder::new(Vec::new());
-        let mut header = tar::Header::new_gnu();
-        header.set_entry_type(tar::EntryType::Symlink);
-        header.set_size(0);
-        header.set_mode(0o777);
-        tar.append_link(&mut header, "eurooffice", "/etc").unwrap();
-        let blob = write_xz(dir.path(), tar.into_inner().unwrap());
-        let inst = DataDirInstaller::new(dir.path());
-        assert!(inst.install_packs_file(&blob, "hash-4").is_err());
-        assert_eq!(std::fs::read(old.join("a.js")).unwrap(), b"still here");
-        assert!(read_trimmed(&dir.path().join(PACKS_MARKER)).is_none());
-        assert!(!dir.path().join(".packs-staging").exists());
     }
 
     #[test]
@@ -2476,11 +2111,6 @@ mod tests {
     fn data_dir_installer_remembers_hash_and_feed_dates() {
         let dir = tempfile::tempdir().unwrap();
         let inst = DataDirInstaller::new(dir.path());
-        inst.install_lunad(b"hello-lunad").unwrap();
-        assert_eq!(
-            std::fs::read(dir.path().join("bin/lunad")).unwrap(),
-            b"hello-lunad"
-        );
         inst.write_os_hash("abc123").unwrap();
         assert_eq!(inst.read_os_hash().as_deref(), Some("abc123"));
 
@@ -2645,8 +2275,9 @@ mod tests {
         // The acceptance case for pointing Luna at a staging feed.
         let (svc, inst) = Release::default().service();
         assert!(!svc.using_default_keys());
+        *inst.os_hash.lock().unwrap() = Some("installed-image".into());
         svc.apply("0.1.0").unwrap();
-        assert_eq!(*inst.lunad.lock().unwrap(), b"lunad-v0.4.0");
+        assert_eq!(*inst.os.lock().unwrap(), b"os-image-v1");
     }
 
     #[test]

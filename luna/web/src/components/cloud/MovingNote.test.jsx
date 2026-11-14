@@ -14,7 +14,7 @@ vi.mock("../../context/AuthContext.jsx", () => ({
 }));
 vi.mock("../files/ProtectSheet.jsx", () => ({ default: () => null }));
 
-const FULL_TEXT = /Connect storage is full, so the move is paused\. Nothing old was deleted\. Free up space or add storage/;
+const FULL_TEXT = /Connect storage is full, so the update is paused\. Nothing old was deleted\. Free up space or add storage/;
 
 function stubFetch(phrase) {
   vi.stubGlobal("fetch", vi.fn(async (url) => {

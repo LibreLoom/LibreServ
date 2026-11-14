@@ -12,6 +12,7 @@ const PHRASE = entropyToPhrase(newEntropy(12));
 
 /** The restore form asks for one word per box now. */
 async function typePhrase(user) {
+  await screen.findByLabelText("Word 1");
   const words = PHRASE.split(" ");
   for (let i = 0; i < words.length; i += 1) {
     await user.type(screen.getByLabelText(`Word ${i + 1}`), words[i]);

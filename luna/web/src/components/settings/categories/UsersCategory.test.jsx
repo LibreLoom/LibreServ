@@ -152,11 +152,9 @@ describe("UsersCategory", () => {
     const articles = within(cards).getAllByRole("article");
     expect(articles).toHaveLength(2);
 
-    expect(within(articles[0]).getByText("Name")).toBeTruthy();
+    // The phone card drops the column headings and shows the values only.
     expect(within(articles[0]).getByText("Demo")).toBeTruthy();
-    expect(within(articles[0]).getByText("Username")).toBeTruthy();
     expect(within(articles[0]).getByText("demouser")).toBeTruthy();
-    expect(within(articles[0]).getByText("Role")).toBeTruthy();
     expect(within(articles[0]).getByText("Admin")).toBeTruthy();
     expect(within(articles[0]).getByLabelText(/What Admin means/i)).toBeTruthy();
 
@@ -415,7 +413,7 @@ describe("UsersCategory", () => {
     const user = userEvent.setup();
     renderPage();
 
-    expect(screen.getByRole("link", { name: /Edit Demo/i })).toHaveAttribute("href", "/settings#security");
+    expect(await screen.findByRole("link", { name: /Edit Demo/i })).toHaveAttribute("href", "/settings#security");
     await user.click(await screen.findByRole("button", { name: /Edit Alex/i }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("heading", { name: /Edit Alex/i })).toBeTruthy();

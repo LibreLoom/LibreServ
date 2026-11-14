@@ -314,9 +314,6 @@ get("/api/v1/drives", ({ world, user }) => world.drives
       // Device node and OS mount path are server plumbing.
       device: admin ? d.device : "", mount_point: admin ? (d.mount_point ?? `/mnt/${d.id}`) : "",
       mounted: d.mounted !== false && world.summaries[d.id]?.mounted !== false,
-      encrypted: Boolean(d.encrypted),
-      locked: Boolean(d.locked),
-      converting: Boolean(d.converting),
       writable: admin || hasWriteOnDrive(world, user, d.id),
       caps: capsToStr(capsOnPath(world, user, d.id, "")),
     };
@@ -341,16 +338,11 @@ post("/api/v1/drives/:name/inspect", ({ world, user, params }) => {
   const d = findDetected(world, params.name);
   if (d.inspectFails) return fail(500, "Luna couldn't look at this drive safely. Make sure it's plugged in and try again.");
   const entries = d.entries ?? [{ kind: "folder", name: "Photos" }, { kind: "file", name: "readme.txt" }];
-  // The daemon measures the drive and decides whether a wipe has to wait;
-  // the fake does the same from the entry count so `npm run dev` shows the
-  // real flow either way.
-  const usedBytes = d.used_bytes ?? (entries.length > 0 ? 4 * 1024 * 1024 * 1024 : 96 * 1024);
   return {
     device: d.name, model: d.model ?? "", fs_type: d.fs_type ?? null, mount_point: d.mount_point ?? `/run/luna/inspect/${d.name}`,
     mounted_by_luna: true, has_marker: Boolean(d.has_marker), folders: entries.filter((e) => e.kind === "folder").length,
     files: entries.filter((e) => e.kind === "file").length, unreadable: d.unreadable ?? 0, entries,
-    needs_erase: Boolean(d.needs_erase), readable: d.readable ?? true, writable: d.writable ?? !d.read_only,
-    used_bytes: usedBytes, meaningful: d.meaningful ?? usedBytes > 16 * 1024 * 1024,
+    needs_setup: Boolean(d.needs_setup), encrypted: Boolean(d.encrypted), readable: d.readable ?? true, writable: d.writable ?? !d.read_only,
   };
 });
 get("/api/v1/drives/:name/peek", ({ world, user, params }) => {
@@ -360,7 +352,7 @@ get("/api/v1/drives/:name/peek", ({ world, user, params }) => {
   const sample = [...entries].sort((a, b) => Number(a.kind !== "folder") - Number(b.kind !== "folder") || a.name.localeCompare(b.name));
   const folders = sample.filter((e) => e.kind === "folder").length;
   return {
-    readable: d.readable ?? true, fs_type: d.fs_type ?? null, has_marker: Boolean(d.has_marker), needs_erase: Boolean(d.needs_erase),
+    readable: d.readable ?? true, fs_type: d.fs_type ?? null, has_marker: Boolean(d.has_marker), needs_setup: Boolean(d.needs_setup), encrypted: Boolean(d.encrypted),
     folders, files: sample.length - folders, sample: sample.slice(0, 5),
   };
 });
@@ -375,15 +367,14 @@ post("/api/v1/drives/:name/adopt", ({ world, user, params, body }) => {
   const label = String(body.label ?? "").trim();
   if (!label || label.length > 80) return fail(400, "Give this drive a name between 1 and 80 characters.");
   const found = findDetected(world, params.name);
+  if (found.encrypted) return fail(400, "Luna couldn't add this drive. Luna can't open encrypted drives in this version yet.");
+  if (found.needs_setup) return fail(400, "Luna couldn't add this drive. Setting up new drives isn't available in this version yet.");
   world.detected = world.detected.filter((d) => d.name !== params.name);
   const id = nextId("d");
-  const encrypted = Boolean(body.encrypted);
-  if (encrypted && !String(body.password ?? "").trim()) return fail(400, "Enter a password for this drive.");
   const row = {
     id, label, state: "as_is", device: params.name,
-    // An encrypted drive is always ext4 inside its container.
-    fs_type: encrypted ? "ext4" : (found.fs_type || "ext4"),
-    mount_point: `/mnt/${id}`, encrypted, locked: false, converting: false,
+    fs_type: found.fs_type || "ext4",
+    mount_point: `/mnt/${id}`,
   };
   world.drives.push(row);
   world.summaries[id] = summary(id, { shortcuts: [] });
@@ -392,14 +383,14 @@ post("/api/v1/drives/:name/adopt", ({ world, user, params, body }) => {
 post("/api/v1/drives/:id/eject", ({ world, user, params }) => {
   driveGate(user);
   const d = world.drives.find((x) => x.id === params.id);
-  if (!d) return fail(400, "Luna doesn't know this drive.");
+  if (!d) return fail(404, "Luna doesn't know this drive.");
   d.state = "ejected";
   world.summaries[params.id] = unmounted(params.id);
   return { ok: true };
 });
 post("/api/v1/drives/:id/remove", ({ world, user, params }) => {
   driveGate(user);
-  if (!world.drives.some((x) => x.id === params.id)) return fail(400, "Luna doesn't know this drive.");
+  if (!world.drives.some((x) => x.id === params.id)) return fail(404, "Luna doesn't know this drive.");
   world.drives = world.drives.filter((d) => d.id !== params.id);
   delete world.summaries[params.id];
   return { ok: true };
@@ -409,150 +400,6 @@ get("/api/v1/drives/:id/health", ({ world, user, params }) => {
   if (!world.drives.some((d) => d.id === params.id)) return fail(404, "Luna doesn't know this drive.");
   return Object.hasOwn(world.health, params.id) ? world.health[params.id] : healthy();
 });
-// ── Encryption ──────────────────────────────────────────────────────────────
-// Unlocking is open to anyone who can read the drive; encrypting and
-// decrypting are Admin-only, matching the server.
-const findDrive = (world, id) => {
-  const d = world.drives.find((x) => x.id === id);
-  if (!d) throw fail(404, "Luna doesn't know this drive.");
-  return d;
-};
-
-get("/api/v1/drives/:id/encryption", ({ world, user, params }) => {
-  const d = findDrive(world, params.id);
-  if (!isAdmin(user) && !hasDriveAccess(world, user, d.id)) return fail(403, "You don't have access to this drive.");
-  const present = d.state !== "missing" && d.state !== "ejected";
-  // Encrypting wipes the drive, so the format it has now does not matter.
-  const canEncrypt = !d.encrypted && present && !d.converting;
-  return {
-    drive_id: d.id,
-    label: d.label,
-    encrypted: Boolean(d.encrypted),
-    unlocked: Boolean(d.encrypted) && !d.locked,
-    converting: Boolean(d.converting),
-    present,
-    fs_type: d.fs_type,
-    can_encrypt: canEncrypt,
-    cannot_encrypt_reason: canEncrypt || d.encrypted
-      ? ""
-      : d.converting
-        ? "Luna is already working on this drive. Wait for that to finish."
-        : "Plug this drive in to encrypt it.",
-  };
-});
-
-// What a wipe would destroy. Read-only, and shared by every flow that wipes:
-// the plain reformat, encryption on, and encryption off.
-const wipePreviewFor = (world, user, params, intent) => {
-  driveGate(user);
-  const d = findDrive(world, params.id);
-  const peek = world.peek?.[d.device] || {};
-  const folders = peek.folders ?? 0;
-  const files = peek.files ?? 0;
-  const used = peek.used_bytes ?? 0;
-  const readable = d.state !== "missing" && d.state !== "ejected" && !d.locked;
-  // A fresh filesystem already reports some bytes in use; the server allows
-  // for that, and so does this.
-  const meaningful = !readable || used > 16 * 1024 * 1024;
-  // The intent decides the target, not the drive's current state.
-  const encrypted = intent === "encrypt";
-  return {
-    drive_id: d.id,
-    label: d.label,
-    used_bytes: readable ? used : null,
-    meaningful,
-    target_fs: encrypted ? "ext4" : "exfat",
-    target_encrypted: encrypted,
-    entries: (peek.sample || []).map((e) => ({ name: e.name, kind: e.kind })),
-    folders,
-    files,
-    readable,
-  };
-};
-
-get("/api/v1/drives/:id/wipe-preview/:intent", ({ world, user, params }) =>
-  wipePreviewFor(world, user, params, params.intent),
-);
-get("/api/v1/drives/:id/wipe-preview", ({ world, user, params }) =>
-  wipePreviewFor(world, user, params, "reformat"),
-);
-
-post("/api/v1/drives/:id/unlock", ({ world, user, params, body }) => {
-  const d = findDrive(world, params.id);
-  if (!isAdmin(user) && !hasDriveAccess(world, user, d.id)) return fail(403, "You don't have access to this drive.");
-  if (!d.encrypted) return fail(400, "This drive isn't encrypted, so it doesn't need a password.");
-  // A wrong password stays inline: only the password set at encrypt time opens the drive.
-  if (d.encryption_password != null && String(body.password ?? "") !== d.encryption_password) {
-    return fail(401, "That password didn't work.");
-  }
-  if (!String(body.password ?? "").length) return fail(401, "That password didn't work.");
-  d.locked = false;
-  return { ok: true };
-});
-
-post("/api/v1/drives/:id/lock", ({ world, user, params }) => {
-  const d = findDrive(world, params.id);
-  if (!isAdmin(user) && !hasDriveAccess(world, user, d.id)) return fail(403, "You don't have access to this drive.");
-  if (!d.encrypted) return fail(400, "This drive isn't encrypted, so there's nothing to lock.");
-  d.locked = true;
-  return { ok: true };
-});
-
-// lunad starts the format in the background and answers `started` at once.
-// Keep the same shape: `converting` is true until the format finishes, so the
-// page has to wait for the drive and cannot report success too early.
-function runFormat(d, apply) {
-  d.converting = true;
-  setTimeout(() => {
-    d.converting = false;
-    apply();
-  }, 1200);
-}
-
-post("/api/v1/drives/:id/encrypt", ({ world, user, params, body }) => {
-  driveGate(user);
-  const d = findDrive(world, params.id);
-  if (d.encrypted) return fail(400, "This drive is already encrypted.");
-  if (!String(body.password ?? "").length) return fail(400, "Enter a password for this drive.");
-  // The drive is wiped to ext4 inside a container, so its old format is gone.
-  runFormat(d, () => {
-    d.encrypted = true;
-    d.locked = true;
-    d.fs_type = "ext4";
-    d.encryption_password = String(body.password);
-  });
-  return { ok: true, started: true };
-});
-
-post("/api/v1/drives/:id/decrypt", ({ world, user, params, body }) => {
-  driveGate(user);
-  const d = findDrive(world, params.id);
-  if (!d.encrypted) return fail(400, "This drive isn't encrypted, so there's nothing to decrypt.");
-  if (d.encryption_password != null && String(body.password ?? "") !== d.encryption_password) {
-    return fail(401, "That password didn't work.");
-  }
-  if (!String(body.password ?? "").length) return fail(401, "That password didn't work.");
-  // Decrypting wipes to a plain exFAT drive.
-  runFormat(d, () => {
-    d.encrypted = false;
-    d.locked = false;
-    d.fs_type = "exfat";
-  });
-  return { ok: true, started: true };
-});
-
-post("/api/v1/drives/:id/reformat", ({ world, user, params }) => {
-  driveGate(user);
-  const d = findDrive(world, params.id);
-  if (d.encrypted) return fail(400, "This drive is encrypted. Enter its password to decrypt it.");
-  runFormat(d, () => {
-    d.encrypted = false;
-    d.locked = false;
-    d.fs_type = "exfat";
-  });
-  return { ok: true, started: true };
-});
-
 get("/api/v1/drives/:id/summary", ({ world, user, params }) => {
   const id = params.id;
   if (!world.drives.some((d) => d.id === id)) return fail(404, "Luna doesn't know this drive.");
@@ -606,6 +453,7 @@ get("/api/v1/system/updates", ({ world, user }) => {
   const { os_update_failed: failed, ...rest } = world.updates;
   return {
     binary_name: "lunad", checksum: "", reboot_required: false, release_notes: "",
+    feed_is_newer: false, from_new_source: false,
     latest_version: rest.current_version, ...rest,
     os_update_failed: failed ? (typeof failed === "object" ? failed : { version: world.updates.latest_version ?? "" }) : null,
   };

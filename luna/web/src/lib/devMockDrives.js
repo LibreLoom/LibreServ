@@ -89,7 +89,8 @@ export function mockInspectResult() {
       { name: "Videos", kind: "folder" },
       { name: "readme.txt", kind: "file" },
     ],
-    needs_erase: false,
+    needs_setup: false,
+    encrypted: false,
     readable: true,
     writable: true,
   };

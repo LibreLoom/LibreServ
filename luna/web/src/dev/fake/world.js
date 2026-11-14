@@ -54,10 +54,6 @@ export function drive(over = {}) {
     device: `sd${id}`,
     fs_type: "exfat",
     mounted: true,
-    // Encryption is off for every drive until someone turns it on.
-    encrypted: false,
-    locked: false,
-    converting: false,
     ...over,
   };
 }
@@ -160,7 +156,6 @@ export function baseWorld() {
         // contract test compares this shape against lunad's own output, so a
         // tidy-looking `more: ""` here is a lie about the API.
         drive_tools: { category: "Drive tools", message: "Luna can add and eject drives.", status: "passed" },
-        erase_tools: { category: "Erase tools", message: "Erase tools are installed.", status: "passed" },
         heic_tools: { category: "Photos", message: "iPhone photo support installed.", status: "passed" },
         logs_path_writable: passed("Storage", "Luna can write to its log folder."),
         network: { category: "Network", message: "Connected to your router or modem, with a path to the internet.", status: "passed" },
@@ -173,22 +168,21 @@ export function baseWorld() {
         whiteboard: passed("Whiteboard", "Whiteboard tools are installed."),
       },
     },
-    // What is using Luna's own disk (GET /system/storage). The packs are the
-    // bulk of it and can't go; the temporary copies are what "Free up space"
-    // clears, so a scenario that wants the button seeds a non-zero one.
+    // What is using Luna's own disk (GET /system/storage). The software —
+    // daemon, cloudflared, editor packs — lives in the OS image, so only data
+    // rows appear here; the temporary copies are what "Free up space" clears,
+    // so a scenario that wants the button seeds a non-zero one.
     storage: {
       total_bytes: 8_000_000_000,
-      free_bytes: 5_200_000_000,
-      used_bytes: 2_800_000_000,
+      free_bytes: 6_752_000_000,
+      used_bytes: 1_248_000_000,
       items: [
-        { id: "office_pack", label: "Office editor", bytes: 1_400_000_000, removable: false },
-        { id: "diagram_pack", label: "Diagram editor", bytes: 152_000_000, removable: false },
+        { id: "temporary", label: "Temporary files from open documents", bytes: 1_200_000_000, removable: true },
         { id: "settings", label: "Accounts and settings", bytes: 40_000_000, removable: false },
         { id: "logs", label: "Logs", bytes: 8_000_000, removable: false },
-        { id: "temporary", label: "Temporary files from open documents", bytes: 1_200_000_000, removable: true },
       ],
     },
-    updates: { update_available: false, current_version: "1.4.2", latest_version: "1.4.2", release_notes: "", binary_name: "lunad", checksum: "", reboot_required: false },
+    updates: { update_available: false, current_version: "1.4.2", latest_version: "1.4.2", release_notes: "", binary_name: "lunad", checksum: "", reboot_required: false, feed_is_newer: true, from_new_source: false },
     updateSource: { channel: "stable", default_keys: true, defaults: { channel: "stable", feed_url: DEFAULT_FEED_URL, keys: [] }, effective_keys: [], feed_url: DEFAULT_FEED_URL, keys: [] },
     backups: [],
     cloudBackups: [],

@@ -343,7 +343,7 @@ textarea::placeholder {
 }
 
 .file-viewer-exit {
-    animation: file-viewer-out var(--motion-duration-medium1) var(--motion-easing-emphasized-accelerate) both;
+    animation: file-viewer-out var(--motion-duration-short3) var(--motion-easing-emphasized-accelerate) both;
     will-change: opacity;
 }
 

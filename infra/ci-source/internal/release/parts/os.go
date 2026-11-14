@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -28,10 +27,6 @@ func init() {
 const (
 	OSFile        = "luna-os-x86_64.img.xz"
 	InstallerFile = "luna-rapidinstall-x86_64.iso.xz"
-	// InputsSuffix names the sidecar that records what a file was built from.
-	// It is uploaded next to the file, so the next release can tell whether
-	// the file must be built again.
-	InputsSuffix = ".inputs"
 
 	osHashJob     = "luna/os:hash"
 	osRootfsJob   = "luna/os:rootfs"
@@ -44,26 +39,28 @@ const (
 )
 
 // How a part's file comes about in this build.
+//
+// There is deliberately no "reuse the last release's file" case: the whole
+// system is the image, so every release ships an image and an installer. The
+// old reuse path is what let 0.0.4 publish a package holding nothing but a
+// daemon binary.
 type osAction int
 
 const (
 	osBuild  osAction = iota // build it
-	osReuse                  // the last release already ships it: produce nothing
 	osCached                 // an earlier local build has it: link it into the output
 )
 
-func (a osAction) String() string { return [...]string{"build", "reuse", "cached"}[a] }
+func (a osAction) String() string { return [...]string{"build", "cached"}[a] }
 
 // osPlan is what the hash job decided; the later jobs of both parts read it.
 type osPlan struct {
 	mu sync.Mutex
-	// osHash is the OS input hash, isoKey what the installer is made from.
-	osHash, isoKey string
-	os, inst       osAction
-	// osRel is the released image the installer embeds when this build does
-	// not make one (os is osReuse).
-	osRel   engine.Released
-	decided bool
+	// osKey is what the image is keyed by (the OS input hash plus the packs'
+	// keys), isoKey what the installer is made from.
+	osKey, isoKey string
+	os, inst      osAction
+	decided       bool
 }
 
 // osBuilder holds the plans of the builds in flight. The os and installer
@@ -111,10 +108,26 @@ func (o *osBuilder) osJobs(b *engine.BuildContext) []engine.Job {
 	// The skip decision belongs to the hash job (it runs first, and is cheap);
 	// the rest of the chain only follows it.
 	action := func() osAction { pl.mu.Lock(); defer pl.mu.Unlock(); return pl.os }
-	return []engine.Job{
+	jobs := []engine.Job{
 		{ID: osHashJob, Title: "Luna OS inputs",
 			Run: func(ctx context.Context, j *engine.JobRun) error { return o.decide(ctx, b, j, pl) }},
-		{ID: osRootfsJob, Title: "Luna OS root filesystem", Heavy: true, Deps: []string{osHashJob, LunadJob},
+	}
+	// The editor packs are part of the image, so they are built before the
+	// rootfs and mounted into it. They are code, not data: nothing executable
+	// lives on the data partition.
+	for _, d := range packDefs {
+		jobs = append(jobs, engine.Job{ID: packJobID(d.name), Title: d.title, Heavy: d.heavy, Deps: []string{osHashJob},
+			Run: func(ctx context.Context, j *engine.JobRun) error {
+				if a := action(); a != osBuild {
+					j.Logf("skipped: the OS image is %s", a)
+					return nil
+				}
+				return buildPack(ctx, b, j, d)
+			}})
+	}
+	jobs = append(jobs,
+		engine.Job{ID: osRootfsJob, Title: "Luna OS root filesystem", Heavy: true,
+			Deps: []string{osHashJob, LunadJob, packJobID("eurooffice"), packJobID("drawio")},
 			Run: func(ctx context.Context, j *engine.JobRun) error {
 				if a := action(); a != osBuild {
 					j.Logf("skipped: the OS image is %s", a)
@@ -126,43 +139,43 @@ func (o *osBuilder) osJobs(b *engine.BuildContext) []engine.Job {
 				}
 				return j.Container(ctx, spec)
 			}},
-		{ID: osImageJob, Title: "Luna OS image", Heavy: true, Deps: []string{osRootfsJob},
+		engine.Job{ID: osImageJob, Title: "Luna OS image", Heavy: true, Deps: []string{osRootfsJob},
 			Run: func(ctx context.Context, j *engine.JobRun) error {
 				if action() != osBuild {
 					return nil
 				}
-				pl.mu.Lock()
-				hash := pl.osHash
-				pl.mu.Unlock()
-				spec, err := osImageSpec(b, hash)
+				spec, err := osImageSpec(b)
 				if err != nil {
 					return err
 				}
 				return j.Container(ctx, spec)
 			}},
-		{ID: OSJob, Title: "Luna OS " + b.Version, Deps: []string{osImageJob},
+		engine.Job{ID: OSJob, Title: "Luna OS " + b.Version, Deps: []string{osImageJob},
 			Run: func(ctx context.Context, j *engine.JobRun) error {
 				pl.mu.Lock()
-				act, hash := pl.os, pl.osHash
+				act, key := pl.os, pl.osKey
 				pl.mu.Unlock()
 				if act == osBuild {
-					forgetLunadVersion(b, "luna-os", hash) // never keep an older build's answer
+					forgetLunadVersion(b, "luna-os", key) // never keep an older build's answer
 				}
-				if err := finishFile(b, j.Logf, "os", OSFile, "luna-os", hash, act, osSidecars(OSFile)); err != nil {
+				if err := finishFile(b, j.Logf, "os", OSFile, "luna-os", key, act, osSidecars(OSFile)); err != nil {
 					return err
 				}
 				if act == osBuild {
-					return recordLunadVersion(b, "luna-os", hash, b.Version)
+					// A cut may only take this image from the cache later if it
+					// was built with a release daemon, never a dev one.
+					return recordLunadVersion(b, "luna-os", key, b.Version)
 				}
 				return nil
 			}},
-	}
+	)
+	return jobs
 }
 
 func (o *osBuilder) installerJobs(b *engine.BuildContext) []engine.Job {
 	pl := o.plan(b)
 	action := func() osAction { pl.mu.Lock(); defer pl.mu.Unlock(); return pl.inst }
-	jobs := []engine.Job{
+	return []engine.Job{
 		{ID: instLiveJob, Title: "Installer live system", Heavy: true, Deps: []string{osHashJob},
 			Run: func(ctx context.Context, j *engine.JobRun) error {
 				if a := action(); a != osBuild {
@@ -171,7 +184,7 @@ func (o *osBuilder) installerJobs(b *engine.BuildContext) []engine.Job {
 				}
 				return j.Container(ctx, instLiveSpec(b))
 			}},
-		{ID: instISOJob, Title: "Installer ISO", Heavy: true, Deps: []string{instLiveJob, OSJob, packJobID("eurooffice"), packJobID("drawio")},
+		{ID: instISOJob, Title: "Installer ISO", Heavy: true, Deps: []string{instLiveJob, OSJob},
 			Run: func(ctx context.Context, j *engine.JobRun) error {
 				if action() != osBuild {
 					return nil
@@ -198,27 +211,16 @@ func (o *osBuilder) installerJobs(b *engine.BuildContext) []engine.Job {
 					return err
 				}
 				if act == osBuild {
-					// The ISO carries the OS image: its lunad is the ISO's lunad.
+					// The ISO carries the OS image, so it carries that daemon.
 					lv := b.Version
-					if osAct, osHash := func() (osAction, string) { pl.mu.Lock(); defer pl.mu.Unlock(); return pl.os, pl.osHash }(); osAct == osCached {
-						lv = cachedLunadVersion(b, "luna-os", osHash)
+					if osAct, osKey := func() (osAction, string) { pl.mu.Lock(); defer pl.mu.Unlock(); return pl.os, pl.osKey }(); osAct == osCached {
+						lv = cachedLunadVersion(b, "luna-os", osKey)
 					}
 					return recordLunadVersion(b, "luna-installer", key, lv)
 				}
 				return nil
 			}},
 	}
-	for _, d := range packDefs {
-		jobs = append(jobs, engine.Job{ID: packJobID(d.name), Title: d.title, Heavy: d.heavy, Deps: []string{osHashJob},
-			Run: func(ctx context.Context, j *engine.JobRun) error {
-				if a := action(); a != osBuild {
-					j.Logf("skipped: the installer is %s", a)
-					return nil
-				}
-				return buildPack(ctx, b, j, d)
-			}})
-	}
-	return jobs
 }
 
 // ---- the decision
@@ -237,50 +239,23 @@ func (o *osBuilder) decide(ctx context.Context, b *engine.BuildContext, j *engin
 		}
 		packKeys[d.name] = k
 	}
-	key, err := installerKey(filepath.Join(b.SrcDir, "luna", "os"), hash, packKeys)
+	// The image carries the packs, so a changed pack must rebuild it. The OS
+	// input hash alone does not know about them.
+	osKey := osImageKey(hash, packKeys)
+	key, err := installerKey(filepath.Join(b.SrcDir, "luna", "os"), osKey, packKeys)
 	if err != nil {
 		return err
 	}
-	j.Logf("OS inputs %s, installer inputs %s", hash[:12], key[:12])
+	j.Logf("OS inputs %s (image key %s), installer inputs %s", hash[:12], osKey[:12], key[:12])
 
-	osRel, haveOS := engine.Released{}, false
-	if b.Released != nil {
-		osRel, haveOS = b.Released("os")
-	}
 	osAct, why := decide(decideIn{
-		force: b.Rebuild || b.Named("os"),
-		hash:  hash,
-		released: func() (string, error) {
-			if !haveOS {
-				return "", errors.New("no earlier release has an OS image")
-			}
-			return fetchInputs(ctx, osRel.URL)
-		},
-		releasedVersion: osRel.Version,
-		cached:          cacheUsable(b, "luna-os", hash, OSFile),
+		force:  b.Rebuild || b.Named("os"),
+		cached: cacheUsable(b, "luna-os", osKey, OSFile),
 	})
 	j.Logf("OS image: %s (%s)", osAct, why)
 
 	instAct, why := decide(decideIn{
-		force: b.Rebuild || b.Named("installer"),
-		hash:  key,
-		released: func() (string, error) {
-			if b.Released == nil {
-				return "", errors.New("not a release build")
-			}
-			r, ok := b.Released("installer")
-			if !ok {
-				return "", errors.New("no earlier release has an installer")
-			}
-			return fetchInputs(ctx, r.URL)
-		},
-		releasedVersion: func() string {
-			if b.Released == nil {
-				return ""
-			}
-			r, _ := b.Released("installer")
-			return r.Version
-		}(),
+		force:  b.Rebuild || b.Named("installer"),
 		cached: cacheUsable(b, "luna-installer", key, InstallerFile),
 	})
 	j.Logf("installer: %s (%s)", instAct, why)
@@ -294,49 +269,49 @@ func (o *osBuilder) decide(ctx context.Context, b *engine.BuildContext, j *engin
 
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
-	pl.osHash, pl.isoKey, pl.os, pl.inst, pl.osRel, pl.decided = hash, key, osAct, instAct, osRel, true
+	pl.osKey, pl.isoKey, pl.os, pl.inst, pl.decided = osKey, key, osAct, instAct, true
 	return nil
+}
+
+// osImageKey is the cache key of the OS image: its input hash plus what the
+// packs are made from. The packs are inside the image, so a changed pin or
+// build script must produce a new image, not a cached one with the old packs.
+func osImageKey(osHash string, packKeys map[string]string) string {
+	names := make([]string, 0, len(packKeys))
+	for n := range packKeys {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	h := sha256.New()
+	fmt.Fprintf(h, "os=%s\n", osHash)
+	for _, n := range names {
+		fmt.Fprintf(h, "pack=%s %s\n", n, packKeys[n])
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // decideIn is everything decide looks at.
 type decideIn struct {
-	force bool
-	hash  string
-	// released returns the input hash recorded with the newest released file.
-	released        func() (string, error)
-	releasedVersion string
-	cached          bool
+	force  bool
+	cached bool
 }
 
 // decide picks what to do about one file, and says why in plain words.
 //
-//	named in --parts or forced      -> build
-//	same inputs as the last release -> reuse (build nothing, the feed keeps pointing at it)
+//	named in --parts or forced            -> build
 //	same inputs as an earlier local build -> cached (link it)
-//	otherwise                       -> build
+//	otherwise                             -> build
+//
+// A file is never taken from an earlier *release*: the image is the product,
+// so a release that did not build one would ship nothing.
 func decide(in decideIn) (osAction, string) {
 	if in.force {
 		return osBuild, "asked for"
 	}
-	note := ""
-	if in.released != nil {
-		got, err := in.released()
-		switch {
-		case err == nil && got == in.hash:
-			return osReuse, "unchanged since " + in.releasedVersion
-		case err == nil:
-			note = "changed since " + in.releasedVersion
-		default:
-			note = "cannot compare with the last release: " + err.Error()
-		}
-	}
 	if in.cached {
 		return osCached, "built before from the same inputs"
 	}
-	if note == "" {
-		note = "no earlier build"
-	}
-	return osBuild, note
+	return osBuild, "no earlier build from these inputs"
 }
 
 func osInputHash(ctx context.Context, b *engine.BuildContext, j *engine.JobRun) (string, error) {
@@ -558,7 +533,7 @@ func osPacks(b *engine.BuildContext) []string {
 }
 
 // checkPacks logs a missing pack. A release build (a cut) refuses to go on:
-// an ISO without an editor must never ship by accident. A dev build only
+// an image without an editor must never ship by accident. A dev build only
 // warns, because the packs are large downloads.
 func checkPacks(b *engine.BuildContext, logf logFunc) error {
 	have := osPacks(b)
@@ -571,11 +546,12 @@ func checkPacks(b *engine.BuildContext, logf logFunc) error {
 	if len(missing) == 0 {
 		return nil
 	}
+	dir := packsDir(b)
 	if b.Released != nil {
-		return fmt.Errorf("the installer must carry its packs, but %s is missing in %s", strings.Join(missing, ", "), packsDir(b))
+		return fmt.Errorf("the OS image must carry its editor packs, but %s is missing in %s", strings.Join(missing, ", "), dir)
 	}
 	for _, m := range missing {
-		logf("warning: no %s in %s: devices installed from this ISO will lack that editor", m, packsDir(b))
+		logf("warning: no %s in %s: this image will lack that editor", m, dir)
 	}
 	return nil
 }
@@ -587,24 +563,6 @@ func containsBase(paths []string, base string) bool {
 		}
 	}
 	return false
-}
-
-// fetchInputs reads the .inputs file stored next to a released file.
-func fetchInputs(ctx context.Context, fileURL string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fileURL+InputsSuffix, nil)
-	if err != nil {
-		return "", err
-	}
-	resp, err := osHTTP.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("the last release has no %s (HTTP %d)", filepath.Base(fileURL)+InputsSuffix, resp.StatusCode)
-	}
-	b, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	return strings.TrimSpace(string(b)), err
 }
 
 // ---- local cache of finished files, keyed by their inputs
@@ -657,18 +615,18 @@ func fileOK(p string) bool {
 	return err == nil && st.Mode().IsRegular() && st.Size() > 0
 }
 
-func osSidecars(file string) []string { return []string{file + InputsSuffix} }
+// osSidecars lists the extra files that travel with a part's file. There are
+// none: the input record existed so the next release could decide whether to
+// reuse the file, and nothing is reused any more.
+func osSidecars(string) []string { return nil }
 
-// finishFile closes a part: after a build it records the inputs next to the
-// file and keeps a copy in the cache (only the newest per kind); for a cached
-// file it links the copy into the output; for a reused one it does nothing.
+// finishFile closes a part: after a build it keeps a copy in the cache (only
+// the newest per kind); for a cached file it links the copy into the output.
+// Every release ships both files, so there is no "produce nothing" case.
 func finishFile(b *engine.BuildContext, logf logFunc, part, file, kind, key string, act osAction, sidecars []string) error {
 	out := b.PartOutDir(part)
 	dst := filepath.Join(out, file)
 	switch act {
-	case osReuse:
-		logf("%s: not built, the last release's file stays in the feed", file)
-		return nil
 	case osCached:
 		dir := cacheDirFor(b, kind, key)
 		if err := os.MkdirAll(out, 0o755); err != nil {
@@ -688,10 +646,6 @@ func finishFile(b *engine.BuildContext, logf logFunc, part, file, kind, key stri
 	}
 	if !fileOK(dst) {
 		return fmt.Errorf("%s was not produced in %s", file, out)
-	}
-	// image.sh writes its own .inputs; the installer has none yet.
-	if err := os.WriteFile(dst+InputsSuffix, []byte(key+"\n"), 0o644); err != nil {
-		return err
 	}
 	dir := cacheDirFor(b, kind, key)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -745,8 +699,8 @@ func linkFile(src, dst string) error {
 // ---- the installer's payload
 
 // payload fills the directory iso.sh embeds: the exact .img.xz this release
-// ships (built or cached now, or the last release's, fetched and checked
-// against the feed) with its .sha256, and the packs when present.
+// ships (built now, or linked from the cache) with its .sha256, and the packs
+// when present.
 func (o *osBuilder) payload(ctx context.Context, b *engine.BuildContext, j *engine.JobRun, pl *osPlan) (string, error) {
 	dir, err := lunaWorkDir(b, "installer-payload")
 	if err != nil {
@@ -756,104 +710,22 @@ func (o *osBuilder) payload(ctx context.Context, b *engine.BuildContext, j *engi
 	for _, e := range ents {
 		os.RemoveAll(filepath.Join(dir, e.Name()))
 	}
-	pl.mu.Lock()
-	act, rel := pl.os, pl.osRel
-	pl.mu.Unlock()
-
 	img := filepath.Join(dir, OSFile)
-	var sum string
-	if act == osReuse {
-		cached, err := fetchReleased(ctx, b, j.Logf, rel)
-		if err != nil {
-			return "", err
-		}
-		if err := linkFile(cached, img); err != nil {
-			return "", err
-		}
-		sum = rel.SHA256
-	} else {
-		built := filepath.Join(b.PartOutDir("os"), OSFile)
-		if !fileOK(built) {
-			return "", fmt.Errorf("%s is missing: the OS image was not built", built)
-		}
-		if err := linkFile(built, img); err != nil {
-			return "", err
-		}
-		if sum, err = sha256File(img); err != nil {
-			return "", err
-		}
+	built := filepath.Join(b.PartOutDir("os"), OSFile)
+	if !fileOK(built) {
+		return "", fmt.Errorf("%s is missing: the OS image was not built", built)
+	}
+	if err := linkFile(built, img); err != nil {
+		return "", err
+	}
+	sum, err := sha256File(img)
+	if err != nil {
+		return "", err
 	}
 	if err := os.WriteFile(img+".sha256", []byte(sum+"  "+OSFile+"\n"), 0o644); err != nil {
 		return "", err
 	}
-	if err := checkPacks(b, j.Logf); err != nil {
-		return "", err
-	}
-	for _, p := range osPacks(b) {
-		if err := linkFile(p, filepath.Join(dir, filepath.Base(p))); err != nil {
-			return "", err
-		}
-	}
 	return dir, nil
-}
-
-// fetchReleased downloads a released file into the cache (once) and checks it
-// against the sha256 the feed lists, so a damaged or swapped download never
-// ends up inside an ISO.
-func fetchReleased(ctx context.Context, b *engine.BuildContext, logf logFunc, r engine.Released) (string, error) {
-	if len(r.SHA256) != 64 {
-		return "", errors.New("the feed lists no sha256 for the released OS image")
-	}
-	dir := filepath.Join(b.Engine.CacheDir(), "luna-released")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
-	dst := filepath.Join(dir, r.SHA256+".img.xz")
-	if got, err := sha256File(dst); err == nil && got == r.SHA256 {
-		return dst, nil
-	}
-	logf("downloading the released OS image %s", r.Version)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.URL, nil)
-	if err != nil {
-		return "", err
-	}
-	resp, err := osHTTP.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("download %s: HTTP %d", r.URL, resp.StatusCode)
-	}
-	tmp, err := os.CreateTemp(dir, ".dl-*")
-	if err != nil {
-		return "", err
-	}
-	defer os.Remove(tmp.Name())
-	h := sha256.New()
-	n, err := io.Copy(io.MultiWriter(tmp, h), resp.Body)
-	if cerr := tmp.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		return "", err
-	}
-	if got := hex.EncodeToString(h.Sum(nil)); got != r.SHA256 {
-		return "", fmt.Errorf("the released OS image does not match the feed (sha256 %s, expected %s)", got, r.SHA256)
-	}
-	if r.Size > 0 && n != r.Size {
-		return "", fmt.Errorf("the released OS image is %d bytes, the feed says %d", n, r.Size)
-	}
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
-		return "", err
-	}
-	// Older downloads are not needed any more.
-	if old, _ := filepath.Glob(filepath.Join(dir, "*.img.xz")); len(old) > 0 {
-		for _, o := range old {
-			os.Remove(o)
-		}
-	}
-	return dst, os.Rename(tmp.Name(), dst)
 }
 
 func sha256File(p string) (string, error) {
@@ -887,12 +759,27 @@ func osRootfsSpec(b *engine.BuildContext) (engine.RunSpec, error) {
 	env["LUNA_CACHE_DIR"] = "/cache"
 	env["LUNAD_BIN"] = "/in/lunad/" + LunadFile
 	env["LUNA_CONSOLE_BIN"] = "/in/console/" + lunaConsoleName
+	// A cut must never produce an image without its editor packs.
+	if b.Released != nil {
+		env["LUNA_PACKS_REQUIRED"] = "1"
+	}
+	// The editor packs are baked into the image, so they are mounted into the
+	// rootfs build. A pack that is missing is a hard error for a cut: an image
+	// without its editors must never ship.
+	packs := packsDir(b)
+	// The mount needs a host path that exists even when a dev build has no
+	// packs yet; the rootfs step warns about a missing pack rather than
+	// failing to start.
+	if err := os.MkdirAll(packs, 0o755); err != nil {
+		return engine.RunSpec{}, err
+	}
 	return (engine.RunSpec{
 		Name:  "luna-os-rootfs",
 		Image: "luna-os",
 		Mounts: []engine.Mount{osSrcMount(b),
 			{Host: lunad, Target: "/in/lunad", ReadOnly: true},
-			{Host: console, Target: "/in/console", ReadOnly: true}},
+			{Host: console, Target: "/in/console", ReadOnly: true},
+			{Host: packs, Target: "/in/packs", ReadOnly: true}},
 		Caches: []engine.Cache{{Volume: osRootfsCache, Target: "/rootfs"}, {Volume: "luna-os-cache", Target: "/cache"}},
 		Env:    env,
 		Memory: "3g",
@@ -900,13 +787,12 @@ func osRootfsSpec(b *engine.BuildContext) (engine.RunSpec, error) {
 	}), nil
 }
 
-func osImageSpec(b *engine.BuildContext, hash string) (engine.RunSpec, error) {
+func osImageSpec(b *engine.BuildContext) (engine.RunSpec, error) {
 	out := b.PartOutDir("os")
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		return engine.RunSpec{}, err
 	}
 	env := osEnv()
-	env["OS_INPUT_HASH"] = hash
 	return (engine.RunSpec{
 		Name:   "luna-os-image",
 		Image:  "luna-os",

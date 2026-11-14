@@ -5,7 +5,11 @@
 # USB install media must never be the flash target.
 
 # Fixed OS slot size (MiB). Both A and B match luna-os-*.img from make-image.sh.
-LUNA_SLOT_SIZE_MIB="${LUNA_SLOT_SIZE_MIB:-1280}"
+#
+# 2048, not 1280: the image carries the whole system, including the editor
+# packs (~1 GiB extracted). The rootfs alone is ~550 MiB, so a 1280 MiB slot
+# would not hold an image with the packs in it.
+LUNA_SLOT_SIZE_MIB="${LUNA_SLOT_SIZE_MIB:-2048}"
 
 # True for a whole disk we are willing to consider flashing. Two-letter SCSI
 # suffixes (sdaa) and double-digit controllers/namespaces (nvme10n1,

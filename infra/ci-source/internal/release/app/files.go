@@ -22,20 +22,14 @@ import (
 )
 
 // FileSpec is one expected release file: the feed part it becomes (see the
-// parts table in internal/feed/README.md) and whether it may be reused from an
-// earlier release when this build did not produce it.
+// parts table in internal/feed/README.md).
+//
+// A file is never taken from an earlier release. Luna used to allow that for
+// its OS image and installer, and it is how 0.0.4 shipped a package holding
+// only a daemon binary: the image's inputs looked unchanged, so no image was
+// built, and the feed pointed at the previous version's file.
 type FileSpec struct {
 	publish.PartSpec
-	// Reuse lets a cut point at the file of an earlier release (luna's os
-	// image and installer are not rebuilt every time).
-	Reuse bool
-	// Attach marks a file that is uploaded with the release (and signed in
-	// SHA256SUMS.txt) but is not a feed part. It is optional.
-	Attach bool
-}
-
-func attach(file string) FileSpec {
-	return FileSpec{PartSpec: publish.PartSpec{File: file}, Attach: true}
 }
 
 func spec(name, os, arch, file string) FileSpec {
@@ -50,12 +44,15 @@ func DefaultFileSpecs(unit string) []FileSpec {
 	case "sol-connect", "luna-connect":
 		return []FileSpec{spec("server", "linux", "amd64", unit+"-server-linux-amd64"), spec("web", "any", "any", unit+"-web.tar.gz")}
 	case "luna":
-		os, inst := spec("os", "linux", "amd64", "luna-os-x86_64.img.xz"), spec("installer", "linux", "amd64", "luna-rapidinstall-x86_64.iso.xz")
-		os.Reuse, inst.Reuse = true, true
-		// The .inputs files say what each image was built from, so the next
-		// release can tell whether it must be built again.
-		return []FileSpec{spec("lunad", "linux", "amd64", "lunad-linux-amd64-musl"), os, inst,
-			attach("luna-os-x86_64.img.xz.inputs"), attach("luna-rapidinstall-x86_64.iso.xz.inputs")}
+		// The whole system is the image: lunad, luna-console, cloudflared and
+		// the editor packs are all inside it, and nothing executable lives on
+		// the data partition. So every release builds and ships both files —
+		// never reused from an earlier version, which is how 0.0.4 shipped a
+		// package with no image and no installer at all.
+		return []FileSpec{
+			spec("os", "linux", "amd64", "luna-os-x86_64.img.xz"),
+			spec("installer", "linux", "amd64", "luna-rapidinstall-x86_64.iso.xz"),
+		}
 	case "luna-desktop":
 		stable, beta := spec("flatpak", "linux", "amd64", "luna-desktop-x86_64.flatpak"), spec("flatpak", "linux", "amd64", "luna-desktop-beta-x86_64.flatpak")
 		stable.Channel, beta.Channel = publish.Stable, publish.Beta
@@ -127,7 +124,7 @@ func flatten(root string, specs []FileSpec) (missing []string, err error) {
 		if err != nil {
 			return nil, err
 		}
-		if !ok && !s.Attach {
+		if !ok {
 			missing = append(missing, s.File)
 		}
 	}
@@ -161,16 +158,12 @@ func linkOrCopy(src, dst string) error {
 }
 
 // resolveSpecs turns the parts table into the feed parts of a release: the
-// files present in outDir, plus the reusable ones taken from an earlier
-// release (prior). Every file a feed of this cut needs must be there: a
-// stable cut also writes the beta feed, so it needs the beta files too.
-func resolveSpecs(unit, channel, outDir string, specs []FileSpec, prior func(name string) (publish.PartSpec, bool)) ([]publish.PartSpec, error) {
+// files present in outDir. Every file a feed of this cut needs must be there:
+// a stable cut also writes the beta feed, so it needs the beta files too.
+func resolveSpecs(unit, channel, outDir string, specs []FileSpec) ([]publish.PartSpec, error) {
 	var out []publish.PartSpec
 	var missing []string
 	for _, s := range specs {
-		if s.Attach {
-			continue
-		}
 		needed := s.Channel == "" || s.Channel == channel || (channel == publish.Stable && s.Channel == publish.Beta)
 		if st, err := os.Stat(filepath.Join(outDir, s.File)); err == nil && st.Mode().IsRegular() {
 			if needed {
@@ -180,14 +173,6 @@ func resolveSpecs(unit, channel, outDir string, specs []FileSpec, prior func(nam
 		}
 		if !needed {
 			continue
-		}
-		if s.Reuse && prior != nil {
-			if p, ok := prior(s.Name); ok {
-				p.Name, p.OS, p.Arch, p.File, p.Channel = s.Name, s.OS, s.Arch, s.File, s.Channel
-				out = append(out, p)
-				continue
-			}
-			return nil, fmt.Errorf("%s was not built and no earlier release has one to reuse", s.File)
 		}
 		missing = append(missing, s.File)
 	}
@@ -278,15 +263,6 @@ func (l *feedLookup) released(ctx context.Context) func(name string) (engine.Rel
 			}
 		}
 		return best, found
-	}
-}
-
-// priorPart is released as a PartSpec that points at the earlier file.
-func (l *feedLookup) priorPart(ctx context.Context) func(name string) (publish.PartSpec, bool) {
-	rel := l.released(ctx)
-	return func(name string) (publish.PartSpec, bool) {
-		r, ok := rel(name)
-		return publish.PartSpec{Version: r.Version, Size: r.Size, SHA256: r.SHA256}, ok
 	}
 }
 

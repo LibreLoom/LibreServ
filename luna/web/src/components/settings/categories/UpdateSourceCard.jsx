@@ -6,9 +6,7 @@ import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSecti
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
-import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
-import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import ConnectDeviceCodeForm from "../ConnectDeviceCodeForm.jsx";
 import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
@@ -60,9 +58,6 @@ export default function UpdateSourceCard({ index = 3 }) {
   });
 
   const s = source.data || {};
-  const customized =
-    source.data != null &&
-    (!s.default_keys || (s.defaults && s.feed_url !== s.defaults.feed_url));
 
   const onSaved = (data) => {
     queryClient.setQueryData(["updates-source"], (old) => {
@@ -101,55 +96,59 @@ export default function UpdateSourceCard({ index = 3 }) {
           </div>
         </CollapsibleSection>
 
-        <section className="space-y-3" aria-labelledby="update-channel-label">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-primary text-sm" id="update-channel-label">
-              Update channel{" "}
-              <InfoHint
-                label="What the update channel is"
-                content="Stable gets releases once they are tested. Beta gets new versions sooner and may have bugs. You can switch back to Stable at any time; Luna never installs an older version."
+        {/* One section for everything about updates: the channel the release
+            comes down from and where Luna reads it. Each control is its own
+            pill row, so the two never read as one line. */}
+        <CollapsibleSection title="Updates" mono pill>
+          <div className="space-y-3 mb-1">
+            <div
+              className="surface-primary rounded-pill px-4 py-2.5 flex flex-wrap items-center justify-between gap-3"
+              role="group"
+              aria-labelledby="update-channel-label"
+            >
+              <div className="text-secondary text-sm" id="update-channel-label">
+                Update channel{" "}
+                <InfoHint
+                  surface="primary"
+                  label="What the update channel is"
+                  content="Stable gets releases once they are tested. Beta gets new versions sooner and may have bugs. You can switch back to Stable at any time; Luna never installs an older version."
+                />
+              </div>
+              <SegmentedControl
+                aria-label="Update channel"
+                surface="primary"
+                value={s.channel || "stable"}
+                options={CHANNEL_OPTIONS}
+                onChange={(channel) => {
+                  if (source.data && channel !== s.channel) changeChannel.mutate(channel);
+                }}
               />
+              {changeChannel.isError && (
+                <InlineError className="text-secondary w-full">
+                  {apiErrorMessage(changeChannel.error)}
+                </InlineError>
+              )}
             </div>
-            <SegmentedControl
-              aria-label="Update channel"
-              surface="secondary"
-              value={s.channel || "stable"}
-              options={CHANNEL_OPTIONS}
-              onChange={(channel) => {
-                if (source.data && channel !== s.channel) changeChannel.mutate(channel);
-              }}
-            />
-          </div>
-          {changeChannel.isError && (
-            <InlineError>{apiErrorMessage(changeChannel.error)}</InlineError>
-          )}
-        </section>
 
-        <section className="space-y-3 border-t border-primary/10 pt-4" aria-labelledby="update-source-label">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="text-primary text-sm" id="update-source-label">Update source</h3>
-              <p className="text-primary text-xs mt-0.5">Where Luna reads its list of updates.</p>
+            <div
+              className="surface-primary rounded-pill px-4 py-2.5 flex flex-wrap items-center justify-between gap-3"
+              role="group"
+              aria-labelledby="update-source-label"
+            >
+              <h3 className="text-secondary text-sm" id="update-source-label">Update source</h3>
+              <Button
+                type="button"
+                variant="outline"
+                surface="primary"
+                size="sm"
+                onClick={() => setModalOpen(true)}
+              >
+                <Rss size={ICON_SIZE.sm} aria-hidden="true" />
+                Edit update source
+              </Button>
             </div>
-            <Pill variant={customized ? "warning" : "success"}>
-              {customized ? "Custom source" : "Default source"}
-            </Pill>
           </div>
-          {/* Its own block: an inline pill would let the long address wrap
-              around the button and sit under it. */}
-          <p className="min-w-0">
-            <InlinePill className="break-all">{s.feed_url || "…"}</InlinePill>
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            surface="secondary"
-            onClick={() => setModalOpen(true)}
-          >
-            <Rss size={ICON_SIZE.sm} aria-hidden="true" />
-            Edit update source
-          </Button>
-        </section>
+        </CollapsibleSection>
       </div>
 
       <ModalCard
@@ -257,7 +256,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
             <div className="flex items-center gap-3">
               <AlertTriangle size={ICON_SIZE.lg} className="text-primary flex-shrink-0" aria-hidden="true" />
               <p className="text-sm text-primary">
-                Only change these if your updates come from somewhere else.{" "}
+                Only change this if you want Luna to get updates elsewhere.{" "}
                 <InfoHint
                   label="What these settings control"
                   content="They control where Luna itself gets its software updates — not your files, photos, or backups. A wrong value can stop Luna from updating, so leave these as-is unless you're pointing Luna at a different update source."
@@ -266,8 +265,8 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
             </div>
           </div>
           <p className="text-primary text-sm">
-            Where Luna reads its list of updates — for the software on this Luna, not your files or
-            backups.
+            Where Luna gets software updates from. This is for this Luna's server software, not
+            your files or backups.
           </p>
 
           <div className="space-y-1">

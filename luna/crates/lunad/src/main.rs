@@ -5,8 +5,8 @@ use lunad::{
 };
 
 fn main() -> anyhow::Result<()> {
-    // `luna-run` compares this against the daemon on the data partition, so it
-    // prints the bare semver and nothing else.
+    // Printed bare (no prefix) so the version is machine-readable: the release
+    // smoke test compares it against the version the build stamped in.
     if std::env::args()
         .skip(1)
         .any(|a| a == "--version" || a == "-V")
@@ -665,7 +665,7 @@ async fn async_main() -> anyhow::Result<()> {
             state.clone(),
             touch_io_activity,
         ));
-    let eurooffice_dir = cfg.data_dir.join("eurooffice");
+    let eurooffice_dir = lunad::packs::dir(&cfg.data_dir, "eurooffice");
     let mut app = axum::Router::new()
         .merge(protected_api)
         // WebDAV sits outside protected_api (it authenticates itself) but is
@@ -713,7 +713,7 @@ async fn async_main() -> anyhow::Result<()> {
     // Self-hosted diagrams.net webapp — a plain static pack, no dispatcher
     // tricks (unlike EuroOffice the pack's URLs are unversioned and there's
     // no socket). The editor iframe is same-origin and speaks postMessage.
-    let drawio_dir = cfg.data_dir.join("drawio");
+    let drawio_dir = lunad::packs::dir(&cfg.data_dir, "drawio");
     if drawio_dir.is_dir() {
         tracing::info!(dir = %drawio_dir.display(), "serving draw.io assets");
         app = app.merge(
@@ -749,10 +749,11 @@ async fn async_main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Static draw.io pack — every `/drawio/**` request serves from
-/// `{data_dir}/drawio`. Missing files 404 rather than falling through to the
-/// SPA fallback, so the web app's pack probe (`/drawio/pack.json`) can tell
-/// "pack present, file absent" from "no pack".
+/// Static draw.io pack — every `/drawio/**` request serves from the pack
+/// directory (the OS image's copy, see `lunad::packs`). Missing files 404
+/// rather than falling through to the SPA fallback, so the web app's pack
+/// probe (`/drawio/pack.json`) can tell "pack present, file absent" from
+/// "no pack".
 async fn drawio_dispatch(
     axum::extract::State(state): axum::extract::State<lunad::AppState>,
     axum::extract::Path(tail): axum::extract::Path<String>,
@@ -760,7 +761,7 @@ async fn drawio_dispatch(
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
     use tower::ServiceExt;
-    let dir = state.data_dir.join("drawio");
+    let dir = lunad::packs::dir(&state.data_dir, "drawio");
     if let Ok(uri) = format!("/{tail}").parse::<axum::http::Uri>() {
         *req.uri_mut() = uri;
     }

@@ -51,21 +51,22 @@ else
 	luna_musl_smoke_lunad "$LUNAD_BIN"
 	luna_musl_smoke_console "$LUNA_CONSOLE_BIN"
 
+	# The packs are baked into the image, so they must exist before the rootfs
+	# build mounts os/dist as /in/packs. Built here they need podman + network,
+	# like the rest of this path.
+	echo "==> editor packs (into the OS image)"
+	if [ ! -f "$ROOT/os/dist/eurooffice-pack.tar.zst" ]; then
+		"$ROOT/scripts/build-eurooffice-pack.sh"
+	fi
+	if [ ! -f "$ROOT/os/dist/drawio-pack.tar.zst" ]; then
+		"$ROOT/scripts/build-drawio-pack.sh"
+	fi
+
 	echo "==> rootfs"
 	"$ROOT/os/build-rootfs.sh"
 
 	echo "==> OS slot image (OTA + factory, .img.xz)"
 	"$ROOT/os/make-image.sh"
-fi
-
-echo "==> EuroOffice pack (baked into the ISO, lands on LUNA_DATA)"
-if [ ! -f "$ROOT/os/dist/eurooffice-pack.tar.zst" ]; then
-	"$ROOT/scripts/build-eurooffice-pack.sh"
-fi
-
-echo "==> draw.io pack (baked into the ISO, lands on LUNA_DATA)"
-if [ ! -f "$ROOT/os/dist/drawio-pack.tar.zst" ]; then
-	"$ROOT/scripts/build-drawio-pack.sh"
 fi
 
 echo "==> ISO"

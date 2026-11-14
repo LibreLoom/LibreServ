@@ -234,7 +234,7 @@ FIRST: review the day's commits (git log / git show since yesterday). Then updat
 Delete stale markdown. Fix only if blank would be dangerous. Do not bump deps. Do not audit quality/security.
 Write the summary to ${DOCS_RESULT}. Empty file = failed job. If nothing is false, write 'nothing false' plus the SHAs reviewed.
 Do not merge. Do not post pull-request reviews. Do not stop containers.
-Do not take atlas-bot or ai-proxy down."
+Do not take atlas-bot or ai-gateway down."
 
 echo "==> dsh start $(date -u +%H:%M:%SZ) job=${JOBID}"
 : > "${DSH_LOG}"

@@ -486,7 +486,7 @@ func (a *App) cutResolve(req CutRequest, lk *feedLookup) func(ctx context.Contex
 			return r, err
 		}
 		var err error
-		if r.Parts, err = resolveSpecs(req.Unit, req.Channel, outDir, specs, lk.priorPart(ctx)); err != nil {
+		if r.Parts, err = resolveSpecs(req.Unit, req.Channel, outDir, specs); err != nil {
 			return r, err
 		}
 		if req.Unit == "luna" {

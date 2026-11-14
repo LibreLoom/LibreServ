@@ -152,28 +152,12 @@ pub const TRASH_API_ALIAS: &str = ".luna-trash";
 /// not an unplug, and nothing on the drive is lost.
 pub const MISSING_DRIVE_DB_MSG: &str = "Luna can't write to this drive, so it can't rebuild its database. Your files are still on the drive — free up space or check the write-lock switch, then try again.";
 
-/// Shown when a file operation reaches an encrypted drive whose container is
-/// not open. Nothing is wrong with the drive — it needs its password.
-pub const DRIVE_LOCKED_MSG: &str =
-    "This drive is locked. An Admin can unlock it in Luna's web page.";
-
-/// Shown while an in-place conversion holds the drive. The drive is fine; it is
-/// simply unavailable until the conversion finishes.
-pub const DRIVE_CONVERTING_MSG: &str =
-    "This drive is being encrypted. It will be available when that finishes.";
-
 #[derive(Debug, thiserror::Error)]
 pub enum FilesError {
     #[error(
         "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
     )]
     UnknownDrive,
-    /// The drive is present and healthy, but its container is not open.
-    #[error("{}", DRIVE_LOCKED_MSG)]
-    Locked,
-    /// An in-place conversion holds the drive exclusively.
-    #[error("{}", DRIVE_CONVERTING_MSG)]
-    Converting,
     #[error("{}", MISSING_DRIVE_DB_MSG)]
     MissingDriveDb,
     #[error("{0}")]
@@ -235,20 +219,6 @@ pub fn drive_root(conn: &rusqlite::Connection, drive_id: &str) -> Result<DriveRo
     let drive = db::get_drive(conn, drive_id)
         .map_err(FilesError::Db)?
         .ok_or(FilesError::UnknownDrive)?;
-    // Every file operation in Luna goes through here, so these two checks are
-    // the whole gate: browse, uploads, WebDAV, gallery, search and backups all
-    // stop at a locked or converting drive without knowing it exists.
-    //
-    // They come BEFORE the mount-point check: a locked drive has no mount
-    // point, so asking about the mount first would report "Luna can't find
-    // this drive" for a drive that is sitting right there and needs a
-    // password. The client keys off the 423 to open the unlock dialog.
-    if drive.locked {
-        return Err(FilesError::Locked);
-    }
-    if drive.converting {
-        return Err(FilesError::Converting);
-    }
     // An unplugged or ejected drive keeps its old mount path in the row;
     // reading it would only find an empty folder and blame the drive's
     // database. Say it is not connected instead.

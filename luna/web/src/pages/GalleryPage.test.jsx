@@ -516,9 +516,9 @@ describe("GalleryPage", () => {
     // Prefer the open-album control; /test/i also matches "Delete album test".
     fireEvent.click(await screen.findByRole("button", { name: /^test\b/i }));
     expect(await screen.findByRole("button", { name: /^Back$/i })).toBeInTheDocument();
-    expect(screen.getByText("test")).toBeInTheDocument();
     const chrome = document.querySelector("[data-slot=gallery-detail-chrome]");
     expect(chrome).toBeTruthy();
+    expect(within(/** @type {HTMLElement} */ (chrome)).getByText("test")).toBeInTheDocument();
     expect(chrome?.className).toContain("animate-nav-slide-in");
     expect(chrome?.className).toContain("mb-4");
     expect(chrome?.className).toContain("flex");
@@ -944,7 +944,8 @@ describe("GalleryPage", () => {
     fireEvent.click(screen.getByRole("radio", { name: /Favorites/i }));
 
     expect(await screen.findByLabelText("fav.jpg")).toBeInTheDocument();
-    expect(screen.queryByLabelText("other.jpg")).not.toBeInTheDocument();
+    // The outgoing page animates out, so wait for it to leave the DOM.
+    await waitFor(() => expect(screen.queryByLabelText("other.jpg")).not.toBeInTheDocument());
     await waitFor(() => {
       expect(
         fetchMock.mock.calls.some(([url]) => String(url).includes("favorites=true")),
@@ -1009,8 +1010,11 @@ describe("GalleryPage", () => {
     fireEvent.change(screen.getByLabelText(/Search photos/i), { target: { value: "fuji" } });
 
     const card = await screen.findByText(/with these filters on/i);
-    expect(screen.queryByText(/No photos match these filters/i)).not.toBeInTheDocument();
-    expect(document.querySelectorAll("[data-slot=empty-state]")).toHaveLength(1);
+    // The outgoing page animates out; wait for it to leave the DOM.
+    await waitFor(() => {
+      expect(screen.queryByText(/No photos match these filters/i)).not.toBeInTheDocument();
+      expect(document.querySelectorAll("[data-slot=empty-state]")).toHaveLength(1);
+    });
     const emptyState = /** @type {HTMLElement} */ (card.closest("[data-slot=empty-state]"));
     expect(within(emptyState).getByRole("button", { name: /^Clear search$/i })).toBeInTheDocument();
 
@@ -1064,7 +1068,7 @@ describe("GalleryPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^Back$/i }));
     expect(await screen.findByRole("button", { name: /Smart albums/i })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /^Albums$/i })).toHaveAttribute("aria-checked", "true");
-    expect(screen.queryByText("Videos")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Videos")).not.toBeInTheDocument());
   });
 
   it("shows only the search empty state when a Favorites search matches nothing", async () => {
@@ -1729,7 +1733,7 @@ describe("GalleryPage", () => {
     // It opens a filter view: chrome label, deep link, only memory photos.
     fireEvent.click(openBtn);
     expect(await screen.findByLabelText("memory.jpg")).toBeInTheDocument();
-    expect(screen.queryByLabelText("one.jpg")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByLabelText("one.jpg")).not.toBeInTheDocument());
     const chrome = document.querySelector("[data-slot=gallery-detail-chrome]");
     expect(chrome).toBeTruthy();
     expect(
@@ -1753,7 +1757,7 @@ describe("GalleryPage", () => {
       await screen.findByRole("button", { name: /Remove filter On this day/i }),
     );
     expect(await screen.findByLabelText("one.jpg")).toBeInTheDocument();
-    expect(screen.queryByLabelText("memory.jpg")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByLabelText("memory.jpg")).not.toBeInTheDocument());
 
     // Reopen, then Back also returns to the library and the pill comes back.
     fireEvent.click(

@@ -509,13 +509,44 @@ export default [
     check: ["Checks are grouped, failures first", "Luna's own storage shows what is using the disk, biggest first", "Free up space clears the temporary files and says how much", "Update now starts the update", "Open source licenses open and close"],
   },
   {
+    id: "settings/updates-from-new-source",
+    area: "Settings: About",
+    title: "Updates after changing the update source",
+    url: "/settings#about",
+    seed: (w) => {
+      // Luna just moved to this source, so its build is offered even though it
+      // is the version already running.
+      w.updates = {
+        update_available: true,
+        current_version: "1.4.2",
+        latest_version: "1.4.2",
+        feed_is_newer: false,
+        from_new_source: true,
+        release_notes: "## 1.4.2\n\nA build from this Luna's own update source.",
+      };
+      w.updateSource = {
+        ...w.updateSource,
+        feed_url: "https://updates.example.net/feeds",
+        default_keys: false,
+        keys: ["RWSELFSIGNED"],
+        effective_keys: ["RWSELFSIGNED"],
+      };
+    },
+    check: [
+      "Status says 1.4.2 available even though that is the running version",
+      "A line says the update source changed and this is the version it has",
+      "Update now installs that build and says it comes from the source you set",
+    ],
+  },
+  {
     id: "settings/update-source",
     area: "Settings: About",
     title: "Update source",
     url: "/settings#about",
     check: [
       "Changing Stable ↔ Beta keeps the feed address and says it saved",
-      "The card says Default source or Custom source and shows the address",
+      "Updates opens as one section: the channel and the source each on their own pill row",
+      "The source row shows Edit update source, not the address or a default/custom pill",
       "Edit update source opens with the warning and prefilled fields",
       "A bad address or key is refused inline and the old value stays",
     ],
@@ -534,7 +565,7 @@ export default [
       };
     },
     check: [
-      "The card says Custom source and shows the network address",
+      "The editor opens on the network address",
       "Switching Stable ↔ Beta saves without the private-network error",
       "The feed address stays 192.168.1.10",
     ],

@@ -13,41 +13,45 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/publish"
 )
 
-func TestLunaAttachedInputsFiles(t *testing.T) {
+func TestLunaReleaseShipsImageAndInstaller(t *testing.T) {
 	dir := t.TempDir()
-	for f, body := range map[string]string{"lunad-linux-amd64-musl": "x"} {
-		must(t, os.WriteFile(filepath.Join(dir, f), []byte(body), 0o644))
-	}
-	// not built, only reused: the sidecars may be missing and never become feed parts
 	specs := DefaultFileSpecs("luna")
-	got, err := resolveSpecs("luna", "stable", dir, specs, func(string) (publish.PartSpec, bool) {
-		return publish.PartSpec{Version: "0.3.0", Size: 5, SHA256: "ab"}, true
-	})
+	// A luna package holds the whole system: the image (daemon, packs and all)
+	// and the factory ISO. There is no daemon part, and nothing is reused from
+	// an earlier release — that reuse is what produced 0.0.4's package with a
+	// single binary in it.
+	var files []string
+	for _, s := range specs {
+		files = append(files, s.File)
+	}
+	if len(files) != 2 || files[0] != "luna-os-x86_64.img.xz" || files[1] != "luna-rapidinstall-x86_64.iso.xz" {
+		t.Fatalf("luna parts %v", files)
+	}
+	for _, f := range files {
+		must(t, os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o644))
+	}
+	got, err := resolveSpecs("luna", "stable", dir, specs)
 	must(t, err)
 	for _, p := range got {
-		if filepath.Ext(p.File) == ".inputs" || p.Name == "" {
-			t.Fatalf("sidecar became a feed part: %+v", p)
+		if p.Name == "lunad" || filepath.Ext(p.File) == ".inputs" {
+			t.Fatalf("unexpected feed part: %+v", p)
 		}
 	}
-	// flatten brings a built os image's .inputs up to the version dir
+
+	// flatten brings the built files up to the version dir and never publishes
+	// the .sha256 scratch file image.sh leaves beside the image.
 	root := t.TempDir()
 	must(t, os.MkdirAll(filepath.Join(root, "os"), 0o755))
 	must(t, os.WriteFile(filepath.Join(root, "os", "luna-os-x86_64.img.xz"), []byte("i"), 0o644))
-	must(t, os.WriteFile(filepath.Join(root, "os", "luna-os-x86_64.img.xz.inputs"), []byte("h\n"), 0o644))
 	must(t, os.WriteFile(filepath.Join(root, "os", "luna-os-x86_64.img.xz.sha256"), []byte("s\n"), 0o644))
-	missing, err := flatten(root, specs)
-	must(t, err)
-	if _, err := os.Stat(filepath.Join(root, "luna-os-x86_64.img.xz.inputs")); err != nil {
-		t.Fatalf("inputs not uploaded with the release: %v", err)
+	if _, err := flatten(root, specs); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "luna-os-x86_64.img.xz")); err != nil {
+		t.Fatalf("the image did not reach the release dir: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "luna-os-x86_64.img.xz.sha256")); err == nil {
 		t.Fatal("the .sha256 scratch file was published")
-	}
-	// the missing list holds the real files only, never the optional sidecars
-	for _, m := range missing {
-		if filepath.Ext(m) == ".inputs" {
-			t.Fatalf("optional sidecar reported missing: %v", missing)
-		}
 	}
 }
 
