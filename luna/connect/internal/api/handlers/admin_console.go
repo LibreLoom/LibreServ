@@ -198,12 +198,12 @@ func (h AdminConsoleHandler) GetAccount(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var email, billingStatus string
+	var email, billingStatus, customerID string
 	var hasCard, emailVerified, created int64
 	err := h.DB.QueryRow(`
-SELECT email, has_card, billing_status, email_verified, created_at
+SELECT email, has_card, billing_status, email_verified, created_at, COALESCE(stripe_customer_id, '')
 FROM accounts WHERE id = ?`, accountID).
-		Scan(&email, &hasCard, &billingStatus, &emailVerified, &created)
+		Scan(&email, &hasCard, &billingStatus, &emailVerified, &created, &customerID)
 	if err == sql.ErrNoRows {
 		JSONError(w, http.StatusNotFound, "That customer account was not found.")
 		return
@@ -219,9 +219,9 @@ FROM accounts WHERE id = ?`, accountID).
 		return
 	}
 
-	credits, err := billing.GetCreditBalance(h.DB, accountID)
+	credits, err := billing.CreditSummary(customerID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not load the credit balance for this account.")
+		JSONError(w, http.StatusBadGateway, "Could not load this account's credit from Stripe. Try again in a minute.")
 		return
 	}
 
@@ -237,9 +237,12 @@ FROM accounts WHERE id = ?`, accountID).
 	})
 }
 
-// AddAccountCredit puts money on a customer's balance — the remedy when we get
-// a bill wrong. The reason is required and stored with the movement, along with
-// the staff member who made it, so a balance can always be explained.
+// AddAccountCredit gives a customer cloud backup credit — the remedy when we
+// get a bill wrong. It becomes a promotional credit grant in Stripe, which
+// comes off their next cloud backup bills before tax. The reason and the staff
+// member who gave it are stored on the grant, so a balance can always be
+// explained. An account without a Stripe customer gets one, so the credit is
+// waiting when cloud backup starts.
 func (h AdminConsoleHandler) AddAccountCredit(w http.ResponseWriter, r *http.Request) {
 	accountID := strings.TrimSpace(chi.URLParam(r, "accountID"))
 	if accountID == "" {
@@ -247,7 +250,7 @@ func (h AdminConsoleHandler) AddAccountCredit(w http.ResponseWriter, r *http.Req
 		return
 	}
 	var req struct {
-		AmountCents int    `json:"amount_cents"`
+		AmountCents int64  `json:"amount_cents"`
 		Reason      string `json:"reason"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -263,23 +266,41 @@ func (h AdminConsoleHandler) AddAccountCredit(w http.ResponseWriter, r *http.Req
 		JSONError(w, http.StatusBadRequest, "Say why this credit is being added.")
 		return
 	}
-	adminID := AdminIDFrom(r.Context())
-	if err := billing.AddCredit(h.DB, accountID, req.AmountCents, reason, "", adminID); err != nil {
+	var email, customerID string
+	err := h.DB.QueryRow(`SELECT email, COALESCE(stripe_customer_id, '') FROM accounts WHERE id = ?`, accountID).Scan(&email, &customerID)
+	if err == sql.ErrNoRows {
+		JSONError(w, http.StatusNotFound, "That customer account was not found.")
+		return
+	}
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not load that customer account.")
+		return
+	}
+	cust, err := billing.EnsureCustomer(email, customerID)
+	if err != nil {
+		JSONError(w, http.StatusBadGateway, "Could not reach Stripe to add that credit. Try again in a minute.")
+		return
+	}
+	if cust != customerID {
+		if _, err := h.DB.Exec(`UPDATE accounts SET stripe_customer_id = ? WHERE id = ?`, cust, accountID); err != nil {
+			JSONError(w, http.StatusInternalServerError, "Could not add that credit.")
+			return
+		}
+	}
+	if err := billing.GrantCreditBy(cust, req.AmountCents, billing.CreditPromotional, reason, AdminIDFrom(r.Context()), ""); err != nil {
 		switch {
-		case errors.Is(err, billing.ErrNoSuchAccount):
-			JSONError(w, http.StatusNotFound, "That customer account was not found.")
 		case errors.Is(err, billing.ErrCreditReasonRequired):
 			JSONError(w, http.StatusBadRequest, "Say why this credit is being added.")
 		case errors.Is(err, billing.ErrCreditAmountInvalid):
 			JSONError(w, http.StatusBadRequest, "Enter an amount greater than zero.")
 		default:
-			JSONError(w, http.StatusInternalServerError, "Could not add that credit.")
+			JSONError(w, http.StatusBadGateway, "Stripe did not accept that credit. Try again in a minute.")
 		}
 		return
 	}
-	credits, err := billing.GetCreditBalance(h.DB, accountID)
+	credits, err := billing.CreditSummary(cust)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Credit added, but the new balance could not be read.")
+		JSONError(w, http.StatusBadGateway, "Credit added, but the new balance could not be read from Stripe.")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]any{"ok": true, "credits": credits})

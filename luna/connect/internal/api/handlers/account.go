@@ -101,7 +101,7 @@ func (h AccountHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	// The account row comes first: signup must not depend on Stripe being up.
 	// The Stripe customer is created lazily on the first billing call via
-	// billing.EnsureCustomer (AttachCard / onboarding backups / verify-human).
+	// billing.EnsureCustomer (StartCheckout).
 	id := security.NewID("acct")
 	_, err = h.DB.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, email_verified, created_at)
 VALUES (?, ?, ?, 0, 'none', 0, ?)`, id, email, string(hash), time.Now().Unix())
@@ -165,7 +165,13 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 	resolvedPath, resolvedStep := ResolveOnboarding(acct.OnboardingPath, acct.OnboardingStep, dev)
 	persistOnboardingIfChanged(h.DB, acct.ID, acct.OnboardingPath, acct.OnboardingStep, resolvedPath, resolvedStep)
 	status := onboardingStatusFields(resolvedPath, resolvedStep, dev)
-	credits, _ := billing.GetCreditBalance(h.DB, acct.ID)
+	// Credit lives in Stripe. A Stripe hiccup must not break the account page,
+	// so a failed read shows no credit rather than an error.
+	creditCents, err := billing.CreditBalanceCents(acct.StripeCustomer)
+	if err != nil {
+		slog.Warn("could not read credit balance from stripe", "account", acct.ID, "error", err)
+		creditCents = 0
+	}
 
 	JSON(w, http.StatusOK, map[string]any{
 		"id":                     acct.ID,
@@ -178,7 +184,7 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 		"avg_stored_bytes":       avgBytes,
 		"egress_bytes":           egressBytes,
 		"estimated_month":        billing.EstimateMonthUSD(avgBytes, egressBytes),
-		"credit_balance_cents":   credits.BalanceCents,
+		"credit_balance_cents":   creditCents,
 		"price_copy":             PriceCopy(),
 		"backup_purge_after":     acct.BackupPurgeAfter,
 		"onboarding_path":        status["path"],
@@ -207,118 +213,6 @@ func (h AccountHandler) PublicConfig(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func setupIntentFromJSON(body []byte) string {
-	var req struct {
-		SetupIntentID string `json:"setup_intent_id"`
-	}
-	_ = json.Unmarshal(body, &req)
-	return strings.TrimSpace(req.SetupIntentID)
-}
-
-// verifyCardForBilling saves the card and confirms the bank accepts it before a
-// subscription starts. It returns false after writing the response when the
-// caller must stop: the card needs the person to confirm in the browser
-// (requires_action), or it was refused.
-func verifyCardForBilling(w http.ResponseWriter, customerID, paymentMethodID, setupIntentID, fallback string) bool {
-	action, err := billing.VerifyCard(customerID, paymentMethodID, setupIntentID)
-	if err != nil {
-		writeBillingErr(w, err, fallback)
-		return false
-	}
-	if action != nil {
-		JSON(w, http.StatusOK, map[string]any{
-			"ok":              false,
-			"requires_action": true,
-			"client_secret":   action.ClientSecret,
-			"setup_intent_id": action.SetupIntentID,
-		})
-		return false
-	}
-	return true
-}
-
-func paymentMethodFromJSON(body []byte) string {
-	var req struct {
-		PaymentMethod   string `json:"payment_method"`
-		PaymentMethodID string `json:"payment_method_id"`
-	}
-	_ = json.Unmarshal(body, &req)
-	pm := strings.TrimSpace(req.PaymentMethod)
-	if pm == "" {
-		pm = strings.TrimSpace(req.PaymentMethodID)
-	}
-	return pm
-}
-
-func (h AccountHandler) AttachCard(w http.ResponseWriter, r *http.Request) {
-	acct, ok := AccountFrom(r.Context())
-	if !ok {
-		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
-		return
-	}
-	// Idempotent: a stored subscription id means one already exists at
-	// Stripe — subscribing again would bill the customer twice while we
-	// overwrite the old id and lose track of it. The cancellation webhook
-	// clears stripe_subscription_id, which is what re-opens this path.
-	if acct.StripeSub != "" {
-		already := acct.BillingStatus == "active" || acct.BillingStatus == "dev"
-		JSON(w, http.StatusOK, map[string]any{"ok": true, "already_active": already})
-		return
-	}
-	var raw json.RawMessage
-	_ = json.NewDecoder(r.Body).Decode(&raw)
-	pm := paymentMethodFromJSON(raw)
-	cust, err := billing.EnsureCustomer(acct.Email, acct.StripeCustomer)
-	if err != nil {
-		writeBillingErr(w, err, "Could not start the monthly bill. Check the card and try again.")
-		return
-	}
-	if cust != acct.StripeCustomer {
-		if _, err := h.DB.Exec(`UPDATE accounts SET stripe_customer_id = ? WHERE id = ?`, cust, acct.ID); err != nil {
-			slog.Error("subscribe: failed to persist stripe customer id", "account", acct.ID, "err", err)
-		}
-		acct.StripeCustomer = cust
-	}
-	if !verifyCardForBilling(w, cust, pm, setupIntentFromJSON(raw), "Could not check the card. Try again.") {
-		return
-	}
-	sub, item, err := billing.Subscribe(cust, pm)
-	if err != nil {
-		writeBillingErr(w, err, "Could not start the monthly bill. Check the card and try again.")
-		return
-	}
-	status := "active"
-	out := map[string]any{"ok": true}
-	if billing.DevBypass() {
-		status = "dev"
-		out["dev"] = true
-	}
-	// Race-safe claim: two concurrent subscribes both reach Stripe, but only
-	// one wins this conditional UPDATE. The loser cancels the subscription it
-	// just created so the customer is never billed twice.
-	res, err := h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ?, stripe_subscription_item_id = ?, backup_purge_after = NULL, purge_mail_day = NULL WHERE id = ? AND (stripe_subscription_id IS NULL OR stripe_subscription_id = '')`,
-		status, sub, item, acct.ID)
-	if err != nil {
-		if cerr := billing.CancelSubscription(sub); cerr != nil {
-			slog.Error("subscribe: failed to cancel orphaned subscription; customer may be billed twice", "account", acct.ID, "subscription", sub, "err", cerr)
-		}
-		JSONError(w, http.StatusInternalServerError, "Could not save billing. Try again.")
-		return
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		if cerr := billing.CancelSubscription(sub); cerr != nil {
-			slog.Error("subscribe: failed to cancel losing subscription in race; customer may be billed twice", "account", acct.ID, "subscription", sub, "err", cerr)
-		}
-		var liveStatus string
-		if err := h.DB.QueryRow(`SELECT billing_status FROM accounts WHERE id = ?`, acct.ID).Scan(&liveStatus); err != nil {
-			slog.Warn("subscribe: failed to re-read billing status for already_active check", "account", acct.ID, "err", err)
-		}
-		JSON(w, http.StatusOK, map[string]any{"ok": true, "already_active": liveStatus == "active" || liveStatus == "dev"})
-		return
-	}
-	JSON(w, http.StatusOK, out)
-}
-
 func (h AccountHandler) CancelBilling(w http.ResponseWriter, r *http.Request) {
 	acct, ok := AccountFrom(r.Context())
 	if !ok {
@@ -332,12 +226,12 @@ func (h AccountHandler) CancelBilling(w http.ResponseWriter, r *http.Request) {
 	stored := storageUsed(h.DB, acct.ID)
 	owesThisMonth := billing.MonthMills(avgBytes, egressBytes) > 0
 	var hasCard int
-	var status, itemID string
-	_ = h.DB.QueryRow(`SELECT has_card, billing_status, COALESCE(stripe_subscription_item_id, '') FROM accounts WHERE id = ?`, acct.ID).Scan(&hasCard, &status, &itemID)
+	var status string
+	_ = h.DB.QueryRow(`SELECT has_card, billing_status FROM accounts WHERE id = ?`, acct.ID).Scan(&hasCard, &status)
 	// Detach the subscription first: Stripe's webhooks for this cancel (subscription
 	// deleted, the final invoice paid or failed) then match no account, so they can't
 	// start the 30-day countdown or its mails for copies we delete now.
-	if _, err := h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = 'canceled', stripe_subscription_id = '', stripe_subscription_item_id = '' WHERE id = ?`, acct.ID); err != nil {
+	if _, err := h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = 'canceled', stripe_subscription_id = '' WHERE id = ?`, acct.ID); err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not turn off payment. Nothing was charged or deleted. Try again in a few minutes.")
 		return
 	}
@@ -350,8 +244,8 @@ func (h AccountHandler) CancelBilling(w http.ResponseWriter, r *http.Request) {
 			err = billing.CancelSubscription(acct.StripeSub)
 		}
 		if err != nil {
-			_, _ = h.DB.Exec(`UPDATE accounts SET has_card = ?, billing_status = ?, stripe_subscription_id = ?, stripe_subscription_item_id = ? WHERE id = ?`,
-				hasCard, status, acct.StripeSub, itemID, acct.ID)
+			_, _ = h.DB.Exec(`UPDATE accounts SET has_card = ?, billing_status = ?, stripe_subscription_id = ? WHERE id = ?`,
+				hasCard, status, acct.StripeSub, acct.ID)
 			writeBillingErr(w, err, "Could not turn off payment. Nothing was charged or deleted. Try again in a few minutes.")
 			return
 		}
@@ -370,17 +264,9 @@ func writeBillingErr(w http.ResponseWriter, err error, fallback string) {
 		JSONError(w, http.StatusServiceUnavailable, "Card billing is not set up on this Luna Connect site. Contact support to resolve this issue.")
 		return
 	}
-	if errors.Is(err, billing.ErrPaymentMethodRequired) {
-		JSONError(w, http.StatusBadRequest, "Add a card on this page first, then try again.")
-		return
-	}
 	var stripeErr *stripe.Error
-	if errors.Is(err, billing.ErrCardNotVerified) || (errors.As(err, &stripeErr) && stripeErr.Type == stripe.ErrorTypeCard) {
+	if errors.As(err, &stripeErr) && stripeErr.Type == stripe.ErrorTypeCard {
 		JSONError(w, http.StatusPaymentRequired, "Your bank did not accept this card. Try a different card.")
-		return
-	}
-	if errors.Is(err, billing.ErrSubscriptionInactive) {
-		JSONError(w, http.StatusPaymentRequired, "The card was saved but the monthly bill is not active yet. Check the card and try again.")
 		return
 	}
 	JSONError(w, http.StatusBadRequest, fallback)

@@ -32,7 +32,10 @@ func scheduleBackupPurge(db *database.DB, accountID string) int64 {
 	return deadline
 }
 
-func purgeMail(day int) (subject, text string) {
+// purgeMail is the warning for day of the 30-day countdown. paymentFailed is
+// true while the countdown runs because a payment failed (the subscription
+// still exists and Stripe keeps retrying), not because payment was turned off.
+func purgeMail(day int, paymentFailed bool) (subject, text string) {
 	if day >= backupRetentionDays {
 		return "Your cloud copies were deleted",
 			"The 30 days are up. The cloud copies for this account are gone."
@@ -47,13 +50,17 @@ func purgeMail(day int) (subject, text string) {
 	} else if day > 0 {
 		days = itoa(left) + " days"
 	}
+	if paymentFailed {
+		return "Your cloud backup payment didn't go through",
+			"We still have your copies for " + days + ". To keep them, update your card at link.com and Stripe will try the payment again. Or sign in at connect.luna.libreloom.org and download anything you need before we delete them."
+	}
 	return "Make sure you have your files",
 		"Payment for cloud backup is off. We still have your copies for " + days + ". Sign in at connect.luna.libreloom.org and download anything you need before we delete them."
 }
 
-func sendPurgeWarning(sender mail.Sender, email string, day int, deadline int64) {
+func sendPurgeWarning(sender mail.Sender, email string, day int, deadline int64, paymentFailed bool) {
 	email = strings.TrimSpace(email)
-	subject, text := purgeMail(day)
+	subject, text := purgeMail(day, paymentFailed)
 	if sender == nil || email == "" {
 		if email != "" {
 			slog.Info("purge warning (no mailer)", "day", day, "deadline", deadline, "subject", subject)
@@ -70,11 +77,13 @@ func markAndSendPurgeWarning(deps Deps, accountID, email string, day int, deadli
 		return
 	}
 	var last sql.NullInt64
-	_ = deps.DB.QueryRow(`SELECT purge_mail_day FROM accounts WHERE id = ?`, accountID).Scan(&last)
+	var status, sub string
+	_ = deps.DB.QueryRow(`SELECT purge_mail_day, COALESCE(billing_status, ''), COALESCE(stripe_subscription_id, '') FROM accounts WHERE id = ?`, accountID).Scan(&last, &status, &sub)
 	if last.Valid && int(last.Int64) >= day {
 		return
 	}
-	sendPurgeWarning(deps.Mail, email, day, deadline)
+	paymentFailed := sub != "" && (status == "past_due" || status == "unpaid" || status == "incomplete")
+	sendPurgeWarning(deps.Mail, email, day, deadline, paymentFailed)
 	_, _ = deps.DB.Exec(`UPDATE accounts SET purge_mail_day = ? WHERE id = ?`, day, accountID)
 }
 

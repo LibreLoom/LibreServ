@@ -3,9 +3,11 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/accounts"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/domainname"
@@ -70,12 +72,22 @@ func teardownDeviceRemote(deps Deps, subdomain, tunnelID string) {
 // deleteCustomerAccount purges every linked Luna, clears sign-in sessions and
 // billing metadata, and removes the account row. Backup objects stay in storage.
 func deleteCustomerAccount(deps Deps, accountID string) error {
-	var exists int
-	if err := deps.DB.QueryRow(`SELECT COUNT(*) FROM accounts WHERE id = ?`, accountID).Scan(&exists); err != nil {
+	var subID string
+	err := deps.DB.QueryRow(`SELECT COALESCE(stripe_subscription_id, '') FROM accounts WHERE id = ?`, accountID).Scan(&subID)
+	if err == sql.ErrNoRows {
+		return sql.ErrNoRows
+	}
+	if err != nil {
 		return err
 	}
-	if exists == 0 {
-		return sql.ErrNoRows
+	// Stop the cloud backup bill first, charging the month so far: once the
+	// account row is gone nothing would ever cancel it. If Stripe can't be
+	// reached, nothing is deleted and the admin can try again.
+	if subID != "" {
+		billing.ReportAccountUsage(deps.DB, accountID)
+		if err := billing.CancelSubscriptionFinal(subID); err != nil {
+			return fmt.Errorf("cancel cloud backup subscription: %w", err)
+		}
 	}
 
 	rows, err := deps.DB.Query(`SELECT id FROM devices WHERE account_id = ?`, accountID)

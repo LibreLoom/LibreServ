@@ -74,18 +74,6 @@ func TestEstimateMatchesMeteredCharge(t *testing.T) {
 	}
 }
 
-func TestChargeOneDollarDevBypass(t *testing.T) {
-	t.Setenv("LUNACONNECT_DEV", "1")
-	prev := config.C.Stripe
-	t.Cleanup(func() { config.C.Stripe = prev })
-	config.C.Stripe.Enabled = false
-	config.C.Stripe.SecretKey = ""
-	id, err := ChargeOneDollar("cus_x", "")
-	if err != nil || id == "" {
-		t.Fatalf("dev bypass: %q %v", id, err)
-	}
-}
-
 func TestDevBypassRequiresExplicitDevMode(t *testing.T) {
 	t.Setenv("LUNACONNECT_DEV", "")
 	prev := config.C.Stripe
@@ -99,17 +87,20 @@ func TestDevBypassRequiresExplicitDevMode(t *testing.T) {
 	}
 }
 
-func TestChargeAndSubscribeFailClosedWhenEnabledWithoutKey(t *testing.T) {
+func TestBillingFailsClosedWhenEnabledWithoutKey(t *testing.T) {
 	t.Setenv("LUNACONNECT_DEV", "")
 	prev := config.C.Stripe
 	t.Cleanup(func() { config.C.Stripe = prev })
 	config.C.Stripe.Enabled = true
 	config.C.Stripe.SecretKey = ""
-	if _, err := ChargeOneDollar("cus_x", "pm_x"); !errors.Is(err, ErrNotConfigured) {
-		t.Fatalf("charge: %v", err)
+	if _, err := StartCardCheck("cus_x", "acct", "backups", "https://x/ok", "https://x/back"); !errors.Is(err, ErrNotConfigured) {
+		t.Fatalf("card check: %v", err)
 	}
-	if _, _, err := Subscribe("cus_x", "pm_x"); !errors.Is(err, ErrNotConfigured) {
-		t.Fatalf("subscribe: %v", err)
+	if _, err := StartBackupCheckout("cus_x", "acct", "backups", "https://x/ok", "https://x/back"); !errors.Is(err, ErrNotConfigured) {
+		t.Fatalf("backup checkout: %v", err)
+	}
+	if err := GrantCredit("cus_x", 100, CreditPaid, "card check", ""); !errors.Is(err, ErrNotConfigured) {
+		t.Fatalf("grant: %v", err)
 	}
 	if _, err := CreateCustomer("a@b.co"); !errors.Is(err, ErrNotConfigured) {
 		t.Fatalf("customer: %v", err)
@@ -122,31 +113,6 @@ func TestIsPlaceholderCustomer(t *testing.T) {
 	}
 	if IsPlaceholderCustomer("cus_abc123") {
 		t.Fatal("real customer id must not be treated as placeholder")
-	}
-}
-
-func TestChargeRequiresPaymentMethodWhenStripeReady(t *testing.T) {
-	t.Setenv("LUNACONNECT_DEV", "")
-	prev := config.C.Stripe
-	t.Cleanup(func() { config.C.Stripe = prev })
-	config.C.Stripe.Enabled = true
-	config.C.Stripe.SecretKey = "sk_test_fake"
-	if _, err := ChargeOneDollar("cus_x", ""); !errors.Is(err, ErrPaymentMethodRequired) {
-		t.Fatalf("want payment method required, got %v", err)
-	}
-	if _, _, err := Subscribe("cus_x", ""); !errors.Is(err, ErrPaymentMethodRequired) {
-		t.Fatalf("subscribe want payment method required, got %v", err)
-	}
-}
-
-func TestChargeRejectsPlaceholderCustomer(t *testing.T) {
-	t.Setenv("LUNACONNECT_DEV", "")
-	prev := config.C.Stripe
-	t.Cleanup(func() { config.C.Stripe = prev })
-	config.C.Stripe.Enabled = true
-	config.C.Stripe.SecretKey = "sk_test_fake"
-	if _, err := ChargeOneDollar("cus_dev_a@b.co", "pm_x"); err == nil {
-		t.Fatal("expected error for placeholder customer")
 	}
 }
 
@@ -192,26 +158,5 @@ func TestNextMonthStartUTC(t *testing.T) {
 		if got := NextMonthStartUTC(tc.in); !got.Equal(tc.want) {
 			t.Fatalf("NextMonthStartUTC(%v)=%v want %v", tc.in, got, tc.want)
 		}
-	}
-}
-
-func TestVerifyCardFailsClosed(t *testing.T) {
-	t.Setenv("LUNACONNECT_DEV", "")
-	prev := config.C.Stripe
-	t.Cleanup(func() { config.C.Stripe = prev })
-	config.C.Stripe.Enabled = true
-	config.C.Stripe.SecretKey = ""
-	if _, err := VerifyCard("cus_x", "pm_x", ""); !errors.Is(err, ErrNotConfigured) {
-		t.Fatalf("verify without key: %v", err)
-	}
-}
-
-func TestVerifyCardDevBypass(t *testing.T) {
-	t.Setenv("LUNACONNECT_DEV", "1")
-	prev := config.C.Stripe
-	t.Cleanup(func() { config.C.Stripe = prev })
-	config.C.Stripe.Enabled = false
-	if action, err := VerifyCard("cus_dev_x", "", ""); action != nil || err != nil {
-		t.Fatalf("dev bypass: %v %v", action, err)
 	}
 }

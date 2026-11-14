@@ -112,7 +112,8 @@ func (s *Server) routes() {
 					r.Group(func(r chi.Router) {
 						r.Use(acct.RequireVerifiedEmail)
 						r.Get("/billing/usage", acct.Usage)
-						r.Post("/billing/attach-card", acct.AttachCard)
+						r.Post("/billing/checkout", acct.StartCheckout)
+						r.Post("/billing/checkout/complete", acct.CompleteCheckout)
 						r.Post("/billing/cancel", acct.CancelBilling)
 						r.Get("/account/devices", acct.Devices)
 						r.Get("/account/devices/{deviceID}/code", acct.RevealDeviceCode)
@@ -131,7 +132,6 @@ func (s *Server) routes() {
 						r.Get("/onboarding/status", onb.Status)
 						r.Post("/onboarding/backups", onb.Backups)
 						r.Post("/onboarding/progress", onb.SetOnboardingProgress)
-						r.Post("/account/verify-human", onb.VerifyHuman)
 						r.Post("/account/diy-token", onb.MintDIY)
 					})
 				})

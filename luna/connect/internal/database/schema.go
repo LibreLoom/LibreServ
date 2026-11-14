@@ -7,7 +7,6 @@ CREATE TABLE IF NOT EXISTS accounts (
   password_hash TEXT NOT NULL,
   stripe_customer_id TEXT,
   stripe_subscription_id TEXT,
-  stripe_subscription_item_id TEXT,
   backup_quota_bytes INTEGER,
   has_card INTEGER NOT NULL DEFAULT 0,
   billing_status TEXT NOT NULL DEFAULT 'none',
@@ -123,22 +122,6 @@ CREATE TABLE IF NOT EXISTS billing_period_egress (
   egress_bytes INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (account_id, period_ym)
 );
-CREATE TABLE IF NOT EXISTS account_credits (
-  account_id TEXT PRIMARY KEY,
-  balance_cents INTEGER NOT NULL DEFAULT 0,
-  updated_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS credit_transactions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  account_id TEXT NOT NULL,
-  amount_cents INTEGER NOT NULL,
-  direction TEXT NOT NULL CHECK(direction IN ('credit','debit')),
-  reason TEXT NOT NULL,
-  reference_id TEXT,
-  admin_id TEXT,
-  created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_credit_tx_account ON credit_transactions (account_id, created_at);
 CREATE TABLE IF NOT EXISTS storage_packs (
   account_id TEXT NOT NULL,
   luna_id TEXT NOT NULL,
@@ -222,7 +205,6 @@ CREATE TABLE IF NOT EXISTS accounts (
   password_hash TEXT NOT NULL,
   stripe_customer_id TEXT,
   stripe_subscription_id TEXT,
-  stripe_subscription_item_id TEXT,
   backup_quota_bytes BIGINT,
   has_card INTEGER NOT NULL DEFAULT 0,
   billing_status TEXT NOT NULL DEFAULT 'none',
@@ -336,22 +318,6 @@ CREATE TABLE IF NOT EXISTS billing_period_egress (
   egress_bytes BIGINT NOT NULL DEFAULT 0,
   PRIMARY KEY (account_id, period_ym)
 );
-CREATE TABLE IF NOT EXISTS account_credits (
-  account_id TEXT PRIMARY KEY,
-  balance_cents INTEGER NOT NULL DEFAULT 0,
-  updated_at BIGINT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS credit_transactions (
-  id BIGSERIAL PRIMARY KEY,
-  account_id TEXT NOT NULL,
-  amount_cents INTEGER NOT NULL,
-  direction TEXT NOT NULL CHECK(direction IN ('credit','debit')),
-  reason TEXT NOT NULL,
-  reference_id TEXT,
-  admin_id TEXT,
-  created_at BIGINT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_credit_tx_account ON credit_transactions (account_id, created_at);
 CREATE TABLE IF NOT EXISTS storage_packs (
   account_id TEXT NOT NULL,
   luna_id TEXT NOT NULL,
