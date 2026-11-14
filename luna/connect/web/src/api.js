@@ -29,10 +29,11 @@ export async function api(path, opts = {}) {
     data = { message: text };
   }
   if (!res.ok) {
-    const err = /** @type {Error & { status?: number }} */ (
+    const err = /** @type {Error & { status?: number, data?: any }} */ (
       new Error(data.message || data.error || "That didn't work. Try again.")
     );
     err.status = res.status;
+    err.data = data;
     throw err;
   }
   return data;

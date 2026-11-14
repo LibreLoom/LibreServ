@@ -18,7 +18,8 @@ func PriceCopy() string {
 	return fmt.Sprintf(
 		"Cloud backup costs $%s per terabyte each month, based on how much you store on average. "+
 			"A month costs at least $%.0f once you have something stored. "+
-			"Downloads are free up to %d× what you store; extra download traffic is $%.2f per GB.",
+			"Downloads are free up to %d× what you store; extra download traffic is $%.2f per GB. "+
+			"Sales tax or VAT is added on top where it applies.",
 		formatDollarsPerTB(), billing.MinimumMonthlyUSD, billing.EgressFreeMultiplier, billing.DollarsPerEgressGB)
 }
 

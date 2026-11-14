@@ -142,6 +142,24 @@ describe("BackupsPage", () => {
     expect(screen.getByRole("button", { name: /Add a payment card/i })).toBeTruthy();
   });
 
+  it("sends a failed payment to link.com instead of a second card", () => {
+    const later = Math.floor(Date.now() / 1000) + 10 * 86400;
+    renderTab({ me: { has_card: false, billing_status: "past_due", backup_purge_after: later } });
+    expect(screen.getByText("Payment didn't go through")).toBeTruthy();
+    const link = screen.getByTestId("backup-update-card");
+    expect(link.getAttribute("href")).toBe("https://app.link.com");
+    expect(screen.getByText(/Update your card to keep them/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Add a payment card/i })).toBeNull();
+  });
+
+  it("says prices and charges are before tax", () => {
+    renderTab({ me: { has_card: true, estimated_month: 4.2, stored_bytes: 5_000_000_000 } });
+    expect(screen.getByTestId("backup-pricing-tax")).toBeTruthy();
+    expect(screen.getByText(/so far, before tax/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Turn off payment/i }));
+    expect(screen.getByText(/about \$4\.20 plus tax/)).toBeTruthy();
+  });
+
   it("says when a no longer linked Luna's files will be deleted", () => {
     renderTab({ lunas: [{ ...HOME, linked: false, purge_after: 1800000000 }], paired: false });
     expect(

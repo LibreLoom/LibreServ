@@ -22,12 +22,12 @@ import {
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { api } from "../api.js";
-import { stripeLooksConfigured } from "../billing/stripeConfig.js";
+import { startCheckout, useCheckoutReturn } from "../billing/checkout.js";
 import { Button } from "../components/ui/button.jsx";
 import ShakeTarget from "../components/ui/shake-target.jsx";
 import { TermHint } from "../components/ui/Tooltip.jsx";
 import { BackupPricingTable } from "../components/BackupPricingTable.jsx";
-import { VerifyHumanCard } from "../components/VerifyHumanCard.jsx";
+import { CheckoutButton } from "../components/CheckoutButton.jsx";
 import { ProvisioningDomainAnimation } from "../components/ProvisioningDomainAnimation.jsx";
 import { FinishingTransferAnimation } from "../components/FinishingTransferAnimation.jsx";
 import { Input } from "../components/ui/input.jsx";
@@ -543,11 +543,7 @@ export default function OnboardingPage() {
     goTo("diy-code");
   }
 
-  async function finishDiyVerify(paymentMethodId) {
-    const body = paymentMethodId
-      ? JSON.stringify({ payment_method_id: paymentMethodId })
-      : "{}";
-    await api("/api/v1/account/verify-human", { method: "POST", body });
+  async function finishDiyVerify() {
     await refresh();
     await mintDiyToken();
   }
@@ -563,12 +559,27 @@ export default function OnboardingPage() {
       await mintDiyToken();
       return;
     }
-    if (stripeLooksConfigured(current)) {
+    if (current?.stripe_enabled) {
       goTo("card");
       return;
     }
-    await finishDiyVerify();
+    // No Stripe on this site (local test setup): the check passes at once.
+    const res = await startCheckout("card_check", "diyonboarding");
+    if (res.done) await finishDiyVerify();
   }
+
+  const checkout = useCheckoutReturn(async (kind) => {
+    setError("");
+    try {
+      if (kind === "card_check") await finishDiyVerify();
+      else if (kind === "backup") {
+        await refresh();
+        await goToFinish();
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+  });
 
   async function afterOfficialAccount() {
     const account = await refresh();
@@ -1264,59 +1275,22 @@ export default function OnboardingPage() {
         Adding your card allows you to backup files from your Luna to the cloud.
       </p>
       <BackupPricingTable className="mb-6" />
-      {stripeLooksConfigured(me) ? (
-        <VerifyHumanCard
-          account={me}
-          loading={loading}
-          description="Add a payment card to turn on cloud backup. The monthly price is based on your average storage."
-          buttonLabel="Turn on cloud backup"
-          onConfirm={async (paymentMethodId, setupIntentId) => {
-            setError("");
-            setLoading(true);
-            try {
-              const result = await api("/api/v1/onboarding/backups", {
-                method: "POST",
-                body: JSON.stringify({
-                  enable: true,
-                  payment_method_id: paymentMethodId,
-                  setup_intent_id: setupIntentId || undefined,
-                  device_id: deviceId || undefined,
-                }),
-              });
-              // requires_action: the card's bank wants a confirmation; the card form handles it.
-              if (result?.requires_action) return result;
-              await goToFinish();
-            } catch (err) {
-              setError(err.message);
-            } finally {
-              setLoading(false);
-            }
-          }}
-        />
-      ) : (
-        <Button
-          size="lg"
-          className="w-full mb-3"
-          loading={loading}
-          onClick={async () => {
-            setError("");
-            setLoading(true);
-            try {
-              await api("/api/v1/onboarding/backups", {
-                method: "POST",
-                body: JSON.stringify({ enable: true, device_id: deviceId || undefined }),
-              });
-              await goToFinish();
-            } catch (err) {
-              setError(err.message);
-            } finally {
-              setLoading(false);
-            }
-          }}
-        >
-          Turn on cloud backup
-        </Button>
+      <CheckoutButton
+        kind="backup"
+        returnTo={path === "diy" ? "diyonboarding" : "onboarding"}
+        loading={loading || checkout.status === "checking"}
+        onDone={goToFinish}
+        onError={(err) => setError(err.message)}
+      >
+        Turn on cloud backup
+      </CheckoutButton>
+      <p className="text-sm text-foreground leading-relaxed mt-3">
+        You add the card on Stripe&apos;s payment page, then come back here.
+      </p>
+      {checkout.status === "checking" && (
+        <p className="text-sm text-foreground mt-3" role="status">Checking your payment with Stripe…</p>
       )}
+      {checkout.error && <p className="text-sm text-error mt-3">{checkout.error}</p>}
       <Button
         variant="outline"
         size="lg"
@@ -1454,23 +1428,34 @@ export default function OnboardingPage() {
     body = (
       <StepShell icon={User} title="Verify your card">
         <p className="text-sm text-foreground mb-6 leading-relaxed">
-          We charge $1 once to confirm your card works. That dollar applies to cloud backup if you turn it on later.
+          We charge $1 once, plus any sales tax or VAT, to confirm your card works. That dollar counts toward cloud backup if you turn it on later.
         </p>
-        <VerifyHumanCard
-          account={me}
-          loading={loading}
-          onConfirm={async (paymentMethodId) => {
+        <CheckoutButton
+          kind="card_check"
+          returnTo="diyonboarding"
+          loading={loading || checkout.status === "checking"}
+          onDone={async () => {
             setError("");
             setLoading(true);
             try {
-              await finishDiyVerify(paymentMethodId);
+              await finishDiyVerify();
             } catch (err) {
               setError(err.message);
             } finally {
               setLoading(false);
             }
           }}
-        />
+          onError={(err) => setError(err.message)}
+        >
+          Pay $1 on Stripe
+        </CheckoutButton>
+        <p className="text-sm text-foreground leading-relaxed mt-3">
+          Stripe&apos;s payment page opens, then brings you back here. Your card statement shows the charge as LINK.COM.
+        </p>
+        {checkout.status === "checking" && (
+          <p className="text-sm text-foreground mt-3" role="status">Checking your payment with Stripe…</p>
+        )}
+        {checkout.error && <p className="text-sm text-error mt-3">{checkout.error}</p>}
       </StepShell>
     );
   } else if (step === "diy-code") body = renderDiyCode();

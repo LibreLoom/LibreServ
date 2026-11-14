@@ -23,9 +23,9 @@ function dollars(cents) {
 }
 
 /**
- * CreditSection — money we owe this account, and the way to add more. A credit
- * is how we make a wrong bill right, so every movement needs a reason and the
- * ledger is shown alongside the balance.
+ * CreditSection — cloud backup credit this account has, and the way to add
+ * more. A credit is how we make a wrong bill right, so every credit needs a
+ * reason. Credit lives in Stripe (credit grants); the list shows what was given.
  */
 function CreditSection({ accountId, credits, onChanged }) {
   const [amount, setAmount] = useState("");
@@ -69,7 +69,7 @@ function CreditSection({ accountId, credits, onChanged }) {
         <Wallet className="h-4 w-4" /> Credit
       </h3>
       <p className="text-sm text-muted-foreground mb-3">
-        Credit is spent on this account&apos;s next invoice.
+        Stripe takes credit off this account&apos;s cloud backup bills, before tax. Any rest carries over to the next month.
       </p>
       <dl className="space-y-2 text-sm">
         <div className="flex justify-between gap-4">
@@ -110,11 +110,12 @@ function CreditSection({ accountId, credits, onChanged }) {
             <li key={entry.id} className="flex items-start justify-between gap-3 px-3 py-2">
               <div className="min-w-0">
                 <p className="text-sm break-words">{entry.reason}</p>
-                <p className="text-xs text-muted-foreground font-mono">{formatWhen(entry.created_at)}</p>
+                <p className="text-xs text-muted-foreground font-mono">
+                  {formatWhen(entry.created_at)} · {entry.category === "paid" ? "Paid by the customer" : "Given by us"}
+                  {entry.voided ? " · Cancelled" : ""}
+                </p>
               </div>
-              <p className={`font-mono text-sm shrink-0 ${entry.direction === "credit" ? "text-success" : "text-foreground"}`}>
-                {entry.direction === "credit" ? "+" : "−"}{dollars(entry.amount_cents)}
-              </p>
+              <p className="font-mono text-sm shrink-0 text-foreground">+{dollars(entry.amount_cents)}</p>
             </li>
           ))}
         </ul>

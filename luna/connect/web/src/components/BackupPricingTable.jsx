@@ -54,6 +54,9 @@ export function BackupPricingTable({ surface = "secondary", className = "" }) {
           </tbody>
         </table>
       </div>
+      <p className="text-sm text-foreground" data-testid="backup-pricing-tax">
+        Prices are before tax. Sales tax or VAT is added on top where it applies.
+      </p>
     </section>
   );
 }

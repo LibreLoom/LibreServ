@@ -7,14 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.
 import { Separator } from "../components/ui/separator.jsx";
 import { BackupPricingTable } from "../components/BackupPricingTable.jsx";
 import { InfoHint } from "../components/ui/Tooltip.jsx";
-import { VerifyHumanCard } from "../components/VerifyHumanCard.jsx";
+import { CheckoutButton } from "../components/CheckoutButton.jsx";
 import { UnlockCard } from "../components/cloud/UnlockCard.jsx";
 import { CloudBrowser } from "../components/cloud/CloudBrowser.jsx";
 import { ShareLinkButton } from "../components/cloud/ShareLinkButton.jsx";
 import { ShareLinksCard } from "../components/cloud/ShareLinksCard.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { api } from "../api.js";
-import { stripeLooksConfigured } from "../billing/stripeConfig.js";
+import { LINK_MANAGE_URL, useCheckoutReturn } from "../billing/checkout.js";
 import { accountSource, listLunas } from "../lib/cloudSource.js";
 import { unlockBackups } from "../lib/cloudUnlock.js";
 import { userRecordPart } from "@libreloom/ui/lib/cloud/cloudKeys.js";
@@ -42,7 +42,7 @@ function MonthlyCostHighlight({ amount, creditCents = 0 }) {
         This month
       </p>
       <p className="font-mono text-3xl mt-1">${formatted}</p>
-      <p className="text-sm mt-2">Estimated from your average storage so far.</p>
+      <p className="text-sm mt-2">Estimated from your average storage so far, before tax.</p>
       {credit > 0 && (
         <p className="text-sm mt-2" data-testid="backup-credit">
           You have ${(credit / 100).toFixed(2)} in credit. It comes off your next bill.
@@ -99,7 +99,7 @@ function CancelPaymentSection({ confirmCancel, setConfirmCancel, busy, onCancel,
             Your cloud copies can only stay while a card pays for them. Download anything you need first.
           </p>
           <ul className="text-sm leading-relaxed list-disc pl-5 space-y-1">
-            <li>We charge this month so far to your card now: about ${owed.toFixed(2)}.</li>
+            <li>We charge this month so far to your card now: about ${owed.toFixed(2)} plus tax.</li>
             <li>We delete every cloud copy right away. This can't be undone.</li>
             <li>Your files on Luna stay as they are.</li>
           </ul>
@@ -107,7 +107,7 @@ function CancelPaymentSection({ confirmCancel, setConfirmCancel, busy, onCancel,
       ) : (
         <p className="text-sm leading-relaxed">
           {owed > 0
-            ? `Nothing is stored. We charge this month so far to your card now: about $${owed.toFixed(2)}.`
+            ? `Nothing is stored. We charge this month so far to your card now: about $${owed.toFixed(2)} plus tax.`
             : "Nothing is stored, so nothing is charged or deleted."}
         </p>
       )}
@@ -271,16 +271,6 @@ export function BackupsTab({ me, lunas, paired, onRefresh, setError, error }) {
   const daysLeft = daysUntil(purgeAfter);
   const purging = purgeAfter > 0;
 
-  async function attach(paymentMethodId, setupIntentId) {
-    const body = paymentMethodId
-      ? JSON.stringify({ payment_method_id: paymentMethodId, setup_intent_id: setupIntentId || undefined })
-      : "{}";
-    const result = await api("/api/v1/billing/attach-card", { method: "POST", body });
-    // requires_action: the card's bank wants a confirmation; the card form handles it.
-    if (!result?.requires_action) await onRefresh();
-    return result;
-  }
-
   async function cancelPayment() {
     setError("");
     setBusy(true);
@@ -295,39 +285,38 @@ export function BackupsTab({ me, lunas, paired, onRefresh, setError, error }) {
     }
   }
 
-  const addCard = stripeLooksConfigured(me) ? (
-    <VerifyHumanCard
-      account={me}
-      loading={busy}
-      description="Add a payment card so we can store a cloud backup. It costs $8 per terabyte each month, at least $3 a month once you store something."
-      buttonLabel="Add a payment card"
-      onConfirm={async (paymentMethodId, setupIntentId) => {
-        setError("");
-        setBusy(true);
-        try {
-          return await attach(paymentMethodId, setupIntentId);
-        } catch (err) {
-          setError(err.message);
-        } finally {
-          setBusy(false);
-        }
-      }}
-    />
-  ) : (
-    <Button
-      type="button"
-      size="lg"
-      onClick={async () => {
-        try {
-          await attach("");
-        } catch (err) {
-          setError(err.message);
-        }
-      }}
-    >
-      Add a payment card
-    </Button>
+  const paymentFailed = ["past_due", "unpaid", "incomplete"].includes(me?.billing_status);
+
+  const addCard = (
+    <div className="space-y-2">
+      <CheckoutButton
+        kind="backup"
+        returnTo="backups"
+        className=""
+        onDone={onRefresh}
+        onError={(err) => setError(err.message)}
+      >
+        Add a payment card
+      </CheckoutButton>
+      <p className="text-sm leading-relaxed">
+        You add the card on Stripe&apos;s payment page. Your card statement shows the charge as LINK.COM.
+      </p>
+    </div>
   );
+
+  const updateCard = (
+    <div className="space-y-2">
+      <Button asChild size="lg">
+        <a href={LINK_MANAGE_URL} target="_blank" rel="noreferrer" data-testid="backup-update-card">
+          Update your card at link.com
+        </a>
+      </Button>
+      <p className="text-sm leading-relaxed">
+        Stripe sells cloud backup through Link. After you update the card there, Stripe tries the payment again.
+      </p>
+    </div>
+  );
+
 
   const filesCard = <BackupFilesCard lunas={lunas} paired={paired} />;
 
@@ -346,13 +335,21 @@ export function BackupsTab({ me, lunas, paired, onRefresh, setError, error }) {
           <p className="text-sm leading-relaxed">
             {daysLeft === 0
               ? "We're deleting your cloud copies now."
-              : `We still have your cloud copies for ${daysLeft === 1 ? "1 more day" : `${daysLeft} more days`}. Add a card to keep them, or download anything you need before they are gone.`}
+              : `We still have your cloud copies for ${daysLeft === 1 ? "1 more day" : `${daysLeft} more days`}. ${paymentFailed ? "Update your card to keep them" : "Add a card to keep them"}, or download anything you need before they are gone.`}
           </p>
           <Separator />
           <section className="space-y-3" aria-labelledby="backup-reactivate-heading">
-            <h4 id="backup-reactivate-heading" className="font-mono text-xs">Turn payment back on</h4>
-            <BackupPricingTable />
-            {addCard}
+            <h4 id="backup-reactivate-heading" className="font-mono text-xs">
+              {paymentFailed ? "Fix the payment" : "Turn payment back on"}
+            </h4>
+            {paymentFailed ? (
+              updateCard
+            ) : (
+              <>
+                <BackupPricingTable />
+                {addCard}
+              </>
+            )}
           </section>
           {error && <p className="text-sm text-error">{error}</p>}
         </CardContent>
@@ -415,6 +412,7 @@ export default function BackupsPage() {
   const [lunas, setLunas] = useState(null);
   const [paired, setPaired] = useState(true);
   const [error, setError] = useState("");
+  const checkout = useCheckoutReturn(refresh);
 
   useEffect(() => {
     if (!me) return;
@@ -430,6 +428,16 @@ export default function BackupsPage() {
     <Layout>
       <h1 className="font-mono text-3xl mb-2">Cloud backups</h1>
       <p className="text-muted-foreground mb-8">A second place for your files if a drive fails or the house is gone.</p>
+      {checkout.status === "checking" && (
+        <p className="text-sm mb-6" role="status" data-testid="checkout-checking">
+          Checking your payment with Stripe…
+        </p>
+      )}
+      {checkout.status === "error" && (
+        <p className="text-sm text-error mb-6" role="alert">
+          {checkout.error}
+        </p>
+      )}
       <BackupsTab me={me} lunas={lunas} paired={paired} onRefresh={refresh} setError={setError} error={error} />
     </Layout>
   );
