@@ -650,5 +650,5 @@ get("/api/v1/search", async ({ world, user, query }) => {
 });
 
 // ── Office editors: the fake has no document server ─────────────────────────
-post("/api/v1/office/session", () => fail(503, "The document editor isn't available in this preview. Open it on a real Luna.", "office_unavailable"));
+post("/api/v1/office/session", () => fail(503, "The fake Luna can't run the document editor. Open this file on a real Luna to edit it.", "office_unavailable"));
 
