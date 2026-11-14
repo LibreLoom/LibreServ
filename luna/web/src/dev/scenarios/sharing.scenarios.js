@@ -424,7 +424,7 @@ export default [
     url: "/s/tokfolder",
     seed: (w) => { guest(w); subject(w, { links: [{ ...link(), token: "tokfolder" }] }); },
     faults: [{ match: "GET /s/tokfolder*", mode: "slow:5000" }],
-    check: ["A plain loading state ('Loading folder' / 'Still working…') shows the whole wait", "Page then appears without a flash of an error"], // NOTE: check updated to the implemented copy; the old text said 'Opening the shared link…'.
+    check: ["'Opening the shared link…' shows while the link opens, then 'Loading folder' / 'Still working…' while the folder loads", "Page then appears without a flash of an error"],
   },
   {
     id: "public/signed-in-visitor",

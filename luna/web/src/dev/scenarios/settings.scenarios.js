@@ -460,7 +460,7 @@ export default [
       w.cloudBackups = [cloudBackup({ moving: { percent: 40, paused_full: true } })];
     },
     check: [
-      "The card and the backup row say Connect storage is full and the move is paused",
+      "The card and the backup row say Connect storage is full and the update is paused",
       "They say nothing old was deleted and to free up space or add storage",
       "The message stays inline: no toast and no error pill",
     ],
