@@ -69,6 +69,7 @@ function plainError(error) {
  * says the backup drive is full stays as it is — naming the drive again would repeat it.
  * @param {BackupRow} row
  * @param {number | undefined} now
+ * @param {boolean} [isAdmin]
  * @returns {NeedsYouItem["detail"]}
  */
 function backupDetail(row, now, isAdmin = false) {
@@ -100,6 +101,7 @@ function backupDetail(row, now, isAdmin = false) {
 /**
  * @param {BackupRow} row
  * @param {number | undefined} now
+ * @param {boolean} [isAdmin]
  * @returns {NeedsYouItem}
  */
 function backupItem(row, now, isAdmin) {

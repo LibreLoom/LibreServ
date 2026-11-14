@@ -180,7 +180,7 @@ describe("buildBackupItems", () => {
 
   it("tells a Member that an Admin must free up Connect storage", () => {
     const [item] = buildBackupItems({
-      backupRows: [cloud({ state: "ok", moving: { percent: 40, paused_full: true } })],
+      backupRows: [cloud({ created_by: "member", state: "ok", moving: { percent: 40, paused_full: true } })],
       isAdmin: false,
       userId: "member",
     });
