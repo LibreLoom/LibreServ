@@ -208,7 +208,7 @@ func TestPendingCleanupRemainsVisibleWithoutWarning(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := (&TailscaleService{dir: dir}).statusLocked()
-	if st.State != "error" || st.ResidualExposure || st.Error != "Tailscale access cleanup is incomplete. Try connecting again or sign out of Tailscale." {
+	if st.State != "error" || st.ResidualExposure || st.Error != "Tailscale access cleanup is incomplete. Sign out of Tailscale before connecting again." {
 		t.Fatalf("pending cleanup status: %#v", st)
 	}
 }

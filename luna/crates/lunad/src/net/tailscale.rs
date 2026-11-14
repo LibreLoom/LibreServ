@@ -207,7 +207,7 @@ fn begin_launch(data: &Path) -> Result<(), String> {
         .map_err(|error| launch_intent_error(&error.error))?;
     std::fs::File::open(root(data))
         .and_then(|dir| dir.sync_all())
-        .map_err(|e| e.to_string())
+        .map_err(|e| launch_intent_error(&e))
 }
 
 fn launch_intent_error(error: &std::io::Error) -> String {
@@ -683,7 +683,7 @@ fn status_json(data: &Path, port: u16) -> Value {
     if root(data).join("reset-required").exists() {
         out["state"] = json!("error");
         out["error"] = json!(
-            "Tailscale access cleanup is incomplete. Try connecting again or sign out of Tailscale."
+            "Tailscale access cleanup is incomplete. Sign out of Tailscale before connecting again."
         );
         return out;
     }
@@ -1706,7 +1706,7 @@ mod tests {
         assert_eq!(status["state"], "error");
         assert_eq!(
             status["error"],
-            "Tailscale access cleanup is incomplete. Try connecting again or sign out of Tailscale."
+            "Tailscale access cleanup is incomplete. Sign out of Tailscale before connecting again."
         );
         assert_ne!(status["residual_exposure"], true);
     }
@@ -1780,9 +1780,13 @@ mod tests {
         std::fs::create_dir(root(dir.path())).unwrap();
         std::fs::write(root(dir.path()).join("enabled"), "1").unwrap();
         std::fs::write(root(dir.path()).join("launch-intent"), "invalid").unwrap();
+        std::fs::write(root(dir.path()).join("serve-mode"), "public").unwrap();
+        std::fs::write(root(dir.path()).join("restore-serve"), "public").unwrap();
         assert!(serve_inner(dir.path(), 0, false).is_err());
         assert!(root(dir.path()).join("reset-required").exists());
         assert!(root(dir.path()).join("stop-failed").exists());
+        assert!(root(dir.path()).join("serve-mode").exists());
+        assert!(root(dir.path()).join("restore-serve").exists());
     }
 
     #[test]

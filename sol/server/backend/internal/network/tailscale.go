@@ -509,6 +509,15 @@ func (s *TailscaleService) run(args ...string) (string, error) {
 	return string(out), nil
 }
 
+func syncTailscaleDir(path string) error {
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
+}
+
 // clearSavedServe is only called with the managed daemon stopped. The pinned
 // upstream file store is a JSON map; _serve/<profile> holds Serve/Funnel config.
 // Preserve every identity/preferences value verbatim, including unknown keys.
@@ -562,12 +571,7 @@ func (s *TailscaleService) clearSavedServe() error {
 	if err := os.Rename(temp.Name(), path); err != nil {
 		return err
 	}
-	dir, err := os.Open(s.dir)
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-	return dir.Sync()
+	return syncTailscaleDir(s.dir)
 }
 
 func (s *TailscaleService) persistResetIntent() error {
@@ -588,12 +592,7 @@ func (s *TailscaleService) persistResetIntent() error {
 	if err = os.Rename(f.Name(), filepath.Join(s.dir, "reset-required")); err != nil {
 		return err
 	}
-	dir, err := os.Open(s.dir)
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-	return dir.Sync()
+	return syncTailscaleDir(s.dir)
 }
 
 func (s *TailscaleService) clearAccessIfRequired() error {
@@ -613,13 +612,7 @@ func (s *TailscaleService) clearAccessIfRequired() error {
 	if err := removeTailscalePendingMode(s.dir); err != nil {
 		return err
 	}
-	dir, err := os.Open(s.dir)
-	if err != nil {
-		return err
-	}
-	err = dir.Sync()
-	_ = dir.Close()
-	if err != nil {
+	if err := syncTailscaleDir(s.dir); err != nil {
 		return err
 	}
 	if err := os.Remove(filepath.Join(s.dir, "reset-required")); err != nil {
@@ -746,12 +739,7 @@ func (s *TailscaleService) writeLaunchIntent(value string, exclusive bool) error
 	if err != nil {
 		return err
 	}
-	dir, err := os.Open(s.dir)
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-	return dir.Sync()
+	return syncTailscaleDir(s.dir)
 }
 
 func tailscaleLaunchIntentError(err error) error {
@@ -898,7 +886,7 @@ func (s *TailscaleService) statusLocked() TailscaleStatus {
 		return st
 	}
 	if tailscaleFileExists(filepath.Join(s.dir, "reset-required")) {
-		st.State, st.Error = "error", "Tailscale access cleanup is incomplete. Try connecting again or sign out of Tailscale."
+		st.State, st.Error = "error", "Tailscale access cleanup is incomplete. Sign out of Tailscale before connecting again."
 		return st
 	}
 	if b, e := os.ReadFile(filepath.Join(s.dir, "approval-url")); e == nil {
@@ -1374,6 +1362,7 @@ func (s *TailscaleService) serveLocked(public bool) (TailscaleStatus, error) {
 	}
 	if err := s.requireWebListener(); err != nil {
 		if !public {
+			slog.Warn("Tailscale private listener unavailable after cleanup", "error", err)
 			return TailscaleStatus{}, errors.New("Tailscale is off. Restart Sol and try turning on private access again.")
 		}
 		return TailscaleStatus{}, err

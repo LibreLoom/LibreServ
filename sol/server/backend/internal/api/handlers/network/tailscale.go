@@ -16,6 +16,10 @@ type TailscaleHandler struct{ service *network.TailscaleService }
 func tailscaleFailure(w http.ResponseWriter, action string, err error) {
 	slog.Error("Tailscale action failed", "action", action, "error", err)
 	message := "Sol could not " + action + ". Try again."
+	if strings.HasPrefix(err.Error(), "could not save Tailscale startup information: ") {
+		JSONError(w, http.StatusBadGateway, "Sol could not save Tailscale startup information. Check Sol's storage and try again.")
+		return
+	}
 	switch err.Error() {
 	case "Sol is shutting down", "Tailscale is off. Restart Sol and try turning on private access again.", "Tailscale is starting. Try connecting again shortly", "Tailscale is starting. Try reconnecting again shortly", "Tailscale is starting. Try turning on access again shortly":
 		message = strings.TrimSuffix(err.Error(), ".") + "."
