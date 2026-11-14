@@ -35,6 +35,18 @@ import { useFileOps } from "../../context/FileOpsContext.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
+/**
+ * Within a group, matches that aren't by name sit under a small heading
+ * saying how they matched, so a looser match never passes for a name match.
+ * @type {Record<string, string>}
+ */
+const MATCH_DIVIDERS = {
+  content: "Found in the text",
+  close: "Similar names",
+  meaning: "Close in meaning",
+  photo: "Seen in photos",
+};
+
 /** Match ModalCard exit + FLIP morph duration. */
 const OVERLAY_EXIT_MS = 320;
 
@@ -489,7 +501,7 @@ export default function FileSearch() {
                       <input
                         ref={inputRef}
                         className="file-search-input w-full min-w-0 appearance-none bg-transparent text-secondary text-sm border-0 shadow-none outline-none no-focus-outline"
-                        placeholder="A filename, please."
+                        placeholder="A name, or words inside a file"
                         value={typed}
                         onChange={(e) => setTyped(e.target.value)}
                         onKeyDown={handleInputKeyDown}
@@ -570,24 +582,26 @@ export default function FileSearch() {
 
               {search.incomplete && !search.isError && !search.isUpdating && trimmed === search.q && (
                 <PageNotice variant="warning" className="mb-3">
-                  Luna could not check every match or drive. Try again or type more of the name to narrow your search.
+                  Luna could not check every match or drive. Try again or type more words to narrow your search.
                 </PageNotice>
               )}
 
               {search.active && !search.isLoading && !search.isError && !search.incomplete && search.hits.length === 0 && (
-                search.scan?.scanning ? (
+                search.scan?.scanning || search.scan?.contents_reading ? (
                   <EmptyState
                     className="mt-1"
                     surface="primary"
                     title="Nothing yet"
-                    description="Luna is still reading your drives. Matches appear here as they're found."
+                    description={search.scan?.scanning
+                      ? "Luna is still reading your drives. Matches appear here as they're found."
+                      : "Luna is still reading inside your files. Matches appear here as they're found."}
                   />
                 ) : (
                   <EmptyState
                     className="mt-1"
                     surface="primary"
                     title="Nothing matched"
-                    description="Try another name, or open a drive and browse. Luna only shows files you're allowed to see."
+                    description="Try other words, or open a drive and browse. Luna only shows files you're allowed to see."
                   />
                 )
               )}
@@ -615,9 +629,11 @@ export default function FileSearch() {
                         </li>
                         {group.hits.map((item, index) => (
                           <Fragment key={`${item.drive_id}:${item.path}`}>
-                            {!search.closeOnly && item.match === "close" && group.hits[index - 1]?.match !== "close" && (
+                            {!(search.closeOnly && item.match === "close")
+                              && MATCH_DIVIDERS[item.match]
+                              && group.hits[index - 1]?.match !== item.match && (
                               <li role="presentation" className="file-search-row-enter px-1 pt-2 text-xs font-mono text-primary">
-                                Similar names
+                                {MATCH_DIVIDERS[item.match]}
                               </li>
                             )}
                             <FileSearchRow
@@ -639,7 +655,7 @@ export default function FileSearch() {
                   </ul>
                   {search.truncated && !search.incomplete && !search.isUpdating && trimmed === search.q && (
                     <p data-slot="file-search-truncated" className="px-1 pt-3 text-xs font-mono text-primary">
-                      There are more matches than fit here. Type more of the name to narrow it down.
+                      There are more matches than fit here. Type more words to narrow it down.
                     </p>
                   )}
                 </>

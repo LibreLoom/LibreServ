@@ -5,6 +5,12 @@ use lunad::{
 };
 
 fn main() -> anyhow::Result<()> {
+    // The sandboxed text reader: lunad re-runs itself as `nobody` with
+    // memory and CPU caps to parse one file, then exits. No runtime, no logs.
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some(lunad::files::content::worker::SUBCOMMAND) {
+        std::process::exit(lunad::files::content::worker::worker_main(&args[2..]));
+    }
     // Printed bare (no prefix) so the version is machine-readable: the release
     // smoke test compares it against the version the build stamped in.
     if std::env::args()

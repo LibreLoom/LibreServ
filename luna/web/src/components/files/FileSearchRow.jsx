@@ -97,9 +97,12 @@ function FileSearchRow({
     : `Show ${item.name} in its folder`;
   // A near miss wasn't typed exactly, so underlining "the match" would lie.
   const detail = detailLine(item, driveLabel, isDir);
-  const parts = item.match === "close"
-    ? [{ text: item.name, hit: false }]
-    : highlightParts(item.name, query);
+  // Only a name match underlines the name: a file found by its words or
+  // meaning would otherwise show a few stray letters underlined.
+  const parts = item.match === "name"
+    ? highlightParts(item.name, query)
+    : [{ text: item.name, hit: false }];
+  const snippet = Array.isArray(item.snippet) && item.snippet.length ? item.snippet : null;
 
   // One action list, rendered two ways: icon buttons in the row on wide
   // screens, labeled rows in the phone sheet. Same order, same words, and
@@ -200,6 +203,20 @@ function FileSearchRow({
               </span>
               {item.private ? <PrivateBadge size={12} /> : null}
             </p>
+            {snippet ? (
+              // Why a file found by its words matched: the passage, with the matched words underlined.
+              <p data-slot="file-search-snippet" className="text-xs text-secondary line-clamp-2 break-words">
+                {snippet.map((part, i) =>
+                  part.hit ? (
+                    <span key={i} className="underline decoration-accent decoration-2 underline-offset-4">
+                      {part.text}
+                    </span>
+                  ) : (
+                    <span key={i}>{part.text}</span>
+                  ),
+                )}
+              </p>
+            ) : null}
             {/* Short on room, the folder end matters most: cut the start of the path. */}
             <p className="flex text-xs text-secondary" title={detail.full}>
               <span className="min-w-0 truncate text-left" dir="rtl">

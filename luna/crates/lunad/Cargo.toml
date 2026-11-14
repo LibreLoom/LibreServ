@@ -59,6 +59,9 @@ ml-kem = { version = "0.3.3", features = ["hazmat"] }
 ml-dsa = "0.1.1"
 # Cloud backup chunking (backup/cloud/format.rs): content-defined chunk boundaries.
 fastcdc = "3"
+calamine = "0.38.0"
+cfb = "0.16.0"
+encoding_rs = "0.8.44"
 
 [build-dependencies]
 semver.workspace = true

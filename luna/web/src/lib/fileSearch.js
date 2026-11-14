@@ -19,14 +19,19 @@ export function searchUrl(q, kind = "all") {
 }
 
 /**
+ * How a hit matched: its name, a near miss of its name, words inside the
+ * file, a passage about the same thing, or what a photo shows.
+ * @typedef {"name" | "close" | "content" | "meaning" | "photo"} SearchMatch
  * @typedef {{
  *   drive_id: string, path: string, parent: string, name: string,
  *   kind: string, size: number, modified: number,
- *   match: "name" | "close", private?: boolean,
+ *   match: SearchMatch, private?: boolean,
+ *   snippet?: { text: string, hit: boolean }[] | null,
  * }} SearchHit
  * @typedef {{
  *   scanning: boolean, drives_total: number, drives_done: number,
  *   drives_failed?: number, dirs_indexed: number | null,
+ *   contents_reading?: boolean, contents_left?: number | null,
  * }} ScanStatus
  */
 

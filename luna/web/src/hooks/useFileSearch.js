@@ -6,6 +6,8 @@ import { MIN_SEARCH_LENGTH, parseSearchResponse, searchUrl } from "../lib/fileSe
 const DEBOUNCE_MS = 250;
 /** How often to ask again while Luna is still reading drives. */
 const SCAN_POLL_MS = 1200;
+/** Reading inside files takes much longer; ask less often meanwhile. */
+const CONTENT_POLL_MS = 5000;
 
 /**
  * Debounced file search that keeps working while Luna is still reading
@@ -34,7 +36,11 @@ export default function useFileSearch(typed, { enabled = true, kind = "all" } = 
     queryFn: () => getJson(searchUrl(q, kind)),
     enabled: active,
     placeholderData: keepPreviousData,
-    refetchInterval: (state) => (state.state.data?.scan?.scanning ? SCAN_POLL_MS : false),
+    refetchInterval: (state) => {
+      const scan = state.state.data?.scan;
+      if (scan?.scanning) return SCAN_POLL_MS;
+      return scan?.contents_reading ? CONTENT_POLL_MS : false;
+    },
   });
 
   const { hits, closeOnly, truncated, incomplete, scan } = parseSearchResponse(query.data);

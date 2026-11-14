@@ -17,7 +17,7 @@ use std::path::PathBuf;
 
 use rusqlite::{Connection, params};
 
-use crate::files::search_rank::{self, Query, Rank};
+use crate::files::search_rank::{self, Query, Rank, Tier};
 
 /// A drive to search: its id and where it is mounted.
 #[derive(Debug, Clone)]
@@ -85,6 +85,9 @@ pub struct SearchHit {
 pub struct Candidate {
     pub hit: SearchHit,
     pub rank: Rank,
+    /// The `content_docs` row when the match came from the file's text, so
+    /// the snippet can be made once access is checked.
+    pub doc: Option<i64>,
 }
 
 /// Most rows the index returns to the ranker per step.
@@ -230,7 +233,11 @@ fn search_drive_with_limits(
                     if seen.insert((hit.parent.clone(), hit.name.clone()))
                         && let Some(rank) = search_rank::rank(query, &hit.name, hit.kind == "dir")
                     {
-                        out.push(Candidate { hit, rank });
+                        out.push(Candidate {
+                            hit,
+                            rank,
+                            doc: None,
+                        });
                     }
                 }
                 if count < size {
@@ -249,8 +256,48 @@ fn search_drive_with_limits(
         });
         result?;
     }
+    // Words inside files. A file already found by its name keeps that
+    // (better) match.
+    if let Some(expr) = crate::files::content::query::fts_expr(query) {
+        match crate::files::content::query::candidates(conn, drive_id, &expr, kind, CONTENT_LIMIT) {
+            Ok(hits) => {
+                for found in hits {
+                    if !seen.insert((found.hit.parent.clone(), found.hit.name.clone())) {
+                        continue;
+                    }
+                    let len = search_rank::normalize(&found.hit.name).len();
+                    out.push(Candidate {
+                        rank: Rank {
+                            tier: Tier::Content,
+                            score: bm25_score(found.bm25),
+                            typos: 0,
+                            file: 1,
+                            len,
+                        },
+                        hit: found.hit,
+                        doc: Some(found.doc),
+                    });
+                }
+            }
+            Err(rusqlite::Error::SqliteFailure(code, _))
+                if code.code == rusqlite::ErrorCode::OperationInterrupted =>
+            {
+                incomplete = true;
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
     out.sort_by(|a, b| a.rank.cmp(&b.rank));
     Ok((out, incomplete))
+}
+
+/// Content matches per drive, best first. Ranked by the index, so this is a
+/// cut of the best matches, not a work limit.
+const CONTENT_LIMIT: usize = 200;
+
+/// BM25 (negative; more negative is better) as a sortable integer.
+fn bm25_score(bm25: f64) -> u32 {
+    (1_000_000_000.0 + bm25 * 1000.0).clamp(0.0, u32::MAX as f64) as u32
 }
 
 fn candidate_page(

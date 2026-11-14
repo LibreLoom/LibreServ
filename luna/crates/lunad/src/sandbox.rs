@@ -80,6 +80,10 @@ pub struct SandboxIo {
     dups: Vec<(i32, i32)>,
     #[cfg(target_os = "linux")]
     next_fd: i32,
+    /// Address-space cap (RLIMIT_AS) for the child, when set.
+    mem_limit: Option<u64>,
+    /// CPU-seconds cap (RLIMIT_CPU) for the child, when set.
+    cpu_limit: Option<u64>,
 }
 
 impl SandboxIo {
@@ -92,7 +96,22 @@ impl SandboxIo {
             dups: Vec::new(),
             #[cfg(target_os = "linux")]
             next_fd: FIRST_FD,
+            mem_limit: None,
+            cpu_limit: None,
         })
+    }
+
+    /// Cap the child's address space. A parser that tries to allocate past
+    /// it fails (or is killed) instead of pushing the box into swap.
+    pub fn limit_memory(&mut self, bytes: u64) -> &mut Self {
+        self.mem_limit = Some(bytes);
+        self
+    }
+
+    /// Cap the child's CPU time; the kernel kills it once spent.
+    pub fn limit_cpu(&mut self, seconds: u64) -> &mut Self {
+        self.cpu_limit = Some(seconds);
+        self
     }
 
     /// What the child should open to read `path`. On Linux the parent opens
@@ -297,6 +316,7 @@ fn spawn_sandboxed(cmd: &mut Command, io: &SandboxIo) -> io::Result<Child> {
     use std::os::unix::process::CommandExt;
     let dups = io.dups.clone();
     let (uid, gid) = nobody_ids();
+    let (mem_limit, cpu_limit) = (io.mem_limit, io.cpu_limit);
     unsafe {
         cmd.pre_exec(move || {
             for &(src, dst) in &dups {
@@ -311,6 +331,24 @@ fn spawn_sandboxed(cmd: &mut Command, io: &SandboxIo) -> io::Result<Child> {
                 rlim_max: MAX_CHILD_WRITE,
             };
             libc::setrlimit(libc::RLIMIT_FSIZE, &cap);
+            if let Some(bytes) = mem_limit {
+                let cap = libc::rlimit {
+                    rlim_cur: bytes as libc::rlim_t,
+                    rlim_max: bytes as libc::rlim_t,
+                };
+                if libc::setrlimit(libc::RLIMIT_AS, &cap) != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+            }
+            if let Some(secs) = cpu_limit {
+                let cap = libc::rlimit {
+                    rlim_cur: secs as libc::rlim_t,
+                    rlim_max: secs as libc::rlim_t + 1,
+                };
+                if libc::setrlimit(libc::RLIMIT_CPU, &cap) != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+            }
             // Drop privilege last: root's supplementary groups include disk
             // and must be cleared while we still can.
             if libc::geteuid() == 0

@@ -19,8 +19,14 @@ pub enum Tier {
     Substring,
     /// Every query word appears in the name, in any order.
     AllWords,
+    /// Every query word appears in the file's text (or text read from it).
+    Content,
     /// Every query word is within a typo or two of a word in the name.
     Close,
+    /// A passage of the file's text is about what was typed, in other words.
+    Meaning,
+    /// The photo shows what was typed.
+    Photo,
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +56,9 @@ impl Query {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Rank {
     pub tier: Tier,
+    /// Order within a scored tier (content, meaning, photo): lower is a
+    /// better match. Zero for name tiers.
+    pub score: u32,
     /// Typos spent (only non-zero for [`Tier::Close`]).
     pub typos: u32,
     /// 0 for folders, 1 for files.
@@ -133,6 +142,7 @@ pub fn rank(query: &Query, name: &str, is_dir: bool) -> Option<Rank> {
     let file = if is_dir { 0 } else { 1 };
     let make = |tier, typos| Rank {
         tier,
+        score: 0,
         typos,
         file,
         len: name_n.len(),

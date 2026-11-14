@@ -80,8 +80,9 @@ async fn search(
         let (candidates, incomplete) = search_all(&drives, &parsed, kind).map_err(|e| {
             tracing::warn!(error = %e, "search failed");
         })?;
+        let expr = crate::files::content::query::fts_expr(&parsed);
         let conn = work_state.db.lock().map_err(|_| ())?;
-        let (hits, truncated) = visible_hits(&conn, &work_user, candidates, limit);
+        let (hits, truncated) = visible_hits(&conn, &work_user, candidates, limit, expr.as_deref());
         Ok::<_, ()>((hits, truncated, incomplete))
     })
     .await
@@ -90,6 +91,7 @@ async fn search(
 
     let close_only = !hits.is_empty() && hits.iter().all(|h| h["match"] == "close");
     let status = state.search_index.status();
+    let content = state.search_index.content_status();
     let admin = user.role == "admin";
     Ok(Json(json!({
         "hits": hits,
@@ -104,6 +106,10 @@ async fn search(
             "drives_failed": status.drives_failed,
             // Folder counts across every drive are for Admins.
             "dirs_indexed": if admin { Some(status.dirs_indexed) } else { None },
+            // Files whose words aren't searchable yet. A count, like the
+            // folder count, says how big the drives are: Admins only.
+            "contents_reading": content.reading,
+            "contents_left": if admin { Some(content.files_left) } else { None },
         },
     })))
 }
@@ -132,13 +138,17 @@ fn mount_of(conn: &rusqlite::Connection, drive_id: &str) -> Option<String> {
 
 /// The first `limit` candidates, in rank order, that `user` may open. Access
 /// is checked here, after ranking, so the limit counts only visible hits.
-/// The flag says a further visible hit was left out.
+/// The flag says a further visible hit was left out. Content snippets are
+/// read from the drive only for hits that passed the check (`expr` is the
+/// query's content-search expression).
 fn visible_hits(
     conn: &rusqlite::Connection,
     user: &crate::auth::CurrentUser,
     candidates: Vec<Candidate>,
     limit: usize,
+    expr: Option<&str>,
 ) -> (Vec<Value>, bool) {
+    let mut drive_dbs: HashMap<String, Option<rusqlite::Connection>> = HashMap::new();
     // Admins also need explicit grants inside another user's private folder.
     let grants = crate::db::list_access_members_for_user(conn, &user.id).unwrap_or_default();
     // One lookup per drive for the whole pass, not one per candidate.
@@ -179,6 +189,20 @@ fn visible_hits(
             })
             .as_deref();
         let (private, in_private) = private_flags(root, &full);
+        let snippet = match (candidate.doc, expr, root) {
+            (Some(doc), Some(expr), Some(root)) => drive_dbs
+                .entry(hit.drive_id.clone())
+                .or_insert_with(|| crate::drives::drive_db::open(root).ok())
+                .as_ref()
+                .and_then(|db| crate::files::content::query::snippet(db, doc, expr))
+                .map(|parts| {
+                    parts
+                        .into_iter()
+                        .map(|(text, hit)| json!({ "text": text, "hit": hit }))
+                        .collect::<Vec<_>>()
+                }),
+            _ => None,
+        };
         out.push(json!({
             "drive_id": hit.drive_id,
             "path": full,
@@ -190,15 +214,21 @@ fn visible_hits(
             "match": match_label(candidate.rank.tier),
             "private": private,
             "in_private": in_private,
+            "snippet": snippet,
         }));
     }
     (out, false)
 }
 
-/// How a hit matched, for the page: by its name, or a near miss (a typo away).
+/// How a hit matched, for the page: by its name, a near miss (a typo away),
+/// words inside the file, a passage about the same thing, or what a photo
+/// shows.
 fn match_label(tier: Tier) -> &'static str {
     match tier {
         Tier::Close => "close",
+        Tier::Content => "content",
+        Tier::Meaning => "meaning",
+        Tier::Photo => "photo",
         _ => "name",
     }
 }
@@ -383,8 +413,10 @@ mod tests {
                 size: 1,
                 modified: 1,
             },
+            doc: None,
             rank: crate::files::search_rank::Rank {
                 tier,
+                score: 0,
                 typos: 0,
                 file: u8::from(kind != "dir"),
                 len: name.len(),
@@ -450,7 +482,7 @@ mod tests {
             "file",
             Tier::Substring,
         ));
-        let (got, truncated) = visible_hits(&conn, &member, ranked, 2);
+        let (got, truncated) = visible_hits(&conn, &member, ranked, 2, None);
         let names: Vec<&str> = got.iter().map(|h| h["name"].as_str().unwrap()).collect();
         assert_eq!(names, ["budget a", "budget b"]);
         // No third visible hit exists, so nothing was cut off.
@@ -470,10 +502,10 @@ mod tests {
             candidate("d1", "docs", "b.txt", "file", Tier::Prefix),
             candidate("d1", "docs", "c.txt", "file", Tier::Prefix),
         ];
-        let (got, truncated) = visible_hits(&conn, &admin, ranked.clone(), 2);
+        let (got, truncated) = visible_hits(&conn, &admin, ranked.clone(), 2, None);
         assert_eq!(got.len(), 2);
         assert!(truncated);
-        let (got, truncated) = visible_hits(&conn, &admin, ranked, 3);
+        let (got, truncated) = visible_hits(&conn, &admin, ranked, 3, None);
         assert_eq!(got.len(), 3);
         assert!(!truncated);
     }
@@ -519,7 +551,7 @@ mod tests {
         }];
         let (candidates, incomplete) =
             search_all(&drives, &Query::new("budget"), KindFilter::All).unwrap();
-        let (hits, truncated) = visible_hits(&conn, &member, candidates, 60);
+        let (hits, truncated) = visible_hits(&conn, &member, candidates, 60, None);
         assert!(!incomplete);
         assert!(!truncated);
         assert_eq!(hits.len(), 1);
@@ -560,7 +592,11 @@ mod tests {
             "file",
             Tier::Prefix,
         )];
-        assert!(visible_hits(&conn, &admin, hits.clone(), 10).0.is_empty());
+        assert!(
+            visible_hits(&conn, &admin, hits.clone(), 10, None)
+                .0
+                .is_empty()
+        );
         crate::db::insert_access_member(
             &conn,
             &crate::db::AccessMemberRow {
@@ -575,7 +611,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(visible_hits(&conn, &admin, hits, 10).0.len(), 1);
+        assert_eq!(visible_hits(&conn, &admin, hits, 10, None).0.len(), 1);
     }
 
     #[test]
@@ -591,7 +627,7 @@ mod tests {
             candidate("d1", "", ".luna-1234-trash", "dir", Tier::Prefix),
             candidate("d1", "docs", "settings.txt", "file", Tier::Prefix),
         ];
-        let (got, _) = visible_hits(&conn, &admin, ranked, 10);
+        let (got, _) = visible_hits(&conn, &admin, ranked, 10, None);
         let paths: Vec<&str> = got.iter().map(|h| h["path"].as_str().unwrap()).collect();
         assert_eq!(paths, ["docs/settings.txt"]);
     }

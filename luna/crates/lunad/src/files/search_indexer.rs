@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::files::content::indexer::{ContentIndexer, ContentStatus};
 use crate::files::index;
 
 /// A written-to folder is re-read this long after its last write, so a burst
@@ -67,6 +68,8 @@ struct Shared {
 pub struct SearchIndexer {
     tx: Sender<Job>,
     shared: Arc<Shared>,
+    /// Reads files' words once their names are indexed.
+    content: Arc<ContentIndexer>,
 }
 
 static NUDGE: Mutex<Option<Sender<Job>>> = Mutex::new(None);
@@ -88,26 +91,39 @@ impl SearchIndexer {
         let (tx, rx) = mpsc::channel::<Job>();
         let shared = Arc::new(Shared::default());
         let worker_shared = shared.clone();
+        let content = ContentIndexer::start();
+        let worker_content = content.clone();
         thread::Builder::new()
             .name("luna-search-indexer".into())
-            .spawn(move || worker(rx, worker_shared))
+            .spawn(move || worker(rx, worker_shared, worker_content))
             .expect("spawn search indexer");
         // The newest indexer receives nudges; an older one (tests) then ends
         // once its owner drops it.
         *NUDGE.lock().unwrap() = Some(tx.clone());
-        Arc::new(Self { tx, shared })
+        Arc::new(Self {
+            tx,
+            shared,
+            content,
+        })
     }
 
     /// Start (or restart) reading a mounted drive. Folders that haven't
     /// changed since the last read cost one stat each.
     pub fn watch_mount(&self, drive_id: &str, mount: PathBuf) {
+        self.content.watch_mount(drive_id, mount.clone());
         self.enqueue(drive_id, mount, false);
     }
 
     /// Forget a drive that was ejected or unplugged.
     pub fn unwatch_mount(&self, drive_id: &str) {
+        self.content.unwatch_mount(drive_id);
         self.shared.mounts.lock().unwrap().remove(drive_id);
         self.shared.progress.lock().unwrap().remove(drive_id);
+    }
+
+    /// How far reading files' words has got.
+    pub fn content_status(&self) -> ContentStatus {
+        self.content.status()
     }
 
     /// Re-read these drives. `force` re-reads every folder instead of
@@ -164,7 +180,7 @@ impl SearchIndexer {
     }
 }
 
-fn worker(rx: mpsc::Receiver<Job>, shared: Arc<Shared>) {
+fn worker(rx: mpsc::Receiver<Job>, shared: Arc<Shared>, content: Arc<ContentIndexer>) {
     // (drive, force), oldest first; a drive appears once.
     let mut scans: VecDeque<(String, bool)> = VecDeque::new();
     let mut dirty: HashMap<(String, String), Instant> = HashMap::new();
@@ -179,7 +195,9 @@ fn worker(rx: mpsc::Receiver<Job>, shared: Arc<Shared>) {
         }
 
         if let Some((drive_id, force)) = scans.pop_front() {
-            run_scan(&shared, &drive_id, force);
+            if run_scan(&shared, &drive_id, force) {
+                content.kick(&drive_id, true);
+            }
             continue;
         }
 
@@ -191,10 +209,13 @@ fn worker(rx: mpsc::Receiver<Job>, shared: Arc<Shared>) {
         for key in due {
             dirty.remove(&key);
             let mount = shared.mounts.lock().unwrap().get(&key.0).cloned();
-            if let Some(root) = mount
-                && let Err(e) = refresh_dir(&key.0, &root, &key.1)
-            {
-                tracing::debug!(drive = %key.0, rel = %key.1, error = %e, "search index refresh failed");
+            if let Some(root) = mount {
+                match refresh_dir(&key.0, &root, &key.1) {
+                    Ok(()) => content.kick(&key.0, false),
+                    Err(e) => {
+                        tracing::debug!(drive = %key.0, rel = %key.1, error = %e, "search index refresh failed");
+                    }
+                }
             }
         }
     }
@@ -227,9 +248,11 @@ fn set_progress(shared: &Shared, drive_id: &str, state: DriveScan, dirs: Option<
     }
 }
 
-fn run_scan(shared: &Shared, drive_id: &str, force: bool) {
+/// Read a whole drive's names. True when the read finished, so the index
+/// is complete for that drive.
+fn run_scan(shared: &Shared, drive_id: &str, force: bool) -> bool {
     let Some(root) = shared.mounts.lock().unwrap().get(drive_id).cloned() else {
-        return;
+        return false;
     };
     set_progress(shared, drive_id, DriveScan::Scanning, Some(0));
     let conn = match crate::drives::drive_db::open(&root) {
@@ -237,7 +260,7 @@ fn run_scan(shared: &Shared, drive_id: &str, force: bool) {
         Err(e) => {
             tracing::warn!(drive_id, error = %e, "search index could not open the drive");
             set_progress(shared, drive_id, DriveScan::Failed, None);
-            return;
+            return false;
         }
     };
     let mut visited = 0u64;
@@ -265,6 +288,9 @@ fn run_scan(shared: &Shared, drive_id: &str, force: bool) {
         }
     };
     set_progress(shared, drive_id, state, Some(visited));
+    // A scan cut short by an unmount returns Ok too; only a drive that is
+    // still mounted has a complete index.
+    result.is_ok() && shared.mounts.lock().unwrap().get(drive_id) == Some(&root)
 }
 
 /// Re-read one folder, plus any subfolder that isn't indexed yet (a folder

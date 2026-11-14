@@ -167,7 +167,7 @@ describe("FilesPage", () => {
     expect(trigger.closest("header")).toBeTruthy();
     fireEvent.click(trigger);
     const input = await screen.findByRole("textbox", { name: "Search for a file" });
-    expect(input).toHaveAttribute("placeholder", "A filename, please.");
+    expect(input).toHaveAttribute("placeholder", "A name, or words inside a file");
     expect(screen.getByRole("dialog", { name: "Search for a file" })).toBeInTheDocument();
   });
 

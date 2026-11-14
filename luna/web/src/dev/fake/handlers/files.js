@@ -625,6 +625,23 @@ del("/api/v1/jobs/:id", ({ world, user, params }) => {
 });
 
 // ── Search (api/search.rs) ──────────────────────────────────────────────────
+/** About a dozen words around the first match, as lunad's snippet runs. */
+function fakeSnippet(text, words) {
+  const flat = text.replace(/\s+/g, " ").trim();
+  const lower = flat.toLowerCase();
+  const at = Math.max(0, lower.indexOf(words[0]));
+  const start = Math.max(0, flat.lastIndexOf(" ", Math.max(0, at - 40)));
+  const end = Math.min(flat.length, at + 80);
+  const piece = (start > 0 ? "…" : "") + flat.slice(start, end).trim() + (end < flat.length ? "…" : "");
+  const parts = [];
+  const re = new RegExp(`(${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
+  for (const bit of piece.split(re)) {
+    if (!bit) continue;
+    parts.push({ text: bit, hit: words.includes(bit.toLowerCase()) });
+  }
+  return parts;
+}
+
 get("/api/v1/search", async ({ world, user, query }) => {
   const o = fsOpts(world).search;
   if (o.delayMs) await new Promise((r) => setTimeout(r, o.delayMs));
@@ -633,6 +650,7 @@ get("/api/v1/search", async ({ world, user, query }) => {
   if (q.trim().length < 2) throw fail(400, "Type at least 2 letters to search.");
   const words = q.split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 2);
   const hits = [];
+  const contentHits = [];
   for (const driveId of Object.keys(world.fs || {})) {
     if (!driveReady(world, driveId)) continue;
     for (const [p, n] of Object.entries(world.fs[driveId].nodes)) {
@@ -640,13 +658,23 @@ get("/api/v1/search", async ({ world, user, query }) => {
       if (query.kind === "file" && n.kind === "dir") continue;
       if (!hasCap(world, user, driveId, p, CAP_VIEW)) continue;
       const name = base(p).toLowerCase();
-      if (!words.every((w) => name.includes(w))) continue;
       const priv = privateBoundary(world, driveId, p);
-      hits.push({ drive_id: driveId, path: p, parent: parentOf(p), name: base(p), kind: n.kind, size: n.size || 0, modified: n.modified, match: "name", ...(priv ? { private: true } : {}) });
+      const row = { drive_id: driveId, path: p, parent: parentOf(p), name: base(p), kind: n.kind, size: n.size || 0, modified: n.modified, snippet: null, ...(priv ? { private: true } : {}) };
+      if (words.every((w) => name.includes(w))) {
+        hits.push({ ...row, match: "name" });
+        continue;
+      }
+      // Words inside the file (lunad: content_fts). Snippets come only after the access check above.
+      const text = n.kind === "dir" ? "" : String(n.text || "");
+      if (text && words.every((w) => text.toLowerCase().includes(w))) {
+        contentHits.push({ ...row, match: "content", snippet: fakeSnippet(text, words) });
+      }
     }
   }
+  hits.push(...contentHits);
   const limit = o.limit ?? 100;
-  return { hits: hits.slice(0, limit), close_only: false, truncated: hits.length > limit, incomplete: false, scan: o.scanning ? { scanning: true, drives_total: 2, drives_done: 1, dirs_indexed: 1200 } : { scanning: false, drives_total: 1, drives_done: 1, dirs_indexed: 100 } };
+  const contents = o.contentsLeft ? { contents_reading: true, contents_left: o.contentsLeft } : { contents_reading: false, contents_left: 0 };
+  return { hits: hits.slice(0, limit), close_only: false, truncated: hits.length > limit, incomplete: false, scan: o.scanning ? { scanning: true, drives_total: 2, drives_done: 1, dirs_indexed: 1200, ...contents } : { scanning: false, drives_total: 1, drives_done: 1, dirs_indexed: 100, ...contents } };
 });
 
 // ── Office editors: the fake has no document server ─────────────────────────

@@ -584,6 +584,7 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
          );",
     )?;
     ensure_search_fts(conn)?;
+    crate::files::content::store::ensure_schema(conn)?;
     // Legacy album sharing tables — replaced by access_members/access_links
     // in the central DB. `archive` held per-user archived photos; the Photos
     // archive feature is gone.

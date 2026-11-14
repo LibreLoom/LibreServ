@@ -2710,6 +2710,7 @@ pub fn temp_path_at(root: &Path, dir: &Path) -> Result<PathBuf, FilesError> {
 #[cfg(test)]
 mod tests;
 
+pub mod content;
 pub mod dav;
 mod dav_fs;
 pub mod forwarding;
