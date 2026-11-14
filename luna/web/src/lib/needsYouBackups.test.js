@@ -164,6 +164,18 @@ describe("buildBackupItems", () => {
     expect(item.detail).toBe("Cloud upload failed.");
   });
 
+  it("says the update is paused for a paused move with a healthy last copy", () => {
+    // The shape settings/phrase-moving-full seeds: state ok, last copy an
+    // hour old, move stuck because Connect storage is full. The fallback
+    // "the last copy did not finish" would be false here.
+    const [item] = buildBackupItems({
+      backupRows: [cloud({ state: "ok", last_ok_at: 1_000_000, moving: { percent: 40, paused_full: true } })],
+      ...ADMIN,
+    });
+    expect(item.title).toEqual([{ name: "Documents" }, " backup update is paused"]);
+    expect(item.detail).toBe("Connect storage is full. Free up space or add storage to continue.");
+  });
+
   it("prefers the reason text over the missing-source detail", () => {
     const [item] = buildBackupItems({
       backupRows: [cloud({ source_missing: true, last_error: "Gone.", state: "failing" })],

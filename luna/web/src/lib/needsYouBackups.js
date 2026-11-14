@@ -41,10 +41,15 @@ export function visibleBackupRows(backupRows, viewer = {}) {
 
 /**
  * Title segments for a backup that needs a look. The first matching case wins.
+ * A paused phrase move is its own headline — the last copy is fine, the update
+ * is what's stuck.
  * @param {BackupRow} row
  * @returns {NeedsYouItem["title"]}
  */
 function backupTitle(row) {
+  if (row.kind === "cloud" && row.moving?.paused_full) {
+    return [{ name: row.source_name }, " backup update is paused"];
+  }
   if (row.state === "failing") return [{ name: row.source_name }, " backup didn't finish"];
   if (row.state === "stale") return [{ name: row.source_name }, " backup is out of date"];
   if (row.kind === "cloud" && row.source_missing) {
@@ -67,6 +72,9 @@ function plainError(error) {
  * @returns {NeedsYouItem["detail"]}
  */
 function backupDetail(row, now) {
+  if (row.kind === "cloud" && row.moving?.paused_full) {
+    return "Connect storage is full. Free up space or add storage to continue.";
+  }
   const error = row.last_error ? plainError(row.last_error) : "";
   const driveName = row.kind === "drive" ? row.destination : "";
   if (row.state === "failing" && driveName) {

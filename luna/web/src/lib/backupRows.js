@@ -21,6 +21,7 @@ import { movingPercent } from "./movingPercent.js";
  *   last_checked_at?: number,
  *   check_problem?: string | null,
  *   source_missing?: boolean,
+ *   moving?: { percent?: number, paused_full?: boolean } | null,
  *   hard?: boolean,
  * }} BackupRow
  */
