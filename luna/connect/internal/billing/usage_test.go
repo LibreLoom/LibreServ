@@ -193,4 +193,15 @@ VALUES ('acct_1', ?, ?, ?)`, period, earlier, 0)
 	if EgressOverageGB(usages[0].AvgStorageBytes, usages[0].EgressBytes) != 0 {
 		t.Fatal("7 GB egress with 5 GB avg still under 3× free")
 	}
+	// "Turn off payment" detaches the subscription before the final usage
+	// report. The hourly report skips the account then, but the final report
+	// for that one account must still see its month.
+	_, _ = db.Exec(`UPDATE accounts SET stripe_subscription_id = '', has_card = 0 WHERE id = 'acct_1'`)
+	if all, _ := LoadPeriodUsage(db, period); len(all) != 0 {
+		t.Fatalf("a detached account must not be in the hourly report: %+v", all)
+	}
+	one, err := loadPeriodUsage(db, period, "acct_1")
+	if err != nil || len(one) != 1 || one[0].AvgStorageBytes != 5*BytesPerGB {
+		t.Fatalf("final report for a detached account: %v %+v", err, one)
+	}
 }

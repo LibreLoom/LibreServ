@@ -93,6 +93,25 @@ func (h AccountHandler) StartCheckout(w http.ResponseWriter, r *http.Request) {
 		}
 		failMsg = "Could not open the $1 card check. Try again in a few minutes."
 	case billing.CheckoutBackup:
+		if acct.StripeSub != "" && acct.BillingStatus == "canceling" {
+			// "Turn off payment" scheduled the old subscription to end. A new
+			// one before then would bill the same meters twice. If it has
+			// ended and the webhook never came, finish it here.
+			status, err := billing.SubscriptionStatus(acct.StripeSub)
+			if err != nil {
+				writeBillingErr(w, err, "Could not check your last cloud backup payment. Try again in a few minutes.")
+				return
+			}
+			if status != "canceled" {
+				JSONError(w, http.StatusConflict, "Payment is still being turned off. Try again in about 10 minutes.")
+				return
+			}
+			if err := finishCanceling(h.Deps, acct.ID, acct.StripeSub); err != nil {
+				JSONError(w, http.StatusInternalServerError, failMsg)
+				return
+			}
+			acct.StripeSub = ""
+		}
 		if acct.StripeSub != "" {
 			if billing.BackupsUnlocked(true, acct.BillingStatus) {
 				JSON(w, http.StatusOK, map[string]any{"ok": true, "done": true, "already_active": true})

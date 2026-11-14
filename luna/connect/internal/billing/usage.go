@@ -199,11 +199,27 @@ type PeriodUsage struct {
 
 // LoadPeriodUsage returns month-to-date average storage + egress for billed accounts.
 func LoadPeriodUsage(db *database.DB, period string) ([]PeriodUsage, error) {
+	return loadPeriodUsage(db, period, "")
+}
+
+// loadPeriodUsage is LoadPeriodUsage for every billed account, or, when
+// accountID is set, for that one account whatever its subscription state. The
+// final charge needs the latter: "Turn off payment" detaches the subscription
+// from the account before it reports the month's last usage.
+func loadPeriodUsage(db *database.DB, period, accountID string) ([]PeriodUsage, error) {
 	if db == nil {
 		return nil, nil
 	}
 	if period == "" {
 		period = PeriodKeyUTC(time.Now())
+	}
+	where := `a.stripe_customer_id IS NOT NULL AND a.stripe_customer_id != ''
+  AND a.stripe_subscription_id IS NOT NULL AND a.stripe_subscription_id != ''
+  AND a.has_card = 1`
+	args := []any{period, period}
+	if accountID != "" {
+		where = `a.stripe_customer_id IS NOT NULL AND a.stripe_customer_id != '' AND a.id = ?`
+		args = append(args, accountID)
 	}
 	rows, err := db.Query(`
 SELECT a.id, a.stripe_customer_id,
@@ -218,9 +234,7 @@ LEFT JOIN (
   GROUP BY account_id
 ) s ON s.account_id = a.id
 LEFT JOIN billing_period_egress e ON e.account_id = a.id AND e.period_ym = ?
-WHERE a.stripe_customer_id IS NOT NULL AND a.stripe_customer_id != ''
-  AND a.stripe_subscription_id IS NOT NULL AND a.stripe_subscription_id != ''
-  AND a.has_card = 1`, period, period)
+WHERE `+where, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -287,31 +301,37 @@ func ReportUsage(db *database.DB) {
 }
 
 // ReportAccountUsage sends one account's month-so-far usage to Stripe right
-// away, so a final invoice (CancelSubscriptionFinal) bills up to this moment
-// instead of up to the last hourly report.
-func ReportAccountUsage(db *database.DB, accountID string) {
+// away and returns the quantities it sent (ok is false when nothing was sent).
+// Stripe processes meter events with a delay of about a minute, so before a
+// final invoice wait with WaitForReportedUsage: an invoice cut right away bills
+// whatever Stripe had processed by then.
+func ReportAccountUsage(db *database.DB, accountID string) (storageGB, overGB int64, ok bool) {
 	if db == nil || accountID == "" {
-		return
+		return 0, 0, false
 	}
 	providers.RefreshStripe()
 	if !config.C.Stripe.Ready() {
-		return
+		return 0, 0, false
 	}
 	storageMeter := strings.TrimSpace(config.C.Stripe.MeterEventName)
 	if storageMeter == "" {
 		slog.Warn("stripe meter events skipped: meter_event_name not set")
-		return
+		return 0, 0, false
 	}
-	reportUsageFor(db, accountID, storageMeter)
+	sent := reportUsageFor(db, accountID, storageMeter)
+	q, ok := sent[accountID]
+	return q[0], q[1], ok
 }
 
-// reportUsageFor reports every billed account, or only accountID when it is set.
-func reportUsageFor(db *database.DB, accountID, storageMeter string) {
+// reportUsageFor reports every billed account, or only accountID when it is
+// set, and returns the storage and egress quantities sent per account.
+func reportUsageFor(db *database.DB, accountID, storageMeter string) map[string][2]int64 {
+	sent := map[string][2]int64{}
 	period := PeriodKeyUTC(time.Now())
-	usages, err := LoadPeriodUsage(db, period)
+	usages, err := loadPeriodUsage(db, period, accountID)
 	if err != nil {
 		slog.Warn("usage query failed", "error", err)
-		return
+		return sent
 	}
 	stripe.Key = config.C.Stripe.SecretKey
 	egressMeter := strings.TrimSpace(config.C.Stripe.EgressMeterEventName)
@@ -344,9 +364,11 @@ func reportUsageFor(db *database.DB, accountID, storageMeter string) {
 		})
 		if err != nil {
 			slog.Warn("stripe storage meter event failed", "customer", u.CustomerID, "error", err)
+			continue
 		}
 
 		if egressMeter == "" {
+			sent[u.AccountID] = [2]int64{storageGB, 0}
 			continue
 		}
 		eident := fmt.Sprintf("%s-egress-%s-%d", u.CustomerID, period, now)
@@ -361,6 +383,9 @@ func reportUsageFor(db *database.DB, accountID, storageMeter string) {
 		})
 		if err != nil {
 			slog.Warn("stripe egress meter event failed", "customer", u.CustomerID, "error", err)
+			continue
 		}
+		sent[u.AccountID] = [2]int64{storageGB, overGB}
 	}
+	return sent
 }

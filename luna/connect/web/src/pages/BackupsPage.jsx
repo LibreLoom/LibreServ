@@ -99,7 +99,7 @@ function CancelPaymentSection({ confirmCancel, setConfirmCancel, busy, onCancel,
             Your cloud copies can only stay while a card pays for them. Download anything you need first.
           </p>
           <ul className="text-sm leading-relaxed list-disc pl-5 space-y-1">
-            <li>We charge this month so far to your card now: about ${owed.toFixed(2)} plus tax.</li>
+            <li>We charge this month so far to your card within about an hour: about ${owed.toFixed(2)} plus tax.</li>
             <li>We delete every cloud copy right away. This can't be undone.</li>
             <li>Your files on Luna stay as they are.</li>
           </ul>
@@ -107,7 +107,7 @@ function CancelPaymentSection({ confirmCancel, setConfirmCancel, busy, onCancel,
       ) : (
         <p className="text-sm leading-relaxed">
           {owed > 0
-            ? `Nothing is stored. We charge this month so far to your card now: about $${owed.toFixed(2)} plus tax.`
+            ? `Nothing is stored. We charge this month so far to your card within about an hour: about $${owed.toFixed(2)} plus tax.`
             : "Nothing is stored, so nothing is charged or deleted."}
         </p>
       )}
@@ -351,6 +351,23 @@ export function BackupsTab({ me, lunas, paired, onRefresh, setError, error }) {
               </>
             )}
           </section>
+          {error && <p className="text-sm text-error">{error}</p>}
+        </CardContent>
+      </Card>
+    );
+  } else if (me.billing_status === "canceling") {
+    billingCard = (
+      <Card className="animate-fade-in-up" data-testid="backups-canceling">
+        <CardHeader>
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle>Payment is being turned off</CardTitle>
+            <Badge variant="warning">Final bill pending</Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <p className="text-sm leading-relaxed">
+            Stripe charges this month so far to your card within about an hour. You can turn payment back on after that.
+          </p>
           {error && <p className="text-sm text-error">{error}</p>}
         </CardContent>
       </Card>

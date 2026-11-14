@@ -232,22 +232,43 @@ func (h AccountHandler) CancelBilling(w http.ResponseWriter, r *http.Request) {
 	var hasCard int
 	var status string
 	_ = h.DB.QueryRow(`SELECT has_card, billing_status FROM accounts WHERE id = ?`, acct.ID).Scan(&hasCard, &status)
-	// Detach the subscription first: Stripe's webhooks for this cancel (subscription
-	// deleted, the final invoice paid or failed) then match no account, so they can't
-	// start the 30-day countdown or its mails for copies we delete now.
-	if _, err := h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = 'canceled', stripe_subscription_id = '' WHERE id = ?`, acct.ID); err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not turn off payment. Nothing was charged or deleted. Try again in a few minutes.")
+	if status == "canceling" {
+		JSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Payment is already being turned off."})
 		return
 	}
-	if acct.StripeSub != "" {
-		var err error
-		if owesThisMonth || stored > 0 {
-			billing.ReportAccountUsage(h.DB, acct.ID)
-			err = billing.CancelSubscriptionFinal(acct.StripeSub)
-		} else {
-			err = billing.CancelSubscription(acct.StripeSub)
+	if acct.StripeSub != "" && (owesThisMonth || stored > 0) {
+		// Bill the month so far. Stripe needs about a minute to process the
+		// usage we report now, so the subscription ends FinalChargeDelay from
+		// now and Stripe bills that usage on its final invoice. Until then the
+		// account stays linked as "canceling": backups are off, webhooks for
+		// the subscription can't turn them back on or start a countdown, and
+		// a new subscription waits (it would bill the same meters).
+		if _, err := h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = 'canceling' WHERE id = ?`, acct.ID); err != nil {
+			JSONError(w, http.StatusInternalServerError, "Could not turn off payment. Nothing was charged or deleted. Try again in a few minutes.")
+			return
 		}
-		if err != nil {
+		if _, _, ok := billing.ReportAccountUsage(h.DB, acct.ID); !ok {
+			slog.Warn("turn off payment: could not report this month's usage; the final bill uses the last hourly report", "account", acct.ID)
+		}
+		if _, err := billing.ScheduleFinalCharge(acct.StripeSub); err != nil {
+			_, _ = h.DB.Exec(`UPDATE accounts SET has_card = ?, billing_status = ? WHERE id = ?`, hasCard, status, acct.ID)
+			writeBillingErr(w, err, "Could not turn off payment. Nothing was charged or deleted. Try again in a few minutes.")
+			return
+		}
+		if billing.DevBypass() {
+			// Local test setup: no Stripe, so no webhook will ever end it.
+			if err := finishCanceling(h.Deps, acct.ID, acct.StripeSub); err != nil {
+				slog.Error("turn off payment (dev): could not finish", "account", acct.ID, "error", err)
+			}
+		}
+	} else {
+		// Nothing stored and nothing owed: stop at once. Detach first, so the
+		// webhooks for this cancel match no account.
+		if _, err := h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = 'canceled', stripe_subscription_id = '' WHERE id = ?`, acct.ID); err != nil {
+			JSONError(w, http.StatusInternalServerError, "Could not turn off payment. Nothing was charged or deleted. Try again in a few minutes.")
+			return
+		}
+		if err := billing.CancelSubscription(acct.StripeSub); err != nil {
 			_, _ = h.DB.Exec(`UPDATE accounts SET has_card = ?, billing_status = ?, stripe_subscription_id = ? WHERE id = ?`,
 				hasCard, status, acct.StripeSub, acct.ID)
 			writeBillingErr(w, err, "Could not turn off payment. Nothing was charged or deleted. Try again in a few minutes.")

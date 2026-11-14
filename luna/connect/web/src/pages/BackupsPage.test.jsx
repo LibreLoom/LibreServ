@@ -152,12 +152,19 @@ describe("BackupsPage", () => {
     expect(screen.queryByRole("button", { name: /Add a payment card/i })).toBeNull();
   });
 
+  it("says payment is being turned off while the final bill is pending", () => {
+    renderTab({ me: { has_card: false, billing_status: "canceling" } });
+    expect(screen.getByTestId("backups-canceling")).toBeTruthy();
+    expect(screen.getByText(/within about an hour/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Add a payment card/i })).toBeNull();
+  });
+
   it("says prices and charges are before tax", () => {
     renderTab({ me: { has_card: true, estimated_month: 4.2, stored_bytes: 5_000_000_000 } });
     expect(screen.getByTestId("backup-pricing-tax")).toBeTruthy();
     expect(screen.getByText(/so far, before tax/i)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Turn off payment/i }));
-    expect(screen.getByText(/about \$4\.20 plus tax/)).toBeTruthy();
+    expect(screen.getByText(/within about an hour: about \$4\.20 plus tax/)).toBeTruthy();
   });
 
   it("says when a no longer linked Luna's files will be deleted", () => {

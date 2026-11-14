@@ -81,12 +81,16 @@ func deleteCustomerAccount(deps Deps, accountID string) error {
 		return err
 	}
 	// Stop the cloud backup bill first, charging the month so far: once the
-	// account row is gone nothing would ever cancel it. If Stripe can't be
+	// account row is gone nothing would ever cancel it. The subscription ends
+	// FinalChargeDelay from now so Stripe has processed this last usage report;
+	// Stripe then finalizes its final invoice by itself. If Stripe can't be
 	// reached, nothing is deleted and the admin can try again.
 	if subID != "" {
-		billing.ReportAccountUsage(deps.DB, accountID)
-		if err := billing.CancelSubscriptionFinal(subID); err != nil {
-			return fmt.Errorf("cancel cloud backup subscription: %w", err)
+		if _, _, ok := billing.ReportAccountUsage(deps.DB, accountID); !ok {
+			slog.Warn("delete account: could not report this month's usage; the final bill uses the last hourly report", "account", accountID)
+		}
+		if _, err := billing.ScheduleFinalCharge(subID); err != nil {
+			return fmt.Errorf("end cloud backup subscription: %w", err)
 		}
 	}
 

@@ -2,7 +2,7 @@ package billing
 
 import (
 	"errors"
-	"log/slog"
+	"fmt"
 	"strings"
 	"time"
 
@@ -143,17 +143,54 @@ func NextMonthStartUTC(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month()+1, 1, 0, 0, 0, 0, time.UTC)
 }
 
-// CancelSubscriptionFinal ends the subscription now and bills the usage it has
-// not invoiced yet (this month so far) on a final invoice, charged to the card
-// on file. Without InvoiceNow, Stripe drops that usage and the month is free.
-// Report the account's latest usage first (ReportAccountUsage): the invoice
-// bills whatever the meters hold at that moment.
-//
-// Stripe leaves the final invoice as a draft for about an hour. It is
-// finalized here (credit grants apply at that moment) and charged at once, so
-// "Turn off payment" settles the month right away. A charge that fails stays
-// on the open invoice for Stripe to retry; the cancel itself still stands.
-func CancelSubscriptionFinal(subID string) error {
+// FinalChargeDelay is how far ahead "Turn off payment" schedules the end of
+// the subscription. Stripe processes meter events about a minute after we send
+// them (measured in the sandbox: over 45 seconds), and an invoice cut before
+// then bills the month as nothing. Ending the subscription a little later lets
+// Stripe bill the usage we just reported on the final invoice itself.
+const FinalChargeDelay = 10 * time.Minute
+
+// ScheduleFinalCharge ends the subscription FinalChargeDelay from now (or at
+// the end of the current period, if that comes first) without prorating.
+// Stripe then cuts a final invoice for the month's metered usage. Report the
+// account's usage first (ReportAccountUsage). Returns when it ends.
+func ScheduleFinalCharge(subID string) (time.Time, error) {
+	if subID == "" || DevBypass() {
+		return time.Now(), nil
+	}
+	if err := requireLiveStripe(); err != nil {
+		return time.Time{}, err
+	}
+	stripe.Key = config.C.Stripe.SecretKey
+	sub, err := subscription.Get(subID, nil)
+	if err != nil {
+		return time.Time{}, err
+	}
+	at := time.Now().Add(FinalChargeDelay)
+	params := &stripe.SubscriptionParams{ProrationBehavior: stripe.String("none")}
+	periodEnd := int64(0)
+	if sub.Items != nil && len(sub.Items.Data) > 0 && sub.Items.Data[0] != nil {
+		periodEnd = sub.Items.Data[0].CurrentPeriodEnd
+	}
+	if periodEnd > 0 && at.Unix() >= periodEnd {
+		// The month ends first: its regular invoice bills it, and the
+		// subscription stops there.
+		params.CancelAtPeriodEnd = stripe.Bool(true)
+		at = time.Unix(periodEnd, 0)
+	} else {
+		params.CancelAt = stripe.Int64(at.Unix())
+	}
+	if _, err := subscription.Update(subID, params); err != nil {
+		return time.Time{}, err
+	}
+	return at, nil
+}
+
+// SettleFinalInvoice finalizes and charges a just-ended subscription's final
+// invoice. Stripe would finalize the draft by itself within about an hour;
+// doing it here charges the month right away. A charge that fails stays on the
+// open invoice for Stripe to retry.
+func SettleFinalInvoice(subID string) error {
 	if subID == "" || DevBypass() {
 		return nil
 	}
@@ -161,12 +198,9 @@ func CancelSubscriptionFinal(subID string) error {
 		return err
 	}
 	stripe.Key = config.C.Stripe.SecretKey
-	params := &stripe.SubscriptionCancelParams{
-		InvoiceNow: stripe.Bool(true),
-		Prorate:    stripe.Bool(false),
-	}
+	params := &stripe.SubscriptionParams{}
 	params.AddExpand("latest_invoice")
-	sub, err := subscription.Cancel(subID, params)
+	sub, err := subscription.Get(subID, params)
 	if err != nil {
 		return err
 	}
@@ -176,12 +210,11 @@ func CancelSubscriptionFinal(subID string) error {
 	}
 	final, err := invoice.FinalizeInvoice(inv.ID, nil)
 	if err != nil {
-		slog.Error("could not finalize the final invoice; Stripe finalizes it within the hour", "subscription", subID, "invoice", inv.ID, "error", err)
-		return nil
+		return fmt.Errorf("finalize final invoice %s: %w", inv.ID, err)
 	}
 	if final.Status == stripe.InvoiceStatusOpen && final.AmountDue > 0 {
 		if _, err := invoice.Pay(final.ID, nil); err != nil {
-			slog.Warn("final invoice charge did not go through; Stripe will retry it", "subscription", subID, "invoice", final.ID, "error", err)
+			return fmt.Errorf("charge final invoice %s: %w", final.ID, err)
 		}
 	}
 	return nil
