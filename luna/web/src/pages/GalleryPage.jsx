@@ -1903,6 +1903,18 @@ export default function GalleryPage() {
         </div>
       )}
 
+      <div className="relative overflow-x-clip">
+      <AnimatePresence mode="popLayout" initial={false} custom={pageDirection}>
+        <Motion.div
+          key={pageKey}
+          custom={pageDirection}
+          variants={PAGE_SLIDE}
+          initial="enter"
+          animate="shown"
+          exit="leave"
+          transition={reduceMotion ? { duration: 0 } : PAGE_SPRING}
+          className={placesMapOverview ? "flex min-h-0 flex-1 flex-col" : "min-w-0"}
+        >
       {gallery.isLoading && photos.length === 0 && activeSegment === "library" && (
         <GalleryLoadingStatus label="Loading library…" />
       )}
@@ -2050,19 +2062,6 @@ export default function GalleryPage() {
           description="Open a photo and tap the heart to save it here."
         />
       )}
-
-      <div className="relative overflow-x-clip">
-      <AnimatePresence mode="popLayout" initial={false} custom={pageDirection}>
-        <Motion.div
-          key={pageKey}
-          custom={pageDirection}
-          variants={PAGE_SLIDE}
-          initial="enter"
-          animate="shown"
-          exit="leave"
-          transition={reduceMotion ? { duration: 0 } : PAGE_SPRING}
-          className={placesMapOverview ? "flex min-h-0 flex-1 flex-col" : "min-w-0"}
-        >
       {activeSegment === "albums" && !albumView && !viewLabel && !duplicatesView && filterActiveCount === 0 && (
         <AlbumsPanel
           albums={albums.data || []}
