@@ -304,15 +304,18 @@ export function BackupsTab({ me, lunas, paired, onRefresh, setError, error }) {
     </div>
   );
 
+  const billURL = me?.payment_fix_url && me.payment_fix_url !== LINK_MANAGE_URL ? me.payment_fix_url : "";
   const updateCard = (
     <div className="space-y-2">
       <Button asChild size="lg">
-        <a href={LINK_MANAGE_URL} target="_blank" rel="noreferrer" data-testid="backup-update-card">
-          Update your card at link.com
+        <a href={billURL || LINK_MANAGE_URL} target="_blank" rel="noreferrer" data-testid="backup-update-card">
+          {billURL ? "Pay the bill" : "Update your card at link.com"}
         </a>
       </Button>
       <p className="text-sm leading-relaxed">
-        Stripe sells cloud backup through Link, so your card is kept and changed there.
+        {billURL
+          ? "On Stripe's page you can confirm the payment with your bank or use a different card."
+          : "Stripe sells cloud backup through Link, so your card is kept and changed there."}
       </p>
     </div>
   );
@@ -322,12 +325,29 @@ export function BackupsTab({ me, lunas, paired, onRefresh, setError, error }) {
 
   let billingCard;
 
-  if (purging) {
+  if (me.billing_status === "canceling") {
+    billingCard = (
+      <Card className="animate-fade-in-up" data-testid="backups-canceling">
+        <CardHeader>
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle>Payment is being turned off</CardTitle>
+            <Badge variant="warning">Final bill pending</Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <p className="text-sm leading-relaxed">
+            Stripe charges this month so far to your card within about an hour. You can turn payment back on after that.
+          </p>
+          {error && <p className="text-sm text-error">{error}</p>}
+        </CardContent>
+      </Card>
+    );
+  } else if (purging) {
     billingCard = (
       <Card className="animate-fade-in-up" data-testid="backups-purging">
         <CardHeader>
           <div className="flex flex-wrap items-center gap-2">
-            <CardTitle>{me.billing_status === "canceled" ? "Payment is off" : "Payment didn't go through"}</CardTitle>
+            <CardTitle>{paymentFailed ? "Payment didn't go through" : "Payment is off"}</CardTitle>
             <Badge variant="warning">{daysLeft === 0 ? "Deleting" : "Deleting soon"}</Badge>
           </div>
         </CardHeader>
@@ -335,7 +355,7 @@ export function BackupsTab({ me, lunas, paired, onRefresh, setError, error }) {
           <p className="text-sm leading-relaxed">
             {daysLeft === 0
               ? "We're deleting your cloud copies now."
-              : `We still have your cloud copies for ${daysLeft === 1 ? "1 more day" : `${daysLeft} more days`}. ${paymentFailed ? "Update your card to keep them" : "Add a card to keep them"}, or download anything you need before they are gone.`}
+              : `We still have your cloud copies for ${daysLeft === 1 ? "1 more day" : `${daysLeft} more days`}. ${paymentFailed ? "Pay the bill to keep them" : "Add a card to keep them"}, or download anything you need before they are gone.`}
           </p>
           <Separator />
           <section className="space-y-3" aria-labelledby="backup-reactivate-heading">
@@ -351,23 +371,6 @@ export function BackupsTab({ me, lunas, paired, onRefresh, setError, error }) {
               </>
             )}
           </section>
-          {error && <p className="text-sm text-error">{error}</p>}
-        </CardContent>
-      </Card>
-    );
-  } else if (me.billing_status === "canceling") {
-    billingCard = (
-      <Card className="animate-fade-in-up" data-testid="backups-canceling">
-        <CardHeader>
-          <div className="flex flex-wrap items-center gap-2">
-            <CardTitle>Payment is being turned off</CardTitle>
-            <Badge variant="warning">Final bill pending</Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <p className="text-sm leading-relaxed">
-            Stripe charges this month so far to your card within about an hour. You can turn payment back on after that.
-          </p>
           {error && <p className="text-sm text-error">{error}</p>}
         </CardContent>
       </Card>

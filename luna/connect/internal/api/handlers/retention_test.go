@@ -216,24 +216,28 @@ func TestShouldSendWarningSchedule(t *testing.T) {
 }
 
 func TestPurgeMailAsksForDataNotACard(t *testing.T) {
-	subj, body := purgeMail(0, false)
+	subj, body := purgeMail(0, false, "")
 	if !strings.Contains(subj, "have your files") || !strings.Contains(body, "download") || strings.Contains(strings.ToLower(body), "payment card") {
 		t.Fatalf("day0 %q %q", subj, body)
 	}
-	subj, body = purgeMail(27, false)
+	subj, body = purgeMail(27, false, "")
 	if !strings.Contains(body, "3 days") || strings.Contains(strings.ToLower(body), "payment card") {
 		t.Fatalf("day27 %q %q", subj, body)
 	}
-	subj, body = purgeMail(30, false)
+	subj, body = purgeMail(30, false, "")
 	if !strings.Contains(subj, "were deleted") {
 		t.Fatalf("day30 %q %q", subj, body)
 	}
 }
 
 func TestPurgeMailSaysWhenAPaymentFailed(t *testing.T) {
-	subj, body := purgeMail(0, true)
+	subj, body := purgeMail(0, true, "")
 	if !strings.Contains(subj, "didn't go through") || strings.Contains(body, "is off") || !strings.Contains(body, "link.com") || !strings.Contains(body, "download") {
 		t.Fatalf("failed payment %q %q", subj, body)
+	}
+	_, body = purgeMail(3, true, "https://invoice.stripe.com/i/x")
+	if !strings.Contains(body, "https://invoice.stripe.com/i/x") || !strings.Contains(body, "confirm it with your bank") || strings.Contains(body, "link.com") {
+		t.Fatalf("with the bill's page the mail links it: %q", body)
 	}
 }
 

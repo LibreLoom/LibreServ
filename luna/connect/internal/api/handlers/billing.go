@@ -56,7 +56,10 @@ func (h AccountHandler) StripeWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 	case "customer.subscription.deleted":
 		handleErr = h.cancelSubscription(event.Data.Raw)
-	case "invoice.payment_failed":
+	case "invoice.payment_failed", "invoice.payment_action_required":
+		// action_required: the bank wants the customer to confirm the charge
+		// (common for EU cards). Both leave the bill unpaid; the warning mail
+		// links the bill's Stripe page, where either is fixed.
 		handleErr = h.lockFromInvoiceJSON(event.Data.Raw, "past_due")
 	case "invoice.paid", "customer.subscription.updated":
 		handleErr = h.unlockFromEvent(string(event.Type), event.Data.Raw)

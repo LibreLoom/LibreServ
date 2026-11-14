@@ -153,6 +153,16 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
+	if acct.BillingStatus == "canceling" && acct.StripeSub != "" {
+		// "Turn off payment" scheduled the end. If Stripe has ended it but
+		// its webhook never arrived, finish here, or the account would show
+		// "being turned off" forever.
+		if status, err := billing.SubscriptionStatus(acct.StripeSub); err == nil && status == "canceled" {
+			if err := finishCanceling(h.Deps, acct.ID, acct.StripeSub); err == nil {
+				acct.BillingStatus, acct.StripeSub, acct.HasCard = "canceled", "", false
+			}
+		}
+	}
 	var liveBytes int64
 	_ = h.DB.QueryRow(`SELECT COALESCE((SELECT SUM(size) FROM storage_packs WHERE account_id = ?), 0) + COALESCE((SELECT SUM(bytes) FROM storage_records WHERE account_id = ?), 0)`, acct.ID, acct.ID).Scan(&liveBytes)
 	avgBytes, egressBytes := billing.AccountPeriodUsage(h.DB, acct.ID)
@@ -177,7 +187,13 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	payFixURL := ""
+	if acct.StripeSub != "" && paymentFailedStatus(acct.BillingStatus) {
+		payFixURL = paymentFixURL(acct.ID, acct.StripeSub)
+	}
+
 	JSON(w, http.StatusOK, map[string]any{
+		"payment_fix_url":        payFixURL,
 		"id":                     acct.ID,
 		"email":                  acct.Email,
 		"email_verified":         acct.EmailVerified,

@@ -50,6 +50,19 @@ func checkoutURLs(from, kind string) (success, cancel string) {
 	return page + "?checkout={CHECKOUT_SESSION_ID}", cancel
 }
 
+// paymentFixURL is where the customer fixes an unpaid cloud backup bill: the
+// bill's own Stripe page when Stripe has one, else link.com.
+func paymentFixURL(accountID, subID string) string {
+	url, err := billing.OpenInvoiceURL(subID)
+	if err != nil {
+		slog.Warn("could not look up the unpaid bill's page", "account", accountID, "error", err)
+	}
+	if url == "" {
+		return LinkManageURL
+	}
+	return url
+}
+
 func humanVerified(db interface {
 	QueryRow(string, ...any) *sql.Row
 }, accountID string) bool {
@@ -118,12 +131,13 @@ func (h AccountHandler) StartCheckout(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			// A second subscription would bill the same storage twice. The
-			// existing one is waiting on a failed payment, which the card
-			// update on Link fixes.
-			JSON(w, http.StatusConflict, map[string]any{
-				"error":      "Your last cloud backup payment didn't go through. Update your card at link.com, where Stripe keeps it for cloud backup.",
-				"manage_url": LinkManageURL,
-			})
+			// existing one has an unpaid bill; its Stripe page fixes it.
+			fix := paymentFixURL(acct.ID, acct.StripeSub)
+			msg := "Your last cloud backup payment didn't go through. Pay that bill first: you can confirm it with your bank or use a different card."
+			if fix == LinkManageURL {
+				msg = "Your last cloud backup payment didn't go through. Update your card at link.com, where Stripe keeps it for cloud backup."
+			}
+			JSON(w, http.StatusConflict, map[string]any{"error": msg, "manage_url": fix})
 			return
 		}
 		if billing.DevBypass() {

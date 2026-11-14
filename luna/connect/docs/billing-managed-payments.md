@@ -1,8 +1,8 @@
 # Billing: move to Stripe Managed Payments (handoff notes)
 
-Status as of 2026-11-13: **built.** Commits `c2d6486d` (stripe-go v87), `7bf9fe9b` (backend), `34e35268`
-(web), `01402b2e` (claim race fix). Not yet done: Go tests and vitest were not run, no end-to-end run against a real Connect with the
-sandbox, and the Stripe Dashboard steps below. Resume at "What's left".
+Status as of 2026-11-14: **built and tested end to end in the sandbox.** Remaining: the Stripe
+Dashboard steps (README "Stripe Dashboard setup") and turning on Managed Payments in live. See "Sandbox
+end-to-end results" for what was tested and what wasn't.
 
 ## Decisions made
 
@@ -50,6 +50,8 @@ set both before switching.
 - `subscription.Cancel(invoice_now=true, prorate=false)` (our `CancelSubscriptionFinal`) works: final
   invoice $10.12 incl. VAT, created as a **draft**; finalize + pay succeeded. Stripe would auto-finalize
   the draft after ~1 hour; finalize and pay it ourselves if "Turn off payment" should charge at once.
+  (Later superseded: that test reported usage minutes earlier. Cancelling seconds after the report bills
+  $0, see "Sandbox end-to-end results"; Turn off payment now uses `cancel_at`.)
 
 Answers to the open questions below (from the same run):
 
@@ -128,25 +130,47 @@ Tested in the sandbox:
     and history come from the credit balance summary and credit balance transactions APIs.
   - The grant needs the Stripe customer to exist, which it does once the $1 checkout completes.
 
-## What's left (2026-11-13)
+## Sandbox end-to-end results (2026-11-13/14)
 
-1. **Run the tests:** `go test ./...` in `luna/connect` and vitest in `luna/connect/web` (neither run
-   yet), or a full `./ci run`.
-2. **End-to-end in the sandbox:** set `server.base_url` to the local address first (it defaults to
-   production, and Stripe sends the browser back there). Run Connect with the sandbox keys and `stripe listen` forwarding to
-   `/api/v1/billing/webhook`, then: DIY signup → $1 checkout → device token; turn on cloud backup →
-   one-click subscribe; admin credit; Turn off payment. Webhook signing secret from `stripe listen`.
-3. **Stripe Dashboard (sandbox, then live):** see README "Stripe Dashboard setup" steps 0–10. In short:
-   turn on Managed Payments; tax code `txcd_10010001` + tax behavior exclusive on the storage and egress
-   prices (the sandbox's `Luna Backup` / `Luna Egress` have neither yet); webhook API version
-   `2026-10-28.endive` and the six events; support email in business details.
-4. **Known gaps kept on purpose:**
-   - `invoice.payment_action_required` is still ignored. Link emails the customer about it (Managed
-     Payments sends the transaction emails); nothing else to do in Connect yet.
-   - A cancel on link.com arrives as `customer.subscription.deleted` and starts the 30-day countdown
-     (same as before). If Link cancels immediately, the month so far is not billed; can't be tested in a
-     sandbox.
-   - `stripe_publishable_key` is still in `/me` and Admin → Connections but unused by the web.
+Local Connect (`server.base_url` = localhost) against the sandbox. Webhooks: real events fetched from
+`/v1/events`, signed with the local `webhook_secret` and posted (no Stripe CLI here). Payments in the
+user's browser through Stripe Checkout. `go test ./...` and the web tests pass.
+
+Passed:
+- $1 check (DE: €0.94 + 19% VAT; US/NY: $1.00, $0 tax): return page and webhook both finish it, in either
+  order and repeatedly, with exactly one $1 `paid` grant; forged signatures refused; another account's
+  session refused.
+- Backup subscription: saved card offered after the $1 check (one click); period ends 1 Dec 00:00 UTC; two
+  checkouts paid → the second subscription cancelled at Stripe, account untouched by its deletion event.
+- Turn off payment (DE, 3 TB, $1 credit): final invoice 3000 GB = $24.00 − $1.00 credit, VAT $4.37,
+  **$27.37** charged on the deletion webhook; samples cleared; re-subscribe allowed; replayed
+  `subscription.updated` during the window did not unlock; re-subscribe in the window refused.
+- $3 minimum: 100 GB billed as 375 GB = $3.00 − $1 credit, VAT $0.38 = $2.38 (Stripe finalized it itself).
+- Failed payment (`4000 0000 0000 0341`, FR): past_due, countdown, "didn't go through" mail, 409 on a
+  second subscription; a real-shape `invoice.paid` (endive, subscription under `parent`) unlocks.
+- 3D Secure (`4000 0025 0000 3155`, NL): checkout challenge approved; renewal needing confirmation →
+  `invoice.payment_action_required` + `payment_failed`; the hosted invoice page confirmed it (paid €3.65);
+  mail / Backups / 409 link that page.
+- Admin: credit list from Stripe, promotional grant with admin id, grant on an account with no customer
+  yet (creates one); deleting an account with a live subscription schedules its end.
+- Web UI signed in: DIY signup → $1 on Stripe → back → device token; Backups → Add card → Stripe → back
+  ("Checking your payment…") → Payment on with $1 credit; Turn off → "Payment is being turned off".
+
+Bugs found and fixed during the run:
+- **Turn off payment billed $0 since `a967af03`:** the final usage report skipped detached accounts, and
+  Stripe hadn't processed the usage when the immediate cancel cut the invoice. Now `cancel_at` + 10 min.
+- Same-month re-subscribe would bill the month's earlier usage again → samples cleared after the final bill.
+- 3D Secure renewals were told to "update your card" → now linked to the bill's page.
+- Backups said "Payment didn't go through" right after turning payment off.
+- An account could stay "being turned off" forever if the deletion webhook never arrives → `/me` finishes it.
+
+Not tested:
+- `cancel_at_period_end` when turning off within 10 minutes of the month's end (needs the real clock).
+- A cancel on link.com (test purchases don't show in the Link app); it still starts the 30-day countdown.
+- Real webhook delivery from Stripe to a public endpoint (events were replayed).
+- Signed out after returning from Stripe: the onboarding page resumes the saved step and only says "Sign
+  in to continue." (webhook still finishes the payment).
+- `stripe_publishable_key` is still in `/me` and Admin → Connections but unused by the web.
 
 ## Build plan (as built)
 
@@ -164,9 +188,10 @@ Tested in the sandbox:
 4. **Credits:** Stripe credit grants (above). Admin "Add credit" creates a `promotional` grant; the
    account and admin pages read the balance from Stripe. Drop our credit tables and the `invoice.paid`
    debit.
-5. **Cancel:** "Turn off payment" (`CancelSubscriptionFinal`) now finalizes and charges the final draft
-   at once (credits apply on finalize). A cancel on link.com still goes through
-   `customer.subscription.deleted` → 30-day countdown (see "What's left" 4).
+5. **Cancel:** "Turn off payment" reports usage and schedules the end 10 minutes later
+   (`ScheduleFinalCharge`); the account is `canceling` until `customer.subscription.deleted`, when
+   `finishCanceling` charges the final invoice (`SettleFinalInvoice`) and clears the month's samples. A
+   cancel on link.com still goes through `customer.subscription.deleted` → 30-day countdown.
 6. **Copy:** "plus tax" on `MonthlyCostHighlight`, the pricing table, the turn-off confirm and the $1
    step; say the charge shows as `LINK.COM*` on the card statement.
 7. **Live Dashboard:** turn on Managed Payments in the live account (eligibility review) and check the

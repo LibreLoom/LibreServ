@@ -249,3 +249,28 @@ func SubscriptionStatus(subID string) (string, error) {
 	}
 	return string(s.Status), nil
 }
+
+// OpenInvoiceURL is the Stripe page for the subscription's latest invoice
+// while it is still unpaid ("open"), or "" when there is none. On that page
+// (sold through Link under Managed Payments) the customer can confirm the
+// payment with their bank or pay with a different card.
+func OpenInvoiceURL(subID string) (string, error) {
+	if subID == "" || DevBypass() {
+		return "", nil
+	}
+	if err := requireLiveStripe(); err != nil {
+		return "", err
+	}
+	stripe.Key = config.C.Stripe.SecretKey
+	params := &stripe.SubscriptionParams{}
+	params.AddExpand("latest_invoice")
+	sub, err := subscription.Get(subID, params)
+	if err != nil {
+		return "", err
+	}
+	inv := sub.LatestInvoice
+	if inv == nil || inv.Status != stripe.InvoiceStatusOpen {
+		return "", nil
+	}
+	return inv.HostedInvoiceURL, nil
+}

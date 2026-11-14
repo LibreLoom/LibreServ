@@ -148,8 +148,35 @@ describe("BackupsPage", () => {
     expect(screen.getByText("Payment didn't go through")).toBeTruthy();
     const link = screen.getByTestId("backup-update-card");
     expect(link.getAttribute("href")).toBe("https://app.link.com");
-    expect(screen.getByText(/Update your card to keep them/i)).toBeTruthy();
+    expect(screen.getByText(/Pay the bill to keep them/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Add a payment card/i })).toBeNull();
+  });
+
+  it("links the unpaid bill's own page when Stripe has one", () => {
+    const later = Math.floor(Date.now() / 1000) + 10 * 86400;
+    renderTab({
+      me: { has_card: false, billing_status: "past_due", backup_purge_after: later, payment_fix_url: "https://invoice.stripe.com/i/abc" },
+    });
+    const link = screen.getByTestId("backup-update-card");
+    expect(link.getAttribute("href")).toBe("https://invoice.stripe.com/i/abc");
+    expect(link.textContent).toBe("Pay the bill");
+    expect(screen.getByText(/confirm the payment with your bank or use a different card/i)).toBeTruthy();
+  });
+
+  it("says payment is being turned off even while copies are being deleted", () => {
+    // Seen in the browser: right after "Charge and delete copies" the page
+    // refreshed mid-delete and said "Payment didn't go through".
+    const now = Math.floor(Date.now() / 1000);
+    renderTab({ me: { has_card: false, billing_status: "canceling", backup_purge_after: now } });
+    expect(screen.getByTestId("backups-canceling")).toBeTruthy();
+    expect(screen.queryByText("Payment didn't go through")).toBeNull();
+  });
+
+  it("calls a countdown after a cancel elsewhere 'Payment is off', not a failed payment", () => {
+    const later = Math.floor(Date.now() / 1000) + 5 * 86400;
+    renderTab({ me: { has_card: false, billing_status: "canceled", backup_purge_after: later } });
+    expect(screen.getByText("Payment is off")).toBeTruthy();
+    expect(screen.queryByText("Payment didn't go through")).toBeNull();
   });
 
   it("says payment is being turned off while the final bill is pending", () => {

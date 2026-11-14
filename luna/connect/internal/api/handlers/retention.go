@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/accounts"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/mail"
 )
 
@@ -33,9 +34,11 @@ func scheduleBackupPurge(db *database.DB, accountID string) int64 {
 }
 
 // purgeMail is the warning for day of the 30-day countdown. paymentFailed is
-// true while the countdown runs because a payment failed (the subscription
-// still exists and Stripe keeps retrying), not because payment was turned off.
-func purgeMail(day int, paymentFailed bool) (subject, text string) {
+// true while the countdown runs because a payment failed or waits for the
+// bank's confirmation (the subscription still exists), not because payment
+// was turned off. payURL is that unpaid bill's Stripe page, where the payment
+// can be confirmed or paid with another card ("" when Stripe has none).
+func purgeMail(day int, paymentFailed bool, payURL string) (subject, text string) {
 	if day >= backupRetentionDays {
 		return "Your cloud copies were deleted",
 			"The 30 days are up. The cloud copies for this account are gone."
@@ -51,16 +54,20 @@ func purgeMail(day int, paymentFailed bool) (subject, text string) {
 		days = itoa(left) + " days"
 	}
 	if paymentFailed {
+		fix := "To keep them, update your card at link.com."
+		if payURL != "" {
+			fix = "To keep them, pay the bill here. You can confirm it with your bank or use a different card: " + payURL
+		}
 		return "Your cloud backup payment didn't go through",
-			"We still have your copies for " + days + ". To keep them, update your card at link.com. Or sign in at connect.luna.libreloom.org and download anything you need before we delete them."
+			"We still have your copies for " + days + ". " + fix + " Or sign in at connect.luna.libreloom.org and download anything you need before we delete them."
 	}
 	return "Make sure you have your files",
 		"Payment for cloud backup is off. We still have your copies for " + days + ". Sign in at connect.luna.libreloom.org and download anything you need before we delete them."
 }
 
-func sendPurgeWarning(sender mail.Sender, email string, day int, deadline int64, paymentFailed bool) {
+func sendPurgeWarning(sender mail.Sender, email string, day int, deadline int64, paymentFailed bool, payURL string) {
 	email = strings.TrimSpace(email)
-	subject, text := purgeMail(day, paymentFailed)
+	subject, text := purgeMail(day, paymentFailed, payURL)
 	if sender == nil || email == "" {
 		if email != "" {
 			slog.Info("purge warning (no mailer)", "day", day, "deadline", deadline, "subject", subject)
@@ -82,8 +89,15 @@ func markAndSendPurgeWarning(deps Deps, accountID, email string, day int, deadli
 	if last.Valid && int(last.Int64) >= day {
 		return
 	}
-	paymentFailed := sub != "" && (status == "past_due" || status == "unpaid" || status == "incomplete")
-	sendPurgeWarning(deps.Mail, email, day, deadline, paymentFailed)
+	paymentFailed := sub != "" && paymentFailedStatus(status)
+	payURL := ""
+	if paymentFailed {
+		var err error
+		if payURL, err = billing.OpenInvoiceURL(sub); err != nil {
+			slog.Warn("could not look up the unpaid bill's page for the warning mail", "account", accountID, "error", err)
+		}
+	}
+	sendPurgeWarning(deps.Mail, email, day, deadline, paymentFailed, payURL)
 	_, _ = deps.DB.Exec(`UPDATE accounts SET purge_mail_day = ? WHERE id = ?`, day, accountID)
 }
 
@@ -233,4 +247,10 @@ func purgeAccountBackups(deps Deps, accountID, email string) {
 	}
 	markAndSendPurgeWarning(deps, accountID, email, backupRetentionDays, 0)
 	_, _ = deps.DB.Exec(`UPDATE accounts SET backup_purge_after = NULL, purge_mail_day = ? WHERE id = ?`, backupRetentionDays, accountID)
+}
+
+// paymentFailedStatus: the subscription exists but its last bill is unpaid
+// (declined, or waiting for the bank's confirmation).
+func paymentFailedStatus(status string) bool {
+	return status == "past_due" || status == "unpaid" || status == "incomplete"
 }
