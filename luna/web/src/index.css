@@ -543,6 +543,13 @@ textarea::placeholder {
     animation: nav-slide-in 200ms var(--motion-easing-emphasized-decelerate) both;
 }
 
+/* A Photos page sliding in already moves; its rows, cards and thumbnails
+   don't add their own entrance on top. */
+[data-entering] .animate-nav-slide-in,
+[data-entering] .animate-cascade-in {
+    animation: none;
+}
+
 /* Pop-out animation for modal/dialog exits */
 @keyframes pop-out {
     from {

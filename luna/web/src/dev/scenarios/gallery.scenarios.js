@@ -29,11 +29,17 @@ export default [
     area: "Photos",
     title: "Moving between the photo pages",
     url: "/gallery",
-    seed: (w) => { lib(w, 24); },
+    seed: (w) => {
+      lib(w, 150, { favEvery: 4, spanDays: 60 });
+      album(w, "al-trip", "Summer trip", {}, w.photos.slice(0, 40));
+      album(w, "al-kids", "Kids", {}, w.photos.slice(40, 52));
+    },
     check: [
       "Library → Albums: the albums page slides in from the right as the selector pill moves right",
-      "Albums → Library: the grid comes back from the left",
-      "Open an album: its page slides in from the right",
+      "Albums → Library and Favorites → Library: the page comes back from the left and never turns around",
+      "Nothing above the pages jumps or pushes the leaving page down while it slides",
+      "Scroll far down Library, then switch: the old page slides out where it was and the new one starts at its top",
+      "Open an album: its page slides in from the right; Back slides it out to the right",
       "With Reduce Motion on, the pages change without sliding",
     ],
   },

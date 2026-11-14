@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- page exports helpers used by tests */
-import { lazy, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { AnimatePresence, motion as Motion, useReducedMotion } from "motion/react";
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -215,8 +215,10 @@ const SEGMENTS = [
 
 const SEGMENT_IDS = SEGMENTS.map((s) => s.value);
 const DEFAULT_SEGMENT = "library";
-// Segment pages move like the shared page and the form builder's tabs: the
-// multiway selector's pill slides, and the page follows it in from that side.
+// Segment pages move like the form builder's tabs: the multiway selector's
+// pill slides, the old page leaves that way and the new one follows it in.
+// Both pages share one grid cell, so neither drops out of the flow and the
+// box keeps the taller page's height until the old one has gone.
 const PAGE_SLIDE = {
   enter: (/** @type {number} */ dir) => ({ x: `${100 * dir}%`, opacity: 0.6 }),
   shown: { x: 0, opacity: 1 },
@@ -454,11 +456,6 @@ export default function GalleryPage() {
   const [segment, setSegment] = useState(initialHash.segment || DEFAULT_SEGMENT);
   const activeSegment = SEGMENT_IDS.includes(segment) ? segment : DEFAULT_SEGMENT;
   const segmentOrder = SEGMENT_IDS.indexOf(activeSegment);
-  const lastSegmentOrder = useRef(segmentOrder);
-  const pageDirection = segmentOrder >= lastSegmentOrder.current ? 1 : -1;
-  useEffect(() => {
-    lastSegmentOrder.current = segmentOrder;
-  }, [segmentOrder]);
   const [error, setError] = useState(null);
   const { addToast } = useToast();
   const fileOps = useFileOps();
@@ -1634,8 +1631,106 @@ export default function GalleryPage() {
       ? `album:${albumView.id}`
       : viewLabel
         ? `view:${viewLabel}`
-        : `${activeSegment}:${filters.place?.key || (filters.monthDay ? "month-day" : "")}`;
+        : `${activeSegment}:${
+            filters.place?.key
+            || (filters.monthDay ? "month-day" : "")
+            // On Places, a drawn area swaps the map for its photos: a new page.
+            || (activeSegment === "places" && placeBboxParam ? "area" : "")
+          }`;
   const reduceMotion = useReducedMotion();
+
+  // The slide's direction is set once, when the page changes, and held until
+  // the next change: a re-render mid-slide (photos arriving) must not turn
+  // the leaving page around. Segments follow the selector; opening a detail
+  // view comes in from the right and Back returns from the left.
+  const pageDepth = detailChrome ? 1 : 0;
+  const [pageMotion, setPageMotion] = useState({
+    key: pageKey,
+    depth: pageDepth,
+    order: segmentOrder,
+    dir: 1,
+    moved: false,
+    map: placesMapOverview,
+    mapLingers: false,
+  });
+  if (pageMotion.key !== pageKey) {
+    const dir =
+      pageDepth !== pageMotion.depth
+        ? Math.sign(pageDepth - pageMotion.depth)
+        : segmentOrder !== pageMotion.order
+          ? Math.sign(segmentOrder - pageMotion.order)
+          : 1;
+    setPageMotion({
+      key: pageKey,
+      depth: pageDepth,
+      order: segmentOrder,
+      dir,
+      moved: true,
+      map: placesMapOverview,
+      mapLingers: pageMotion.map && !placesMapOverview && !reduceMotion,
+    });
+  }
+  const pageDirection = pageMotion.dir;
+  // The map page fills the window (fixed-height Page). Leaving it, the page
+  // keeps that layout until the map has slid out: resizing the leaving map
+  // makes it drop and redraw its tiles mid-slide.
+  const mapLayout = placesMapOverview || pageMotion.mapLingers;
+
+  // Window scroll as of the last scroll event, so a page change still knows
+  // where the reader was after the new page's height has clamped it.
+  const pageScrollRef = useRef(typeof window !== "undefined" ? window.scrollY : 0);
+  useEffect(() => {
+    const onScroll = () => {
+      pageScrollRef.current = window.scrollY;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  const slideBoxRef = useRef(/** @type {HTMLDivElement|null} */ (null));
+  const shownPageKey = useRef(pageKey);
+  // Every page keeps its place on screen through a switch. A new page starts
+  // at the top of the window, so the window scrolls up and each leaving page
+  // is lifted by the same distance: it slides out exactly where the reader saw
+  // it. A page called back while it is still sliding out is reused, so the
+  // window scrolls back to its lift instead and it returns where it was (the
+  // other pages shift down by that much, a negative lift). The box clips at
+  // its top edge while any page is shifted, so none can cover the toolbar. (Scrolling only to the box's top is not enough:
+  // a short new page would clamp the scroll once the old page leaves.)
+  useLayoutEffect(() => {
+    if (shownPageKey.current === pageKey) return;
+    shownPageKey.current = pageKey;
+    const box = slideBoxRef.current;
+    if (!box) return;
+    const pages = /** @type {HTMLElement[]} */ ([...box.querySelectorAll(":scope > [data-gallery-page]")]);
+    const liftOf = (/** @type {HTMLElement|null} */ inner) => Number(inner?.dataset.lift) || 0;
+    const coming = pages.find((page) => page.dataset.galleryPage === pageKey);
+    const target = liftOf(/** @type {HTMLElement|null} */ (coming?.firstElementChild ?? null));
+    const before = pageScrollRef.current;
+    if (before !== target) window.scrollTo({ top: target, behavior: "instant" });
+    const moved = Math.round(before - window.scrollY);
+    pageScrollRef.current = window.scrollY;
+    // The deep-link `?y=` must not carry the old page's depth to the new one.
+    scrollPosRef.current = window.scrollY;
+    let anyLifted = false;
+    for (const page of pages) {
+      const inner = /** @type {HTMLElement|null} */ (page.firstElementChild);
+      if (!inner) continue;
+      const lift = page === coming ? 0 : liftOf(inner) + moved;
+      if (lift !== 0) {
+        inner.dataset.lift = String(lift);
+        inner.style.transform = `translateY(${-lift}px)`;
+        anyLifted = true;
+      } else {
+        delete inner.dataset.lift;
+        inner.style.transform = "";
+      }
+    }
+    box.style.clipPath = anyLifted ? "inset(0 0 -100000px 0)" : "";
+  }, [pageKey]);
+  const handlePagesSettled = useCallback(() => {
+    if (slideBoxRef.current) slideBoxRef.current.style.clipPath = "";
+    setPageMotion((m) => (m.mapLingers ? { ...m, mapLingers: false } : m));
+  }, []);
 
   // Cheap probe: does the library hold photos taken on today's month-day in
   // previous years? It only drives the dismissable "On this day" pill — the
@@ -1701,14 +1796,14 @@ export default function GalleryPage() {
       titleId="gallery-title"
       headerClassName="mb-8 shrink-0"
       className={
-        placesMapOverview
+        mapLayout
           ? "flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden pb-6 xl:pb-[108px]"
           : undefined
       }
     >
       <div
         ref={dropZoneRef}
-        className={placesMapOverview ? "flex min-h-0 flex-1 flex-col" : "shrink-0"}
+        className={mapLayout ? "flex min-h-0 flex-1 flex-col" : "shrink-0"}
       >
       <GalleryToolbar
         segments={SEGMENTS}
@@ -1730,6 +1825,28 @@ export default function GalleryPage() {
         rescanPending={rescan.isPending}
         onOpenShortcuts={shortcutsSheet ? shortcutsSheet.open : undefined}
       />
+      <div
+        ref={slideBoxRef}
+        className={`grid overflow-x-clip ${mapLayout ? "min-h-0 flex-1 grid-rows-[minmax(0,1fr)]" : ""}`}
+      >
+      <AnimatePresence initial={false} custom={pageDirection} onExitComplete={handlePagesSettled}>
+        <Motion.div
+          key={pageKey}
+          data-gallery-page={pageKey}
+          data-entering={pageMotion.moved ? "" : undefined}
+          custom={pageDirection}
+          variants={PAGE_SLIDE}
+          initial={reduceMotion ? false : "enter"}
+          animate="shown"
+          exit="leave"
+          transition={reduceMotion ? { duration: 0 } : PAGE_SPRING}
+          onAnimationComplete={(name) => {
+            if (name !== "shown") return;
+            document.querySelector(`[data-gallery-page="${CSS.escape(pageKey)}"]`)?.removeAttribute("data-entering");
+          }}
+          className={`col-start-1 row-start-1 min-w-0 ${placesMapOverview ? "flex min-h-0 flex-col" : ""}`}
+        >
+        <div className={placesMapOverview ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {filterChips.length > 0 && (
         <div
           key={filterChips.map((c) => c.id).join(",")}
@@ -2039,18 +2156,6 @@ export default function GalleryPage() {
         />
       )}
 
-      <div className="relative overflow-x-clip">
-      <AnimatePresence mode="popLayout" initial={false} custom={pageDirection}>
-        <Motion.div
-          key={pageKey}
-          custom={pageDirection}
-          variants={PAGE_SLIDE}
-          initial="enter"
-          animate="shown"
-          exit="leave"
-          transition={reduceMotion ? { duration: 0 } : PAGE_SPRING}
-          className={placesMapOverview ? "flex min-h-0 flex-1 flex-col" : "min-w-0"}
-        >
       {activeSegment === "albums" && !albumView && !viewLabel && !duplicatesView && filterActiveCount === 0 && (
         <AlbumsPanel
           albums={albums.data || []}
@@ -2269,6 +2374,7 @@ export default function GalleryPage() {
         </div>
       )}
 
+        </div>
         </Motion.div>
       </AnimatePresence>
       </div>
