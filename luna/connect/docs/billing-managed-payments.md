@@ -1,8 +1,10 @@
 # Billing: move to Stripe Managed Payments (handoff notes)
 
-Status as of 2026-11-14: **built and tested end to end in the sandbox.** Remaining: the Stripe
-Dashboard steps (README "Stripe Dashboard setup") and turning on Managed Payments in live. See "Sandbox
-end-to-end results" for what was tested and what wasn't.
+Status as of 2026-11-14: **done and deployed** (luna-connect 0.0.4 on the production VPS). The Stripe
+account Connect uses is the sandbox (`acct_1Ty2Wr2YkLLziVSu`); there is no separate live account yet.
+Production webhook `we_1U9rGB2YkLLziVSu8JRAUTBk` listens to all seven events. If Connect ever moves to a
+live Stripe account, redo the README "Stripe Dashboard setup" there. See "Sandbox end-to-end results" for
+what was tested and what wasn't.
 
 ## Decisions made
 
