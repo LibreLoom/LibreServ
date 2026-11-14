@@ -190,6 +190,27 @@ describe("FileSearch", () => {
     expect(screen.queryByRole("link", { name: "Photos" })).not.toBeInTheDocument();
   });
 
+  it("hides settings results for a one-character query even after the index is ready", async () => {
+    renderSearch([]);
+    await openSearchOverlay();
+    const input = screen.getByRole("textbox", { name: "Search Luna" });
+    fireEvent.change(input, { target: { value: "appearance" } });
+    await screen.findByRole("link", { name: "Appearance" });
+    fireEvent.change(input, { target: { value: "a" } });
+    expect(screen.getByText("Type at least two characters to search.")).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="file-search-list"]')).not.toBeInTheDocument();
+  });
+
+  it("shows category names only once in both best and grouped settings matches", async () => {
+    renderSearch([]);
+    await openSearchOverlay();
+    const input = screen.getByRole("textbox", { name: "Search Luna" });
+    fireEvent.change(input, { target: { value: "appearance" } });
+    expect(await screen.findByRole("link", { name: "Appearance" })).toHaveTextContent(/^Appearance$/);
+    fireEvent.change(input, { target: { value: "appea" } });
+    expect(await screen.findByRole("link", { name: "Appearance" })).toHaveTextContent(/^Appearance$/);
+  });
+
   it("returns focus to the control that opened search when a header trigger exists", async () => {
     const { openFileSearch } = await import("../../lib/fileSearch.js");
     renderSearch([], { before: <button onClick={openFileSearch}>Open from navigation</button> });
@@ -964,6 +985,18 @@ describe("FileSearch", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "pasport" } });
     expect(await screen.findByText(/Nothing matched exactly\. These names are close\./)).toBeInTheDocument();
     expect(screen.queryByText("Similar names")).not.toBeInTheDocument();
+  });
+
+  it("does not say nothing matched exactly when a person matches exactly", async () => {
+    renderSearch(
+      [{ drive_id: "d1", path: "alicee.txt", parent: "", name: "alicee.txt", kind: "file", size: 1, modified: 1, match: "close" }],
+      { closeOnly: true, people: [{ id: "p1", username: "alice", display_name: "Alice" }] },
+    );
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "alice" } });
+    expect(await screen.findByRole("link", { name: "Alice, alice" })).toBeInTheDocument();
+    await screen.findByRole("link", { name: "Open alicee.txt" });
+    expect(screen.queryByText(/Nothing matched exactly/)).not.toBeInTheDocument();
   });
 
   it("separates near misses from real matches in a mixed list", async () => {

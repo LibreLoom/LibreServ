@@ -168,7 +168,7 @@ export default function FileSearch() {
   const connectActive = useConnectActive();
   const categories = useMemo(() => visibleCategories(user?.role === "admin", connectActive), [user?.role, connectActive]);
   const trimmed = typed.trim();
-  const settings = useSettingsSearch(categories, present ? trimmed : "", present);
+  const settings = useSettingsSearch(categories, present && trimmed.length >= MIN_SEARCH_LENGTH ? trimmed : "", present);
   const [showAllSettings, setShowAllSettings] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState(/** @type {string[]} */ ([]));
   const places = PLACES.filter((place) => trimmed.length >= MIN_SEARCH_LENGTH && matchesSearchName(place.title, trimmed));
@@ -181,6 +181,8 @@ export default function FileSearch() {
   const people = trimmed.length >= MIN_SEARCH_LENGTH && user?.role === "admin"
     ? (users.data || []).filter((person) => matchesSearchName(person.display_name || person.username, trimmed) || matchesSearchName(person.username, trimmed))
     : [];
+  const exactPerson = people.some((person) => [person.display_name, person.username]
+    .some((name) => name?.toLowerCase() === trimmed.toLowerCase()));
 
   const exactPlace = places.find((place) => place.title.toLowerCase() === trimmed.toLowerCase());
   const exactSetting = settings.results?.find((hit) => hit.title.toLowerCase() === trimmed.toLowerCase());
@@ -624,7 +626,7 @@ export default function FileSearch() {
 
               {(search.hits.length > 0 || places.length > 0 || (settings.results?.length ?? 0) > 0 || people.length > 0) && (
                 <>
-                  {search.closeOnly && !bestOther && !bestSetting && (
+                  {search.closeOnly && !bestOther && !bestSetting && !exactPerson && (
                     <Typewriter
                       as="p"
                       className="px-1 pb-2 text-sm font-mono text-primary"
@@ -659,7 +661,7 @@ export default function FileSearch() {
                         <li data-slot="file-search-item">
                           <Link data-slot="file-search-link" to={{ pathname: "/settings", hash: bestSetting.categoryId }} state={{ searchHit: bestSetting }} onClick={() => beginClose("medium")} className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent">
                             <span className="block">{bestSetting.title}</span>
-                            <span className="block text-sm">{[bestSetting.categoryLabel, bestSetting.cardTitle].filter(Boolean).join(" › ")}</span>
+                            {bestSetting.kind !== "category" && <span className="block text-sm">{[bestSetting.categoryLabel, bestSetting.cardTitle].filter(Boolean).join(" › ")}</span>}
                           </Link>
                         </li>
                       </>
@@ -734,7 +736,7 @@ export default function FileSearch() {
                           <li key={`${hit.categoryId}/${hit.kind}/${hit.cardTitle}/${hit.title}`} data-slot="file-search-item">
                             <Link data-slot="file-search-link" to={{ pathname: "/settings", hash: hit.categoryId }} state={{ searchHit: hit }} onClick={() => beginClose("medium")} className="block rounded-large-element surface-primary px-4 py-3 focus-visible:ring-2 focus-visible:ring-accent">
                               <span className="block">{hit.title}</span>
-                              <span className="block text-sm">{[hit.categoryLabel, hit.cardTitle].filter(Boolean).join(" › ")}</span>
+                              {hit.kind !== "category" && <span className="block text-sm">{[hit.categoryLabel, hit.cardTitle].filter(Boolean).join(" › ")}</span>}
                             </Link>
                           </li>
                         ))}
