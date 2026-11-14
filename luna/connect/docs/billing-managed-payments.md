@@ -1,7 +1,8 @@
 # Billing: move to Stripe Managed Payments (handoff notes)
 
-Status as of 2026-11-13: **gate passed; $1 check and credits (Stripe credit grants) designed and sandbox-tested; code not
-started.** Next: the build plan below. Resume here.
+Status as of 2026-11-13: **built.** Commits `c2d6486d` (stripe-go v87), `7bf9fe9b` (backend), `34e35268`
+(web). Not yet done: Go tests and vitest were not run, no end-to-end run against a real Connect with the
+sandbox, and the Stripe Dashboard steps below. Resume at "What's left".
 
 ## Decisions made
 
@@ -127,41 +128,61 @@ Tested in the sandbox:
     and history come from the credit balance summary and credit balance transactions APIs.
   - The grant needs the Stripe customer to exist, which it does once the $1 checkout completes.
 
-## Build plan (what changes in Connect)
+## What's left (2026-11-13)
+
+1. **Run the tests:** `go test ./...` in `luna/connect` and vitest in `luna/connect/web` (neither run
+   yet), or a full `./ci run`.
+2. **End-to-end in the sandbox:** run Connect with the sandbox keys and `stripe listen` forwarding to
+   `/api/v1/billing/webhook`, then: DIY signup → $1 checkout → device token; turn on cloud backup →
+   one-click subscribe; admin credit; Turn off payment. Webhook signing secret from `stripe listen`.
+3. **Stripe Dashboard (sandbox, then live):** see README "Stripe Dashboard setup" steps 0–10. In short:
+   turn on Managed Payments; tax code `txcd_10010001` + tax behavior exclusive on the storage and egress
+   prices (the sandbox's `Luna Backup` / `Luna Egress` have neither yet); webhook API version
+   `2026-10-28.endive` and the six events; support email in business details.
+4. **Known gaps kept on purpose:**
+   - `invoice.payment_action_required` is still ignored. Link emails the customer about it (Managed
+     Payments sends the transaction emails); nothing else to do in Connect yet.
+   - A cancel on link.com arrives as `customer.subscription.deleted` and starts the 30-day countdown
+     (same as before). If Link cancels immediately, the month so far is not billed; can't be tested in a
+     sandbox.
+   - `stripe_publishable_key` is still in `/me` and Admin → Connections but unused by the web.
+
+## Build plan (as built)
 
 1. **Stripe config:** every product used gets tax code `txcd_10010001`, every price
-   `tax_behavior=exclusive`. Add a one-time $1 "Cloud backup credit" price (new config field next to
-   `price_id`). Webhook events: `checkout.session.completed`, `customer.subscription.*`,
-   `invoice.paid`, `invoice.payment_failed`, `invoice.payment_action_required`.
-2. **$1 check:** `VerifyHuman` returns a Checkout URL instead of charging; `ChargeOneDollar` goes; the
-   webhook writes `oss_payments` and creates a $1 `paid` credit grant. The web onboarding card form becomes a redirect
-   button plus a return page that waits until the webhook lands.
-3. **Subscribe:** `AttachCard` returns a subscription Checkout URL (both metered prices, saved-card
-   filter); `billing.Subscribe` / `VerifyCard` / SetupIntent code go. The webhook stores the
-   subscription id and item and unlocks backups. A locked account (failed payment) can start a new
-   checkout, which fixes the "no way back" bug.
+   `tax_behavior=exclusive`. The $1 "Cloud backup credit" is an inline `price_data` product, so no
+   new config field. Webhook events: see README step 9.
+2. **$1 check:** `POST /billing/checkout {kind: card_check}` returns a Checkout URL; `ChargeOneDollar`
+   and `verify-human` are gone. The return page (`POST /billing/checkout/complete`) and the webhook share
+   `fulfillCheckout`, which grants the $1 (idempotency key from the session id) and writes `oss_payments`.
+3. **Subscribe:** `POST /billing/checkout {kind: backup}` (both metered prices, saved-card filter,
+   anchor on the 1st UTC); `AttachCard` / `billing.Subscribe` / `VerifyCard` / SetupIntent code are gone.
+   `fulfillCheckout` stores the subscription id; a second subscription is cancelled, not stored. A
+   failed payment does NOT start a new checkout (two subscriptions would bill the same meters twice):
+   checkout answers 409 with link.com, where the card is updated and Stripe retries.
 4. **Credits:** Stripe credit grants (above). Admin "Add credit" creates a `promotional` grant; the
    account and admin pages read the balance from Stripe. Drop our credit tables and the `invoice.paid`
    debit.
-5. **Cancel:** `CancelBilling` and `customer.subscription.deleted` share "final charge, then delete
-   copies". Finalize and pay the final draft instead of waiting an hour (credits apply on finalize).
+5. **Cancel:** "Turn off payment" (`CancelSubscriptionFinal`) now finalizes and charges the final draft
+   at once (credits apply on finalize). A cancel on link.com still goes through
+   `customer.subscription.deleted` → 30-day countdown (see "What's left" 4).
 6. **Copy:** "plus tax" on `MonthlyCostHighlight`, the pricing table, the turn-off confirm and the $1
    step; say the charge shows as `LINK.COM*` on the card statement.
 7. **Live Dashboard:** turn on Managed Payments in the live account (eligibility review) and check the
    support email in business details.
 
-## Known problems in the current billing (fix or make moot during the migration)
+## Known problems found before the migration (status after the build)
 
-- **No way back after a failed payment.** `invoice.payment_failed` → `lockSubscription` keeps the
+- FIXED (link.com, no second subscription) — **No way back after a failed payment.** `invoice.payment_failed` → `lockSubscription` keeps the
   subscription id, and `AttachCard` returns early whenever one is stored
   (`internal/api/handlers/account.go`), so "Add a payment card" on the "Payment didn't go through"
   screen does nothing.
-- **The first failed charge starts the 30-day deletion countdown** while Stripe is still retrying,
+- WORDING FIXED (mail says the payment didn't go through; countdown kept as the failsafe) — **The first failed charge starts the 30-day deletion countdown** while Stripe is still retrying,
   and the mail says "Payment for cloud backup is off". The user wants the countdown kept as a
   failsafe ("I can't be losing money"), but the wording should say the payment failed.
-- **Admin account deletion leaves the Stripe subscription running** (`deleteCustomerAccount` in
+- FIXED (cancels with a final charge first) — **Admin account deletion leaves the Stripe subscription running** (`deleteCustomerAccount` in
   `internal/api/handlers/purge.go` never cancels it).
-- **`invoice.payment_action_required` is ignored**, so a renewal that needs the bank's confirmation
+- OPEN (Link emails the customer) — **`invoice.payment_action_required` is ignored**, so a renewal that needs the bank's confirmation
   (common for EU cards) just fails.
 
 ## Already done (2026-11-12)

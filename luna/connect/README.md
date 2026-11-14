@@ -48,20 +48,27 @@ make run
 
 Env prefix: `LUNACONNECT_` (viper), e.g. `LUNACONNECT_SERVER_PORT`.
 
-Stripe only skips real charges in **explicit local/dev**: set `LUNACONNECT_DEV=1` and `stripe.enabled: false`. Production must enable Stripe and fill `secret_key`, `publishable_key`, `webhook_secret`, storage + egress meter/price IDs. Use **Billing Meters** (not classic Usage Records).
+Stripe only skips real charges in **explicit local/dev**: set `LUNACONNECT_DEV=1` and `stripe.enabled: false`. Production must enable Stripe and fill `secret_key`, `webhook_secret`, storage + egress meter/price IDs (`publishable_key` is no longer used: payments happen on Stripe's hosted page). Use **Billing Meters** (not classic Usage Records).
 
 ### Stripe Dashboard setup (B2-style)
+
+Payments run through **Stripe Managed Payments**: Stripe (through Link) is the merchant of record and adds, files and remits sales tax and VAT on top of our prices. Background and sandbox results: `docs/billing-managed-payments.md`.
+
+0. **Managed Payments** — Settings → Managed Payments → turn on (live mode needs Stripe's eligibility review). Settings → Business details: the support email must be right; Link escalates customer questions there.
 
 1. **Storage meter** — Billing → Meters → create meter:
    - Event name: `luna_backup_gb`
    - Aggregation: **Last** (gauge)
    - Luna Connect samples stored bytes hourly, computes the UTC calendar-month average, and reports that average GB (so emptying before invoice does not zero the charge).
-2. **Storage price** — usage-based, **$0.008 per GB**, linked to `luna_backup_gb`. Do not reuse old Usage Record or $0.80 / 0.1 TB prices.
+2. **Storage price** — usage-based, **$0.008 per GB**, linked to `luna_backup_gb`, tax behavior **exclusive**. Its product needs tax code `txcd_10010001` (Infrastructure as a service, personal use) or Managed Payments refuses it. Do not reuse old Usage Record or $0.80 / 0.1 TB prices.
 3. **Egress meter** — event name `luna_egress_gb`, aggregation **Last**.
-4. **Egress price** — usage-based, **$0.01 per GB**, linked to `luna_egress_gb`. Only **overage** is reported: `max(0, egress − 3 × average_storage)` in GB. Free under the 3× allowance is never sent to Stripe.
+4. **Egress price** — usage-based, **$0.01 per GB**, linked to `luna_egress_gb`, tax behavior **exclusive**, product tax code `txcd_10010001`. Only **overage** is reported: `max(0, egress − 3 × average_storage)` in GB. Free under the 3× allowance is never sent to Stripe.
 5. Put both price IDs and meter event names in yaml or Admin → Connections. New subscriptions attach both prices.
 6. **Billing period** — each subscription's cycle is anchored to 00:00 UTC on the 1st, so a Stripe invoice covers the same UTC month the usage average is computed over (the first period is the partial month). Usage is reported at startup and then hourly.
-7. **Card check** — before subscribing, the card is saved with a SetupIntent so the bank confirms it (3D Secure included). A declined card is refused up front instead of failing on the first invoice.
+7. **Card check** — the one-time $1 check (DIY onboarding) is its own Managed Payments Checkout. Its product is created inline ("Cloud backup credit", tax code `txcd_10010001`), so nothing to set up. The card is saved, and the cloud backup Checkout offers it again in one click. The $1 comes back as a $1 Stripe credit grant.
+8. **Credit** — account credit is Stripe billing credits (credit grants, metered prices only). Stripe takes it off cloud backup invoices before tax. Admin → Accounts → Credit creates promotional grants.
+9. **Webhook** — endpoint `https://<host>/api/v1/billing/webhook`, API version `2026-10-28.endive` (what stripe-go v87 sends), events `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`.
+10. **Card changes and failed payments** — customers update the card at link.com (the API can't set it on a Managed Payments subscription); Stripe retries the open invoice and `invoice.paid` unlocks backups again.
 
 Empty keys refuse paid routes (fail closed). `stripe.enabled: false` by itself does **not** unlock cloud backup.
 
