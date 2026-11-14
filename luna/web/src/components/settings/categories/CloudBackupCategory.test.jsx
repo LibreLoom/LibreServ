@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import { RESTORE_QUERY_KEY } from "../../../lib/cloudRestore";
 import CloudBackupCategory from "./CloudBackupCategory.jsx";
 
 let mockRole = "admin";
@@ -41,7 +42,7 @@ function stubApi({
     if (url === "/api/v1/cloud/phrase" && method === "GET") return json(phrase);
     if (url === "/api/v1/cloud/restore" && method === "GET") {
       if (onRestoreStatusPending) {
-        return new Promise((resolve) => onRestoreStatusPending(() => resolve(json(restoreStatus))));
+        return new Promise((resolve) => onRestoreStatusPending((response = json(restoreStatus)) => resolve(response)));
       }
       const message = typeof restoreStatusError === "function" ? restoreStatusError() : restoreStatusError;
       if (message) {
@@ -316,7 +317,7 @@ describe("CloudBackupCategory", () => {
     });
     renderCard();
 
-    expect(await screen.findByText("Checking cloud backup status…")).toBeInTheDocument();
+    expect(await screen.findByText("Checking cloud backup status…")).toHaveAttribute("aria-busy", "true");
     expect(screen.queryByText(/Nothing is backed up to the cloud yet/)).toBeNull();
 
     await act(async () => finishRestoreStatus?.());
@@ -340,6 +341,44 @@ describe("CloudBackupCategory", () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText(/Nothing is backed up to the cloud yet/)).toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/v1/cloud/restore")).toHaveLength(2);
+  });
+
+  it("does not queue another restore-status retry while one is in flight", async () => {
+    /** @type {((response?: Response) => void)|null} */
+    let finishRetry = null;
+    let restoreRequests = 0;
+    const fetchMock = stubApi({
+      connected: true,
+      backups: [],
+      onRestoreStatusPending: (finish) => {
+        restoreRequests += 1;
+        if (restoreRequests === 1) {
+          finish();
+        } else if (restoreRequests === 2) {
+          finish(new Response(JSON.stringify({ error: "temporary failure" }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          }));
+        } else {
+          finishRetry = finish;
+        }
+      },
+    });
+    const { client } = renderCard();
+
+    expect(await screen.findByText(/Nothing is backed up to the cloud yet/)).toBeInTheDocument();
+    await act(async () => client.invalidateQueries({ queryKey: RESTORE_QUERY_KEY }));
+
+    expect(await screen.findByText("Luna couldn't check cloud backup status.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/v1/cloud/restore")).toHaveLength(3));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Try again" })).toBeDisabled());
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/v1/cloud/restore")).toHaveLength(3);
+
+    await act(async () => finishRetry?.());
+    expect(await screen.findByText(/Nothing is backed up to the cloud yet/)).toBeInTheDocument();
   });
 
   it("shows a retry when the backup list fails instead of treating Members as empty", async () => {

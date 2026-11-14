@@ -149,6 +149,7 @@ export default function CloudBackupCategory() {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const [error, setError] = useState(null);
+  const [retryingRestoreStatus, setRetryingRestoreStatus] = useState(false);
   const [runError, setRunError] = useState(null);
   const [deleting, setDeleting] = useState(null);
   // Which button on which backup is working: `{ [backupId]: "run" | "runAnyway" | "check" }`.
@@ -329,7 +330,7 @@ export default function CloudBackupCategory() {
               ) : (
                 <>
                   {isAdmin && cloudQuery.isSuccess && restoreStatus.isPending && (
-                    <p className="text-primary text-sm" role="status">Checking cloud backup status…</p>
+                    <p aria-busy="true" className="text-primary text-sm" role="status">Checking cloud backup status…</p>
                   )}
                   {isAdmin && cloudQuery.isSuccess && restoreStatus.isError && (
                     <div className="space-y-3">
@@ -338,7 +339,11 @@ export default function CloudBackupCategory() {
                         variant="outline"
                         surface="secondary"
                         size="sm"
-                        onClick={() => restoreStatus.refetch()}
+                        disabled={restoreStatus.isFetching || retryingRestoreStatus}
+                        onClick={() => {
+                          setRetryingRestoreStatus(true);
+                          restoreStatus.refetch().finally(() => setRetryingRestoreStatus(false));
+                        }}
                       >
                         Try again
                       </Button>
