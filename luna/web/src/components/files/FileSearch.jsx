@@ -8,7 +8,7 @@ import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
-import { matchesSearchName } from "@libreloom/ui/lib/settingsSearch.js";
+import { matchesSearchName, normalize } from "@libreloom/ui/lib/settingsSearch.js";
 import LinearProgress from "@libreloom/ui/components/common/LinearProgress.jsx";
 import { showPageLevelError } from "../../lib/modalScopedError";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
@@ -182,7 +182,7 @@ export default function FileSearch() {
     ? (users.data || []).filter((person) => matchesSearchName(person.display_name || person.username, trimmed) || matchesSearchName(person.username, trimmed))
     : [];
   const exactPerson = people.some((person) => [person.display_name, person.username]
-    .some((name) => name?.toLowerCase() === trimmed.toLowerCase()));
+    .some((name) => name && normalize(name) === normalize(trimmed)));
 
   const exactPlace = places.find((place) => place.title.toLowerCase() === trimmed.toLowerCase());
   const exactSetting = settings.results?.find((hit) => hit.title.toLowerCase() === trimmed.toLowerCase());

@@ -999,6 +999,18 @@ describe("FileSearch", () => {
     expect(screen.queryByText(/Nothing matched exactly/)).not.toBeInTheDocument();
   });
 
+  it("recognizes an exact person ignoring accents and extra spaces", async () => {
+    renderSearch(
+      [{ drive_id: "d1", path: "josee.txt", parent: "", name: "josee.txt", kind: "file", size: 1, modified: 1, match: "close" }],
+      { closeOnly: true, people: [{ id: "p1", username: "jose", display_name: "José  Silva" }] },
+    );
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Luna" }), { target: { value: "jose silva" } });
+    expect(await screen.findByRole("link", { name: /José\s+Silva, jose/ })).toBeInTheDocument();
+    await screen.findByRole("link", { name: "Open josee.txt" });
+    expect(screen.queryByText(/Nothing matched exactly/)).not.toBeInTheDocument();
+  });
+
   it("separates near misses from real matches in a mixed list", async () => {
     renderSearch([
       { drive_id: "d1", path: "my pasport.pdf", parent: "", name: "my pasport.pdf", kind: "file", size: 1, modified: 1, match: "name" },
