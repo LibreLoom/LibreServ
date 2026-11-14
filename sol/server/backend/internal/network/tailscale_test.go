@@ -135,6 +135,12 @@ func TestPrivateSwitchWithoutListenerRetainsUnverifiedStop(t *testing.T) {
 	if _, err := svc.serveLocked(false); err == nil || !tailscaleFileExists(filepath.Join(dir, "stop-failed")) || !tailscaleFileExists(filepath.Join(dir, "reset-required")) {
 		t.Fatalf("unverified stop did not retain cleanup intent: %v", err)
 	}
+	if tailscaleFileExists(filepath.Join(dir, "restore-serve")) {
+		t.Fatal("stale public restore intent survived private switch")
+	}
+	if intent, err := os.ReadFile(filepath.Join(dir, "launch-intent")); err != nil || string(intent) != "invalid" {
+		t.Fatalf("unverified launch intent changed: %q, %v", intent, err)
+	}
 }
 
 func TestLaunchIntentErrorsDistinguishExistingRecordFromStorageFailure(t *testing.T) {

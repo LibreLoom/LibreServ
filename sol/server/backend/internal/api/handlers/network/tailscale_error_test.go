@@ -15,6 +15,7 @@ func TestTailscaleFailureUsesAccurateGuidance(t *testing.T) {
 		{"internal socket failure", "Sol could not connect to Tailscale. Try again."},
 		{"could not save Tailscale startup information: permission denied", "Sol could not save Tailscale startup information. Check Sol's storage and try again."},
 		{"a previous Tailscale start could not be verified: file exists", "A previous Tailscale start could not be verified."},
+		{"a previous Tailscale start could not be verified", "A previous Tailscale start could not be verified."},
 		{"connect Tailscale first", "Connect Tailscale first."},
 		{"Tailscale is starting but not responding yet", "Sol's remote access is starting. Wait a moment and try again."},
 		{"Tailscale's private listener stopped", "Sol can't offer remote access right now. Restart Sol and try again."},
