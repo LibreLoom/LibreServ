@@ -163,6 +163,40 @@ pub struct Probes {
     pub whiteboard_editor: bool,
     /// Excalidraw fonts made it into the embedded web build.
     pub whiteboard_fonts: bool,
+    /// Finding documents by meaning (Model2Vec).
+    pub meaning_search: SmartSearch,
+    /// Finding photos by what they show (TinyCLIP).
+    pub photo_search: SmartSearch,
+}
+
+/// Whether one of search's model-based parts is on, and if not, why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SmartSearch {
+    On,
+    /// The model or its worker isn't in this image.
+    NotInstalled,
+    /// Off by design: the box has too little memory.
+    LowMemory,
+    /// Paused after repeated failures; the last error is for diagnostics.
+    Resting(Option<String>),
+}
+
+impl SmartSearch {
+    fn meaning() -> Self {
+        match crate::files::content::meaning::off_reason() {
+            None => Self::On,
+            Some(_) => Self::NotInstalled,
+        }
+    }
+
+    fn photos() -> Self {
+        match crate::files::content::clip::off_reason() {
+            None => Self::On,
+            Some("low_memory") => Self::LowMemory,
+            Some("failing") => Self::Resting(crate::files::content::clip::last_error()),
+            Some(_) => Self::NotInstalled,
+        }
+    }
 }
 
 impl Probes {
@@ -190,6 +224,8 @@ impl Probes {
             kernel_ntfs: kernel_has_ntfs(),
             whiteboard_editor: crate::system::staticweb::has_asset_named("excalidraw-", ".js"),
             whiteboard_fonts: crate::system::staticweb::has_files_under("excalidraw/fonts"),
+            meaning_search: SmartSearch::meaning(),
+            photo_search: SmartSearch::photos(),
         }
     }
 
@@ -816,6 +852,124 @@ fn add_feature_checks(checks: &mut Checks, data_dir: &Path, probes: &Probes) {
                 Some(json!({ "missing": ["heif-dec", "heif-convert"] })),
             )
             .more("iPhones save photos as HEIC (.heic files), and the tool Luna uses to show them is missing. The photos are still on your drives and can be downloaded.");
+    }
+
+    add_search_checks(checks, probes);
+}
+
+/// Searching inside files, by meaning, and by what photos show. Names are
+/// always searchable; these rows say what else search can do here.
+fn add_search_checks(checks: &mut Checks, probes: &Probes) {
+    let pdf = probes.has_program("pdftotext");
+    let ocr = probes.has_program("tesseract");
+    let scans = ocr && probes.has_program("pdftoppm");
+    let missing = probes.missing(&["pdftotext", "pdftoppm", "tesseract"]);
+    match (pdf, ocr, scans) {
+        (true, true, true) => {
+            checks.add(
+                "search_inside",
+                "features",
+                PASSED,
+                "Search finds words inside documents, scans, and screenshots.",
+                None,
+            );
+        }
+        (true, _, _) => checks
+            .add(
+                "search_inside",
+                "features",
+                WARNING,
+                "Search can't read text in scans, screenshots, or photos.",
+                Some(json!({ "missing": missing })),
+            )
+            .more("The tool Luna uses to read printed text in pictures (OCR) is missing. Search still finds words inside documents, and every file by its name."),
+        (false, true, _) => checks
+            .add(
+                "search_inside",
+                "features",
+                WARNING,
+                "Search can't look inside PDFs.",
+                Some(json!({ "missing": missing })),
+            )
+            .more("The tool Luna uses to read PDFs is missing. Search still finds PDFs by name, and words inside other documents."),
+        (false, false, _) => checks
+            .add(
+                "search_inside",
+                "features",
+                WARNING,
+                "Search can't look inside PDFs, scans, or screenshots.",
+                Some(json!({ "missing": missing })),
+            )
+            .more("The tools Luna uses to read PDFs and printed text in pictures are missing. Search still finds words inside other documents, and every file by its name."),
+    }
+
+    match &probes.meaning_search {
+        SmartSearch::On => {
+            checks.add(
+                "meaning_search",
+                "features",
+                PASSED,
+                "Search also finds documents about what you type, in other words.",
+                None,
+            );
+        }
+        _ => checks
+            .add(
+                "meaning_search",
+                "features",
+                WARNING,
+                "Search finds only the exact words you type.",
+                None,
+            )
+            .more("The language model that matches documents by meaning isn't installed on this Luna. Searching by name and by the words inside files still works."),
+    }
+
+    const PHOTOS_STILL: &str = "Photos are still found by name, date, place, and any text in them.";
+    match &probes.photo_search {
+        SmartSearch::On => {
+            checks.add(
+                "photo_search",
+                "features",
+                PASSED,
+                "Search finds photos by what they show.",
+                None,
+            );
+        }
+        SmartSearch::LowMemory => {
+            checks
+                .add(
+                    "photo_search",
+                    "features",
+                    PASSED,
+                    "Photo search is off, so this Luna stays fast.",
+                    None,
+                )
+                .more(format!(
+                    "Finding photos by what they show needs at least 1.5 GB of memory, and this Luna has less. {PHOTOS_STILL}"
+                ));
+        }
+        SmartSearch::NotInstalled => checks
+            .add(
+                "photo_search",
+                "features",
+                WARNING,
+                "Search can't find photos by what they show.",
+                None,
+            )
+            .more(format!(
+                "The photo model isn't installed on this Luna. {PHOTOS_STILL}"
+            )),
+        SmartSearch::Resting(error) => checks
+            .add(
+                "photo_search",
+                "features",
+                WARNING,
+                "Photo search is paused after errors.",
+                error.as_ref().map(|e| json!({ "last_error": e })),
+            )
+            .more(format!(
+                "It failed several times in a row, so Luna paused it for half an hour and will try again. {PHOTOS_STILL}"
+            )),
     }
 }
 
@@ -1557,6 +1711,9 @@ mod tests {
         "fstrim",
         "grub-editenv",
         "findfs",
+        "pdftotext",
+        "pdftoppm",
+        "tesseract",
     ];
 
     fn fake_bin(dir: &Path, names: &[&str]) -> PathBuf {
@@ -1610,6 +1767,8 @@ mod tests {
             kernel_ntfs: true,
             whiteboard_editor: true,
             whiteboard_fonts: true,
+            meaning_search: SmartSearch::On,
+            photo_search: SmartSearch::On,
         }
     }
 
@@ -1643,6 +1802,8 @@ mod tests {
         let mut probes = healthy_probes(fake_bin(dir.path(), &[]));
         probes.whiteboard_fonts = false;
         probes.kernel_ntfs = false;
+        probes.meaning_search = SmartSearch::NotInstalled;
+        probes.photo_search = SmartSearch::NotInstalled;
         let resp = run_preflight(dir.path(), &conn, &probes);
         assert!(resp.healthy, "warnings must not block setup");
         for name in [
@@ -1656,6 +1817,9 @@ mod tests {
             "smart_tool",
             "trim_tool",
             "os_update_tools",
+            "search_inside",
+            "meaning_search",
+            "photo_search",
         ] {
             assert_eq!(resp.checks[name].status, WARNING, "{name}");
         }
@@ -1663,6 +1827,26 @@ mod tests {
             resp.checks["office_pack"].message,
             "Luna can't open or edit documents, spreadsheets, or presentations."
         );
+    }
+
+    #[test]
+    fn search_rows_say_what_still_works() {
+        let (dir, conn) = setup();
+        install_packs(dir.path());
+        let mut probes = healthy_probes(fake_bin(dir.path(), &["pdftotext", "pdftoppm"]));
+        probes.photo_search = SmartSearch::LowMemory;
+        let resp = run_preflight(dir.path(), &conn, &probes);
+        let inside = &resp.checks["search_inside"];
+        assert_eq!(inside.status, WARNING);
+        assert_eq!(
+            inside.message,
+            "Search can't read text in scans, screenshots, or photos."
+        );
+        // Too little memory is a choice, not a fault: it doesn't nag.
+        let photos = &resp.checks["photo_search"];
+        assert_eq!(photos.status, PASSED);
+        assert!(photos.more.as_deref().unwrap().contains("1.5 GB"));
+        assert_eq!(resp.checks["meaning_search"].status, PASSED);
     }
 
     #[test]

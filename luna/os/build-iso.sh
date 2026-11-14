@@ -54,12 +54,15 @@ else
 	# The packs are baked into the image, so they must exist before the rootfs
 	# build mounts os/dist as /in/packs. Built here they need podman + network,
 	# like the rest of this path.
-	echo "==> editor packs (into the OS image)"
+	echo "==> editor and search model packs (into the OS image)"
 	if [ ! -f "$ROOT/os/dist/eurooffice-pack.tar.zst" ]; then
 		"$ROOT/scripts/build-eurooffice-pack.sh"
 	fi
 	if [ ! -f "$ROOT/os/dist/drawio-pack.tar.zst" ]; then
 		"$ROOT/scripts/build-drawio-pack.sh"
+	fi
+	if [ ! -f "$ROOT/os/dist/models-pack.tar.zst" ]; then
+		"$ROOT/scripts/build-models-pack.sh"
 	fi
 
 	echo "==> rootfs"

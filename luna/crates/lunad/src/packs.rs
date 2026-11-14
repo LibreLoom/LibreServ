@@ -21,6 +21,21 @@ pub fn root() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(IMAGE_PACK_ROOT))
 }
 
+/// Where the search models are: the image's `models/` folder, or on a dev
+/// machine `$LUNA_DATA_DIR/models` (`make models`) when the image has none.
+pub fn models_dir() -> PathBuf {
+    let image = root().join("models");
+    if image.is_dir() {
+        return image;
+    }
+    match std::env::var_os("LUNA_DATA_DIR") {
+        Some(data) if PathBuf::from(&data).join("models").is_dir() => {
+            PathBuf::from(data).join("models")
+        }
+        _ => image,
+    }
+}
+
 /// Directory of one pack (`eurooffice`, `drawio`), whichever copy exists.
 ///
 /// The image's copy wins when it is there. A data-dir copy is honoured next, so

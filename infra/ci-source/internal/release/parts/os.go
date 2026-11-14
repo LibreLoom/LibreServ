@@ -127,7 +127,7 @@ func (o *osBuilder) osJobs(b *engine.BuildContext) []engine.Job {
 	}
 	jobs = append(jobs,
 		engine.Job{ID: osRootfsJob, Title: "Luna OS root filesystem", Heavy: true,
-			Deps: []string{osHashJob, LunadJob, packJobID("eurooffice"), packJobID("drawio")},
+			Deps: append([]string{osHashJob, LunadJob}, packJobIDs()...),
 			Run: func(ctx context.Context, j *engine.JobRun) error {
 				if a := action(); a != osBuild {
 					j.Logf("skipped: the OS image is %s", a)
@@ -435,9 +435,20 @@ var packDefs = []packDef{
 		inputs: []string{"luna/scripts/install-drawio-assets.sh", "luna/scripts/build-drawio-pack.sh",
 			"infra/release/images/luna-drawio/Containerfile"},
 		env: map[string]string{"LUNA_DATA_DIR": "/work/none"}},
+	{name: "models", file: "models-pack.tar.zst", title: "Search models pack",
+		inputs: []string{"luna/scripts/build-models-pack.sh", "infra/release/images/luna-models/Containerfile"}},
 }
 
 func packJobID(name string) string { return "luna/installer:pack-" + name }
+
+// packJobIDs are the jobs of every pack the image carries.
+func packJobIDs() []string {
+	ids := make([]string, 0, len(packDefs))
+	for _, d := range packDefs {
+		ids = append(ids, packJobID(d.name))
+	}
+	return ids
+}
 
 // packsDir is where the packs are kept: LUNA_PACKS_DIR, else <cache>/luna-packs.
 func packsDir(b *engine.BuildContext) string {
@@ -548,10 +559,10 @@ func checkPacks(b *engine.BuildContext, logf logFunc) error {
 	}
 	dir := packsDir(b)
 	if b.Released != nil {
-		return fmt.Errorf("the OS image must carry its editor packs, but %s is missing in %s", strings.Join(missing, ", "), dir)
+		return fmt.Errorf("the OS image must carry its packs, but %s is missing in %s", strings.Join(missing, ", "), dir)
 	}
 	for _, m := range missing {
-		logf("warning: no %s in %s: this image will lack that editor", m, dir)
+		logf("warning: no %s in %s: this image will lack it", m, dir)
 	}
 	return nil
 }

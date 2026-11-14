@@ -12,7 +12,7 @@ DRAWIO_SHA256 ?= abd58ad15baef57f43acb79a56350ba8900a8b6fabe94391d8906148fe64e26
 include $(ROOT)/../shared/js-pm.mk
 MAKEFLAGS += --no-print-directory
 
-.PHONY: web build test run dev dev-daemon daemon-dev dev-web lint clean os-image iso desktop desktop-bundle desktop-dev desktop-dev-login desktop-appimage desktop-flatpak ensure-web-dist mock-drive mock-connect mobile-dev mobile-dev-repair companion-dev eurooffice eurooffice-assets eurooffice-pack drawio drawio-pack
+.PHONY: web build test run dev dev-daemon daemon-dev dev-web lint clean os-image iso desktop desktop-bundle desktop-dev desktop-dev-login desktop-appimage desktop-flatpak ensure-web-dist mock-drive mock-connect mobile-dev mobile-dev-repair companion-dev eurooffice eurooffice-assets eurooffice-pack drawio drawio-pack models models-pack
 
 web:
 	cd ../shared/ui && $(PM_INSTALL)
@@ -100,6 +100,20 @@ drawio:
 # when present (DRAWIO_DIR to point elsewhere); fetches it otherwise.
 drawio-pack:
 	LUNA_DATA_DIR="$(DATA_DIR)" sh scripts/build-drawio-pack.sh
+
+# Search models pack (MIT, never committed): Model2Vec for meaning search and
+# TinyCLIP for photo search, pinned by sha256 → os/dist/models-pack.tar.zst,
+# unpacked into the OS image at /usr/share/luna/models (035.frag).
+models-pack:
+	sh scripts/build-models-pack.sh
+
+# Dev copy of the models in $(DATA_DIR)/models, where a dev lunad looks when
+# the image copy is missing. Photo search also needs a luna-clip binary
+# (os/clip/luna-clip.cpp) built against your system's ONNX Runtime, passed as
+# LUNA_CLIP_BIN; without it photo search is simply off.
+models: models-pack
+	mkdir -p "$(DATA_DIR)"
+	zstd -dc os/dist/models-pack.tar.zst | tar -x -C "$(DATA_DIR)"
 
 dev-daemon: build-daemon
 	LUNA_DATA_DIR="$(DATA_DIR)" ./target/debug/lunad --port $(PORT)

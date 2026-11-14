@@ -346,6 +346,8 @@ mod tests {
             kernel_ntfs: true,
             whiteboard_editor: true,
             whiteboard_fonts: true,
+            meaning_search: crate::system::system_health::SmartSearch::On,
+            photo_search: crate::system::system_health::SmartSearch::On,
         };
         // A passing office_pack and diagram_pack need the packs on disk. On a
         // test machine there is no image pack root, so `packs::dir` gives the

@@ -1,31 +1,43 @@
 # Searching document contents and photos
 
-Luna's current per-drive index stores names and file metadata. Search does not read document contents or recognize text in photos. Photo results are image files matched by name, not a separate photo library search.
+Every search bar that searches files or photos (file search, the not-found page's "Find a file", the gallery) also finds files by the words inside them, by what their text is about, and photos by what they show. Each bar keeps the scope it had: the same drives, folders, filters and access checks. There is no separate search and no new settings. Code: `crates/lunad/src/files/content/`.
 
-Content search needs a bounded extraction pipeline integrated with the existing drive indexer. Extract text from supported plain text and office formats in isolated workers with limits on file size, time, memory, and extracted text. Store extracted text in each drive's index, update it when files change, and remove it when files disappear. Show extraction failures and progress separately from the existing directory scan. Query results must pass the same current path permission checks as name results, including after permissions change; snippets must never be generated for inaccessible paths. Decide how encrypted documents, removable and read-only drives, and indexing on limited hardware behave before enabling it. Test permission changes, malicious documents, stale indexes, and resource limits with real drives.
+## What is searched
 
-OCR is approved for the search design. Extracted text should feed both ordinary content search and static text embeddings when available. Start with printed text in scans, receipts, and screenshots; the engine and language coverage remain to be selected. Use bounded, isolated workers and the same per-drive lifecycle and access checks as document extraction. This is a design decision, not an implemented feature or a measured memory guarantee.
+| Part | Finds | How | Runs |
+|---|---|---|---|
+| Words inside files | Documents, PDFs, spreadsheets, e-books, old Office files | Rust parsers in a sandboxed `lunad __extract` worker; `pdftotext` for PDFs | Every Luna |
+| Text in pictures (OCR) | Scans, screenshots, scanned PDFs, photos of documents | Tesseract, English only | Every Luna |
+| Meaning | Text that's about what was typed in other words ("lease" finds a tenancy agreement) | Model2Vec potion-base-8M, in-process | Every Luna with the models pack |
+| Photo content | Photos and videos (by thumbnail) that show what was typed | TinyCLIP in `luna-clip` workers | Lunas with at least 1.5 GB of memory |
 
-Neural search is optional and should enable only when memory is sufficient. When unavailable or when a worker fails, ordinary search continues without disruptive errors; the health check reports whether neural search is on and why it is off. Keep processing failures available in diagnostics. No image data should leave Luna without a separate user choice. Visual photo search remains a model-selection decision.
+Results come in tiers: names, then words inside files, then near-miss names, then meaning matches, then photo matches. Looser matches sit under their own heading in the result list ("Found in the text", "Close in meaning", "Seen in photos"). Content and meaning matches show the passage that matched. Snippets are read only after the access check passes. The gallery uses meaning and photo matches only to widen what its free-text words match; its other filters and its date order don't change.
 
-## TinyCLIP investigation
+## Storage and lifecycle
 
-`wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M` is a smaller visual-search candidate, not a selected model. The paper excludes the text token embedding table from its parameter counts. Inspecting the published safetensors header at revision `a2a8c6e` gives approximately 8.28 million image parameters and 15.17 million text parameters including the table. The token table alone contains 49,408 × 256 = 12,648,448 parameters.
+Everything is stored in each drive's own database next to the file index: `content_docs` and `content_fts` (FTS5, porter stemming) for text, `content_vecs` for passage vectors, and `photo_vecs` for photo vectors. An encrypted drive's text therefore stays inside its encryption. Rows are keyed by path and checked against the file index's (or gallery's) size and time, so changed or deleted files never match on stale text. A full drive read drops rows for files that are gone.
 
-| Component | Float32 tensor storage | Ideal int8 weight storage |
-|---|---:|---:|
-| Image encoder and projection | 31.6 MiB | 7.9 MiB |
-| Text encoder and projection | 57.9 MiB | 14.5 MiB |
-| Both | 89.4 MiB | 22.4 MiB |
+A background reader follows the name indexer. It reads new or changed files one at a time, documents first and newest first. It waits when free memory drops below 320 MiB and stops when a drive goes away. The "still reading" pill in file search says when contents are still being read. Read-only drives are searched but never read into. Hidden folders and Luna's own folders are never read. Password-protected files are recorded as such, not as failures. Per-file limits on input size, time, memory and output (1 MB of text) apply; zip entries inflate through caps.
 
-The int8 column is arithmetic, not a measured export or working set. A community ONNX export provides a 24.3 MB (about 23.2 MiB) int8 file. Neither checkpoint size nor these weight calculations include inference runtime, image decoding, activations, tokenizer, or retrieval-index memory. The subsequent [feasibility investigation](research/tinyclip/README.md) measures the export and retrieval quality on the development host. The published config uses 224-pixel image inputs and 512-dimensional output vectors; its 256-wide text hidden state is not the output dimension.
+OCR reads PNG/TIFF/BMP/WebP images, JPEGs without camera details, and PDF pages that have no text layer (the first 30 pages, at 200 dpi). A camera photo is read only when photo search judges that it shows a document. That uses the best of seven document prompts minus the best of seven plain-photo prompts, above 0.03. On Flickr8k, which has no documents, 99% of photos scored at most 0.02; synthetic receipts, pages and screenshots scored 0.063–0.082. This hasn't been checked on real phone photos of documents. On a Luna without photo search, camera photos are never OCR'd.
 
-The smallest model's published text-to-image recall at rank 1 is 42.3% on Flickr30k and 21.5% on MSCOCO. The paper's larger TinyCLIP ViT-22M/32 variant reaches 52.0% and 28.3%, respectively. These are benchmark retrieval rates, not estimates of household photo-search success. The published throughput uses a V100 GPU and batch size 1,024, so it says nothing directly about Wyse CPU latency. The model card declares MIT licensing.
+## Models and measurements
 
-The 2026-11-13 investigation recommends keeping visual search and using the smallest TinyCLIP with a float32 image encoder and an int8 text encoder, loaded separately. Encoder separation and native CPU inference were demonstrated. In a 1,000-photo / 5,000-caption evaluation, that pair found the designated image within the first five results for 68.04% of captions, versus 68.74% for float32 throughout. Native encoder-only peaks were 87.6 MiB for float32 images and 58.2 MiB for int8 text, excluding input preparation and retrieval. This is useful discovery evidence, not a guarantee of excellent precision, a production memory ceiling, or certification on Wyse/Alpine. Full methodology, limitations, and results are in the linked report. OCR approval remains independent.
+- **Meaning:** potion-base-8M (MIT, revision `bf8b056`). Rust tokenizer and int8 table; cosine against the `model2vec` library is ≥ 0.99996 on six test texts. Text is cut into passages of about 60 words (at most 48 per file). A file matches when its best passage reaches cosine 0.38. On household-style passages, right matches scored 0.42–0.59 and the closest wrong ones up to 0.32.
+- **Photos:** TinyCLIP-ViT-8M-16-Text-3M-YFCC15M (MIT), community ONNX export `9463a9c`, with a float32 image encoder and an int8 text encoder. The encoders are cut out at build time; their sha256 matches the [feasibility study](research/tinyclip/README.md).
+  - **Why a separate program:** lunad is a static musl binary and can't load ONNX Runtime, so the encoders run in `os/clip/luna-clip.cpp`. It is linked against Alpine 3.24's onnxruntime 1.24.4, sandboxed as `nobody` with a 768 MiB address-space cap, and fed tensors over a pipe.
+  - **Parity:** that runtime reproduced the study's vectors (cosine 1.0), also on an emulated CPU without AVX. The Rust CLIP tokenizer matches Hugging Face `tokenizers` on 1,008 texts.
+  - **Match rule:** a photo matches at cosine ≥ 0.36 and within 0.07 of the drive's best match. On Flickr8k that keeps the captioned photo for 91% of captions, with about 23 photos returned per 1,000.
+  - **Worker lifetime:** the image worker stops 60 s after use and the text worker 5 minutes after a search. Three failures in a row pause photo search for 30 minutes.
+- **Packaging:** the models ship in the OS image (`models-pack`, built by `scripts/build-models-pack.sh`, unpacked to `/usr/share/luna/models`). `luna-clip`, Tesseract, poppler and onnxruntime are part of the root filesystem. Nothing is downloaded at run time, and no file or image data leaves Luna.
 
-Sources:
+## Health check
 
-- [TinyCLIP paper, evaluation settings and Table 1](https://arxiv.org/pdf/2309.12314)
-- [Author's checkpoint](https://huggingface.co/wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M/tree/a2a8c6e)
-- [Community ONNX exports](https://huggingface.co/onnx-community/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M-ONNX/tree/9463a9c/onnx)
+Three rows in the system check: `search_inside` (the PDF and OCR tools), `meaning_search`, and `photo_search`. A missing model or tool is a warning that says what still works. Photo search being off because the box has too little memory is reported as a pass with that explanation. A paused photo search is a warning that includes its last error.
+
+## Not yet measured
+
+- Speed and memory on a Wyse 3040 (Atom, 2 GB) under real libraries: extraction, OCR, meaning embedding, photo indexing, and query latency with many passages or photos per drive.
+- Whether the 0.38 meaning and 0.36/0.07 photo cut-offs suit real household files (calibrated on small sets).
+- Whether the "shows a document" check works on real phone photos of receipts and letters.
+- Whether the OS image with the added packages and models still fits the 2,048 MiB slot. The image build reports this.

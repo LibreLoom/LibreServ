@@ -114,6 +114,16 @@ if [ ! -x "$CONSOLE_BIN" ]; then
     exit 1
 fi
 install -m 0755 "$CONSOLE_BIN" "$ROOTFS/usr/local/bin/luna-console"
+
+# Photo search's model runner (os/clip/luna-clip.cpp). lunad is a static
+# binary and can't load ONNX Runtime itself, so this small program does,
+# built here against the same Alpine onnxruntime the image ships.
+_clip_tmp="$(mktemp -d)"
+g++ -O2 -std=c++17 -Wall -Werror -I/usr/include/onnxruntime \
+    "$ROOT/os/clip/luna-clip.cpp" -lonnxruntime -o "$_clip_tmp/luna-clip" \
+    || { echo "luna-clip did not build" >&2; exit 1; }
+install -m 0755 "$_clip_tmp/luna-clip" "$ROOTFS/usr/local/bin/luna-clip"
+rm -rf "$_clip_tmp"
 mkdir -p "$ROOTFS/var/lib/luna"
 
 

@@ -34,7 +34,7 @@ const MAX_FILES: usize = 40;
 static MODEL: OnceLock<Option<Arc<Model>>> = OnceLock::new();
 
 fn model_dir() -> PathBuf {
-    crate::packs::root().join("models").join(MODEL_DIR)
+    crate::packs::models_dir().join(MODEL_DIR)
 }
 
 /// The loaded model, or `None` when it isn't installed (dev machines

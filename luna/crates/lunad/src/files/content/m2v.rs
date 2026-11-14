@@ -371,9 +371,7 @@ mod tests {
     /// computed with model2vec 0.x on revision bf8b056.
     #[test]
     fn matches_model2vec_on_the_real_model() {
-        let dir = crate::packs::root()
-            .join("models")
-            .join(super::super::meaning::MODEL_DIR);
+        let dir = crate::packs::models_dir().join(super::super::meaning::MODEL_DIR);
         if !dir.join("model.safetensors").exists() {
             return;
         }

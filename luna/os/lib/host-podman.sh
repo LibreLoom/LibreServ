@@ -52,9 +52,9 @@ luna_os_image_current() {
 	[ -z "${LUNA_OS_FORCE:-}" ] || return 1
 	[ -s "$_f" ] && [ -s "$_f.sha256" ] && [ -s "$_f.inputs" ] || return 1
 	[ "$(cat "$_f.inputs")" = "$(luna_os_input_hash)" ] || return 1
-	# The editor packs are inside the image but not in the OS input hash, so a
+	# The packs are inside the image but not in the OS input hash, so a
 	# pack built after the image leaves that image stale.
-	for _p in eurooffice-pack.tar.zst drawio-pack.tar.zst; do
+	for _p in eurooffice-pack.tar.zst drawio-pack.tar.zst models-pack.tar.zst; do
 		if [ -f "$_dist/$_p" ] && [ ! "$_f" -nt "$_dist/$_p" ]; then
 			return 1
 		fi

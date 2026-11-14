@@ -49,7 +49,7 @@ const MAX_FAILURES: u32 = 3;
 const REST: Duration = Duration::from_secs(30 * 60);
 
 pub fn model_dir() -> PathBuf {
-    crate::packs::root().join("models").join(MODEL_DIR)
+    crate::packs::models_dir().join(MODEL_DIR)
 }
 
 /// The worker program: `LUNA_CLIP_BIN`, else `/usr/local/bin/luna-clip`,

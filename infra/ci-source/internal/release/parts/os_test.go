@@ -37,13 +37,14 @@ func TestOSGraph(t *testing.T) {
 	// of the image, not of the installer ISO.
 	want := map[string][]string{
 		"luna/os:hash":                   nil,
-		"luna/os:rootfs":                 {"luna/os:hash", "luna/lunad", "luna/installer:pack-eurooffice", "luna/installer:pack-drawio"},
+		"luna/os:rootfs":                 {"luna/os:hash", "luna/lunad", "luna/installer:pack-eurooffice", "luna/installer:pack-drawio", "luna/installer:pack-models"},
 		"luna/os:image":                  {"luna/os:rootfs"},
 		"luna/os":                        {"luna/os:image"},
 		"luna/installer:live":            {"luna/os:hash"},
 		"luna/installer:iso":             {"luna/installer:live", "luna/os"},
 		"luna/installer:pack-eurooffice": {"luna/os:hash"},
 		"luna/installer:pack-drawio":     {"luna/os:hash"},
+		"luna/installer:pack-models":     {"luna/os:hash"},
 		"luna/installer":                 {"luna/installer:iso"},
 	}
 	heavy := map[string]bool{"luna/os:rootfs": true, "luna/os:image": true, "luna/installer:live": true, "luna/installer:iso": true, "luna/installer:pack-eurooffice": true}

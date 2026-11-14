@@ -53,9 +53,10 @@ apk add --root "$ROOTFS" --initdb --keys-dir /etc/apk/keys --arch "$ARCH" $APK_C
     grub \
     dhcpcd ca-certificates ssl_client pciutils curl \
     libheif libheif-tools ffmpeg \
+    poppler-utils tesseract-ocr tesseract-ocr-data-eng onnxruntime \
     hdparm \
     chrony logrotate || echo "apk reported errors; verifying installed packages" >&2
-for _p in alpine-base openrc linux-lts grub chrony ffmpeg; do
+for _p in alpine-base openrc linux-lts grub chrony ffmpeg onnxruntime; do
     apk info --root "$ROOTFS" -e "$_p" >/dev/null || { echo "package $_p did not install" >&2; exit 1; }
 done
 # Every helper program lunad shells out to must be in the image. An OS update
@@ -63,8 +64,9 @@ done
 # the update fails after the new system is already written. cryptsetup and
 # mkfs.ext4 build and open encrypted drives (a Luna without them cannot unlock
 # a drive it already owns); mkfs.exfat and fsck.exfat make plain drives and
-# repair them after a power cut (exFAT has no journal).
-for _b in acpid tune2fs e2label e2fsck grub-editenv mkfs.exfat wipefs sfdisk partprobe blkid blockdev smartctl ffmpeg ffprobe heif-dec curl timeout logrotate findmnt cryptsetup mkfs.ext4 fsck.exfat; do
+# repair them after a power cut (exFAT has no journal). pdftotext, pdftoppm and
+# tesseract let search read PDFs, scans and screenshots.
+for _b in acpid tune2fs e2label e2fsck grub-editenv mkfs.exfat wipefs sfdisk partprobe blkid blockdev smartctl ffmpeg ffprobe heif-dec curl timeout logrotate findmnt cryptsetup mkfs.ext4 fsck.exfat pdftotext pdftoppm tesseract; do
     _have=0
     for _d in sbin usr/sbin bin usr/bin; do
         if [ -e "$ROOTFS/$_d/$_b" ] || [ -L "$ROOTFS/$_d/$_b" ]; then _have=1; break; fi

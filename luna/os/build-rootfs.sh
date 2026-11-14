@@ -35,7 +35,7 @@ podman volume exists "$LUNA_CACHE_VOLUME" || podman volume create "$LUNA_CACHE_V
 echo "==> rootfs (volume $LUNA_ROOTFS_VOLUME)"
 # The editor packs are part of the image. The release tool builds them as its
 # own jobs and mounts them; this dev wrapper takes whatever
-# `make eurooffice-pack drawio-pack` left in os/dist. A pack that is not there
+# `make eurooffice-pack drawio-pack models-pack` left in os/dist. A pack that is not there
 # only warns inside the build (a dev image may lack an editor), so an empty
 # dir is fine.
 PACKS_DIR="${LUNA_PACKS_DIR:-$ROOT/os/dist}"
