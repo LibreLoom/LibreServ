@@ -5,25 +5,36 @@ import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import FullscreenEditorFrame from "./FullscreenEditorFrame.jsx";
 import EditorLoadingScreen, { EditorMountedSignal } from "./EditorLoadingScreen.jsx";
 
-let finishDownload;
-const LazyEditor = lazy(
-  () =>
-    new Promise(
-      /** @param {(value: { default: () => import("react").JSX.Element }) => void} resolve */
-      (resolve) => {
-        finishDownload = () => resolve({
-          default: function Editor() {
-            const [ready, setReady] = useState(false);
-            globalThis.__readyEditor = () => setReady(true);
-            return ready ? <p>Editor body</p> : <EditorLoadingScreen label="Starting editor…" />;
-          },
-        });
-      },
-    ),
-);
+function createLazyEditor() {
+  let finishDownload;
+  let markEditorReady;
+  const LazyEditor = lazy(
+    () =>
+      new Promise(
+        /** @param {(value: { default: () => import("react").JSX.Element }) => void} resolve */
+        (resolve) => {
+          finishDownload = () => resolve({
+            default: function Editor() {
+              const [ready, setReady] = useState(false);
+              markEditorReady = () => setReady(true);
+              return ready ? <p>Editor body</p> : <EditorLoadingScreen label="Starting editor…" />;
+            },
+          });
+        },
+      ),
+  );
+
+  return {
+    LazyEditor,
+    finishDownload: () => finishDownload(),
+    markEditorReady: () => markEditorReady(),
+  };
+}
 
 describe("editor loading screen", () => {
   it("keeps one loader element from download through editor startup", async () => {
+    const editor = createLazyEditor();
+    const LazyEditor = editor.LazyEditor;
     render(
       <ToastProvider>
         <FullscreenEditorFrame name="Letter.docx" sessionKey="a" onClose={vi.fn()}>
@@ -38,11 +49,11 @@ describe("editor loading screen", () => {
     );
 
     const loader = screen.getByRole("status", { name: "Opening Letter.docx" });
-    await act(async () => finishDownload());
+    await act(async () => editor.finishDownload());
     // Same DOM node, new label: no remount, so the animation never restarts.
     expect(screen.getByRole("status", { name: "Starting editor…" })).toBe(loader);
 
-    await act(async () => globalThis.__readyEditor());
+    await act(async () => editor.markEditorReady());
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.getByText("Editor body")).toBeTruthy();
   });
@@ -57,6 +68,8 @@ describe("editor loading screen", () => {
     });
 
     it("cancels the loading animation when editor startup completes", async () => {
+      const editor = createLazyEditor();
+      const LazyEditor = editor.LazyEditor;
       const animateDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "animate");
       const cancel = vi.fn();
       const animate = vi.fn(() => ({ cancel, currentTime: 0 }));
@@ -87,17 +100,22 @@ describe("editor loading screen", () => {
       );
       expect(animate).toHaveBeenCalled();
 
-      await act(async () => finishDownload());
+      const loader = screen.getByRole("status", { name: "Opening Letter.docx" });
+      await act(async () => editor.finishDownload());
+      expect(screen.getByRole("status", { name: "Starting editor…" })).toBe(loader);
+      expect(animate).toHaveBeenCalledTimes(1);
+      expect(cancel).not.toHaveBeenCalled();
 
-      await act(async () => globalThis.__readyEditor());
+      await act(async () => editor.markEditorReady());
       expect(screen.queryByRole("status")).toBeNull();
-      expect(cancel).toHaveBeenCalled();
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(animate).toHaveBeenCalledTimes(1);
 
       const callsAfterUnmount = animate.mock.calls.length;
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 100));
       });
-      expect(animate.mock.calls.length).toBe(callsAfterUnmount);
+      expect(animate).toHaveBeenCalledTimes(callsAfterUnmount);
     });
   });
 });
