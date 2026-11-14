@@ -34,6 +34,11 @@ function stubFetch(role = "admin", connectActive = false) {
         headers: { "Content-Type": "application/json" },
       });
     }
+    if (u.endsWith("/api/v1/users")) {
+      return new Response(JSON.stringify([{ id: "2", username: "alice", display_name: "Alice", role: "user" }]), {
+        status: 200, headers: { "Content-Type": "application/json" },
+      });
+    }
     if (u.includes("/system/updates")) {
       return new Response(JSON.stringify({
         current_version: "0.1.0",
@@ -221,6 +226,14 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("button", { name: /New access token/i })).toBeTruthy();
     expect(screen.getByText(/phone app, Luna Desktop, or script/i)).toBeTruthy();
     expect(screen.queryByRole("heading", { level: 1, name: "Devices" })).toBeNull();
+  });
+
+  it("opens the Users category and its people from a /settings#users location for an Admin", async () => {
+    stubFetch("admin");
+    renderPage("/settings#users");
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Users" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Edit Alice" })).toBeTruthy();
   });
 
   it("switches to Security when the Devices access-token link is clicked", async () => {
