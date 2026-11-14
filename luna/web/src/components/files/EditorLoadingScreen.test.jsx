@@ -48,14 +48,30 @@ describe("editor loading screen", () => {
   });
 
   describe("animation lifetime", () => {
-    afterEach(() => vi.restoreAllMocks());
+    let restoreAnimate;
 
-    it("stops drawing once the loader is gone", async () => {
-      // jsdom has no canvas; a stub context lets the loader start its loop.
-      const ctx = /** @type {any} */ (new Proxy({}, { get: () => () => {}, set: () => true }));
-      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx);
-      const raf = vi.spyOn(window, "requestAnimationFrame");
-      const caf = vi.spyOn(window, "cancelAnimationFrame");
+    afterEach(() => {
+      vi.restoreAllMocks();
+      restoreAnimate?.();
+      restoreAnimate = undefined;
+    });
+
+    it("cancels the loading animation when editor startup completes", async () => {
+      const animateDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "animate");
+      const cancel = vi.fn();
+      const animate = vi.fn(() => ({ cancel, currentTime: 0 }));
+      Object.defineProperty(HTMLElement.prototype, "animate", {
+        configurable: true,
+        writable: true,
+        value: animate,
+      });
+      restoreAnimate = () => {
+        if (animateDescriptor) {
+          Object.defineProperty(HTMLElement.prototype, "animate", animateDescriptor);
+        } else {
+          delete HTMLElement.prototype.animate;
+        }
+      };
 
       render(
         <ToastProvider>
@@ -69,18 +85,19 @@ describe("editor loading screen", () => {
           </FullscreenEditorFrame>
         </ToastProvider>,
       );
+      expect(animate).toHaveBeenCalled();
+
       await act(async () => finishDownload());
-      expect(raf).toHaveBeenCalled();
 
       await act(async () => globalThis.__readyEditor());
       expect(screen.queryByRole("status")).toBeNull();
-      expect(caf).toHaveBeenCalled();
+      expect(cancel).toHaveBeenCalled();
 
-      const callsAfterUnmount = raf.mock.calls.length;
+      const callsAfterUnmount = animate.mock.calls.length;
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 100));
       });
-      expect(raf.mock.calls.length).toBe(callsAfterUnmount);
+      expect(animate.mock.calls.length).toBe(callsAfterUnmount);
     });
   });
 });
