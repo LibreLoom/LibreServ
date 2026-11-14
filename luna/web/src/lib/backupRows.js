@@ -54,12 +54,14 @@ export function buildBackupRows(driveList = [], cloudList = []) {
  * last run reported a problem. Stopped and deleted-source backups are finished, not broken.
  * A running phrase move is fixing the copy itself, so the stale/failing/
  * check signals describe the copy it will replace — they don't need a look
- * while the move runs. A paused move is stuck, so it still does.
+ * while the move runs. A paused move is stuck, and a missing source is
+ * something the move can't fix, so both still need a look.
  * @param {any} b
  */
 export function needsALook(b) {
   if (b.status !== "active") return false;
-  if (b.kind === "cloud" && b.moving && !b.moving.paused_full) return false;
+  if (b.kind === "cloud" && b.moving?.paused_full) return true;
+  if (b.kind === "cloud" && b.moving && !b.source_missing) return false;
   if (b.state === "failing" || b.state === "stale") return true;
   return b.kind === "cloud" && (!!b.check_problem || !!b.source_missing);
 }

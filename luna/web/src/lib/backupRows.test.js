@@ -98,8 +98,16 @@ describe("needsALook", () => {
     expect(needsALook(cloud({ check_problem: "The copy could not be read.", moving: { percent: 40 } }))).toBe(false);
   });
 
-  it("still flags a paused move", () => {
+  it("still flags a paused move, even with a healthy last copy", () => {
+    // state: "ok" is what settings/phrase-moving-full seeds — the paused
+    // signal itself must be enough, not a stale or failing state under it.
+    expect(needsALook(cloud({ moving: { percent: 40, paused_full: true } }))).toBe(true);
     expect(needsALook(cloud({ state: "stale", last_ok_at: 1000, moving: { percent: 40, paused_full: true } }))).toBe(true);
+  });
+
+  it("still flags a missing source while a move runs", () => {
+    // A phrase move can't restore a missing source, so the signal survives.
+    expect(needsALook(cloud({ source_missing: true, moving: { percent: 40 } }))).toBe(true);
   });
 
   it("does not flag stopped or deleted-source backups", () => {
