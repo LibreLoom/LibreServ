@@ -548,8 +548,24 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
     });
   }
   const tree = treeOf(world, params.token, r.s);
-  const target = segments.length ? inTree(tree, segments) : null;
-  if (segments.length && !target) return fail(404, "Not found.");
+  // A folder is the normal thing to zip, so walk the tree for any entry rather
+  // than `inTree`, which deliberately returns null for a directory.
+  if (segments.length) {
+    let level = tree;
+    let found = null;
+    for (const [i, seg] of segments.entries()) {
+      found = level?.find?.((e) => e.name === seg) || null;
+      if (!found) return fail(404, "Not found.");
+      if (i < segments.length - 1) {
+        if (found.kind !== "dir") return fail(404, "Not found.");
+        level = found.children || [];
+      }
+    }
+    // Zipping must obey the same private-folder boundary as listing and
+    // reading, or a guest could zip a folder the link may see but never enter.
+    if (!linkReaches(world, r.l, segments.join("/"), r.s.drive_id, r.s.path))
+      return fail(404, "Not found.");
+  }
   const base = segments.length ? segments[segments.length - 1] : (r.s.name || "download");
   return raw(new TextEncoder().encode(`PK\x05\x06${"\0".repeat(18)}`), "application/zip", 200, {
     "Content-Disposition": `attachment; filename="${dispositionName(base)}.zip"`,

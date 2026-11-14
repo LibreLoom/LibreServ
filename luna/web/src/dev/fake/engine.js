@@ -346,16 +346,21 @@ export function installFake({ world, scenario, now, restored = {} }) {
     if (!Ctor) continue;
     const desc = Object.getOwnPropertyDescriptor(Ctor.prototype, "src");
     if (!desc?.set) continue;
-    const realSet = desc.set;
+    // Kept once and rewrapped on every install, for the same reason as
+    // setAttribute below: reading `desc.set` on a second installation would
+    // pick up the previous wrapper and its closed-over dispatcher.
+    const realSet = desc.set.__mockNative ?? desc.set;
+    const setSrc = function (value) {
+      realSetters.set(this, realSet);
+      if (swapSrc(this, value)) return;
+      realSet.call(this, value);
+    };
+    setSrc.__mockNative = realSet;
     Object.defineProperty(Ctor.prototype, "src", {
       configurable: true,
       enumerable: desc.enumerable,
       get: desc.get,
-      set(value) {
-        realSetters.set(this, realSet);
-        if (swapSrc(this, value)) return;
-        realSet.call(this, value);
-      },
+      set: setSrc,
     });
     // The native methods are kept once and the wrapper replaced on every
     // installation: a wrapper closes over this installation's dispatcher and
