@@ -51,8 +51,17 @@ pub fn parse_volume_flags(boot: &[u8]) -> Option<u16> {
 }
 
 /// Was this volume left in the middle of something?
+///
+/// Only the dirty bit counts. The media-failure bit records that a read or
+/// write once failed; `fsck.exfat` leaves it set, so acting on it would
+/// re-check the drive (and tell the person it was repaired) on every mount.
 pub fn is_unclean(flags: u16) -> bool {
-    flags & (VOLUME_DIRTY | MEDIA_FAILURE) != 0
+    flags & VOLUME_DIRTY != 0
+}
+
+/// Did a read or write on this media ever fail?
+pub fn has_media_failure(flags: u16) -> bool {
+    flags & MEDIA_FAILURE != 0
 }
 
 /// How a `fsck.exfat` run ended.
@@ -121,6 +130,8 @@ impl ExfatTools for CommandExfatTools {
 pub enum Outcome {
     /// Not exFAT, unreadable, or shut down cleanly.
     Clean,
+    /// Was dirty; checked, and nothing needed fixing. Safe to mount read-write.
+    Checked,
     /// Was dirty; checked and fixed. Safe to mount read-write.
     Repaired,
     /// Was dirty and couldn't be fixed. Mount read-only.
@@ -142,7 +153,10 @@ pub fn check(tools: &dyn ExfatTools, device: &str) -> Outcome {
         "exFAT drive was not shut down cleanly; checking it"
     );
     match tools.repair(device, true) {
-        FsckExit::Clean | FsckExit::Fixed => Outcome::Repaired,
+        FsckExit::Clean => Outcome::Checked,
+        FsckExit::Fixed => Outcome::Repaired,
+        // `-p` stopped at something it won't fix on its own; whatever `-y`
+        // then does, the drive had damage.
         FsckExit::ErrorsLeft => match tools.repair(device, false) {
             FsckExit::Clean | FsckExit::Fixed => Outcome::Repaired,
             _ => Outcome::Unrepaired,
@@ -246,6 +260,11 @@ pub fn notice_for(target: &Path, label: &str) -> Option<Notice> {
     let g = NOTES.lock().unwrap_or_else(|e| e.into_inner());
     let note = g.get(target)?;
     match note.outcome {
+        Outcome::Checked if note.at.elapsed() < NOTICE_TTL => Some(Notice {
+            repaired: true,
+            message: format!("{label} wasn't shut down properly, so Luna checked it. Nothing on it was damaged."),
+            more: "This happens after a power cut or when a drive is unplugged without ejecting it. Files saved just before that may be missing, so check your latest uploads.".into(),
+        }),
         Outcome::Repaired if note.at.elapsed() < NOTICE_TTL => Some(Notice {
             repaired: true,
             message: format!("{label} wasn't shut down properly, so Luna checked it and fixed what it found."),
@@ -264,9 +283,40 @@ pub fn notice_for(target: &Path, label: &str) -> Option<Notice> {
 /// `target`. Returns true when the drive must be mounted read-only instead.
 pub fn before_rw_mount(tools: &dyn ExfatTools, device: &str, target: &Path) -> bool {
     let _slot = begin(device);
-    let outcome = check(tools, device);
+    let outcome = take_precheck(device).unwrap_or_else(|| check(tools, device));
     record(target, outcome);
     outcome == Outcome::Unrepaired
+}
+
+// ── Checking ahead of a mount ───────────────────────────────────────────────
+
+/// How long a check made ahead of a mount stands in for the mount's own.
+const PRECHECK_TTL: Duration = Duration::from_secs(10 * 60);
+
+static PRECHECKED: std::sync::LazyLock<Mutex<HashMap<String, (Outcome, Instant)>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Check `device` now, before a caller takes a lock it mustn't hold for the
+/// length of a repair (the database lock while adding a drive). The next
+/// read-write mount of `device` uses this result instead of checking again.
+/// Blocks for as long as the repair takes: call it off the async workers.
+pub fn precheck(tools: &dyn ExfatTools, device: &str) {
+    let _slot = begin(device);
+    let outcome = check(tools, device);
+    if outcome != Outcome::Clean {
+        PRECHECKED
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(device.to_string(), (outcome, Instant::now()));
+    }
+}
+
+fn take_precheck(device: &str) -> Option<Outcome> {
+    let (outcome, at) = PRECHECKED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(device)?;
+    (at.elapsed() < PRECHECK_TTL).then_some(outcome)
 }
 
 #[cfg(test)]
@@ -316,7 +366,10 @@ mod tests {
         assert_eq!(parse_volume_flags(&boot(0)), Some(0));
         assert!(!is_unclean(parse_volume_flags(&boot(1)).unwrap()));
         assert!(is_unclean(parse_volume_flags(&boot(2)).unwrap()));
-        assert!(is_unclean(parse_volume_flags(&boot(4)).unwrap()));
+        // Media failure alone: fsck.exfat never clears it, so it can't
+        // send every mount through a check.
+        assert!(!is_unclean(parse_volume_flags(&boot(4)).unwrap()));
+        assert!(has_media_failure(4));
         let mut ntfs = boot(2);
         ntfs[3..11].copy_from_slice(b"NTFS    ");
         assert_eq!(parse_volume_flags(&ntfs), None);
@@ -337,6 +390,38 @@ mod tests {
         let t = mock(Some(2), vec![FsckExit::Fixed]);
         assert_eq!(check(&t, "/dev/sdb1"), Outcome::Repaired);
         assert_eq!(*t.calls.lock().unwrap(), vec![true]);
+    }
+
+    #[test]
+    fn a_dirty_volume_with_nothing_wrong_is_checked_not_repaired() {
+        let t = mock(Some(2), vec![FsckExit::Clean]);
+        assert_eq!(check(&t, "/dev/sdb1"), Outcome::Checked);
+        assert!(!before_rw_mount(
+            &mock(Some(2), vec![FsckExit::Clean]),
+            "/dev/sdz5",
+            Path::new("/m/e")
+        ));
+        let n = notice_for(Path::new("/m/e"), "Photos").unwrap();
+        assert!(!n.message.contains("fixed"));
+    }
+
+    #[test]
+    fn a_check_made_ahead_of_the_mount_is_not_repeated() {
+        let ahead = mock(Some(2), vec![FsckExit::Fixed]);
+        precheck(&ahead, "/dev/sdz6");
+        // Fixed on disk now, so the mount's own look would see it clean and
+        // lose the notice; the earlier result is used instead.
+        let at_mount = mock(Some(0), vec![]);
+        assert!(!before_rw_mount(&at_mount, "/dev/sdz6", Path::new("/m/f")));
+        assert!(at_mount.calls.lock().unwrap().is_empty());
+        assert!(
+            notice_for(Path::new("/m/f"), "Photos")
+                .unwrap()
+                .message
+                .contains("fixed")
+        );
+        // Used once only.
+        assert!(take_precheck("/dev/sdz6").is_none());
     }
 
     #[test]

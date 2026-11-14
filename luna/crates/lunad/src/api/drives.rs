@@ -217,7 +217,18 @@ async fn detected(
         crate::db::list_drives,
     )
     .unwrap_or_default();
-    let plan = state.drive_manager.reconcile_scan(&snapshot, &drives);
+    // The scan mounts returning drives, and a dirty exFAT one is repaired
+    // before it mounts: blocking work, kept off the async workers.
+    let manager = state.drive_manager.clone();
+    let scanned = drives.clone();
+    let plan = tokio::task::spawn_blocking(move || manager.reconcile_scan(&snapshot, &scanned))
+        .await
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't check for drives. Try again.",
+            )
+        })?;
     let (rows, remounted) = crate::db::with_db(
         &state.db,
         || anyhow::anyhow!("db lock poisoned"),
@@ -418,6 +429,9 @@ async fn adopt(
     let (manager, db) = (state.drive_manager.clone(), state.db.clone());
     let row = tokio::task::spawn_blocking(move || {
         let _device_guard = _device_guard;
+        // A dirty exFAT drive is repaired here, before the DB lock: the
+        // repair can take minutes and nothing else may wait on it.
+        manager.check_before_adopt(&device);
         crate::db::with_db(
             &db,
             || anyhow::anyhow!("db lock poisoned"),

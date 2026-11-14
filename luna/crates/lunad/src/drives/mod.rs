@@ -481,6 +481,21 @@ impl DriveManager {
     /// Adopt a drive as-is: ensure a writable mount, write the marker, then
     /// record it. On any failure before the DB row, the drive is untouched.
     /// Luna never erases or formats a drive here.
+    /// Repair an exFAT drive left dirty before [`Self::adopt`] mounts it, so
+    /// the repair runs before the caller takes the database lock rather than
+    /// under it. Skips a drive that is mounted: it can't be checked in use,
+    /// and adopt's own mount checks it once it has unmounted it.
+    pub fn check_before_adopt(&self, device: &DetectedDrive) {
+        if device.mount_point.is_some() {
+            return;
+        }
+        let choice = self.choice_for(device);
+        if choice.name.is_empty() || is_luks_type(&choice.fs_type) {
+            return;
+        }
+        fsck::precheck(&fsck::CommandExfatTools, &device_path(&choice.name));
+    }
+
     pub fn adopt(
         &self,
         conn: &Connection,
@@ -830,18 +845,30 @@ impl DriveManager {
         if !drive.locked && !drive.mount_point.is_empty() {
             let root = Path::new(&drive.mount_point);
             if self.mounter.is_mounted(root) {
+                // Kept so a failed unmount can put the marker back: without
+                // it the still-registered drive could never be unlocked again.
+                let ours: Vec<(String, Marker)> = luna_core::marker::read_markers(root)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|(_, m)| m.id == drive.id)
+                    .collect();
                 if remove_marker(root, &drive.id).is_err() {
                     anyhow::bail!(
                         "Luna couldn't remove its sticker file from this drive. Try again."
                     );
                 }
-                self.mounter.unmount(root).map_err(|e| {
-                    if mount::is_busy(&e) {
+                if let Err(e) = self.mounter.unmount(root) {
+                    for (prefix, marker) in &ours {
+                        if let Err(w) = luna_core::marker::write_marker(root, marker, prefix) {
+                            tracing::error!(drive = %drive.id, error = %w, "couldn't put the marker back after a failed unmount");
+                        }
+                    }
+                    return Err(if mount::is_busy(&e) {
                         anyhow::anyhow!("Close any files open from this drive, then try again.")
                     } else {
                         anyhow::anyhow!("Luna couldn't unmount this drive.")
-                    }
-                })?;
+                    });
+                }
                 let _ = std::fs::remove_dir(root);
             }
         }

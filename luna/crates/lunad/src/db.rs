@@ -310,9 +310,6 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
         "origin",
         "TEXT NOT NULL DEFAULT ''",
     )?;
-    // Dev databases made before drive encryption came back lack these columns.
-    ensure_column(&conn, "drives", "encrypted", "INTEGER NOT NULL DEFAULT 0")?;
-    ensure_column(&conn, "drives", "locked", "INTEGER NOT NULL DEFAULT 0")?;
     // CAP_SHARE split: members who held "full" were subtree managers under
     // the old model — keep their manage rights. View/upload grants never
     // carried share-management, so they gain nothing.

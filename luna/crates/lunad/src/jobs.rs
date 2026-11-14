@@ -448,10 +448,16 @@ fn prepare(
     }
     // A tree copied onto another drive must fit that drive's format: refuse
     // before the first byte is written, not halfway through a copy.
-    if from_drive != to_drive {
-        let rules = files::fsrules::rules_at(&to_root);
-        if rules.is_restricted() {
-            check_tree_fits(&rules, &src, &name).map_err(FilesError::from)?;
+    // The walk that totals the copy below checks every name inside it.
+    let fit_rules = (from_drive != to_drive)
+        .then(|| files::fsrules::rules_at(&to_root))
+        .filter(files::fsrules::FsRules::is_restricted);
+    if let Some(rules) = &fit_rules {
+        rules.check_name(&name).map_err(FilesError::from)?;
+        if !meta.is_dir() {
+            rules
+                .check_size(&name, meta.len())
+                .map_err(FilesError::from)?;
         }
     }
     let user_row = db::get_user(conn, user_id)
@@ -476,7 +482,13 @@ fn prepare(
                 )
             })
     };
-    let total = walk_total(&src_root, &src, meta.is_dir(), &readable)?;
+    let total = walk_total(
+        &src_root,
+        &src,
+        meta.is_dir(),
+        &readable,
+        fit_rules.as_ref(),
+    )?;
     if total == 0 && !meta.is_dir() {
         // Zero-byte files are still valid copies.
     }
@@ -498,53 +510,6 @@ fn prepare(
         dest_rel,
         private_root,
     })
-}
-
-/// Walk the tree about to be copied and check every name and size against the
-/// destination's rules. `top` is the name the item lands under.
-fn check_tree_fits(
-    rules: &files::fsrules::FsRules,
-    src: &Path,
-    top: &str,
-) -> Result<(), files::fsrules::NameProblem> {
-    rules.check_name(top)?;
-    let Ok(meta) = std::fs::symlink_metadata(src) else {
-        return Ok(());
-    };
-    if !meta.is_dir() {
-        return rules.check_size(top, meta.len());
-    }
-    let mut stack = vec![src.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let Ok(read) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        let mut names: Vec<String> = Vec::new();
-        for entry in read.flatten() {
-            let Some(disk) = entry.file_name().to_str().map(str::to_string) else {
-                continue;
-            };
-            let private = crate::private::is_private_disk_name(&disk);
-            if files::is_internal_temp(&disk) && !private {
-                continue;
-            }
-            let Ok(m) = std::fs::symlink_metadata(entry.path()) else {
-                continue;
-            };
-            // A private folder is stored under a `.luna-` name; its real
-            // name is what lands on the destination.
-            let name = files::leaf_of(&entry.path()).unwrap_or(disk);
-            rules.check_name(&name)?;
-            if m.is_dir() {
-                stack.push(entry.path());
-            } else {
-                rules.check_size(&name, m.len())?;
-            }
-            names.push(name);
-        }
-        files::fsrules::check_siblings(rules, names.iter().map(String::as_str))?;
-    }
-    Ok(())
 }
 
 /// Bytes in a form's own files folder (question pictures, attachments) —
@@ -582,6 +547,7 @@ fn walk_total(
     path: &Path,
     is_dir: bool,
     readable: &dyn Fn(&Path) -> bool,
+    fits: Option<&files::fsrules::FsRules>,
 ) -> Result<u64, JobError> {
     if !readable(path) {
         return Ok(0);
@@ -596,6 +562,9 @@ fn walk_total(
     let mut total = 0;
     let mut stack = vec![path.to_path_buf()];
     while let Some(dir) = stack.pop() {
+        // Names in this folder as they land on the destination, so a
+        // case-insensitive one can refuse two that differ only in capitals.
+        let mut names: Vec<String> = Vec::new();
         for entry in std::fs::read_dir(&dir).map_err(JobError::Io)? {
             let entry = entry.map_err(JobError::Io)?;
             // Luna's `.luna-<uuid>-*` bookkeeping and in-flight `.part` temps
@@ -612,11 +581,28 @@ fn walk_total(
             if meta.file_type().is_symlink() {
                 return Err(JobError::Symlink);
             }
+            if let Some(rules) = fits {
+                // A private folder is stored under a `.luna-` name; its real
+                // name is what lands on the destination.
+                let name = files::leaf_of(&entry.path())
+                    .unwrap_or_else(|| entry.file_name().to_string_lossy().into_owned());
+                rules.check_name(&name).map_err(FilesError::from)?;
+                if !meta.is_dir() {
+                    rules
+                        .check_size(&name, meta.len())
+                        .map_err(FilesError::from)?;
+                }
+                names.push(name);
+            }
             if meta.is_dir() {
                 stack.push(entry.path());
             } else {
                 total += meta.len() + form_files_total(root, &entry.path());
             }
+        }
+        if let Some(rules) = fits {
+            files::fsrules::check_siblings(rules, names.iter().map(String::as_str))
+                .map_err(FilesError::from)?;
         }
     }
     Ok(total)

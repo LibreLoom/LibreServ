@@ -953,8 +953,12 @@ fn sanitize_rel_for_target(rel: &str) -> String {
                     }
                 })
                 .collect();
-            while out.len() > 1 && (out.ends_with('.') || out.ends_with(' ')) {
+            while out.ends_with('.') || out.ends_with(' ') {
                 out.pop();
+            }
+            // A name of only dots and spaces would end up empty, `.` or `..`.
+            if out.is_empty() && !seg.is_empty() {
+                out.push('_');
             }
             out
         })
@@ -1197,6 +1201,16 @@ mod tests {
     use luna_core::marker::{Marker, pick_prefix};
 
     const NOW: i64 = 1_800_000_000;
+
+    #[test]
+    fn names_exfat_refuses_are_made_to_fit() {
+        assert_eq!(sanitize_rel_for_target("Docs/a:b?.txt"), "Docs/a_b_.txt");
+        assert_eq!(sanitize_rel_for_target("Docs/notes. "), "Docs/notes");
+        // Only dots and spaces: never `.`, `..` or an empty folder name.
+        assert_eq!(sanitize_rel_for_target("Docs/.../a.txt"), "Docs/_/a.txt");
+        assert_eq!(sanitize_rel_for_target("Docs/. ./a.txt"), "Docs/_/a.txt");
+        assert_eq!(sanitize_rel_for_target("Docs/.hidden"), "Docs/.hidden");
+    }
 
     struct Setup {
         _dir: tempfile::TempDir,

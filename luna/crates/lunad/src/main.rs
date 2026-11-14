@@ -414,6 +414,11 @@ async fn async_main() -> anyhow::Result<()> {
     bg_tasks.push(tokio::spawn(async move {
         let mut ticker = tokio::time::interval(lunad::drives::flusher::TICK);
         let mut planner = lunad::drives::flusher::Planner::default();
+        // Drives with a write-out still running. A stick that stopped
+        // answering can hold syncfs for good; it is skipped, never waited on,
+        // so the other drives keep being written out.
+        let in_flight: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>> =
+            Default::default();
         loop {
             ticker.tick().await;
             let drives = flush_state
@@ -422,21 +427,33 @@ async fn async_main() -> anyhow::Result<()> {
                 .ok()
                 .and_then(|conn| lunad::db::list_drives(&conn).ok());
             let Some(drives) = drives else { continue };
+            let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
             let mut live = Vec::new();
             for d in drives {
                 if d.mount_point.is_empty() || (d.state != "as_is" && d.state != "readonly") {
                     continue;
                 }
                 let mount = std::path::PathBuf::from(&d.mount_point);
-                if !lunad::files::fsrules::rules_at(&mount).is_restricted() {
+                let real = std::fs::canonicalize(&mount).unwrap_or_else(|_| mount.clone());
+                if !lunad::files::fsrules::rules_from_mounts(&mounts, &real).is_restricted() {
                     continue;
                 }
                 live.push(d.id.clone());
+                if in_flight.lock().map_or(true, |g| g.contains(&d.id)) {
+                    continue;
+                }
                 let generation = lunad::drives::ram_cache::drive_write_gen(&d.id);
                 if planner.due(&d.id, generation, std::time::Instant::now()) {
-                    let _ =
-                        tokio::task::spawn_blocking(move || lunad::drives::sync_filesystem(&mount))
-                            .await;
+                    if let Ok(mut g) = in_flight.lock() {
+                        g.insert(d.id.clone());
+                    }
+                    let (id, in_flight) = (d.id.clone(), in_flight.clone());
+                    tokio::task::spawn_blocking(move || {
+                        let _ = lunad::drives::sync_filesystem(&mount);
+                        if let Ok(mut g) = in_flight.lock() {
+                            g.remove(&id);
+                        }
+                    });
                 }
             }
             planner.retain(&live);

@@ -43,9 +43,11 @@ impl FsRules {
     /// The rules of a filesystem type as `/proc/mounts` or `blkid` names it.
     ///
     /// `fuseblk` is what `/proc/mounts` shows for any filesystem driven
-    /// through FUSE (exFAT, NTFS); the real type is not visible there. Both
-    /// FUSE drivers used for removable drives refuse the same characters and
-    /// ignore capitals, and neither has a 4 GiB limit.
+    /// through FUSE (exfat-fuse, ntfs-3g); the real type is not visible there.
+    /// It gets the exFAT rules, the stricter guess: on an ntfs-3g drive that
+    /// only refuses some names it would have taken. Backups choose the same
+    /// way (`drive_store::limits_for_fs`). Luna OS mounts exFAT and NTFS with
+    /// the kernel drivers, so it never sees `fuseblk`.
     pub fn for_fs(fstype: &str) -> FsRules {
         match fstype.trim().to_ascii_lowercase().as_str() {
             "exfat" | "fuseblk" => FsRules {
