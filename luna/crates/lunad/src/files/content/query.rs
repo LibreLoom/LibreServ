@@ -212,7 +212,11 @@ mod tests {
         assert_eq!(names("tenant"), ["lease.docx"]);
         assert_eq!(names("water bill"), ["bill.pdf"]);
         assert_eq!(names("ten"), ["lease.docx"]);
-        assert_eq!(names("paying"), ["lease.docx"]);
+        // Stemming: "tenants" finds "tenant"; "paying" finds "pays" (and,
+        // through the stemmed prefix, "paid").
+        assert_eq!(names("tenants"), ["lease.docx"]);
+        let paying = names("paying");
+        assert!(paying.contains(&"lease.docx".to_string()), "{paying:?}");
         assert!(names("tenant milk").is_empty());
         assert!(
             candidates(&conn, "d1", "\"tenant\"", KindFilter::Folders, 10)
