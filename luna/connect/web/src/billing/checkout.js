@@ -89,6 +89,12 @@ export function useCheckoutReturn(onDone) {
         timer = setTimeout(() => attempt(tries + 1), RETRY_MS);
       } catch (err) {
         if (stopped) return;
+        // A server error (Stripe busy, the webhook finishing the same payment
+        // at the same moment) is worth asking again; a refusal is not.
+        if ((err?.status || 0) >= 500 && tries + 1 < MAX_TRIES) {
+          timer = setTimeout(() => attempt(tries + 1), RETRY_MS);
+          return;
+        }
         setStatus("error");
         setError(err?.message || "Could not check that payment. Reload this page in a minute.");
       }

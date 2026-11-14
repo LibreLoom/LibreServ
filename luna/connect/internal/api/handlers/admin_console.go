@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -219,10 +220,13 @@ FROM accounts WHERE id = ?`, accountID).
 		return
 	}
 
+	// Credit lives in Stripe. If Stripe can't be reached, still show the
+	// account and its Lunas, and say the credit couldn't be loaded.
 	credits, err := billing.CreditSummary(customerID)
+	creditsError := ""
 	if err != nil {
-		JSONError(w, http.StatusBadGateway, "Could not load this account's credit from Stripe. Try again in a minute.")
-		return
+		slog.Warn("admin: could not read credit from stripe", "account", accountID, "error", err)
+		creditsError = "Could not load this account's credit from Stripe. Reload in a minute."
 	}
 
 	JSON(w, http.StatusOK, map[string]any{
@@ -234,6 +238,7 @@ FROM accounts WHERE id = ?`, accountID).
 		"created_at":     created,
 		"devices":        devices,
 		"credits":        credits,
+		"credits_error":  creditsError,
 	})
 }
 

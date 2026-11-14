@@ -165,12 +165,16 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 	resolvedPath, resolvedStep := ResolveOnboarding(acct.OnboardingPath, acct.OnboardingStep, dev)
 	persistOnboardingIfChanged(h.DB, acct.ID, acct.OnboardingPath, acct.OnboardingStep, resolvedPath, resolvedStep)
 	status := onboardingStatusFields(resolvedPath, resolvedStep, dev)
-	// Credit lives in Stripe. A Stripe hiccup must not break the account page,
-	// so a failed read shows no credit rather than an error.
-	creditCents, err := billing.CreditBalanceCents(acct.StripeCustomer)
-	if err != nil {
-		slog.Warn("could not read credit balance from stripe", "account", acct.ID, "error", err)
-		creditCents = 0
+	// Credit lives in Stripe and only shows once cloud backup is on, so only
+	// those accounts pay for the Stripe call. A Stripe hiccup must not break
+	// the account page: a failed read shows no credit rather than an error.
+	var creditCents int64
+	if acct.HasCard {
+		var err error
+		if creditCents, err = billing.CreditBalanceCents(acct.StripeCustomer); err != nil {
+			slog.Warn("could not read credit balance from stripe", "account", acct.ID, "error", err)
+			creditCents = 0
+		}
 	}
 
 	JSON(w, http.StatusOK, map[string]any{

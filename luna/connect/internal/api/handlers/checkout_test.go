@@ -98,6 +98,52 @@ func TestFulfillBackupNeverReplacesAnExistingSubscription(t *testing.T) {
 	}
 }
 
+func stubCancel(t *testing.T) *[]string {
+	t.Helper()
+	var cancelled []string
+	prev := cancelExtraSubscription
+	cancelExtraSubscription = func(id string) error { cancelled = append(cancelled, id); return nil }
+	t.Cleanup(func() { cancelExtraSubscription = prev })
+	return &cancelled
+}
+
+func TestClaimCancelsOnlyADifferentSubscription(t *testing.T) {
+	devStripe(t)
+	d := testDeps(t)
+	id := checkoutAccount(t, d, "extra@b.co")
+	cancelled := stubCancel(t)
+	_, _ = d.DB.Exec(`UPDATE accounts SET stripe_subscription_id = 'sub_first' WHERE id = ?`, id)
+	c := billing.Checkout{ID: "cs_6", Kind: billing.CheckoutBackup, AccountID: id, SubscriptionID: "sub_second", Done: true}
+	if err := claimSubscription(d, c, ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(*cancelled) != 1 || (*cancelled)[0] != "sub_second" {
+		t.Fatalf("the extra subscription must be cancelled: %v", *cancelled)
+	}
+}
+
+func TestClaimRaceForTheSameCheckoutCancelsNothing(t *testing.T) {
+	devStripe(t)
+	d := testDeps(t)
+	id := checkoutAccount(t, d, "race@b.co")
+	cancelled := stubCancel(t)
+	// The webhook stored the subscription while the return page was asking
+	// Stripe for its status; the return page still read an empty account.
+	_, _ = d.DB.Exec(`UPDATE accounts SET stripe_subscription_id = 'sub_same' WHERE id = ?`, id)
+	c := billing.Checkout{ID: "cs_7", Kind: billing.CheckoutBackup, AccountID: id, SubscriptionID: "sub_same", Done: true}
+	if err := claimSubscription(d, c, ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(*cancelled) != 0 {
+		t.Fatalf("the account's own subscription must never be cancelled: %v", *cancelled)
+	}
+	var sub string
+	_ = d.DB.QueryRow(`SELECT stripe_subscription_id FROM accounts WHERE id = ?`, id).Scan(&sub)
+	if sub != "sub_same" {
+		t.Fatalf("subscription lost: %q", sub)
+	}
+}
+
 func TestCheckoutURLs(t *testing.T) {
 	prev := config.C.Server.BaseURL
 	t.Cleanup(func() { config.C.Server.BaseURL = prev })

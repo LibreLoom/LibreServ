@@ -102,7 +102,7 @@ func (h AccountHandler) StartCheckout(w http.ResponseWriter, r *http.Request) {
 			// existing one is waiting on a failed payment, which the card
 			// update on Link fixes.
 			JSON(w, http.StatusConflict, map[string]any{
-				"error":      "Your last cloud backup payment didn't go through. Update your card at link.com, and Stripe will try the payment again.",
+				"error":      "Your last cloud backup payment didn't go through. Update your card at link.com, where Stripe keeps it for cloud backup.",
 				"manage_url": LinkManageURL,
 			})
 			return
@@ -233,6 +233,10 @@ ON CONFLICT(account_id) DO UPDATE SET payment_intent_id = excluded.payment_inten
 	return err
 }
 
+// cancelExtraSubscription cancels a subscription that lost the claim. A
+// variable so tests can see whether it was called.
+var cancelExtraSubscription = billing.CancelSubscription
+
 // claimSubscription stores a new cloud backup subscription on the account.
 // Only one subscription per account may exist: usage is reported per Stripe
 // customer, so a second one would bill the same storage twice. A checkout
@@ -259,14 +263,23 @@ func claimSubscription(deps Deps, c billing.Checkout, stored string) error {
 		onboarding = ", onboarding_step = 'done'"
 	}
 	res, err := deps.DB.Exec(`UPDATE accounts SET has_card = ?, billing_status = ?, stripe_subscription_id = ?, backup_purge_after = NULL, purge_mail_day = NULL`+onboarding+`
-WHERE id = ? AND (stripe_subscription_id IS NULL OR stripe_subscription_id = '')`,
-		unlocked, status, c.SubscriptionID, c.AccountID)
+WHERE id = ? AND (stripe_subscription_id IS NULL OR stripe_subscription_id = '' OR stripe_subscription_id = ?)`,
+		unlocked, status, c.SubscriptionID, c.AccountID, c.SubscriptionID)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		slog.Warn("account already has a cloud backup subscription; cancelling the extra one", "account", c.AccountID, "kept", stored, "cancelled", c.SubscriptionID)
-		if err := billing.CancelSubscription(c.SubscriptionID); err != nil {
+		// The return page and the webhook race for the same checkout: when the
+		// other one already stored this very subscription, it is not extra.
+		var now string
+		if err := deps.DB.QueryRow(`SELECT COALESCE(stripe_subscription_id, '') FROM accounts WHERE id = ?`, c.AccountID).Scan(&now); err != nil {
+			return err
+		}
+		if now == c.SubscriptionID {
+			return nil
+		}
+		slog.Warn("account already has a cloud backup subscription; cancelling the extra one", "account", c.AccountID, "kept", now, "cancelled", c.SubscriptionID)
+		if err := cancelExtraSubscription(c.SubscriptionID); err != nil {
 			slog.Error("could not cancel an extra subscription; cancel it in Stripe or the customer is billed twice", "account", c.AccountID, "subscription", c.SubscriptionID, "error", err)
 		}
 	}

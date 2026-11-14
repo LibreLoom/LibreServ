@@ -312,7 +312,7 @@ export function BackupsTab({ me, lunas, paired, onRefresh, setError, error }) {
         </a>
       </Button>
       <p className="text-sm leading-relaxed">
-        Stripe sells cloud backup through Link. After you update the card there, Stripe tries the payment again.
+        Stripe sells cloud backup through Link, so your card is kept and changed there.
       </p>
     </div>
   );

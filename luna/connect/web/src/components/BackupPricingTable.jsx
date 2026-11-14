@@ -55,7 +55,7 @@ export function BackupPricingTable({ surface = "secondary", className = "" }) {
         </table>
       </div>
       <p className="text-sm text-foreground" data-testid="backup-pricing-tax">
-        Prices are before tax. Sales tax or VAT is added on top where it applies.
+        Prices are in US dollars, before tax. Sales tax or VAT is added where it applies, and Stripe's payment page may show your own currency.
       </p>
     </section>
   );

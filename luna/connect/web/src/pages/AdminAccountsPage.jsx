@@ -27,7 +27,7 @@ function dollars(cents) {
  * more. A credit is how we make a wrong bill right, so every credit needs a
  * reason. Credit lives in Stripe (credit grants); the list shows what was given.
  */
-function CreditSection({ accountId, credits, onChanged }) {
+function CreditSection({ accountId, credits, loadError = "", onChanged }) {
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -71,6 +71,7 @@ function CreditSection({ accountId, credits, onChanged }) {
       <p className="text-sm text-muted-foreground mb-3">
         Stripe takes credit off this account&apos;s cloud backup bills, before tax. Any rest carries over to the next month.
       </p>
+      {loadError && <p className="text-sm text-error mb-3">{loadError}</p>}
       <dl className="space-y-2 text-sm">
         <div className="flex justify-between gap-4">
           <dt className="text-muted-foreground">Balance</dt>
@@ -600,7 +601,8 @@ export default function AdminAccountsPage() {
                   <CreditSection
                     accountId={detail.id}
                     credits={detail.credits}
-                    onChanged={(credits) => setDetail((d) => (d ? { ...d, credits } : d))}
+                    loadError={detail.credits_error || ""}
+                    onChanged={(credits) => setDetail((d) => (d ? { ...d, credits, credits_error: "" } : d))}
                   />
 
                   <section className="rounded-large-element border border-error/30 bg-error/10 p-4">

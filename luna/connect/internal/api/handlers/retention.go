@@ -52,7 +52,7 @@ func purgeMail(day int, paymentFailed bool) (subject, text string) {
 	}
 	if paymentFailed {
 		return "Your cloud backup payment didn't go through",
-			"We still have your copies for " + days + ". To keep them, update your card at link.com and Stripe will try the payment again. Or sign in at connect.luna.libreloom.org and download anything you need before we delete them."
+			"We still have your copies for " + days + ". To keep them, update your card at link.com. Or sign in at connect.luna.libreloom.org and download anything you need before we delete them."
 	}
 	return "Make sure you have your files",
 		"Payment for cloud backup is off. We still have your copies for " + days + ". Sign in at connect.luna.libreloom.org and download anything you need before we delete them."
