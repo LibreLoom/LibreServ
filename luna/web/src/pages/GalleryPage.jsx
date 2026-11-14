@@ -454,6 +454,11 @@ export default function GalleryPage() {
   const [segment, setSegment] = useState(initialHash.segment || DEFAULT_SEGMENT);
   const activeSegment = SEGMENT_IDS.includes(segment) ? segment : DEFAULT_SEGMENT;
   const segmentOrder = SEGMENT_IDS.indexOf(activeSegment);
+  const lastSegmentOrder = useRef(segmentOrder);
+  const pageDirection = segmentOrder >= lastSegmentOrder.current ? 1 : -1;
+  useEffect(() => {
+    lastSegmentOrder.current = segmentOrder;
+  }, [segmentOrder]);
   const [error, setError] = useState(null);
   const { addToast } = useToast();
   const fileOps = useFileOps();
@@ -1631,23 +1636,6 @@ export default function GalleryPage() {
         ? `view:${viewLabel}`
         : `${activeSegment}:${filters.place?.key || (filters.monthDay ? "month-day" : "")}`;
   const reduceMotion = useReducedMotion();
-  // Direction is fixed when the page changes and held until the next change.
-  // Recomputing it on every render (data arriving mid-slide) flipped the
-  // leaving page's exit target, so it turned around and slid back over the
-  // new page. Opening a detail pushes in from the right, Back pops to the
-  // left, and segments follow the selector.
-  const pageDepth = detailChrome ? 1 : 0;
-  const [pageMotion, setPageMotion] = useState({ key: pageKey, depth: pageDepth, order: segmentOrder, dir: 1 });
-  if (pageMotion.key !== pageKey) {
-    const dir =
-      pageDepth !== pageMotion.depth
-        ? Math.sign(pageDepth - pageMotion.depth)
-        : segmentOrder !== pageMotion.order
-          ? Math.sign(segmentOrder - pageMotion.order)
-          : 1;
-    setPageMotion({ key: pageKey, depth: pageDepth, order: segmentOrder, dir });
-  }
-  const pageDirection = pageMotion.key === pageKey ? pageMotion.dir : 1;
 
   // Cheap probe: does the library hold photos taken on today's month-day in
   // previous years? It only drives the dismissable "On this day" pill — the
