@@ -181,33 +181,8 @@ func ProcessRetention(deps Deps, now int64) {
 			markAndSendPurgeWarning(deps, r.id, r.email, day, r.after)
 		}
 	}
-	purgeUnlinkedLunas(deps, now)
-}
-
-// purgeUnlinkedLunas deletes the storage of each Luna whose 30 days after unlinking are up.
-// Linking the Luna again clears its purge_after before then. A Luna at -1 was claimed by a
-// purge that never finished (the process stopped mid-purge), so it is retried here; purging is idempotent.
-func purgeUnlinkedLunas(deps Deps, now int64) {
-	rows, err := deps.DB.Query(`SELECT account_id, luna_id FROM luna_ids WHERE purge_after = -1 OR (purge_after > 0 AND purge_after <= ?)`, now)
-	if err != nil {
-		slog.Error("retention luna query", "err", err)
-		return
-	}
-	type pair struct{ accountID, lunaID string }
-	var list []pair
-	for rows.Next() {
-		var p pair
-		if err := rows.Scan(&p.accountID, &p.lunaID); err != nil {
-			continue
-		}
-		list = append(list, p)
-	}
-	rows.Close()
-	for _, p := range list {
-		if err := accounts.PurgeLunaStorage(context.Background(), deps.DB, deps.Store, p.accountID, p.lunaID); err != nil {
-			slog.Error("purge luna storage", "account", p.accountID, "luna", p.lunaID, "err", err)
-		}
-	}
+	// Unlinking does not end paid storage. Clear former unlink deadlines.
+	_, _ = deps.DB.Exec(`UPDATE luna_ids SET purge_after = 0 WHERE purge_after > 0`)
 }
 
 // deleteCloudCopiesNow deletes an account's cloud copies right after it turned

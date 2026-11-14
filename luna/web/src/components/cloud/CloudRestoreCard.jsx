@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CloudDownload } from "lucide-react";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
@@ -113,7 +114,16 @@ export default function CloudRestoreCard() {
     onSettled: () => { restoreAbortRef.current = null; },
   });
 
-  if (!isAdmin || restore.isPending || restore.isError
+  if (isAdmin && restore.isError) return (
+    <SettingsCard icon={CloudDownload} title="Bring back cloud backups">
+      <PageNotice variant="warning">
+        <p>Luna couldn't check whether your cloud backups need restoring.</p>
+        <Button variant="outline" surface="primary" size="sm" disabled={restore.isFetching} onClick={() => restore.refetch()}>Try again</Button>
+      </PageNotice>
+    </SettingsCard>
+  );
+
+  if (!isAdmin || restore.isPending
       || (!restore.data?.needed && !restore.data?.relink_pending)) return null;
 
   const submit = (e) => {

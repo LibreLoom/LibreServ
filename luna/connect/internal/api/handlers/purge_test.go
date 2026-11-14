@@ -53,16 +53,16 @@ VALUES (?, 'bucket-test', 'bid', 'https://b2.example', 'kid', 'sealed', ?)`, dev
 		t.Fatal("bucket mapping must survive purge so kept backup objects stay reachable")
 	}
 
-	// The Luna's storage is kept for 30 days; its purge is scheduled, not run now.
+	// Unlinking leaves paid cloud storage intact without a deadline.
 	var purgeAfter int64
 	_ = d.DB.QueryRow(`SELECT purge_after FROM luna_ids WHERE account_id = 'acct_purge' AND luna_id = 'luna-purge'`).Scan(&purgeAfter)
-	if purgeAfter < now+29*86400 || purgeAfter > now+31*86400 {
-		t.Fatalf("purge_after %d, want about 30 days from now", purgeAfter)
+	if purgeAfter != 0 {
+		t.Fatalf("purge_after %d, want no deadline", purgeAfter)
 	}
 	var packCount int
 	_ = d.DB.QueryRow(`SELECT COUNT(*) FROM storage_packs WHERE account_id = 'acct_purge' AND luna_id = 'luna-purge'`).Scan(&packCount)
 	if packCount != 1 {
-		t.Fatal("storage must be kept until the 30 days are up")
+		t.Fatal("storage must survive unlinking")
 	}
 
 	stReq := httptest.NewRequest(http.MethodGet, "/status", nil)

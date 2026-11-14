@@ -131,10 +131,6 @@ func unbindDevice(deps Deps, d Device, accountID string) {
 	if deps.DNS != nil && d.Subdomain != "" {
 		_ = deps.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, domainname.Hostname(d.Subdomain, config.C.Server.PublicZone))
 	}
-	now := time.Now().Unix()
-	// Unlinking starts the 30-day purge of every Luna this device stores for; linking again cancels it.
-	_, _ = deps.DB.Exec(`UPDATE luna_ids SET purge_after = ? WHERE account_id = ? AND device_id = ? AND purge_after = 0`,
-		now+int64(backupRetentionDays)*86400, accountID, d.ID)
 	_, _ = deps.DB.Exec(`UPDATE devices SET account_id = NULL, subdomain = NULL, tunnel_id = NULL, tunnel_token = NULL, name = NULL WHERE id = ?`, d.ID)
 }
 

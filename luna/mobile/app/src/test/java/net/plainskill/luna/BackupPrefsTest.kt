@@ -32,6 +32,15 @@ class BackupPrefsTest {
     }
 
     @Test
+    fun completedItemsBelongToTheirDestination() {
+        BackupPrefs.markUploaded(context, "luna/drive-a/photos", "image:42:100:123")
+        assertTrue(BackupPrefs.uploaded(context, "luna/drive-a/photos", "image:42:100:123"))
+        assertFalse(BackupPrefs.uploaded(context, "luna/drive-b/photos", "image:42:100:123"))
+        assertFalse(BackupPrefs.uploaded(context, "luna/drive-a/other", "image:42:100:123"))
+        assertFalse(BackupPrefs.uploaded(context, "luna/drive-a/photos", "image:43:100:123"))
+    }
+
+    @Test
     fun aFreshInstallIsSignedOutWithSafeDefaults() {
         assertFalse(BackupPrefs.signedIn(context))
         assertNull(BackupPrefs.token(context))

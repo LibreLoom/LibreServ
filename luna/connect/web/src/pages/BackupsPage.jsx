@@ -24,9 +24,6 @@ function daysUntil(unixSeconds) {
   return Math.max(0, Math.ceil((unixSeconds * 1000 - Date.now()) / 86400000));
 }
 
-function formatWhen(unixSeconds) {
-  return new Date(unixSeconds * 1000).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
-}
 
 /** Von Restorff — current cost stands out from pricing details. */
 function MonthlyCostHighlight({ amount, creditCents = 0 }) {
@@ -174,12 +171,9 @@ function BackupFilesCard({ lunas, paired }) {
   if (lunas && lunas.length === 0) {
     body = <EmptyStorageState paired={paired} />;
   } else if (lunas) {
-    const purgeAt = Number(chosen?.purge_after || 0);
     const unpairedNote = chosen && chosen.linked === false ? (
       <p className="text-sm leading-relaxed rounded-large-element border border-warning/30 bg-warning/20 text-foreground px-4 py-3">
-        {purgeAt > 0
-          ? `These files are from a Luna that is no longer linked. They are deleted on ${formatWhen(purgeAt)} unless you link it again. Download anything you need before then.`
-          : "These files are from a Luna that is no longer linked to this account. The monthly bill stays until you turn payment off."}
+        These files are from a Luna that is no longer linked to this account. Your cloud copies stay while payment is on.
       </p>
     ) : null;
 

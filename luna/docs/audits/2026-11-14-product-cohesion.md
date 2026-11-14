@@ -6,6 +6,16 @@ Report validation: `git diff --check` passed. The repository-required `./ci chec
 
 Scope: Luna web and daemon, Connect web and device/retention handlers, Android pairing and photo uploads, and desktop pairing, settings, uploads and sync. This is a targeted journey review, not an exhaustive certification. Connect's separate visual system is intentional and is not a finding.
 
+## Follow-up decisions and fixes
+
+The user clarified that unlinking must never expire paid storage. Unlink scheduling and the unlink purge worker were removed; former pending unlink deadlines are cleared by retention processing. Payment cancellation and failed-payment retention remain separate policies.
+
+Finding 2 is withdrawn as a reset-flow defect: recipients have individually wrapped backup keys and their saved recovery phrases can open the versions they can access. Reset copy was left unchanged.
+
+Findings 3, 4 and 7 were addressed with destination-specific completed-item history, stable content-derived photo names and retry overwrite, and a separate upload completion timestamp. Destination changes copy the existing library. The first run with the new history scans existing media again; content-derived names differ from older app filenames, so earlier uploads can have an additional copy. Findings 5 and 6 now show loading/failure/retry states.
+
+The findings below describe the original audited checkout. Follow-up regression tests were updated/added but were not executed under the repository's test-run policy.
+
 ## Findings
 
 ### 1. High — Disconnecting Luna starts a deletion deadline the confirmation does not disclose

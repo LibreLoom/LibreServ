@@ -56,7 +56,7 @@ object BackupPrefs {
         prefs(context)?.getBoolean("backup_enabled", true) ?: true
     fun askedBattery(context: Context): Boolean =
         prefs(context)?.getBoolean("asked_battery", false) ?: false
-    fun lastBackupAt(context: Context): Long = prefs(context)?.getLong("last_backup_at", 0L) ?: 0L
+    fun lastBackupAt(context: Context): Long = prefs(context)?.getLong("last_upload_completed_at", 0L) ?: 0L
 
     fun signedIn(context: Context): Boolean = !token(context).isNullOrBlank()
 
@@ -121,7 +121,17 @@ object BackupPrefs {
         prefs(context)?.edit()?.clear()?.apply()
     }
 
+    fun uploaded(context: Context, destination: String, item: String): Boolean =
+        prefs(context)?.getBoolean("uploaded:$destination:$item", false) ?: false
+
+    fun markUploaded(context: Context, destination: String, item: String) {
+        val store = prefs(context) ?: error("This phone couldn't save upload progress safely.")
+        check(store.edit().putBoolean("uploaded:$destination:$item", true).commit()) {
+            "This phone couldn't save upload progress. Try again."
+        }
+    }
+
     fun markBackedUp(context: Context, time: Long) {
-        prefs(context)?.edit()?.putLong("last_backup_at", time)?.apply()
+        prefs(context)?.edit()?.putLong("last_upload_completed_at", time)?.apply()
     }
 }

@@ -158,7 +158,7 @@ func countRows(t *testing.T, d Deps, query string, args ...any) int {
 	return n
 }
 
-func TestRetentionPurgesOnlyUnlinkedLuna(t *testing.T) {
+func TestRetentionKeepsUnlinkedLuna(t *testing.T) {
 	d := testDeps(t)
 	_, acct, _ := testOnboarding(t)
 	acct.Deps = d
@@ -171,10 +171,10 @@ func TestRetentionPurgesOnlyUnlinkedLuna(t *testing.T) {
 
 	ProcessRetention(d, now)
 
-	if n := countRows(t, d, `SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = 'luna-gone'`, id); n != 0 {
+	if n := countRows(t, d, `SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = 'luna-gone'`, id); n != 1 {
 		t.Fatalf("unlinked luna packs left %d", n)
 	}
-	if n := countRows(t, d, `SELECT COUNT(*) FROM luna_ids WHERE account_id = ? AND luna_id = 'luna-gone'`, id); n != 0 {
+	if n := countRows(t, d, `SELECT COUNT(*) FROM luna_ids WHERE account_id = ? AND luna_id = 'luna-gone'`, id); n != 1 {
 		t.Fatalf("unlinked luna row left %d", n)
 	}
 	if n := countRows(t, d, `SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = 'luna-kept'`, id); n != 1 {

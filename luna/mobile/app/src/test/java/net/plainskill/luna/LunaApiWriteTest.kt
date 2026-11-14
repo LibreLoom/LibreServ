@@ -137,12 +137,12 @@ class LunaApiWriteTest {
         val data = ByteArray(size) { (it % 251).toByte() }
         replies["POST /api/v1/uploads"] = 200 to "{\"upload_id\":\"u1\"}"
         replies["PUT /api/v1/uploads/u1"] = 200 to "{}"
-        replies["POST /api/v1/uploads/u1/complete"] = 200 to "{}"
+        replies["POST /api/v1/uploads/u1/complete?overwrite=1"] = 200 to "{}"
 
         LunaApi.uploadStream(base, "tok", "d1", "Photos/2026/10", "a.jpg", size.toLong(), ByteArrayInputStream(data))
 
         assertEquals(
-            listOf("POST /api/v1/uploads", "PUT /api/v1/uploads/u1", "PUT /api/v1/uploads/u1", "POST /api/v1/uploads/u1/complete"),
+            listOf("POST /api/v1/uploads", "PUT /api/v1/uploads/u1", "PUT /api/v1/uploads/u1", "POST /api/v1/uploads/u1/complete?overwrite=1"),
             seen.map { "${it.method} ${it.path}" },
         )
         val create = String(seen[0].body)

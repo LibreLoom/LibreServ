@@ -194,17 +194,17 @@ describe("BackupsPage", () => {
     expect(screen.getByText(/within about an hour: about \$4\.20 plus tax/)).toBeTruthy();
   });
 
-  it("says when a no longer linked Luna's files will be deleted", () => {
+  it("keeps unlinked copies while payment is on even with a former deadline", () => {
     renderTab({ lunas: [{ ...HOME, linked: false, purge_after: 1800000000 }], paired: false });
     expect(
-      screen.getByText(/These files are from a Luna that is no longer linked\. They are deleted on .+ unless you link it again\. Download anything you need before then\./),
+      screen.getByText(/Your cloud copies stay while payment is on/),
     ).toBeTruthy();
     expect(screen.queryByText(/monthly bill stays/i)).toBeNull();
   });
 
   it("keeps the bill sentence for a no longer linked Luna with no delete date", () => {
     renderTab({ lunas: [{ ...HOME, linked: false, purge_after: 0 }], paired: false });
-    expect(screen.getByText(/The monthly bill stays until you turn payment off/)).toBeTruthy();
+    expect(screen.getByText(/Your cloud copies stay while payment is on/)).toBeTruthy();
     expect(screen.queryByText(/They are deleted on/)).toBeNull();
   });
 

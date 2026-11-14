@@ -271,6 +271,7 @@ object LunaApi {
             put("path", destPath)
             put("name", name)
             put("size", size)
+            put("on_conflict", "overwrite")
         }
         val json = try {
             post(baseUrl, "/api/v1/uploads", body.toString(), token)
@@ -303,7 +304,7 @@ object LunaApi {
     }
 
     fun completeUpload(baseUrl: String, token: String, uploadId: String) {
-        post(baseUrl, "/api/v1/uploads/$uploadId/complete", "", token)
+        post(baseUrl, "/api/v1/uploads/$uploadId/complete?overwrite=1", "", token)
     }
 
     fun uploadStream(baseUrl: String, token: String, driveId: String, destPath: String, name: String, size: Long, stream: InputStream) {
