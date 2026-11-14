@@ -45,12 +45,18 @@ pub fn extract<R: Read + Seek>(format: Format, mut input: R) -> Result<String> {
     let mut out = TextSink::new();
     match format {
         Format::Text => {
-            let bytes = read_capped(&mut input, Format::Text.max_input_bytes())?;
-            out.push(&decode_text(&bytes)?);
+            let cap = Format::Text.max_input_bytes();
+            let bytes = read_capped(&mut input, cap)?;
+            out.push(&decode_text_capped(&bytes, bytes.len() as u64 == cap)?);
         }
         Format::Html => {
-            let bytes = read_capped(&mut input, Format::Html.max_input_bytes())?;
-            markup_text(&decode_text(&bytes)?, Markup::Html, &mut out);
+            let cap = Format::Html.max_input_bytes();
+            let bytes = read_capped(&mut input, cap)?;
+            markup_text(
+                &decode_text_capped(&bytes, bytes.len() as u64 == cap)?,
+                Markup::Html,
+                &mut out,
+            );
         }
         Format::Rtf => {
             let bytes = read_capped(&mut input, Format::Rtf.max_input_bytes())?;
@@ -205,7 +211,13 @@ impl TextSink {
         self.pending = 3;
     }
 
-    pub fn finish(self) -> String {
+    pub fn finish(mut self) -> String {
+        // Cut off at the cap: end on a whole word, not half of one.
+        if self.full
+            && let Some(at) = self.buf.rfind(char::is_whitespace)
+        {
+            self.buf.truncate(at);
+        }
         self.buf
     }
 }
@@ -217,6 +229,12 @@ impl TextSink {
 /// wins, then UTF-8, then Windows-1252 (which maps every byte). Bytes that
 /// look binary are refused so a renamed program isn't indexed as words.
 pub fn decode_text(bytes: &[u8]) -> Result<String> {
+    decode_text_capped(bytes, false)
+}
+
+/// [`decode_text`] for bytes that may stop at the size cap (`capped`), where a
+/// multi-byte character cut in half is still UTF-8.
+fn decode_text_capped(bytes: &[u8], capped: bool) -> Result<String> {
     if let Some((enc, bom)) = encoding_rs::Encoding::for_bom(bytes) {
         let (text, _) = enc.decode_without_bom_handling(&bytes[bom..]);
         return Ok(text.into_owned());
@@ -240,7 +258,7 @@ pub fn decode_text(bytes: &[u8]) -> Result<String> {
     match std::str::from_utf8(bytes) {
         Ok(s) => Ok(s.to_string()),
         // A cut-off multi-byte character at the cap is still UTF-8.
-        Err(e) if e.error_len().is_none() => {
+        Err(e) if capped && e.error_len().is_none() => {
             Ok(String::from_utf8_lossy(&bytes[..e.valid_up_to()]).into_owned())
         }
         Err(_) => {

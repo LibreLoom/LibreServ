@@ -24,7 +24,8 @@ pub fn fts_expr(query: &Query) -> Option<String> {
     } else {
         parts.push(quote(last));
     }
-    Some(parts.join(" "))
+    // FTS5 needs an explicit AND before a parenthesized group.
+    Some(parts.join(" AND "))
 }
 
 /// One content match before access checks: the file and how well it matched
@@ -142,13 +143,13 @@ mod tests {
     fn expressions_quote_words_and_let_the_last_one_be_partial() {
         assert_eq!(
             fts_expr(&Query::new("water bill")).unwrap(),
-            "\"water\" (\"bill\" OR \"bill\"*)"
+            "\"water\" AND (\"bill\" OR \"bill\"*)"
         );
         assert_eq!(fts_expr(&Query::new("tv")).unwrap(), "\"tv\"");
         // Punctuation is folded away by the query, so no FTS syntax survives.
         assert_eq!(
             fts_expr(&Query::new("a\" OR b*")).unwrap(),
-            "\"a\" \"or\" \"b\""
+            "\"a\" AND \"or\" AND \"b\""
         );
         assert!(fts_expr(&Query::new("  ")).is_none());
     }

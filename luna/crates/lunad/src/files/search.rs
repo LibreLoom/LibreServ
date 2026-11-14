@@ -321,7 +321,11 @@ fn search_drive_with_limits(
                 }
             }
             Err(e) if interrupted(&e) => incomplete = true,
-            Err(e) => return Err(e.into()),
+            // Searching inside files must never take name search down with it.
+            Err(e) => {
+                tracing::warn!(error = %e, drive_id, "searching inside files failed");
+                incomplete = true;
+            }
         }
     }
     // Passages about the same thing, in other words.
@@ -348,7 +352,11 @@ fn search_drive_with_limits(
                 }
             }
             Err(e) if interrupted(&e) => incomplete = true,
-            Err(e) => return Err(e.into()),
+            // Searching inside files must never take name search down with it.
+            Err(e) => {
+                tracing::warn!(error = %e, drive_id, "searching inside files failed");
+                incomplete = true;
+            }
         }
     }
     out.sort_by(|a, b| a.rank.cmp(&b.rank));
