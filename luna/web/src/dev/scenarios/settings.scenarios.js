@@ -452,7 +452,7 @@ export default [
   {
     id: "settings/phrase-moving-full",
     area: "Settings: Luna Connect",
-    title: "Move paused because Connect storage is full",
+    title: "Update paused because Connect storage is full",
     url: "/settings#luna_connect",
     seed: (w) => {
       setPhrase(w);

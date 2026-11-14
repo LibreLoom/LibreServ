@@ -120,6 +120,17 @@ describe("backupStatus", () => {
     expect(backupStatus(drive({ status: "stopped" })).label).toBe("Stopped");
     expect(backupStatus(drive({ status: "source_gone" })).label).toBe("Original is gone");
   });
+
+  it("keeps the running phrase move as the headline over stale and failing", () => {
+    // A slow move can outlive the stale window or trip the failure signal;
+    // the row must agree with the card's MovingNote either way.
+    expect(backupStatus(cloud({ state: "stale", last_ok_at: 1000, moving: { percent: 40 } })).label)
+      .toMatch(/Updating your cloud backups/);
+    expect(backupStatus(cloud({ state: "failing", moving: { percent: 40 } })).label)
+      .toMatch(/Updating your cloud backups/);
+    expect(backupStatus(cloud({ state: "failing", moving: { percent: 40, paused_full: true } })).label)
+      .toBe("Connect storage is full — update paused");
+  });
 });
 
 describe("sortByUrgency and lastCopyLine", () => {

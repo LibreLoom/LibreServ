@@ -71,14 +71,17 @@ export function backupStatus(b, now = Date.now()) {
   if (b.kind === "cloud" && b.status === "active" && b.source_missing) {
     return { label: "Original is missing", variant: "warning" };
   }
-  if (b.state === "failing") return { label: "Last copy failed", variant: "error" };
-  if (b.state === "stale") return { label: lastBackedUpLine(b.last_ok_at, now), variant: "warning" };
-  if (b.kind === "cloud" && b.check_problem) return { label: "Check failed", variant: "warning" };
   if (b.kind === "cloud" && b.moving) {
+    // The move is the headline while it runs: a slow move can outlive the
+    // stale window or trip the failure signal, and the row must agree with
+    // the card's MovingNote instead of showing the old state.
     return b.moving.paused_full
       ? { label: "Connect storage is full — update paused", variant: "warning" }
       : { label: `Updating your cloud backups to the new phrase · ${movingPercent(b.moving)}%`, variant: "default" };
   }
+  if (b.state === "failing") return { label: "Last copy failed", variant: "error" };
+  if (b.state === "stale") return { label: lastBackedUpLine(b.last_ok_at, now), variant: "warning" };
+  if (b.kind === "cloud" && b.check_problem) return { label: "Check failed", variant: "warning" };
   if (!b.last_ok_at) return { label: "No copy yet", variant: "default" };
   return { label: "Backup successful", variant: "success" };
 }

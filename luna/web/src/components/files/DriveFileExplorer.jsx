@@ -674,7 +674,9 @@ export default function DriveFileExplorer({
         run: () => window.location.assign(source.downloadHref(driveId, ctx.fullPath, ctx.entry.kind)),
       });
     }
-    if (trashChild && ctx.path === TRASH_PATH) {
+    // Same gate as the Trash link and the selection-bar Restore: a
+    // read-only drive gets no in-trash actions, deep link or not.
+    if (folderCanEdit && trashChild && ctx.path === TRASH_PATH) {
       actions.push({
         key: "restore",
         label: "Restore",
@@ -736,7 +738,7 @@ export default function DriveFileExplorer({
       });
     }
     return actions;
-  }, [access.data, driveId, guest, guestCaps, source, isAdmin, showProtect, canView, inBackups, driveWritable]);
+  }, [access.data, driveId, guest, guestCaps, source, isAdmin, showProtect, canView, inBackups, driveWritable, folderCanEdit]);
 
   const renderRowActions = useCallback((ctx) => {
     if (inBackups) return <BackupRowActions driveId={driveId} ctx={ctx} onVersions={openVersions} />;
@@ -942,7 +944,10 @@ export default function DriveFileExplorer({
         ) : headerExtra}
         renderSelectionActions={inTrash ? (paths, rows) => {
           // Restore only works on whole top-level trash entries — a mixed
-          // or nested selection doesn't get the button at all.
+          // or nested selection doesn't get the button at all. Read-only
+          // drives get no in-trash actions either (same gate as the Trash
+          // link), so a deep link can't offer a Restore that fails.
+          if (!trashVisible || !folderCanEdit) return null;
           if (paths.length === 0 || !paths.every((p) => parentPath(p) === TRASH_PATH)) return null;
           const rowsByPath = new Map(rows.map((r) => [r.fullPath, r]));
           return (
