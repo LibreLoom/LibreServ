@@ -279,7 +279,7 @@ export default function CloudBackupCategory() {
           ) : cloudQuery.isError ? (
             <PageNotice variant="error">
               <p>Luna couldn't load your cloud backups.</p>
-              <Button variant="outline" surface="secondary" size="sm" onClick={() => cloudQuery.refetch()}>Try again</Button>
+              <Button variant="outline" surface="primary" size="sm" onClick={() => cloudQuery.refetch()}>Try again</Button>
             </PageNotice>
           ) : backups.length === 0 ? (
             <div className="space-y-3">

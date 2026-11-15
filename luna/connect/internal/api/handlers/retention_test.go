@@ -288,7 +288,7 @@ func TestKeepLunaStopsRetryOfStuckPurge(t *testing.T) {
 	}
 }
 
-func TestRetentionRetriesLunaStuckMidPurge(t *testing.T) {
+func TestRetentionStopsFormerUnlinkPurge(t *testing.T) {
 	d := testDeps(t)
 	_, acct, _ := testOnboarding(t)
 	acct.Deps = d
@@ -301,10 +301,10 @@ func TestRetentionRetriesLunaStuckMidPurge(t *testing.T) {
 
 	ProcessRetention(d, now)
 
-	if n := countRows(t, d, `SELECT COUNT(*) FROM luna_ids WHERE account_id = ? AND luna_id = 'luna-stuck'`, id); n != 0 {
-		t.Fatalf("stuck luna row %d after retention, want purged (0)", n)
+	if n := countRows(t, d, `SELECT COUNT(*) FROM luna_ids WHERE account_id = ? AND luna_id = 'luna-stuck'`, id); n != 1 {
+		t.Fatalf("stuck luna row %d after retention, want retained (1)", n)
 	}
-	if n := countRows(t, d, `SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = 'luna-stuck'`, id); n != 0 {
-		t.Fatalf("stuck luna packs %d after retention, want 0", n)
+	if n := countRows(t, d, `SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = 'luna-stuck'`, id); n != 1 {
+		t.Fatalf("stuck luna packs %d after retention, want 1", n)
 	}
 }

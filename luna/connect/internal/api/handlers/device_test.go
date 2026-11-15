@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
@@ -319,5 +321,57 @@ func TestDeviceDomainSameSubdomainReturnsTunnelToken(t *testing.T) {
 	}
 	if gotTok != wantTok {
 		t.Fatalf("tunnel_token mismatch: got %q want %q", gotTok, wantTok)
+	}
+}
+
+// Both entry points must retain paid storage even long after the device leaves.
+func TestUnlinkKeepsPaidCloudCopies(t *testing.T) {
+	for _, local := range []bool{false, true} {
+		name := "account unbind"
+		if local {
+			name = "Luna unregister"
+		}
+		t.Run(name, func(t *testing.T) {
+			d := testDeps(t)
+			acctH := AccountHandler{Deps: d}
+			devH := DeviceHandler{Deps: d}
+			cookie := registerAccount(t, acctH, "paid@b.co")
+			verifyEmailFor(t, acctH, "paid@b.co")
+			var accountID string
+			if err := d.DB.QueryRow(`SELECT id FROM accounts WHERE email = 'paid@b.co'`).Scan(&accountID); err != nil {
+				t.Fatal(err)
+			}
+			devID, code := mintDevice(t, d, "official")
+			bind := httptest.NewRequest(http.MethodPost, "/devices/bind", bytes.NewBufferString(`{"code":"`+code+`"}`))
+			bind.AddCookie(cookie)
+			if rec := withVerifiedAccount(acctH, devH.Bind, bind); rec.Code != http.StatusOK {
+				t.Fatalf("bind: %s", rec.Body.String())
+			}
+			if _, err := d.DB.Exec(`UPDATE accounts SET billing_status = 'active' WHERE id = ?`, accountID); err != nil {
+				t.Fatal(err)
+			}
+			seedLunaWithPack(t, d, accountID, "paid-luna", devID, 0, strings.Repeat("a", 64))
+			var rec *httptest.ResponseRecorder
+			if local {
+				req := httptest.NewRequest(http.MethodPost, "/unregister", nil)
+				req.Header.Set("Authorization", "Bearer "+code)
+				rec = httptest.NewRecorder()
+				devH.DeviceAuth(http.HandlerFunc(devH.Unregister)).ServeHTTP(rec, req)
+			} else {
+				req := withChiParam(httptest.NewRequest(http.MethodDelete, "/devices/"+devID, nil), "deviceID", devID)
+				req.AddCookie(cookie)
+				rec = withVerifiedAccount(acctH, devH.Unbind, req)
+			}
+			if rec.Code != http.StatusOK {
+				t.Fatalf("unlink: %d %s", rec.Code, rec.Body.String())
+			}
+			ProcessRetention(d, time.Now().Unix()+365*86400)
+			if countRows(t, d, `SELECT COUNT(*) FROM luna_ids WHERE account_id = ? AND luna_id = 'paid-luna' AND purge_after = 0`, accountID) != 1 {
+				t.Fatal("paid Luna must have no unlink deadline")
+			}
+			if countRows(t, d, `SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = 'paid-luna'`, accountID) != 1 {
+				t.Fatal("paid storage must remain after a year")
+			}
+		})
 	}
 }

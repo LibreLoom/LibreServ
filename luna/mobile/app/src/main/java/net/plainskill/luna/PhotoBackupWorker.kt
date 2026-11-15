@@ -11,7 +11,7 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 
 /**
- * Backs up photos and videos taken since the last run to the chosen drive under
+ * Backs up photos and videos not yet copied to this destination to the chosen drive under
  * `<folder>/<year>/<month>/`. Runs under WorkManager constraints, promotes
  * itself to a data-sync foreground job so Android does not kill the upload,
  * and only alerts when backup cannot continue.
@@ -46,7 +46,6 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
             // History belongs to the destination, not a global media timestamp.
             val destination = "$baseUrl/$driveId/$folder"
             val since = 0L
-            var uploaded = 0
 
             data class MediaCol(val id: Int, val name: Int, val size: Int, val date: Int)
 
@@ -67,7 +66,7 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
                             return Result.retry()
                         }
                         val id = cursor.getLong(cols.id)
-                        val name = cursor.getString(cols.name).ifEmpty {
+                        val name = cursor.getString(cols.name).orEmpty().ifEmpty {
                             if (collection == MediaStore.Video.Media.EXTERNAL_CONTENT_URI) "video-$id.mp4" else "photo-$id.jpg"
                         }
                         val size = cursor.getLong(cols.size)
@@ -96,12 +95,11 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
                             val digest = java.security.MessageDigest.getInstance("SHA-256")
                             sourceDigest(context, uri, digest)
                             val hash = digest.digest().joinToString("") { "%02x".format(it) }
-                            val stem = name.substringBeforeLast('.', name).take(60)
-                            val ext = name.substringAfterLast('.', "").take(16)
+                            val stem = name.substringBeforeLast('.', name).take(24)
+                            val ext = name.substringAfterLast('.', "").take(12)
                             val remoteName = "$stem-$hash" + if (ext.isEmpty()) "" else ".$ext"
                             LunaApi.uploadStream(baseUrl, token, driveId, LunaApi.joinPath(folder, month), remoteName, size, stream)
                             BackupPrefs.markUploaded(context, destination, item)
-                            uploaded++
                         }
                         remaining--
                     }
@@ -137,7 +135,6 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
                 "${MediaStore.Video.Media.DATE_ADDED} ASC",
             )?.let { return it }
 
-            if (uploaded > 0) BackupPrefs.markBackedUp(context, System.currentTimeMillis())
             notifier.clearProgress()
             BackupProgress.idle()
             Result.success()

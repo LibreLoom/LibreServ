@@ -125,3 +125,13 @@ The worker only saves its progress marker after the entire image/video batch fin
 ## Suggested order
 
 Fix the disconnect/reset warnings first because they affect irreversible decisions. Then address Android upload idempotency and destination-specific history together. Finally make backup loading, freshness and recovery states consistent across surfaces. Keep Connect's purposeful account/billing boundary, but make the consequences of crossing it explicit in Luna.
+
+## Verification follow-up
+
+Android compiled and all 79 unit tests passed, including interrupted batches with a failed completion acknowledgment, same-date images/videos, repeat runs, destination changes and actual completion timestamps. The MediaStore test fixture now supplies readable streams, and the HTTP fixture preserves overwrite query parameters.
+
+The full run passed the daemon workspace tests (including 1,650 lunad tests) and browser recovery checks. The backup-list tests (20) and cloud recovery card tests (14) passed. Verification also corrected the error button's surface, saved completion timestamps per item for partial batches, and cleared former in-progress unlink purge markers. Connect regression coverage checks both unlink entry points with paid storage a year later.
+
+The full Luna run was not green: it reported eight web failures in FilesPage, GalleryPage, FormatDriveFlow and EditorLoadingScreen, outside the files changed for these fixes. Those failures are unresolved and are not classified as flaky. The initial new-test TypeScript error was corrected. No physical Android device or live payment service was used.
+
+Final targeted CI run: Connect Go tests, Connect web tests and Luna web typecheck all passed (3 checks, zero failures).

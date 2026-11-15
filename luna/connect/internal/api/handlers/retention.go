@@ -182,7 +182,7 @@ func ProcessRetention(deps Deps, now int64) {
 		}
 	}
 	// Unlinking does not end paid storage. Clear former unlink deadlines.
-	_, _ = deps.DB.Exec(`UPDATE luna_ids SET purge_after = 0 WHERE purge_after > 0`)
+	_, _ = deps.DB.Exec(`UPDATE luna_ids SET purge_after = 0 WHERE purge_after != 0`)
 }
 
 // deleteCloudCopiesNow deletes an account's cloud copies right after it turned

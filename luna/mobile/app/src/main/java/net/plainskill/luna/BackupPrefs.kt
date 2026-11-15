@@ -126,7 +126,8 @@ object BackupPrefs {
 
     fun markUploaded(context: Context, destination: String, item: String) {
         val store = prefs(context) ?: error("This phone couldn't save upload progress safely.")
-        check(store.edit().putBoolean("uploaded:$destination:$item", true).commit()) {
+        check(store.edit().putBoolean("uploaded:$destination:$item", true)
+            .putLong("last_upload_completed_at", System.currentTimeMillis()).commit()) {
             "This phone couldn't save upload progress. Try again."
         }
     }

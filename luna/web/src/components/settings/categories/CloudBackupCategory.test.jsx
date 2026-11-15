@@ -74,6 +74,34 @@ describe("CloudBackupCategory", () => {
     vi.unstubAllGlobals();
   });
 
+  it("shows loading without claiming the backup collection is empty", async () => {
+    const fetchMock = stubApi();
+    const original = fetchMock.getMockImplementation();
+    let finish = (_response) => {};
+    const pending = new Promise((resolve) => { finish = resolve; });
+    fetchMock.mockImplementation((url, options) => url === "/api/v1/cloud/backups" ? pending : original(url, options));
+    renderCard();
+    expect(await screen.findByText("Loading cloud backups…")).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing is backed up to the cloud yet/)).not.toBeInTheDocument();
+    finish(json([]));
+    expect(await screen.findByText(/Nothing is backed up to the cloud yet/)).toBeInTheDocument();
+  });
+
+  it("explains a failed listing and retries without claiming there are no backups", async () => {
+    const fetchMock = stubApi();
+    const original = fetchMock.getMockImplementation();
+    let failed = true;
+    fetchMock.mockImplementation((url, options) => url === "/api/v1/cloud/backups" && failed
+      ? Promise.resolve(new Response(JSON.stringify({ error: "Unavailable" }), { status: 503 }))
+      : original(url, options));
+    renderCard();
+    expect(await screen.findByText("Luna couldn't load your cloud backups.")).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing is backed up to the cloud yet/)).not.toBeInTheDocument();
+    failed = false;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText(/Nothing is backed up to the cloud yet/)).toBeInTheDocument();
+  });
+
   it("shows the recovery phrase card first, then the backup list", async () => {
     stubApi({ connected: true, backups: [sampleBackup] });
     renderCard();

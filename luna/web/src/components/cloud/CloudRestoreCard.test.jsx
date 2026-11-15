@@ -84,6 +84,16 @@ afterEach(() => {
 });
 
 describe("CloudRestoreCard", () => {
+  it("keeps recovery visible when its status check fails and lets the Admin retry", async () => {
+    getRestoreStatusMock.mockRejectedValueOnce(new Error("Unavailable"));
+    const user = userEvent.setup();
+    renderCard();
+    expect(await screen.findByText("Luna couldn't check whether your cloud backups need restoring.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByLabelText("Word 1")).toBeInTheDocument();
+    expect(getRestoreStatusMock).toHaveBeenCalledTimes(2);
+  });
+
   it("renders nothing for a member", async () => {
     mockUser = { id: "7", role: "member" };
     const { container } = renderCard();

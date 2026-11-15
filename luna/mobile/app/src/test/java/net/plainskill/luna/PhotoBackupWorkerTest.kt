@@ -2,7 +2,15 @@ package net.plainskill.luna
 
 import android.Manifest
 import android.app.Application
+import android.content.ContentProvider
+import android.content.ContentValues
+import android.content.ContentUris
 import android.content.Context
+import android.database.Cursor
+import android.database.MatrixCursor
+import android.net.Uri
+import android.os.ParcelFileDescriptor
+import android.provider.MediaStore
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.ListenableWorker
 import androidx.work.testing.TestListenableWorkerBuilder
@@ -16,6 +24,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.shadows.ShadowContentResolver
+import org.json.JSONObject
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import org.robolectric.annotation.Config
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
@@ -23,11 +35,47 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.util.concurrent.CopyOnWriteArrayList
 
+/** MediaStore fixture backed by actual streams, including images and videos. */
+class UploadMediaProvider : ContentProvider() {
+    data class Item(val uri: Uri, val name: String, val file: File, val date: Long)
+    val items = ArrayList<Item>()
+    override fun onCreate() = true
+    override fun query(uri: Uri, projection: Array<out String>?, selection: String?, selectionArgs: Array<out String>?, sortOrder: String?): Cursor {
+        val columns = projection ?: error("projection required")
+        return MatrixCursor(columns).apply {
+            items.filter { it.uri.toString().startsWith("$uri/") }.forEach { item ->
+                addRow(columns.map { column ->
+                    when (column) {
+                        MediaStore.MediaColumns._ID -> ContentUris.parseId(item.uri)
+                        MediaStore.MediaColumns.DISPLAY_NAME -> item.name
+                        MediaStore.MediaColumns.SIZE -> item.file.length()
+                        MediaStore.MediaColumns.DATE_ADDED -> item.date
+                        else -> error("unexpected column $column")
+                    }
+                }.toTypedArray())
+            }
+        }
+    }
+    override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor =
+        ParcelFileDescriptor.open(items.single { it.uri == uri }.file, ParcelFileDescriptor.MODE_READ_ONLY)
+    override fun getType(uri: Uri) = "application/octet-stream"
+    override fun insert(uri: Uri, values: ContentValues?): Uri? = error("unused")
+    override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?) = error("unused")
+    override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?) = error("unused")
+}
+
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
 class PhotoBackupWorkerTest {
     private val context: Context get() = ApplicationProvider.getApplicationContext()
 
+    private lateinit var media: UploadMediaProvider
+    private val uploadNames = CopyOnWriteArrayList<String>()
+    private val destinations = CopyOnWriteArrayList<String>()
+    private val installed = ConcurrentHashMap<String, Boolean>()
+    private var currentUpload = ""
+    @Volatile private var failComplete = 0
+    private var completeCount = 0
     private lateinit var server: ServerSocket
     private val requests = CopyOnWriteArrayList<String>()
     private var driveReply: Pair<Int, String> = 200 to "[{\"id\":\"d1\",\"label\":\"Photos\"}]"
@@ -51,6 +99,9 @@ class PhotoBackupWorkerTest {
         BackupPrefs.clearSession(context)
         BackupProgress.idle()
         requests.clear()
+        media = UploadMediaProvider()
+        media.attachInfo(context, android.content.pm.ProviderInfo().apply { authority = MediaStore.AUTHORITY })
+        ShadowContentResolver.registerProviderInternal(MediaStore.AUTHORITY, media)
         server = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
         Thread {
             while (!server.isClosed) {
@@ -59,10 +110,37 @@ class PhotoBackupWorkerTest {
                     val input = sock.getInputStream()
                     val request = readLine(input) ?: return@use
                     requests += request.substringBefore(" HTTP")
-                    while (true) if (readLine(input).isNullOrEmpty()) break
+                    var length = 0
+                    while (true) {
+                        val header = readLine(input)
+                        if (header.isNullOrEmpty()) break
+                        if (header.startsWith("Content-Length:", ignoreCase = true)) length = header.substringAfter(':').trim().toInt()
+                    }
+                    val body = ByteArray(length)
+                    var got = 0
+                    while (got < length) {
+                        val count = input.read(body, got, length - got)
+                        if (count < 0) break
+                        got += count
+                    }
                     val (code, text) = when {
                         request.startsWith("GET /api/v1/drives ") -> driveReply
                         request.startsWith("GET /api/v1/health ") -> healthReply
+                        request.startsWith("POST /api/v1/uploads ") -> {
+                            val data = JSONObject(String(body))
+                            assertEquals("overwrite", data.getString("on_conflict"))
+                            currentUpload = data.getString("name")
+                            uploadNames += currentUpload
+                            destinations += data.getString("drive_id") + "/" + data.getString("path")
+                            200 to "{\"upload_id\":\"u1\"}"
+                        }
+                        request.startsWith("PUT /api/v1/uploads/u1 ") -> 200 to "{}"
+                        request.startsWith("POST /api/v1/uploads/u1/complete?overwrite=1 ") -> {
+                            installed[currentUpload] = true
+                            completeCount++
+                            // Simulate a server commit whose acknowledgment failed.
+                            if (completeCount == failComplete) 503 to "{\"error\":\"Try again\"}" else 200 to "{}"
+                        }
                         else -> 404 to "{}"
                     }
                     val out = text.toByteArray()
@@ -95,6 +173,55 @@ class PhotoBackupWorkerTest {
 
     private fun run(): ListenableWorker.Result = runBlocking {
         TestListenableWorkerBuilder<PhotoBackupWorker>(context).build().doWork()
+    }
+
+    private fun addPhoto(id: Long, name: String = "photo.jpg", date: Long = 123L, video: Boolean = false) {
+        val collection = if (video) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val file = File(context.cacheDir, "upload-$id-$video").apply { writeText("photo bytes $id $video") }
+        val uri = ContentUris.withAppendedId(collection, id)
+        media.items += UploadMediaProvider.Item(uri, name, file, date)
+        shadowOf(context.contentResolver).registerInputStreamSupplier(uri) { file.inputStream() }
+    }
+
+    @Test
+    fun retriesAnInterruptedBatchWithoutRepeatingCompletedItemsOrLosingSameDateMedia() {
+        signInReady()
+        grantPhotos()
+        addPhoto(1)
+        addPhoto(2)
+        addPhoto(3, video = true)
+        failComplete = 2
+        assertEquals(ListenableWorker.Result.retry(), run())
+        assertEquals(2, uploadNames.size)
+        assertEquals(ListenableWorker.Result.success(), run())
+        assertEquals(4, uploadNames.size)
+        assertEquals(uploadNames[1], uploadNames[2])
+        assertEquals(3, installed.size)
+        assertEquals(3, uploadNames.distinct().size)
+        assertEquals(ListenableWorker.Result.success(), run())
+        assertEquals("all completed items skipped", 4, uploadNames.size)
+    }
+
+    @Test
+    fun switchingDestinationCopiesOldMediaAndRecordsActualUploadTime() {
+        signInReady()
+        grantPhotos()
+        addPhoto(1, date = 123L)
+        val before = System.currentTimeMillis()
+        val outcome = run()
+        assertEquals(BackupProgress.snapshot.lastError, ListenableWorker.Result.success(), outcome)
+        assertTrue(BackupPrefs.lastBackupAt(context) >= before)
+        assertTrue(BackupPrefs.lastBackupAt(context) <= System.currentTimeMillis())
+        BackupPrefs.setFolderPrefix(context, "Other")
+        assertEquals(ListenableWorker.Result.success(), run())
+        assertEquals(2, uploadNames.size)
+        assertEquals(uploadNames[0], uploadNames[1])
+        assertTrue(destinations[1].startsWith("d1/Other/"))
+        driveReply = 200 to "[{\"id\":\"d2\",\"label\":\"Replacement\"}]"
+        BackupPrefs.setDrive(context, "d2", "Replacement")
+        assertEquals(ListenableWorker.Result.success(), run())
+        assertEquals(3, uploadNames.size)
+        assertTrue(destinations[2].startsWith("d2/Other/"))
     }
 
     @Test

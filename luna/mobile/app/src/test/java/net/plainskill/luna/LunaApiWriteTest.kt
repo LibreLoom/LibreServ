@@ -68,7 +68,7 @@ class LunaApiWriteTest {
                         if (n < 0) break
                         got += n
                     }
-                    val path = target.substringBefore('?')
+                    val path = target
                     seen += Seen(method, path, headers["authorization"], headers["content-range"], body)
                     val (code, text) = replies["$method $path"] ?: (404 to "{}")
                     val out = text.toByteArray()
