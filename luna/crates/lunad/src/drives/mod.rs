@@ -1151,7 +1151,7 @@ impl DriveManager {
                     // at a device that no longer exists.
                     self.detach_stale_mount(row);
                     let _ = self.ensure_mounted(&updated);
-                    // Always re-arm gallery on Ready restore (eject→replug /
+                    // Always re-arm photos on Ready restore (eject→replug /
                     // missing→as_is). Prior unwatch left the indexer cold.
                     plan.remount_ids.push(updated.id.clone());
                 }
@@ -1199,7 +1199,7 @@ impl DriveManager {
     }
 
     /// The DB half of reconcile: apply the writes the scan collected, then
-    /// resolve each re-mounted drive's fresh mount path for gallery re-arm.
+    /// resolve each re-mounted drive's fresh mount path for photos re-arm.
     pub fn reconcile_apply(
         &self,
         conn: &Connection,
@@ -2098,7 +2098,7 @@ mod tests {
         assert!(mounter.is_mounted(Path::new(&row.mount_point)));
         assert!(
             remounted.iter().any(|(id, _)| id == &row.id),
-            "gallery must be re-armed"
+            "photos must be re-armed"
         );
     }
 
@@ -2140,7 +2140,7 @@ mod tests {
             "missing"
         );
 
-        // Drive back — must report gallery remount so callers re-arm watch_mount.
+        // Drive back — must report photos remount so callers re-arm watch_mount.
         let remounted = mgr
             .reconcile(&conn, &[replugged(&mounter, &row, "sdz")])
             .unwrap();
@@ -2152,7 +2152,7 @@ mod tests {
             remounted
                 .iter()
                 .any(|(id, mp)| { id == &row.id && mp == &PathBuf::from(&row.mount_point) }),
-            "Ready restore must list the drive for gallery re-arm, got {remounted:?}"
+            "Ready restore must list the drive for photos re-arm, got {remounted:?}"
         );
     }
 
@@ -2205,7 +2205,7 @@ mod tests {
     }
 
     #[test]
-    fn reconcile_ready_restore_lists_gallery_rearm() {
+    fn reconcile_ready_restore_lists_photos_rearm() {
         let mounter = shared_mock();
         let root = tempfile::tempdir().unwrap();
         let dir = root.path();

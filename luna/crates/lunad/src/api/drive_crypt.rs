@@ -43,6 +43,12 @@ struct EncryptionJson {
     /// `not_encrypted`, `unplugged`, `formatting`, `locked`, `unlocked`, or
     /// `unavailable` (encrypted and unlocked, but its mount isn't right).
     status: &'static str,
+    /// A plain drive can be protected with a password. False for a dev mock
+    /// drive (a folder) or a Luna missing the programs encryption needs.
+    can_protect: bool,
+    /// Why `can_protect` is false, in words a person can read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cant_protect_reason: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -221,7 +227,7 @@ fn tool_failure(
 /// Watch a drive that just became readable, so photos and search catch up.
 fn watch(state: &AppState, id: &str, mount: &std::path::Path) {
     state.search_index.watch_mount(id, mount.to_path_buf());
-    state.gallery.watch_mount(id, mount.to_path_buf());
+    state.photos.watch_mount(id, mount.to_path_buf());
 }
 
 // ---------------------------------------------------------------------------
@@ -254,7 +260,14 @@ async fn encryption_state(
     } else {
         "unavailable"
     };
+    let cant_protect_reason = if row.encrypted {
+        None
+    } else {
+        protect_blocker(&state, &row.device).await
+    };
     Ok(Json(EncryptionJson {
+        can_protect: !row.encrypted && cant_protect_reason.is_none(),
+        cant_protect_reason,
         drive_id: row.id,
         label: row.label,
         encrypted: row.encrypted,
@@ -263,6 +276,29 @@ async fn encryption_state(
         present,
         status,
     }))
+}
+
+/// Why this disk can't be protected with a password, or `None` when it can:
+/// a dev mock drive is a folder, and a Luna missing cryptsetup can't encrypt.
+/// The UI hides "Protect with a password" and shows this instead.
+pub(crate) async fn protect_blocker(state: &AppState, device: &str) -> Option<String> {
+    let name = device.to_string();
+    let mock = tokio::task::spawn_blocking(move || crate::drives::format::is_mock_device(&name))
+        .await
+        .unwrap_or(false);
+    if mock {
+        return Some(
+            "This is a test drive made from a folder. A folder can't be protected with a password."
+                .to_string(),
+        );
+    }
+    state
+        .format
+        .tools()
+        .missing(crate::drives::format::run::required_tools(true))
+        .map(|tool| {
+            crate::drives::format::run::FormatError::MissingTool(tool.to_string()).to_string()
+        })
 }
 
 // ---------------------------------------------------------------------------

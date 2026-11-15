@@ -46,6 +46,14 @@ it("collects the password for Protect with a password, then hands both over", as
   await waitFor(() => expect(onProtect).toHaveBeenCalledWith(drive, "brand-new-pass-2"));
 });
 
+it("doesn't offer Protect when Luna can't protect this drive, and says why", () => {
+  const reason = "This is a test drive made from a folder. A folder can't be protected with a password.";
+  render(wrap(<InspectModal open drive={drive} result={{ needs_setup: true, readable: true, writable: false, entries: [], folders: 0, files: 0, can_protect: false, cant_protect_reason: reason }} error={null} adoptError={null} adopting={false} onClose={() => {}} onAdopt={() => {}} onErase={() => {}} onProtect={() => {}} />));
+  expect(screen.queryByRole("button", { name: "Protect with a password" })).toBeNull();
+  expect(screen.getByText(reason)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Erase and set up" })).toBeInTheDocument();
+});
+
 it("offers to erase a drive that needs setting up, and never adds it as it is", async () => {
   const onErase = vi.fn(async () => {});
   render(wrap(<InspectModal open drive={drive} result={{ needs_setup: true, readable: true, writable: false, entries: [], folders: 0, files: 0 }} error={null} adoptError={null} adopting={false} onClose={() => {}} onAdopt={() => {}} onErase={onErase} />));

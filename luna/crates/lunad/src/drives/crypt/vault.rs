@@ -295,7 +295,7 @@ pub fn lock_drive(state: &AppState, id: &str) -> Result<(), LockError> {
         {
             let root = PathBuf::from(&row.mount_point);
             state.search_index.watch_mount(id, root.clone());
-            state.gallery.watch_mount(id, root);
+            state.photos.watch_mount(id, root);
         }
         match e {
         FormatError::Busy => LockError::Busy(
@@ -328,7 +328,7 @@ pub fn lock_drive(state: &AppState, id: &str) -> Result<(), LockError> {
         if restored {
             let root = PathBuf::from(&drive.mount_point);
             state.search_index.watch_mount(id, root.clone());
-            state.gallery.watch_mount(id, root);
+            state.photos.watch_mount(id, root);
         } else if let Ok(conn) = state.db.lock() {
             // Not mounted and not closed: record it as locked so nothing reads
             // the empty folder; the next reconcile closes the container.

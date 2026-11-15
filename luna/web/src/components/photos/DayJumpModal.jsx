@@ -1,4 +1,4 @@
-/* eslint-disable react-refresh/only-export-components -- exports date helpers used by GalleryPage and tests */
+/* eslint-disable react-refresh/only-export-components -- exports date helpers used by PhotosPage and tests */
 import { useEffect, useId, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
@@ -6,7 +6,7 @@ import { dayKey } from "./PhotoTimeline.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 /**
- * Local-TZ unix day bounds for gallery `from`/`to` and deep links.
+ * Local-TZ unix day bounds for photos `from`/`to` and deep links.
  * @param {string} ymd YYYY-MM-DD
  */
 export function dayBoundsLocal(ymd) {
@@ -28,7 +28,7 @@ export function dayBoundsLocal(ymd) {
 
 /**
  * Closest day key (YYYY-MM-DD) present in `photos`, skipping undated items.
- * Used by GalleryPage to land a date jump on the nearest day with photos.
+ * Used by PhotosPage to land a date jump on the nearest day with photos.
  * @param {Array<{ taken_at?: number|null }>} photos
  * @param {string} ymd YYYY-MM-DD
  */

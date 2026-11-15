@@ -83,7 +83,7 @@ export default function SharedPage() {
       queryClient.invalidateQueries({ queryKey: ["access-mine"] });
       queryClient.invalidateQueries({ queryKey: ["my-access"] });
       queryClient.invalidateQueries({ queryKey: ["drives"] });
-      queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
       queryClient.invalidateQueries({ queryKey: ["files"] });
     },
     onError: (err) => {

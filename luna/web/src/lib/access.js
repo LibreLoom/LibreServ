@@ -231,7 +231,7 @@ export function capsHint(caps, { album = false, file = false, form = false } = {
 
 export function sharedItemHref(row) {
   if (row.kind === KIND_ALBUM) {
-    return `/gallery#albums/${encodeURIComponent(row.drive_id)}/${encodeURIComponent(row.album_id)}`;
+    return `/photos#albums/${encodeURIComponent(row.drive_id)}/${encodeURIComponent(row.album_id)}`;
   }
   // File grants land on the file's own path: `list` answers a one-entry
   // listing there (the file row is the member's virtual root) and the

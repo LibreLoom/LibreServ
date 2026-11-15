@@ -76,11 +76,12 @@ export default function InspectModal({
           <p className="text-sm">Luna can't use this drive as it is. It has to be erased first, which removes everything on it.</p>
           {onErase && <Button variant="accent" onClick={() => Promise.resolve(onErase(drive)).catch(() => {})}>Erase and set up</Button>}
           {/* Protect with a password asks for the password first, so the one erase also sets it. */}
-          {onErase && onProtect && <Button variant="outline" onClick={() => setView("protect")}>Protect with a password</Button>}
+          {onErase && onProtect && result.can_protect !== false && <Button variant="outline" onClick={() => setView("protect")}>Protect with a password</Button>}
+          {onErase && onProtect && result.can_protect === false && result.cant_protect_reason && <p className="text-sm">{result.cant_protect_reason}</p>}
         </> : result.writable ? <>
           <div className="flex items-center gap-3">
             <Info size={18} className="shrink-0" aria-hidden="true" />
-            <p className="text-sm">Adding it writes a <InlinePill>.luna</InlinePill> database file at the <TermHint content={ROOT_TERM_HINT}>root</TermHint> of the drive. Your files are untouched.</p>
+            <p className="text-sm">Adding it writes one hidden Luna file at the <TermHint content={ROOT_TERM_HINT}>root</TermHint> of the drive. Your files stay as they are.</p>
           </div>
           <label className="block text-sm">Drive name<input className="mt-2 w-full rounded-pill surface-primary border-2 border-secondary/30 px-4 py-2 text-sm no-focus-outline focus:border-accent" value={label} maxLength={80} placeholder="e.g. Photos drive" onChange={e => setLabel(e.target.value)} /></label>
           {adoptError && <InlineError>{adoptError}</InlineError>}

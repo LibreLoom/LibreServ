@@ -240,7 +240,7 @@ export default [
     id: "share/album-sheet",
     area: "Sharing sheet",
     title: "Sharing an album",
-    url: "/gallery#albums",
+    url: "/photos#albums",
     seed: (w) => { people(w, 2); w.photos = makePhotos(20); albumSubject(w, "al1", "Weekend"); },
     check: ["Share button on the album opens a sheet titled Album", "Only 'Can view' and 'Can view + add photos' are offered", "Add Sam: the album now shows as shared in Photos"],
   },

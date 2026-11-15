@@ -18,13 +18,13 @@ import useRecentItemsTracker from "./hooks/useRecentItemsTracker";
 // One chunk per page: the first paint downloads only the page being opened.
 const loadFilesPage = () => import("./pages/FilesPage");
 const loadFilePage = () => import("./pages/FilePage");
-const loadGalleryPage = () => import("./pages/GalleryPage");
+const loadPhotosPage = () => import("./pages/PhotosPage");
 const loadSharedPage = () => import("./pages/SharedPage");
 const loadDashboardPage = () => import("./pages/DashboardPage");
 const loadSettingsPage = () => import("./pages/SettingsPage");
 const FilesPage = lazy(loadFilesPage);
 const FilePage = lazy(loadFilePage);
-const GalleryPage = lazy(loadGalleryPage);
+const PhotosPage = lazy(loadPhotosPage);
 const SharedPage = lazy(loadSharedPage);
 const DashboardPage = lazy(loadDashboardPage);
 const LoginPage = lazy(() => import("./pages/LoginPage"));
@@ -86,7 +86,7 @@ function PageOutlet() {
 function usePreloadPages() {
   useEffect(() => {
     if (/** @type {any} */ (navigator).connection?.saveData) return undefined;
-    const loaders = [loadFilePage, loadFilesPage, loadGalleryPage, loadSharedPage, loadDashboardPage, loadSettingsPage];
+    const loaders = [loadFilePage, loadFilesPage, loadPhotosPage, loadSharedPage, loadDashboardPage, loadSettingsPage];
     const idle = window.requestIdleCallback
       ? (fn) => window.requestIdleCallback(fn, { timeout: 4000 })
       : (fn) => window.setTimeout(fn, 1500);
@@ -121,9 +121,9 @@ function AppShell() {
   );
 }
 
-function PhotosToGalleryRedirect() {
+function GalleryToPhotosRedirect() {
   const { hash } = useLocation();
-  return <Navigate to={{ pathname: "/gallery", hash }} replace />;
+  return <Navigate to={{ pathname: "/photos", hash }} replace />;
 }
 
 export default function App() {
@@ -147,9 +147,9 @@ export default function App() {
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/files" element={<FilesPage />} />
                 <Route path="/files/:id" element={<FilePage />} />
-                <Route path="/gallery" element={<GalleryPage />} />
+                <Route path="/photos" element={<PhotosPage />} />
                 <Route path="/shared" element={<SharedPage />} />
-                <Route path="/photos" element={<PhotosToGalleryRedirect />} />
+                <Route path="/gallery" element={<GalleryToPhotosRedirect />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 {FormatFlowHarness && <Route path="/__flow/format" element={<FormatFlowHarness />} />}
               </Route>

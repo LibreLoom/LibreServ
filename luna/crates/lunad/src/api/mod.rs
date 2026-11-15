@@ -30,10 +30,10 @@ use crate::AppState;
 
 pub mod collab;
 pub mod files;
-pub mod gallery;
 pub mod jobs;
 pub mod office;
 pub mod office_ws;
+pub mod photos;
 pub mod uploads;
 
 pub fn router() -> Router<AppState> {
@@ -60,7 +60,7 @@ pub fn router() -> Router<AppState> {
         .merge(drive_format::router())
         .merge(collab::router())
         .merge(files::router())
-        .merge(gallery::router())
+        .merge(photos::router())
         .merge(uploads::router())
         .merge(jobs::router())
         .merge(updates::router())

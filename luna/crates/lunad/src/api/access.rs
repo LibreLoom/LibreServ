@@ -170,7 +170,7 @@ fn resolve_album(
     conn: &rusqlite::Connection,
     drive_id: &str,
     album_id: &str,
-) -> Result<(PathBuf, Option<crate::gallery::Album>), ApiError> {
+) -> Result<(PathBuf, Option<crate::photos::Album>), ApiError> {
     let drive = db::get_drive(conn, drive_id)
         .map_err(|_| busy())?
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know this drive."))?;
@@ -181,7 +181,7 @@ fn resolve_album(
         ));
     }
     let root = PathBuf::from(&drive.mount_point);
-    let album = crate::gallery::get_album(&root, drive_id, album_id).map_err(|_| {
+    let album = crate::photos::get_album(&root, drive_id, album_id).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't read this album.",

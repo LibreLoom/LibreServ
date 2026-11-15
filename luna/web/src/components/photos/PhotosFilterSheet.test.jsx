@@ -1,13 +1,13 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import GalleryFilterSheet, {
+import PhotosFilterSheet, {
   EMPTY_FILTERS,
   clearFilterChip,
   countActiveFilters,
   datePresetRange,
   filterChipList,
   monthDayLabel,
-} from "./GalleryFilterSheet.jsx";
+} from "./PhotosFilterSheet.jsx";
 
 vi.mock("../../lib/api", () => ({
   getJson: vi.fn(async (url) => {
@@ -40,14 +40,14 @@ describe("datePresetRange", () => {
   });
 });
 
-describe("GalleryFilterSheet", () => {
+describe("PhotosFilterSheet", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it("renders filter sections", async () => {
     render(
-      <GalleryFilterSheet
+      <PhotosFilterSheet
         open
         value={{ ...EMPTY_FILTERS }}
         onClose={vi.fn()}
@@ -68,7 +68,7 @@ describe("GalleryFilterSheet", () => {
 
   it("offers When quick presets including Undated", async () => {
     render(
-      <GalleryFilterSheet
+      <PhotosFilterSheet
         open
         value={{ ...EMPTY_FILTERS }}
         onClose={vi.fn()}
@@ -83,7 +83,7 @@ describe("GalleryFilterSheet", () => {
 
   it("offers album membership filters in Look", async () => {
     render(
-      <GalleryFilterSheet
+      <PhotosFilterSheet
         open
         value={{ ...EMPTY_FILTERS }}
         onClose={vi.fn()}
@@ -97,7 +97,7 @@ describe("GalleryFilterSheet", () => {
 
   it("names each section by its heading and reports chip state with aria-pressed", async () => {
     render(
-      <GalleryFilterSheet
+      <PhotosFilterSheet
         open
         value={{ ...EMPTY_FILTERS }}
         onClose={vi.fn()}
@@ -121,7 +121,7 @@ describe("GalleryFilterSheet", () => {
   it("toggles the On this day filter from the When section", async () => {
     const onApply = vi.fn();
     render(
-      <GalleryFilterSheet
+      <PhotosFilterSheet
         open
         value={{ ...EMPTY_FILTERS }}
         onClose={vi.fn()}
@@ -145,7 +145,7 @@ describe("GalleryFilterSheet", () => {
   it("applies Undated preset into onApply payload", async () => {
     const onApply = vi.fn();
     render(
-      <GalleryFilterSheet
+      <PhotosFilterSheet
         open
         value={{ ...EMPTY_FILTERS }}
         onClose={vi.fn()}

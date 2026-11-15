@@ -1,7 +1,7 @@
-//! Capture-date and GPS helpers for the gallery timeline / Places map.
+//! Capture-date and GPS helpers for the Photos timeline / Places map.
 //!
 //! JPEG/TIFF EXIF is read with `kamadak-exif`. HEIC/HEIF stores the same TIFF
-//! payload inside an ISOBMFF item; [`crate::gallery::heif`] extracts those bytes.
+//! payload inside an ISOBMFF item; [`crate::photos::heif`] extracts those bytes.
 //! Original files are never rewritten.
 
 use std::io::BufReader;
@@ -37,14 +37,14 @@ pub fn capture_unix(path: &Path) -> Option<i64> {
 /// Capture time plus GPS / camera when present. Returns `None` only when the
 /// file cannot be opened / parsed at all; individual fields may still be `None`.
 pub fn capture_meta(path: &Path) -> Option<CaptureMeta> {
-    if crate::gallery::heif::is_heif(path) {
+    if crate::photos::heif::is_heif(path) {
         let max = crate::budget::limits().source_max_bytes;
         let meta = std::fs::metadata(path).ok()?;
         if meta.len() > max {
             return None;
         }
         if let Ok(bytes) = std::fs::read(path)
-            && let Some(tiff) = crate::gallery::heif::exif_tiff_from_heif(&bytes)
+            && let Some(tiff) = crate::photos::heif::exif_tiff_from_heif(&bytes)
             && let Ok(exif) = Reader::new().read_raw(tiff)
         {
             return Some(meta_from_exif(&exif));
@@ -256,7 +256,7 @@ pub struct RichExifOpts<'a> {
     pub flash: Option<u16>,
 }
 
-/// Minimal JPEG with richer Exif IFD tags for gallery filter tests.
+/// Minimal JPEG with richer Exif IFD tags for photos filter tests.
 #[cfg(test)]
 pub fn jpeg_with_rich_exif(opts: RichExifOpts<'_>) -> Vec<u8> {
     let mut ascii_bytes = opts.datetime.as_bytes().to_vec();

@@ -19,15 +19,15 @@ import { useFileOps } from "../context/FileOpsContext.jsx";
 import FileOpsDock from "../components/files/fileOps/FileOpsDock.jsx";
 import FormResponder from "../components/files/forms/FormResponder.jsx";
 import DocumentLoadingScreen from "../components/files/DocumentLoadingScreen.jsx";
-import PhotoThumb from "../components/gallery/PhotoThumb.jsx";
+import PhotoThumb from "../components/photos/PhotoThumb.jsx";
 import PhotoLightbox, {
   resolveDisplaySrc,
   resolveDownloadSrc,
-} from "../components/gallery/PhotoLightbox.jsx";
+} from "../components/photos/PhotoLightbox.jsx";
 import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 
-/** @typedef {import("../components/gallery/PhotoThumb.jsx").GalleryPhoto} GalleryPhoto */
+/** @typedef {import("../components/photos/PhotoThumb.jsx").PhotosPhoto} PhotosPhoto */
 
 function isMediaName(name) {
   return /\.(jpe?g|png|gif|webp|avif|heic|heif|mp4|mov|webm|mkv|avi|m4v)$/i.test(name || "");
@@ -109,7 +109,7 @@ function PublicShareSession() {
   });
   const albumPages = useMemo(() => album.data?.pages || [], [album.data?.pages]);
   const albumItems = useMemo(
-    () => /** @type {GalleryPhoto[]} */ (albumPages.flatMap((p) => p.items || [])),
+    () => /** @type {PhotosPhoto[]} */ (albumPages.flatMap((p) => p.items || [])),
     [albumPages],
   );
   const selection = useMultiSelect({ items: albumItems });
@@ -268,7 +268,7 @@ function PublicShareSession() {
     return photo?.download || photo?.content || photo?.thumb || "";
   }
   function downloadSelected() {
-    for (const photo of /** @type {GalleryPhoto[]} */ (selection.selectedItems)) {
+    for (const photo of /** @type {PhotosPhoto[]} */ (selection.selectedItems)) {
       const href = albumDownloadSrc(photo);
       if (!href) continue;
       const a = document.createElement("a");

@@ -1,7 +1,7 @@
 // Photos: the library, albums, places, duplicates, favorites, rescans.
 // World fields (all optional, created on first use so other areas never need them):
 //   world.photos        array from fake/photos.js (default: a small library)
-//   world.gallery       { busy, scanForever, scanMs, found_count, drive_label, last_error,
+//   world.photoScan       { busy, scanForever, scanMs, found_count, drive_label, last_error,
 //                         failAfter, cameras, facets, dupes }
 //   world.albums        album rows; world.albumItems[id] = photo keys in it
 import { del, fail, get, patch, post, put, raw } from "../engine.js";
@@ -11,8 +11,8 @@ import { makePhotos, photoKey } from "../photos.js";
 const state = (w) => {
   if (!w.photos) w.photos = makePhotos(60, { videoEvery: 12, favEvery: 9, undatedEvery: 25 });
   if (!w.albumItems) w.albumItems = {};
-  if (!w.gallery) w.gallery = { busy: false, found_count: 0, drive_label: "", last_error: "" };
-  return w.gallery;
+  if (!w.photoScan) w.photoScan = { busy: false, found_count: 0, drive_label: "", last_error: "" };
+  return w.photoScan;
 };
 
 /** Lets a scenario make an action fail after N successful calls ("fails partway"). */
@@ -40,12 +40,12 @@ function albumRow(w, a) {
   };
 }
 
-get("/api/v1/gallery/albums", ({ world, user }) => {
+get("/api/v1/photos/albums", ({ world, user }) => {
   state(world);
   return world.albums.filter((a) => canSee(a, user)).map((a) => albumRow(world, a));
 });
 
-post("/api/v1/gallery/albums", ({ world, user, body }) => {
+post("/api/v1/photos/albums", ({ world, user, body }) => {
   const g = state(world);
   const name = String(body.name || "").trim();
   if (!name) return fail(400, "Give the album a name.");
@@ -59,7 +59,7 @@ post("/api/v1/gallery/albums", ({ world, user, body }) => {
   return albumRow(world, a);
 });
 
-patch("/api/v1/gallery/albums/:drive/:id", ({ world, user, params, body }) => {
+patch("/api/v1/photos/albums/:drive/:id", ({ world, user, params, body }) => {
   state(world);
   const a = albumOf(world, params.drive, params.id);
   if (!a) return fail(404, "That album no longer exists.");
@@ -70,7 +70,7 @@ patch("/api/v1/gallery/albums/:drive/:id", ({ world, user, params, body }) => {
   return albumRow(world, a);
 });
 
-del("/api/v1/gallery/albums/:drive/:id", ({ world, user, params }) => {
+del("/api/v1/photos/albums/:drive/:id", ({ world, user, params }) => {
   state(world);
   const a = albumOf(world, params.drive, params.id);
   if (!a) return fail(404, "That album no longer exists.");
@@ -80,7 +80,7 @@ del("/api/v1/gallery/albums/:drive/:id", ({ world, user, params }) => {
   return {};
 });
 
-post("/api/v1/gallery/albums/:drive/:id/items", ({ world, params, body }) => {
+post("/api/v1/photos/albums/:drive/:id/items", ({ world, params, body }) => {
   const g = state(world);
   const a = albumOf(world, params.drive, params.id);
   if (!a) return fail(404, "That album no longer exists.");
@@ -93,7 +93,7 @@ post("/api/v1/gallery/albums/:drive/:id/items", ({ world, params, body }) => {
   return { added: (body.items || []).length };
 });
 
-del("/api/v1/gallery/albums/:drive/:id/items", ({ world, params, body }) => {
+del("/api/v1/photos/albums/:drive/:id/items", ({ world, params, body }) => {
   const g = state(world);
   const a = albumOf(world, params.drive, params.id);
   if (!a) return fail(404, "That album no longer exists.");
@@ -178,7 +178,7 @@ function listPhotos(world, user, query) {
   return found;
 }
 
-get("/api/v1/gallery", ({ world, user, query }) => {
+get("/api/v1/photos", ({ world, user, query }) => {
   const g = state(world);
   if (g.vanishAlbum && g.vanishAlbum === query.album_id) {
     world.albums = world.albums.filter((a) => a.id !== g.vanishAlbum);
@@ -196,7 +196,7 @@ get("/api/v1/gallery", ({ world, user, query }) => {
   return { items, has_more: end < found.length, next_offset: end, total: found.length };
 });
 
-get("/api/v1/gallery/places", ({ world, user, query }) => {
+get("/api/v1/photos/places", ({ world, user, query }) => {
   const found = listPhotos(world, user, { ...query, place: undefined, place_bbox: undefined }).filter((p) => p.lat != null);
   const groups = new Map();
   for (const p of found) {
@@ -208,7 +208,7 @@ get("/api/v1/gallery/places", ({ world, user, query }) => {
   return [...groups.values()];
 });
 
-get("/api/v1/gallery/status", ({ world }) => {
+get("/api/v1/photos/status", ({ world }) => {
   const g = state(world);
   if (g.busy && !g.scanForever) {
     const elapsed = Date.now() - (g.scanStarted || Date.now());
@@ -222,7 +222,7 @@ get("/api/v1/gallery/status", ({ world }) => {
   return { busy: Boolean(g.busy), scanning: Boolean(g.busy), phase: g.phase ?? (g.busy ? "scanning" : "idle"), pending: g.pending ?? 0, drive_id: null, drive_label: g.drive_label || null, found_count: g.found_count || 0, last_error: g.last_error || null };
 });
 
-post("/api/v1/gallery/rescan", ({ world, user }) => {
+post("/api/v1/photos/rescan", ({ world, user }) => {
   const g = state(world);
   if (user.role !== "admin") return fail(403, "Only an Admin can rescan photos.");
   if (g.busy) return fail(409, "Luna is already looking through your photos.");
@@ -233,7 +233,7 @@ post("/api/v1/gallery/rescan", ({ world, user }) => {
   return {};
 });
 
-get("/api/v1/gallery/cameras", ({ world }) => {
+get("/api/v1/photos/cameras", ({ world }) => {
   const g = state(world);
   if (g.cameras) return { cameras: g.cameras };
   const seen = new Map();
@@ -245,14 +245,14 @@ get("/api/v1/gallery/cameras", ({ world }) => {
   return { cameras: [...seen.values()] };
 });
 
-get("/api/v1/gallery/filter-facets", ({ world }) => {
+get("/api/v1/photos/filter-facets", ({ world }) => {
   const g = state(world);
   if (g.facets !== undefined) return g.facets;
   const lenses = [...new Set(world.photos.map((p) => p.lens).filter(Boolean))];
   return { lenses, formats: [...new Set(world.photos.map((p) => p.name.split(".").pop().toLowerCase()))], iso: true, focal: true, flash: true };
 });
 
-get("/api/v1/gallery/duplicates", ({ world }) => {
+get("/api/v1/photos/duplicates", ({ world }) => {
   const g = state(world);
   const groups = new Map();
   for (const p of world.photos) {
@@ -263,7 +263,7 @@ get("/api/v1/gallery/duplicates", ({ world }) => {
   return { groups: [...groups.entries()].map(([key, items]) => ({ key, name: items[0].name, items })) };
 });
 
-put("/api/v1/gallery/favorites", ({ world, body }) => {
+put("/api/v1/photos/favorites", ({ world, body }) => {
   const g = state(world);
   const denied = mayFail(g);
   if (denied) return denied;
@@ -272,14 +272,14 @@ put("/api/v1/gallery/favorites", ({ world, body }) => {
   p.favorited = true;
   return {};
 });
-del("/api/v1/gallery/favorites", ({ world, body }) => {
+del("/api/v1/photos/favorites", ({ world, body }) => {
   state(world);
   const p = world.photos.find((x) => x.drive_id === body.drive_id && x.path === body.path);
   if (p) p.favorited = false;
   return {};
 });
 
-post("/api/v1/gallery/download", ({ world, body }) => {
+post("/api/v1/photos/download", ({ world, body }) => {
   const g = state(world);
   const denied = mayFail(g);
   if (denied) return denied;
@@ -306,4 +306,4 @@ post("/api/v1/gallery/download", ({ world, body }) => {
   );
 });
 
-get("/api/v1/gallery/preview", ({ query }) => ({ ok: true, path: query.path }));
+get("/api/v1/photos/preview", ({ query }) => ({ ok: true, path: query.path }));

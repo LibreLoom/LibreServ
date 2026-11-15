@@ -131,10 +131,10 @@ link `libheif`. The OS image installs Alpine `libheif` + `libheif-tools`
 GPS (for Places) are read from EXIF inside the file. Originals are never rewritten.
 
 Video previews use optional `ffmpeg` when present (same pattern as `heif-dec`).
-Without it, videos still appear in the gallery with a play badge and empty preview.
+Without it, videos still appear in Photos with a play badge and empty preview.
 
 If you build a custom rootfs without those packages, HEIC/video files still appear
-in the gallery when indexed, but previews stay empty until the tools are installed.
+in Photos when indexed, but previews stay empty until the tools are installed.
 
 Places uses Leaflet in the browser with OpenStreetMap tiles (fetched by the
 client). Luna does not store map tiles on disk.

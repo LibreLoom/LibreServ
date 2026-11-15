@@ -68,7 +68,7 @@ import usePageTitle from "../hooks/usePageTitle.js";
 // Home and Sign in are left out: "Where to next" always offers one of them.
 const DESTINATIONS = [
   {
-    to: "/gallery",
+    to: "/photos",
     label: "Photos",
     icon: ImageIcon,
     aliases: ["photos", "photo", "pictures", "pics", "images", "albums", "videos"],

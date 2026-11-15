@@ -1541,7 +1541,7 @@ async fn make_album(app: &axum::Router, cookie: &str, csrf: &str, name: &str) ->
         app,
         json_req(
             Method::POST,
-            "/api/v1/gallery/albums",
+            "/api/v1/photos/albums",
             &format!(r#"{{"name":"{name}"}}"#),
             Some(cookie),
             Some(csrf),

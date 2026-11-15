@@ -86,7 +86,7 @@ pub(super) fn urlencoding_lite(input: &str) -> String {
 pub(super) fn album_for_link(
     conn: &rusqlite::Connection,
     link: &AccessLinkRow,
-) -> Result<(PathBuf, crate::gallery::Album), ApiError> {
+) -> Result<(PathBuf, crate::photos::Album), ApiError> {
     let (root, album) = resolve_album(conn, &link.drive_id, &link.album_id)?;
     album.map(|a| (root, a)).ok_or_else(gone)
 }
@@ -99,7 +99,7 @@ pub(super) struct PublicItemsQuery {
     pub(super) offset: Option<u32>,
 }
 
-/// `GET /s/{token}/items` — album photo page for the public gallery view.
+/// `GET /s/{token}/items` — album photo page for the public photos view.
 pub(super) async fn public_items(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -119,13 +119,13 @@ pub(super) async fn public_items(
         };
         let limit = query.limit.unwrap_or(80).clamp(1, 200);
         let offset = query.offset.unwrap_or(0);
-        let filter = crate::gallery::ListFilter {
+        let filter = crate::photos::ListFilter {
             album_id: Some(album.id.clone()),
             album_home_drive: Some(link.drive_id.clone()),
             ..Default::default()
         };
         let page =
-            crate::gallery::list_photos(&mounts, None, &filter, limit, offset).map_err(|_| {
+            crate::photos::list_photos(&mounts, None, &filter, limit, offset).map_err(|_| {
                 json_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Luna couldn't load photos for this album.",
@@ -183,7 +183,7 @@ pub(super) async fn public_media(
             let conn = state.db.lock().map_err(|_| busy())?;
             album_for_link(&conn, &link)?
         };
-        if !crate::api::gallery::album_item_allowed(
+        if !crate::api::photos::album_item_allowed(
             &link.drive_id,
             &home_root,
             &album,
@@ -208,7 +208,7 @@ pub(super) async fn public_media(
         match query.variant.as_deref().unwrap_or("content") {
             "thumb" => {
                 let Some(thumb_path) =
-                    crate::gallery::thumb_path(&mount, &query.drive_id, &query.path)
+                    crate::photos::thumb_path(&mount, &query.drive_id, &query.path)
                 else {
                     return Err(json_error(
                         StatusCode::NOT_FOUND,
@@ -221,17 +221,17 @@ pub(super) async fn public_media(
                     let mount2 = mount.clone();
                     let _ = tokio::task::spawn_blocking(move || {
                         let src = luna_core::path::resolve_child(&mount2, &path).ok()?;
-                        let dest = crate::gallery::thumb_path(&mount2, &drive_id, &path)?;
-                        let kind = if crate::gallery::is_video(&src) {
+                        let dest = crate::photos::thumb_path(&mount2, &drive_id, &path)?;
+                        let kind = if crate::photos::is_video(&src) {
                             "video"
                         } else {
                             "image"
                         };
-                        crate::gallery::ensure_thumb(&src, &dest, kind).ok()
+                        crate::photos::ensure_thumb(&src, &dest, kind).ok()
                     })
                     .await;
                 }
-                crate::api::gallery::serve_thumb(thumb_path).await
+                crate::api::photos::serve_thumb(thumb_path).await
             }
             "download" => {
                 let abs = luna_core::path::resolve_child(&mount, &query.path).map_err(|_| {
@@ -242,17 +242,17 @@ pub(super) async fn public_media(
                     .first_or_octet_stream()
                     .essence_str()
                     .to_string();
-                crate::api::gallery::serve_media_path(abs, &mime, &name, "attachment", &headers)
+                crate::api::photos::serve_media_path(abs, &mime, &name, "attachment", &headers)
                     .await
             }
             _ => {
-                let (abs, content_type, filename) = crate::api::gallery::resolve_browser_safe_file(
+                let (abs, content_type, filename) = crate::api::photos::resolve_browser_safe_file(
                     &mount,
                     &query.drive_id,
                     &query.path,
                 )
                 .await?;
-                crate::api::gallery::serve_media_path(
+                crate::api::photos::serve_media_path(
                     abs,
                     &content_type,
                     &filename,
@@ -336,7 +336,7 @@ pub(super) async fn folder_zip_response(
     let link = link.clone();
     let rel_owned = rel.to_string();
     let state = state.clone();
-    crate::api::gallery::stream_zip_response(&zip_name, move |tmp_path| {
+    crate::api::photos::stream_zip_response(&zip_name, move |tmp_path| {
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -378,7 +378,7 @@ pub(super) async fn album_zip_response(
         let conn = state.db.lock().map_err(|_| busy())?;
         album_for_link(&conn, link)?
     };
-    let refs = crate::gallery::list_album_item_refs(&home_root, &album.id).map_err(|_| {
+    let refs = crate::photos::list_album_item_refs(&home_root, &album.id).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't open that album.",
@@ -402,7 +402,7 @@ pub(super) async fn album_zip_response(
     {
         let conn = state.db.lock().map_err(|_| busy())?;
         for (drive_id, path) in refs {
-            if !crate::api::gallery::album_item_allowed(
+            if !crate::api::photos::album_item_allowed(
                 &link.drive_id,
                 &home_root,
                 &album,
@@ -424,7 +424,7 @@ pub(super) async fn album_zip_response(
             if !abs.is_file() {
                 continue;
             }
-            entries.push((crate::api::gallery::zip_entry_name(&drive_id, &path), abs));
+            entries.push((crate::api::photos::zip_entry_name(&drive_id, &path), abs));
         }
     }
     if entries.is_empty() {
@@ -441,7 +441,7 @@ pub(super) async fn album_zip_response(
             format!("{base}.zip")
         }
     };
-    crate::api::gallery::stream_zip_response(&zip_name, move |tmp_path| {
+    crate::api::photos::stream_zip_response(&zip_name, move |tmp_path| {
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -452,7 +452,7 @@ pub(super) async fn album_zip_response(
                     "Luna couldn't prepare that download. Try again.",
                 )
             })?;
-        crate::gallery::write_items_zip(&entries, &mut file, PUBLIC_ALBUM_ZIP_MAX).map_err(|e| {
+        crate::photos::write_items_zip(&entries, &mut file, PUBLIC_ALBUM_ZIP_MAX).map_err(|e| {
             let msg = e.to_string();
             if msg.contains("too many files") {
                 json_error(

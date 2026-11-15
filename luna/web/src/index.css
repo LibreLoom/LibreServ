@@ -1417,7 +1417,7 @@ textarea::placeholder {
 }
 
 
-/* Luna Gallery Places map — strip Leaflet popup chrome; card lives in React */
+/* Luna Photos Places map — strip Leaflet popup chrome; card lives in React */
 .places-map .leaflet-popup-content-wrapper,
 .places-map .leaflet-popup-content {
   background: transparent;

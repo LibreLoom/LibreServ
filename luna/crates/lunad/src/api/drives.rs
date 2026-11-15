@@ -104,6 +104,10 @@ struct InspectionJson {
     writable: bool,
     /// The drive is encrypted, which Luna can't open.
     encrypted: bool,
+    /// Erasing it with a password is possible (see `drive_crypt::protect_blocker`).
+    can_protect: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cant_protect_reason: Option<String>,
 }
 
 /// Home-dashboard snapshot for one adopted drive. Space is `statvfs`;
@@ -208,7 +212,7 @@ async fn detected(
     })?;
     // Idempotent reconciliation on every poll: gone -> missing, returned -> as_is,
     // ejected stays ejected while still plugged in. Remounted Ready drives re-arm
-    // the gallery watcher (eject→replug / kernel remount). The DB mutex only
+    // the photos watcher (eject→replug / kernel remount). The DB mutex only
     // covers row reads/writes — marker probes, mounts, and the dirty flush
     // run unlocked so a slow USB stick never stalls unrelated queries.
     let snapshot = crate::db::with_db(
@@ -244,7 +248,7 @@ async fn detected(
         .filter(|d| d.state == "as_is" || d.state == "readonly")
         .map(|d| d.device.clone())
         .collect();
-    // Drop gallery watches for drives that are no longer Ready.
+    // Drop photos watches for drives that are no longer Ready.
     for row in &rows {
         if row.state != "as_is" && row.state != "readonly" {
             // Best-effort flush if the mount path is still reachable (e.g.
@@ -255,14 +259,14 @@ async fn detected(
                     let _ = state.ram_cache.flush_drive_dirty(&row.id, mount);
                 }
             }
-            state.gallery.unwatch_mount(&row.id);
+            state.photos.unwatch_mount(&row.id);
             state.search_index.unwatch_mount(&row.id);
             state.ram_cache.drop_drive(&row.id);
         }
     }
     for (id, mount) in remounted {
         state.search_index.watch_mount(&id, mount.clone());
-        state.gallery.watch_mount(&id, mount);
+        state.photos.watch_mount(&id, mount);
     }
     Ok(Json(
         drives
@@ -377,7 +381,11 @@ async fn inspect(
             "Luna couldn't look at this drive safely. Make sure it's plugged in and try again.",
         )
     })?;
+    let cant_protect_reason =
+        crate::api::drive_crypt::protect_blocker(&state, &inspection.device).await;
     Ok(Json(InspectionJson {
+        can_protect: cant_protect_reason.is_none(),
+        cant_protect_reason,
         device: inspection.device,
         model: inspection.model,
         fs_type: inspection.fs_type,
@@ -449,7 +457,7 @@ async fn adopt(
     if !row.mount_point.is_empty() {
         let mount = PathBuf::from(&row.mount_point);
         state.search_index.watch_mount(&row.id, mount.clone());
-        state.gallery.watch_mount(&row.id, mount);
+        state.photos.watch_mount(&row.id, mount);
     }
     Ok(Json(row.into()))
 }
@@ -591,7 +599,7 @@ async fn closed_drive(
         )
         .ok()
         .flatten();
-        st.gallery.unwatch_mount(&drive);
+        st.photos.unwatch_mount(&drive);
         st.search_index.unwatch_mount(&drive);
         let busy = |r: &Result<(), (StatusCode, Json<serde_json::Value>)>| {
             matches!(r, Err((_, body))
@@ -611,7 +619,7 @@ async fn closed_drive(
         {
             // Still mounted: keep the drive's photos and search up to date.
             st.search_index.watch_mount(&drive, mount.clone());
-            st.gallery.watch_mount(&drive, mount);
+            st.photos.watch_mount(&drive, mount);
         }
         out?;
         st.ram_cache.drop_drive(&drive);

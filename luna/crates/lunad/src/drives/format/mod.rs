@@ -203,7 +203,7 @@ fn remount_after_abort(state: &AppState) {
     .unwrap_or_default();
     for (id, mount) in remounted {
         state.search_index.watch_mount(&id, mount.clone());
-        state.gallery.watch_mount(&id, mount);
+        state.photos.watch_mount(&id, mount);
     }
 }
 
@@ -242,7 +242,7 @@ pub fn execute(state: &AppState, handle: &Run, req: &run::Request) {
             if !drive.mount_point.is_empty() {
                 let root = std::path::PathBuf::from(&drive.mount_point);
                 state.search_index.watch_mount(&drive.id, root.clone());
-                state.gallery.watch_mount(&drive.id, root);
+                state.photos.watch_mount(&drive.id, root);
             }
             handle.finish_ok(&drive.id);
         }

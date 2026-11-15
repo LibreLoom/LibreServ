@@ -233,7 +233,7 @@ function LookStep({ preview, password, starting, error, ready, clockMs, onErase,
           {password && !cantProtect && <Outcome icon={Lock}>Luna protects the drive with your password.</Outcome>}
         </ul>
       </div>
-      {cantProtect && <InlineError>Password protection isn&apos;t available for this drive.</InlineError>}
+      {cantProtect && <InlineError>This is a test drive made from a folder. A folder can&apos;t be protected with a password.</InlineError>}
       {expired && !error && <InlineError>Luna&apos;s look at this drive is out of date. Look at the drive again.</InlineError>}
       {error && <InlineError>{error.message}</InlineError>}
       <div className="flex flex-wrap gap-3">

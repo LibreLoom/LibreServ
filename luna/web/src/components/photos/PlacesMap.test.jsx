@@ -119,7 +119,7 @@ describe("PlacesMap", () => {
     expect(clip?.className).toMatch(/pop-in/);
   });
 
-  it("wraps the map in a Card so Places pops in like other gallery panels", () => {
+  it("wraps the map in a Card so Places pops in like other photos panels", () => {
     render(
       <PlacesMap
         places={[{ key: "home", label: "Home", count: 2, lat: 37.7, lon: -122.4 }]}
@@ -129,7 +129,7 @@ describe("PlacesMap", () => {
     expect(screen.getByTestId("map-container")).toBeInTheDocument();
     const card = document.querySelector("[data-slot=card]");
     expect(card?.className).toMatch(/pop-in/);
-    // Fills the Gallery Places flex parent instead of a capped vh/px height.
+    // Fills the Photos Places flex parent instead of a capped vh/px height.
     expect(card?.className).toMatch(/\bflex-1\b/);
     expect(card?.className).toMatch(/\bmin-h-0\b/);
     expect(card?.className).not.toMatch(/70vh/);

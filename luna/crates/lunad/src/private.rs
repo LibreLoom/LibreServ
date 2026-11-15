@@ -1704,7 +1704,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sharing_and_gallery_use_effective_private_access() {
+    async fn sharing_and_photos_use_effective_private_access() {
         let (dir, state) = fixture();
         {
             let conn = state.db.lock().unwrap();
@@ -1730,13 +1730,13 @@ mod tests {
         .await;
         assert_eq!(status, 200);
         assert_eq!(body["members"][0]["effective_caps"], "view");
-        let dconn = crate::gallery::open_drive_db(&dir.path().join("b")).unwrap();
+        let dconn = crate::photos::open_drive_db(&dir.path().join("b")).unwrap();
         dconn.execute("INSERT INTO photos (path,name,size,mtime,camera_make,camera_model) VALUES ('Photos/a.jpg','a.jpg',1,1,'TestCamera','Owned')", []).unwrap();
         let (status, body) = request(
             &state,
             "carol",
             "GET",
-            "/api/v1/gallery/cameras",
+            "/api/v1/photos/cameras",
             serde_json::json!({}),
         )
         .await;

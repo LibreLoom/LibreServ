@@ -11,6 +11,7 @@ import Card from "../../components/cards/Card.jsx";
  *   action?: import('react').ReactNode,
  *   className?: string,
  *   surface?: "primary" | "secondary",
+ *   noPopIn?: boolean,
  * }} props
  */
 export default function EmptyState({
@@ -20,10 +21,11 @@ export default function EmptyState({
   action,
   className = "",
   surface = "secondary",
+  noPopIn = false,
 }) {
   const textClass = surface === "primary" ? "text-secondary" : "text-primary";
   return (
-    <Card surface={surface} className={cn("text-center", className)} data-slot="empty-state">
+    <Card surface={surface} noPopIn={noPopIn} className={cn("text-center", className)} data-slot="empty-state">
       <div className="flex flex-col items-center justify-center py-4 px-2">
         {Icon && (
           <div className="mb-3">
@@ -49,4 +51,5 @@ EmptyState.propTypes = {
   action: PropTypes.node,
   className: PropTypes.string,
   surface: PropTypes.oneOf(["primary", "secondary"]),
+  noPopIn: PropTypes.bool,
 };

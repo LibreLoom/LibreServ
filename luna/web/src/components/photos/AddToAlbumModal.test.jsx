@@ -21,7 +21,7 @@ function stubItemsFetch(membership = {}) {
     "fetch",
     vi.fn(async (url) => {
       const u = String(url);
-      const match = u.match(/\/api\/v1\/gallery\/albums\/[^/]+\/([^/]+)\/items/);
+      const match = u.match(/\/api\/v1\/photos\/albums\/[^/]+\/([^/]+)\/items/);
       const items = match ? membership[match[1]] || [] : [];
       return new Response(JSON.stringify(items), {
         status: 200,

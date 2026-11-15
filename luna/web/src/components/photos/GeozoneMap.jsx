@@ -1,4 +1,4 @@
-/* eslint-disable react-refresh/only-export-components -- map exports bbox helpers used by GalleryFilterSheet and tests */
+/* eslint-disable react-refresh/only-export-components -- map exports bbox helpers used by PhotosFilterSheet and tests */
 import { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import { Crop, Hand, RotateCcw } from "lucide-react";

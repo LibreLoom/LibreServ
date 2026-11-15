@@ -158,13 +158,13 @@ export const CASES = {
   "GET /s/:token/file": { skip: "file bytes, not JSON" },
 
   // Photos
-  "GET /api/v1/gallery": plain("/api/v1/gallery"),
-  "GET /api/v1/gallery/albums": plain("/api/v1/gallery/albums"),
-  "GET /api/v1/gallery/places": plain("/api/v1/gallery/places"),
-  "GET /api/v1/gallery/status": plain("/api/v1/gallery/status"),
-  "GET /api/v1/gallery/cameras": plain("/api/v1/gallery/cameras"),
-  "GET /api/v1/gallery/filter-facets": plain("/api/v1/gallery/filter-facets"),
-  "GET /api/v1/gallery/duplicates": plain("/api/v1/gallery/duplicates"),
-  "GET /api/v1/gallery/preview": { skip: "image bytes, not JSON" },
+  "GET /api/v1/photos": plain("/api/v1/photos"),
+  "GET /api/v1/photos/albums": plain("/api/v1/photos/albums"),
+  "GET /api/v1/photos/places": plain("/api/v1/photos/places"),
+  "GET /api/v1/photos/status": plain("/api/v1/photos/status"),
+  "GET /api/v1/photos/cameras": plain("/api/v1/photos/cameras"),
+  "GET /api/v1/photos/filter-facets": plain("/api/v1/photos/filter-facets"),
+  "GET /api/v1/photos/duplicates": plain("/api/v1/photos/duplicates"),
+  "GET /api/v1/photos/preview": { skip: "image bytes, not JSON" },
 };
 

@@ -478,7 +478,7 @@ async fn purge_orphan(
     drop(conn);
     for drive in drives {
         state.ram_cache.invalidate_listing_tree(&drive.id, "");
-        state.gallery.rescan(&drive.id);
+        state.photos.rescan(&drive.id);
     }
     Ok(Json(json!({
         "ok": report.failed_drives.is_empty() && report.skipped_readonly.is_empty() && report.offline_drives.is_empty(),
@@ -532,7 +532,7 @@ async fn give_orphan(
     drop(conn);
     for drive in drives {
         state.ram_cache.invalidate_listing_tree(&drive.id, "");
-        state.gallery.rescan(&drive.id);
+        state.photos.rescan(&drive.id);
     }
     Ok(Json(json!({
         "ok": report.failed_drives.is_empty() && report.skipped_readonly.is_empty() && report.offline_drives.is_empty(),

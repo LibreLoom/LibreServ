@@ -227,7 +227,7 @@ pub fn drive_root(conn: &rusqlite::Connection, drive_id: &str) -> Result<DriveRo
         .map_err(FilesError::Db)?
         .ok_or(FilesError::UnknownDrive)?;
     // Every file operation in Luna goes through here, so this is the whole
-    // gate: browse, uploads, WebDAV, gallery, search and backups all stop at a
+    // gate: browse, uploads, WebDAV, photos, search and backups all stop at a
     // locked drive without knowing it exists. It comes BEFORE the mount-point
     // check: a locked drive has no mount point, and "Luna can't find this
     // drive" would be untrue for a drive that is sitting right there and needs
@@ -2502,7 +2502,7 @@ pub fn rename(
     // items alike.
     let private_leaf = crate::private::disk_leaf(&root, &rel);
     let parent_real = rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
-    let new_real = crate::gallery::gallery_indexer::join_rel(parent_real, &dest_name);
+    let new_real = crate::photos::photos_indexer::join_rel(parent_real, &dest_name);
     if crate::private::item_at(&root, &new_real).is_some() {
         return Err(already_exists());
     }
@@ -2550,7 +2550,7 @@ pub fn rename(
     // renamed subject (and anything under it, for folders). Subjects store
     // API paths, so repath with the `.luna-trash` form for trash items.
     let parent_rel = api_rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
-    let new_rel = crate::gallery::gallery_indexer::join_rel(parent_rel, &dest_name);
+    let new_rel = crate::photos::photos_indexer::join_rel(parent_rel, &dest_name);
     crate::access::repath_subjects(conn, drive_id, &api_rel, &new_rel).map_err(FilesError::Db)?;
     // A top-level entry's origin retitles with it: `docs/old` trashed and
     // renamed to `new` restores as `docs/new`.
@@ -2562,7 +2562,7 @@ pub fn rename(
             .rsplit_once('/')
             .map(|(p, _)| p)
             .unwrap_or("");
-        meta.original_path = crate::gallery::gallery_indexer::join_rel(orig_parent, &new_name);
+        meta.original_path = crate::photos::photos_indexer::join_rel(orig_parent, &new_name);
         write_trash_meta(&root, &dest_name, &meta)?;
         remove_trash_meta(&root, &old_entry);
     }

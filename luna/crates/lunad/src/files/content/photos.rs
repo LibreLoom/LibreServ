@@ -1,9 +1,9 @@
 //! Photo search: finding photos (and videos, by their thumbnail) by what
 //! they show.
 //!
-//! Each gallery thumbnail gets a TinyCLIP image vector, stored as 512 bytes
+//! Each photos thumbnail gets a TinyCLIP image vector, stored as 512 bytes
 //! in the drive's `photo_vecs`, keyed by the photo's path and checked
-//! against the gallery's size and time. A search embeds its words with the
+//! against Photos' size and time. A search embeds its words with the
 //! text encoder and keeps photos that are both close enough on their own
 //! and close to the best match on that drive.
 //!
@@ -21,7 +21,7 @@ use super::clip::{self, DIM, Unavailable};
 use crate::files::search::{KindFilter, SearchHit};
 
 /// Bump with the model, its preprocessing, or the thumbnail recipe.
-pub const PHOTO_VERSION: i64 = 1 + 1000 * crate::gallery::THUMB_RECIPE as i64;
+pub const PHOTO_VERSION: i64 = 1 + 1000 * crate::photos::THUMB_RECIPE as i64;
 /// A photo counts when its cosine with the query reaches this...
 pub const MIN_SIMILARITY: f32 = 0.36;
 /// ...and is within this much of the drive's best match. Measured on the
@@ -192,7 +192,7 @@ pub fn backfill(
         if !still_mounted() {
             break;
         }
-        let Some(thumb) = crate::gallery::thumb_path(root, drive_id, &path) else {
+        let Some(thumb) = crate::photos::thumb_path(root, drive_id, &path) else {
             break;
         };
         let (vec, doc) = match clip::embed_image(&thumb) {
@@ -219,7 +219,7 @@ pub fn backfill(
     Ok(done)
 }
 
-/// Drop vectors of photos the gallery no longer has.
+/// Drop vectors of photos that Photos no longer has.
 pub fn sweep(conn: &Connection) -> anyhow::Result<()> {
     conn.execute(
         "DELETE FROM photo_vecs WHERE path NOT IN (SELECT path FROM photos)",
@@ -228,7 +228,7 @@ pub fn sweep(conn: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The query's text vector, cached briefly so typing and paging the gallery
+/// The query's text vector, cached briefly so typing and paging Photos
 /// don't re-run the encoder for the same words.
 pub fn query_vector(text: &str) -> Option<[f32; DIM]> {
     let text = text.trim().to_lowercase();
@@ -252,7 +252,7 @@ pub fn query_vector(text: &str) -> Option<[f32; DIM]> {
 }
 
 /// Photos on this drive that show `q`: (path, similarity), best first.
-/// Only photos whose vector matches the gallery's current file count.
+/// Only photos whose vector matches Photos' current file count.
 pub fn matching_paths(conn: &Connection, q: &[f32; DIM]) -> rusqlite::Result<Vec<(String, f32)>> {
     let mut found: Vec<(String, f32)> = Vec::new();
     {
@@ -322,10 +322,10 @@ pub fn candidates(
     Ok(out)
 }
 
-/// For the gallery: photos on this drive that show `q`, or whose words
-/// (OCR) contain it. The gallery keeps its own filters and order; this only
+/// For Photos: photos on this drive that show `q`, or whose words
+/// (OCR) contain it. Photos keeps its own filters and order; this only
 /// widens which photos its free-text words match.
-pub fn gallery_matches(conn: &Connection, drive_id: &str, q: &str) -> HashSet<String> {
+pub fn photos_matches(conn: &Connection, drive_id: &str, q: &str) -> HashSet<String> {
     let mut out = HashSet::new();
     if let Some(v) = query_vector(q)
         && let Ok(found) = matching_paths(conn, &v)
@@ -370,10 +370,10 @@ mod tests {
             ("far.jpg", 0.7, 1),
             ("stale.jpg", 0.95, 2),
         ];
-        for (name, sim, gallery_mtime) in photos {
+        for (name, sim, photos_mtime) in photos {
             conn.execute(
                 "INSERT INTO photos (path, name, size, mtime, has_thumb) VALUES (?1, ?1, 5, ?2, 1)",
-                params![name, gallery_mtime],
+                params![name, photos_mtime],
             )
             .unwrap();
             let mut v = unit(1);

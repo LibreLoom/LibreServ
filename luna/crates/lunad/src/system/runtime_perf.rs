@@ -3,7 +3,7 @@
 //! Run: `cargo test -p lunad --lib runtime_perf -- --nocapture`
 //! Prefer `--release` for wall-clock numbers closer to the appliance.
 //!
-//! Gallery indexes live in each data drive's `.luna-<uuid>.sqlite3` microdb, so holding the
+//! Photos indexes live in each data drive's `.luna-<uuid>.sqlite3` microdb, so holding the
 //! global `luna.db` mutex must not stall `list_photos`. These tests also measure
 //! index/scrub contention against the OS DB.
 
@@ -16,7 +16,7 @@ use crate::db;
 use crate::drives::scrub;
 use crate::files::index;
 use crate::files::uploads;
-use crate::gallery;
+use crate::photos;
 
 fn write_pngs(dir: &Path, n: usize) {
     std::fs::create_dir_all(dir).unwrap();
@@ -55,8 +55,8 @@ fn sample_list_waits(mounts: &[(String, PathBuf)], done: &AtomicBool) -> (usize,
     let mut samples = Vec::new();
     while !done.load(Ordering::SeqCst) {
         let start = Instant::now();
-        let _ = gallery::list_photos(mounts, Some("d1"), &gallery::ListFilter::default(), 20, 0)
-            .unwrap();
+        let _ =
+            photos::list_photos(mounts, Some("d1"), &photos::ListFilter::default(), 20, 0).unwrap();
         samples.push(start.elapsed().as_millis());
         std::thread::sleep(Duration::from_millis(1));
     }
@@ -70,7 +70,7 @@ fn sample_list_waits(mounts: &[(String, PathBuf)], done: &AtomicBool) -> (usize,
     (samples.len(), max, p50)
 }
 
-/// Holding `luna.db` must not stall on-drive gallery list.
+/// Holding `luna.db` must not stall on-drive photos list.
 fn list_latency_while_luna_locked(
     db: &Arc<crate::Db>,
     mounts: &[(String, PathBuf)],
@@ -85,8 +85,7 @@ fn list_latency_while_luna_locked(
     });
     rx.recv().unwrap();
     let start = Instant::now();
-    let _ =
-        gallery::list_photos(mounts, Some("d1"), &gallery::ListFilter::default(), 20, 0).unwrap();
+    let _ = photos::list_photos(mounts, Some("d1"), &photos::ListFilter::default(), 20, 0).unwrap();
     let waited = start.elapsed().as_millis();
     handle.join().unwrap();
     waited
@@ -135,13 +134,13 @@ fn runtime_perf_numbers() {
 
     let photo_mounts = vec![("d1".to_string(), photos.clone())];
 
-    // --- Gallery ---
+    // --- Photos ---
     let t0 = Instant::now();
-    let first = gallery::scan_drive("d1", &photos).unwrap();
+    let first = photos::scan_drive("d1", &photos).unwrap();
     let first_ms = t0.elapsed().as_millis();
     assert_eq!(first.found, 120);
     assert!(
-        gallery::thumbs_dir(&photos)
+        photos::thumbs_dir(&photos)
             .unwrap()
             .read_dir()
             .unwrap()
@@ -151,16 +150,16 @@ fn runtime_perf_numbers() {
     );
     assert!(
         crate::drives::drive_db::find_db_file(&photos).is_some(),
-        "gallery index must live in the drive's .luna-<uuid> microdb"
+        "photos index must live in the drive's .luna-<uuid> microdb"
     );
 
     let t1 = Instant::now();
-    let second = gallery::scan_drive("d1", &photos).unwrap();
+    let second = photos::scan_drive("d1", &photos).unwrap();
     let second_ms = t1.elapsed().as_millis();
     assert_eq!(second.thumbnailed, 0);
 
     // --- Index contention: locked full walk vs unlocked ---
-    // Gallery list no longer touches luna.db, so waits stay low either way.
+    // Photos list no longer touches luna.db, so waits stay low either way.
     let (index_locked_n, index_locked_max, index_locked_p50) = {
         let done = Arc::new(AtomicBool::new(false));
         let mounts = photo_mounts.clone();
@@ -292,15 +291,15 @@ fn runtime_perf_numbers() {
     let synthetic = list_latency_while_luna_locked(&db, &photo_mounts, 200);
 
     eprintln!(
-        "PERF gallery_first_scan_ms={first_ms} photos={}",
+        "PERF photos_first_scan_ms={first_ms} photos={}",
         first.found
     );
     eprintln!(
-        "PERF gallery_rescan_ms={second_ms} thumbnailed={}",
+        "PERF photos_rescan_ms={second_ms} thumbnailed={}",
         second.thumbnailed
     );
     eprintln!(
-        "PERF gallery_rescan_speedup_x={:.1}",
+        "PERF photos_rescan_speedup_x={:.1}",
         (first_ms as f64) / (second_ms.max(1) as f64)
     );
     eprintln!(
@@ -329,41 +328,41 @@ fn runtime_perf_numbers() {
         (scrub_locked_max as f64) / (scrub_unlocked_max.max(1) as f64)
     );
 
-    // --- eMMC write budget: thumbs + gallery DB must not land under OS data_dir ---
+    // --- eMMC write budget: thumbs + photos DB must not land under OS data_dir ---
     let os_data = dir.path().join("os-data");
     std::fs::create_dir_all(&os_data).unwrap();
-    let thumb_bytes_on_drive = dir_byte_size(&gallery::thumbs_dir(&photos).unwrap());
-    let gallery_bytes_on_drive = crate::drives::drive_db::find_db_file(&photos)
+    let thumb_bytes_on_drive = dir_byte_size(&photos::thumbs_dir(&photos).unwrap());
+    let photos_bytes_on_drive = crate::drives::drive_db::find_db_file(&photos)
         .and_then(|p| std::fs::metadata(p).ok())
         .map(|m| m.len())
         .unwrap_or(0);
     let thumb_bytes_on_os = dir_byte_size(&os_data.join("thumbs"));
-    let gallery_bytes_on_os = dir_byte_size(&os_data);
+    let photos_bytes_on_os = dir_byte_size(&os_data);
     eprintln!("PERF emmc_thumb_bytes_on_photo_drive={thumb_bytes_on_drive}");
-    eprintln!("PERF emmc_gallery_db_bytes_on_photo_drive={gallery_bytes_on_drive}");
+    eprintln!("PERF emmc_photos_db_bytes_on_photo_drive={photos_bytes_on_drive}");
     eprintln!("PERF emmc_thumb_bytes_under_os_data_dir={thumb_bytes_on_os}");
-    eprintln!("PERF emmc_gallery_bytes_under_os_data_dir={gallery_bytes_on_os}");
+    eprintln!("PERF emmc_photos_bytes_under_os_data_dir={photos_bytes_on_os}");
     assert_eq!(
         thumb_bytes_on_os, 0,
-        "gallery thumbs must not write under the OS data dir"
+        "photos thumbs must not write under the OS data dir"
     );
     assert_eq!(
-        gallery_bytes_on_os, 0,
-        "gallery index must not write under the OS data dir"
+        photos_bytes_on_os, 0,
+        "photos index must not write under the OS data dir"
     );
     assert!(
         thumb_bytes_on_drive > 0,
-        "gallery thumbs must land under .luna-<uuid>-thumbs on the photo drive"
+        "photos thumbs must land under .luna-<uuid>-thumbs on the photo drive"
     );
     assert!(
-        gallery_bytes_on_drive > 0,
-        "gallery index must land in the drive .luna microdb on the photo drive"
+        photos_bytes_on_drive > 0,
+        "photos index must land in the drive .luna microdb on the photo drive"
     );
 
-    // Holding luna.db must not stall on-drive gallery list.
+    // Holding luna.db must not stall on-drive photos list.
     assert!(
         synthetic < 80,
-        "on-drive gallery list must not wait on luna.db lock (got {synthetic}ms)"
+        "on-drive photos list must not wait on luna.db lock (got {synthetic}ms)"
     );
 
     // Device-token: 20 rapid notes must not create 20 usage rows.
@@ -424,18 +423,18 @@ fn runtime_perf_numbers() {
         second_ms * 3 < first_ms || second_ms < 80,
         "rescan must be much cheaper than first scan: first={first_ms}ms second={second_ms}ms"
     );
-    // Gallery list is on-drive now — luna.db locks must not inflate list latency.
+    // Photos list is on-drive now — luna.db locks must not inflate list latency.
     assert!(
         scrub_locked_max < 80 && scrub_unlocked_max < 80,
-        "on-drive gallery list must stay responsive during scrub: unlocked_max={scrub_unlocked_max} locked_max={scrub_locked_max}"
+        "on-drive photos list must stay responsive during scrub: unlocked_max={scrub_unlocked_max} locked_max={scrub_locked_max}"
     );
     assert!(
         index_locked_max < 80 && index_unlocked_max < 80,
-        "on-drive gallery list must stay responsive during index: unlocked_max={index_unlocked_max} locked_max={index_locked_max}"
+        "on-drive photos list must stay responsive during index: unlocked_max={index_unlocked_max} locked_max={index_locked_max}"
     );
     assert!(
         upload_unlocked_max < 80 && upload_locked_max < 80,
-        "on-drive gallery list must stay responsive during upload: unlocked_max={upload_unlocked_max} locked_max={upload_locked_max}"
+        "on-drive photos list must stay responsive during upload: unlocked_max={upload_unlocked_max} locked_max={upload_locked_max}"
     );
 }
 

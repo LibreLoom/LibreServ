@@ -31,7 +31,7 @@ import { readRecentItems } from "../lib/recentItems.js";
  * @property {any} [connect] Answer for /api/v1/connect/status. Pass 403 to answer HTTP 403.
  * @property {any} [network] Answer for /api/v1/network/status. Pass 403 to answer HTTP 403.
  * @property {Array<Record<string, any>>} [access] Answer for /api/v1/me/access.
- * @property {Array<Record<string, any>>} [albums] Answer for /api/v1/gallery/albums.
+ * @property {Array<Record<string, any>>} [albums] Answer for /api/v1/photos/albums.
  * @property {Array<Record<string, any>>} [recents] Answer for /api/v1/me/recents. When
  *   omitted, the stub reads the user's saved recents from localStorage at request time.
  * @property {boolean} [connectActive] Answer for /api/v1/auth/status connect_active.
@@ -175,7 +175,7 @@ export function stubDashboardFetch(opts = {}) {
       return jsonResponse(connect);
     }
     if (path === "/api/v1/me/access") return jsonResponse(access);
-    if (path === "/api/v1/gallery/albums") return jsonResponse(albums);
+    if (path === "/api/v1/photos/albums") return jsonResponse(albums);
     if (path === "/api/v1/users") return jsonResponse([]);
     if (path === "/api/v1/private-backups/summary") return jsonResponse({ owners: [] });
     // Opened from a backup row's protect sheet: an ordinary (not private) item.

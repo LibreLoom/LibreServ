@@ -74,6 +74,10 @@ function SheetBody({ drive, close, onProtect, onRemove }) {
   const erasing = status === "formatting";
   const locked = status === "locked" || (status == null && Boolean(drive.encrypted && drive.locked));
   const state = stateOf(drive, status);
+  // Offer protection only when lunad says this drive can take a password.
+  // Until it answers, keep the offer (the erase window checks again).
+  const canProtect = encryption.data?.can_protect !== false;
+  const cantProtectReason = encryption.data?.cant_protect_reason || "";
 
   const refresh = () => {
     for (const queryKey of [["drives"], ["drive-encryption", drive.id], ["drive-summary", drive.id], ["backups"]]) {
@@ -217,7 +221,7 @@ function SheetBody({ drive, close, onProtect, onRemove }) {
 
       <div className="flex flex-wrap gap-3">
         {!drive.encrypted ? (
-          <Button disabled={actionsOff} onClick={() => setView("protect")}>Protect with a password</Button>
+          canProtect && <Button disabled={actionsOff} onClick={() => setView("protect")}>Protect with a password</Button>
         ) : (
           <>
             {!locked && <Button variant="outline" disabled={actionsOff} loading={lock.isPending} onClick={() => { setError(""); lock.mutate(); }}>Lock</Button>}
@@ -226,7 +230,8 @@ function SheetBody({ drive, close, onProtect, onRemove }) {
           </>
         )}
       </div>
-      {!drive.encrypted && !actionsOff && <p className="text-xs">Protecting it erases the drive first, so you&apos;ll see what&apos;s on it before anything is lost.</p>}
+      {!drive.encrypted && !canProtect && cantProtectReason && <p className="text-sm">{cantProtectReason}</p>}
+      {!drive.encrypted && canProtect && !actionsOff && <p className="text-xs">Protecting it erases the drive first, so you&apos;ll see what&apos;s on it before anything is lost.</p>}
     </div>
   );
 }

@@ -37,10 +37,10 @@ pub fn ocr_image(path: &Path) -> std::io::Result<Outcome> {
     let Some(tesseract) = sandbox::which("tesseract") else {
         return Ok(Outcome::Unavailable);
     };
-    if crate::gallery::heif::is_heif(path) {
+    if crate::photos::heif::is_heif(path) {
         let tmp = tempfile::Builder::new().prefix("luna-ocr-").tempdir()?;
         let jpeg = tmp.path().join("decoded.jpg");
-        if let Err(e) = crate::gallery::heif::decode_heif_to_jpeg(path, &jpeg) {
+        if let Err(e) = crate::photos::heif::decode_heif_to_jpeg(path, &jpeg) {
             return Ok(Outcome::Failed(format!("HEIC decode: {e}")));
         }
         return run_tesseract(&tesseract, &jpeg);

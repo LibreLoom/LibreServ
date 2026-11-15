@@ -808,7 +808,7 @@ fn stat_entry_sync(
     let in_trash =
         rel == files::TRASH_API_ALIAS || rel.starts_with(&format!("{}/", files::TRASH_API_ALIAS));
 
-    // Luna's own bookkeeping (index db, gallery, trash root) is not a
+    // Luna's own bookkeeping (index db, photos, trash root) is not a
     // user file — never stat it.
     if !in_trash && files::is_internal_temp(&rel) {
         return Err(json_error(
@@ -1422,7 +1422,7 @@ async fn delete_entry(
         .await
         .map_err(map_files_err)?
     };
-    state.gallery.remove(&id, &rel);
+    state.photos.remove(&id, &rel);
     // Eagerly drop album refs so shared albums update without waiting on the indexer.
     if let Ok(conn) = state.db.lock()
         && let Ok(drives) = crate::db::list_drives(&conn)
@@ -1432,7 +1432,7 @@ async fn delete_entry(
             .filter(|d| d.state == "as_is" && !d.mount_point.is_empty())
             .map(|d| (d.id, std::path::PathBuf::from(d.mount_point)))
             .collect();
-        crate::gallery::purge_album_item_refs_on_mounts(&mounts, &id, &rel);
+        crate::photos::purge_album_item_refs_on_mounts(&mounts, &id, &rel);
     }
     invalidate_parent_listing(&state, &id, &rel);
     state.ram_cache.invalidate_thumb(&id, &rel);
@@ -1550,7 +1550,7 @@ async fn rename_entry(
     let rel = request_path(&body.path)?;
     check_access(&state, &user, &id, &rel, crate::access::CAP_EDIT)?;
     let parent = rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
-    let new_rel = crate::gallery::gallery_indexer::join_rel(parent, &body.new_name);
+    let new_rel = crate::photos::photos_indexer::join_rel(parent, &body.new_name);
     let (drive, path, new_name, moved_to) = (
         id.clone(),
         rel.clone(),
@@ -1572,9 +1572,9 @@ async fn rename_entry(
         other => map_files_err(other),
     })?;
     if renamed_dir {
-        state.gallery.rescan(&id);
+        state.photos.rescan(&id);
     } else {
-        state.gallery.rename(&id, &rel, &new_rel);
+        state.photos.rename(&id, &rel, &new_rel);
     }
     invalidate_parent_listing(&state, &id, &rel);
     invalidate_parent_listing(&state, &id, &new_rel);
@@ -1625,7 +1625,7 @@ async fn restore_entry(
         ),
         other => map_files_err(other),
     })?;
-    state.gallery.upsert(&id, &dest);
+    state.photos.upsert(&id, &dest);
     invalidate_parent_listing(&state, &id, &dest);
     state.touch_io_activity();
     Ok(Json(json!({ "ok": true })))
@@ -1774,7 +1774,7 @@ async fn upload(
                     } else {
                         // Overwriting is an edit, not an upload: a drop-only
                         // member cannot replace a file that is already there.
-                        let file_rel = crate::gallery::gallery_indexer::join_rel(&dest_rel, &name);
+                        let file_rel = crate::photos::photos_indexer::join_rel(&dest_rel, &name);
                         if !can_write(&state, &user, &id, &file_rel)? {
                             return Err(json_error(
                                 StatusCode::FORBIDDEN,
@@ -1785,7 +1785,7 @@ async fn upload(
                     }
                 }
 
-                let rel = crate::gallery::gallery_indexer::join_rel(&dest_rel, &name);
+                let rel = crate::photos::photos_indexer::join_rel(&dest_rel, &name);
                 let max_dirty =
                     crate::budget::cache_budget_from(crate::budget::meminfo().available_bytes)
                         .dirty_max_file_bytes;
@@ -1860,7 +1860,7 @@ async fn upload(
                                         return;
                                     }
                                 }
-                                flush_state.gallery.upsert(&flush_id, &flush_rel);
+                                flush_state.photos.upsert(&flush_id, &flush_rel);
                                 flush_state.touch_io_activity();
                                 // The save is durable NOW — only here may
                                 // the collab room compact its op backlog to
@@ -1953,7 +1953,7 @@ async fn upload(
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0);
-                state.gallery.upsert(&id, &rel);
+                state.photos.upsert(&id, &rel);
                 invalidate_parent_listing(&state, &id, &rel);
                 state.touch_io_activity();
                 crate::api::collab::note_diagram_saved(

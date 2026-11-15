@@ -1,4 +1,4 @@
-/* eslint-disable react-refresh/only-export-components -- lightbox exports URL helpers used by gallery pages and tests */
+/* eslint-disable react-refresh/only-export-components -- lightbox exports URL helpers used by the Photos pages and tests */
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
@@ -30,7 +30,7 @@ import { cn } from "@libreloom/ui/lib/utils.js";
 
 const PhotoInfoPanel = lazy(() => import("./PhotoInfoPanel.jsx"));
 
-/** @typedef {import("./PhotoThumb.jsx").GalleryPhoto} GalleryPhoto */
+/** @typedef {import("./PhotoThumb.jsx").PhotosPhoto} PhotosPhoto */
 
 /** Match `file-viewer-out` duration in index.css. */
 const FULLSCREEN_EXIT_MS = 250;
@@ -67,7 +67,7 @@ function prefersReducedMotion() {
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/** Full-screen gallery lightbox layer. Modals opened from it must stack higher. */
+/** Full-screen photos lightbox layer. Modals opened from it must stack higher. */
 export const LIGHTBOX_Z_CLASS = "z-[80]";
 /** Use on ModalCard `overlayClassName` when the dialog opens over PhotoLightbox. */
 export const ABOVE_LIGHTBOX_OVERLAY_CLASS = "z-[90]";
@@ -75,22 +75,22 @@ export const ABOVE_LIGHTBOX_OVERLAY_CLASS = "z-[90]";
 
 
 /**
- * Prefer gallery preview for HEIC when available; otherwise drive content URL.
- * @param {GalleryPhoto} photo
+ * Prefer photos preview for HEIC when available; otherwise drive content URL.
+ * @param {PhotosPhoto} photo
  * @param {{ contentSrc?: string }} [opts]
  */
 export function resolveDisplaySrc(photo, opts = {}) {
   if (opts.contentSrc) return opts.contentSrc;
   if (photo?.content) return photo.content;
   if (isHeicFile(photo?.name) && photo?.drive_id && photo?.path) {
-    return `/api/v1/gallery/preview?drive_id=${encodeURIComponent(photo.drive_id)}&path=${encodeURIComponent(photo.path)}`;
+    return `/api/v1/photos/preview?drive_id=${encodeURIComponent(photo.drive_id)}&path=${encodeURIComponent(photo.path)}`;
   }
   if (photo?.drive_id && photo?.path) return contentHref(photo.drive_id, photo.path);
   return photo?.thumb || "";
 }
 
 /**
- * @param {GalleryPhoto} photo
+ * @param {PhotosPhoto} photo
  * @param {{ downloadSrc?: string }} [opts]
  */
 export function resolveDownloadSrc(photo, opts = {}) {
@@ -104,21 +104,21 @@ export function resolveDownloadSrc(photo, opts = {}) {
  * Immersive full-screen photo/video viewer.
  *
  * @param {{
- *   photos: GalleryPhoto[],
+ *   photos: PhotosPhoto[],
  *   index?: number,
  *   photoKey?: string,
  *   mode?: "owner"|"guest",
  *   contentSrc?: string,
  *   downloadSrc?: string,
- *   srcFor?: (photo: GalleryPhoto) => string,
+ *   srcFor?: (photo: PhotosPhoto) => string,
  *   open?: boolean,
  *   onClose: () => void,
  *   onIndexChange: (index: number) => void,
- *   onFavorite?: (photo: GalleryPhoto) => void,
- *   onShare?: (photo: GalleryPhoto) => void,
- *   onAlbum?: (photo: GalleryPhoto) => void,
- *   onTrash?: (photo: GalleryPhoto) => void,
- *   onSetCover?: (photo: GalleryPhoto) => void,
+ *   onFavorite?: (photo: PhotosPhoto) => void,
+ *   onShare?: (photo: PhotosPhoto) => void,
+ *   onAlbum?: (photo: PhotosPhoto) => void,
+ *   onTrash?: (photo: PhotosPhoto) => void,
+ *   onSetCover?: (photo: PhotosPhoto) => void,
  *   slideshow?: boolean,
  *   onSlideshowChange?: (on: boolean) => void,
  *   favoriting?: boolean,
@@ -703,7 +703,7 @@ export default function PhotoLightbox({
     commitTo(dest, g.axis === "h" && !cancelled ? g.vel : 0);
   }
 
-  // Focus lands on Close, Tab stays in the lightbox, the gallery behind it is
+  // Focus lands on Close, Tab stays in the lightbox, the Photos page behind it is
   // inert, and focus returns to the thumbnail that opened it.
   useDialogFocus(dialogRef, { active: Boolean(photo), initialFocusRef: closeButtonRef });
 

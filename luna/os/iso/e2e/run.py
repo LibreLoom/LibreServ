@@ -1289,7 +1289,7 @@ def stage_wyse():
         mm = mem_of(vm)
         peak_rss = max(peak_rss, mm.get("VmHWM", 0))
         min_avail = min(min_avail, mm.get("MemAvailable", 10**9))
-        c, st = lu.get("/api/v1/gallery/status", timeout=60)
+        c, st = lu.get("/api/v1/photos/status", timeout=60)
         last = st
         if isinstance(st, dict) and not st.get("busy") and st.get("pending", 0) == 0:
             break
@@ -1302,9 +1302,9 @@ def stage_wyse():
     rc, o = vm.sh("dmesg | grep -i -E 'out of memory|oom-kill|Killed process' | head -3")
     check("[wyse] the kernel never killed anything for memory", o.strip() == "", o)
     check("[wyse] the scan found all 300 photos", isinstance(last, dict) and last.get("found_count") == 300, str(last))
-    c, gal = lu.get("/api/v1/gallery?limit=500", timeout=60)
+    c, gal = lu.get("/api/v1/photos?limit=500", timeout=60)
     items = gal.get("items") if isinstance(gal, dict) else gal
-    check("[wyse] the gallery lists all 300 photos", isinstance(items, list) and len(items) == 300, str(len(items or [])))
+    check("[wyse] Photos lists all 300 photos", isinstance(items, list) and len(items) == 300, str(len(items or [])))
     # big folders and search must answer quickly enough for a person
     t = time.time()
     c, ls = lu.get(f"/api/v1/drives/{D}/files?path=Documents", timeout=60)
@@ -1387,7 +1387,7 @@ def make_media():
     return d
 
 
-def part_gallery(vm, lu, drive):
+def part_photos(vm, lu, drive):
     say("-- photos")
     D = drive
     media = make_media()
@@ -1399,39 +1399,39 @@ def part_gallery(vm, lu, drive):
     # the scanner runs by itself
     end = time.time() + 180
     while time.time() < end:
-        c, st = lu.get("/api/v1/gallery/status")
+        c, st = lu.get("/api/v1/photos/status")
         if isinstance(st, dict) and not st.get("busy") and st.get("pending", 0) == 0:
             break
         time.sleep(3)
     end = time.time() + 30
     items = []
     while time.time() < end:
-        c, b = lu.get("/api/v1/gallery")
+        c, b = lu.get("/api/v1/photos")
         items = b.get("items") if isinstance(b, dict) else (b if isinstance(b, list) else [])
         if items and len(items) >= 4:
             break
         time.sleep(3)
-    show("gallery", (c, str(b)[:600]))
+    show("photos", (c, str(b)[:600]))
     names = sorted((i.get("name") or i.get("path") or "") for i in items or [])
-    say(f"    gallery items: {names}")
-    check("[photos] the gallery lists the JPEG, PNG, HEIC and video", len(items or []) >= 4, str(names))
-    check("[photos] the text file is not in the gallery", not any("notes.txt" in n for n in names), str(names))
-    c, st = lu.get("/api/v1/gallery/status")
-    show("gallery status", (c, st))
-    c, pl = lu.get("/api/v1/gallery/places")
+    say(f"    photos items: {names}")
+    check("[photos] Photos lists the JPEG, PNG, HEIC and video", len(items or []) >= 4, str(names))
+    check("[photos] the text file is not in Photos", not any("notes.txt" in n for n in names), str(names))
+    c, st = lu.get("/api/v1/photos/status")
+    show("photos status", (c, st))
+    c, pl = lu.get("/api/v1/photos/places")
     show("places", (c, str(pl)[:300]))
     check("[photos] the geotagged photo shows up in Places", c == 200 and "52" in json.dumps(pl), str(pl)[:300])
-    c, cams = lu.get("/api/v1/gallery/cameras")
+    c, cams = lu.get("/api/v1/photos/cameras")
     check("[photos] the camera model is known", c == 200 and "TestCam" in json.dumps(cams), str(cams)[:300])
     beach = next((i for i in items or [] if "beach" in json.dumps(i)), None)
-    say(f"    beach.jpg as the gallery knows it: {json.dumps(beach)[:700]}")
+    say(f"    beach.jpg as Photos knows it: {json.dumps(beach)[:700]}")
     for it in items or []:
         nm = it.get("name") or it.get("path") or ""
         if not (it.get("path") or "").startswith("Pictures/"):
             continue
         key = it.get("id") or it.get("key") or it.get("ref")
         q = f"drive_id={quote(it.get('drive_id', D))}&path={quote(it.get('path', ''))}"
-        c, th = lu.get(f"/api/v1/gallery/thumb?{q}", raw=True)
+        c, th = lu.get(f"/api/v1/photos/thumb?{q}", raw=True)
         check(f"[photos] preview for {nm}", c == 200 and len(th) > 200 and th[:2] == b"\xff\xd8", f"{c} {len(th) if th else 0} {q}")
 
 
@@ -1956,7 +1956,7 @@ def stage_flow():
         part_files(vm, lu, did, kind)
         if kind == "ext4":
             part_people(vm, lu, did)
-            part_gallery(vm, lu, did)
+            part_photos(vm, lu, did)
     part_drive_lifecycle(vm, lu, fx)
     part_foreign_drives(vm, lu, fx)
     part_ratelimit()

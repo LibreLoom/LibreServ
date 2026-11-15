@@ -437,6 +437,8 @@ export default function PlacesMap({
   if (!markers.length && !filtered) {
     return (
       <EmptyState
+        noPopIn
+        className="animate-cascade-in motion-reduce:animate-none"
         icon={MapPin}
         title="No places yet"
         description="When photos include a location from the camera, they show up here on the map."
@@ -450,8 +452,9 @@ export default function PlacesMap({
   return (
     <Card
       noHeightAnim
+      noPopIn
       padding={false}
-      className="@container relative isolate flex min-h-0 flex-1 flex-col overflow-hidden border-2 border-secondary/30"
+      className="animate-cascade-in motion-reduce:animate-none @container relative isolate flex min-h-0 flex-1 flex-col overflow-hidden border-2 border-secondary/30"
     >
       {/* Draw control — one corner pill that resizes to fit its content. */}
       <div

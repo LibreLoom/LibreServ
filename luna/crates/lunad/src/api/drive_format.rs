@@ -197,7 +197,7 @@ async fn start(
         return Err(json_error_code(
             StatusCode::BAD_REQUEST,
             "mock_encryption",
-            "Directory mock drives can't be encrypted.",
+            "This is a test drive made from a folder. A folder can't be protected with a password.",
         ));
     }
     // Check the programs now, so a Luna that can't do this says so right away.

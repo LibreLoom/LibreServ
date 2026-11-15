@@ -1,4 +1,4 @@
-/* eslint-disable react-refresh/only-export-components -- timeline exports grouping helpers used by GalleryPage and tests */
+/* eslint-disable react-refresh/only-export-components -- timeline exports grouping helpers used by PhotosPage and tests */
 import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Check, ChevronDown } from "lucide-react";
@@ -8,7 +8,7 @@ import PhotoThumb from "./PhotoThumb.jsx";
 import { photoSelectionKey } from "../../hooks/useMultiSelect.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
-/** @typedef {import("./PhotoThumb.jsx").GalleryPhoto} GalleryPhoto */
+/** @typedef {import("./PhotoThumb.jsx").PhotosPhoto} PhotosPhoto */
 
 /** @param {number|null|undefined} ts */
 export function dayKey(ts) {
@@ -215,18 +215,18 @@ const FIRST_PAINT_PHOTOS = 36;
  * Date-grouped infinite photo grid.
  *
  * @param {{
- *   photos: GalleryPhoto[],
+ *   photos: PhotosPhoto[],
  *   hasMore?: boolean,
  *   loadingMore?: boolean,
  *   onLoadMore?: () => void,
- *   onOpen?: (photo: GalleryPhoto) => void,
+ *   onOpen?: (photo: PhotosPhoto) => void,
  *   selectMode?: boolean,
  *   selectedKeys?: Set<string>,
- *   onToggle?: (photo: GalleryPhoto, opts?: { range?: boolean }) => void,
- *   onLongPress?: (photo: GalleryPhoto) => void,
+ *   onToggle?: (photo: PhotosPhoto, opts?: { range?: boolean }) => void,
+ *   onLongPress?: (photo: PhotosPhoto) => void,
  *   onDayClick?: (day: string, label: string) => void,
- *   onSelectDay?: (photos: GalleryPhoto[]) => void,
- *   onDeselectDay?: (photos: GalleryPhoto[]) => void,
+ *   onSelectDay?: (photos: PhotosPhoto[]) => void,
+ *   onDeselectDay?: (photos: PhotosPhoto[]) => void,
  *   columns?: 3|4|5|6,
  * }} props
  */

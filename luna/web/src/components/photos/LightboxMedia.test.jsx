@@ -5,7 +5,7 @@ import LightboxMedia from "./LightboxMedia.jsx";
 const photo = {
   name: "beach.jpg",
   kind: "image",
-  thumb: "/api/v1/gallery/thumb?x=1",
+  thumb: "/api/v1/photos/thumb?x=1",
 };
 const FULL_SRC = "/api/v1/content/beach.jpg";
 

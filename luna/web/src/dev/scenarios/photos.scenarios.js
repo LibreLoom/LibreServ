@@ -21,14 +21,14 @@ export default [
     id: "gallery/normal",
     area: "Photos",
     title: "Ordinary library (60 photos)",
-    url: "/gallery",
+    url: "/photos",
     check: ["Grid fills with colored pictures, newest first", "Library · Albums · Places · Favorites tabs all open", "Click a photo: it opens large; arrows and Escape work", "Heart a photo, then check Favorites: it is there"],
   },
   {
     id: "gallery/segment-motion",
     area: "Photos",
     title: "Moving between the photo pages",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => {
       lib(w, 150, { favEvery: 4, spanDays: 60 });
       album(w, "al-trip", "Summer trip", {}, w.photos.slice(0, 40));
@@ -47,12 +47,12 @@ export default [
     id: "gallery/segment-motion-slow",
     area: "Photos",
     title: "Moving between the photo pages while photos load slowly",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => {
       lib(w, 150, { favEvery: 4, spanDays: 60 });
       album(w, "al-trip", "Summer trip", {}, w.photos.slice(0, 40));
     },
-    faults: [{ match: "GET /api/v1/gallery", mode: "slow:400" }],
+    faults: [{ match: "GET /api/v1/photos", mode: "slow:400" }],
     check: [
       "Library → Favorites → Library: each page slides all the way and never turns around while its photos arrive",
       "The loading message slides with its page; nothing above the pages jumps",
@@ -63,7 +63,7 @@ export default [
     id: "gallery/empty",
     area: "Photos",
     title: "Empty library",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => { w.photos = []; },
     check: ["Empty state says there are no photos yet and what to do", "No endless spinner", "Rescan (as Admin) answers with a message"],
   },
@@ -71,56 +71,56 @@ export default [
     id: "gallery/scan-running",
     area: "Photos",
     title: "Still looking for photos (scan running)",
-    url: "/gallery",
-    seed: (w) => { w.photos = []; w.gallery = { busy: true, scanForever: true, found_count: 1240, drive_label: "Family photos", last_error: "" }; },
+    url: "/photos",
+    seed: (w) => { w.photos = []; w.photoScan = { busy: true, scanForever: true, found_count: 1240, drive_label: "Family photos", last_error: "" }; },
     check: ["Page says Luna is looking and shows 'Found 1240 photos on Family photos'", "It does not look like an empty library or an error"],
   },
   {
     id: "gallery/scan-running-with-photos",
     area: "Photos",
     title: "Scan running while photos already show",
-    url: "/gallery",
-    seed: (w) => { lib(w, 80); w.gallery = { busy: true, scanForever: true, found_count: 80, drive_label: "", last_error: "" }; },
+    url: "/photos",
+    seed: (w) => { lib(w, 80); w.photoScan = { busy: true, scanForever: true, found_count: 80, drive_label: "", last_error: "" }; },
     check: ["Grid is usable while the progress line shows", "Progress line does not cover the first row"],
   },
   {
     id: "gallery/scan-finishes",
     area: "Photos",
     title: "Rescan runs, then finishes",
-    url: "/gallery",
-    seed: (w) => { lib(w, 40); w.gallery = { busy: false, scanMs: 5000, found_count: 0, drive_label: "Family photos", last_error: "" }; },
+    url: "/photos",
+    seed: (w) => { lib(w, 40); w.photoScan = { busy: false, scanMs: 5000, found_count: 0, drive_label: "Family photos", last_error: "" }; },
     check: ["Press Rescan: toast says Luna is rescanning", "Progress count climbs, then the line goes away on its own", "Grid still shows the photos afterwards"],
   },
   {
     id: "gallery/scan-failed",
     area: "Photos",
     title: "Last scan failed",
-    url: "/gallery",
-    seed: (w) => { lib(w, 30); w.gallery = { busy: false, found_count: 0, last_error: "Luna couldn't read the drive 'Family photos'. Check that it is plugged in.", drive_label: "" }; },
+    url: "/photos",
+    seed: (w) => { lib(w, 30); w.photoScan = { busy: false, found_count: 0, last_error: "Luna couldn't read the drive 'Family photos'. Check that it is plugged in.", drive_label: "" }; },
     check: ["The failure is shown in plain words, naming the drive", "Rescan can be tried again", "Photos found earlier still show"],
   },
   {
     id: "gallery/scan-fails-at-end",
     area: "Photos",
     title: "Rescan fails near the end",
-    url: "/gallery",
-    seed: (w) => { lib(w, 30); w.gallery = { busy: false, scanMs: 3000, scanFailsAtEnd: true, found_count: 0, drive_label: "Family photos", last_error: "" }; },
+    url: "/photos",
+    seed: (w) => { lib(w, 30); w.photoScan = { busy: false, scanMs: 3000, scanFailsAtEnd: true, found_count: 0, drive_label: "Family photos", last_error: "" }; },
     check: ["Start Rescan, wait 3 seconds", "An error message appears instead of a silent stop"],
   },
   {
     id: "gallery/rescan-refused",
     area: "Photos",
     title: "Rescan answers an error",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => lib(w, 20),
-    faults: [{ match: "POST /api/v1/gallery/rescan", mode: "500", message: "Luna couldn't start the scan." }],
+    faults: [{ match: "POST /api/v1/photos/rescan", mode: "500", message: "Luna couldn't start the scan." }],
     check: ["Press Rescan: the page shows 'Luna couldn't start the scan.' (or the plain fallback)", "Nothing else breaks"],
   },
   {
     id: "gallery/huge-library",
     area: "Photos",
     title: "30,000 photos",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => lib(w, 30000, { spanDays: 4000, videoEvery: 40, favEvery: 100, undatedEvery: 500 }),
     check: ["Scroll stays smooth; more load as you reach the end", "Day jump (calendar) reaches an old year", "Select all does not freeze the page", "Favorites tab only shows hearted ones"],
   },
@@ -128,7 +128,7 @@ export default [
     id: "gallery/odd-exif",
     area: "Photos",
     title: "Missing and odd dates, cameras and sizes",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => {
       lib(w, 40, { undatedEvery: 3 });
       w.photos[0].taken_at = 0; // 1970
@@ -144,7 +144,7 @@ export default [
     id: "gallery/videos",
     area: "Photos",
     title: "Library full of videos",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => lib(w, 50, { videoEvery: 2 }),
     check: ["Videos show a Video badge and length", "Filters → Videos only keeps only videos", "Opening a video in the large view shows a player or a clear message (the fake has no real video file)"],
   },
@@ -152,7 +152,7 @@ export default [
     id: "gallery/extreme-sizes",
     area: "Photos",
     title: "Huge and tiny images",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => {
       lib(w, 24);
       w.photos[0].width = 60000; w.photos[0].height = 40000;
@@ -167,7 +167,7 @@ export default [
     id: "gallery/broken-thumbs",
     area: "Photos",
     title: "Thumbnails that will not load",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => lib(w, 30, { broken: [0, 1, 2, 5, 6, 7, 8] }),
     check: ["Broken ones show a calm placeholder, not a torn-image icon", "Opening a broken photo says it cannot be shown and still offers Download", "Neighbors are unaffected"],
   },
@@ -175,25 +175,25 @@ export default [
     id: "gallery/slow-load",
     area: "Photos",
     title: "Library answers slowly, then fails",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => lib(w, 40),
-    faults: [{ match: "GET /api/v1/gallery", mode: "slow:5000" }],
+    faults: [{ match: "GET /api/v1/photos", mode: "slow:5000" }],
     check: ["Skeleton/looking state shows during the wait", "Switching tabs while waiting does not duplicate the grid"],
   },
   {
     id: "gallery/server-error",
     area: "Photos",
     title: "Library request fails (500)",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => lib(w, 40),
-    faults: [{ match: "GET /api/v1/gallery", mode: "500", message: "Luna couldn't read your photos." }],
+    faults: [{ match: "GET /api/v1/photos", mode: "500", message: "Luna couldn't read your photos." }],
     check: ["An error with a Try again action shows", "Not a blank page and not 'no photos yet'"],
   },
   {
     id: "gallery/no-drives-member",
     area: "Photos",
     title: "Member with no drives and no albums",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => { asMember(w); w.photos = []; },
     check: ["Plain message that nothing is shared with them yet", "No Rescan or Upload offered", "No error messages"],
   },
@@ -203,7 +203,7 @@ export default [
     id: "gallery/search-no-results",
     area: "Photos",
     title: "Search and filters with no results",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => lib(w, 40),
     check: [SEARCH, "Open Filters and choose Camera + 'Has location: No' + 'Videos': shows 'no matches' with a Clear filters button", "Clear filters brings the grid back", "On this day banner either shows photos or stays hidden"],
   },
@@ -211,9 +211,9 @@ export default [
     id: "gallery/filters-facets-fail",
     area: "Photos",
     title: "Filter sheet cannot load cameras",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => lib(w, 40),
-    faults: [{ match: "/api/v1/gallery/cameras", mode: "500" }, { match: "/api/v1/gallery/filter-facets", mode: "500" }],
+    faults: [{ match: "/api/v1/photos/cameras", mode: "500" }, { match: "/api/v1/photos/filter-facets", mode: "500" }],
     check: ["Open Filters: it still opens", "Camera list just says Any camera", "Other filters still work"],
   },
 
@@ -222,7 +222,7 @@ export default [
     id: "gallery/albums-none",
     area: "Photos",
     title: "Albums tab with no albums",
-    url: "/gallery#albums",
+    url: "/photos#albums",
     seed: (w) => lib(w, 30),
     check: ["Empty state explains what an album is and has New album", "Create one: name it, it appears", "Creating a second with the same name says so in plain words"],
   },
@@ -230,7 +230,7 @@ export default [
     id: "gallery/albums-mixed",
     area: "Photos",
     title: "Albums: empty, big, shared, locked",
-    url: "/gallery#albums",
+    url: "/photos#albums",
     seed: (w) => {
       memberSam(w);
       lib(w, 200, { favEvery: 7 });
@@ -246,7 +246,7 @@ export default [
     id: "gallery/album-huge",
     area: "Photos",
     title: "Album with thousands of photos",
-    url: "/gallery#albums",
+    url: "/photos#albums",
     seed: (w) => {
       lib(w, 6000, { spanDays: 1500 });
       album(w, "al-huge", "Whole year", {}, w.photos);
@@ -257,11 +257,11 @@ export default [
     id: "gallery/album-deleted-while-open",
     area: "Photos",
     title: "Album deleted while you have it open",
-    url: "/gallery#albums",
+    url: "/photos#albums",
     seed: (w) => {
       lib(w, 40);
       album(w, "al-vanish", "Disappearing album", {}, w.photos.slice(0, 10));
-      w.gallery = { busy: false, found_count: 0, drive_label: "", last_error: "", vanishAlbum: "al-vanish" };
+      w.photoScan = { busy: false, found_count: 0, drive_label: "", last_error: "", vanishAlbum: "al-vanish" };
     },
     check: ["Open 'Disappearing album': Luna says the album no longer exists", "You land back on the Albums list, and it is not there any more", "No blank page"],
   },
@@ -269,7 +269,7 @@ export default [
     id: "gallery/album-member-view",
     area: "Photos",
     title: "Member opens an album shared with them",
-    url: "/gallery#albums",
+    url: "/photos#albums",
     seed: (w) => {
       lib(w, 40);
       album(w, "al-theirs", "Sam's own", { owner_user_id: "u2" }, w.photos.slice(0, 5));
@@ -283,12 +283,12 @@ export default [
     id: "gallery/album-add-fails-partway",
     area: "Photos",
     title: "Adding to albums fails halfway",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => {
       lib(w, 40);
       album(w, "al-a", "First", {});
       album(w, "al-b", "Second", {});
-      w.gallery = { busy: false, found_count: 0, drive_label: "", last_error: "", failAfter: 1 };
+      w.photoScan = { busy: false, found_count: 0, drive_label: "", last_error: "", failAfter: 1 };
     },
     check: ["Select 5 photos → Add to album → tick both albums → save", "One album is changed, then an error explains something went wrong", "Open the first album: it has the photos; the second does not", "Selection is kept so you can try again"],
   },
@@ -298,7 +298,7 @@ export default [
     id: "gallery/places-none",
     area: "Photos",
     title: "Places with no located photos",
-    url: "/gallery#places",
+    url: "/photos#places",
     seed: (w) => lib(w, 40, { gpsEvery: 0 }),
     check: ["Places tab explains that no photos have a location", "No map error and no endless spinner"],
   },
@@ -306,7 +306,7 @@ export default [
     id: "gallery/places-many",
     area: "Photos",
     title: "Places with thousands of pins",
-    url: "/gallery#places",
+    url: "/photos#places",
     seed: (w) => lib(w, 4000, { gpsEvery: 1 }),
     check: ["Map loads and pins group into numbered clusters", "Zoom in: clusters split", "Click a cluster: photos from there show", "Draw an area (if offered): results narrow to it"],
   },
@@ -314,9 +314,9 @@ export default [
     id: "gallery/places-fails",
     area: "Photos",
     title: "Places cannot load",
-    url: "/gallery#places",
+    url: "/photos#places",
     seed: (w) => lib(w, 40),
-    faults: [{ match: "GET /api/v1/gallery/places", mode: "500" }],
+    faults: [{ match: "GET /api/v1/photos/places", mode: "500" }],
     check: ["Says places could not load, with a retry. If it says 'No places yet' as if nothing is wrong, record that as a problem", "Other tabs unaffected"],
     realLunadOnly: "Map tiles come from the internet; offline testers see an empty map background",
   },
@@ -326,7 +326,7 @@ export default [
     id: "gallery/duplicates",
     area: "Photos",
     title: "Duplicate photos",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => {
       lib(w, 40);
       [[0, 11], [1, 12], [2, 13]].forEach(([a, b], i) => { w.photos[a].dup = `g${i}`; w.photos[b].dup = `g${i}`; w.photos[b].name = w.photos[a].name; });
@@ -337,7 +337,7 @@ export default [
     id: "gallery/duplicates-none",
     area: "Photos",
     title: "No duplicates",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => lib(w, 40),
     check: ["Duplicates view says nothing was found, in plain words"],
   },
@@ -347,10 +347,10 @@ export default [
     id: "gallery/bulk-favorite-fails-partway",
     area: "Photos",
     title: "Bulk favorite fails halfway",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => {
       lib(w, 30);
-      w.gallery = { busy: false, found_count: 0, drive_label: "", last_error: "", failAfter: 2 };
+      w.photoScan = { busy: false, found_count: 0, drive_label: "", last_error: "", failAfter: 2 };
     },
     check: ["Select 5 photos and press Favorite", "An error says some could not be added", "Favorites tab holds exactly 2 of them", "Library hearts match Favorites"],
   },
@@ -358,7 +358,7 @@ export default [
     id: "gallery/download",
     area: "Photos",
     title: "Download selected photos",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => lib(w, 20),
     check: ["Select 3 photos and press Download", "One photos.zip file is saved", "No error banner appears"],
   },
@@ -366,7 +366,7 @@ export default [
     id: "gallery/lightbox-first",
     area: "Photos",
     title: "Large view on the first photo",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => { lib(w, 25); },
     check: ["Open the first (newest) photo", "Previous is disabled or hidden; Left arrow does nothing", "Next goes to photo 2", "Details panel shows name, date, camera"],
   },
@@ -374,7 +374,7 @@ export default [
     id: "gallery/lightbox-last",
     area: "Photos",
     title: "Large view on the last photo",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => lib(w, 25),
     check: ["Scroll to the very end and open the last photo", "Next is disabled; Right arrow does nothing", "Previous goes back one", "Slideshow stops at the end"],
   },
@@ -382,7 +382,7 @@ export default [
     id: "gallery/lightbox-deep-link",
     area: "Photos",
     title: "Reload on an open photo (link in the address)",
-    url: `/gallery${hashFor({ drive_id: "d1", path: "Photos/IMG_0001.jpg" })}`,
+    url: `/photos${hashFor({ drive_id: "d1", path: "Photos/IMG_0001.jpg" })}`,
     seed: (w) => lib(w, 25),
     check: ["The large view opens straight on IMG_0001", "Close returns to the grid, scrolled to the top"],
   },
@@ -390,7 +390,7 @@ export default [
     id: "gallery/trash-fails",
     area: "Photos",
     title: "Moving a photo to Trash fails",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => lib(w, 20),
     faults: [{ match: "DELETE /api/v1/drives/d1/files", mode: "409", message: "This drive is read-only right now, so Luna can't change it." }],
     check: ["Open a photo, press Trash, confirm", "The message explains the drive is read-only, in the page, not a crash", "The photo is still there"],
@@ -401,7 +401,7 @@ export default [
     id: "gallery/member-with-drive-share",
     area: "Photos",
     title: "Member: no Rescan, no admin tools",
-    url: "/gallery",
+    url: "/photos",
     seed: (w) => { lib(w, 30); asMember(w); w.access = [{ kind: "path", drive_id: "d1", path: "Photos", caps: "view" }]; },
     check: ["No Rescan button", "Upload only appears if their access allows it", "Everything else browses normally"],
   },
@@ -409,7 +409,7 @@ export default [
     id: "gallery/phone",
     area: "Photos",
     title: "Photos on a phone",
-    url: "/gallery",
+    url: "/photos",
     viewport: "phone",
     seed: (w) => { lib(w, 80, { videoEvery: 9, favEvery: 8 }); album(w, "al-p", "Weekend", {}, w.photos.slice(0, 8)); },
     check: ["Toolbar fits without sideways scrolling", "Long-press a photo starts selecting; the action bar fits the screen", "Large view: swipe left/right changes photo, swipe down closes", "Filter sheet scrolls and its buttons stay reachable"],
@@ -418,7 +418,7 @@ export default [
     id: "gallery/tablet-dark",
     area: "Photos",
     title: "Photos on a tablet, dark",
-    url: "/gallery",
+    url: "/photos",
     viewport: "tablet",
     theme: "dark",
     seed: (w) => lib(w, 120, { videoEvery: 9 }),
@@ -428,7 +428,7 @@ export default [
     id: "gallery/offline",
     area: "Photos",
     title: "Photos while offline",
-    url: "/gallery",
+    url: "/photos",
     offline: true,
     seed: (w) => lib(w, 40),
     check: ["The page says it cannot reach Luna (a blank page is a problem to record)", "Turn offline off in Break things, reload: the grid loads"],
@@ -437,7 +437,7 @@ export default [
     id: "gallery/on-this-day",
     area: "Photos",
     title: "On this day memories",
-    url: "/gallery",
+    url: "/photos",
     now: Date.UTC(2026, 9, 18, 12),
     seed: (w) => {
       lib(w, 30);

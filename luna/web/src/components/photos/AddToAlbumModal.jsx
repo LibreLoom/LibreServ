@@ -1,4 +1,4 @@
-/* eslint-disable react-refresh/only-export-components -- albumKey shared with GalleryPage tests */
+/* eslint-disable react-refresh/only-export-components -- albumKey shared with PhotosPage tests */
 import { useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Check, Minus, Search } from "lucide-react";
@@ -71,7 +71,7 @@ export default function AddToAlbumModal({
     Promise.allSettled(
       albums.map(async (album) => {
         const items = await getJson(
-          `/api/v1/gallery/albums/${album.home_drive_id}/${album.id}/items`,
+          `/api/v1/photos/albums/${album.home_drive_id}/${album.id}/items`,
         );
         return /** @type {[string, Set<string>]} */ ([
           albumKey(album),

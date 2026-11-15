@@ -450,7 +450,7 @@ pub fn complete(
     files::note_write(
         &conn,
         &upload.drive_id,
-        &crate::gallery::gallery_indexer::join_rel(&upload.path, &name),
+        &crate::photos::photos_indexer::join_rel(&upload.path, &name),
     );
 
     let final_meta = std::fs::metadata(&dest).map_err(UploadError::Io)?;
@@ -521,7 +521,7 @@ fn install_rights(
     if !want_overwrite || !dest.exists() {
         return Ok(false);
     }
-    let rel = crate::gallery::gallery_indexer::join_rel(&row.path, &row.name);
+    let rel = crate::photos::photos_indexer::join_rel(&row.path, &row.name);
     Ok(crate::auth::has_cap(
         &user,
         conn,
@@ -553,7 +553,7 @@ fn link_install_rights(
     if link.caps & crate::access::CAP_EDIT == 0 || link.subject_kind == crate::access::KIND_ALBUM {
         return Err(UploadError::Denied);
     }
-    let rel = crate::gallery::gallery_indexer::join_rel(&row.path, &row.name);
+    let rel = crate::photos::photos_indexer::join_rel(&row.path, &row.name);
     let in_scope = if link.path.is_empty() {
         true
     } else {

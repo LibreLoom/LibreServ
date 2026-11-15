@@ -476,7 +476,7 @@ async fn files_folder_is_luna_owned_and_unsent_uploads_expire() {
     let (_dir, app, state) = test_app(mount.path());
     let token = insert_link(&state, "receipts.lunaform", crate::access::CAP_RESPOND);
     let files = files_dir(&state, "receipts.lunaform");
-    // Listings, search, Gallery, zips, and the files API skip it.
+    // Listings, search, Photos, zips, and the files API skip it.
     let folder = files.file_name().unwrap().to_str().unwrap();
     assert!(crate::files::is_internal_temp(folder), "{folder}");
 

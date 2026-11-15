@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use crate::db::{self, JobRow};
 use crate::files::{self, FilesError};
-use crate::gallery::gallery_indexer::GalleryIndexer;
+use crate::photos::photos_indexer::PhotosIndexer;
 
 const COPY_BUF: usize = 1024 * 1024;
 
@@ -107,7 +107,7 @@ type JobQueue = Arc<Mutex<VecDeque<(PreparedJob, Arc<AtomicBool>)>>>;
 pub struct JobManager {
     db: Arc<crate::Db>,
     cancels: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
-    gallery: Arc<GalleryIndexer>,
+    photos: Arc<PhotosIndexer>,
     queue: JobQueue,
     /// How many workers are running right now.
     running: Arc<AtomicUsize>,
@@ -128,7 +128,7 @@ struct PreparedJob {
 }
 
 impl JobManager {
-    pub fn new(db: Arc<crate::Db>, gallery: Arc<GalleryIndexer>) -> Self {
+    pub fn new(db: Arc<crate::Db>, photos: Arc<PhotosIndexer>) -> Self {
         // A restart strands every in-flight row in "running" — nothing will
         // ever move them, and they would count against the queue ceiling
         // forever. Mark them interrupted once, at boot.
@@ -143,7 +143,7 @@ impl JobManager {
         Self {
             db,
             cancels: Arc::new(Mutex::new(HashMap::new())),
-            gallery,
+            photos,
             queue: Arc::new(Mutex::new(VecDeque::new())),
             running: Arc::new(AtomicUsize::new(0)),
         }
@@ -229,7 +229,7 @@ impl JobManager {
             &self.running,
             &self.cancels,
             &self.db,
-            &self.gallery,
+            &self.photos,
         );
     }
 
@@ -392,7 +392,7 @@ fn prepare(
     }
     let dest_dir = files::dest_dir(conn, to_drive, &to_path)?;
     let to_root = PathBuf::from(files::drive_root(conn, to_drive)?.mount_point);
-    let mut dest_rel = crate::gallery::gallery_indexer::join_rel(
+    let mut dest_rel = crate::photos::photos_indexer::join_rel(
         crate::access::normalize_subject_path(&to_real).as_str(),
         &name,
     );
@@ -439,7 +439,7 @@ fn prepare(
             OnConflict::KeepBoth => {
                 name = crate::files::uploads::find_free_name(&dest_dir, &name);
                 dest = dest_dir.join(&name);
-                dest_rel = crate::gallery::gallery_indexer::join_rel(
+                dest_rel = crate::photos::photos_indexer::join_rel(
                     crate::access::normalize_subject_path(&to_real).as_str(),
                     &name,
                 );
@@ -663,7 +663,7 @@ fn recheck_job_caps_for(conn: &Connection, row: &JobRow, from_path: &str) -> Res
 
 fn run_job(
     db: Arc<crate::Db>,
-    gallery: Arc<GalleryIndexer>,
+    photos: Arc<PhotosIndexer>,
     prepared: PreparedJob,
     cancel: Arc<AtomicBool>,
 ) {
@@ -753,7 +753,7 @@ fn run_job(
                         let _ = db::set_job_state(&conn, &prepared.row.id, "done", "");
                     }
                 }
-                notify_job_gallery(&gallery, &prepared, true);
+                notify_job_photos(&photos, &prepared, true);
                 return;
             }
             Ok(false) => {
@@ -936,7 +936,7 @@ fn run_job(
             files::note_write(&conn, &prepared.row.from_drive, &prepared.row.from_path);
             files::note_write(&conn, &prepared.row.to_drive, &prepared.row.to_path);
         }
-        notify_job_gallery(&gallery, &prepared, prepared.row.kind == "move");
+        notify_job_photos(&photos, &prepared, prepared.row.kind == "move");
     }
 }
 
@@ -958,10 +958,10 @@ fn repath_rows(conn: &Connection, prepared: &PreparedJob, undo: bool) -> anyhow:
     }
 }
 
-fn notify_job_gallery(gallery: &GalleryIndexer, prepared: &PreparedJob, moved: bool) {
-    gallery.rescan(&prepared.row.to_drive);
+fn notify_job_photos(photos: &PhotosIndexer, prepared: &PreparedJob, moved: bool) {
+    photos.rescan(&prepared.row.to_drive);
     if moved {
-        gallery.rescan(&prepared.row.from_drive);
+        photos.rescan(&prepared.row.from_drive);
     }
 }
 
@@ -1092,8 +1092,8 @@ fn copy_node(
             }
             let name = item.map_or(disk, |i| i.name());
             let child_src = entry.path();
-            let child_rel = crate::gallery::gallery_indexer::join_rel(rel, name);
-            let child_dest_rel = crate::gallery::gallery_indexer::join_rel(dest_rel, name);
+            let child_rel = crate::photos::photos_indexer::join_rel(rel, name);
+            let child_dest_rel = crate::photos::photos_indexer::join_rel(dest_rel, name);
             // A private item inside the tree lands as a private item. A copy
             // leaves out what the caller can't reach; a move carries the
             // whole boundary with its owner — the mover reads none of it.
@@ -1269,7 +1269,7 @@ fn pump_queue(
     running: &Arc<AtomicUsize>,
     cancels: &Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     db: &Arc<crate::Db>,
-    gallery: &Arc<GalleryIndexer>,
+    photos: &Arc<PhotosIndexer>,
 ) {
     loop {
         let Some((job, cancel)) = ({
@@ -1286,13 +1286,13 @@ fn pump_queue(
             return;
         };
         let job_id = job.row.id.clone();
-        let (db2, gallery2) = (db.clone(), gallery.clone());
+        let (db2, photos2) = (db.clone(), photos.clone());
         let (cancels2, queue2, running2) = (cancels.clone(), queue.clone(), running.clone());
         tokio::task::spawn_blocking(move || {
-            run_job(db2.clone(), gallery2.clone(), job, cancel);
+            run_job(db2.clone(), photos2.clone(), job, cancel);
             lock_cancels(&cancels2).remove(&job_id);
             running2.fetch_sub(1, Ordering::SeqCst);
-            pump_queue(&queue2, &running2, &cancels2, &db2, &gallery2);
+            pump_queue(&queue2, &running2, &cancels2, &db2, &photos2);
         });
     }
 }

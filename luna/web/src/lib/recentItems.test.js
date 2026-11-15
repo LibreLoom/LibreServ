@@ -29,7 +29,7 @@ describe("recentItemFromLocation", () => {
   it("ignores routes that are not a drive browser", () => {
     expect(recentItemFromLocation({ pathname: "/" })).toBeNull();
     expect(recentItemFromLocation({ pathname: "/files" })).toBeNull();
-    expect(recentItemFromLocation({ pathname: "/gallery" })).toBeNull();
+    expect(recentItemFromLocation({ pathname: "/photos" })).toBeNull();
     expect(recentItemFromLocation({ pathname: "/settings" })).toBeNull();
   });
 

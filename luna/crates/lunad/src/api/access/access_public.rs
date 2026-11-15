@@ -559,7 +559,7 @@ pub(super) fn upload_dest(
     if link.subject_kind == KIND_ALBUM {
         let (root, album) = album_for_link(conn, link)?;
         let contrib = if album.contrib_path.trim().is_empty() {
-            crate::gallery::allocate_contrib_dir(&root, &album.id, &album.name).map_err(|_| {
+            crate::photos::allocate_contrib_dir(&root, &album.id, &album.name).map_err(|_| {
                 json_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Luna couldn't prepare the upload folder.",
@@ -756,7 +756,7 @@ pub(super) async fn public_upload_create(
             let conn = state.db.lock().map_err(|_| busy())?;
             let (drive_id, dest, name_override) = upload_dest(&conn, &link, body.path.as_deref())?;
             if link.subject_kind == KIND_ALBUM
-                && !crate::gallery::is_media(std::path::Path::new(&name))
+                && !crate::photos::is_media(std::path::Path::new(&name))
             {
                 return Err(json_error(
                     StatusCode::BAD_REQUEST,
@@ -897,7 +897,7 @@ pub(super) async fn public_upload_complete(
                 map_upload_err(e)
             }
         })?;
-        let rel = crate::gallery::gallery_indexer::join_rel(&row.path, &entry.name);
+        let rel = crate::photos::photos_indexer::join_rel(&row.path, &entry.name);
         invalidate_guest_listing(&state, &row.drive_id, &rel);
         if link.subject_kind == KIND_ALBUM {
             // Album contributions: index the file and attach it to the album.
@@ -905,9 +905,9 @@ pub(super) async fn public_upload_complete(
                 let conn = state.db.lock().map_err(|_| busy())?;
                 album_for_link(&conn, &link)?
             };
-            match crate::gallery::index_one(&link.drive_id, &root, &rel) {
+            match crate::photos::index_one(&link.drive_id, &root, &rel) {
                 Ok(Some(_)) => {
-                    let _ = crate::gallery::add_album_items(
+                    let _ = crate::photos::add_album_items(
                         &root,
                         &album.id,
                         &[(link.drive_id.clone(), rel.clone())],
@@ -922,7 +922,7 @@ pub(super) async fn public_upload_complete(
                 }
             }
         } else {
-            state.gallery.upsert(&row.drive_id, &rel);
+            state.photos.upsert(&row.drive_id, &rel);
         }
         state.touch_io_activity();
         crate::api::collab::note_diagram_saved(
@@ -1037,7 +1037,7 @@ pub(super) fn retain_reachable(
         link_reaches(
             conn,
             link,
-            &crate::gallery::gallery_indexer::join_rel(dir_rel, &e.name),
+            &crate::photos::photos_indexer::join_rel(dir_rel, &e.name),
         )
     });
 }
@@ -1318,14 +1318,14 @@ pub(super) async fn public_rename(
             confined_write(&conn, &link, &rel, false)?;
         }
         let parent = rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
-        let new_rel = crate::gallery::gallery_indexer::join_rel(parent, &body.new_name);
+        let new_rel = crate::photos::photos_indexer::join_rel(parent, &body.new_name);
         {
             let conn = state.db.lock().map_err(|_| busy())?;
             files::rename(&conn, &link.drive_id, &rel, &body.new_name)
                 .map_err(map_guest_files_err)?;
         }
         drop(drive_guard);
-        // Folder renames move many gallery rows; rescan is the safe path.
+        // Folder renames move many photos rows; rescan is the safe path.
         let renamed_dir = {
             let conn = state.db.lock().map_err(|_| busy())?;
             files::drive_root(&conn, &link.drive_id)
@@ -1333,9 +1333,9 @@ pub(super) async fn public_rename(
                 .unwrap_or(false)
         };
         if renamed_dir {
-            state.gallery.rescan(&link.drive_id);
+            state.photos.rescan(&link.drive_id);
         } else {
-            state.gallery.rename(&link.drive_id, &rel, &new_rel);
+            state.photos.rename(&link.drive_id, &rel, &new_rel);
         }
         invalidate_guest_listing(&state, &link.drive_id, &rel);
         invalidate_guest_listing(&state, &link.drive_id, &new_rel);
@@ -1370,7 +1370,7 @@ pub(super) async fn public_delete(
             files::delete_to_trash(&conn, &link.drive_id, &rel).map_err(map_guest_files_err)?
         };
         drop(drive_guard);
-        state.gallery.remove(&link.drive_id, &rel);
+        state.photos.remove(&link.drive_id, &rel);
         // Eagerly drop album refs so shared albums update without the indexer.
         if let Ok(conn) = state.db.lock()
             && let Ok(drives) = db::list_drives(&conn)
@@ -1380,7 +1380,7 @@ pub(super) async fn public_delete(
                 .filter(|d| d.state == "as_is" && !d.mount_point.is_empty())
                 .map(|d| (d.id, PathBuf::from(d.mount_point)))
                 .collect();
-            crate::gallery::purge_album_item_refs_on_mounts(&mounts, &link.drive_id, &rel);
+            crate::photos::purge_album_item_refs_on_mounts(&mounts, &link.drive_id, &rel);
         }
         invalidate_guest_listing(&state, &link.drive_id, &rel);
         state.ram_cache.invalidate_thumb(&link.drive_id, &rel);
@@ -1427,7 +1427,7 @@ pub(super) async fn public_move(
                 confined_write(&conn, &link, &rel, false)?;
             }
             let leaf = rel.rsplit('/').next().unwrap_or(&rel);
-            let to_rel = crate::gallery::gallery_indexer::join_rel(&dest_dir, leaf);
+            let to_rel = crate::photos::photos_indexer::join_rel(&dest_dir, leaf);
             let outcome = {
                 let conn = state.db.lock().map_err(|_| busy())?;
                 files::move_rel(&conn, &link.drive_id, &rel, &to_rel)
@@ -1441,9 +1441,9 @@ pub(super) async fn public_move(
                             .unwrap_or(false)
                     };
                     if moved_dir {
-                        state.gallery.rescan(&link.drive_id);
+                        state.photos.rescan(&link.drive_id);
                     } else {
-                        state.gallery.rename(&link.drive_id, &rel, &to_rel);
+                        state.photos.rename(&link.drive_id, &rel, &to_rel);
                     }
                     invalidate_guest_listing(&state, &link.drive_id, &rel);
                     invalidate_guest_listing(&state, &link.drive_id, &to_rel);

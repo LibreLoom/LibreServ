@@ -78,7 +78,7 @@ pub fn installed() -> bool {
 // ---------------------------------------------------------------------------
 // Images
 
-/// Turn a gallery thumbnail into the encoder's input: shortest side to 224
+/// Turn a photos thumbnail into the encoder's input: shortest side to 224
 /// (bicubic), center crop 224 × 224, CLIP-normalized, channels first.
 pub fn image_tensor(jpeg: &Path) -> anyhow::Result<Vec<f32>> {
     let bytes = std::fs::read(jpeg)?;

@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 
 /// Turns a real drive-relative path into the path stored on disk, or `None`
 /// when they are the same. Set once by the daemon so every jail lookup (files,
-/// WebDAV, Gallery, jobs) finds items that live under another on-disk name.
+/// WebDAV, Photos, jobs) finds items that live under another on-disk name.
 pub type RelMapper = fn(&Path, &str) -> Option<String>;
 
 static REL_MAPPER: OnceLock<RelMapper> = OnceLock::new();

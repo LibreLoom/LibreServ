@@ -23,7 +23,7 @@ use tokio_util::io::ReaderStream;
 
 use crate::AppState;
 use crate::access::{self, CAP_EDIT};
-use crate::api::gallery::stream_zip_response;
+use crate::api::photos::stream_zip_response;
 use crate::api::response::json_error;
 use crate::auth::{self, CurrentUser};
 use crate::backup::drive_backup;
@@ -32,7 +32,7 @@ use crate::backup::status::BackupState;
 use crate::db::{self, DriveRow, ProtectionRow};
 use crate::drives::layout::Layout;
 use crate::files::{self, FilesError};
-use crate::gallery;
+use crate::photos;
 use crate::private;
 
 type ApiError = (StatusCode, Json<Value>);
@@ -717,7 +717,7 @@ async fn zip_response(rel: &str, entries: Vec<(String, PathBuf)>) -> Result<Resp
     stream_zip_response(&format!("{root}.zip"), move |tmp: &Path| {
         let out =
             fs::File::create(tmp).map_err(|_| fail(StatusCode::INTERNAL_SERVER_ERROR, zip_fail))?;
-        gallery::write_items_zip(&entries, out, files::ZIP_MAX_FILES)
+        photos::write_items_zip(&entries, out, files::ZIP_MAX_FILES)
             .map(|_| ())
             .map_err(|_| fail(StatusCode::INTERNAL_SERVER_ERROR, zip_fail))
     })

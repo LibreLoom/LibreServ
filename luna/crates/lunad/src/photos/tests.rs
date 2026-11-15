@@ -129,7 +129,7 @@ fn scan_writes_index_on_drive_not_emmc() {
     let first = scan("d1", &photos_dir).unwrap();
     assert_eq!(first.found, 1);
     assert_eq!(first.thumbnailed, 1);
-    assert!(gallery_db_path(&photos_dir).is_some());
+    assert!(photos_db_path(&photos_dir).is_some());
     assert!(
         thumbs_dir(&photos_dir)
             .unwrap()
@@ -141,7 +141,7 @@ fn scan_writes_index_on_drive_not_emmc() {
     );
     assert!(
         std::fs::read_dir(&os_data).unwrap().next().is_none(),
-        "gallery DB must not land under OS data dir"
+        "photos DB must not land under OS data dir"
     );
 
     let second = scan("d1", &photos_dir).unwrap();
@@ -163,7 +163,7 @@ fn scan_sorts_by_exif_not_mtime() {
     let dated = photos_dir.join("from-phone.jpg");
     std::fs::write(
         &dated,
-        crate::gallery::exif::jpeg_with_datetime_original("2010:01:01 00:00:00"),
+        crate::photos::exif::jpeg_with_datetime_original("2010:01:01 00:00:00"),
     )
     .unwrap();
     let png = image::RgbaImage::from_pixel(8, 8, image::Rgba([1, 2, 3, 255]));
@@ -177,7 +177,7 @@ fn scan_sorts_by_exif_not_mtime() {
     assert_eq!(page.items[1].name, "from-phone.jpg");
     assert_eq!(
         page.items[1].taken_at,
-        crate::gallery::exif::parse_exif_datetime("2010:01:01 00:00:00").unwrap()
+        crate::photos::exif::parse_exif_datetime("2010:01:01 00:00:00").unwrap()
     );
 }
 
@@ -313,12 +313,12 @@ fn camera_make_model_indexed_and_filtered() {
     std::fs::create_dir(&photos_dir).unwrap();
     std::fs::write(
         photos_dir.join("canon.jpg"),
-        crate::gallery::exif::jpeg_with_exif("2020:01:02 03:04:05", Some("Canon"), Some("EOS R5")),
+        crate::photos::exif::jpeg_with_exif("2020:01:02 03:04:05", Some("Canon"), Some("EOS R5")),
     )
     .unwrap();
     std::fs::write(
         photos_dir.join("nikon.jpg"),
-        crate::gallery::exif::jpeg_with_exif(
+        crate::photos::exif::jpeg_with_exif(
             "2020:02:03 04:05:06",
             Some("NIKON CORPORATION"),
             Some("NIKON D850"),
@@ -384,12 +384,12 @@ fn list_cameras_respects_path_grants() {
     std::fs::create_dir_all(photos_dir.join("secret")).unwrap();
     std::fs::write(
         photos_dir.join("shared/canon.jpg"),
-        crate::gallery::exif::jpeg_with_exif("2020:01:02 03:04:05", Some("Canon"), Some("EOS R5")),
+        crate::photos::exif::jpeg_with_exif("2020:01:02 03:04:05", Some("Canon"), Some("EOS R5")),
     )
     .unwrap();
     std::fs::write(
         photos_dir.join("secret/nikon.jpg"),
-        crate::gallery::exif::jpeg_with_exif(
+        crate::photos::exif::jpeg_with_exif(
             "2020:02:03 04:05:06",
             Some("NIKON CORPORATION"),
             Some("NIKON D850"),
@@ -422,7 +422,7 @@ fn list_cameras_member_missing_drive_key_denies_all() {
     std::fs::create_dir(&photos_dir).unwrap();
     std::fs::write(
         photos_dir.join("canon.jpg"),
-        crate::gallery::exif::jpeg_with_exif("2020:01:02 03:04:05", Some("Canon"), Some("EOS R5")),
+        crate::photos::exif::jpeg_with_exif("2020:01:02 03:04:05", Some("Canon"), Some("EOS R5")),
     )
     .unwrap();
     scan("d1", &photos_dir).unwrap();
@@ -528,7 +528,7 @@ fn rich_exif_filters_and_facets() {
     std::fs::create_dir(&photos_dir).unwrap();
     std::fs::write(
         photos_dir.join("canon.jpg"),
-        crate::gallery::exif::jpeg_with_rich_exif(crate::gallery::exif::RichExifOpts {
+        crate::photos::exif::jpeg_with_rich_exif(crate::photos::exif::RichExifOpts {
             datetime: "2020:01:02 15:04:05",
             make: Some("Canon"),
             model: Some("EOS R5"),
@@ -542,7 +542,7 @@ fn rich_exif_filters_and_facets() {
     .unwrap();
     std::fs::write(
         photos_dir.join("phone.jpg"),
-        crate::gallery::exif::jpeg_with_exif("2020:03:04 05:06:07", Some("Apple"), Some("iPhone")),
+        crate::photos::exif::jpeg_with_exif("2020:03:04 05:06:07", Some("Apple"), Some("iPhone")),
     )
     .unwrap();
     let wide = image::RgbaImage::from_pixel(200, 100, image::Rgba([5, 5, 5, 255]));

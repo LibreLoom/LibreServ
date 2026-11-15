@@ -1,7 +1,7 @@
 //! Per-drive SQLite microdb: the `.luna-<uuid>.sqlite3` file at each drive root.
 //!
 //! Holds drive identity plus high-churn metadata that must not wear the OS
-//! eMMC: file index, scrub hashes, gallery, trash paths, and upload sessions.
+//! eMMC: file index, scrub hashes, photos, trash paths, and upload sessions.
 //! Uses DELETE journal mode so adopt never leaves `.sqlite3-wal` /
 //! `.sqlite3-shm` sidecars next to the root marker.
 //!
@@ -137,13 +137,13 @@ pub fn rebuild(root: &Path, marker: &Marker) -> anyhow::Result<Connection> {
 /// the full schema.
 ///
 /// If the marker file already exists as a SQLite microdb, identity is
-/// updated in place and other tables (index, gallery, hashes, uploads,
+/// updated in place and other tables (index, photos, hashes, uploads,
 /// trash) are preserved. When the drive id changes, `drive_id` columns are
 /// rewritten to match.
 pub fn create(root: &Path, marker: &Marker, prefix: &str) -> anyhow::Result<Connection> {
     let path = root.join(marker::marker_file_name(prefix));
     if path.is_file() {
-        // Claim identity in place so index/gallery/hash/upload tables survive.
+        // Claim identity in place so index/photos/hash/upload tables survive.
         let conn = open_file(&path)?;
         if let Some(old) = read_identity(&conn)?
             && old.id != marker.id
@@ -649,7 +649,7 @@ fn backfill_photo_places(conn: &Connection) -> anyhow::Result<()> {
     if pending == 0 {
         return Ok(());
     }
-    let places = crate::gallery::places::index();
+    let places = crate::photos::places::index();
     let rows = {
         let mut sel = conn.prepare(
             "SELECT path, lat, lon FROM photos
@@ -829,7 +829,7 @@ mod tests {
         let photos: i64 = conn
             .query_row("SELECT COUNT(*) FROM photos", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(photos, 1, "gallery rows must survive re-claim");
+        assert_eq!(photos, 1, "photos rows must survive re-claim");
         let indexed: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM index_entries WHERE drive_id = 'new-id'",

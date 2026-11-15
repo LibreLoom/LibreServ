@@ -4,7 +4,7 @@
 //! with files already on the drive, then writes one file named
 //! `.luna-<uuid>.sqlite3`. That file is a SQLite database (DELETE journal
 //! mode) whose `identity` row holds the drive id and label. Lunad opens the
-//! same file for index, hashes, gallery, trash metadata, and upload sessions.
+//! same file for index, hashes, photos, trash metadata, and upload sessions.
 //! Every other name Luna creates on the drive — trash, thumbnails, backups,
 //! upload temps — starts with the same `.luna-<uuid>` prefix, so a
 //! drive full of existing files can never clash with Luna's own bookkeeping.
@@ -198,7 +198,7 @@ pub fn remove_marker(root: &Path, drive_id: &str) -> Result<bool, MarkerError> {
 /// - never creates directories, never touches anything except a temp file and
 ///   the final marker name (or an in-place identity update);
 /// - when the marker is already a SQLite microdb, updates the `identity` row
-///   only so index/gallery/hash/upload tables are preserved;
+///   only so index/photos/hash/upload tables are preserved;
 /// - for a new file, writes via `temp + fsync + rename` so a power cut cannot
 ///   leave a torn marker.
 pub fn write_marker(root: &Path, marker: &Marker, prefix: &str) -> Result<(), MarkerError> {

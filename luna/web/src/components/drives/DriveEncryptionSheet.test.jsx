@@ -12,11 +12,11 @@ const OPEN = { id: "d1", label: "Family photos", encrypted: true, locked: false 
 const LOCKED = { id: "d1", label: "Family photos", encrypted: true, locked: true };
 
 /** Answers the state route for the drive, and records every other request. */
-function stub(status, others = {}) {
+function stub(status, others = {}, extra = {}) {
   const calls = [];
   vi.stubGlobal("fetch", vi.fn(async (url, init) => {
     const u = String(url);
-    if (u.endsWith("/encryption")) return reply({ drive_id: "d1", status, present: status !== "unplugged" });
+    if (u.endsWith("/encryption")) return reply({ drive_id: "d1", status, present: status !== "unplugged", ...extra });
     calls.push({ url: u, body: init?.body ? JSON.parse(String(init.body)) : undefined });
     for (const [tail, answer] of Object.entries(others)) if (u.endsWith(tail)) return answer;
     return reply({ ok: true });
@@ -48,6 +48,13 @@ describe("DriveEncryptionSheet: a plain drive", () => {
     expect(screen.getByRole("button", { name: "Protect with a password" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Lock" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Erase drive/ })).toBeNull();
+  });
+
+  it("doesn't offer Protect when Luna can't protect this drive, and says why", async () => {
+    stub("not_encrypted", {}, { can_protect: false, cant_protect_reason: "This is a test drive made from a folder. A folder can't be protected with a password." });
+    show(PLAIN);
+    expect(await screen.findByText(/test drive made from a folder/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Protect with a password" })).toBeNull();
   });
 
   it("asks for the password twice with the no-recovery warning, and refuses an empty or unmatched one", async () => {

@@ -487,7 +487,7 @@ def create_mock_image(path: Path, width: int, height: int, label: str, dt_str: s
 
 # --- Real photos: Wikimedia Commons pixels + synthetic EXIF ------------------
 #
-# The gallery indexes taken_at, GPS (lat/lon + place label), camera make/model,
+# Photos indexes taken_at, GPS (lat/lon + place label), camera make/model,
 # lens, ISO, focal length, flash, plus width/height for the orientation and
 # megapixel filters. Real Commons JPEGs are downloaded once into
 # {LUNA_DATA_DIR}/.commons-cache (dot-prefixed, so the drive scanner skips it)

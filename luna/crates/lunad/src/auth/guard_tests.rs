@@ -846,7 +846,7 @@ fn categorizes_api_requests() {
     assert_eq!(action, "File download");
     assert_eq!(detail, "Downloaded file");
 
-    let (action, detail) = categorize_api_request(&Method::GET, "/api/v1/gallery/d1");
+    let (action, detail) = categorize_api_request(&Method::GET, "/api/v1/photos/d1");
     assert_eq!(action, "Photos");
     assert_eq!(detail, "Browsed photos");
 

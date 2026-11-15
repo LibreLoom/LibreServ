@@ -59,7 +59,9 @@ pub enum FormatError {
         "Files appeared on this drive since the preview. Look at the drive again before erasing it."
     )]
     NoLongerEmpty,
-    #[error("Directory mock drives can't be encrypted.")]
+    #[error(
+        "This is a test drive made from a folder. A folder can't be protected with a password."
+    )]
     MockEncryption,
     #[error("{0}")]
     Other(String),
@@ -244,7 +246,7 @@ impl Stage {
         if !prev.mount_point.is_empty() && state.drive_manager.mount_is_live(&prev.mount_point) {
             let root = PathBuf::from(&prev.mount_point);
             state.search_index.watch_mount(id, root.clone());
-            state.gallery.watch_mount(id, root);
+            state.photos.watch_mount(id, root);
         }
         self.quiesced = None;
     }
@@ -717,7 +719,7 @@ pub fn quiesce(
         crate::private::forget(Path::new(&drive.mount_point));
     }
     state.search_index.unwatch_mount(id);
-    state.gallery.unwatch_mount(id);
+    state.photos.unwatch_mount(id);
     if !drive.mount_point.is_empty() {
         let target = Path::new(&drive.mount_point);
         if state.drive_manager.mounter().is_mounted(target) {

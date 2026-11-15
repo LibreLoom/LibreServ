@@ -145,7 +145,7 @@ describe("FormatDriveFlow", () => {
     stub({ previewBody: preview({ empty: true, partitions: [], can_encrypt: false, ready_at: nowS() }) });
     show({ password: "correct horse 42" });
     await looked();
-    expect(screen.getByText("Password protection isn't available for this drive.")).toBeInTheDocument();
+    expect(screen.getByText(/test drive made from a folder/)).toBeInTheDocument();
     // Never promise the password in the same breath as refusing it.
     expect(screen.queryByText(/protects the drive with your password/)).toBeNull();
     expect(screen.getByRole("button", { name: "Erase drive" })).toBeDisabled();

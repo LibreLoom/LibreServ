@@ -115,13 +115,13 @@ describe("file ops store: operations and toasts", () => {
       destFolder: "Photos",
       kind: "gallery",
       files: [file("a.jpg")],
-      invalidateKeys: [["gallery"], ["gallery-status"]],
+      invalidateKeys: [["photos"], ["photos-status"]],
       afterFinish,
     });
     await tick();
     expect(addToast).toHaveBeenCalledWith({ type: "success", message: "1 photo uploaded." });
     expect(afterFinish).toHaveBeenCalledTimes(1);
-    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["gallery"] });
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["photos"] });
     expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["files", "d", "Photos"] });
     expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["recents"] });
   });

@@ -35,7 +35,7 @@ use crate::db;
 /// listing, no other downloads.
 ///
 /// Attachments and question pictures live in the form's files folder (see
-/// [`form_files_dir`]): a Luna-owned name, so listings, search, Gallery, zips,
+/// [`form_files_dir`]): a Luna-owned name, so listings, search, Photos, zips,
 /// WebDAV, and the files API never show it. Only the form routes here read
 /// it, with the same access as the answers themselves.
 pub const PERMISSION_RESPOND: &str = "respond";

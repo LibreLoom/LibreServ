@@ -1,4 +1,4 @@
-/* eslint-disable react-refresh/only-export-components -- filter sheet exports helpers used by GalleryPage */
+/* eslint-disable react-refresh/only-export-components -- filter sheet exports helpers used by PhotosPage */
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Check } from "lucide-react";
@@ -38,18 +38,18 @@ export const SAVED_FILTERS_KEY = "luna.photos.savedFilters";
  *   hourFrom?: string,
  *   hourTo?: string,
  *   timePreset?: ""|"morning"|"afternoon"|"evening"|"night",
- * }} GalleryFilters */
+ * }} PhotosFilters */
 
 /**
- * A place marker as `/api/v1/gallery/places` returns it (`PlaceMarker` in
- * `crates/lunad/src/gallery/mod.rs`).
+ * A place marker as `/api/v1/photos/places` returns it (`PlaceMarker` in
+ * `crates/lunad/src/photos/mod.rs`).
  *
- * @typedef {{ key: string, id?: string, label: string, lat: number, lon: number, cover_thumb?: string }} GalleryPlace
+ * @typedef {{ key: string, id?: string, label: string, lat: number, lon: number, cover_thumb?: string }} PhotosPlace
  */
 
 /**
- * `/api/v1/gallery/filter-facets` (`FilterFacets` in
- * `crates/lunad/src/gallery/mod.rs`). The older `lens`/`extensions`/`iso`/
+ * `/api/v1/photos/filter-facets` (`FilterFacets` in
+ * `crates/lunad/src/photos/mod.rs`). The older `lens`/`extensions`/`iso`/
  * `focal`/`flash` spellings are still read below as fallbacks.
  *
  * @typedef {{
@@ -63,10 +63,10 @@ export const SAVED_FILTERS_KEY = "luna.photos.savedFilters";
  *   iso?: boolean,
  *   focal?: boolean,
  *   flash?: boolean,
- * }} GalleryFacets
+ * }} PhotosFacets
  */
 
-export const EMPTY_FILTERS = /** @type {GalleryFilters} */ ({
+export const EMPTY_FILTERS = /** @type {PhotosFilters} */ ({
   dateFrom: "",
   dateTo: "",
   undated: false,
@@ -96,7 +96,7 @@ export const EMPTY_FILTERS = /** @type {GalleryFilters} */ ({
 
 /**
  * Count how many filter dimensions are active (for toolbar badge / chips).
- * @param {GalleryFilters|null|undefined} filters
+ * @param {PhotosFilters|null|undefined} filters
  */
 export function countActiveFilters(filters) {
   if (!filters) return 0;
@@ -142,7 +142,7 @@ export function monthDayLabel(value) {
 }
 
 /**
- * @param {GalleryFilters} filters
+ * @param {PhotosFilters} filters
  * @returns {Array<{ id: string, label: string }>}
  */
 export function filterChipList(filters) {
@@ -233,7 +233,7 @@ export function filterChipList(filters) {
 }
 
 /**
- * @param {GalleryFilters} filters
+ * @param {PhotosFilters} filters
  * @param {string} chipId
  */
 export function clearFilterChip(filters, chipId) {
@@ -358,15 +358,15 @@ const sectionClass = "space-y-3 rounded-large-element surface-primary p-4";
 /**
  * @param {{
  *   open: boolean,
- *   value: GalleryFilters,
+ *   value: PhotosFilters,
  *   onClose: () => void,
- *   onApply: (filters: GalleryFilters) => void,
+ *   onApply: (filters: PhotosFilters) => void,
  *   onOpenDates?: () => void,
- *   places?: GalleryPlace[],
+ *   places?: PhotosPlace[],
  *   focusSection?: ""|"when"|"where"|"camera"|"look"|string,
  * }} props
  */
-function GalleryFilterSheet({
+function PhotosFilterSheet({
   open,
   value,
   onClose,
@@ -377,7 +377,7 @@ function GalleryFilterSheet({
 }) {
   const [draft, setDraft] = useState(() => ({ ...EMPTY_FILTERS, ...value }));
   const [cameras, setCameras] = useState(/** @type {Array<{make:string,model:string,count:number}>} */ ([]));
-  const [facets, setFacets] = useState(/** @type {GalleryFacets|null} */ (null));
+  const [facets, setFacets] = useState(/** @type {PhotosFacets|null} */ (null));
   const [saved, setSaved] = useState(readSavedFilters);
   const [saveName, setSaveName] = useState("");
   const [justCleared, setJustCleared] = useState(false);
@@ -419,13 +419,13 @@ function GalleryFilterSheet({
     let cancelled = false;
     (async () => {
       try {
-        const data = await getJson("/api/v1/gallery/cameras");
+        const data = await getJson("/api/v1/photos/cameras");
         if (!cancelled) setCameras(Array.isArray(data?.cameras) ? data.cameras : []);
       } catch {
         if (!cancelled) setCameras([]);
       }
       try {
-        const data = await getJson("/api/v1/gallery/filter-facets");
+        const data = await getJson("/api/v1/photos/filter-facets");
         if (!cancelled) setFacets(data && typeof data === "object" ? data : null);
       } catch {
         if (!cancelled) setFacets(null);
@@ -541,7 +541,7 @@ function GalleryFilterSheet({
         </div>
       )}
     >
-      <div className="space-y-4" data-slot="gallery-filter-sheet">
+      <div className="space-y-4" data-slot="photos-filter-sheet">
         <section className={sectionClass} aria-labelledby="filter-when-heading" id="filter-when">
           <h3 id="filter-when-heading" className="font-mono text-sm">When</h3>
           <p className="text-sm">Show photos taken between these dates.</p>
@@ -651,11 +651,11 @@ function GalleryFilterSheet({
               surface="primary"
               content={
                 <>
-                  Draws a box on the map using{" "}
+                  Draw an area on the map. Luna shows only photos with a{" "}
                   <TermHint content="Location tags some phones and cameras store with a photo.">
                     GPS
-                  </TermHint>
-                  . Only photos tagged inside the box are shown.
+                  </TermHint>{" "}
+                  location inside the area.
                 </>
               }
             />
@@ -679,11 +679,11 @@ function GalleryFilterSheet({
               surface="primary"
               content={
                 <>
-                  Uses{" "}
+                  Luna reads the camera from the{" "}
                   <TermHint content="Details the camera wrote into the photo file, like make and model.">
                     EXIF
                   </TermHint>{" "}
-                  when Luna has indexed it.
+                  data in each photo it has scanned.
                 </>
               }
             />
@@ -820,7 +820,7 @@ function GalleryFilterSheet({
               <InfoHint
                 label="Album membership help"
                 surface="primary"
-                content="Checks albums stored on the same drive as each photo. Albums whose home is on another drive are not counted."
+                content="Counts only albums on the same drive as the photo."
               />
             </p>
             <div className="flex flex-wrap gap-2">
@@ -1003,7 +1003,7 @@ function GalleryFilterSheet({
 
         <section className={sectionClass} aria-labelledby="filter-saved">
           <h3 id="filter-saved" className="font-mono text-sm">Saved filters</h3>
-          <p className="text-sm">Save this set to reuse later on this browser.</p>
+          <p className="text-sm">Save these filters to use again in this browser.</p>
           <div className="flex flex-wrap gap-2">
             <input
               type="text"
@@ -1062,9 +1062,9 @@ function GalleryFilterSheet({
   );
 }
 
-export default memo(GalleryFilterSheet);
+export default memo(PhotosFilterSheet);
 
-GalleryFilterSheet.propTypes = {
+PhotosFilterSheet.propTypes = {
   open: PropTypes.bool.isRequired,
   value: PropTypes.object.isRequired,
   onClose: PropTypes.func.isRequired,

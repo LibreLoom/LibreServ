@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import GalleryToolbar from "./GalleryToolbar.jsx";
+import PhotosToolbar from "./PhotosToolbar.jsx";
 
 const SEGMENTS = [
   { value: "library", label: "Library" },
@@ -24,14 +24,14 @@ function renderToolbar(overrides = {}) {
     onSelectModeChange: vi.fn(),
     ...overrides,
   };
-  render(<GalleryToolbar {...props} />);
+  render(<PhotosToolbar {...props} />);
   return props;
 }
 
-describe("GalleryToolbar", () => {
+describe("PhotosToolbar", () => {
   it("splits apart on small screens into two bars with category bar below search bar", () => {
     const { container } = render(
-      <GalleryToolbar
+      <PhotosToolbar
         segments={SEGMENTS}
         segment="library"
         onSegmentChange={vi.fn()}
@@ -44,7 +44,7 @@ describe("GalleryToolbar", () => {
     expect(searchInput).toHaveAttribute("id", "photo-search-mobile");
 
     // Two distinct pillShell containers on mobile
-    const bars = container.querySelectorAll('[data-slot="gallery-toolbar"] > div');
+    const bars = container.querySelectorAll('[data-slot="photos-toolbar"] > div');
     expect(bars.length).toBe(2);
 
     // First bar contains the search input
@@ -58,7 +58,7 @@ describe("GalleryToolbar", () => {
 
   it("renders a single unified bar on desktop", () => {
     const { container } = render(
-      <GalleryToolbar
+      <PhotosToolbar
         segments={SEGMENTS}
         segment="library"
         onSegmentChange={vi.fn()}
@@ -71,7 +71,7 @@ describe("GalleryToolbar", () => {
     expect(searchInput).toHaveAttribute("id", "photo-search");
 
     // Single bar on desktop
-    const bars = container.querySelectorAll('[data-slot="gallery-toolbar"] > div');
+    const bars = container.querySelectorAll('[data-slot="photos-toolbar"] > div');
     expect(bars.length).toBe(1);
 
     // Both search input and segmented control are inside the single bar
@@ -122,7 +122,7 @@ describe("GalleryToolbar", () => {
 
   it("smoothly collapses and expands the Select button wrapper when showSelect changes", () => {
     const { container, rerender } = render(
-      <GalleryToolbar
+      <PhotosToolbar
         segments={SEGMENTS}
         segment="library"
         onSegmentChange={vi.fn()}
@@ -132,12 +132,12 @@ describe("GalleryToolbar", () => {
         onSelectModeChange={vi.fn()}
       />
     );
-    const wrapper = container.querySelector('[data-slot="gallery-select-wrapper"]');
+    const wrapper = container.querySelector('[data-slot="photos-select-wrapper"]');
     expect(wrapper).toHaveClass("grid-cols-[1fr]", "opacity-100");
     expect(wrapper).toHaveAttribute("aria-hidden", "false");
 
     rerender(
-      <GalleryToolbar
+      <PhotosToolbar
         segments={SEGMENTS}
         segment="places"
         onSegmentChange={vi.fn()}
@@ -189,23 +189,23 @@ describe("GalleryToolbar", () => {
       onRescan,
       rescanPending: false,
     };
-    const { rerender } = render(<GalleryToolbar {...props} />);
+    const { rerender } = render(<PhotosToolbar {...props} />);
 
     await user.click(screen.getByRole("button", { name: /More options/i }));
     await user.click(screen.getByRole("menuitem", { name: /Rescan drives/i }));
     expect(onRescan).toHaveBeenCalledTimes(1);
 
     // In flight: locked, and the resting label is leaving upward
-    rerender(<GalleryToolbar {...props} rescanPending={true} />);
+    rerender(<PhotosToolbar {...props} rescanPending={true} />);
     expect(screen.getByRole("menuitem", { name: /Rescanning drives/i })).toBeDisabled();
     // The menu is portaled to document.body — query there, not `container`
     expect(document.querySelector(".animate-rescan-swap-out")).toBeTruthy();
 
     // Resolved: "Started scan." shows but the row stays locked
     resolveRescan?.();
-    rerender(<GalleryToolbar {...props} rescanPending={false} />);
+    rerender(<PhotosToolbar {...props} rescanPending={false} />);
     expect(
-      await screen.findByRole("menuitem", { name: /Started scan/i })
+      await screen.findByRole("menuitem", { name: /Scan started/i })
     ).toBeDisabled();
 
     // After the dwell it rolls back: "Started scan." exits downward and the

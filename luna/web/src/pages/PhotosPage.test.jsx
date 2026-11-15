@@ -5,16 +5,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import { FileOpsProvider } from "../context/FileOpsContext.jsx";
-import GalleryPage, {
+import PhotosPage, {
   downloadErrorMessage,
   downloadFailureDescription,
-  GalleryDownloadError,
-  galleryUrl,
+  PhotosDownloadError,
+  photosUrl,
   openDownloadFile,
-  parseGalleryHash,
+  parsePhotosHash,
   saveDownloadResponse,
   cancelDownloadResponse,
-} from "./GalleryPage";
+} from "./PhotosPage";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
 
@@ -25,18 +25,18 @@ const STATUS_OK = { scanning: false, pending: 0, busy: false };
  *   places?: unknown[],
  *   albums?: unknown[],
  *   albumsHold?: Promise<void>,
- *   galleryHold?: Promise<void>,
- *   galleryItems?: unknown[] | null,
+ *   photosHold?: Promise<void>,
+ *   photosItems?: unknown[] | null,
  *   role?: string,
  *   drives?: unknown[] | null,
  * }} [options]
  */
-function stubGalleryFetch({
+function stubPhotosFetch({
   places = [],
   albums = [],
   albumsHold,
-  galleryHold,
-  galleryItems,
+  photosHold,
+  photosItems,
   role = "admin",
   drives = [
     { id: "a", label: "Family" },
@@ -70,13 +70,13 @@ function stubGalleryFetch({
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery/status")) {
+      if (u.includes("/photos/status")) {
         return new Response(JSON.stringify(STATUS_OK), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery/places")) {
+      if (u.includes("/photos/places")) {
         return new Response(JSON.stringify(places), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -88,18 +88,18 @@ function stubGalleryFetch({
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery/albums")) {
+      if (u.includes("/photos/albums")) {
         if (albumsHold) await albumsHold;
         return new Response(JSON.stringify(albums), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery")) {
-        if (galleryHold) await galleryHold;
+      if (u.includes("/photos")) {
+        if (photosHold) await photosHold;
         const items =
-          galleryItems !== undefined
-            ? galleryItems
+          photosItems !== undefined
+            ? photosItems
             : [
                 {
                   drive_id: "a",
@@ -161,7 +161,7 @@ function stubUploadXhr() {
   return opens;
 }
 
-function renderGallery({ withShortcuts = false } = {}) {
+function renderPhotos({ withShortcuts = false } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ToastProvider>
@@ -171,10 +171,10 @@ function renderGallery({ withShortcuts = false } = {}) {
         <AuthProvider>
           {withShortcuts ? (
             <ShortcutsProvider>
-              <GalleryPage />
+              <PhotosPage />
             </ShortcutsProvider>
           ) : (
-            <GalleryPage />
+            <PhotosPage />
           )}
         </AuthProvider>
       </MemoryRouter>
@@ -184,11 +184,11 @@ function renderGallery({ withShortcuts = false } = {}) {
   );
 }
 
-describe("GalleryPage photo upload", () => {
+describe("PhotosPage photo upload", () => {
   it("sends a dropped photo through the file operation store", async () => {
-    stubGalleryFetch({ drives: [{ id: "a", label: "Family", state: "as_is", mount_point: "/mnt/a" }] });
+    stubPhotosFetch({ drives: [{ id: "a", label: "Family", state: "as_is", mount_point: "/mnt/a" }] });
     const opens = stubUploadXhr();
-    renderGallery();
+    renderPhotos();
     await screen.findByRole("button", { name: /rescan/i }).catch(() => null);
     const photo = new File(["x"], "beach.jpg", { type: "image/jpeg" });
     const drop = new Event("drop", { bubbles: true, cancelable: true });
@@ -203,25 +203,25 @@ describe("GalleryPage photo upload", () => {
   });
 });
 
-describe("galleryUrl", () => {
+describe("photosUrl", () => {
   it("asks for favorites with true/false that lunad can parse", () => {
-    expect(galleryUrl({ favorites: true, offset: 0 })).toContain("favorites=true");
-    expect(galleryUrl({ favorites: true, offset: 0 })).not.toMatch(/favorites=1(?:&|$)/);
-    expect(galleryUrl({ favorites: false, offset: 0 })).not.toContain("favorites=");
+    expect(photosUrl({ favorites: true, offset: 0 })).toContain("favorites=true");
+    expect(photosUrl({ favorites: true, offset: 0 })).not.toMatch(/favorites=1(?:&|$)/);
+    expect(photosUrl({ favorites: false, offset: 0 })).not.toContain("favorites=");
   });
 
   it("wires day bounds as from/to unix seconds", () => {
-    const url = galleryUrl({ from: 1700000000, to: 1700086399, offset: 0 });
+    const url = photosUrl({ from: 1700000000, to: 1700086399, offset: 0 });
     expect(url).toContain("from=1700000000");
     expect(url).toContain("to=1700086399");
   });
 
   it("asks for a kind filter", () => {
-    expect(galleryUrl({ kind: "video" })).toContain("kind=video");
+    expect(photosUrl({ kind: "video" })).toContain("kind=video");
   });
 
   it("includes camera_make and place_bbox when set", () => {
-    const url = galleryUrl({
+    const url = photosUrl({
       cameraMake: "Canon",
       cameraModel: "EOS R5",
       placeBbox: "-10,20,-5,30",
@@ -232,24 +232,24 @@ describe("galleryUrl", () => {
   });
 
   it("wires undated and album_membership", () => {
-    expect(galleryUrl({ undated: true })).toContain("undated=true");
-    expect(galleryUrl({ albumMembership: "none" })).toContain("album_membership=none");
-    expect(galleryUrl({ albumMembership: "any" })).toContain("album_membership=any");
-    expect(galleryUrl({ albumMembership: "maybe" })).not.toContain("album_membership=");
+    expect(photosUrl({ undated: true })).toContain("undated=true");
+    expect(photosUrl({ albumMembership: "none" })).toContain("album_membership=none");
+    expect(photosUrl({ albumMembership: "any" })).toContain("album_membership=any");
+    expect(photosUrl({ albumMembership: "maybe" })).not.toContain("album_membership=");
   });
 
   it("wires month_day and a custom page size for the On this day view", () => {
-    const url = galleryUrl({ monthDay: "03-14", to: 1700000000, limit: 80 });
+    const url = photosUrl({ monthDay: "03-14", to: 1700000000, limit: 80 });
     expect(url).toContain("month_day=03-14");
     expect(url).toContain("to=1700000000");
     expect(url).toContain("limit=80");
-    expect(galleryUrl({ limit: 1 })).toContain("limit=1");
+    expect(photosUrl({ limit: 1 })).toContain("limit=1");
   });
 });
 
-describe("parseGalleryHash", () => {
+describe("parsePhotosHash", () => {
   it("parses day deep links", () => {
-    expect(parseGalleryHash("#day/2024-06-01")).toEqual({
+    expect(parsePhotosHash("#day/2024-06-01")).toEqual({
       segment: "library",
       day: "2024-06-01",
     });
@@ -257,7 +257,7 @@ describe("parseGalleryHash", () => {
 
   it("parses scroll and photo params on the library", () => {
     const p = `${encodeURIComponent("a")}|${encodeURIComponent("dir/one.jpg")}`;
-    expect(parseGalleryHash(`#library?y=2400&p=${p}`)).toEqual({
+    expect(parsePhotosHash(`#library?y=2400&p=${p}`)).toEqual({
       segment: "library",
       y: 2400,
       photo: "a\0dir/one.jpg",
@@ -266,7 +266,7 @@ describe("parseGalleryHash", () => {
 
   it("keeps params on album deep links", () => {
     const p = `${encodeURIComponent("a")}|${encodeURIComponent("x.jpg")}`;
-    expect(parseGalleryHash(`#albums/a/al1?p=${p}`)).toEqual({
+    expect(parsePhotosHash(`#albums/a/al1?p=${p}`)).toEqual({
       segment: "albums",
       albumHome: "a",
       albumId: "al1",
@@ -275,16 +275,16 @@ describe("parseGalleryHash", () => {
   });
 
   it("parses the On this day deep link", () => {
-    expect(parseGalleryHash("#onthisday")).toEqual({
+    expect(parsePhotosHash("#onthisday")).toEqual({
       segment: "library",
       onThisDay: true,
     });
   });
 });
 
-describe("GalleryPage", () => {
+describe("PhotosPage", () => {
   beforeEach(() => {
-    window.history.replaceState(null, "", "/gallery");
+    window.history.replaceState(null, "", "/photos");
   });
 
   describe("saveDownloadResponse", () => {
@@ -358,7 +358,7 @@ describe("GalleryPage", () => {
   describe("downloadFailureDescription", () => {
     it("keeps server errors regardless of their wording", () => {
       const message = "You don't have permission to download one of these photos.";
-      expect(downloadFailureDescription(new GalleryDownloadError(message))).toBe(message);
+      expect(downloadFailureDescription(new PhotosDownloadError(message))).toBe(message);
     });
 
     it("names the chosen save location when it runs out of space", () => {
@@ -373,8 +373,8 @@ describe("GalleryPage", () => {
   });
 
   it("shows photos from every drive without asking which one", async () => {
-    stubGalleryFetch();
-    renderGallery();
+    stubPhotosFetch();
+    renderPhotos();
     expect(await screen.findByLabelText("one.jpg")).toBeInTheDocument();
     expect(screen.getByLabelText("two.jpg")).toBeInTheDocument();
     expect(screen.getByRole("radiogroup")).toBeInTheDocument();
@@ -397,13 +397,13 @@ describe("GalleryPage", () => {
             { status: 200, headers: { "Content-Type": "application/json" } },
           );
         }
-        if (u.includes("/gallery/status")) {
+        if (u.includes("/photos/status")) {
           return new Response(JSON.stringify(STATUS_OK), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           });
         }
-        if (u.includes("/gallery?")) {
+        if (u.includes("/photos?")) {
           return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
             status: 200,
             headers: { "Content-Type": "application/json" },
@@ -412,12 +412,12 @@ describe("GalleryPage", () => {
         return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
       }),
     );
-    renderGallery();
+    renderPhotos();
     expect(await screen.findByText(/No drives yet/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Go to Files/i })).toHaveAttribute("href", "/files");
     expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Search photos/i)).not.toBeInTheDocument();
-    expect(document.querySelector("[data-slot=gallery-toolbar]")).toBeNull();
+    expect(document.querySelector("[data-slot=photos-toolbar]")).toBeNull();
   });
 
   it("tells Members to ask an Admin when they have no drives", async () => {
@@ -437,7 +437,7 @@ describe("GalleryPage", () => {
             { status: 200, headers: { "Content-Type": "application/json" } },
           );
         }
-        if (u.includes("/gallery/status")) {
+        if (u.includes("/photos/status")) {
           return new Response(JSON.stringify(STATUS_OK), {
             status: 200,
             headers: { "Content-Type": "application/json" },
@@ -446,7 +446,7 @@ describe("GalleryPage", () => {
         return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
       }),
     );
-    renderGallery();
+    renderPhotos();
     expect(await screen.findByText(/No photos you can open yet/i)).toBeInTheDocument();
     expect(
       screen.getByText(/Ask an Admin to share a drive, folder, or album with photos/i),
@@ -455,10 +455,10 @@ describe("GalleryPage", () => {
   });
 
   it("lets album-only Members open Albums when they have no drives", async () => {
-    stubGalleryFetch({
+    stubPhotosFetch({
       role: "user",
       drives: [],
-      galleryItems: [],
+      photosItems: [],
       albums: [
         {
           id: "al-shared",
@@ -470,7 +470,7 @@ describe("GalleryPage", () => {
         },
       ],
     });
-    renderGallery();
+    renderPhotos();
     expect(await screen.findByText(/Shared photos are in Albums/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Open albums/i }));
     expect(await screen.findByRole("button", { name: /^Family trip\b/i })).toBeInTheDocument();
@@ -478,8 +478,8 @@ describe("GalleryPage", () => {
   });
 
   it("focuses the photo search when / is pressed", async () => {
-    stubGalleryFetch();
-    renderGallery({ withShortcuts: true });
+    stubPhotosFetch();
+    renderPhotos({ withShortcuts: true });
     await screen.findByLabelText("one.jpg");
     const input = screen.getByLabelText("Search photos");
     expect(input).not.toHaveFocus();
@@ -489,8 +489,8 @@ describe("GalleryPage", () => {
   });
 
   it("defaults the URL hash to #library when none is set", async () => {
-    stubGalleryFetch();
-    renderGallery();
+    stubPhotosFetch();
+    renderPhotos();
     await screen.findByRole("radio", { name: /^Library$/i });
     await waitFor(() => {
       expect(window.location.hash).toBe("#library");
@@ -499,8 +499,8 @@ describe("GalleryPage", () => {
   });
 
   it("slides the album Back + title row in from the left on open", async () => {
-    window.history.replaceState(null, "", "/gallery#albums");
-    stubGalleryFetch({
+    window.history.replaceState(null, "", "/photos#albums");
+    stubPhotosFetch({
       albums: [
         {
           id: "al1",
@@ -512,11 +512,11 @@ describe("GalleryPage", () => {
         },
       ],
     });
-    renderGallery();
+    renderPhotos();
     // Prefer the open-album control; /test/i also matches "Delete album test".
     fireEvent.click(await screen.findByRole("button", { name: /^test\b/i }));
     expect(await screen.findByRole("button", { name: /^Back$/i })).toBeInTheDocument();
-    const chrome = document.querySelector("[data-slot=gallery-detail-chrome]");
+    const chrome = document.querySelector("[data-slot=photos-detail-chrome]");
     expect(chrome).toBeTruthy();
     expect(within(/** @type {HTMLElement} */ (chrome)).getByText("test")).toBeInTheDocument();
     expect(chrome?.className).toContain("animate-nav-slide-in");
@@ -530,9 +530,9 @@ describe("GalleryPage", () => {
     const albumsHold = new Promise((resolve) => {
       releaseAlbums = resolve;
     });
-    window.history.replaceState(null, "", "/gallery#albums");
-    stubGalleryFetch({ albumsHold });
-    renderGallery();
+    window.history.replaceState(null, "", "/photos#albums");
+    stubPhotosFetch({ albumsHold });
+    renderPhotos();
     expect(await screen.findByText(/Loading albums/i)).toBeInTheDocument();
     expect(document.querySelector("[data-slot=spinner]")).toBeTruthy();
     releaseAlbums?.();
@@ -541,43 +541,43 @@ describe("GalleryPage", () => {
 
   it("shows a centered spinner while the library list is still loading", async () => {
     /** @type {((value?: unknown) => void) | undefined} */
-    let releaseGallery;
-    const galleryHold = new Promise((resolve) => {
-      releaseGallery = resolve;
+    let releasePhotos;
+    const photosHold = new Promise((resolve) => {
+      releasePhotos = resolve;
     });
-    stubGalleryFetch({ galleryHold });
-    renderGallery();
+    stubPhotosFetch({ photosHold });
+    renderPhotos();
     expect(await screen.findByText(/Loading library/i)).toBeInTheDocument();
     expect(document.querySelector("[data-slot=spinner]")).toBeTruthy();
     expect(screen.queryByText(/Looking through your drives/i)).not.toBeInTheDocument();
-    releaseGallery?.();
+    releasePhotos?.();
     expect(await screen.findByLabelText("one.jpg")).toBeInTheDocument();
     expect(screen.queryByText(/Loading library/i)).not.toBeInTheDocument();
   });
 
   it("shows a centered spinner while favorites are still loading", async () => {
     /** @type {((value?: unknown) => void) | undefined} */
-    let releaseGallery;
-    const galleryHold = new Promise((resolve) => {
-      releaseGallery = resolve;
+    let releasePhotos;
+    const photosHold = new Promise((resolve) => {
+      releasePhotos = resolve;
     });
-    window.history.replaceState(null, "", "/gallery#favorites");
-    stubGalleryFetch({ galleryHold, galleryItems: [] });
-    renderGallery();
+    window.history.replaceState(null, "", "/photos#favorites");
+    stubPhotosFetch({ photosHold, photosItems: [] });
+    renderPhotos();
     expect(await screen.findByText(/Loading favorites/i)).toBeInTheDocument();
     expect(document.querySelector("[data-slot=spinner]")).toBeTruthy();
     expect(screen.queryByText(/No favorites yet/i)).not.toBeInTheDocument();
-    releaseGallery?.();
+    releasePhotos?.();
     expect(await screen.findByText(/No favorites yet/i)).toBeInTheDocument();
     expect(screen.queryByText(/Loading favorites/i)).not.toBeInTheDocument();
   });
 
   it("opens Places when loaded with #places", async () => {
-    window.history.replaceState(null, "", "/gallery#places");
-    stubGalleryFetch({
+    window.history.replaceState(null, "", "/photos#places");
+    stubPhotosFetch({
       places: [{ key: "home", label: "Home", count: 2, lat: 1, lon: 2 }],
     });
-    renderGallery();
+    renderPhotos();
     expect(await screen.findByRole("radio", { name: /^Places$/i })).toHaveAttribute(
       "aria-checked",
       "true",
@@ -609,7 +609,7 @@ describe("GalleryPage", () => {
             headers: { "Content-Type": "application/json" },
           });
         }
-        if (u.includes("/gallery/status")) {
+        if (u.includes("/photos/status")) {
           return new Response(
             JSON.stringify({
               scanning: true,
@@ -627,7 +627,7 @@ describe("GalleryPage", () => {
             },
           );
         }
-        if (u.includes("/gallery?")) {
+        if (u.includes("/photos?")) {
           return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
             status: 200,
             headers: { "Content-Type": "application/json" },
@@ -636,11 +636,11 @@ describe("GalleryPage", () => {
         return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
       }),
     );
-    renderGallery();
+    renderPhotos();
     expect(await screen.findByText(/Looking through your drives/i)).toBeInTheDocument();
     expect(screen.getByText(/as they're found/i)).toBeInTheDocument();
     // Status (found_count / drive_label) can resolve after the Looking card
-    // already appears from gallery.isLoading — wait for progress text.
+    // already appears from photoQuery.isLoading — wait for progress text.
     expect(await screen.findByText(/Found 4 photos on Family/i)).toBeInTheDocument();
     expect(screen.queryByText(/Previews stay on your drive/i)).not.toBeInTheDocument();
     const card = screen.getByText(/Looking through your drives/i).closest("[data-slot=card-clip]");
@@ -648,9 +648,9 @@ describe("GalleryPage", () => {
   });
 
   it("shows Places empty state with Card pop-in when there are no geotagged photos", async () => {
-    window.history.replaceState(null, "", "/gallery#places");
-    stubGalleryFetch({ places: [] });
-    renderGallery();
+    window.history.replaceState(null, "", "/photos#places");
+    stubPhotosFetch({ places: [] });
+    renderPhotos();
     expect(await screen.findByText(/No places yet/i)).toBeInTheDocument();
     const empty = document.querySelector("[data-slot=empty-state]");
     expect(empty).toBeTruthy();
@@ -659,9 +659,9 @@ describe("GalleryPage", () => {
   });
 
   it("updates the hash when a segment is selected", async () => {
-    stubGalleryFetch();
+    stubPhotosFetch();
     const user = userEvent.setup();
-    renderGallery();
+    renderPhotos();
     await screen.findByRole("radio", { name: /^Library$/i });
     await user.click(screen.getByRole("radio", { name: /^Favorites$/i }));
     await waitFor(() => {
@@ -675,9 +675,9 @@ describe("GalleryPage", () => {
 
   it("reopens the lightbox photo from the hash on reload", async () => {
     const p = `${encodeURIComponent("b")}|${encodeURIComponent("two.jpg")}`;
-    window.history.replaceState(null, "", `/gallery#library?p=${p}`);
-    stubGalleryFetch();
-    renderGallery();
+    window.history.replaceState(null, "", `/photos#library?p=${p}`);
+    stubPhotosFetch();
+    renderPhotos();
     expect(await screen.findByRole("dialog", { name: "two.jpg" })).toBeInTheDocument();
     await waitFor(() => {
       expect(window.location.hash).toBe(`#library?p=${p}`);
@@ -685,8 +685,8 @@ describe("GalleryPage", () => {
   });
 
   it("follows hashchange for back/forward navigation", async () => {
-    stubGalleryFetch();
-    renderGallery();
+    stubPhotosFetch();
+    renderPhotos();
     await screen.findByRole("radio", { name: /^Library$/i });
     await waitFor(() => {
       expect(window.location.hash).toBe("#library");
@@ -714,18 +714,18 @@ describe("GalleryPage", () => {
   });
 
   it("returns to the albums grid on browser Back and reopens the album on Forward", async () => {
-    window.history.replaceState(null, "", "/gallery#albums");
-    stubGalleryFetch({
+    window.history.replaceState(null, "", "/photos#albums");
+    stubPhotosFetch({
       albums: [{ id: "al1", home_drive_id: "a", name: "Trip", item_count: 2 }],
     });
-    renderGallery();
+    renderPhotos();
 
     // Open the album — the hash deep-link pushes a history entry.
     fireEvent.click(await screen.findByRole("button", { name: /^Trip/ }));
     await waitFor(() => {
       expect(window.location.hash).toBe("#albums/a/al1");
     });
-    const chrome = document.querySelector("[data-slot=gallery-detail-chrome]");
+    const chrome = document.querySelector("[data-slot=photos-detail-chrome]");
     expect(within(/** @type {HTMLElement} */ (chrome)).getByText("Trip")).toBeInTheDocument();
 
     // Browser Back lands on the albums grid, not wherever we were before Albums.
@@ -746,7 +746,7 @@ describe("GalleryPage", () => {
       expect(window.location.hash).toBe("#albums/a/al1");
     });
     const chrome2 = await screen.findByText("Trip");
-    expect(chrome2.closest("[data-slot=gallery-detail-chrome]")).toBeTruthy();
+    expect(chrome2.closest("[data-slot=photos-detail-chrome]")).toBeTruthy();
 
     // The detail chrome's Back button pops the pushed entry too.
     fireEvent.click(screen.getByRole("button", { name: /^Back$/i }));
@@ -757,12 +757,12 @@ describe("GalleryPage", () => {
   });
 
   it("opens the share sheet from the album's Share button, which reads just Share", async () => {
-    window.history.replaceState(null, "", "/gallery#albums");
-    stubGalleryFetch({
+    window.history.replaceState(null, "", "/photos#albums");
+    stubPhotosFetch({
       albums: [{ id: "al1", home_drive_id: "a", name: "Trip", item_count: 2 }],
     });
     const user = userEvent.setup();
-    renderGallery();
+    renderPhotos();
 
     await user.click(await screen.findByRole("button", { name: /^Trip/ }));
     await waitFor(() => {
@@ -770,7 +770,7 @@ describe("GalleryPage", () => {
     });
 
     const chrome = /** @type {HTMLElement} */ (
-      document.querySelector("[data-slot=gallery-detail-chrome]")
+      document.querySelector("[data-slot=photos-detail-chrome]")
     );
     const share = within(chrome).getByRole("button", { name: "Share album" });
     // Visible label is just "Share"; the album name is not repeated in the
@@ -783,9 +783,9 @@ describe("GalleryPage", () => {
   });
 
   it("steps back out of a day view to the full library", async () => {
-    window.history.replaceState(null, "", "/gallery#library");
-    stubGalleryFetch();
-    renderGallery();
+    window.history.replaceState(null, "", "/photos#library");
+    stubPhotosFetch();
+    renderPhotos();
     expect(await screen.findByLabelText("one.jpg")).toBeInTheDocument();
 
     // Clicking a day header scopes the timeline and pushes a history entry.
@@ -795,7 +795,7 @@ describe("GalleryPage", () => {
     await waitFor(() => {
       expect(window.location.hash).toMatch(/^#day\//);
     });
-    expect(window.history.state?.lunaGalleryDetail).toBe(true);
+    expect(window.history.state?.lunaPhotosDetail).toBe(true);
     expect(await screen.findByRole("button", { name: /^Back$/i })).toBeInTheDocument();
 
     // Browser Back clears the day scope, returning to the whole library.
@@ -811,9 +811,9 @@ describe("GalleryPage", () => {
   });
 
   it("closes the lightbox on browser Back and reopens it on Forward", async () => {
-    window.history.replaceState(null, "", "/gallery#library");
-    stubGalleryFetch();
-    renderGallery();
+    window.history.replaceState(null, "", "/photos#library");
+    stubPhotosFetch();
+    renderPhotos();
     fireEvent.click(await screen.findByLabelText("one.jpg"));
 
     // The open photo is a pushed `?p=` entry.
@@ -845,9 +845,9 @@ describe("GalleryPage", () => {
   it("releases scroll lock when exiting lightbox on scrolled timeline via browser Back", async () => {
     Object.defineProperty(document.documentElement, "scrollHeight", { value: 2000, configurable: true });
     Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
-    window.history.replaceState(null, "", "/gallery#library?y=350");
-    stubGalleryFetch();
-    renderGallery();
+    window.history.replaceState(null, "", "/photos#library?y=350");
+    stubPhotosFetch();
+    renderPhotos();
     fireEvent.click(await screen.findByLabelText("one.jpg"));
 
     await waitFor(() => {
@@ -870,9 +870,9 @@ describe("GalleryPage", () => {
   it("releases scroll lock when exiting lightbox on scrolled timeline via Close button", async () => {
     Object.defineProperty(document.documentElement, "scrollHeight", { value: 2000, configurable: true });
     Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
-    window.history.replaceState(null, "", "/gallery#library?y=350");
-    stubGalleryFetch();
-    renderGallery();
+    window.history.replaceState(null, "", "/photos#library?y=350");
+    stubPhotosFetch();
+    renderPhotos();
     fireEvent.click(await screen.findByLabelText("one.jpg"));
 
     await waitFor(() => {
@@ -899,13 +899,13 @@ describe("GalleryPage", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery/status")) {
+      if (u.includes("/photos/status")) {
         return new Response(JSON.stringify(STATUS_OK), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery?")) {
+      if (u.includes("/photos?")) {
         const favoritedOnly = u.includes("favorites=true");
         const items = favoritedOnly
           ? [
@@ -938,7 +938,7 @@ describe("GalleryPage", () => {
       return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderGallery();
+    renderPhotos();
     expect(await screen.findByLabelText("other.jpg")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("radio", { name: /Favorites/i }));
@@ -967,13 +967,13 @@ describe("GalleryPage", () => {
             headers: { "Content-Type": "application/json" },
           });
         }
-        if (u.includes("/gallery/status")) {
+        if (u.includes("/photos/status")) {
           return new Response(JSON.stringify(STATUS_OK), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           });
         }
-        if (u.includes("/gallery?")) {
+        if (u.includes("/photos?")) {
           return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
             status: 200,
             headers: { "Content-Type": "application/json" },
@@ -982,22 +982,22 @@ describe("GalleryPage", () => {
         return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
       }),
     );
-    renderGallery();
+    renderPhotos();
     fireEvent.click(await screen.findByRole("radio", { name: /Favorites/i }));
     expect(await screen.findByText(/No favorites yet/i)).toBeInTheDocument();
     expect(screen.getByText(/tap the heart/i)).toBeInTheDocument();
   });
 
   it("shows one empty state when search and filters both match nothing", async () => {
-    window.history.replaceState(null, "", "/gallery#albums");
-    stubGalleryFetch({ galleryItems: [] });
-    renderGallery();
+    window.history.replaceState(null, "", "/photos#albums");
+    stubPhotosFetch({ photosItems: [] });
+    renderPhotos();
     // Smart album "Videos" applies the kind=video filter inside Albums.
     fireEvent.click(await screen.findByRole("button", { name: /Smart albums/i }));
     fireEvent.click(await screen.findByRole("option", { name: /^Videos$/i }));
     const noMatch = await screen.findByText(/No photos match these filters/i);
     // The Back chrome sits above the empty state, not under it.
-    const chrome = document.querySelector("[data-slot=gallery-detail-chrome]");
+    const chrome = document.querySelector("[data-slot=photos-detail-chrome]");
     const emptyStateEl = noMatch.closest("[data-slot=empty-state]");
     expect(chrome).toBeTruthy();
     expect(emptyStateEl).toBeTruthy();
@@ -1025,9 +1025,9 @@ describe("GalleryPage", () => {
   });
 
   it("keeps a smart album inside Albums, can save it as an album, and Back returns to the grid", async () => {
-    window.history.replaceState(null, "", "/gallery#albums");
-    stubGalleryFetch();
-    renderGallery();
+    window.history.replaceState(null, "", "/photos#albums");
+    stubPhotosFetch();
+    renderPhotos();
 
     fireEvent.click(await screen.findByRole("button", { name: /Smart albums/i }));
     fireEvent.click(await screen.findByRole("option", { name: /^Videos$/i }));
@@ -1035,7 +1035,7 @@ describe("GalleryPage", () => {
     // The Albums segment stays selected and the smart view gets its own chrome.
     expect(await screen.findByRole("button", { name: /^Back$/i })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /^Albums$/i })).toHaveAttribute("aria-checked", "true");
-    const chrome = document.querySelector("[data-slot=gallery-detail-chrome]");
+    const chrome = document.querySelector("[data-slot=photos-detail-chrome]");
     expect(chrome).toBeTruthy();
     expect(within(/** @type {HTMLElement} */ (chrome)).getByText("Videos")).toBeInTheDocument();
     await waitFor(() => {
@@ -1058,7 +1058,7 @@ describe("GalleryPage", () => {
       expect(
         vi.mocked(globalThis.fetch).mock.calls.some(
           ([url, init]) =>
-            String(url).includes("/gallery/albums") &&
+            String(url).includes("/photos/albums") &&
             (init?.method || "GET").toUpperCase() === "POST",
         ),
       ).toBe(true);
@@ -1072,8 +1072,8 @@ describe("GalleryPage", () => {
   });
 
   it("shows only the search empty state when a Favorites search matches nothing", async () => {
-    stubGalleryFetch({ galleryItems: [] });
-    renderGallery();
+    stubPhotosFetch({ photosItems: [] });
+    renderPhotos();
     fireEvent.click(await screen.findByRole("radio", { name: /Favorites/i }));
     expect(await screen.findByText(/No favorites yet/i)).toBeInTheDocument();
 
@@ -1085,9 +1085,9 @@ describe("GalleryPage", () => {
   });
 
   it("names the album when a search inside it matches nothing", async () => {
-    window.history.replaceState(null, "", "/gallery#albums");
-    stubGalleryFetch({
-      galleryItems: [],
+    window.history.replaceState(null, "", "/photos#albums");
+    stubPhotosFetch({
+      photosItems: [],
       albums: [
         {
           id: "al1",
@@ -1099,7 +1099,7 @@ describe("GalleryPage", () => {
         },
       ],
     });
-    renderGallery();
+    renderPhotos();
     fireEvent.click(await screen.findByRole("button", { name: /^Trips\b/i }));
     expect(await screen.findByText(/This album is empty/i)).toBeInTheDocument();
 
@@ -1110,7 +1110,7 @@ describe("GalleryPage", () => {
     await waitFor(() => expect(document.querySelectorAll("[data-slot=empty-state]")).toHaveLength(1));
   });
 
-  it("shows an empty Favorites state even while gallery indexing is busy", async () => {
+  it("shows an empty Favorites state even while photos indexing is busy", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url) => {
@@ -1121,13 +1121,13 @@ describe("GalleryPage", () => {
             headers: { "Content-Type": "application/json" },
           });
         }
-        if (u.includes("/gallery/status")) {
+        if (u.includes("/photos/status")) {
           return new Response(JSON.stringify({ scanning: true, pending: 3, busy: true }), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           });
         }
-        if (u.includes("/gallery?")) {
+        if (u.includes("/photos?")) {
           return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
             status: 200,
             headers: { "Content-Type": "application/json" },
@@ -1136,7 +1136,7 @@ describe("GalleryPage", () => {
         return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
       }),
     );
-    renderGallery();
+    renderPhotos();
     fireEvent.click(await screen.findByRole("radio", { name: /Favorites/i }));
     expect(await screen.findByText(/No favorites yet/i)).toBeInTheDocument();
   });
@@ -1151,19 +1151,19 @@ describe("GalleryPage", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery/rescan") && method === "POST") {
+      if (u.includes("/photos/rescan") && method === "POST") {
         return new Response(JSON.stringify({ ok: true, queued: 1, busy: true }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery/status")) {
+      if (u.includes("/photos/status")) {
         return new Response(JSON.stringify(STATUS_OK), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery?")) {
+      if (u.includes("/photos?")) {
         return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -1172,7 +1172,7 @@ describe("GalleryPage", () => {
       return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderGallery();
+    renderPhotos();
     expect(await screen.findByText(/No photos yet/i)).toBeInTheDocument();
     expect(screen.getByText(/Add pictures to a drive/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Rescan drives/i }));
@@ -1180,14 +1180,14 @@ describe("GalleryPage", () => {
       expect(
         fetchMock.mock.calls.some(
           ([url, init]) =>
-            String(url).includes("/gallery/rescan") &&
+            String(url).includes("/photos/rescan") &&
             (init?.method || "GET").toUpperCase() === "POST",
         ),
       ).toBe(true);
     });
   });
 
-  it("refreshes gallery queries once when busy ends", async () => {
+  it("refreshes photos queries once when busy ends", async () => {
     let busy = true;
     const fetchMock = vi.fn(async (url) => {
       const u = String(url);
@@ -1209,7 +1209,7 @@ describe("GalleryPage", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery/status")) {
+      if (u.includes("/photos/status")) {
         return new Response(
           JSON.stringify({
             scanning: busy,
@@ -1224,7 +1224,7 @@ describe("GalleryPage", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      if (u.includes("/gallery?")) {
+      if (u.includes("/photos?")) {
         return new Response(
           JSON.stringify({
             items: busy
@@ -1257,7 +1257,7 @@ describe("GalleryPage", () => {
         <FileOpsProvider>
         <MemoryRouter>
           <AuthProvider>
-            <GalleryPage />
+            <PhotosPage />
           </AuthProvider>
         </MemoryRouter>
         </FileOpsProvider>
@@ -1268,26 +1268,26 @@ describe("GalleryPage", () => {
     // Wait until indexing status is live so wasIndexingRef is armed; otherwise
     // flipping busy before the first status resolve skips the final refresh.
     expect(await screen.findByText(/Found 1 photo on Family/i)).toBeInTheDocument();
-    const galleryCallsWhileBusy = fetchMock.mock.calls.filter(([url]) =>
-      String(url).includes("/gallery?"),
+    const photosCallsWhileBusy = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/photos?"),
     ).length;
 
     busy = false;
     await act(async () => {
-      await client.invalidateQueries({ queryKey: ["gallery-status"] });
+      await client.invalidateQueries({ queryKey: ["photos-status"] });
     });
 
     expect(await screen.findByLabelText("done.jpg")).toBeInTheDocument();
     await waitFor(() => {
-      const galleryCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes("/gallery?"));
-      expect(galleryCalls.length).toBeGreaterThan(galleryCallsWhileBusy);
+      const photosCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes("/photos?"));
+      expect(photosCalls.length).toBeGreaterThan(photosCallsWhileBusy);
     });
   });
 
   it("shows a placeholder hint on the New album name field", async () => {
-    window.history.replaceState(null, "", "/gallery#albums");
-    stubGalleryFetch();
-    renderGallery();
+    window.history.replaceState(null, "", "/photos#albums");
+    stubPhotosFetch();
+    renderPhotos();
     expect(await screen.findByText(/No albums yet/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole("button", { name: /New album/i })[0]);
@@ -1300,7 +1300,7 @@ describe("GalleryPage", () => {
   });
 
   it("renders Add to album modal with search, selection, and outline Cancel", async () => {
-    stubGalleryFetch({
+    stubPhotosFetch({
       albums: [
         {
           id: "alb1",
@@ -1318,7 +1318,7 @@ describe("GalleryPage", () => {
         },
       ],
     });
-    renderGallery();
+    renderPhotos();
     const photo = await screen.findByLabelText("one.jpg");
     fireEvent.click(photo);
 
@@ -1363,25 +1363,25 @@ describe("GalleryPage", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery/status")) {
+      if (u.includes("/photos/status")) {
         return new Response(JSON.stringify(STATUS_OK), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery/albums/a/alb1/items") && method === "POST") {
+      if (u.includes("/photos/albums/a/alb1/items") && method === "POST") {
         return new Response(JSON.stringify({ ok: true }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery/albums") && method === "GET") {
+      if (u.includes("/photos/albums") && method === "GET") {
         return new Response(JSON.stringify(albums), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery?")) {
+      if (u.includes("/photos?")) {
         return new Response(
           JSON.stringify({
             items: [
@@ -1404,7 +1404,7 @@ describe("GalleryPage", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    renderGallery();
+    renderPhotos();
     fireEvent.click(await screen.findByLabelText("one.jpg"));
     fireEvent.click(await screen.findByRole("button", { name: /Add to album/i }));
 
@@ -1415,7 +1415,7 @@ describe("GalleryPage", () => {
     await waitFor(() => {
       const post = fetchMock.mock.calls.find(
         ([url, init]) =>
-          String(url).includes("/gallery/albums/a/alb1/items")
+          String(url).includes("/photos/albums/a/alb1/items")
           && (init?.method || "GET").toUpperCase() === "POST",
       );
       expect(post).toBeTruthy();
@@ -1447,26 +1447,26 @@ describe("GalleryPage", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery/status")) {
+      if (u.includes("/photos/status")) {
         return new Response(JSON.stringify(STATUS_OK), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery/albums/a/alb1") && method === "DELETE") {
+      if (u.includes("/photos/albums/a/alb1") && method === "DELETE") {
         albumsList = [];
         return new Response(JSON.stringify({ ok: true }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery/albums") && method === "GET") {
+      if (u.includes("/photos/albums") && method === "GET") {
         return new Response(JSON.stringify(albumsList), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery?")) {
+      if (u.includes("/photos?")) {
         return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -1475,9 +1475,9 @@ describe("GalleryPage", () => {
       return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
     });
     vi.stubGlobal("fetch", fetchMock);
-    window.history.replaceState(null, "", "/gallery#albums");
+    window.history.replaceState(null, "", "/photos#albums");
     const user = userEvent.setup();
-    renderGallery();
+    renderPhotos();
 
     expect(await screen.findByText("Vacation")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Share album Vacation" })).toBeInTheDocument();
@@ -1496,7 +1496,7 @@ describe("GalleryPage", () => {
       expect(
         fetchMock.mock.calls.some(
           ([url, init]) =>
-            String(url).includes("/gallery/albums/a/alb1") &&
+            String(url).includes("/photos/albums/a/alb1") &&
             (init?.method || "GET").toUpperCase() === "DELETE",
         ),
       ).toBe(true);
@@ -1523,19 +1523,19 @@ describe("GalleryPage", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery/status")) {
+      if (u.includes("/photos/status")) {
         return new Response(JSON.stringify(STATUS_OK), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery/albums")) {
+      if (u.includes("/photos/albums")) {
         return new Response(JSON.stringify([album]), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery?")) {
+      if (u.includes("/photos?")) {
         return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -1544,9 +1544,9 @@ describe("GalleryPage", () => {
       return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
     });
     vi.stubGlobal("fetch", fetchMock);
-    window.history.replaceState(null, "", "/gallery#albums");
+    window.history.replaceState(null, "", "/photos#albums");
     const user = userEvent.setup();
-    renderGallery();
+    renderPhotos();
 
     expect(await screen.findByText("Keep me")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Delete album Keep me" }));
@@ -1582,7 +1582,7 @@ describe("GalleryPage", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery/status")) {
+      if (u.includes("/photos/status")) {
         return new Response(JSON.stringify(STATUS_OK), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -1623,13 +1623,13 @@ describe("GalleryPage", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery/albums")) {
+      if (u.includes("/photos/albums")) {
         return new Response(JSON.stringify([album]), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery?")) {
+      if (u.includes("/photos?")) {
         return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -1638,9 +1638,9 @@ describe("GalleryPage", () => {
       return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
     });
     vi.stubGlobal("fetch", fetchMock);
-    window.history.replaceState(null, "", "/gallery#albums");
+    window.history.replaceState(null, "", "/photos#albums");
     const user = userEvent.setup();
-    renderGallery();
+    renderPhotos();
 
     expect(await screen.findByText("Shared Moments")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Share album Shared Moments" }));
@@ -1653,11 +1653,11 @@ describe("GalleryPage", () => {
   });
 
   it("labels the album card's button Share but keeps the album in its accessible name", async () => {
-    stubGalleryFetch({
+    stubPhotosFetch({
       albums: [{ id: "alb-label", home_drive_id: "a", name: "Summer", item_count: 3 }],
     });
-    window.history.replaceState(null, "", "/gallery#albums");
-    renderGallery();
+    window.history.replaceState(null, "", "/photos#albums");
+    renderPhotos();
 
     expect(await screen.findByText("Summer")).toBeInTheDocument();
     const share = screen.getByRole("button", { name: "Share album Summer" });
@@ -1688,13 +1688,13 @@ describe("GalleryPage", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery/status")) {
+      if (u.includes("/photos/status")) {
         return new Response(JSON.stringify(STATUS_OK), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (u.includes("/gallery?")) {
+      if (u.includes("/photos?")) {
         const items = u.includes("month_day=")
           ? [
               {
@@ -1724,7 +1724,7 @@ describe("GalleryPage", () => {
       return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderGallery();
+    renderPhotos();
 
     // The pill appears once the probe finds photos from previous years.
     const openBtn = await screen.findByRole("button", { name: /On this day · 1 photo/i });
@@ -1734,7 +1734,7 @@ describe("GalleryPage", () => {
     fireEvent.click(openBtn);
     expect(await screen.findByLabelText("memory.jpg")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByLabelText("one.jpg")).not.toBeInTheDocument());
-    const chrome = document.querySelector("[data-slot=gallery-detail-chrome]");
+    const chrome = document.querySelector("[data-slot=photos-detail-chrome]");
     expect(chrome).toBeTruthy();
     expect(
       within(/** @type {HTMLElement} */ (chrome)).getByText("On this day"),

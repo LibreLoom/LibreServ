@@ -56,13 +56,13 @@ pub mod db;
 pub mod dev_mock;
 pub mod drives;
 pub mod files;
-pub mod gallery;
 pub mod hibp;
 pub mod jobs;
 pub mod net;
 pub mod office;
 pub mod packs;
 pub mod password;
+pub mod photos;
 pub mod private;
 pub mod rate_limit;
 pub mod sandbox;
@@ -133,7 +133,7 @@ pub struct AppState {
     pub db: Arc<Db>,
     pub drive_manager: Arc<DriveManager>,
     pub job_manager: Arc<crate::jobs::JobManager>,
-    pub gallery: Arc<crate::gallery::gallery_indexer::GalleryIndexer>,
+    pub photos: Arc<crate::photos::photos_indexer::PhotosIndexer>,
     pub auth: Arc<crate::auth::AuthService>,
     pub connect: Arc<crate::net::connect::ConnectService>,
     pub login_limiter: Arc<crate::rate_limit::RateLimiter>,
@@ -180,8 +180,8 @@ impl AppState {
             secret,
             data_dir.to_path_buf(),
         ));
-        let gallery = crate::gallery::gallery_indexer::GalleryIndexer::start();
-        let job_manager = Arc::new(crate::jobs::JobManager::new(db.clone(), gallery.clone()));
+        let photos = crate::photos::photos_indexer::PhotosIndexer::start();
+        let job_manager = Arc::new(crate::jobs::JobManager::new(db.clone(), photos.clone()));
         let updates = Arc::new(crate::system::updates::UpdateService::from_db(
             &db.lock().unwrap(),
             data_dir,
@@ -190,7 +190,7 @@ impl AppState {
             db: db.clone(),
             drive_manager,
             job_manager,
-            gallery,
+            photos,
             auth,
             connect: Arc::new(crate::net::connect::ConnectService::new(
                 data_dir,

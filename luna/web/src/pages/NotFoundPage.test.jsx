@@ -43,7 +43,7 @@ describe("NotFoundPage", () => {
     renderAt("/galery");
     expect(screen.getByRole("link", { name: "Photos" })).toHaveAttribute(
       "href",
-      "/gallery",
+      "/photos",
     );
   });
 
@@ -51,7 +51,7 @@ describe("NotFoundPage", () => {
     renderAt("/pictures");
     expect(screen.getByRole("link", { name: "Photos" })).toHaveAttribute(
       "href",
-      "/gallery",
+      "/photos",
     );
   });
 

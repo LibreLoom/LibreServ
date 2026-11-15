@@ -1,7 +1,7 @@
 use super::THUMB_CACHE_CONTROL;
 use crate::drives::DriveManager;
 use crate::drives::mount::shared_mock;
-use crate::{AppState, db, gallery};
+use crate::{AppState, db, photos};
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use serde_json::Value;
@@ -110,7 +110,7 @@ async fn status_includes_phase_and_compat_busy_fields() {
     let response = router
         .oneshot(
             Request::builder()
-                .uri("/api/v1/gallery/status")
+                .uri("/api/v1/photos/status")
                 .header("Authorization", format!("Bearer {token}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -153,7 +153,7 @@ async fn status_names_the_failing_drive_in_last_error() {
         .register("Err", "Err", "hunter22hunter1", "admin")
         .unwrap();
     let token = auth.issue(&user).unwrap();
-    state.gallery.debug_set_error(
+    state.photos.debug_set_error(
         "d-photos",
         "Luna couldn't finish looking through {drive}. Try looking through it again, or unplug the drive and plug it back in.",
     );
@@ -172,7 +172,7 @@ async fn status_names_the_failing_drive_in_last_error() {
             let response = router
                 .oneshot(
                     Request::builder()
-                        .uri("/api/v1/gallery/status")
+                        .uri("/api/v1/photos/status")
                         .header("Authorization", format!("Bearer {token}"))
                         .body(Body::empty())
                         .unwrap(),
@@ -197,7 +197,7 @@ async fn status_names_the_failing_drive_in_last_error() {
 
     // A drive the caller cannot resolve falls back to a generic reference.
     state
-        .gallery
+        .photos
         .debug_set_error("d-gone", "Luna couldn't finish looking through {drive}.");
     let v = get_status(make_router()).await;
     let msg = v["last_error"].as_str().unwrap();
@@ -239,7 +239,7 @@ async fn rescan_queues_accessible_mounts() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/api/v1/gallery/rescan")
+                .uri("/api/v1/photos/rescan")
                 .header("Authorization", format!("Bearer {token}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -253,8 +253,8 @@ async fn rescan_queues_accessible_mounts() {
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(v["ok"], true);
     assert_eq!(v["queued"], 1);
-    assert!(state.gallery.is_watching("d-photos"));
-    assert!(state.gallery.pending() || state.gallery.status().busy);
+    assert!(state.photos.is_watching("d-photos"));
+    assert!(state.photos.pending() || state.photos.status().busy);
 }
 
 #[test]
@@ -273,9 +273,9 @@ fn album_item_allowed_matches_items_and_contrib() {
     let contrib = root.join("Shared Photos/Shared");
     std::fs::create_dir_all(&contrib).unwrap();
     std::fs::write(contrib.join("guest.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
-    let album = crate::gallery::create_album(root, "home", "u1", "Shared").unwrap();
-    crate::gallery::add_album_items(root, &album.id, &[("d1".into(), "a.jpg".into())]).unwrap();
-    let mut album = crate::gallery::get_album(root, "home", &album.id)
+    let album = crate::photos::create_album(root, "home", "u1", "Shared").unwrap();
+    crate::photos::add_album_items(root, &album.id, &[("d1".into(), "a.jpg".into())]).unwrap();
+    let mut album = crate::photos::get_album(root, "home", &album.id)
         .unwrap()
         .unwrap();
     album.contrib_path = "Shared Photos/Shared".into();
@@ -320,11 +320,11 @@ fn album_item_allowed_denies_non_media_and_contrib_symlinks() {
     std::fs::write(contrib.join("guest.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
     // A real media file outside the contrib folder on the same drive.
     std::fs::write(root.join("outside.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
-    let album = crate::gallery::create_album(root, "home", "u1", "Shared").unwrap();
+    let album = crate::photos::create_album(root, "home", "u1", "Shared").unwrap();
     // A pre-existing bad row: a non-media file already in album_items.
-    crate::gallery::add_album_items(root, &album.id, &[("home".into(), "evil.html".into())])
+    crate::photos::add_album_items(root, &album.id, &[("home".into(), "evil.html".into())])
         .unwrap();
-    let mut album = crate::gallery::get_album(root, "home", &album.id)
+    let mut album = crate::photos::get_album(root, "home", &album.id)
         .unwrap()
         .unwrap();
     album.contrib_path = "Shared Photos/Shared".into();
@@ -391,8 +391,8 @@ fn album_item_allowed_denies_markup_named_as_media() {
         b"<html><body>not a photo</body></html>",
     )
     .unwrap();
-    let album = crate::gallery::create_album(root, "home", "u1", "Shared").unwrap();
-    let mut album = crate::gallery::get_album(root, "home", &album.id)
+    let album = crate::photos::create_album(root, "home", "u1", "Shared").unwrap();
+    let mut album = crate::photos::get_album(root, "home", &album.id)
         .unwrap()
         .unwrap();
     album.contrib_path = "Shared Photos/Shared".into();
@@ -428,8 +428,8 @@ fn album_item_allowed_denies_symlinked_and_internal_items() {
     std::os::unix::fs::symlink("/etc/passwd", root.join("escape.jpg")).unwrap();
     // The real photo, as a control.
     std::fs::write(root.join("real.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
-    let album = crate::gallery::create_album(root, "home", "u1", "Trip").unwrap();
-    crate::gallery::add_album_items(
+    let album = crate::photos::create_album(root, "home", "u1", "Trip").unwrap();
+    crate::photos::add_album_items(
         root,
         &album.id,
         &[
@@ -440,7 +440,7 @@ fn album_item_allowed_denies_symlinked_and_internal_items() {
         ],
     )
     .unwrap();
-    let album = crate::gallery::get_album(root, "home", &album.id)
+    let album = crate::photos::get_album(root, "home", &album.id)
         .unwrap()
         .unwrap();
 
@@ -506,12 +506,9 @@ fn write_items_zip_packs_files() {
     std::fs::write(&b, b"bbbb").unwrap();
     let zip_path = dir.path().join("out.zip");
     let file = std::fs::File::create(&zip_path).unwrap();
-    let n = crate::gallery::write_items_zip(
-        &[("d1/a.jpg".into(), a), ("d1/b.png".into(), b)],
-        file,
-        10,
-    )
-    .unwrap();
+    let n =
+        crate::photos::write_items_zip(&[("d1/a.jpg".into(), a), ("d1/b.png".into(), b)], file, 10)
+            .unwrap();
     assert_eq!(n, 2);
     assert!(zip_path.metadata().unwrap().len() > 20);
 }
@@ -531,9 +528,9 @@ async fn member_album_id_without_home_is_rejected() {
         &prefix,
     )
     .unwrap();
-    crate::gallery::scan_drive("d-photos", &mount).unwrap();
-    let album = crate::gallery::create_album(&mount, "d-photos", "owner", "Private").unwrap();
-    crate::gallery::add_album_items(
+    crate::photos::scan_drive("d-photos", &mount).unwrap();
+    let album = crate::photos::create_album(&mount, "d-photos", "owner", "Private").unwrap();
+    crate::photos::add_album_items(
         &mount,
         &album.id,
         &[("d-photos".into(), "secret.png".into())],
@@ -573,7 +570,7 @@ async fn member_album_id_without_home_is_rejected() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(format!("/api/v1/gallery?album_id={}", album.id))
+                .uri(format!("/api/v1/photos?album_id={}", album.id))
                 .header("Authorization", format!("Bearer {token}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -590,7 +587,7 @@ async fn member_album_id_without_home_is_rejected() {
         .oneshot(
             Request::builder()
                 .uri(format!(
-                    "/api/v1/gallery?album_id={}&album_home=d-photos",
+                    "/api/v1/photos?album_id={}&album_home=d-photos",
                     album.id
                 ))
                 .header("Authorization", format!("Bearer {token}"))
@@ -615,7 +612,7 @@ struct AlbumFixture {
     router: axum::Router,
     admin_token: String,
     member_token: String,
-    album: gallery::Album,
+    album: photos::Album,
     mount: PathBuf,
 }
 
@@ -658,7 +655,7 @@ async fn album_fixture() -> AlbumFixture {
     let member = auth
         .register("Member", "Member", "hunter22hunter1", "user")
         .unwrap();
-    let album = gallery::create_album(&mount, "d-photos", &admin.id, "Trip").unwrap();
+    let album = photos::create_album(&mount, "d-photos", &admin.id, "Trip").unwrap();
     {
         let conn = state.db.lock().unwrap();
         // Contributor on the album…
@@ -740,7 +737,7 @@ async fn call_json(router: &axum::Router, req: Request<Body>) -> (StatusCode, Va
 #[tokio::test]
 async fn add_items_rejects_non_media() {
     let f = album_fixture().await;
-    let base = format!("/api/v1/gallery/albums/d-photos/{}/items", f.album.id);
+    let base = format!("/api/v1/photos/albums/d-photos/{}/items", f.album.id);
     // A contributor cannot drop an HTML file into the album — inline
     // preview of it would be stored XSS on this origin.
     let (status, _) = call_json(
@@ -773,7 +770,7 @@ async fn add_items_rejects_non_media() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(v["added"], 2);
     assert_eq!(v["skipped_not_media"], 1);
-    let refs = gallery::list_album_item_refs(&f.mount, &f.album.id).unwrap();
+    let refs = photos::list_album_item_refs(&f.mount, &f.album.id).unwrap();
     assert_eq!(refs.len(), 2);
     assert!(refs.iter().all(|(_, p)| p != "evil.html"));
 }
@@ -784,7 +781,7 @@ async fn add_items_rejects_fake_media_and_needs_share() {
     // HTML bytes wearing a photo's name — extension checks alone would
     // publish it to every album viewer.
     std::fs::write(f.mount.join("party.jpg"), b"<html><body>x</body></html>").unwrap();
-    let base = format!("/api/v1/gallery/albums/d-photos/{}/items", f.album.id);
+    let base = format!("/api/v1/photos/albums/d-photos/{}/items", f.album.id);
     let (status, v) = call_json(
         &f.router,
         json_req(
@@ -853,7 +850,7 @@ async fn add_items_rejects_fake_media_and_needs_share() {
         "a view-only member must not republish photos into the album"
     );
     assert!(
-        gallery::list_album_item_refs(&f.mount, &f.album.id)
+        photos::list_album_item_refs(&f.mount, &f.album.id)
             .unwrap()
             .is_empty()
     );
@@ -894,7 +891,7 @@ async fn add_items_rejects_fake_media_and_needs_share() {
 #[tokio::test]
 async fn status_hides_global_count_from_members() {
     let f = album_fixture().await;
-    let uri = "/api/v1/gallery/status";
+    let uri = "/api/v1/photos/status";
     let (_, v) = call_json(&f.router, json_req("GET", uri, &f.admin_token, "")).await;
     assert!(
         v["found_count"].is_number(),
@@ -910,13 +907,13 @@ async fn status_hides_global_count_from_members() {
 #[tokio::test]
 async fn member_view_gets_opaque_cover_url_and_item_ids() {
     let f = album_fixture().await;
-    gallery::add_album_items(
+    photos::add_album_items(
         &f.mount,
         &f.album.id,
         &[("d-photos".into(), "pic.jpg".into())],
     )
     .unwrap();
-    gallery::update_album(
+    photos::update_album(
         &f.mount,
         &f.album.id,
         None,
@@ -931,7 +928,7 @@ async fn member_view_gets_opaque_cover_url_and_item_ids() {
         &f.router,
         json_req(
             "GET",
-            &format!("/api/v1/gallery/albums/d-photos/{}", f.album.id),
+            &format!("/api/v1/photos/albums/d-photos/{}", f.album.id),
             &f.member_token,
             "",
         ),
@@ -941,7 +938,7 @@ async fn member_view_gets_opaque_cover_url_and_item_ids() {
     let cover = v["cover_thumb"].as_str().unwrap_or("");
     assert_eq!(
         cover,
-        format!("/api/v1/gallery/albums/d-photos/{}/cover", f.album.id)
+        format!("/api/v1/photos/albums/d-photos/{}/cover", f.album.id)
     );
     assert!(!cover.contains("pic.jpg"));
 
@@ -962,7 +959,7 @@ async fn member_view_gets_opaque_cover_url_and_item_ids() {
         &f.router,
         json_req(
             "GET",
-            &format!("/api/v1/gallery/albums/d-photos/{}", f.album.id),
+            &format!("/api/v1/photos/albums/d-photos/{}", f.album.id),
             &f.admin_token,
             "",
         ),
@@ -977,7 +974,7 @@ async fn member_view_gets_opaque_cover_url_and_item_ids() {
         &f.router,
         json_req(
             "GET",
-            &format!("/api/v1/gallery/albums/d-photos/{}/items", f.album.id),
+            &format!("/api/v1/photos/albums/d-photos/{}/items", f.album.id),
             &f.member_token,
             "",
         ),
@@ -996,7 +993,7 @@ async fn list_items_drops_symlinked_rows() {
     // Row pointing through a symlink — could never serve, so it must
     // not be advertised to album members either.
     std::os::unix::fs::symlink("/etc/passwd", f.mount.join("escape.jpg")).unwrap();
-    gallery::add_album_items(
+    photos::add_album_items(
         &f.mount,
         &f.album.id,
         &[
@@ -1009,7 +1006,7 @@ async fn list_items_drops_symlinked_rows() {
         &f.router,
         json_req(
             "GET",
-            &format!("/api/v1/gallery/albums/d-photos/{}/items", f.album.id),
+            &format!("/api/v1/photos/albums/d-photos/{}/items", f.album.id),
             &f.member_token,
             "",
         ),
@@ -1024,13 +1021,13 @@ async fn list_items_drops_symlinked_rows() {
 #[tokio::test]
 async fn remove_item_needs_a_manager_and_locked_blocks_changes() {
     let f = album_fixture().await;
-    gallery::add_album_items(
+    photos::add_album_items(
         &f.mount,
         &f.album.id,
         &[("d-photos".into(), "pic.jpg".into())],
     )
     .unwrap();
-    let base = format!("/api/v1/gallery/albums/d-photos/{}/items", f.album.id);
+    let base = format!("/api/v1/photos/albums/d-photos/{}/items", f.album.id);
 
     // A contributor (CAP_UPLOAD) must not remove anyone's items.
     let (status, _) = call_json(
@@ -1045,7 +1042,7 @@ async fn remove_item_needs_a_manager_and_locked_blocks_changes() {
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(
-        gallery::list_album_item_refs(&f.mount, &f.album.id)
+        photos::list_album_item_refs(&f.mount, &f.album.id)
             .unwrap()
             .len(),
         1
@@ -1056,7 +1053,7 @@ async fn remove_item_needs_a_manager_and_locked_blocks_changes() {
         &f.router,
         json_req(
             "PATCH",
-            &format!("/api/v1/gallery/albums/d-photos/{}", f.album.id),
+            &format!("/api/v1/photos/albums/d-photos/{}", f.album.id),
             &f.admin_token,
             r#"{"locked":true}"#,
         ),
@@ -1095,7 +1092,7 @@ async fn remove_item_needs_a_manager_and_locked_blocks_changes() {
         &f.router,
         json_req(
             "PATCH",
-            &format!("/api/v1/gallery/albums/d-photos/{}", f.album.id),
+            &format!("/api/v1/photos/albums/d-photos/{}", f.album.id),
             &f.admin_token,
             r#"{"locked":false}"#,
         ),
@@ -1114,7 +1111,7 @@ async fn remove_item_needs_a_manager_and_locked_blocks_changes() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(
-        gallery::list_album_item_refs(&f.mount, &f.album.id)
+        photos::list_album_item_refs(&f.mount, &f.album.id)
             .unwrap()
             .is_empty()
     );
@@ -1124,8 +1121,8 @@ async fn remove_item_needs_a_manager_and_locked_blocks_changes() {
 async fn album_json_hides_layout_from_non_managers() {
     let f = album_fixture().await;
     // Give the album the internals a viewer must never see.
-    gallery::allocate_contrib_dir(&f.mount, &f.album.id, &f.album.name).unwrap();
-    gallery::update_album(
+    photos::allocate_contrib_dir(&f.mount, &f.album.id, &f.album.name).unwrap();
+    photos::update_album(
         &f.mount,
         &f.album.id,
         None,
@@ -1133,7 +1130,7 @@ async fn album_json_hides_layout_from_non_managers() {
         Some(("d-photos".into(), "pic.jpg".into())),
     )
     .unwrap();
-    let album_uri = format!("/api/v1/gallery/albums/d-photos/{}", f.album.id);
+    let album_uri = format!("/api/v1/photos/albums/d-photos/{}", f.album.id);
 
     let (status, v) = call_json(&f.router, json_req("GET", &album_uri, &f.member_token, "")).await;
     assert_eq!(status, StatusCode::OK);
@@ -1162,7 +1159,7 @@ async fn album_json_hides_layout_from_non_managers() {
     // list_albums applies the same projection.
     let (status, v) = call_json(
         &f.router,
-        json_req("GET", "/api/v1/gallery/albums", &f.member_token, ""),
+        json_req("GET", "/api/v1/photos/albums", &f.member_token, ""),
     )
     .await;
     assert_eq!(status, StatusCode::OK);

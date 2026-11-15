@@ -1,6 +1,6 @@
-//! Automatic gallery indexing.
+//! Automatic photos indexing.
 //!
-//! Known write paths enqueue events so photos appear in the gallery without a
+//! Known write paths enqueue events so photos appear in Photos without a
 //! manual scan. A per-mount `notify` watcher plus adopt/startup rescans catch
 //! USB copies and anything that slipped past a hook.
 
@@ -14,14 +14,14 @@ use std::time::{Duration, Instant};
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
-use crate::gallery;
+use crate::photos;
 
 const RESCAN_DEBOUNCE: Duration = Duration::from_secs(2);
 const WATCH_SETTLE: Duration = Duration::from_millis(750);
 const IDLE_POLL: Duration = Duration::from_millis(200);
 
 #[derive(Debug, Clone)]
-pub enum GalleryEvent {
+pub enum PhotosEvent {
     Upsert {
         drive_id: String,
         rel: String,
@@ -58,9 +58,9 @@ struct ScanError {
     message: String,
 }
 
-/// Snapshot for `/api/v1/gallery/status`.
+/// Snapshot for `/api/v1/photos/status`.
 #[derive(Debug, Clone)]
-pub struct GalleryStatus {
+pub struct PhotosStatus {
     pub scanning: bool,
     pub pending: usize,
     pub busy: bool,
@@ -72,8 +72,8 @@ pub struct GalleryStatus {
     pub error_drive_id: Option<String>,
 }
 
-pub struct GalleryIndexer {
-    tx: Sender<GalleryEvent>,
+pub struct PhotosIndexer {
+    tx: Sender<PhotosEvent>,
     pending: Arc<AtomicUsize>,
     scanning: Arc<AtomicBool>,
     found_count: Arc<AtomicU64>,
@@ -82,9 +82,9 @@ pub struct GalleryIndexer {
     inner: Arc<Mutex<Inner>>,
 }
 
-impl GalleryIndexer {
+impl PhotosIndexer {
     pub fn start() -> Arc<Self> {
-        let (tx, rx) = mpsc::channel::<GalleryEvent>();
+        let (tx, rx) = mpsc::channel::<PhotosEvent>();
         let pending = Arc::new(AtomicUsize::new(0));
         let scanning = Arc::new(AtomicBool::new(false));
         let found_count = Arc::new(AtomicU64::new(0));
@@ -106,7 +106,7 @@ impl GalleryIndexer {
 
         let mounts_for_worker = inner.clone();
         thread::Builder::new()
-            .name("luna-gallery-indexer".into())
+            .name("luna-photos-indexer".into())
             .spawn(move || {
                 worker_loop(
                     rx,
@@ -118,7 +118,7 @@ impl GalleryIndexer {
                     scan_error,
                 )
             })
-            .expect("spawn gallery indexer");
+            .expect("spawn photos indexer");
 
         indexer
     }
@@ -127,7 +127,7 @@ impl GalleryIndexer {
         self.pending.load(Ordering::Relaxed) > 0 || self.scanning.load(Ordering::Relaxed)
     }
 
-    pub fn status(&self) -> GalleryStatus {
+    pub fn status(&self) -> PhotosStatus {
         let scanning = self.scanning.load(Ordering::Relaxed);
         let pending = self.pending.load(Ordering::Relaxed);
         let drive_id = self.active_drive.lock().unwrap().clone();
@@ -141,7 +141,7 @@ impl GalleryIndexer {
         } else {
             "idle"
         };
-        GalleryStatus {
+        PhotosStatus {
             scanning,
             pending,
             busy: scanning || pending > 0,
@@ -163,7 +163,7 @@ impl GalleryIndexer {
         });
     }
 
-    pub fn notify(&self, event: GalleryEvent) {
+    pub fn notify(&self, event: PhotosEvent) {
         if self.tx.send(event).is_ok() {
             self.pending.fetch_add(1, Ordering::Relaxed);
         }
@@ -173,7 +173,7 @@ impl GalleryIndexer {
         if !should_index_rel(rel) {
             return;
         }
-        self.notify(GalleryEvent::Upsert {
+        self.notify(PhotosEvent::Upsert {
             drive_id: drive_id.to_string(),
             rel: normalize_rel(rel),
         });
@@ -183,14 +183,14 @@ impl GalleryIndexer {
         if rel.is_empty() {
             return;
         }
-        self.notify(GalleryEvent::Remove {
+        self.notify(PhotosEvent::Remove {
             drive_id: drive_id.to_string(),
             rel: normalize_rel(rel),
         });
     }
 
     pub fn rename(&self, drive_id: &str, from: &str, to: &str) {
-        self.notify(GalleryEvent::Rename {
+        self.notify(PhotosEvent::Rename {
             drive_id: drive_id.to_string(),
             from: normalize_rel(from),
             to: normalize_rel(to),
@@ -198,7 +198,7 @@ impl GalleryIndexer {
     }
 
     pub fn rescan(&self, drive_id: &str) {
-        self.notify(GalleryEvent::Rescan {
+        self.notify(PhotosEvent::Rescan {
             drive_id: drive_id.to_string(),
         });
     }
@@ -216,13 +216,13 @@ impl GalleryIndexer {
         n
     }
 
-    /// True when this drive has an active gallery watcher.
+    /// True when this drive has an active photos watcher.
     pub fn is_watching(&self, drive_id: &str) -> bool {
         let guard = self.inner.lock().unwrap();
         guard.watches.contains_key(drive_id)
     }
 
-    /// Current mount path registered for gallery indexing, if any.
+    /// Current mount path registered for photos indexing, if any.
     pub fn watched_mount(&self, drive_id: &str) -> Option<PathBuf> {
         let guard = self.inner.lock().unwrap();
         guard.mounts.get(drive_id).cloned()
@@ -265,12 +265,12 @@ impl GalleryIndexer {
         let Ok(mut watcher) = watcher else {
             tracing::warn!(
                 drive_id,
-                "gallery watcher unavailable; rescans will catch up"
+                "photos watcher unavailable; rescans will catch up"
             );
             return;
         };
         if let Err(e) = watcher.watch(mount, RecursiveMode::Recursive) {
-            tracing::warn!(drive_id, error = %e, "could not watch drive for gallery updates");
+            tracing::warn!(drive_id, error = %e, "could not watch drive for photos updates");
             return;
         }
         let mut guard = self.inner.lock().unwrap();
@@ -280,7 +280,7 @@ impl GalleryIndexer {
     }
 }
 
-fn handle_watch_event(indexer: &GalleryIndexer, drive_id: &str, root: &Path, event: notify::Event) {
+fn handle_watch_event(indexer: &PhotosIndexer, drive_id: &str, root: &Path, event: notify::Event) {
     let remove_like = matches!(event.kind, EventKind::Remove(_) | EventKind::Any);
     let rename = matches!(
         event.kind,
@@ -316,7 +316,7 @@ fn handle_watch_event(indexer: &GalleryIndexer, drive_id: &str, root: &Path, eve
 }
 
 fn worker_loop(
-    rx: mpsc::Receiver<GalleryEvent>,
+    rx: mpsc::Receiver<PhotosEvent>,
     mounts: Arc<Mutex<Inner>>,
     pending: Arc<AtomicUsize>,
     scanning: Arc<AtomicBool>,
@@ -353,7 +353,7 @@ fn worker_loop(
         match rx.recv_timeout(timeout.max(Duration::from_millis(50))) {
             Ok(event) => {
                 match event {
-                    GalleryEvent::Upsert { drive_id, rel } => {
+                    PhotosEvent::Upsert { drive_id, rel } => {
                         removes.remove(&(drive_id.clone(), rel.clone()));
                         if !upserts.insert((drive_id, rel)) {
                             pending.fetch_sub(
@@ -363,7 +363,7 @@ fn worker_loop(
                         }
                         last_upsert_at = Instant::now();
                     }
-                    GalleryEvent::Remove { drive_id, rel } => {
+                    PhotosEvent::Remove { drive_id, rel } => {
                         if upserts.remove(&(drive_id.clone(), rel.clone())) {
                             pending.fetch_sub(
                                 1.min(pending.load(Ordering::Relaxed)),
@@ -377,7 +377,7 @@ fn worker_loop(
                             );
                         }
                     }
-                    GalleryEvent::Rename { drive_id, from, to } => {
+                    PhotosEvent::Rename { drive_id, from, to } => {
                         if upserts.remove(&(drive_id.clone(), from.clone())) {
                             pending.fetch_sub(
                                 1.min(pending.load(Ordering::Relaxed)),
@@ -387,7 +387,7 @@ fn worker_loop(
                         removes.remove(&(drive_id.clone(), to.clone()));
                         renames.push((drive_id, from, to));
                     }
-                    GalleryEvent::Rescan { drive_id } => {
+                    PhotosEvent::Rescan { drive_id } => {
                         if rescans.insert(drive_id, Instant::now()).is_some() {
                             pending.fetch_sub(
                                 1.min(pending.load(Ordering::Relaxed)),
@@ -414,13 +414,13 @@ fn worker_loop(
                 let Some(root) = mount else {
                     continue;
                 };
-                if let Err(e) = gallery::index_one_meta(&drive_id, &root, &rel) {
-                    tracing::debug!(drive_id, rel, error = %e, "gallery meta index skipped");
+                if let Err(e) = photos::index_one_meta(&drive_id, &root, &rel) {
+                    tracing::debug!(drive_id, rel, error = %e, "photos meta index skipped");
                     continue;
                 }
                 found_count.fetch_add(1, Ordering::Relaxed);
-                if let Err(e) = gallery::finish_thumb(&drive_id, &root, &rel) {
-                    tracing::debug!(drive_id, rel, error = %e, "gallery thumb deferred");
+                if let Err(e) = photos::finish_thumb(&drive_id, &root, &rel) {
+                    tracing::debug!(drive_id, rel, error = %e, "photos thumb deferred");
                 }
             }
         }
@@ -444,9 +444,9 @@ fn worker_loop(
                 let Some(root) = mount else {
                     continue;
                 };
-                let _ = gallery::remove_indexed_path(&root, &drive_id, &rel);
+                let _ = photos::remove_indexed_path(&root, &drive_id, &rel);
                 // Album homes may live on other mounts — purge cross-drive refs.
-                gallery::purge_album_item_refs_on_mounts(&mounts_snapshot, &drive_id, &rel);
+                photos::purge_album_item_refs_on_mounts(&mounts_snapshot, &drive_id, &rel);
             }
         }
 
@@ -460,10 +460,10 @@ fn worker_loop(
                 let Some(root) = mount else {
                     continue;
                 };
-                let _ = gallery::rename_indexed_path(&root, &drive_id, &from, &to);
+                let _ = photos::rename_indexed_path(&root, &drive_id, &from, &to);
                 if should_index_rel(&to) {
-                    let _ = gallery::index_one_meta(&drive_id, &root, &to);
-                    let _ = gallery::finish_thumb(&drive_id, &root, &to);
+                    let _ = photos::index_one_meta(&drive_id, &root, &to);
+                    let _ = photos::finish_thumb(&drive_id, &root, &to);
                 }
             }
         }
@@ -489,7 +489,7 @@ fn worker_loop(
             }
             found_count.store(0, Ordering::Relaxed);
             scanning.store(true, Ordering::Relaxed);
-            match gallery::scan_drive(&drive_id, &root) {
+            match photos::scan_drive(&drive_id, &root) {
                 Ok(report) => {
                     found_count.store(report.found, Ordering::Relaxed);
                     *scan_error.lock().unwrap() = None;
@@ -497,7 +497,7 @@ fn worker_loop(
                     crate::files::content::indexer::nudge_drive(&drive_id);
                 }
                 Err(e) => {
-                    tracing::warn!(drive_id, error = %e, "gallery catch-up scan failed");
+                    tracing::warn!(drive_id, error = %e, "photos catch-up scan failed");
                     *scan_error.lock().unwrap() = Some(ScanError {
                         drive_id: drive_id.clone(),
                         message:
@@ -535,12 +535,12 @@ pub fn should_index_rel(rel: &str) -> bool {
         return false;
     }
     for part in rel.split('/') {
-        if gallery::skip_gallery_dir(part) {
+        if photos::skip_photos_dir(part) {
             return false;
         }
     }
     let path = Path::new(&rel);
-    gallery::is_media(path)
+    photos::is_media(path)
 }
 
 #[cfg(test)]
@@ -598,12 +598,12 @@ mod tests {
         fs::create_dir_all(&photos).unwrap();
         tiny_jpeg(&photos.join("a.jpg"));
 
-        let indexer = GalleryIndexer::start();
+        let indexer = PhotosIndexer::start();
         indexer.watch_mount("d1", root.path().to_path_buf());
         indexer.upsert("d1", "Photos/a.jpg");
         let indexed = crate::testutil::wait_until(Duration::from_secs(20), || {
             !indexer.pending()
-                && gallery::open_drive_db(root.path())
+                && photos::open_drive_db(root.path())
                     .map(|conn| {
                         conn.query_row("SELECT COUNT(*) FROM photos", [], |r| r.get::<_, i64>(0))
                             .unwrap_or(0)
@@ -615,8 +615,8 @@ mod tests {
             return;
         }
         // Final check with clear error context
-        let _ = gallery::index_one_meta("d1", root.path(), "Photos/a.jpg");
-        let conn = gallery::open_drive_db(root.path()).unwrap();
+        let _ = photos::index_one_meta("d1", root.path(), "Photos/a.jpg");
+        let conn = photos::open_drive_db(root.path()).unwrap();
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM photos", [], |r| r.get(0))
             .unwrap();
@@ -631,12 +631,12 @@ mod tests {
         fs::create_dir_all(&photos).unwrap();
         tiny_jpeg(&photos.join("a.jpg"));
 
-        let indexer = GalleryIndexer::start();
+        let indexer = PhotosIndexer::start();
         indexer.watch_mount("d1", root.path().to_path_buf());
         assert!(indexer.is_watching("d1"));
         assert_eq!(indexer.watched_mount("d1").as_deref(), Some(root.path()));
 
-        // Simulate eject / missing: gallery stops watching.
+        // Simulate eject / missing: photos stops watching.
         indexer.unwatch_mount("d1");
         assert!(!indexer.is_watching("d1"));
         assert!(indexer.watched_mount("d1").is_none());
@@ -645,7 +645,7 @@ mod tests {
         indexer.watch_mount("d1", root.path().to_path_buf());
         assert!(
             indexer.is_watching("d1"),
-            "remount must re-arm gallery watch"
+            "remount must re-arm photos watch"
         );
         assert!(
             indexer.pending() || indexer.status().busy,
@@ -654,7 +654,7 @@ mod tests {
 
         let indexed = crate::testutil::wait_until(Duration::from_secs(20), || {
             !indexer.status().busy
-                && gallery::open_drive_db(root.path())
+                && photos::open_drive_db(root.path())
                     .map(|conn| {
                         conn.query_row("SELECT COUNT(*) FROM photos", [], |r| r.get::<_, i64>(0))
                             .unwrap_or(0)
@@ -667,7 +667,7 @@ mod tests {
 
     #[test]
     fn status_exposes_phase_and_found_count_while_busy() {
-        let indexer = GalleryIndexer::start();
+        let indexer = PhotosIndexer::start();
         let st = indexer.status();
         assert_eq!(st.phase, "idle");
         assert!(!st.busy);

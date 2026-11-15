@@ -54,7 +54,7 @@ const searchInputClass =
  *   onClear?: () => void,
  * }} props
  */
-function GallerySearchInput({
+function PhotosSearchInput({
   id,
   value,
   onChange,
@@ -104,7 +104,7 @@ function GallerySearchInput({
   );
 }
 
-GallerySearchInput.propTypes = {
+PhotosSearchInput.propTypes = {
   id: PropTypes.string.isRequired,
   value: PropTypes.string.isRequired,
   onChange: PropTypes.func.isRequired,
@@ -140,7 +140,7 @@ GallerySearchInput.propTypes = {
  *   isDesktop?: boolean,
  * }} props
  */
-function GalleryToolbar({
+function PhotosToolbar({
   segments,
   segment,
   onSegmentChange,
@@ -203,7 +203,7 @@ function GalleryToolbar({
   const hasSelect = Boolean(showSelect && onSelectModeChange);
   const selectButton = (
     <div
-      data-slot="gallery-select-wrapper"
+      data-slot="photos-select-wrapper"
       className={cn(
         "grid shrink-0 min-w-0",
         "motion-safe:transition-[grid-template-columns,opacity] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)]",
@@ -248,9 +248,9 @@ function GalleryToolbar({
       )}
       <span>
         {phase === "success"
-          ? "Started scan."
+          ? "Scan started"
           : phase === "error"
-            ? "Failed to start"
+            ? "Scan did not start"
             : phase === "pending"
               ? "Rescanning drives…"
               : "Rescan drives"}
@@ -404,13 +404,13 @@ function GalleryToolbar({
 
   if (isDesktop) {
     return (
-      <div data-slot="gallery-toolbar" className="mb-6 space-y-3">
+      <div data-slot="photos-toolbar" className="mb-6 space-y-3">
         <div className={cn(pillShell, "flex items-center whitespace-nowrap")}>
-          <GallerySearchInput
+          <PhotosSearchInput
             id="photo-search"
             value={query}
             onChange={onQueryChange}
-            placeholder="Search photos — try “september 19” or “last summer”…"
+            placeholder="Search photos, for example “september 19” or “last summer”…"
             onClear={clearQuery}
           />
           {iconButtons}
@@ -428,14 +428,14 @@ function GalleryToolbar({
   }
 
   return (
-    <div data-slot="gallery-toolbar" className="mb-6 space-y-3">
+    <div data-slot="photos-toolbar" className="mb-6 space-y-3">
       {/* Top bar on small screens: Search bar + actions */}
       <div className={cn(pillShell, "flex items-center")}>
-        <GallerySearchInput
+        <PhotosSearchInput
           id="photo-search-mobile"
           value={query}
           onChange={onQueryChange}
-          placeholder="Search photos — try “september 19” or “last summer”…"
+          placeholder="Search photos, for example “september 19” or “last summer”…"
           onClear={clearQuery}
         />
         {iconButtons}
@@ -455,9 +455,9 @@ function GalleryToolbar({
   );
 }
 
-export default memo(GalleryToolbar);
+export default memo(PhotosToolbar);
 
-GalleryToolbar.propTypes = {
+PhotosToolbar.propTypes = {
   segments: PropTypes.arrayOf(
     PropTypes.shape({
       value: PropTypes.string.isRequired,

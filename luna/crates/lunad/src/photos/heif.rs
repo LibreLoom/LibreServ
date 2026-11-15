@@ -484,7 +484,7 @@ pub fn fixture_heif_with_exif(tiff: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gallery::exif::{parse_exif_datetime, unix_from_tiff_bytes};
+    use crate::photos::exif::{parse_exif_datetime, unix_from_tiff_bytes};
 
     fn tiff_datetime(ascii: &str) -> Vec<u8> {
         let mut ascii_bytes = ascii.as_bytes().to_vec();

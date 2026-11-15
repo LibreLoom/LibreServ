@@ -1,7 +1,7 @@
-//! Photo gallery: index tables live in the per-drive `.luna-<uuid>.sqlite3`
+//! Photos: index tables live in the per-drive `.luna-<uuid>.sqlite3`
 //! microdb.
 //!
-//! Thumbnails live in `{drive}/.luna-<uuid>-thumbs/`. Gallery SQLite never
+//! Thumbnails live in `{drive}/.luna-<uuid>-thumbs/`. Photos SQLite never
 //! touches the OS eMMC / `luna.db`. JPEG/PNG/GIF use the `image` crate; HEIC
 //! uses embedded JPEG or Alpine `heif-dec`; video thumbs use optional
 //! `ffmpeg`. Originals are never rewritten.
@@ -68,7 +68,7 @@ impl Photo {
 /// the display name, and media metadata — never the real `drive_id` or
 /// `path`, which would reveal drive layout (Luna's own folders live under
 /// `.luna-<uuid>`). Member-facing handlers re-attach the real
-/// coordinates explicitly through `api::gallery::member_photo_json`;
+/// coordinates explicitly through `api::photos::member_photo_json`;
 /// anything that serializes a `Photo` directly — like the anonymous
 /// album-link surface — stays safe by default. `path` carries the same
 /// opaque id so per-item UI keys (selection, lightbox) stay unique without
@@ -176,7 +176,7 @@ pub struct DuplicateGroup {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct GalleryPage {
+pub struct PhotosPage {
     pub items: Vec<Photo>,
     pub next_offset: u32,
     pub has_more: bool,
@@ -271,7 +271,7 @@ pub fn thumbs_dir(drive_root: &Path) -> Option<PathBuf> {
 }
 
 /// Path of the drive's marker/microdb file, when adopted.
-pub fn gallery_db_path(drive_root: &Path) -> Option<PathBuf> {
+pub fn photos_db_path(drive_root: &Path) -> Option<PathBuf> {
     crate::drives::drive_db::find_db_file(drive_root)
 }
 
@@ -296,18 +296,18 @@ fn thumb_path_in(thumb_dir: &Path, drive_id: &str, rel: &str) -> PathBuf {
 
 pub fn thumb_url(drive_id: &str, rel: &str) -> String {
     format!(
-        "/api/v1/gallery/thumb?drive_id={drive_id}&path={}",
+        "/api/v1/photos/thumb?drive_id={drive_id}&path={}",
         urlencode(rel)
     )
 }
 
 /// Skip anything inside the drive's `.luna-<uuid>` namespace — marker, trash,
 /// thumbs, protected copies, upload temps.
-pub fn skip_gallery_dir(name: &str) -> bool {
+pub fn skip_photos_dir(name: &str) -> bool {
     crate::drives::layout::Layout::is_luna_name(name)
 }
 
-/// Open the on-drive `.luna-<uuid>.sqlite3` microdb (gallery tables included).
+/// Open the on-drive `.luna-<uuid>.sqlite3` microdb (photos tables included).
 /// Never under OS data_dir.
 pub fn open_drive_db(drive_root: &Path) -> anyhow::Result<Connection> {
     crate::drives::drive_db::open(drive_root)
@@ -425,10 +425,10 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
                 .map(|i| i.name().to_string())
                 .unwrap_or_else(|| disk_name.to_string_lossy().into_owned());
             if meta.is_dir() {
-                if item.is_none() && skip_gallery_dir(&shown) {
+                if item.is_none() && skip_photos_dir(&shown) {
                     continue;
                 }
-                stack.push((entry.path(), gallery_indexer::join_rel(&dir_rel, &shown)));
+                stack.push((entry.path(), photos_indexer::join_rel(&dir_rel, &shown)));
                 continue;
             }
             if !meta.is_file() || !is_media(Path::new(&shown)) {
@@ -438,7 +438,7 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
             if disk_name.to_str().is_none() {
                 continue;
             }
-            let rel = gallery_indexer::join_rel(&dir_rel, &shown);
+            let rel = photos_indexer::join_rel(&dir_rel, &shown);
             seen.insert(rel.clone());
             let name = shown;
             let size = meta.len() as i64;
@@ -497,7 +497,7 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
                 continue;
             }
 
-            let meta = crate::gallery::exif::capture_meta(&path_buf).unwrap_or_default();
+            let meta = crate::photos::exif::capture_meta(&path_buf).unwrap_or_default();
             // `0` means no EXIF capture date; list/sort fall back to mtime.
             let taken_at = meta.taken_at.unwrap_or(0);
             let lat = meta.lat;
@@ -509,8 +509,8 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
             let focal_mm = meta.focal_mm.unwrap_or(0.0);
             let flash = flash_to_i64(meta.flash);
             let place = match (lat, lon) {
-                (Some(la), Some(lo)) => crate::gallery::places::index().enrich(la, lo),
-                _ => crate::gallery::places::PlaceInfo::default(),
+                (Some(la), Some(lo)) => crate::photos::places::index().enrich(la, lo),
+                _ => crate::photos::places::PlaceInfo::default(),
             };
 
             let mut width = 0;
@@ -700,7 +700,7 @@ pub fn index_one_meta(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<
     {
         return Ok(Some(()));
     }
-    let meta = crate::gallery::exif::capture_meta(&path_buf).unwrap_or_default();
+    let meta = crate::photos::exif::capture_meta(&path_buf).unwrap_or_default();
     let taken_at = meta.taken_at.unwrap_or(0);
     let lat = meta.lat;
     let lon = meta.lon;
@@ -711,8 +711,8 @@ pub fn index_one_meta(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<
     let focal_mm = meta.focal_mm.unwrap_or(0.0);
     let flash = flash_to_i64(meta.flash);
     let place = match (lat, lon) {
-        (Some(la), Some(lo)) => crate::gallery::places::index().enrich(la, lo),
-        _ => crate::gallery::places::PlaceInfo::default(),
+        (Some(la), Some(lo)) => crate::photos::places::index().enrich(la, lo),
+        _ => crate::photos::places::PlaceInfo::default(),
     };
     let duration_secs = if kind == "video" {
         probe_video_duration_secs(&path_buf)
@@ -782,7 +782,7 @@ pub fn finish_thumb(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<()
 }
 
 /// Magic-byte check that a file really is the media its extension claims.
-/// Only the formats the gallery accepts need recognizing — the gate is
+/// Only the formats Photos accepts need recognizing — the gate is
 /// "looks like photo or video bytes", not exact format identification. A
 /// `.jpg` holding markup (or anything else a browser could render) fails it.
 pub fn sniff_media_file(path: &Path) -> bool {
@@ -897,7 +897,7 @@ pub fn index_one(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<Optio
 }
 
 pub fn remove_indexed_path(root: &Path, drive_id: &str, rel: &str) -> anyhow::Result<()> {
-    if gallery_db_path(root).is_none() {
+    if photos_db_path(root).is_none() {
         return Ok(());
     }
     let conn = open_drive_db(root)?;
@@ -927,7 +927,7 @@ pub fn rename_indexed_path(
     from: &str,
     to: &str,
 ) -> anyhow::Result<()> {
-    if gallery_db_path(root).is_none() {
+    if photos_db_path(root).is_none() {
         return Ok(());
     }
     let conn = open_drive_db(root)?;
@@ -990,7 +990,7 @@ pub fn ensure_thumb(src: &Path, dest: &Path, kind: &str) -> anyhow::Result<(u32,
     if kind == "video" {
         return ensure_video_thumb(src, dest);
     }
-    if crate::gallery::heif::is_heif(src) {
+    if crate::photos::heif::is_heif(src) {
         return ensure_heif_thumb(src, dest);
     }
     decode_and_save_thumb(src, dest)
@@ -1004,7 +1004,7 @@ fn ensure_video_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool
     let _permit = crate::budget::acquire_heif_slot_blocking();
     // Must end in `.jpg` so ffmpeg can pick an image muxer. A `.tmp` suffix
     // (e.g. `hash.vid.jpg.tmp`) makes ffmpeg fail with "Unable to choose an
-    // output format" and gallery video thumbs stay empty forever.
+    // output format" and photos video thumbs stay empty forever.
     let tmp = dest.with_extension("vidtmp.jpg");
     if let Some(parent) = tmp.parent() {
         std::fs::create_dir_all(parent)?;
@@ -1121,7 +1121,7 @@ fn probe_video_duration_secs(src: &Path) -> u32 {
 fn ensure_heif_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool)> {
     let limits = crate::budget::limits();
     let bytes = read_capped(src, limits.source_max_bytes)?;
-    if let Some(jpeg) = crate::gallery::heif::jpeg_item_from_heif(&bytes) {
+    if let Some(jpeg) = crate::photos::heif::jpeg_item_from_heif(&bytes) {
         let work = dest.with_extension("src.jpg");
         std::fs::write(&work, jpeg)?;
         let result = decode_and_save_thumb(&work, dest);
@@ -1132,7 +1132,7 @@ fn ensure_heif_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool)
     let _permit = crate::budget::acquire_heif_slot_blocking();
     let decoded = dest.with_extension("heic-src.jpg");
     let result = (|| {
-        crate::gallery::heif::decode_heif_to_jpeg(src, &decoded)?;
+        crate::photos::heif::decode_heif_to_jpeg(src, &decoded)?;
         decode_and_save_thumb(&decoded, dest)
     })();
     let _ = std::fs::remove_file(&decoded);
@@ -1193,7 +1193,7 @@ pub fn list_photos(
     filter: &ListFilter,
     limit: u32,
     offset: u32,
-) -> anyhow::Result<GalleryPage> {
+) -> anyhow::Result<PhotosPage> {
     let album_paths = load_album_paths(mounts, filter)?;
     let mut all = Vec::new();
     for (id, root) in mounts {
@@ -1202,7 +1202,7 @@ pub fn list_photos(
         {
             continue;
         }
-        if gallery_db_path(root).is_none() {
+        if photos_db_path(root).is_none() {
             continue;
         }
         let conn = match open_drive_db(root) {
@@ -1223,7 +1223,7 @@ pub fn list_photos(
     let end = (start + limit as usize).min(total);
     let items = all[start..end].to_vec();
     let next_offset = end as u32;
-    Ok(GalleryPage {
+    Ok(PhotosPage {
         has_more: end < total,
         next_offset,
         items,
@@ -1239,7 +1239,7 @@ pub fn list_duplicates(
     use std::collections::HashMap;
     let mut map: HashMap<(u64, String), Vec<Photo>> = HashMap::new();
     for (drive_id, root) in mounts {
-        if gallery_db_path(root).is_none() {
+        if photos_db_path(root).is_none() {
             continue;
         }
         let conn = match open_drive_db(root) {
@@ -1349,7 +1349,7 @@ fn load_album_paths(
             let Some((_, root)) = mounts.iter().find(|(id, _)| id == home) else {
                 return Ok(Some(HashSet::new()));
             };
-            if gallery_db_path(root).is_none() {
+            if photos_db_path(root).is_none() {
                 return Ok(Some(HashSet::new()));
             }
             let conn = open_drive_db(root)?;
@@ -1506,7 +1506,7 @@ fn query_drive_photos(
         "[]".to_string()
     } else {
         let paths: Vec<String> =
-            crate::files::content::photos::gallery_matches(conn, drive_id, &leftover)
+            crate::files::content::photos::photos_matches(conn, drive_id, &leftover)
                 .into_iter()
                 .collect();
         serde_json::to_string(&paths).unwrap_or_else(|_| "[]".into())
@@ -1749,7 +1749,7 @@ fn append_query_clauses(
                 binds.push(Value::Text(name.to_lowercase()));
             }
             for (lat, lon) in &place.centers {
-                let dlat = crate::gallery::places::CITY_QUERY_RADIUS_KM / 111.0;
+                let dlat = crate::photos::places::CITY_QUERY_RADIUS_KM / 111.0;
                 let dlon = dlat / lat.to_radians().cos().abs().max(0.3);
                 n += 4;
                 alts.push(format!(
@@ -1926,7 +1926,7 @@ pub fn list_places(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<PlaceClus
     use std::collections::HashMap;
     let mut map: HashMap<String, PlaceCluster> = HashMap::new();
     for (drive_id, root) in mounts {
-        if gallery_db_path(root).is_none() {
+        if photos_db_path(root).is_none() {
             continue;
         }
         let conn = match open_drive_db(root) {
@@ -1978,7 +1978,7 @@ pub fn list_places(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<PlaceClus
 pub fn list_place_markers(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<PlaceMarker>> {
     let mut out = Vec::new();
     for (drive_id, root) in mounts {
-        if gallery_db_path(root).is_none() {
+        if photos_db_path(root).is_none() {
             continue;
         }
         let conn = match open_drive_db(root) {
@@ -2037,7 +2037,7 @@ pub fn list_cameras(
     use std::collections::HashMap;
     let mut map: HashMap<(String, String), u64> = HashMap::new();
     for (drive_id, root) in mounts {
-        if gallery_db_path(root).is_none() {
+        if photos_db_path(root).is_none() {
             continue;
         }
         let conn = match open_drive_db(root) {
@@ -2114,7 +2114,7 @@ pub fn list_filter_facets(
     let mut focal_max: Option<f64> = None;
 
     for (drive_id, root) in mounts {
-        if gallery_db_path(root).is_none() {
+        if photos_db_path(root).is_none() {
             continue;
         }
         let conn = match open_drive_db(root) {
@@ -2222,7 +2222,7 @@ pub fn place_key(lat: f64, lon: f64) -> String {
 /// Coarse offline place label: nearest gazetteer city (~150 km), else its
 /// region or country, else raw coordinates.
 pub fn place_label_for(lat: f64, lon: f64) -> String {
-    crate::gallery::places::label_for(lat, lon)
+    crate::photos::places::label_for(lat, lon)
 }
 
 fn urlencode(input: &str) -> String {
@@ -2305,7 +2305,7 @@ impl Album {
                 String::new()
             } else {
                 format!(
-                    "/api/v1/gallery/albums/{}/{}/cover",
+                    "/api/v1/photos/albums/{}/{}/cover",
                     self.home_drive_id, self.id
                 )
             },
@@ -2338,7 +2338,7 @@ pub fn list_albums(
 ) -> anyhow::Result<Vec<Album>> {
     let mut out = Vec::new();
     for (drive_id, root) in mounts {
-        if gallery_db_path(root).is_none() {
+        if photos_db_path(root).is_none() {
             continue;
         }
         let conn = match open_drive_db(root) {
@@ -2809,7 +2809,7 @@ pub fn list_album_item_refs(
 
 /// True when path is HEIC/HEIF/HIF (browser cannot display the original).
 pub fn is_heic_image(path: &Path) -> bool {
-    is_image(path) && crate::gallery::heif::is_heif(path)
+    is_image(path) && crate::photos::heif::is_heif(path)
 }
 
 /// Minimum JPEG thumb size (bytes) we treat as a usable browser preview.
@@ -2939,6 +2939,6 @@ fn uuid_v4() -> String {
 mod tests;
 
 pub mod exif;
-pub mod gallery_indexer;
 pub mod heif;
+pub mod photos_indexer;
 pub mod places;

@@ -71,7 +71,7 @@ post("/api/v1/cloud/phrase/check", ({ world }) => {
   world.phrase.last_checked_at = nowSec();
   return { ok: true };
 });
-// No private scopes in the gallery, so nothing to re-seal and nothing that fails to re-seal.
+// No private scopes in Photos, so nothing to re-seal and nothing that fails to re-seal.
 get("/api/v1/cloud/phrase/scopes", () => ({ scopes: [] }));
 put("/api/v1/cloud/phrase", ({ world, body }) => {
   if (world.passwordWrong && body?.proof === "password") {

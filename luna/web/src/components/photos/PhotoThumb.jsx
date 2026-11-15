@@ -7,8 +7,8 @@ import PrivateBadge from "../private/PrivateBadge.jsx";
 const LONG_PRESS_MS = 450;
 
 /**
- * One gallery photo as lunad lists it (`member_photo_json` in
- * `crates/lunad/src/api/gallery.rs`), plus the client-side `content` and
+ * One photos photo as lunad lists it (`member_photo_json` in
+ * `crates/lunad/src/api/photos.rs`), plus the client-side `content` and
  * `download` URLs a caller may attach. Every field is optional because the
  * grid, the lightbox and the public album link each receive a subset.
  *
@@ -36,19 +36,19 @@ const LONG_PRESS_MS = 450;
  *   focal_mm?: number,
  *   flash?: number,
  *   duration_secs?: number,
- * }} GalleryPhoto
+ * }} PhotosPhoto
  */
 
 /**
  * Dense edge-to-edge photo cell for the timeline grid.
  *
  * @param {{
- *   photo: GalleryPhoto,
- *   onOpen?: (photo: GalleryPhoto) => void,
- *   onToggle?: (photo: GalleryPhoto, opts?: { range?: boolean }) => void,
- *   onLongPress?: (photo: GalleryPhoto) => void,
- *   onDragSelectStart?: (photo: GalleryPhoto) => void,
- *   onDragSelectEnter?: (photo: GalleryPhoto) => void,
+ *   photo: PhotosPhoto,
+ *   onOpen?: (photo: PhotosPhoto) => void,
+ *   onToggle?: (photo: PhotosPhoto, opts?: { range?: boolean }) => void,
+ *   onLongPress?: (photo: PhotosPhoto) => void,
+ *   onDragSelectStart?: (photo: PhotosPhoto) => void,
+ *   onDragSelectEnter?: (photo: PhotosPhoto) => void,
  *   selected?: boolean,
  *   selectMode?: boolean,
  *   index?: number,

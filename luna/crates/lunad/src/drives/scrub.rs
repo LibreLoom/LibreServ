@@ -101,10 +101,8 @@ fn hash_drive_walk(drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
             if item.is_none() && crate::files::is_internal_temp(disk) {
                 continue;
             }
-            let rel = &crate::gallery::gallery_indexer::join_rel(
-                &dir_rel,
-                item.map_or(disk, |i| i.name()),
-            );
+            let rel =
+                &crate::photos::photos_indexer::join_rel(&dir_rel, item.map_or(disk, |i| i.name()));
             if meta.is_dir() {
                 stack.push((entry.path(), rel.clone()));
                 continue;

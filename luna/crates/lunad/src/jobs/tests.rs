@@ -89,7 +89,7 @@ async fn same_drive_move_renames_without_trash() {
     }
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     let job = manager
         .enqueue("move", "a", "note.txt", "a", "inbox", "user-1")
@@ -125,7 +125,7 @@ async fn cross_filesystem_move_copies_then_trashes_source() {
     }
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     let job = manager
         .enqueue("move", "a", "ship.txt", "b", "", "user-1")
@@ -162,7 +162,7 @@ async fn same_fs_cross_drive_move_still_renames() {
     }
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     let job = manager
         .enqueue("move", "a", "samefs.txt", "b", "", "user-1")
@@ -198,7 +198,7 @@ async fn same_drive_folder_move_renames_tree() {
     }
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     let job = manager
         .enqueue("move", "a", "album", "a", "archive", "user-1")
@@ -227,7 +227,7 @@ async fn move_out_of_trash_lands_under_the_original_name() {
     };
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     let job = manager
         .enqueue("move", "a", &trash_rel, "a", "inbox", "user-1")
@@ -260,7 +260,7 @@ async fn copy_out_of_trash_keeps_the_trash_entry() {
     };
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     let job = manager
         .enqueue("copy", "a", &trash_rel, "a", "inbox", "user-1")
@@ -287,7 +287,7 @@ async fn moving_into_trash_is_rejected() {
     }
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     assert!(
         manager
@@ -315,7 +315,7 @@ async fn the_trash_root_is_never_a_job_source() {
     };
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     for kind in ["copy", "move"] {
         for src in [".luna-trash", ".luna-trash/", raw_root.as_str()] {
@@ -369,7 +369,7 @@ async fn copying_a_renamed_trash_item_uses_the_new_name() {
     };
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     let job = manager
         .enqueue("copy", "a", &trash_rel, "a", "inbox", "user-1")
@@ -403,7 +403,7 @@ async fn cross_drive_copy_produces_verified_bytes() {
     }
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     let job = manager
         .enqueue("copy", "a", "note.txt", "b", "", "user-1")
@@ -437,7 +437,7 @@ async fn private_items_stay_private_through_copies_and_moves() {
     }
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     let (root_a, root_b) = (dir.path().join("a"), dir.path().join("b"));
 
@@ -520,7 +520,7 @@ async fn private_folders_keep_their_row_when_moved_between_drives_and_copies_res
     }
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     let root_b = dir.path().join("b");
     // An ordinary item already has the name: the private copy must not
@@ -570,7 +570,7 @@ fn private_copy_collision_does_not_remove_an_existing_boundary() {
     let id = prepared.row.id.clone();
     run_job(
         db.clone(),
-        GalleryIndexer::start(),
+        PhotosIndexer::start(),
         prepared,
         Arc::new(AtomicBool::new(false)),
     );
@@ -597,7 +597,7 @@ async fn conflict_is_reported_before_starting() {
         let root2 = db::get_drive(&conn, "b").unwrap().unwrap().mount_point;
         std::fs::write(format!("{root2}/x.txt"), b"x").unwrap();
     }
-    let manager = JobManager::new(db, crate::gallery::gallery_indexer::GalleryIndexer::start());
+    let manager = JobManager::new(db, crate::photos::photos_indexer::PhotosIndexer::start());
     assert!(matches!(
         manager
             .enqueue("copy", "a", "x.txt", "b", "", "user-1")
@@ -614,7 +614,7 @@ async fn jobs_are_scoped_to_the_owner() {
         let root = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
         std::fs::write(format!("{root}/note.txt"), b"hello").unwrap();
     }
-    let manager = JobManager::new(db, crate::gallery::gallery_indexer::GalleryIndexer::start());
+    let manager = JobManager::new(db, crate::photos::photos_indexer::PhotosIndexer::start());
     let job = manager
         .enqueue("copy", "a", "note.txt", "b", "", "sam")
         .await
@@ -662,7 +662,7 @@ async fn job_rechecks_capabilities_when_it_runs() {
     }
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     let job = manager
         .enqueue("copy", "a", "note.txt", "b", "", "evie")
@@ -706,7 +706,7 @@ async fn copy_into_own_subtree_is_rejected() {
     }
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     for (kind, to) in [("copy", "docs"), ("copy", "docs/sub"), ("move", "docs/sub")] {
         assert!(
@@ -745,7 +745,7 @@ async fn copy_skips_luna_internal_entries() {
     };
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     let job = manager
         .enqueue("copy", "a", "docs", "b", "", "user-1")
@@ -780,7 +780,7 @@ async fn copy_takes_the_forms_own_files_folder_along() {
     std::fs::create_dir(root_a.join("forms").join(format!("{prefix}-other"))).unwrap();
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     let job = manager
         .enqueue("copy", "a", "forms", "b", "", "user-1")
@@ -899,7 +899,7 @@ async fn job_paths_land_in_the_canonical_form() {
     }
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     let job = manager
         .enqueue("copy", "a", "docs//x.txt", "b", ".//inbox", "user-1")
@@ -943,7 +943,7 @@ async fn the_job_queue_is_bounded() {
     }
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     // Rows that wedge mid-run count toward the cap — a stuck job must not
     // be able to grow the queue forever. (Rows already "running" at boot
@@ -1027,7 +1027,7 @@ async fn queued_jobs_drain_through_the_worker_cap() {
     }
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     let mut jobs = Vec::new();
     for i in 0..MAX_QUEUED_PER_USER {
@@ -1078,7 +1078,7 @@ async fn a_restart_marks_stranded_jobs_interrupted() {
     }
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     {
         let conn = db.lock().unwrap();
@@ -1309,7 +1309,7 @@ async fn keep_both_saves_beside_the_clash() {
     }
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     let job = manager
         .enqueue_on_conflict(
@@ -1344,7 +1344,7 @@ async fn a_clash_with_a_folder_reports_it_as_a_folder() {
     }
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     let refused = manager
         .enqueue("copy", "a", "Folder", "b", "", "user-1")
@@ -1365,7 +1365,7 @@ async fn keep_both_is_refused_for_a_private_item() {
     }
     let manager = JobManager::new(
         db.clone(),
-        crate::gallery::gallery_indexer::GalleryIndexer::start(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
     );
     let refused = manager
         .enqueue_on_conflict(
@@ -1438,7 +1438,7 @@ fn a_failed_copy_keeps_its_progress_and_says_what_it_removed() {
         });
         run_job(
             db.clone(),
-            crate::gallery::gallery_indexer::GalleryIndexer::start(),
+            crate::photos::photos_indexer::PhotosIndexer::start(),
             prepared,
             Arc::new(AtomicBool::new(false)),
         );

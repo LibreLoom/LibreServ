@@ -589,7 +589,7 @@ describe("PhotoLightbox focus", () => {
     const { unmount } = renderLightbox();
     const close = screen.getByRole("button", { name: "Close" });
     expect(close).toHaveFocus();
-    // The gallery behind the lightbox is out of reach.
+    // The photos behind the lightbox is out of reach.
     expect(root).toHaveAttribute("inert");
 
     // Tab from the last control wraps to the first instead of leaving.

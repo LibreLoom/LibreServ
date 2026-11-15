@@ -156,7 +156,7 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
     queryClient.invalidateQueries({ queryKey: ["access-subject"] });
     queryClient.invalidateQueries({ queryKey: ["access-mine"] });
     queryClient.invalidateQueries({ queryKey: ["my-access"] });
-    queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
+    queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
   };
 
   const updateMember = useMutation({

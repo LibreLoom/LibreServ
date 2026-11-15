@@ -7,7 +7,7 @@ use rusqlite::params;
 
 /// Open (and initialize) the central metadata database.
 ///
-/// Drive-scoped high-churn metadata (file index, scrub hashes, gallery, trash
+/// Drive-scoped high-churn metadata (file index, scrub hashes, photos, trash
 /// paths, upload sessions) lives in each drive's `.luna` SQLite microdb.
 /// This OS-disk DB keeps users, auth, access members/links, protection rules,
 /// jobs, and the thin drives registry.
@@ -256,7 +256,7 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
     // Trim the tables that otherwise grow without bound. Cheap, and it runs
     // before anything can read them.
     let _ = trim_housekeeping(&conn);
-    // Legacy eMMC photos table (pre on-drive .lunagallery) — drop if present.
+    // Legacy eMMC photos table (pre on-drive .LUNAPHOTOS_KEEP) — drop if present.
     let _ = conn.execute_batch("DROP TABLE IF EXISTS photos;");
     ensure_column(
         &conn,
@@ -589,7 +589,7 @@ pub fn delete_drive_cascade(conn: &Connection, id: &str) -> anyhow::Result<()> {
 /// Wipe all user data and return the box to first-run state, keeping the
 /// schema. Clears users/access/device-tokens, protections/jobs, drives,
 /// and resets setup + the JWT and BLE setup secrets. Per-drive `.luna`
-/// microdbs (index, hashes, gallery, uploads, trash meta) are not part of
+/// microdbs (index, hashes, photos, uploads, trash meta) are not part of
 /// `luna.db` and are left on the sticks.
 pub fn factory_reset(conn: &Connection) -> anyhow::Result<()> {
     for table in [

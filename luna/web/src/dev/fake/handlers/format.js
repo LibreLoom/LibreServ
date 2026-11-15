@@ -225,7 +225,7 @@ post("/api/v1/drive-format/start", ({ world, user, body }) => {
     return fail(409, "Wait for the countdown to finish, then try again.", "format_not_ready", { ready_at: held.readyAt, now });
   }
   const knob = detectedOn(world, held.device) ?? {};
-  if (knob.mock && encrypted) return fail(400, "Directory mock drives can't be encrypted.", "mock_encryption");
+  if (knob.mock && encrypted) return fail(400, "This is a test drive made from a folder. A folder can't be protected with a password.", "mock_encryption");
   if (knob.missingTool) return fail(503, "Luna can't prepare drives. This Luna is missing a program it needs (mkfs.exfat).", "missing_tool");
   if (knob.busy || activeRun(world, held.device)) return fail(409, BUSY, "drive_busy");
   if (knob.swappedAtStart) return fail(409, "This isn't the drive that was shown, or it changed. Look at the drive again.", "drive_changed");

@@ -69,7 +69,7 @@ pub struct ContentIndexer {
 
 static NUDGE: Mutex<Option<Sender<Msg>>> = Mutex::new(None);
 
-/// Ask the content reader to look at a drive again (the gallery calls this
+/// Ask the content reader to look at a drive again (Photos calls this
 /// after making thumbnails, which photo search reads). A no-op when no
 /// reader runs.
 pub fn nudge_drive(drive_id: &str) {
@@ -209,7 +209,7 @@ fn pass(
     // Photo search can release camera photos to OCR, so a second round
     // reads those.
     for _round in 0..2 {
-        requeue_gallery_deferred(&conn, drive_id)?;
+        requeue_photos_deferred(&conn, drive_id)?;
         let left = store::pending_count(&conn, drive_id, ocr)?
             + meaning::backfill_left(&conn, drive_id)?
             + photos::pending_count(&conn);
@@ -253,7 +253,7 @@ fn pass(
             });
             thread::sleep(PACE);
         }
-        // What the gallery's thumbnails show.
+        // What Photos' thumbnails show.
         loop {
             if !wait_for_memory() {
                 anyhow::bail!("not enough free memory for photo search");
@@ -269,7 +269,7 @@ fn pass(
         }
         // Camera photos that photo search just judged to be documents are
         // pending again now; read them in a second round.
-        requeue_gallery_deferred(&conn, drive_id)?;
+        requeue_photos_deferred(&conn, drive_id)?;
         if store::pending_count(&conn, drive_id, ocr)? == 0 {
             break;
         }
@@ -358,8 +358,8 @@ fn ocr_wait(conn: &Connection, rel: &str, name: &str) -> Option<&'static str> {
         )
         .ok();
     match camera {
-        // The gallery hasn't looked at it yet; ask again once it has.
-        None => Some("gallery"),
+        // Photos hasn't looked at it yet; ask again once it has.
+        None => Some("photos"),
         Some(make) if make.trim().is_empty() => None,
         Some(_) => match super::photos::shows_document(conn, rel) {
             Some(true) => None,
@@ -369,12 +369,12 @@ fn ocr_wait(conn: &Connection, rel: &str, name: &str) -> Option<&'static str> {
     }
 }
 
-/// Photos that waited for the gallery (or for photo search) get another
+/// Photos that waited for Photos (or for photo search) get another
 /// look once that has caught up.
-fn requeue_gallery_deferred(conn: &Connection, drive_id: &str) -> anyhow::Result<()> {
+fn requeue_photos_deferred(conn: &Connection, drive_id: &str) -> anyhow::Result<()> {
     conn.execute(
         "UPDATE content_docs SET version = 0
-         WHERE drive_id = ?1 AND state = 'deferred' AND detail = 'gallery'
+         WHERE drive_id = ?1 AND state = 'deferred' AND detail = 'photos'
            AND EXISTS (SELECT 1 FROM photos p
                        WHERE p.path = CASE WHEN content_docs.parent = '' THEN content_docs.name
                                       ELSE content_docs.parent || '/' || content_docs.name END)",

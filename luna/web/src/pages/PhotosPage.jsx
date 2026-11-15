@@ -31,29 +31,29 @@ import { useFileOps } from "../context/FileOpsContext.jsx";
 import { driveSource } from "../lib/fileSource.jsx";
 import { showPageLevelError } from "../lib/modalScopedError";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
-import GalleryToolbar from "../components/gallery/GalleryToolbar.jsx";
-import GalleryFilterSheet, {
+import PhotosToolbar from "../components/photos/PhotosToolbar.jsx";
+import PhotosFilterSheet, {
   EMPTY_FILTERS,
   clearFilterChip,
   countActiveFilters,
   filterChipList,
   monthDayLabel,
   readSavedFilters,
-} from "../components/gallery/GalleryFilterSheet.jsx";
+} from "../components/photos/PhotosFilterSheet.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import ShareSheet from "../components/share/ShareSheet.jsx";
-import PhotoTimeline, { dayKey } from "../components/gallery/PhotoTimeline.jsx";
+import PhotoTimeline, { dayKey } from "../components/photos/PhotoTimeline.jsx";
 import PhotoLightbox, {
   ABOVE_LIGHTBOX_OVERLAY_CLASS,
-} from "../components/gallery/PhotoLightbox.jsx";
-import AddToAlbumModal from "../components/gallery/AddToAlbumModal.jsx";
+} from "../components/photos/PhotoLightbox.jsx";
+import AddToAlbumModal from "../components/photos/AddToAlbumModal.jsx";
 
-import SelectionActionBar from "../components/gallery/SelectionActionBar.jsx";
+import SelectionActionBar from "../components/photos/SelectionActionBar.jsx";
 import DayJumpModal, {
   dayBoundsLocal,
   nearestDayKey,
-} from "../components/gallery/DayJumpModal.jsx";
-import PhotoThumb from "../components/gallery/PhotoThumb.jsx";
+} from "../components/photos/DayJumpModal.jsx";
+import PhotoThumb from "../components/photos/PhotoThumb.jsx";
 import SlidePages from "../components/common/SlidePages.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
@@ -72,11 +72,11 @@ import {
   putJson,
 } from "../lib/api";
 
-/** @typedef {import("../components/gallery/PhotoThumb.jsx").GalleryPhoto} GalleryPhoto */
+/** @typedef {import("../components/photos/PhotoThumb.jsx").PhotosPhoto} PhotosPhoto */
 
 /**
- * An album as `/api/v1/gallery/albums` returns it (`Album` in
- * `crates/lunad/src/gallery/mod.rs`; the public projection drops the
+ * An album as `/api/v1/photos/albums` returns it (`Album` in
+ * `crates/lunad/src/photos/mod.rs`; the public projection drops the
  * cover/contrib fields).
  *
  * @typedef {{
@@ -91,11 +91,11 @@ import {
  *   contrib_path?: string,
  *   locked?: boolean,
  *   item_count?: number,
- * }} GalleryAlbum
+ * }} PhotosAlbum
  */
 
-const GALLERY_DOWNLOAD_MAX = 200;
-const GALLERY_DOWNLOAD_FILENAME = "photos.zip";
+const PHOTOS_DOWNLOAD_MAX = 200;
+const PHOTOS_DOWNLOAD_FILENAME = "photos.zip";
 
 /**
  * Save a download without buffering the whole response when the browser
@@ -159,10 +159,10 @@ async function abortDownloadFile(writable) {
   }
 }
 
-export class GalleryDownloadError extends Error {}
+export class PhotosDownloadError extends Error {}
 
 export function downloadFailureDescription(error) {
-  if (error instanceof GalleryDownloadError) return error.message;
+  if (error instanceof PhotosDownloadError) return error.message;
   if (error?.name === "NotAllowedError" || error?.name === "SecurityError") {
     return "Luna couldn't open a save location. Try the download again.";
   }
@@ -194,12 +194,12 @@ export async function downloadErrorMessage(response) {
 }
 
 const placesUrlFor = (listUrl) =>
-  listUrl.replace("/api/v1/gallery?", "/api/v1/gallery/places?");
-const UNFILTERED_PLACES_URL = placesUrlFor(galleryUrl());
+  listUrl.replace("/api/v1/photos?", "/api/v1/photos/places?");
+const UNFILTERED_PLACES_URL = placesUrlFor(photosUrl());
 /** Shared empty list so an unloaded places query keeps a stable prop identity. */
 const NO_PLACES = [];
 
-const loadPlacesMap = () => import("../components/gallery/PlacesMap.jsx");
+const loadPlacesMap = () => import("../components/photos/PlacesMap.jsx");
 const PlacesMap = lazy(loadPlacesMap);
 
 /** @param {{ owner_user_id?: string }|null|undefined} album @param {{ id?: string, role?: string }|null|undefined} user */
@@ -256,7 +256,7 @@ function readOnThisDayDismissed() {
 }
 
 /**
- * Build the gallery list URL. Bool query flags must be `true`/`false` —
+ * Build the photos list URL. Bool query flags must be `true`/`false` —
  * lunad's serde query parser rejects `1`/`0` (Favorites used to 400).
  *
  * @param {{
@@ -292,7 +292,7 @@ function readOnThisDayDismissed() {
  *   offset?: number,
  * }} opts
  */
-export function galleryUrl({
+export function photosUrl({
   q,
   favorites,
   albumId,
@@ -362,7 +362,7 @@ export function galleryUrl({
     params.set("album_membership", albumMembership);
   }
   if (monthDay) params.set("month_day", monthDay);
-  return `/api/v1/gallery?${params}`;
+  return `/api/v1/photos?${params}`;
 }
 
 /**
@@ -383,7 +383,7 @@ export function photoHashParam(key) {
  * @param {string} hash
  * @returns {{ segment: string, day?: string, albumHome?: string, albumId?: string, onThisDay?: boolean, y?: number, photo?: string }}
  */
-export function parseGalleryHash(hash) {
+export function parsePhotosHash(hash) {
   const raw = (hash || "").replace(/^#/, "");
   if (!raw) return { segment: DEFAULT_SEGMENT };
   const qIdx = raw.indexOf("?");
@@ -422,7 +422,7 @@ export function parseGalleryHash(hash) {
   return { segment: DEFAULT_SEGMENT };
 }
 
-/** @param {GalleryAlbum} album */
+/** @param {PhotosAlbum} album */
 function unlockKey(album) {
   return `luna.photos.unlock.${album.home_drive_id}:${album.id}`;
 }
@@ -437,12 +437,12 @@ function readGridCols() {
   return 6;
 }
 
-export default function GalleryPage() {
+export default function PhotosPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const queryClient = useQueryClient();
   const initialHash =
-    typeof window !== "undefined" ? parseGalleryHash(window.location.hash) : { segment: DEFAULT_SEGMENT };
+    typeof window !== "undefined" ? parsePhotosHash(window.location.hash) : { segment: DEFAULT_SEGMENT };
 
   const [segment, setSegment] = useState(initialHash.segment || DEFAULT_SEGMENT);
   const activeSegment = SEGMENT_IDS.includes(segment) ? segment : DEFAULT_SEGMENT;
@@ -459,7 +459,7 @@ export default function GalleryPage() {
   const [duplicatesView, setDuplicatesView] = useState(false);
   const [filters, setFilters] = useState(() => {
     const init =
-      /** @type {import("../components/gallery/GalleryFilterSheet.jsx").GalleryFilters} */ ({
+      /** @type {import("../components/photos/PhotosFilterSheet.jsx").PhotosFilters} */ ({
         ...EMPTY_FILTERS,
         monthDay: initialHash.onThisDay ? "today" : "",
       });
@@ -471,7 +471,7 @@ export default function GalleryPage() {
     return init;
   });
   const [placesDrawMode, setPlacesDrawMode] = useState(false);
-  const [albumView, setAlbumView] = useState(/** @type {GalleryAlbum|null} */ (null));
+  const [albumView, setAlbumView] = useState(/** @type {PhotosAlbum|null} */ (null));
   // Cosmetic only — a smart album IS its filters; this just keeps its name
   // in the detail chrome and album-name prefill.
   const [viewLabel, setViewLabel] = useState(/** @type {string|null} */ (null));
@@ -516,7 +516,7 @@ export default function GalleryPage() {
       : null,
   );
   const hashStateRef = useRef(
-    /** @type {{ activeSegment: string, albumView: GalleryAlbum|null, viewLabel: string|null, filters: import("../components/gallery/GalleryFilterSheet.jsx").GalleryFilters, duplicatesView: boolean, lightbox: { key: string }|null }|null} */ (null),
+    /** @type {{ activeSegment: string, albumView: PhotosAlbum|null, viewLabel: string|null, filters: import("../components/photos/PhotosFilterSheet.jsx").PhotosFilters, duplicatesView: boolean, lightbox: { key: string }|null }|null} */ (null),
   );
   hashStateRef.current = {
     activeSegment,
@@ -570,9 +570,9 @@ export default function GalleryPage() {
     const curHead = window.location.hash.split("?")[0];
     const detail = (h) => h.length > 1 && !SEGMENT_IDS.includes(h.slice(1));
     const openingPhoto =
-      s.lightbox && !parseGalleryHash(window.location.hash).photo;
+      s.lightbox && !parsePhotosHash(window.location.hash).photo;
     if ((detail(base) && !detail(curHead)) || openingPhoto) {
-      window.history.pushState({ lunaGalleryDetail: true }, "", next);
+      window.history.pushState({ lunaPhotosDetail: true }, "", next);
     } else {
       const isDetailEntry = detail(base) || s.lightbox;
       window.history.replaceState(isDetailEntry ? window.history.state : null, "", next);
@@ -594,7 +594,7 @@ export default function GalleryPage() {
   }, [activeSegment, albumView, viewLabel, filters, duplicatesView, lightbox, writeHash]);
 
   const tryOpenAlbum = useCallback(
-    /** @param {GalleryAlbum} album */
+    /** @param {PhotosAlbum} album */
     (album) => {
       if (album.locked) {
         try {
@@ -615,7 +615,7 @@ export default function GalleryPage() {
 
   useEffect(() => {
     const onHashChange = () => {
-      const parsed = parseGalleryHash(window.location.hash);
+      const parsed = parsePhotosHash(window.location.hash);
       if (SEGMENT_IDS.includes(parsed.segment)) setSegment(parsed.segment);
       setFilters((prev) => {
         const next = { ...prev, monthDay: parsed.onThisDay ? "today" : "" };
@@ -661,7 +661,7 @@ export default function GalleryPage() {
       if (parsed.albumId) {
         // Back/forward (or a pasted link) names the album — reopen it. If the
         // albums query hasn't landed yet, the resolver effect picks it up.
-        const list = queryClient.getQueryData(["gallery-albums"]);
+        const list = queryClient.getQueryData(["photos-albums"]);
         const found = Array.isArray(list)
           ? list.find(
               (a) => a.id === parsed.albumId && a.home_drive_id === parsed.albumHome,
@@ -694,9 +694,9 @@ export default function GalleryPage() {
   );
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
-  const galleryStatus = useQuery({
-    queryKey: ["gallery-status"],
-    queryFn: () => getJson("/api/v1/gallery/status"),
+  const photosStatus = useQuery({
+    queryKey: ["photos-status"],
+    queryFn: () => getJson("/api/v1/photos/status"),
     refetchInterval: (query) => (query.state.data?.busy ? 1500 : 8000),
   });
   const drivesEmpty =
@@ -704,8 +704,8 @@ export default function GalleryPage() {
   // Members may have shared albums with no folder grants — probe albums before
   // treating an empty drives list as “nothing to open.”
   const albums = useQuery({
-    queryKey: ["gallery-albums"],
-    queryFn: () => getJson("/api/v1/gallery/albums"),
+    queryKey: ["photos-albums"],
+    queryFn: () => getJson("/api/v1/photos/albums"),
     enabled:
       activeSegment === "albums" ||
       !!albumPick ||
@@ -719,12 +719,12 @@ export default function GalleryPage() {
     const warm = () => {
       loadPlacesMap();
       queryClient.prefetchQuery({
-        queryKey: ["gallery-places", UNFILTERED_PLACES_URL],
+        queryKey: ["photos-places", UNFILTERED_PLACES_URL],
         queryFn: () => getJson(UNFILTERED_PLACES_URL),
       });
       queryClient.prefetchQuery({
-        queryKey: ["gallery-albums"],
-        queryFn: () => getJson("/api/v1/gallery/albums"),
+        queryKey: ["photos-albums"],
+        queryFn: () => getJson("/api/v1/photos/albums"),
       });
     };
     if (typeof window.requestIdleCallback === "function") {
@@ -777,7 +777,7 @@ export default function GalleryPage() {
 
   const listKey = useMemo(
     () => [
-      "gallery",
+      "photos",
       activeSegment,
       search,
       filters.place?.key || "",
@@ -853,29 +853,29 @@ export default function GalleryPage() {
   // The map plots the photos the filters keep, so it takes the list's filters
   // (minus the picked place, which sends you to the list instead).
   const placesUrl = placesUrlFor(
-    galleryUrl({ ...listOpts, place: undefined, placeBbox: undefined }),
+    photosUrl({ ...listOpts, place: undefined, placeBbox: undefined }),
   );
   const places = useQuery({
-    queryKey: ["gallery-places", placesUrl],
+    queryKey: ["photos-places", placesUrl],
     queryFn: () => getJson(placesUrl),
     placeholderData: keepPreviousData,
     enabled: activeSegment === "places" || filtersOpen,
   });
 
-  const gallery = useInfiniteQuery({
+  const photoQuery = useInfiniteQuery({
     queryKey: listKey,
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
       getJson(
-        galleryUrl({ ...listOpts, offset: pageParam }),
+        photosUrl({ ...listOpts, offset: pageParam }),
       ),
     getNextPageParam: (last) => (last?.has_more ? last.next_offset : undefined),
     enabled: !placesMapOverview && !duplicatesView,
   });
 
   const duplicates = useQuery({
-    queryKey: ["gallery-duplicates"],
-    queryFn: () => getJson("/api/v1/gallery/duplicates?limit=50"),
+    queryKey: ["photos-duplicates"],
+    queryFn: () => getJson("/api/v1/photos/duplicates?limit=50"),
     enabled: duplicatesView,
   });
 
@@ -888,8 +888,8 @@ export default function GalleryPage() {
     () =>
       duplicatesView
         ? duplicatePhotos
-        : (gallery.data?.pages || []).flatMap((p) => p.items || []),
-    [duplicatesView, duplicatePhotos, gallery.data],
+        : (photoQuery.data?.pages || []).flatMap((p) => p.items || []),
+    [duplicatesView, duplicatePhotos, photoQuery.data],
   );
 
   // Newest/oldest loaded day keys (YYYY-MM-DD). Pages load contiguously from
@@ -944,15 +944,15 @@ export default function GalleryPage() {
     priority: 1,
   });
 
-  const indexing = !!galleryStatus.data?.busy;
-  const foundCount = Number(galleryStatus.data?.found_count) || 0;
+  const indexing = !!photosStatus.data?.busy;
+  const foundCount = Number(photosStatus.data?.found_count) || 0;
   const indexingDriveLabel =
-    typeof galleryStatus.data?.drive_label === "string" && galleryStatus.data.drive_label.trim()
-      ? galleryStatus.data.drive_label.trim()
+    typeof photosStatus.data?.drive_label === "string" && photosStatus.data.drive_label.trim()
+      ? photosStatus.data.drive_label.trim()
       : null;
   const statusLastError =
-    typeof galleryStatus.data?.last_error === "string" && galleryStatus.data.last_error.trim()
-      ? galleryStatus.data.last_error.trim()
+    typeof photosStatus.data?.last_error === "string" && photosStatus.data.last_error.trim()
+      ? photosStatus.data.last_error.trim()
       : null;
 
   // While indexing, new photos appear without a refresh. Every refetch reloads
@@ -966,9 +966,9 @@ export default function GalleryPage() {
     const id = setInterval(() => {
       if (foundCountRef.current === refreshedAt) return;
       refreshedAt = foundCountRef.current;
-      queryClient.invalidateQueries({ queryKey: ["gallery"] });
-      queryClient.invalidateQueries({ queryKey: ["gallery-places"] });
-      queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
+      queryClient.invalidateQueries({ queryKey: ["photos"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-places"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
     }, 4000);
     return () => clearInterval(id);
   }, [indexing, queryClient]);
@@ -976,23 +976,23 @@ export default function GalleryPage() {
   const wasIndexingRef = useRef(false);
   useEffect(() => {
     if (wasIndexingRef.current && !indexing) {
-      queryClient.invalidateQueries({ queryKey: ["gallery"] });
-      queryClient.invalidateQueries({ queryKey: ["gallery-places"] });
-      queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
-      queryClient.invalidateQueries({ queryKey: ["gallery-status"] });
+      queryClient.invalidateQueries({ queryKey: ["photos"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-places"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-status"] });
     }
     wasIndexingRef.current = indexing;
   }, [indexing, queryClient]);
 
   const rescan = useMutation({
-    mutationFn: () => postJson("/api/v1/gallery/rescan", {}),
+    mutationFn: () => postJson("/api/v1/photos/rescan", {}),
     onSuccess: () => {
       setError(null);
       addToast({ type: "info", message: "Luna is rescanning your photos." });
-      queryClient.invalidateQueries({ queryKey: ["gallery-status"] });
-      queryClient.invalidateQueries({ queryKey: ["gallery"] });
-      queryClient.invalidateQueries({ queryKey: ["gallery-places"] });
-      queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-status"] });
+      queryClient.invalidateQueries({ queryKey: ["photos"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-places"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
     },
     onError: (err) => setError(apiErrorMessage(err, "Luna couldn't rescan your drives. Try again.")),
   });
@@ -1017,22 +1017,22 @@ export default function GalleryPage() {
     tryOpenAlbum(found);
   }, [albums.data, tryOpenAlbum]);
 
-  const looking = gallery.isLoading || (indexing && photos.length === 0);
+  const looking = photoQuery.isLoading || (indexing && photos.length === 0);
   const noDrives = !drives.isLoading && driveList.length === 0;
   const memberAlbumsGatePending =
     !isAdmin &&
     noDrives &&
     (albums.isLoading || albums.isPending || (!albums.isFetched && !albums.isError));
   const memberAlbumOnly = !isAdmin && noDrives && !memberAlbumsGatePending && albumList.length > 0;
-  const galleryLoadError =
-    gallery.isError && !looking
-      ? apiErrorMessage(gallery.error, "Luna couldn't open the gallery. Try again.")
+  const photosLoadError =
+    photoQuery.isError && !looking
+      ? apiErrorMessage(photoQuery.error, "Luna couldn't open Photos. Try again.")
       : null;
   const noPhotos =
     !looking &&
     !indexing &&
-    !gallery.isLoading &&
-    !gallery.isError &&
+    !photoQuery.isLoading &&
+    !photoQuery.isError &&
     photos.length === 0 &&
     driveList.length > 0 &&
     activeSegment === "library" &&
@@ -1042,7 +1042,7 @@ export default function GalleryPage() {
   const albumOnlyLibraryEmpty =
     memberAlbumOnly &&
     !looking &&
-    !gallery.isLoading &&
+    !photoQuery.isLoading &&
     photos.length === 0 &&
     activeSegment === "library" &&
     !search &&
@@ -1051,8 +1051,8 @@ export default function GalleryPage() {
   // Empty states are mutually exclusive: layered search+filters gets its own
   // card, then search alone, filters alone, then the bare context cards.
   const scopedEmpty =
-    !gallery.isLoading &&
-    !gallery.isError &&
+    !photoQuery.isLoading &&
+    !photoQuery.isError &&
     photos.length === 0 &&
     (activeSegment === "library" ||
       activeSegment === "favorites" ||
@@ -1067,8 +1067,8 @@ export default function GalleryPage() {
     filterActiveCount > 0 &&
     (driveList.length > 0 || !!albumView || !!viewLabel || activeSegment === "albums" || activeSegment === "places");
   const noFavorites =
-    !gallery.isLoading &&
-    !gallery.isError &&
+    !photoQuery.isLoading &&
+    !photoQuery.isError &&
     photos.length === 0 &&
     driveList.length > 0 &&
     activeSegment === "favorites" &&
@@ -1076,8 +1076,8 @@ export default function GalleryPage() {
     filterActiveCount === 0;
   const searchEmpty = scopedEmpty && !!search && filterActiveCount === 0;
   const albumEmpty =
-    !gallery.isLoading &&
-    !gallery.isError &&
+    !photoQuery.isLoading &&
+    !photoQuery.isError &&
     photos.length === 0 &&
     !!albumView &&
     !search &&
@@ -1090,19 +1090,19 @@ export default function GalleryPage() {
       : null;
 
   const favorite = useMutation({
-    /** @param {GalleryPhoto} photo */
+    /** @param {PhotosPhoto} photo */
     mutationFn: async (photo) => {
       const body = { drive_id: photo.drive_id, path: photo.path };
       if (photo.favorited) {
-        await deleteJson("/api/v1/gallery/favorites", {
+        await deleteJson("/api/v1/photos/favorites", {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
       } else {
-        await putJson("/api/v1/gallery/favorites", body);
+        await putJson("/api/v1/photos/favorites", body);
       }
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["gallery"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["photos"] }),
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
@@ -1125,13 +1125,13 @@ export default function GalleryPage() {
           </>
         ),
       });
-      queryClient.invalidateQueries({ queryKey: ["gallery"] });
+      queryClient.invalidateQueries({ queryKey: ["photos"] });
     },
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
   const trashMany = useMutation({
-    /** @param {GalleryPhoto[]} items */
+    /** @param {PhotosPhoto[]} items */
     mutationFn: async (items) => {
       for (const photo of items) {
         await deleteJson(
@@ -1151,17 +1151,17 @@ export default function GalleryPage() {
           </>
         ),
       });
-      queryClient.invalidateQueries({ queryKey: ["gallery"] });
+      queryClient.invalidateQueries({ queryKey: ["photos"] });
     },
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
   const createAlbum = useMutation({
-    /** @param {{ name: string, items?: GalleryPhoto[] }} args */
+    /** @param {{ name: string, items?: PhotosPhoto[] }} args */
     mutationFn: async ({ name, items }) => {
-      const album = await postJson("/api/v1/gallery/albums", { name });
+      const album = await postJson("/api/v1/photos/albums", { name });
       if (items?.length) {
-        await postJson(`/api/v1/gallery/albums/${album.home_drive_id}/${album.id}/items`, {
+        await postJson(`/api/v1/photos/albums/${album.home_drive_id}/${album.id}/items`, {
           items: items.map((p) => ({ drive_id: p.drive_id, path: p.path })),
         });
       }
@@ -1173,8 +1173,8 @@ export default function GalleryPage() {
       setNewAlbumName("");
       setNewAlbumSeed(null);
       selection.exit();
-      queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
-      queryClient.invalidateQueries({ queryKey: ["gallery"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
+      queryClient.invalidateQueries({ queryKey: ["photos"] });
       if (shareAfterCreate && album) {
         setShareAfterCreate(false);
         setShareAlbum(album);
@@ -1187,17 +1187,17 @@ export default function GalleryPage() {
   });
 
   const setAlbumCover = useMutation({
-    /** @param {GalleryPhoto} photo */
+    /** @param {PhotosPhoto} photo */
     mutationFn: async (photo) => {
       if (!albumView) return;
-      await patchJson(`/api/v1/gallery/albums/${albumView.home_drive_id}/${albumView.id}`, {
+      await patchJson(`/api/v1/photos/albums/${albumView.home_drive_id}/${albumView.id}`, {
         cover_path: photo.path,
         cover_drive_id: photo.drive_id,
       });
     },
     onSuccess: () => {
       addToast({ type: "success", message: "Album cover set." });
-      queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
     },
     onError: (err) => {
       haptic("error");
@@ -1206,16 +1206,16 @@ export default function GalleryPage() {
   });
 
   const renameAlbumMut = useMutation({
-    /** @param {{ album: GalleryAlbum, name: string }} args */
+    /** @param {{ album: PhotosAlbum, name: string }} args */
     mutationFn: ({ album, name }) =>
-      patchJson(`/api/v1/gallery/albums/${album.home_drive_id}/${album.id}`, { name }),
+      patchJson(`/api/v1/photos/albums/${album.home_drive_id}/${album.id}`, { name }),
     onSuccess: (_d, { album, name }) => {
       addToast({ type: "success", message: "Album renamed." });
       setRenameAlbum(null);
       setAlbumView((cur) =>
         cur && cur.id === album.id ? { ...cur, name } : cur,
       );
-      queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
     },
     onError: (err) => {
       haptic("error");
@@ -1224,12 +1224,12 @@ export default function GalleryPage() {
   });
 
   const lockAlbumMut = useMutation({
-    /** @param {{ album: GalleryAlbum, locked: boolean }} args */
+    /** @param {{ album: PhotosAlbum, locked: boolean }} args */
     mutationFn: ({ album, locked }) =>
-      patchJson(`/api/v1/gallery/albums/${album.home_drive_id}/${album.id}`, { locked }),
+      patchJson(`/api/v1/photos/albums/${album.home_drive_id}/${album.id}`, { locked }),
     onSuccess: (_d, { locked }) => {
       addToast({ type: "success", message: locked ? "Album locked." : "Album unlocked." });
-      queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
     },
     onError: (err) => {
       haptic("error");
@@ -1238,9 +1238,9 @@ export default function GalleryPage() {
   });
 
   const deleteAlbum = useMutation({
-    /** @param {GalleryAlbum} album */
+    /** @param {PhotosAlbum} album */
     mutationFn: (album) =>
-      deleteJson(`/api/v1/gallery/albums/${album.home_drive_id}/${album.id}`),
+      deleteJson(`/api/v1/photos/albums/${album.home_drive_id}/${album.id}`),
     onSuccess: (_data, album) => {
       addToast({ type: "success", message: "Album deleted." });
       setTrashAlbum(null);
@@ -1249,8 +1249,8 @@ export default function GalleryPage() {
           ? null
           : current,
       );
-      queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
-      queryClient.invalidateQueries({ queryKey: ["gallery"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
+      queryClient.invalidateQueries({ queryKey: ["photos"] });
     },
     onError: (err) => {
       haptic("error");
@@ -1259,10 +1259,10 @@ export default function GalleryPage() {
   });
 
   const applyAlbumPick = useMutation({
-    /** @param {{ changes: Array<{ album: { id?: string, home_drive_id?: string }, add?: GalleryPhoto[], remove?: GalleryPhoto[] }>, close?: () => void }} args */
+    /** @param {{ changes: Array<{ album: { id?: string, home_drive_id?: string }, add?: PhotosPhoto[], remove?: PhotosPhoto[] }>, close?: () => void }} args */
     mutationFn: async ({ changes }) => {
       for (const change of changes) {
-        const base = `/api/v1/gallery/albums/${change.album.home_drive_id}/${change.album.id}/items`;
+        const base = `/api/v1/photos/albums/${change.album.home_drive_id}/${change.album.id}/items`;
         if (change.add?.length) {
           await postJson(base, {
             items: change.add.map((p) => ({ drive_id: p.drive_id, path: p.path })),
@@ -1281,19 +1281,19 @@ export default function GalleryPage() {
       if (vars.close) vars.close();
       else setAlbumPick(null);
       selection.exit();
-      queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
-      queryClient.invalidateQueries({ queryKey: ["gallery"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
+      queryClient.invalidateQueries({ queryKey: ["photos"] });
     },
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
   const removeFromAlbum = useMutation({
-    /** @param {GalleryPhoto[]} items */
+    /** @param {PhotosPhoto[]} items */
     mutationFn: async (items) => {
       if (!albumView) return;
       for (const photo of items) {
         await deleteJson(
-          `/api/v1/gallery/albums/${albumView.home_drive_id}/${albumView.id}/items`,
+          `/api/v1/photos/albums/${albumView.home_drive_id}/${albumView.id}/items`,
           {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ drive_id: photo.drive_id, path: photo.path }),
@@ -1309,18 +1309,18 @@ export default function GalleryPage() {
           ? "Removed from the album."
           : `Removed ${items.length} photos from the album.`,
       });
-      queryClient.invalidateQueries({ queryKey: ["gallery"] });
-      queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
+      queryClient.invalidateQueries({ queryKey: ["photos"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
     },
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
   const bulkFavorite = useMutation({
-    /** @param {GalleryPhoto[]} items */
+    /** @param {PhotosPhoto[]} items */
     mutationFn: async (items) => {
       for (const photo of items) {
         if (!photo.favorited) {
-          await putJson("/api/v1/gallery/favorites", {
+          await putJson("/api/v1/photos/favorites", {
             drive_id: photo.drive_id,
             path: photo.path,
           });
@@ -1333,7 +1333,7 @@ export default function GalleryPage() {
         type: "success",
         message: items.length === 1 ? "Added to Favorites." : `Added ${items.length} photos to Favorites.`,
       });
-      queryClient.invalidateQueries({ queryKey: ["gallery"] });
+      queryClient.invalidateQueries({ queryKey: ["photos"] });
     },
     onError: (err) => setError(apiErrorMessage(err)),
   });
@@ -1359,7 +1359,7 @@ export default function GalleryPage() {
         kind: "gallery",
         destFolder: "Photos",
         destLabel: writable.label,
-        invalidateKeys: [["gallery"], ["gallery-status"]],
+        invalidateKeys: [["photos"], ["photos-status"]],
         afterFinish: () => rescanRef.current(),
       });
     },
@@ -1370,10 +1370,10 @@ export default function GalleryPage() {
 
   async function downloadSelected(items) {
     if (!items.length || downloadingSelected) return;
-    if (items.length > GALLERY_DOWNLOAD_MAX) {
+    if (items.length > PHOTOS_DOWNLOAD_MAX) {
       addToast({
         type: "error",
-        message: `You can download up to ${GALLERY_DOWNLOAD_MAX} photos at once.`,
+        message: `You can download up to ${PHOTOS_DOWNLOAD_MAX} photos at once.`,
         description: "Select fewer photos and try again.",
       });
       return;
@@ -1382,12 +1382,12 @@ export default function GalleryPage() {
     let writable = null;
     try {
       try {
-        writable = await openDownloadFile(GALLERY_DOWNLOAD_FILENAME);
+        writable = await openDownloadFile(PHOTOS_DOWNLOAD_FILENAME);
       } catch (error) {
         if (error?.name === "AbortError") throw error;
         // Fall back to the browser download when the picker is unavailable.
       }
-      const res = await apiFetch("/api/v1/gallery/download", {
+      const res = await apiFetch("/api/v1/photos/download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1395,18 +1395,18 @@ export default function GalleryPage() {
         }),
       });
       if (!res.ok) {
-        throw new GalleryDownloadError(await downloadErrorMessage(res));
+        throw new PhotosDownloadError(await downloadErrorMessage(res));
       }
       const contentType = res.headers.get("Content-Type")?.split(";", 1)[0].trim().toLowerCase();
       if (contentType !== "application/zip") {
         await cancelDownloadResponse(res);
-        throw new GalleryDownloadError("Luna returned an invalid download. Try again.");
+        throw new PhotosDownloadError("Luna returned an invalid download. Try again.");
       }
       if (writable) {
-        await saveDownloadResponse(res, GALLERY_DOWNLOAD_FILENAME, writable);
+        await saveDownloadResponse(res, PHOTOS_DOWNLOAD_FILENAME, writable);
         writable = null;
       } else {
-        await saveDownloadResponse(res, GALLERY_DOWNLOAD_FILENAME);
+        await saveDownloadResponse(res, PHOTOS_DOWNLOAD_FILENAME);
       }
     } catch (error) {
       await abortDownloadFile(writable);
@@ -1435,26 +1435,26 @@ export default function GalleryPage() {
     : 0;
 
   const loadMore = useCallback(() => {
-    if (gallery.hasNextPage && !gallery.isFetchingNextPage) {
-      gallery.fetchNextPage();
+    if (photoQuery.hasNextPage && !photoQuery.isFetchingNextPage) {
+      photoQuery.fetchNextPage();
     }
-  }, [gallery]);
+  }, [photoQuery]);
 
   // Date jump: keep fetching pages until the loaded span reaches the target
   // day, then scroll the closest day header into view.
   useEffect(() => {
-    if (!jumpTarget || gallery.isLoading) return;
+    if (!jumpTarget || photoQuery.isLoading) return;
     const target = jumpTarget.ymd;
     const { newest, oldest, undated } = loadedDaySpan;
     const covered =
       (oldest != null && oldest <= target)
       || (newest != null && target >= newest)
       || undated
-      || !gallery.hasNextPage;
+      || !photoQuery.hasNextPage;
     if (!covered && jumpPagesRef.current < 50) {
-      if (!gallery.isFetchingNextPage) {
+      if (!photoQuery.isFetchingNextPage) {
         jumpPagesRef.current += 1;
-        gallery.fetchNextPage();
+        photoQuery.fetchNextPage();
       }
       return;
     }
@@ -1470,7 +1470,7 @@ export default function GalleryPage() {
         .getElementById(`day-${nearest}`)
         ?.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
     });
-  }, [jumpTarget, photos, loadedDaySpan, gallery]);
+  }, [jumpTarget, photos, loadedDaySpan, photoQuery]);
 
   useEffect(() => {
     const id = setTimeout(() => setSearch(q.trim()), 300);
@@ -1570,7 +1570,7 @@ export default function GalleryPage() {
   // and the photo is in the list, then scroll and reopen the lightbox.
   useEffect(() => {
     const r = restoreRef.current;
-    if (r.done || gallery.isLoading) return;
+    if (r.done || photoQuery.isLoading) return;
     const photoHit = r.photo
       ? photos.findIndex((p) => photoSelectionKey(p) === r.photo)
       : -1;
@@ -1578,10 +1578,10 @@ export default function GalleryPage() {
       r.y > 0
       && document.documentElement.scrollHeight < r.y + window.innerHeight;
     const needPhoto = !!r.photo && photoHit < 0;
-    if ((needY || needPhoto) && gallery.hasNextPage && r.pages < 60) {
-      if (!gallery.isFetchingNextPage) {
+    if ((needY || needPhoto) && photoQuery.hasNextPage && r.pages < 60) {
+      if (!photoQuery.isFetchingNextPage) {
         r.pages += 1;
-        gallery.fetchNextPage();
+        photoQuery.fetchNextPage();
       }
       return;
     }
@@ -1597,7 +1597,7 @@ export default function GalleryPage() {
     if (r.photo && photoHit >= 0) setLightbox({ key: r.photo });
     else if (!r.photo) setLightbox(null);
     writeHash();
-  }, [photos, gallery, writeHash, restoreTick]);
+  }, [photos, photoQuery, writeHash, restoreTick]);
 
   const actionModalOpen =
     newAlbumOpen
@@ -1673,10 +1673,10 @@ export default function GalleryPage() {
     !search &&
     !onThisDayDismissed;
   const memories = useQuery({
-    queryKey: ["gallery-memories", todaySpec.mmdd],
+    queryKey: ["photos-memories", todaySpec.mmdd],
     queryFn: () =>
       getJson(
-        galleryUrl({ monthDay: todaySpec.mmdd, to: todaySpec.to, limit: 80 }),
+        photosUrl({ monthDay: todaySpec.mmdd, to: todaySpec.to, limit: 80 }),
       ),
     enabled: showOnThisDayPeek,
   });
@@ -1695,13 +1695,13 @@ export default function GalleryPage() {
   if (noDrives && !memberAlbumOnly) {
     if (memberAlbumsGatePending) {
       return (
-        <Page title="Photos" titleId="gallery-title">
-          <GalleryLoadingStatus label="Loading photos…" />
+        <Page title="Photos" titleId="photos-title">
+          <PhotosLoadingStatus label="Loading photos…" />
         </Page>
       );
     }
     return (
-      <Page title="Photos" titleId="gallery-title">
+      <Page title="Photos" titleId="photos-title">
         <EmptyState
           icon={PlugZap}
           title={isAdmin ? "No drives yet" : "No photos you can open yet"}
@@ -1725,7 +1725,7 @@ export default function GalleryPage() {
   return (
     <Page
       title="Photos"
-      titleId="gallery-title"
+      titleId="photos-title"
       headerClassName="mb-8 shrink-0"
       className={
         mapLayout
@@ -1737,7 +1737,7 @@ export default function GalleryPage() {
         ref={dropZoneRef}
         className={mapLayout ? "flex min-h-0 flex-1 flex-col" : "shrink-0"}
       >
-      <GalleryToolbar
+      <PhotosToolbar
         segments={SEGMENTS}
         segment={activeSegment}
         onSegmentChange={handleSegmentChange}
@@ -1770,7 +1770,7 @@ export default function GalleryPage() {
         <div
           key={filterChips.map((c) => c.id).join(",")}
           className="mb-4 flex flex-wrap gap-2 animate-nav-slide-in"
-          data-slot="gallery-filter-chips"
+          data-slot="photos-filter-chips"
         >
           {filterChips.map((chip) => (
             <button
@@ -1801,9 +1801,9 @@ export default function GalleryPage() {
           </Button>
         </div>
       )}
-      {showPageLevelError(galleryLoadError, actionModalOpen) && (
+      {showPageLevelError(photosLoadError, actionModalOpen) && (
         <PageNotice variant="error" className="mb-4">
-          {galleryLoadError}
+          {photosLoadError}
         </PageNotice>
       )}
 
@@ -1825,7 +1825,7 @@ export default function GalleryPage() {
             || rangeFromFilters?.label
             || "filter"
           }
-          data-slot="gallery-detail-chrome"
+          data-slot="photos-detail-chrome"
           className="mb-4 flex flex-wrap items-center justify-between gap-3 animate-nav-slide-in"
         >
           <div className="flex items-center gap-3 min-w-0">
@@ -1836,7 +1836,7 @@ export default function GalleryPage() {
               onClick={() => {
                 // Album views push a history entry — pop it so Back lands on
                 // the albums grid through the same path browser Back takes.
-                if (window.history.state?.lunaGalleryDetail) {
+                if (window.history.state?.lunaPhotosDetail) {
                   window.history.back();
                   return;
                 }
@@ -1927,11 +1927,11 @@ export default function GalleryPage() {
         </div>
       )}
 
-      {gallery.isLoading && photos.length === 0 && activeSegment === "library" && (
-        <GalleryLoadingStatus label="Loading library…" />
+      {photoQuery.isLoading && photos.length === 0 && activeSegment === "library" && (
+        <PhotosLoadingStatus label="Loading library…" />
       )}
 
-      {indexing && photos.length === 0 && !gallery.isLoading && activeSegment === "library" && (
+      {indexing && photos.length === 0 && !photoQuery.isLoading && activeSegment === "library" && (
         <Card className="mb-4">
           <p className="font-mono text-sm">Looking through your drives</p>
           <p className="mt-2 text-sm">
@@ -2063,8 +2063,8 @@ export default function GalleryPage() {
         />
       )}
 
-      {gallery.isLoading && photos.length === 0 && activeSegment === "favorites" && (
-        <GalleryLoadingStatus label="Loading favorites…" />
+      {photoQuery.isLoading && photos.length === 0 && activeSegment === "favorites" && (
+        <PhotosLoadingStatus label="Loading favorites…" />
       )}
 
       {noFavorites && (
@@ -2217,8 +2217,8 @@ export default function GalleryPage() {
       {showTimeline && photos.length > 0 && (
         <PhotoTimeline
           photos={photos}
-          hasMore={!!gallery.hasNextPage}
-          loadingMore={gallery.isFetchingNextPage}
+          hasMore={!!photoQuery.hasNextPage}
+          loadingMore={photoQuery.isFetchingNextPage}
           onLoadMore={loadMore}
           onOpen={openPhoto}
           selectMode={selection.selectMode}
@@ -2240,7 +2240,7 @@ export default function GalleryPage() {
 
       {duplicatesView && (
         <div className="space-y-6" data-slot="duplicates-view">
-          {duplicates.isLoading && <GalleryLoadingStatus label="Looking for duplicates…" />}
+          {duplicates.isLoading && <PhotosLoadingStatus label="Looking for duplicates…" />}
           {duplicates.isError && (
             <EmptyState
               icon={ImageIcon}
@@ -2324,7 +2324,7 @@ export default function GalleryPage() {
           setNewAlbumSeed(selection.selectedItems);
           setNewAlbumName(
             selection.selectedCount === 1
-              ? /** @type {GalleryPhoto|undefined} */ (selection.selectedItems[0])?.name?.replace(/\.[^.]+$/, "") || "Shared photos"
+              ? /** @type {PhotosPhoto|undefined} */ (selection.selectedItems[0])?.name?.replace(/\.[^.]+$/, "") || "Shared photos"
               : `Shared ${selection.selectedCount} photos`,
           );
           setNewAlbumOpen(true);
@@ -2340,7 +2340,7 @@ export default function GalleryPage() {
           index={lightboxIndex}
           onClose={() => {
             // A pushed `?p=` entry pops — Forward can reopen the photo.
-            if (window.history.state?.lunaGalleryDetail) {
+            if (window.history.state?.lunaPhotosDetail) {
               window.history.back();
             } else {
               setLightbox(null);
@@ -2570,7 +2570,7 @@ export default function GalleryPage() {
         }}
       />
 
-      {jumpTarget && gallery.isFetchingNextPage && (
+      {jumpTarget && photoQuery.isFetchingNextPage && (
         <div
           role="status"
           className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-pill surface-secondary px-4 py-2 font-mono text-xs shadow-xl ring-2 ring-accent"
@@ -2580,7 +2580,7 @@ export default function GalleryPage() {
         </div>
       )}
 
-      <GalleryFilterSheet
+      <PhotosFilterSheet
         open={filtersOpen}
         value={filters}
         places={places.data || NO_PLACES}
@@ -2595,7 +2595,7 @@ export default function GalleryPage() {
   );
 }
 
-function GalleryLoadingStatus({ label }) {
+function PhotosLoadingStatus({ label }) {
   return (
     <div
       className="flex items-center justify-center gap-3 py-20 text-secondary"
@@ -2608,7 +2608,7 @@ function GalleryLoadingStatus({ label }) {
   );
 }
 
-GalleryLoadingStatus.propTypes = {
+PhotosLoadingStatus.propTypes = {
   label: PropTypes.string.isRequired,
 };
 
@@ -2639,7 +2639,7 @@ function AlbumsPanel({
   }, [albums, sort]);
 
   if (loading) {
-    return <GalleryLoadingStatus label="Loading albums…" />;
+    return <PhotosLoadingStatus label="Loading albums…" />;
   }
   // Read per render — cheap localStorage hit, and picks up filters saved from
   // the filter sheet without a remount.

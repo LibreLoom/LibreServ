@@ -1062,7 +1062,7 @@ pub fn categorize_api_request(method: &axum::http::Method, path: &str) -> (Strin
     if path.starts_with("/api/v1/uploads") {
         return ("File upload".to_string(), "Uploaded files".to_string());
     }
-    if path.starts_with("/api/v1/gallery") {
+    if path.starts_with("/api/v1/photos") {
         if *method == axum::http::Method::POST || *method == axum::http::Method::PUT {
             return ("Photos".to_string(), "Uploaded photos".to_string());
         }

@@ -30,8 +30,8 @@ dependency advisories.
 attacker-controlled or device-controlled data with that privilege. Fixed in
 `luna/crates/lunad/src/sandbox.rs`:
 
-- `ffmpeg`/`ffprobe` (`gallery/mod.rs`), `heif-dec`/`heif-convert`
-  (`gallery/heif.rs`), and `blkid` (`drives/fsprobe.rs`) now run as `nobody`
+- `ffmpeg`/`ffprobe` (`photos/mod.rs`), `heif-dec`/`heif-convert`
+  (`photos/heif.rs`), and `blkid` (`drives/fsprobe.rs`) now run as `nobody`
   with `no_new_privs`, cleared supplementary groups, a scrubbed environment,
   `RLIMIT_CORE=0`, an output write cap, and a hard timeout. Input reaches the
   child on an inherited fd (`/proc/self/fd/N`), so a parser exploit gets no

@@ -127,7 +127,7 @@ async fn async_main() -> anyhow::Result<()> {
     let state = AppState::new(conn, drive_manager, &cfg.data_dir).with_connect(connect.clone());
 
     // One-shot: pull pre-microdb index/hash/upload rows out of luna.db into
-    // each mounted drive's marker database before gallery catch-up or search
+    // each mounted drive's marker database before photos catch-up or search
     // fans out.
     {
         let db = state.db.lock().expect("db");
@@ -165,7 +165,7 @@ async fn async_main() -> anyhow::Result<()> {
         });
     }
 
-    // Catch-up gallery index for every adopted mount already on disk.
+    // Catch-up photos index for every adopted mount already on disk.
     {
         let mounts = {
             let db = state.db.lock().expect("db");
@@ -178,7 +178,7 @@ async fn async_main() -> anyhow::Result<()> {
         };
         for (id, mount) in mounts {
             state.search_index.watch_mount(&id, mount.clone());
-            state.gallery.watch_mount(&id, mount);
+            state.photos.watch_mount(&id, mount);
         }
     }
 

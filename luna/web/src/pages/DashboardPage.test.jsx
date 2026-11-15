@@ -698,7 +698,7 @@ describe("DashboardPage", () => {
       expect(screen.getByText("Beach day")).toBeInTheDocument();
       expect(screen.getByRole("link", { name: /^View album$/i })).toHaveAttribute(
         "href",
-        "/gallery#albums/d1/al1",
+        "/photos#albums/d1/al1",
       );
       expect(screen.queryByText(/Nothing shared with you yet/i)).not.toBeInTheDocument();
     });

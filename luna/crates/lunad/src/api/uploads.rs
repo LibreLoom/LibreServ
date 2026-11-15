@@ -185,7 +185,7 @@ async fn complete(
             )
         })?;
         let row = uploads::get_row(&conn, &id).map_err(map_upload_err)?;
-        let rel = crate::gallery::gallery_indexer::join_rel(&row.path, &row.name);
+        let rel = crate::photos::photos_indexer::join_rel(&row.path, &row.name);
         let dir = crate::files::dest_dir(&conn, &row.drive_id, &row.path).ok();
         let exists = dir
             .as_ref()
@@ -227,7 +227,7 @@ async fn complete(
         entry.caps =
             crate::access::caps_to_str(crate::auth::caps_on_path(&user, &conn, &drive_id, &rel));
     }
-    state.gallery.upsert(&drive_id, &rel);
+    state.photos.upsert(&drive_id, &rel);
     crate::api::files::invalidate_parent_listing(&state, &drive_id, &rel);
     state.touch_io_activity();
     Ok(Json(entry))
