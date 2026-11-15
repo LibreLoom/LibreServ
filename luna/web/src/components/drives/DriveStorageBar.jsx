@@ -1,9 +1,7 @@
 import PropTypes from "prop-types";
 import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { formatBytes } from "../../lib/formatBytes.js";
-import { sizePart } from "../../lib/fileOps/copy.js";
 import FileOpProgress from "../files/fileOps/FileOpProgress.jsx";
-import { RollingNumbers } from "../files/fileOps/RollingText.jsx";
 
 /**
  * A drive's free space, how much is used, and a usage bar. Every drive card
@@ -13,8 +11,8 @@ import { RollingNumbers } from "../files/fileOps/RollingText.jsx";
  * checking, could not read, nothing to read yet) — or says nothing with
  * `quiet`, for a card that already explains the drive's state.
  *
- * The bar and the "42% · 509 GB of 979 GB used" line are the file task card's
- * own (FileOpProgress, RollingNumbers), so a number that changes rolls.
+ * It reads "509 GB of 979 GB used (52%)" over the file task card's own bar
+ * (FileOpProgress).
  *
  * @param {{
  *   summary: { data?: any, isLoading?: boolean, isError?: boolean },
@@ -47,13 +45,10 @@ export default function DriveStorageBar({ summary, quiet = false }) {
         <div className="text-2xl font-mono font-normal leading-tight">{freeLabel} free</div>
         {hasUsed ? (
           <>
-            {/* The file task card's own shape: a bar, then "42% · 509 GB of 979 GB used". */}
-            <FileOpProgress pct={usedPct} surface="primary" label={`${usedPct}% used`} className="mt-3" />
-            <p className="mt-2 font-mono text-xs" aria-label={`${formatBytes(data.used_bytes)} used of ${totalLabel}`}>
-              <RollingNumbers
-                parts={[{ percent: usedPct }, " · ", sizePart(data.used_bytes), " of ", sizePart(data.total_bytes), " used"]}
-              />
+            <p className="mt-1 text-sm">
+              {formatBytes(data.used_bytes)} of {totalLabel} used ({usedPct}%)
             </p>
+            <FileOpProgress pct={usedPct} surface="primary" label={`${usedPct}% used`} className="mt-3" />
           </>
         ) : (
           <p className="mt-1 text-sm">{totalLabel} total</p>

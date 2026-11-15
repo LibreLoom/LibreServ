@@ -94,7 +94,7 @@ describe("DriveHomeCard storage", () => {
     stubSummary(FULL_SUMMARY);
     renderCard();
     expect(await screen.findByText("12 GB free")).toBeInTheDocument();
-    expect(screen.getByLabelText("52 GB used of 64 GB")).toBeInTheDocument();
+    expect(screen.getByText("52 GB of 64 GB used (81%)")).toBeInTheDocument();
     expect(screen.getByText("Available storage")).toBeInTheDocument();
     const bar = screen.getByRole("progressbar", { name: "81% used" });
     expect(bar).toHaveAttribute("aria-valuenow", "81");
@@ -105,7 +105,7 @@ describe("DriveHomeCard storage", () => {
     renderCard();
     expect(await screen.findByText("12 GB free")).toBeInTheDocument();
     expect(screen.getByText("64 GB total")).toBeInTheDocument();
-    expect(screen.queryByLabelText(/used of/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ used \(/)).not.toBeInTheDocument();
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
   });
 
