@@ -139,9 +139,9 @@ unclean stop.
 The 30-second wait is friction, not proof; the Look step is what stops a
 wrong-drive erase, so it must show recognisable contents (top folders and file
 names, counts, sizes used), not just a size and partition count. During the wait
-the only thing on screen is the contents: **nothing to fill in or do** (no name
-field, no separate confirm step), so the wait is spent looking. The drive keeps
-its name (registered name, else volume name, else model).
+the screen shows the contents and a short list of what will happen: **nothing to
+fill in or do** (no name field, no separate confirm step), so the wait is spent
+looking. The drive keeps its name (registered name, else volume name, else model).
 
 Steps: **Look** (what's on the drive, with the erase button underneath it,
 disabled with a countdown until `ready_at` when the drive isn't verified empty;

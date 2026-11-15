@@ -139,9 +139,9 @@ site files (`index.html` …) at the top for `luna-connect`
    installed → no update.
 
 There is no `packs` part and no daemon part. The editor packs (EuroOffice,
-drawio) and lunad itself are inside the OS image, so they update with it. A
-`luna` feed lists `os` and `installer`, and nothing executable is ever written
-to the data partition.
+drawio), the search models and lunad itself are inside the OS image, so they
+update with it. A `luna` feed lists `os` and `installer`, and nothing executable
+is ever written to the data partition.
 6. In a package's `SHA256SUMS.txt`, match the file name field exactly, never as
    a substring.
 

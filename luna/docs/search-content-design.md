@@ -11,7 +11,7 @@ Every search bar that searches files or photos (file search, the not-found page'
 | Meaning | Text that's about what was typed in other words ("lease" finds a tenancy agreement) | Model2Vec potion-base-8M, in-process | Every Luna with the models pack |
 | Photo content | Photos and videos (by thumbnail) that show what was typed | TinyCLIP in `luna-clip` workers | Lunas with at least 1.5 GB of memory |
 
-Results come in tiers: names, then words inside files, then near-miss names, then meaning matches, then photo matches. Looser matches sit under their own heading in the result list ("Found in the text", "Close in meaning", "Seen in photos"). Content and meaning matches show the passage that matched. Snippets are read only after the access check passes. The gallery uses meaning and photo matches only to widen what its free-text words match; its other filters and its date order don't change.
+Results come in tiers: names, then words inside files, then near-miss names, then meaning matches, then photo matches. Looser matches sit under their own heading in the result list ("Found in the text", "Close in meaning", "Seen in photos"). Content and meaning matches show the passage that matched. Snippets are read only after the access check passes. The gallery uses photo content and text read from photos only to widen what its free-text words match; its other filters and its date order don't change.
 
 ## Storage and lifecycle
 

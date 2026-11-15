@@ -38,7 +38,6 @@ orchestrator re-ran every suite before committing. Checks at the phase 5 commit:
 
 - Removing the original Admin can leave older retained cloud copies unopenable by others (documented in plan.md).
 - Move-signature replay window of 300 s (accepted).
-- Overlapping purges of an unlinked Luna are possible after a crash retry; purging is idempotent.
 - `gofmt` flags `luna/connect/internal/api/handlers/admin_console.go` (was unformatted before this work).
 - The source-missing check in `run_once` has no direct test.
 - `needed` on the Luna restore card compares snapshot ids, not counts (changed after phase 4): equal totals can still hide missing versions, and private snapshots stay out of the comparison.
