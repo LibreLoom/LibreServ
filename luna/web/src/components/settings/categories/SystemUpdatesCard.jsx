@@ -178,7 +178,8 @@ export default function SystemUpdatesCard({ index = 0 }) {
   const fromNewSource = updateInfo?.from_new_source === true;
   const olderThanRunning = updateInfo?.feed_is_newer === false;
   const isUpToDate = updateInfo && !hasUpdate;
-  const notChecked = !updateInfo && !updates.isLoading;
+  // A failed check shows its own error; "Not checked yet" would be untrue.
+  const notChecked = !updateInfo && !updates.isLoading && !updates.isError;
 
   return (
     <div data-slot="system-updates-card">
@@ -233,8 +234,8 @@ export default function SystemUpdatesCard({ index = 0 }) {
 
           {hasUpdate && fromNewSource && (
             <p className="mb-4 text-sm">
-              You changed where Luna gets its updates. This is the version that source has —
-              installing it switches Luna to that build.
+              You changed where Luna gets its updates. This is the version from that source.
+              {olderThanRunning ? " It is older than the version Luna runs now." : ""}
             </p>
           )}
 
@@ -352,7 +353,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
           )}
 
           <p className="mt-4 text-sm">
-            Luna only installs updates when you tell it to. No automatic or forced updates here.
+            Luna only installs updates when you tell it to.
           </p>
         </div>
       </SettingsCard>
@@ -383,7 +384,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
 
       {showReleaseNotesModal && (
         <ModalCard
-          title={`What's new in ${updateInfo?.latest_version}`}
+          title={`${olderThanRunning ? "What's in" : "What's new in"} ${updateInfo?.latest_version}`}
           onClose={() => setShowReleaseNotesModal(false)}
           size="lg"
         >

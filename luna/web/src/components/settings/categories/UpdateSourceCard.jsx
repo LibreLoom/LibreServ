@@ -111,7 +111,7 @@ export default function UpdateSourceCard({ index = 3 }) {
                 <InfoHint
                   surface="primary"
                   label="What the update channel is"
-                  content="Stable gets releases once they are tested. Beta gets new versions sooner and may have bugs. You can switch back to Stable at any time; Luna never installs an older version."
+                  content="Stable gets releases once they are tested. Beta gets new versions sooner and may have bugs. You can switch back to Stable at any time, and Luna does not go back to an older version when you do."
                 />
               </div>
               <SegmentedControl
@@ -208,7 +208,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
       onSaved(data);
       onClose();
     },
-    onError: (err) => setSaveError(apiErrorMessage(err)),
+    onError: (err) => setSaveError(apiErrorMessage(err, "Couldn't save the update source. Try again.")),
   });
 
   const handleSave = () => {
@@ -259,7 +259,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
                 Only change this if you want Luna to get updates elsewhere.{" "}
                 <InfoHint
                   label="What these settings control"
-                  content="They control where Luna itself gets its software updates — not your files, photos, or backups. A wrong value can stop Luna from updating, so leave these as-is unless you're pointing Luna at a different update source."
+                  content="They control where Luna gets its own software updates. They do not change your files, photos, or backups. A wrong value can stop Luna from updating."
                 />
               </p>
             </div>
@@ -294,7 +294,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
               Signing keys{" "}
               <InfoHint
                 label="What signing keys do"
-                content="Luna only installs an update whose signature matches one of these public keys. That is how it knows an update really comes from the project and wasn't changed on the way. The LibreLoom release key is already filled in — change it only if your updates are signed by someone else."
+                content="Luna installs an update only if its signature matches one of these public keys. This proves that the update comes from the project and did not change on the way. The LibreLoom release key is already filled in. Change it only if someone else signs your updates."
               />
             </label>
             <ShakeTarget shake={keysShake || generalSaveShake}>
@@ -314,7 +314,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
               </TermHint>{" "}
               per line.
               {s.default_keys
-                ? " This is the key Luna shipped with — leave it as-is unless your updates use a different signer."
+                ? " This is the key that came with Luna. Keep it unless a different signer signs your updates."
                 : " Clear the field and save to go back to Luna's built-in release key."}
             </p>
           </div>

@@ -349,7 +349,7 @@ export default function DriveFileExplorer({
     },
     onError: (err) => {
       haptic("error");
-      setActionError(apiErrorMessage(err, "Couldn't create that folder. Try another name."));
+      setActionError(apiErrorMessage(err, "Couldn't create that folder. Try again."));
     },
   });
 
@@ -379,7 +379,7 @@ export default function DriveFileExplorer({
     },
     onError: (err) => {
       haptic("error");
-      setActionError(apiErrorMessage(err, "Couldn't create that file. Try another name."));
+      setActionError(apiErrorMessage(err, "Couldn't create that file. Try again."));
     },
   });
 
@@ -1016,7 +1016,7 @@ export default function DriveFileExplorer({
         open={broadenRetry != null}
         variant="warning"
         title="Restore outside the private folder?"
-        message="Everyone with access to the destination will be able to open it."
+        message="Everyone with access to the destination can open it."
         confirmLabel="Restore anyway"
         loading={restoreMutation.isPending}
         overlayClassName={NESTED_OVERLAY_CLASS}
@@ -1083,9 +1083,9 @@ export default function DriveFileExplorer({
         {({ close }) => (
           <>
             <p className="text-primary text-sm">
-              Luna will move it out of Trash
-              to {restoreDestFolder ? `“${restoreDestFolder}”` : `the top of ${driveLabel}`}.
-              Choose the name it should have.
+              Luna moves it out of Trash to{" "}
+              {restoreDestFolder ? <InlinePill>{restoreDestFolder}</InlinePill> : <>the top of <InlinePill>{driveLabel}</InlinePill></>}.
+              Choose a name for it.
             </p>
             <ShakeTarget shake={actionError}>
               <input

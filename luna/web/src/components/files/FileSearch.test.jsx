@@ -210,7 +210,7 @@ describe("FileSearch", () => {
       target: { value: "zz" },
     });
     expect(await screen.findByText(/Nothing matched/i)).toBeInTheDocument();
-    expect(screen.getByText(/only shows files you're allowed to see/i)).toBeInTheDocument();
+    expect(screen.getByText(/shows only the files you can open/i)).toBeInTheDocument();
   });
 
   it("offers open and download actions on a file hit", async () => {

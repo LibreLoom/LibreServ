@@ -30,9 +30,8 @@ export default function DevicesCategory() {
 
       <SettingsCard icon={Laptop} title="Luna Desktop" index={1}>
         <p className="text-primary text-sm">
-          Backup folders onto your Luna and access your Luna&apos;s files
-          directly from your computer. On Linux, the same download also works
-          on Linux phones.
+          Back up folders to your Luna, and keep a Luna folder in sync with
+          your computer. The Linux download also works on Linux phones.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <Button asChild variant="primary">

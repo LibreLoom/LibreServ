@@ -441,7 +441,7 @@ export default function PlacesMap({
         className="animate-cascade-in motion-reduce:animate-none"
         icon={MapPin}
         title="No places yet"
-        description="When photos include a location from the camera, they show up here on the map."
+        description="Photos with a location from the phone or camera show here on the map."
       />
     );
   }

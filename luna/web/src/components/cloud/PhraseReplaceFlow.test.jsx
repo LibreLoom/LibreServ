@@ -246,7 +246,7 @@ describe("PhraseReplaceFlow, lost", () => {
   it("opens with a confirm that names what is lost", () => {
     lost();
     expect(screen.getByText("Get a new phrase?")).toBeInTheDocument();
-    expect(screen.getByText("Private items backed up with your old phrase can't be opened anymore.")).toBeInTheDocument();
+    expect(screen.getByText("Your new phrase can't open private items backed up with your old phrase.")).toBeInTheDocument();
     expect(screen.getByText("Your shared cloud backups stay open to you with the new phrase.")).toBeInTheDocument();
   });
 
@@ -264,7 +264,7 @@ describe("PhraseReplaceFlow, lost", () => {
     await toQuestion(user);
     expect(screen.getByRole("button", { name: /No, it's just lost/ })).toBeInTheDocument();
     expect(screen.getByText(/Luna keeps your older private items for 30 days/)).toBeInTheDocument();
-    expect(screen.getByText("Luna removes your older private items now.")).toBeInTheDocument();
+    expect(screen.getByText("Luna removes your older private items at its next cloud backup, usually within 6 hours.")).toBeInTheDocument();
     expect(screen.getByText(MAY_HAVE_IT)).toBeInTheDocument();
   });
 

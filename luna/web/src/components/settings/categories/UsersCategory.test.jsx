@@ -343,7 +343,7 @@ describe("UsersCategory", () => {
         display_name: "Jamie",
         role: "user",
         warning:
-          "Luna couldn't check this password against known data breaches, so it was allowed. Please choose a different password if you can.",
+          "Luna couldn't check this password against known data breaches, but saved it anyway. Choose a different password if you can.",
       },
     });
     const user = userEvent.setup();

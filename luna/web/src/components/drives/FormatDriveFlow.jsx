@@ -299,7 +299,7 @@ function RunStep({ status, lost, unreachable, label, onLookAgain, onOpen, onClos
             ? "The old files may already be gone from this drive."
             : "Nothing was erased. The drive is as it was."}
         </p>
-        <p className="text-sm">Look at the drive again, then try again.</p>
+        <p className="text-sm">To try again, look at the drive again first.</p>
         <div className="flex gap-3">
           <Button onClick={onLookAgain}>Look at the drive again</Button>
           <Button variant="outline" onClick={onClose}>Close</Button>

@@ -912,7 +912,7 @@ export default function PhotoLightbox({
                   haptic("selection");
                   onFavorite?.(photo);
                 }}
-                aria-label={photo.favorited ? "Remove favorite" : "Favorite"}
+                aria-label={photo.favorited ? "Remove from favorites" : "Favorite"}
               >
                 <Heart size={18} fill={photo.favorited ? "currentColor" : "none"} />
               </Button>
@@ -947,7 +947,7 @@ export default function PhotoLightbox({
             </Button>
           )}
           {!guest && (
-            <Tooltip content="Copy a share link" popupClassName="z-[100]">
+            <Tooltip content="Share" popupClassName="z-[100]">
               <Button
                 variant="ghost"
                 size="sm"
@@ -955,7 +955,7 @@ export default function PhotoLightbox({
                   haptic("light");
                   onShare?.(photo);
                 }}
-                aria-label="Share link"
+                aria-label="Share"
               >
                 <Link2 size={18} />
               </Button>

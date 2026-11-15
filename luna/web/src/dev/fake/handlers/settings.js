@@ -15,7 +15,7 @@ const mineOf = (world, user) => world.tokens.filter((t) => (t.user_id ?? "u1") =
 get("/api/v1/device-tokens", ({ world, user }) => mineOf(world, user).map(tokenJson));
 post("/api/v1/device-tokens", ({ world, user, body }) => {
   const name = String(body.name || "").trim();
-  if (!name || name.length > 80) return fail(400, "Give this device a name between 1 and 80 characters.");
+  if (!name || name.length > 80) return fail(400, "Give this access token a name between 1 and 80 characters.");
   const created = {
     id: nextId("t"),
     user_id: user.id,
@@ -52,7 +52,7 @@ post("/api/v1/connect/device-token", ({ world, user, body }) => {
   return {};
 });
 del("/api/v1/connect/device-token", ({ world, user }) => {
-  requireAdmin(user, "Only an Admin can change remote access.");
+  requireAdmin(user, "Only an Admin can remove the device token.");
   world.connect = { ...world.connect, enabled: false, connect_active: false };
   world.connectActive = false;
   return {};
@@ -142,7 +142,7 @@ function restoreStream(world, signal) {
         failureAfter = null;
         frame(controller, {
           type: "error",
-          message: "Luna couldn't finish restoring your backup list. Some versions may already be back; try again to continue.",
+          message: "Luna couldn't finish restoring your backup list. Try again to restore the rest.",
         });
         close(controller);
         return;

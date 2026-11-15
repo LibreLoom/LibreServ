@@ -43,7 +43,7 @@ import { CAP, capsBits } from "../../lib/access.js";
 import { openFileSearch } from "../../lib/fileSearch.js";
 
 const UNPLUGGED_DRIVE_MESSAGE =
-  "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.";
+  "Luna can't find this drive. Make sure it's plugged in. If it is, unplug it and plug it back in.";
 
 /** Listing failed because the on-drive database is gone, not because the drive left. */
 function isMissingDriveDb(error) {
@@ -54,7 +54,7 @@ function isMissingDriveDb(error) {
     .includes("database for this drive is missing");
 }
 
-const FOLDER_GONE_MESSAGE = "This folder isn't here anymore — it may have been deleted.";
+const FOLDER_GONE_MESSAGE = "This folder isn't here anymore. It may have been deleted.";
 
 /** How long a folder may load before the list says it's still working. */
 const SLOW_LISTING_MS = 1500;
@@ -69,17 +69,18 @@ function folderListingError(error) {
   if (isMissingDriveDb(error)) {
     return (
       message ||
-      "Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again. Your files stay on the drive, but items in its Trash won't show up after you add it again."
+      "Luna can't write its database to this drive, but your files are still on it. Free up space or check the drive's write-lock switch, then try again."
     );
   }
   const code = error && "code" in error ? error.code : null;
   // A missing folder was moved, renamed, or deleted — the drive is fine.
   // (Moved folders are followed before this shows; see useMovedLinkForwarding.)
   if (code === "not_found") return FOLDER_GONE_MESSAGE;
+  // Only lunad's own "unknown drive" answer (or a bare 404) means the drive is
+  // gone. Other drive errors (locked, read-only, full) say what is wrong.
   const unplugged =
     code === "unknown_drive" ||
-    message.toLowerCase().includes("drive") ||
-    (error && "status" in error && error.status === 404);
+    (!code && error && "status" in error && error.status === 404);
   if (unplugged) return UNPLUGGED_DRIVE_MESSAGE;
   return message || "Luna couldn't open this folder. Try again.";
 }
@@ -2167,7 +2168,7 @@ export default function FileBrowser({
                   {folderListingError(listing.error)}
                   {isFolderGone(listing.error) ? (
                     <>
-                      {" You can use "}
+                      {" Use "}
                       <button
                         type="button"
                         className={`${fg} underline decoration-accent underline-offset-2 hover:decoration-current`}
@@ -2178,7 +2179,7 @@ export default function FileBrowser({
                       >
                         Universal Search
                       </button>
-                      {" to try and find it."}
+                      {" to look for it."}
                     </>
                   ) : null}
                 </p>

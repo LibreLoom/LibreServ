@@ -125,7 +125,7 @@ export default function PhraseWriteDown({
     win.document.write(
       `<!doctype html><html><head><meta charset="utf-8"><title>Luna recovery phrase</title></head>` +
         `<body><h1>Luna recovery phrase</h1><ol>${items}</ol>` +
-        `<p>Keep these ${words.length} words somewhere safe. Anyone with them can open your cloud backups.</p></body></html>`,
+        `<p>Keep these ${words.length} words somewhere safe and private. They open your cloud backups.</p></body></html>`,
     );
     win.document.close();
     win.focus();
@@ -136,7 +136,7 @@ export default function PhraseWriteDown({
     const lines = words.map((word, i) => `${i + 1}. ${word}`).join("\n");
     const text =
       `Luna recovery phrase\n\n${lines}\n\n` +
-      `Keep these ${words.length} words somewhere safe. Anyone with them can open your cloud backups.\n`;
+      `Keep these ${words.length} words somewhere safe and private. They open your cloud backups.\n`;
     const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
     const link = document.createElement("a");
     link.href = url;
@@ -182,7 +182,7 @@ export default function PhraseWriteDown({
           <TermHint surface={surface} content="Copies of your files kept online with Luna Connect. You can turn this on later.">
             cloud backups
           </TermHint>
-          {`; if you lose them, nobody can, including us.`}
+          {`. Nobody can recover a lost phrase for you.`}
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <SegmentedControl

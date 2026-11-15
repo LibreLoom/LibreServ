@@ -255,7 +255,9 @@ function EditorSession({
         : ""
       : connStatus === "connecting" || connStatus === "reconnecting"
         ? "Connecting…"
-        : "Offline — your changes stay here and sync when Luna reconnects";
+        : canWrite
+          ? "Live editing with others stopped. Your changes still save."
+          : "Live updates stopped. Reopen the file to see new changes.";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -362,7 +364,9 @@ function EditorSession({
           {connNote ||
             (isMarkdown ? (
               <TermHint
-                content="Markdown is a plain-text way to add formatting — headings, lists, links. In Write mode you see the result as you type; Source shows the raw marks."
+                content={canWrite
+                  ? "Markdown is plain text with marks for headings, lists, and links. Write shows the result as you type, and Source shows the marks."
+                  : "Markdown is plain text with marks for headings, lists, and links. Read shows the result, and Source shows the marks."}
                 surface="primary"
               >
                 Markdown

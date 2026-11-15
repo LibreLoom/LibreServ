@@ -91,7 +91,7 @@ export default function RestoreForm({ words, onWords, onSubmit, error = "", pend
             {progress?.type === "finishing" || progress?.message
               ? progress.message
               : progress?.total
-              ? `Restoring backup ${progress.processed} of ${progress.total}`
+              ? `Restoring backup version ${progress.processed} of ${progress.total}`
               : "Connecting to your cloud backups…"}
           </p>
           <progress

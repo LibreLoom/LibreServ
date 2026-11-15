@@ -102,7 +102,7 @@ describe("NotFoundPage", () => {
     auth.value = { user: { role: "admin" }, loading: false };
     api.getJson.mockResolvedValue([]);
     renderAt("/summer-trip");
-    expect(await screen.findByText(/Nothing named “summer trip”/)).toBeTruthy();
+    expect(await screen.findByText(/Nothing matched “summer trip”/)).toBeTruthy();
   });
 
   it("hides Go back when this is the first page in the tab", () => {

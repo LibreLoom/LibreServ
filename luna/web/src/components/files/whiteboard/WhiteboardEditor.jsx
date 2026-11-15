@@ -183,7 +183,7 @@ class WhiteboardErrorBoundary extends Component {
           }}
         >
           <PageNotice variant="error">
-            The whiteboard view crashed. Your file on the drive hasn&rsquo;t changed.
+            The whiteboard view crashed. The crash didn&rsquo;t change your file on the drive.
           </PageNotice>
         </OfficeIssueCard>
       );

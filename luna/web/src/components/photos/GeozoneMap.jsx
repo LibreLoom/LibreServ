@@ -92,7 +92,7 @@ export default function GeozoneMap({
         />
         <p className="text-xs">
           {mode === "draw"
-            ? "Click & drag or drag with finger to select an area"
+            ? "Drag on the map to select an area"
             : "Drag to move around the map"}
         </p>
       </div>
@@ -175,7 +175,7 @@ export default function GeozoneMap({
               setMode("draw");
             }}
           >
-            Clear zone
+            Clear area
           </Button>
         </div>
       )}

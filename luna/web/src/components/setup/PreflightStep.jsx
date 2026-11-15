@@ -17,8 +17,10 @@ import {
   statusRank,
 } from "../../lib/healthChecks.js";
 
-const REACH_ERROR =
-  "Make sure this device can still reach Luna, then select Re-run checks.";
+const LOAD_ERRORS = {
+  reach: "Make sure this device can still reach Luna, then select Re-run checks.",
+  answer: "Luna answered, but without the check results. Select Re-run checks.",
+};
 
 // Summary panel tint per verdict: a status /20 fill + /30 border over the card.
 const VERDICT_TONE = {
@@ -46,19 +48,22 @@ function worstStatus(list) {
   return "passed";
 }
 
-/** Runs the checks; null when Luna can't be reached or answers oddly. */
+/**
+ * Runs the checks. A failure says why: `reach` when no answer came back,
+ * `answer` when Luna answered without check results.
+ */
 async function loadPreflight() {
   try {
     const data = await getJsonAllowErrorStatus("/api/v1/setup/preflight");
-    return data?.checks ? { checks: data.checks, healthy: data.healthy } : null;
-  } catch {
-    return null;
+    return data?.checks ? { checks: data.checks, healthy: data.healthy } : { failure: "answer" };
+  } catch (err) {
+    return { failure: /** @type {any} */ (err)?.status === 0 ? "reach" : "answer" };
   }
 }
 
 /** @returns {"success" | "warning" | "error"} */
 function outcomeOf(result) {
-  if (!result || !result.healthy) return "error";
+  if (!result?.checks || !result.healthy) return "error";
   return Object.values(result.checks).some((c) => c?.status === "warning") ? "warning" : "success";
 }
 
@@ -189,17 +194,17 @@ PassedList.propTypes = {
 export default function PreflightStep({ onPass }) {
   const [checks, setChecks] = useState(null);
   const [healthy, setHealthy] = useState(null);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState(/** @type {false | "reach" | "answer"} */ (false));
   const [running, setRunning] = useState(true);
   const alive = useRef(true);
 
   const apply = useCallback((result) => {
     if (!alive.current) return;
-    if (result) {
+    if (result.checks) {
       setChecks(result.checks);
       setHealthy(result.healthy);
     } else {
-      setError(true);
+      setError(result.failure || "answer");
     }
     setRunning(false);
   }, []);
@@ -269,7 +274,7 @@ export default function PreflightStep({ onPass }) {
   } else if (error) {
     verdict = "failed";
     title = "Could not run the system check";
-    detail = REACH_ERROR;
+    detail = LOAD_ERRORS[error];
   } else if (done && healthy === false) {
     verdict = "failed";
     title = "Setup can't continue yet";
@@ -277,7 +282,7 @@ export default function PreflightStep({ onPass }) {
   } else if (done && warningCount > 0) {
     verdict = "warning";
     title = "Ready to continue";
-    detail = `${warningCount} ${plural(warningCount, "thing won't", "things won't")} work yet. You can still continue setup.`;
+    detail = `${warningCount} ${plural(warningCount, "check has a warning", "checks have warnings")}. You can still continue setup.`;
   } else if (done) {
     verdict = "passed";
     title = "Everything checks out";
@@ -292,7 +297,7 @@ export default function PreflightStep({ onPass }) {
       <div className="mb-6">
         <h2 className="font-mono text-3xl font-normal text-primary">System check</h2>
         <p className="text-sm text-primary mt-2">
-          Luna checks its storage, network, and features before you continue setup.
+          Luna checks its system, storage, network, drives, and features before you continue setup.
         </p>
       </div>
 

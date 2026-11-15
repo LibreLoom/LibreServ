@@ -159,7 +159,7 @@ export default function SharedPage() {
                 title={query ? "Nothing matches" : "Nothing shared with you yet"}
                 description={query
                   ? `Nothing shared with you matches "${search.trim()}".`
-                  : "When someone shares a file, folder, drive, or album with you, it lands here."}
+                  : "When someone shares a file, folder, drive, or album with you, it shows here."}
               />
             ) : (
               <Card
@@ -201,7 +201,8 @@ export default function SharedPage() {
                       {
                         key: "shared_by",
                         label: "Shared by",
-                        render: (row) => row.shared_by || "—",
+                        // Empty when the account that shared it no longer exists.
+                        render: (row) => row.shared_by || "Unknown",
                       },
                       {
                         key: "actions",
@@ -253,7 +254,7 @@ export default function SharedPage() {
                 title={query ? "Nothing matches" : "Nothing shared yet"}
                 description={query
                   ? `Nothing you manage matches "${search.trim()}".`
-                  : "Use the share button on a file, folder, drive, or album — everything you share lands here."}
+                  : "Use the share button on a file, folder, drive, or album. Everything you share shows here."}
               />
             ) : (
               <Card
@@ -278,7 +279,7 @@ export default function SharedPage() {
                               </span>
                               {!s.exists && (
                                 <span className="block text-xs">
-                                  Not available right now
+                                  Unavailable
                                 </span>
                               )}
                             </span>
@@ -359,7 +360,7 @@ export default function SharedPage() {
         onConfirm={() => leaving && leave.mutate(leaving.id)}
       >
         <p className="text-primary text-sm">
-          Leave this share? You'll lose the access it gives you — access through other shared folders stays.
+          You lose the access this share gives you. Your access through other shared folders stays.
         </p>
       </ConfirmModal>
     </Page>

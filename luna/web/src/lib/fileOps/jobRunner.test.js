@@ -63,7 +63,7 @@ function fakeApi({ jobs = [], post } = {}) {
     postJson: vi.fn(post || (async () => ({ id: `j${++n}`, state: "running", progress: 0, total: 10 }))),
     getJson: vi.fn(async (url) => {
       if (url.startsWith("/api/v1/jobs?")) return self.state.jobs;
-      throw new ApiError(404, "Luna doesn't know this job.");
+      throw new ApiError(404, "Luna can't find this copy or move.");
     }),
     deleteJson: vi.fn(async () => ({})),
   };
@@ -125,7 +125,7 @@ describe("job runner: the client queue", () => {
   it("treats any other 503 as a failure", async () => {
     api = fakeApi({
       post: async () => {
-        throw new ApiError(503, "Luna's job queue isn't responding.");
+        throw new ApiError(503, "Luna couldn't start this copy or move. Try again.");
       },
     });
     const { store } = harness({ api });

@@ -56,13 +56,13 @@ describe("ConnectDeviceCodeForm", () => {
   });
 
   it("shows a rejected token as an alert with the server's words", async () => {
-    stub({ onPost: () => json({ error: "That device token should look like ****-****-****-****-****." }, 400) });
+    stub({ onPost: () => json({ error: "That is not a valid device token. Copy it from connect.luna.libreloom.org or from the card that came with Luna." }, 400) });
     const user = userEvent.setup();
     renderForm();
     await user.type(screen.getByLabelText("Device token from Luna Connect"), "ABCDEFGHJKMNPQRSTVWX");
     await user.click(screen.getByRole("button", { name: "Save device token" }));
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("That device token should look like");
+    expect(alert).toHaveTextContent("That is not a valid device token");
     expect(alert.className).not.toMatch(/text-error/);
     expect(screen.queryByText("Device token saved.")).toBeNull();
   });

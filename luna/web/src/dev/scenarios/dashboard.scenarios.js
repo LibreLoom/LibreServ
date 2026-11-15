@@ -147,7 +147,7 @@ export default [
     title: "Update available",
     seed: (w) => { w.updates = { update_available: true, current_version: "1.4.2", latest_version: "1.5.0", release_notes: "Faster photo scanning." }; },
     url: "/settings#about",
-    check: ["The dashboard shows the new version in plain words", "Settings → System updates → Install: the dialog closes, Luna goes quiet for a few seconds (as lunad restarts), then the page reloads on version 1.5.0", "After the restart you sign in again, as lunad asks"],
+    check: ["The dashboard shows the new version in plain words", "Settings → System updates → Install: the dialog closes, Luna goes quiet for a few seconds (as lunad restarts), then the page reloads on version 1.5.0", "After the restart you are still signed in"],
   },
   {
     id: "dashboard/update-failed",

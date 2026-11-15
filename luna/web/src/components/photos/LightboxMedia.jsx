@@ -148,8 +148,8 @@ export default function LightboxMedia({ photo, src, downloadSrc = "", autoPlay =
           )}
           <p className="text-sm">
             {isVideo
-              ? "This video can't play in the browser. Download it to watch on your device."
-              : "This photo can't be displayed in the browser. Download it to try opening it on your device."}
+              ? "This video could not play here. Download it to watch it on your device."
+              : "This photo could not open here. Download it to open it on your device."}
           </p>
           {downloadSrc ? (
             <Button variant="primary" size="sm" asChild>
@@ -200,7 +200,7 @@ export default function LightboxMedia({ photo, src, downloadSrc = "", autoPlay =
       )}
       {thumbFallback && !failed ? (
         <p className="absolute inset-x-0 bottom-4 mx-auto w-fit max-w-[85%] rounded-pill surface-secondary px-4 py-2 text-center text-xs motion-safe:animate-in motion-safe:fade-in">
-          The full-size photo couldn't load — this is a small preview.
+          The full-size photo could not load. This is a small preview.
         </p>
       ) : null}
     </div>

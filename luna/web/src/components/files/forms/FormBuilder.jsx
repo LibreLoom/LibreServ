@@ -440,7 +440,7 @@ function BuilderSession({
     guardedChange(
       question.id,
       "Remove this question?",
-      "People have already answered it. Their answers stay in the results — only the question goes away.",
+      "People have already answered it. Their answers stay in the results.",
       run,
     );
   }
@@ -482,7 +482,7 @@ function BuilderSession({
         : ""
       : connStatus === "connecting" || connStatus === "reconnecting"
         ? "Connecting…"
-        : "Offline — your changes stay here and sync when Luna reconnects";
+        : "Offline. Keep this tab open, and Luna saves your changes when the connection comes back.";
 
   const questions = Array.isArray(doc?.questions) ? doc.questions : [];
   const settings = doc?.settings || {};
@@ -678,7 +678,7 @@ function BuilderSession({
                               if (picked) {
                                 setConfirm({
                                   title: "Remove this option?",
-                                  message: `Some answers picked “${label}”. Those answers stay in the results — the option just stops being offered.`,
+                                  message: `Some answers picked “${label}”. Those answers stay in the results, but people can't pick this option anymore.`,
                                   run: apply,
                                 });
                               } else {
@@ -732,7 +732,7 @@ function BuilderSession({
                       <Toggle
                         surface="primary"
                         label="Collecting answers"
-                        description="Turn this off and the link stops taking new answers."
+                        description="When this is off, the link takes no new answers and no changes."
                         checked={settings.collecting !== false}
                         disabled={!canWrite}
                         onChange={(next) => setSetting("collecting", next)}
@@ -1667,7 +1667,7 @@ function OptionRow({ option, index, canWrite, mark, compact, autoFocus, duplicat
       </div>
       {duplicate ? (
         <p className="mt-1 text-xs">
-          Another option says the same thing. People could only pick one of them — change one.
+          Another option has the same text, so people see only one of them. Change one.
         </p>
       ) : !option.label.trim() && canWrite ? (
         <p className="mt-1 text-xs">Blank options are hidden from people answering.</p>
@@ -1772,7 +1772,7 @@ function SkipRow({ question, earlier, canWrite, onPatch }) {
         </p>
       ) : staleTrigger ? (
         <p className="text-xs">
-          That question can&apos;t decide a skip anymore — its type changed. Pick another question or choose Don&apos;t skip.
+          The type of that question changed, so this skip may not work. Pick another question or choose Don&apos;t skip.
         </p>
       ) : null}
     </div>

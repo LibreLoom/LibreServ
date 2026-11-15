@@ -46,7 +46,7 @@ describe("RecoveryWizardPage", () => {
     expect(clicked).toHaveBeenCalledOnce();
     expect(clickedAnchor.download).toBe("luna-recover-abcdefghjk1mnpqr.luna");
     expect(await createObjectURL.mock.calls[0][0].text()).toBe('{"user":"u-sam","password":"recoveryPassword123"}');
-    expect(screen.getByRole("status")).toHaveTextContent("recovery file downloaded");
+    expect(screen.getByRole("status")).toHaveTextContent("started to download the recovery file");
   });
 
   it("downloads tokenless recovery JSON for all admins", async () => {
@@ -147,6 +147,6 @@ describe("RecoveryWizardPage", () => {
     expect(clicked).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
     expect(clicked).toHaveBeenCalledOnce();
-    expect(screen.getByRole("status")).toHaveTextContent("recovery file downloaded");
+    expect(screen.getByRole("status")).toHaveTextContent("started to download the recovery file");
   });
 });

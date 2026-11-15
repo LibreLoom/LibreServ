@@ -525,7 +525,7 @@ describe("DashboardPage", () => {
       renderDashboard();
       expect(await screen.findByText("Travel stick")).toBeInTheDocument();
       expect(
-        await screen.findByText(/Unplugged\. Plug it back in when you want its files and space here\./),
+        await screen.findByText(/Unplugged\. Plug it back in to use its files\./),
       ).toBeInTheDocument();
       await waitForRequests(fetchMock, ADMIN_REQUESTS);
       expect(screen.queryByRole("link", { name: /Open Files/i })).not.toBeInTheDocument();

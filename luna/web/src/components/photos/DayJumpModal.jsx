@@ -82,7 +82,7 @@ export default function DayJumpModal({ open = false, onClose, onJump }) {
       {({ close }) => (
         <div className="space-y-3" data-slot="day-jump">
           <p className="text-sm">
-            Pick a day — Luna scrolls your library to it, or to the closest day with photos.
+            Pick a day. Luna scrolls to that day, or to the closest day with photos.
           </p>
           <input
             ref={inputRef}

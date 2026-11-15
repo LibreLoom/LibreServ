@@ -50,7 +50,7 @@ describe("RecoveryPhraseCard", () => {
   it("shows a loading line first", () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
     renderCard();
-    expect(screen.getByText("Checking your recovery phrase…")).toBeInTheDocument();
+    expect(screen.getByText("Loading your recovery phrase details…")).toBeInTheDocument();
   });
 
   it("offers a Not set up state with a Set up button when no phrase is saved", async () => {
@@ -131,7 +131,7 @@ describe("RecoveryPhraseCard", () => {
   it("shows a plain line when status cannot load", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ error: "Luna could not read its keys." }, 500)));
     renderCard();
-    expect(await screen.findByText("Could not load your recovery phrase. Try again later.")).toBeInTheDocument();
+    expect(await screen.findByText("Could not load your recovery phrase details. Try again later.")).toBeInTheDocument();
   });
 
   it("shows the old-phrase row and deletes after confirming", async () => {
@@ -193,11 +193,11 @@ describe("RecoveryPhraseCard", () => {
     renderCard();
 
     await user.click(await screen.findByRole("button", { name: "Lost your recovery phrase?" }));
-    expect(screen.getByText(/Private items backed up with the old phrase can't be opened anymore/)).toBeInTheDocument();
+    expect(screen.getByText(/but not private items backed up with the old phrase/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Get a new phrase" }));
 
     expect(await screen.findByRole("heading", { name: "Get a new phrase?" })).toBeInTheDocument();
-    expect(screen.getByText("Private items backed up with your old phrase can't be opened anymore.")).toBeInTheDocument();
+    expect(screen.getByText("Your new phrase can't open private items backed up with your old phrase.")).toBeInTheDocument();
   });
 });
 
@@ -287,7 +287,7 @@ describe("RecoveryPhraseCard, change phrase", () => {
     await user.click(await screen.findByRole("button", { name: "Change phrase" }));
     await typePhraseAndContinue(user, entropyToPhrase(newEntropy(12)));
 
-    expect(await screen.findByText("Too many wrong tries. Wait a few minutes, then try again.")).toBeInTheDocument();
+    expect(await screen.findByText("Too many tries. Wait a few minutes, then try again.")).toBeInTheDocument();
     expect(api.calls.filter((c) => c.key === "POST /api/v1/cloud/phrase/check")).toHaveLength(1);
   });
 
@@ -345,7 +345,7 @@ describe("RecoveryPhraseCard, change phrase", () => {
     await user.click(await screen.findByText("No, it's only mine"));
     await confirmShownPhrase(user);
 
-    expect(await screen.findByText("Too many wrong tries. Wait a few minutes, then try again.")).toBeInTheDocument();
+    expect(await screen.findByText("Too many tries. Wait a few minutes, then try again.")).toBeInTheDocument();
     expect(screen.queryByText("Recovery phrase changed.")).toBeNull();
   });
 });
@@ -423,7 +423,7 @@ describe("RecoveryPhraseCard, get a new phrase (lost)", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await confirmShownPhrase(user);
 
-    expect(await screen.findByText("Too many wrong tries. Wait a few minutes, then try again.")).toBeInTheDocument();
+    expect(await screen.findByText("Too many tries. Wait a few minutes, then try again.")).toBeInTheDocument();
   });
 });
 
@@ -578,7 +578,7 @@ describe("RecoveryPhraseCard, private scopes on a phrase change", () => {
 
   it("does not save when the list of scopes cannot be read", async () => {
     const user = userEvent.setup();
-    const api = routePhraseApi({ scopes: [500, { error: "down" }] });
+    const api = routePhraseApi({ scopes: [500, {}] });
     renderCard();
     await user.click(await screen.findByRole("button", { name: "Change phrase" }));
     await typePhraseAndContinue(user, OLD_PHRASE);
@@ -614,7 +614,7 @@ describe("RecoveryPhraseCard, private scopes on a phrase change", () => {
     await user.click(screen.getByRole("button", { name: "Delete older versions" }));
     await waitFor(() =>
       expect(api.calls.map((c) => c.key)).toContain("DELETE /api/v1/private-backups/older-versions"));
-    expect(await screen.findByText("Older private versions deleted.")).toBeInTheDocument();
+    expect(await screen.findByText("Older private versions will be deleted.")).toBeInTheDocument();
   });
 
   it("keeps the step open and shows the error when deleting older versions fails", async () => {
@@ -672,7 +672,7 @@ describe("RecoveryPhraseCard, refused password and moving advice", () => {
     await user.type(screen.getByLabelText("Your Luna password"), "pw");
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await confirmShownPhrase(user);
-    expect(await screen.findByText("Too many wrong tries. Wait a few minutes, then try again.")).toBeInTheDocument();
+    expect(await screen.findByText("Too many tries. Wait a few minutes, then try again.")).toBeInTheDocument();
     expect(screen.getByLabelText("Your Luna password")).toBeInTheDocument();
     expect(api.puts()).toHaveLength(1);
   });
@@ -687,7 +687,7 @@ describe("RecoveryPhraseCard, refused password and moving advice", () => {
     mockRole = "user";
     routePhraseApi({ status: paused });
     renderCard();
-    expect(await screen.findByText(/Connect storage is full, so the update is paused\. Nothing old was deleted\./)).toBeInTheDocument();
+    expect(await screen.findByText(/Connect storage is full, so the update is paused and nothing old was deleted\./)).toBeInTheDocument();
     expect(screen.queryByText(/add storage on Luna Connect/)).toBeNull();
     expect(screen.getByText(/An Admin can free up space or add storage/)).toBeInTheDocument();
   });

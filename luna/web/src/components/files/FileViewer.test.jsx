@@ -1193,7 +1193,7 @@ describe("FileViewer conversion hints", () => {
 
     expect(await screen.findByRole("table")).toBeInTheDocument();
     expect(
-      screen.getByText(/converting it to a/i),
+      screen.getByText(/To edit this file, convert it to a/i),
     ).toBeInTheDocument();
     expect(screen.getByText(".xlsx")).toBeInTheDocument();
 
@@ -1218,7 +1218,7 @@ describe("FileViewer conversion hints", () => {
           uploadAttempts += 1;
           return uploadAttempts === 1
             ? new Response(
-                JSON.stringify({ error: "A file with this name is already here." }),
+                JSON.stringify({ error: "A file with this name is already here.", code: "exists" }),
                 { status: 409 },
               )
             : new Response("{}", { status: 200 });

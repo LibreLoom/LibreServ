@@ -152,7 +152,7 @@ export default [
   },
   {
     id: "files/unplugged-mid-browse", area: A, title: "Drive pulled out while browsing", url: "/files/d1?path=Documents",
-    faults: [{ match: "GET /api/v1/drives/d1/files", mode: "404", code: "unknown_drive", message: "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.", on: false }],
+    faults: [{ match: "GET /api/v1/drives/d1/files", mode: "404", code: "unknown_drive", message: "Luna can't find this drive. Make sure it is plugged in, or unplug it and plug it in again.", on: false }],
     check: ["In Break things, tick the prepared rule (GET /api/v1/drives/d1/files → 404), then open a folder", "The unplugged message shows, not a blank list", "Untick the rule and press Try again: the list returns"],
   },
   {
@@ -182,7 +182,7 @@ export default [
   },
   {
     id: "files/listing-error", area: A, title: "Listing fails with a server error", url: "/files/d1",
-    faults: [{ match: "GET /api/v1/drives/d1/files", mode: "500", message: "Luna couldn't read this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in." }],
+    faults: [{ match: "GET /api/v1/drives/d1/files", mode: "500", message: "Luna couldn't use this drive. Make sure it is plugged in, or unplug it and plug it in again." }],
     check: ["Only the folder listing fails (the rest of the page still loads)", "Plain message and a Try again button", "No raw JSON or status codes"],
   },
 
@@ -234,7 +234,7 @@ export default [
   },
   {
     id: "files/upload-fails", area: A, title: "Upload fails (server error)", url: "/files/d1?path=Documents",
-    faults: [{ match: "POST /api/v1/drives/d1/files/upload", mode: "500", message: "Luna couldn't save this file. Check that the drive is connected and try again." }],
+    faults: [{ match: "POST /api/v1/drives/d1/files/upload", mode: "500", message: "Luna couldn't save this file. Make sure the drive is plugged in and try again." }],
     check: ["Row shows the failure in plain words", "Retry is offered; Remove clears the row", "File does not appear in the list"],
   },
   {
@@ -253,7 +253,7 @@ export default [
   {
     id: "files/upload-no-space-huge", area: A, title: "Huge upload that can't fit", url: "/files/d1?path=Documents",
     seed: (w) => { demo(w); w.summaries.d1.free_bytes = 10_000_000; },
-    check: ["Pick a file larger than 32 MB → refused up front: \"This drive is full. Free up some space and try again.\"", "No endless retry"],
+    check: ["Pick a file larger than 32 MB → refused up front: \"This file is larger than the free space on this drive. Free up some space and try again.\"", "No endless retry"],
   },
   {
     id: "files/upload-offline", area: A, title: "Go offline during an upload", url: "/files/d1?path=Documents",
@@ -350,7 +350,7 @@ export default [
   },
   {
     id: "files/job-server-error", area: A, title: "Starting a copy fails", url: "/files/d1?path=Photos",
-    faults: [{ match: "POST /api/v1/jobs", mode: "503", message: "Luna's job queue isn't responding." }],
+    faults: [{ match: "POST /api/v1/jobs", mode: "503", message: "Luna couldn't start this copy or move. Try again." }],
     check: ["Error is visible next to what you did", "No ghost progress card"],
   },
 
@@ -548,7 +548,7 @@ export default [
   { id: "files/view-missing", area: A, title: "Open a file that was just deleted", url: "/files/d1?path=Documents&file=ghost.txt", check: ["Says the file isn't here anymore", "Doesn't spin forever"] },
   {
     id: "files/view-load-error", area: A, title: "File contents fail to load", url: open("notes.txt"), seed: viewerSamples,
-    faults: [{ match: "GET /api/v1/drives/d1/files/content", mode: "500", message: "Luna couldn't read this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in." }],
+    faults: [{ match: "GET /api/v1/drives/d1/files/content", mode: "500", message: "Luna couldn't use this drive. Make sure it is plugged in, or unplug it and plug it in again." }],
     check: ["Plain error with a way to retry or close", "Editor does not open on an empty document"],
   },
   {
@@ -571,7 +571,7 @@ export default [
   },
   {
     id: "files/edit-text-save-error", area: A, title: "Save fails (server error)", url: open("notes.txt"), seed: viewerSamples,
-    faults: [{ match: "POST /api/v1/drives/d1/files/upload", mode: "500", message: "Luna couldn't save this file. Check that the drive is connected and try again." }],
+    faults: [{ match: "POST /api/v1/drives/d1/files/upload", mode: "500", message: "Luna couldn't save this file. Make sure the drive is plugged in and try again." }],
     check: ["Edit, Save → error shown, still marked unsaved", "Autosave retries without a flood of messages", "Remove the fault, Save works"],
   },
   {

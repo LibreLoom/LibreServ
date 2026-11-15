@@ -44,9 +44,9 @@ post("/api/v1/auth/register", ({ world, user, body }) => {
   const hasUsers = world.users.length > 0;
   if (hasUsers) {
     if (!user) return fail(401, "Sign in to Luna first.");
-    if (!isAdmin(user)) return fail(403, "Only an Admin can manage accounts.");
+    if (!isAdmin(user)) return fail(403, "Only an Admin can add users.");
   } else if (world.setupSecret && body.setup_secret !== world.setupSecret) {
-    return fail(403, "That device token doesn't match. Paste the device token from connect.luna.libreloom.org, or check the card that came with Luna.");
+    return fail(403, "That device token doesn't match. Check the device token on the quick-start guide or in Luna Connect.");
   }
   const bad = badUsername(body.username) || badPassword(body.password);
   if (bad) return bad;
@@ -71,7 +71,7 @@ patch("/api/v1/auth/me", ({ user, body }) => {
     changedPassword = true;
   }
   if (body.display_name !== undefined) user.display_name = String(body.display_name).trim();
-  return { ok: true, ...userJson(user), signed_out: changedPassword, message: changedPassword ? "Password changed. Sign in again with your new password." : "Saved." };
+  return { ok: true, ...userJson(user), signed_out: changedPassword, message: changedPassword ? "Password changed. Every browser and app is now signed out." : "Saved." };
 });
 post("/api/v1/auth/revoke-sessions", ({ world, user }) => {
   if (!user) return fail(401, "Sign in to Luna first.");
@@ -80,7 +80,7 @@ post("/api/v1/auth/revoke-sessions", ({ world, user }) => {
 });
 post("/api/v1/auth/revoke-devices", ({ world }) => {
   world.tokens = [];
-  return { ok: true, message: "Apps on phones and computers need a new access token." };
+  return { ok: true, message: "Every app is signed out. Your access tokens no longer work." };
 });
 
 // ── Setup ───────────────────────────────────────────────────────────────────
@@ -203,9 +203,9 @@ patch("/api/v1/users/:id", ({ world, user, params, body }) => {
   }
   if (body.role !== undefined) {
     const role = String(body.role).trim().toLowerCase();
-    if (role !== "admin" && role !== "user") return fail(400, "Roles are admin or member.");
+    if (role !== "admin" && role !== "user") return fail(400, "Choose Admin or Member.");
     if (role !== target.role) {
-      if (user.id === target.id && role !== "admin") return fail(400, "You can't take away your own admin rights.");
+      if (user.id === target.id && role !== "admin") return fail(400, "You can't remove your own Admin role.");
       if (target.role === "admin" && lastAdmin(world, target.id)) return fail(400, "Luna needs at least one Admin. Make someone else an Admin first.");
       target.role = role;
     }
@@ -369,7 +369,7 @@ post("/api/v1/drives/:name/adopt", ({ world, user, params, body }) => {
   if (!label || label.length > 80) return fail(400, "Give this drive a name between 1 and 80 characters.");
   const found = findDetected(world, params.name);
   if (found.encrypted) return fail(400, "Luna couldn't add this drive. This drive is encrypted. Enter its password to add it.");
-  if (found.needs_setup) return fail(400, "Luna couldn't add this drive. Setting up new drives isn't available in this version yet.");
+  if (found.needs_setup) return fail(400, "Luna couldn't add this drive. Erase it first, which removes everything on it.");
   world.detected = world.detected.filter((d) => d.name !== params.name);
   const id = nextId("d");
   const row = {
@@ -469,7 +469,7 @@ post("/api/v1/system/updates/apply", ({ world, user, fake }) => {
   world.updates = { current_version: latest, update_available: false };
   interruptJobs(world);
   fake.restartServer(1000, 4000);
-  return { ok: true, latest_version: latest, reboot_required: false, message: "The new software is installed. Luna will restart in a moment — sign in again after it comes back." };
+  return { ok: true, latest_version: latest, reboot_required: false, message: "The update is installed. Luna will restart in a moment." };
 });
 post("/api/v1/system/updates/os-failed/clear", ({ world, user }) => {
   updatesGate(user);
@@ -499,7 +499,7 @@ put("/api/v1/system/updates/source", ({ world, user, body }) => {
 });
 post("/api/v1/system/factory-reset", ({ world, user, body }) => {
   requireAdmin(user, "Only an Admin can reset this Luna.");
-  if (!body.confirm) return fail(400, "Confirm that you want to reset this Luna. Everyone will need to sign in again, and remote access will turn off. Files on your drives stay where they are.");
+  if (!body.confirm) return fail(400, "Confirm that you want to reset this Luna. The reset deletes every account, share, and setting, and turns off remote access. Files on your drives stay where they are.");
   if (!String(body.password ?? "").trim()) return fail(400, "Type your current password to confirm this reset.");
   if (body.password === "wrong") return fail(401, "That password is wrong. Reset was not started.");
   world.sessionUserId = null;

@@ -198,7 +198,7 @@ export default function MarkdownEditor({
               "rounded-large-element",
               fill ? "h-full" : "max-h-[65vh] min-h-[50vh]",
             )}
-            emptyHint="Nothing here yet. Switch to Write and start typing."
+            emptyHint={canWrite ? "This file is empty. Switch to Write to start typing." : "This file is empty."}
           />
         ) : (
           <div

@@ -13,7 +13,7 @@ import { FileSearchButton } from "../components/files/FileSearch";
 import DriveFileExplorer from "../components/files/DriveFileExplorer";
 import DriveMenu from "../components/files/DriveMenu";
 import useDriveMove from "../hooks/useDriveMove";
-import { getDrives, getJson } from "../lib/api";
+import { apiErrorMessage, getDrives, getJson } from "../lib/api";
 import { folderHref, isTrashPath, pathBasename, TRASH_PATH, trashDisplayName } from "../lib/paths";
 import useFileNavigation from "../hooks/useFileNavigation.js";
 import useMovedLinkForwarding from "../hooks/useMovedLinkForwarding.js";
@@ -130,14 +130,28 @@ export default function FilePage() {
       ) : undefined}
       rightContent={<FileSearchButton />}
     >
-      {!drives.isLoading && !drive && (
+      {drives.isError && !drive && (
+        <EmptyState
+          className="mt-4"
+          icon={HardDrive}
+          title="Luna couldn't load your drives"
+          description={apiErrorMessage(drives.error, "Try again in a moment.")}
+          action={
+            <Button size="sm" variant="primary" loading={drives.isFetching} onClick={() => drives.refetch()}>
+              Try again
+            </Button>
+          }
+        />
+      )}
+
+      {drives.isSuccess && !drive && (
         <EmptyState
           className="mt-4"
           icon={HardDrive}
           title="Drive not found"
           description={
             isAdmin
-              ? "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
+              ? "Luna has no drive at this link. Someone may have removed it from Luna."
               : "Luna couldn't open this drive. Ask an Admin if you still need access."
           }
           action={
@@ -155,7 +169,7 @@ export default function FilePage() {
           title="Drive unplugged"
           description={
             isAdmin
-              ? "This drive is unplugged. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
+              ? "Plug it in to open its files. If it is already plugged in, unplug it and plug it in again."
               : "This drive is unplugged. Ask an Admin, or wait until it's plugged back in."
           }
           action={
@@ -214,7 +228,7 @@ export default function FilePage() {
           className="mt-4"
           icon={Trash2}
           title="Trash isn't available here"
-          description="You need Write access somewhere on this drive to open trash."
+          description="You need Write access somewhere on this drive to open Trash."
           action={
             <Button size="sm" variant="primary" asChild>
               <Link to={folderHref(id, "")}>Back to files</Link>

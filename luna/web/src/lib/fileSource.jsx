@@ -19,6 +19,8 @@ import {
   postFormProgress,
   postJson,
   putBinaryProgress,
+  statusHasCause,
+  statusMessage,
 } from "./api.js";
 import { capsBits, CAP } from "./access.js";
 import { contentHref, downloadHref, joinPath, parentPath, pathBasename } from "./paths.js";
@@ -39,12 +41,15 @@ export async function requireOk(res, fallback) {
   } catch {
     // fall through
   }
-  if (res.status === 404 || code === "not_found") {
+  // A 404 can also mean a missing drive or a link that stopped working, and
+  // lunad then says so. Only a file-not-found answer gets this sentence.
+  if (code === "not_found" || (res.status === 404 && !message)) {
     message = "This file doesn't exist anymore.";
   }
+  // With no message from Luna, a status that names a cause (busy, too large) beats the fallback.
   throw new ApiError(
     res.status,
-    message || fallback,
+    message || (statusHasCause(res.status) ? statusMessage(res.status) : fallback),
     code,
     data,
   );

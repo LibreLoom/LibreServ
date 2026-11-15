@@ -11,7 +11,7 @@ import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import Callout from "@libreloom/ui/components/common/Callout.jsx";
 import DriveStatusPill from "../components/common/DriveStatusPill.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import RowActionMenu from "@libreloom/ui/components/ui/RowActionMenu.jsx";
+import { RowActionSheet } from "@libreloom/ui/components/ui/RowActionMenu.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
@@ -382,7 +382,7 @@ const CANT_OPEN_MESSAGE =
 const ERASING_MESSAGE =
   "Being erased and set up. This drive is unavailable until that finishes.";
 const CANT_OPEN_HINT =
-  "Luna knows this drive but couldn't open it. This can happen after it was pulled out without Eject, or when the drive has a problem. Unplug it, wait a few seconds, and plug it back in. If that doesn't help, the drive may be failing.";
+  "Unplug the drive, wait a few seconds, and plug it back in. If Luna still cannot open it, the drive can be damaged.";
 
 function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect, onShowProgress, onEncryption }) {
   const location = useLocation();
@@ -402,6 +402,8 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
     staleTime: 30_000,
     refetchInterval: ready ? 60_000 : false,
   });
+  // The status pill's trailing segment opens this drive's rare actions.
+  const [actionsOpen, setActionsOpen] = useState(false);
   const copy = showHealth && health.data ? describeDriveHealth(health.data) : null;
   const showSummary = copy && ["failing", "watch", "unknown"].includes(copy.verdict);
   const statusMessage = driveStatusMessage(drive);
@@ -447,14 +449,13 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
         icon={<HardDrive size={ICON_SIZE.lg} />}
         title={drive.label}
         headerActions={
-          <>
-            <DriveStatusPill drive={drive} health={health.data} surface="primary" />
-            {/* Browse is the shelf; everything else is rare and sits behind
-                the actions button, next to the drive's own status. */}
-            {actions.length > 0 ? (
-              <RowActionMenu label={drive.label} actions={actions} size="sm" surface="primary" />
-            ) : null}
-          </>
+          /* One LayeredPill: the drive's status, with its rare actions as the
+             pill's trailing segment. The arrow disc opens the drive. */
+          <DriveStatusPill
+            drive={drive}
+            health={health.data}
+            onActions={actions.length > 0 ? () => setActionsOpen(true) : undefined}
+          />
         }
         action={shelf}
       >
@@ -483,19 +484,36 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
           </div>
         ) : null}
       </DriveCard>
+      <ModalCard open={actionsOpen} title={drive.label} size="sm" onClose={() => setActionsOpen(false)}>
+        {({ close }) => <RowActionSheet actions={actions} close={close} />}
+      </ModalCard>
     </div>
   );
 }
 
+/**
+ * Why Remove leaves the drive database on the drive, or "" when Remove deletes
+ * it. Mirrors DriveManager::remove: a missing, ejected, read-only, or locked
+ * drive can't be written, so lunad only forgets it.
+ * @param {{ state?: string, encrypted?: boolean, locked?: boolean }} drive
+ */
+function removeKeepsDriveDatabase(drive) {
+  if (drive.state === "missing") return "unplugged";
+  if (drive.state === "ejected") return "ejected";
+  if (isLocked(drive)) return "locked";
+  if (drive.state === "readonly") return "read only";
+  return "";
+}
+
 /** Status line for non-ready drives, or the read-only note. Ready drives use Drive details instead. */
 function driveStatusMessage(drive) {
-  if (drive.state === "missing") return "Unplugged. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.";
-  if (drive.state === "ejected") return "Ejected. Plug it back in to use files again.";
+  if (drive.state === "missing") return "Unplugged. Plug it in. If it is already plugged in, unplug it and plug it in again.";
+  if (drive.state === "ejected") return "Ejected. To use its files again, unplug it and plug it back in.";
   if (drive.formatting) return ERASING_MESSAGE;
   if (isLocked(drive)) return "Locked. Enter the password to open its files.";
   if (isUnopenable(drive)) return CANT_OPEN_MESSAGE;
   if (drive.state === "readonly") {
-    return "Read only — Luna cannot save here. Usually a filesystem issue, or a write-lock switch on the stick.";
+    return "Read only: Luna tried to save a test file here and could not. A write-lock switch on the drive or a file system error can cause this.";
   }
   return null;
 }
@@ -587,7 +605,7 @@ export default function FilesPage() {
   const eject = useMutation({
     mutationFn: (/** @type {any} */ drive) => postJson(`/api/v1/drives/${drive.id}/eject`, {}),
     onSuccess: () => {
-      addToast({ type: "success", message: "Drive ejected — safe to unplug." });
+      addToast({ type: "success", message: "Drive ejected. You can unplug it now." });
       setActionError(null);
       queryClient.invalidateQueries({ queryKey: ["drives"] });
       queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
@@ -658,7 +676,19 @@ export default function FilesPage() {
             );
           })}
         </div>
-        {!access.isLoading && grants.length === 0 && (
+        {access.isError && (
+          <EmptyState
+            icon={FolderOpen}
+            title="Luna couldn't load what is shared with you"
+            description={apiErrorMessage(access.error, "Try again in a moment.")}
+            action={
+              <Button size="sm" variant="primary" loading={access.isFetching} onClick={() => access.refetch()}>
+                Try again
+              </Button>
+            }
+          />
+        )}
+        {access.isSuccess && grants.length === 0 && (
           <EmptyState
             icon={FolderOpen}
             title="Nothing shared with you yet"
@@ -680,7 +710,18 @@ export default function FilesPage() {
 
   return (
     <Page title="Files" titleId="files-title" rightContent={<FileSearchButton />}>
-      {(drives.data || []).length === 0 && (
+      {drives.isError && !drives.data && (
+        <Card icon={HardDrive} title="Luna couldn't load your drives" className="mb-6">
+          <p className="text-primary text-sm">
+            {apiErrorMessage(drives.error, "Try again in a moment.")}
+          </p>
+          <Button size="sm" variant="primary" className="mt-3" loading={drives.isFetching} onClick={() => drives.refetch()}>
+            Try again
+          </Button>
+        </Card>
+      )}
+
+      {drives.isSuccess && (drives.data || []).length === 0 && (
         <Card icon={PlugZap} title="No drives yet" className="mb-6">
           <p className="text-primary text-sm">
             Plug a USB drive into Luna to get started.
@@ -760,9 +801,9 @@ export default function FilesPage() {
         {({ close }) => (
           <>
             <p className="text-primary text-sm">
-              After a safe eject, you&apos;ll need to physically unplug{" "}
-              <InlinePill>{ejectTarget?.label}</InlinePill> and plug it back
-              in again to use it.
+              Luna finishes saving files to{" "}
+              <InlinePill>{ejectTarget?.label}</InlinePill>, then closes it. To
+              use it again, unplug it and plug it back in.
             </p>
             <ModalErrorNotice error={actionError} />
             <div className="mt-4 flex gap-3">
@@ -794,20 +835,22 @@ export default function FilesPage() {
         {({ close }) => (
           <>
             <p className="text-primary text-sm">
-              {removeTarget?.state === "missing" || removeTarget?.state === "ejected" ? (
+              {removeTarget && removeKeepsDriveDatabase(removeTarget) ? (
                 <>
-                  Luna will stop managing{" "}
-                  <InlinePill>{removeTarget?.label}</InlinePill>, but the{" "}
-                  <InlinePill>.luna</InlinePill> drive database will stay on the
-                  drive since it is currently unplugged. Your files stay exactly where
-                  they are.
+                  Luna stops using{" "}
+                  <InlinePill>{removeTarget.label}</InlinePill>. Its drive
+                  database stays on the drive because the drive is{" "}
+                  {removeKeepsDriveDatabase(removeTarget)}. Your files stay on
+                  the drive, but shares and links to it stop working.
                 </>
               ) : (
                 <>
-                  Luna will stop managing{" "}
-                  <InlinePill>{removeTarget?.label}</InlinePill>, but your
-                  files stay on the drive — it only removes its tiny{" "}
-                  <InlinePill>.luna</InlinePill> drive database.
+                  Luna stops using{" "}
+                  <InlinePill>{removeTarget?.label}</InlinePill> and deletes its
+                  drive database from the drive. This deletes the albums and
+                  favorites for this drive, and hides its private items from
+                  everyone. Your files stay on the drive, but shares and links
+                  to it stop working.
                 </>
               )}
             </p>
@@ -851,7 +894,7 @@ export default function FilesPage() {
         open={inspectFor != null}
         drive={inspectFor}
         result={inspect.data}
-        error={inspect.isError ? "Luna couldn't look at this drive safely. Make sure it's plugged in and try again." : null}
+        error={inspect.isError ? apiErrorMessage(inspect.error, "Luna couldn't look at this drive safely. Make sure it's plugged in and try again.") : null}
         onClose={() => { releaseInspectedDrive(inspectFor); setInspectFor(null); inspect.reset(); adopt.reset(); }}
         onAdopt={(label) => adopt.mutateAsync({ drive: inspectFor, label })}
         // The dev review drive isn't a real disk, so there is nothing to erase.

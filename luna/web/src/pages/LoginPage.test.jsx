@@ -61,7 +61,7 @@ describe("LoginPage", () => {
     renderLogin();
     expect(screen.getByText("Luna")).toBeInTheDocument();
     expect(screen.getByText("Sign in to continue.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Login" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Create a USB recovery file" })).toHaveAttribute("href", "/recover");
   });
 
@@ -78,7 +78,7 @@ describe("LoginPage", () => {
     renderLogin();
     fireEvent.change(screen.getByLabelText("Username", { selector: "input" }), { target: { value: "max" } });
     fireEvent.change(screen.getByLabelText("Password", { selector: "input" }), { target: { value: "hunter22hunter" } });
-    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(await screen.findByText(/LUNA HOME/i)).toBeInTheDocument();
   });
 
@@ -104,7 +104,7 @@ describe("LoginPage", () => {
     );
     fireEvent.change(screen.getByLabelText("Username", { selector: "input" }), { target: { value: "max" } });
     fireEvent.change(screen.getByLabelText("Password", { selector: "input" }), { target: { value: "hunter22hunter" } });
-    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     // Back on the page you were on — not bounced to home.
     expect(await screen.findByText("DRIVES PAGE")).toBeInTheDocument();
     expect(screen.queryByText("LUNA HOME")).not.toBeInTheDocument();
@@ -113,13 +113,13 @@ describe("LoginPage", () => {
   it("names each empty field and clears its message when corrected", async () => {
     stubFetch();
     renderLogin();
-    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(await screen.findByText("Enter your username.")).toBeInTheDocument();
     expect(screen.getByText("Enter your password.")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Username", { selector: "input" }), { target: { value: "max" } });
     expect(screen.queryByText("Enter your username.")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(screen.getByText("Enter your password.")).toBeInTheDocument();
   });
 
@@ -128,7 +128,7 @@ describe("LoginPage", () => {
     renderLogin();
     fireEvent.change(screen.getByLabelText("Username", { selector: "input" }), { target: { value: "max" } });
     fireEvent.change(screen.getByLabelText("Password", { selector: "input" }), { target: { value: "wrong" } });
-    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(await screen.findByText(/username or password is wrong/i)).toBeInTheDocument();
   });
 
@@ -157,8 +157,8 @@ describe("LoginPage", () => {
     renderLogin();
     fireEvent.change(screen.getByLabelText("Username", { selector: "input" }), { target: { value: "max" } });
     fireEvent.change(screen.getByLabelText("Password", { selector: "input" }), { target: { value: "wrong" } });
-    fireEvent.click(screen.getByRole("button", { name: "Login" }));
-    expect(await screen.findByText(/Too many tries from this device/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByText(/Too many sign-in tries/i)).toBeInTheDocument();
     expect(screen.queryByText(/USB keyboard/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/contact support/i)).not.toBeInTheDocument();
   });

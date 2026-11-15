@@ -217,7 +217,7 @@ describe("CloudRestoreCard", () => {
     renderCard();
     await typePhrase(user);
     await user.click(screen.getByRole("button", { name: "Find my backups" }));
-    expect(await screen.findByText("Restoring backup 2 of 5")).toBeInTheDocument();
+    expect(await screen.findByText("Restoring backup version 2 of 5")).toBeInTheDocument();
     expect(screen.getByLabelText("Cloud backup restore progress")).toHaveAttribute("value", "2");
     expect(screen.getByText("1 restored · 1 already on Luna · Luna couldn't open 2 backup versions")).toBeInTheDocument();
     finish({ snapshots: 1, alreadyIndexed: 1, skipped: 0 });

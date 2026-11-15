@@ -112,7 +112,7 @@ describe("LightboxMedia progressive reveal", () => {
     fireEvent.error(full);
 
     await waitFor(() =>
-      expect(getByText(/can't be displayed in the browser/)).toBeInTheDocument());
+      expect(getByText(/photo could not open here/)).toBeInTheDocument());
     expect(full.src).toBe(new URL(FULL_SRC, window.location.href).href);
   });
 
@@ -139,7 +139,7 @@ describe("LightboxMedia progressive reveal", () => {
     fireEvent.error(video);
 
     await waitFor(() =>
-      expect(getByText(/can't play in the browser/)).toBeInTheDocument());
+      expect(getByText(/video could not play here/)).toBeInTheDocument());
     const link = getByRole("link", { name: /download/i });
     expect(link).toHaveAttribute("href", "/api/v1/download/clip.mp4");
     expect(link).toHaveAttribute("download");
@@ -155,7 +155,7 @@ describe("LightboxMedia progressive reveal", () => {
     fireEvent.error(full);
 
     await waitFor(() =>
-      expect(getByText(/can't be displayed in the browser/)).toBeInTheDocument());
+      expect(getByText(/photo could not open here/)).toBeInTheDocument());
     expect(container.querySelector(`img[src="${FULL_SRC}"]`)).toBeNull();
   });
 
@@ -166,7 +166,7 @@ describe("LightboxMedia progressive reveal", () => {
     fireEvent.error(full); // thumbnail fails too → notice
 
     await waitFor(() =>
-      expect(getByText(/can't be displayed in the browser/)).toBeInTheDocument());
+      expect(getByText(/photo could not open here/)).toBeInTheDocument());
   });
 
   it("clears the failure state when src changes", async () => {
@@ -177,7 +177,7 @@ describe("LightboxMedia progressive reveal", () => {
       />,
     );
     fireEvent.error(/** @type {HTMLVideoElement} */ (container.querySelector("video")));
-    await waitFor(() => expect(getByText(/can't play/)).toBeInTheDocument());
+    await waitFor(() => expect(getByText(/could not play here/)).toBeInTheDocument());
 
     rerender(
       <LightboxMedia
@@ -186,7 +186,7 @@ describe("LightboxMedia progressive reveal", () => {
       />,
     );
 
-    await waitFor(() => expect(queryByText(/can't play/)).toBeNull());
+    await waitFor(() => expect(queryByText(/could not play here/)).toBeNull());
     expect(container.querySelector("video")).not.toBeNull();
   });
 });

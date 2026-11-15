@@ -163,14 +163,18 @@ export class PhotosDownloadError extends Error {}
 
 export function downloadFailureDescription(error) {
   if (error instanceof PhotosDownloadError) return error.message;
+  // apiFetch turns a failed request into an ApiError (status 0 when Luna can't be reached).
+  if (typeof error?.status === "number") {
+    return apiErrorMessage(error, "Luna couldn't prepare that download. Try again.");
+  }
   if (error?.name === "NotAllowedError" || error?.name === "SecurityError") {
-    return "Luna couldn't open a save location. Try the download again.";
+    return "This browser couldn't open a save location. Try the download again.";
   }
   if (error?.name === "QuotaExceededError") {
-    return "Luna couldn't save the file. Check that the chosen save location has enough space.";
+    return "This device couldn't save the file. Make sure the chosen save location has enough space.";
   }
   if (error?.name === "TypeError") {
-    return "Luna couldn't save the file. Check this Luna's connection and try again.";
+    return "The download stopped. Check this device's connection to Luna and try again.";
   }
   return "Luna couldn't save the selected photos. Try again.";
 }
@@ -1349,7 +1353,7 @@ export default function PhotosPage() {
         (d) => d.state === "as_is" && d.mount_point,
       ) || (drives.data || [])[0];
       if (!writable?.id) {
-        setError("Luna has no drive to put photos on yet.");
+        setError("Luna has no drive for photos yet. Add a drive in Files first.");
         return;
       }
       fileOps.startUpload({
@@ -1707,7 +1711,7 @@ export default function PhotosPage() {
           title={isAdmin ? "No drives yet" : "No photos you can open yet"}
           description={
             isAdmin
-              ? "Plug in a drive and add it — Luna checks it for photos automatically."
+              ? "Plug in a drive and add it in Files. Luna then looks for photos on it automatically."
               : "Ask an Admin to share a drive, folder, or album with photos. Luna will show them here once you have access."
           }
           action={
@@ -2017,7 +2021,7 @@ export default function PhotosPage() {
         <EmptyState
           icon={ImageIcon}
           title="Shared photos are in Albums"
-          description="An Admin shared albums with you. Open albums to see them."
+          description="Someone shared albums with you. Open Albums to see them."
           action={
             <Button variant="primary" onClick={() => handleSegmentChange("albums")}>
               Open albums
@@ -2193,7 +2197,7 @@ export default function PhotosPage() {
         <EmptyState
           icon={ImageIcon}
           title="This album is empty"
-          description="Add photos from the library, or share the album so others can contribute."
+          description="Add photos from the library, or share the album so others can add photos."
         />
       )}
       {filtersEmpty && (
@@ -2411,7 +2415,7 @@ export default function PhotosPage() {
         }}
         onConfirm={() => trashAlbum && deleteAlbum.mutate(trashAlbum)}
         title="Delete album?"
-        message={`Delete "${trashAlbum?.name || "this album"}"? Photos stay in your library — only this album is removed.`}
+        message={`Delete "${trashAlbum?.name || "this album"}"? Its photos stay in your library. People you shared it with lose access to the album.`}
         variant="danger"
         confirmLabel="Delete album"
         icon={Trash2}
@@ -2432,8 +2436,8 @@ export default function PhotosPage() {
           setAlbumView(lockedGate);
           setLockedGate(null);
         }}
-        title="Private album"
-        message={`"${lockedGate?.name || "This album"}" is marked private. Open it for this browser session?`}
+        title="Locked album"
+        message={`"${lockedGate?.name || "This album"}" is locked, so nobody can add or remove its photos. Open it?`}
         confirmLabel="Open album"
       />
 
@@ -2739,7 +2743,7 @@ function AlbumsPanel({
                   )}
                   {album.locked && (
                     <span className="absolute top-2 right-2 rounded-pill surface-primary p-1.5">
-                      <Lock size={14} aria-label="Private album" />
+                      <Lock size={14} aria-label="Locked album" />
                     </span>
                   )}
                 </div>

@@ -154,7 +154,7 @@ function PublicShareSession() {
           return;
         }
         if (res.status === 410) {
-          if (alive) setError("This link has expired. Ask the person who sent it to make a new one.");
+          if (alive) setError("This link expired or was removed. Ask the person who sent it for a new link.");
           return;
         }
         if (res.status === 404) {
@@ -237,17 +237,22 @@ function PublicShareSession() {
     } else {
       const picked = isAlbum ? input.files.filter((f) => isMediaName(f.name)) : input.files;
       if (picked.length < input.files.length) {
+        // Same as a drop: skip what doesn't belong and upload the rest.
         setUploadError("Only photos and videos can go in this album.");
-        return;
+        if (!picked.length) return;
       }
       const files = picked.filter((f) => f.size > 0);
+      // Only the picker skips empty files; a drop uploads them. Say what
+      // happened here, not a rule that the drop path breaks.
       if (!files.length) {
-        if (picked.length) setUploadError("Luna can't add empty files.");
+        if (picked.length) {
+          setUploadError(`Skipped ${picked.length} empty file${picked.length === 1 ? "" : "s"}. Nothing to upload.`);
+        }
         return;
       }
       if (files.length < picked.length) {
         const skipped = picked.length - files.length;
-        setUploadError(`Skipped ${skipped} empty file${skipped === 1 ? "" : "s"} — Luna can't add empty files.`);
+        setUploadError(`Skipped ${skipped} empty file${skipped === 1 ? "" : "s"}.`);
       }
       request = { files };
     }

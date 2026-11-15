@@ -74,7 +74,7 @@ export function GeoViewer({ driveId, path }) {
         return (
           <pre className="rounded-large-element surface-primary border-2 border-secondary/20 p-4 max-h-[65vh] overflow-auto font-mono text-sm whitespace-pre-wrap break-words">
             {pretty.slice(0, 200_000)}
-            {pretty.length > 200_000 ? "\n… (truncated)" : ""}
+            {pretty.length > 200_000 ? "\n\nShowing the first 200,000 characters. Download the file to see the rest." : ""}
           </pre>
         );
       }}

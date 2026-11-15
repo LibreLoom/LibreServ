@@ -219,7 +219,7 @@ export function capsHint(caps, { album = false, file = false, form = false } = {
           ? "Opens, edits, and replaces this file."
           : "Opens, edits, uploads, renames, moves, and deletes files.";
       case "respond":
-        return "People fill in the form — they never see other answers or the file itself.";
+        return "People fill in the form. They never see other answers or the file itself.";
       default:
         return "";
     }

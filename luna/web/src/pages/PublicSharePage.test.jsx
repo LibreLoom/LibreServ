@@ -224,7 +224,7 @@ describe("PublicSharePage", () => {
     renderPage();
     const picker = await screen.findByLabelText("Add files");
     fireEvent.change(picker, { target: { files: [new File([], "empty.txt")] } });
-    expect(await screen.findByText("Luna can't add empty files.")).toBeInTheDocument();
+    expect(await screen.findByText("Skipped 1 empty file. Nothing to upload.")).toBeInTheDocument();
   });
 
   it("shows upload and New controls on view+upload folder links", async () => {

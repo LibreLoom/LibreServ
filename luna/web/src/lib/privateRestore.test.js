@@ -369,7 +369,7 @@ describe("privateRestore", () => {
       return baseGet(path);
     });
 
-    await expect(restorePrivateFromPhrase(phrase, ctx)).rejects.toThrow("private backup list changed");
+    await expect(restorePrivateFromPhrase(phrase, ctx)).rejects.toThrow("complete, current list of your private backups");
     expect(restoreBodies()).toHaveLength(64);
   }, 60_000);
 

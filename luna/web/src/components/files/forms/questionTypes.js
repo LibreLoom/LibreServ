@@ -81,7 +81,7 @@ export const QUESTION_TYPES = {
   short_text: {
     label: "Short answer",
     icon: Type,
-    hint: "A single line of text — a name, an email, a place.",
+    hint: "One line of text, like a name or a place.",
     summary: "list",
   },
   long_text: {
@@ -128,7 +128,7 @@ export const QUESTION_TYPES = {
   number: {
     label: "Number",
     icon: Hash,
-    hint: "A number — how many people, a price, an age. Results show the total.",
+    hint: "A number, like a count, a price, or an age. Results show the total and the average.",
     summary: "number",
   },
   email: {

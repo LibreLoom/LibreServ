@@ -57,7 +57,7 @@ describe("FileBrowser", () => {
     );
     renderBrowser();
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("You can use Universal Search to try and find it.");
+    expect(alert).toHaveTextContent("Use Universal Search to look for it.");
     await userEvent.click(within(alert).getByRole("button", { name: "Universal Search" }));
     expect(seen).toHaveBeenCalled();
     window.removeEventListener("luna:open-file-search", seen);
@@ -113,7 +113,7 @@ describe("FileBrowser", () => {
       )),
     );
     renderBrowser();
-    expect(await screen.findByRole("alert")).toHaveTextContent(/unplugging it/i);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/unplug it/i);
   });
 
   it("lists folders and files with a current-path label", async () => {
@@ -2001,11 +2001,11 @@ describe("FileBrowser sorting and filtering", () => {
     const dialog = await screen.findByRole("dialog");
     expect(await within(dialog).findByText("≥ 12.5 KB")).toBeInTheDocument();
     expect(
-      within(dialog).getByText(/at least 12,500 bytes/),
+      within(dialog).getByText(/At least 12,500 bytes/),
     ).toBeInTheDocument();
     expect(within(dialog).getByText("8+")).toBeInTheDocument();
     // Never claims the folder was too big to count.
-    expect(within(dialog).queryByText(/too much inside to count the total size/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/too (much|large|big)/)).not.toBeInTheDocument();
   });
 
   it("shows the view controls in picker mode without the select-all checkbox", async () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import DriveStatusPill from "./DriveStatusPill.jsx";
 
@@ -85,6 +85,26 @@ describe("DriveStatusPill", () => {
     render(<DriveStatusPill drive={{ state: "missing" }} health={FAILING} />);
     expect(screen.getByText("Unplugged")).toBeInTheDocument();
     expect(screen.queryByText("Failing")).not.toBeInTheDocument();
+  });
+
+  it("folds the drive's actions into the status pill as one layered pill", () => {
+    const onActions = vi.fn();
+    render(
+      <DriveStatusPill
+        drive={{ state: "as_is", label: "Family photos" }}
+        onActions={onActions}
+      />,
+    );
+    expect(screen.getByText("Ready")).toBeInTheDocument();
+    const more = screen.getByRole("button", { name: "Actions for Family photos" });
+    more.click();
+    expect(onActions).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the status on its own when there are no actions", () => {
+    render(<DriveStatusPill drive={{ state: "as_is", label: "Family photos" }} />);
+    expect(screen.getByText("Ready")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("renders no Problem pill for any state", () => {

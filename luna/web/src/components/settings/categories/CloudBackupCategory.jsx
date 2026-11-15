@@ -162,7 +162,7 @@ export default function CloudBackupCategory() {
     },
     onError: (err) => {
       haptic("error");
-      setError(apiErrorMessage(err));
+      setError(apiErrorMessage(err, "Couldn't start the cloud backup. Try again."));
     },
     onSettled: (_data, _err, { id }) => {
       setPending((prev) => {
@@ -187,7 +187,7 @@ export default function CloudBackupCategory() {
     },
     onError: (err) => {
       haptic("error");
-      setError(apiErrorMessage(err));
+      setError(apiErrorMessage(err, "Couldn't check the cloud backup. Try again."));
     },
     onSettled: (_data, _err, id) => {
       setPending((prev) => {
@@ -209,7 +209,7 @@ export default function CloudBackupCategory() {
     onError: (err) => {
       haptic("error");
       setDeleting(null);
-      setError(apiErrorMessage(err));
+      setError(apiErrorMessage(err, "Couldn't delete the cloud backup. Try again."));
     },
   });
 
@@ -224,7 +224,7 @@ export default function CloudBackupCategory() {
           headerActions={
             <InfoHint
               label="What cloud backup means"
-              content="An off-site copy of your latest files, kept with Luna Connect. It keeps the latest copy, plus about one older copy from each of the last day, week and month."
+              content="Luna Connect keeps the latest copy and about one older copy from each of the last day, week, and month."
             />
           }
         >

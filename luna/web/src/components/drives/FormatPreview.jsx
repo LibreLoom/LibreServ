@@ -22,7 +22,7 @@ function PartContents({ part }) {
   return (
     <div className="space-y-2">
       <p className="text-sm">
-        {count(part.folders, "folder", "folders")}, {count(part.files, "file", "files")}
+        At the top level: {count(part.folders, "folder", "folders")}, {count(part.files, "file", "files")}
         {part.used_bytes != null ? `, ${formatBytes(part.used_bytes)} used` : ""}
       </p>
       {shown.length > 0 && (

@@ -569,15 +569,12 @@ function EditorSession({
         onClose={onClose}
       >
         <p>
-          Your file is fine — this Luna just doesn't have its diagram editor.
-          Download it to keep working in another app.
+          Your file did not change, but this Luna doesn't have its diagram editor.
+          Download the file to keep working in another app.
         </p>
         <PageNotice variant="info" surface="secondary" className="mt-3">
           Technical details: Luna's <InlinePill>draw.io</InlinePill>{" "}
-          pack is missing or incomplete. It lives in the{" "}
-          <InlinePill>drawio</InlinePill> folder inside Luna's data
-          directory (<InlinePill>/var/lib/luna/drawio</InlinePill>{" "}
-          on installed devices). Add the pack and restart Luna.
+          pack is missing or incomplete. Every Luna update includes this pack.
         </PageNotice>
       </OfficeIssueCard>
     );
@@ -606,7 +603,7 @@ function EditorSession({
         <iframe
           ref={iframeRef}
           src={drawioEmbedUrl({ dark: resolvedTheme === "dark", canWrite })}
-          title={`Diagram editor — ${name}`}
+          title={`Diagram editor: ${name}`}
           className="h-full min-h-0 w-full flex-1 border-0 surface-primary"
           sandbox="allow-scripts allow-same-origin allow-modals allow-popups allow-downloads allow-forms"
           allow="clipboard-read; clipboard-write"

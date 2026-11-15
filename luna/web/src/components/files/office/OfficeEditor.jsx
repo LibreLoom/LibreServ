@@ -50,16 +50,12 @@ export default function OfficeEditor({
         onClose={onClose}
       >
         <p>
-          Your file is fine — this Luna just doesn't have its office editor.
-          Download it to keep working in another office app.
+          Your file did not change, but this Luna doesn't have its office editor.
+          Download the file to keep working in another office app.
         </p>
         <PageNotice variant="info" surface="secondary" className="mt-3">
           Technical details: Luna's <InlinePill>EuroOffice</InlinePill>{" "}
-          pack is missing or incomplete. It normally arrives with Luna setup and
-          lives in the{" "}
-          <InlinePill>eurooffice</InlinePill> folder inside Luna's data
-          directory (<InlinePill>/var/lib/luna/eurooffice</InlinePill>{" "}
-          on installed devices). Add the pack and restart Luna.
+          pack is missing or incomplete. Every Luna update includes this pack.
         </PageNotice>
       </OfficeIssueCard>
     );

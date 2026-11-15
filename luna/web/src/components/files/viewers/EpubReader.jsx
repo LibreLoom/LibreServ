@@ -158,8 +158,7 @@ export default function EpubReader({ bytes, driveId, path, fill = false }) {
       } catch (err) {
         if (cancelled) return;
         setError(
-          "Luna couldn't open this book. It may be damaged or not a real EPUB file — " +
-            "try downloading it and opening it in a reader app on your device.",
+          "Luna couldn't open this book. It may be damaged or not an EPUB file.",
         );
         setPhase("error");
         console.warn(err);
@@ -369,7 +368,7 @@ export default function EpubReader({ bytes, driveId, path, fill = false }) {
         </Button>
         <div className="min-w-0 flex-1">
           <p className={`truncate text-center text-xs ${textTone}`}>
-            {progress.label || "—"}
+            {progress.label || " "}
           </p>
           <div
             className="mt-1 h-1 w-full overflow-hidden rounded-pill bg-current/20"

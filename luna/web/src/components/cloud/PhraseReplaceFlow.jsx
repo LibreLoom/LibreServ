@@ -23,7 +23,7 @@ const CONNECT_NOTE =
 /** Private-history lines for the lost flow (plan 4.3): without the old phrase, Luna can't keep them. */
 const LOST_PRIVATE_LINES = {
   safe: "Luna keeps your older private items for 30 days in case you find your phrase, then removes them.",
-  exposed: "Luna removes your older private items now.",
+  exposed: "Luna removes your older private items at its next cloud backup, usually within 6 hours.",
 };
 
 /**
@@ -221,7 +221,7 @@ export default function PhraseReplaceFlow({
         confirmLabel="Continue"
       >
         <div className="space-y-2">
-          <p className="text-primary text-sm">Private items backed up with your old phrase can't be opened anymore.</p>
+          <p className="text-primary text-sm">Your new phrase can't open private items backed up with your old phrase.</p>
           <p className="text-primary text-sm">Your shared cloud backups stay open to you with the new phrase.</p>
         </div>
       </ConfirmModal>

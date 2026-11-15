@@ -358,7 +358,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const removeOldCopies = useMutation({
     mutationFn: () => deleteJson("/api/v1/private-backups/old-copies"),
     onSuccess: () => {
-      addToast({ type: "success", message: "Older versions will be removed" });
+      addToast({ type: "success", message: "Luna will remove the older versions." });
       setConfirmingOldCopies(false);
       setError(null);
       queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
@@ -380,7 +380,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
         title={
           <span className="inline-flex items-center gap-2">
             Back up
-            <InfoHint content="Keeps copies on other drives plugged into Luna, and in the cloud through Luna Connect. Each file on a drive keeps its latest version plus up to 3 older ones from the past month, and deleted files are kept for 30 days." />
+            <InfoHint content="On other drives, Luna keeps the latest version of each file and up to 3 older ones from the past month. It keeps deleted files for 30 days." />
           </span>
         }
         onClose={onClose}
@@ -556,7 +556,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                   <InfoHint
                     surface="primary"
                     label="What cloud backup means"
-                    content="An off-site copy of your latest files, kept with Luna Connect. It keeps the latest copy, plus about one older copy from each of the last day, week and month. Cloud backup costs $8 per terabyte each month."
+                    content="Luna Connect keeps the latest copy and about one older copy from each of the last day, week, and month. Cloud backup costs $8 per terabyte each month."
                   />
                 }
               >

@@ -318,7 +318,7 @@ describe("replacePhrase", () => {
     sealHooks.corrupt = true;
     try {
       await expect(replacePhrase({ ...common, proof: { oldEntropy }, exposed: false })).rejects.toThrow(
-        "Your phrase was not changed.",
+        "Your phrase did not change, and your old phrase still works.",
       );
     } finally {
       sealHooks.corrupt = false;
@@ -371,7 +371,7 @@ describe("replacePhrase", () => {
 
   it("stops the save when the scopes cannot be read: no PUT, so no private scope is retired by mistake", async () => {
     const { calls } = routePhrase({
-      "GET /api/v1/cloud/phrase/scopes": [500, { error: "down" }],
+      "GET /api/v1/cloud/phrase/scopes": [500, {}],
       "POST /api/v1/cloud/phrase/challenge": challengeReply,
       "PUT /api/v1/cloud/phrase": [200, { set: true, set_at: 1 }],
     });
@@ -440,7 +440,7 @@ describe("splitPhraseText", () => {
   });
 
   it("reads only the numbered lines of the downloaded file", () => {
-    const file = "Luna recovery phrase\n\n1. abandon\n2. ability\n3. able\n\nKeep these 3 words somewhere safe. Anyone with them can open your cloud backups.\n";
+    const file = "Luna recovery phrase\n\n1. abandon\n2. ability\n3. able\n\nKeep these 3 words somewhere safe and private. They open your cloud backups.\n";
     expect(splitPhraseText(file)).toEqual(["abandon", "ability", "able"]);
   });
 

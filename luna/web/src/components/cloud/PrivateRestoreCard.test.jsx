@@ -133,11 +133,11 @@ describe("PrivateRestoreCard", () => {
     await waitFor(() => expect(restorePrivateFromPhrase).toHaveBeenCalled());
     const options = restorePrivateFromPhraseMock.mock.calls[0][1];
     expect(options.signal).toBeInstanceOf(AbortSignal);
-    expect(await screen.findByText("Restoring backup 1 of 2")).toBeInTheDocument();
+    expect(await screen.findByText("Restoring backup version 1 of 2")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Stop restore" }));
     expect(await screen.findByText(
-      "Restore stopped. Some private versions may already be back; you can safely try again.",
+      "Restore stopped. Some private versions may already be back. You can safely try again.",
     )).toBeInTheDocument();
     expect(screen.queryByText(/Found \d+ private version/)).not.toBeInTheDocument();
   });

@@ -387,7 +387,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
     {
       id: "display_name",
       question: "What's your name?",
-      hint: "Shown on this Luna when you sign in. You can skip this if you like.",
+      hint: "Luna shows this name after you sign in. You can skip it.",
       name: "display_name",
       type: "text",
       placeholder: "e.g. Alex",
@@ -398,7 +398,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
     {
       id: "username",
       question: "Pick a username",
-      hint: "How you sign in — letters, numbers, dots, dashes, or underscores.",
+      hint: "You sign in with this. Use 3 to 32 letters, numbers, dots, dashes, or underscores.",
       name: "username",
       type: "text",
       placeholder: "alex",
@@ -422,7 +422,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
     {
       id: "confirm_password",
       question: "Confirm your password",
-      hint: "Re-enter the password you just chose.",
+      hint: "Type the same password again.",
       name: "confirm_password",
       type: "password",
       placeholder: "Re-enter your password",
@@ -434,10 +434,10 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
     authFields.push({
       id: "setup_secret",
       question: "Your device token",
-      hint: "Paste the device token from connect.luna.libreloom.org after you named this Luna. It confirms you finished setup there, so nobody else on the internet can create this first login.",
+      hint: "Use the device token from the quick-start guide or from Luna Connect. It proves you own this Luna, so nobody else on the internet can create the first account.",
       name: "setup_secret",
       type: "text",
-      placeholder: "Paste the device token from Luna Connect",
+      placeholder: "Paste or type the device token",
       autoComplete: "off",
       valid: setupSecretOk,
     });
@@ -610,10 +610,10 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
         {authSubStep === 0 && (
           <div className="mt-2 space-y-2">
             <p className="text-primary text-sm leading-relaxed font-sans">
-              You&apos;re creating the first Admin account. An Admin can access every file on this Luna.
+              This is the first Admin account. An Admin manages people, drives, and settings.
             </p>
             <p className="text-primary text-sm leading-relaxed font-sans">
-              Later, you&apos;ll be able to add users & restrict their access to only certain drives and folders.
+              Later, you can add people and choose which drives and folders each person can open.
             </p>
           </div>
         )}
@@ -809,7 +809,7 @@ function NameStep({ initialName, onFinish }) {
       <div className="mb-8">
         <h2 className="font-mono text-3xl font-normal text-primary">Name your Luna</h2>
         <p className="text-primary text-sm mt-2">
-          This is the name you&rsquo;ll see when you open Luna. If you ever have two, each gets its own name.
+          You see this name when you open Luna. Give each Luna its own name.
         </p>
       </div>
 
@@ -897,7 +897,7 @@ function DoneStep({ name, onGoDashboard }) {
         {label} is ready.
       </h2>
       <p className="text-primary text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
-        Now plug in a USB drive. Luna will notice and won&rsquo;t touch a thing until you say so.
+        Now plug in a USB drive. Luna does not change the drive until you tell it to.
       </p>
 
       {/* Discovery paths — where to find Luna after setup */}
@@ -1086,10 +1086,13 @@ export default function SetupPage() {
         } catch (retryErr) {
           const status = retryErr?.status ?? err?.status;
           const said = retryErr?.message || err?.message;
+          // No status means the request never reached Luna.
           setSaveError(
             status && status >= 400 && status < 500 && said
               ? said
-              : "Luna couldn't save your setup progress. Check your connection and try again.",
+              : status
+                ? "Luna couldn't save your setup progress. Try again."
+                : "Luna couldn't save your setup progress. Check your connection and try again.",
           );
           savingRef.current = false;
           return;

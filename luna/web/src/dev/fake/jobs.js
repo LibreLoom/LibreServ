@@ -20,11 +20,11 @@ import {
 } from "./fsmodel.js";
 
 const MAX_QUEUED_PER_USER = 4;
-const UNKNOWN_DRIVE = "Luna doesn't know one of these drives. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.";
+const UNKNOWN_DRIVE = "Luna can't find one of these drives. Make sure it is plugged in, or unplug it and plug it back in.";
 const BAD_PATH = "Luna can't use that path.";
 const GENERIC = "Luna couldn't finish this job. Check the drives and try again.";
 const REMOVED_PARTIAL_COPY = "Luna removed the partial copy.";
-const NOTHING_MOVED = "Nothing was moved. Your files are still where they were.";
+const NOTHING_MOVED = "Nothing was moved.";
 
 /** Would this carry an ordinary item out of its private folder (jobs.rs `broadens_access`)? */
 export function broadensAccess(world, fromDrive, fromPath, toDrive, toPath) {
@@ -58,7 +58,7 @@ export function enqueueJob(world, user, body) {
   const fromTrash = isTrashPath(fromPath);
 
   const need = kind === "move" || fromTrash ? CAP_EDIT : CAP_VIEW;
-  if (!hasCap(world, user, fromDrive, fromPath, need)) throw fail(403, "You don't have permission to copy from here.");
+  if (!hasCap(world, user, fromDrive, fromPath, need)) throw fail(403, need === CAP_EDIT ? "You don't have permission to move or restore items from here." : "You don't have permission to copy from here.");
   if (!hasCap(world, user, toDrive, toPath, CAP_UPLOAD)) throw fail(403, "You don't have permission to save here.");
   if (!body.confirm_broaden && broadensAccess(world, fromDrive, fromPath, toDrive, toPath)) {
     throw fail(409, "This is in a private folder. Moving or copying it to this folder lets everyone with access to the destination open it.", "broadens_access");
@@ -222,7 +222,7 @@ export function visibleJobs(world, user) {
 
 export function findJob(world, user, id) {
   const job = world.jobs.find((j) => j.id === id);
-  if (!job || !(isAdmin(user) || job.user_id === user.id)) throw fail(404, "Luna doesn't know this job.");
+  if (!job || !(isAdmin(user) || job.user_id === user.id)) throw fail(404, "Luna can't find this copy or move.");
   return job;
 }
 

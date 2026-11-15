@@ -141,6 +141,10 @@ export function backupHeadline(rows) {
     const paused = rows.filter((b) => b.status === "active" && b.paused === "locked").length;
     if (paused === 1) return "1 backup is paused";
     if (paused > 1) return `${paused} backups are paused`;
+    // A new backup is not stale for its first day, but it has nothing backed up yet.
+    const waiting = rows.filter((b) => b.status === "active" && b.paused !== "locked" && !b.last_ok_at).length;
+    if (waiting === 1) return "1 backup has no copy yet";
+    if (waiting > 1) return `${waiting} backups have no copy yet`;
     return "All backed up";
   }
   if (count === 1) return "1 backup needs a look";
@@ -160,7 +164,8 @@ export function lastTestedLine(rows, now = Date.now()) {
     .map((r) => Number(r.last_checked_at));
   if (checks.length === 0) return null;
   const ago = formatRecentAgo(Math.max(...checks) * 1000, now);
-  const when = ago === "Just now" ? "just now" : ago;
+  // "2 days ago", or "on Mar 4" once it is a date.
+  const when = ago === "Just now" ? "just now" : /ago$/.test(ago) ? ago : `on ${ago}`;
   return `Copies last tested ${when}`;
 }
 

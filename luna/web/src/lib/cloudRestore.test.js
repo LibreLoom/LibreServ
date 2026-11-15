@@ -171,7 +171,7 @@ describe("restoreFromPhrase", () => {
     savePhraseMock.mockRejectedValueOnce(new Error("network"));
 
     await expect(restoreFromPhrase(phrase, { ...CTX, phraseSet: false })).rejects.toThrow(
-      "Your backups are back, but saving your recovery phrase to this account failed.",
+      "Your backups are back, but Luna could not save your recovery phrase.",
     );
   });
 

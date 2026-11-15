@@ -70,16 +70,16 @@ describe("GeozoneMap component", () => {
     const drawBtn = screen.getByRole("radio", { name: /Draw area/i });
 
     // Initial mode when value is null is draw
-    expect(screen.getByText(/Click & drag or drag with finger to select an area/i)).toBeInTheDocument();
+    expect(screen.getByText(/Drag on the map to select an area/i)).toBeInTheDocument();
 
     await user.click(panBtn);
     expect(screen.getByText(/Drag to move around the map/i)).toBeInTheDocument();
 
     await user.click(drawBtn);
-    expect(screen.getByText(/Click & drag or drag with finger to select an area/i)).toBeInTheDocument();
+    expect(screen.getByText(/Drag on the map to select an area/i)).toBeInTheDocument();
   });
 
-  it("renders Redraw and Clear zone buttons when value is provided", async () => {
+  it("renders Redraw and Clear area buttons when value is provided", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     renderMap(
@@ -90,7 +90,7 @@ describe("GeozoneMap component", () => {
     );
 
     expect(screen.getByRole("button", { name: /Redraw/i })).toBeInTheDocument();
-    const clearBtn = screen.getByRole("button", { name: /Clear zone/i });
+    const clearBtn = screen.getByRole("button", { name: /Clear area/i });
     expect(clearBtn).toBeInTheDocument();
 
     await user.click(clearBtn);
@@ -108,6 +108,6 @@ describe("GeozoneMap component", () => {
 
     const redrawBtn = screen.getByRole("button", { name: /Redraw/i });
     await user.click(redrawBtn);
-    expect(screen.getByText(/Click & drag or drag with finger to select an area/i)).toBeInTheDocument();
+    expect(screen.getByText(/Drag on the map to select an area/i)).toBeInTheDocument();
   });
 });

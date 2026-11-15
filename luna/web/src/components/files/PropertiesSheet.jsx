@@ -227,7 +227,7 @@ function TrashDetails({ driveLabel, totals }) {
         <IconCircle icon={Trash2} size="lg" variant="default" className="shrink-0" />
         <p className="min-w-0 text-sm text-primary">
           Files and folders deleted from {driveLabel}. They stay here until
-          they&apos;re restored or deleted for good.
+          someone restores them or deletes them for good.
         </p>
       </div>
 
@@ -238,7 +238,7 @@ function TrashDetails({ driveLabel, totals }) {
             {empty ? "Inside" : "Taking up"}
           </div>
           {empty ? (
-            <p className="mt-1 text-sm text-secondary">Nothing here — the trash is empty.</p>
+            <p className="mt-1 text-sm text-secondary">The trash is empty.</p>
           ) : (
             <>
               <p className="mt-1 font-mono text-3xl leading-none text-secondary">
@@ -378,7 +378,7 @@ function FilePropertiesSheet({
                   {data.writable ? (
                     <>
                       <Pencil size={ICON_SIZE.xs} aria-hidden="true" />
-                      <TermHint content="You can rename, move, or delete this item.">
+                      <TermHint content={inTrash ? "You can restore this item." : "You can rename, move, or delete this item."}>
                         View and change
                       </TermHint>
                     </>
@@ -401,7 +401,7 @@ function FilePropertiesSheet({
               {hidden ? (
                 <Pill variant="warning">
                   <EyeOff size={ICON_SIZE.xs} aria-hidden="true" />
-                  <TermHint content="Its name starts with a dot, so it stays out of the way.">
+                  <TermHint content="Its name starts with a dot. The file list shows it only when you choose Show hidden files.">
                     Hidden
                   </TermHint>
                 </Pill>
@@ -441,7 +441,7 @@ function FilePropertiesSheet({
                   </div>
                   {emptyFolder ? (
                     <p className="mt-1 text-sm text-secondary">
-                      Nothing inside — this folder is empty.
+                      This folder is empty.
                     </p>
                   ) : (
                     <>
@@ -451,7 +451,7 @@ function FilePropertiesSheet({
                       <p className="mt-2 text-xs text-secondary">
                         {totalsComplete
                           ? `${Number(totals.bytes).toLocaleString()} bytes altogether`
-                          : `at least ${Number(totals.bytes).toLocaleString()} bytes — there's too much inside to count it all`}
+                          : `At least ${Number(totals.bytes).toLocaleString()} bytes. Luna stopped counting before the end.`}
                       </p>
                       <div className="mt-3 flex gap-2">
                         <MiniStat
@@ -468,7 +468,7 @@ function FilePropertiesSheet({
                           <MiniStat
                             icon={Link2}
                             value={totalsComplete ? totals.other : `${totals.other}+`}
-                            label={totals.other === 1 && totalsComplete ? "link" : "links"}
+                            label={totals.other === 1 && totalsComplete ? "other item" : "other items"}
                           />
                         ) : null}
                       </div>
@@ -485,7 +485,7 @@ function FilePropertiesSheet({
                     <p className="mt-1 text-sm text-secondary">{childrenLabel(data.children)}</p>
                   ) : (
                     <p className="mt-1 text-sm text-secondary">
-                      Nothing inside — this folder is empty.
+                      This folder is empty.
                     </p>
                   )}
                 </>

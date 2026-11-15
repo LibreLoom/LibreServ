@@ -281,7 +281,7 @@ export default function AppearanceCategory() {
   return (
     <div className="space-y-4" data-slot="appearance-category">
       <SettingsCard icon={Palette} title="Theme" padding={false} index={0}>
-        <SettingsRow label="Color scheme" description="Choose light, dark, or follow system preference" stack>
+        <SettingsRow label="Color scheme" description="Choose light, dark, or your device's setting." stack>
           <SegmentedControl
             options={THEME_OPTIONS}
             value={theme}
@@ -360,19 +360,19 @@ export default function AppearanceCategory() {
                     </div>
                     <div className="space-y-2">
                       <ColorInput
-                        label="Primary (Dark)"
+                        label="Primary (dark)"
                         description="Background in dark mode"
                         value={darkColors?.primary || "#000000"}
                         onChange={(v) => handleDarkColorChange("primary", v)}
                       />
                       <ColorInput
-                        label="Secondary (Dark)"
+                        label="Secondary (dark)"
                         description="Text in dark mode"
                         value={darkColors?.secondary || "#ffffff"}
                         onChange={(v) => handleDarkColorChange("secondary", v)}
                       />
                       <ColorInput
-                        label="Accent (Dark)"
+                        label="Accent (dark)"
                         description="Highlights in dark mode"
                         value={darkColors?.accent || "#767676"}
                         onChange={(v) => handleDarkColorChange("accent", v)}

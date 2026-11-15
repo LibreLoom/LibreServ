@@ -163,12 +163,12 @@ describe("AllBackupsModal", () => {
     });
     const maxGroup = (await screen.findByRole("heading", { name: "You" })).closest("section");
     expect(await within(maxGroup).findByText("Private items")).toBeInTheDocument();
-    expect(within(maxGroup).getByText("1 needs a look")).toBeInTheDocument();
-    expect(within(maxGroup).getByText("Yours. Open a private folder's shield to see each one.")).toBeInTheDocument();
+    expect(within(maxGroup).getByText("Needs a look")).toBeInTheDocument();
+    expect(within(maxGroup).getByText("Yours. To see each backup, open the private folder and select Back up.")).toBeInTheDocument();
 
     const anaGroup = screen.getByRole("heading", { name: "ana" }).closest("section");
     expect(within(anaGroup).getByText("All backed up")).toBeInTheDocument();
-    expect(within(anaGroup).getByText("Only ana can see these.")).toBeInTheDocument();
+    expect(within(anaGroup).getByText("Only ana can open these items.")).toBeInTheDocument();
     // Private items are never listed by name, so no private item row text appears.
     expect(within(anaGroup).queryByText("Private")).not.toBeInTheDocument();
   });

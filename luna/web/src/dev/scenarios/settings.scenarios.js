@@ -226,7 +226,7 @@ export default [
     title: "Creating a token with a blank name",
     url: "/settings#security",
     seed: (w) => { w.tokens = [{ id: "t1", name: "Phone app", created_at: at(DAY), last_used_at: null, expires_at: null }]; },
-    check: ["An empty name is refused with \"Give this device a name between 1 and 80 characters.\" inside the dialog", "Luna allows two tokens with the same name: 'Phone app' again simply adds a second one"],
+    check: ["An empty name is refused with \"Give this access token a name between 1 and 80 characters.\" inside the dialog", "Luna allows two tokens with the same name: 'Phone app' again simply adds a second one"],
   },
   {
     id: "settings/tokens-load-fails",
@@ -278,7 +278,7 @@ export default [
     title: "Running a cloud backup fails",
     url: "/settings#luna_connect",
     seed: (w) => { w.connect = { enabled: true, connect_active: true, backup_unlocked: true }; w.connectActive = true; w.cloudBackups = [cloudBackup()]; },
-    faults: [{ match: "POST /api/v1/cloud/backups/*/run", mode: "502", message: "Luna Connect couldn't be reached. Check your internet connection and try again." }],
+    faults: [{ match: "POST /api/v1/cloud/backups/*/run", mode: "502", message: "Luna couldn't reach Luna Connect, or Luna Connect had a problem. Check your internet connection, then try again." }],
     check: ["Problem stays on the backup card, not a toast"],
   },
   {
@@ -390,7 +390,7 @@ export default [
       "The Connect note appears under it, with no older-private-items line under either answer",
       "After confirming the new phrase, the toast says 'Recovery phrase changed.' and the card shows 'Updating your cloud backups to the new phrase…'",
       "A last step 'Delete older private versions?' names earlier versions and files deleted from the drive that exist only in the cloud, and says Cancel keeps them and the old phrase may still open them",
-      "'Delete older versions' shows the toast 'Older private versions deleted.'; Cancel closes with nothing deleted",
+      "'Delete older versions' shows the toast 'Older private versions will be deleted.'; Cancel closes with nothing deleted",
     ],
   },
   {
@@ -401,7 +401,7 @@ export default [
     seed: (w) => setPhrase(w),
     check: [
       "'Get a new phrase' confirm names the private items that can't be opened",
-      "After 'Someone may have it', the private line says Luna removes your older private items now",
+      "After 'Someone may have it', the private line says Luna removes your older private items at its next cloud backup",
       "Asks for the Luna password, then the new phrase, then the toast 'New recovery phrase saved.'",
     ],
   },

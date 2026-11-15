@@ -34,7 +34,7 @@ describe("RemoteCategory", () => {
     expect(screen.getByText(/yourname/i)).toBeTruthy();
     expect(screen.getByText(/\.luna\.servers\.libreloom\.org/)).toBeTruthy();
     expect(
-      screen.getByText(/Pick a name on Luna Connect.*the address shows up here once it.s ready/i),
+      screen.getByText(/Pick a name on Luna Connect\. The address shows here when it is ready\./i),
     ).toBeTruthy();
 
     const cta = screen.getByRole("link", { name: /Open Luna Connect/i });
@@ -91,7 +91,7 @@ describe("RemoteCategory", () => {
               domain: "photos.luna.servers.libreloom.org",
               tunnel_active: false,
               tunnel_error:
-                "Remote access is set up, but the secure tunnel is not running yet. Luna will keep trying.",
+                "Remote access is set up, but it is not running yet. Luna will keep trying.",
             }),
             { status: 200, headers: { "Content-Type": "application/json" } },
           ),
@@ -102,7 +102,7 @@ describe("RemoteCategory", () => {
     expect(await screen.findByDisplayValue("https://photos.luna.servers.libreloom.org")).toBeTruthy();
     expect(
       screen.getByText(
-        /Remote access is set up, but the secure tunnel is not running yet\. Luna will keep trying\./i,
+        /Remote access is set up, but it is not running yet\. Luna will keep trying\./i,
       ),
     ).toBeTruthy();
     expect(screen.getByText("On")).toBeTruthy();

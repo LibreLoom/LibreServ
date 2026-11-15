@@ -85,7 +85,7 @@ export const dockTitle = {
 };
 
 export const text = {
-  connectionLost: "Connection lost. Trying again…",
+  connectionLost: "Upload interrupted. Trying again…",
   unreadable: "Your browser couldn't read this file from your device.",
   waitingForQueue: "Waiting for Luna to finish other copies…",
   starting: "Starting…",
@@ -113,7 +113,7 @@ export const failedFallback = {
   gallery: "Luna couldn't upload this file. Try again.",
   copy: "Luna couldn't copy this. Try again.",
   move: "Luna couldn't move this. Try again.",
-  "empty-trash": "Luna couldn't empty the trash. Try again.",
+  "empty-trash": "Luna couldn't empty Trash. Try again.",
   purge: "Luna couldn't delete this permanently. Try again.",
   "restore-backup": "Luna couldn't restore this from the backup. Try again.",
   trash: "Luna couldn't move this to Trash. Try again.",
@@ -308,7 +308,7 @@ export function opStatus(op) {
     case "empty-trash":
       if (running) return ["Emptying Trash on ", pill(folder || name)];
       if (state === "done") return ["Trash emptied"];
-      return ["Couldn't empty the trash"];
+      return ["Couldn't empty Trash"];
     case "restore-backup":
       if (running) return ["Restoring ", pill(name), " from a backup"];
       if (state === "done") return ["Restored as ", pill(name)];

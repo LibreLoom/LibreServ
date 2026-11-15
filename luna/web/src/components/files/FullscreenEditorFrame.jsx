@@ -334,7 +334,7 @@ export default function FullscreenEditorFrame({
       if (saved === false) {
         haptic("error");
         setSaveError(
-          "Couldn't save — another save is already in progress. Try again in a moment.",
+          "Couldn't save because another save is still running. Try again in a moment.",
         );
         return false;
       }

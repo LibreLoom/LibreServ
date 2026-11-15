@@ -89,12 +89,12 @@ test("keeps recovery instructions and section headings readable in light and dar
     await expectReadableText(skipLink);
 
     for (const locator of [
-      page.getByText("Put this file on a USB drive to set a new password when Luna starts. Your password never leaves this device."),
+      page.getByText("Put this file on a USB flash drive to set a new password when Luna starts. Your browser makes the file and does not send your password over the network."),
       page.getByRole("heading", { name: "Who is it for?" }),
       page.getByText("This Luna has a device token", { exact: true }),
       page.getByRole("heading", { name: "Device token" }),
       page.getByRole("heading", { name: "Set a new password" }),
-      page.getByText("The selected accounts will be signed out on their other devices."),
+      page.getByText("Luna signs the selected accounts out on all devices."),
       page.getByText("A recovery file does not change the password while Luna is already running."),
     ]) {
       await expectReadableText(locator);

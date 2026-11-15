@@ -160,7 +160,7 @@ export default [
   {
     id: "encryption/backup-to-plain-refused", area: A, title: "Back up a protected drive to a plain one", url: "/files",
     seed: (w) => { second(w); encryptDrive(w, "d1", { locked: false }); },
-    check: ["Open Back up on the protected drive and choose the plain Backup drive", "The sheet shows Luna's own message: a backup of an encrypted drive has to go on an encrypted drive", "No backup was created", "Protect the Backup drive first (Encryption → Protect), then the backup is accepted"],
+    check: ["Open Back up on the protected drive and choose the plain Backup drive", "The sheet shows Luna's own message: back up an encrypted drive only to an encrypted drive", "No backup was created", "Protect the Backup drive first (Encryption → Protect), then the backup is accepted"],
   },
   {
     id: "encryption/backup-to-locked-refused", area: A, title: "Back up to a locked drive", url: "/files",

@@ -18,10 +18,53 @@ function readCookie(name) {
     ?.slice(prefix.length) || "";
 }
 
+const UNREACHABLE = "Couldn't reach Luna. Check this device's connection and try again.";
+
+// A cancel is not a network failure, so "aborted" is not in this list.
 function isNetworkFailureMessage(raw) {
-  return /networkerror|failed to fetch|load failed|network request failed|fetch failed|aborted|econnrefused|econnreset/i.test(
+  return /networkerror|failed to fetch|load failed|network request failed|fetch failed|econnrefused|econnreset/i.test(
     String(raw || ""),
   );
+}
+
+/**
+ * The plain sentence for a failed request whose body gave no message
+ * (a proxy page, an empty body). It names what the status code means.
+ * @param {number} status
+ */
+export function statusMessage(status) {
+  if (status === 0) return UNREACHABLE;
+  if (status === 403) return "You don't have permission to do this.";
+  if (status === 404) return "Luna could not find this. It may have been moved or deleted.";
+  if (status === 408 || status === 504) return "Luna took too long to answer. Try again.";
+  if (status === 413) return "This is too large for Luna to accept.";
+  if (status === 429) return "Luna got too many requests. Wait a moment, then try again.";
+  if (status === 502 || status === 503) return "Luna is not answering right now. Wait a moment, then try again.";
+  if (status >= 500) return "Luna had a problem and could not finish this. Try again.";
+  return `Luna could not finish this request (error ${status}). Try again.`;
+}
+
+/** Statuses whose `statusMessage` names a real cause, so it beats a caller's generic fallback. */
+const STATUS_WITH_CAUSE = new Set([403, 404, 408, 413, 429, 502, 503, 504]);
+
+/**
+ * True when `statusMessage(status)` names a real cause (not found, too large, busy),
+ * so it should beat a caller's generic fallback.
+ * @param {number} status
+ */
+export function statusHasCause(status) {
+  return STATUS_WITH_CAUSE.has(status);
+}
+
+/**
+ * lunad's request guards (an expired page, a request from another website)
+ * answer 403 too. Callers that read 403 as "wrong password" or "wrong phrase"
+ * must check this first.
+ * @param {unknown} err
+ */
+export function isRequestGuardError(err) {
+  const code = /** @type {any} */ (err)?.code;
+  return code === "page_expired" || code === "cross_site";
 }
 
 /** Attach credentials + CSRF for cookie-authenticated mutations. */
@@ -74,10 +117,9 @@ export async function apiFetch(path, options = {}) {
       headers,
     });
   } catch (err) {
-    throw new ApiError(
-      0,
-      apiErrorMessage(err, "Couldn't reach Luna. Check this device's connection and try again."),
-    );
+    // The caller cancelled: keep the AbortError so it is not shown as a lost connection.
+    if (/** @type {any} */ (err)?.name === "AbortError") throw err;
+    throw new ApiError(0, UNREACHABLE);
   }
   if (res.status === 401) notifyUnauthorized(path);
   return res;
@@ -93,12 +135,14 @@ export async function getJsonAllowErrorStatus(path, options = {}) {
   const res = await apiFetch(path, { ...options, headers });
   const text = await res.text();
   if (!text) {
-    if (!res.ok) throw new ApiError(res.status, `Request failed (${res.status})`);
+    if (!res.ok) throw new ApiError(res.status);
     return {};
   }
   try {
     return JSON.parse(text);
   } catch {
+    // A failed status with a page that is not JSON (a proxy error page) says what the status means.
+    if (!res.ok) throw new ApiError(res.status);
     throw new ApiError(res.status, "Luna answered, but this page could not show the result. Refresh and try again.");
   }
 }
@@ -146,7 +190,7 @@ function xhrApiError(xhr) {
   } catch {
     data = undefined;
   }
-  return new ApiError(xhr.status, message || `Request failed (${xhr.status})`, code, data);
+  return new ApiError(xhr.status, message, code, data);
 }
 
 /**
@@ -216,7 +260,7 @@ export function putBinaryProgress(path, body, options = {}) {
 
     xhr.onerror = () => {
       options.signal?.removeEventListener("abort", onAbort);
-      reject(new ApiError(0, "Couldn't reach Luna. Check this device's connection and try again."));
+      reject(new ApiError(0, UNREACHABLE));
     };
 
     xhr.onabort = () => {
@@ -288,7 +332,7 @@ export function postFormProgress(path, formData, options = {}) {
 
     xhr.onerror = () => {
       options.signal?.removeEventListener("abort", onAbort);
-      reject(new ApiError(0, "Couldn't reach Luna. Check this device's connection and try again."));
+      reject(new ApiError(0, UNREACHABLE));
     };
 
     xhr.onabort = () => {
@@ -322,20 +366,27 @@ export async function deleteJson(path, options = {}) {
   return request(path, { ...options, method: "DELETE" });
 }
 
-/** Plain-language message from a failed request (never "Error: ..." / raw NetworkError). */
-export function apiErrorMessage(err, fallback = "Something went wrong. Try again.") {
-  if (!err) return fallback;
-  if (err instanceof ApiError && err.message) {
-    if (err.status === 0 || isNetworkFailureMessage(err.message)) {
-      return "Couldn't reach Luna. Check this device's connection and try again.";
-    }
-    return err.message;
+/**
+ * Plain-language message from a failed request (never "Error: ..." / raw NetworkError).
+ * The status decides "Couldn't reach Luna": only a request with no answer (status 0) gets it.
+ * When Luna answered without a message, the caller's `fallback` (which names the action) wins.
+ * @param {any} err
+ * @param {string} [fallback]
+ * @returns {string}
+ */
+export function apiErrorMessage(err, fallback) {
+  const plainFallback = fallback || "Something went wrong. Try again.";
+  if (!err) return plainFallback;
+  if (err?.name === "AbortError") return "Cancelled";
+  if (err instanceof ApiError) {
+    if (err.status === 0) return UNREACHABLE;
+    // A status with a known cause (not found, too large, busy) says that cause.
+    if (err.generic) return fallback && !STATUS_WITH_CAUSE.has(err.status) ? fallback : err.message;
+    return err.message || plainFallback;
   }
   const raw = String(err.message || (typeof err === "string" ? err : "")).replace(/^Error:\s*/i, "");
-  if (isNetworkFailureMessage(raw)) {
-    return "Couldn't reach Luna. Check this device's connection and try again.";
-  }
-  return raw || fallback;
+  if (isNetworkFailureMessage(raw)) return UNREACHABLE;
+  return raw || plainFallback;
 }
 
 async function request(path, options = {}) {
@@ -352,12 +403,7 @@ async function request(path, options = {}) {
     } catch {
       // fall through to status text
     }
-    throw new ApiError(
-      res.status,
-      message || `Request failed (${res.status})`,
-      code,
-      data,
-    );
+    throw new ApiError(res.status, message, code, data);
   }
   // Some DELETE handlers return an empty body; treat that as success.
   const text = await res.text();
@@ -392,8 +438,10 @@ export class ApiError extends Error {
    * @param {object} [data] The parsed error body — extra fields like `holder`.
    */
   constructor(status, message, code = null, data = undefined) {
-    super(message || `Request failed (${status})`);
+    super(message || statusMessage(status));
     this.name = "ApiError";
+    /** True when Luna gave no message of its own, so the text only names the status. */
+    this.generic = !message;
     this.status = status;
     this.code = code;
     this.data = data;

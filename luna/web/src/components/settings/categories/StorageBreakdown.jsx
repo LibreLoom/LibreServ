@@ -100,8 +100,8 @@ export default function StorageBreakdown({ enabled = true }) {
             {cleanup.isPending ? "Clearing…" : "Free up space"}
           </Button>
           <p className="text-xs mt-1.5">
-            Clears temporary copies of documents that aren&apos;t open. Nothing on your drives is
-            touched.
+            Clears temporary copies of closed documents and old update downloads. Files on your
+            drives do not change.
           </p>
         </div>
       )}

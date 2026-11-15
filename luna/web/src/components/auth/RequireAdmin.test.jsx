@@ -10,7 +10,7 @@ describe("RequireAdmin", () => {
     role = "user";
     render(<RequireAdmin><div>SECRET</div></RequireAdmin>);
     expect(
-      screen.getByText("This page is only for Admins. Members can only edit their own user settings."),
+      screen.getByText("Ask an Admin if you need a change here."),
     ).toBeInTheDocument();
     expect(screen.queryByText("SECRET")).not.toBeInTheDocument();
   });

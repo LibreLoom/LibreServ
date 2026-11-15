@@ -9,6 +9,7 @@ export const CHECK_LABELS = {
   disk_space: "Luna's own storage",
   clock: "Clock",
   update_signing: "Update safety check",
+  update_source: "Update source",
   os_update_tools: "System updates",
   network: "Network",
   connect: "Luna Connect",
@@ -60,9 +61,9 @@ export function labelFor(name) {
   if (name.startsWith("protect_")) return "Protected folder";
   if (name.startsWith("cloud_backup_")) return "Cloud backup";
   if (name.startsWith("cloud_phrase_")) return "Cloud recovery phrase";
-  return String(name)
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  // Sentence case: only the first word is capitalized.
+  const words = String(name).replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 /** Prefer the drive label (or protected folder) from check details when present. */
@@ -70,18 +71,18 @@ export function displayLabel(name, check) {
   const folder = check?.details?.folder;
   if (folder && name.startsWith("protect_")) {
     const target = check?.details?.target_drive;
-    return target ? `${folder} — copy on ${target}` : `${folder} — protected copy`;
+    return target ? `${folder}: copy on ${target}` : `${folder}: protected copy`;
   }
   if (check?.details?.folder && name.startsWith("cloud_backup_")) {
-    return `${check.details.folder} — cloud backup`;
+    return `${check.details.folder}: cloud backup`;
   }
   if (check?.details?.folder && name.startsWith("cloud_phrase_")) {
-    return `${check.details.folder} — recovery phrase`;
+    return `${check.details.folder}: recovery phrase`;
   }
   const label = check?.details?.drive_label;
   if (label && name.startsWith("drive_")) {
-    if (name.endsWith("_read_write")) return `${label} — save test`;
-    if (name.endsWith("_smart")) return `${label} — hard drive wear`;
+    if (name.endsWith("_read_write")) return `${label}: save test`;
+    if (name.endsWith("_smart")) return `${label}: hard drive wear`;
   }
   return labelFor(name);
 }

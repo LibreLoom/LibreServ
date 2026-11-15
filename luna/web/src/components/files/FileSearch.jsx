@@ -582,7 +582,7 @@ export default function FileSearch() {
 
               {search.incomplete && !search.isError && !search.isUpdating && trimmed === search.q && (
                 <PageNotice variant="warning" className="mb-3">
-                  Luna could not check every match or drive. Try again or type more words to narrow your search.
+                  Luna could not check every match or drive. Try again, or type more words.
                 </PageNotice>
               )}
 
@@ -601,7 +601,7 @@ export default function FileSearch() {
                     className="mt-1"
                     surface="primary"
                     title="Nothing matched"
-                    description="Try other words, or open a drive and browse. Luna only shows files you're allowed to see."
+                    description="Try other words, or open a drive and browse. Luna shows only the files you can open."
                   />
                 )
               )}

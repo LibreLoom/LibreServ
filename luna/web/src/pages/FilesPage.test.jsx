@@ -800,8 +800,8 @@ describe("FilesPage", () => {
       screen.getByText((_, node) =>
         node?.tagName === "P"
           && Boolean(
-            node.textContent?.includes("physically unplug")
-              && node.textContent?.includes("plug it back in again to use it"),
+            node.textContent?.includes("finishes saving files to")
+              && node.textContent?.includes("unplug it and plug it back in"),
           ),
       ),
     ).toBeInTheDocument();
@@ -835,8 +835,8 @@ describe("FilesPage", () => {
       screen.getByText((_, node) =>
         node?.tagName === "P"
           && Boolean(
-            node.textContent?.includes("drive database will stay on the drive")
-              && node.textContent?.includes("currently unplugged"),
+            node.textContent?.includes("drive database stays on the drive")
+              && node.textContent?.includes("the drive is unplugged"),
           ),
       ),
     ).toBeInTheDocument();
@@ -862,8 +862,8 @@ describe("FilesPage", () => {
       screen.getByText((_, node) =>
         node?.tagName === "P"
           && Boolean(
-            node.textContent?.includes("drive database will stay on the drive")
-              && node.textContent?.includes("currently unplugged"),
+            node.textContent?.includes("drive database stays on the drive")
+              && node.textContent?.includes("the drive is ejected"),
           ),
       ),
     ).toBeInTheDocument();

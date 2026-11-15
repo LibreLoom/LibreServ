@@ -212,7 +212,7 @@ describe("ShareSheet", () => {
       : subjectBody(path));
     renderSheet();
     expect(await screen.findByText("Sam")).toBeInTheDocument();
-    expect(screen.getByText(/Also has Can view \+ edit through a parent folder/i)).toBeInTheDocument();
+    expect(screen.getByText(/With access from a folder or drive above this, they have: Can view \+ edit/i)).toBeInTheDocument();
     // Inherited grants aren't rows on the child sheet — one banner + button.
     expect(screen.getByText(/1 person shared through family/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "View parent shares" })).toBeInTheDocument();

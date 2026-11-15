@@ -148,7 +148,7 @@ describe("labels and hints", () => {
       .toBe("Edits the form and reads its responses.");
     // Respond copy is unchanged — answer links still never see others'.
     expect(capsHint("respond", { form: true }))
-      .toBe("People fill in the form — they never see other answers or the file itself.");
+      .toBe("People fill in the form. They never see other answers or the file itself.");
     // And non-form copy is untouched by the flag's default.
     expect(capsHint("view", { file: true })).toBe("Opens and downloads the file.");
   });

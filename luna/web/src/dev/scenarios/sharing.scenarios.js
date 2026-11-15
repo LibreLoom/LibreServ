@@ -105,7 +105,7 @@ export default [
         { id: "d", kind: "path", drive_id: "d1", drive_label: "Family photos", path: "Docs/plan.pdf", album_id: "", name: "plan.pdf", is_file: true, caps: "view", shared_by: "", exists: true },
       ] };
     },
-    check: ["The unplugged drive's item says 'Unavailable' and cannot be opened", "A missing 'Shared by' shows a dash", "Leave asks first, then the row disappears and a toast confirms", "Open album goes to Photos at that album"],
+    check: ["The unplugged drive's item says 'Unavailable' and cannot be opened", "A missing 'Shared by' shows 'Unknown'", "Leave asks first, then the row disappears and a toast confirms", "Open album goes to Photos at that album"],
   },
   {
     id: "shared/leave-fails",
@@ -174,7 +174,7 @@ export default [
     title: "Sheet cannot load the sharing details",
     url: "/shared",
     seed: (w) => { subject(w, {}); },
-    faults: [{ match: "GET /api/v1/access/subject", mode: "403", message: "You don't have access to share this." }],
+    faults: [{ match: "GET /api/v1/access/subject", mode: "403", message: "You don't have access to this." }],
     check: ["Manage opens a sheet that says you don't have access", "Close works"],
   },
   {

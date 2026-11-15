@@ -258,15 +258,17 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
           );
           targetPath = candidate;
         } catch (err) {
-          if (!(err instanceof ApiError && err.status === 409)) throw err;
+          // Only a name clash means "try the next name". Other 409s (a
+          // read-only drive) carry their own message.
+          if (!(err instanceof ApiError && err.status === 409 && err.code === "exists")) throw err;
         }
       }
       if (!targetPath) {
         throw new Error(
-          "Couldn't create the converted copy — this folder already has too many files with that name. Rename or remove one, then try again.",
+          "Couldn't make the converted copy: this folder has too many files with that name. Rename or remove one, then try again.",
         );
       }
-      addToast({ type: "success", message: "Converted — the new file is open." });
+      addToast({ type: "success", message: "Converted. The new file is open." });
       onSaved?.();
       onOpenPath?.(targetPath);
     } catch (err) {
@@ -418,7 +420,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
             {kind === "video" && (
               mediaFailed ? (
                 <PageNotice variant="error">
-                  This video can't play in the browser. Download it to watch on your device.
+                  This video can't play here. Download it to watch it on your device.
                 </PageNotice>
               ) : (
                 <div className="rounded-large-element surface-primary p-2">
@@ -451,11 +453,11 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               </p>
             )}
 
-            {conversion && !guest && (
+            {conversion && !guest && canWrite && (
               <p className="mt-3 text-sm text-primary">
-                You can open this file in the editing view by converting it to a{" "}
+                To edit this file, convert it to a{" "}
                 <InlinePill>.{conversion.targetExt}</InlinePill> file.
-                {conversion.convert && canWrite
+                {conversion.convert
                   ? ""
                   : " Convert it on another device, then upload the copy here."}
               </p>
@@ -542,8 +544,8 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
                 )}
                 <p className="text-sm">
                   {kind === "video"
-                    ? "This video can't play in the browser. Download it to watch on your device."
-                    : "This photo can't be displayed in the browser. Download it to try opening it on your device."}
+                    ? "This video can't play here. Download it to watch it on your device."
+                    : "This photo could not open here. Download it to open it on your device."}
                 </p>
                 <Button variant="primary" size="sm" asChild>
                   <a href={source.downloadHref(driveId, path)} download>

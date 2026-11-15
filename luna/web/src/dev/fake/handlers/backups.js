@@ -110,11 +110,11 @@ get("/api/v1/backups/covered", ({ world, user, query }) => {
 /** drive_backup::not_ready: a locked drive asks for its password, any other says to connect it. */
 const notReady = (world, id) => (driveRow(world, id)?.locked ? `Unlock ${label(world, id)} first, then try again.` : `Connect ${label(world, id)} first, then try again.`);
 /** drive_backup::waiting_for. */
-const waitingFor = (world, id) => (driveRow(world, id)?.locked ? `Waiting: ${label(world, id)} is locked. Unlock it to carry on with backups.` : `Waiting: ${label(world, id)} isn't connected.`);
+const waitingFor = (world, id) => (driveRow(world, id)?.locked ? `Waiting: ${label(world, id)} is locked. Unlock it to continue the backups.` : `Waiting: ${label(world, id)} isn't connected.`);
 /** drive_backup::refuse_plaintext_backup: an encrypted drive's files never land in the clear on a plain one. */
 function plaintextRefusal(world, src, target) {
   if (!driveRow(world, src)?.encrypted || driveRow(world, target)?.encrypted) return null;
-  return `${label(world, src)} is encrypted, but ${label(world, target)} isn't. A backup of an encrypted drive has to go on an encrypted drive, or it would be readable by anyone who picks it up.`;
+  return `${label(world, src)} is encrypted, but ${label(world, target)} isn't. Back up an encrypted drive only to an encrypted drive, so nobody can read the copies without a password.`;
 }
 
 const refusal = (msg) => {

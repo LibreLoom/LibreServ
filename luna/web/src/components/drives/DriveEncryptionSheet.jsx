@@ -205,7 +205,7 @@ function SheetBody({ drive, close, onProtect, onRemove }) {
             : locked
               ? "Its files are unavailable, and backups that use it wait, until someone enters the password."
               : "Its files are open for everyone with access. Lock it to close them until someone enters the password."}
-          {!drive.encrypted && <> <InfoHint surface="primary" content="Protecting a drive scrambles everything on it. Without the password, nobody can read the files, on Luna or on any other computer." /></>}
+          {!drive.encrypted && <> <InfoHint surface="primary" content="A protected drive keeps its files encrypted (scrambled). Nobody can read them on another computer, or on Luna while the drive is locked, without the password." /></>}
         </p>
         {busyLine && <p className="text-sm">{busyLine}</p>}
       </div>
@@ -231,7 +231,7 @@ function SheetBody({ drive, close, onProtect, onRemove }) {
         )}
       </div>
       {!drive.encrypted && !canProtect && cantProtectReason && <p className="text-sm">{cantProtectReason}</p>}
-      {!drive.encrypted && canProtect && !actionsOff && <p className="text-xs">Protecting it erases the drive first, so you&apos;ll see what&apos;s on it before anything is lost.</p>}
+      {!drive.encrypted && canProtect && !actionsOff && <p className="text-xs">Protecting it erases the drive. Luna shows you what&apos;s on it first.</p>}
     </div>
   );
 }

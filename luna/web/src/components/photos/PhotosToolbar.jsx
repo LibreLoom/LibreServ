@@ -315,7 +315,7 @@ function PhotosToolbar({
   );
 
   const moreOptions = [
-    onOpenDates && { value: "dates", label: "Jump to date", icon: CalendarDays },
+    onOpenDates && { value: "dates", label: "Jump to a day", icon: CalendarDays },
     onRescan && {
       value: "rescan",
       label: "Rescan drives",

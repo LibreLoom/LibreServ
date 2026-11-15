@@ -738,7 +738,7 @@ describe("ProtectSheet", () => {
     await waitFor(() =>
       expect(onOldCopiesDelete).toHaveBeenCalledWith(expect.stringContaining("/api/v1/private-backups/old-copies")),
     );
-    expect(await screen.findByText("Older versions will be removed")).toBeInTheDocument();
+    expect(await screen.findByText("Luna will remove the older versions.")).toBeInTheDocument();
   });
 
   it("refreshes the private backup lists when a backup is created from the sheet", async () => {

@@ -78,7 +78,7 @@ describe("PhotoLightbox guest mode", () => {
     renderLightbox({ mode: "guest" });
     expect(screen.queryByLabelText(/Favorite/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Add to album/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/Share link/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Share$/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Move to trash/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Open folder/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText("Close")).toBeInTheDocument();

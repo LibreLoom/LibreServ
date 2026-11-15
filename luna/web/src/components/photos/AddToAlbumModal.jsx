@@ -90,7 +90,7 @@ export default function AddToAlbumModal({
         setMembership(new Map(entries));
         if (failures.length) {
           setMembershipError(
-            "Luna couldn't check every album — some albums may not show what is already inside.",
+            "Luna could not check every album. Some albums may not show the photos they already hold.",
           );
         }
         setMembershipLoading(false);

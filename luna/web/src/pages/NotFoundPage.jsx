@@ -307,7 +307,7 @@ function FindFile({ initialTerm, user, className }) {
 
         {searched && hits.length === 0 && (
           <p className="mt-3 text-sm text-primary">
-            Nothing named “{q}”. Try part of the name.
+            Nothing matched “{q}”. Try part of the name.
           </p>
         )}
 

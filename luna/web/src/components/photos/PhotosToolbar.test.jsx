@@ -201,14 +201,14 @@ describe("PhotosToolbar", () => {
     // The menu is portaled to document.body — query there, not `container`
     expect(document.querySelector(".animate-rescan-swap-out")).toBeTruthy();
 
-    // Resolved: "Started scan." shows but the row stays locked
+    // Resolved: "Scan started" shows but the row stays locked
     resolveRescan?.();
     rerender(<PhotosToolbar {...props} rescanPending={false} />);
     expect(
       await screen.findByRole("menuitem", { name: /Scan started/i })
     ).toBeDisabled();
 
-    // After the dwell it rolls back: "Started scan." exits downward and the
+    // After the dwell it rolls back: "Scan started" exits downward and the
     // row is clickable again
     await waitFor(
       () => {

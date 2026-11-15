@@ -363,7 +363,7 @@ describe("PhotosPage", () => {
 
     it("names the chosen save location when it runs out of space", () => {
       expect(downloadFailureDescription(new DOMException("Full", "QuotaExceededError")))
-        .toBe("Luna couldn't save the file. Check that the chosen save location has enough space.");
+        .toBe("This device couldn't save the file. Make sure the chosen save location has enough space.");
     });
   });
 
@@ -647,7 +647,7 @@ describe("PhotosPage", () => {
     expect(card?.className).toMatch(/pop-in/);
   });
 
-  it("shows Places empty state with Card pop-in when there are no geotagged photos", async () => {
+  it("shows Places empty state entering like the other segments when there are no geotagged photos", async () => {
     window.history.replaceState(null, "", "/photos#places");
     stubPhotosFetch({ places: [] });
     renderPhotos();
@@ -1489,7 +1489,7 @@ describe("PhotosPage", () => {
 
     expect(await screen.findByRole("heading", { name: "Delete album?" })).toBeInTheDocument();
     expect(
-      screen.getByText(/Photos stay in your library — only this album is removed/i),
+      screen.getByText(/Its photos stay in your library\. People you shared it with lose access/i),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /^Delete album$/i }));

@@ -30,7 +30,7 @@ describe("DevicesCategory", () => {
     ).toBeTruthy();
     expect(
       screen.getByText(
-        /Backup folders onto your Luna and access your Luna's files directly from your computer\. On Linux, the same download also works on Linux phones\./,
+        /Back up folders to your Luna, and keep a Luna folder in sync with your computer\. The Linux download also works on Linux phones\./,
       ),
     ).toBeTruthy();
 

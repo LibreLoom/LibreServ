@@ -29,7 +29,7 @@ const START_ERRORS = {
   drive_busy: "Luna is already working on this drive. Wait until it finishes, then try again.",
   drive_changed: "This isn't the drive that was shown, or it changed. Look at the drive again.",
   preview_stale: "Something on this drive changed since you looked. Look at the drive again.",
-  missing_tool: "This Luna is missing something it needs to erase drives, so it can't do this one.",
+  missing_tool: "This Luna is missing a program it needs for this erase.",
   mock_encryption: "This test drive can't be protected with a password.",
   system_disk: "That's the drive Luna runs from. Luna won't erase it.",
 };

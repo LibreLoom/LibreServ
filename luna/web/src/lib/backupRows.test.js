@@ -151,7 +151,9 @@ describe("groupByCreator and backupHeadline", () => {
 
   it("counts rows that need a look", () => {
     expect(backupHeadline([])).toBe("No backups yet");
-    expect(backupHeadline([drive()])).toBe("All backed up");
+    expect(backupHeadline([drive({ last_ok_at: 1000 })])).toBe("All backed up");
+    expect(backupHeadline([drive()])).toBe("1 backup has no copy yet");
+    expect(backupHeadline([drive(), drive({ id: "d2" })])).toBe("2 backups have no copy yet");
     expect(backupHeadline([drive({ state: "stale" })])).toBe("1 backup needs a look");
     expect(backupHeadline([drive({ state: "stale" }), cloud({ check_problem: "x" })])).toBe(
       "2 backups need a look",

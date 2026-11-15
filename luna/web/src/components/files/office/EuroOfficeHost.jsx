@@ -602,17 +602,14 @@ export default function EuroOfficeHost({
               let message;
               if (code === -26) {
                 message =
-                  "The editor couldn't load a font it needs, so it stopped working. " +
-                  "Reopen the file to try again — if it keeps failing, the " +
-                  "EuroOffice fonts on this Luna are missing or out of date.";
+                  "The editor stopped because it couldn't load a font. " +
+                  "If reopening the file doesn't help, this Luna's EuroOffice fonts are missing or out of date.";
               } else if (typeof event?.data === "string") {
                 message = event.data;
               } else if (sawReadyRef.current) {
                 message =
-                  "The editor crashed while it was running. Reopen the file to keep going." +
-                  (dirtyRef.current
-                    ? " Your latest changes may not have saved — Luna autosaves every few seconds while you edit."
-                    : "");
+                  "The editor crashed. Reopen the file to keep going." +
+                  (dirtyRef.current && canSave ? " Your latest changes may not be saved." : "");
               } else {
                 message =
                   "EuroOffice couldn't open this file. It may be damaged or in a format it can't read.";

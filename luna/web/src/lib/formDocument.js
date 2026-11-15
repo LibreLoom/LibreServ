@@ -116,13 +116,13 @@ export function parseFormDocument(text) {
   } catch {
     return {
       ok: false,
-      error: "This file isn't a working Luna form. Open it as text to see what's inside.",
+      error: "This file isn't a working Luna form.",
     };
   }
   if (!isObject(raw)) {
     return {
       ok: false,
-      error: "This file isn't a working Luna form. Open it as text to see what's inside.",
+      error: "This file isn't a working Luna form.",
     };
   }
   const version = Number(raw.version ?? 1);

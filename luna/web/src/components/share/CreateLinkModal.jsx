@@ -13,7 +13,7 @@ import { isFormFile } from "../../lib/fileKinds.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 
-const LINK_ERROR = "Couldn't create that link. Check that it's still on this Luna, then try again.";
+const LINK_ERROR = "Couldn't create that link. Try again.";
 const LINK_SAVE_ERROR = "Couldn't save those link settings. Try again.";
 
 const KEEP_EXPIRY = "__keep";
