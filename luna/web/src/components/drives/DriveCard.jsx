@@ -14,20 +14,20 @@ import LayeredCard from "@libreloom/ui/components/cards/LayeredCard.jsx";
  * @param {{
  *   icon?: React.ReactElement,
  *   title: React.ReactNode,
- *   headerActions?: React.ReactNode,
+ *   status?: React.ReactNode,
  *   children?: React.ReactNode,
  *   action?: { label: string, to?: string, onClick?: () => void, disabled?: boolean } | null,
  *   className?: string,
  * }} props
  */
-export default function DriveCard({ icon, title, headerActions, children, action, className }) {
+export default function DriveCard({ icon, title, status, children, action, className }) {
   const asLink = Boolean(action?.to);
   return (
     <LayeredCard
       className={className}
       icon={icon}
       title={title}
-      headerActions={headerActions}
+      panelActions={status}
       actionLabel={action?.label}
       onAction={action?.onClick}
       actionDisabled={action?.disabled}

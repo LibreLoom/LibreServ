@@ -9,7 +9,7 @@ describe("LayeredCard", () => {
       <LayeredCard
         icon={<Mail size={18} />}
         title="Backups"
-        headerActions={<span>Ready</span>}
+        panelActions={<span>Ready</span>}
         actionLabel="Open Backups"
         onAction={() => {}}
       >

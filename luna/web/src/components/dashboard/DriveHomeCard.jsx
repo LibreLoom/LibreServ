@@ -207,7 +207,7 @@ export default function DriveHomeCard({
     <DriveCard
       icon={<HardDrive size={ICON_SIZE.lg} />}
       title={drive.label || "Drive"}
-      headerActions={<DriveStatusPill drive={drive} health={health.data} />}
+      status={<DriveStatusPill drive={drive} health={health.data} />}
       action={shelf}
     >
       {body}

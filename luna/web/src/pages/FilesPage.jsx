@@ -448,9 +448,10 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
         className="h-full"
         icon={<HardDrive size={ICON_SIZE.lg} />}
         title={drive.label}
-        headerActions={
+        status={
           /* One LayeredPill: the drive's status, with its rare actions as the
-             pill's trailing segment. The arrow disc opens the drive. */
+             pill's trailing segment. It sits in the panel's top-right corner;
+             the arrow disc on the tray opens the drive. */
           <DriveStatusPill
             drive={drive}
             health={health.data}
