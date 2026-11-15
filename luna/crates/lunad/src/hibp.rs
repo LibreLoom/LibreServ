@@ -21,7 +21,7 @@ pub const BREACHED_PASSWORD_MESSAGE: &str = "That password has appeared in known
 
 /// What the person is told when the breach service could not answer and the
 /// password was therefore allowed unchecked.
-pub const BREACH_CHECK_UNAVAILABLE_MESSAGE: &str = "Luna couldn't check this password against known data breaches, so it was allowed. Please choose a different password if you can.";
+pub const BREACH_CHECK_UNAVAILABLE_MESSAGE: &str = "Luna couldn't check this password against known data breaches, but saved it anyway. Choose a different password if you can.";
 
 const DEFAULT_HIBP_RANGE_URL: &str = "https://api.pwnedpasswords.com/range/";
 
@@ -414,7 +414,7 @@ mod tests {
     fn unavailable_copy_is_plain_language() {
         assert_eq!(
             BREACH_CHECK_UNAVAILABLE_MESSAGE,
-            "Luna couldn't check this password against known data breaches, so it was allowed. Please choose a different password if you can."
+            "Luna couldn't check this password against known data breaches, but saved it anyway. Choose a different password if you can."
         );
     }
 }

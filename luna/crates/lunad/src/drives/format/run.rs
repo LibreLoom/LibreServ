@@ -51,9 +51,7 @@ pub enum FormatError {
     Unresponsive,
     #[error("Luna can't prepare drives. This Luna is missing a program it needs ({0}).")]
     MissingTool(String),
-    #[error(
-        "This isn't the drive that was shown. Unplug it, plug it back in, and start again from the preview."
-    )]
+    #[error("This isn't the drive that was shown. Look at the drive again.")]
     DriveChanged,
     #[error(
         "Files appeared on this drive since the preview. Look at the drive again before erasing it."
@@ -84,7 +82,7 @@ impl From<anyhow::Error> for FormatError {
     fn from(e: anyhow::Error) -> Self {
         tracing::warn!(error = %format!("{e:#}"), "drive erase hit an unexpected error");
         FormatError::Other(
-            "Luna couldn't finish setting up this drive. Unplug it, plug it back in, and try again."
+            "Luna ran into a problem with this drive. Unplug it, plug it back in, and try again."
                 .into(),
         )
     }
@@ -297,7 +295,7 @@ fn run_inner(
         let conn = state
             .db
             .lock()
-            .map_err(|_| FormatError::Other("Drive settings are busy.".into()))?;
+            .map_err(|_| FormatError::Other("Luna couldn't read its drive settings.".into()))?;
         db::set_drive_state(&conn, drive_id, "ejected")?;
     }
     if !req.identity.mock {
@@ -435,7 +433,7 @@ fn register_real(
         })?;
     if !manager.mounter().is_mounted(target) {
         return Err(FormatError::Other(
-            "Luna couldn't verify that the new drive is mounted.".into(),
+            "Luna couldn't open the new drive. Unplug it, plug it back in, and try again.".into(),
         ));
     }
     commit(ctx, req, id, target, fs).map_err(FormatError::from)
@@ -481,7 +479,7 @@ fn commit(
         let conn = state
             .db
             .lock()
-            .map_err(|_| anyhow::anyhow!("Drive settings are busy."))?;
+            .map_err(|_| anyhow::anyhow!("Luna couldn't read its drive settings."))?;
         let tx = conn.unchecked_transaction()?;
         if req.drive_id.is_some() {
             invalidate_formatted_contents(&tx, id)?;
@@ -644,7 +642,7 @@ pub fn quiesce(
         let conn = state
             .db
             .lock()
-            .map_err(|_| other("Drive settings are busy."))?;
+            .map_err(|_| other("Luna couldn't read its drive settings."))?;
         let drive =
             db::get_drive(&conn, id)?.ok_or_else(|| other("Luna doesn't know this drive."))?;
         if !drive.mount_point.is_empty()
@@ -652,9 +650,13 @@ pub fn quiesce(
                 .drive_manager
                 .is_system_mount(Path::new(&drive.mount_point))
         {
-            return Err(other(
-                "Luna can't erase a drive mounted as part of its operating system.",
-            ));
+            return Err(FormatError::Other(format!(
+                "That's the system disk Luna runs from, so Luna can't {} it.",
+                match purpose {
+                    Purpose::Erase => "erase",
+                    Purpose::Lock => "lock",
+                }
+            )));
         }
         let working: i64 = conn
             .query_row(

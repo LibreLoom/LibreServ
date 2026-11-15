@@ -745,7 +745,7 @@ fn rewrite_one(
     let (identity, signer, old_key) = {
         let conn = run::lock(db);
         let identity = identity::load(&conn)?
-            .ok_or_else(|| anyhow!("Set up cloud backup on this Luna before running a backup."))?;
+            .ok_or_else(|| anyhow!("Luna's cloud identity is missing. Try again."))?;
         let seed: [u8; 32] = db::get_cloud_identity(&conn)?
             .ok_or_else(|| anyhow!("Luna's cloud identity is missing."))?
             .signing_seed
@@ -919,9 +919,11 @@ fn commit_rewrite(
             )
             .optional()?;
         match state.as_deref() {
-            None => bail!("Backup pack {pack} is missing from the database."),
+            None => bail!(
+                "Luna lost its record of part of this cloud backup, so this backup didn't finish."
+            ),
             Some("deleting") => {
-                bail!("Backup pack {pack} is being removed, so this backup cannot use it.")
+                bail!("Part of this cloud backup was being deleted, so this backup didn't finish.")
             }
             _ => {}
         }

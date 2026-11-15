@@ -77,7 +77,7 @@ pub(crate) fn resolve_public_link(
     if state.share_auth.is_locked(&link.id, &ip) {
         return Err(json_error(
             StatusCode::TOO_MANY_REQUESTS,
-            "Too many wrong passwords. Wait a few minutes and try again.",
+            "Too many wrong passwords. Wait a while and try again.",
         ));
     }
     let provided = headers
@@ -511,7 +511,7 @@ pub(crate) fn require_link_view(link: &AccessLinkRow) -> Result<(), ApiError> {
     } else {
         Err(json_error(
             StatusCode::FORBIDDEN,
-            "This link is for dropping files off — it doesn't open what others have added.",
+            "This link only receives files or form answers. It can't open what is shared here.",
         ))
     }
 }
@@ -533,7 +533,7 @@ pub(super) fn require_link_upload(link: &AccessLinkRow) -> Result<(), ApiError> 
     } else {
         Err(json_error(
             StatusCode::FORBIDDEN,
-            "This link is view-only, so it can't receive files. Ask for a link that allows uploads.",
+            "This link can't receive files. Ask for a link that allows uploads.",
         ))
     }
 }
@@ -630,7 +630,7 @@ pub(super) fn upload_dest(
             .ok_or_else(|| {
                 json_error(
                     StatusCode::BAD_REQUEST,
-                    "Luna can't work out which file this link points at.",
+                    "Luna can't find the file this link points to.",
                 )
             })?
             .to_string();
@@ -838,8 +838,10 @@ pub(super) async fn public_upload_chunk(
             .strip_prefix("bytes ")
             .and_then(|rest| rest.split('/').next())
             .ok_or_else(|| json_error(StatusCode::BAD_REQUEST, "That chunk range isn't valid."))?;
-        let (start, end) = crate::api::files::parse_range(&format!("bytes={range}"), MAX_FILE_BYTES)
-            .ok_or_else(|| json_error(StatusCode::BAD_REQUEST, "That chunk range isn't valid."))?;
+        let (start, end) =
+            crate::api::files::parse_range(&format!("bytes={range}"), MAX_FILE_BYTES).ok_or_else(
+                || json_error(StatusCode::BAD_REQUEST, "That chunk range isn't valid."),
+            )?;
         let expected = (end - start + 1) as usize;
         if body.len() != expected {
             return Err(json_error(
@@ -851,10 +853,11 @@ pub(super) async fn public_upload_chunk(
         if body.len() > chunk_max {
             return Err(json_error(
                 StatusCode::PAYLOAD_TOO_LARGE,
-                "That upload chunk is too large for the free memory on this Luna. Try a smaller piece, or free some space and try again.",
+                "Luna doesn't have enough free memory for this upload right now. Try again later.",
             ));
         }
-        let received = uploads::write_chunk(&state.db, &id, start, &body).map_err(map_upload_err)?;
+        let received =
+            uploads::write_chunk(&state.db, &id, start, &body).map_err(map_upload_err)?;
         Ok(Json(json!({ "upload_id": id, "received": received })).into_response())
     })
     .await
@@ -1186,7 +1189,7 @@ pub(super) fn map_guest_files_err(err: files::FilesError) -> ApiError {
         }
         _ => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't do that. Check the drive and try again.",
+            "Luna had a problem with that shared item. Try again, or ask the person who shared it to check the drive.",
         ),
     }
 }
@@ -1476,9 +1479,10 @@ pub(super) async fn public_move(
 pub(super) fn map_upload_err(err: uploads::UploadError) -> ApiError {
     use std::io::ErrorKind;
     match err {
-        uploads::UploadError::NotFound => {
-            json_error(StatusCode::NOT_FOUND, "Luna doesn't know this upload.")
-        }
+        uploads::UploadError::NotFound => json_error(
+            StatusCode::NOT_FOUND,
+            "Luna can't find this upload. Upload the file again.",
+        ),
         uploads::UploadError::NotActive => json_error(
             StatusCode::CONFLICT,
             "This upload is already finished or cancelled.",
@@ -1506,7 +1510,7 @@ pub(super) fn map_upload_err(err: uploads::UploadError) -> ApiError {
         ),
         _ => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't finish that upload. Check the drive and try again.",
+            "Luna couldn't finish that upload. Try again, or ask the person who shared this link to check the drive.",
         ),
     }
 }

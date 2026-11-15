@@ -36,13 +36,16 @@ const MAX_REPLY_BYTES: u64 = 4 * 1024 * 1024;
 pub const DEVICE_TOKEN_FILE: &str = "device-token";
 
 /// Connect rejected the on-disk token (HTTP 401 / revoked / unknown).
-pub const DEVICE_TOKEN_REJECTED_MSG: &str = "Luna Connect did not accept this device token. It may be mistyped, revoked, or meant for a different Luna. Open Luna on a phone or computer, then go to Settings → About → Advanced and paste a new device token.";
+pub const DEVICE_TOKEN_REJECTED_MSG: &str = "Luna Connect did not accept this device token. It may be mistyped, revoked, or for a different Luna. Paste a new device token in Settings → About → Advanced.";
 /// On-disk token file is present but not a valid Crockford device token.
-pub const DEVICE_TOKEN_MALFORMED_MSG: &str = "This Luna's device token is not valid. It should look like ****-****-****-****-****. Open Luna on a phone or computer, then go to Settings → About → Advanced and paste a new device token.";
-/// Connect was unreachable on the last status pull (sticky while token is present).
-pub const CONNECT_UNREACHABLE_MSG: &str = "Luna Connect could not be reached. Check this Luna's internet connection. Luna will keep trying.";
+pub const DEVICE_TOKEN_MALFORMED_MSG: &str = "This Luna's device token is not valid. Paste a new device token in Settings → About → Advanced.";
+/// Connect was unreachable, or answered with an error, on the last status
+/// pull (sticky while token is present).
+pub const CONNECT_UNREACHABLE_MSG: &str =
+    "Luna can't reach Luna Connect, or Luna Connect has a problem. Luna will keep trying.";
 /// Connect replied with a Cloudflare (or similar) browser challenge instead of JSON.
-pub const CONNECT_CHALLENGED_MSG: &str = "Luna Connect blocked a connection check. Remote access may not work until this is fixed on the Connect side. Luna will keep trying.";
+pub const CONNECT_CHALLENGED_MSG: &str =
+    "Luna Connect blocked a request from this Luna. Luna will keep trying.";
 /// cloudflared is missing and Luna could not download it.
 pub const TUNNEL_HELPER_MISSING_MSG: &str = "Luna could not download the remote access helper. Check this Luna's internet connection. Luna will keep trying.";
 /// cloudflared was found (or installed) but would not stay running.
@@ -52,7 +55,7 @@ pub const TUNNEL_START_FAILED_MSG: &str =
 pub const TUNNEL_TOKEN_MISSING_MSG: &str = "A remote address is set, but Luna does not have a connection key from Luna Connect yet. Luna will keep trying.";
 /// Hostname/token exist but lunad does not see a live connector yet.
 pub const TUNNEL_NOT_RUNNING_MSG: &str =
-    "Remote access is set up, but the secure tunnel is not running yet. Luna will keep trying.";
+    "Remote access is set up, but it is not running yet. Luna will keep trying.";
 
 pub(crate) const LEGACY_DEVICE_TOKEN_FILE: &str = "setup-token";
 
@@ -60,7 +63,10 @@ pub(crate) const LEGACY_DEVICE_TOKEN_FILE: &str = "setup-token";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectError {
-    #[error("Connect couldn't be reached. Check your internet connection and try again.")]
+    /// No answer, or an answer that was not a success (5xx, non-JSON 403).
+    #[error(
+        "Luna couldn't reach Luna Connect, or Luna Connect had a problem. Check your internet connection, then try again."
+    )]
     Unreachable,
     /// HTML/gateway challenge (e.g. Cloudflare managed challenge) — not an authentic unbind.
     #[error("{msg}", msg = CONNECT_CHALLENGED_MSG)]
@@ -371,7 +377,7 @@ impl ConnectService {
         let norm = normalize_device_code(code);
         if !is_device_token_format(&norm) {
             return Err(ConnectError::Other(
-                "That device token should look like ****-****-****-****-**** from connect.luna.libreloom.org or the card that came with Luna.".into(),
+                "That is not a valid device token. Copy it from connect.luna.libreloom.org or from the card that came with Luna.".into(),
             ));
         }
         match self.check_device_token(&group_device_token(&norm)) {
@@ -400,7 +406,7 @@ impl ConnectService {
         let norm = normalize_device_code(code);
         if !is_device_token_format(&norm) {
             return Err(ConnectError::Other(
-                "That device token should look like ****-****-****-****-**** from connect.luna.libreloom.org or the card that came with Luna.".into(),
+                "That is not a valid device token. Copy it from connect.luna.libreloom.org or from the card that came with Luna.".into(),
             ));
         }
         let grouped = group_device_token(&norm);
@@ -1398,10 +1404,12 @@ impl ConnectService {
             let _ = std::fs::create_dir_all(parent);
         }
         // Plain JSON, readable only by lunad (0600) — same as `device-token`.
-        let json = serde_json::to_vec(state)
-            .map_err(|_| ConnectError::Other("Luna couldn't save that. Try again.".into()))?;
-        std::fs::write(&self.state_path, json)
-            .map_err(|_| ConnectError::Other("Luna couldn't save that. Try again.".into()))?;
+        let json = serde_json::to_vec(state).map_err(|_| {
+            ConnectError::Other("Luna couldn't save its Luna Connect settings. Try again.".into())
+        })?;
+        std::fs::write(&self.state_path, json).map_err(|_| {
+            ConnectError::Other("Luna couldn't save its Luna Connect settings. Try again.".into())
+        })?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -1421,8 +1429,7 @@ pub struct ConnectLunaId {
 
 fn luna_ids_unreadable() -> ConnectError {
     ConnectError::Other(
-        "Luna Connect answered, but Luna could not read its list of Luna ids. Luna will try again."
-            .into(),
+        "Luna Connect answered, but Luna could not use the reply. Luna will try again.".into(),
     )
 }
 

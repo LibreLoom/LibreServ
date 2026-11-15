@@ -555,7 +555,7 @@ async fn file_response(path: &Path, name: &str) -> Result<Response, ApiError> {
     let file = tokio::fs::File::open(path).await.map_err(|_| {
         fail(
             StatusCode::NOT_FOUND,
-            "Luna couldn't open that file. Check the drive is still connected.",
+            "Luna couldn't open that file. Make sure the drive is still connected.",
         )
     })?;
     let len = file.metadata().await.ok().map(|m| m.len());
@@ -882,7 +882,7 @@ async fn restore(
         let Some(slot) = drive_backup::try_hold(&state.db, &id) else {
             return Err(fail(
                 StatusCode::CONFLICT,
-                "This backup is copying right now. Try again in a minute.",
+                "This backup is busy right now. Try again in a minute.",
             ));
         };
 
@@ -1666,7 +1666,7 @@ mod tests {
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(
             body["error"],
-            "This backup is copying right now. Try again in a minute."
+            "This backup is busy right now. Try again in a minute."
         );
     }
 

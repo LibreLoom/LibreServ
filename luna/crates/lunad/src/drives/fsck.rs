@@ -298,7 +298,7 @@ pub fn notice_for(target: &Path, label: &str) -> Option<Notice> {
         Outcome::Unrepaired => Some(Notice {
             repaired: false,
             message: format!("Luna found problems on {label} that it couldn't fix, so it opened the drive read-only."),
-            more: "You can still copy your files off it. Check the drive on a Windows or Mac computer, or set it up again once your files are safe.".into(),
+            more: "You can still copy your files from it. Check the drive on a Windows or Mac computer, or erase it and set it up again after you save your files.".into(),
         }),
         _ => None,
     }

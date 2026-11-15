@@ -51,10 +51,10 @@ async fn check(
         .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't check for updates.",
+                "Luna couldn't check for updates. Try again.",
             )
         })?
-        .map_err(map_err)?;
+        .map_err(|e| map_err(e, "Luna couldn't check for updates. Try again."))?;
     let mut out = serde_json::to_value(info).unwrap_or(json!({}));
     // Not part of the cached feed answer: it changes when the boot settles.
     out["os_update_failed"] = os_update_failed_json(&state);
@@ -102,10 +102,10 @@ async fn apply(
         .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't install the update.",
+                "Luna couldn't install the update. Try again.",
             )
         })?
-        .map_err(map_err)?;
+        .map_err(|e| map_err(e, "Luna couldn't install the update. Try again."))?;
     let reboot = info.reboot_required;
     let latest = info.latest_version.clone();
     tokio::spawn(async move {
@@ -121,7 +121,7 @@ async fn apply(
         "ok": true,
         "latest_version": latest,
         "reboot_required": reboot,
-        "message": "The new software is installed. Luna will restart in a moment — sign in again after it comes back.",
+        "message": "The update is installed. Luna will restart in a moment.",
     })))
 }
 
@@ -243,7 +243,8 @@ fn require_admin(user: &crate::auth::CurrentUser) -> Result<(), (StatusCode, Jso
     Ok(())
 }
 
-fn map_err(err: UpdateError) -> (StatusCode, Json<Value>) {
+/// `failed` names the action that went wrong, for errors with no plain cause.
+fn map_err(err: UpdateError, failed: &'static str) -> (StatusCode, Json<Value>) {
     match err {
         UpdateError::NoneAvailable => json_error(StatusCode::BAD_REQUEST, err.to_string()),
         UpdateError::Checksum
@@ -256,11 +257,8 @@ fn map_err(err: UpdateError) -> (StatusCode, Json<Value>) {
         UpdateError::Unreachable => json_error(StatusCode::BAD_GATEWAY, err.to_string()),
         UpdateError::NoFeed => json_error(StatusCode::NOT_FOUND, err.to_string()),
         UpdateError::Other(reason) => {
-            tracing::warn!(reason = %reason, "an update could not be installed");
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't install the update. Try again.",
-            )
+            tracing::warn!(reason = %reason, "an update check or install failed");
+            json_error(StatusCode::INTERNAL_SERVER_ERROR, failed)
         }
     }
 }

@@ -142,7 +142,7 @@ fn require_admin(user: crate::auth::CurrentUser) -> Result<(), (StatusCode, Json
     if user.role != "admin" {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an Admin can change remote access.",
+            "Only an Admin can remove the device token.",
         ));
     }
     Ok(())
@@ -152,7 +152,7 @@ fn map_connect_err(err: ConnectError) -> (StatusCode, Json<Value>) {
     match err {
         ConnectError::Unreachable => json_error(
             StatusCode::BAD_GATEWAY,
-            "Luna Connect couldn't be reached. Check your internet connection and try again.",
+            "Luna couldn't reach Luna Connect, or Luna Connect had a problem. Check your internet connection, then try again.",
         ),
         ConnectError::GatewayChallenge => json_error(
             StatusCode::BAD_GATEWAY,
@@ -160,7 +160,7 @@ fn map_connect_err(err: ConnectError) -> (StatusCode, Json<Value>) {
         ),
         ConnectError::Conflict => json_error(
             StatusCode::CONFLICT,
-            "That name is already in use, or Connect is already on. Pick another name or turn it off first.",
+            "Luna Connect did not accept this change. Try again.",
         ),
         ConnectError::InvalidToken => json_error(
             StatusCode::UNAUTHORIZED,

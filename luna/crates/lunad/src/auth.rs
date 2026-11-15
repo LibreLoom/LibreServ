@@ -160,7 +160,10 @@ impl AuthService {
     ) -> Result<(UserRow, crate::hibp::BreachCheck), AuthError> {
         let username = normalize_username(username)?;
         let display_name = display_name.trim();
-        if display_name.is_empty() || display_name.len() > 80 {
+        // Characters, not bytes: the API promises "1-80 characters", and a
+        // name in a non-Latin script must not fall through to the username
+        // message.
+        if display_name.is_empty() || display_name.chars().count() > 80 {
             return Err(AuthError::BadUsername);
         }
         if let Err(err) = crate::password::validate_password(password) {

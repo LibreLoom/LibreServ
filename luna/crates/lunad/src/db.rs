@@ -1934,9 +1934,11 @@ fn commit_snapshot_in(
             )
             .optional()?;
         match state.as_deref() {
-            None => anyhow::bail!("Backup pack {pack_id} is missing from the database."),
+            None => anyhow::bail!(
+                "Luna lost its record of part of this cloud backup, so this backup didn't finish."
+            ),
             Some("deleting") => anyhow::bail!(
-                "Backup pack {pack_id} is being removed, so this backup cannot use it."
+                "Part of this cloud backup was being deleted, so this backup didn't finish."
             ),
             _ => {}
         }

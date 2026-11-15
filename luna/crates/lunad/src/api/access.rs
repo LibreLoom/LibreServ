@@ -162,7 +162,7 @@ fn reaches_in(subj: &Subject, path: &str) -> bool {
 fn busy() -> ApiError {
     json_error(
         StatusCode::INTERNAL_SERVER_ERROR,
-        "Luna couldn't do that. Try again.",
+        "Luna could not finish that sharing step. Try again.",
     )
 }
 

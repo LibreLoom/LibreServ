@@ -93,8 +93,8 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
     });
 
     if !snap.ipv4.is_empty() && snap.cable_in && !snap.has_default_route {
-        lines.push("  This Luna has an address, but no path to the wider internet.".into());
-        lines.push("  Check the router or modem, then wait a moment.".into());
+        lines.push("  Luna has an address but can't reach the internet.".into());
+        lines.push("  Make sure your router or modem is online, then wait a moment.".into());
     }
 
     // How to open Luna: Everywhere (when remote is configured), then local network.
@@ -124,12 +124,12 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
 
     lines.push(String::new());
     lines.push(
-        "  Luna's main UI is accessible through the links above. Login below is only for recovery."
+        "  Open Luna in a browser with the links above. The login below is only for recovery."
             .into(),
     );
     lines.push("  Local shell: type root, press Enter at password.".into());
     lines.push(
-        "  Forgot Luna password? Boot Luna with a dedicated USB flash drive holding only luna-recover-<token>.luna.".into(),
+        "  Forgot the Luna password? Start Luna with a USB flash drive that holds only luna-recover-<token>.luna.".into(),
     );
     lines.push("============================================================".into());
     lines.push(String::new());
@@ -301,12 +301,10 @@ mod tests {
             ipv4: vec!["192.168.1.20".into()],
             cable_in: true,
             has_default_route: false,
-            problems: vec![
-                "This Luna has a network address, but no path out to the internet.".into(),
-            ],
+            problems: vec!["Luna has a network address but can't reach the internet.".into()],
             ..Default::default()
         });
-        assert!(text.contains("no path to the wider internet") || text.contains("no path out"));
+        assert!(text.contains("has an address but can't reach the internet"));
     }
 
     #[test]

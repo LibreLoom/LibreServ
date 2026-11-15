@@ -1954,7 +1954,7 @@ async fn add_items(
         }
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "None of those photos can be added — you can only add photos you're allowed to share.",
+            "None of those photos can be added. You can only add photos you are allowed to share.",
         ));
     }
     photos::add_album_items(&root, &id, &allowed).map_err(|_| {

@@ -268,8 +268,7 @@ fn sample_packs(mut ids: Vec<String>, sample: Sample) -> Vec<String> {
 fn summarise(r: &CheckReport) -> Option<String> {
     if !r.bad_records.is_empty() {
         return Some(
-            "A cloud backup record failed its signature check or is missing. Contact your Admin."
-                .into(),
+            "A record of this cloud backup is missing or damaged. Contact your Admin.".into(),
         );
     }
     if !r.missing_packs.is_empty() {

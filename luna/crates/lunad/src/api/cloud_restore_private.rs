@@ -153,11 +153,13 @@ fn no_phrase() -> ApiError {
     )
 }
 
+/// Any Luna Connect failure here: no network, a server fault, a refusal, or a list that changed
+/// or came back broken mid-read. The message claims none of these causes, so it is true for all.
 fn unreachable_connect(err: impl std::fmt::Display) -> ApiError {
-    tracing::warn!(error = %err, "could not reach Luna Connect for a private cloud restore");
+    tracing::warn!(error = %err, "Luna Connect failed during a private cloud restore");
     json_error(
         StatusCode::BAD_GATEWAY,
-        "Could not reach Luna Connect. Check your connection, then try again.",
+        "Luna couldn't load your private backups from Luna Connect. Try again.",
     )
 }
 
@@ -165,14 +167,14 @@ fn read_failed(err: impl std::fmt::Display) -> ApiError {
     tracing::warn!(error = %err, "could not read the private backup index");
     json_error(
         StatusCode::INTERNAL_SERVER_ERROR,
-        "Luna could not read its private backup index. Try again.",
+        "Luna couldn't read its list of private backups. Try again.",
     )
 }
 
 fn unreadable() -> ApiError {
     json_error(
         StatusCode::BAD_REQUEST,
-        "These private backups can't be read. Start again from Settings → Cloud backup.",
+        "Luna can't read these private backups. Start again from Settings → Luna Connect.",
     )
 }
 
@@ -180,14 +182,13 @@ fn pack_missing() -> ApiError {
     json_error(StatusCode::NOT_FOUND, "Luna can't find that backup file.")
 }
 
+const UNFINISHED: &str = "Luna couldn't finish restoring your private backups. Try again.";
+
 fn finish(joined: Result<Result<Value, ApiError>, tokio::task::JoinError>) -> ApiResult {
     match joined {
         Ok(Ok(value)) => Ok(Json(value)),
         Ok(Err(err)) => Err(err),
-        Err(_) => Err(json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna could not finish that. Try again.",
-        )),
+        Err(_) => Err(json_error(StatusCode::INTERNAL_SERVER_ERROR, UNFINISHED)),
     }
 }
 
@@ -245,7 +246,7 @@ fn load_caller(db: &crate::Db, user_id: &str) -> Result<Option<CallerKeys>, ApiE
     let identity = identity::load(&conn).map_err(read_failed)?.ok_or_else(|| {
         json_error(
             StatusCode::CONFLICT,
-            "Luna has no cloud backup identity yet.",
+            "Cloud backup isn't set up on this Luna yet.",
         )
     })?;
     Ok(Some((caller, identity.public())))
@@ -662,10 +663,7 @@ async fn pack(
             Ok(([(header::CONTENT_TYPE, "application/octet-stream")], bytes).into_response())
         }
         Ok(Err(err)) => Err(err),
-        Err(_) => Err(json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna could not finish that. Try again.",
-        )),
+        Err(_) => Err(json_error(StatusCode::INTERNAL_SERVER_ERROR, UNFINISHED)),
     }
 }
 
@@ -795,7 +793,18 @@ fn restore_with_store(
         &snapshots,
         now,
     )
-    .map_err(|err| json_error(StatusCode::BAD_REQUEST, err.to_string()))
+    .map_err(|err| {
+        // A database fault is Luna's own problem, not something wrong with what was sent.
+        if err.downcast_ref::<rusqlite::Error>().is_some() {
+            tracing::warn!(error = %err, "could not save restored private backups");
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't save your private backups. Try again.",
+            )
+        } else {
+            json_error(StatusCode::BAD_REQUEST, err.to_string())
+        }
+    })
 }
 
 #[cfg(test)]

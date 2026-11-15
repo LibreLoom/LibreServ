@@ -23,7 +23,7 @@ use crate::files;
 
 const NO_PHRASE: &str = "This private item's owner hasn't set up a recovery phrase yet, so its cloud backup can't start.";
 const NO_OWNER: &str =
-    "This private item's owner no longer has an account. An Admin can remove its backups.";
+    "This private item's owner no longer has an account. An Admin can delete its backups.";
 
 /// Run one private item's cloud backup. Same outcome shape as `run::run_once`.
 pub fn run_once(
@@ -154,7 +154,7 @@ fn prepare(db: &crate::Db, protection_id: &str, now: i64) -> Result<Prepared> {
 
     // A run never mints an identity: a Luna without one has never been set up for cloud backup.
     let identity = identity::load(&conn)?
-        .ok_or_else(|| anyhow!("Set up cloud backup on this Luna before running a backup."))?;
+        .ok_or_else(|| anyhow!("Luna's cloud identity is missing. Try again."))?;
     let seed = db::get_cloud_identity(&conn)?
         .ok_or_else(|| anyhow!("Luna's cloud identity is missing."))?
         .signing_seed;

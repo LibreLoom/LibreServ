@@ -206,7 +206,7 @@ async fn get_setup(
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna is updating its file list. Wait a moment and try again.",
+            "Luna couldn't load setup progress. Try again.",
         )
     })?;
     let mut setup = crate::db::get_meta(&conn, SETUP_KEY)
@@ -264,7 +264,7 @@ async fn save_setup(
         if body.setup_completed.is_some() || body.name.is_some() {
             return Err(json_error(
                 StatusCode::FORBIDDEN,
-                "Finish setup while you're on the same network as Luna — or create the first login, then sign in.",
+                "Finish setup from the same network as Luna, or create your account and sign in first.",
             ));
         }
         if body.step_data.as_ref().is_some_and(|d| {
@@ -280,7 +280,7 @@ async fn save_setup(
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna is updating its file list. Wait a moment and try again.",
+            "Luna couldn't save setup progress. Try again.",
         )
     })?;
     // Setup closes only behind the first Admin's account, so a wizard can never finish
@@ -304,7 +304,7 @@ async fn save_setup(
 
     if let Some(name) = body.name {
         let name = name.trim().to_string();
-        if name.is_empty() || name.len() > 40 {
+        if name.is_empty() || name.chars().count() > 40 {
             return Err(json_error(
                 StatusCode::BAD_REQUEST,
                 "Give your Luna a name between 1 and 40 characters.",
@@ -316,7 +316,7 @@ async fn save_setup(
         if !VALID_STEPS.contains(&step.as_str()) {
             return Err(json_error(
                 StatusCode::BAD_REQUEST,
-                "Setup couldn't continue from here. Refresh and start again.",
+                "Setup couldn't go to that step. Refresh the page and try again.",
             ));
         }
         setup.current_step = step;

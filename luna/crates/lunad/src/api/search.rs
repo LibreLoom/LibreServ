@@ -62,7 +62,7 @@ async fn search(
     let busy = || {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna could not search every drive. Try again.",
+            "Luna couldn't finish this search. Try again.",
         )
     };
 
@@ -259,7 +259,7 @@ async fn factory_reset(
     if !body.confirm {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            "Confirm that you want to reset this Luna. Everyone will need to sign in again, and remote access will turn off. Files on your drives stay where they are.",
+            "Confirm that you want to reset this Luna. The reset deletes every account, share, and setting, and turns off remote access. Files on your drives stay where they are.",
         ));
     }
     if body.password.trim().is_empty() {
@@ -286,7 +286,7 @@ async fn factory_reset(
         .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't do that. Try again.",
+                "Luna couldn't check your password. Try again.",
             )
         })?
         .map_err(|_| {

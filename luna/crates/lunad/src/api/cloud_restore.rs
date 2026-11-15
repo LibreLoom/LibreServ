@@ -184,26 +184,30 @@ fn not_set_up() -> ApiError {
     )
 }
 
-fn unreachable_connect(err: impl std::fmt::Display) -> ApiError {
-    tracing::warn!(error = %err, "could not reach Luna Connect for a cloud restore");
-    json_error(
-        StatusCode::BAD_GATEWAY,
-        "Could not reach Luna Connect. Check your connection, then try again.",
-    )
+/// A Luna Connect failure during a restore. A refusal carries Connect's own sentence, and a list
+/// that changed mid-read says so. Anything else (no network, a server fault) gets one true line.
+fn connect_failed(err: StoreError) -> ApiError {
+    tracing::warn!(error = %err, "Luna Connect failed during a cloud restore");
+    let message = match err {
+        StoreError::Rejected(msg) => msg,
+        StoreError::Unavailable(msg) if msg.starts_with("The cloud backup list changed") => msg,
+        _ => "Luna couldn't load the cloud backups from Luna Connect. Check this Luna's internet connection, then try again.".to_string(),
+    };
+    json_error(StatusCode::BAD_GATEWAY, message)
 }
 
 fn read_failed(err: impl std::fmt::Display) -> ApiError {
     tracing::warn!(error = %err, "could not read the cloud backup index");
     json_error(
         StatusCode::INTERNAL_SERVER_ERROR,
-        "Luna could not read its cloud backup index. Try again.",
+        "Luna couldn't read its list of cloud backups. Try again.",
     )
 }
 
 fn unreadable_keys() -> ApiError {
     json_error(
         StatusCode::BAD_REQUEST,
-        "These backup keys can't be read. Start again from Settings → Cloud backup.",
+        "Luna can't read these backup keys. Start again from Settings → Luna Connect.",
     )
 }
 
@@ -213,7 +217,7 @@ fn finish(joined: Result<Result<Value, ApiError>, tokio::task::JoinError>) -> Ap
         Ok(Err(err)) => Err(err),
         Err(_) => Err(json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna could not finish that. Try again.",
+            "Luna couldn't load the cloud backup list. Try again.",
         )),
     }
 }
@@ -253,7 +257,7 @@ async fn status(
         // Connect's shared snapshot listing is separate from private, scope-protected records.
         // Read bounded, versioned pages and compare identities without retaining the cloud list.
         let (missing_snapshots, cloud_snapshots) =
-            cloud_snapshot_status(&store, &indexed_ids).map_err(unreachable_connect)?;
+            cloud_snapshot_status(&store, &indexed_ids).map_err(connect_failed)?;
         let conn = db.lock().unwrap_or_else(|p| p.into_inner());
         let identity = identity::load(&conn).map_err(read_failed)?;
         let (luna_id, signing_public) = match &identity {
@@ -326,7 +330,7 @@ async fn restore(
             identity::load(&conn).map_err(read_failed)?.ok_or_else(|| {
                 json_error(
                     StatusCode::CONFLICT,
-                    "Luna has no cloud backup identity yet.",
+                    "Cloud backup isn't set up on this Luna yet.",
                 )
             })?
         };
@@ -381,7 +385,7 @@ async fn restore(
             }
             Err(err) => {
                 tracing::warn!(error = %err, "could not rebuild the cloud backup index");
-                let event = json!({"type":"error", "message":"Luna couldn't finish restoring your backup list. Some versions may already be back; try again to continue."}).to_string();
+                let event = json!({"type":"error", "message":"Luna couldn't finish restoring your backup list. Try again to restore the rest."}).to_string();
                 let _ = tx.blocking_send(event);
             }
         }
@@ -442,11 +446,11 @@ fn decode_32(s: &str) -> Result<Vec<u8>, ApiError> {
 /// Lists the records of one kind on the store, sorted by name, as base64.
 fn records_with_store(store: &dyn CloudStore, kind: &str) -> Result<Value, ApiError> {
     valid_kind(kind)?;
-    let mut names = store.list_records(kind).map_err(unreachable_connect)?;
+    let mut names = store.list_records(kind).map_err(connect_failed)?;
     names.sort();
     let mut out = Vec::with_capacity(names.len());
     for name in names {
-        if let Some(bytes) = store.get_record(kind, &name).map_err(unreachable_connect)? {
+        if let Some(bytes) = store.get_record(kind, &name).map_err(connect_failed)? {
             out.push(json!({ "name": name, "data": STANDARD.encode(bytes) }));
         }
     }

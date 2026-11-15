@@ -150,7 +150,7 @@ pub const TRASH_API_ALIAS: &str = ".luna-trash";
 /// Shown when the drive row exists and the mount is there, but Luna could not
 /// rebuild the `.luna-<uuid>.sqlite3` microdb it keeps on the drive. This is
 /// not an unplug, and nothing on the drive is lost.
-pub const MISSING_DRIVE_DB_MSG: &str = "Luna can't write to this drive, so it can't rebuild its database. Your files are still on the drive — free up space or check the write-lock switch, then try again.";
+pub const MISSING_DRIVE_DB_MSG: &str = "Luna can't write its database to this drive, but your files are still on it. Free up space or check the drive's write-lock switch, then try again.";
 
 /// Shown when a file operation reaches an encrypted drive whose container is
 /// not open. Nothing is wrong with the drive: it needs its password.
@@ -159,7 +159,7 @@ pub const DRIVE_LOCKED_MSG: &str = "This drive is locked. Enter its password to 
 #[derive(Debug, thiserror::Error)]
 pub enum FilesError {
     #[error(
-        "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
+        "Luna can't find this drive. Make sure it is plugged in, or unplug it and plug it in again."
     )]
     UnknownDrive,
     /// The drive is here and healthy, but its container is not open.

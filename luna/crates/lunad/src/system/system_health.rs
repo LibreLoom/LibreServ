@@ -337,19 +337,19 @@ fn add_core_checks(
                 "database",
                 "system",
                 FAILED,
-                "Signing in and sharing may not work.",
+                "Luna can't read its accounts, sharing, and settings.",
                 None,
             )
-            .more("Luna can't read its record of accounts, sharing, and settings. Try restarting Luna, and if this keeps happening, contact support."),
+            .more("Signing in and sharing may not work. Restart Luna, and if this keeps happening, contact support."),
         DatabaseState::Damaged => checks
             .add(
                 "database",
                 "system",
                 FAILED,
-                "Signing in and sharing may not work.",
+                "Luna's record of accounts, sharing, and settings is damaged.",
                 None,
             )
-            .more("Luna's record of accounts, sharing, and settings is damaged. The files on your drives aren't affected; contact support."),
+            .more("Signing in and sharing may not work, but the files on your drives aren't affected. Contact support."),
     }
 
     if path_writable(data_dir) {
@@ -409,10 +409,10 @@ fn add_core_checks(
                 "disk_space",
                 "system",
                 FAILED,
-                "Luna's own storage (its system disk) is almost full. Free some space on it, or Luna may stop working.",
+                "Luna's system disk is almost full, so Luna may stop working.",
                 details,
             )
-            .more("This is the disk where Luna keeps its accounts and settings; your files are on your drives."),
+            .more("This disk holds Luna's accounts and settings, not your files. To clear temporary files, select Free up space in Settings → About → System checks."),
         None => checks
             .add(
                 "disk_space",
@@ -463,7 +463,7 @@ fn add_clock_check(checks: &mut Checks, clock: ClockReading, build_unix: i64) {
                 format!("The clock is wrong: it says {}.", ymd(clock.now_unix)),
                 None,
             )
-            .more("That's before this version of Luna was made, so new and changed files would get wrong dates, and updates and Luna Connect will likely fail. Luna sets its clock over the internet: check that your router or modem is online, then check again in a minute.");
+            .more("That date is before this version of Luna was made, so files get wrong dates and updates and Luna Connect may fail. Luna sets its clock over the internet, so make sure your router or modem is online.");
         return;
     }
     match clock.synced {
@@ -526,7 +526,7 @@ fn add_update_checks(checks: &mut Checks, probes: &Probes) {
             "Luna checks updates with a different signing key than the built-in one.",
             None,
         )
-        .more("An Admin pointed updates at another project page in Settings → About → Advanced → Update source. Updates are only checked against the keys saved there — if that wasn't on purpose, choose Use defaults there, then Save changes.");
+        .more("An Admin changed Settings → About → Advanced → Update source, so Luna checks updates only with the keys saved there. If this was not on purpose, choose Use defaults there, then Save changes.");
     }
 
     if probes.on_luna_os {
@@ -609,11 +609,11 @@ fn add_network_checks(checks: &mut Checks, probes: &Probes) {
                 "connect",
                 "network",
                 WARNING,
-                "Cloud backups can't upload right now.",
+                "Luna Connect isn't working for this Luna right now.",
                 None,
             )
             .more(format!(
-                "{err} Changes made in Luna Connect won't reach this Luna until then."
+                "{err} Until then, cloud backups may not upload, and changes made in Luna Connect don't reach this Luna."
             ));
     } else {
         checks.add(
@@ -1404,7 +1404,7 @@ pub fn finish_comprehensive(
                     format!("Luna can't save new files to {label}."),
                     Some(drive_details),
                 )
-                .more("The drive is read-only.");
+                .more("Luna tried to save a test file there and couldn't. If the drive has a write-lock switch, turn it off.");
         } else if drive.locked {
             // Locked on purpose: nothing to open, and a test file must not be
             // written into the empty folder. Backups wait for the password.
@@ -2108,7 +2108,12 @@ mod tests {
         let check = &resp.checks["drive_d1_read_write"];
         assert_eq!(check.status, FAILED);
         assert_eq!(check.message, "Luna can't save new files to Photos.");
-        assert_eq!(check.more.as_deref(), Some("The drive is read-only."));
+        assert_eq!(
+            check.more.as_deref(),
+            Some(
+                "Luna tried to save a test file there and couldn't. If the drive has a write-lock switch, turn it off."
+            )
+        );
     }
 
     #[test]

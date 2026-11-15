@@ -230,7 +230,8 @@ impl DiskTools for CommandTools {
             if e.kind() == std::io::ErrorKind::TimedOut {
                 ToolError::TimedOut("wipefs")
             } else {
-                ToolError::Failed(format!("Luna couldn't look at this drive. {e}"))
+                tracing::warn!(error = %e, "wipefs could not run");
+                ToolError::Failed(format!("Luna couldn't look at this drive. {TRY_AGAIN}"))
             }
         })?;
         if !out.status.success() {

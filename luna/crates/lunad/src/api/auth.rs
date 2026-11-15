@@ -58,7 +58,7 @@ async fn update_me(
     };
     if let Some(name) = body.display_name.as_deref() {
         let name = name.trim();
-        if name.is_empty() || name.len() > 80 {
+        if name.is_empty() || name.chars().count() > 80 {
             return Err(json_error(
                 StatusCode::BAD_REQUEST,
                 "Names are 1-80 characters.",
@@ -78,14 +78,14 @@ async fn update_me(
             let conn = state.db.lock().map_err(|_| {
                 json_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna couldn't do that. Try again.",
+                    "Luna could not check your current password. Try again.",
                 )
             })?;
             crate::db::get_user(&conn, &user.id)
                 .map_err(|_| {
                     json_error(
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        "Luna couldn't do that. Try again.",
+                        "Luna could not check your current password. Try again.",
                     )
                 })?
                 .ok_or_else(|| json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first."))?
@@ -95,7 +95,7 @@ async fn update_me(
             let parsed = argon2::password_hash::PasswordHash::new(&stored_hash).map_err(|_| {
                 json_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna couldn't do that. Try again.",
+                    "Luna could not check your current password. Try again.",
                 )
             })?;
             auth::verify_password_hash(&current_password, &parsed).map_err(|_| {
@@ -114,7 +114,7 @@ async fn update_me(
             let hash = auth::hash_password(&new_password).map_err(|_| {
                 json_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna couldn't save that. Try again.",
+                    "Luna could not save your new password. Try again.",
                 )
             })?;
             Ok((hash, breach == crate::hibp::BreachCheck::Unavailable))
@@ -123,7 +123,7 @@ async fn update_me(
         .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't do that. Try again.",
+                "Luna could not change your password. Try again.",
             )
         })??;
         new_hash = Some(hash);
@@ -133,7 +133,7 @@ async fn update_me(
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't do that. Try again.",
+            "Luna could not save your changes. Try again.",
         )
     })?;
     let mut changed_password = false;
@@ -142,7 +142,7 @@ async fn update_me(
         crate::db::set_user_display_name(&conn, &user.id, name.trim()).map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't save that. Try again.",
+                "Luna could not save your name. Try again.",
             )
         })?;
     }
@@ -151,7 +151,7 @@ async fn update_me(
         crate::db::set_user_password_hash(&conn, &user.id, &hash).map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't save that. Try again.",
+                "Luna could not save your new password. Try again.",
             )
         })?;
         // Every session and device token signed in with the old password is
@@ -170,7 +170,7 @@ async fn update_me(
         "role": user.role,
         "signed_out": changed_password,
         "message": if changed_password {
-            "Password changed. Sign in again with your new password."
+            "Password changed. Every browser and app is now signed out."
         } else {
             "Saved."
         },
@@ -200,7 +200,11 @@ async fn register(
             "Too many tries. Wait a few minutes and try again.",
         ));
     }
-    let has_users = state.auth.count_users().map_err(map_auth_err)? > 0;
+    let has_users = state
+        .auth
+        .count_users()
+        .map_err(|e| map_auth_err(e, "Luna could not create the account. Try again."))?
+        > 0;
     if has_users {
         let Some(Extension(user)) = current else {
             return Err(json_error(
@@ -211,7 +215,7 @@ async fn register(
         if user.role != "admin" {
             return Err(json_error(
                 StatusCode::FORBIDDEN,
-                "Only an Admin can manage accounts.",
+                "Only an Admin can add users.",
             ));
         }
     } else if !is_lan_request(&addr, &headers) {
@@ -230,6 +234,15 @@ async fn register(
         .display_name
         .clone()
         .unwrap_or_else(|| body.username.clone());
+    // Checked here so a bad name gets the name message: the auth service
+    // reports it as a bad username.
+    let name_chars = display_name.trim().chars().count();
+    if name_chars == 0 || name_chars > 80 {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Names are 1-80 characters.",
+        ));
+    }
     let password = body.password.clone();
     let (user, breach) = tokio::task::spawn_blocking(move || {
         auth.register_with_breach_check(&username, &display_name, &password, "user")
@@ -238,10 +251,10 @@ async fn register(
     .map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't do that. Try again.",
+            "Luna could not create the account. Try again.",
         )
     })?
-    .map_err(map_auth_err)?;
+    .map_err(|e| map_auth_err(e, "Luna could not create the account. Try again."))?;
     if !has_users {
         // One-time cleanup does a Connect round-trip — off the async worker.
         let connect = state.connect.clone();
@@ -298,10 +311,10 @@ async fn login(
         .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't do that. Try again.",
+                "Luna could not sign you in. Try again.",
             )
         })?
-        .map_err(map_auth_err)?;
+        .map_err(|e| map_auth_err(e, "Luna could not sign you in. Try again."))?;
     let secure = auth::request_is_https(&headers);
     let mut response = Json(json!({
         "ok": true,
@@ -349,7 +362,10 @@ async fn revoke_sessions(
             "Sign in to Luna first.",
         ));
     };
-    state.auth.revoke_sessions(&user.id).map_err(map_auth_err)?;
+    state
+        .auth
+        .revoke_sessions(&user.id)
+        .map_err(|e| map_auth_err(e, "Luna could not sign out every browser. Try again."))?;
     Ok((
         StatusCode::OK,
         [(
@@ -377,10 +393,10 @@ async fn revoke_devices(
     state
         .auth
         .revoke_all_device_tokens(&user.id)
-        .map_err(map_auth_err)?;
+        .map_err(|e| map_auth_err(e, "Luna could not sign out every app. Try again."))?;
     Ok(Json(json!({
         "ok": true,
-        "message": "Apps on phones and computers need a new access token.",
+        "message": "Every app is signed out. Your access tokens no longer work.",
     })))
 }
 
@@ -493,10 +509,27 @@ pub(crate) fn login_user_key(username: &str) -> String {
 /// onboarding or the permanent token on this Luna. Empty secret → a plain
 /// refusal that says where to set up instead.
 async fn first_user_device_token(state: &AppState, body: &RegisterBody) -> Result<(), String> {
+    // Connect is opt-in: with no device token on this Luna, no pasted token
+    // can ever match, and Connect never polls to hand one out.
+    let has_token = state
+        .connect
+        .first_user_secret()
+        .is_some_and(|s| !s.trim().is_empty())
+        || state
+            .connect
+            .device_code()
+            .is_ok_and(|c| !c.trim().is_empty());
+    if !has_token {
+        return Err(
+            "This Luna has no device token. Create the first account from the same network as Luna."
+                .into(),
+        );
+    }
     let offered = body.setup_secret.as_deref().unwrap_or("").trim();
     if offered.is_empty() {
         return Err(
-            "Create the first login while you're on the same network as Luna — or paste the device token from connect.luna.libreloom.org, which proves you finished setup there.".into(),
+            "Create the first account from the same network as Luna, or paste the device token."
+                .into(),
         );
     }
 
@@ -535,10 +568,12 @@ async fn first_user_device_token(state: &AppState, body: &RegisterBody) -> Resul
         }
     }
 
-    Err("That device token doesn't match. Paste the device token from connect.luna.libreloom.org, or check the card that came with Luna.".into())
+    Err("That device token doesn't match. Check the device token on the quick-start guide or in Luna Connect.".into())
 }
 
-fn map_auth_err(err: AuthError) -> (StatusCode, Json<Value>) {
+/// `fallback` names the action that failed, for errors with no message of
+/// their own.
+fn map_auth_err(err: AuthError, fallback: &str) -> (StatusCode, Json<Value>) {
     match err {
         AuthError::BadLogin => json_error(
             StatusCode::UNAUTHORIZED,
@@ -556,10 +591,7 @@ fn map_auth_err(err: AuthError) -> (StatusCode, Json<Value>) {
         AuthError::Unauthenticated => {
             json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first.")
         }
-        _ => json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't sign you in. Try again.",
-        ),
+        _ => json_error(StatusCode::INTERNAL_SERVER_ERROR, fallback),
     }
 }
 

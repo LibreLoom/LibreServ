@@ -126,7 +126,7 @@ pub struct Upload {
 
 #[derive(Debug, thiserror::Error)]
 pub enum UploadError {
-    #[error("Luna doesn't know this upload.")]
+    #[error("Luna can't find this upload. Upload the file again.")]
     NotFound,
     #[error("This upload is already finished or cancelled.")]
     NotActive,

@@ -280,7 +280,7 @@ async fn async_main() -> anyhow::Result<()> {
                         );
                     } else if !net.has_default_route {
                         problems.push(
-                            "This Luna has a network address, but no path out to the internet. Check the router or modem."
+                            "Luna has a network address but can't reach the internet. Make sure your router or modem is online."
                                 .into(),
                         );
                     }
@@ -309,7 +309,7 @@ async fn async_main() -> anyhow::Result<()> {
                                 // Unplugged is normal — not an HDMI-console problem.
                                 if drive.state.as_str() == "readonly" {
                                     problems.push(format!(
-                                        "Drive \"{}\" can be read but not written. This is usually the filesystem, or a write-lock switch on the stick.",
+                                        "Luna can read {} but can't save to it. If the drive has a write-lock switch, turn it off.",
                                         drive.label
                                     ));
                                 }

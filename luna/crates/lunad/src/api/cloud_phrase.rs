@@ -286,12 +286,12 @@ async fn ensure_identity(state: &AppState) -> Result<identity::Identity, ApiErro
             tracing::warn!(error = %err, "could not set up Luna's cloud identity");
             Err(json_error(
                 StatusCode::CONFLICT,
-                "Luna could not set up its backup identity. Try again, or contact your Admin.",
+                "Luna couldn't set up cloud backup. Try again, or contact your Admin.",
             ))
         }
         Err(_) => Err(json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna could not set up its backup identity. Try again.",
+            "Luna couldn't set up cloud backup. Try again.",
         )),
     }
 }
@@ -361,7 +361,7 @@ async fn set_phrase(
         // Only the old phrase can open the scopes, so only that proof can re-seal them.
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            "Luna can only re-seal private backups when you prove the old phrase.",
+            "Enter your old phrase to move your private backups to the new phrase.",
         ));
     }
     let self_sealed = STANDARD
@@ -421,7 +421,7 @@ async fn set_phrase(
                 if !state.login_limiter.allow(&login_user_key(&user.username)) {
                     return Err(json_error(
                         StatusCode::TOO_MANY_REQUESTS,
-                        "Too many tries. Wait a few minutes and try again.",
+                        "Too many tries. Wait a few minutes, then try again.",
                     ));
                 }
                 let auth = state.auth.clone();
@@ -431,7 +431,10 @@ async fn set_phrase(
                 })
                 .await
                 .map_err(|_| save_failed())?
-                .map_err(|_| proof_refused())?;
+                .map_err(|err| match err {
+                    crate::auth::AuthError::Db(_) => save_failed(),
+                    _ => proof_refused(),
+                })?;
             }
         }
     }
@@ -448,7 +451,7 @@ async fn set_phrase(
     if key_taken {
         return Err(json_error(
             StatusCode::CONFLICT,
-            "This recovery key is already used by another account. Set up the recovery phrase again.",
+            "Another account already uses this recovery phrase. Make a new recovery phrase.",
         ));
     }
     // All or nothing: the new keys, the readers' lists, the rotation marks, the re-seal job and the
@@ -2021,7 +2024,7 @@ mod tests {
             body["error"]
                 .as_str()
                 .unwrap()
-                .contains("already used by another account")
+                .contains("Another account already uses this recovery phrase")
         );
     }
 

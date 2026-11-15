@@ -449,10 +449,14 @@ async fn adopt(
     .await
     .unwrap_or_else(|_| Err(anyhow::anyhow!("task failed")))
     .map_err(|e| {
-        json_error(
-            StatusCode::BAD_REQUEST,
-            format!("Luna couldn't add this drive. {}", plain_adopt_error(&e)),
-        )
+        let plain = plain_adopt_error(&e);
+        // The drive is added in that case, so "couldn't add" would be untrue.
+        let message = if plain == ADDED_NOT_READ {
+            plain
+        } else {
+            format!("Luna couldn't add this drive. {plain}")
+        };
+        json_error(StatusCode::BAD_REQUEST, message)
     })?;
     if !row.mount_point.is_empty() {
         let mount = PathBuf::from(&row.mount_point);
@@ -486,7 +490,7 @@ async fn eject(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
     let (st, drive) = (state.clone(), id.clone());
-    closed_drive(&state, &id, move || {
+    closed_drive(&state, &id, EJECT_FAILED, move || {
         let eject_err =
             |e: anyhow::Error| json_error(StatusCode::BAD_REQUEST, plain_eject_error(&e));
         // Only the row reads and writes hold the DB lock; the unmount itself
@@ -531,7 +535,7 @@ async fn remove(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     require_admin(user)?;
     let (st, drive) = (state.clone(), id.clone());
-    closed_drive(&state, &id, move || {
+    closed_drive(&state, &id, REMOVE_FAILED, move || {
         crate::db::with_db(
             &st.db,
             || anyhow::anyhow!("db lock poisoned"),
@@ -550,6 +554,8 @@ async fn remove(
 async fn closed_drive(
     state: &AppState,
     id: &str,
+    // Said when the work stops for a reason inside Luna. Names the action, such as eject.
+    failed: &'static str,
     unmount: impl Fn() -> Result<(), (StatusCode, Json<serde_json::Value>)> + Send + 'static,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
     let original = crate::db::with_db(
@@ -626,12 +632,7 @@ async fn closed_drive(
         Ok(())
     })
     .await
-    .unwrap_or_else(|_| {
-        Err(json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't finish with this drive. Try again.",
-        ))
-    })
+    .unwrap_or_else(|_| Err(json_error(StatusCode::INTERNAL_SERVER_ERROR, failed)))
 }
 
 /// HTTP cancellation must not strand the RAM cache in its closing state.
@@ -696,7 +697,7 @@ async fn drive_health(
             .map_err(|_| {
                 json_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna couldn't update this drive. Try again.",
+                    "Luna couldn't read this drive's details. Try again.",
                 )
             })?
             .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know this drive."))?;
@@ -707,7 +708,7 @@ async fn drive_health(
         .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't check this drive.",
+                "Luna couldn't check this drive's health. Try again.",
             )
         })?;
     Ok(Json(health))
@@ -729,7 +730,7 @@ async fn drive_summary(
             .map_err(|_| {
                 json_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna couldn't update this drive. Try again.",
+                    "Luna couldn't read this drive's details. Try again.",
                 )
             })?
             .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know this drive."))?;
@@ -871,6 +872,10 @@ pub(crate) fn require_admin(
     Ok(())
 }
 
+/// The drive's row was written, but reading it back failed.
+const ADDED_NOT_READ: &str =
+    "Luna added this drive but couldn't read it back right away. Refresh the page to see it.";
+
 fn plain_adopt_error(err: &anyhow::Error) -> String {
     let text = err.to_string();
     let lower = text.to_ascii_lowercase();
@@ -883,7 +888,7 @@ fn plain_adopt_error(err: &anyhow::Error) -> String {
         || lower.contains("file too large")
         || lower.contains("os error 28")
     {
-        "This drive is full, so Luna couldn't put its sticker file on it. Free some space and try again.".into()
+        "It is full, so free some space and try again.".into()
     } else if lower.contains("will not accept new files")
         || lower.contains("lock switch")
         || lower.contains("read-only")
@@ -891,16 +896,15 @@ fn plain_adopt_error(err: &anyhow::Error) -> String {
     {
         crate::drives::WRITE_REJECTED_MESSAGE.into()
     } else if lower.contains("could not mark") {
-        "Luna couldn't put its sticker file on this drive. Unplug it, plug it back in, and try again.".into()
+        "Unplug it, plug it back in, and try again.".into()
     } else if lower.contains("system disk") {
-        "That's the drive Luna runs from. Luna won't use its own system drive for your files."
-            .into()
+        "That's the drive Luna runs from, so Luna won't use it for your files.".into()
     } else if lower.contains("give the drive a name") {
         "Give the drive a name first.".into()
     } else if lower.contains("added but could not be read back") {
-        "Luna added this drive but couldn't read it back right away. Refresh and try again.".into()
+        ADDED_NOT_READ.into()
     } else if lower.contains("mount") {
-        "Make sure the drive is plugged in and your computer isn't using it.".into()
+        "Make sure the drive is plugged in, then try again.".into()
     } else {
         "Try again.".into()
     }
@@ -923,10 +927,12 @@ fn plain_eject_error(err: &anyhow::Error) -> String {
         "Luna couldn't finish writing to this drive, so it isn't safe to unplug yet. Try again."
             .into()
     } else {
-        "Luna couldn't eject this drive safely, so don't unplug it yet. Try again in a moment."
-            .into()
+        EJECT_FAILED.into()
     }
 }
+
+const EJECT_FAILED: &str =
+    "Luna couldn't eject this drive safely, so don't unplug it yet. Try again in a moment.";
 
 /// User-facing remove errors — DriveManager already returns plain copy for
 /// real failures; strip raw OS paths if anything else leaks through.
@@ -936,13 +942,15 @@ fn plain_remove_error(err: &anyhow::Error) -> String {
     if lower.contains("doesn't know") {
         "Luna doesn't know this drive.".into()
     } else if lower.contains("plug the drive") {
-        "Plug the drive back in so Luna can remove its sticker file, then try again.".into()
-    } else if lower.contains("sticker") {
-        "Luna couldn't remove its sticker file from this drive. Try again.".into()
+        "Plug the drive back in so Luna can remove its hidden Luna file, then try again.".into()
+    } else if lower.contains("hidden luna file") {
+        "Luna couldn't remove its hidden Luna file from this drive. Try again.".into()
     } else {
-        "Luna couldn't remove this drive. Try again.".into()
+        REMOVE_FAILED.into()
     }
 }
+
+const REMOVE_FAILED: &str = "Luna couldn't remove this drive. Try again.";
 
 impl From<crate::db::DriveRow> for DriveJson {
     fn from(d: crate::db::DriveRow) -> Self {
@@ -1212,10 +1220,11 @@ mod tests {
             "Luna doesn't know this drive."
         );
 
-        let sticker =
-            anyhow::anyhow!("Luna couldn't remove its sticker file from this drive. Try again.");
+        let sticker = anyhow::anyhow!(
+            "Luna couldn't remove its hidden Luna file from this drive. Try again."
+        );
         let plain = super::plain_remove_error(&sticker);
-        assert!(plain.contains("sticker file"));
+        assert!(plain.contains("hidden Luna file"));
         assert!(!plain.contains("os error"));
 
         let raw = anyhow::anyhow!(

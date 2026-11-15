@@ -59,7 +59,11 @@ const MAX_KEYS: usize = 8;
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum UpdateError {
-    #[error("Luna couldn't reach the update server. Check that this Luna is online and try again.")]
+    /// No answer, a dropped download, or every download address failed
+    /// (which includes error answers from the server).
+    #[error(
+        "Luna couldn't download from the update server. Check that this Luna is online, then try again."
+    )]
     Unreachable,
     #[error("No updates have been published on this channel yet.")]
     NoFeed,
@@ -1257,12 +1261,15 @@ impl UpdateService {
             return Err(UpdateError::NoFeed);
         }
         if status != 200 {
-            return Err(UpdateError::Unreachable);
+            // The server answered, so "couldn't reach" would be untrue: the
+            // API shows its generic "couldn't check" text for `Other`.
+            return Err(UpdateError::Other(format!(
+                "the update server answered {status} for the feed"
+            )));
         }
-        let (sig_status, sig) = self
-            .http
-            .get(&format!("{feed_path}.minisig"))
-            .map_err(|_| UpdateError::MissingSignature)?;
+        // A failed download stays a download error: only an answer without
+        // the file means the signature is missing.
+        let (sig_status, sig) = self.http.get(&format!("{feed_path}.minisig"))?;
         if sig_status != 200 {
             return Err(UpdateError::MissingSignature);
         }
@@ -1711,10 +1718,17 @@ mod tests {
 
         let svc = UpdateService::with_keys(
             Box::new(MapHttp {
-                map: HashMap::from([(
-                    format!("{FEED}/luna/stable.json"),
-                    (200, r.feed_json().into_bytes()),
-                )]),
+                map: HashMap::from([
+                    (
+                        format!("{FEED}/luna/stable.json"),
+                        (200, r.feed_json().into_bytes()),
+                    ),
+                    // The server answers, but has no signature file.
+                    (
+                        format!("{FEED}/luna/stable.json.minisig"),
+                        (404, Vec::new()),
+                    ),
+                ]),
             }),
             Box::new(Arc::new(RecInstaller::default())),
             FEED.into(),

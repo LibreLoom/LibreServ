@@ -57,9 +57,16 @@ fn lock_db(
     state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna could not save the user change. Try again.",
+            "Luna could not open its user records. Try again.",
         )
     })
+}
+
+fn list_failed(_: AuthError) -> (StatusCode, Json<Value>) {
+    json_error(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Luna could not load the user list. Try again.",
+    )
 }
 
 /// Cloud backups can only be opened with a recovery phrase, so while any
@@ -110,7 +117,7 @@ async fn directory(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Vec<Value>>, (StatusCode, Json<Value>)> {
-    let users = state.auth.list_users().map_err(map_err)?;
+    let users = state.auth.list_users().map_err(list_failed)?;
     Ok(Json(
         users
             .iter()
@@ -135,7 +142,7 @@ async fn list(
     Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Vec<Value>>, (StatusCode, Json<Value>)> {
     require_admin(&user)?;
-    let users = state.auth.list_users().map_err(map_err)?;
+    let users = state.auth.list_users().map_err(list_failed)?;
     Ok(Json(users.iter().map(user_json).collect()))
 }
 
@@ -152,6 +159,15 @@ async fn create(
         .display_name
         .clone()
         .unwrap_or_else(|| body.username.clone());
+    // Checked here so a bad name gets the name message: the auth service
+    // reports it as a bad username.
+    let name_chars = display_name.trim().chars().count();
+    if name_chars == 0 || name_chars > 80 {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Names are 1-80 characters.",
+        ));
+    }
     let password = body.password.clone();
     let role = role.to_owned();
     let (user, breach) = tokio::task::spawn_blocking(move || {
@@ -249,7 +265,7 @@ async fn update(
     // display-name-only partial update behind.
     if let Some(name) = body.display_name.as_deref() {
         let name = name.trim();
-        if name.is_empty() || name.len() > 80 {
+        if name.is_empty() || name.chars().count() > 80 {
             return Err(json_error(
                 StatusCode::BAD_REQUEST,
                 "Names are 1-80 characters.",
@@ -264,14 +280,14 @@ async fn update(
         if role != "admin" && role != "user" {
             return Err(json_error(
                 StatusCode::BAD_REQUEST,
-                "Roles are admin or member.",
+                "Choose Admin or Member.",
             ));
         }
         if role != target.role {
             if admin.id == id && role != "admin" {
                 return Err(json_error(
                     StatusCode::BAD_REQUEST,
-                    "You can't take away your own admin rights.",
+                    "You can't remove your own Admin role.",
                 ));
             }
             if target.role == "admin" && role != "admin" {
@@ -406,7 +422,7 @@ async fn adopt_private(
         serde_json::from_slice(&body).map_err(|_| {
             json_error(
                 StatusCode::BAD_REQUEST,
-                "That request wasn't valid. Choose a person and try again.",
+                "Luna could not read that request. Refresh the page and try again.",
             )
         })?
     };
@@ -856,7 +872,7 @@ mod tests {
         )
         .await;
         assert_eq!(status, 400);
-        assert_eq!(body["error"], "You can't take away your own admin rights.");
+        assert_eq!(body["error"], "You can't remove your own Admin role.");
         assert_eq!(user_row(&h, &h.admin_id).unwrap().role, "admin");
 
         let (status, _) = send(

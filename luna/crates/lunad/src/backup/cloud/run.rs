@@ -32,8 +32,7 @@ const PACK_FLUSH_BYTES: usize = 8 << 20;
 
 /// Shown when a run is held because its source drive or folder is gone.
 const NO_ADMIN_PHRASE: &str = "Waiting for an Admin to set up the recovery phrase.";
-pub(crate) const SOURCE_MISSING: &str =
-    "The source looks missing or unplugged. Plug the drive back in, then try again.";
+pub(crate) const SOURCE_MISSING: &str = "Most files to back up are missing, or the drive is unplugged. Connect the drive, then try again.";
 
 /// Shown when a run is held because it could not be compared with the last copy.
 pub(crate) const CHECK_FAILED: &str = "Luna couldn't compare this folder with the last cloud copy, so it paused this backup. Try again, or choose Back up anyway if the folder looks right.";
@@ -302,7 +301,7 @@ fn prepare(
         .ok_or_else(|| anyhow!("This backup no longer exists."))?;
     // A run never mints an identity: a Luna without one has never been set up for cloud backup.
     let identity = identity::load(&conn)?
-        .ok_or_else(|| anyhow!("Set up cloud backup on this Luna before running a backup."))?;
+        .ok_or_else(|| anyhow!("Luna's cloud identity is missing. Try again."))?;
     let seed = db::get_cloud_identity(&conn)?
         .ok_or_else(|| anyhow!("Luna's cloud identity is missing."))?
         .signing_seed;
@@ -703,9 +702,7 @@ pub fn read_tree(
 /// The outcome of a run that found the backup's lock taken. Never recorded as a protection error.
 pub(crate) fn busy_outcome() -> CloudOutcome {
     CloudOutcome {
-        problem: Some(
-            "This backup is busy right now. Luna will try again in a few minutes.".to_string(),
-        ),
+        problem: Some("This backup is busy right now. Try again in a few minutes.".to_string()),
         busy: true,
         ..Default::default()
     }
@@ -1036,7 +1033,7 @@ mod tests {
         let out = run_with_root(&db, "p1", &src, &store, "user-1", false, 100).unwrap();
         assert_eq!(
             out.problem.as_deref(),
-            Some("Set up cloud backup on this Luna before running a backup.")
+            Some("Luna's cloud identity is missing. Try again.")
         );
         assert_eq!(out.snapshot_id, None);
         assert!(identity::load(&lock(&db)).unwrap().is_none());

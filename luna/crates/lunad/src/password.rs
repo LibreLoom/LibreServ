@@ -15,7 +15,8 @@ impl PasswordValidationError {
 }
 
 pub fn validate_password(password: &str) -> Result<(), PasswordValidationError> {
-    if password.len() < MIN_PASSWORD_LENGTH {
+    // Characters, not bytes, so "12 characters" is true for any script.
+    if password.chars().count() < MIN_PASSWORD_LENGTH {
         return Err(PasswordValidationError(
             "Passwords need at least 12 characters.",
         ));

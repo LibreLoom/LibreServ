@@ -137,7 +137,7 @@ fn require_dav_user(
     }
     Err(json_error(
         StatusCode::UNAUTHORIZED,
-        "Use your Luna username and an access token as the password — create one in Settings → Security. Your Luna password will not work here.",
+        "Your Luna password does not work here. Enter your Luna username, and enter an access token from Settings → Security as the password.",
     ))
 }
 
@@ -201,9 +201,10 @@ fn dav_handler_for(
         )
     })?;
     let Some(drive) = crate::db::get_drive(&conn, id).map_err(|e| {
+        tracing::warn!(drive = %id, error = %e, "WebDAV could not read the drive row");
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Could not read drives. {e}"),
+            "Luna could not read its list of drives. Try again.",
         )
     })?
     else {

@@ -28,10 +28,13 @@ const JSON_TIMEOUT: Duration = Duration::from_secs(20);
 /// Pack uploads and downloads can be up to 64 MB on a slow line.
 const PACK_TIMEOUT: Duration = Duration::from_secs(300);
 
-const UNREACHABLE_MSG: &str = "Luna could not reach Luna Connect. Check this Luna's internet connection. Luna will try again.";
+const UNREACHABLE_MSG: &str =
+    "Luna could not reach Luna Connect. Check this Luna's internet connection.";
 const SERVER_MSG: &str =
     "Luna Connect could not save or load your backup right now. Luna will try again.";
 const REFUSED_MSG: &str = "Luna Connect refused that request.";
+/// Connect answered a listing, but the page breaks the listing rules (order, cursor, prefix).
+const BAD_LIST_MSG: &str = "Luna Connect sent a backup list that Luna cannot use. Try again.";
 const PACK_TOO_BIG_MSG: &str = "A backup piece is larger than Luna Connect accepts (64 MB).";
 const RECORD_TOO_BIG_MSG: &str = "A backup record is larger than Luna Connect accepts (1 MB).";
 const CHECKSUM_MSG: &str = "Luna sent a backup piece that does not match its checksum.";
@@ -501,7 +504,7 @@ fn validate_page_response(
     let mut previous = after.unwrap_or("");
     for name in &page.names {
         if !valid_token(name, 128) || name.as_str() <= previous {
-            return Err(StoreError::Rejected(REFUSED_MSG.into()));
+            return Err(StoreError::Rejected(BAD_LIST_MSG.into()));
         }
         previous = name;
     }
@@ -512,7 +515,7 @@ fn validate_page_response(
             !valid_token(cursor, 128) || page.names.last().map(String::as_str) != Some(cursor)
         })
     {
-        return Err(StoreError::Rejected(REFUSED_MSG.into()));
+        return Err(StoreError::Rejected(BAD_LIST_MSG.into()));
     }
     Ok(())
 }
@@ -529,7 +532,7 @@ fn validate_prefix_page_response(
     if page.names.iter().any(|name| !name.starts_with(prefix))
         || page.total < page.names.len() as u64
     {
-        return Err(StoreError::Rejected(REFUSED_MSG.into()));
+        return Err(StoreError::Rejected(BAD_LIST_MSG.into()));
     }
     Ok(())
 }

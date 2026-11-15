@@ -23,9 +23,10 @@ use crate::net::connect::ConnectService;
 
 /// Shown on every cloud backup while Luna Connect is not set up for this Luna.
 pub const NOT_SET_UP: &str =
-    "Connect this Luna to Luna Connect to use cloud backups. Settings → About → Advanced.";
+    "Connect this Luna to Luna Connect in Settings → About → Advanced to use cloud backups.";
 
-const UNREACHABLE: &str = "Could not reach Luna Connect. Check your connection, then try again.";
+const REMOTE_DELETE_FAILED: &str =
+    "Luna could not delete the cloud copies in Luna Connect. Try again.";
 
 /// Record kinds in the store (private in `keys`, so mirrored here).
 const KEYS_RECORD_KIND: &str = "keys";
@@ -152,7 +153,7 @@ fn private_owner_for(
 }
 
 pub const IDENTITY_REFUSAL: &str =
-    "Luna could not set up its backup identity. Try again, or contact your Admin.";
+    "Luna couldn't set up cloud backup. Try again, or contact your Admin.";
 
 fn save_refused() -> Refused {
     Refused("Luna couldn't save this backup. Try again.".to_string())
@@ -230,7 +231,7 @@ pub fn run(
     now: i64,
 ) -> CloudOutcome {
     let Some(_slot) = drive_backup::try_hold(db, id) else {
-        return problem_outcome("This backup is copying right now. Try again in a minute.");
+        return problem_outcome("This backup is busy right now. Try again in a minute.");
     };
     // A backup of a parent folder already holds these files. Nothing is recorded, so this
     // backup starts again on its own if that parent backup stops or goes away.
@@ -749,11 +750,11 @@ pub(crate) fn record(
 /// can try again. Refuses while a run is copying.
 pub fn delete(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> anyhow::Result<()> {
     let Some(_slot) = drive_backup::try_hold(db, id) else {
-        bail!("This backup is copying right now. Try again in a minute.");
+        bail!("This backup is busy right now. Try again in a minute.");
     };
     // Also the cloud lock, so no key move or re-seal can write records for it while it is removed.
     let Some(_cloud_slot) = super::run::RunSlot::take(db, id) else {
-        bail!("This backup is copying right now. Try again in a minute.");
+        bail!("This backup is busy right now. Try again in a minute.");
     };
     let scopes = {
         let conn = lock(db);
@@ -828,12 +829,12 @@ fn glob_escape(id: &str) -> String {
 fn remote_delete(store: &dyn CloudStore, kind: &str, name: &str) -> anyhow::Result<()> {
     match store.delete_record(kind, name) {
         Ok(()) | Err(StoreError::NotFound) => Ok(()),
-        Err(_) => bail!(UNREACHABLE),
+        Err(_) => bail!(REMOTE_DELETE_FAILED),
     }
 }
 
 fn unreachable(_: StoreError) -> anyhow::Error {
-    anyhow::anyhow!(UNREACHABLE)
+    anyhow::anyhow!(REMOTE_DELETE_FAILED)
 }
 
 /// What a person sees for a cloud backup now. Stopped and source-gone backups
@@ -1179,7 +1180,7 @@ mod tests {
         {
             let _slot = run::RunSlot::take(&s.db, &id).unwrap();
             let err = delete(&s.db, &id, &store, NOW).unwrap_err();
-            assert!(err.to_string().contains("copying right now"));
+            assert!(err.to_string().contains("busy right now"));
             assert!(db::get_protection(&lock(&s.db), &id).unwrap().is_some());
         }
         // While a run or delete holds the drive-backup lock, a move step does nothing.
@@ -1402,7 +1403,8 @@ mod tests {
     /// A store that refuses every copy the way Luna Connect does for an account with no card.
     struct NoCard(MemoryStore);
 
-    const NO_CARD_MSG: &str = "Add a payment card at connect.luna.libreloom.org so we can store your cloud backup. It costs $8 per terabyte each month.";
+    const NO_CARD_MSG: &str =
+        "Add a payment card at connect.luna.libreloom.org to store your cloud backup.";
 
     impl CloudStore for NoCard {
         fn put_pack(
@@ -1584,7 +1586,7 @@ mod tests {
         let store = MemoryStore::new();
         let _hold = drive_backup::try_hold(&s.db, &id).unwrap();
         let err = delete(&s.db, &id, &store, NOW).unwrap_err();
-        assert!(err.to_string().contains("copying right now"), "{err}");
+        assert!(err.to_string().contains("busy right now"), "{err}");
     }
 
     #[test]

@@ -735,10 +735,16 @@ async fn record_recent(
             ));
         }
         if !crate::auth::has_drive_access(&user, &conn, &body.drive_id) {
-            return Err(json_error(StatusCode::FORBIDDEN, "Luna can't open that."));
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "You don't have permission to open this.",
+            ));
         }
     } else if !crate::auth::can_inspect_path(&user, &conn, &body.drive_id, &path) {
-        return Err(json_error(StatusCode::FORBIDDEN, "Luna can't open that."));
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to open this.",
+        ));
     }
     let kind = body
         .kind
@@ -1480,7 +1486,7 @@ async fn mkdir_entry(
     .map_err(|e| match e {
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
             StatusCode::CONFLICT,
-            "A folder with this name is already here. Choose another name.",
+            "A file or folder with this name is already here. Choose another name.",
         ),
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::NotFound => json_error(
             StatusCode::NOT_FOUND,
@@ -1525,7 +1531,7 @@ async fn create_entry(
         .map_err(|e| match e {
             FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
                 StatusCode::CONFLICT,
-                "A file with this name is already here. Choose another name.",
+                "A file or folder with this name is already here. Choose another name.",
             ),
             FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::NotFound => json_error(
                 StatusCode::NOT_FOUND,
@@ -1567,7 +1573,7 @@ async fn rename_entry(
     .map_err(|e| match e {
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
             StatusCode::CONFLICT,
-            "A file with this name is already here. Choose another name.",
+            "A file or folder with this name is already here. Choose another name.",
         ),
         other => map_files_err(other),
     })?;
@@ -1617,11 +1623,11 @@ async fn restore_entry(
     .map_err(|e| match e {
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
             StatusCode::CONFLICT,
-            "A file with this name is already there. Choose another name.",
+            "A file or folder with this name is already there. Choose another name.",
         ),
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::InvalidInput => json_error(
             StatusCode::BAD_REQUEST,
-            "Luna can only put files back from the trash on this drive.",
+            "Luna can restore only a whole item from the trash, to a folder outside the trash.",
         ),
         other => map_files_err(other),
     })?;
@@ -1716,7 +1722,7 @@ async fn upload(
                 if !query_path.is_empty() && dest_rel != query_path {
                     return Err(json_error(
                         StatusCode::FORBIDDEN,
-                        "You don't have permission to change this folder.",
+                        "This upload names a different folder than the one it was sent to.",
                     ));
                 }
                 check_access(&state, &user, &id, &dest_rel, crate::access::CAP_UPLOAD)?;
@@ -2061,7 +2067,7 @@ fn check_trash_list(
     } else {
         Err(json_error(
             StatusCode::FORBIDDEN,
-            "You don't have permission to view trash on this drive.",
+            "You don't have permission to open the trash on this drive.",
         ))
     }
 }
@@ -2146,7 +2152,7 @@ fn check_inspect(
     } else {
         Err(json_error(
             StatusCode::FORBIDDEN,
-            "You don't have permission to view this folder.",
+            "You don't have permission to open this.",
         ))
     }
 }
@@ -2166,15 +2172,20 @@ fn check_access(
     })?;
     if crate::auth::has_cap(user, &conn, drive_id, path, cap) {
         Ok(())
+    } else if cap == crate::access::CAP_UPLOAD {
+        Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to save here.",
+        ))
     } else if cap != crate::access::CAP_VIEW {
         Err(json_error(
             StatusCode::FORBIDDEN,
-            "You don't have permission to change this folder.",
+            "You don't have permission to change this.",
         ))
     } else {
         Err(json_error(
             StatusCode::FORBIDDEN,
-            "You don't have permission to view this folder.",
+            "You don't have permission to open this.",
         ))
     }
 }
@@ -2230,7 +2241,7 @@ pub(crate) fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
         FilesError::UnknownDrive => json_error_code(
             StatusCode::NOT_FOUND,
             "unknown_drive",
-            "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.",
+            "Luna can't find this drive. Make sure it is plugged in, or unplug it and plug it in again.",
         ),
         // 423 Locked is the honest status: the drive is there, and the client
         // should ask for a password rather than retry. The UI keys off `code`.
@@ -2293,7 +2304,7 @@ pub(crate) fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
             tracing::warn!(error = ?other, "a file operation failed on a drive");
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't read this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.",
+                "Luna couldn't use this drive. Make sure it is plugged in, or unplug it and plug it in again.",
             )
         }
     }
@@ -2302,16 +2313,17 @@ pub(crate) fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
 fn plain_upload_error(err: &anyhow::Error) -> String {
     let text = err.to_string();
     if text.contains("No space left") || text.contains("no space") {
-        "This drive is full. Free up space or choose another drive.".into()
+        "This drive is full, so free up space or choose another drive.".into()
     } else if text.contains("Read-only") || text.contains("read-only") {
-        "This drive is read-only, so Luna can't save to it.".into()
+        "This drive is read-only.".into()
     } else if text.contains("Operation not permitted")
-        || text.contains("os error 1")
+        || text.contains("(os error 1)")
+        || text.contains("Permission denied")
         || text.contains("not supported")
     {
-        "This drive wouldn't accept the file. If it's a USB stick, try ejecting it and plugging it back in, then save again.".into()
+        "The drive refused the file, so unplug the drive, plug it in again, and save again.".into()
     } else {
-        "Check that the drive is connected and try again.".into()
+        "Make sure the drive is plugged in and try again.".into()
     }
 }
 

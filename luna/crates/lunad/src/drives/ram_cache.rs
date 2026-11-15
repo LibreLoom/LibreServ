@@ -362,7 +362,7 @@ impl RamCache {
         };
         if g.dirty_bytes.saturating_add(additional) > budget.dirty_bytes {
             return Err(
-                "Luna is low on memory. Wait a moment and try saving again, or free some space by closing other apps."
+                "Luna has no more memory for unsaved files right now. Luna will write this file straight to the drive."
                     .into(),
             );
         }

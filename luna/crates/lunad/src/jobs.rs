@@ -46,13 +46,13 @@ pub enum JobError {
     UnknownKind,
     #[error("Luna is already working on a lot of copies and moves. Try again when they finish.")]
     QueueFull,
-    #[error("Luna's job queue isn't responding.")]
+    #[error("Luna couldn't start this copy or move. Try again.")]
     Runner,
     #[error("{0}")]
     Files(FilesError),
     #[error("{0}")]
     Db(#[source] anyhow::Error),
-    #[error("Luna doesn't know this job.")]
+    #[error("Luna can't find this copy or move.")]
     NotFound,
     #[error("{0}")]
     Io(#[source] std::io::Error),
@@ -92,7 +92,7 @@ pub enum OnConflict {
 /// Appended to a failed copy that removed its partial destination.
 const REMOVED_PARTIAL_COPY: &str = "Luna removed the partial copy.";
 /// Appended to a failed move that had only copied so far.
-const NOTHING_MOVED: &str = "Nothing was moved. Your files are still where they were.";
+const NOTHING_MOVED: &str = "Nothing was moved.";
 
 impl From<FilesError> for JobError {
     fn from(e: FilesError) -> Self {
@@ -137,7 +137,7 @@ impl JobManager {
                 "UPDATE jobs SET state = 'interrupted', error = ?1, \
                  updated_at = CAST(strftime('%s', 'now') AS INTEGER) \
                  WHERE state = 'running'",
-                rusqlite::params!["Luna restarted while this job was running."],
+                rusqlite::params!["Luna restarted while this copy or move was running."],
             );
         }
         Self {
@@ -1332,7 +1332,7 @@ fn plain_job_error(err: &JobError) -> String {
             "The files were copied, but Luna couldn't move the originals to Trash. Both are there now.".into()
         }
         JobError::Files(FilesError::UnknownDrive) => {
-            "Luna doesn't know one of these drives. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.".into()
+            "Luna can't find one of these drives. Make sure it is plugged in, or unplug it and plug it back in.".into()
         }
         JobError::Files(FilesError::Locked) => {
             "One of these drives is locked. Unlock it, then try again.".into()
@@ -1348,7 +1348,7 @@ fn plain_job_error(err: &JobError) -> String {
         _ if is_no_space(err) => {
             "The destination drive is full. Free up some space on it and try again.".into()
         }
-        _ => "Luna couldn't finish this job. Check the drives and try again.".into(),
+        _ => "Luna couldn't finish this copy or move. Check the drives and try again.".into(),
     }
 }
 

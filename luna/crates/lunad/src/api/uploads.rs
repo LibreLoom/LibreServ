@@ -96,7 +96,7 @@ async fn create(
     {
         return Err(json_error(
             StatusCode::INSUFFICIENT_STORAGE,
-            "This drive is full. Free up some space and try again.",
+            "This file is larger than the free space on this drive. Free up some space and try again.",
         ));
     }
     let upload = crate::db::with_db(
@@ -159,7 +159,7 @@ async fn write_chunk(
     if body.len() > chunk_max {
         return Err(json_error(
             StatusCode::PAYLOAD_TOO_LARGE,
-            "That upload chunk is too large for the free memory on this Luna. Try a smaller piece, or free some space and try again.",
+            "Luna doesn't have enough free memory for this upload right now. Try again later.",
         ));
     }
 
@@ -328,9 +328,10 @@ pub(crate) fn is_name_clash(err: &UploadError) -> bool {
 
 fn map_upload_err(err: UploadError) -> (StatusCode, Json<Value>) {
     match err {
-        UploadError::NotFound => {
-            json_error(StatusCode::NOT_FOUND, "Luna doesn't know this upload.")
-        }
+        UploadError::NotFound => json_error(
+            StatusCode::NOT_FOUND,
+            "Luna can't find this upload. Upload the file again.",
+        ),
         UploadError::NotActive => json_error(
             StatusCode::CONFLICT,
             "This upload is already finished or cancelled.",
@@ -341,7 +342,7 @@ fn map_upload_err(err: UploadError) -> (StatusCode, Json<Value>) {
         ),
         UploadError::Files(crate::files::FilesError::UnknownDrive) => json_error(
             StatusCode::NOT_FOUND,
-            "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.",
+            "Luna can't find this drive. Make sure it is plugged in, or unplug it and plug it in again.",
         ),
         UploadError::Files(crate::files::FilesError::Locked) => json_error_code(
             StatusCode::LOCKED,
@@ -369,7 +370,7 @@ fn map_upload_err(err: UploadError) -> (StatusCode, Json<Value>) {
         // Access was pulled (or never held) between session open and install.
         UploadError::Denied => json_error(
             StatusCode::FORBIDDEN,
-            "You don't have permission to upload here.",
+            "You don't have permission to save here.",
         ),
         // Bytes arrived but don't match the checksum the browser sent.
         UploadError::Io(e) if e.kind() == std::io::ErrorKind::InvalidData => json_error(

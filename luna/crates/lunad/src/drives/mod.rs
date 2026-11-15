@@ -46,7 +46,7 @@ fn write_rejected_message(mount_point: &Path) -> String {
 }
 
 /// A blank, damaged, foreign-format or installer-media drive: Luna can't use it as it is.
-pub const NEEDS_SETUP_MESSAGE: &str = "Setting up new drives isn't available in this version yet.";
+pub const NEEDS_SETUP_MESSAGE: &str = "Erase it first, which removes everything on it.";
 /// An encrypted drive: Luna can't open it.
 pub const ENCRYPTED_MESSAGE: &str = "This drive is encrypted. Enter its password to add it.";
 pub const WRITE_REJECTED_MESSAGE: &str = "This drive will not accept new files right now. If it has a lock switch, slide it to unlock, then try again.";
@@ -532,7 +532,7 @@ impl DriveManager {
                 .any(|p| self.is_system_mount(p))
         {
             anyhow::bail!(
-                "That's the system disk Luna runs from — Luna won't touch the operating system's own drive."
+                "That's the system disk Luna runs from, so Luna won't use it for your files."
             );
         }
 
@@ -675,7 +675,7 @@ impl DriveManager {
                 let existing = PathBuf::from(existing);
                 if self.is_system_mount(&existing) {
                     anyhow::bail!(
-                        "That's the system disk Luna runs from — Luna won't touch the operating system's own drive."
+                        "That's the system disk Luna runs from, so Luna won't use it for your files."
                     );
                 }
                 if device.mount_readonly {
@@ -865,7 +865,7 @@ impl DriveManager {
                     .collect();
                 if remove_marker(root, &drive.id).is_err() {
                     anyhow::bail!(
-                        "Luna couldn't remove its sticker file from this drive. Try again."
+                        "Luna couldn't remove its hidden Luna file from this drive. Try again."
                     );
                 }
                 if let Err(e) = self.mounter.unmount(root) {
@@ -905,7 +905,9 @@ impl DriveManager {
                     let _ = std::fs::remove_dir(&root);
                 }
                 // Keep raw I/O out of the toast — users get a plain next step.
-                anyhow::bail!("Luna couldn't remove its sticker file from this drive. Try again.");
+                anyhow::bail!(
+                    "Luna couldn't remove its hidden Luna file from this drive. Try again."
+                );
             }
         }
     }
@@ -935,7 +937,7 @@ impl DriveManager {
 
         if drive.device.is_empty() {
             anyhow::bail!(
-                "Plug the drive back in so Luna can remove its sticker file, then try again."
+                "Plug the drive back in so Luna can remove its hidden Luna file, then try again."
             );
         }
 
@@ -978,7 +980,7 @@ impl DriveManager {
             )
             .map_err(|_| {
                 anyhow::anyhow!(
-                    "Plug the drive back in so Luna can remove its sticker file, then try again."
+                    "Plug the drive back in so Luna can remove its hidden Luna file, then try again."
                 )
             })?;
         Ok((target, true))

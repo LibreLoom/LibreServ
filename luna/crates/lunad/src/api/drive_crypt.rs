@@ -87,10 +87,11 @@ pub fn router() -> Router<AppState> {
 // ---------------------------------------------------------------------------
 // Helpers
 
-fn internal() -> ApiError {
+/// A fault inside Luna, named by the action that failed, such as "unlock this drive".
+fn internal(action: &str) -> ApiError {
     json_error(
         StatusCode::INTERNAL_SERVER_ERROR,
-        "Luna couldn't finish with this drive. Try again.",
+        format!("Luna couldn't {action}. Try again."),
     )
 }
 
@@ -108,7 +109,7 @@ fn row(state: &AppState, id: &str) -> Result<crate::db::DriveRow, ApiError> {
         || anyhow::anyhow!("db lock poisoned"),
         |conn| crate::db::get_drive(conn, id),
     )
-    .map_err(|_| internal())?
+    .map_err(|_| internal("read this drive's details"))?
     .ok_or_else(unknown_drive)
 }
 
@@ -246,7 +247,7 @@ async fn encryption_state(
     let check = row.clone();
     let open = tokio::task::spawn_blocking(move || vault::is_open_and_mounted(&manager, &check))
         .await
-        .map_err(|_| internal())?;
+        .map_err(|_| internal("read this drive's details"))?;
     let status = if !row.encrypted {
         "not_encrypted"
     } else if !present {
@@ -332,7 +333,7 @@ async fn unlock(
             !check.locked && vault::is_open_and_mounted(&manager, &check)
         })
         .await
-        .map_err(|_| internal())?
+        .map_err(|_| internal("unlock this drive"))?
     };
     if already {
         return Ok(Json(
@@ -366,13 +367,13 @@ async fn unlock(
         if recorded.is_err() {
             // Never leave it open when the registry doesn't say so.
             vault::close_for_lock(&st.drive_manager, &row);
-            return Err(internal());
+            return Err(internal("unlock this drive"));
         }
         watch(&st, &row.id, &mount);
         Ok(Json(serde_json::json!({"ok": true})))
     })
     .await
-    .map_err(|_| internal())?
+    .map_err(|_| internal("unlock this drive"))?
 }
 
 /// Add an existing encrypted Luna drive, after proving its password and
@@ -427,7 +428,7 @@ async fn unlock_and_add(
             || anyhow::anyhow!("db lock poisoned"),
             |conn| crate::db::get_drive(conn, &id),
         )
-        .map_err(|_| internal())?;
+        .map_err(|_| internal("add this drive"))?;
         if let Some(known) = &existing
             && (!known.encrypted || (known.device == device.name && known.state != "missing"))
         {
@@ -475,13 +476,13 @@ async fn unlock_and_add(
                 locked: false,
             };
             vault::close_for_lock(&st.drive_manager, &stub);
-            return Err(internal());
+            return Err(internal("add this drive"));
         }
         watch(&st, &id, &mount);
         Ok(Json(serde_json::json!({"ok": true, "drive_id": id})))
     })
     .await
-    .map_err(|_| internal())?
+    .map_err(|_| internal("add this drive"))?
 }
 
 // ---------------------------------------------------------------------------
@@ -541,7 +542,7 @@ async fn lock(
         Ok(Json(serde_json::json!({"ok": true})))
     })
     .await
-    .map_err(|_| internal())?
+    .map_err(|_| internal("lock this drive"))?
 }
 
 // ---------------------------------------------------------------------------
@@ -594,7 +595,7 @@ async fn change_password(
         Ok(Json(serde_json::json!({"ok": true})))
     })
     .await
-    .map_err(|_| internal())?
+    .map_err(|_| internal("change this drive's password"))?
 }
 
 #[cfg(test)]

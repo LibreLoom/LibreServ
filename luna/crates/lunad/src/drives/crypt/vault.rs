@@ -344,7 +344,7 @@ pub fn lock_drive(state: &AppState, id: &str) -> Result<(), LockError> {
         let conn = state
             .db
             .lock()
-            .map_err(|_| LockError::Other("Drive settings are busy. Try again.".into()))?;
+            .map_err(|_| LockError::Other("Luna couldn't read its drive settings.".into()))?;
         record_locked(&conn, id).map_err(|_| {
             LockError::Other("Luna couldn't record that the drive is locked.".into())
         })?;

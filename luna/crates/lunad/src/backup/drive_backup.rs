@@ -459,7 +459,7 @@ fn run_inner(
             db,
             id,
             &format!(
-                "Most of {folder} seems to be gone, so Luna paused this backup to keep the copies. Check the drive, then run the backup again."
+                "Most of the files in {folder} are gone, so Luna paused this backup to keep their copies. Check the folder, then run the backup again."
             ),
             true,
             now,
@@ -1033,7 +1033,7 @@ fn refuse_plaintext_backup(
     let source = drive_label(conn, source_drive);
     let target = drive_label(conn, target_drive);
     Some(format!(
-        "{source} is encrypted, but {target} isn't. A backup of an encrypted drive has to go on an encrypted drive, or it would be readable by anyone who picks it up."
+        "{source} is encrypted, but {target} isn't. Back up an encrypted drive only to an encrypted drive, so nobody can read the copies without a password."
     ))
 }
 
@@ -1050,7 +1050,7 @@ fn drive_is_locked(conn: &Connection, drive_id: &str) -> bool {
 fn waiting_for(conn: &Connection, drive_id: &str) -> String {
     let name = drive_label(conn, drive_id);
     if drive_is_locked(conn, drive_id) {
-        format!("Waiting: {name} is locked. Unlock it to carry on with backups.")
+        format!("Waiting: {name} is locked. Unlock it to continue the backups.")
     } else {
         format!("Waiting: {name} isn't connected.")
     }
@@ -1715,11 +1715,14 @@ mod tests {
             held.problem
                 .as_deref()
                 .unwrap()
-                .starts_with("Most of Docs seems to be gone")
+                .starts_with("Most of the files in Docs are gone")
         );
         let r = row(&s, &id);
         assert!(r.hard);
-        assert!(r.last_error.starts_with("Most of Docs seems to be gone"));
+        assert!(
+            r.last_error
+                .starts_with("Most of the files in Docs are gone")
+        );
         assert_eq!(store(&s, &id).current_files().unwrap().len(), 30);
 
         let forced = run_allowing_mass_delete(&s.db, &id, NOW + 120).unwrap();

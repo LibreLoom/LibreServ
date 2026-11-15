@@ -86,7 +86,7 @@ async fn session(
         Err(err) => {
             let message = match err {
                 JoinError::TooManyRooms => {
-                    "Too many people are editing files right now. Try again in a minute."
+                    "Too many files are open for editing right now. Try again later."
                 }
                 JoinError::RoomFull => "This file already has too many people editing it.",
             };
@@ -378,7 +378,7 @@ fn ensure_file(
     if !meta.is_file() {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            "Luna can only open files for editing together — not folders.",
+            "Luna can open only files for editing together, not folders.",
         ));
     }
     Ok(())

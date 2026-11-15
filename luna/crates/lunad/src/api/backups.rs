@@ -208,7 +208,7 @@ async fn remove(
     if drive_backup::is_running(&state.db, &id) {
         return Err(json_error(
             StatusCode::CONFLICT,
-            "Luna is copying this backup right now. Delete it when the copy finishes.",
+            "This backup is busy right now. Try again in a minute.",
         ));
     }
     drive_backup::delete(&state.db, &conn, &row).map_err(|_| {
@@ -267,6 +267,9 @@ async fn run(
             None => json!({ "done": true }),
             Some(problem) => json!({ "done": false, "problem": problem }),
         },
+        Ok(Ok(Err(_))) => {
+            json!({ "done": false, "problem": "Luna could not finish this backup. Try again." })
+        }
         _ => json!({ "done": false }),
     };
     Ok(Json(answer))
