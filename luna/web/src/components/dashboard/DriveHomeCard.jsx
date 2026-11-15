@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { HardDrive } from "lucide-react";
@@ -6,11 +7,11 @@ import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import DriveStatusPill from "../common/DriveStatusPill.jsx";
 import DriveCard from "../drives/DriveCard.jsx";
+import DriveStorageBar from "../drives/DriveStorageBar.jsx";
 import useDriveHealth from "../../hooks/useDriveHealth.js";
 import UnlockPrompt from "../drives/UnlockPrompt.jsx";
 import { isLocked, isUnopenable } from "../../lib/drives.js";
 import { getJson } from "../../lib/api.js";
-import { formatBytes } from "../../lib/formatBytes.js";
 import { folderHref as driveFolderHref } from "../../lib/paths.js";
 import { CAP, sharedItemAction, sharedItemHref } from "../../lib/access.js";
 import { capsOnPath } from "../../lib/shareTree.js";
@@ -54,7 +55,7 @@ function pathDepth(path) {
  *   showSeeAllShared?: boolean,
  * }} props
  */
-export default function DriveHomeCard({
+function DriveHomeCard({
   drive,
   isAdmin = false,
   grants = [],
@@ -73,19 +74,6 @@ export default function DriveHomeCard({
   });
 
   const data = summary.data;
-  const freeLabel = formatBytes(data?.free_bytes);
-  const totalLabel = formatBytes(data?.total_bytes);
-  // Storage only shows when the drive really reported its space.
-  const hasSpace = Boolean(
-    data?.mounted &&
-      data?.total_bytes != null &&
-      Number(data.total_bytes) > 0 &&
-      freeLabel &&
-      totalLabel,
-  );
-  const usedLabel = formatBytes(data?.used_bytes);
-  const usedRatio = hasSpace ? Number(data.used_bytes) / Number(data.total_bytes) : 0;
-  const usedPct = Number.isFinite(usedRatio) ? Math.min(100, Math.round(usedRatio * 100)) : 0;
   const shortcuts = Array.isArray(data?.shortcuts) ? data.shortcuts : [];
 
   // A member without view on the drive root lands on a 403 if the card
@@ -152,37 +140,7 @@ export default function DriveHomeCard({
   } else {
     body = (
       <div className="space-y-4">
-        {hasSpace ? (
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span
-                className="inline-block h-2 w-2 rounded-full surface-secondary shrink-0"
-                aria-hidden="true"
-              />
-              <span className="text-xs font-mono">Storage</span>
-            </div>
-            <div className="text-2xl font-mono font-normal leading-tight">
-              {freeLabel} free
-            </div>
-            <p className="text-sm mt-1">
-              {usedLabel ? `${usedLabel} used · ` : ""}
-              {totalLabel} total
-            </p>
-            <div
-              className="mt-3 h-2 rounded-pill surface-primary border border-secondary/30 overflow-hidden"
-              role="progressbar"
-              aria-valuenow={usedPct}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label={`${usedPct}% used`}
-            >
-              <div
-                className="h-full rounded-pill surface-secondary motion-safe:transition-[width] motion-safe:duration-500"
-                style={{ width: `${usedPct}%` }}
-              />
-            </div>
-          </div>
-        ) : null}
+        <DriveStorageBar summary={summary} quiet />
 
         {shortcuts.length > 0 ? (
           <div>
@@ -214,3 +172,5 @@ export default function DriveHomeCard({
     </DriveCard>
   );
 }
+
+export default memo(DriveHomeCard);

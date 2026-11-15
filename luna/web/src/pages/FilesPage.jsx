@@ -23,6 +23,7 @@ import FormatDriveFlow from "../components/drives/FormatDriveFlow.jsx";
 import DriveEncryptionSheet from "../components/drives/DriveEncryptionSheet.jsx";
 import UnlockPrompt from "../components/drives/UnlockPrompt.jsx";
 import DriveCard from "../components/drives/DriveCard.jsx";
+import DriveStorageBar from "../components/drives/DriveStorageBar.jsx";
 import useCanProtect from "../hooks/useCanProtect";
 import { FileSearchButton } from "../components/files/FileSearch";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
@@ -36,6 +37,7 @@ import useReleaseInspectedDrive from "../hooks/useReleaseInspectedDrive.js";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
 import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
+import { formatBytes } from "../lib/formatBytes.js";
 import { isLocked, isUnopenable } from "../lib/drives.js";
 import useDriveHealth from "../hooks/useDriveHealth.js";
 import DriveHealthDetails from "../components/files/DriveHealthDetails.jsx";
@@ -76,21 +78,6 @@ function PermissionPill({ caps, file = false }) {
   );
 }
 
-/** Decimal sizes for drive details (matches DashboardPage). */
-function formatBytes(bytes) {
-  if (bytes == null || Number.isNaN(Number(bytes))) return "";
-  const n = Number(bytes);
-  if (n < 1000) return `${Math.round(n)} B`;
-  const kb = n / 1000;
-  if (kb < 1000) return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB`;
-  const mb = kb / 1000;
-  if (mb < 1000) return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
-  const gb = mb / 1000;
-  if (gb < 1000) return `${gb < 10 ? gb.toFixed(1) : Math.round(gb)} GB`;
-  const tb = gb / 1000;
-  return `${tb < 10 ? tb.toFixed(1) : Math.round(tb)} TB`;
-}
-
 /** @param {string | undefined | null} fs */
 function prettyFsType(fs) {
   if (!fs) return "";
@@ -120,79 +107,6 @@ function prettyFsType(fs) {
  */
 function detectedDriveKey(drive) {
   return `${drive.name}|${drive.model || ""}|${drive.size_bytes || 0}`;
-}
-
-/**
- * Dashboard-style free/total + usage bar (matches DriveHomeCard on DashboardPage).
- * Always visible on ready AdoptedCards — not inside Drive details.
- */
-function DriveStorageBar({ summary }) {
-  const freeLabel = formatBytes(summary.data?.free_bytes);
-  const totalLabel = formatBytes(summary.data?.total_bytes);
-  const usedLabel = formatBytes(summary.data?.used_bytes);
-  const hasSpace =
-    summary.data?.mounted &&
-    summary.data?.total_bytes != null &&
-    Number(summary.data.total_bytes) > 0 &&
-    freeLabel &&
-    totalLabel;
-  const usedPct = hasSpace
-    ? Math.min(100, Math.round((Number(summary.data.used_bytes) / Number(summary.data.total_bytes)) * 100))
-    : 0;
-
-  if (hasSpace) {
-    return (
-      <div data-slot="drive-storage-bar">
-        <div className="flex items-center gap-2 mb-1">
-          <span
-            className="inline-block h-2 w-2 rounded-full surface-secondary shrink-0"
-            aria-hidden="true"
-          />
-          <span className="text-xs font-mono">
-            <TermHint content="How much room is left for new files on this drive." surface="primary">
-              Available storage
-            </TermHint>
-          </span>
-        </div>
-        <div className="text-2xl font-mono font-normal leading-tight">
-          {freeLabel} free
-        </div>
-        <p className="text-sm mt-1">
-          {usedLabel ? `${usedLabel} used · ` : ""}
-          {totalLabel} total
-        </p>
-        <div
-          className="mt-3 h-2 rounded-pill surface-primary border border-secondary/30 overflow-hidden"
-          role="progressbar"
-          aria-valuenow={usedPct}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label={`${usedPct}% used`}
-        >
-          <div
-            className="h-full rounded-pill surface-secondary motion-safe:transition-[width] motion-safe:duration-500"
-            style={{ width: `${usedPct}%` }}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  if (summary.isLoading) {
-    return <p className="text-sm">Checking space…</p>;
-  }
-  if (summary.isError) {
-    return (
-      <p className="text-sm">
-        Luna couldn&apos;t read the free space. It tries again every minute.
-      </p>
-    );
-  }
-  return (
-    <p className="text-sm">
-      Storage will show once Luna can read this drive.
-    </p>
-  );
 }
 
 /**

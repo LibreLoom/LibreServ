@@ -95,7 +95,7 @@ describe("DriveHomeCard storage", () => {
     renderCard();
     expect(await screen.findByText("12 GB free")).toBeInTheDocument();
     expect(screen.getByText("52 GB used · 64 GB total")).toBeInTheDocument();
-    expect(screen.getByText("Storage")).toBeInTheDocument();
+    expect(screen.getByText("Available storage")).toBeInTheDocument();
     const bar = screen.getByRole("progressbar", { name: "81% used" });
     expect(bar).toHaveAttribute("aria-valuenow", "81");
   });
@@ -113,7 +113,7 @@ describe("DriveHomeCard storage", () => {
     await summaryShown(renderCard());
     expect(screen.getByRole("link", { name: "Open" })).toBeInTheDocument();
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
-    expect(screen.queryByText("Storage")).not.toBeInTheDocument();
+    expect(screen.queryByText("Available storage")).not.toBeInTheDocument();
     expect(screen.queryByText(/free/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Checking space/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Luna could not load the details of this drive/i)).not.toBeInTheDocument();

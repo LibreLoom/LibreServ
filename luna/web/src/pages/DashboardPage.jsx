@@ -56,6 +56,8 @@ function getGreeting() {
   return greetingMessages[hoursSinceEpoch % greetingMessages.length];
 }
 
+const NO_GRANTS = [];
+
 export default function DashboardPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -138,9 +140,19 @@ export default function DashboardPage() {
     enabled: Boolean(user?.username),
   });
   const recentItems = recentsQuery.data ?? (recentsQuery.isError ? readRecentItems(user?.username) : []);
-  const myShares = memberAccessRoots(Array.isArray(access.data) ? access.data : []);
-  const grants = myShares.filter((row) => row.kind !== KIND_ALBUM);
-  const albumsShared = myShares.filter((row) => row.kind === KIND_ALBUM);
+  const myShares = useMemo(
+    () => memberAccessRoots(Array.isArray(access.data) ? access.data : []),
+    [access.data],
+  );
+  const grants = useMemo(() => myShares.filter((row) => row.kind !== KIND_ALBUM), [myShares]);
+  const albumsShared = useMemo(() => myShares.filter((row) => row.kind === KIND_ALBUM), [myShares]);
+  // Grouped once, so a drive's card gets the same array until its grants change
+  // and stays memoized instead of re-rendering with every poll on the page.
+  const grantsByDrive = useMemo(() => {
+    const byDrive = new Map();
+    for (const g of grants) byDrive.set(g.drive_id, [...(byDrive.get(g.drive_id) ?? []), g]);
+    return byDrive;
+  }, [grants]);
   const memberSharesLoading = !isAdmin && access.isLoading;
   const memberHasNothingShared =
     !isAdmin &&
@@ -259,7 +271,7 @@ export default function DashboardPage() {
                         key={drive.id}
                         drive={drive}
                         isAdmin={isAdmin}
-                        grants={grants.filter((g) => g.drive_id === drive.id)}
+                        grants={grantsByDrive.get(drive.id) ?? NO_GRANTS}
                         showSeeAllShared={memberHasGrants && index === firstReadyIndex}
                       />
                     ))}

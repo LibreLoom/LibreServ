@@ -80,4 +80,27 @@ describe("LayeredCard", () => {
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.queryByRole("link")).toBeNull();
   });
+
+  it("makes the whole band the target: the control covers it and the arrow is only a picture", () => {
+    render(
+      <LayeredCard title="Media" actionLabel="Open Media" onAction={() => {}}>
+        <div>1.2 TB free</div>
+      </LayeredCard>,
+    );
+    const control = screen.getByRole("button", { name: "Open Media" });
+    const band = control.parentElement;
+    expect(control).toHaveClass("absolute", "inset-0");
+    expect(band).toContainElement(screen.getByRole("heading", { name: "Media" }));
+    expect(control).toBeEmptyDOMElement();
+  });
+
+  it("keeps panel actions outside the band's control", () => {
+    render(
+      <LayeredCard title="Media" panelActions={<button type="button">Menu</button>} actionLabel="Open Media" onAction={() => {}}>
+        <div>1.2 TB free</div>
+      </LayeredCard>,
+    );
+    const control = screen.getByRole("button", { name: "Open Media" });
+    expect(control).not.toContainElement(screen.getByRole("button", { name: "Menu" }));
+  });
 });
