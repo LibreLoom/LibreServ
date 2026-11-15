@@ -39,7 +39,7 @@ describe("RemoteCategory", () => {
     expect(screen.getByText(/yourname/i)).toBeTruthy();
     expect(screen.getByText(/\.luna\.servers\.libreloom\.org/)).toBeTruthy();
     expect(
-      screen.getByText(/Pick a name on Luna Connect\. The address shows here when it is ready\./i),
+      await screen.findByText(/Pick a name on Luna Connect\. The address shows here when it is ready\./i),
     ).toBeTruthy();
 
     const cta = screen.getByRole("link", { name: /Open Luna Connect/i });
@@ -49,7 +49,7 @@ describe("RemoteCategory", () => {
     expect(screen.queryByRole("button", { name: /Save new address/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Turn Luna Connect off/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Sync with Luna Connect/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/About → Advanced/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Change the device token/i })).not.toBeInTheDocument();
   });
 
   it("shows copyable address and Manage CTA when on", async () => {
@@ -133,7 +133,7 @@ describe("RemoteCategory", () => {
       await screen.findByText("Luna Connect did not accept this device token."),
     ).toBeTruthy();
     expect(
-      screen.getByRole("link", { name: /Change the device token in About → Advanced/i }),
+      screen.getByRole("link", { name: /Change the device token in About\s*Advanced/i }),
     ).toHaveAttribute("href", "/settings#about");
     expect(screen.getByRole("link", { name: /Open Luna Connect/i })).toBeTruthy();
   });

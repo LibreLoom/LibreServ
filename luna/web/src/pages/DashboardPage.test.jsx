@@ -212,7 +212,7 @@ describe("DashboardPage", () => {
         || /Happy|Merry/.test(greetingBit);
       expect(known).toBe(true);
       expect(await screen.findByText("Family photos")).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Browse files" })).toHaveAttribute("href", "/files/d1");
+      expect(screen.getByRole("link", { name: "Open" })).toHaveAttribute("href", "/files/d1");
       expect(document.body).not.toHaveTextContent(/uptime|on this network|remote access/i);
       expect(document.body).not.toHaveTextContent(/What to do next|No subscription|Anywhere, free/i);
     });
@@ -288,7 +288,7 @@ describe("DashboardPage", () => {
         systemChecks: WARNING_CHECKS,
       });
       renderDashboard();
-      await screen.findByRole("link", { name: "Browse files" });
+      await screen.findByRole("link", { name: "Open" });
       await waitForRequests(fetchMock, MEMBER_REQUESTS);
       expect(screen.queryByRole("button", { name: /warning/i })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: /Software update/i })).not.toBeInTheDocument();
@@ -332,7 +332,7 @@ describe("DashboardPage", () => {
         systemChecks: WARNING_CHECKS,
       });
       renderDashboard();
-      await screen.findByRole("link", { name: "Browse files" });
+      await screen.findByRole("link", { name: "Open" });
       await waitForRequests(fetchMock, MEMBER_REQUESTS);
       expect(document.querySelector("[data-slot=header-pills]")).toBeNull();
     });
@@ -458,14 +458,14 @@ describe("DashboardPage", () => {
       stubDashboardFetch();
       renderDashboard();
       expect(await screen.findByText("30 GB free")).toBeInTheDocument();
-      expect(screen.getByText(/34 GB used/)).toBeInTheDocument();
+      expect(screen.getByText("34 GB of 64 GB used (53%)")).toBeInTheDocument();
       expect(screen.getByRole("progressbar", { name: "53% used" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Photos" })).toHaveAttribute("href", "/files/d1?path=Photos");
       expect(screen.getByRole("link", { name: "Documents" })).toHaveAttribute(
         "href",
         "/files/d1?path=Documents",
       );
-      expect(screen.getByRole("link", { name: "Browse files" })).toHaveAttribute("href", "/files/d1");
+      expect(screen.getByRole("link", { name: "Open" })).toHaveAttribute("href", "/files/d1");
       expect(screen.queryByText(/\d+ folders?/i)).not.toBeInTheDocument();
       expect(screen.queryByText(/at the/i)).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /^root$/i })).not.toBeInTheDocument();
@@ -511,7 +511,7 @@ describe("DashboardPage", () => {
         "href",
         "/files/d1?path=Photos",
       );
-      expect(screen.getByRole("link", { name: "Browse files" })).toHaveAttribute("href", "/files/d1");
+      expect(screen.getByRole("link", { name: "Open" })).toHaveAttribute("href", "/files/d1");
       expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
       expect(screen.queryByText(/\bfree\b/i)).not.toBeInTheDocument();
       expect(screen.queryByText(/Checking space/i)).not.toBeInTheDocument();
@@ -602,7 +602,7 @@ describe("DashboardPage", () => {
     it("shows no Needs you zone for a healthy Admin", async () => {
       const fetchMock = stubDashboardFetch();
       renderDashboard();
-      await screen.findByRole("link", { name: "Browse files" });
+      await screen.findByRole("link", { name: "Open" });
       await waitForRequests(fetchMock, ADMIN_REQUESTS);
       expect(screen.queryByRole("region", { name: "Needs you" })).not.toBeInTheDocument();
       expect(screen.queryByText(/Everything looks good/i)).not.toBeInTheDocument();
@@ -617,7 +617,7 @@ describe("DashboardPage", () => {
         access: [ROOT_GRANT],
       });
       renderDashboard();
-      await screen.findByRole("link", { name: "Browse files" });
+      await screen.findByRole("link", { name: "Open" });
       await waitForRequests(fetchMock, MEMBER_REQUESTS);
       expect(screen.queryByRole("region", { name: "Needs you" })).not.toBeInTheDocument();
     });
@@ -775,7 +775,7 @@ describe("DashboardPage", () => {
     it("hides the Recents card when there is nothing to resume", async () => {
       const fetchMock = stubDashboardFetch();
       renderDashboard();
-      await screen.findByRole("link", { name: "Browse files" });
+      await screen.findByRole("link", { name: "Open" });
       await waitForRequests(fetchMock, ADMIN_REQUESTS);
       expect(screen.queryByRole("heading", { name: "Recents" })).not.toBeInTheDocument();
     });
@@ -783,7 +783,7 @@ describe("DashboardPage", () => {
     it("hides the Recents card when the server list is empty", async () => {
       const fetchMock = stubDashboardFetch({ recents: [] });
       renderDashboard();
-      await screen.findByRole("link", { name: "Browse files" });
+      await screen.findByRole("link", { name: "Open" });
       await waitForRequests(fetchMock, ADMIN_REQUESTS);
       expect(screen.queryByRole("heading", { name: "Recents" })).not.toBeInTheDocument();
     });
@@ -877,7 +877,7 @@ describe("DashboardPage", () => {
     it("shows no backups region when there are no backups", async () => {
       const fetchMock = stubDashboardFetch({ backups: [] });
       renderDashboard();
-      await screen.findByRole("link", { name: "Browse files" });
+      await screen.findByRole("link", { name: "Open" });
       await waitForRequests(fetchMock, ADMIN_REQUESTS);
       expect(screen.queryByRole("region", { name: "Backups" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "See all backups" })).not.toBeInTheDocument();
@@ -919,7 +919,7 @@ describe("DashboardPage", () => {
         backups: [backupRow({ created_by: "u2" })],
       });
       renderDashboard();
-      await screen.findByRole("link", { name: "Browse files" });
+      await screen.findByRole("link", { name: "Open" });
       const paths = [...MEMBER_REQUESTS, "/api/v1/drives", "/api/v1/cloud/phrase", "/api/v1/drives/d1/summary"];
       await waitForRequests(fetchMock, paths);
       await act(async () => {

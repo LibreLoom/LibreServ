@@ -151,10 +151,10 @@ function renderPage(initialEntry = "/files") {
 }
 
 describe("FilesPage", () => {
-  it("tells the user nothing is touched until they choose", async () => {
+  it("shows how to start when no drives are added", async () => {
     stubDrivesApi();
     renderPage();
-    expect(screen.getAllByText(/Plug a USB drive/i).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/Plug a USB drive/i)).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Files" })).toBeInTheDocument();
   });
 
@@ -239,18 +239,18 @@ describe("FilesPage", () => {
     expect(await screen.findByText(/1 folder and 1 file/i)).toBeInTheDocument();
   });
 
-  it("uses an info icon for the .luna marker note and softens the name-field focus ring", async () => {
+  it("uses an info icon for the hidden Luna file note and softens the name-field focus ring", async () => {
     const { default: userEvent } = await import("@testing-library/user-event");
     window.history.replaceState({}, "", "/files?mockUnknownDrive=1");
     stubDrivesApi();
     renderPage();
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
-    // Copy spans TermHint / mono spans — match via textContent on the note row.
+    // The root hint splits the sentence across elements.
     const note = await screen.findByText((_content, el) => {
       if (el?.tagName !== "P") return false;
       const text = el.textContent || "";
-      return /writes a/.test(text) && /\.luna/.test(text) && /database/.test(text);
+      return /writes one hidden Luna file/.test(text) && /Your files stay as they are/.test(text);
     });
     const row = note.closest("div");
     expect(row?.querySelector("svg")).toBeTruthy();
@@ -634,7 +634,7 @@ describe("FilesPage", () => {
     });
     renderPage();
     expect(await screen.findByText(/^Ejected$/i)).toBeInTheDocument();
-    expect(screen.getByText(/Plug it back in to use files again/i)).toBeInTheDocument();
+    expect(screen.getByText(/To use its files again, unplug it and plug it back in/i)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Open files/i })).not.toBeInTheDocument();
     const sheet = await openDriveActions();
     expect(within(sheet).queryByRole("button", { name: /Eject safely/i })).not.toBeInTheDocument();

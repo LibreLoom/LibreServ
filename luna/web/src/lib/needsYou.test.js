@@ -420,7 +420,7 @@ describe("system check rows (Admin)", () => {
         id: "check:drive_d1_read_write",
         rank: 20,
         tone: "problem",
-        title: ["Photos — save test"],
+        title: ["Photos: save test"],
         detail: "Could not save a test file.",
         action: { label: "Open Files", href: "/files" },
       },

@@ -65,6 +65,7 @@ get("/api/v1/drives/:id/encryption", ({ world, user, params }) => {
   return {
     drive_id: d.id, label: d.label, encrypted: Boolean(d.encrypted), unlocked: status === "unlocked",
     locked: Boolean(d.encrypted && d.locked), present: present(d), status,
+    can_protect: !d.encrypted,
   };
 });
 

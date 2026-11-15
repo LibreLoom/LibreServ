@@ -88,7 +88,7 @@ describe("buildSystemCheckItems", () => {
         id: "check:drive_d2_read_write",
         rank: 20,
         tone: "problem",
-        title: ["Documents — save test"],
+        title: ["Documents: save test"],
         detail: "Luna can't save new files to Photos.",
         action: { label: "Open Files", href: "/files" },
       },
@@ -113,7 +113,7 @@ describe("buildSystemCheckItems", () => {
 
   it("titles a kept save test with its drive label", () => {
     const [item] = build({ drive_d2_read_write: DRIVE_RW_FAILED });
-    expect(item.title).toEqual(["Photos — save test"]);
+    expect(item.title).toEqual(["Photos: save test"]);
   });
 
   it("leaves out the clock check when the no-route row already says it", () => {
@@ -183,7 +183,7 @@ describe("buildSystemCheckItems", () => {
         id: "check:drive_d1_read_write",
         rank: 20,
         tone: "problem",
-        title: ["Photos — save test"],
+        title: ["Photos: save test"],
         detail: "Luna can't save new files to Photos.",
         action: { label: "Open Files", href: "/files" },
       },

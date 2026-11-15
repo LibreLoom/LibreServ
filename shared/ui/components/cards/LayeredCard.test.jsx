@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { Mail } from "lucide-react";
 import LayeredCard from "./LayeredCard.jsx";
 
@@ -92,7 +92,7 @@ describe("LayeredCard", () => {
     const target = container.querySelector("[data-slot=band-target]");
     expect(target).toHaveAttribute("aria-hidden", "true");
     expect(target).toHaveAttribute("tabindex", "-1");
-    target.click();
+    fireEvent.click(target);
     expect(onAction).toHaveBeenCalledTimes(1);
   });
 

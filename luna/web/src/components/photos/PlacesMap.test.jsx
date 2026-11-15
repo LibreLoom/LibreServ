@@ -111,7 +111,7 @@ describe("PlacesMap", () => {
   it("uses EmptyState, entering with cascade-in, when there are no places", () => {
     render(<PlacesMap places={[]} onSelect={vi.fn()} />);
     expect(screen.getByText(/No places yet/i)).toBeInTheDocument();
-    expect(screen.getByText(/location from the camera/i)).toBeInTheDocument();
+    expect(screen.getByText(/location from the phone or camera/i)).toBeInTheDocument();
     const empty = document.querySelector("[data-slot=empty-state]");
     expect(empty).toBeTruthy();
     // Mounts after the segment slide, so it cascades in like the rest, not Card's pop-in.

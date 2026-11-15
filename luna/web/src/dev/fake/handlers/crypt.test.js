@@ -37,7 +37,7 @@ describe("fake encrypted drives", () => {
     expect(files.status).toBe(423);
     expect((await files.json()).code).toBe("drive_locked");
     const state = await (await window.fetch("/api/v1/drives/d1/encryption")).json();
-    expect(state).toMatchObject({ status: "locked", locked: true, unlocked: false });
+    expect(state).toMatchObject({ status: "locked", locked: true, unlocked: false, can_protect: false });
   });
 
   it("the right password unlocks it and lock closes it again", async () => {
@@ -67,11 +67,12 @@ describe("fake encrypted drives", () => {
     expect((await res.json()).code).toBe("drive_busy");
   });
 
-  it("changing the password needs the current one and checks the new one", async () => {
+  it("changing the password needs the current one and a nonempty new one", async () => {
     startFake((w) => encryptDrive(w, "d1"));
     expect((await postJson("/api/v1/drives/d1/password", { current_password: "wrong", new_password: "brand-new-pass-2" })).status).toBe(401);
-    expect((await postJson("/api/v1/drives/d1/password", { current_password: PASSWORD, new_password: "short" })).status).toBe(400);
-    expect((await postJson("/api/v1/drives/d1/password", { current_password: PASSWORD, new_password: "brand-new-pass-2" })).status).toBe(200);
+    expect((await postJson("/api/v1/drives/d1/password", { current_password: PASSWORD, new_password: "" })).status).toBe(400);
+    expect((await postJson("/api/v1/drives/d1/password", { current_password: PASSWORD, new_password: "short" })).status).toBe(200);
+    expect((await postJson("/api/v1/drives/d1/password", { current_password: "short", new_password: "brand-new-pass-2" })).status).toBe(200);
     expect((await postJson("/api/v1/drives/d1/unlock", { password: "brand-new-pass-2" })).status).toBe(200);
   });
 

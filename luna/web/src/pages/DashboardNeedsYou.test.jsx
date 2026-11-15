@@ -442,7 +442,7 @@ describe("Needs you on the dashboard", () => {
       const rows = within(zone).getAllByRole("listitem");
       expect(rows).toHaveLength(2);
       expect(rows[0]).toHaveTextContent("Backup drive can't be opened");
-      expect(within(rows[1]).getByText("Family photos — save test")).toBeInTheDocument();
+      expect(within(rows[1]).getByText("Family photos: save test")).toBeInTheDocument();
       expect(within(rows[1]).getByRole("link", { name: "Open Files" })).toHaveAttribute("href", "/files");
     });
 

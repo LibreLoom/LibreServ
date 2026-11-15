@@ -55,7 +55,7 @@ describe("TipPill", () => {
     await userEvent.click(screen.getByRole("option", { name: "Turn off all tips" }));
     expect(screen.queryByText(/for shortcuts/)).not.toBeInTheDocument();
     expect(readTipState().enabled).toBe(false);
-    expect(await screen.findByText(/Settings → Appearance/)).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent(/Turn them back on in Settings\s*Appearance/);
   });
 
   it("shows nothing when tips are off", () => {
