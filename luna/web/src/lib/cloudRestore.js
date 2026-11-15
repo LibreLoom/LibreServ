@@ -116,7 +116,7 @@ export async function restoreFromPhrase(words, { lunaId, signingPublic, userId, 
         await savePhrase(buildPhraseBody(entropy, { lunaId, userId, signingPublic }));
       } catch {
         throw new Error(
-          "Your backups are back, but saving your recovery phrase to this account failed. Set it up again in Settings → Cloud backup.",
+          "Your backups are back, but saving your recovery phrase to this account failed. Set it up again from the Cloud backup page in Settings.",
         );
       }
     }

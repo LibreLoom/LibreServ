@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { Mail } from "lucide-react";
 import PropTypes from "prop-types";
 import { useAuth } from "../../../hooks/useAuth";
+import SettingsPath from "@libreloom/ui/components/common/SettingsPath.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import FormInput from "./FormInput";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
@@ -46,7 +47,9 @@ export default function InviteUserForm({ onSuccess } = {}) {
         } else if (status === 400) {
           setError(
             err.message ||
-              "Email isn't set up on this server yet. Configure it in Settings → Email first.",
+              <>
+                Email isn't set up on this server yet. Configure it in <SettingsPath steps={["Settings", "Email"]} /> first.
+              </>,
           );
         } else if (status === 409) {
           setError(err.message || "That email already has a pending invitation.");

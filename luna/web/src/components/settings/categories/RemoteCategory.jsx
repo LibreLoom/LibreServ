@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Globe2 } from "lucide-react";
 import { Link } from "react-router-dom";
+import SettingsPath from "@libreloom/ui/components/common/SettingsPath.jsx";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
@@ -56,7 +57,7 @@ export default function RemoteCategory() {
                 <p className="text-sm text-error leading-relaxed">{hardError}</p>
                 {tokenError ? (
                   <Button variant="outline" surface="primary" size="sm" asChild>
-                    <Link to="/settings#about">Change the device token in About → Advanced</Link>
+                    <Link to="/settings#about">Change the device token in <SettingsPath steps={["About", "Advanced"]} /></Link>
                   </Button>
                 ) : null}
               </div>
@@ -105,7 +106,7 @@ export default function RemoteCategory() {
             <>
               {address ? (
                 <p className="text-primary text-sm leading-relaxed">
-                  To change this address, open Luna Connect → Devices → Change address.
+                  To change this address, open <SettingsPath steps={["Luna Connect", "Devices", "Change address"]} />.
                 </p>
               ) : null}
               <Button variant="outline" fullWidth asChild className="justify-between">

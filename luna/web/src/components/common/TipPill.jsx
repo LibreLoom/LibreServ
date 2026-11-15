@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { BellOff, EyeOff, Lightbulb, X } from "lucide-react";
+import SettingsPath from "@libreloom/ui/components/common/SettingsPath.jsx";
 import LayeredPill from "@libreloom/ui/components/ui/LayeredPill.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
@@ -31,7 +32,11 @@ export default function TipPill() {
       addToast({
         type: "success",
         message: "Tips are off.",
-        description: "Turn them back on in Settings → Appearance.",
+        description: (
+          <>
+            Turn them back on in <SettingsPath steps={["Settings", "Appearance"]} />.
+          </>
+        ),
       });
     }
   };
