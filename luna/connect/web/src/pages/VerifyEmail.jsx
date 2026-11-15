@@ -60,15 +60,15 @@ export default function VerifyEmail() {
             <h1 className="font-mono text-2xl text-foreground">Email verified!</h1>
             <p className="text-muted-foreground text-sm leading-relaxed max-w-sm">
               {fromOnboarding
-                ? "Your email address has been confirmed. Head back to finish setting up Luna."
-                : "Your email address has been confirmed. You can use Luna Connect now."}
+                ? "Your email address is confirmed. Go back to finish setting up Luna."
+                : "Your email address is confirmed. You can use Luna Connect now."}
             </p>
             <Button
               size="lg"
               className="mt-2"
-              onClick={() => navigate("/onboarding", { replace: true })}
+              onClick={() => navigate(fromOnboarding ? "/onboarding" : "/", { replace: true })}
             >
-              Back to Setup
+              {fromOnboarding ? "Back to setup" : "Go to Luna Connect"}
             </Button>
           </div>
         )}

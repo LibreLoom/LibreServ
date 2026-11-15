@@ -149,7 +149,7 @@ export function ProvisioningDomainAnimation({ domain = "kitchen" }) {
     <div
       className="w-full my-6 flex items-center justify-center overflow-hidden select-none"
       role="region"
-      aria-label={`Provisioning domain ${targetWord}.luna.servers.libreloom.org`}
+      aria-label={`Setting up the address ${targetWord}.luna.servers.libreloom.org`}
     >
       <div className="flex items-center font-mono text-sm sm:text-base font-normal tracking-normal">
         {/* Domain name slots container (fixed width matching exact final string length) */}

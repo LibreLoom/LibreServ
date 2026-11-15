@@ -9,12 +9,12 @@ import TokenReveal from "../components/TokenReveal.jsx";
 import { adminApi } from "../context/AdminAuthContext.jsx";
 import { ChevronDown, ChevronUp, ExternalLink, RefreshCw, Search, Shield, Trash2, Users, Wallet, X } from "lucide-react";
 
-function formatWhen(unix) {
-  if (!unix) return "—";
+function formatWhen(unix, empty = "Unknown") {
+  if (!unix) return empty;
   try {
     return new Date(Number(unix) * 1000).toLocaleString();
   } catch {
-    return "—";
+    return empty;
   }
 }
 
@@ -69,7 +69,7 @@ function CreditSection({ accountId, credits, loadError = "", onChanged }) {
         <Wallet className="h-4 w-4" /> Credit
       </h3>
       <p className="text-sm text-muted-foreground mb-3">
-        Stripe takes credit off this account&apos;s cloud backup bills, before tax. Any rest carries over to the next month.
+        Stripe takes credit off this account&apos;s cloud backup bills, before tax. Unused credit carries over to the next month.
       </p>
       {loadError && <p className="text-sm text-error mb-3">{loadError}</p>}
       <dl className="space-y-2 text-sm">
@@ -129,7 +129,7 @@ function kindLabel(kind) {
   if (kind === "oss") return "Website";
   if (kind === "official") return "Official";
   if (kind === "diy") return "DIY";
-  return kind || "—";
+  return kind || "Unknown";
 }
 
 function tunnelStatusLabel(device) {
@@ -193,14 +193,14 @@ function LinkedLunaRow({ device, onRefresh }) {
     const host = device.device_hostname || "this Luna";
     const msg =
       `Create a new secure connection for ${host}? ` +
-      "Luna will pick it up on the next sync (about 5 minutes). The public address stays the same.";
+      "Luna picks it up within about 5 minutes. The public address stays the same.";
     if (!window.confirm(msg)) return;
     setRegenBusy(true);
     setActionMsg("");
     setDetailError("");
     try {
       await adminApi(`/admin/devices/${encodeURIComponent(device.id)}/regenerate-tunnel`, { method: "POST" });
-      setActionMsg("New secure connection created. Luna will sync it within about 5 minutes.");
+      setActionMsg("New secure connection created. Luna picks it up within about 5 minutes.");
       setDetail(null);
       if (expanded) await loadDetail();
       onRefresh();
@@ -292,11 +292,11 @@ function LinkedLunaRow({ device, onRefresh }) {
               </div>
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">Connection ID</dt>
-                <dd className="font-mono break-all text-right">{detail.tunnel_id || "—"}</dd>
+                <dd className="font-mono break-all text-right">{detail.tunnel_id || "None"}</dd>
               </div>
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">Account</dt>
-                <dd className="font-mono break-all text-right">{detail.account_email || "—"}</dd>
+                <dd className="font-mono break-all text-right">{detail.account_email || "None"}</dd>
               </div>
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">Created</dt>
@@ -304,7 +304,7 @@ function LinkedLunaRow({ device, onRefresh }) {
               </div>
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">Last seen</dt>
-                <dd className="font-mono">{formatWhen(detail.last_seen_at)}</dd>
+                <dd className="font-mono">{formatWhen(detail.last_seen_at, "Never")}</dd>
               </div>
               <div className="flex justify-between gap-4 items-start">
                 <dt className="text-muted-foreground shrink-0 pt-1">Device token</dt>
@@ -338,7 +338,7 @@ function LinkedLunaRow({ device, onRefresh }) {
 
       <div className="space-y-2">
         <p className="text-xs text-muted-foreground">
-          Change the subdomain (the part before .luna.servers.libreloom.org). Luna syncs the new address on its next check-in.
+          Change the subdomain (the part before .luna.servers.libreloom.org). Luna moves to the new address within about 5 minutes.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <Input
@@ -436,7 +436,7 @@ export default function AdminAccountsPage() {
 
   const deleteAccount = async () => {
     if (!selectedId || !detail) return;
-    const msg = `Delete ${detail.email}? This signs the customer out, purges linked Lunas, and removes the account. Cloud backups stay in storage.`;
+    const msg = `Delete ${detail.email}? This charges the month so far, deletes every cloud backup, unlinks its Lunas, and removes the account. This can't be undone.`;
     if (!window.confirm(msg)) return;
     setDeleteBusy(true);
     setDetailError("");
@@ -456,7 +456,7 @@ export default function AdminAccountsPage() {
     <AdminLayout>
       <h2 className="font-mono text-2xl mb-2">Accounts</h2>
       <p className="text-muted-foreground mb-6">
-        Customer Luna Connect sign-ins. Open an account to see linked Lunas, their addresses, and manage secure connections.
+        Customer Luna Connect accounts. Open an account to see its linked Lunas, their addresses, and their secure connections.
       </p>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -610,7 +610,7 @@ export default function AdminAccountsPage() {
                       <Trash2 className="h-4 w-4" /> Delete account
                     </h3>
                     <p className="text-sm text-muted-foreground mb-3">
-                      Remove this customer account and purge linked Lunas. Cloud backups stay in storage for retention.
+                      Remove this customer account, its linked Lunas, and all its cloud backups. Stripe charges the month so far.
                     </p>
                     <Button variant="destructive" loading={deleteBusy} onClick={deleteAccount}>
                       Delete account

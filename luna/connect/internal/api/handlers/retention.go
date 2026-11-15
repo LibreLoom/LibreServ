@@ -40,8 +40,8 @@ func scheduleBackupPurge(db *database.DB, accountID string) int64 {
 // can be confirmed or paid with another card ("" when Stripe has none).
 func purgeMail(day int, paymentFailed bool, payURL string) (subject, text string) {
 	if day >= backupRetentionDays {
-		return "Your cloud copies were deleted",
-			"The 30 days are up. The cloud copies for this account are gone."
+		return "Your cloud backups were deleted",
+			"The 30 days are over, so we deleted the cloud backups for this account. Your files on Luna are not affected."
 	}
 	left := backupRetentionDays - day
 	if left < 1 {
@@ -56,13 +56,13 @@ func purgeMail(day int, paymentFailed bool, payURL string) (subject, text string
 	if paymentFailed {
 		fix := "To keep them, update your card at link.com."
 		if payURL != "" {
-			fix = "To keep them, pay the bill here. You can confirm it with your bank or use a different card: " + payURL
+			fix = "To keep them, pay the bill. You can confirm it with your bank or use a different card: " + payURL
 		}
 		return "Your cloud backup payment didn't go through",
-			"We still have your copies for " + days + ". " + fix + " Or sign in at connect.luna.libreloom.org and download anything you need before we delete them."
+			"We delete your cloud backups in " + days + ". " + fix + " You can also sign in at connect.luna.libreloom.org and download your files before then."
 	}
 	return "Make sure you have your files",
-		"Payment for cloud backup is off. We still have your copies for " + days + ". Sign in at connect.luna.libreloom.org and download anything you need before we delete them."
+		"Payment for cloud backup is off. We delete your cloud backups in " + days + ". Sign in at connect.luna.libreloom.org and download your files before then."
 }
 
 func sendPurgeWarning(sender mail.Sender, email string, day int, deadline int64, paymentFailed bool, payURL string) {
@@ -208,8 +208,8 @@ func deleteCloudCopiesNow(deps Deps, accountID, email string) {
 		if deps.Mail == nil || email == "" {
 			return
 		}
-		if err := deps.Mail.Send(email, "Your cloud copies were deleted",
-			"You turned off payment for cloud backup, so we deleted the cloud copies for this account. Your files on Luna are not affected. Add a card at connect.luna.libreloom.org to start cloud backup again."); err != nil {
+		if err := deps.Mail.Send(email, "Your cloud backups were deleted",
+			"You turned off payment for cloud backup, so we deleted the cloud backups for this account. Your files on Luna are not affected."); err != nil {
 			slog.Warn("payment-off deletion mail failed", "err", err)
 		}
 	})

@@ -50,11 +50,11 @@ func loadBoundDeviceDomain(db *database.DB, deviceID string) (boundDeviceDomain,
 
 func cloudflareDomainReady() (int, string) {
 	if !config.C.Cloudflare.Ready() && !config.DevMode() {
-		return 503, "Remote addresses need Cloudflare tunnel and DNS keys. Add them in Admin → Connections, or in the Luna Connect config file (cloudflare.account_id, api_token, zone_id)."
+		return 503, "Remote addresses are not set up on this Luna Connect site yet. Contact support."
 	}
 	if err := security.AtRestReady(); err != nil {
 		slog.Error("domain ops: at-rest key not configured", "error", err)
-		return 503, "Could not protect the connection secret. Try again."
+		return 503, "Could not protect the connection secret. Contact support."
 	}
 	return 0, ""
 }

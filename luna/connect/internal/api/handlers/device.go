@@ -53,13 +53,13 @@ func (h DeviceHandler) Bind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !allowGuess(h.DB, clientKeyAccount(acct.ID), 20, 3600) {
-		JSONError(w, http.StatusTooManyRequests, "Too many tries on this account. Wait a bit, then try again.")
+		JSONError(w, http.StatusTooManyRequests, "Too many tries on this account. Wait an hour, then try again.")
 		return
 	}
 	var n int
 	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM devices WHERE account_id = ?`, acct.ID).Scan(&n)
 	if n >= MaxDevicesPerAccount {
-		JSONError(w, http.StatusConflict, "This account already has a Luna. Unbind it first if you want to connect a different one.")
+		JSONError(w, http.StatusConflict, "This account already has a Luna. Unbind it first to link a different Luna.")
 		return
 	}
 	hash := security.HashToken(norm)

@@ -81,7 +81,7 @@ export function ShareLinkButton({ lunaId, scope, label, onCreated, sentence: sen
             </Button>
           </div>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            This link is shown only once. Copy it now. After you click Done, you can't see it again.
+            This link is shown only once. Copy it before you click Done.
           </p>
         </div>
       ) : null}

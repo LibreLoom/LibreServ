@@ -70,11 +70,11 @@ export default function AdminDashboardPage() {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm text-muted-foreground">Est. backup month</CardTitle>
+              <CardTitle className="text-sm text-muted-foreground">Cloud backup bills this month</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="font-mono text-2xl">${Number(stats.estimated_month || 0).toFixed(2)}</p>
-              <p className="font-mono text-xs text-muted-foreground mt-1">$8 per TB stored</p>
+              <p className="font-mono text-xs text-muted-foreground mt-1">Estimate: $8 per TB, $3 minimum per account, plus extra downloads</p>
             </CardContent>
           </Card>
         </div>

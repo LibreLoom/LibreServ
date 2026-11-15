@@ -96,7 +96,7 @@ export function FinishingTransferAnimation() {
     <div
       className="relative w-full h-36 sm:h-40 my-6 flex items-center justify-between select-none"
       role="region"
-      aria-label="Connecting Luna to Cloudflare domain"
+      aria-label="Connecting Luna to its web address"
     >
       {/* Left Node: Luna logo */}
       <div

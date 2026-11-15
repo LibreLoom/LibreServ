@@ -429,7 +429,7 @@ describe("OnboardingPage DIY verify", () => {
 
     expect(await screen.findByRole("heading", { name: /Optional cloud backup/i })).toBeTruthy();
     expect(
-      screen.getByText(/Adding your card allows you to backup files from your Luna to the cloud/i),
+      screen.getByText(/Add a card to back up the files on Luna to the cloud/i),
     ).toBeTruthy();
     expect(screen.getByTestId("backup-pricing-table")).toBeTruthy();
     expect(screen.getByText(/\$8 \/ terabyte \/ month/i)).toBeTruthy();
@@ -514,7 +514,7 @@ describe("OnboardingPage DIY verify", () => {
     expect(
       screen.queryByText("Use at least 12 characters, including a letter and a number."),
     ).toBeNull();
-    expect(screen.getByText("12+ chars")).toBeTruthy();
+    expect(screen.getByText("12+ characters")).toBeTruthy();
     expect(screen.getByText("letters")).toBeTruthy();
     expect(screen.getByText("numbers")).toBeTruthy();
     expect(screen.getByText("symbols")).toBeTruthy();
@@ -582,7 +582,7 @@ describe("OnboardingPage DIY verify", () => {
     });
     expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
     expect(screen.getByText(/when you install Luna on your device/i)).toBeTruthy();
-    expect(screen.getByText(/Settings → About → Advanced/i)).toBeTruthy();
+    expect(screen.getByText(/select Change device token/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Pay \$1 on Stripe/i })).toBeNull();
   });
 
@@ -719,7 +719,7 @@ describe("OnboardingPage finish flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /Use this name/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /^Nah\.$/i })).toBeTruthy();
+      expect(screen.getByRole("button", { name: /^Skip for now$/i })).toBeTruthy();
     });
   }
 
@@ -764,11 +764,11 @@ describe("OnboardingPage finish flow", () => {
 
   it("skips the plug-in step and shows the simplified done card when Luna is already online", async () => {
     await advanceToBackupStep();
-    fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Skip for now$/i }));
 
     expect(await screen.findByRole("heading", { name: /You're connected/i })).toBeTruthy();
     expect(screen.getByText(/Luna is linked to your account/i)).toBeTruthy();
-    expect(screen.getByText(/Go here to continue setup directly on your Luna\./i)).toBeTruthy();
+    expect(screen.getByText(/Open this link to finish setup on Luna\./i)).toBeTruthy();
     const lunaLink = screen.getByRole("link", {
       name: "kitchen.luna.servers.libreloom.org",
     });
@@ -780,13 +780,13 @@ describe("OnboardingPage finish flow", () => {
     expect(lunaLink.getAttribute("rel")).toBe("noreferrer");
     expect(lunaLink.className).toMatch(/underline/);
     expect(lunaLink.className).toMatch(/hover:no-underline/);
-    expect(screen.getByRole("button", { name: /Copy address/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Copy setup link/i })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /Plug in Luna/i })).toBeNull();
     expect(screen.queryByText(/one-time code/i)).toBeNull();
     expect(document.body.textContent).not.toMatch(/\?token=/);
     expect(document.body.textContent).not.toMatch(/\?setup=/);
 
-    fireEvent.click(screen.getByRole("button", { name: /Copy address/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Copy setup link/i }));
     await waitFor(() => {
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
         "https://kitchen.luna.servers.libreloom.org/setup?token=ABCD-EFGH-IJKM-NPQR-STUV",
@@ -822,7 +822,7 @@ describe("OnboardingPage finish flow", () => {
     });
 
     await advanceToBackupStep();
-    fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Skip for now$/i }));
 
     expect(await screen.findByRole("heading", { name: /Plug in Luna/i })).toBeTruthy();
     expect(screen.getByText(/^Waiting…$/)).toBeTruthy();
@@ -862,10 +862,10 @@ describe("OnboardingPage finish flow", () => {
     });
 
     await advanceToBackupStep();
-    fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Skip for now$/i }));
 
-    expect(await screen.findByRole("heading", { name: /Provisioning Address\.\.\./i })).toBeTruthy();
-    expect(screen.getByText(/We're using Cloudflare to create your Luna's domain name/i)).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /Making your address\.\.\./i })).toBeTruthy();
+    expect(screen.getByText(/Cloudflare is making the address for this Luna/i)).toBeTruthy();
     expect(screen.getByText(/\.luna\.servers\.libreloom\.org/)).toBeTruthy();
   });
 
@@ -898,11 +898,11 @@ describe("OnboardingPage finish flow", () => {
     });
 
     await advanceToBackupStep();
-    fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Skip for now$/i }));
 
     expect(await screen.findByRole("heading", { name: /Finishing up\.\.\./i })).toBeTruthy();
-    expect(screen.getByText(/Your Luna is now connecting to its provisioned domain name/i)).toBeTruthy();
-    expect(screen.getByRole("region", { name: /Connecting Luna to Cloudflare domain/i })).toBeTruthy();
+    expect(screen.getByText(/Luna is connecting to its new address/i)).toBeTruthy();
+    expect(screen.getByRole("region", { name: /Connecting Luna to its web address/i })).toBeTruthy();
     expect(screen.getByLabelText("Cloudflare")).toBeTruthy();
   });
 
@@ -939,14 +939,14 @@ describe("OnboardingPage finish flow", () => {
     });
 
     await advanceToBackupStep();
-    fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Skip for now$/i }));
     expect(await screen.findByRole("heading", { name: /Plug in Luna/i })).toBeTruthy();
 
     ready = true;
     await vi.advanceTimersByTimeAsync(5000);
 
     expect(await screen.findByRole("heading", { name: /You're connected/i })).toBeTruthy();
-    expect(screen.getByText(/Go here to continue setup directly on your Luna\./i)).toBeTruthy();
+    expect(screen.getByText(/Open this link to finish setup on Luna\./i)).toBeTruthy();
     expect(
       screen
         .getByRole("link", { name: "kitchen.luna.servers.libreloom.org" })

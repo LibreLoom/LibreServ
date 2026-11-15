@@ -6,6 +6,6 @@ describe("ProvisioningDomainAnimation", () => {
   it("renders the constant suffix and region label", () => {
     render(<ProvisioningDomainAnimation domain="kitchen" />);
     expect(screen.getByText(/\.luna\.servers\.libreloom\.org/)).toBeTruthy();
-    expect(screen.getByRole("region", { name: /Provisioning domain kitchen\.luna\.servers\.libreloom\.org/i })).toBeTruthy();
+    expect(screen.getByRole("region", { name: /Setting up the address kitchen\.luna\.servers\.libreloom\.org/i })).toBeTruthy();
   });
 });

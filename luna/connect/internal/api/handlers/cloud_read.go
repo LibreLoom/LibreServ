@@ -373,6 +373,10 @@ func writeRecords(d Deps, w http.ResponseWriter, s readScope, kind, linkID, toke
 			return
 		}
 		if scope == "" {
+			if s.Kind != "" && s.Kind != "user" {
+				JSONError(w, http.StatusForbidden, privateLinkMessage)
+				return
+			}
 			JSONError(w, http.StatusForbidden, privateTokenMessage)
 			return
 		}

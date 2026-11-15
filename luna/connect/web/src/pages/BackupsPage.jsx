@@ -232,7 +232,7 @@ function BackupFilesCard({ lunas, paired }) {
           </div>
         ) : (
           <UnlockCard
-            description="Your backups are encrypted on Luna, so their names and files stay hidden until you enter the recovery phrase you wrote down. One phrase opens every backup you can access on this Luna."
+            description="Luna encrypts your backups, so names and files stay hidden until you type your recovery phrase. One phrase opens every backup you can open on this Luna."
             onUnlock={unlock}
           />
         )}
@@ -249,7 +249,7 @@ function BackupFilesCard({ lunas, paired }) {
             surface="secondary"
             delayMs={0}
             label="About your cloud copies"
-            content="Your files are encrypted on Luna before they leave the house. Only your recovery phrase opens them, here in this browser."
+            content="Luna encrypts your files before they leave the house. On this site, only a recovery phrase opens them."
           />
         </CardTitle>
       </CardHeader>
@@ -330,7 +330,7 @@ export function BackupsTab({ me, lunas, paired, onRefresh, setError, error }) {
         </CardHeader>
         <CardContent className="space-y-5">
           <p className="text-sm leading-relaxed">
-            Stripe charges this month so far to your card within about an hour. You can turn payment back on after that.
+            Stripe charges this month so far to your card within about an hour. You can turn payment back on in about 10 minutes.
           </p>
           {error && <p className="text-sm text-error">{error}</p>}
         </CardContent>

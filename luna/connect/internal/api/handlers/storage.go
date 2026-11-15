@@ -305,7 +305,7 @@ func (h StorageHandler) PutPack(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 	if !backupUnlocked(tx, accountID) {
-		JSONError(w, http.StatusPaymentRequired, "Add a payment card at connect.luna.libreloom.org so we can store your cloud backup. It costs $8 per terabyte each month.")
+		JSONError(w, http.StatusPaymentRequired, "Add a payment card at connect.luna.libreloom.org to store your cloud backup.")
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -366,7 +366,7 @@ func (h StorageHandler) PutPack(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusRequestEntityTooLarge, "That data is too large to store in cloud storage. The limit is 64 MB per piece.")
 			return
 		}
-		JSONError(w, http.StatusBadRequest, "Cloud storage could not save that data. Check your connection and try again.")
+		JSONError(w, http.StatusBadRequest, "The upload stopped before it finished. Try again.")
 		return
 	}
 	if hex.EncodeToString(hasher.Sum(nil)) != id {
@@ -380,10 +380,10 @@ func (h StorageHandler) PutPack(w http.ResponseWriter, r *http.Request) {
 	n, backend, err := h.Store.Put(accountID, slot, rel, spool)
 	if err != nil {
 		if errors.Is(err, providers.ErrBackupNotConfigured) {
-			JSONError(w, http.StatusServiceUnavailable, "Cloud storage is not ready yet. Contact support and we will finish setting it up.")
+			JSONError(w, http.StatusServiceUnavailable, "Cloud storage is not set up yet. Contact support.")
 			return
 		}
-		JSONError(w, http.StatusBadRequest, "Cloud storage could not save that data. Check your connection and try again.")
+		JSONError(w, http.StatusBadRequest, "Cloud storage could not save that data. Try again.")
 		return
 	}
 	// If this insert fails the stored bytes are left in place: a concurrent upload of
@@ -490,7 +490,7 @@ func (h StorageHandler) PutRecord(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 	if !backupUnlocked(tx, accountID) {
-		JSONError(w, http.StatusPaymentRequired, "Add a payment card at connect.luna.libreloom.org so we can store your cloud backup. It costs $8 per terabyte each month.")
+		JSONError(w, http.StatusPaymentRequired, "Add a payment card at connect.luna.libreloom.org to store your cloud backup.")
 		return
 	}
 	kind, name := chi.URLParam(r, "kind"), chi.URLParam(r, "name")
@@ -547,10 +547,10 @@ func (h StorageHandler) PutRecord(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, providers.ErrBackupNotConfigured) {
-			JSONError(w, http.StatusServiceUnavailable, "Cloud storage is not ready yet. Contact support and we will finish setting it up.")
+			JSONError(w, http.StatusServiceUnavailable, "Cloud storage is not set up yet. Contact support.")
 			return
 		}
-		JSONError(w, http.StatusBadRequest, "Cloud storage could not save that record. Check your connection and try again.")
+		JSONError(w, http.StatusBadRequest, "Cloud storage could not save that record. Try again.")
 		return
 	}
 	if _, err := tx.Exec(`INSERT INTO storage_records (account_id, luna_id, kind, name, bytes, storage_backend, updated_at)

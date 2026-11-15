@@ -38,12 +38,27 @@ export function StatusBadge({ status }) {
     revoked: "destructive",
     expired: "outline",
   };
-  return <Badge variant={map[status] || "default"}>{status}</Badge>;
+  return <Badge variant={map[status] || "default"}>{statusLabels[status] || status}</Badge>;
 }
+
+/** Plain words for the raw status values (Stripe uses snake_case). */
+const statusLabels = {
+  active: "Active",
+  trialing: "Trial",
+  none: "None",
+  past_due: "Past due",
+  canceling: "Canceling",
+  canceled: "Canceled",
+  cancelled: "Canceled",
+  issued: "Issued",
+  claimed: "Claimed",
+  revoked: "Revoked",
+  expired: "Expired",
+};
 
 const deviceTokenStatusLabels = {
   unbound: "Unused",
-  bound: "Bound",
+  bound: "In use",
   revoked: "Revoked",
 };
 

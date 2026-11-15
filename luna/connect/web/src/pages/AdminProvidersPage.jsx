@@ -21,7 +21,7 @@ const SERVICE_FIELDS = {
     label: "Billing (Stripe)",
     description: (
       <>
-        Takes card payments and monthly backup charges. Storage is $8 per TB per month ($0.008 per GB), billed on the month’s average amount stored — not a single day-end snapshot. A month costs at least $3 once an account stores anything, applied by topping up the storage quantity we report (375 GB bills $3.00); nothing stored bills nothing. Downloads are free up to 3× stored amount; extra download traffic is $0.01 per GB. In <PathTrail steps={["Stripe Dashboard", "Billing", "Meters"]} />, create two meters with aggregation Last: (1) event name luna_backup_gb for average storage GB, (2) event name luna_egress_gb for egress overage GB. Link usage-based prices: $0.008/GB to the storage meter, $0.01/GB to the egress meter. Get API keys from <PathTrail steps={["Developers", "API keys"]} />; webhook secret under <PathTrail steps={["Developers", "Webhooks"]} /> for this Luna Connect URL.
+        Takes card payments and the monthly cloud backup bill. Storage costs $0.008 per GB per month on the month’s average, with a $3 minimum once an account stores anything. Downloads are free up to 3× the stored amount, then $0.01 per GB. In <PathTrail steps={["Stripe Dashboard", "Billing", "Meters"]} />, create two meters with aggregation Last: luna_backup_gb (storage GB) and luna_egress_gb (extra download GB). Link a $0.008/GB price to the storage meter and a $0.01/GB price to the download meter. The API keys are in <PathTrail steps={["Developers", "API keys"]} />, and the webhook secret for this Luna Connect address is in <PathTrail steps={["Developers", "Webhooks"]} />.
       </>
     ),
     credentials: [
@@ -40,7 +40,7 @@ const SERVICE_FIELDS = {
     label: "Email (Resend)",
     description: (
       <>
-        Sends verification emails when someone creates a Luna Connect account. Create an API key at <PathTrail steps={["resend.com", "API Keys"]} />{". Optionally set From address to a verified domain (for example Luna Connect <noreply@yourdomain.com>)."}
+        Sends the verification email when someone creates a Luna Connect account. Create an API key at <PathTrail steps={["resend.com", "API Keys"]} />{". You can set a From address on a domain you verified in Resend (for example Luna Connect <noreply@yourdomain.com>)."}
       </>
     ),
     credentials: [
@@ -54,7 +54,7 @@ const SERVICE_FIELDS = {
     label: "Off-site storage (Backblaze B2)",
     description: (
       <>
-        Stores each Luna’s cloud backup in its own private Backblaze B2 bucket. Use a master application key from <PathTrail steps={["backblaze.com", "Application Keys"]} /> (capabilities: list buckets, create buckets, write files, delete files, and create keys). Bucket name prefix defaults to luna-backup — each device becomes prefix-plus-device-id.
+        Stores each Luna’s cloud backup in its own private Backblaze B2 bucket. Without this connection, cloud backup uses this server’s disk. Use the master application key from <PathTrail steps={["backblaze.com", "Application Keys"]} />, because Luna Connect creates buckets and keys with it. Each bucket name starts with the prefix (default luna-backup, at most 12 characters).
       </>
     ),
     credentials: [
@@ -69,7 +69,7 @@ const SERVICE_FIELDS = {
     label: "Remote access (Cloudflare)",
     description: (
       <>
-        Creates a Cloudflare Tunnel and DNS name for each Luna when someone picks a name during setup (for example kitchen.luna.servers.libreloom.org). Your API token is on <PathTrail steps={["cloudflare.com", "Profile", "API Tokens", "Create Token"]} />. Give it Cloudflare Tunnel Edit and DNS Edit on the public zone. Zone ID is on the zone’s Overview page in the Cloudflare dashboard (right-hand column).
+        Creates a Cloudflare Tunnel and DNS name for each Luna when someone picks a name (for example kitchen.luna.servers.libreloom.org). Create the API token at <PathTrail steps={["cloudflare.com", "Profile", "API Tokens", "Create Token"]} />, with Cloudflare Tunnel Edit and DNS Edit on the public zone. The Zone ID is on the zone’s Overview page (right-hand column).
       </>
     ),
     credentials: [
@@ -207,8 +207,14 @@ export default function AdminProvidersPage() {
     }
   }
 
-  async function removeProvider(id) {
-    if (!window.confirm("Remove this connection? Luna Connect will fall back to the config file if one is set.")) {
+  async function removeProvider(id, service) {
+    const fallback = {
+      stripe: "Billing falls back to the config file, if it has Stripe keys.",
+      cloudflare: "Remote access falls back to the config file, if it has Cloudflare keys.",
+      backup: "New cloud backups go to this server's disk.",
+      smtp: "Luna Connect stops sending verification emails.",
+    };
+    if (!window.confirm(`Remove this connection? ${fallback[service] || ""}`.trim())) {
       return;
     }
     setBusy(`del-${id}`);
@@ -234,7 +240,7 @@ export default function AdminProvidersPage() {
       return (
         <>
           <Badge variant="success">{st.source === "config" ? "from config file" : "connected"}</Badge>
-          <Badge variant="outline">webhook secret missing — Stripe retries will fail</Badge>
+          <Badge variant="outline">webhook secret missing: Luna Connect rejects every Stripe webhook</Badge>
         </>
       );
     }
@@ -251,12 +257,8 @@ export default function AdminProvidersPage() {
     <AdminLayout>
       <h2 className="font-mono text-2xl mb-2">Connections</h2>
       <p className="text-muted-foreground mb-6 max-w-3xl">
-        Stripe keys apply right away for billing. Backblaze B2 keys turn on off-site cloud
-        backup (one private bucket per Luna). Resend sends account verification emails when
-        configured. Cloudflare keys create remote Luna addresses when someone picks a name.
-        Secrets stay in the database and are never shown in full again; leave a secret
-        blank when editing to keep the current value. If nothing is saved here, Stripe and
-        Cloudflare still use the config file, and cloud backup falls back to this server’s disk.
+        Saved changes apply right away. Secrets are never shown in full again, so leave a
+        secret blank when you edit to keep the current value.
       </p>
 
       {loading ? (
@@ -309,7 +311,7 @@ export default function AdminProvidersPage() {
                         variant="destructive"
                         size="sm"
                         loading={busy === `del-${p.id}`}
-                        onClick={() => removeProvider(p.id)}
+                        onClick={() => removeProvider(p.id, p.service)}
                       >
                         Delete
                       </Button>
@@ -319,12 +321,12 @@ export default function AdminProvidersPage() {
                 {items.length === 0 && (
                   <Card>
                     <p className="text-muted-foreground text-center">
-                      No {spec.label.toLowerCase()} connection saved yet. Add one below
+                      No saved connection. Add one below
                       {service === "stripe" && configStatus.stripe?.configured
-                        ? " (config file is in use until you add one here)"
+                        ? " (the config file is in use until you add one here)"
                         : ""}
                       {service === "cloudflare" && configStatus.cloudflare?.configured
-                        ? " (config file is in use until you add one here)"
+                        ? " (the config file is in use until you add one here)"
                         : ""}
                       .
                     </p>

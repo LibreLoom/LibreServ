@@ -27,7 +27,7 @@ const (
 	shareLinkTTL         = 7 * 24 * time.Hour
 	maxActiveShareLinks  = 20
 	shareTokenHeader     = "X-Share-Token"
-	shareGoneMessage     = "This link has expired or was turned off. Ask the person who sent it for a new one."
+	shareGoneMessage     = "This link has expired, was turned off, or is not complete. Ask the person who sent it for a new one."
 	shareReadErrMessage  = "Cloud storage could not open this link. Try again."
 	shareScopeMessage    = "Choose one person's backups or one backup to share."
 	shareNoLunaMessage   = "That Luna has no cloud backups on this account."

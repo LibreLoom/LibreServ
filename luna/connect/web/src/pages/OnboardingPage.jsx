@@ -53,7 +53,7 @@ const VERIFY_POLL_MS = 2000;
 const OFFICIAL_STEPS = [
   { id: "welcome", label: "Welcome" },
   { id: "account", label: "Account" },
-  { id: "code", label: "Code" },
+  { id: "code", label: "Token" },
   { id: "domain", label: "Name" },
   { id: "backup", label: "Backup" },
   { id: "done", label: "Done" },
@@ -62,7 +62,7 @@ const OFFICIAL_STEPS = [
 const DIY_STEPS = [
   { id: "account", label: "Account" },
   { id: "card", label: "Confirm" },
-  { id: "diy-code", label: "Code" },
+  { id: "diy-code", label: "Token" },
   { id: "domain", label: "Name" },
   { id: "backup", label: "Backup" },
   { id: "done", label: "Done" },
@@ -157,7 +157,7 @@ function PasswordRequirements({ password }) {
         </p>
       </div>
       <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
-        <ReqChip ok={strength.hasLength} label="12+ chars" />
+        <ReqChip ok={strength.hasLength} label="12+ characters" />
         <ReqChip ok={strength.hasLetter} label="letters" />
         <ReqChip ok={strength.hasDigit} label="numbers" />
         <ReqChip ok={strength.hasSpecial} label="symbols" />
@@ -700,7 +700,7 @@ export default function OnboardingPage() {
         {
           id: "onb-email",
           question: "What's your email address?",
-          hint: "This is how you sign in to Luna Connect. It is separate from the login you will create on Luna itself.",
+          hint: "You use it to sign in to Luna Connect. Your account on Luna is a separate account.",
           value: email,
           setValue: setEmail,
           type: "email",
@@ -819,7 +819,7 @@ export default function OnboardingPage() {
           Using Luna Connect is the recommended way to set up Luna.
         </p>
         <p className="text-muted-foreground text-sm leading-relaxed text-pretty">
-          If you wish to complete setup without Luna Connect, please follow those instructions in the quick-start guide instead.
+          To set up Luna without Luna Connect, follow &quot;Set up without Luna Connect&quot; in the quick-start guide.
         </p>
       </div>
       <Button
@@ -830,7 +830,7 @@ export default function OnboardingPage() {
           goTo("account");
         }}
       >
-        Get Started <ArrowRight className="w-5 h-5" />
+        Get started <ArrowRight className="w-5 h-5" />
       </Button>
     </StepShell>
   );
@@ -980,7 +980,7 @@ export default function OnboardingPage() {
             ? shouldSkipCodeEntry(me)
               ? "You are already signed in and this Luna is linked. Continue to name it or finish setup."
               : me?.human_verified
-                ? "You are already signed in. Continue to get a device token for this Luna. You already paid the $1 card check—we won't charge it again."
+                ? "You are signed in and already paid the $1 card check. Continue to get a device token for this Luna."
                 : "You are already signed in. Next we verify your card with a $1 check, then give you a device token for this Luna."
             : shouldSkipCodeEntry(me)
               ? "You are already signed in and this Luna is linked. Continue to name it or finish setup."
@@ -1014,9 +1014,8 @@ export default function OnboardingPage() {
     return (
       <StepShell icon={MailOpen} title="Check your inbox">
         <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
-          We sent a verification link to <span className="font-mono text-card-foreground">{displayEmail}</span>.
-          Open the email from Luna Connect and choose <span className="font-mono text-card-foreground">Verify my email</span>.
-          This page continues by itself when you are done.
+          Open the email we sent to <span className="font-mono text-card-foreground">{displayEmail}</span> and
+          select <span className="font-mono text-card-foreground">Verify my email</span>. This page continues by itself.
         </p>
         <div className="space-y-5">
           <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
@@ -1164,13 +1163,13 @@ export default function OnboardingPage() {
     <StepShell icon={Key} title="Your device token">
       <p className="font-mono text-xl sm:text-2xl tracking-widest break-all mb-6">{diyCode}</p>
       <p className="text-sm text-foreground mb-4 leading-relaxed text-pretty">
-        When you install Luna on your device, paste this full token when the installer asks. The first eight characters (****-****) unlock setup from your phone while you are on the same network.
+        When you install Luna on your device, paste this token when the installer asks for it.
       </p>
       <p className="text-sm text-muted-foreground mb-4 leading-relaxed text-pretty">
-        If you skipped it during install, on Luna go to <PathTrail steps={["Settings", "About", "Advanced"]} />, open Device token, paste this token, and tap Save.
+        If you skipped that step, open <PathTrail steps={["Settings", "About", "Advanced", "Luna Connect"]} /> on Luna and select Change device token.
       </p>
       <p className="text-sm text-muted-foreground mb-8 leading-relaxed text-pretty">
-        When you continue, we link this token to your account. Luna picks up the link when it comes online.
+        When you continue, we link this token to your account. Luna gets the link when it comes online.
       </p>
       <div className="flex flex-col gap-3">
         <Button size="lg" className="w-full" variant="outline" onClick={() => handleCopy("diy", diyCode)}>
@@ -1210,7 +1209,7 @@ export default function OnboardingPage() {
   const renderDomain = () => (
     <StepShell icon={Globe} title="Name this Luna">
       <p className="text-muted-foreground text-sm leading-relaxed mb-8 text-pretty">
-        This name is the address you type to open Luna from anywhere. Use letters and numbers, at least 3 characters.
+        This name becomes the address that opens Luna from anywhere. Use 3 to 32 letters, numbers, or dashes.
       </p>
       <form
         className="space-y-5 text-left"
@@ -1253,6 +1252,7 @@ export default function OnboardingPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="kitchen"
+              maxLength={32}
               autoFocus
             />
             <p className="text-sm font-mono text-foreground">
@@ -1273,7 +1273,7 @@ export default function OnboardingPage() {
   const renderBackup = () => (
     <StepShell icon={HardDrive} title="Optional cloud backup">
       <p className="text-sm text-foreground leading-relaxed mb-6 text-pretty">
-        Adding your card allows you to backup files from your Luna to the cloud.
+        Add a card to back up the files on Luna to the cloud.
       </p>
       <BackupPricingTable className="mb-6" />
       <CheckoutButton
@@ -1309,7 +1309,7 @@ export default function OnboardingPage() {
           await goToFinish();
         }}
       >
-        Nah.
+        Skip for now
       </Button>
     </StepShell>
   );
@@ -1320,8 +1320,8 @@ export default function OnboardingPage() {
       return (
         <StepShell icon={Plug} title="Plug in Luna">
           <p className="text-sm text-foreground leading-relaxed mb-6 text-pretty text-left">
-            Plug Luna into power and your router or modem with the included{" "}
-            <TermHint content="RJ45 is the wide plug on the ethernet cable in the box. It clicks into the port on Luna and your router.">
+            Plug Luna into power and your router or modem with {path === "diy" ? "an" : "the included"}{" "}
+            <TermHint content="RJ45 is the wide plug on an ethernet cable. It clicks into the port on Luna and your router.">
               RJ45
             </TermHint>{" "}
             (
@@ -1353,9 +1353,9 @@ export default function OnboardingPage() {
       const chosenDomain =
         name || (hostname ? hostname.split(".")[0] : "") || "kitchen";
       return (
-        <StepShell icon={Globe} title="Provisioning Address..." className="max-w-lg">
+        <StepShell icon={Globe} title="Making your address..." className="max-w-lg">
           <p className="text-sm text-foreground leading-relaxed mb-6 text-pretty text-left">
-            We're using Cloudflare to create your Luna's domain name. This can take up to 10 minutes.
+            Cloudflare is making the address for this Luna. This can take up to 10 minutes.
           </p>
           <ProvisioningDomainAnimation domain={chosenDomain} />
         </StepShell>
@@ -1366,7 +1366,7 @@ export default function OnboardingPage() {
     return (
       <StepShell icon={Radio} title="Finishing up..." className="max-w-lg">
         <p className="text-sm text-foreground leading-relaxed mb-6 text-pretty text-left">
-          Your Luna is now connecting to its provisioned domain name. This shouldn't take long.
+          Luna is connecting to its new address. This usually takes a moment.
         </p>
         <FinishingTransferAnimation />
       </StepShell>
@@ -1382,10 +1382,10 @@ export default function OnboardingPage() {
       <StepShell icon={Check} title="You're connected">
         <div className="space-y-6 text-left">
           <p className="text-sm text-foreground leading-relaxed text-pretty">
-            Luna is linked to your account. Open it at the address below from anywhere.
+            Luna is linked to your account, and you can open it from anywhere.
           </p>
           <div>
-            <p className="text-sm text-foreground mb-2">Go here to continue setup directly on your Luna.</p>
+            <p className="text-sm text-foreground mb-2">Open this link to finish setup on Luna.</p>
             <div className="rounded-large-element bg-muted border border-border p-4 flex items-center gap-3">
               <a
                 href={setupHref}
@@ -1399,11 +1399,16 @@ export default function OnboardingPage() {
                 variant="ghost"
                 size="icon"
                 onClick={() => handleCopy("host", setupHref)}
-                aria-label="Copy address"
+                aria-label="Copy setup link"
               >
                 {copied === "host" ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
               </Button>
             </div>
+            {deviceToken && (
+              <p className="text-xs text-muted-foreground mt-2">
+                The link includes your device token. Share it only with someone you trust to set up Luna.
+              </p>
+            )}
           </div>
           <Button
             size="lg"

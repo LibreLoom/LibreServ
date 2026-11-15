@@ -14,7 +14,7 @@ import (
 )
 
 // BreachedPasswordMessage matches Sol's rejectBreachedPassword copy.
-const BreachedPasswordMessage = "That password has appeared in known data breaches, so it isn't safe to use. Please choose a different password."
+const BreachedPasswordMessage = "That password is in known data breaches, so it is not safe. Choose a different password."
 
 // errHIBPRedirect refuses HTTP redirects on the HIBP range client. Following a
 // 302 would send the password hash prefix to an unexpected host.

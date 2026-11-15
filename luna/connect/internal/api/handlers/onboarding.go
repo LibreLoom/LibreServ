@@ -52,7 +52,7 @@ func (h OnboardingHandler) MintDIY(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusCreated, map[string]any{
 		"device_id": id,
 		"code":      code,
-		"message":   "Put this full code on Luna during install (paste when the installer asks after the disk is written), or later in Settings → About → Advanced → Device token. The first eight characters unlock setup from your phone.",
+		"message":   "Paste this device token when the Luna installer asks for it. You can also add it later in Settings → About → Advanced on Luna.",
 	})
 }
 
@@ -84,7 +84,7 @@ func (h OnboardingHandler) AdminMint(w http.ResponseWriter, r *http.Request) {
 	if len(out) == 1 {
 		JSON(w, http.StatusCreated, map[string]any{
 			"id": out[0].ID, "code": out[0].Code,
-			"message": "Print this on the quick-start card. First eight characters unlock phone setup; full code binds Connect.",
+			"message": "Print this device token on the quick-start card. The full token links Luna to Luna Connect.",
 		})
 		return
 	}
@@ -101,7 +101,7 @@ func (h OnboardingHandler) AdminMintBulk(w http.ResponseWriter, r *http.Request)
 		req.Count = 1
 	}
 	if req.Count > 500 {
-		JSONError(w, http.StatusBadRequest, "Ask for at most 500 codes at a time.")
+		JSONError(w, http.StatusBadRequest, "Ask for 500 device tokens or fewer at a time.")
 		return
 	}
 	var lines []string
@@ -117,7 +117,7 @@ func (h OnboardingHandler) AdminMintBulk(w http.ResponseWriter, r *http.Request)
 		"filename": "TOKENS",
 		"tokens":   lines,
 		"count":    len(lines),
-		"message":  "One device token per line. First eight characters unlock phone setup; full token links Luna Connect.",
+		"message":  "One device token per line. Each full token links one Luna to Luna Connect.",
 	})
 }
 

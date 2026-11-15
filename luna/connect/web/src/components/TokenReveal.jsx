@@ -13,7 +13,7 @@ export default function TokenReveal({ hint, code = null, onReveal = null, label 
   const [revealError, setRevealError] = useState("");
   const [copied, setCopied] = useState(false);
   const full = code || fetched;
-  const display = revealed && full ? full : hint || "—";
+  const display = revealed && full ? full : hint || "None";
   const canReveal = Boolean(full) || Boolean(onReveal);
   const showNoun = label === "token" ? "token" : "code";
 
@@ -27,7 +27,7 @@ export default function TokenReveal({ hint, code = null, onReveal = null, label 
           setFetched(c);
           setRevealed(true);
         } else {
-          setRevealError("No full token is stored for this row — only the hint.");
+          setRevealError("Only the hint is stored for this token.");
         }
       } catch (err) {
         setRevealError(err.message || "Could not reveal the token.");

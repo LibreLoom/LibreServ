@@ -107,7 +107,12 @@ func (h AccountHandler) Register(w http.ResponseWriter, r *http.Request) {
 VALUES (?, ?, ?, 0, 'none', 0, ?)`, id, email, string(hash), time.Now().Unix())
 	if err != nil {
 		_ = allowAuthAttempt(h.DB, ip, email, authAttemptMax, authAttemptWindow)
-		JSONError(w, http.StatusConflict, "That email already has an account. Sign in instead.")
+		var exists int
+		if h.DB.QueryRow(`SELECT 1 FROM accounts WHERE email = ?`, email).Scan(&exists) == nil {
+			JSONError(w, http.StatusConflict, "That email already has an account. Sign in instead.")
+			return
+		}
+		JSONError(w, http.StatusInternalServerError, "Could not create the account. Try again.")
 		return
 	}
 	h.setSession(w, id)
@@ -138,6 +143,10 @@ func (h AccountHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var emailVerified int
 	err := h.DB.QueryRow(`SELECT id, password_hash, email_verified FROM accounts WHERE email = ?`, email).
 		Scan(&id, &hash, &emailVerified)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		JSONError(w, http.StatusInternalServerError, "Could not sign in. Try again.")
+		return
+	}
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)) != nil {
 		_ = allowAuthAttempt(h.DB, ip, email, authAttemptMax, authAttemptWindow)
 		JSONError(w, http.StatusUnauthorized, "That email or password did not match.")
@@ -252,7 +261,8 @@ func (h AccountHandler) CancelBilling(w http.ResponseWriter, r *http.Request) {
 		JSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Payment is already being turned off."})
 		return
 	}
-	if acct.StripeSub != "" && (owesThisMonth || stored > 0) {
+	finalBill := acct.StripeSub != "" && (owesThisMonth || stored > 0)
+	if finalBill {
 		// Bill the month so far. Stripe needs about a minute to process the
 		// usage we report now, so the subscription ends FinalChargeDelay from
 		// now and Stripe bills that usage on its final invoice. Until then the
@@ -291,18 +301,23 @@ func (h AccountHandler) CancelBilling(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	message := "Payment is off."
+	if finalBill {
+		message = "Payment is being turned off."
+	}
 	if stored > 0 {
 		deleteCloudCopiesNow(h.Deps, acct.ID, acct.Email)
+		message += " Luna Connect is deleting your cloud backups."
 	}
 	JSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
-		"message": "Payment is off and your cloud copies are being deleted.",
+		"message": message,
 	})
 }
 
 func writeBillingErr(w http.ResponseWriter, err error, fallback string) {
 	if errors.Is(err, billing.ErrNotConfigured) {
-		JSONError(w, http.StatusServiceUnavailable, "Card billing is not set up on this Luna Connect site. Contact support to resolve this issue.")
+		JSONError(w, http.StatusServiceUnavailable, "Card billing is not set up on this Luna Connect site. Contact support.")
 		return
 	}
 	var stripeErr *stripe.Error

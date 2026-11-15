@@ -69,7 +69,7 @@ describe("BackupsPage", () => {
     expect(screen.getByTestId("backups-files")).toBeTruthy();
     expect(screen.getByText(/\$8 \/ terabyte \/ month/i)).toBeTruthy();
     expect(screen.getByText(/\$3 once you store something/i)).toBeTruthy();
-    expect(screen.getByText(/Free up to 3× stored amount/i)).toBeTruthy();
+    expect(screen.getByText(/Free up to 3× what you store/i)).toBeTruthy();
     expect(screen.queryByText(/average storage/i)).toBeNull();
     expect(screen.getByRole("button", { name: /Add a payment card/i })).toBeTruthy();
     expect(screen.getByTestId("backup-empty-state")).toBeTruthy();
