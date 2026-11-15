@@ -112,8 +112,8 @@ describe("scoreKnownPages", () => {
   });
 
   it("is deterministic across calls with the same input", () => {
-    const a = scoreKnownPages("/galery", knownPages).map((m) => m.to);
-    const b = scoreKnownPages("/galery", knownPages).map((m) => m.to);
+    const a = scoreKnownPages("/phots", knownPages).map((m) => m.to);
+    const b = scoreKnownPages("/phots", knownPages).map((m) => m.to);
     expect(a).toEqual(b);
   });
 
