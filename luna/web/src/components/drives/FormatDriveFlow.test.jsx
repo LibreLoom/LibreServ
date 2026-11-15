@@ -133,7 +133,7 @@ describe("FormatDriveFlow", () => {
     const calls = stub({ previewBody: preview({ empty: true, partitions: [], ready_at: nowS() }) });
     show({ password: "correct horse 42" });
     await looked();
-    expect(screen.getByText("The drive will be protected with the password you chose.")).toBeInTheDocument();
+    expect(screen.getByText("Luna protects the drive with your password.")).toBeInTheDocument();
     expect(screen.queryByText(/no way to recover/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Erase drive" }));
     await screen.findByRole("list", { name: "Erase progress" });
@@ -146,6 +146,8 @@ describe("FormatDriveFlow", () => {
     show({ password: "correct horse 42" });
     await looked();
     expect(screen.getByText("Password protection isn't available for this drive.")).toBeInTheDocument();
+    // Never promise the password in the same breath as refusing it.
+    expect(screen.queryByText(/protects the drive with your password/)).toBeNull();
     expect(screen.getByRole("button", { name: "Erase drive" })).toBeDisabled();
   });
 

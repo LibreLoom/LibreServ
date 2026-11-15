@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Circle, Loader2 } from "lucide-react";
+import { Check, CheckCircle2, Circle, Link2Off, Loader2, Lock, PauseCircle, Trash2, Users } from "lucide-react";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
@@ -9,7 +9,6 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { getJson, postJson } from "../../lib/api.js";
 import { clockSkew, needsFreshPreview, phaseLabel, secondsUntil, startErrorMessage } from "../../lib/driveFormat.js";
-import { formatBytes } from "../../lib/formatBytes.js";
 import FormatPreview from "./FormatPreview.jsx";
 
 const API = "/api/v1/drive-format";
@@ -152,7 +151,6 @@ export default function FormatDriveFlow({ device, password, open = true, onDone,
     }
   };
 
-  const name = device.model || device.label || device.name;
   const lost = run.isError && /** @type {any} */ (run.error)?.status === 404;
   let title = "Erase this drive?";
   if (runId) title = status?.done ? "Drive is ready" : status?.failed ? "The erase didn't finish" : "Erasing this drive";
@@ -184,7 +182,6 @@ export default function FormatDriveFlow({ device, password, open = true, onDone,
           ) : (
             <LookStep
               preview={preview.data}
-              name={preview.data.device?.model || name}
               password={password}
               starting={starting}
               error={startError}
@@ -210,7 +207,7 @@ function driveLabel(device, preview) {
   return (device.label || firstPart || device.model || preview?.device?.model || "Drive").trim().slice(0, 80);
 }
 
-function LookStep({ preview, name, password, starting, error, ready, clockMs, onErase, onLookAgain, onCancel }) {
+function LookStep({ preview, password, starting, error, ready, clockMs, onErase, onLookAgain, onCancel }) {
   const clientNow = clockMs;
   const readyAt = ready?.readyAt ?? preview.ready_at;
   const skew = ready?.skew ?? preview.skew;
@@ -223,22 +220,19 @@ function LookStep({ preview, name, password, starting, error, ready, clockMs, on
   return (
     <>
       <FormatPreview preview={preview} />
-      {preview.empty ? (
-        <p className="text-sm"><InlinePill>{name}</InlinePill> has nothing on it, so there is nothing to lose.</p>
-      ) : (
-        <p className="text-sm">
-          Everything on <InlinePill>{name}</InlinePill>
-          {preview.device?.size_bytes ? ` (${formatBytes(preview.device.size_bytes)})` : ""} will be erased. This can&apos;t be undone.
-        </p>
-      )}
-      {registered && (
-        <p className="text-sm">
-          People with access to the whole drive keep it. Share links and folder-by-folder access are removed, and
-          this drive&apos;s backups stop until you set them up again.
-        </p>
-      )}
-      {/* The caller that collected the password already said it can't be recovered. */}
-      {password && <p className="text-sm">The drive will be protected with the password you chose.</p>}
+      <div>
+        <h3 className="mb-2 font-mono text-sm">What happens</h3>
+        <ul className="space-y-2" aria-label="What happens">
+          <Outcome icon={preview.empty ? CheckCircle2 : Trash2}>
+            {preview.empty ? "Nothing on it is lost." : "Everything on it is erased. You can't undo this."}
+          </Outcome>
+          {registered && <Outcome icon={Link2Off}>Share links and access to single files, folders, and albums are removed.</Outcome>}
+          {registered && <Outcome icon={Users}>People with access to the whole drive keep it.</Outcome>}
+          {registered && <Outcome icon={PauseCircle}>Backups to or from this drive stop until you set them up again.</Outcome>}
+          {/* The caller that collected the password already said it can't be recovered. */}
+          {password && !cantProtect && <Outcome icon={Lock}>Luna protects the drive with your password.</Outcome>}
+        </ul>
+      </div>
       {cantProtect && <InlineError>Password protection isn&apos;t available for this drive.</InlineError>}
       {expired && !error && <InlineError>Luna&apos;s look at this drive is out of date. Look at the drive again.</InlineError>}
       {error && <InlineError>{error.message}</InlineError>}
@@ -253,6 +247,16 @@ function LookStep({ preview, name, password, starting, error, ready, clockMs, on
         <Button variant="outline" onClick={onCancel}>Cancel</Button>
       </div>
     </>
+  );
+}
+
+/** One line of "What happens": an icon, then one short sentence. */
+function Outcome({ icon: Icon, children }) {
+  return (
+    <li className="flex items-start gap-3 text-sm">
+      <Icon size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
+      <span>{children}</span>
+    </li>
   );
 }
 
@@ -295,7 +299,7 @@ function RunStep({ status, lost, unreachable, label, onLookAgain, onOpen, onClos
             ? "The old files may already be gone from this drive."
             : "Nothing was erased. The drive is as it was."}
         </p>
-        <p className="text-sm">Check that the drive is plugged in, then look at it again and try once more.</p>
+        <p className="text-sm">Look at the drive again, then try again.</p>
         <div className="flex gap-3">
           <Button onClick={onLookAgain}>Look at the drive again</Button>
           <Button variant="outline" onClick={onClose}>Close</Button>
@@ -323,7 +327,7 @@ function RunStep({ status, lost, unreachable, label, onLookAgain, onOpen, onClos
           );
         })}
       </ol>
-      {unreachable && <p className="text-sm" role="status">Can&apos;t reach Luna right now. Still trying.</p>}
+      {unreachable && <p className="text-sm" role="status">Can&apos;t get the erase progress right now. Still trying.</p>}
       <p className="text-sm">
         Don&apos;t unplug the drive. You can close this window: Luna keeps going, and Files shows where it is.
       </p>
