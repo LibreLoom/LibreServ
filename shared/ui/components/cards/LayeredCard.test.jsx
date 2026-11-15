@@ -81,26 +81,37 @@ describe("LayeredCard", () => {
     expect(screen.queryByRole("link")).toBeNull();
   });
 
-  it("makes the whole band the target: the control covers it and the arrow is only a picture", () => {
-    render(
-      <LayeredCard title="Media" actionLabel="Open Media" onAction={() => {}}>
+  it("makes the rest of the band do what the button does, without a second control", () => {
+    const onAction = vi.fn();
+    const { container } = render(
+      <LayeredCard title="Media" actionLabel="Open" onAction={onAction}>
         <div>1.2 TB free</div>
       </LayeredCard>,
     );
-    const control = screen.getByRole("button", { name: "Open Media" });
-    const band = control.parentElement;
-    expect(control).toHaveClass("absolute", "inset-0");
-    expect(band).toContainElement(screen.getByRole("heading", { name: "Media" }));
-    expect(control).toBeEmptyDOMElement();
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    const target = container.querySelector("[data-slot=band-target]");
+    expect(target).toHaveAttribute("aria-hidden", "true");
+    expect(target).toHaveAttribute("tabindex", "-1");
+    target.click();
+    expect(onAction).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps panel actions outside the band's control", () => {
-    render(
-      <LayeredCard title="Media" panelActions={<button type="button">Menu</button>} actionLabel="Open Media" onAction={() => {}}>
+  it("keeps panel actions outside the band's target", () => {
+    const { container } = render(
+      <LayeredCard title="Media" panelActions={<button type="button">Menu</button>} actionLabel="Open" onAction={() => {}}>
         <div>1.2 TB free</div>
       </LayeredCard>,
     );
-    const control = screen.getByRole("button", { name: "Open Media" });
-    expect(control).not.toContainElement(screen.getByRole("button", { name: "Menu" }));
+    const target = container.querySelector("[data-slot=band-target]");
+    expect(target).not.toContainElement(screen.getByRole("button", { name: "Menu" }));
+  });
+
+  it("has no band target while the action is disabled", () => {
+    const { container } = render(
+      <LayeredCard title="Media" actionLabel="Open" onAction={() => {}} actionDisabled>
+        <div>x</div>
+      </LayeredCard>,
+    );
+    expect(container.querySelector("[data-slot=band-target]")).toBeNull();
   });
 });

@@ -6,7 +6,7 @@ import LayeredCard from "@libreloom/ui/components/cards/LayeredCard.jsx";
  * it, the panel is the drive's contents. Every drive card in the app is this
  * component, so a drive reads the same on the Dashboard and on Files.
  *
- * The band's one action is the arrow disc — Open, the grant's own label, Add
+ * The band's one action is an "Open →" button — Open, the grant's own label, Add
  * drive, Show progress — and is left out when there is nothing to press, so a
  * column of drives keeps one rhythm instead of sprouting buttons that would not
  * work.
