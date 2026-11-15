@@ -23,7 +23,14 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
         val token = BackupPrefs.token(context)
         val baseUrl = BackupPrefs.baseUrl(context)
         if (token == null || baseUrl == null || !BackupPrefs.backupEnabled(context) || !BackupPrefs.setupComplete(context)) {
-            BackupProgress.idle()
+            // Say why nothing ran; "up to date" would be a guess.
+            BackupProgress.idle(
+                when {
+                    token == null || baseUrl == null -> "You are not signed in."
+                    !BackupPrefs.backupEnabled(context) -> "Upload is paused."
+                    else -> "Setup is not finished."
+                },
+            )
             return Result.success()
         }
         if (!BackupConfig.hasPhotoAccess(context)) {
@@ -51,7 +58,8 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
 
             suspend fun backupUri(collection: Uri, projection: Array<String>, selection: String, args: Array<String>, sort: String): Result? {
                 val media = context.contentResolver.query(collection, projection, selection, args, sort)
-                    ?: throw java.io.IOException("This phone couldn't list your photos. Try again.")
+                    // IllegalStateException, not IOException: describeError would call it a network failure.
+                    ?: throw IllegalStateException("This phone couldn't list your photos. Try again.")
                 media.use { cursor ->
                     val cols = MediaCol(
                         cursor.getColumnIndexOrThrow(projection[0]),
@@ -62,7 +70,7 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
                     var remaining = cursor.count
                     while (cursor.moveToNext()) {
                         if (isStopped) {
-                            BackupProgress.idle("Backup paused. Open Luna and tap Backup now to finish.")
+                            BackupProgress.idle("Upload paused. Luna tries again later, or you can tap Upload now.")
                             return Result.retry()
                         }
                         val id = cursor.getLong(cols.id)
@@ -86,7 +94,7 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
                             }
                         }
                         val source = context.contentResolver.openInputStream(uri)
-                            ?: throw java.io.IOException("This photo couldn't be opened. Try again.")
+                            ?: throw IllegalStateException("This phone couldn't open a photo to upload. Try again.")
                         source.use { stream ->
                             val month = java.text.SimpleDateFormat("yyyy/MM", java.util.Locale.US)
                                 .format(java.util.Date(date * 1000))
@@ -173,7 +181,7 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
 
     private fun sourceDigest(context: Context, uri: Uri, digest: java.security.MessageDigest) {
         val source = context.contentResolver.openInputStream(uri)
-            ?: throw java.io.IOException("This photo couldn't be opened. Try again.")
+            ?: throw IllegalStateException("This phone couldn't open a photo to upload. Try again.")
         source.use { input ->
             val buffer = ByteArray(64 * 1024)
             while (true) {
@@ -185,13 +193,13 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
     }
 
     private fun progressText(remaining: Int): String =
-        if (remaining == 1) "Saving 1 item to Luna…"
-        else "Saving $remaining items to Luna…"
+        if (remaining == 1) "Uploading 1 item to Luna…"
+        else "Uploading $remaining items to Luna…"
 
     private fun foregroundInfo(text: String): ForegroundInfo {
         val note = NotificationCompat.Builder(applicationContext, BackupNotifications.PROGRESS_CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentTitle("Backing up photos")
+            .setContentTitle("Uploading photos")
             .setContentText(text)
             .setProgress(0, 0, true)
             .setOngoing(true)

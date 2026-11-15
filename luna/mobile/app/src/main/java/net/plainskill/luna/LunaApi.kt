@@ -54,7 +54,7 @@ object LunaApi {
         if (result.code !in 200..299) {
             throw ApiException(
                 result.code,
-                "Luna didn't answer the version check. Check that this phone can reach Luna, then try again.",
+                "That address did not answer like a Luna. Check the Luna address, then try again.",
             )
         }
         return Compatibility.check(Compatibility.parseApi(String(result.body, Charsets.UTF_8)))
@@ -73,7 +73,7 @@ object LunaApi {
         if (result.code !in 200..299) {
             throw ApiException(
                 result.code,
-                "Luna couldn't check that access token. Check the address, then try again. If it still fails, create a new token in Luna → Settings → Security.",
+                "Luna couldn't check that access token. Check the Luna address, then try again.",
             )
         }
         return parseUser(String(result.body, Charsets.UTF_8))
@@ -85,7 +85,7 @@ object LunaApi {
         if (result.code !in 200..299) {
             throw ApiException(
                 result.code,
-                "Luna couldn't list your drives. Check that this phone can reach Luna, then try again. If it keeps failing, ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
+                "Luna couldn't list your drives. Try again.",
             )
         }
         return parseDrives(String(result.body, Charsets.UTF_8))
@@ -96,7 +96,7 @@ object LunaApi {
         if (drives.isEmpty()) {
             throw ApiException(
                 404,
-                "No drives found on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
+                "No drives found on Luna. Make sure the drive is plugged in, or ask an Admin for access to a drive.",
             )
         }
         if (!preferredId.isNullOrBlank()) {
@@ -104,7 +104,7 @@ object LunaApi {
             if (match != null) return match.id
             throw ApiException(
                 404,
-                "The drive you picked is no longer on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
+                "Luna no longer shows the drive you picked. Make sure it is plugged in, or ask an Admin for access to it.",
             )
         }
         return drives[0].id
@@ -139,19 +139,19 @@ object LunaApi {
         if (result.code == 403) {
             throw ApiException(
                 403,
-                "This access token can't open that folder. Create a new token in Luna → Settings → Security, and allow access to this drive.",
+                "Your Luna account can't open that folder. Ask an Admin for Read on it.",
             )
         }
         if (result.code == 404) {
             throw ApiException(
                 404,
-                "That folder is gone. Pick another folder, or create a new one.",
+                "Luna can't find that folder. Pick another folder, or create a new one.",
             )
         }
         if (result.code !in 200..299) {
             throw ApiException(
                 result.code,
-                "Luna couldn't open that folder. Check that this phone can reach Luna, then try again.",
+                "Luna couldn't open that folder. Try again.",
             )
         }
         return parseFiles(String(result.body, Charsets.UTF_8))
@@ -167,13 +167,13 @@ object LunaApi {
                 401 -> ApiException(401, badTokenMessage())
                 403 -> ApiException(
                     403,
-                    "This access token can't create a folder here. Create a new token in Luna → Settings → Security, and allow Write on this drive.",
+                    "Your Luna account can't create a folder here. Ask an Admin for Write on this folder.",
                 )
                 409 -> ApiException(409, "A folder with this name is already here. Choose another name.")
-                404 -> ApiException(404, "Luna can't find the parent folder. Open it and try again.")
+                404 -> ApiException(404, "Luna can't find the parent folder. Tap Up one folder, then try again.")
                 else -> ApiException(
                     e.code,
-                    "Luna couldn't create that folder. Check the name and that this phone can reach Luna, then try again.",
+                    "Luna couldn't create that folder. Check the name, then try again.",
                 )
             }
         }
@@ -218,7 +218,7 @@ object LunaApi {
                 401 -> ApiException(401, badTokenMessage())
                 403 -> ApiException(
                     403,
-                    "This access token can see the folder but cannot save files there. Create a new token in Luna → Settings → Security, and allow Write on this drive.",
+                    "Your Luna account can open this folder but can't save files in it. Ask an Admin for Write on this folder.",
                 )
                 404 -> ApiException(
                     404,
@@ -226,7 +226,7 @@ object LunaApi {
                 )
                 else -> ApiException(
                     e.code,
-                    "Luna couldn't test saving to that folder. Check that this phone can reach Luna, then try again.",
+                    "Luna couldn't test saving to that folder. Try again.",
                 )
             }
         }
@@ -242,16 +242,16 @@ object LunaApi {
         is IncompatibleException -> error.message.orEmpty()
         is java.io.IOException ->
             if (error.message == "timed out") {
-                "Luna didn't finish answering in time. Check that this phone is on the same network as Luna, and that the drive is working in Luna's Files page, then try again."
+                "Luna didn't answer in time. Check this phone's network connection and the drive on Luna's Files page, then try again."
             } else {
-                "Luna couldn't be reached. Check the address and that this phone is on the same network as Luna, then try again."
+                "Luna couldn't be reached. Check the Luna address and this phone's network connection, then try again."
             }
         is IllegalStateException ->
             error.message
                 ?: "This phone couldn't store the sign-in safely. Photo upload can't start. Try signing in again."
-        else ->
-            error.message
-                ?: "Something went wrong. Try again. If it keeps happening, sign out and sign in with a new access token from Luna → Settings → Security."
+        // Other exceptions carry developer text (JSON parse errors and the like),
+        // never a sentence for a person.
+        else -> "Something unexpected went wrong. Try again."
     }
 
     fun parseFiles(body: String): List<FileEntry> {
@@ -280,17 +280,17 @@ object LunaApi {
                 401 -> ApiException(401, badTokenMessage())
                 403 -> ApiException(
                     403,
-                    "This access token cannot save files to that folder. Create a new token in Luna → Settings → Security, and allow Write on this drive.",
+                    "Your Luna account can't save files in that folder. Ask an Admin for Write on this folder.",
                 )
                 else -> ApiException(
                     e.code,
-                    e.message?.takeIf { it.isNotBlank() && it != "Request failed (${e.code})" }
-                        ?: "Luna couldn't start the photo upload. Check that this phone can reach Luna, then try again.",
+                    e.message?.takeIf { it.isNotBlank() && it != genericError(e.code) }
+                        ?: "Luna couldn't start the photo upload. Try again.",
                 )
             }
         }
         return json.optString("upload_id").ifEmpty {
-            throw ApiException(500, "Luna started the upload but didn't return a session. Try Upload now again.")
+            throw ApiException(500, "Luna started the upload but sent an incomplete answer. Tap Upload now to try again.")
         }
     }
 
@@ -324,12 +324,15 @@ object LunaApi {
     private fun badTokenMessage() =
         "That access token didn't work. Create a new one in Luna → Settings → Security."
 
+    /** Shown when Luna's reply has no plain `error` sentence to pass on. */
+    private fun genericError(code: Int) = "Luna answered with an error (code $code). Try again."
+
     private data class HttpResult(val code: Int, val body: ByteArray, val setCookie: String? = null) {
+        /** Luna's own `error` sentence, never a raw body (it may be HTML from a proxy). */
         fun errorText(): String {
             val text = String(body, Charsets.UTF_8)
-            return try { JSONObject(text).optString("error") } catch (_: Exception) {
-                text.ifBlank { "Request failed ($code)" }
-            }
+            val error = try { JSONObject(text).optString("error") } catch (_: Exception) { "" }
+            return error.ifBlank { LunaApi.genericError(code) }
         }
     }
 

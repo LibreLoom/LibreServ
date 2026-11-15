@@ -65,7 +65,7 @@ class CompatTest {
     @Test
     fun messagesTellThePersonWhatToUpdate() {
         assertNull(Compatibility.message(Compat.OK))
-        assertTrue(Compatibility.message(Compat.LUNA_TOO_OLD)!!.contains("Update Luna in Settings"))
+        assertTrue(Compatibility.message(Compat.LUNA_TOO_OLD)!!.contains("update Luna in Settings"))
         assertTrue(Compatibility.message(Compat.APP_TOO_OLD)!!.contains("F-Droid"))
     }
 }

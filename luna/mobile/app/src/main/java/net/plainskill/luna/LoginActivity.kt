@@ -37,7 +37,7 @@ class LoginActivity : AppCompatActivity() {
     ) { granted ->
         if (granted) launchScanner()
         else status.text =
-            "Camera permission is needed to scan the QR code. You can still paste the access token. To allow the camera later, open this phone's Settings → Apps → Luna → Permissions → Camera."
+            "Luna needs the camera to scan the QR code. Paste the access token instead, or allow the camera in this phone's Settings → Apps → Luna → Permissions."
     }
 
     private val qrLauncher = registerForActivityResult(ScanContract()) { result ->
@@ -49,7 +49,7 @@ class LoginActivity : AppCompatActivity() {
             status.text = "Address and access token filled in. Tap Sign in."
         } else {
             status.text =
-                "That QR code is not a Luna sign-in code. In Luna, open Settings → Security → Show as QR code."
+                "That QR code is not a Luna sign-in code. In Luna, create an access token in Settings → Security, then tap Show as QR code."
         }
     }
 
@@ -152,7 +152,7 @@ class LoginActivity : AppCompatActivity() {
     private fun launchScanner() {
         val options = ScanOptions()
             .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-            .setPrompt("Point at the QR code in Luna → Settings → Security")
+            .setPrompt("Point the camera at the QR code from Luna → Settings → Security")
             .setBeepEnabled(false)
             .setOrientationLocked(false)
             .setCaptureActivity(PortraitCaptureActivity::class.java)

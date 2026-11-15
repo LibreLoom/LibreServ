@@ -16,7 +16,8 @@ object BackupProgress {
     @Volatile
     var snapshot: Snapshot = Snapshot(
         running = false,
-        heading = "Everything is up to date.",
+        // Nothing has run since the app started, so claim nothing about the photos.
+        heading = "No upload is running.",
         detail = "",
         lastError = "",
         updatedAtMs = 0L,

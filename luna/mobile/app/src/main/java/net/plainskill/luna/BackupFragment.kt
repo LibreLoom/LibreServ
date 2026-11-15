@@ -44,9 +44,9 @@ class BackupFragment : Fragment() {
         val view = view ?: return
         val ctx = requireContext()
         view.findViewById<TextView>(R.id.backupStatus).text = if (BackupPrefs.backupEnabled(ctx)) {
-            "Upload is on. New photos upload when the conditions in Settings are met, or when you tap Upload now."
+            "Upload is on. Luna checks for new photos about every 6 hours, when the conditions in Settings are met."
         } else {
-            "Upload is paused. Turn it on to upload new photos automatically, or tap Upload now after you turn it on."
+            "Upload is paused. Turn on Upload automatically to upload new photos."
         }
         val at = BackupPrefs.lastBackupAt(ctx)
         view.findViewById<TextView>(R.id.lastBackup).text = if (at <= 0L) {
@@ -61,11 +61,11 @@ class BackupFragment : Fragment() {
         val hint = view.findViewById<TextView>(R.id.batteryHint)
         val button = view.findViewById<TextView>(R.id.batteryButton)
         if (BackgroundAccess.isUnrestricted(requireContext())) {
-            hint.text = "Android is allowing Luna to run in the background."
+            hint.text = "Android lets Luna run in the background."
             button.visibility = View.GONE
         } else {
             hint.text =
-                "Android can pause apps set to Optimized, so photo upload may not run. Tap Allow background upload, then choose Unrestricted (or Don't optimize) for Luna."
+                "Android can pause Luna in the background, so uploads can wait. Tap Allow background upload, then let Luna run in the background."
             button.visibility = View.VISIBLE
         }
     }
