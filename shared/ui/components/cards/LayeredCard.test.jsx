@@ -4,43 +4,13 @@ import { Mail } from "lucide-react";
 import LayeredCard from "./LayeredCard.jsx";
 
 describe("LayeredCard", () => {
-  it("renders panel content and a button action when onAction is given", () => {
-    const onAction = vi.fn();
+  it("puts the identity on the band and the content in the panel", () => {
     render(
       <LayeredCard
-        icon={<Mail size={12} />}
-        actionIcon={<Mail size={11} />}
-        actionLabel="Resend (30s)"
-        onAction={onAction}
-        actionDisabled
-        actionAriaLabel="Send a new code"
-      >
-        Code sent to you@example.com
-      </LayeredCard>,
-    );
-    expect(screen.getByText("Code sent to you@example.com")).toBeInTheDocument();
-    const btn = screen.getByRole("button", { name: "Send a new code" });
-    expect(btn).toBeDisabled();
-    btn.click();
-    expect(onAction).not.toHaveBeenCalled(); // disabled
-  });
-
-  it("renders a static span action when onAction is omitted", () => {
-    render(<LayeredCard actionLabel="12.4 GB / 20 GB">Included: Backup</LayeredCard>);
-    expect(screen.getByText("Included: Backup")).toBeInTheDocument();
-    expect(screen.getByText("12.4 GB / 20 GB")).toBeInTheDocument();
-    expect(screen.queryByRole("button")).toBeNull();
-  });
-
-  it("renders content in md size with a header and the action band", () => {
-    render(
-      <LayeredCard
-        size="md"
         icon={<Mail size={18} />}
         title="Backups"
         headerActions={<span>Ready</span>}
-        actionLabel="Open"
-        actionTrailing={<span data-testid="trailing" />}
+        actionLabel="Open Backups"
         onAction={() => {}}
       >
         <div>Last backup 2h ago</div>
@@ -49,17 +19,39 @@ describe("LayeredCard", () => {
     expect(screen.getByRole("heading", { name: "Backups" })).toBeInTheDocument();
     expect(screen.getByText("Ready")).toBeInTheDocument();
     expect(screen.getByText("Last backup 2h ago")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open" })).toBeEnabled();
-    expect(screen.getByTestId("trailing")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Backups" })).toBeEnabled();
   });
 
-  it("makes the band a link when actionAs and actionProps are given", () => {
+  it("calls onAction when the disc is pressed", () => {
+    const onAction = vi.fn();
+    render(
+      <LayeredCard title="Media" actionLabel="Open Media" onAction={onAction}>
+        <div>1.2 TB free</div>
+      </LayeredCard>,
+    );
+    screen.getByRole("button", { name: "Open Media" }).click();
+    expect(onAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fire while the action is disabled", () => {
+    const onAction = vi.fn();
+    render(
+      <LayeredCard title="Media" actionLabel="Open Media" onAction={onAction} actionDisabled>
+        <div>1.2 TB free</div>
+      </LayeredCard>,
+    );
+    const disc = screen.getByRole("button", { name: "Open Media" });
+    expect(disc).toBeDisabled();
+    disc.click();
+    expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it("makes the disc a link when actionAs and actionProps are given", () => {
     const onClick = vi.fn();
     render(
       <LayeredCard
-        size="md"
         title="Media"
-        actionLabel="Open"
+        actionLabel="Open Media"
         actionAs="a"
         actionProps={{
           href: "/files/d1",
@@ -72,21 +64,20 @@ describe("LayeredCard", () => {
         <div>1.2 TB free</div>
       </LayeredCard>,
     );
-    const link = screen.getByRole("link", { name: "Open" });
+    const link = screen.getByRole("link", { name: "Open Media" });
     expect(link).toHaveAttribute("href", "/files/d1");
     link.click();
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves the band out entirely when there is no action", () => {
-    const { container } = render(
-      <LayeredCard size="md" title="Media">
+  it("leaves the disc out entirely when there is no action", () => {
+    render(
+      <LayeredCard title="Media">
         <div>Unplugged. Plug it back in to use its files.</div>
       </LayeredCard>,
     );
+    expect(screen.getByRole("heading", { name: "Media" })).toBeInTheDocument();
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.queryByRole("link")).toBeNull();
-    // Panel only: the tray's foot is empty, not a disabled button.
-    expect(container.querySelector(".min-h-14")).toBeNull();
   });
 });

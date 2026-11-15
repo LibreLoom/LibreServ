@@ -1,54 +1,36 @@
 import { cloneElement } from "react";
 import PropTypes from "prop-types";
+import { ArrowRight } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { haptic } from "../../utils/haptics.js";
+import { ICON_SIZE } from "../../lib/ui-tokens.js";
 
 /**
  * LayeredCard — LayeredPill's vertical sibling (same layered grammar, stacked).
  *
- * A tray (secondary surface) with a primary-surface panel inset at the top, and
- * the tray's foot as the action band. The band belongs to the tray, not to the
- * panel: the card's one action always sits in the same place, at the same
- * height, whatever the panel above it holds. A band with no `actionLabel` is
- * empty on purpose — that is a state, not a missing button — so a column of
- * cards keeps one rhythm instead of sprouting buttons that do not apply.
+ * The tray (secondary surface) carries the card's identity on its top band: the
+ * icon, the name, and whatever belongs beside them — a status, a count. The
+ * panel below holds the card's contents on the page surface, inset so its
+ * corners stay concentric with the tray's. The band's right end is the card's
+ * one action, the arrow disc: same place, same size, on every card.
  *
- * Two sizes:
+ * The band is the drive, the panel is its contents. That is the strongest
+ * hierarchy the two surfaces can make, and it keeps the action out of the data.
  *
- *  - `size="sm"` — compact strip (pill-like panel, text-xs), for narrow columns
- *    where a LayeredPill would go but stacked.
- *  - `size="md"` — a content card: panel header (icon, title, headerActions),
- *    a roomy body, and a full-height band with the label at the left and an
- *    optional trailing affordance (an arrow disc, a count) at the right.
+ * The band itself is not a button — a status pill or an actions menu can live
+ * in it — so the disc is the target. It carries `actionLabel` as its accessible
+ * name, since the arrow has no words of its own.
  *
- * The band is a <button> by default. Pass `actionAs` and `actionProps` to make
- * it a link — `actionAs={Link} actionProps={{ to }}` — or any other element.
- * The band carries `group`, so a trailing node can move on hover
- * (`group-hover:translate-x-1`).
- *
- * Usage (compact):
+ * Usage:
  *   <LayeredCard
- *     size="sm"
- *     icon={<Mail size={12} />}
- *     actionIcon={<RotateCw size={11} />}
- *     actionLabel="Resend"
- *     onAction={onResend}
- *   >
- *     Code sent to {email}
- *   </LayeredCard>
- *
- * Usage (content):
- *   <LayeredCard
- *     size="md"
- *     icon={<Database size={18} />}
- *     title="Backups"
- *     headerActions={<Pill>Ready</Pill>}
- *     actionLabel="Open"
- *     actionTrailing={<ArrowDisc />}
+ *     icon={<HardDrive size={18} />}
+ *     title="Family photos"
+ *     headerActions={<LayeredPill>Ready</LayeredPill>}
+ *     actionLabel="Open Family photos"
  *     actionAs={Link}
- *     actionProps={{ to: "/backups" }}
+ *     actionProps={{ to: "/files/d1" }}
  *   >
- *     <p>Last backup 2h ago</p>
+ *     <p>30 GB free</p>
  *   </LayeredCard>
  *
  * @param {{
@@ -56,18 +38,12 @@ import { haptic } from "../../utils/haptics.js";
  *   title?: React.ReactNode,
  *   headerActions?: React.ReactNode,
  *   children: React.ReactNode,
- *   actionLabel?: React.ReactNode,
- *   actionIcon?: React.ReactElement,
- *   actionTrailing?: React.ReactNode,
- *   onAction?: (event: React.MouseEvent) => void,
+ *   actionLabel?: string,
  *   actionAs?: React.ElementType,
  *   actionProps?: Record<string, any>,
+ *   onAction?: (event: React.MouseEvent) => void,
  *   actionDisabled?: boolean,
- *   actionAriaLabel?: string,
  *   actionRef?: React.Ref<HTMLElement>,
- *   mono?: boolean,
- *   size?: "sm" | "md",
- *   fullWidth?: boolean,
  *   className?: string,
  * }} props
  */
@@ -77,116 +53,74 @@ export default function LayeredCard({
   headerActions,
   children,
   actionLabel,
-  actionIcon,
-  actionTrailing,
-  onAction,
   actionAs,
   actionProps,
+  onAction,
   actionDisabled = false,
-  actionAriaLabel,
   actionRef,
-  mono = false,
-  size = "sm",
-  fullWidth = false,
   className,
 }) {
-  const compact = size !== "md";
   const chipIcon = icon
     ? cloneElement(icon, { className: cn("shrink-0", icon.props?.className) })
     : null;
-  const btnIcon = actionIcon
-    ? cloneElement(actionIcon, { className: cn("shrink-0", actionIcon.props?.className) })
-    : null;
 
-  const hasAction = actionLabel != null && actionLabel !== "";
   const As = actionAs || "button";
   const isButton = As === "button";
   const interactive = !isButton || Boolean(onAction);
-  const hasHeader = Boolean(title || chipIcon);
 
-  const bandClassName = cn(
-    "group flex w-full items-center justify-between gap-3",
-    compact ? "px-3 pt-1 pb-2 text-xs" : "min-h-14 px-6 py-2.5 text-base",
-    mono && "font-mono",
-    interactive && "cursor-pointer",
-    // The compact strip is a text action, so it underlines like one. A content
-    // card's band is a surface: its trailing affordance carries the hover.
-    compact && interactive && "enabled:hover:underline underline-offset-2",
+  const discClassName = cn(
+    "flex size-9 shrink-0 items-center justify-center rounded-pill surface-primary",
+    "motion-safe:transition-[transform,background-color,color,box-shadow] motion-safe:duration-200",
+    interactive &&
+      "cursor-pointer hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary hover:translate-x-0.5",
     actionDisabled && "opacity-50 pointer-events-none",
+    actionProps?.className,
   );
 
-  const bandContent = (
-    <>
-      <span className={cn("flex min-w-0 items-center gap-1.5", mono && "font-mono")}>
-        {btnIcon} {actionLabel}
-      </span>
-      {actionTrailing}
-    </>
-  );
-
-  let band = null;
-  if (hasAction) {
-    band = interactive ? (
-      <As
-        ref={actionRef}
-        {...(isButton ? { type: "button", disabled: actionDisabled } : {})}
-        aria-label={actionAriaLabel}
-        {...actionProps}
-        onClick={(event) => {
-          if (actionDisabled) {
-            event.preventDefault();
-            return;
-          }
-          haptic("medium");
-          actionProps?.onClick?.(event);
-          onAction?.(event);
-        }}
-        className={cn(bandClassName, actionProps?.className)}
-      >
-        {bandContent}
-      </As>
-    ) : (
-      <span className={bandClassName}>{bandContent}</span>
-    );
-  }
+  const disc = actionLabel ? (
+    <As
+      ref={actionRef}
+      {...(isButton ? { type: "button", disabled: actionDisabled } : {})}
+      aria-label={actionLabel}
+      {...actionProps}
+      onClick={(event) => {
+        if (actionDisabled) {
+          event.preventDefault();
+          return;
+        }
+        haptic("medium");
+        actionProps?.onClick?.(event);
+        onAction?.(event);
+      }}
+      className={discClassName}
+    >
+      <ArrowRight size={ICON_SIZE.md} aria-hidden="true" />
+    </As>
+  ) : null;
 
   return (
     <div
       className={cn(
-        "flex-col items-stretch rounded-large-element surface-secondary",
-        fullWidth ? "flex w-full" : "inline-flex max-w-full",
+        "flex w-full flex-col rounded-large-element surface-secondary",
         className,
       )}
     >
-      <div className={cn("flex-1", compact ? "p-1.5 pb-0.5" : "p-2")}>
-        {compact ? (
-          <div
-            className={cn(
-              "surface-primary flex items-center gap-1.5 rounded-pill px-3 py-2",
-              mono && "font-mono",
-            )}
-          >
-            {chipIcon} {children}
-          </div>
-        ) : (
-          <div className="surface-primary rounded-[calc(var(--radius-large-element)-0.5rem)]">
-            {hasHeader && (
-              <div className="flex items-center justify-between gap-3 border-b border-secondary/10 px-4 py-3">
-                <div className="flex min-w-0 items-center gap-2">
-                  {chipIcon}
-                  {/* surface-scan: ignore-next-line -- card title, mono is the heading face */}
-                  {title && <h2 className="truncate font-mono font-normal">{title}</h2>}
-                </div>
-                {headerActions && (
-                  <div className="flex shrink-0 items-center gap-2">{headerActions}</div>
-                )}
-              </div>
-            )}
-            <div className="p-5">{children}</div>
-          </div>
-        )}
+      <div className="flex min-h-16 items-center gap-3 px-5">
+        <div className="flex min-w-0 items-center gap-2.5">
+          {chipIcon}
+          {/* surface-scan: ignore-next-line -- card title, mono is the heading face */}
+          {title && <h2 className="truncate font-mono font-normal">{title}</h2>}
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {headerActions}
+          {disc}
+        </div>
       </div>
-      {band}
+      <div className="flex-1 px-2 pb-2">
+        <div className="surface-primary h-full rounded-[calc(var(--radius-large-element)-0.5rem)] p-5">
+          {children}
+        </div>
+      </div>
     </div>
   );
 }
@@ -196,20 +130,14 @@ LayeredCard.propTypes = {
   title: PropTypes.node,
   headerActions: PropTypes.node,
   children: PropTypes.node.isRequired,
-  actionLabel: PropTypes.node,
-  actionIcon: PropTypes.element,
-  actionTrailing: PropTypes.node,
-  onAction: PropTypes.func,
+  actionLabel: PropTypes.string,
   actionAs: PropTypes.elementType,
   actionProps: PropTypes.object,
+  onAction: PropTypes.func,
   actionDisabled: PropTypes.bool,
-  actionAriaLabel: PropTypes.string,
   actionRef: PropTypes.oneOfType([
     PropTypes.func,
     PropTypes.shape({ current: PropTypes.elementType }),
   ]),
-  mono: PropTypes.bool,
-  size: PropTypes.oneOf(["sm", "md"]),
-  fullWidth: PropTypes.bool,
   className: PropTypes.string,
 };
