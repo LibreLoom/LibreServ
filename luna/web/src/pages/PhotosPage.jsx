@@ -2691,11 +2691,13 @@ function AlbumsPanel({
                   )}
                 </div>
                 <div className="p-3">
-                  <p className="font-mono text-sm truncate">{album.name}</p>
-                  <p className="text-xs mt-1">
-                    {album.item_count} {album.item_count === 1 ? "item" : "items"}
-                    {!manage ? " · Shared with you" : ""}
-                  </p>
+                  <div className="flex items-baseline gap-2">
+                    <p className="min-w-0 flex-1 font-mono text-sm truncate">{album.name}</p>
+                    <p className="shrink-0 text-xs">
+                      {album.item_count} {album.item_count === 1 ? "item" : "items"}
+                    </p>
+                  </div>
+                  {!manage && <p className="text-xs mt-1">Shared with you</p>}
                 </div>
               </button>
               {manage ? (
