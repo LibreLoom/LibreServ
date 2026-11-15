@@ -14,13 +14,27 @@ object BackupPrefs {
      * encrypted at rest (Android Keystore-backed). If encryption is
      * unavailable we fail closed — never fall back to a plaintext file.
      */
-    private fun prefs(context: Context): SharedPreferences? = storeFactory(context)
+    private fun prefs(context: Context): SharedPreferences? {
+        cached?.let { return it }
+        return synchronized(this) {
+            // Opening the encrypted store loads a Keystore key and is slow, so
+            // do it once. The screens read settings every second.
+            cached ?: storeFactory(context.applicationContext)?.also { cached = it }
+        }
+    }
+
+    @Volatile
+    private var cached: SharedPreferences? = null
 
     /**
      * Where the values live. Production uses the encrypted store; unit tests
      * swap in a plain one (there is no Keystore on the JVM).
      */
     internal var storeFactory: (Context) -> SharedPreferences? = { encryptedPrefs(it) }
+        set(value) {
+            field = value
+            cached = null
+        }
 
     private fun encryptedPrefs(context: Context): SharedPreferences? {
         return try {

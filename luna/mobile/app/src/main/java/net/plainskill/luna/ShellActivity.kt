@@ -113,9 +113,12 @@ class ShellActivity : AppCompatActivity() {
             return
         }
         pendingPage = page
-        applyPendingPage()
         if (drawer.isDrawerOpen(GravityCompat.START)) {
+            // Switch pages once the drawer has finished closing (onDrawerClosed),
+            // so building the next page doesn't stutter the animation.
             drawer.closeDrawer(GravityCompat.START)
+        } else {
+            applyPendingPage()
         }
     }
 
