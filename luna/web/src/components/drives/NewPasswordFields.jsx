@@ -1,9 +1,8 @@
 import PropTypes from "prop-types";
 import FormInput from "../common/forms/FormInput.jsx";
-import PasswordStrengthChecklist from "@libreloom/ui/components/common/PasswordStrengthChecklist.jsx";
 
 /**
- * The new password, asked for twice, with the live checklist. Used wherever a
+ * The new password, asked for twice, . Used wherever a
  * drive's password is chosen: Protect, Change password, and the Add-drive
  * hand-off. The caller owns the values (they are never stored anywhere else)
  * and checks them with `newPasswordProblem` before going on.
@@ -31,9 +30,8 @@ export default function NewPasswordFields({ idPrefix, password, again, onPasswor
         value={password}
         onChange={(e) => onPassword(e.target.value)}
         surface={surface}
-        className="mb-1"
+        className="mb-4"
       />
-      <PasswordStrengthChecklist password={password} surface={surface} className="mb-4" />
       <FormInput
         label={`${label}, once more`}
         name={`${idPrefix}-again`}

@@ -529,13 +529,6 @@ async fn change_password(
             "Enter the current and the new password.",
         ));
     }
-    if let Err(e) = crate::password::validate_password(&body.new_password) {
-        return Err(json_error_code(
-            StatusCode::BAD_REQUEST,
-            "weak_password",
-            e.message(),
-        ));
-    }
     let first = row(&state, &id)?;
     ready(&state, &first)?;
     let device_guard = lock_idle_device(&state, &first.device).await?;
@@ -963,10 +956,9 @@ mod tests {
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         assert_eq!(got["code"], "wrong_password");
 
-        let weak = json!({"current_password": "correct-horse-1", "new_password": "short"});
-        let (status, got) = call(&h, "POST", &uri, Some(weak), &h.admin).await;
+        let empty = json!({"current_password": "correct-horse-1", "new_password": ""});
+        let (status, _) = call(&h, "POST", &uri, Some(empty), &h.admin).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(got["code"], "weak_password");
 
         let (status, _) = call(&h, "POST", &uri, Some(body), &h.admin).await;
         assert_eq!(status, StatusCode::OK);

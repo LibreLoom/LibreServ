@@ -99,8 +99,6 @@ post("/api/v1/drives/:id/password", ({ world, user, params, body }) => {
   if (!isAdmin(user)) throw fail(403, "Only an Admin can change this drive's password.");
   if (!String(body.current_password ?? "") || !String(body.new_password ?? "")) throw fail(400, "Enter the current and the new password.");
   const text = String(body.new_password);
-  if (text.length < 12) throw fail(400, "Passwords need at least 12 characters.", "weak_password");
-  if (!/[a-zA-Z]/.test(text) || !/[0-9]/.test(text)) throw fail(400, "Passwords need at least one letter and one number.", "weak_password");
   const d = driveOf(world, params.id);
   ready(world, d);
   checkNotLockedOut(world, user, d.id);

@@ -215,8 +215,7 @@ post("/api/v1/drive-format/start", ({ world, user, body }) => {
   const encrypted = body.password !== undefined && body.password !== null;
   if (encrypted) {
     const text = String(body.password);
-    if (text.length < 12) return fail(400, "Passwords need at least 12 characters.", "weak_password");
-    if (!/[a-zA-Z]/.test(text) || !/[0-9]/.test(text)) return fail(400, "Passwords need at least one letter and one number.", "weak_password");
+    if (!text) return fail(400, "Enter a password for this drive.", "weak_password");
   }
   const held = previews(world)[body.preview_id];
   if (!held) return fail(404, "Luna no longer has that preview. Look at the drive again.", "preview_not_found");

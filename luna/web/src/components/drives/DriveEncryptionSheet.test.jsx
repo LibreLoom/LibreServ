@@ -50,15 +50,13 @@ describe("DriveEncryptionSheet: a plain drive", () => {
     expect(screen.queryByRole("button", { name: /Erase drive/ })).toBeNull();
   });
 
-  it("asks for the password twice with the no-recovery warning, and refuses a weak or unmatched one", async () => {
+  it("asks for the password twice with the no-recovery warning, and refuses an empty or unmatched one", async () => {
     stub("not_encrypted");
     const { onProtect } = show(PLAIN);
     fireEvent.click(await screen.findByRole("button", { name: "Protect with a password" }));
     expect(screen.getByText(/no way to get this password back/)).toBeInTheDocument();
-    fill("Password", "short");
-    fill("Password, once more", "short");
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    expect(await screen.findByText(/at least 12 characters/)).toBeInTheDocument();
+    expect(await screen.findByText("Enter a password.")).toBeInTheDocument();
     fill("Password", GOOD);
     fill("Password, once more", "different-pass-3");
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));

@@ -19,11 +19,10 @@ describe("NewPasswordFields", () => {
     expect(screen.getByLabelText("Password, once more")).toBeInTheDocument();
   });
 
-  it("shows the strength chips once something is typed", () => {
+  it("shows no strength rules, whatever is typed", () => {
     onCard(<Harness />);
-    expect(screen.queryByText("12+ chars")).toBeNull();
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "abc" } });
-    expect(screen.getByText("12+ chars")).toBeInTheDocument();
+    expect(screen.queryByText("12+ chars")).toBeNull();
   });
 
   it("shows the caller's message under the second field", () => {

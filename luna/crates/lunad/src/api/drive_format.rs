@@ -156,12 +156,12 @@ async fn start(
     }
     let password = body.password.map(Zeroizing::new);
     if let Some(password) = &password
-        && let Err(e) = crate::password::validate_password(password)
+        && password.is_empty()
     {
         return Err(json_error_code(
             StatusCode::BAD_REQUEST,
             "weak_password",
-            e.message(),
+            "Enter a password for this drive.",
         ));
     }
     let encrypted = password.is_some();
@@ -520,7 +520,7 @@ mod tests {
         for (body, code) in [
             (json!({"preview_id": p.id, "label": "  "}), None),
             (
-                json!({"preview_id": p.id, "label": "A", "password": "short"}),
+                json!({"preview_id": p.id, "label": "A", "password": ""}),
                 Some("weak_password"),
             ),
         ] {
