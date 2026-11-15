@@ -144,7 +144,7 @@ Superseded by `luna/docs/recovery-phrase/plan.md` §4. Two independent questions
 
 ### What Connect sees
 Account, device, pack ids and sizes, upload times, how many sealed copies of each backup key exist. Private packs carry an opaque scope id per owner per phrase, not the owner's public key. The Admin session API returns only the account total and a combined private status; listing or downloading a private scope needs an auth-key signature (signed in or by share link). Never names, folder layout, contents, or per-person private sizes.
-- **Unbinding** (factory reset, removing the device token) starts the 30-day purge; binding again to the same account within 30 days reattaches the backups. Factory reset removes the drive markers and with them the drive copies of the signing key; its copy says cloud backups stay downloadable from Connect only.
+- **Unbinding** (factory reset, removing the device token) stops public access and uploads but keeps paid cloud copies while payment is on; binding again to the same account reattaches the backups. Factory reset removes the drive markers and with them the drive copies of the signing key; its copy says cloud backups stay downloadable from Connect only.
 
 ## 6. Connect web UI (the only place to download cloud backups)
 - **Sign in: Admin only** (the household Connect account). Members never sign in to Connect.
@@ -157,7 +157,7 @@ Account, device, pack ids and sizes, upload times, how many sealed copies of eac
   - Expires after 7 days; the Admin can revoke it any time; Connect lists active links and when each was last opened.
   - The link alone opens nothing: it reaches encrypted data, and the phrase is still required. The phrase opens only what its own key has copies for, within the link's scope.
   - Against phishing: the link page shows the Luna's name and who sent it, and phrase prompts everywhere say "Only type your recovery phrase on <Connect domain>." Honest limit: Connect serves the page that reads the phrase, so "not us" depends on that page doing what it says. The code is open and the page is built reproducibly.
-- Removes: today's `backup_objects` / `backup_bindings` path model, `BackupBrowser.jsx`, `backupTree.js`. The 30-day purge after unbinding becomes part of the retention policy.
+- Removes: today's `backup_objects` / `backup_bindings` path model, `BackupBrowser.jsx`, `backupTree.js`. Unlinking no longer starts a 30-day purge: paid cloud copies stay while payment is on.
 
 ## 7. Private items, Admin side
 - **Cloud:** Admins can't open private backups, by design. They see the Private items row and a combined status ("All backed up" / "1 problem") so they can fix the cause (full drive, subscription), while details go to the owner.

@@ -86,10 +86,10 @@ a failed cut on the same commit.
   `flash-disk.sh` stream `xz -dc` onto both slots and write `os-image.sha256`.
 - **OS image:** `mkfs.ext4 -d` into a plain file; the rootfs lives in a podman
   volume so ownership stays correct. `.img.xz` is compressed once. The image is
-  the whole system — lunad, luna-console, cloudflared and the editor packs are
-  all inside it — so every luna release builds and ships it, plus the installer.
-  Nothing is reused from an earlier version: that reuse is how 0.0.4 published a
-  package holding only a daemon binary.
+  the whole system — lunad, luna-console, cloudflared, the editor packs and the
+  search models are all inside it — so every luna release builds and ships it,
+  plus the installer. Nothing is reused from an earlier version: that reuse is
+  how 0.0.4 published a package holding only a daemon binary.
 - **Flatpak:** flatpak-builder's bubblewrap needs nested user namespaces. Run
   with `--security-opt seccomp=unconfined --security-opt label=disable
   --security-opt unmask=ALL`, plus `--cap-add SYS_ADMIN --cap-add NET_ADMIN` for

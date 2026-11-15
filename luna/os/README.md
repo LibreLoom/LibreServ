@@ -91,9 +91,10 @@ in one podman container; nothing is installed on the host and nothing needs root
 ```
 
 It needs a current ISO and slot image. Everything the system runs — lunad,
-luna-console, cloudflared, the editor packs — is inside the slot image, so after
-changing any of it rebuild with `LUNA_OS_FORCE=1 ./os/make-image.sh` (the install
-stage fails loudly if the lunad inside the image is not the one just built).
+luna-console, cloudflared, the editor packs and the search models — is inside
+the slot image, so after changing any of it rebuild with
+`LUNA_OS_FORCE=1 ./os/make-image.sh` (the install stage fails loudly if the
+lunad inside the image is not the one just built).
 Work files and logs go to `os/dist/e2e/` (several GiB, sparse); the guest's serial
 log is `<name>.serial.log`. For the checks only, the harness gives the installed
 disk a serial console and a root shell on it and points Connect at the mock in
@@ -150,7 +151,7 @@ lists the files in the Forgejo generic package registry; Luna checks each one's
 size and sha256 before use. A missing feed means nothing is published yet.
 
 - `os` — `luna-os-x86_64.img.xz`, the whole system: lunad, luna-console,
-  cloudflared and the editor packs are all inside it
+  cloudflared, the editor packs and the search models are all inside it
 - `installer` — `luna-rapidinstall-x86_64.iso.xz`, the factory ISO
 
 Every release ships both. Nothing is reused from an earlier version, because
