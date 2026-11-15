@@ -529,6 +529,10 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
   // for anything else under it is refused.
   const segments = linkSegments(query.path);
   if (!segments) return fail(400, "That folder isn't part of this shared link.");
+  // `public_list` goes through `confined_read` too, so a folder whose drive is
+  // gone stops listing rather than looking empty to the guest.
+  const goneFolder = unavailableShare(world, r.s, "The shared folder isn't available right now.");
+  if (goneFolder) return goneFolder;
   if (r.s.is_file) {
     if (segments.length) return fail(404, "Not found.");
     return listing([{ name: r.s.name, kind: "file", size: 120_000, modified: nowSec() - 86400, hidden: false }]);
@@ -561,6 +565,27 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
  * @param {string} rel share-relative path ("" for a single-file share)
  * @param {string} name the filename to offer
  */
+/**
+ * `confined_read` resolves the link root through `files::resolve_any_including_trash`
+ * first, so a drive that is gone fails the read before the entry is looked at.
+ * Every public route that streams bytes or lists a folder has to say so in the
+ * same words lunad uses, or the page tells the guest the folder was empty.
+ *
+ * @param {any} world
+ * @param {any} s     the link's subject
+ * @param {string} msg the caller's not-available wording
+ * @returns {any | null} the refusal, or null when the drive is fine
+ */
+function unavailableShare(world, s, msg) {
+  if (s.kind !== "path") return null;
+  try {
+    needDrive(world, s.drive_id || "d1");
+    return null;
+  } catch {
+    return fail(404, msg);
+  }
+}
+
 function serveSharedFile(world, r, rel, name) {
   const drive = r.s.drive_id || "d1";
   const full = [r.s.path, rel].filter(Boolean).join("/").replace(/^\/+|\/+$/g, "");
@@ -597,17 +622,15 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
   if (r.s.kind !== "path") return fail(404, "Not found.");
   const segments = linkSegments(query.path);
   if (!segments) return fail(400, "That folder isn't part of this shared link.");
+  // `public_zip` resolves the target through `confined_read` before it asks
+  // whether the target is a directory, so a dead drive is refused for a
+  // single-file link too — and its `link_reaches` runs inside that same read.
+  const goneFiles = unavailableShare(world, r.s, "The shared files aren't available right now.");
+  if (goneFiles) return goneFiles;
   if (r.s.is_file) {
     if (segments.length) return fail(400, "That file isn't part of this shared link.");
+    if (!linkReaches(world, r.l, "", r.s.drive_id, r.s.path)) return fail(404, "Not found.");
     return serveSharedFile(world, r, "", r.s.name || "download");
-  }
-  // `public_zip` resolves the entry through `confined_read`, which fails on a
-  // drive it cannot reach, so a wiped or ejected drive zips nothing. Serving
-  // an empty zip here would tell the guest the folder was empty instead.
-  try {
-    needDrive(world, r.s.drive_id || "d1");
-  } catch {
-    return fail(404, "The shared files aren't available right now.");
   }
   const tree = treeOf(world, params.token, r.s);
   // A folder is the normal thing to zip, so walk the tree for any entry rather
@@ -679,11 +702,14 @@ publicGet("/s/:token/file", ({ world, params, query, headers }) => {
   // link pointing straight at a private file is the easiest one to leak.
   if (!linkReaches(world, r.l, rel, r.s.drive_id, r.s.path)) return fail(404, "Not found.");
   // An ejected drive serves nothing, exactly as it serves nothing over REST.
-  try {
-    needDrive(world, r.s.drive_id || "d1");
-  } catch {
-    return fail(404, "Not found.");
-  }
+  // `public_file` passes its own wording to `confined_read`, and a folder
+  // share says "files" where a single file says "file".
+  const goneFile = unavailableShare(
+    world,
+    r.s,
+    r.s.is_file ? "The shared file isn't available right now." : "The shared files aren't available right now.",
+  );
+  if (goneFile) return goneFile;
   // Serve recognisable bytes for the kind, the same ones the drive's own
   // content route hands out, so a shared image or PDF actually previews.
   const nodeFor = (full) => {
