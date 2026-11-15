@@ -1,6 +1,6 @@
 # Luna Mobile (Android)
 
-Photo backup for Luna. Sign in with an **access token** (paste, or scan the
+Photo and video backup for Luna. Sign in with an **access token** (paste, or scan the
 QR code from Luna → Settings → Security). Photos then back up
 in the background through Luna's resumable chunked upload API.
 
@@ -13,12 +13,19 @@ Create an access token in Luna (browser) → Settings → Security.
 Paste it into the phone app, or tap **Show as QR code** on Luna and **Scan QR
 code** on the phone. That fills the Luna address and the token.
 
+## Photos, videos, and locations
+
+Backups copy each photo and video exactly as it is on the phone, including
+where it was taken. That needs the photo-location permission (it comes with the
+photos-and-videos prompt); without it Android blanks the GPS location inside
+each photo it hands over.
+
 ## Background backup
 
 Android's battery saver pauses apps. That stops photo backup. After sign-in,
 Luna asks Android to leave this app **Unrestricted** (Don't optimize). If that
-prompt is dismissed, open Backup or Settings and tap **Allow background
-backup**.
+prompt is dismissed, open **Photo upload** and tap **Allow** next to
+**Background upload**.
 
 The backup worker also runs as a short **foreground data-sync** job while
 photos are uploading, so Android does not kill the transfer.

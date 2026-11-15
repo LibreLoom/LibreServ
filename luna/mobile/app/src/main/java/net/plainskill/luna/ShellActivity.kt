@@ -3,6 +3,8 @@ package net.plainskill.luna
 import android.content.Intent
 import android.os.Bundle
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GravityCompat
 import androidx.drawerlayout.widget.DrawerLayout
@@ -13,12 +15,13 @@ class ShellActivity : AppCompatActivity() {
 
     private lateinit var drawer: DrawerLayout
     private lateinit var toolbar: MaterialToolbar
-    private lateinit var navStatus: TextView
     private lateinit var navBackup: TextView
     private lateinit var navSettings: TextView
     private lateinit var usernameLabel: TextView
 
-    private var currentPage = PAGE_STATUS
+    private val requestMedia = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+
+    private var currentPage = PAGE_BACKUP
     private var pendingPage: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,7 +41,6 @@ class ShellActivity : AppCompatActivity() {
 
         drawer = findViewById(R.id.drawer)
         toolbar = findViewById(R.id.toolbar)
-        navStatus = findViewById(R.id.navStatus)
         navBackup = findViewById(R.id.navBackup)
         navSettings = findViewById(R.id.navSettings)
         usernameLabel = findViewById(R.id.usernameLabel)
@@ -46,7 +48,6 @@ class ShellActivity : AppCompatActivity() {
         toolbar.setNavigationOnClickListener { drawer.openDrawer(GravityCompat.START) }
         usernameLabel.text = BackupPrefs.username(this) ?: ""
 
-        navStatus.setOnClickListener { requestPage(PAGE_STATUS) }
         navBackup.setOnClickListener { requestPage(PAGE_BACKUP) }
         navSettings.setOnClickListener { requestPage(PAGE_SETTINGS) }
         findViewById<TextView>(R.id.signOutButton).setOnClickListener { signOut() }
@@ -57,7 +58,7 @@ class ShellActivity : AppCompatActivity() {
             }
         })
 
-        currentPage = savedInstanceState?.getString(STATE_PAGE) ?: PAGE_STATUS
+        currentPage = savedInstanceState?.getString(STATE_PAGE)?.takeIf { it in PAGES } ?: PAGE_BACKUP
         if (savedInstanceState == null) {
             showPage(currentPage)
         }
@@ -81,7 +82,27 @@ class ShellActivity : AppCompatActivity() {
         if (!BackupPrefs.setupComplete(this)) {
             startActivity(Intent(this, SetupActivity::class.java))
             finish()
+            return
         }
+        askForMissingMedia()
+    }
+
+    /**
+     * People who set up before videos and photo locations were backed up never
+     * saw those prompts. Ask once, with a reason first.
+     */
+    private fun askForMissingMedia() {
+        if (BackupPrefs.askedMediaExtras(this)) return
+        val missing = BackupConfig.missingMediaPermissions(this)
+        // Without photo access the worker already tells the person what to do.
+        if (missing.isEmpty() || !BackupConfig.hasPhotoAccess(this)) return
+        BackupPrefs.setAskedMediaExtras(this, true)
+        AlertDialog.Builder(this)
+            .setTitle(R.string.location_prompt_title)
+            .setMessage(R.string.location_prompt_body)
+            .setPositiveButton(R.string.location_prompt_ok) { _, _ -> requestMedia.launch(missing.toTypedArray()) }
+            .setNegativeButton(R.string.location_prompt_later, null)
+            .show()
     }
 
     private fun requestPage(page: String) {
@@ -127,20 +148,17 @@ class ShellActivity : AppCompatActivity() {
     }
 
     private fun createPage(page: String): Fragment = when (page) {
-        PAGE_BACKUP -> BackupFragment()
         PAGE_SETTINGS -> SettingsFragment()
         else -> StatusFragment()
     }
 
     private fun titleFor(page: String): String = when (page) {
-        PAGE_BACKUP -> getString(R.string.nav_backup)
         PAGE_SETTINGS -> getString(R.string.nav_settings)
-        else -> getString(R.string.nav_status)
+        else -> getString(R.string.nav_backup)
     }
 
     private fun highlight(page: String) {
         val items = listOf(
-            PAGE_STATUS to navStatus,
             PAGE_BACKUP to navBackup,
             PAGE_SETTINGS to navSettings,
         )
@@ -157,10 +175,9 @@ class ShellActivity : AppCompatActivity() {
     }
 
     companion object {
-        const val PAGE_STATUS = "status"
         const val PAGE_BACKUP = "backup"
         const val PAGE_SETTINGS = "settings"
         private const val STATE_PAGE = "page"
-        private val PAGES = listOf(PAGE_STATUS, PAGE_BACKUP, PAGE_SETTINGS)
+        private val PAGES = listOf(PAGE_BACKUP, PAGE_SETTINGS)
     }
 }

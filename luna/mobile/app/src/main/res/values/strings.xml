@@ -8,36 +8,71 @@
     <string name="scan_qr">Scan QR code</string>
     <string name="sign_in">Sign in</string>
     <string name="sign_out">Sign out</string>
-    <string name="nav_status">Status</string>
+
+    <!-- Navigation -->
     <string name="nav_backup">Photo upload</string>
     <string name="nav_settings">Settings</string>
-    <string name="backup_blurb">Photos upload to Luna automatically when your Wi-Fi and charging settings allow. Tap Upload now to upload without waiting.</string>
+
+    <!-- Photo upload page -->
     <string name="backup_automatically">Upload automatically</string>
     <string name="backup_now">Upload now</string>
-    <string name="allow_background">Allow background upload</string>
+    <string name="last_upload_label">Last upload</string>
+    <string name="last_upload_none">None yet</string>
+    <string name="background_label">Background upload</string>
+    <string name="background_allowed">Allowed</string>
+    <string name="background_allow">Allow</string>
+    <string name="status_idle_hint">Tap Upload now to look for new photos and videos.</string>
+    <string name="status_paused_hint">Upload is paused. Turn on Upload automatically to resume.</string>
+
+    <!-- Settings page -->
     <string name="when_to_backup">When to upload</string>
-    <string name="require_wifi">Unmetered Wi-Fi only</string>
-    <string name="require_wifi_help">On: wait for Wi-Fi that does not use mobile data. Off: use any network, including mobile data. Upload now does not wait.</string>
+    <string name="require_wifi">Wi-Fi only</string>
+    <string name="require_wifi_help">Wait for Wi-Fi so mobile data isn\'t used.</string>
     <string name="require_charging">Only while charging</string>
-    <string name="require_charging_help">On: wait until this phone is plugged in. Off: upload on battery too. Upload now does not wait.</string>
+    <string name="require_charging_help">Wait until this phone is plugged in.</string>
+    <string name="upload_now_ignores">Upload now ignores these two settings.</string>
     <string name="where_to_save">Where to save</string>
     <string name="drive_label">Drive</string>
-    <string name="folder_help">Photos go into the folder you pick, then year and month (for example Photos/2026/08).</string>
-    <string name="background_heading">Background</string>
-    <string name="setup_drive_title">What drive do you want to store your photos on?</string>
-    <string name="setup_drive_help">Pick the drive on Luna for your photos. You choose the folder on the next screen.</string>
-    <string name="setup_folder_title">Select the folder to store your photos in:</string>
-    <string name="setup_perm_title">Luna asks for these permissions:</string>
-    <string name="perm_photos_title">Photos</string>
-    <string name="perm_photos_body">Luna copies all photos on this phone to the folder you chose, when your Wi-Fi and charging settings allow. On Android 12 and older, it copies videos too.</string>
-    <string name="perm_notify_title">Notifications</string>
-    <string name="perm_notify_body">Luna shows a quiet notice while it uploads, and an alert when upload stops (for example, when the access token expired). Android 12 and older does not ask for this.</string>
-    <string name="perm_battery_title">Background (Unrestricted)</string>
-    <string name="perm_battery_body">Android can pause Luna in the background, so uploads can wait until you open the app. The next screen asks you to let Luna run in the background, and you can skip it.</string>
-    <string name="perm_grant_help">Tap Grant. This phone asks for photos (required), then notifications and background access (optional).</string>
-    <string name="grant">Grant</string>
-    <string name="continue_label">Continue</string>
+    <string name="folder_label">Folder</string>
+    <string name="drive_root">Drive root</string>
+    <string name="folder_help">Items go into year and month folders, like 2026/08.</string>
     <string name="choose_folder">Choose drive and folder</string>
+
+    <!-- Setup: drive -->
+    <string name="setup_drive_title">Choose a drive</string>
+    <string name="setup_drive_help">Pick the drive on Luna for your photos and videos. You choose the folder next.</string>
+    <string name="tap_a_drive">Select a drive, then tap Continue.</string>
+    <string name="pick_a_drive_first">Select a drive first, then tap Continue.</string>
+    <string name="check_again">Check again</string>
+    <string name="continue_label">Continue</string>
+    <string name="no_drives">No drives found on Luna. Make sure the drive is plugged in, or ask an Admin for access to a drive.</string>
+    <string name="loading_drives">Loading drives from Luna…</string>
+
+    <!-- Setup: permissions -->
+    <string name="setup_perm_title">Allow on this phone</string>
+    <string name="perm_required">Required</string>
+    <string name="perm_optional">Optional</string>
+    <string name="perm_photos_title">Photos and videos</string>
+    <string name="perm_photos_body">Luna copies them to the folder you chose.</string>
+    <string name="perm_location_title">Photo locations</string>
+    <string name="perm_location_body">Keeps where each photo was taken.</string>
+    <string name="perm_notify_title">Notifications</string>
+    <string name="perm_notify_body">Tells you if an upload stops.</string>
+    <string name="perm_battery_title">Background use</string>
+    <string name="perm_battery_body">Lets uploads continue when the app is closed.</string>
+    <string name="perm_continue">Allow access</string>
+    <string name="asking_permissions">This phone is asking for access…</string>
+    <string name="asking_battery">On the next screen, let Luna run in the background. Then come back to Luna.</string>
+    <string name="checking_folder">Checking that Luna can save photos here…</string>
+
+    <!-- Location prompt for people who set up before it existed -->
+    <string name="location_prompt_title">Keep photo locations</string>
+    <string name="location_prompt_body">Without this permission, uploaded photos and videos lose the place they were taken. Allow it on the next screen.</string>
+    <string name="location_prompt_ok">Continue</string>
+    <string name="location_prompt_later">Not now</string>
+
+    <!-- Folder picker -->
+    <string name="setup_folder_title">Choose a folder</string>
     <string name="use_this_folder">Use this folder</string>
     <string name="new_folder">New folder</string>
     <string name="new_folder_help">Type only the folder name. You cannot type a path.</string>
@@ -47,22 +82,11 @@
     <string name="create">Create</string>
     <string name="cancel">Cancel</string>
     <string name="up_one_folder">Up one folder</string>
-    <string name="drive_root">Drive root</string>
     <string name="folder_path_fmt">%1$s · %2$s</string>
-    <string name="loading_drives">Loading drives from Luna…</string>
     <string name="loading_folders">Loading folders…</string>
     <string name="creating_folder">Creating folder…</string>
-    <string name="checking_folder">Checking that Luna can save photos here…</string>
-    <string name="asking_permissions">This phone is asking for access…</string>
-    <string name="asking_battery">On the next screen, let Luna run in the background. Then come back to Luna.</string>
-    <string name="no_drives">No drives found on Luna. Make sure the drive is plugged in, or ask an Admin for access to a drive.</string>
-    <string name="tap_a_drive">Select a drive, then tap Continue.</string>
     <string name="open_folder_mark">›</string>
     <string name="tap_a_folder">Tap a folder to open it, or tap Use this folder to choose the folder you are in.</string>
     <string name="folder_empty">No folders here. You can still use this folder, or create a new one.</string>
-    <string name="pick_a_drive_first">Select a drive first, then tap Continue.</string>
     <string name="sign_in_again">You are not signed in. Tap Sign out, then sign in with an access token from Luna → Settings → Security.</string>
-    <string name="status_blurb">This page shows photo uploads from this phone to Luna.</string>
-    <string name="status_up_to_date">No upload is running.</string>
-    <string name="status_nothing_waiting">Tap Upload now to look for new photos.</string>
 </resources>

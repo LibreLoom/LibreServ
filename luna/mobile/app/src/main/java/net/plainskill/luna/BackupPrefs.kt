@@ -56,6 +56,11 @@ object BackupPrefs {
         prefs(context)?.getBoolean("backup_enabled", true) ?: true
     fun askedBattery(context: Context): Boolean =
         prefs(context)?.getBoolean("asked_battery", false) ?: false
+    fun askedMediaExtras(context: Context): Boolean =
+        prefs(context)?.getBoolean("asked_media_extras", false) ?: false
+    fun setAskedMediaExtras(context: Context, asked: Boolean) {
+        prefs(context)?.edit()?.putBoolean("asked_media_extras", asked)?.apply()
+    }
     fun lastBackupAt(context: Context): Long = prefs(context)?.getLong("last_upload_completed_at", 0L) ?: 0L
 
     fun signedIn(context: Context): Boolean = !token(context).isNullOrBlank()

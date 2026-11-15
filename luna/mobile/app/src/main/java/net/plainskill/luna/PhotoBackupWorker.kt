@@ -39,9 +39,9 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
             return Result.failure()
         }
         val notifier = BackupNotifications(context)
-        BackupProgress.set(true, "Copying photos to Luna", "Checking for new photos")
+        BackupProgress.set(true, "Copying photos and videos to Luna", "Checking for new photos and videos")
         try {
-            setForeground(foregroundInfo("Checking for new photos…"))
+            setForeground(foregroundInfo("Checking for new photos and videos…"))
         } catch (_: Exception) {
             // Notification permission denied — still try the backup.
         }
@@ -59,7 +59,7 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
             suspend fun backupUri(collection: Uri, projection: Array<String>, selection: String, args: Array<String>, sort: String): Result? {
                 val media = context.contentResolver.query(collection, projection, selection, args, sort)
                     // IllegalStateException, not IOException: describeError would call it a network failure.
-                    ?: throw IllegalStateException("This phone couldn't list your photos. Try again.")
+                    ?: throw IllegalStateException("This phone couldn't list your photos and videos. Try again.")
                 media.use { cursor ->
                     val cols = MediaCol(
                         cursor.getColumnIndexOrThrow(projection[0]),
@@ -85,7 +85,7 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
                             remaining--
                             continue
                         }
-                        BackupProgress.set(true, "Copying photos to Luna", name)
+                        BackupProgress.set(true, "Copying photos and videos to Luna", name)
                         if (remaining > 0) {
                             try {
                                 setForeground(foregroundInfo(progressText(remaining)))
@@ -93,8 +93,7 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
                                 notifier.showProgress(remaining)
                             }
                         }
-                        val source = context.contentResolver.openInputStream(uri)
-                            ?: throw IllegalStateException("This phone couldn't open a photo to upload. Try again.")
+                        val source = openMedia(context, uri)
                         source.use { stream ->
                             val month = java.text.SimpleDateFormat("yyyy/MM", java.util.Locale.US)
                                 .format(java.util.Date(date * 1000))
@@ -179,9 +178,34 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
         }
     }
 
+    /**
+     * Opens the photo as it is on disk. Without `setRequireOriginal` Android
+     * zeroes the GPS location inside the file, so the backup would lose it.
+     */
+    private fun openMedia(context: Context, uri: Uri): java.io.InputStream {
+        val original = if (BackupConfig.canReadOriginals(context)) {
+            try {
+                MediaStore.setRequireOriginal(uri)
+            } catch (_: Exception) {
+                null
+            }
+        } else {
+            null
+        }
+        if (original != null) {
+            try {
+                context.contentResolver.openInputStream(original)?.let { return it }
+            } catch (_: SecurityException) {
+                // Location access was taken away; the plain copy still uploads.
+            } catch (_: UnsupportedOperationException) {
+            }
+        }
+        return context.contentResolver.openInputStream(uri)
+            ?: throw IllegalStateException("This phone couldn't open a photo or video to upload. Try again.")
+    }
+
     private fun sourceDigest(context: Context, uri: Uri, digest: java.security.MessageDigest) {
-        val source = context.contentResolver.openInputStream(uri)
-            ?: throw IllegalStateException("This phone couldn't open a photo to upload. Try again.")
+        val source = openMedia(context, uri)
         source.use { input ->
             val buffer = ByteArray(64 * 1024)
             while (true) {
@@ -199,7 +223,7 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
     private fun foregroundInfo(text: String): ForegroundInfo {
         val note = NotificationCompat.Builder(applicationContext, BackupNotifications.PROGRESS_CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentTitle("Uploading photos")
+            .setContentTitle("Uploading photos and videos")
             .setContentText(text)
             .setProgress(0, 0, true)
             .setOngoing(true)

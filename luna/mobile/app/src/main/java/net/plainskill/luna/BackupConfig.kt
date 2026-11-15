@@ -32,16 +32,37 @@ object BackupConfig {
         }
     }
 
-    fun photosNeeded(): Array<String> {
-        return if (Build.VERSION.SDK_INT >= 33) {
-            arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.POST_NOTIFICATIONS)
+    /** Photos, videos, and the location Android hides from them, asked together. */
+    fun mediaPermissions(): Array<String> {
+        val list = ArrayList<String>()
+        if (Build.VERSION.SDK_INT >= 33) {
+            list += Manifest.permission.READ_MEDIA_IMAGES
+            list += Manifest.permission.READ_MEDIA_VIDEO
         } else {
-            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+            list += Manifest.permission.READ_EXTERNAL_STORAGE
         }
+        if (Build.VERSION.SDK_INT >= 29) list += Manifest.permission.ACCESS_MEDIA_LOCATION
+        return list.toTypedArray()
     }
 
+    /** Notifications only need asking on Android 13 and newer. */
+    fun notificationPermissions(): Array<String> =
+        if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.POST_NOTIFICATIONS) else emptyArray()
+
+    /** True when photos keep their GPS location when Luna reads them. */
+    fun canReadOriginals(context: Context): Boolean =
+        Build.VERSION.SDK_INT >= 29 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_MEDIA_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+
+    /** Media permissions this phone still lacks (videos and location can be missing after an update). */
+    fun missingMediaPermissions(context: Context): List<String> =
+        mediaPermissions().filter {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+
     fun photosDeniedMessage(): String =
-        "Luna needs access to the photos on this phone. " +
+        "Luna needs access to the photos and videos on this phone. " +
             "Allow it in this phone's Settings → Apps → Luna → Permissions."
 
     fun testSaved(context: Context): Result {

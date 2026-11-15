@@ -18,8 +18,7 @@
             android:fontFamily="monospace"
             android:text="@string/app_name"
             android:textColor="@color/luna_ink"
-            android:textSize="32sp"
-            android:textStyle="bold" />
+            android:textSize="32sp" />
 
         <TextView
             android:layout_width="match_parent"
