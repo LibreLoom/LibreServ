@@ -126,9 +126,17 @@ export default function LayeredPill({
               aria-label={actionAriaLabel}
               className={cn(
                 segmentBase,
-                // An icon alone has no edge of its own, so it keeps a 1px outline.
-                actionIconOnly && "ring-1 ring-inset ring-current",
-                "cursor-pointer enabled:hover:ring-1 enabled:hover:ring-inset enabled:hover:ring-accent enabled:hover:underline underline-offset-2 motion-safe:transition-shadow disabled:opacity-50 disabled:cursor-not-allowed",
+                "cursor-pointer motion-safe:transition-[background-color,color,box-shadow] disabled:opacity-50 disabled:cursor-not-allowed",
+                actionIconOnly
+                  ? // An icon alone has no edge of its own, so it keeps a 1px outline,
+                    // and fills with the chip's color on hover (dots invert with it).
+                    cn(
+                      "ring-1 ring-inset ring-current",
+                      onPage
+                        ? "enabled:hover:bg-primary enabled:hover:text-secondary"
+                        : "enabled:hover:bg-secondary enabled:hover:text-primary",
+                    )
+                  : "enabled:hover:ring-1 enabled:hover:ring-inset enabled:hover:ring-accent enabled:hover:underline underline-offset-2",
               )}
             >
               {btnIcon} {actionLabel}
