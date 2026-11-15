@@ -512,7 +512,6 @@
       "home_drive_id": "string",
       "id": "string",
       "item_count": "number",
-      "locked": "boolean",
       "name": "string"
     }
   ],
@@ -525,7 +524,6 @@
     "home_drive_id": "string",
     "id": "string",
     "item_count": "number",
-    "locked": "boolean",
     "name": "string",
     "owner_user_id?": "string"
   },
@@ -732,7 +730,6 @@
       "whiteboard": {
         "category": "string",
         "message": "string",
-        "more?": "string",
         "status": "string"
       }
     },
@@ -905,9 +902,6 @@
     "has_password": "boolean",
     "id": "string",
     "url": "string"
-  },
-  "PATCH /api/v1/photos/albums/{home}/{id}": {
-    "ok": "boolean"
   },
   "PATCH /api/v1/users/{id}": {
     "display_name": "string",
@@ -1089,7 +1083,6 @@
     "home_drive_id": "string",
     "id": "string",
     "item_count": "number",
-    "locked": "boolean",
     "name": "string",
     "owner_user_id": "string"
   },
