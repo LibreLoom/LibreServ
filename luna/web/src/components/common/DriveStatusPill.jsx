@@ -21,9 +21,10 @@ const READ_ONLY_HINT =
  * @param {{
  *   drive: { state: string, mounted?: boolean, encrypted?: boolean, locked?: boolean } | null,
  *   health?: import("../../lib/driveHealth.js").DriveHealthReport | null,
+ *   surface?: "primary" | "secondary",
  * }} props
  */
-export default function DriveStatusPill({ drive, health }) {
+export default function DriveStatusPill({ drive, health, surface = "secondary" }) {
   if (!drive) return null;
   if (drive.state === "missing") return <Pill variant="warning">Unplugged</Pill>;
   if (drive.state === "ejected") return <Pill variant="info">Ejected</Pill>;
@@ -31,7 +32,7 @@ export default function DriveStatusPill({ drive, health }) {
     return (
       <Pill variant="info">
         <Lock size={ICON_SIZE.xs} aria-hidden="true" />
-        <TermHint content="This drive is protected with a password. Its files open once someone enters it.">Locked</TermHint>
+        <TermHint content="This drive is protected with a password. Its files open once someone enters it." surface={surface}>Locked</TermHint>
       </Pill>
     );
   }
@@ -45,7 +46,7 @@ export default function DriveStatusPill({ drive, health }) {
   if (drive.state === "readonly") {
     return (
       <Pill variant="warning">
-        <TermHint content={READ_ONLY_HINT}>Read only</TermHint>
+        <TermHint content={READ_ONLY_HINT} surface={surface}>Read only</TermHint>
       </Pill>
     );
   }
@@ -61,4 +62,5 @@ DriveStatusPill.propTypes = {
     locked: PropTypes.bool,
   }),
   health: PropTypes.object,
+  surface: PropTypes.oneOf(["primary", "secondary"]),
 };

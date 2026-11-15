@@ -22,10 +22,12 @@ import InspectModal from "../components/files/InspectModal.jsx";
 import FormatDriveFlow from "../components/drives/FormatDriveFlow.jsx";
 import DriveEncryptionSheet from "../components/drives/DriveEncryptionSheet.jsx";
 import UnlockPrompt from "../components/drives/UnlockPrompt.jsx";
+import DriveCard from "../components/drives/DriveCard.jsx";
 import useCanProtect from "../hooks/useCanProtect";
 import { FileSearchButton } from "../components/files/FileSearch";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
@@ -143,24 +145,24 @@ function DriveStorageBar({ summary }) {
       <div data-slot="drive-storage-bar">
         <div className="flex items-center gap-2 mb-1">
           <span
-            className="inline-block h-2 w-2 rounded-full surface-primary shrink-0"
+            className="inline-block h-2 w-2 rounded-full surface-secondary shrink-0"
             aria-hidden="true"
           />
           <span className="text-xs font-mono">
-            <TermHint content="How much room is left for new files on this drive.">
+            <TermHint content="How much room is left for new files on this drive." surface="primary">
               Available storage
             </TermHint>
           </span>
         </div>
-        <div className="text-2xl font-mono font-normal leading-tight text-primary">
+        <div className="text-2xl font-mono font-normal leading-tight">
           {freeLabel} free
         </div>
-        <p className="text-primary text-sm mt-1">
+        <p className="text-sm mt-1">
           {usedLabel ? `${usedLabel} used · ` : ""}
           {totalLabel} total
         </p>
         <div
-          className="mt-3 h-2 rounded-pill surface-primary p-0.5 overflow-hidden"
+          className="mt-3 h-2 rounded-pill surface-primary border border-secondary/30 overflow-hidden"
           role="progressbar"
           aria-valuenow={usedPct}
           aria-valuemin={0}
@@ -177,17 +179,17 @@ function DriveStorageBar({ summary }) {
   }
 
   if (summary.isLoading) {
-    return <p className="text-primary text-sm">Checking space…</p>;
+    return <p className="text-sm">Checking space…</p>;
   }
   if (summary.isError) {
     return (
-      <p className="text-primary text-sm">
-        Couldn&apos;t read free space. Try Browse files.
+      <p className="text-sm">
+        Luna couldn&apos;t read the free space. It tries again every minute.
       </p>
     );
   }
   return (
-    <p className="text-primary text-sm">
+    <p className="text-sm">
       Storage will show once Luna can read this drive.
     </p>
   );
@@ -209,28 +211,31 @@ function AdoptedDriveDetails({ drive }) {
   const connectionValue = device || "Plugged in";
 
   return (
-    <CollapsibleSection title="Drive details" size="sm" mono pill>
+    <CollapsibleSection title="Drive details" size="sm" mono pill surface="primary">
       <div className="flex flex-col gap-2" role="list" aria-label="Drive detail values">
-        <ValueDisplay label="Protection" value={drive.encrypted ? "Password protected" : "Not protected"} />
+        <ValueDisplay surface="primary" label="Protection" value={drive.encrypted ? "Password protected" : "Not protected"} />
         <ValueDisplay
+          surface="primary"
           label={(
-            <TermHint content="How files are arranged on this drive. Most USB sticks use exFAT so phones, Macs, and PCs can all open them.">
+            <TermHint content="How files are arranged on this drive. Most USB sticks use exFAT so phones, Macs, and PCs can all open them." surface="primary">
               File system
             </TermHint>
           )}
           value={fsLabel}
         />
         <ValueDisplay
+          surface="primary"
           label={(
-            <TermHint content="Sections of the drive that hold files. Many USB sticks have just one.">
+            <TermHint content="Sections of the drive that hold files. Many USB sticks have just one." surface="primary">
               Partitions
             </TermHint>
           )}
           value={partitionsValue}
         />
         <ValueDisplay
+          surface="primary"
           label={(
-            <TermHint content="Luna's short name for this plug. Useful if you need help from support.">
+            <TermHint content="The name the system gives this drive while it is plugged in, such as sda1. It can change when you plug the drive in again." surface="primary">
               Device connection
             </TermHint>
           )}
@@ -296,7 +301,7 @@ export function describePeek(peek) {
 /** Card rows for what's on a drive that hasn't been added yet. */
 function DetectedContents({ peek }) {
   if (peek.isPending) {
-    return <ValueDisplay label="On the drive" value="Looking inside…" mono={false} />;
+    return <ValueDisplay surface="primary" label="On the drive" value="Looking inside…" mono={false} />;
   }
   // A failed look says nothing about the drive itself (Add drive can still
   // open it), so show nothing rather than guess; the query retries below.
@@ -304,10 +309,10 @@ function DetectedContents({ peek }) {
   const info = describePeek(peek.data);
   return (
     <>
-      <ValueDisplay label="On the drive" value={info.value} mono={false} />
-      {info.includes ? <ValueDisplay label="Includes" value={info.includes} mono={false} /> : null}
-      {info.history ? <ValueDisplay label="History" value={info.history} mono={false} /> : null}
-      {info.note ? <Callout tone="warning">{info.note}</Callout> : null}
+      <ValueDisplay surface="primary" label="On the drive" value={info.value} mono={false} />
+      {info.includes ? <ValueDisplay surface="primary" label="Includes" value={info.includes} mono={false} /> : null}
+      {info.history ? <ValueDisplay surface="primary" label="History" value={info.history} mono={false} /> : null}
+      {info.note ? <Callout tone="warning" surface="primary">{info.note}</Callout> : null}
     </>
   );
 }
@@ -338,20 +343,28 @@ function DetectedCard({ drive, onOpen, onShowProgress }) {
     refetchInterval: (query) => (query.state.status === "error" ? 15_000 : false),
     refetchOnWindowFocus: false,
   });
+  // The shelf is the card's one action: add it, or reopen the erase that is
+  // already running. Members never see this card; only an Admin gets the id.
+  const action = drive.formatting
+    ? drive.format_id && onShowProgress
+      ? { label: "Show progress", onClick: () => onShowProgress(drive) }
+      : null
+    : { label: "Add drive", onClick: () => onOpen(drive), disabled: empty };
+
   return (
-    <Card icon={HardDrive} title={title}>
+    <DriveCard icon={<HardDrive size={ICON_SIZE.lg} />} title={title} action={action}>
       <div className="flex flex-col gap-2">
-        <ValueDisplay label="Size" value={empty ? "Nothing inserted" : formatBytes(drive.size_bytes)} />
-        {empty ? null : drive.formatting ? <p className="text-primary text-sm">Being erased and set up. This drive is unavailable until that finishes.</p> : <DetectedContents peek={peek} />}
+        <ValueDisplay surface="primary" label="Size" value={empty ? "Nothing inserted" : formatBytes(drive.size_bytes)} />
+        {empty ? null : drive.formatting ? <p className="text-sm">Being erased and set up. This drive is unavailable until that finishes.</p> : <DetectedContents peek={peek} />}
         {drive.read_only ? (
-          <Callout tone="warning">Read-only: Luna can&apos;t save files to this drive.</Callout>
+          <Callout tone="warning" surface="primary">Read-only: Luna can&apos;t save files to this drive.</Callout>
         ) : null}
-        <CollapsibleSection title="Drive details" size="sm" mono pill>
+        <CollapsibleSection title="Drive details" size="sm" mono pill surface="primary">
           <div className="flex flex-col gap-2" role="list" aria-label="Drive detail values">
             <ValueDisplay label="Kind" value={kind} />
             <ValueDisplay
               label={(
-                <TermHint content="How files are arranged on this drive. Most USB sticks use exFAT so phones, Macs, and PCs can all open them.">
+                <TermHint content="How files are arranged on this drive. Most USB sticks use exFAT so phones, Macs, and PCs can all open them." surface="primary">
                   File system
                 </TermHint>
               )}
@@ -360,15 +373,7 @@ function DetectedCard({ drive, onOpen, onShowProgress }) {
           </div>
         </CollapsibleSection>
       </div>
-      <div className="mt-3">
-        {drive.formatting ? (
-          // Members never see this card; only an Admin gets the run's id.
-          drive.format_id && <Button size="sm" variant="outline" onClick={() => onShowProgress(drive)}>Show progress</Button>
-        ) : (
-          <Button size="sm" variant="outline" disabled={empty} onClick={() => onOpen(drive)}>Add drive</Button>
-        )}
-      </div>
-    </Card>
+    </DriveCard>
   );
 }
 
@@ -424,58 +429,60 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
     });
   }, [targeted, location.key]);
 
+  // The shelf is the card's one action: open the drive, or reopen the erase
+  // that is already running. No Erase button — erasing is never an action of
+  // its own, only a step inside a flow that needs it (FormatDriveFlow).
+  const shelf = erasing
+    ? drive.format_id && onShowProgress
+      ? { label: "Show progress", onClick: () => onShowProgress(drive) }
+      : null
+    : ready
+      ? { label: "Open", to: `/files/${drive.id}` }
+      : null;
+
   return (
     <div id={hashId} ref={cardRef} className="scroll-mt-4 h-full">
-      <Card
+      <DriveCard
         className="h-full"
-        icon={HardDrive}
+        icon={<HardDrive size={ICON_SIZE.lg} />}
         title={drive.label}
-        headerActions={<DriveStatusPill drive={drive} health={health.data} />}
+        headerActions={
+          <>
+            <DriveStatusPill drive={drive} health={health.data} surface="primary" />
+            {/* Browse is the shelf; everything else is rare and sits behind
+                the actions button, next to the drive's own status. */}
+            {actions.length > 0 ? (
+              <RowActionMenu label={drive.label} actions={actions} size="sm" surface="primary" />
+            ) : null}
+          </>
+        }
+        action={shelf}
       >
         {statusMessage ? (
-          <p className="text-primary text-sm">
+          <p className="text-sm">
             {statusMessage}
-            {unopenable ? <> <InfoHint content={CANT_OPEN_HINT} /></> : null}
+            {unopenable ? <> <InfoHint content={CANT_OPEN_HINT} surface="primary" /></> : null}
           </p>
         ) : null}
         {locked ? (
           <div className="mt-3">
-            <UnlockPrompt driveId={drive.id} />
+            <UnlockPrompt driveId={drive.id} surface="primary" />
           </div>
         ) : null}
         {showSummary ? (
-          <p className={`text-primary text-sm${statusMessage ? " mt-2" : ""}`}>
+          <p className={`text-sm${statusMessage ? " mt-2" : ""}`}>
             {copy.summary}
-            {copy.hint ? <> <InfoHint content={copy.hint} /></> : null}
+            {copy.hint ? <> <InfoHint content={copy.hint} surface="primary" /></> : null}
           </p>
         ) : null}
         {ready ? (
           <div className={statusMessage || showSummary ? "mt-3 space-y-3" : "space-y-3"}>
             <DriveStorageBar summary={summary} />
-            {copy ? <DriveHealthDetails health={health.data} defaultOpen={targeted} /> : null}
+            {copy ? <DriveHealthDetails health={health.data} defaultOpen={targeted} surface="primary" /> : null}
             <AdoptedDriveDetails drive={drive} />
           </div>
         ) : null}
-        {/* Browse files is what people press; everything else is rare and
-            sits behind the actions button at the far right. */}
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          {ready && (
-            <Button size="sm" variant="primary" asChild>
-              <Link to={`/files/${drive.id}`}>Browse files</Link>
-            </Button>
-          )}
-          {/* No Erase button: erasing is never an action of its own, only a
-              step inside a flow that needs it (FormatDriveFlow). */}
-          {onShowProgress && erasing && drive.format_id && (
-            <Button size="sm" variant="outline" onClick={() => onShowProgress(drive)}>Show progress</Button>
-          )}
-          {actions.length > 0 && (
-            <div className="ml-auto">
-              <RowActionMenu label={drive.label} actions={actions} size="sm" />
-            </div>
-          )}
-        </div>
-      </Card>
+      </DriveCard>
     </div>
   );
 }

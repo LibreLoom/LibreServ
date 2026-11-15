@@ -115,8 +115,8 @@ function driveFetch(drive, health) {
 const D1 = { id: "d1", label: "Photos Drive", state: "as_is", fs_type: "ext4", device: "sdz", mounted: true };
 
 /**
- * Open a drive card's actions (the three-dot button at the right of its
- * button row) and return the sheet. Only Browse files sits on the card.
+ * Open a drive card's actions (the three-dot button beside the status pill in
+ * the card's header) and return the sheet. Only Open sits on the card's shelf.
  */
 async function openDriveActions() {
   fireEvent.click((await screen.findAllByRole("button", { name: /^Actions for / }))[0]);
@@ -719,7 +719,7 @@ describe("FilesPage", () => {
     expect(screen.queryByRole("button", { name: /Format/i })).not.toBeInTheDocument();
   });
 
-  it("labels Browse files on adopted drives", async () => {
+  it("labels Open on adopted drives", async () => {
     stubDrivesApi({
       fetch: (u) => {
         if (u.endsWith("/drives")) {
@@ -736,7 +736,7 @@ describe("FilesPage", () => {
       },
     });
     renderPage();
-    const browse = await screen.findByRole("link", { name: /Browse files/i });
+    const browse = await screen.findByRole("link", { name: "Open" });
     expect(browse).toHaveAttribute("href", "/files/d1");
     expect(screen.queryByRole("link", { name: /Open files/i })).not.toBeInTheDocument();
   });
@@ -930,7 +930,7 @@ describe("FilesPage", () => {
     expect(screen.queryByText(/couldn't remove/i)).not.toBeInTheDocument();
   });
 
-  it("offers Browse files linking to the full files page", async () => {
+  it("offers Open linking to the full files page", async () => {
     stubDrivesApi({
       fetch: (u) => {
         if (u.endsWith("/drives")) {
@@ -947,7 +947,7 @@ describe("FilesPage", () => {
       },
     });
     renderPage();
-    expect(await screen.findByRole("link", { name: /Browse files/i })).toHaveAttribute("href", "/files/d1");
+    expect(await screen.findByRole("link", { name: "Open" })).toHaveAttribute("href", "/files/d1");
     expect(screen.queryByRole("heading", { name: /Browse Photos Drive/i })).not.toBeInTheDocument();
   });
 
@@ -1066,14 +1066,14 @@ describe("FilesPage", () => {
   it("has no Erase drive button, and shows progress while a drive is being erased", async () => {
     stubDrivesApi({ fetch: driveFetch(D1, OK_HEALTH) });
     const first = renderPage();
-    expect(await screen.findByRole("link", { name: /Browse files/i })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Open" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Erase/ })).not.toBeInTheDocument();
     first.unmount();
     stubDrivesApi({ fetch: driveFetch({ ...D1, formatting: true, format_id: "fr1" }, OK_HEALTH) });
     renderPage();
     expect(await screen.findByRole("button", { name: "Show progress" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Erase drive" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Browse files/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open" })).not.toBeInTheDocument();
     expect(screen.getByText(/Being erased and set up/)).toBeInTheDocument();
   });
 
@@ -1105,12 +1105,12 @@ describe("FilesPage", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("shows a drive Luna can't open without Browse files or storage", async () => {
+  it("shows a drive Luna can't open without Open or storage", async () => {
     stubDrivesApi({ fetch: driveFetch({ ...D1, mounted: false }, OK_HEALTH) });
     renderPage();
     expect(await screen.findByText(/Luna can't open this drive right now, so its files and free space aren't available\./)).toBeInTheDocument();
     expect(screen.getByText(/^Can't open$/)).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Browse files/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open" })).not.toBeInTheDocument();
     expect(screen.queryByText(/Storage will show/i)).not.toBeInTheDocument();
     const sheet = await openDriveActions();
     expect(within(sheet).queryByRole("button", { name: /Eject safely/i })).not.toBeInTheDocument();

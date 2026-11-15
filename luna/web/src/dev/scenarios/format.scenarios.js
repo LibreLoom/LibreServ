@@ -84,6 +84,6 @@ export default [
   {
     id: "format/refresh-mid-erase", area: A, title: "Reload while a drive Luna has is being erased", url: "/files",
     seed: (w) => { seedRun(w, { device: "sdd1", driveId: "d1", label: "Family photos", agoMs: 3000, phaseMs: 8000 }); },
-    check: ["The Family photos card says it is being erased and offers Show progress, and no Browse files", "As a Member (Sign in as) the card says so but has no button", "Browse files comes back after it finishes, empty"],
+    check: ["The Family photos card says it is being erased and offers Show progress, and no Open", "As a Member (Sign in as) the card says so but has no button", "Browse files comes back after it finishes, empty"],
   },
 ];

@@ -52,8 +52,9 @@ const TONE_TEXT = {
  * @typedef {object} CalloutProps
  * @property {"success"|"warning"|"error"|"info"|"neutral"} [tone]
  * @property {import("react").ElementType|null} [icon] Auto from tone; pass null to suppress.
- * @property {import("react").ReactNode} [title] Mono heading (text-primary; the icon carries the tone).
- * @property {import("react").ReactNode} [children] Body (text-primary, readable on tint).
+ * @property {import("react").ReactNode} [title] Mono heading (the surface's text color; the icon carries the tone).
+ * @property {import("react").ReactNode} [children] Body (the surface's text color, readable on the tint).
+ * @property {"primary"|"secondary"} [surface] Surface this sits on. Default "secondary" (a card).
  * @property {import("react").ReactNode} [action] Right-aligned action node.
  * @property {() => void} [onDismiss] Renders a dismiss button.
  * @property {"large-element"|"pill"|"card"} [rounded]
@@ -69,10 +70,14 @@ export default function Callout({
   action,
   onDismiss,
   rounded = "large-element",
+  surface = "secondary",
   className = "",
 }) {
   const Icon = icon !== undefined ? icon : TONE_ICONS[tone] || TONE_ICONS.info;
   const textClass = TONE_TEXT[tone] || TONE_TEXT.info;
+  // A tint keeps the surrounding surface's text token, so the body names the
+  // surface it sits on: cards read in text-primary, the page in text-secondary.
+  const bodyText = surface === "primary" ? "text-secondary" : "text-primary";
   const calloutRef = useRef(null);
   const shakeTrigger = calloutShakeTrigger(tone, title, children);
 
@@ -89,8 +94,8 @@ export default function Callout({
       <div className="flex items-start gap-3">
         {Icon && <Icon size={ICON_SIZE.xl} className={cn(textClass, "shrink-0 mt-0.5")} aria-hidden="true" />}
         <div className="flex-1 min-w-0">
-          {title && <p className="font-mono text-sm mb-1 text-primary">{title}</p>}
-          {children && <div className="text-sm text-primary">{children}</div>}
+          {title && <p className={cn("font-mono text-sm mb-1", bodyText)}>{title}</p>}
+          {children && <div className={cn("text-sm", bodyText)}>{children}</div>}
         </div>
         {action && <div className="shrink-0">{action}</div>}
         {onDismiss && (
@@ -123,5 +128,6 @@ Callout.propTypes = {
   action: PropTypes.node,
   onDismiss: PropTypes.func,
   rounded: PropTypes.oneOf(["large-element", "pill", "card"]),
+  surface: PropTypes.oneOf(["primary", "secondary"]),
   className: PropTypes.string,
 };

@@ -34,7 +34,7 @@ export default [
   {
     id: "encryption/locked-card", area: A, title: "A locked drive's card (Admin)", url: "/files",
     seed: (w) => { encryptDrive(w, "d1"); },
-    check: ["Pill says Locked, with a lock icon", "The card says it is locked and asks for the password: no storage bar, no Browse files, no Eject", "Encryption is in the card's three-dot button", "The right password (correct-horse-1) opens it: one toast, card turns Ready with Browse files"],
+    check: ["Pill says Locked, with a lock icon", "The card says it is locked and asks for the password: no storage bar, no Open, no Eject", "Encryption is in the card's three-dot button", "The right password (correct-horse-1) opens it: one toast, card turns Ready with Open"],
   },
   {
     id: "encryption/locked-card-dark", area: A, title: "A locked drive's card, dark", url: "/files", theme: "dark",

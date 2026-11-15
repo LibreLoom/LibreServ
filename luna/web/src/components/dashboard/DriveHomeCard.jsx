@@ -1,11 +1,11 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, HardDrive } from "lucide-react";
-import Card from "@libreloom/ui/components/cards/Card.jsx";
+import { HardDrive } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import DriveStatusPill from "../common/DriveStatusPill.jsx";
+import DriveCard from "../drives/DriveCard.jsx";
 import useDriveHealth from "../../hooks/useDriveHealth.js";
 import UnlockPrompt from "../drives/UnlockPrompt.jsx";
 import { isLocked, isUnopenable } from "../../lib/drives.js";
@@ -36,33 +36,14 @@ function pathDepth(path) {
 }
 
 /**
- * The shelf: the card's one action, always in the same place. A filled button
- * on the tray's foot, so the way in never moves and never competes with the
- * drive's own data in the panel above it. The arrow says "this goes somewhere";
- * a shelf with no arrow is a state, not a button.
- *
- * @param {{ to: string, label: string }} props
- */
-function ShelfAction({ to, label }) {
-  return (
-    <Button variant="primary" size="lg" fullWidth asChild className="justify-between px-6">
-      <Link to={to}>
-        <span>{label}</span>
-        <ArrowRight size={ICON_SIZE.md} aria-hidden="true" />
-      </Link>
-    </Button>
-  );
-}
-
-/**
  * Home drive card, in two layers: a tray that carries the way in, and a panel
  * that carries the drive itself — free space (only when the drive really
  * reported it), folder shortcuts as pill buttons, and its status. Reads
  * GET /api/v1/drives/{id}/summary and never invents numbers while the drive is
  * unplugged or the summary is still loading.
  *
- * The tray's foot is the shelf. It holds the card's single action — Open, the
- * grant's own label, Unlock, or Open Files — and stays empty when there is
+ * The tray's foot is the shelf (DriveCard): it holds the card's single action —
+ * Open, the grant's own label, or Open Files — and stays empty when there is
  * nothing to press, so a column of drives keeps one rhythm without inventing a
  * button that would not work.
  *
@@ -128,6 +109,7 @@ export default function DriveHomeCard({
     ) : null;
 
   let body;
+  /** @type {{ label: string, to: string } | null} */
   let shelf = null;
   if (locked) {
     // Anyone who can see the drive may unlock it, so the prompt is right here,
@@ -148,7 +130,7 @@ export default function DriveHomeCard({
       <p className="text-sm">Luna can't open this drive right now. Ask an Admin to check it.</p>
     );
     // The Files page still lists the drive, so an Admin keeps a way in.
-    if (isAdmin) shelf = <ShelfAction to={`/files#drive-${drive.id}`} label="Open Files" />;
+    if (isAdmin) shelf = { label: "Open Files", to: `/files#drive-${drive.id}` };
   } else if (!ready) {
     body = (
       <p className="text-sm">
@@ -166,7 +148,7 @@ export default function DriveHomeCard({
     );
     // The drive itself is fine; only its details failed. A member with a grant
     // can still open it, and an Admin gets no button rather than a guess.
-    if (!isAdmin && entryGrant) shelf = <ShelfAction to={openHref} label={openLabel} />;
+    if (!isAdmin && entryGrant) shelf = { label: openLabel, to: openHref };
   } else {
     body = (
       <div className="space-y-4">
@@ -218,22 +200,17 @@ export default function DriveHomeCard({
         {seeAllButton ? <div className="flex flex-wrap gap-2">{seeAllButton}</div> : null}
       </div>
     );
-    shelf = <ShelfAction to={openHref} label={openLabel} />;
+    shelf = { label: openLabel, to: openHref };
   }
 
   return (
-    <Card padding={false} noHeightAnim className="p-2 space-y-2">
-      <Card
-        surface="primary"
-        noPopIn
-        className="border-0 rounded-[calc(var(--radius-large-element)-0.5rem)]"
-        icon={HardDrive}
-        title={drive.label || "Drive"}
-        headerActions={<DriveStatusPill drive={drive} health={health.data} />}
-      >
-        {body}
-      </Card>
-      {shelf}
-    </Card>
+    <DriveCard
+      icon={<HardDrive size={ICON_SIZE.lg} />}
+      title={drive.label || "Drive"}
+      headerActions={<DriveStatusPill drive={drive} health={health.data} surface="primary" />}
+      action={shelf}
+    >
+      {body}
+    </DriveCard>
   );
 }
