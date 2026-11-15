@@ -1,5 +1,4 @@
 import PropTypes from "prop-types";
-import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import LayeredPill from "@libreloom/ui/components/ui/LayeredPill.jsx";
 import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { describeDriveHealth } from "../../lib/driveHealth.js";
@@ -19,9 +18,8 @@ const READ_ONLY_HINT =
  * `health` is the drive's health report as the API returns it; leave it out
  * (or pass undefined while it loads) and the pill says nothing about health.
  *
- * With `onActions`, the status and the drive's rare actions are ONE LayeredPill:
- * the status is the chip, the actions menu the trailing segment. Without it,
- * the status stays a plain tinted pill.
+ * It is always a LayeredPill; with `onActions`, the drive's rare actions are
+ * its trailing segment.
  *
  * @param {{
  *   drive: { state: string, label?: string, mounted?: boolean, encrypted?: boolean, locked?: boolean } | null,
@@ -30,10 +28,10 @@ const READ_ONLY_HINT =
  *   onActions?: () => void,
  * }} props
  */
-export default function DriveStatusPill({ drive, health, surface = "secondary", onActions }) {
+export default function DriveStatusPill({ drive, health, surface = "primary", onActions }) {
   const status = describeStatus(drive, health);
   if (!status) return null;
-  const { label, tone, icon, hint } = status;
+  const { label, icon, hint } = status;
   const content = hint ? (
     <TermHint content={hint} surface={surface}>
       {label}
@@ -42,63 +40,60 @@ export default function DriveStatusPill({ drive, health, surface = "secondary", 
     label
   );
 
-  // With actions, the status and the drive's rare actions are one LayeredPill:
-  // the status is the chip, the actions menu the trailing segment.
-  if (onActions) {
-    return (
-      <LayeredPill
-        icon={icon}
-        actionIcon={<Ellipsis size={ICON_SIZE.xs} aria-hidden="true" />}
-        actionIconOnly
-        actionLabel={<span className="sr-only">Actions</span>}
-        actionAriaLabel={`Actions for ${drive.label || "this drive"}`}
-        actionHaptic={false}
-        onAction={onActions}
-      >
-        {content}
-      </LayeredPill>
-    );
-  }
+  // Always the one LayeredPill: the status is the chip, and the drive's rare
+  // actions (when given) are the trailing segment. It lives in the card's
+  // panel, so it names the panel's surface.
   return (
-    <Pill variant={tone}>
-      {icon}
+    <LayeredPill
+      surface="primary"
+      icon={icon}
+      {...(onActions
+        ? {
+            actionIcon: <Ellipsis size={ICON_SIZE.xs} aria-hidden="true" />,
+            actionIconOnly: true,
+            actionLabel: <span className="sr-only">Actions</span>,
+            actionAriaLabel: `Actions for ${drive.label || "this drive"}`,
+            actionHaptic: false,
+            onAction: onActions,
+          }
+        : {})}
+    >
       {content}
-    </Pill>
+    </LayeredPill>
   );
 }
 
 /**
- * The one thing most worth knowing about the drive: its words, its tone, and
+ * The one thing most worth knowing about the drive: its words and
  * the aside that explains it when the words need explaining.
  *
  * @param {{ state: string, label?: string, mounted?: boolean, encrypted?: boolean, locked?: boolean } | null} drive
  * @param {import("../../lib/driveHealth.js").DriveHealthReport | null | undefined} health
- * @returns {{ label: string, tone: "success"|"warning"|"info"|"error"|"muted", icon?: import("react").ReactElement, hint?: string } | null}
+ * @returns {{ label: string, icon?: import("react").ReactElement, hint?: string } | null}
  */
 function describeStatus(drive, health) {
   if (!drive) return null;
-  if (drive.state === "missing") return { label: "Unplugged", tone: "warning" };
-  if (drive.state === "ejected") return { label: "Ejected", tone: "info" };
+  if (drive.state === "missing") return { label: "Unplugged" };
+  if (drive.state === "ejected") return { label: "Ejected" };
   if (isLocked(drive)) {
     return {
       label: "Locked",
-      tone: "info",
       icon: <Lock size={ICON_SIZE.xs} aria-hidden="true" />,
       hint: "This drive is protected with a password. Enter the password to open its files.",
     };
   }
-  if (isUnopenable(drive)) return { label: "Can't open", tone: "warning" };
+  if (isUnopenable(drive)) return { label: "Can't open" };
 
   const copy = health ? describeDriveHealth(health) : null;
   if (copy && (copy.verdict === "failing" || copy.verdict === "watch")) {
-    return { label: copy.pill.label, tone: copy.pill.variant };
+    return { label: copy.pill.label };
   }
 
   if (drive.state === "readonly") {
-    return { label: "Read only", tone: "warning", hint: READ_ONLY_HINT };
+    return { label: "Read only", hint: READ_ONLY_HINT };
   }
-  if (drive.state === "as_is") return { label: "Ready", tone: "success" };
-  return { label: drive.state, tone: "info" };
+  if (drive.state === "as_is") return { label: "Ready" };
+  return { label: drive.state };
 }
 
 DriveStatusPill.propTypes = {

@@ -44,6 +44,7 @@ import { haptic } from "../../utils/haptics.js";
  *   actionHaptic?: boolean,  // false when onAction opens something that buzzes itself
  *   actionIconOnly?: boolean,  // icon-only action: a square segment so the icon sits centered in the track's rounded end
  *   actionRef?: React.Ref<HTMLButtonElement>,
+ *   surface?: "primary" | "secondary",  // the BACKDROP it sits on; "secondary" (default) = a card, "primary" = the page or a card's panel — the layers invert so the track never melts into it
  *   mono?: boolean,
  *   title?: string,
  *   className?: string,
@@ -61,6 +62,7 @@ export default function LayeredPill({
   actionIconOnly = false,
   noWrap = false,
   actionRef,
+  surface = "secondary",
   mono = false,
   title,
   className,
@@ -71,8 +73,10 @@ export default function LayeredPill({
   const btnIcon = actionIcon
     ? cloneElement(actionIcon, { className: cn("shrink-0", actionIcon.props?.className) })
     : null;
+  const onPage = surface === "primary";
   const segmentBase = cn(
-    "flex items-center gap-1 whitespace-nowrap text-xs py-1 rounded-pill text-secondary",
+    "flex items-center gap-1 whitespace-nowrap text-xs py-1 rounded-pill",
+    onPage ? "text-primary" : "text-secondary",
     actionIconOnly ? "size-6 justify-center p-0" : "pl-2 pr-4",
     mono && "font-mono",
   );
@@ -80,14 +84,16 @@ export default function LayeredPill({
   const pill = (
     <div
       className={cn(
-        "inline-flex max-w-full items-center rounded-pill surface-primary text-xs p-1",
+        "inline-flex max-w-full items-center rounded-pill text-xs p-1",
+        onPage ? "surface-secondary" : "surface-primary",
         noWrap ? "flex-nowrap" : "flex-wrap",
         className,
       )}
     >
       <span
         className={cn(
-          "flex items-center gap-1.5 whitespace-nowrap surface-secondary rounded-pill py-1 px-3",
+          "flex items-center gap-1.5 whitespace-nowrap rounded-pill py-1 px-3",
+          onPage ? "surface-primary" : "surface-secondary",
           noWrap && "min-w-0",
           mono && "font-mono",
         )}
@@ -120,6 +126,8 @@ export default function LayeredPill({
               aria-label={actionAriaLabel}
               className={cn(
                 segmentBase,
+                // An icon alone has no edge of its own, so it keeps a 1px outline.
+                actionIconOnly && "ring-1 ring-inset ring-current",
                 "cursor-pointer enabled:hover:ring-1 enabled:hover:ring-inset enabled:hover:ring-accent enabled:hover:underline underline-offset-2 motion-safe:transition-shadow disabled:opacity-50 disabled:cursor-not-allowed",
               )}
             >
@@ -152,6 +160,7 @@ LayeredPill.propTypes = {
   actionHaptic: PropTypes.bool,
   actionIconOnly: PropTypes.bool,
   noWrap: PropTypes.bool,
+  surface: PropTypes.oneOf(["primary", "secondary"]),
   actionRef: PropTypes.oneOfType([
     PropTypes.func,
     PropTypes.shape({ current: PropTypes.elementType }),

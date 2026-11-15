@@ -140,8 +140,10 @@ export default function LayeredCard({
         <div className="surface-primary h-full rounded-[calc(var(--radius-large-element)-0.5rem)] p-5">
           {/* Floated, not stacked: the corner is already empty on every card, so
               the panel's contents keep their place and long first lines wrap
-              around the pill instead of running under it. */}
-          {panelActions ? <div className="float-right mb-1 ml-3">{panelActions}</div> : null}
+              around the pill instead of running under it. The negative margins
+              pull it into the padding, 0.5rem from each edge — the same gutter
+              the panel keeps from the tray — so it hugs the corner. */}
+          {panelActions ? <div className="float-right -mr-3 -mt-3 mb-1 ml-3">{panelActions}</div> : null}
           {children}
         </div>
       </div>
