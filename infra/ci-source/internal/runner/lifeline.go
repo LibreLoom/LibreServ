@@ -92,7 +92,9 @@ func containerCommand(command string, nice int, lifelineName string) []string {
 	}
 	const script = `lock=$1; nice=$2; cmd=$3
 trap 'kill -9 -1 2>/dev/null; exit 137' TERM
-if [ "$nice" -gt 0 ] && command -v nice >/dev/null 2>&1; then
+if [ "$nice" -ge 15 ] && command -v chrt >/dev/null 2>&1; then
+  chrt -i 0 sh -c "$cmd" &
+elif [ "$nice" -gt 0 ] && command -v nice >/dev/null 2>&1; then
   nice -n "$nice" sh -c "$cmd" &
 else
   sh -c "$cmd" &

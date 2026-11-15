@@ -531,6 +531,9 @@ func (r *Runner) runTest(ctx context.Context, t *tests.Test, fuzzDuration time.D
 		result.Duration = result.EndTime.Sub(result.StartTime)
 		return result
 	}
+	if r.nice > 0 {
+		setContainerIdleClass(ctx, r.cli, containerID)
+	}
 
 	outputDone := make(chan struct{})
 	go r.streamOutput(ctx, containerID, t.ID, outputDone)
@@ -891,6 +894,42 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 	}
 
 	return resp.ID, nil
+}
+
+// setContainerIdleClass puts a started container's processes in the idle
+// scheduling class, so they run only when the desktop isn't using the CPU.
+// The CPU quota still caps them; this decides who wins when both want the same
+// core. A few sweeps catch the command the wrapper starts just after the
+// container does; later children inherit the class from their parent. Best
+// effort: no chrt, cgroup v1, or a process that exits mid-sweep is ignored.
+func setContainerIdleClass(ctx context.Context, cli client.APIClient, containerID string) {
+	insp, err := cli.ContainerInspect(ctx, containerID)
+	if err != nil || insp.State == nil || insp.State.Pid <= 0 {
+		return
+	}
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", insp.State.Pid))
+	if err != nil {
+		return
+	}
+	path, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "0::")
+	if !ok || path == "" {
+		return
+	}
+	procs := filepath.Join("/sys/fs/cgroup", path, "cgroup.procs")
+	for range 4 {
+		pids, err := os.ReadFile(procs)
+		if err != nil {
+			return
+		}
+		for _, pid := range strings.Fields(string(pids)) {
+			_ = exec.Command("chrt", "-i", "-p", "0", pid).Run()
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(150 * time.Millisecond):
+		}
+	}
 }
 
 func (r *Runner) streamOutput(ctx context.Context, containerID, testID string, done chan struct{}) {
