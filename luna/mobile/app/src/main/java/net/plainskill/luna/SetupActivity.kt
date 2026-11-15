@@ -228,8 +228,10 @@ class SetupActivity : AppCompatActivity() {
                 }
                 BackupPrefs.setSetupComplete(this, true)
                 BackupPrefs.setBackupEnabled(this, true)
+                // The periodic work runs its first pass as soon as the Wi-Fi and
+                // charging settings allow. runSoon would skip them and send the
+                // whole library over mobile data.
                 WorkScheduler.schedule(this)
-                WorkScheduler.runSoon(this)
                 startActivity(Intent(this, ShellActivity::class.java))
                 finish()
             }

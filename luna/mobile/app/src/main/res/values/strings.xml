@@ -29,7 +29,7 @@
     <string name="setup_folder_title">Select the folder to store your photos in:</string>
     <string name="setup_perm_title">Luna asks for these permissions:</string>
     <string name="perm_photos_title">Photos</string>
-    <string name="perm_photos_body">Luna copies all photos on this phone to the folder you chose, on any network, right after setup. On Android 12 and older, it copies videos too.</string>
+    <string name="perm_photos_body">Luna copies all photos on this phone to the folder you chose, when your Wi-Fi and charging settings allow. On Android 12 and older, it copies videos too.</string>
     <string name="perm_notify_title">Notifications</string>
     <string name="perm_notify_body">Luna shows a quiet notice while it uploads, and an alert when upload stops (for example, when the access token expired). Android 12 and older does not ask for this.</string>
     <string name="perm_battery_title">Background (Unrestricted)</string>
