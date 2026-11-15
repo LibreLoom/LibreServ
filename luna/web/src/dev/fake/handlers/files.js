@@ -11,6 +11,7 @@ import {
   base, clean, descendants, driveReady, driveUsable, driveRow, ensureDirs, fsOf, fsOpts, join, moveToTrash, nowS, parentOf,
   pathExists, recordMove, resolveMove, trashEntry, uniqueName, under,
 } from "../fsmodel.js";
+import { activeRun } from "./format.js";
 import { broadensAccess, cancelJob, enqueueJob, findJob, jobJson, tickJobs, visibleJobs } from "../jobs.js";
 import { nextId } from "../world.js";
 
@@ -21,6 +22,7 @@ export { addDir, addFile, addMany, demoTree, fsOf, fsOpts, fsRaw, viewerSamples,
 const UNKNOWN_DRIVE = "Luna can't find this drive. Make sure it is plugged in, or unplug it and plug it in again.";
 export const MISSING_DRIVE_DB = "Luna can't write its database to this drive, but your files are still on it. Free up space or check the drive's write-lock switch, then try again.";
 const DRIVE_LOCKED = "This drive is locked. Enter its password to open its files.";
+const DRIVE_ERASING = "Luna is erasing this drive right now. Try again when it finishes.";
 const notFound = () => fail(404, "Luna can't find that file or folder.", "not_found");
 const gone = () => fail(404, "This file doesn't exist anymore.", "not_found");
 const badPath = () => fail(400, "Luna can't open that path.");
@@ -30,6 +32,9 @@ const readOnlyDrive = () => fail(409, "This drive is read-only right now, so Lun
 export function needDrive(world, id) {
   // A locked drive is there and healthy: 423, so the client asks for the password.
   if (driveRow(world, id)?.locked) throw fail(423, DRIVE_LOCKED, "drive_locked");
+  // Being erased comes before "can't find": the drive is plugged in, and unplugging it now would harm it.
+  const device = driveRow(world, id)?.device;
+  if (device && activeRun(world, device)) throw fail(409, DRIVE_ERASING, "drive_erasing");
   if (!driveUsable(world, id)) throw fail(404, UNKNOWN_DRIVE, "unknown_drive");
   if (world.driveDbMissing?.includes(id)) throw fail(500, MISSING_DRIVE_DB, "missing_drive_db");
   return driveRow(world, id);

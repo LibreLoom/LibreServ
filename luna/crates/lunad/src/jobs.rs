@@ -1337,6 +1337,9 @@ fn plain_job_error(err: &JobError) -> String {
         JobError::Files(FilesError::Locked) => {
             "One of these drives is locked. Unlock it, then try again.".into()
         }
+        JobError::Files(FilesError::Erasing) => {
+            "Luna is erasing one of these drives right now. Try again when it finishes.".into()
+        }
         JobError::Files(FilesError::MissingDriveDb) => files::MISSING_DRIVE_DB_MSG.into(),
         JobError::Files(FilesError::Io(e)) if files::fsrules::problem_of(e).is_some() => {
             files::fsrules::problem_of(e).map(|p| p.to_string()).unwrap_or_default()

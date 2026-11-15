@@ -1059,7 +1059,9 @@ fn waiting_for(conn: &Connection, drive_id: &str) -> String {
 /// Why a new backup can't start yet because this drive isn't ready.
 fn not_ready(conn: &Connection, drive_id: &str) -> String {
     let name = drive_label(conn, drive_id);
-    if drive_is_locked(conn, drive_id) {
+    if crate::drives::format::drive_is_formatting(drive_id) {
+        format!("Luna is erasing {name} right now. Try again when it finishes.")
+    } else if drive_is_locked(conn, drive_id) {
         format!("Unlock {name} first, then try again.")
     } else {
         format!("Connect {name} first, then try again.")

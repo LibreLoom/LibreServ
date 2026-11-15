@@ -178,10 +178,16 @@ fn check_new_backup(
         ));
     }
     let owner = private_owner_for(conn, user, source_drive, norm)?;
-    if crate::files::drive_root(conn, source_drive).is_err() {
-        return Err(Refused(
-            "Luna can't reach this drive. Check that it is connected.".into(),
-        ));
+    match crate::files::drive_root(conn, source_drive) {
+        Ok(_) => {}
+        Err(crate::files::FilesError::Erasing) => {
+            return Err(Refused(crate::files::DRIVE_ERASING_MSG.into()));
+        }
+        Err(_) => {
+            return Err(Refused(
+                "Luna can't reach this drive. Check that it is connected.".into(),
+            ));
+        }
     }
     match crate::files::resolve_any(conn, source_drive, norm) {
         Ok((_, meta)) if meta.is_dir() => {}

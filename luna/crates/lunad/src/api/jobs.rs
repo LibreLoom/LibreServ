@@ -292,7 +292,10 @@ fn map_job_err(err: JobError) -> (StatusCode, Json<Value>) {
             StatusCode::CONFLICT,
             "A file or folder with this name is already there. Choose a different destination.",
         ),
-        JobError::Symlink => json_error(StatusCode::BAD_REQUEST, "Luna can't copy links yet."),
+        JobError::Symlink => json_error(
+            StatusCode::BAD_REQUEST,
+            "This includes a shortcut (symbolic link). Luna can't copy or move shortcuts.",
+        ),
         JobError::Blocked => json_error(
             StatusCode::FORBIDDEN,
             "This folder holds private items that only their owners can move.",
@@ -305,6 +308,11 @@ fn map_job_err(err: JobError) -> (StatusCode, Json<Value>) {
             StatusCode::LOCKED,
             "drive_locked",
             "One of these drives is locked. Unlock it, then try again.",
+        ),
+        JobError::Files(crate::files::FilesError::Erasing) => json_error_code(
+            StatusCode::CONFLICT,
+            "drive_erasing",
+            "Luna is erasing one of these drives right now. Try again when it finishes.",
         ),
         JobError::Files(crate::files::FilesError::MissingDriveDb) => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,

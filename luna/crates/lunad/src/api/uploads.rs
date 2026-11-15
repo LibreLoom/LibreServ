@@ -349,6 +349,11 @@ fn map_upload_err(err: UploadError) -> (StatusCode, Json<Value>) {
             "drive_locked",
             crate::files::DRIVE_LOCKED_MSG,
         ),
+        UploadError::Files(crate::files::FilesError::Erasing) => json_error_code(
+            StatusCode::CONFLICT,
+            "drive_erasing",
+            crate::files::DRIVE_ERASING_MSG,
+        ),
         UploadError::Files(crate::files::FilesError::MissingDriveDb) => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             crate::files::MISSING_DRIVE_DB_MSG,

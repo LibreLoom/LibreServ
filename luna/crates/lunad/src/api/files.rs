@@ -2248,6 +2248,12 @@ pub(crate) fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
         FilesError::Locked => {
             json_error_code(StatusCode::LOCKED, "drive_locked", files::DRIVE_LOCKED_MSG)
         }
+        // The drive is plugged in and busy: wait, don't unplug.
+        FilesError::Erasing => json_error_code(
+            StatusCode::CONFLICT,
+            "drive_erasing",
+            files::DRIVE_ERASING_MSG,
+        ),
         // The drive is adopted and mounted, but its on-drive database could not
         // be rebuilt (read-only, or no space).
         FilesError::MissingDriveDb => json_error_code(

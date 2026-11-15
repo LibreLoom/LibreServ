@@ -156,6 +156,11 @@ pub const MISSING_DRIVE_DB_MSG: &str = "Luna can't write its database to this dr
 /// not open. Nothing is wrong with the drive: it needs its password.
 pub const DRIVE_LOCKED_MSG: &str = "This drive is locked. Enter its password to open its files.";
 
+/// Shown when a file operation reaches a drive that Luna is erasing. The
+/// drive is plugged in; telling someone to unplug it mid-erase would be harmful.
+pub const DRIVE_ERASING_MSG: &str =
+    "Luna is erasing this drive right now. Try again when it finishes.";
+
 #[derive(Debug, thiserror::Error)]
 pub enum FilesError {
     #[error(
@@ -165,6 +170,9 @@ pub enum FilesError {
     /// The drive is here and healthy, but its container is not open.
     #[error("{}", DRIVE_LOCKED_MSG)]
     Locked,
+    /// The drive is plugged in, but Luna is erasing it.
+    #[error("{}", DRIVE_ERASING_MSG)]
+    Erasing,
     #[error("{}", MISSING_DRIVE_DB_MSG)]
     MissingDriveDb,
     #[error("{0}")]
@@ -236,15 +244,17 @@ pub fn drive_root(conn: &rusqlite::Connection, drive_id: &str) -> Result<DriveRo
     if drive.locked || crate::drives::crypt::vault::drive_is_locking(drive_id) {
         return Err(FilesError::Locked);
     }
+    // A drive being erased is unmounted, so its mount folder is an empty folder
+    // on the system disk. Nothing may read or write there. This comes before the
+    // mount-point check: "can't find this drive, unplug it" is untrue mid-erase,
+    // and unplugging then would be harmful.
+    if crate::drives::format::drive_is_formatting(drive_id) {
+        return Err(FilesError::Erasing);
+    }
     // An unplugged or ejected drive keeps its old mount path in the row;
     // reading it would only find an empty folder and blame the drive's
     // database. Say it is not connected instead.
     if drive.mount_point.is_empty() || drive.state == "missing" || drive.state == "ejected" {
-        return Err(FilesError::UnknownDrive);
-    }
-    // A drive being erased is unmounted, so its mount folder is an empty folder
-    // on the system disk. Nothing may read or write there.
-    if crate::drives::format::drive_is_formatting(drive_id) {
         return Err(FilesError::UnknownDrive);
     }
     Ok(drive)

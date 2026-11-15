@@ -1543,3 +1543,21 @@ async fn a_folder_and_a_file_with_one_name_removed_in_the_same_second_stay_apart
         b"a file named A"
     );
 }
+
+#[test]
+fn a_drive_being_erased_says_so_and_not_cant_find_it() {
+    let (_dir, conn, _) = drive_dir();
+    // An erase unmounts the drive, so its row has no mount point. The answer
+    // must still be "erasing", never "can't find this drive, unplug it".
+    db::upsert_drive(&conn, "erasing-drive", "Old", "as_is", "ext4", "sdy", "").unwrap();
+    let guard = crate::drives::format::FormattingDriveGuard::new("erasing-drive");
+    assert!(matches!(
+        drive_root(&conn, "erasing-drive"),
+        Err(FilesError::Erasing)
+    ));
+    drop(guard);
+    assert!(matches!(
+        drive_root(&conn, "erasing-drive"),
+        Err(FilesError::UnknownDrive)
+    ));
+}
