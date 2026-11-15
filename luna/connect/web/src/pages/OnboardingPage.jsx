@@ -504,29 +504,6 @@ export default function OnboardingPage() {
     return () => clearTimeout(timer);
   }, [cooldown]);
 
-  useEffect(() => {
-    if (step !== "code" || !isAuthenticated) return undefined;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await api("/api/v1/account/devices");
-        const bound = res?.devices?.[0];
-        if (!bound?.id || cancelled) return;
-        await api(`/api/v1/devices/${bound.id}`, { method: "DELETE" });
-        if (cancelled) return;
-        setDeviceId("");
-        setHostname("");
-        setName("");
-        await refresh();
-      } catch (err) {
-        if (!cancelled) setError(err.message);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [step, isAuthenticated, refresh]);
-
   async function bindDevice(value) {
     const res = await api("/api/v1/devices/bind", {
       method: "POST",
@@ -778,17 +755,10 @@ export default function OnboardingPage() {
     }
   };
 
-  const handleBack = () => {
-    setError("");
-    if (step === "welcome" || (path === "diy" && step === "account" && authSubStep === 0)) {
-      if (isAuthenticated) navigate("/");
-      return;
-    }
-    if (step === "account" && authSubStep > 0) {
-      setAuthSubDir("left");
-      setAuthSubStep((s) => s - 1);
-      return;
-    }
+  // Once a Luna is linked, Back never returns to the token steps: that would
+  // have to unlink it, which removes its address and tunnel.
+  const linked = Boolean(deviceId || me?.has_bound_device);
+  const backStep = () => {
     const officialBack = {
       account: "welcome",
       verify: "account",
@@ -809,7 +779,23 @@ export default function OnboardingPage() {
       done: "backup",
     };
     const back = path === "diy" ? diyBack : officialBack;
-    goTo(back[step] || (path === "diy" ? "account" : "welcome"), "left");
+    return back[step] || (path === "diy" ? "account" : "welcome");
+  };
+  const backPastLink = linked && ["code", "diy-code", "bind"].includes(backStep());
+
+  const handleBack = () => {
+    setError("");
+    if (step === "welcome" || (path === "diy" && step === "account" && authSubStep === 0)) {
+      if (isAuthenticated) navigate("/");
+      return;
+    }
+    if (step === "account" && authSubStep > 0) {
+      setAuthSubDir("left");
+      setAuthSubStep((s) => s - 1);
+      return;
+    }
+    if (backPastLink) return;
+    goTo(backStep(), "left");
   };
 
   const renderWelcome = () => (
@@ -1474,6 +1460,7 @@ export default function OnboardingPage() {
   else body = renderWelcome();
 
   const showBack = !(
+    backPastLink ||
     (path === "official" && step === "welcome") ||
     step === "done" ||
     step === "plug-in" ||

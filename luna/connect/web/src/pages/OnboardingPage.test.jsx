@@ -647,7 +647,7 @@ describe("OnboardingPage DIY verify", () => {
     expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
   });
 
-  it("unbinds the linked Luna when returning to the device token step", async () => {
+  it("never unlinks the Luna: no Back from the name step once it is linked", async () => {
     setStripe(true);
     let devices = [];
     api.mockImplementation(async (path, opts = {}) => {
@@ -684,17 +684,8 @@ describe("OnboardingPage DIY verify", () => {
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
     expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: /^Back$/i }));
-
-    await waitFor(() => {
-      expect(api).toHaveBeenCalledWith("/api/v1/devices/dev_1", { method: "DELETE" });
-    });
-    expect(await screen.findByLabelText(/^Device token$/i)).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
-    await waitFor(() => {
-      expect(api.mock.calls.filter((c) => c[0] === "/api/v1/devices/bind").length).toBe(2);
-    });
+    expect(screen.queryByRole("button", { name: /^Back$/i })).toBeNull();
+    expect(api.mock.calls.some(([, opts]) => opts?.method === "DELETE")).toBe(false);
   });
 });
 
