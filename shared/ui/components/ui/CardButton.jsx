@@ -52,7 +52,7 @@ export default function CardButton({
   action,
   onClick,
   type = "button",
-  actionLabel = "View All",
+  actionLabel = "View all",
   variant = "default",
   active = false,
   align = "center",
