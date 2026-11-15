@@ -113,37 +113,41 @@ export default function LayeredPill({
           hasAction ? "grid-cols-[1fr] opacity-100" : "grid-cols-[0fr] opacity-0",
         )}
       >
-        <span className="min-w-0 overflow-hidden pl-1">
-          {onAction && hasAction ? (
-            <button
-              ref={actionRef}
-              type="button"
-              onClick={() => {
-                if (actionHaptic) haptic("light");
-                onAction();
-              }}
-              disabled={actionDisabled}
-              aria-label={actionAriaLabel}
-              className={cn(
-                segmentBase,
-                "cursor-pointer motion-safe:transition-[background-color,color,box-shadow] disabled:opacity-50 disabled:cursor-not-allowed",
-                actionIconOnly
-                  ? // An icon alone has no edge of its own, so it keeps a 1px outline,
-                    // and fills with the chip's color on hover (dots invert with it).
-                    cn(
-                      "ring-1 ring-inset ring-current",
-                      onPage
-                        ? "enabled:hover:bg-primary enabled:hover:text-secondary"
-                        : "enabled:hover:bg-secondary enabled:hover:text-primary",
-                    )
-                  : "enabled:hover:ring-1 enabled:hover:ring-inset enabled:hover:ring-accent enabled:hover:underline underline-offset-2",
-              )}
-            >
-              {btnIcon} {actionLabel}
-            </button>
-          ) : (
-            <span className={segmentBase}>{btnIcon} {actionLabel}</span>
-          )}
+        {/* The gap before the segment lives on an inner wrapper: padding on the
+            collapsing item itself would stay 4px wide at 0fr. */}
+        <span className="min-w-0 overflow-hidden">
+          <span className="block pl-1">
+            {onAction && hasAction ? (
+              <button
+                ref={actionRef}
+                type="button"
+                onClick={() => {
+                  if (actionHaptic) haptic("light");
+                  onAction();
+                }}
+                disabled={actionDisabled}
+                aria-label={actionAriaLabel}
+                className={cn(
+                  segmentBase,
+                  "cursor-pointer motion-safe:transition-[background-color,color,box-shadow] disabled:opacity-50 disabled:cursor-not-allowed",
+                  actionIconOnly
+                    ? // An icon alone has no edge of its own, so it keeps a 1px outline,
+                      // and fills with the chip's color on hover (dots invert with it).
+                      cn(
+                        "ring-1 ring-inset ring-current",
+                        onPage
+                          ? "enabled:hover:bg-primary enabled:hover:text-secondary"
+                          : "enabled:hover:bg-secondary enabled:hover:text-primary",
+                      )
+                    : "enabled:hover:ring-1 enabled:hover:ring-inset enabled:hover:ring-accent enabled:hover:underline underline-offset-2",
+                )}
+              >
+                {btnIcon} {actionLabel}
+              </button>
+            ) : (
+              <span className={segmentBase}>{btnIcon} {actionLabel}</span>
+            )}
+          </span>
         </span>
       </span>
     </div>

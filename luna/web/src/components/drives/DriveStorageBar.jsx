@@ -1,6 +1,9 @@
 import PropTypes from "prop-types";
 import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { formatBytes } from "../../lib/formatBytes.js";
+import { sizePart } from "../../lib/fileOps/copy.js";
+import FileOpProgress from "../files/fileOps/FileOpProgress.jsx";
+import { RollingNumbers } from "../files/fileOps/RollingText.jsx";
 
 /**
  * A drive's free space, how much is used, and a usage bar. Every drive card
@@ -10,8 +13,8 @@ import { formatBytes } from "../../lib/formatBytes.js";
  * checking, could not read, nothing to read yet) — or says nothing with
  * `quiet`, for a card that already explains the drive's state.
  *
- * The bar fills with a transform, not a width, so a refetch repaints one layer
- * instead of re-laying out the card.
+ * The bar and the "42% · 509 GB of 979 GB used" line are the file task card's
+ * own (FileOpProgress, RollingNumbers), so a number that changes rolls.
  *
  * @param {{
  *   summary: { data?: any, isLoading?: boolean, isError?: boolean },
@@ -27,7 +30,8 @@ export default function DriveStorageBar({ summary, quiet = false }) {
   );
 
   if (hasSpace) {
-    const usedLabel = formatBytes(data.used_bytes);
+    // Only a real reading draws a bar: no used figure means nothing to fill.
+    const hasUsed = data.used_bytes != null && Number.isFinite(Number(data.used_bytes));
     const ratio = Number(data.used_bytes) / Number(data.total_bytes);
     const usedPct = Number.isFinite(ratio) ? Math.min(100, Math.max(0, Math.round(ratio * 100))) : 0;
     return (
@@ -41,23 +45,19 @@ export default function DriveStorageBar({ summary, quiet = false }) {
           </span>
         </div>
         <div className="text-2xl font-mono font-normal leading-tight">{freeLabel} free</div>
-        <p className="mt-1 text-sm">
-          {usedLabel ? `${usedLabel} used · ` : ""}
-          {totalLabel} total
-        </p>
-        <div
-          className="mt-3 h-2 overflow-hidden rounded-pill surface-primary border border-secondary/30"
-          role="progressbar"
-          aria-valuenow={usedPct}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label={`${usedPct}% used`}
-        >
-          <div
-            className="h-full w-full origin-left surface-secondary motion-safe:transition-transform motion-safe:duration-500"
-            style={{ transform: `scaleX(${usedPct / 100})` }}
-          />
-        </div>
+        {hasUsed ? (
+          <>
+            {/* The file task card's own shape: a bar, then "42% · 509 GB of 979 GB used". */}
+            <FileOpProgress pct={usedPct} surface="primary" label={`${usedPct}% used`} className="mt-3" />
+            <p className="mt-2 font-mono text-xs" aria-label={`${formatBytes(data.used_bytes)} used of ${totalLabel}`}>
+              <RollingNumbers
+                parts={[{ percent: usedPct }, " · ", sizePart(data.used_bytes), " of ", sizePart(data.total_bytes), " used"]}
+              />
+            </p>
+          </>
+        ) : (
+          <p className="mt-1 text-sm">{totalLabel} total</p>
+        )}
       </div>
     );
   }

@@ -594,7 +594,7 @@ describe("FilesPage", () => {
     renderPage();
     // Storage bar is always visible (dashboard-style), outside Drive details.
     expect(await screen.findByText(/50 GB free/i)).toBeInTheDocument();
-    expect(screen.getByText(/14 GB used · 64 GB total/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("14 GB used of 64 GB")).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: /22% used/i })).toBeInTheDocument();
     expect(document.querySelector("[data-slot=drive-storage-bar]")).toBeTruthy();
 
