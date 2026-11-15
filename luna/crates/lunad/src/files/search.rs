@@ -269,9 +269,14 @@ fn search_drive_with_limits(
                     }
                     examined += 1;
                     after = rowid;
-                    if seen.insert((hit.parent.clone(), hit.name.clone()))
+                    // Only a name that really matches is "found". The fuzzy
+                    // pass returns files matching any 3-letter piece; marking
+                    // those seen would hide them from the text search below.
+                    let key = (hit.parent.clone(), hit.name.clone());
+                    if !seen.contains(&key)
                         && let Some(rank) = search_rank::rank(query, &hit.name, hit.kind == "dir")
                     {
+                        seen.insert(key);
                         out.push(Candidate {
                             hit,
                             rank,
