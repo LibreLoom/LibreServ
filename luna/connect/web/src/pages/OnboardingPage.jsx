@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import SettingsPath from "@libreloom/ui/components/common/SettingsPath.jsx";
+import PathTrail from "@libreloom/ui/components/common/PathTrail.jsx";
 import { api } from "../api.js";
 import { startCheckout, useCheckoutReturn } from "../billing/checkout.js";
 import { Button } from "../components/ui/button.jsx";
@@ -1167,7 +1167,7 @@ export default function OnboardingPage() {
         When you install Luna on your device, paste this full token when the installer asks. The first eight characters (****-****) unlock setup from your phone while you are on the same network.
       </p>
       <p className="text-sm text-muted-foreground mb-4 leading-relaxed text-pretty">
-        If you skipped it during install, on Luna go to <SettingsPath steps={["Settings", "About", "Advanced"]} />, open Device token, paste this token, and tap Save.
+        If you skipped it during install, on Luna go to <PathTrail steps={["Settings", "About", "Advanced"]} />, open Device token, paste this token, and tap Save.
       </p>
       <p className="text-sm text-muted-foreground mb-8 leading-relaxed text-pretty">
         When you continue, we link this token to your account. Luna picks up the link when it comes online.

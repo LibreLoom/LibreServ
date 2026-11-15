@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
-import SettingsPath from "@libreloom/ui/components/common/SettingsPath.jsx";
+import PathTrail from "@libreloom/ui/components/common/PathTrail.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
@@ -236,7 +236,7 @@ export default function CloudBackupCategory() {
                 {isAdmin ? (
                   <>
                     Cloud backup needs Luna Connect. Add your device token in{" "}
-                    <SettingsPath steps={["Settings", "About", "Advanced"]} />.
+                    <PathTrail steps={["Settings", "About", "Advanced"]} />.
                   </>
                 ) : (
                   "Cloud backup needs Luna Connect. An Admin can turn it on."

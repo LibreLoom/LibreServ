@@ -2,7 +2,7 @@ import { memo, useState, useCallback, useMemo } from "react";
 import { Check, AlertTriangle, Loader2 } from "lucide-react";
 import PropTypes from "prop-types";
 import { useAuth } from "../../../hooks/useAuth.jsx";
-import SettingsPath from "@libreloom/ui/components/common/SettingsPath.jsx";
+import PathTrail from "@libreloom/ui/components/common/PathTrail.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 
@@ -143,7 +143,7 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
             <p className="font-mono">No domain configured</p>
             <p>
               Without a domain, this app will only be accessible from this device.
-              Set up a domain in <SettingsPath steps={["Settings", "Network"]} /> to enable remote access.
+              Set up a domain in <PathTrail steps={["Settings", "Network"]} /> to enable remote access.
             </p>
           </div>
         </div>

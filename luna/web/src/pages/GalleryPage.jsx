@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import PathTrail from "@libreloom/ui/components/common/PathTrail.jsx";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
@@ -1118,7 +1119,11 @@ export default function GalleryPage() {
       addToast({
         type: "success",
         message: "Moved to Trash.",
-        description: "You can restore it from Files → Trash.",
+        description: (
+          <>
+            You can restore it from <PathTrail steps={["Files", "Trash"]} />.
+          </>
+        ),
       });
       queryClient.invalidateQueries({ queryKey: ["gallery"] });
     },
@@ -1140,7 +1145,11 @@ export default function GalleryPage() {
       addToast({
         type: "success",
         message: items.length === 1 ? "Moved to Trash." : `Moved ${items.length} items to Trash.`,
-        description: "You can restore them from Files → Trash.",
+        description: (
+          <>
+            You can restore them from <PathTrail steps={["Files", "Trash"]} />.
+          </>
+        ),
       });
       queryClient.invalidateQueries({ queryKey: ["gallery"] });
     },

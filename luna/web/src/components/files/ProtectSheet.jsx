@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Cloud, HardDrive, Shield } from "lucide-react";
-import SettingsPath from "@libreloom/ui/components/common/SettingsPath.jsx";
+import PathTrail from "@libreloom/ui/components/common/PathTrail.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -203,7 +203,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     ? (
         <>
           Paused because this Luna isn't linked to Luna Connect. An Admin can add the device token in{" "}
-          <SettingsPath steps={["Settings", "About", "Advanced"]} />.
+          <PathTrail steps={["Settings", "About", "Advanced"]} />.
         </>
       )
     : needsPayment

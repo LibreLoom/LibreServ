@@ -1,6 +1,6 @@
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
-import { Server, Trash2, Wifi, WifiOff, Globe, RefreshCw, AlertTriangle, ExternalLink, ChevronDown, Shield, Radio, Layers, PlugZap } from "lucide-react";
+import { Server, Trash2, Wifi, WifiOff, Globe, RefreshCw, AlertTriangle, ExternalLink, ChevronDown, ChevronRight, Shield, Radio, Layers, PlugZap } from "lucide-react";
 import PropTypes from "prop-types";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
@@ -142,7 +142,7 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
             </p>
             <div>
               <Button asChild variant="primary" size="sm" surface="secondary">
-                <a href="#external_services">Open External services →</a>
+                <a href="#external_services"><span>Open External services</span><ChevronRight size={ICON_SIZE.md} aria-hidden="true" /></a>
               </Button>
             </div>
 
@@ -234,7 +234,7 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
                 Prefer to skip the router setup? Open the <strong>Tunnel</strong> card in External services and turn it on — no router changes needed. You'll need either a Sol Connect account or a Cloudflare Tunnel token.
               </p>
               <Button asChild variant="outline" size="sm" surface="secondary">
-                <a href="#external_services-tunnel">Open Tunnel setup →</a>
+                <a href="#external_services-tunnel"><span>Open Tunnel setup</span><ChevronRight size={ICON_SIZE.md} aria-hidden="true" /></a>
               </Button>
             </div>
           </div>
@@ -397,7 +397,7 @@ function ExternalServicesLinkRow({ label, description }) {
   return (
     <SettingsRow label={label} description={description}>
       <Button asChild variant="outline" size="sm" surface="secondary">
-        <a href="#external_services">External services →</a>
+        <a href="#external_services"><span>External services</span><ChevronRight size={ICON_SIZE.md} aria-hidden="true" /></a>
       </Button>
     </SettingsRow>
   );

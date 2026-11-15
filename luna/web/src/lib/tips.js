@@ -11,7 +11,7 @@ const MIN_GAP_MS = 20 * 60 * 60 * 1000;
  * characters so the pill stays on one line on a phone. `when` hides a
  * tip on devices where it can't apply (a keyboard tip on a phone).
  *
- * @typedef {{ id: string, text: string, when?: () => boolean }} Tip
+ * @typedef {{ id: string, text: string, path?: string[], when?: () => boolean }} Tip
  * @type {Tip[]}
  */
 export const TIPS = [
@@ -48,7 +48,8 @@ export const TIPS = [
   },
   {
     id: "whiteboard",
-    text: "Sketch ideas: New → Whiteboard",
+    text: "Sketch ideas:",
+    path: ["New", "Whiteboard"],
   },
   {
     id: "custom-colors",

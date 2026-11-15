@@ -15,7 +15,7 @@ import {
   Wrench,
   CircleHelp,
 } from "lucide-react";
-import SettingsPath from "@libreloom/ui/components/common/SettingsPath.jsx";
+import PathTrail from "@libreloom/ui/components/common/PathTrail.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import api from "../lib/api";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
@@ -81,7 +81,7 @@ const STEPS = [
     title: "Make sure Sol is up to date",
     body: (
       <>
-        Updates fix bugs. Go to <SettingsPath steps={["Settings", "System Updates"]} /> and install any update that's available.
+        Updates fix bugs. Go to <PathTrail steps={["Settings", "System Updates"]} /> and install any update that's available.
       </>
     ),
   },

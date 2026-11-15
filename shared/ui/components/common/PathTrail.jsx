@@ -5,11 +5,11 @@ import { ICON_SIZE } from "../../lib/ui-tokens.js";
 import { cn } from "../../lib/utils";
 
 /**
- * SettingsPath — the one way to point someone to a place in the app:
+ * PathTrail — the one way to point someone to a place in the app:
  * `Settings › About › Advanced`, with a drawn chevron between the steps.
  *
  * Use it in every sentence that sends a person somewhere ("Add your token in
- * <SettingsPath steps={["Settings", "About", "Advanced"]} />."). Never type
+ * <PathTrail steps={["Settings", "About", "Advanced"]} />."). Never type
  * `→`, `>` or `›` between steps. It inherits the surrounding text color, so
  * it works on any surface.
  *
@@ -17,10 +17,10 @@ import { cn } from "../../lib/utils";
  * @param {string[]} props.steps Each place to go, in order.
  * @param {string} [props.className]
  */
-export default function SettingsPath({ steps, className = "" }) {
+export default function PathTrail({ steps, className = "" }) {
   return (
     <span
-      data-slot="settings-path"
+      data-slot="path-trail"
       className={cn("inline-flex flex-wrap items-baseline gap-1", className)}
     >
       {steps.map((step, index) => (
@@ -39,7 +39,7 @@ export default function SettingsPath({ steps, className = "" }) {
   );
 }
 
-SettingsPath.propTypes = {
+PathTrail.propTypes = {
   steps: PropTypes.arrayOf(PropTypes.string).isRequired,
   className: PropTypes.string,
 };

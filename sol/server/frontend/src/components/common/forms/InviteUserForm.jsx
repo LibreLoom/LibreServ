@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import { Mail } from "lucide-react";
 import PropTypes from "prop-types";
 import { useAuth } from "../../../hooks/useAuth";
-import SettingsPath from "@libreloom/ui/components/common/SettingsPath.jsx";
+import PathTrail from "@libreloom/ui/components/common/PathTrail.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import FormInput from "./FormInput";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
@@ -48,7 +48,7 @@ export default function InviteUserForm({ onSuccess } = {}) {
           setError(
             err.message ||
               <>
-                Email isn't set up on this server yet. Configure it in <SettingsPath steps={["Settings", "Email"]} /> first.
+                Email isn't set up on this server yet. Configure it in <PathTrail steps={["Settings", "Email"]} /> first.
               </>,
           );
         } else if (status === 409) {
