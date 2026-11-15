@@ -503,6 +503,40 @@ mod tests {
     }
 
     #[test]
+    fn a_name_matching_only_some_words_does_not_hide_the_files_text() {
+        use crate::files::content::store::{self, State};
+        let dir = tempfile::tempdir().unwrap();
+        let conn = drive_conn(dir.path());
+        replace_dir(
+            &conn,
+            "d1",
+            "docs",
+            1,
+            &[store::tests::file("invoice-4417.txt", 5, 1)],
+        )
+        .unwrap();
+        for p in store::pending(&conn, "d1", true, 100).unwrap() {
+            store::record(
+                &conn,
+                "d1",
+                &p,
+                State::Text,
+                "",
+                Some("Plumbing invoice: kitchen sink repair"),
+            )
+            .unwrap();
+        }
+
+        // "invoice" is in the name, "plumbing" only in the text: the fuzzy
+        // name pass returns the file but it isn't a name match, so the text
+        // search must still get to report it.
+        assert_eq!(
+            names(&conn, "plumbing invoice", KindFilter::All),
+            ["invoice-4417.txt"]
+        );
+    }
+
+    #[test]
     fn folders_show_up_and_rank_ahead_of_same_tier_files() {
         let dir = tempfile::tempdir().unwrap();
         let conn = drive_conn(dir.path());
