@@ -102,9 +102,10 @@ impl SyncPage {
                             .map(|m| m.clone())
                             .unwrap_or_default();
                         let checked_drives = check_drives.then(|| {
+                            // An error (Luna off, bad token) is not "no drives".
                             luna_desktop::list_drives(&state)
-                                .unwrap_or_default()
-                                .is_empty()
+                                .map(|d| d.is_empty())
+                                .unwrap_or(false)
                         });
                         (pairs, progress, checked_drives)
                     },
@@ -134,10 +135,10 @@ impl SyncPage {
                         let is_empty = list.row_at_index(0).is_none();
                         if is_empty {
                             if no_drives {
-                                empty.set_text("No drives found on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.");
+                                empty.set_text("No drives on Luna that you can use. Make sure a drive is plugged in to Luna, or ask an Admin for access.");
                             } else {
                                 empty.set_text(
-                                    "No syncs yet. Create one to keep folders in sync with Luna.",
+                                    "No syncs yet. Choose a Luna folder or drive and a place for it on this computer.",
                                 );
                             }
                         }
@@ -241,7 +242,7 @@ fn build_row(
     let mut subtitle = human_remote_subtitle(&pair.remote_path);
     if progress.conflicts > 0 {
         subtitle += &format!(
-            " · {} — kept both versions",
+            " · {}, kept both versions",
             if progress.conflicts == 1 {
                 "1 conflict".to_string()
             } else {
@@ -256,7 +257,9 @@ fn build_row(
     row.set_title_lines(1);
     row.set_subtitle_lines(1);
 
-    let (icon_name, tip) = sync_status_icon(pair.running || progress.running, progress);
+    // `pair.running` stays true while jobs are paused, so only live progress
+    // may show the "in sync" state.
+    let (icon_name, tip) = sync_status_icon(progress.running, progress);
     let icon = gtk::Image::from_icon_name(icon_name);
     icon.set_icon_size(gtk::IconSize::Normal);
     icon.set_tooltip_text(Some(tip.as_str()));
@@ -317,7 +320,7 @@ fn sync_status_icon(
         return (
             "dialog-information-symbolic",
             format!(
-                "Kept both versions of {} — the copy from this computer has \u{201c}(conflict from this computer)\u{201d} in its name.",
+                "Kept both versions of {}. The copy from this computer has \u{201c}(conflict from this computer)\u{201d} in its name.",
                 if progress.conflicts == 1 {
                     "1 file".to_string()
                 } else {
@@ -340,20 +343,10 @@ fn sync_status_icon(
 
 fn plain_error(raw: &str) -> String {
     let t = raw.trim();
-    if t.is_empty() {
-        return "Something went wrong with this sync. Try editing it and saving again.".into();
-    }
-    if t.contains("database for this drive is missing") {
-        return t.to_string();
-    }
-    if t.contains("drive") || t.contains("Drive") || t.contains("doesn't know this drive") {
-        return "Luna can't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.".into();
-    }
+    // The other messages are already plain and name the real cause.
     if t == "unauthorized" {
-        return "Your sign-in expired. Sign out and sign in again.".into();
-    }
-    if t.contains("connection") || t.contains("timed out") || t.contains("Connection") {
-        return "Couldn't reach Luna. Check that it's on and try again.".into();
+        return "Luna no longer accepts this access token. Sign out, then sign in with a new one."
+            .into();
     }
     t.to_string()
 }
@@ -385,7 +378,7 @@ fn open_editor(
     page.set_margin_start(16);
     page.set_margin_end(16);
 
-    let dest_label = gtk::Label::new(Some("Select a Luna folder or whole drive to sync"));
+    let dest_label = gtk::Label::new(Some("Choose a Luna folder or a whole drive to sync"));
     dest_label.set_halign(gtk::Align::Start);
     dest_label.set_wrap(true);
     dest_label.add_css_class("heading");
@@ -402,7 +395,7 @@ fn open_editor(
     page.append(browser.root());
 
     let parent_label = gtk::Label::new(Some(
-        "Folder on this computer (the synced folder will be created inside it, named after the Luna folder or drive)",
+        "Folder on this computer. Luna Desktop makes the synced folder inside it, with the name of the Luna folder or drive.",
     ));
     parent_label.set_wrap(true);
     parent_label.set_halign(gtk::Align::Start);

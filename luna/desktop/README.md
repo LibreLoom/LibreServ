@@ -12,7 +12,7 @@ Luna) and **Sync** (two-way keep a Luna folder and a local folder up to date).
 3. **Sync** — pick a folder on Luna, then a parent folder on this computer.
    Desktop creates a child folder there and keeps both sides in sync. If both
    sides change the same file, both copies are kept with a clear conflict name.
-4. **Settings** — start on boot (enabled by default; XDG autostart on Linux).
+4. **Settings** — start when you sign in (enabled by default; XDG autostart on Linux).
 
 ## Distribution
 

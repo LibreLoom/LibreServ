@@ -109,7 +109,7 @@ pub fn validate_luna_folder(drive_id: &str, path: &str) -> Result<LunaRef, Strin
 pub fn resolved_sync_local(parent: &Path, luna_folder_name: &str) -> Result<PathBuf, String> {
     if !parent.is_dir() {
         return Err(
-            "Choose a folder on this computer that exists. Luna will put the synced folder inside it."
+            "Choose a folder on this computer that exists. Luna Desktop makes the synced folder inside it."
                 .into(),
         );
     }

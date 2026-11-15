@@ -203,7 +203,7 @@ fn build_ui(app: &adw::Application, state: Arc<AppState>) -> adw::ApplicationWin
             });
             stack.add_named(shell.root(), Some("shell"));
             stack.set_visible_child_name("shell");
-            win.set_title(Some(&format!("Luna — {}", shell.username())));
+            win.set_title(Some(&format!("Luna ({})", shell.username())));
         })
     };
 

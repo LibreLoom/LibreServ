@@ -51,16 +51,31 @@ pub fn is_auth_failure(err: &str) -> bool {
 
 pub fn plain_connect_error(err: &ureq::Error) -> String {
     match err {
+        // Every signed-in call uses an access token, so a 401 means Luna no
+        // longer accepts it. Keep "didn't work": `is_auth_failure` keys off it.
         ureq::Error::StatusCode(401) => {
-            "That username or password didn't work. Check them and try again.".into()
+            "That access token didn't work. Create a new one in Luna → Settings → Security.".into()
         }
         ureq::Error::StatusCode(403) => "You don't have permission to do that on Luna.".into(),
         ureq::Error::StatusCode(404) => {
-            "Luna couldn't find this drive or file. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.".into()
+            "Luna couldn't find this drive, folder, or file. Make sure the drive is plugged in to Luna.".into()
         }
         ureq::Error::StatusCode(409) => {
             "A file with this name is already here. Rename it or choose another.".into()
         }
+        ureq::Error::StatusCode(413) => {
+            "Luna doesn't have enough free memory for this upload right now. Try again later.".into()
+        }
+        ureq::Error::StatusCode(423) => {
+            "This drive is locked. Open Luna in a browser and enter the drive's password.".into()
+        }
+        ureq::Error::StatusCode(507) => {
+            "This drive on Luna is full. Free up some space and try again.".into()
+        }
+        ureq::Error::StatusCode(code) if *code >= 500 => {
+            "Luna had a problem and couldn't finish this. Try again.".into()
+        }
+        ureq::Error::StatusCode(_) => "Luna refused this request.".into(),
         other => {
             let text = other.to_string();
             if text.contains("Connection refused")
@@ -73,7 +88,8 @@ pub fn plain_connect_error(err: &ureq::Error) -> String {
                 "Luna couldn't be reached. Check the address and that Luna is on, then try again."
                     .into()
             } else {
-                format!("Something went wrong talking to Luna. {text}")
+                "Couldn't talk to Luna. Check the address and your network, then try again."
+                    .into()
             }
         }
     }
@@ -299,20 +315,16 @@ pub fn list_files(
         return Err("unauthorized".into());
     }
     if !(200..300).contains(&status) {
+        // Luna's own message names the real cause (missing drive database,
+        // locked drive, unknown path), so prefer it over a guess.
         let parsed: Option<serde_json::Value> = resp.body_mut().read_json().ok();
-        if parsed
+        if let Some(msg) = parsed
             .as_ref()
-            .and_then(|v| v.get("code"))
-            .and_then(|c| c.as_str())
-            == Some("missing_drive_db")
+            .and_then(|v| v.get("error"))
+            .and_then(|e| e.as_str())
+            .map(str::trim)
+            .filter(|m| !m.is_empty())
         {
-            let msg = parsed
-                .as_ref()
-                .and_then(|v| v.get("error"))
-                .and_then(|e| e.as_str())
-                .unwrap_or(
-                    "Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again.",
-                );
             return Err(msg.to_string());
         }
         if status == 403 {
@@ -320,7 +332,7 @@ pub fn list_files(
         }
         if status == 404 {
             return Err(
-                "Luna couldn't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.".into(),
+                "Luna couldn't find this drive or folder. Make sure the drive is plugged in to Luna.".into(),
             );
         }
         return Err("Luna couldn't open that folder. Try again.".into());
@@ -484,11 +496,11 @@ pub fn upload_file(
     let created_val: serde_json::Value = created
         .body_mut()
         .read_json()
-        .map_err(|_| "Luna didn't return an upload id.".to_string())?;
+        .map_err(|_| "Luna couldn't start the upload. Try again.".to_string())?;
     let upload_id = created_val
         .get("upload_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| "Luna didn't return an upload id.".to_string())?;
+        .ok_or_else(|| "Luna couldn't start the upload. Try again.".to_string())?;
 
     let mut file = std::fs::File::open(local)
         .map_err(|_| "Couldn't open that file on this computer.".to_string())?;

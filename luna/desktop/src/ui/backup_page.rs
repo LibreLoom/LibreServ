@@ -161,9 +161,11 @@ fn make_refresh(
                     .map(|m| m.clone())
                     .unwrap_or_default();
                 let checked_drives = check_drives.then(|| {
+                    // Only a real empty list counts: an error (Luna off, bad
+                    // token) is not "no drives", and the job rows report it.
                     luna_desktop::list_drives(&state)
-                        .unwrap_or_default()
-                        .is_empty()
+                        .map(|d| d.is_empty())
+                        .unwrap_or(false)
                 });
                 (jobs, progress, checked_drives)
             },
@@ -194,7 +196,7 @@ fn make_refresh(
                 let is_empty = list.row_at_index(0).is_none();
                 if is_empty {
                     if no_drives {
-                        empty.set_text("No drives found on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.");
+                        empty.set_text("No drives on Luna that you can use. Make sure a drive is plugged in to Luna, or ask an Admin for access.");
                     } else {
                         empty.set_text(
                             "No folder uploads yet. Create one to copy folders onto Luna.",
@@ -242,7 +244,9 @@ fn build_job_row(
     row.set_title_lines(1);
     row.set_subtitle_lines(2);
 
-    let (icon_name, tip) = backup_status_icon(job.running || progress.running, progress);
+    // `job.running` stays true while jobs are paused (Luna off or a version
+    // mismatch), so only live progress may show the "watching" state.
+    let (icon_name, tip) = backup_status_icon(progress.running, progress);
     let icon = gtk::Image::from_icon_name(icon_name);
     icon.set_icon_size(gtk::IconSize::Normal);
     icon.set_tooltip_text(Some(tip.as_str()));
@@ -300,7 +304,7 @@ fn backup_status_icon(
         return (
             "dialog-warning-symbolic",
             format!(
-                "{} couldn't copy yet — {}",
+                "{} couldn't copy yet. {}",
                 if progress.failed == 1 {
                     "1 file".to_string()
                 } else {
@@ -322,7 +326,7 @@ fn backup_status_icon(
     if active || progress.running {
         return (
             "object-select-symbolic",
-            "This folder is being correctly backed up.".to_string(),
+            "Watching for new and changed files to copy to Luna.".to_string(),
         );
     }
     ("content-loading-symbolic", "Waiting to start…".to_string())
@@ -347,22 +351,15 @@ fn when_label(unix: i64) -> String {
 
 fn plain_error(raw: &str) -> String {
     let t = raw.trim();
+    // Empty: the file was still changing or couldn't be read yet. The job
+    // retries it by itself.
     if t.is_empty() {
-        return "Something went wrong with this folder upload. Try editing it and saving again."
-            .into();
+        return "Luna Desktop tries again by itself.".into();
     }
-    if t.contains("database for this drive is missing") {
-        return t.to_string();
-    }
-    if t.contains("drive") || t.contains("Drive") || t.contains("doesn't know this drive") {
-        return "Luna can't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.".into();
-    }
-    // Prefer already-plain messages from the backend; soften a few raw leftovers.
+    // The other messages are already plain and name the real cause.
     if t == "unauthorized" {
-        return "Your sign-in expired. Sign out and sign in again.".into();
-    }
-    if t.contains("connection") || t.contains("timed out") || t.contains("Connection") {
-        return "Couldn't reach Luna. Check that it's on and try again.".into();
+        return "Luna no longer accepts this access token. Sign out, then sign in with a new one."
+            .into();
     }
     t.to_string()
 }
@@ -501,7 +498,7 @@ fn open_editor(
     page.append(&sources_list);
     page.append(&add);
 
-    let dest_label = gtk::Label::new(Some("Select where these folders go on Luna"));
+    let dest_label = gtk::Label::new(Some("Choose where these folders go on Luna"));
     dest_label.set_halign(gtk::Align::Start);
     dest_label.set_wrap(true);
     dest_label.add_css_class("heading");

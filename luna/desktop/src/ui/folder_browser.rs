@@ -97,7 +97,7 @@ impl FolderBrowser {
                 let d = drive_id.borrow().clone();
                 let p = remote_path.borrow().clone();
                 if d.is_empty() {
-                    selected_lbl.set_text("Select a drive and folder.");
+                    selected_lbl.set_text("Choose a drive and a folder.");
                 } else if p.is_empty() {
                     selected_lbl.set_text("Selected: whole drive");
                 } else {
@@ -240,21 +240,14 @@ impl FolderBrowser {
                             }
                             Err(e) => {
                                 folder_list.set_visible(true);
-                                let missing_db = e.contains("database for this drive is missing");
+                                // `e` names the real cause (Luna's own
+                                // message, or why Luna couldn't be reached).
                                 let row = adw::ActionRow::builder()
-                                    .title(if missing_db {
-                                        "Luna's database for this drive is missing."
-                                    } else {
-                                        "Luna can't find this drive."
-                                    })
-                                    .subtitle(if missing_db {
-                                        "The drive is still plugged in. On the Files page, remove this drive, then add it again."
-                                    } else {
-                                        "Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in."
-                                    })
+                                    .title("Couldn't open this folder")
+                                    .subtitle(&e)
                                     .build();
                                 row.set_title_lines(1);
-                                row.set_subtitle_lines(if missing_db { 3 } else { 2 });
+                                row.set_subtitle_lines(3);
                                 let icon = gtk::Image::from_icon_name("dialog-warning-symbolic");
                                 icon.set_icon_size(gtk::IconSize::Normal);
                                 row.add_prefix(&icon);
@@ -281,7 +274,7 @@ impl FolderBrowser {
                     Ok(drives) => {
                         if drives.is_empty() {
                             let empty_label = gtk::Label::new(Some(
-                                "No drives found on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
+                                "No drives on Luna that you can use. Make sure a drive is plugged in to Luna, or ask an Admin for access.",
                             ));
                             empty_label.set_wrap(true);
                             empty_label.add_css_class("dim-label");
@@ -330,8 +323,9 @@ impl FolderBrowser {
                         }
                     }
                     Err(e) => {
+                        // Not "no drives": Luna couldn't be asked. Say why.
                         let err_label = gtk::Label::new(Some(
-                            "No drives found on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
+                            format!("Couldn't load the drives on Luna. {e}").as_str(),
                         ));
                         err_label.set_wrap(true);
                         err_label.add_css_class("dim-label");

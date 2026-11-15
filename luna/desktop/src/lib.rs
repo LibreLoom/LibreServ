@@ -117,7 +117,7 @@ fn require_session(state: &AppState) -> Result<session::SessionData, String> {
     state
         .session
         .lock()
-        .map_err(|_| "Internal error.".to_string())?
+        .map_err(|_| "Luna Desktop hit a problem. Quit it and open it again.".to_string())?
         .clone()
         .ok_or_else(|| "Sign in first.".to_string())
 }
@@ -293,7 +293,8 @@ pub fn login(state: &AppState, base_url: &str, access_token: &str) -> Result<Ses
     *state
         .session
         .lock()
-        .map_err(|_| "Internal error.".to_string())? = Some(data.clone());
+        .map_err(|_| "Luna Desktop hit a problem. Quit it and open it again.".to_string())? =
+        Some(data.clone());
     set_compat(state, Some(found));
     Ok(SessionInfo {
         base_url: data.base_url,
@@ -404,7 +405,7 @@ pub fn start_backup_job(state: &AppState, id: &str) -> Result<(), String> {
     if state
         .backup_handles
         .lock()
-        .map_err(|_| "Internal error.".to_string())?
+        .map_err(|_| "Luna Desktop hit a problem. Quit it and open it again.".to_string())?
         .contains_key(id)
     {
         return Ok(());
@@ -420,7 +421,7 @@ pub fn start_backup_job(state: &AppState, id: &str) -> Result<(), String> {
     state
         .backup_handles
         .lock()
-        .map_err(|_| "Internal error.".to_string())?
+        .map_err(|_| "Luna Desktop hit a problem. Quit it and open it again.".to_string())?
         .insert(id.to_string(), handle);
     Ok(())
 }
@@ -524,7 +525,7 @@ pub fn start_sync_pair(state: &AppState, id: &str) -> Result<(), String> {
     if state
         .sync_handles
         .lock()
-        .map_err(|_| "Internal error.".to_string())?
+        .map_err(|_| "Luna Desktop hit a problem. Quit it and open it again.".to_string())?
         .contains_key(id)
     {
         return Ok(());
@@ -540,7 +541,7 @@ pub fn start_sync_pair(state: &AppState, id: &str) -> Result<(), String> {
     state
         .sync_handles
         .lock()
-        .map_err(|_| "Internal error.".to_string())?
+        .map_err(|_| "Luna Desktop hit a problem. Quit it and open it again.".to_string())?
         .insert(id.to_string(), handle);
     Ok(())
 }
@@ -672,7 +673,7 @@ mod tests {
         let err = login(&state, &base, "token").unwrap_err();
         assert_eq!(
             err,
-            "This Luna is too old for this app. Update Luna in Settings \u{2192} About \u{2192} System updates."
+            "This Luna is too old for this app. An Admin can update Luna in Settings \u{2192} About \u{2192} System updates."
         );
         assert!(session::load().is_none());
         stop.store(true, Ordering::Relaxed);

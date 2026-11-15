@@ -24,7 +24,7 @@ impl StatusPage {
         let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
         let blurb = gtk::Label::new(Some(
-            "Uploads and syncs in progress between this computer and Luna.",
+            "Folder uploads and syncs that are copying files or need your attention.",
         ));
         blurb.set_wrap(true);
         blurb.set_halign(gtk::Align::Start);
@@ -95,9 +95,10 @@ impl StatusPage {
                         let jobs = luna_desktop::backup::load_jobs();
                         let pairs = luna_desktop::sync::load_pairs();
                         let checked_drives = check_drives.then(|| {
+                            // An error (Luna off, bad token) is not "no drives".
                             luna_desktop::list_drives(&state)
-                                .unwrap_or_default()
-                                .is_empty()
+                                .map(|d| d.is_empty())
+                                .unwrap_or(false)
                         });
                         let mismatch = luna_desktop::current_compat(&state)
                             .and_then(luna_desktop::compat::message);
@@ -126,7 +127,7 @@ impl StatusPage {
                                 any = true;
                                 let error_text = if p.failed > 0 {
                                     format!(
-                                        "{} couldn't copy yet — {}",
+                                        "{} couldn't copy yet. {}",
                                         count_files(p.failed),
                                         plain_status_error(&p.error)
                                     )
@@ -244,9 +245,9 @@ impl StatusPage {
                                 empty.set_description(Some(text));
                                 empty.set_icon_name(Some("dialog-warning-symbolic"));
                             } else if no_drives {
-                                empty.set_title("No drives found");
+                                empty.set_title("No drives");
                                 empty.set_description(Some(
-                                    "No drives found on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
+                                    "No drives on Luna that you can use. Make sure a drive is plugged in to Luna, or ask an Admin for access.",
                                 ));
                                 empty.set_icon_name(Some("dialog-warning-symbolic"));
                             } else {
@@ -300,8 +301,10 @@ fn leaf(path: &str) -> &str {
 
 fn short_name(path: &str) -> String {
     let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
-    if name.len() > 48 {
-        format!("{}…", &name[..45])
+    if name.chars().count() > 48 {
+        // Cut on a character boundary: a byte slice panics inside a
+        // multi-byte name (accents, emoji).
+        format!("{}…", name.chars().take(45).collect::<String>())
     } else {
         name.to_string()
     }
@@ -317,18 +320,11 @@ fn count_files(n: u64) -> String {
 
 fn plain_status_error(raw: &str) -> String {
     let t = raw.trim();
-    if t.contains("database for this drive is missing") {
-        return t.to_string();
-    }
-    if t.contains("drive") || t.contains("Drive") || t.contains("doesn't know this drive") {
-        "Luna can't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.".to_string()
-    } else if t == "unauthorized" {
-        "Your sign-in expired. Sign out and sign in again.".to_string()
-    } else if t.contains("connection") || t.contains("timed out") || t.contains("Connection") {
-        "Couldn't reach Luna. Check that it's on and try again.".to_string()
-    } else if !t.is_empty() {
-        t.to_string()
+    // The other messages are already plain and name the real cause.
+    if t == "unauthorized" {
+        "Luna no longer accepts this access token. Sign out, then sign in with a new one."
+            .to_string()
     } else {
-        "Something went wrong. Try editing it and saving again.".to_string()
+        t.to_string()
     }
 }

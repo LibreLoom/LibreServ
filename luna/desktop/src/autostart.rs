@@ -92,7 +92,7 @@ mod unix_impl {
         }
         let dir = autostart_dir();
         fs::create_dir_all(&dir).map_err(|_| {
-            "Couldn't create the start-on-boot folder on this computer.".to_string()
+            "Couldn't create the start-on-sign-in folder on this computer.".to_string()
         })?;
         let exec = exec_path();
         let body = format!(
@@ -118,12 +118,12 @@ mod unix_impl {
             }
             let mut file = opts
                 .open(&tmp)
-                .map_err(|_| "Couldn't write the start-on-boot setting.".to_string())?;
+                .map_err(|_| "Couldn't write the start-on-sign-in setting.".to_string())?;
             file.write_all(body.as_bytes())
-                .map_err(|_| "Couldn't write the start-on-boot setting.".to_string())?;
+                .map_err(|_| "Couldn't write the start-on-sign-in setting.".to_string())?;
         }
         fs::rename(tmp, path)
-            .map_err(|_| "Couldn't save the start-on-boot setting.".to_string())?;
+            .map_err(|_| "Couldn't save the start-on-sign-in setting.".to_string())?;
         Ok(())
     }
 }

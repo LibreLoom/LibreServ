@@ -19,13 +19,13 @@ impl SettingsPage {
         let group = adw::PreferencesGroup::new();
         group.set_title("This computer");
         group.set_description(Some(&format!(
-            "Choose whether {} starts when you sign in to this computer. It runs in the background so uploads and sync can keep going.",
+            "{} can start in the background when you sign in, so uploads and sync continue.",
             luna_desktop::product_name()
         )));
 
         let row = adw::SwitchRow::builder()
-            .title("Start on boot")
-            .subtitle("Start in the background after you sign in")
+            .title("Start when you sign in")
+            .subtitle("Start in the background after you sign in to this computer")
             .build();
         let _ = autostart::init_default();
         row.set_active(autostart::is_enabled());
@@ -64,7 +64,7 @@ impl SettingsPage {
         let quit_group = adw::PreferencesGroup::new();
         quit_group.set_title("Quit");
         quit_group.set_description(Some(
-            "Closing the window keeps Luna running in the background so uploads and sync can continue. Reopen Luna from your app launcher. Use Quit only when you want uploads and sync to stop.",
+            "Closing the window keeps Luna Desktop running, so uploads and sync continue. Quit stops uploads and sync until Luna Desktop starts again.",
         ));
         let quit_row = adw::ActionRow::builder()
             .title(&format!("Quit {}", luna_desktop::product_name()))
@@ -100,7 +100,7 @@ fn update_group(toast: &Rc<adw::ToastOverlay>) -> adw::PreferencesGroup {
     let row = adw::ComboRow::builder()
         .title("Update channel")
         .subtitle(
-            "Beta gets new versions sooner and may have rough edges. Applies at the next check.",
+            "Beta gets new versions sooner, but they can have more bugs. The change applies at the next update check.",
         )
         .model(&gtk::StringList::new(&["Stable", "Beta"]))
         .build();
@@ -116,8 +116,8 @@ fn update_group(toast: &Rc<adw::ToastOverlay>) -> adw::PreferencesGroup {
             } else {
                 update::Channel::Stable
             };
-            if let Err(e) = update::set_channel(channel) {
-                toast_error(&toast, format!("Couldn't save the update channel. {e}"));
+            if update::set_channel(channel).is_err() {
+                toast_error(&toast, "Couldn't save the update channel on this computer.");
             }
         }
     });
