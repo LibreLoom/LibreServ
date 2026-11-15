@@ -37,7 +37,7 @@ export default function FileOpProgress({ pct, surface = "primary", label = "Prog
       className={cn("h-2 w-full overflow-hidden rounded-pill border", track, className)}
     >
       <Motion.div
-        className={cn("h-full rounded-pill", fill)}
+        className={cn("h-full rounded-r-pill", fill)}
         initial={false}
         animate={{ width: `${value}%` }}
         transition={BAR_FILL}
