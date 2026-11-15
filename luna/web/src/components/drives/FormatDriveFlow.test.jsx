@@ -61,7 +61,8 @@ function show(props = {}) {
   return handlers;
 }
 
-const looked = () => screen.findByText("Erase this drive?");
+// The dialog title is present while the preview is still loading.
+const looked = () => screen.findByRole("button", { name: /^Erase drive/ });
 
 describe("FormatDriveFlow", () => {
   it("shows what is on the drive before anything else", async () => {

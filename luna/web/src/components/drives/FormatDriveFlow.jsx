@@ -66,7 +66,9 @@ export default function FormatDriveFlow({ device, password, open = true, onDone,
     queryFn: async () => {
       const result = await postJson(`${API}/preview`, { device: device.name });
       // Counted on the server's clock: how far it is from ours, right now.
-      return { ...result, skew: clockSkew(result.now) };
+      const receivedAt = Date.now();
+      setClockMs(receivedAt);
+      return { ...result, skew: clockSkew(result.now, receivedAt) };
     },
     retry: false,
     staleTime: Infinity,

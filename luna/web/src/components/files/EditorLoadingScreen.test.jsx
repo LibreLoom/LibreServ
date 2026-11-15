@@ -48,14 +48,18 @@ describe("editor loading screen", () => {
   });
 
   describe("animation lifetime", () => {
-    afterEach(() => vi.restoreAllMocks());
+    const originalAnimate = HTMLElement.prototype.animate;
+    afterEach(() => {
+      vi.restoreAllMocks();
+      if (originalAnimate) HTMLElement.prototype.animate = originalAnimate;
+      else delete HTMLElement.prototype.animate;
+    });
 
     it("stops drawing once the loader is gone", async () => {
-      // jsdom has no canvas; a stub context lets the loader start its loop.
-      const ctx = /** @type {any} */ (new Proxy({}, { get: () => () => {}, set: () => true }));
-      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx);
-      const raf = vi.spyOn(window, "requestAnimationFrame");
-      const caf = vi.spyOn(window, "cancelAnimationFrame");
+      // The loader uses a compositor animation; jsdom needs the Web Animations API stubbed.
+      const cancel = vi.fn();
+      const animate = vi.fn(() => /** @type {Animation} */ (/** @type {unknown} */ ({ cancel, currentTime: 0 })));
+      HTMLElement.prototype.animate = animate;
 
       render(
         <ToastProvider>
@@ -70,17 +74,17 @@ describe("editor loading screen", () => {
         </ToastProvider>,
       );
       await act(async () => finishDownload());
-      expect(raf).toHaveBeenCalled();
+      expect(animate).toHaveBeenCalled();
 
       await act(async () => globalThis.__readyEditor());
       expect(screen.queryByRole("status")).toBeNull();
-      expect(caf).toHaveBeenCalled();
+      expect(cancel).toHaveBeenCalled();
 
-      const callsAfterUnmount = raf.mock.calls.length;
+      const callsAfterUnmount = animate.mock.calls.length;
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 100));
       });
-      expect(raf.mock.calls.length).toBe(callsAfterUnmount);
+      expect(animate.mock.calls.length).toBe(callsAfterUnmount);
     });
   });
 });

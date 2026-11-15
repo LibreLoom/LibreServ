@@ -615,7 +615,9 @@ describe("FilesPage", () => {
     expect(toggle.closest("[data-slot=collapsible]")?.className).toMatch(/rounded-large-element/);
     // The drive's health section above adds its own ValueDisplay row, so
     // count the rows of this panel, not the whole document.
-    expect(panel.querySelectorAll("[data-slot=value-display]")).toHaveLength(3);
+    expect(within(panel).getByText("Protection")).toBeInTheDocument();
+    expect(within(panel).getByText("Not protected")).toBeInTheDocument();
+    expect(panel.querySelectorAll("[data-slot=value-display]")).toHaveLength(4);
   });
 
   it("shows ejected drives as Ejected without Open files or Eject safely", async () => {

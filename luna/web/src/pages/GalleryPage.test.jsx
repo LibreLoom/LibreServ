@@ -736,7 +736,7 @@ describe("GalleryPage", () => {
       expect(window.location.hash).toBe("#albums");
     });
     expect(await screen.findByRole("button", { name: /^Trip/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Back$/i })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Back$/i })).not.toBeInTheDocument());
 
     // Forward reopens the same album.
     act(() => {
@@ -807,7 +807,7 @@ describe("GalleryPage", () => {
     });
     expect(await screen.findByLabelText("one.jpg")).toBeInTheDocument();
     expect(screen.getByLabelText("two.jpg")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Back$/i })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Back$/i })).not.toBeInTheDocument());
   });
 
   it("closes the lightbox on browser Back and reopens it on Forward", async () => {
@@ -1021,7 +1021,7 @@ describe("GalleryPage", () => {
     // Clearing the filters falls back to the search-only empty state.
     fireEvent.click(within(emptyState).getByRole("button", { name: /^Clear filters$/i }));
     expect(await screen.findByText(/Try another word or clear the search/i)).toBeInTheDocument();
-    expect(document.querySelectorAll("[data-slot=empty-state]")).toHaveLength(1);
+    await waitFor(() => expect(document.querySelectorAll("[data-slot=empty-state]")).toHaveLength(1));
   });
 
   it("keeps a smart album inside Albums, can save it as an album, and Back returns to the grid", async () => {
@@ -1081,7 +1081,7 @@ describe("GalleryPage", () => {
 
     expect(await screen.findByText(/Nothing matched/i)).toBeInTheDocument();
     expect(screen.queryByText(/No favorites yet/i)).not.toBeInTheDocument();
-    expect(document.querySelectorAll("[data-slot=empty-state]")).toHaveLength(1);
+    await waitFor(() => expect(document.querySelectorAll("[data-slot=empty-state]")).toHaveLength(1));
   });
 
   it("names the album when a search inside it matches nothing", async () => {
@@ -1107,7 +1107,7 @@ describe("GalleryPage", () => {
 
     expect(await screen.findByText(/in this album/i)).toBeInTheDocument();
     expect(screen.queryByText(/This album is empty/i)).not.toBeInTheDocument();
-    expect(document.querySelectorAll("[data-slot=empty-state]")).toHaveLength(1);
+    await waitFor(() => expect(document.querySelectorAll("[data-slot=empty-state]")).toHaveLength(1));
   });
 
   it("shows an empty Favorites state even while gallery indexing is busy", async () => {
