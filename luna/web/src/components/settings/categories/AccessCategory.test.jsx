@@ -145,7 +145,7 @@ describe("AccessCategory", () => {
     expect(usageCalls).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: /Hide usage log/i }));
-    expect(screen.queryByText(/list — Photos/i)).toBeNull();
+    expect(screen.queryByText(/list: Photos/i)).toBeNull();
     expect(screen.getByRole("button", { name: /Usage log/i })).toBeTruthy();
   });
 
@@ -180,7 +180,7 @@ describe("AccessCategory", () => {
     expect(await screen.findByText("Kitchen Mac")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: /Usage log/i }));
-    expect(await screen.findByText(/WebDAV folder — Browsed folder/i)).toBeTruthy();
+    expect(await screen.findByText(/WebDAV folder: Browsed folder/i)).toBeTruthy();
     expect(screen.getByText("macOS Finder")).toBeTruthy();
     expect(screen.getByText("Home network (192.168.1.50)")).toBeTruthy();
   });

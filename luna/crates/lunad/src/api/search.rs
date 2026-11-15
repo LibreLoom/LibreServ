@@ -259,7 +259,7 @@ async fn factory_reset(
     if !body.confirm {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            "Confirm that you want to reset this Luna. The reset deletes every account, share, and setting, and turns off remote access. Files on your drives stay where they are.",
+            "Confirm that you want to reset this Luna. Everyone is signed out, backups stop, and Luna Connect turns off. Files on your drives are not deleted.",
         ));
     }
     if body.password.trim().is_empty() {

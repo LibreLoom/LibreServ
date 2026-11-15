@@ -193,7 +193,7 @@ function LinkedLunaRow({ device, onRefresh }) {
     const host = device.device_hostname || "this Luna";
     const msg =
       `Create a new secure connection for ${host}? ` +
-      "Luna picks it up within about 5 minutes. The public address stays the same.";
+      "Remote access stops until Luna picks it up, within about 5 minutes. The public address stays the same.";
     if (!window.confirm(msg)) return;
     setRegenBusy(true);
     setActionMsg("");
@@ -436,7 +436,7 @@ export default function AdminAccountsPage() {
 
   const deleteAccount = async () => {
     if (!selectedId || !detail) return;
-    const msg = `Delete ${detail.email}? This charges the month so far, deletes every cloud backup, unlinks its Lunas, and removes the account. This can't be undone.`;
+    const msg = `Delete ${detail.email}? This charges the month so far, deletes every cloud backup and the device tokens of its Lunas, and removes the account. This can't be undone.`;
     if (!window.confirm(msg)) return;
     setDeleteBusy(true);
     setDetailError("");
@@ -610,7 +610,7 @@ export default function AdminAccountsPage() {
                       <Trash2 className="h-4 w-4" /> Delete account
                     </h3>
                     <p className="text-sm text-muted-foreground mb-3">
-                      Remove this customer account, its linked Lunas, and all its cloud backups. Stripe charges the month so far.
+                      Remove this customer account, all its cloud backups, and the device tokens of its Lunas. Stripe charges the month so far.
                     </p>
                     <Button variant="destructive" loading={deleteBusy} onClick={deleteAccount}>
                       Delete account

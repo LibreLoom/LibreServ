@@ -416,7 +416,7 @@ fn resolve_mount(state: &AppState, drive_id: &str) -> Result<PathBuf, (StatusCod
                 "Luna couldn't open this drive.",
             )
         })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that drive."))?;
+        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna can't find that drive."))?;
     if drive.mount_point.is_empty() {
         return Err(json_error(
             StatusCode::NOT_FOUND,
@@ -532,9 +532,7 @@ async fn timeline(
                         "Luna couldn't open that album.",
                     )
                 })?
-                .ok_or_else(|| {
-                    json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album.")
-                })?;
+                .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna can't find that album."))?;
             if !can_view_album(&state, &user, home, &album) {
                 return Err(json_error(
                     StatusCode::FORBIDDEN,
@@ -1703,14 +1701,14 @@ async fn create_album(
     if mounts.is_empty() {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            "You need write access on a drive before creating an album.",
+            "To create an album, you need a plugged-in drive with Write access.",
         ));
     }
     let (drive_id, root) = if let Some(id) = body.home_drive_id.as_deref() {
         mounts.into_iter().find(|(d, _)| d == id).ok_or_else(|| {
             json_error(
                 StatusCode::FORBIDDEN,
-                "You don't have a writable drive for this album.",
+                "To keep an album on that drive, it must be plugged in and you need Write access to it.",
             )
         })?
     } else {
@@ -1743,7 +1741,7 @@ async fn get_album(
                 "Luna couldn't open that album.",
             )
         })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
+        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna can't find that album."))?;
     if !can_view_album(&state, &user, &home, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
@@ -1767,7 +1765,7 @@ async fn patch_album(
                 "Luna couldn't open that album.",
             )
         })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
+        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna can't find that album."))?;
     if !can_manage_album(&user, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
@@ -1826,7 +1824,7 @@ async fn delete_album(
                 "Luna couldn't open that album.",
             )
         })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
+        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna can't find that album."))?;
     if !can_manage_album(&user, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
@@ -1861,7 +1859,7 @@ async fn add_items(
                 "Luna couldn't open that album.",
             )
         })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
+        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna can't find that album."))?;
     let can_add = can_contribute_album(&state, &user, &home, &album);
     if !can_add {
         return Err(json_error(
@@ -1872,7 +1870,7 @@ async fn add_items(
     if album.locked {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "This album is locked. Unlock it before changing its photos.",
+            "This album is locked, so nobody can add or remove its photos. The album owner or an Admin can unlock it.",
         ));
     }
     let conn = state.db.lock().map_err(|_| {
@@ -1985,7 +1983,7 @@ async fn remove_item(
                 "Luna couldn't open that album.",
             )
         })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
+        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna can't find that album."))?;
     // album_items carries no added_by, so own-vs-others can't be told apart —
     // removing is a manage act (owner/Admin), not a contributor one.
     if !can_manage_album(&user, &album) {
@@ -1997,7 +1995,7 @@ async fn remove_item(
     if album.locked {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "This album is locked. Unlock it before changing its photos.",
+            "This album is locked, so nobody can add or remove its photos. The album owner or an Admin can unlock it.",
         ));
     }
     photos::remove_album_item(&root, &id, &body.drive_id, &body.path).map_err(|_| {
@@ -2024,7 +2022,7 @@ async fn list_items(
                 "Luna couldn't open that album.",
             )
         })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
+        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna can't find that album."))?;
     if !can_view_album(&state, &user, &home, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
@@ -2109,7 +2107,7 @@ async fn cover(
                 "Luna couldn't open that album.",
             )
         })?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know that album."))?;
+        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna can't find that album."))?;
     if !can_view_album(&state, &user, &home, &album) {
         return Err(json_error(
             StatusCode::FORBIDDEN,

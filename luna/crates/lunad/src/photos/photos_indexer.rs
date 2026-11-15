@@ -501,7 +501,7 @@ fn worker_loop(
                     *scan_error.lock().unwrap() = Some(ScanError {
                         drive_id: drive_id.clone(),
                         message:
-                            "Luna couldn't finish looking through {drive}. Try looking through it again, or unplug the drive and plug it back in."
+                            "Luna couldn't finish looking through {drive}. Select Rescan drives in Photos, or unplug the drive and plug it in again."
                                 .into(),
                     });
                 }

@@ -485,7 +485,7 @@ post("/api/v1/drives/:id/files/purge", ({ world, user, params, body }) => {
 // ── Uploads in one request (multipart) ──────────────────────────────────────
 /** api/uploads.rs name_clash: a taken name needs a decision. */
 function nameClash(kind) {
-  const message = kind === "dir" ? "A folder with this name is already here. Choose another name." : "A file with this name is already here. Rename it or choose another.";
+  const message = kind === "dir" ? "A folder with this name is already here. Choose another name." : kind ? "A file with this name is already here. Rename it or choose another." : "A file or folder with this name is already here. Choose another name.";
   return fail(409, message, "exists", kind ? { existing_kind: kind } : {});
 }
 const kindOf = (node) => (node.kind === "dir" ? "dir" : "file");

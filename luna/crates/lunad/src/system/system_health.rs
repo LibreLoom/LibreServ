@@ -463,7 +463,7 @@ fn add_clock_check(checks: &mut Checks, clock: ClockReading, build_unix: i64) {
                 format!("The clock is wrong: it says {}.", ymd(clock.now_unix)),
                 None,
             )
-            .more("That date is before this version of Luna was made, so files get wrong dates and updates and Luna Connect may fail. Luna sets its clock over the internet, so make sure your router or modem is online.");
+            .more("That date is before this version of Luna was made, so new and changed files get wrong dates, and updates and Luna Connect may fail. Luna sets its clock over the internet, so make sure your router or modem is online.");
         return;
     }
     match clock.synced {

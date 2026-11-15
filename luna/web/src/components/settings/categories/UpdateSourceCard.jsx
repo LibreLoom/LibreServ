@@ -125,7 +125,7 @@ export default function UpdateSourceCard({ index = 3 }) {
               />
               {changeChannel.isError && (
                 <InlineError className="text-secondary w-full">
-                  {apiErrorMessage(changeChannel.error)}
+                  {apiErrorMessage(changeChannel.error, "Couldn't change the update channel. Try again.")}
                 </InlineError>
               )}
             </div>
@@ -294,7 +294,7 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
               Signing keys{" "}
               <InfoHint
                 label="What signing keys do"
-                content="Luna installs an update only if its signature matches one of these public keys. This proves that the update comes from the project and did not change on the way. The LibreLoom release key is already filled in. Change it only if someone else signs your updates."
+                content="Luna installs an update only if its signature matches one of these public keys. This proves that the update comes from the project and did not change on the way."
               />
             </label>
             <ShakeTarget shake={keysShake || generalSaveShake}>

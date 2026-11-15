@@ -257,7 +257,7 @@ function Responder({
       })
       .catch((err) => {
         if (cancelled) return;
-        setEditNotice(apiErrorMessage(err, "Luna couldn't open the answers for that edit link. You can fill in the form again."));
+        setEditNotice(apiErrorMessage(err, "Luna couldn't open the answers for that edit link. You can send a new response instead."));
         setStage("form");
       })
       .finally(() => {

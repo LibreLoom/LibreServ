@@ -54,7 +54,7 @@ func cloudflareDomainReady() (int, string) {
 	}
 	if err := security.AtRestReady(); err != nil {
 		slog.Error("domain ops: at-rest key not configured", "error", err)
-		return 503, "Could not protect the connection secret. Contact support."
+		return 503, "Remote addresses are not set up on this Luna Connect site yet. Contact support."
 	}
 	return 0, ""
 }
@@ -180,7 +180,7 @@ func applyDeviceDomain(deps Deps, deviceID, sub string, port int) (map[string]an
 		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
 		_ = deps.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, host)
 		releaseClaim()
-		return nil, 500, "Could not protect the connection secret. Try again."
+		return nil, 500, "Could not set up the address. Try again."
 	}
 	// The subdomain claim above already holds; this update only fills in the
 	// tunnel material and display fields for the device we still own.
@@ -233,7 +233,7 @@ func regenerateDeviceTunnel(deps Deps, deviceID string) (map[string]any, int, st
 	sealedTok, err := security.SealString(ttoken)
 	if err != nil {
 		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
-		return nil, 500, "Could not protect the connection secret. Try again."
+		return nil, 500, "Could not set up the address. Try again."
 	}
 	_, err = deps.DB.Exec(`UPDATE devices SET tunnel_id = ?, tunnel_token = ? WHERE id = ?`, tid, sealedTok, deviceID)
 	if err != nil {

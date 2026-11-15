@@ -321,7 +321,7 @@ export default [
     },
     check: [
       "Move Spain to Backup drive → starts, then stops at about half",
-      "Row says it failed (not silent): \"Backup drive is full. Free up some space on it and try again. Nothing was moved. Your files are still where they were.\"",
+      "Row says it failed (not silent): \"Backup drive is full. Free up some space on it and try again. Nothing was moved.\"",
       "Spain is untouched in Photos/2024, and Backup drive has no partial copy",
     ],
   },
@@ -363,7 +363,7 @@ export default [
   {
     id: "files/private-others", area: A, title: "Someone else's private folder (I'm an Admin)", url: "/files/d1",
     seed: (w) => { demo(w); w.users.push(user({ id: "u2", username: "sam", display_name: "Sam" })); addDir(w, "d1", "Sam's stuff", { private: true, owner: "u2" }); addFile(w, "d1", "Sam's stuff/x.txt", { text: "x" }); },
-    check: ["The Admin does not see Sam's private folder in the list (the Admin role stops at a private wall)", "Opening its address directly says the Admin has no permission to view this folder — not a blank list or raw error", "Search never shows its contents"],
+    check: ["The Admin does not see Sam's private folder in the list (the Admin role stops at a private wall)", "Opening its address directly says \"You don't have permission to open this.\", not a blank list or raw error", "Search never shows its contents"],
   },
   {
     id: "files/private-orphaned", area: A, title: "Private folders of a removed person", url: "/settings#users",

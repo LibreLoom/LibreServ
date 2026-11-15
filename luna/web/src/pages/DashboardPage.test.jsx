@@ -231,7 +231,7 @@ describe("DashboardPage", () => {
           checks: {
             disk_space: {
               status: "failed",
-              message: "Luna's own storage (its system disk) is almost full.",
+              message: "Luna's system disk is almost full, so Luna may stop working.",
               category: "system",
             },
           },

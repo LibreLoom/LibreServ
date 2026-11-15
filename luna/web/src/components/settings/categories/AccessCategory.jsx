@@ -291,7 +291,7 @@ function ProfileCard() {
               content={
                 isAdmin
                   ? "An Admin can add users, change settings, manage drives, and open everything on this Luna except other people's private items."
-                  : "A Member can use folders and albums shared with them. They cannot manage users, drives, or Luna settings."
+                  : "A Member can use what is shared with them, plus their own albums and private folders. They cannot manage users, drives, or Luna settings."
               }
             />
           </span>

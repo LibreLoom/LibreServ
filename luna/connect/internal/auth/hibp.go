@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// BreachedPasswordMessage matches Sol's rejectBreachedPassword copy.
+// BreachedPasswordMessage refuses a password found in a known data breach.
 const BreachedPasswordMessage = "That password is in known data breaches, so it is not safe. Choose a different password."
 
 // errHIBPRedirect refuses HTTP redirects on the HIBP range client. Following a

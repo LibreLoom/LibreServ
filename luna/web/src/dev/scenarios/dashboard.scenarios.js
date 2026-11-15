@@ -176,7 +176,7 @@ export default [
     id: "dashboard/connect-token-error",
     area: "Dashboard",
     title: "Needs you: Connect device token rejected",
-    seed: (w) => { w.connect = { connect_active: false, enabled: false, device_token_error: "Luna Connect did not accept this device token. It may be mistyped, revoked, or meant for a different Luna. Open Luna on a phone or computer, then go to Settings → About → Advanced and paste a new device token." }; },
+    seed: (w) => { w.connect = { connect_active: false, enabled: false, device_token_error: "Luna Connect did not accept this device token. It may be mistyped, revoked, or for a different Luna. On a phone or computer, open Luna and paste a new device token in Settings → About → Advanced." }; },
     check: [NEEDS, "Button goes to Settings → About where the token can be replaced", "lunad never sends the saved token back, so the token box is empty even while the error shows — a new token has to be pasted"],
   },
   {
@@ -187,7 +187,7 @@ export default [
       w.systemChecks = {
         overall_pass: false,
         checks: {
-          disk_space: { status: "failed", message: "Luna's own storage (its system disk) is almost full. Free some space on it, or Luna may stop working.", more: "This is the disk where Luna keeps its accounts and settings; your files are on your drives.", category: "system" },
+          disk_space: { status: "failed", message: "Luna's system disk is almost full, so Luna may stop working.", more: "This disk holds Luna's accounts and settings, not your files. To clear temporary files, select Free up space in Settings → About → System checks.", category: "system" },
           clock: { status: "warning", message: "The clock may be off.", more: "Luna sets its clock over the internet and hasn't managed to yet, so new and changed files may get wrong dates. Check that your router or modem is online, then check again in a minute.", category: "system" },
           video_tools: { status: "warning", message: "Videos get no preview pictures or length.", more: "Photos shows these for each video, made with video tools that are missing. Videos can still be played and downloaded.", category: "features" },
         },
@@ -205,8 +205,8 @@ export default [
       w.health = { d1: smartHealth({ verdict: "failing", overall: "failed", status_bits: 8, reallocated_sectors: 120, temperature_c: 55, signals: [{ kind: "self_check_failed", level: "failing", value: null, limit: null }, { kind: "reallocated_sectors", level: "failing", value: 120, limit: 100 }, { kind: "temperature", level: "note", value: 55, limit: 60 }] }) };
       w.summaries.d2 = summary("d2", { total_bytes: 64 * GB, free_bytes: GB, used_bytes: 63 * GB });
       w.network = { ethernet_connected: true, has_default_route: false };
-      w.connect = { connect_active: false, enabled: false, device_token_error: "Luna Connect did not accept this device token. It may be mistyped, revoked, or meant for a different Luna. Open Luna on a phone or computer, then go to Settings → About → Advanced and paste a new device token." };
-      w.systemChecks = { overall_pass: false, checks: { drive_d1_smart: { status: "failed", message: "Drive 1 is failing. Copy your files to another drive now.", category: "drives" }, disk_space: { status: "failed", message: "Luna's own storage (its system disk) is almost full. Free some space on it, or Luna may stop working.", more: "This is the disk where Luna keeps its accounts and settings; your files are on your drives.", category: "system" } } };
+      w.connect = { connect_active: false, enabled: false, device_token_error: "Luna Connect did not accept this device token. It may be mistyped, revoked, or for a different Luna. On a phone or computer, open Luna and paste a new device token in Settings → About → Advanced." };
+      w.systemChecks = { overall_pass: false, checks: { drive_d1_smart: { status: "failed", message: "Drive 1 is failing. Copy your files to another drive now.", category: "drives" }, disk_space: { status: "failed", message: "Luna's system disk is almost full, so Luna may stop working.", more: "This disk holds Luna's accounts and settings, not your files. To clear temporary files, select Free up space in Settings → About → System checks.", category: "system" } } };
       w.backups = [backup({ state: "failing", last_error: "Backup drive is full. Free up some space on it and try again." }), backup({ state: "stale", source_name: "Documents" })];
       w.cloudBackups = [cloudBackup({ source_missing: true })];
       w.phrase = { ...w.phrase, check_due: true };

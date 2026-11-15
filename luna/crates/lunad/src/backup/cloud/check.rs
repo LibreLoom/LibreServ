@@ -604,7 +604,7 @@ mod tests {
         let report = check(&db, "p1", &store, Sample::All, 200).unwrap();
         assert_eq!(report.bad_records, vec!["snap-1".to_string()]);
         assert_eq!(report.snapshots_checked, 0);
-        assert!(report.problem.unwrap().contains("signature check"));
+        assert!(report.problem.unwrap().contains("missing or damaged"));
     }
 
     #[test]

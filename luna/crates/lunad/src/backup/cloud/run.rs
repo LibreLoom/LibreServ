@@ -32,7 +32,7 @@ const PACK_FLUSH_BYTES: usize = 8 << 20;
 
 /// Shown when a run is held because its source drive or folder is gone.
 const NO_ADMIN_PHRASE: &str = "Waiting for an Admin to set up the recovery phrase.";
-pub(crate) const SOURCE_MISSING: &str = "Most files to back up are missing, or the drive is unplugged. Connect the drive, then try again.";
+pub(crate) const SOURCE_MISSING: &str = "Most files to back up are missing, or the drive is unplugged. Check the drive and folder, then try again.";
 
 /// Shown when a run is held because it could not be compared with the last copy.
 pub(crate) const CHECK_FAILED: &str = "Luna couldn't compare this folder with the last cloud copy, so it paused this backup. Try again, or choose Back up anyway if the folder looks right.";

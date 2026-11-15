@@ -4,6 +4,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import RemoteCategory from "./RemoteCategory";
 
+// The "Change the device token" link points at About, which only an Admin can open.
+vi.mock("../../../context/AuthContext", () => ({
+  useOptionalAuth: () => ({ user: { id: "1", role: "admin" } }),
+}));
+
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(

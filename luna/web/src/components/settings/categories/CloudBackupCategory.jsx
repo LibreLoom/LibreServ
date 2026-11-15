@@ -224,7 +224,7 @@ export default function CloudBackupCategory() {
           headerActions={
             <InfoHint
               label="What cloud backup means"
-              content="Luna Connect keeps the latest copy and about one older copy from each of the last day, week, and month."
+              content="An off-site copy of your files, kept by Luna Connect. It keeps the latest copy and about one older copy from each of the last day, week, and month."
             />
           }
         >

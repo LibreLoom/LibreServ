@@ -87,7 +87,7 @@ describe("FileBrowser", () => {
       "fetch",
       vi.fn(async () => new Response(
         JSON.stringify({
-          error: "Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again. Your files stay on the drive, but items in its Trash won't show up after you add it again.",
+          error: "Luna can't write its database to this drive, but your files are still on it. Free up space or check the drive's write-lock switch, then try again.",
           code: "missing_drive_db",
         }),
         { status: 500, headers: { "Content-Type": "application/json" } },
@@ -96,7 +96,7 @@ describe("FileBrowser", () => {
     renderBrowser();
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(
-      "items in its Trash won't show up after you add it again.",
+      "your files are still on it.",
     );
     expect(alert).not.toHaveTextContent("No data on the drive will be lost");
     expect(alert).not.toHaveTextContent(/unplugg/i);
@@ -1458,7 +1458,7 @@ describe("FileBrowser", () => {
 
   it("shows the caller's notice instead of an error on a 403 listing", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(
-      JSON.stringify({ error: "You don't have permission to view this folder." }),
+      JSON.stringify({ error: "You don't have permission to open this." }),
       { status: 403, headers: { "Content-Type": "application/json" } },
     )));
     renderBrowser({

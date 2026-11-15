@@ -411,7 +411,7 @@ export default function UsersCategory() {
                             </Pill>
                             <InfoHint
                               label="What Member means"
-                              content="A Member can use folders and albums shared with them. They cannot manage users, drives, or Luna settings."
+                              content="A Member can use what is shared with them, plus their own albums and private folders. They cannot manage users, drives, or Luna settings."
                             />
                           </span>
                         ),

@@ -162,3 +162,22 @@ Not reviewed (usage limit): the other 22 chunks.
 - **web-cloud-protect:** The 'usually within 6 hours' wording is true only while a Connect store is set up. sweep() runs only in the Some(store) branch of run_all. 'Usually' covers this, but the fixer's product question still applies: lunad could start a sweep right after these DELETE calls.
 - **web-cloud-protect:** luna/docs/recovery-phrase/plan.md still quotes the old strings ('Checking your recovery phrase…', 'can't be opened anymore'). This is an internal doc and out of scope, but it is now stale.
 - **web-cloud-protect:** The fixer's outOfChunk entries for settings.scenarios.js:393, cloudPhrase.test.js:443, cloudRestore.js (save-phrase message) and cloud_phrase.rs (AuthError::Db mapped to a wrong-password error) still stand. I did not re-verify the Rust helper name save_failed() beyond seeing that it exists in cloud_phrase.rs.
+
+## Second pass: the 22 reviews (2026-11-15)
+
+All 22 chunks the first run missed are now reviewed. Reviewers made 58 fixes and the reconcile applied 31 follow-ups. No em-dash is left in a user-facing string.
+
+Decided by the owner: Connect onboarding Back never unlinks a Luna (94ea1ca8); a drive being erased says so (a79a8fec); the first Android upload follows the Wi-Fi and charging settings (3ae2cda1).
+
+Still open (code or product, not copy):
+- Album lock is only an edit freeze, with an "Open it?" prompt in front. Remove it, or drop the prompt.
+- The HDMI console shows how to get a root shell, and root has no password.
+- A changed update feed can install an older build (updates.rs reconfigure sets adopt_source). Block downgrades?
+- No support channel exists, but the quick-start leaflet still says "Contact support" and has a placeholder QR.
+- vault.rs inspect_identity calls every failure, including a mount failure, "not a drive set up by Luna".
+- A poisoned database lock answers "Luna's index is busy. Try again.", but trying again can't help until lunad restarts.
+- The cloud phrase check (POST /api/v1/cloud/phrase/check) has no try limit.
+- Display names over 80 bytes get the username rule text (auth.rs BadUsername).
+- "Luna can't find this drive" (dav.rs, files) and "Luna doesn't know this drive" (access.rs, drives.rs) are two texts for one thing.
+- Desktop status rows show Luna's error text with GTK markup on.
+- Sol Connect portal.go still has the old email-verification strings with em-dashes.

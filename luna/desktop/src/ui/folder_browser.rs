@@ -241,10 +241,17 @@ impl FolderBrowser {
                             Err(e) => {
                                 folder_list.set_visible(true);
                                 // `e` names the real cause (Luna's own
-                                // message, or why Luna couldn't be reached).
+                                // message, or why Luna couldn't be reached),
+                                // except the bare 401 marker from list_files.
+                                let reason = if e.trim() == "unauthorized" {
+                                    "Luna no longer accepts this access token. Sign out, then sign in with a new one.".to_string()
+                                } else {
+                                    e
+                                };
                                 let row = adw::ActionRow::builder()
                                     .title("Couldn't open this folder")
-                                    .subtitle(&e)
+                                    .subtitle(&reason)
+                                    .use_markup(false)
                                     .build();
                                 row.set_title_lines(1);
                                 row.set_subtitle_lines(3);
@@ -252,7 +259,7 @@ impl FolderBrowser {
                                 icon.set_icon_size(gtk::IconSize::Normal);
                                 row.add_prefix(&icon);
                                 folder_list.append(&row);
-                                toast_error(&toast, e);
+                                toast_error(&toast, reason);
                             }
                         }
                     },

@@ -460,7 +460,7 @@ async fn bundle_write(
     tokio::fs::write(&temp, &body).await.map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't store the converted document in its own storage. An Admin can check it in Settings → About → System checks.",
+            "Luna couldn't store the converted document in its own storage. An Admin can check that storage in Settings → About → System checks.",
         )
     })?;
     if let Err(e) = tokio::fs::rename(&temp, &file).await {

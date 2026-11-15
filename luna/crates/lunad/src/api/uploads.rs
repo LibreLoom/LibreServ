@@ -306,10 +306,11 @@ fn check_upload_access(
 /// The `409` for a name that is already taken. `existing_kind` says whether
 /// a `"file"` or a `"dir"` holds it, when that is known.
 pub(crate) fn name_clash(existing_kind: Option<&str>) -> (StatusCode, Json<Value>) {
-    let message = if existing_kind == Some("dir") {
-        "A folder with this name is already here. Choose another name."
-    } else {
-        "A file with this name is already here. Rename it or choose another."
+    // `None`: the name is taken, but Luna didn't look at what holds it.
+    let message = match existing_kind {
+        Some("dir") => "A folder with this name is already here. Choose another name.",
+        Some(_) => "A file with this name is already here. Rename it or choose another.",
+        None => "A file or folder with this name is already here. Choose another name.",
     };
     let mut body = json!({ "error": message, "code": "exists" });
     if let Some(kind) = existing_kind {

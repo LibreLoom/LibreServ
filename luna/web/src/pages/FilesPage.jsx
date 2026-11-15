@@ -296,7 +296,7 @@ const CANT_OPEN_MESSAGE =
 const ERASING_MESSAGE =
   "Being erased and set up. This drive is unavailable until that finishes.";
 const CANT_OPEN_HINT =
-  "Unplug the drive, wait a few seconds, and plug it back in. If Luna still cannot open it, the drive can be damaged.";
+  "Unplug the drive, wait a few seconds, and plug it back in. If Luna still cannot open it, the drive may be damaged.";
 
 function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect, onShowProgress, onEncryption }) {
   const location = useLocation();

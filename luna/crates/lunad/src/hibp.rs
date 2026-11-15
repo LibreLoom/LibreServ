@@ -17,7 +17,8 @@ use std::time::Duration;
 use sha1::{Digest, Sha1};
 
 /// Same plain-language copy as Sol.
-pub const BREACHED_PASSWORD_MESSAGE: &str = "That password has appeared in known data breaches, so it isn't safe to use. Please choose a different password.";
+pub const BREACHED_PASSWORD_MESSAGE: &str =
+    "That password is in known data breaches, so it is not safe. Choose a different password.";
 
 /// What the person is told when the breach service could not answer and the
 /// password was therefore allowed unchecked.
@@ -403,10 +404,10 @@ mod tests {
     }
 
     #[test]
-    fn breached_copy_matches_sol_constant() {
+    fn breached_copy_matches_connect_constant() {
         assert_eq!(
             BREACHED_PASSWORD_MESSAGE,
-            "That password has appeared in known data breaches, so it isn't safe to use. Please choose a different password."
+            "That password is in known data breaches, so it is not safe. Choose a different password."
         );
     }
 

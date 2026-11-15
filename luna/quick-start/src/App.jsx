@@ -93,7 +93,7 @@ function LocalPanel() {
         <li>Connect Luna to your router or modem with the included RJ45 (ethernet) cable.</li>
         <li>Wait a few minutes for Luna to start. On a phone or computer on the same network, open <strong className="font-semibold">luna.local</strong> in a web browser.</li>
         <li>If that doesn't work, connect a screen to a video port on the back of Luna. On your phone or computer, open the address shown on the screen.</li>
-        <li>Create the first Admin account. An Admin manages people, settings, drives, and all files except other people&apos;s private folders.</li>
+        <li>Create the first Admin account. An Admin manages people, settings, drives, and all files except other people&apos;s private files and folders.</li>
         <li>Name Luna, finish setup, then plug in a USB drive. Nothing on the drive changes until you add it in Luna.</li>
       </ol>
       <p className={`${footnote} mt-[0.16in]`}>Remote access and cloud backup stay off unless you link Luna Connect later.</p>

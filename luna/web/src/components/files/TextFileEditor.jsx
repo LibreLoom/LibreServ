@@ -256,7 +256,7 @@ function EditorSession({
       : connStatus === "connecting" || connStatus === "reconnecting"
         ? "Connecting…"
         : canWrite
-          ? "Live editing with others stopped. Your changes still save."
+          ? "Live editing with others stopped. Luna keeps trying to save your changes."
           : "Live updates stopped. Reopen the file to see new changes.";
 
   return (

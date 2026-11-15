@@ -36,13 +36,12 @@ const MAX_REPLY_BYTES: u64 = 4 * 1024 * 1024;
 pub const DEVICE_TOKEN_FILE: &str = "device-token";
 
 /// Connect rejected the on-disk token (HTTP 401 / revoked / unknown).
-pub const DEVICE_TOKEN_REJECTED_MSG: &str = "Luna Connect did not accept this device token. It may be mistyped, revoked, or for a different Luna. Paste a new device token in Settings → About → Advanced.";
+pub const DEVICE_TOKEN_REJECTED_MSG: &str = "Luna Connect did not accept this device token. It may be mistyped, revoked, or for a different Luna. On a phone or computer, open Luna and paste a new device token in Settings → About → Advanced.";
 /// On-disk token file is present but not a valid Crockford device token.
-pub const DEVICE_TOKEN_MALFORMED_MSG: &str = "This Luna's device token is not valid. Paste a new device token in Settings → About → Advanced.";
+pub const DEVICE_TOKEN_MALFORMED_MSG: &str = "This Luna's device token is not valid. On a phone or computer, open Luna and paste a new device token in Settings → About → Advanced.";
 /// Connect was unreachable, or answered with an error, on the last status
 /// pull (sticky while token is present).
-pub const CONNECT_UNREACHABLE_MSG: &str =
-    "Luna can't reach Luna Connect, or Luna Connect has a problem. Luna will keep trying.";
+pub const CONNECT_UNREACHABLE_MSG: &str = "Luna can't reach Luna Connect, or Luna Connect has a problem. Check this Luna's internet connection. Luna will keep trying.";
 /// Connect replied with a Cloudflare (or similar) browser challenge instead of JSON.
 pub const CONNECT_CHALLENGED_MSG: &str =
     "Luna Connect blocked a request from this Luna. Luna will keep trying.";

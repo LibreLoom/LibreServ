@@ -21,7 +21,7 @@ const SERVICE_FIELDS = {
     label: "Billing (Stripe)",
     description: (
       <>
-        Takes card payments and the monthly cloud backup bill. Storage costs $0.008 per GB per month on the month’s average, with a $3 minimum once an account stores anything. Downloads are free up to 3× the stored amount, then $0.01 per GB. In <PathTrail steps={["Stripe Dashboard", "Billing", "Meters"]} />, create two meters with aggregation Last: luna_backup_gb (storage GB) and luna_egress_gb (extra download GB). Link a $0.008/GB price to the storage meter and a $0.01/GB price to the download meter. The API keys are in <PathTrail steps={["Developers", "API keys"]} />, and the webhook secret for this Luna Connect address is in <PathTrail steps={["Developers", "Webhooks"]} />.
+        Takes card payments and the monthly cloud backup bill. Storage costs $0.008 per GB per month on the month’s average, with a $3 minimum once an account stores anything. Downloads are free up to 3× what you store, then $0.01 per GB. In <PathTrail steps={["Stripe Dashboard", "Billing", "Meters"]} />, create two meters with aggregation Last: luna_backup_gb (storage GB) and luna_egress_gb (extra download GB). Link a $0.008/GB price to the storage meter and a $0.01/GB price to the download meter. The API keys are in <PathTrail steps={["Developers", "API keys"]} />, and the webhook secret for this Luna Connect address is in <PathTrail steps={["Developers", "Webhooks"]} />.
       </>
     ),
     credentials: [

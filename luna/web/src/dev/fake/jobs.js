@@ -22,7 +22,7 @@ import {
 const MAX_QUEUED_PER_USER = 4;
 const UNKNOWN_DRIVE = "Luna can't find one of these drives. Make sure it is plugged in, or unplug it and plug it back in.";
 const BAD_PATH = "Luna can't use that path.";
-const GENERIC = "Luna couldn't finish this job. Check the drives and try again.";
+const GENERIC = "Luna couldn't finish this copy or move. Check the drives and try again.";
 const REMOVED_PARTIAL_COPY = "Luna removed the partial copy.";
 const NOTHING_MOVED = "Nothing was moved.";
 
@@ -236,6 +236,6 @@ export function cancelJob(world, job) {
 
 /** Luna restarted while jobs were running. */
 export function interruptJobs(world) {
-  for (const job of world.jobs) if (job.state === "running") { removeDest(world, job); end(job, "interrupted", "Luna restarted while this job was running."); }
+  for (const job of world.jobs) if (job.state === "running") { removeDest(world, job); end(job, "interrupted", "Luna restarted while this copy or move was running."); }
 }
 

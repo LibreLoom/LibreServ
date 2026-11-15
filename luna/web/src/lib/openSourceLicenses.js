@@ -35,7 +35,7 @@ export const OPEN_SOURCE_LICENSES = [
   {
     id: "x2t-wasm",
     name: "x2t.wasm",
-    what: "Converts office documents between formats. It runs in your browser and sends your files to no other service.",
+    what: "Converts office documents between formats. It runs in your browser, not on an outside service.",
     license: "AGPL-3.0",
     licenseFile: "/licenses/agpl-3.0.txt",
     copyright: "ONLYOFFICE core; WebAssembly build by the CryptPad project",

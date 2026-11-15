@@ -31,7 +31,7 @@ const PACK_TIMEOUT: Duration = Duration::from_secs(300);
 const UNREACHABLE_MSG: &str =
     "Luna could not reach Luna Connect. Check this Luna's internet connection.";
 const SERVER_MSG: &str =
-    "Luna Connect could not save or load your backup right now. Luna will try again.";
+    "Luna Connect could not save or load your backup right now. Try again later.";
 const REFUSED_MSG: &str = "Luna Connect refused that request.";
 /// Connect answered a listing, but the page breaks the listing rules (order, cursor, prefix).
 const BAD_LIST_MSG: &str = "Luna Connect sent a backup list that Luna cannot use. Try again.";

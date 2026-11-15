@@ -88,7 +88,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
       });
     },
     onError: (err) => {
-      setCheckMessage(apiErrorMessage(err));
+      setCheckMessage(apiErrorMessage(err, "Couldn't check for updates. Try again."));
     },
   });
 
@@ -158,9 +158,9 @@ export default function SystemUpdatesCard({ index = 0 }) {
 
   const updateInfo = updates.data;
   const error = updates.isError
-    ? apiErrorMessage(updates.error)
+    ? apiErrorMessage(updates.error, "Couldn't check for updates. Try again.")
     : check.isError
-      ? apiErrorMessage(check.error)
+      ? apiErrorMessage(check.error, "Couldn't check for updates. Try again.")
       : null;
   const checking = check.isPending || (updates.isLoading && !updateInfo);
   const serverInstalling = Boolean(updateInfo?.applying);

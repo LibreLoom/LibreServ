@@ -1353,7 +1353,11 @@ export default function PhotosPage() {
         (d) => d.state === "as_is" && d.mount_point,
       ) || (drives.data || [])[0];
       if (!writable?.id) {
-        setError("Luna has no drive for photos yet. Add a drive in Files first.");
+        setError(
+          isAdmin
+            ? "Luna has no drive for photos yet. Add a drive in Files first."
+            : "Luna has no drive for photos yet. Ask an Admin to add one.",
+        );
         return;
       }
       fileOps.startUpload({
@@ -1367,7 +1371,7 @@ export default function PhotosPage() {
         afterFinish: () => rescanRef.current(),
       });
     },
-    [drives.data, fileOps],
+    [drives.data, fileOps, isAdmin],
   );
 
   const [downloadingSelected, setDownloadingSelected] = useState(false);
@@ -2415,7 +2419,7 @@ export default function PhotosPage() {
         }}
         onConfirm={() => trashAlbum && deleteAlbum.mutate(trashAlbum)}
         title="Delete album?"
-        message={`Delete "${trashAlbum?.name || "this album"}"? Its photos stay in your library. People you shared it with lose access to the album.`}
+        message={`Delete "${trashAlbum?.name || "this album"}"? Its photos stay in your library. Everyone it is shared with loses access, and its share links stop working.`}
         variant="danger"
         confirmLabel="Delete album"
         icon={Trash2}

@@ -17,7 +17,7 @@ import { CAP, sharedItemAction, sharedItemHref } from "../../lib/access.js";
 import { capsOnPath } from "../../lib/shareTree.js";
 
 const CANT_OPEN_HINT =
-  "Unplug the drive, wait a few seconds, and plug it back in. If Luna still cannot open it, the drive can be damaged.";
+  "Unplug the drive, wait a few seconds, and plug it back in. If Luna still cannot open it, the drive may be damaged.";
 
 function folderHref(driveId, folderPath) {
   return driveFolderHref(driveId, folderPath);

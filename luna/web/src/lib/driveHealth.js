@@ -242,7 +242,7 @@ function buildRows(health, signals) {
     rows.push({
       key: "replaced-blocks",
       label: "Replaced blocks",
-      hint: "Blocks of the disk that wore out, so the drive moved their data to spare space. The number never goes down, and Luna treats 100 or more as failing.",
+      hint: "Worn-out blocks whose data the drive moved to spare space. One or more is a warning sign, and Luna treats 100 or more as failing.",
       value,
     });
   }

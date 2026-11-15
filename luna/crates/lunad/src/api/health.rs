@@ -99,7 +99,7 @@ async fn storage(
         .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't look at its own storage.",
+                "Luna couldn't look at its own storage. Try again.",
             )
         })?;
     Ok(Json(serde_json::to_value(report).unwrap_or(json!({}))))

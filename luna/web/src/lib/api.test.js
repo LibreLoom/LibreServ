@@ -199,7 +199,7 @@ describe("postJson / postForm / putBinary / deleteJson", () => {
       /** @type {any} */ (
         new Response(
           JSON.stringify({
-            error: "Enter the first eight characters of your device token (****-****).",
+            error: "Paste the device token.",
             code: "setup_token_required",
           }),
           { status: 403, headers: { "Content-Type": "application/json" } },
@@ -210,7 +210,7 @@ describe("postJson / postForm / putBinary / deleteJson", () => {
     await expect(postJson("/api/v1/setup", {})).rejects.toMatchObject({
       status: 403,
       code: "setup_token_required",
-      message: "Enter the first eight characters of your device token (****-****).",
+      message: "Paste the device token.",
     });
   });
 });

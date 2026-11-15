@@ -27,10 +27,10 @@ export default function TokenReveal({ hint, code = null, onReveal = null, label 
           setFetched(c);
           setRevealed(true);
         } else {
-          setRevealError("Only the hint is stored for this token.");
+          setRevealError(`Only the hint is stored for this ${showNoun}.`);
         }
       } catch (err) {
-        setRevealError(err.message || "Could not reveal the token.");
+        setRevealError(err.message || `Could not show the full ${showNoun}.`);
       } finally {
         setBusy(false);
       }

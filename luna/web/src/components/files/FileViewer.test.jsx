@@ -479,7 +479,7 @@ describe("FileViewer text editor (fullscreen)", () => {
     const editor = await screen.findByLabelText("Contents of note.txt");
     expect(editor).toHaveAttribute("contenteditable", "false");
     expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
-    expect(screen.queryByText(/converting it to a/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/convert it to a/i)).not.toBeInTheDocument();
   });
 });
 
@@ -583,7 +583,7 @@ describe("FileViewer markdown editor", () => {
     const preview = await screen.findByLabelText("Preview of roadmap.md");
     expect(preview.querySelector("h1")).toHaveTextContent("Title");
     expect(screen.queryByRole("radio", { name: "Write" })).not.toBeInTheDocument();
-    expect(screen.queryByText(/converting it to a/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/convert it to a/i)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("radio", { name: "Source" }));
     const source = screen.getByLabelText("Contents of roadmap.md");
@@ -1290,7 +1290,7 @@ describe("FileViewer conversion hints", () => {
         <FileViewer open driveId="d1" path="docs/report.pdf" onClose={() => {}} />,
       );
       expect(await screen.findByTitle("PDF preview")).toBeInTheDocument();
-      expect(screen.getByText(/converting it to a/i)).toBeInTheDocument();
+      expect(screen.getByText(/To edit this file, convert it to a/i)).toBeInTheDocument();
       expect(screen.getByText(".docx")).toBeInTheDocument();
       expect(
         screen.queryByRole("button", { name: /Convert & open/ }),
@@ -1312,7 +1312,7 @@ describe("FileViewer conversion hints", () => {
     expect(
       await screen.findByText(/cannot open this kind of file/i),
     ).toBeInTheDocument();
-    expect(screen.getByText(/converting it to a/i)).toBeInTheDocument();
+    expect(screen.getByText(/To edit this file, convert it to a/i)).toBeInTheDocument();
     expect(screen.getByText(".docx")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Convert & open/ }),
@@ -1331,7 +1331,8 @@ describe("FileViewer conversion hints", () => {
       />,
     );
     expect(await screen.findByRole("table")).toBeInTheDocument();
-    expect(screen.getByText(/converting it to a/i)).toBeInTheDocument();
+    // A reader can't upload the converted copy, so the hint stays hidden.
+    expect(screen.queryByText(/To edit this file, convert it to a/i)).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Convert & open/ }),
     ).not.toBeInTheDocument();

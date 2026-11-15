@@ -84,7 +84,8 @@ export default function LoginPage() {
     } else if (errorStatus === "NetworkError") {
       return (
         <p>
-          This device cannot reach Luna. Check its connection, then try again.
+          This device cannot reach Luna. Check its connection, or wait a
+          minute if Luna just turned on.
         </p>
       );
     }

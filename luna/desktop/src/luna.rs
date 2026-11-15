@@ -244,7 +244,7 @@ pub fn auth_me(base_url: &str, token: &str) -> Result<(String, String), String> 
     let value: serde_json::Value = resp
         .body_mut()
         .read_json()
-        .map_err(|_| "Luna returned a bad sign-in reply.".to_string())?;
+        .map_err(|_| "Luna sent a sign-in reply this app can't read. Try again.".to_string())?;
     if value.is_null() {
         return Err(
             "That access token didn't work. Create a new one in Luna → Settings → Security.".into(),
@@ -277,7 +277,7 @@ pub fn list_drives(base_url: &str, token: &str) -> Result<Vec<Drive>, String> {
     let values: Vec<serde_json::Value> = resp
         .body_mut()
         .read_json()
-        .map_err(|_| "Luna returned a bad drive list.".to_string())?;
+        .map_err(|_| "Luna sent a drive list this app can't read. Try again.".to_string())?;
     Ok(values
         .into_iter()
         .filter_map(|v| {
@@ -340,7 +340,7 @@ pub fn list_files(
     let values: Vec<serde_json::Value> = resp
         .body_mut()
         .read_json()
-        .map_err(|_| "Luna returned a bad folder listing.".to_string())?;
+        .map_err(|_| "Luna sent a folder list this app can't read. Try again.".to_string())?;
     Ok(values
         .into_iter()
         .filter_map(|v| {
@@ -705,7 +705,7 @@ mod tests {
                 } else if req.contains("missing-db") {
                     (
                         500,
-                        r#"{"error":"Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again.","code":"missing_drive_db"}"#.to_string(),
+                        r#"{"error":"Luna can't write its database to this drive, but your files are still on it. Free up space or check the drive's write-lock switch, then try again.","code":"missing_drive_db"}"#.to_string(),
                     )
                 } else if req.contains("/files") {
                     (
@@ -788,11 +788,8 @@ mod tests {
     fn list_files_reports_a_missing_drive_database() {
         let (base, handle, stop) = spawn_server();
         let err = list_files(&base, "device-tok-456", "a", "missing-db").unwrap_err();
-        assert!(err.contains("database for this drive is missing"), "{err}");
-        assert!(
-            err.contains("On the Files page, remove this drive, then add it again."),
-            "{err}"
-        );
+        assert!(err.contains("can't write its database"), "{err}");
+        assert!(err.contains("your files are still on it."), "{err}");
         assert!(!err.to_ascii_lowercase().contains("unplug"), "{err}");
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
         drop(handle);

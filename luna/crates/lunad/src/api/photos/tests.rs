@@ -155,7 +155,7 @@ async fn status_names_the_failing_drive_in_last_error() {
     let token = auth.issue(&user).unwrap();
     state.photos.debug_set_error(
         "d-photos",
-        "Luna couldn't finish looking through {drive}. Try looking through it again, or unplug the drive and plug it back in.",
+        "Luna couldn't finish looking through {drive}. Select Rescan drives in Photos, or unplug the drive and plug it in again.",
     );
     let make_router = || {
         axum::Router::new()

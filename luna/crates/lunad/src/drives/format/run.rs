@@ -733,9 +733,9 @@ pub fn quiesce(
                 } else {
                     match purpose {
                         Purpose::Erase => {
-                            other("Luna couldn't unmount this drive. Nothing has been erased.")
+                            other("Luna couldn't close this drive. Nothing has been erased.")
                         }
-                        Purpose::Lock => other("Luna couldn't unmount this drive. Try again."),
+                        Purpose::Lock => other("Luna couldn't close this drive. Try again."),
                     }
                 }
             })?;

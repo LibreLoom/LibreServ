@@ -1822,7 +1822,7 @@ fn ensure_real_dir(dir: &FsPath) -> Result<(), (StatusCode, Json<Value>)> {
     {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Luna couldn't save that file. Ask the person who shared this form to check it.",
+            "Luna couldn't save that file to this form.",
         ));
     }
     Ok(())

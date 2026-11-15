@@ -27,8 +27,8 @@ export default function AboutCategory() {
       <SettingsCard icon={Coffee} title="Support Luna" padding={false} index={1}>
         <div className="px-5 py-4">
           <p className="text-sm leading-relaxed">
-            Luna is free and open source. If it helps you, a small contribution helps keep it going
-            (always optional, always appreciated).
+            Luna is free and open source. If it helps you, a small, optional contribution keeps it
+            going.
           </p>
           <div className="mt-4">
             <Button asChild variant="primary">

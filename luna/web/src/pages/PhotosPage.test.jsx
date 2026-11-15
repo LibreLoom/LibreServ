@@ -1489,7 +1489,7 @@ describe("PhotosPage", () => {
 
     expect(await screen.findByRole("heading", { name: "Delete album?" })).toBeInTheDocument();
     expect(
-      screen.getByText(/Its photos stay in your library\. People you shared it with lose access/i),
+      screen.getByText(/Its photos stay in your library\. Everyone it is shared with loses access/i),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /^Delete album$/i }));

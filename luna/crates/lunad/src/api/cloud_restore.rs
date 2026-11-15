@@ -88,7 +88,7 @@ fn cloud_snapshot_status(
         for name in &page.names {
             if name.as_str() <= previous {
                 return Err(StoreError::Rejected(
-                    "Luna Connect returned an invalid backup-listing order.".into(),
+                    "Luna Connect sent a backup list that Luna cannot use. Try again.".into(),
                 ));
             }
             has_missing |= !indexed.contains(name.as_str());
@@ -104,7 +104,7 @@ fn cloud_snapshot_status(
                     .is_some_and(|previous| cursor.as_str() <= previous)
             {
                 return Err(StoreError::Rejected(
-                    "Luna Connect returned an invalid backup-listing cursor.".into(),
+                    "Luna Connect sent a backup list that Luna cannot use. Try again.".into(),
                 ));
             }
             after = Some(cursor);
@@ -185,13 +185,19 @@ fn not_set_up() -> ApiError {
 }
 
 /// A Luna Connect failure during a restore. A refusal carries Connect's own sentence, and a list
-/// that changed mid-read says so. Anything else (no network, a server fault) gets one true line.
+/// that changed mid-read or an unreachable Connect says so. Anything else gets one true line.
 fn connect_failed(err: StoreError) -> ApiError {
     tracing::warn!(error = %err, "Luna Connect failed during a cloud restore");
     let message = match err {
         StoreError::Rejected(msg) => msg,
-        StoreError::Unavailable(msg) if msg.starts_with("The cloud backup list changed") => msg,
-        _ => "Luna couldn't load the cloud backups from Luna Connect. Check this Luna's internet connection, then try again.".to_string(),
+        StoreError::Unavailable(msg)
+            if msg.starts_with("The cloud backup list changed")
+                || msg.starts_with("Luna could not reach Luna Connect") =>
+        {
+            msg
+        }
+        // A server fault is not a network problem, so this line names no cause.
+        _ => "Luna couldn't load the cloud backups from Luna Connect. Try again.".to_string(),
     };
     json_error(StatusCode::BAD_GATEWAY, message)
 }

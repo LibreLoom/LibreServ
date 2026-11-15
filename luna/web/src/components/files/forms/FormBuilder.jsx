@@ -482,7 +482,7 @@ function BuilderSession({
         : ""
       : connStatus === "connecting" || connStatus === "reconnecting"
         ? "Connecting…"
-        : "Offline. Keep this tab open, and Luna saves your changes when the connection comes back.";
+        : "Offline. Keep this tab open. Luna saves your changes when the connection comes back.";
 
   const questions = Array.isArray(doc?.questions) ? doc.questions : [];
   const settings = doc?.settings || {};
@@ -779,7 +779,7 @@ function BuilderSession({
                     <SettingsGroup title="People answering">
                       <SettingRow
                         title="Answers per person"
-                        description="Luna remembers each person in their browser, so this is a reminder rather than a lock."
+                        description="Luna remembers each person in their browser. Someone can still answer again from another browser or device."
                       >
                         <SegmentedControl
                           options={[
@@ -795,7 +795,7 @@ function BuilderSession({
                       <Toggle
                         surface="primary"
                         label="Let people change their answers"
-                        description="Each person gets a private edit link after sending."
+                        description="Each person gets their own edit link after sending."
                         checked={settings.allowEdits !== false}
                         disabled={!canWrite}
                         onChange={(next) => setSetting("allowEdits", next)}
@@ -1667,7 +1667,7 @@ function OptionRow({ option, index, canWrite, mark, compact, autoFocus, duplicat
       </div>
       {duplicate ? (
         <p className="mt-1 text-xs">
-          Another option has the same text, so people see only one of them. Change one.
+          Another option has the same text. Give each option its own text.
         </p>
       ) : !option.label.trim() && canWrite ? (
         <p className="mt-1 text-xs">Blank options are hidden from people answering.</p>

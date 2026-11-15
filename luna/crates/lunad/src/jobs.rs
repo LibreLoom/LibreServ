@@ -58,7 +58,7 @@ pub enum JobError {
     Io(#[source] std::io::Error),
     #[error("A file or folder with this name is already there.")]
     Conflict,
-    #[error("Luna can't copy links yet.")]
+    #[error("This includes a shortcut (symbolic link). Luna can't copy or move shortcuts.")]
     Symlink,
     #[error("You no longer have permission to do this.")]
     Denied,
@@ -1319,7 +1319,9 @@ fn index_busy() -> JobError {
 fn plain_job_error(err: &JobError) -> String {
     match err {
         JobError::Conflict => "A file or folder with this name is already there.".into(),
-        JobError::Symlink => "Luna can't copy links yet.".into(),
+        JobError::Symlink => {
+            "This includes a shortcut (symbolic link). Luna can't copy or move shortcuts.".into()
+        }
         JobError::Denied => "You no longer have permission to do this.".into(),
         JobError::Blocked => {
             "This folder holds private items that only their owners can move.".into()

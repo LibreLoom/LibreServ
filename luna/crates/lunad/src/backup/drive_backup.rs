@@ -459,7 +459,7 @@ fn run_inner(
             db,
             id,
             &format!(
-                "Most of the files in {folder} are gone, so Luna paused this backup to keep their copies. Check the folder, then run the backup again."
+                "Most of the files in {folder} are gone, so Luna paused this backup to keep their copies. Check {folder}, then run the backup again."
             ),
             true,
             now,

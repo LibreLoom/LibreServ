@@ -245,7 +245,7 @@ describe("CloudBackupCategory", () => {
     renderCard();
     expect(await screen.findByText(/every 6 hours/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "What cloud backup means" }));
-    expect(await screen.findByText(/about one older copy from each of the last day, week and month/)).toBeInTheDocument();
+    expect(await screen.findByText(/about one older copy from each of the last day, week, and month/)).toBeInTheDocument();
   });
 
   it("says nothing is backed up yet when connected with no backups", async () => {

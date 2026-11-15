@@ -244,7 +244,7 @@ export default function AdminTokensPage() {
         <CardHeader>
           <CardTitle>All device tokens</CardTitle>
           <CardDescription>
-            Every Luna on this Connect. Revoke unused tokens. Bound rows show the customer account and address when set.
+            Every device token on this Luna Connect site. Tokens in use show the customer account and the Luna&apos;s address.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

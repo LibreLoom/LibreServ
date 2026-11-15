@@ -13,7 +13,7 @@ import { formatFields } from "./format.js";
 const unmounted = (id) => ({ id, mounted: false, total_bytes: null, free_bytes: null, used_bytes: null, folders: null, files: null, shortcuts: [] });
 const healthy = () => smartHealth();
 const lastAdmin = (world, id) => world.users.filter((u) => u.role === "admin").every((u) => u.id === id);
-const DEVICE_TOKEN_REJECTED = "Luna Connect did not accept this device token. It may be mistyped, revoked, or meant for a different Luna. Open Luna on a phone or computer, then go to Settings → About → Advanced and paste a new device token.";
+const DEVICE_TOKEN_REJECTED = "Luna Connect did not accept this device token. It may be mistyped, revoked, or for a different Luna. On a phone or computer, open Luna and paste a new device token in Settings → About → Advanced.";
 
 /** crate::password::validate_password. */
 const badPassword = (pw) => {
@@ -485,7 +485,7 @@ put("/api/v1/system/updates/source", ({ world, user, body }) => {
   const feedUrl = body.feed_url !== undefined ? String(body.feed_url).trim() : undefined;
   const currentFeed = String(current.feed_url || "").trim().replace(/\/+$/, "");
   if (feedUrl !== undefined && feedUrl.replace(/\/+$/, "") !== currentFeed && /^https:\/\/(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|localhost|\[::1\])/i.test(feedUrl)) {
-    return fail(400, "That feed address points at a private or local network. Use a public address for updates.");
+    return fail(400, "Luna opens an https:// feed address only on the public internet. For a server on your own network, use http://.");
   }
   const next = {
     ...current,
@@ -499,7 +499,7 @@ put("/api/v1/system/updates/source", ({ world, user, body }) => {
 });
 post("/api/v1/system/factory-reset", ({ world, user, body }) => {
   requireAdmin(user, "Only an Admin can reset this Luna.");
-  if (!body.confirm) return fail(400, "Confirm that you want to reset this Luna. The reset deletes every account, share, and setting, and turns off remote access. Files on your drives stay where they are.");
+  if (!body.confirm) return fail(400, "Confirm that you want to reset this Luna. Everyone is signed out, backups stop, and Luna Connect turns off. Files on your drives are not deleted.");
   if (!String(body.password ?? "").trim()) return fail(400, "Type your current password to confirm this reset.");
   if (body.password === "wrong") return fail(401, "That password is wrong. Reset was not started.");
   world.sessionUserId = null;

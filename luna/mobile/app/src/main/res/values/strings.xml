@@ -11,7 +11,7 @@
     <string name="nav_status">Status</string>
     <string name="nav_backup">Photo upload</string>
     <string name="nav_settings">Settings</string>
-    <string name="backup_blurb">Photos upload to Luna automatically at the times you set in Settings. Tap Upload now to upload without waiting.</string>
+    <string name="backup_blurb">Photos upload to Luna automatically when your Wi-Fi and charging settings allow. Tap Upload now to upload without waiting.</string>
     <string name="backup_automatically">Upload automatically</string>
     <string name="backup_now">Upload now</string>
     <string name="allow_background">Allow background upload</string>
@@ -43,7 +43,7 @@
     <string name="new_folder_help">Type only the folder name. You cannot type a path.</string>
     <string name="folder_name_hint">Folder name</string>
     <string name="folder_name_empty">Enter a folder name, then tap Create.</string>
-    <string name="folder_name_invalid">A folder name cannot contain a slash, and cannot be only . or ..</string>
+    <string name="folder_name_invalid">A folder name cannot contain / or \\, and cannot be only a dot (.) or two dots (..).</string>
     <string name="create">Create</string>
     <string name="cancel">Cancel</string>
     <string name="up_one_folder">Up one folder</string>
@@ -62,7 +62,7 @@
     <string name="folder_empty">No folders here. You can still use this folder, or create a new one.</string>
     <string name="pick_a_drive_first">Select a drive first, then tap Continue.</string>
     <string name="sign_in_again">You are not signed in. Tap Sign out, then sign in with an access token from Luna → Settings → Security.</string>
-    <string name="status_blurb">Luna is uploading photos from this phone.</string>
+    <string name="status_blurb">This page shows photo uploads from this phone to Luna.</string>
     <string name="status_up_to_date">No upload is running.</string>
     <string name="status_nothing_waiting">Tap Upload now to look for new photos.</string>
 </resources>

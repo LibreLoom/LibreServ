@@ -203,7 +203,7 @@ post("/api/v1/cloud/backups", ({ world, user, body }) => {
     if (!visibleTo(world, existing, user)) throw fail(403, "Someone already backs this folder up to the cloud.");
     return backupJson(world, existing, user);
   }
-  if (!world.connect?.enabled && !world.connectActive) throw fail(400, "Luna could not set up its backup identity. Try again, or contact your Admin.");
+  if (!world.connect?.enabled && !world.connectActive) throw fail(400, "Luna couldn't set up cloud backup. Try again, or contact your Admin.");
   if ((world.connect?.connect_active ?? world.connectActive) && world.connect?.backup_unlocked !== true) {
     throw fail(402, "Add a payment card at Luna Connect (connect.luna.libreloom.org), then start the cloud backup.");
   }

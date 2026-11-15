@@ -210,7 +210,7 @@ fn dav_handler_for(
     else {
         return Err(json_error(
             StatusCode::NOT_FOUND,
-            "Luna doesn't know this drive.",
+            "Luna can't find this drive. Check the drive address in your app.",
         ));
     };
     // A locked drive must fail loudly here: Finder and Explorer would otherwise

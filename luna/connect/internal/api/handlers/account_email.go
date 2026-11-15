@@ -19,15 +19,15 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
-// emailRateLimitOK enforces max 3 verification email sends per account per 60s.
-// Stored in guess_attempts so blue/green instances share the budget and a
-// restart does not reset it.
 // errMailNotConfigured means this site has no email provider or API key, so a retry cannot help.
 var errMailNotConfigured = errors.New("email provider not configured")
 
 // mailNotSetUpMessage answers a send that failed because this site has no email provider.
 const mailNotSetUpMessage = "Email is not set up on this Luna Connect site. Contact support."
 
+// emailRateLimitOK enforces max 3 verification email sends per account per 60s.
+// Stored in guess_attempts so blue/green instances share the budget and a
+// restart does not reset it.
 func emailRateLimitOK(db *database.DB, accountID string) bool {
 	return allowGuess(db, "email-verify:"+accountID, 3, 60)
 }

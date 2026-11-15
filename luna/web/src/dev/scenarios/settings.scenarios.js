@@ -486,7 +486,7 @@ export default [
     area: "Settings: About",
     title: "Connect rejected the device token",
     url: "/settings#about",
-    seed: (w) => { w.connect = { enabled: false, connect_active: false, device_token_error: "Luna Connect did not accept this device token. It may be mistyped, revoked, or meant for a different Luna. Open Luna on a phone or computer, then go to Settings → About → Advanced and paste a new device token." }; w.connectActive = false; },
+    seed: (w) => { w.connect = { enabled: false, connect_active: false, device_token_error: "Luna Connect did not accept this device token. It may be mistyped, revoked, or for a different Luna. On a phone or computer, open Luna and paste a new device token in Settings → About → Advanced." }; w.connectActive = false; },
     check: ["Error is shown in plain words", "Replacing the token clears it"],
   },
   {
@@ -500,7 +500,7 @@ export default [
         overall_pass: false,
         checks: {
           drive_d1_smart: { status: "failed", message: "Drive 1 is failing. Copy your files to another drive now.", category: "drives" },
-          disk_space: { status: "failed", message: "Luna's own storage (its system disk) is almost full. Free some space on it, or Luna may stop working.", more: "This is the disk where Luna keeps its accounts and settings; your files are on your drives.", category: "system" },
+          disk_space: { status: "failed", message: "Luna's system disk is almost full, so Luna may stop working.", more: "This disk holds Luna's accounts and settings, not your files. To clear temporary files, select Free up space in Settings → About → System checks.", category: "system" },
           clock: { status: "warning", message: "The clock may be off.", more: "Luna sets its clock over the internet and hasn't managed to yet, so new and changed files may get wrong dates. Check that your router or modem is online, then check again in a minute.", category: "system" },
           database: { status: "passed", message: "Luna's database is working.", category: "system" },
         },
