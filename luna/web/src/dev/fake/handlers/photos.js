@@ -33,7 +33,6 @@ function albumRow(w, a) {
     id: a.id,
     home_drive_id: a.home_drive_id,
     name: a.name,
-    locked: Boolean(a.locked),
     item_count: a.fakeCount ?? keys.length,
     cover_thumb: cover?.thumb || a.cover_thumb || "",
     created_at: a.created_at ?? Math.floor(Date.now() / 1000),
@@ -65,7 +64,6 @@ patch("/api/v1/photos/albums/:drive/:id", ({ world, user, params, body }) => {
   if (!a) return fail(404, "That album no longer exists.");
   if (a.owner_user_id !== user.id && user.role !== "admin") return fail(403, "Only the person who made this album can change it.");
   if (body.name !== undefined) a.name = String(body.name).trim() || a.name;
-  if (body.locked !== undefined) a.locked = Boolean(body.locked);
   if (body.cover_path) a.cover_key = `${body.cover_drive_id}\0${body.cover_path}`;
   return albumRow(world, a);
 });

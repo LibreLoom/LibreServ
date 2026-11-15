@@ -229,7 +229,7 @@ export default [
   {
     id: "gallery/albums-mixed",
     area: "Photos",
-    title: "Albums: empty, big, shared, locked",
+    title: "Albums: empty, big, shared, long name",
     url: "/photos#albums",
     seed: (w) => {
       memberSam(w);
@@ -237,10 +237,9 @@ export default [
       album(w, "al-empty", "Nothing yet");
       album(w, "al-big", "Everything from 2024", {}, w.photos.slice(0, 180));
       album(w, "al-shared", "Shared with Sam", { shared_with: ["u2"] }, w.photos.slice(10, 20));
-      album(w, "al-locked", "Private stuff", { locked: true }, w.photos.slice(20, 25));
       album(w, "al-long", "A truly extraordinarily long album name that should be cut off neatly instead of pushing the layout around", {}, w.photos.slice(30, 33));
     },
-    check: ["Empty album says it is empty and offers adding photos", "Locked album asks before opening", "Rename, set cover, lock/unlock, delete each show a toast and stick", "Long name is cut off cleanly", "Delete an album then reload tab: it is gone"],
+    check: ["Empty album says it is empty and offers adding photos", "Rename, set cover, delete each show a toast and stick", "Long name is cut off cleanly", "Delete an album then reload tab: it is gone"],
   },
   {
     id: "gallery/album-huge",

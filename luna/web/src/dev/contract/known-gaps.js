@@ -32,4 +32,19 @@ export const KNOWN_GAPS = [
     path: "$.device_token_error",
     reason: "lunad sends device_token_error only when the saved token is unusable (serde skips None), and no lunad API test records that state, so the fixture has no key for it. The fake emits it for the dashboard's Needs you row (lib/needsYou.js). Remove this once a lunad test GETs /connect/status with a rejected token.",
   },
+  {
+    key: "GET /api/v1/photos/albums",
+    path: "$[].locked",
+    reason: "Album lock was removed from lunad and the fake on 2026-11-15. lunad-responses.json still holds the old shape until the next full `./ci run -p luna` rewrites it; delete this entry then.",
+  },
+  {
+    key: "GET /api/v1/photos/albums/{}/{}",
+    path: "$.locked",
+    reason: "Album lock was removed from lunad and the fake on 2026-11-15. lunad-responses.json still holds the old shape until the next full `./ci run -p luna` rewrites it; delete this entry then.",
+  },
+  {
+    key: "POST /api/v1/photos/albums",
+    path: "$.locked",
+    reason: "Album lock was removed from lunad and the fake on 2026-11-15. lunad-responses.json still holds the old shape until the next full `./ci run -p luna` rewrites it; delete this entry then.",
+  },
 ];

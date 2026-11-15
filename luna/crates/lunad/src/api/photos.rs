@@ -258,8 +258,6 @@ struct CreateAlbumBody {
 struct PatchAlbumBody {
     #[serde(default)]
     name: Option<String>,
-    #[serde(default)]
-    locked: Option<bool>,
     /// Optional album cover path (relative to the cover drive).
     #[serde(default)]
     cover_path: Option<String>,
@@ -1799,7 +1797,6 @@ async fn patch_album(
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty()),
-        body.locked,
         cover,
     )
     .map_err(|_| {
@@ -1865,12 +1862,6 @@ async fn add_items(
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "You don't have permission to add photos to this album.",
-        ));
-    }
-    if album.locked {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "This album is locked, so nobody can add or remove its photos. The album owner or an Admin can unlock it.",
         ));
     }
     let conn = state.db.lock().map_err(|_| {
@@ -1990,12 +1981,6 @@ async fn remove_item(
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "Only the album owner or an Admin can remove photos from this album.",
-        ));
-    }
-    if album.locked {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "This album is locked, so nobody can add or remove its photos. The album owner or an Admin can unlock it.",
         ));
     }
     photos::remove_album_item(&root, &id, &body.drive_id, &body.path).map_err(|_| {

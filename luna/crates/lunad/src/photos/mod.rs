@@ -2270,7 +2270,6 @@ pub struct Album {
     pub cover_thumb: String,
     /// Folder (relative to the home drive) where guest/contributor uploads land.
     pub contrib_path: String,
-    pub locked: bool,
     pub item_count: u64,
 }
 
@@ -2286,7 +2285,6 @@ pub struct AlbumPublic {
     pub name: String,
     pub created_at: i64,
     pub cover_thumb: String,
-    pub locked: bool,
     pub item_count: u64,
 }
 
@@ -2309,7 +2307,6 @@ impl Album {
                     self.home_drive_id, self.id
                 )
             },
-            locked: self.locked,
             item_count: self.item_count,
         }
     }
@@ -2347,7 +2344,7 @@ pub fn list_albums(
         };
         let mut stmt = conn.prepare(
             "SELECT a.id, a.owner_user_id, a.name, a.created_at, a.cover_path, a.cover_drive_id,
-                    a.contrib_path, a.locked,
+                    a.contrib_path,
                     (SELECT COUNT(*) FROM album_items i WHERE i.album_id = a.id)
              FROM albums a
              ORDER BY a.created_at DESC",
@@ -2365,8 +2362,7 @@ pub fn list_albums(
                 cover_path,
                 cover_drive_id,
                 contrib_path: row.get(6)?,
-                locked: row.get::<_, i64>(7)? != 0,
-                item_count: row.get::<_, i64>(8)? as u64,
+                item_count: row.get::<_, i64>(7)? as u64,
             })
         })?;
         for row in rows {
@@ -2394,8 +2390,8 @@ pub fn create_album(
     let id = uuid_v4();
     let now = now_unix();
     conn.execute(
-        "INSERT INTO albums (id, owner_user_id, name, created_at, contrib_path, cover_drive_id, locked)
-         VALUES (?1, ?2, ?3, ?4, '', '', 0)",
+        "INSERT INTO albums (id, owner_user_id, name, created_at, contrib_path, cover_drive_id)
+         VALUES (?1, ?2, ?3, ?4, '', '')",
         params![id, owner_user_id, name, now],
     )?;
     Ok(Album {
@@ -2408,7 +2404,6 @@ pub fn create_album(
         cover_drive_id: String::new(),
         cover_thumb: String::new(),
         contrib_path: String::new(),
-        locked: false,
         item_count: 0,
     })
 }
@@ -2570,7 +2565,7 @@ pub fn get_album(
     let conn = open_drive_db(root)?;
     conn.query_row(
         "SELECT id, owner_user_id, name, created_at, cover_path, cover_drive_id,
-                contrib_path, locked,
+                contrib_path,
                 (SELECT COUNT(*) FROM album_items i WHERE i.album_id = albums.id)
          FROM albums WHERE id = ?1",
         params![album_id],
@@ -2587,8 +2582,7 @@ pub fn get_album(
                 cover_path,
                 cover_drive_id,
                 contrib_path: row.get(6)?,
-                locked: row.get::<_, i64>(7)? != 0,
-                item_count: row.get::<_, i64>(8)? as u64,
+                item_count: row.get::<_, i64>(7)? as u64,
             })
         },
     )
@@ -2618,7 +2612,6 @@ pub fn update_album(
     root: &Path,
     album_id: &str,
     name: Option<&str>,
-    locked: Option<bool>,
     cover: Option<(String, String)>,
 ) -> anyhow::Result<()> {
     let conn = open_drive_db(root)?;
@@ -2626,12 +2619,6 @@ pub fn update_album(
         conn.execute(
             "UPDATE albums SET name = ?1 WHERE id = ?2",
             params![name, album_id],
-        )?;
-    }
-    if let Some(locked) = locked {
-        conn.execute(
-            "UPDATE albums SET locked = ?1 WHERE id = ?2",
-            params![if locked { 1 } else { 0 }, album_id],
         )?;
     }
     if let Some((drive_id, path)) = cover {

@@ -1113,7 +1113,6 @@ fn update_album_sets_cover() {
         &photos_dir,
         &album.id,
         None,
-        None,
         Some(("d1".into(), "cover.png".into())),
     )
     .unwrap();

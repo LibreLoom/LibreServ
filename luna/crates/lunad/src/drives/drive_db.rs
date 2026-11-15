@@ -537,8 +537,7 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
             created_at INTEGER NOT NULL,
             cover_path TEXT NOT NULL DEFAULT '',
             cover_drive_id TEXT NOT NULL DEFAULT '',
-            contrib_path TEXT NOT NULL DEFAULT '',
-            locked INTEGER NOT NULL DEFAULT 0
+            contrib_path TEXT NOT NULL DEFAULT ''
          );
          CREATE TABLE IF NOT EXISTS album_items (
             album_id TEXT NOT NULL,
@@ -596,7 +595,6 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
     // Additive columns for existing drive DBs (CREATE TABLE IF NOT EXISTS
     // does not alter already-created tables).
     ensure_column(conn, "albums", "cover_drive_id", "TEXT NOT NULL DEFAULT ''")?;
-    ensure_column(conn, "albums", "locked", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(
         conn,
         "photos",

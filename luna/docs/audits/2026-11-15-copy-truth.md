@@ -167,10 +167,9 @@ Not reviewed (usage limit): the other 22 chunks.
 
 All 22 chunks the first run missed are now reviewed. Reviewers made 58 fixes and the reconcile applied 31 follow-ups. No em-dash is left in a user-facing string.
 
-Decided by the owner: Connect onboarding Back never unlinks a Luna (94ea1ca8); a drive being erased says so (a79a8fec); the first Android upload follows the Wi-Fi and charging settings (3ae2cda1).
+Decided by the owner: Connect onboarding Back never unlinks a Luna (94ea1ca8); a drive being erased says so (a79a8fec); the first Android upload follows the Wi-Fi and charging settings (3ae2cda1); album lock is removed.
 
 Still open (code or product, not copy):
-- Album lock is only an edit freeze, with an "Open it?" prompt in front. Remove it, or drop the prompt.
 - The HDMI console shows how to get a root shell, and root has no password.
 - A changed update feed can install an older build (updates.rs reconfigure sets adopt_source). Block downgrades?
 - No support channel exists, but the quick-start leaflet still says "Contact support" and has a placeholder QR.

@@ -917,7 +917,6 @@ async fn member_view_gets_opaque_cover_url_and_item_ids() {
         &f.mount,
         &f.album.id,
         None,
-        None,
         Some(("d-photos".into(), "pic.jpg".into())),
     )
     .unwrap();
@@ -1019,7 +1018,7 @@ async fn list_items_drops_symlinked_rows() {
 }
 
 #[tokio::test]
-async fn remove_item_needs_a_manager_and_locked_blocks_changes() {
+async fn remove_item_needs_a_manager() {
     let f = album_fixture().await;
     photos::add_album_items(
         &f.mount,
@@ -1048,57 +1047,7 @@ async fn remove_item_needs_a_manager_and_locked_blocks_changes() {
         1
     );
 
-    // Locking freezes the album for everyone, managers included.
-    let (status, _) = call_json(
-        &f.router,
-        json_req(
-            "PATCH",
-            &format!("/api/v1/photos/albums/d-photos/{}", f.album.id),
-            &f.admin_token,
-            r#"{"locked":true}"#,
-        ),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let (status, _) = call_json(
-        &f.router,
-        json_req(
-            "POST",
-            &base,
-            &f.admin_token,
-            r#"{"items":[{"drive_id":"d-photos","path":"clip.mp4"}]}"#,
-        ),
-    )
-    .await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "locked album refuses adds");
-    let (status, _) = call_json(
-        &f.router,
-        json_req(
-            "DELETE",
-            &base,
-            &f.admin_token,
-            r#"{"drive_id":"d-photos","path":"pic.jpg"}"#,
-        ),
-    )
-    .await;
-    assert_eq!(
-        status,
-        StatusCode::FORBIDDEN,
-        "locked album refuses removes"
-    );
-
-    // Unlock, then the owner can remove again.
-    let (status, _) = call_json(
-        &f.router,
-        json_req(
-            "PATCH",
-            &format!("/api/v1/photos/albums/d-photos/{}", f.album.id),
-            &f.admin_token,
-            r#"{"locked":false}"#,
-        ),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
+    // The owner (an Admin here) can remove it.
     let (status, _) = call_json(
         &f.router,
         json_req(
@@ -1126,7 +1075,6 @@ async fn album_json_hides_layout_from_non_managers() {
         &f.mount,
         &f.album.id,
         None,
-        None,
         Some(("d-photos".into(), "pic.jpg".into())),
     )
     .unwrap();
@@ -1145,14 +1093,7 @@ async fn album_json_hides_layout_from_non_managers() {
             "member view must not leak {leaked}: {v}"
         );
     }
-    for kept in [
-        "id",
-        "home_drive_id",
-        "name",
-        "cover_thumb",
-        "locked",
-        "item_count",
-    ] {
+    for kept in ["id", "home_drive_id", "name", "cover_thumb", "item_count"] {
         assert!(v.get(kept).is_some(), "member view needs {kept}: {v}");
     }
 

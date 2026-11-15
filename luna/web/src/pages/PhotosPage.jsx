@@ -6,7 +6,6 @@ import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClie
 import {
   ArrowLeft,
   Image as ImageIcon,
-  Lock,
   Pencil,
   Plus,
   PlugZap,
@@ -89,7 +88,6 @@ import {
  *   cover_drive_id?: string,
  *   cover_thumb?: string,
  *   contrib_path?: string,
- *   locked?: boolean,
  *   item_count?: number,
  * }} PhotosAlbum
  */
@@ -426,11 +424,6 @@ export function parsePhotosHash(hash) {
   return { segment: DEFAULT_SEGMENT };
 }
 
-/** @param {PhotosAlbum} album */
-function unlockKey(album) {
-  return `luna.photos.unlock.${album.home_drive_id}:${album.id}`;
-}
-
 function readGridCols() {
   try {
     const n = Number(localStorage.getItem(GRID_COLS_KEY));
@@ -500,7 +493,6 @@ export default function PhotosPage() {
   );
   const jumpPagesRef = useRef(0);
   const [columns, setColumns] = useState(readGridCols);
-  const [lockedGate, setLockedGate] = useState(null);
   const dropZoneRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   const scrollPosRef = useRef(0);
   const restoreRef = useRef({
@@ -599,21 +591,7 @@ export default function PhotosPage() {
 
   const tryOpenAlbum = useCallback(
     /** @param {PhotosAlbum} album */
-    (album) => {
-      if (album.locked) {
-        try {
-          if (sessionStorage.getItem(unlockKey(album)) === "1") {
-            setAlbumView(album);
-            return;
-          }
-        } catch {
-          /* ignore */
-        }
-        setLockedGate(album);
-        return;
-      }
-      setAlbumView(album);
-    },
+    (album) => setAlbumView(album),
     [],
   );
 
@@ -1227,20 +1205,6 @@ export default function PhotosPage() {
     },
   });
 
-  const lockAlbumMut = useMutation({
-    /** @param {{ album: PhotosAlbum, locked: boolean }} args */
-    mutationFn: ({ album, locked }) =>
-      patchJson(`/api/v1/photos/albums/${album.home_drive_id}/${album.id}`, { locked }),
-    onSuccess: (_d, { locked }) => {
-      addToast({ type: "success", message: locked ? "Album locked." : "Album unlocked." });
-      queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
-    },
-    onError: (err) => {
-      haptic("error");
-      setError(apiErrorMessage(err));
-    },
-  });
-
   const deleteAlbum = useMutation({
     /** @param {PhotosAlbum} album */
     mutationFn: (album) =>
@@ -1616,7 +1580,6 @@ export default function PhotosPage() {
     || shareAlbum != null
     || renameAlbum != null
     || jumpOpen
-    || lockedGate != null
     || lightbox != null
     || filtersOpen;
   useStrandedErrorToast(error, actionModalOpen, () => setError(null));
@@ -2102,7 +2065,6 @@ export default function PhotosPage() {
             setRenameAlbum(album);
             setRenameValue(album.name || "");
           }}
-          onLock={(album) => lockAlbumMut.mutate({ album, locked: !album.locked })}
           onSmart={(smart, saved) => {
             setAlbumView(null);
             setQ("");
@@ -2427,23 +2389,6 @@ export default function PhotosPage() {
         error={trashAlbum ? error : null}
       />
 
-      <ConfirmModal
-        open={!!lockedGate}
-        onClose={() => setLockedGate(null)}
-        onConfirm={() => {
-          if (!lockedGate) return;
-          try {
-            sessionStorage.setItem(unlockKey(lockedGate), "1");
-          } catch {
-            /* ignore */
-          }
-          setAlbumView(lockedGate);
-          setLockedGate(null);
-        }}
-        title="Locked album"
-        message={`"${lockedGate?.name || "This album"}" is locked, so nobody can add or remove its photos. Open it?`}
-        confirmLabel="Open album"
-      />
 
       {newAlbumOpen && (
         <ModalCard title="New album" onClose={() => {
@@ -2629,7 +2574,6 @@ function AlbumsPanel({
   onShare,
   onDelete,
   onRename,
-  onLock,
   onSmart,
 }) {
   const [sort, setSort] = useState("newest");
@@ -2745,11 +2689,6 @@ function AlbumsPanel({
                       <ImageIcon size={24} />
                     </span>
                   )}
-                  {album.locked && (
-                    <span className="absolute top-2 right-2 rounded-pill surface-primary p-1.5">
-                      <Lock size={14} aria-label="Locked album" />
-                    </span>
-                  )}
                 </div>
                 <div className="p-3">
                   <p className="font-mono text-sm truncate">{album.name}</p>
@@ -2785,16 +2724,6 @@ function AlbumsPanel({
                   size="iconSm"
                   surface="secondary"
                   className="shrink-0"
-                  aria-label={album.locked ? `Unlock album ${album.name}` : `Lock album ${album.name}`}
-                  onClick={() => onLock(album)}
-                >
-                  <Lock size={16} aria-hidden="true" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="iconSm"
-                  surface="secondary"
-                  className="shrink-0"
                   aria-label={`Delete album ${album.name}`}
                   onClick={() => onDelete(album)}
                 >
@@ -2823,6 +2752,5 @@ AlbumsPanel.propTypes = {
   onShare: PropTypes.func,
   onDelete: PropTypes.func,
   onRename: PropTypes.func,
-  onLock: PropTypes.func,
   onSmart: PropTypes.func,
 };
