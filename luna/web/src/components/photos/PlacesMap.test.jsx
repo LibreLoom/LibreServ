@@ -108,18 +108,19 @@ describe("PlacesMap", () => {
     expect(document.querySelector(".places-map")).toBeTruthy();
   });
 
-  it("uses EmptyState (Card pop-in) when there are no places", () => {
+  it("uses EmptyState, entering with cascade-in, when there are no places", () => {
     render(<PlacesMap places={[]} onSelect={vi.fn()} />);
     expect(screen.getByText(/No places yet/i)).toBeInTheDocument();
     expect(screen.getByText(/location from the camera/i)).toBeInTheDocument();
     const empty = document.querySelector("[data-slot=empty-state]");
     expect(empty).toBeTruthy();
-    // EmptyState wraps content in Card; pop-in lives on the card clip.
+    // Mounts after the segment slide, so it cascades in like the rest, not Card's pop-in.
     const clip = empty?.closest("[data-slot=card-clip]") || empty?.closest("[data-slot=card]");
-    expect(clip?.className).toMatch(/pop-in/);
+    expect(clip?.className).toMatch(/animate-cascade-in/);
+    expect(clip?.className).not.toMatch(/\bpop-in\b/);
   });
 
-  it("wraps the map in a Card so Places pops in like other photos panels", () => {
+  it("wraps the map in a Card that cascades in like other photos panels", () => {
     render(
       <PlacesMap
         places={[{ key: "home", label: "Home", count: 2, lat: 37.7, lon: -122.4 }]}
@@ -128,7 +129,8 @@ describe("PlacesMap", () => {
     );
     expect(screen.getByTestId("map-container")).toBeInTheDocument();
     const card = document.querySelector("[data-slot=card]");
-    expect(card?.className).toMatch(/pop-in/);
+    expect(card?.className).toMatch(/animate-cascade-in/);
+    expect(card?.className).not.toMatch(/\bpop-in\b/);
     // Fills the Photos Places flex parent instead of a capped vh/px height.
     expect(card?.className).toMatch(/\bflex-1\b/);
     expect(card?.className).toMatch(/\bmin-h-0\b/);

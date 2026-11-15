@@ -71,7 +71,7 @@ const DESTINATIONS = [
     to: "/photos",
     label: "Photos",
     icon: ImageIcon,
-    aliases: ["photos", "photo", "pictures", "pics", "images", "albums", "videos"],
+    aliases: ["photos", "photo", "gallery", "pictures", "pics", "images", "albums", "videos"],
   },
   {
     to: "/files",

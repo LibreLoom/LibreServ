@@ -655,7 +655,9 @@ describe("PhotosPage", () => {
     const empty = document.querySelector("[data-slot=empty-state]");
     expect(empty).toBeTruthy();
     const clip = empty?.closest("[data-slot=card-clip]") || empty?.closest("[data-slot=card]");
-    expect(clip?.className).toMatch(/pop-in/);
+    // Mounts after the segment slide, so it cascades in like the rest, not Card's pop-in.
+    expect(clip?.className).toMatch(/animate-cascade-in/);
+    expect(clip?.className).not.toMatch(/\bpop-in\b/);
   });
 
   it("updates the hash when a segment is selected", async () => {
