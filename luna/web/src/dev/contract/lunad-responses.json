@@ -299,15 +299,7 @@
       "revoked": "boolean"
     }
   ],
-  "GET /api/v1/device-tokens/{id}/usage": [
-    {
-      "action": "string",
-      "client": "string",
-      "detail": "string",
-      "origin": "string",
-      "used_at": "number"
-    }
-  ],
+  "GET /api/v1/device-tokens/{id}/usage": [],
   "GET /api/v1/drive-format/{id}": {
     "device": "string",
     "done": "boolean",
