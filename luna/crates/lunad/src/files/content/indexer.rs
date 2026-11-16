@@ -397,7 +397,6 @@ fn requeue_photos_deferred(conn: &Connection, drive_id: &str) -> anyhow::Result<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Instant;
 
     fn make_drive(dir: &Path) -> PathBuf {
         let root = dir.join("drive");
@@ -412,15 +411,14 @@ mod tests {
         root
     }
 
-    fn wait_for(what: &str, mut ok: impl FnMut() -> bool) {
-        let start = Instant::now();
-        while start.elapsed() < Duration::from_secs(20) {
-            if ok() {
-                return;
-            }
-            thread::sleep(Duration::from_millis(50));
-        }
-        panic!("timed out waiting for {what}");
+    /// Waits for `ok`, up to a cap that only matters when something is really
+    /// stuck: it returns the moment the condition holds, so a loaded machine just
+    /// takes longer instead of failing (a fixed 10s once timed out under load).
+    fn wait_for(what: &str, ok: impl FnMut() -> bool) {
+        assert!(
+            crate::testutil::wait_until(Duration::from_secs(30), ok),
+            "timed out waiting for {what}"
+        );
     }
 
     fn content_names(root: &Path, q: &str) -> Vec<String> {
