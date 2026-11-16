@@ -1,0 +1,58 @@
+{
+  "reference_hardware": "Dell Wyse 3040 (Atom x5-Z8350, 4 cores, 2 GiB RAM, eMMC), wired LAN",
+  "statistic": "p95 unless a row says otherwise",
+  "datasets": {
+    "folder_small": "200 items in one folder",
+    "folder_large": "10,000 items in one folder",
+    "library": "100,000 files across a realistic tree",
+    "photos": "50,000 photos (JPEG + HEIC mix)"
+  },
+  "journeys": {
+    "W1":  { "product": "web", "name": "Cold first load to usable Dashboard", "lan_ms": 1500, "remote_ms": 3000 },
+    "W2":  { "product": "web", "name": "Warm reload to usable Dashboard", "lan_ms": 600, "remote_ms": 1200 },
+    "W3":  { "product": "web", "name": "Login submit to Dashboard", "lan_ms": 500, "remote_ms": 1000 },
+    "W4":  { "product": "web", "name": "Open folder_small, first rows visible", "lan_ms": 250, "remote_ms": 600 },
+    "W5":  { "product": "web", "name": "Open folder_large, first rows visible", "lan_ms": 800, "remote_ms": 1500, "max_long_task_ms": 50 },
+    "W6":  { "product": "web", "name": "Scroll folder_large end to end", "min_fps": 60, "max_frame_ms": 50 },
+    "W7":  { "product": "web", "name": "Photos timeline first screen of thumbnails", "lan_ms": 1000, "remote_ms": 2000 },
+    "W8":  { "product": "web", "name": "Timeline scrub: thumbnails after scrub stops", "lan_ms": 300 },
+    "W9":  { "product": "web", "name": "Open photo in viewer (preview / full quality)", "lan_ms": 300, "full_ms": 1000, "remote_ms": 2000 },
+    "W10": { "product": "web", "name": "Filename search keystroke to results", "lan_ms": 150, "remote_ms": 400 },
+    "W11": { "product": "web", "name": "Neural search results", "lan_ms": 1000, "remote_ms": 1500 },
+    "W12": { "product": "web", "name": "Open document in office editor", "lan_ms": 3000, "remote_ms": 5000 },
+    "W13": { "product": "web", "name": "Upload 1 GB mixed files", "min_link_fraction": 0.9, "remote_min_link_fraction": 0.8 },
+    "W14": { "product": "web", "name": "Download one large file", "min_link_fraction": 0.9 },
+    "W15": { "product": "web", "name": "Public share link, guest open", "lan_ms": 1500, "remote_ms": 2500 },
+    "W16": { "product": "web", "name": "Page navigation (Files/Photos/Settings)", "lan_ms": 150 },
+
+    "D1":  { "product": "lunad", "name": "Process start to answering requests", "ms": 5000 },
+    "D2":  { "product": "lunad", "name": "Idle RSS with library indexed", "max_rss_mb": 150 },
+    "D2b": { "product": "lunad", "name": "Peak RSS during scan/thumbnails/backup", "max_rss_mb": 400 },
+    "D3":  { "product": "lunad", "name": "Idle CPU over 10 min", "max_cpu_pct": 1, "max_wakeups_per_min": 1 },
+    "D4":  { "product": "lunad", "name": "First scan of library (index + photos)", "ms": 900000, "note": "W4 stays within 2x budget during the scan" },
+    "D5":  { "product": "lunad", "name": "Thumbnails for 10k new photos incl. HEIC", "ms": 1200000 },
+    "D6":  { "product": "lunad", "name": "Rescan with nothing changed", "ms": 30000 },
+    "D7":  { "product": "lunad", "name": "Cloud backup run, nothing changed", "ms": 60000 },
+    "D8":  { "product": "lunad", "name": "Drive-to-drive backup 100 GB first run", "bound": "disk, not CPU" },
+    "M1":  { "product": "box", "name": "Whole box with office doc open + search running", "rule": "no OOM kill, no swap" },
+    "M2":  { "product": "box", "name": "Memory left for page cache in normal use", "min_free_mb": 500 },
+
+    "A1":  { "product": "android", "name": "Cold start to usable screen (2022 mid-range phone)", "ms": 1500 },
+    "A2":  { "product": "android", "name": "Photo backup 1,000 photos over Wi-Fi", "min_link_fraction": 0.8 },
+    "A3":  { "product": "android", "name": "Background check, nothing new", "max_wake_ms": 5000 },
+    "A4":  { "product": "android", "name": "Battery drain over 24 h idle", "max_pct": 1 },
+    "A5":  { "product": "android", "name": "Scrolling", "rule": "under Android vitals jank threshold" },
+
+    "K1":  { "product": "desktop", "name": "Start to tray ready", "ms": 1000 },
+    "K2":  { "product": "desktop", "name": "Idle RSS", "max_rss_mb": 60 },
+    "K3":  { "product": "desktop", "name": "Sync loop, nothing changed, 50k local files", "max_cpu_ms": 2000, "rule": "no full rehash" },
+    "K4":  { "product": "desktop", "name": "Local edit to file on Luna", "ms": 5000 },
+    "K5":  { "product": "desktop", "name": "First backup 20 GB", "bound": "link, not CPU" },
+
+    "C1":  { "product": "connect", "name": "Tunnel overhead per request", "ms": 50 },
+    "C2":  { "product": "connect", "name": "Device status pull, server side", "ms": 50 },
+    "C3":  { "product": "connect", "name": "Onboarding page cold load, mid-range 4G", "ms": 1500 },
+    "C4":  { "product": "connect", "name": "Dashboard after login", "ms": 1000 },
+    "C5":  { "product": "connect", "name": "Cloud backup throughput through Connect", "min_link_fraction": 0.9 }
+  }
+}
