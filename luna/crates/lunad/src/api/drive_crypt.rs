@@ -864,7 +864,18 @@ mod tests {
             &h.admin,
         )
         .await;
-        let (status, _) = call(&h, "POST", &h.uri("lock"), None, &h.admin).await;
+        // Unlocking leaves a short follow-up task holding the drive, and locking
+        // correctly answers "busy" (409) until it is done (a_busy_drive_refuses_to_lock
+        // covers that). Wait for idle instead of racing it.
+        let mut tries = 0;
+        let status = loop {
+            let (status, _) = call(&h, "POST", &h.uri("lock"), None, &h.admin).await;
+            if status != StatusCode::CONFLICT || tries >= 200 {
+                break status;
+            }
+            tries += 1;
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        };
         assert_eq!(status, StatusCode::OK);
         assert!(!h.luks.is_open(&h.id));
         let row = drive(&h);
