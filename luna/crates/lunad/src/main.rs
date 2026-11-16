@@ -239,19 +239,26 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
                         .lock()
                         .map(|conn| lunad::auth::setup_wizard_open_conn(&conn))
                         .unwrap_or(false);
-                    let interval = connect.poll_interval_secs(setup_open);
-                    let mut waited = 0u64;
-                    while waited < interval {
-                        if stop.load(Ordering::Relaxed) || wake.swap(false, Ordering::Relaxed) {
+                    let interval = Duration::from_secs(connect.poll_interval_secs(setup_open));
+                    let deadline = std::time::Instant::now() + interval;
+                    // Block until the next pull (or a wake) instead of ticking every
+                    // second. While a tunnel is expected, look every 5 s during long
+                    // steady-state waits (300 s): otherwise a dead cloudflared child
+                    // is not noticed until the next Connect poll.
+                    while !stop.load(Ordering::Relaxed) {
+                        let left = deadline.saturating_duration_since(std::time::Instant::now());
+                        if left.is_zero() {
                             break;
                         }
-                        std::thread::sleep(Duration::from_secs(1));
-                        waited += 1;
-                        // Re-check during long steady-state sleeps (300s). Otherwise a dead
-                        // cloudflared child is not noticed until the next Connect poll.
-                        if waited.is_multiple_of(5) {
-                            connect.ensure_tunnel_if_needed();
+                        let slice = if connect.expects_tunnel() {
+                            left.min(Duration::from_secs(5))
+                        } else {
+                            left
+                        };
+                        if wake.wait(slice) {
+                            break;
                         }
+                        connect.ensure_tunnel_if_needed();
                     }
                 }
             })
@@ -362,13 +369,9 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
                     // honest when status text is unchanged (e.g. Connect hostname
                     // already shown). Every 10s is plenty for a small HDMI screen.
                     let _ = lunad::system::console::write_issue(&data_dir, &snap);
-                    // Second-sized slices so shutdown isn't a 10 s wait.
-                    for _ in 0..10 {
-                        if stop.load(Ordering::Relaxed) {
-                            break;
-                        }
-                        std::thread::sleep(std::time::Duration::from_secs(1));
-                    }
+                    // One wait, not second-sized slices: nothing joins this thread
+                    // at shutdown, so slicing only woke an idle Luna every second.
+                    std::thread::sleep(std::time::Duration::from_secs(10));
                 }
             })
             .ok();
@@ -431,11 +434,13 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
 
     // Reclaimable RAM caches: shrink thumbs/listings under MemAvailable pressure;
     // flush dirty writes early rather than dropping them.
+    // An empty cache has nothing to reclaim, so the loop sleeps until
+    // something is cached instead of waking every 5 s on an idle Luna.
     let pressure_state = state.clone();
     bg_tasks.push(tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(5));
         loop {
-            ticker.tick().await;
+            pressure_state.ram_cache.wait_until_filled().await;
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             let state = pressure_state.clone();
             let _ = tokio::task::spawn_blocking(move || {
                 state.ram_cache.reclaim_for_pressure(|drive_id| {
@@ -456,17 +461,27 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
     // exFAT and FAT drives have no journal: write out what the kernel holds a
     // few seconds after a change instead of leaving it for the kernel's own
     // half-minute timer, so a power cut loses as little as possible.
+    // It sleeps until Luna writes something, a backstop falls due, or (with
+    // no such drive in use) a slow re-check, so an idle Luna stays asleep.
     let flush_state = state.clone();
     bg_tasks.push(tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(lunad::drives::flusher::TICK);
+        use lunad::drives::flusher::{IDLE_RECHECK, TICK};
         let mut planner = lunad::drives::flusher::Planner::default();
+        let mut wait = std::time::Duration::ZERO;
         // Drives with a write-out still running. A stick that stopped
         // answering can hold syncfs for good; it is skipped, never waited on,
         // so the other drives keep being written out.
         let in_flight: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>> =
             Default::default();
         loop {
-            ticker.tick().await;
+            tokio::select! {
+                _ = tokio::time::sleep(wait) => {}
+                _ = lunad::drives::ram_cache::drive_written() => {
+                    // Let a burst of writes finish, then write them out together.
+                    tokio::time::sleep(TICK).await;
+                }
+            }
+            wait = TICK;
             let drives = flush_state
                 .db
                 .lock()
@@ -503,18 +518,38 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
                 }
             }
             planner.retain(&live);
+            // A write-out still running is looked at again soon, as before;
+            // otherwise sleep until the next backstop (or the slow re-check).
+            let busy = in_flight.lock().map_or(true, |g| !g.is_empty());
+            if !busy {
+                let now = std::time::Instant::now();
+                wait = planner
+                    .next_backstop()
+                    .map_or(IDLE_RECHECK, |at| at.saturating_duration_since(now))
+                    .max(TICK);
+            }
         }
     }));
 
     // luna-boot-ok confirms the boot after lunad is up, so look for it often
-    // until a freshly installed OS image has settled.
+    // until a freshly installed OS image has settled. With no image waiting
+    // the loop ends: an image installed later records this boot and only
+    // settles after a restart, when this loop starts again.
     let updates_settle = state.updates.clone();
     bg_tasks.push(tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(15));
         loop {
             ticker.tick().await;
             let svc = updates_settle.clone();
-            let _ = tokio::task::spawn_blocking(move || svc.settle_os_boot()).await;
+            let waiting = tokio::task::spawn_blocking(move || {
+                svc.settle_os_boot();
+                svc.has_pending_os()
+            })
+            .await
+            .unwrap_or(true);
+            if !waiting {
+                break;
+            }
         }
     }));
 
@@ -568,6 +603,11 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
         loop {
             ticker.tick().await;
+            // Without Connect there is nothing to move: skip the blocking
+            // thread (a new one each minute, past the pool's keep-alive).
+            if !move_connect.is_connect_active() {
+                continue;
+            }
             let db = move_db.clone();
             let connect = move_connect.clone();
             let _ = tokio::task::spawn_blocking(move || {
@@ -735,9 +775,10 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
     {
         let hub = state.collab.clone();
         bg_tasks.push(tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30));
             loop {
-                ticker.tick().await;
+                // No rooms, nothing to drop: sleep until one opens.
+                hub.wait_for_rooms().await;
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                 hub.evict_idle().await;
             }
         }));
@@ -749,9 +790,9 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
     {
         let hub = state.office_docs.clone();
         bg_tasks.push(tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
             loop {
-                ticker.tick().await;
+                hub.wait_for_sessions().await;
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                 hub.evict_idle().await;
             }
         }));
@@ -858,6 +899,7 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
     // Deterministic teardown: a service stop must not leave the managed
     // cloudflared running or the supervisors ticking behind a dead listener.
     shutting_down.store(true, std::sync::atomic::Ordering::Relaxed);
+    connect_poll_wake.wake();
     connect.stop_tunnel();
     for task in bg_tasks.into_iter().chain(perf_sampler) {
         task.abort();

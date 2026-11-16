@@ -11,8 +11,12 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-/// How often the flusher looks.
+/// How long after a recorded write the flusher looks, so a burst of writes
+/// is written out together.
 pub const TICK: Duration = Duration::from_secs(2);
+/// With no exFAT or FAT drive in use, how often the flusher looks for one
+/// that appeared without a recorded write.
+pub const IDLE_RECHECK: Duration = Duration::from_secs(60);
 /// Even with no recorded write, write out at least this often: writers such
 /// as backups don't report each change.
 const BACKSTOP: Duration = Duration::from_secs(30);
@@ -35,6 +39,11 @@ impl Planner {
             self.last.insert(drive_id.to_string(), (write_gen, now));
         }
         due
+    }
+
+    /// When the earliest backstop write-out falls due, if any drive is known.
+    pub fn next_backstop(&self) -> Option<Instant> {
+        self.last.values().map(|(_, at)| *at + BACKSTOP).min()
     }
 
     /// Forget drives that are no longer mounted.
@@ -70,6 +79,21 @@ mod tests {
         assert!(p.due("d", 5, t0));
         assert!(!p.due("d", 5, t0 + Duration::from_secs(29)));
         assert!(p.due("d", 5, t0 + Duration::from_secs(31)));
+    }
+
+    #[test]
+    fn next_backstop_is_the_earliest_drive() {
+        let mut p = Planner::default();
+        assert_eq!(p.next_backstop(), None);
+        let t0 = Instant::now();
+        assert!(p.due("a", 1, t0 + Duration::from_secs(5)));
+        assert!(p.due("b", 1, t0));
+        assert_eq!(p.next_backstop(), Some(t0 + BACKSTOP));
+        p.retain(&["a".to_string()]);
+        assert_eq!(
+            p.next_backstop(),
+            Some(t0 + Duration::from_secs(5) + BACKSTOP)
+        );
     }
 
     #[test]

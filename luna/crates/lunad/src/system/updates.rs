@@ -1179,6 +1179,13 @@ impl UpdateService {
         self.installer.settle_os_boot();
     }
 
+    /// True while an OS image written to the spare slot still waits for a
+    /// verdict. Once none is, nothing can need settling until the next boot
+    /// (an image installed now records this boot, so it waits for a restart).
+    pub fn has_pending_os(&self) -> bool {
+        self.installer.read_os_pending().is_some()
+    }
+
     /// Version of the OS update that didn't start (Luna went back to the
     /// previous system), if the last one failed. The version may be empty.
     pub fn failed_os_update(&self) -> Option<String> {

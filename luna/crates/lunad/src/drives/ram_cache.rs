@@ -118,6 +118,9 @@ pub struct RamCache {
     inner: Arc<Mutex<Inner>>,
     /// Signalled whenever a dirty flush settles (landed, failed, cancelled).
     settled: Arc<Condvar>,
+    /// Signalled when something is cached, so the RAM-pressure loop can
+    /// sleep while the cache holds nothing.
+    filled: Arc<tokio::sync::Notify>,
 }
 
 impl Default for Inner {
@@ -133,10 +136,22 @@ impl Default for Inner {
 static DRIVE_WRITE_GEN: std::sync::LazyLock<Mutex<HashMap<String, u64>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
+static DRIVE_WRITTEN: std::sync::LazyLock<tokio::sync::Notify> =
+    std::sync::LazyLock::new(tokio::sync::Notify::new);
+
 /// Record that Luna just changed something on this drive.
 pub fn note_drive_write(drive_id: &str) {
     let mut g = DRIVE_WRITE_GEN.lock().unwrap_or_else(|e| e.into_inner());
     *g.entry(drive_id.to_string()).or_insert(0) += 1;
+    drop(g);
+    DRIVE_WRITTEN.notify_one();
+}
+
+/// Resolves after the next [`note_drive_write`] on any drive (at once when
+/// one happened since the last wait), so the flusher can sleep while
+/// nothing is written.
+pub async fn drive_written() {
+    DRIVE_WRITTEN.notified().await;
 }
 
 pub fn drive_write_gen(drive_id: &str) -> u64 {
@@ -179,6 +194,7 @@ impl RamCache {
         Self {
             inner: Arc::new(Mutex::new(Inner::new())),
             settled: Arc::new(Condvar::new()),
+            filled: Arc::new(tokio::sync::Notify::new()),
         }
     }
 
@@ -211,6 +227,7 @@ impl RamCache {
         g.thumb_bytes += entry.bytes.len() as u64;
         g.thumbs.insert(key.clone(), entry);
         g.thumb_order.push_back(key);
+        self.filled.notify_one();
         while g.thumb_bytes > budget.thumb_bytes {
             if !Self::evict_one_thumb(&mut g) {
                 break;
@@ -270,6 +287,7 @@ impl RamCache {
             },
         );
         g.listing_order.push_back(key);
+        self.filled.notify_one();
     }
 
     /// Hot listing when still trusted (short TTL) or when `dir_mtime` matches.
@@ -383,6 +401,7 @@ impl RamCache {
                 cancelled: false,
             },
         );
+        self.filled.notify_one();
         // Parent listing must show the new file immediately.
         let parent = parent_rel(rel);
         if let Some(listing) = g.listings.get_mut(&listing_key(drive_id, &parent)) {
@@ -793,6 +812,20 @@ impl RamCache {
             return Ok(false);
         }
         Ok(true)
+    }
+
+    /// True when nothing is cached, so pressure has nothing to reclaim.
+    pub fn is_empty(&self) -> bool {
+        let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        g.thumbs.is_empty() && g.listings.is_empty() && g.dirty.is_empty()
+    }
+
+    /// Returns at once while anything is cached; otherwise waits until
+    /// something is.
+    pub async fn wait_until_filled(&self) {
+        if self.is_empty() {
+            self.filled.notified().await;
+        }
     }
 
     /// Under pressure: drop thumbs, then listings. Dirty: flush using the

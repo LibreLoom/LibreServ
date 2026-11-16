@@ -18,6 +18,37 @@ const DEFAULT_CONNECT_URL: &str = "https://connect.luna.libreloom.org";
 
 /// Steady-state Connect status pull (boot + every 5 minutes after setup).
 pub const STEADY_POLL_SECS: u64 = 300;
+
+/// Cuts the Connect poll loop's wait short (link came up, device token
+/// saved). The loop blocks on it instead of waking every second.
+#[derive(Default)]
+pub struct PollWake {
+    woken: Mutex<bool>,
+    cv: std::sync::Condvar,
+}
+
+impl PollWake {
+    /// Make the next pull happen now.
+    pub fn wake(&self) {
+        *self.woken.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        self.cv.notify_all();
+    }
+
+    /// True when a wake is waiting to be taken.
+    pub fn is_set(&self) -> bool {
+        *self.woken.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Wait up to `timeout`. True (and the wake is taken) when woken.
+    pub fn wait(&self, timeout: Duration) -> bool {
+        let guard = self.woken.lock().unwrap_or_else(|e| e.into_inner());
+        let (mut woken, _) = self
+            .cv
+            .wait_timeout_while(guard, timeout, |w| !*w)
+            .unwrap_or_else(|e| e.into_inner());
+        std::mem::take(&mut *woken)
+    }
+}
 /// Fast pull while setup is open and the tunnel is not running yet.
 pub const AGGRESSIVE_POLL_SECS: u64 = 10;
 
@@ -148,7 +179,7 @@ pub struct ConnectService {
     tunnel_error: Mutex<Option<String>>,
     cached_wan_ip: Mutex<Option<std::net::IpAddr>>,
     /// Set to cut the poll loop's sleep short (link came up, device token saved).
-    poll_wake: Arc<std::sync::atomic::AtomicBool>,
+    poll_wake: Arc<PollWake>,
     local_port: u16,
 }
 
@@ -184,7 +215,7 @@ impl ConnectService {
             connect_unreachable: Mutex::new(None),
             tunnel_error: Mutex::new(None),
             cached_wan_ip: Mutex::new(cached_wan_ip),
-            poll_wake: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            poll_wake: Arc::new(PollWake::default()),
             local_port: 8090,
         }
     }
@@ -244,8 +275,8 @@ impl ConnectService {
         status
     }
 
-    /// Flag the poll loop checks every second; setting it makes the next pull happen now.
-    pub fn poll_wake(&self) -> Arc<std::sync::atomic::AtomicBool> {
+    /// Wakes the poll loop; waking it makes the next pull happen now.
+    pub fn poll_wake(&self) -> Arc<PollWake> {
         self.poll_wake.clone()
     }
 
@@ -428,8 +459,7 @@ impl ConnectService {
         self.set_rejected_token(false);
         self.clear_connect_unreachable();
         self.clear_tunnel_error();
-        self.poll_wake
-            .store(true, std::sync::atomic::Ordering::Relaxed);
+        self.poll_wake.wake();
         Ok(())
     }
 
@@ -544,6 +574,12 @@ impl ConnectService {
         } else {
             STEADY_POLL_SECS
         }
+    }
+
+    /// True when Connect has bound this Luna and we should be running
+    /// cloudflared, so the poll loop keeps checking it is still alive.
+    pub fn expects_tunnel(&self) -> bool {
+        self.expects_tunnel_connector()
     }
 
     /// True when Connect has bound this Luna and we should be running cloudflared.
@@ -1825,6 +1861,26 @@ pub fn detect_public_ip_fallback() -> Option<std::net::IpAddr> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn poll_wake_cuts_the_wait_short_once() {
+        let wake = std::sync::Arc::new(super::PollWake::default());
+        let short = std::time::Duration::from_millis(20);
+        assert!(!wake.wait(short), "nothing woke it");
+        wake.wake();
+        assert!(wake.is_set());
+        assert!(wake.wait(std::time::Duration::from_secs(5)));
+        assert!(!wake.is_set(), "the wake is taken");
+        let waker = wake.clone();
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            waker.wake();
+        });
+        let started = std::time::Instant::now();
+        assert!(wake.wait(std::time::Duration::from_secs(30)));
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        t.join().unwrap();
+    }
+
     #[test]
     fn stat_start_time_survives_awkward_command_names() {
         let stat = "4242 (cloud (flared) x) S 1 4242 4242 0 -1 4194560 100 0 0 0 5 3 0 0 20 0 9 0 \

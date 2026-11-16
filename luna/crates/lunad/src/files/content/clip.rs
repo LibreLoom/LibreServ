@@ -196,7 +196,13 @@ impl Encoder {
         }
         if st.running.is_none() {
             match self.start() {
-                Ok(r) => st.running = Some(r),
+                Ok(r) => {
+                    st.running = Some(r);
+                    // The reaper sleeps while no worker runs.
+                    if let Some(reaper) = REAPER.get() {
+                        reaper.unpark();
+                    }
+                }
                 Err(e) => return Err(self.failed(&mut st, e)),
             }
         }
@@ -260,6 +266,10 @@ impl Encoder {
             _io: io,
             last_used: Instant::now(),
         })
+    }
+
+    fn is_running(&self) -> bool {
+        self.state.lock().unwrap().running.is_some()
     }
 
     /// Stop the worker if it has been idle long enough.
@@ -361,20 +371,30 @@ struct Workers {
     tokenizer: Mutex<Option<Arc<Tokenizer>>>,
 }
 
+/// The reaper thread, unparked when a worker starts.
+static REAPER: OnceLock<std::thread::Thread> = OnceLock::new();
+
 fn workers() -> &'static Workers {
     static WORKERS: OnceLock<Workers> = OnceLock::new();
     WORKERS.get_or_init(|| {
-        std::thread::Builder::new()
+        let reaper = std::thread::Builder::new()
             .name("luna-clip-reaper".into())
             .spawn(|| {
                 loop {
-                    std::thread::sleep(Duration::from_secs(15));
                     let w = workers();
+                    // No worker to stop: sleep until one starts.
+                    if !w.image.is_running() && !w.text.is_running() {
+                        std::thread::park();
+                        continue;
+                    }
+                    std::thread::sleep(Duration::from_secs(15));
                     w.image.reap();
                     w.text.reap();
                 }
-            })
-            .ok();
+            });
+        if let Ok(handle) = reaper {
+            let _ = REAPER.set(handle.thread().clone());
+        }
         Workers {
             image: Encoder::new(Mode::Image),
             text: Encoder::new(Mode::Text),

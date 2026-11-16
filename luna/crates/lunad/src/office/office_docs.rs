@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
-use tokio::sync::{Mutex, broadcast};
+use tokio::sync::{Mutex, Notify, broadcast};
 
 /// Soft caps — a misbehaving client must not grow lunad without bound.
 pub const MAX_DOC_SESSIONS: usize = 32;
@@ -161,6 +161,9 @@ pub struct OfficeDocHub {
     /// Broadcast bus per doc key is implicit — each socket task owns a
     /// `broadcast::Receiver` subscribed to the session's channel.
     bus: Arc<Mutex<HashMap<String, broadcast::Sender<Value>>>>,
+    /// Signalled when a session or bus entry is created, so the evictor can
+    /// sleep while there are none.
+    created: Arc<Notify>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -181,6 +184,7 @@ impl OfficeDocHub {
                 sessions: HashMap::new(),
             })),
             bus: Arc::new(Mutex::new(HashMap::new())),
+            created: Arc::new(Notify::new()),
         }
     }
 
@@ -209,6 +213,7 @@ impl OfficeDocHub {
                 }
                 hub.sessions
                     .insert(key.to_string(), DocSession::new(binding));
+                self.created.notify_one();
             }
         }
         Ok(())
@@ -239,6 +244,7 @@ impl OfficeDocHub {
             });
             session.resurrected = true;
             hub.sessions.insert(key.to_string(), session);
+            self.created.notify_one();
         }
         Ok(())
     }
@@ -300,7 +306,10 @@ impl OfficeDocHub {
     pub async fn subscribe(&self, key: &str) -> broadcast::Receiver<Value> {
         let mut bus = self.bus.lock().await;
         bus.entry(key.to_string())
-            .or_insert_with(|| broadcast::channel(512).0)
+            .or_insert_with(|| {
+                self.created.notify_one();
+                broadcast::channel(512).0
+            })
             .subscribe()
     }
 
@@ -1089,6 +1098,16 @@ impl OfficeDocHub {
     }
 
     /// Drop sessions with no participants past the idle window, and their bus.
+    /// Returns at once while any session or bus entry exists; otherwise
+    /// waits until one is created, so the evictor doesn't wake an idle Luna.
+    pub async fn wait_for_sessions(&self) {
+        let no_sessions = self.inner.lock().await.sessions.is_empty();
+        let no_bus = self.bus.lock().await.is_empty();
+        if no_sessions && no_bus {
+            self.created.notified().await;
+        }
+    }
+
     pub async fn evict_idle(&self) {
         let cutoff = Duration::from_secs(IDLE_EMPTY_SECS);
         let mut hub = self.inner.lock().await;
@@ -1264,6 +1283,23 @@ mod tests {
             m["user"]["indexUser"] = json!(3);
         }
         m
+    }
+
+    #[tokio::test]
+    async fn evictor_sleeps_until_a_session_opens() {
+        let hub = OfficeDocHub::new();
+        let quick = std::time::Duration::from_millis(50);
+        assert!(
+            tokio::time::timeout(quick, hub.wait_for_sessions())
+                .await
+                .is_err()
+        );
+        make_session(&hub, "k").await;
+        assert!(
+            tokio::time::timeout(quick, hub.wait_for_sessions())
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]

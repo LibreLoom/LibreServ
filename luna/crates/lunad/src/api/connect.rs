@@ -315,10 +315,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK, "{body}");
         assert!(h.state.connect.is_connect_active());
         assert!(
-            h.state
-                .connect
-                .poll_wake()
-                .load(std::sync::atomic::Ordering::Relaxed),
+            h.state.connect.poll_wake().is_set(),
             "saving a token wakes the poll loop"
         );
         // The accepted `code` spelling works too, and lowercase is normalized.

@@ -9,7 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -31,7 +31,6 @@ const MEMORY_WAIT: Duration = Duration::from_secs(5);
 const MEMORY_TRIES: u32 = 24;
 /// A breath between files, so a slow disk keeps serving people first.
 const PACE: Duration = Duration::from_millis(15);
-const IDLE_POLL: Duration = Duration::from_millis(500);
 /// Files embedded per step of the meaning top-up.
 const MEANING_STEP: usize = 16;
 /// Photos embedded per step of the photo-search top-up.
@@ -131,10 +130,13 @@ fn run(rx: mpsc::Receiver<Msg>, shared: Arc<Shared>) {
     // Drives whose "tool was missing" rows got a retry since start.
     let mut retried: HashSet<String> = HashSet::new();
     loop {
-        match rx.recv_timeout(IDLE_POLL) {
-            Ok(msg) => queue(msg, &mut queued),
-            Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => return,
+        // Nothing queued: sleep until a kick arrives instead of polling, so an
+        // idle Luna doesn't wake this thread.
+        if queued.is_empty() {
+            match rx.recv() {
+                Ok(msg) => queue(msg, &mut queued),
+                Err(_) => return,
+            }
         }
         while let Ok(msg) = rx.try_recv() {
             queue(msg, &mut queued);

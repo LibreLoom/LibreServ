@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex, broadcast};
+use tokio::sync::{Mutex, Notify, broadcast};
 
 /// Soft caps so a misbehaving client cannot grow lunad without bound.
 pub const MAX_ROOMS: usize = 64;
@@ -29,6 +29,9 @@ static PEER_SEQ: AtomicU64 = AtomicU64::new(1);
 #[derive(Clone)]
 pub struct CollabHub {
     inner: Arc<Mutex<HubInner>>,
+    /// Signalled when a room is created, so the evictor can sleep while
+    /// there are none.
+    room_created: Arc<Notify>,
 }
 
 struct HubInner {
@@ -155,6 +158,7 @@ impl CollabHub {
             inner: Arc::new(Mutex::new(HubInner {
                 rooms: HashMap::new(),
             })),
+            room_created: Arc::new(Notify::new()),
         }
     }
 
@@ -185,6 +189,7 @@ impl CollabHub {
             return Err(JoinError::TooManyRooms);
         }
         let room = hub.rooms.entry(room_key).or_insert_with(|| {
+            self.room_created.notify_one();
             let (tx, _) = broadcast::channel(512);
             Room {
                 tx,
@@ -336,6 +341,14 @@ impl CollabHub {
         room.last_event = Instant::now();
     }
 
+    /// Returns at once while any room exists; otherwise waits until one is
+    /// created, so the evictor doesn't wake an idle Luna.
+    pub async fn wait_for_rooms(&self) {
+        if self.inner.lock().await.rooms.is_empty() {
+            self.room_created.notified().await;
+        }
+    }
+
     /// Drop empty rooms that have been idle past [`IDLE_EMPTY_SECS`].
     pub async fn evict_idle(&self) {
         let mut hub = self.inner.lock().await;
@@ -463,6 +476,28 @@ fn color_for_peer(peer_id: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn evictor_sleeps_until_a_room_opens() {
+        let hub = CollabHub::new();
+        let quick = std::time::Duration::from_millis(50);
+        assert!(
+            tokio::time::timeout(quick, hub.wait_for_rooms())
+                .await
+                .is_err(),
+            "no rooms: the evictor waits"
+        );
+        let key = CollabHub::room_key("d", "f.docx");
+        let _joined = hub
+            .join(key, "u1".into(), "Ada".into(), true)
+            .await
+            .unwrap();
+        assert!(
+            tokio::time::timeout(quick, hub.wait_for_rooms())
+                .await
+                .is_ok()
+        );
+    }
 
     #[tokio::test]
     async fn join_leave_and_idle_evict() {

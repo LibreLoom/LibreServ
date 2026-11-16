@@ -356,12 +356,19 @@ fn worker_loop(
                 .unwrap_or(Duration::ZERO)
                 .max(IDLE_POLL)
         } else if upserts.is_empty() && removes.is_empty() && renames.is_empty() {
-            Duration::from_secs(30)
+            // Nothing waiting: a pass would do nothing, so sleep until the
+            // next event instead of waking on a timer.
+            Duration::MAX
         } else {
             IDLE_POLL
         };
 
-        match rx.recv_timeout(timeout.max(Duration::from_millis(50))) {
+        let received = if timeout == Duration::MAX {
+            rx.recv().map_err(|_| RecvTimeoutError::Disconnected)
+        } else {
+            rx.recv_timeout(timeout.max(Duration::from_millis(50)))
+        };
+        match received {
             Ok(event) => {
                 match event {
                     PhotosEvent::Upsert { drive_id, rel } => {
