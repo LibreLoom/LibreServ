@@ -296,11 +296,24 @@ fn pass(
 }
 
 fn wait_for_memory() -> bool {
+    // Tests must not depend on how much RAM the machine running them has free:
+    // on a box under memory pressure the guard below would pause the indexer and
+    // a test waiting on it timed out (the guard itself is tested with a stub).
+    #[cfg(test)]
+    let available = || u64::MAX;
+    #[cfg(not(test))]
+    let available = || crate::budget::meminfo().available_bytes;
+    wait_for_memory_with(available, MEMORY_WAIT)
+}
+
+/// Waits (up to `MEMORY_TRIES` pauses) for `MIN_FREE_BYTES` of available
+/// memory; false means it never came.
+fn wait_for_memory_with(available: impl Fn() -> u64, pause: Duration) -> bool {
     for _ in 0..MEMORY_TRIES {
-        if crate::budget::meminfo().available_bytes >= MIN_FREE_BYTES {
+        if available() >= MIN_FREE_BYTES {
             return true;
         }
-        thread::sleep(MEMORY_WAIT);
+        thread::sleep(pause);
     }
     false
 }
@@ -436,6 +449,38 @@ mod tests {
         .into_iter()
         .map(|h| h.hit.name)
         .collect()
+    }
+
+    #[test]
+    fn the_memory_guard_goes_ahead_when_there_is_room() {
+        let calls = std::cell::Cell::new(0);
+        let ok = wait_for_memory_with(
+            || {
+                calls.set(calls.get() + 1);
+                MIN_FREE_BYTES
+            },
+            Duration::from_secs(3600),
+        );
+        assert!(ok);
+        assert_eq!(
+            calls.get(),
+            1,
+            "it must not pause when memory is already free"
+        );
+    }
+
+    #[test]
+    fn the_memory_guard_gives_up_after_its_retries() {
+        let calls = std::cell::Cell::new(0u32);
+        let ok = wait_for_memory_with(
+            || {
+                calls.set(calls.get() + 1);
+                MIN_FREE_BYTES - 1
+            },
+            Duration::from_millis(1),
+        );
+        assert!(!ok);
+        assert_eq!(calls.get(), MEMORY_TRIES);
     }
 
     #[test]
