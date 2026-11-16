@@ -41,13 +41,13 @@ fi
 # Rust workspace: format, lints, tests. Owns luna/target.
 lane_check() {
 	echo "==> cargo fmt"
-	cargo fmt --all --check
+	timed fmt cargo fmt --all --check
 
 	echo "==> cargo clippy"
-	cargo clippy --workspace --all-targets -- -D warnings
+	timed clippy cargo clippy --workspace --all-targets -- -D warnings
 
 	echo "==> cargo test"
-	LUNA_CONTRACT_RECORD=1 cargo test --workspace
+	LUNA_CONTRACT_RECORD=1 timed cargo-test cargo test --workspace
 
 	# Coverage is a report, not a gate, and re-running the whole workspace test
 	# suite just for it doubles the CI time — so it is opt-in (LUNA_COVERAGE=1).
