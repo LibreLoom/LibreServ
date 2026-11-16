@@ -448,6 +448,10 @@ const CHUNK: usize = 1024 * 1024;
 /// When `overwrite` is true, complete uses `?overwrite=1` so an existing file at
 /// that path is replaced. Use that only for ledger-authorized same-path updates.
 /// New files and conflict copies must pass `overwrite: false`.
+///
+/// Returns the stored file's `modified` time as Luna reports it, when the
+/// complete response carries one. Sync records it so the next listing does not
+/// look like a remote change.
 pub fn upload_file(
     base_url: &str,
     token: &str,
@@ -455,7 +459,7 @@ pub fn upload_file(
     local: &Path,
     remote_rel: &str,
     overwrite: bool,
-) -> Result<(), String> {
+) -> Result<Option<i64>, String> {
     let meta = std::fs::metadata(local)
         .map_err(|_| "Couldn't read that file on this computer.".to_string())?;
     let size = meta.len();
@@ -546,8 +550,12 @@ pub fn upload_file(
         .header("Authorization", &format!("Bearer {token}"))
         .send_empty()
     {
-        Ok(complete) => match complete.status().as_u16() {
-            200 | 201 => Ok(()),
+        Ok(mut complete) => match complete.status().as_u16() {
+            200 | 201 => Ok(complete
+                .body_mut()
+                .read_json::<serde_json::Value>()
+                .ok()
+                .and_then(|v| v.get("modified")?.as_i64())),
             _ => Err("Luna couldn't finish the upload. Try again.".into()),
         },
         Err(ureq::Error::StatusCode(409)) => {
@@ -823,8 +831,10 @@ mod tests {
             err.contains("already here") || err.contains("409") || err.contains("http status"),
             "unexpected error: {err}"
         );
-        // Replace path must send ?overwrite=1 and succeed.
-        upload_file(&base, "device-tok-456", &dest, &local, "note.txt", true).unwrap();
+        // Replace path must send ?overwrite=1 and succeed, reporting Luna's mtime.
+        let modified =
+            upload_file(&base, "device-tok-456", &dest, &local, "note.txt", true).unwrap();
+        assert_eq!(modified, Some(1));
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
         drop(handle);
     }

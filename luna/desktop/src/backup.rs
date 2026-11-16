@@ -1,10 +1,10 @@
 //! Multi-job folder backup: watches local folders and uploads to Luna.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -14,6 +14,15 @@ use crate::luna;
 use crate::session;
 
 const FRESH_MTIME_SKIP: Duration = Duration::from_secs(3);
+
+/// The ledger is rewritten whole, so it is saved after this many new entries or
+/// this long since the last save, not after every file. Entries lost to a crash
+/// only mean those files are uploaded again with overwrite, which is harmless.
+const LEDGER_SAVE_EVERY: usize = 64;
+const LEDGER_SAVE_INTERVAL: Duration = Duration::from_secs(5);
+
+/// How soon to look again at a file that was still being written.
+const FRESH_RECHECK: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupJob {
@@ -42,6 +51,8 @@ pub struct BackupProgress {
 
 pub struct BackupHandle {
     stop: Arc<AtomicBool>,
+    /// Wakes the worker (`None`) so a stop takes effect without it polling the flag.
+    wake: std::sync::mpsc::Sender<Option<PathBuf>>,
     /// Kept alive for the job lifetime; dropped on stop so watches end.
     _watchers: Vec<RecommendedWatcher>,
 }
@@ -49,12 +60,25 @@ pub struct BackupHandle {
 impl BackupHandle {
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
+        let _ = self.wake.send(None);
     }
 }
 
-#[derive(Default)]
 struct Ledger {
     map: HashMap<String, (u64, i64)>,
+    /// Entries recorded since the last save.
+    unsaved: usize,
+    last_save: Instant,
+}
+
+impl Default for Ledger {
+    fn default() -> Self {
+        Ledger {
+            map: HashMap::new(),
+            unsaved: 0,
+            last_save: Instant::now(),
+        }
+    }
 }
 
 impl Ledger {
@@ -62,7 +86,10 @@ impl Ledger {
         std::fs::read_to_string(path)
             .ok()
             .and_then(|s| serde_json::from_str::<HashMap<String, (u64, i64)>>(&s).ok())
-            .map(|map| Ledger { map })
+            .map(|map| Ledger {
+                map,
+                ..Ledger::default()
+            })
             .unwrap_or_default()
     }
 
@@ -72,15 +99,69 @@ impl Ledger {
 
     fn record(&mut self, rel: &str, size: u64, mtime: i64) {
         self.map.insert(rel.to_string(), (size, mtime));
+        self.unsaved += 1;
     }
 
-    fn save(&self, path: &Path) {
+    /// Save once enough entries or time have piled up; see `LEDGER_SAVE_EVERY`.
+    fn save_due(&mut self, path: &Path) {
+        if self.unsaved >= LEDGER_SAVE_EVERY
+            || (self.unsaved > 0 && self.last_save.elapsed() >= LEDGER_SAVE_INTERVAL)
+        {
+            self.save(path);
+        }
+    }
+
+    /// Save anything not yet on disk (idle, stop).
+    fn flush(&mut self, path: &Path) {
+        if self.unsaved > 0 {
+            self.save(path);
+        }
+    }
+
+    fn save(&mut self, path: &Path) {
+        self.unsaved = 0;
+        self.last_save = Instant::now();
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
         if let Ok(bytes) = serde_json::to_vec(&self.map) {
             let _ = std::fs::write(path, bytes);
         }
+    }
+}
+
+/// What `upload_one` did with a file that needs no retry as a failure.
+#[derive(Debug, PartialEq)]
+enum Uploaded {
+    /// Copied, or already current, or not a regular file.
+    Done,
+    /// Modified in the last few seconds, so probably still being written.
+    /// Looked at again shortly; not a failure and no backoff.
+    StillWriting,
+}
+
+/// Paths waiting for upload, in arrival order, without duplicates.
+#[derive(Default)]
+struct Queue {
+    order: Vec<PathBuf>,
+    set: HashSet<PathBuf>,
+}
+
+impl Queue {
+    fn push(&mut self, path: PathBuf) {
+        if self.set.insert(path.clone()) {
+            self.order.push(path);
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.order.is_empty()
+    }
+
+    /// Take every queued path; the caller pushes back the ones to keep.
+    fn take(&mut self) -> Vec<PathBuf> {
+        self.set.clear();
+        std::mem::take(&mut self.order)
     }
 }
 
@@ -142,7 +223,7 @@ pub fn start_job(
         );
     }
 
-    let (tx, rx) = std::sync::mpsc::channel::<PathBuf>();
+    let (tx, rx) = std::sync::mpsc::channel::<Option<PathBuf>>();
     let mut watchers = Vec::new();
     for root in &sources {
         let tx = tx.clone();
@@ -151,7 +232,7 @@ pub fn start_job(
                 if let Ok(event) = res {
                     for path in event.paths {
                         if path.is_file() {
-                            let _ = tx.send(path);
+                            let _ = tx.send(Some(path));
                         }
                     }
                 }
@@ -170,11 +251,17 @@ pub fn start_job(
     let thread_ledger = ledger.clone();
     let sources_owned = sources.clone();
     std::thread::spawn(move || {
-        let mut queued: Vec<PathBuf> = Vec::new();
-        // Files that could not be copied stay in `queued` and keep retrying —
+        let stopped = |ledger: &Arc<Mutex<Ledger>>| {
+            if let Ok(mut l) = ledger.lock() {
+                l.flush(&ledger_path);
+            }
+            set_running(&thread_progress, &job_id, false);
+        };
+        let mut queued = Queue::default();
+        // Files that could not be copied stay queued and keep retrying —
         // a file must never be dropped silently just because its first upload
         // attempt failed.
-        let mut failed: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+        let mut failed: HashSet<PathBuf> = HashSet::new();
         for root in &sources_owned {
             for path in upload_tree(
                 &base_url,
@@ -188,38 +275,58 @@ pub fn start_job(
                 &thread_ledger,
                 &ledger_path,
             ) {
-                if !queued.contains(&path) {
-                    queued.push(path);
-                }
+                queued.push(path);
             }
+        }
+        if let Ok(mut l) = thread_ledger.lock() {
+            l.flush(&ledger_path);
         }
         set_phase(&thread_progress, &job_id, "Watching");
         let mut consecutive_failures: usize = 0;
+        // Earliest time to work the queue again (failure backoff, or a short
+        // recheck of files still being written).
+        let mut next_attempt = Instant::now();
         loop {
             if thread_stop.load(Ordering::Relaxed) {
-                set_running(&thread_progress, &job_id, false);
+                stopped(&thread_ledger);
                 return;
             }
-            match rx.recv_timeout(Duration::from_millis(500)) {
-                Ok(path) => {
-                    if !queued.contains(&path) {
-                        queued.push(path);
-                    }
+            // Sleep until a file event or a stop; with work queued, at most
+            // until the next attempt is due.
+            let msg = if queued.is_empty() {
+                rx.recv()
+                    .map_err(|_| std::sync::mpsc::RecvTimeoutError::Disconnected)
+            } else {
+                let left = next_attempt.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                } else {
+                    rx.recv_timeout(left)
                 }
+            };
+            match msg {
+                Ok(Some(path)) => queued.push(path),
+                Ok(None) => continue, // stop wake-up; the flag is checked above
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                Err(_) => {
-                    set_running(&thread_progress, &job_id, false);
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    stopped(&thread_ledger);
                     return;
                 }
             }
+            // Fold in a burst of events before uploading.
+            while let Ok(Some(path)) = rx.try_recv() {
+                queued.push(path);
+            }
+            // A new event does not cut a failure backoff short.
+            if Instant::now() < next_attempt {
+                continue;
+            }
             let mut any_failed = false;
-            let mut i = 0;
-            while i < queued.len() {
+            for path in queued.take() {
                 if thread_stop.load(Ordering::Relaxed) {
-                    set_running(&thread_progress, &job_id, false);
+                    stopped(&thread_ledger);
                     return;
                 }
-                let path = queued[i].clone();
                 // Deleted between queueing and retry: nothing left to back up.
                 // (Other metadata errors still go through upload_one so a real
                 // read failure stays reported instead of vanishing quietly.)
@@ -227,13 +334,12 @@ pub fn start_job(
                     && e.kind() == std::io::ErrorKind::NotFound
                 {
                     failed.remove(&path);
-                    queued.remove(i);
                     continue;
                 }
-                let mut attempt_failed = false;
+                let mut outcome = Ok(Uploaded::Done);
                 for root in &sources_owned {
                     if let Ok(rel) = path.strip_prefix(root) {
-                        attempt_failed = upload_one(
+                        outcome = upload_one(
                             &base_url,
                             &token,
                             &dest_ref,
@@ -243,36 +349,37 @@ pub fn start_job(
                             &thread_progress,
                             &thread_ledger,
                             &ledger_path,
-                        )
-                        .is_err();
+                        );
                         break;
                     }
                 }
-                if attempt_failed {
-                    any_failed = true;
-                    failed.insert(path);
-                    i += 1;
-                } else {
-                    failed.remove(&path);
-                    queued.remove(i);
+                match outcome {
+                    Ok(Uploaded::Done) => {
+                        failed.remove(&path);
+                    }
+                    Ok(Uploaded::StillWriting) => queued.push(path),
+                    Err(_) => {
+                        any_failed = true;
+                        failed.insert(path.clone());
+                        queued.push(path);
+                    }
                 }
+            }
+            if let Ok(mut l) = thread_ledger.lock() {
+                l.flush(&ledger_path);
             }
             set_failed(&thread_progress, &job_id, failed.len());
             if any_failed {
                 consecutive_failures += 1;
-                let backoff =
-                    Duration::from_secs(2u64.saturating_mul(consecutive_failures as u64).min(60));
-                for _ in 0..backoff.as_millis() / 500 {
-                    if thread_stop.load(Ordering::Relaxed) {
-                        set_running(&thread_progress, &job_id, false);
-                        return;
-                    }
-                    std::thread::sleep(Duration::from_millis(500));
-                }
+                next_attempt = Instant::now()
+                    + Duration::from_secs(2u64.saturating_mul(consecutive_failures as u64).min(60));
             } else {
                 consecutive_failures = 0;
                 if queued.is_empty() {
                     set_phase(&thread_progress, &job_id, "Watching");
+                } else {
+                    // Only files still being written are left.
+                    next_attempt = Instant::now() + FRESH_RECHECK;
                 }
             }
         }
@@ -280,6 +387,7 @@ pub fn start_job(
 
     Ok(BackupHandle {
         stop,
+        wake: tx,
         _watchers: watchers,
     })
 }
@@ -348,8 +456,8 @@ fn set_failed(progress: &Arc<Mutex<HashMap<String, BackupProgress>>>, job_id: &s
 }
 
 /// Initial walk of one source folder. Returns the files that could not be
-/// uploaded so the caller can queue them for retry — no file is dropped
-/// silently.
+/// uploaded yet (failed, or still being written) so the caller can queue them
+/// for retry — no file is dropped silently.
 fn upload_tree(
     base_url: &str,
     token: &str,
@@ -393,7 +501,8 @@ fn upload_tree(
             ));
         } else if meta.is_file()
             && let Ok(rel) = path.strip_prefix(root)
-            && upload_one(
+        {
+            match upload_one(
                 base_url,
                 token,
                 dest,
@@ -403,10 +512,10 @@ fn upload_tree(
                 progress,
                 ledger,
                 ledger_path,
-            )
-            .is_err()
-        {
-            missed.push(path);
+            ) {
+                Ok(Uploaded::Done) => {}
+                Ok(Uploaded::StillWriting) | Err(_) => missed.push(path),
+            }
         }
     }
     missed
@@ -430,35 +539,35 @@ fn upload_one(
     progress: &Arc<Mutex<HashMap<String, BackupProgress>>>,
     ledger: &Arc<Mutex<Ledger>>,
     ledger_path: &Path,
-) -> Result<(), String> {
+) -> Result<Uploaded, String> {
     let rel_str = rel.to_string_lossy().replace('\\', "/");
     let meta = std::fs::symlink_metadata(path)
         .map_err(|_| "Couldn't read that file on this computer.".to_string())?;
     if meta.file_type().is_symlink() || !meta.is_file() {
-        return Ok(());
+        return Ok(Uploaded::Done);
     }
     let size = meta.len();
     let mtime = mtime_secs(&meta);
     {
         let l = ledger.lock().unwrap();
         if l.is_current(&rel_str, size, mtime) {
-            return Ok(());
+            return Ok(Uploaded::Done);
         }
     }
     if let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
         && (now.as_secs() as i64) - mtime < FRESH_MTIME_SKIP.as_secs() as i64
     {
-        return Err("file still writing".into());
+        return Ok(Uploaded::StillWriting);
     }
     set_current(progress, job_id, &rel_str, "");
     // Backup always places the file at this path (create or replace).
     match luna::upload_file(base_url, token, dest, path, &rel_str, true) {
-        Ok(()) => {
+        Ok(_) => {
             let mut l = ledger.lock().unwrap();
             l.record(&rel_str, size, mtime);
-            l.save(ledger_path);
+            l.save_due(ledger_path);
             bump(progress, job_id, size);
-            Ok(())
+            Ok(Uploaded::Done)
         }
         Err(e) => {
             // Keep the error for Sync/Backup icons, but clear `current` so Status
@@ -478,6 +587,37 @@ fn upload_one(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn queue_keeps_order_and_drops_duplicates() {
+        let mut q = Queue::default();
+        q.push("a".into());
+        q.push("b".into());
+        q.push("a".into());
+        assert_eq!(q.take(), vec![PathBuf::from("a"), PathBuf::from("b")]);
+        assert!(q.is_empty());
+        // Taken paths can be queued again.
+        q.push("a".into());
+        assert_eq!(q.take(), vec![PathBuf::from("a")]);
+    }
+
+    #[test]
+    fn ledger_saves_in_batches_and_on_flush() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ledger.json");
+        let mut l = Ledger::default();
+        l.record("one", 1, 1);
+        l.save_due(&path);
+        assert!(!path.exists(), "one new entry must not rewrite the ledger");
+        for i in 0..LEDGER_SAVE_EVERY {
+            l.record(&format!("f{i}"), 1, 1);
+        }
+        l.save_due(&path);
+        assert!(path.exists());
+        l.record("last", 2, 2);
+        l.flush(&path);
+        assert!(Ledger::load(&path).is_current("last", 2, 2));
+    }
 
     #[test]
     fn jobs_round_trip() {

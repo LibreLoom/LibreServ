@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -15,6 +15,11 @@ use crate::session;
 
 /// How often to re-check Luna for remote-side changes when nothing changed locally.
 const REMOTE_POLL_INTERVAL: Duration = Duration::from_secs(30);
+
+/// `LUNA_DESKTOP_PERF=1` prints per-phase sync timings (journey K3) to stderr.
+fn perf_log() -> bool {
+    std::env::var_os("LUNA_DESKTOP_PERF").is_some_and(|v| v == "1")
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncPair {
@@ -50,6 +55,8 @@ struct LedgerEntry {
 #[derive(Default)]
 struct Ledger {
     map: HashMap<String, LedgerEntry>,
+    /// Set by `insert`/`remove`, so an idle pass skips rewriting the whole file.
+    dirty: bool,
 }
 
 impl Ledger {
@@ -57,11 +64,27 @@ impl Ledger {
         std::fs::read_to_string(path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
-            .map(|map| Ledger { map })
+            .map(|map| Ledger { map, dirty: false })
             .unwrap_or_default()
     }
 
-    fn save(&self, path: &Path) {
+    fn insert(&mut self, rel: String, entry: LedgerEntry) {
+        self.map.insert(rel, entry);
+        self.dirty = true;
+    }
+
+    fn remove(&mut self, rel: &str) {
+        if self.map.remove(rel).is_some() {
+            self.dirty = true;
+        }
+    }
+
+    /// Write the ledger if anything changed since the last save.
+    fn save_if_dirty(&mut self, path: &Path) {
+        if !self.dirty {
+            return;
+        }
+        self.dirty = false;
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -73,6 +96,8 @@ impl Ledger {
 
 pub struct SyncHandle {
     stop: Arc<AtomicBool>,
+    /// Wakes the worker so a stop takes effect without it polling the flag.
+    wake: std::sync::mpsc::Sender<()>,
     /// Kept alive for the pair lifetime; dropped on stop so watches end.
     _watcher: RecommendedWatcher,
 }
@@ -80,6 +105,7 @@ pub struct SyncHandle {
 impl SyncHandle {
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
+        let _ = self.wake.send(());
     }
 }
 
@@ -161,6 +187,7 @@ pub fn start_pair(
         // Kick an immediate sync, then on local changes or every 30s.
         loop {
             if thread_stop.load(Ordering::Relaxed) {
+                ledger.save_if_dirty(&ledger_file);
                 set_running(&thread_progress, &pair_id, false);
                 return;
             }
@@ -184,25 +211,29 @@ pub fn start_pair(
             // Always clear the in-flight name so Status drops finished/failed rows.
             clear_current(&thread_progress, &pair_id);
             set_phase(&thread_progress, &pair_id, "Waiting");
-            // Wait for local changes or the next remote poll.
-            let deadline = std::time::Instant::now() + REMOTE_POLL_INTERVAL;
-            while std::time::Instant::now() < deadline {
-                if thread_stop.load(Ordering::Relaxed) {
+            // Events queued so far are mostly the pass's own downloads and
+            // set-asides; acting on them would start another full pass that
+            // finds nothing to do. A user edit made during the pass is still
+            // picked up by the next poll.
+            while rx.try_recv().is_ok() {}
+            // The drain may have eaten a stop's wake-up.
+            if thread_stop.load(Ordering::Relaxed) {
+                continue;
+            }
+            // Sleep until a local change, a stop, or the next remote poll.
+            match rx.recv_timeout(REMOTE_POLL_INTERVAL) {
+                Ok(()) => {
+                    if !thread_stop.load(Ordering::Relaxed) {
+                        // Debounce a burst of file events into one pass.
+                        std::thread::sleep(Duration::from_millis(400));
+                        while rx.try_recv().is_ok() {}
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    ledger.save_if_dirty(&ledger_file);
                     set_running(&thread_progress, &pair_id, false);
                     return;
-                }
-                match rx.recv_timeout(Duration::from_millis(500)) {
-                    Ok(()) => {
-                        // debounce
-                        while rx.try_recv().is_ok() {}
-                        std::thread::sleep(Duration::from_millis(400));
-                        break;
-                    }
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                    Err(_) => {
-                        set_running(&thread_progress, &pair_id, false);
-                        return;
-                    }
                 }
             }
         }
@@ -210,6 +241,7 @@ pub fn start_pair(
 
     Ok(SyncHandle {
         stop,
+        wake: tx,
         _watcher: watcher,
     })
 }
@@ -385,9 +417,14 @@ fn sync_once(
     progress: &Arc<Mutex<HashMap<String, SyncProgress>>>,
     stop: &AtomicBool,
 ) -> Result<(), String> {
+    let remote_start = Instant::now();
     let remote_files = luna::walk_remote_files(base_url, token, &remote.drive_id, &remote.path)?;
     let remote_map: HashMap<String, luna::FileEntry> = remote_files.into_iter().collect();
+    let remote_ms = remote_start.elapsed().as_millis();
+    let local_start = Instant::now();
     let local_map = walk_local(local_root);
+    let local_ms = local_start.elapsed().as_millis();
+    let diff_start = Instant::now();
 
     let mut all: HashSet<String> = HashSet::new();
     all.extend(remote_map.keys().cloned());
@@ -430,7 +467,7 @@ fn sync_once(
                     let lm = std::fs::metadata(&dest)
                         .map(|m| mtime_secs(&m))
                         .unwrap_or(re.modified);
-                    ledger.map.insert(
+                    ledger.insert(
                         rel.clone(),
                         LedgerEntry {
                             size: re.size,
@@ -443,26 +480,36 @@ fn sync_once(
                     set_current(progress, pair_id, &conflict_rel);
                     // Best-effort immediate upload; on failure the next pass
                     // sees the set-aside copy as a new local file and retries
-                    // until it lands. The ledger entry is written then, from
-                    // real remote metadata.
-                    let _ = luna::upload_file(
+                    // until it lands. On success record it now, from Luna's
+                    // reported mtime, so the next pass doesn't take it for an
+                    // unknown remote file and download it back.
+                    if let Ok(Some(rm)) = luna::upload_file(
                         base_url,
                         token,
                         remote,
                         &conflict_name,
                         &conflict_rel,
                         false,
-                    );
+                    ) && let Ok(meta) = std::fs::metadata(&conflict_name)
+                    {
+                        ledger.insert(
+                            conflict_rel.clone(),
+                            LedgerEntry {
+                                size: meta.len(),
+                                local_mtime: mtime_secs(&meta),
+                                remote_mtime: rm,
+                            },
+                        );
+                    }
                 } else if local_changed {
                     set_current(progress, pair_id, &rel);
-                    luna::upload_file(base_url, token, remote, path, &rel, true)?;
-                    // Refresh remote mtime via re-list would be ideal; store local as authority.
-                    ledger.map.insert(
+                    let rm = luna::upload_file(base_url, token, remote, path, &rel, true)?;
+                    ledger.insert(
                         rel.clone(),
                         LedgerEntry {
                             size: *size,
                             local_mtime: *lm,
-                            remote_mtime: *lm,
+                            remote_mtime: rm.unwrap_or(*lm),
                         },
                     );
                     bump(progress, pair_id, true, false);
@@ -473,7 +520,7 @@ fn sync_once(
                     luna::download_file(base_url, token, &remote.drive_id, &remote_abs, &dest)?;
                     let meta = std::fs::metadata(&dest)
                         .map_err(|_| "Couldn't read the downloaded file.".to_string())?;
-                    ledger.map.insert(
+                    ledger.insert(
                         rel.clone(),
                         LedgerEntry {
                             size: meta.len(),
@@ -487,7 +534,7 @@ fn sync_once(
             (Some((path, size, lm)), Some(re), None) => {
                 // Both exist, no ledger — treat newer mtime as winner; equal → keep both if sizes differ.
                 if *size == re.size && (*lm - re.modified).abs() <= 2 {
-                    ledger.map.insert(
+                    ledger.insert(
                         rel.clone(),
                         LedgerEntry {
                             size: *size,
@@ -497,13 +544,13 @@ fn sync_once(
                     );
                 } else if *lm >= re.modified {
                     set_current(progress, pair_id, &rel);
-                    luna::upload_file(base_url, token, remote, path, &rel, true)?;
-                    ledger.map.insert(
+                    let rm = luna::upload_file(base_url, token, remote, path, &rel, true)?;
+                    ledger.insert(
                         rel.clone(),
                         LedgerEntry {
                             size: *size,
                             local_mtime: *lm,
-                            remote_mtime: *lm,
+                            remote_mtime: rm.unwrap_or(*lm),
                         },
                     );
                     bump(progress, pair_id, true, false);
@@ -514,7 +561,7 @@ fn sync_once(
                     luna::download_file(base_url, token, &remote.drive_id, &remote_abs, &dest)?;
                     let meta = std::fs::metadata(&dest)
                         .map_err(|_| "Couldn't read the downloaded file.".to_string())?;
-                    ledger.map.insert(
+                    ledger.insert(
                         rel.clone(),
                         LedgerEntry {
                             size: meta.len(),
@@ -533,7 +580,7 @@ fn sync_once(
                 // a new upload.
                 set_current(progress, pair_id, &rel);
                 if quarantine_local(local_root, path, &rel).is_ok() {
-                    ledger.map.remove(&rel);
+                    ledger.remove(&rel);
                     bump(progress, pair_id, false, false);
                 }
                 let _ = size;
@@ -542,13 +589,16 @@ fn sync_once(
             (Some((path, size, lm)), None, None) => {
                 // New local file
                 set_current(progress, pair_id, &rel);
-                luna::upload_file(base_url, token, remote, path, &rel, false)?;
-                ledger.map.insert(
+                let rm = luna::upload_file(base_url, token, remote, path, &rel, false)?;
+                ledger.insert(
                     rel.clone(),
                     LedgerEntry {
                         size: *size,
                         local_mtime: *lm,
-                        remote_mtime: *lm,
+                        // Luna stamps its own mtime on the stored file; recording it
+                        // keeps the next pass from seeing a remote change and
+                        // downloading the file straight back.
+                        remote_mtime: rm.unwrap_or(*lm),
                     },
                 );
                 bump(progress, pair_id, true, false);
@@ -558,7 +608,7 @@ fn sync_once(
                 set_current(progress, pair_id, &rel);
                 let remote_abs = join_remote(&remote.path, &rel);
                 luna::delete_path(base_url, token, &remote.drive_id, &remote_abs)?;
-                ledger.map.remove(&rel);
+                ledger.remove(&rel);
                 bump(progress, pair_id, false, false);
                 let _ = re;
             }
@@ -570,7 +620,7 @@ fn sync_once(
                 luna::download_file(base_url, token, &remote.drive_id, &remote_abs, &dest)?;
                 let meta = std::fs::metadata(&dest)
                     .map_err(|_| "Couldn't read the downloaded file.".to_string())?;
-                ledger.map.insert(
+                ledger.insert(
                     rel.clone(),
                     LedgerEntry {
                         size: meta.len(),
@@ -581,12 +631,23 @@ fn sync_once(
                 bump(progress, pair_id, false, false);
             }
             (None, None, Some(_)) => {
-                ledger.map.remove(&rel);
+                ledger.remove(&rel);
             }
             (None, None, None) => {}
         }
     }
-    ledger.save(ledger_file);
+    let save_start = Instant::now();
+    ledger.save_if_dirty(ledger_file);
+    if perf_log() {
+        eprintln!(
+            "luna-desktop: K3 sync pass files={} remote_walk_ms={} local_walk_ms={} diff_ms={} save_ms={}",
+            ledger.map.len(),
+            remote_ms,
+            local_ms,
+            save_start.duration_since(diff_start).as_millis(),
+            save_start.elapsed().as_millis()
+        );
+    }
     clear_current(progress, pair_id);
     Ok(())
 }
@@ -653,6 +714,25 @@ fn conflict_rel(rel: &str, conflict_name: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ledger_skips_save_when_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ledger.json");
+        let mut l = Ledger::default();
+        l.save_if_dirty(&path);
+        assert!(!path.exists(), "an idle pass must not write the ledger");
+        l.insert("a.txt".into(), LedgerEntry::default());
+        l.save_if_dirty(&path);
+        assert!(path.exists());
+        std::fs::remove_file(&path).unwrap();
+        l.remove("missing.txt");
+        l.save_if_dirty(&path);
+        assert!(!path.exists(), "removing nothing is not a change");
+        l.remove("a.txt");
+        l.save_if_dirty(&path);
+        assert!(Ledger::load(&path).map.is_empty());
+    }
 
     #[test]
     fn pairs_round_trip() {
