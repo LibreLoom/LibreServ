@@ -640,7 +640,6 @@
       "network": {
         "category": "string",
         "message": "string",
-        "more?": "string",
         "status": "string"
       },
       "ntfs_support": {
