@@ -5,8 +5,11 @@
 //! parallel:
 //!
 //! 1. Exact: every word of the query appears in the name.
-//! 2. Close: only when step 1 found few names, look for names sharing
-//!    3-letter pieces with the query and keep the ones within a typo or two.
+//! 2. Close: names sharing 3-letter pieces with the query that step 1 did
+//!    not already read; keep the ones within a typo or two.
+//! 3. Words inside files, then (unless asked not to) passages by meaning.
+//!
+//! Steps 2 and 3 only run when step 1 doesn't already fill the answer.
 //!
 //! Candidates are ranked by [`search_rank`](crate::files::search_rank); the
 //! caller applies access checks in rank order, so the result limit counts
@@ -104,77 +107,49 @@ pub fn search_all(
     query: &Query,
     kind: KindFilter,
 ) -> anyhow::Result<(Vec<Candidate>, bool)> {
-    search_all_with(drives, query, kind, true)
+    search_all_with(drives, query, kind, true, |_| false)
 }
 
 /// [`search_all`], optionally without the neural passes (what photos show,
 /// passages by meaning). Those embed the query with a model, which costs
 /// ~1 s per new query on a Wyse 3040; while someone is still typing the web
 /// asks without them and fills them in once typing pauses.
+///
+/// Names holding the query's words are searched first. `names_suffice`
+/// sees those candidates, best first; when it says they already fill the
+/// answer, the passes that can only rank below them (names a typo away,
+/// words inside files, meaning, photos) are skipped. It must only say so
+/// when the outcome can't change: the caller counts name matches ranked
+/// above [`Tier::Content`] that the person may open. A skipped pass can't
+/// mark the answer incomplete, since nothing it finds could be shown.
 pub fn search_all_with(
     drives: &[DriveRef],
     query: &Query,
     kind: KindFilter,
     neural: bool,
+    names_suffice: impl FnOnce(&[Candidate]) -> bool,
 ) -> anyhow::Result<(Vec<Candidate>, bool)> {
-    // What photos show: one text embedding for every drive.
-    let photo_q = if kind == KindFilter::Folders || !neural {
-        None
-    } else {
-        let _neural = crate::perf::Timer::debug("W11", "search.photo_query");
-        crate::files::content::photos::query_vector(&query.norm)
-    };
-    let photo_q = photo_q.as_ref();
-    let (mut all, incomplete) = std::thread::scope(|scope| {
+    let deadline = std::time::Instant::now() + SEARCH_TIMEOUT;
+    // Names holding the words, on every drive at once. A drive whose index
+    // can't be opened or searched is left out and makes the answer
+    // incomplete.
+    let mut incomplete = false;
+    let mut searched: Vec<(&DriveRef, Connection, Found)> = Vec::new();
+    std::thread::scope(|scope| {
         let handles: Vec<_> = drives
             .iter()
             .map(|drive| {
                 scope.spawn(move || {
                     let conn = crate::drives::drive_db::open(&drive.mount)?;
-                    let (mut hits, limited) =
-                        search_drive_bounded(&conn, &drive.id, query, kind, neural)?;
-                    if let Some(q) = photo_q {
-                        let _neural = crate::perf::Timer::debug("W11", "search.photos");
-                        let seen: HashSet<(String, String)> = hits
-                            .iter()
-                            .map(|c| (c.hit.parent.clone(), c.hit.name.clone()))
-                            .collect();
-                        match crate::files::content::photos::candidates(&conn, &drive.id, q, kind) {
-                            Ok(found) => hits.extend(
-                                found
-                                    .into_iter()
-                                    .filter(|(hit, _)| {
-                                        !seen.contains(&(hit.parent.clone(), hit.name.clone()))
-                                    })
-                                    .map(|(hit, sim)| Candidate {
-                                        rank: Rank {
-                                            tier: Tier::Photo,
-                                            score: ((1.0 - sim).clamp(0.0, 2.0) * 1_000_000.0)
-                                                as u32,
-                                            typos: 0,
-                                            file: 1,
-                                            len: search_rank::normalize(&hit.name).len(),
-                                        },
-                                        hit,
-                                        doc: None,
-                                        passage: None,
-                                    }),
-                            ),
-                            Err(e) => tracing::debug!(error = %e, "photo search on a drive failed"),
-                        }
-                    }
-                    Ok::<_, anyhow::Error>((hits, limited))
+                    set_deadline(&conn, Some(deadline));
+                    let found = exact_pass(&conn, &drive.id, query, kind, ROW_BUDGET)?;
+                    Ok::<_, anyhow::Error>((drive, conn, found))
                 })
             })
             .collect();
-        let mut all = Vec::new();
-        let mut incomplete = false;
         for handle in handles {
             match handle.join() {
-                Ok(Ok((hits, limited))) => {
-                    all.extend(hits);
-                    incomplete |= limited;
-                }
+                Ok(Ok(done)) => searched.push(done),
                 Ok(Err(error)) => {
                     tracing::warn!(%error, "drive search failed");
                     incomplete = true;
@@ -185,10 +160,130 @@ pub fn search_all_with(
                 }
             }
         }
-        Ok::<_, anyhow::Error>((all, incomplete))
-    })?;
+    });
+    let mut names: Vec<Candidate> = searched
+        .iter_mut()
+        .flat_map(|(_, _, found)| std::mem::take(&mut found.out))
+        .collect();
+    sort_candidates(&mut names);
+    if names_suffice(&names) {
+        for (_, conn, found) in &searched {
+            set_deadline(conn, None);
+            incomplete |= found.incomplete;
+        }
+        return Ok((names, incomplete));
+    }
+
+    // What photos show: one text embedding for every drive. Its time doesn't
+    // count against the drives' time limit.
+    let embedding = std::time::Instant::now();
+    let photo_q = if kind == KindFilter::Folders || !neural {
+        None
+    } else {
+        let _neural = crate::perf::Timer::debug("W11", "search.photo_query");
+        crate::files::content::photos::query_vector(&query.norm)
+    };
+    let photo_q = photo_q.as_ref();
+    let deadline = deadline + embedding.elapsed();
+    let mut all = names;
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = searched
+            .into_iter()
+            .map(|(drive, conn, mut found)| {
+                scope.spawn(move || {
+                    set_deadline(&conn, Some(deadline));
+                    // Close names before the text: a file found both ways
+                    // keeps its (better) close-name match.
+                    if let Err(error) =
+                        close_pass(&conn, &drive.id, query, kind, ROW_BUDGET, &mut found)
+                    {
+                        tracing::warn!(%error, "close name search failed");
+                        found.incomplete = true;
+                    }
+                    later_passes(&conn, &drive.id, query, kind, neural, &mut found);
+                    set_deadline(&conn, None);
+                    if let Some(q) = photo_q {
+                        photo_pass(&conn, &drive.id, q, kind, &mut found);
+                    }
+                    found
+                })
+            })
+            .collect();
+        for handle in handles {
+            match handle.join() {
+                Ok(found) => {
+                    all.extend(found.out);
+                    incomplete |= found.incomplete;
+                }
+                Err(_) => {
+                    tracing::warn!("drive search worker failed");
+                    incomplete = true;
+                }
+            }
+        }
+    });
     sort_candidates(&mut all);
     Ok((all, incomplete))
+}
+
+/// How long one search may spend inside SQLite per drive. Past it the
+/// answer is labelled incomplete.
+const SEARCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Interrupt this connection's queries once `deadline` passes (`None`
+/// clears it). SQLite can spend work inside MATCH before yielding a row, so
+/// bounding rows alone isn't enough.
+fn set_deadline(conn: &Connection, deadline: Option<std::time::Instant>) {
+    match deadline {
+        Some(deadline) => {
+            conn.progress_handler(1000, Some(move || std::time::Instant::now() >= deadline))
+        }
+        None => conn.progress_handler(0, None::<fn() -> bool>),
+    }
+}
+
+/// One drive's candidates so far.
+#[derive(Default)]
+struct Found {
+    out: Vec<Candidate>,
+    /// Entries already found, so a later pass doesn't add them again.
+    seen: HashSet<(String, String)>,
+    incomplete: bool,
+    /// The exact pass's expression, when it read any rows: the close pass
+    /// leaves those rows out.
+    exact_read: Option<String>,
+}
+
+fn photo_pass(
+    conn: &Connection,
+    drive_id: &str,
+    q: &[f32; crate::files::content::clip::DIM],
+    kind: KindFilter,
+    found: &mut Found,
+) {
+    let _neural = crate::perf::Timer::debug("W11", "search.photos");
+    match crate::files::content::photos::candidates(conn, drive_id, q, kind) {
+        Ok(hits) => {
+            for (hit, sim) in hits {
+                if found.seen.contains(&(hit.parent.clone(), hit.name.clone())) {
+                    continue;
+                }
+                found.out.push(Candidate {
+                    rank: Rank {
+                        tier: Tier::Photo,
+                        score: ((1.0 - sim).clamp(0.0, 2.0) * 1_000_000.0) as u32,
+                        typos: 0,
+                        file: 1,
+                        len: search_rank::normalize(&hit.name).len(),
+                    },
+                    hit,
+                    doc: None,
+                    passage: None,
+                });
+            }
+        }
+        Err(e) => tracing::debug!(error = %e, "photo search on a drive failed"),
+    }
 }
 
 fn sort_candidates(all: &mut [Candidate]) {
@@ -213,12 +308,8 @@ fn search_drive(
     Ok(search_drive_bounded(conn, drive_id, query, kind, true)?.0)
 }
 
-/// Each lookup reads stable rowid-ordered pages under a fixed per-step budget.
-/// Each drive gets one exact and one close step, so at most twice that many
-/// rows are examined. Separate budgets preserve typo recall when exact matches
-/// fill their budget, including when those matches are inaccessible.
-/// Ranking happens after collection; exhausting a budget means neither the
-/// order nor the existence of omitted visible matches is known.
+/// Every pass on one drive, under the usual row budget and time limit.
+#[cfg(test)]
 fn search_drive_bounded(
     conn: &Connection,
     drive_id: &str,
@@ -232,11 +323,12 @@ fn search_drive_bounded(
         query,
         kind,
         ROW_BUDGET,
-        Some(std::time::Duration::from_secs(2)),
+        Some(SEARCH_TIMEOUT),
         neural,
     )
 }
 
+#[cfg(test)]
 fn search_drive_with_limits(
     conn: &Connection,
     drive_id: &str,
@@ -246,109 +338,176 @@ fn search_drive_with_limits(
     timeout: Option<std::time::Duration>,
     neural: bool,
 ) -> anyhow::Result<(Vec<Candidate>, bool)> {
-    // SQLite can spend work inside MATCH before yielding a row. Interrupt long
-    // queries as well as bounding rows; incomplete results are labelled above.
-    struct ProgressGuard<'a>(&'a Connection);
-    impl Drop for ProgressGuard<'_> {
-        fn drop(&mut self) {
-            self.0.progress_handler(0, None::<fn() -> bool>);
+    set_deadline(conn, timeout.map(|t| std::time::Instant::now() + t));
+    let found = exact_pass(conn, drive_id, query, kind, row_budget).and_then(|mut found| {
+        close_pass(conn, drive_id, query, kind, row_budget, &mut found)?;
+        later_passes(conn, drive_id, query, kind, neural, &mut found);
+        Ok(found)
+    });
+    set_deadline(conn, None);
+    let mut found = found?;
+    found.out.sort_by(|a, b| a.rank.cmp(&b.rank));
+    Ok((found.out, found.incomplete))
+}
+
+/// Read every row `expr` matches (or, with no expression, every name
+/// starting with the query) in stable rowid-ordered pages, under a fixed
+/// row budget, and keep the names that really match. Returns the rows read.
+///
+/// Ranking happens after collection; exhausting the budget means neither
+/// the order nor the existence of omitted visible matches is known, so the
+/// answer is marked incomplete.
+fn take(
+    conn: &Connection,
+    drive_id: &str,
+    query: &Query,
+    kind: KindFilter,
+    expr: Option<&str>,
+    row_budget: i64,
+    found: &mut Found,
+) -> anyhow::Result<usize> {
+    let mut after = 0_i64;
+    let mut examined = 0_i64;
+    loop {
+        // One extra row distinguishes an exactly full budget from overflow.
+        let size = PAGE_SIZE.min(row_budget + 1 - examined);
+        let rows = match candidate_page(conn, drive_id, query, kind, expr, after, size) {
+            Err(e) if e.downcast_ref::<rusqlite::Error>().is_some_and(interrupted) => {
+                found.incomplete = true;
+                return Ok(examined as usize);
+            }
+            result => result?,
+        };
+        if rows.is_empty() {
+            break;
+        }
+        let count = rows.len() as i64;
+        for (rowid, hit) in rows {
+            if examined == row_budget {
+                found.incomplete = true;
+                return Ok(examined as usize);
+            }
+            examined += 1;
+            after = rowid;
+            // Only a name that really matches is "found". The fuzzy pass
+            // returns files matching any 3-letter piece; marking those seen
+            // would hide them from the text search below.
+            let key = (hit.parent.clone(), hit.name.clone());
+            if !found.seen.contains(&key)
+                && let Some(rank) = search_rank::rank(query, &hit.name, hit.kind == "dir")
+            {
+                found.seen.insert(key);
+                found.out.push(Candidate {
+                    hit,
+                    rank,
+                    doc: None,
+                    passage: None,
+                });
+            }
+        }
+        if count < size {
+            break;
         }
     }
-    if let Some(timeout) = timeout {
-        let deadline = std::time::Instant::now() + timeout;
-        conn.progress_handler(1000, Some(move || std::time::Instant::now() >= deadline));
-    }
-    let _progress_guard = ProgressGuard(conn);
-    let mut seen = HashSet::new();
-    let mut out = Vec::new();
-    let mut incomplete = false;
+    Ok(examined as usize)
+}
+
+/// Names holding every word of the query (or, for a query too short for
+/// the index, starting with it). Each step (this one, then
+/// [`close_pass`]) has its own row budget, so typo recall survives exact
+/// matches filling theirs, including when those matches are inaccessible.
+fn exact_pass(
+    conn: &Connection,
+    drive_id: &str,
+    query: &Query,
+    kind: KindFilter,
+    row_budget: i64,
+) -> anyhow::Result<Found> {
+    let mut found = Found::default();
     let exact = search_rank::fts_match(query, true);
-    {
-        let mut take = |expr: Option<&str>| -> anyhow::Result<()> {
-            let mut after = 0_i64;
-            let mut examined = 0_i64;
-            loop {
-                // One extra row distinguishes an exactly full budget from overflow.
-                let size = PAGE_SIZE.min(row_budget + 1 - examined);
-                let rows = match candidate_page(conn, drive_id, query, kind, expr, after, size) {
-                    Err(e) if e.downcast_ref::<rusqlite::Error>().is_some_and(|err| matches!(err, rusqlite::Error::SqliteFailure(code, _) if code.code == rusqlite::ErrorCode::OperationInterrupted)) => {
-                        incomplete = true;
-                        return Ok(());
-                    }
-                    result => result?,
-                };
-                if rows.is_empty() {
-                    break;
-                }
-                let count = rows.len() as i64;
-                for (rowid, hit) in rows {
-                    if examined == row_budget {
-                        incomplete = true;
-                        return Ok(());
-                    }
-                    examined += 1;
-                    after = rowid;
-                    // Only a name that really matches is "found". The fuzzy
-                    // pass returns files matching any 3-letter piece; marking
-                    // those seen would hide them from the text search below.
-                    let key = (hit.parent.clone(), hit.name.clone());
-                    if !seen.contains(&key)
-                        && let Some(rank) = search_rank::rank(query, &hit.name, hit.kind == "dir")
-                    {
-                        seen.insert(key);
-                        out.push(Candidate {
-                            hit,
-                            rank,
-                            doc: None,
-                            passage: None,
-                        });
-                    }
-                }
-                if count < size {
-                    break;
-                }
-            }
-            Ok(())
-        };
-        let result = take(exact.as_deref()).and_then(|()| {
-            // Close matching must not depend on the number of inaccessible names.
-            if let Some(close) = search_rank::fts_match(query, false) {
-                take(Some(&close))
-            } else {
-                Ok(())
-            }
-        });
-        result?;
-    }
-    // Words inside files. A file already found by its name keeps that
-    // (better) match.
+    let mut names_timer = crate::perf::Timer::debug("W10", "search.names");
+    names_timer.field("drive", drive_id);
+    let rows = take(
+        conn,
+        drive_id,
+        query,
+        kind,
+        exact.as_deref(),
+        row_budget,
+        &mut found,
+    )?;
+    names_timer.field("rows", rows);
+    found.exact_read = exact.filter(|_| rows > 0);
+    Ok(found)
+}
+
+/// Names a typo or two away. Every one ranks below every name holding the
+/// words and below every match inside a file ([`Tier::Close`]), so it only
+/// runs when those don't already fill the answer.
+fn close_pass(
+    conn: &Connection,
+    drive_id: &str,
+    query: &Query,
+    kind: KindFilter,
+    row_budget: i64,
+    found: &mut Found,
+) -> anyhow::Result<()> {
+    // Close matching must not depend on the number of inaccessible names.
+    // Leaving out rows the exact pass didn't read only costs time.
+    let Some(close) = close_expr(query, found.exact_read.as_deref()) else {
+        return Ok(());
+    };
+    let mut close_timer = crate::perf::Timer::debug("W10", "search.close");
+    close_timer.field("drive", drive_id);
+    close_timer.field(
+        "rows",
+        take(conn, drive_id, query, kind, Some(&close), row_budget, found)?,
+    );
+    Ok(())
+}
+
+/// Words inside files, then passages by meaning. A file already found by
+/// its name keeps that (better) match. Errors here never take name search
+/// down; they make the answer incomplete.
+fn later_passes(
+    conn: &Connection,
+    drive_id: &str,
+    query: &Query,
+    kind: KindFilter,
+    neural: bool,
+    found: &mut Found,
+) {
     if let Some(expr) = crate::files::content::query::fts_expr(query) {
+        let mut content_timer = crate::perf::Timer::debug("W10", "search.content");
+        content_timer.field("drive", drive_id);
         match crate::files::content::query::candidates(conn, drive_id, &expr, kind, CONTENT_LIMIT) {
             Ok(hits) => {
-                for found in hits {
-                    if !seen.insert((found.hit.parent.clone(), found.hit.name.clone())) {
+                for hit in hits {
+                    if !found
+                        .seen
+                        .insert((hit.hit.parent.clone(), hit.hit.name.clone()))
+                    {
                         continue;
                     }
-                    let len = search_rank::normalize(&found.hit.name).len();
-                    out.push(Candidate {
+                    let len = search_rank::normalize(&hit.hit.name).len();
+                    found.out.push(Candidate {
                         rank: Rank {
                             tier: Tier::Content,
-                            score: bm25_score(found.bm25),
+                            score: bm25_score(hit.bm25),
                             typos: 0,
                             file: 1,
                             len,
                         },
-                        hit: found.hit,
-                        doc: Some(found.doc),
+                        hit: hit.hit,
+                        doc: Some(hit.doc),
                         passage: None,
                     });
                 }
             }
-            Err(e) if interrupted(&e) => incomplete = true,
-            // Searching inside files must never take name search down with it.
+            Err(e) if interrupted(&e) => found.incomplete = true,
             Err(e) => {
                 tracing::warn!(error = %e, drive_id, "searching inside files failed");
-                incomplete = true;
+                found.incomplete = true;
             }
         }
     }
@@ -357,7 +516,7 @@ fn search_drive_with_limits(
     let mut meaning_timer = crate::perf::Timer::debug("W11", "search.meaning");
     meaning_timer.field("drive", drive_id);
     if neural
-        && !incomplete
+        && !found.incomplete
         && let Some(qv) = crate::files::content::meaning::query_vector(&query.words)
     {
         // Without this field no neural pass ran (no model, or name search
@@ -365,35 +524,49 @@ fn search_drive_with_limits(
         meaning_timer.field("ran", true);
         match crate::files::content::meaning::candidates(conn, drive_id, &qv, kind) {
             Ok(hits) => {
-                for found in hits {
-                    if !seen.insert((found.hit.parent.clone(), found.hit.name.clone())) {
+                for hit in hits {
+                    if !found
+                        .seen
+                        .insert((hit.hit.parent.clone(), hit.hit.name.clone()))
+                    {
                         continue;
                     }
-                    let len = search_rank::normalize(&found.hit.name).len();
-                    out.push(Candidate {
+                    let len = search_rank::normalize(&hit.hit.name).len();
+                    found.out.push(Candidate {
                         rank: Rank {
                             tier: Tier::Meaning,
-                            score: ((1.0 - found.similarity).clamp(0.0, 2.0) * 1_000_000.0) as u32,
+                            score: ((1.0 - hit.similarity).clamp(0.0, 2.0) * 1_000_000.0) as u32,
                             typos: 0,
                             file: 1,
                             len,
                         },
-                        hit: found.hit,
-                        doc: Some(found.doc),
-                        passage: Some(found.passage),
+                        hit: hit.hit,
+                        doc: Some(hit.doc),
+                        passage: Some(hit.passage),
                     });
                 }
             }
-            Err(e) if interrupted(&e) => incomplete = true,
-            // Searching inside files must never take name search down with it.
+            Err(e) if interrupted(&e) => found.incomplete = true,
             Err(e) => {
                 tracing::warn!(error = %e, drive_id, "searching inside files failed");
-                incomplete = true;
+                found.incomplete = true;
             }
         }
     }
-    out.sort_by(|a, b| a.rank.cmp(&b.rank));
-    Ok((out, incomplete))
+}
+
+/// The close pass's FTS expression: names sharing pieces with the query,
+/// minus the ones the exact pass already read. A name holding every word
+/// either ranked there or can't be a close match (each word is in it, so
+/// only a short word with no typo slack can be missing), so leaving those
+/// rows out changes no result; it keeps the pass from re-reading every
+/// exact match and spending its row budget on them.
+fn close_expr(query: &Query, exact: Option<&str>) -> Option<String> {
+    let close = search_rank::fts_match(query, false)?;
+    Some(match exact {
+        Some(exact) => format!("({close}) NOT ({exact})"),
+        None => close,
+    })
 }
 
 fn interrupted(e: &rusqlite::Error) -> bool {
@@ -407,6 +580,24 @@ const CONTENT_LIMIT: usize = 200;
 /// BM25 (negative; more negative is better) as a sortable integer.
 fn bm25_score(bm25: f64) -> u32 {
     (1_000_000_000.0 + bm25 * 1000.0).clamp(0.0, u32::MAX as f64) as u32
+}
+
+/// One page of [`candidate_page`]: names matching the FTS expression, or
+/// for a query too short for it, names starting with the query.
+fn page_sql(kind: KindFilter, fts: bool) -> String {
+    if fts {
+        format!(
+            "SELECT index_entries.rowid, index_entries.parent, index_entries.name, index_entries.kind, index_entries.size, index_entries.modified FROM index_fts JOIN index_entries ON index_entries.rowid = index_fts.rowid WHERE index_fts MATCH ?1 AND index_entries.hidden = 0 AND index_entries.drive_id = ?2 AND index_fts.rowid > ?3 {} ORDER BY index_fts.rowid LIMIT ?4",
+            kind.clause()
+        )
+    } else {
+        // Rowid order straight off the table (NOT INDEXED): through an index
+        // SQLite would read every matching row and sort them, once per page.
+        format!(
+            "SELECT index_entries.rowid, index_entries.parent, index_entries.name, index_entries.kind, index_entries.size, index_entries.modified FROM index_entries NOT INDEXED WHERE index_entries.name LIKE ?1 ESCAPE '\\' AND index_entries.hidden = 0 AND index_entries.drive_id = ?2 AND index_entries.rowid > ?3 {} ORDER BY index_entries.rowid LIMIT ?4",
+            kind.clause()
+        )
+    }
 }
 
 fn candidate_page(
@@ -424,18 +615,7 @@ fn candidate_page(
         .replace('%', "\\%")
         .replace('_', "\\_");
     let pattern = format!("{escaped}%");
-    let sql = if expr.is_some() {
-        format!(
-            "SELECT index_entries.rowid, index_entries.parent, index_entries.name, index_entries.kind, index_entries.size, index_entries.modified FROM index_fts JOIN index_entries ON index_entries.rowid = index_fts.rowid WHERE index_fts MATCH ?1 AND index_entries.hidden = 0 AND index_entries.drive_id = ?2 AND index_fts.rowid > ?3 {} ORDER BY index_fts.rowid LIMIT ?4",
-            kind.clause()
-        )
-    } else {
-        format!(
-            "SELECT index_entries.rowid, index_entries.parent, index_entries.name, index_entries.kind, index_entries.size, index_entries.modified FROM index_entries WHERE index_entries.name LIKE ?1 ESCAPE '\\' AND index_entries.hidden = 0 AND index_entries.drive_id = ?2 AND index_entries.rowid > ?3 {} ORDER BY index_entries.rowid LIMIT ?4",
-            kind.clause()
-        )
-    };
-    let mut stmt = conn.prepare_cached(&sql)?;
+    let mut stmt = conn.prepare_cached(&page_sql(kind, expr.is_some()))?;
     let rows = stmt
         .query_map(
             params![expr.unwrap_or(&pattern), drive_id, after, limit],
@@ -562,6 +742,95 @@ mod tests {
             names(&conn, "plumbing invoice", KindFilter::All),
             ["invoice-4417.txt"]
         );
+    }
+
+    #[test]
+    fn names_that_fill_the_answer_skip_the_search_inside_files() {
+        use crate::files::content::store::{self, State};
+        let dir = tempfile::tempdir().unwrap();
+        let conn = drive_conn(dir.path());
+        replace_dir(
+            &conn,
+            "d1",
+            "docs",
+            1,
+            &[
+                store::tests::file("invoice march.txt", 5, 1),
+                store::tests::file("notes.txt", 5, 1),
+            ],
+        )
+        .unwrap();
+        for p in store::pending(&conn, "d1", true, 100).unwrap() {
+            store::record(
+                &conn,
+                "d1",
+                &p,
+                State::Text,
+                "",
+                Some("the invoice for march"),
+            )
+            .unwrap();
+        }
+        drop(conn);
+        let drives = [DriveRef {
+            id: "d1".into(),
+            mount: dir.path().to_path_buf(),
+        }];
+        let query = Query::new("invoice");
+        let search = |suffice: bool| {
+            let mut seen = Vec::new();
+            let (got, incomplete) =
+                search_all_with(&drives, &query, KindFilter::All, false, |names| {
+                    seen = names.iter().map(|c| c.hit.name.clone()).collect();
+                    suffice
+                })
+                .unwrap();
+            assert!(!incomplete);
+            let got: Vec<String> = got.into_iter().map(|c| c.hit.name).collect();
+            (seen, got)
+        };
+        // The check sees only name matches.
+        let (seen, got) = search(false);
+        assert_eq!(seen, ["invoice march.txt"]);
+        assert_eq!(got, ["invoice march.txt", "notes.txt"]);
+        let (seen, got) = search(true);
+        assert_eq!(seen, ["invoice march.txt"]);
+        assert_eq!(got, ["invoice march.txt"]);
+    }
+
+    #[test]
+    fn names_that_fill_the_answer_skip_the_close_pass() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = drive_conn(dir.path());
+        insert_names(
+            &conn,
+            ["holiday 1.pdf", "holiday 2.pdf", "holidya.pdf"].map(String::from),
+        );
+        drop(conn);
+        let drives = [DriveRef {
+            id: "d1".into(),
+            mount: dir.path().to_path_buf(),
+        }];
+        let query = Query::new("holiday");
+        let search = |suffice: bool| {
+            let mut seen = Vec::new();
+            let (got, incomplete) =
+                search_all_with(&drives, &query, KindFilter::All, false, |names| {
+                    seen = names.iter().map(|c| c.hit.name.clone()).collect();
+                    suffice
+                })
+                .unwrap();
+            assert!(!incomplete);
+            let got: Vec<String> = got.into_iter().map(|c| c.hit.name).collect();
+            (seen, got)
+        };
+        // The check sees only names holding the words, never the typo.
+        let (seen, got) = search(false);
+        assert_eq!(seen, ["holiday 1.pdf", "holiday 2.pdf"]);
+        assert_eq!(got, ["holiday 1.pdf", "holiday 2.pdf", "holidya.pdf"]);
+        let (seen, got) = search(true);
+        assert_eq!(seen, ["holiday 1.pdf", "holiday 2.pdf"]);
+        assert_eq!(got, ["holiday 1.pdf", "holiday 2.pdf"]);
     }
 
     #[test]
@@ -717,6 +986,82 @@ mod tests {
             !plan.iter().any(|line| line.contains("TEMP B-TREE")),
             "{plan:?}"
         );
+    }
+
+    #[test]
+    fn short_query_page_uses_rowid_order_without_a_sort() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = drive_conn(dir.path());
+        let sql = format!("EXPLAIN QUERY PLAN {}", page_sql(KindFilter::All, false));
+        let mut stmt = conn.prepare(&sql).unwrap();
+        let plan = stmt
+            .query_map(params!["re%", "d1", 0, 256], |row| row.get::<_, String>(3))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(
+            !plan
+                .iter()
+                .any(|line| line.contains("TEMP B-TREE") || line.contains("INDEX")),
+            "{plan:?}"
+        );
+    }
+
+    fn insert_names(conn: &Connection, names: impl IntoIterator<Item = String>) {
+        for name in names {
+            conn.execute("INSERT INTO index_entries (drive_id,parent,name,kind,size,modified,hidden) VALUES ('d1','',?1,'file',1,1,0)", params![name]).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_close_pass_does_not_reread_exact_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = drive_conn(dir.path());
+        insert_names(&conn, (0..20).map(|i| format!("report {i:02}.pdf")));
+        insert_names(&conn, ["reprot.pdf".to_string()]);
+        // The exact pass reads exactly its budget; the close pass only has
+        // the typo left to read, so nothing was cut short.
+        let (got, incomplete) = search_drive_with_limits(
+            &conn,
+            "d1",
+            &Query::new("repor"),
+            KindFilter::All,
+            20,
+            None,
+            false,
+        )
+        .unwrap();
+        assert!(!incomplete);
+        assert_eq!(got.len(), 21);
+        assert_eq!(got.last().unwrap().hit.name, "reprot.pdf");
+        assert_eq!(got.last().unwrap().rank.tier, Tier::Close);
+    }
+
+    #[test]
+    fn a_long_phrase_finds_its_close_name_past_names_sharing_pieces() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = drive_conn(dir.path());
+        // Plenty of names share pieces with the phrase without being close
+        // to every word of it.
+        insert_names(
+            &conn,
+            (0..100).map(|i| format!("summer receipts from {i:03}.pdf")),
+        );
+        insert_names(&conn, ["Receipts from the sumer holiday.pdf".to_string()]);
+        let (got, incomplete) = search_drive_with_limits(
+            &conn,
+            "d1",
+            &Query::new("receipts from the summer holiday"),
+            KindFilter::All,
+            20,
+            None,
+            false,
+        )
+        .unwrap();
+        assert!(!incomplete);
+        let names: Vec<&str> = got.iter().map(|c| c.hit.name.as_str()).collect();
+        assert_eq!(names, ["Receipts from the sumer holiday.pdf"]);
+        assert_eq!(got[0].rank.tier, Tier::Close);
     }
 
     #[test]

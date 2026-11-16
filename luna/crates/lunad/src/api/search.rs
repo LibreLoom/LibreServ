@@ -86,10 +86,19 @@ async fn search(
         };
         let neural = quick != Some(1);
         perf.field("neural", neural);
-        let (candidates, incomplete) =
-            search_all_with(&drives, &parsed, kind, neural).map_err(|e| {
-                tracing::warn!(error = %e, "search failed");
-            })?;
+        // When names alone fill the answer, nothing after them can change it.
+        let mut names_only = false;
+        let (candidates, incomplete) = search_all_with(&drives, &parsed, kind, neural, |names| {
+            names_only = work_state
+                .db
+                .lock()
+                .is_ok_and(|conn| names_fill_answer(&conn, &work_user, names, limit));
+            names_only
+        })
+        .map_err(|e| {
+            tracing::warn!(error = %e, "search failed");
+        })?;
+        perf.field("names_only", names_only);
         let expr = crate::files::content::query::fts_expr(&parsed);
         let conn = work_state.db.lock().map_err(|_| ())?;
         let (hits, truncated) = visible_hits(&conn, &work_user, candidates, limit, expr.as_deref());
@@ -149,6 +158,78 @@ fn mount_of(conn: &rusqlite::Connection, drive_id: &str) -> Option<String> {
         .map(|d| d.mount_point)
 }
 
+/// Who may open which hit, with the caller's grants and each drive's mount
+/// looked up once per search rather than per candidate.
+struct Visibility<'a> {
+    conn: &'a rusqlite::Connection,
+    user: &'a crate::auth::CurrentUser,
+    // Admins also need explicit grants inside another user's private folder.
+    grants: Vec<crate::db::AccessMemberRow>,
+    mounts: HashMap<String, Option<String>>,
+}
+
+impl<'a> Visibility<'a> {
+    fn new(conn: &'a rusqlite::Connection, user: &'a crate::auth::CurrentUser) -> Self {
+        Self {
+            conn,
+            user,
+            grants: crate::db::list_access_members_for_user(conn, &user.id).unwrap_or_default(),
+            mounts: HashMap::new(),
+        }
+    }
+
+    /// The hit's path on its drive when the caller may open it.
+    fn path(&mut self, hit: &crate::files::search::SearchHit) -> Option<String> {
+        let full = if hit.parent.is_empty() {
+            hit.name.clone()
+        } else {
+            format!("{}/{}", hit.parent, hit.name)
+        };
+        // Anything inside a hidden folder is hidden too.
+        if full.split('/').any(|part| part.starts_with('.'))
+            || crate::files::is_internal_temp(&full)
+        {
+            return None;
+        }
+        let conn = self.conn;
+        let mount = self
+            .mounts
+            .entry(hit.drive_id.clone())
+            .or_insert_with(|| mount_of(conn, &hit.drive_id))
+            .as_deref();
+        let caps = crate::auth::caps_on_path_rows_at(
+            self.user,
+            conn,
+            &hit.drive_id,
+            &full,
+            &self.grants,
+            mount,
+        );
+        (caps & crate::access::CAP_VIEW == crate::access::CAP_VIEW).then_some(full)
+    }
+}
+
+/// Whether name matches alone decide the answer: at least `limit + 1` that
+/// `user` may open rank above every name a typo away and every match from
+/// inside a file (or by meaning, or in a photo). Then [`visible_hits`]
+/// returns the same hits and the same `truncated` whatever the later passes
+/// would add.
+fn names_fill_answer(
+    conn: &rusqlite::Connection,
+    user: &crate::auth::CurrentUser,
+    names: &[Candidate],
+    limit: usize,
+) -> bool {
+    let mut visibility = Visibility::new(conn, user);
+    names
+        .iter()
+        .take_while(|c| c.rank.tier < Tier::Content)
+        .filter(|c| visibility.path(&c.hit).is_some())
+        .take(limit + 1)
+        .count()
+        > limit
+}
+
 /// The first `limit` candidates, in rank order, that `user` may open. Access
 /// is checked here, after ranking, so the limit counts only visible hits.
 /// The flag says a further visible hit was left out. Content snippets are
@@ -162,34 +243,14 @@ fn visible_hits(
     expr: Option<&str>,
 ) -> (Vec<Value>, bool) {
     let mut drive_dbs: HashMap<String, Option<rusqlite::Connection>> = HashMap::new();
-    // Admins also need explicit grants inside another user's private folder.
-    let grants = crate::db::list_access_members_for_user(conn, &user.id).unwrap_or_default();
-    // One lookup per drive for the whole pass, not one per candidate.
-    let mut mounts: HashMap<String, Option<String>> = HashMap::new();
+    let mut visibility = Visibility::new(conn, user);
     let mut roots: HashMap<String, Option<PathBuf>> = HashMap::new();
     let mut out = Vec::new();
     for candidate in candidates {
         let hit = candidate.hit;
-        let full = if hit.parent.is_empty() {
-            hit.name.clone()
-        } else {
-            format!("{}/{}", hit.parent, hit.name)
+        let Some(full) = visibility.path(&hit) else {
+            continue;
         };
-        // Anything inside a hidden folder is hidden too.
-        if full.split('/').any(|part| part.starts_with('.'))
-            || crate::files::is_internal_temp(&full)
-        {
-            continue;
-        }
-        let mount = mounts
-            .entry(hit.drive_id.clone())
-            .or_insert_with(|| mount_of(conn, &hit.drive_id))
-            .as_deref();
-        let caps =
-            crate::auth::caps_on_path_rows_at(user, conn, &hit.drive_id, &full, &grants, mount);
-        if caps & crate::access::CAP_VIEW != crate::access::CAP_VIEW {
-            continue;
-        }
         if out.len() >= limit {
             return (out, true);
         }
@@ -350,7 +411,7 @@ async fn factory_reset(
 
 #[cfg(test)]
 mod tests {
-    use super::{Candidate, Tier, match_label, visible_hits};
+    use super::{Candidate, Tier, match_label, names_fill_answer, visible_hits};
     use crate::api;
     use crate::drives::DriveManager;
     use crate::drives::mount::shared_mock;
@@ -653,6 +714,44 @@ mod tests {
         let (got, _) = visible_hits(&conn, &admin, ranked, 10, None);
         let paths: Vec<&str> = got.iter().map(|h| h["path"].as_str().unwrap()).collect();
         assert_eq!(paths, ["docs/settings.txt"]);
+    }
+
+    #[test]
+    fn names_fill_the_answer_only_with_enough_visible_name_matches() {
+        let (_dir, conn, member) = member_setup();
+        let admin = crate::auth::CurrentUser {
+            id: "a".into(),
+            username: "max".into(),
+            role: "admin".into(),
+        };
+        crate::db::insert_access_member(
+            &conn,
+            &crate::db::AccessMemberRow {
+                id: "g1".into(),
+                subject_kind: crate::access::KIND_PATH.into(),
+                drive_id: "d1".into(),
+                path: "shared".into(),
+                album_id: String::new(),
+                user_id: "u1".into(),
+                caps: crate::access::CAP_VIEW,
+                created_by: "a".into(),
+            },
+        )
+        .unwrap();
+        let names = vec![
+            candidate("d1", "private", "budget 1", "file", Tier::Prefix),
+            candidate("d1", "shared", "budget 2", "file", Tier::Prefix),
+            candidate("d1", "shared", "budget 3", "file", Tier::Substring),
+            // A near miss ranks below matches inside files: it can't count.
+            candidate("d1", "shared", "budgte", "file", Tier::Close),
+        ];
+        // Two visible names fill a limit of one (and show it was cut off).
+        assert!(names_fill_answer(&conn, &member, &names, 1));
+        // The member sees only two of the three name matches.
+        assert!(!names_fill_answer(&conn, &member, &names, 2));
+        assert!(names_fill_answer(&conn, &admin, &names, 2));
+        assert!(!names_fill_answer(&conn, &admin, &names, 3));
+        assert!(!names_fill_answer(&conn, &admin, &[], 1));
     }
 
     #[test]
