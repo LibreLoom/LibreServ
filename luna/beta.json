@@ -2,9 +2,9 @@
   "format": 1,
   "unit": "luna",
   "channel": "beta",
-  "version": "0.0.7",
-  "published": "2026-11-16T04:28:24Z",
-  "notes": "",
+  "version": "0.0.8",
+  "published": "2026-11-16T18:18:37Z",
+  "notes": "- fix(luna): keep the installing update state after a page refresh\n- fix(luna): luna-bench drives get an adoptable sdmock device name\n- feat(luna): web journey timing points and Playwright perf spec\n- feat(luna): luna-bench journey runner and fixture generator\n- feat(luna): opt-in perf timing in lunad\n- chore(luna): add performance journey budgets\n",
   "parts": [
     {
       "name": "os",
@@ -14,7 +14,7 @@
       "size": 312224588,
       "sha256": "04c1bbd301e1f9ad70a8b8aeb7b30bd2b5ac3095f2ca93235ae55315d38b9b7b",
       "urls": [
-        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.7/luna-os-x86_64.img.xz"
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.8/luna-os-x86_64.img.xz"
       ]
     },
     {
@@ -25,7 +25,7 @@
       "size": 562688832,
       "sha256": "30a0d8b8fc818af735951cef6903c3ef162177dea972d97ffdccda1ea7ff0660",
       "urls": [
-        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.7/luna-rapidinstall-x86_64.iso.xz"
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.8/luna-rapidinstall-x86_64.iso.xz"
       ]
     }
   ],
