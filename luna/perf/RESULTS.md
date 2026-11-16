@@ -24,11 +24,13 @@ optimistic. Raw results are in `perf/results/` (gitignored):
 | W7 Photos timeline, first thumbnails | 1000 | 2521 | 1140 ⚠ | 2439 | 1561 (2000) |
 | W8 timeline scrub, thumbnails after stop | 300 | 2220 | 513 ⚠ | 2543 | 1899 ⚠ (300) |
 | W9 open photo in viewer | 300 | 379 | 299 | 101 | 93 (2000) |
-| W10 name search | 150 | 2162 | 706 ⚠ | 1227 | 792 ⚠ (400) |
+| W10 name search | 150 | 2162 | 373 ⚠ | 1227 | ~339 (400) |
 | W15 public share link | 1500 | 1318 | 703 | 1826 | 2231 (2500) |
 | W16 page navigation | 150 | 459 | 106 | 401 | 151 ⚠ (150) |
 
-⚠ = still over budget. W3 is 5 samples (sign-in rate limit), so p95 is
+⚠ = still over budget. W10 "after" is from b721eb10's A/B run (n=30, first
+12 rows painted); the clean pass at 42a090ca had 706 LAN / 792 remote. Its
+150 ms LAN budget can't be met with the 120 ms typing debounce. W3 is 5 samples (sign-in rate limit), so p95 is
 the worst one; the round-3 A/B gave 656 → 453. W11 (meaning search) and
 W12 (office) were not measurable: the stand-in has no models or office pack.
 
