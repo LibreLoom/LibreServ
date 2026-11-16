@@ -66,12 +66,3 @@ opt-level = 2
 opt-level = 1
 [profile.dev.package.luna-core]
 opt-level = 1
-
-# CI's static musl smoke test: the same link as the shipped lunad, without LTO
-# or a single codegen unit (the release profile's ~8 min). ./release still
-# builds and smoke-tests the real release binary.
-[profile.ci-smoke]
-inherits = "release"
-lto = false
-codegen-units = 16
-opt-level = 1

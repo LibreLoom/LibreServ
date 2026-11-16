@@ -120,30 +120,12 @@ lane_os() {
 	fi
 }
 
-# Static musl build + smoke, then the GTK desktop app. Release-only work stays
-# in ./release: it builds the shipped LTO lunad and the Flatpak, and its
-# lunad-smoke.sh checks that exact binary. This lane builds the same binaries
-# with the ci-smoke profile (no LTO): the same musl static-pie link in a
-# fraction of the time. A separate target dir keeps it from queueing behind
-# lane_check on cargo's build-directory lock.
+# The GTK desktop app: format and tests (cargo test compiles the whole app).
+# Left out on purpose, because ./release already does them on the real artifact
+# and a gate run would only repeat minutes of compile: the static musl lunad
+# build and smoke (release builds it first, with LTO, and lunad-smoke.sh checks
+# that exact binary) and the desktop release build (the Flatpak step).
 lane_rust() {
-	echo "==> musl static-pie smoke"
-	# Isolate musl link flags so host desktop/mobile rustc still builds proc-macros.
-	(
-		MUSL_TARGET="${MUSL_TARGET:-x86_64-unknown-linux-musl}"
-		# shellcheck source=os/lib/musl-link.sh
-		. os/lib/musl-link.sh
-		unset RUSTFLAGS
-		luna_musl_export "$MUSL_TARGET"
-		if ! rustup target list --installed | grep -qx "$MUSL_TARGET"; then
-			rustup target add "$MUSL_TARGET"
-		fi
-		export CARGO_TARGET_DIR="$ROOT/target/ci-musl"
-		cargo build --profile ci-smoke -p lunad --bin lunad --bin luna-console --target "$MUSL_TARGET"
-		luna_musl_smoke_lunad "$CARGO_TARGET_DIR/${MUSL_TARGET}/ci-smoke/lunad"
-		luna_musl_smoke_console "$CARGO_TARGET_DIR/${MUSL_TARGET}/ci-smoke/luna-console"
-	)
-
 	echo "==> desktop (GTK / libadwaita)"
 	(
 	  cd "$ROOT/desktop"
@@ -154,8 +136,6 @@ lane_rust() {
 	    cargo=./scripts/cargo-in-container.sh
 	  fi
 	  "$cargo" fmt --check
-	  # cargo test compiles the whole app. The shipped release build is the
-	  # Flatpak step of ./release, so there is no second release compile here.
 	  "$cargo" test
 	)
 }
@@ -192,24 +172,8 @@ lane_web() {
 	  npm test -- --run
 	)
 
-	echo "==> connect web"
-	(
-	  cd "$ROOT/connect/web"
-	  npm install --no-audit --no-fund --cache /tmp/luna-npm-cache
-	  npm run build
-	  npm test
-	  npm run lint
-	  npm run typecheck
-	)
-
-	echo "==> quick-start print layout"
-	(
-	  cd "$ROOT/quick-start"
-	  npm install --no-audit --no-fund --cache /tmp/luna-npm-cache
-	  npm run build
-	  npm run lint
-	  npm run typecheck
-	)
+	# Luna Connect's web app and the quick-start leaflet are tested by the
+	# connect profile (luna-connect-web-*, luna-quick-start-check), not here.
 }
 
 
@@ -241,6 +205,9 @@ timed() {
 	_rc=0
 	"$@" || _rc=$?
 	echo "==> lane $_name: $(($(date +%s) - _t0))s (exit $_rc)"
+	# A passing run hides its logs; keep the timings where they can be read.
+	mkdir -p "$ROOT/target"
+	echo "$(date +%FT%T) lane $_name: $(($(date +%s) - _t0))s (exit $_rc)" >>"$ROOT/target/ci-lane-times.log"
 	return "$_rc"
 }
 
@@ -262,7 +229,7 @@ start() {
 
 # lane_check owns luna/target (fmt, clippy, tests) and is the long pole, so it
 # always runs alone in its lane; the rest are grouped to fit the memory share.
-echo "==> parallel lanes ($LANES): rust checks, musl+desktop, mobile, web, os scripts"
+echo "==> parallel lanes ($LANES): rust checks, desktop, mobile, web, os scripts"
 case "$LANES" in
 4)
 	start check lane_check
