@@ -41,13 +41,19 @@ fi
 # Rust workspace: format, lints, tests. Owns luna/target.
 lane_check() {
 	echo "==> cargo fmt"
-	timed fmt cargo fmt --all --check
+	_t=$(date +%s)
+	cargo fmt --all --check
+	lap fmt "$_t"
 
 	echo "==> cargo clippy"
-	timed clippy cargo clippy --workspace --all-targets -- -D warnings
+	_t=$(date +%s)
+	cargo clippy --workspace --all-targets -- -D warnings
+	lap clippy "$_t"
 
 	echo "==> cargo test"
-	LUNA_CONTRACT_RECORD=1 timed cargo-test cargo test --workspace
+	_t=$(date +%s)
+	LUNA_CONTRACT_RECORD=1 cargo test --workspace
+	lap cargo-test "$_t"
 
 	# Coverage is a report, not a gate, and re-running the whole workspace test
 	# suite just for it doubles the CI time — so it is opt-in (LUNA_COVERAGE=1).
@@ -207,19 +213,16 @@ if [ -n "${LIBRESERV_CI_MEM_BYTES:-}" ] && [ "$LIBRESERV_CI_MEM_BYTES" -gt 0 ]; 
 	export NODE_OPTIONS="--max-old-space-size=$heap ${NODE_OPTIONS:-}"
 fi
 
-# timed NAME CMD...: run CMD, then report NAME's wall time and exit status, so
-# a slow lane shows up in a green run and not only in a red one.
-timed() {
-	_name="$1"
-	shift
-	_t0=$(date +%s)
-	_rc=0
-	"$@" || _rc=$?
-	echo "==> lane $_name: $(($(date +%s) - _t0))s (exit $_rc)"
-	# A passing run hides its logs; keep the timings where they can be read.
+# Failure handling: `set -e` is silently switched off inside any function that
+# is called from an `||` / `&&` / `if` list, so a lane must never be run that
+# way (an earlier version did, and a failing `cargo fmt` let its lane carry on).
+# Each lane runs as a plain command in its own `set -e` subshell; an EXIT trap
+# reports its wall time and status whether it passed or failed.
+lap() { # lap NAME START_EPOCH [STATUS]
+	_el=$(( $(date +%s) - $2 ))
+	echo "==> lane $1: ${_el}s (exit ${3:-0})"
 	mkdir -p "$ROOT/target"
-	echo "$(date +%FT%T) lane $_name: $(($(date +%s) - _t0))s (exit $_rc)" >>"$ROOT/target/ci-lane-times.log"
-	return "$_rc"
+	echo "$(date +%FT%T) lane $1: ${_el}s (exit ${3:-0})" >>"$ROOT/target/ci-lane-times.log"
 }
 
 LANE_DIR="$(mktemp -d)"
@@ -231,8 +234,13 @@ start() {
 	_log="$LANE_DIR/$1.log"
 	shift
 	(
+		set -e
 		for _lane in "$@"; do
-			timed "$_lane" "$_lane" || exit 1
+			_t0=$(date +%s)
+			trap 'lap "$_lane" "$_t0" "$?"' EXIT
+			"$_lane"
+			trap - EXIT
+			lap "$_lane" "$_t0"
 		done
 	) >"$_log" 2>&1 &
 	pids="$pids $!"
@@ -268,6 +276,8 @@ fi
 grep -h '^==> lane ' "$LANE_DIR"/*.log
 rm -rf "$LANE_DIR"
 
-timed web-unit lane_web_unit
+_t0=$(date +%s)
+lane_web_unit
+lap web-unit "$_t0"
 
 echo "==> ci ok"
