@@ -514,7 +514,7 @@ pub(super) async fn serve_file(
     } else {
         "attachment"
     };
-    let stream = tokio_util::io::ReaderStream::new(file);
+    let stream = tokio_util::io::ReaderStream::with_capacity(file, crate::api::files::STREAM_CHUNK);
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, mime.as_ref())

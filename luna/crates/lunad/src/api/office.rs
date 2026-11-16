@@ -416,7 +416,10 @@ async fn bundle_read(
         )
     })?;
     Ok(builder
-        .body(Body::from_stream(ReaderStream::new(file)))
+        .body(Body::from_stream(ReaderStream::with_capacity(
+            file,
+            crate::api::files::STREAM_CHUNK,
+        )))
         .unwrap())
 }
 

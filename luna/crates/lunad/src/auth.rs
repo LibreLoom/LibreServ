@@ -897,22 +897,30 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
             let (action, detail) = categorize_api_request(&method, &path);
 
             // The global database lock is a std mutex: take it on a blocking thread so a slow
-            // write never holds one of the daemon's two async workers.
-            let st = state.clone();
-            let _ = tokio::task::spawn_blocking(move || {
-                if let Ok(conn) = st.db.lock() {
-                    let _ = crate::db::note_device_token_activity_rich(
-                        &conn,
-                        &token_ctx.token_id,
-                        token_ctx.last_used_at,
-                        &action,
-                        &detail,
-                        &client,
-                        &origin,
-                    );
-                }
-            })
-            .await;
+            // write never holds one of the daemon's two async workers. The request does not
+            // wait for it, and a repeat of the same activity within a few seconds (every
+            // chunk of a photo backup) is not written again: the merged row would only
+            // move its time by those seconds.
+            let key = format!(
+                "{}\u{1f}{action}\u{1f}{detail}\u{1f}{client}\u{1f}{origin}",
+                token_ctx.token_id
+            );
+            if token_activity_due(&key, std::time::Instant::now()) {
+                let st = state.clone();
+                drop(tokio::task::spawn_blocking(move || {
+                    if let Ok(conn) = st.db.lock() {
+                        let _ = crate::db::note_device_token_activity_rich(
+                            &conn,
+                            &token_ctx.token_id,
+                            token_ctx.last_used_at,
+                            &action,
+                            &detail,
+                            &client,
+                            &origin,
+                        );
+                    }
+                }));
+            }
         }
     }
 
@@ -925,6 +933,33 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
         return maybe_attach_csrf(response, issue_csrf, secure);
     }
     json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first.").into_response()
+}
+
+/// How long the same device-token activity is not re-recorded. Far below the
+/// usage log's 15-minute merge window, so the log reads the same.
+const TOKEN_ACTIVITY_THROTTLE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// True when this activity (token, action, detail, client, origin) was not
+/// recorded in the last [`TOKEN_ACTIVITY_THROTTLE`]; marks it recorded.
+fn token_activity_due(key: &str, now: std::time::Instant) -> bool {
+    static SEEN: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
+    > = std::sync::OnceLock::new();
+    let Ok(mut seen) = SEEN.get_or_init(Default::default).lock() else {
+        return true;
+    };
+    if seen
+        .get(key)
+        .is_some_and(|at| now.saturating_duration_since(*at) < TOKEN_ACTIVITY_THROTTLE)
+    {
+        return false;
+    }
+    // Bounded by tokens × activity kinds; drop stale keys when it grows.
+    if seen.len() >= 1024 {
+        seen.retain(|_, at| now.saturating_duration_since(*at) < TOKEN_ACTIVITY_THROTTLE);
+    }
+    seen.insert(key.to_string(), now);
+    true
 }
 
 /// Extract the authenticated user (handlers are behind the guard).

@@ -429,7 +429,7 @@ fn resolve_mount(state: &AppState, drive_id: &str) -> Result<PathBuf, (StatusCod
 /// selections. Anonymous album links serialize `Photo` directly (see
 /// `api::access::public_items`) and never get these coordinates.
 /// Is this photo a private item, or inside one?
-fn photo_is_private(mounts: &DriveMounts, p: &photos::Photo) -> bool {
+fn photo_is_private(mounts: &[(String, PathBuf)], p: &photos::Photo) -> bool {
     mounts
         .iter()
         .find(|(id, _)| *id == p.drive_id)
@@ -574,38 +574,79 @@ async fn timeline(
     let limit = query.limit.unwrap_or(80).clamp(1, 500);
     let offset = query.offset.unwrap_or(0);
     let filter = list_filter(&query, &user);
+    let drive_filter = query.drive_id.clone();
 
+    // Reading every drive's photo index and the per-photo access checks are
+    // disk and lock work: off the async workers.
+    crate::api::files::blocking(move || {
+        timeline_page(
+            &state,
+            &user,
+            &mounts,
+            drive_filter.as_deref(),
+            &filter,
+            viewing_album,
+            limit,
+            offset,
+        )
+    })
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+fn timeline_page(
+    state: &AppState,
+    user: &crate::auth::CurrentUser,
+    mounts: &[(String, PathBuf)],
+    drive_filter: Option<&str>,
+    filter: &ListFilter,
+    viewing_album: bool,
+    limit: u32,
+    offset: u32,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     // Keep fetching until we fill `limit` ACL-visible items or run out of pages.
     let mut items = Vec::new();
     let mut has_more = false;
     let mut next_offset = offset;
     let mut cur = offset;
     for _ in 0..5 {
-        let page = photos::list_photos(&mounts, query.drive_id.as_deref(), &filter, limit, cur)
-            .map_err(|_| {
-                json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna couldn't open Photos.",
-                )
-            })?;
+        let page = photos::list_photos(mounts, drive_filter, filter, limit, cur).map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't open Photos.",
+            )
+        })?;
         let conn = state.db.lock().map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Luna's index is busy. Try again.",
             )
         })?;
+        // One drive row and grant-row read per drive, not per photo.
+        let ctxs: std::collections::HashMap<&str, crate::auth::InspectCtx<'_>> = if viewing_album {
+            Default::default()
+        } else {
+            mounts
+                .iter()
+                .map(|(id, _)| {
+                    (
+                        id.as_str(),
+                        crate::auth::InspectCtx::new(user, &conn, id.as_str()),
+                    )
+                })
+                .collect()
+        };
         items.extend(page.items.into_iter().filter(|photo| {
             if viewing_album {
                 return true;
             }
-            crate::auth::has_cap(
-                &user,
-                &conn,
-                &photo.drive_id,
-                &photo.path,
-                crate::access::CAP_VIEW,
-            )
+            let caps = match ctxs.get(photo.drive_id.as_str()) {
+                Some(ctx) => crate::auth::caps_on_path_in(user, &conn, ctx, &photo.path),
+                None => crate::auth::caps_on_path(user, &conn, &photo.drive_id, &photo.path),
+            };
+            caps & crate::access::CAP_VIEW == crate::access::CAP_VIEW
         }));
+        drop(ctxs);
         drop(conn);
         next_offset = page.next_offset;
         has_more = page.has_more;
@@ -621,7 +662,7 @@ async fn timeline(
     Ok(Json(json!({
         "items": items
             .iter()
-            .map(|p| member_photo_json(p, photo_is_private(&mounts, p)))
+            .map(|p| member_photo_json(p, photo_is_private(mounts, p)))
             .collect::<Vec<_>>(),
         "next_offset": next_offset,
         "has_more": has_more,
@@ -633,9 +674,18 @@ async fn places(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Query(query): Query<PhotosQuery>,
 ) -> Result<Json<Vec<photos::PlaceMarker>>, (StatusCode, Json<Value>)> {
-    let mounts = accessible_mounts(&state, &user, None)?;
-    let filter = list_filter(&query, &user);
-    let markers = if filter == list_filter(&PhotosQuery::default(), &user) {
+    // Reads every drive's photo index: off the async workers.
+    crate::api::files::blocking(move || places_sync(&state, &user, &query)).await
+}
+
+fn places_sync(
+    state: &AppState,
+    user: &crate::auth::CurrentUser,
+    query: &PhotosQuery,
+) -> Result<Json<Vec<photos::PlaceMarker>>, (StatusCode, Json<Value>)> {
+    let mounts = accessible_mounts(state, user, None)?;
+    let filter = list_filter(query, user);
+    let markers = if filter == list_filter(&PhotosQuery::default(), user) {
         photos::list_place_markers(&mounts)
     } else {
         // Same filters as the photo list, so the map shows what the list would.
@@ -673,6 +723,16 @@ async fn places(
             "Luna's index is busy. Try again.",
         )
     })?;
+    // One drive row and grant-row read per drive, not per marker.
+    let ctxs: std::collections::HashMap<&str, crate::auth::InspectCtx<'_>> = mounts
+        .iter()
+        .map(|(id, _)| {
+            (
+                id.as_str(),
+                crate::auth::InspectCtx::new(user, &conn, id.as_str()),
+            )
+        })
+        .collect();
     let markers = markers
         .into_iter()
         .filter(|m| {
@@ -680,9 +740,14 @@ async fn places(
             let Some((drive_id, path)) = m.id.split_once(':') else {
                 return false;
             };
-            crate::auth::has_cap(&user, &conn, drive_id, path, crate::access::CAP_VIEW)
+            let caps = match ctxs.get(drive_id) {
+                Some(ctx) => crate::auth::caps_on_path_in(user, &conn, ctx, path),
+                None => crate::auth::caps_on_path(user, &conn, drive_id, path),
+            };
+            caps & crate::access::CAP_VIEW == crate::access::CAP_VIEW
         })
         .collect::<Vec<_>>();
+    drop(ctxs);
     Ok(Json(markers))
 }
 
@@ -690,20 +755,24 @@ async fn cameras(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let mounts = accessible_mounts(&state, &user, None)?;
-    let grants = path_grants_for_user(&state, &user)?;
-    let visible = |drive: &str, path: &str| {
-        state.db.lock().is_ok_and(|conn| {
-            crate::auth::has_cap(&user, &conn, drive, path, crate::access::CAP_VIEW)
-        })
-    };
-    let cameras = photos::list_cameras(&mounts, grants.as_ref(), &visible).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't list cameras.",
-        )
-    })?;
-    Ok(Json(json!({ "cameras": cameras })))
+    // Reads every drive's photo index: off the async workers.
+    crate::api::files::blocking(move || {
+        let mounts = accessible_mounts(&state, &user, None)?;
+        let grants = path_grants_for_user(&state, &user)?;
+        let visible = |drive: &str, path: &str| {
+            state.db.lock().is_ok_and(|conn| {
+                crate::auth::has_cap(&user, &conn, drive, path, crate::access::CAP_VIEW)
+            })
+        };
+        let cameras = photos::list_cameras(&mounts, grants.as_ref(), &visible).map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't list cameras.",
+            )
+        })?;
+        Ok(Json(json!({ "cameras": cameras })))
+    })
+    .await
 }
 
 async fn filter_facets(
@@ -878,11 +947,21 @@ async fn thumb(
         ));
     };
     if !thumb_path.exists() {
+        // A full-size decode can take tens of MiB; a screen of missing
+        // thumbnails must not run one per blocking thread at once.
+        let permit = thumb_build_slot().await;
         let (drive_id, path) = (query.drive_id.clone(), query.path.clone());
         let root2 = root.clone();
         tokio::task::spawn_blocking(move || -> Result<(), ()> {
-            let src = luna_core::path::resolve_child_nofollow(&root2, &path).map_err(|_| ())?;
+            // Held until the decode ends, even if the client went away.
+            let _permit = permit;
             let dest = photos::thumb_path(&root2, &drive_id, &path).ok_or(())?;
+            // Another request for the same photo may have built it while
+            // this one waited for a slot.
+            if dest.exists() {
+                return Ok(());
+            }
+            let src = luna_core::path::resolve_child_nofollow(&root2, &path).map_err(|_| ())?;
             let kind = if photos::is_video(&src) {
                 "video"
             } else {
@@ -1001,6 +1080,26 @@ fn not_modified_response(etag: String) -> Response {
         .into_response()
 }
 
+/// One slot per on-demand thumbnail build, two at most: sized like the HEIF
+/// limit (one when under 1 GiB is free), so decodes on a 2 GiB box never
+/// stack up to the blocking-pool size.
+async fn thumb_build_slot() -> tokio::sync::OwnedSemaphorePermit {
+    static SLOTS: std::sync::OnceLock<std::sync::Arc<tokio::sync::Semaphore>> =
+        std::sync::OnceLock::new();
+    let slots = SLOTS
+        .get_or_init(|| std::sync::Arc::new(tokio::sync::Semaphore::new(2)))
+        .clone();
+    let want = if crate::budget::limits().heif_concurrency <= 1 {
+        2
+    } else {
+        1
+    };
+    slots
+        .acquire_many_owned(want)
+        .await
+        .expect("thumbnail semaphore is never closed")
+}
+
 fn serve_thumb_bytes(
     bytes: std::sync::Arc<[u8]>,
     _mtime_secs: u64,
@@ -1021,7 +1120,8 @@ fn serve_thumb_bytes(
         .header(axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(axum::http::header::CACHE_CONTROL, THUMB_CACHE_CONTROL)
         .header(axum::http::header::ETAG, etag)
-        .body(axum::body::Body::from(bytes.to_vec()))
+        // Shares the RAM cache's buffer instead of copying it per request.
+        .body(axum::body::Body::from(bytes::Bytes::from_owner(bytes)))
         .unwrap()
         .into_response())
 }
@@ -1317,7 +1417,8 @@ pub(crate) async fn serve_media_path(
             })?;
     }
 
-    let stream = ReaderStream::new(file.take(stream_len));
+    let stream =
+        ReaderStream::with_capacity(file.take(stream_len), crate::api::files::STREAM_CHUNK);
     // Markup (or anything a browser could run as a document) never renders
     // inline on this origin — download it instead. `.jpg` holds that a
     // media row claims a photo must not become stored XSS via a crafted
@@ -1419,7 +1520,7 @@ pub(crate) async fn stream_zip_response(
         )
     })?;
     let len = async_file.metadata().await.map(|m| m.len()).unwrap_or(0);
-    let stream = ReaderStream::new(async_file);
+    let stream = ReaderStream::with_capacity(async_file, crate::api::files::STREAM_CHUNK);
     let body = Body::from_stream(ZipBody { stream, _keep: tmp });
     Ok(Response::builder()
         .status(StatusCode::OK)

@@ -4,7 +4,7 @@
 //! drive). Clients PUT byte ranges in any order; completion verifies the file
 //! is exactly the promised size before atomically installing it.
 //!
-//! Progress rows are coalesced (every ~2 MiB or ~2s, and always on
+//! Progress rows are coalesced (every ~64 MiB or ~2s, and always on
 //! complete/cancel) so a multi-gigabyte upload does not issue one SQLite
 //! commit per chunk against the OS eMMC.
 
@@ -29,9 +29,42 @@ fn drive_db_for(central: &Connection, drive_id: &str) -> Result<Connection, Uplo
         .map_err(UploadError::Db)
 }
 
-/// Locate an upload session by scanning mounted drive microdbs.
+/// Which drive last held each upload session. Every chunk looks its session
+/// up; without this each lookup opens every mounted drive's microdb until it
+/// finds the row. Only a hint: the row itself is always re-read.
+fn drive_hints() -> &'static Mutex<HashMap<String, String>> {
+    static MAP: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    MAP.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn remember_drive(id: &str, drive_id: &str) {
+    if let Ok(mut map) = drive_hints().lock() {
+        // Abandoned sessions never call complete/cancel; keep the map small.
+        if map.len() >= 4096 {
+            map.clear();
+        }
+        map.insert(id.to_string(), drive_id.to_string());
+    }
+}
+
+fn forget_drive(id: &str) {
+    if let Ok(mut map) = drive_hints().lock() {
+        map.remove(id);
+    }
+}
+
+/// Locate an upload session by scanning mounted drive microdbs, the drive
+/// that held it last time first.
 fn find_upload(central: &Connection, id: &str) -> Result<(UploadRow, Connection), UploadError> {
-    for drive in db::list_drives(central).map_err(UploadError::Db)? {
+    let mut drives = db::list_drives(central).map_err(UploadError::Db)?;
+    let hint = drive_hints().lock().ok().and_then(|m| m.get(id).cloned());
+    if let Some(hint) = hint
+        && let Some(pos) = drives.iter().position(|d| d.id == hint)
+    {
+        let hinted = drives.remove(pos);
+        drives.insert(0, hinted);
+    }
+    for drive in drives {
         // A drive that filled up is marked "readonly" until it is free again; its
         // uploads must stay findable, or the browser is told the upload does not
         // exist instead of being told the drive is full.
@@ -49,6 +82,7 @@ fn find_upload(central: &Connection, id: &str) -> Result<(UploadRow, Connection)
             continue;
         };
         if let Ok(Some(row)) = db::get_upload(&dconn, id) {
+            remember_drive(id, &drive.id);
             return Ok((row, dconn));
         }
     }
@@ -56,7 +90,10 @@ fn find_upload(central: &Connection, id: &str) -> Result<(UploadRow, Connection)
 }
 
 /// Flush upload progress to SQLite at least this often (bytes received).
-const PROGRESS_FLUSH_BYTES: u64 = 2 * 1024 * 1024;
+/// Each flush is a commit on the destination drive; at 2 MiB every 8 MiB
+/// chunk paid one. Losing unflushed progress only means a resumed upload
+/// re-sends those chunks.
+const PROGRESS_FLUSH_BYTES: u64 = 64 * 1024 * 1024;
 /// Flush upload progress to SQLite at least this often (wall clock).
 const PROGRESS_FLUSH_SECS: i64 = 2;
 
@@ -273,17 +310,18 @@ fn temp_for(
 ///
 /// The DB mutex is held only for session lookup and coalesced progress updates
 /// — not during the disk write — so browsing stays responsive while large
-/// uploads land. Progress is flushed every ~2 MiB / ~2s (and on complete).
+/// uploads land. Progress is flushed every ~64 MiB / ~2s (and on complete).
 pub fn write_chunk(
     db: &Arc<crate::Db>,
     id: &str,
     start: u64,
     data: &[u8],
 ) -> Result<u64, UploadError> {
-    let (temp, size, prev_received, drive_id) = {
+    // One lookup per chunk; its drive connection is reused for the flush.
+    let (temp, size, prev_received, drive_id, dconn) = {
         let conn = db.lock().map_err(|_| UploadError::NotFound)?;
-        let upload = load(&conn, id)?;
-        let (_row, dconn) = find_upload(&conn, id)?;
+        let (row, dconn) = find_upload(&conn, id)?;
+        let upload = to_upload(&conn, &row)?;
         if upload.state_not_active(&dconn)? {
             return Err(UploadError::NotActive);
         }
@@ -297,6 +335,7 @@ pub fn write_chunk(
             upload.size,
             pending_received.unwrap_or(upload.received),
             upload.drive_id.clone(),
+            dconn,
         )
     };
     let end = start
@@ -332,14 +371,23 @@ pub fn write_chunk(
                 last_flush_unix: now,
                 last_flushed_received: prev_received,
             });
-        entry.received = received;
+        // Chunks can run concurrently; never let a slower, earlier chunk move progress back.
+        entry.received = entry.received.max(received);
         entry.size = size;
         entry.chunks.push((start, end));
         should_flush(entry, now)
     };
     if do_flush {
-        let conn = db.lock().map_err(|_| UploadError::NotFound)?;
-        let (_row, dconn) = find_upload(&conn, id)?;
+        // Under the central lock, like cancel: a session cancelled while
+        // this chunk was writing must not get its chunk rows back.
+        let _conn = db.lock().map_err(|_| UploadError::NotFound)?;
+        if db::get_upload(&dconn, id)
+            .map_err(UploadError::Db)?
+            .is_none()
+        {
+            clear_pending(id);
+            return Err(UploadError::NotFound);
+        }
         flush_pending(&dconn, id)?;
     }
     Ok(received)
@@ -364,6 +412,9 @@ pub fn complete(
     if upload.state_not_active(&dconn)? {
         return Err(UploadError::NotActive);
     }
+    // Hashing and fsyncing a large file takes seconds on a USB drive; every
+    // other request needs this lock, so it is let go until the install.
+    drop(conn);
 
     let meta = std::fs::metadata(&upload.temp).map_err(UploadError::Io)?;
     // The sparse temp file's logical length equals `size` even if only the tail
@@ -394,6 +445,13 @@ pub fn complete(
         .map_err(UploadError::Io)?;
     file.sync_all().map_err(UploadError::Io)?;
     drop(file);
+
+    // Re-read the session: it may have been cancelled while unlocked.
+    let conn = db.lock().map_err(|_| UploadError::NotFound)?;
+    let (row, dconn) = find_upload(&conn, id)?;
+    if upload.state_not_active(&dconn)? {
+        return Err(UploadError::NotActive);
+    }
 
     let dir = files::dest_dir_create(&conn, &upload.drive_id, &upload.path)?;
     let mut name = upload.name;
@@ -462,6 +520,7 @@ pub fn complete(
         .unwrap_or(0);
     db::delete_upload(&dconn, id).map_err(UploadError::Db)?;
     db::delete_upload_chunks(&dconn, id).map_err(UploadError::Db)?;
+    forget_drive(id);
 
     Ok(FileEntry {
         name,
@@ -620,6 +679,7 @@ pub fn cancel(db: &Arc<crate::Db>, id: &str) -> Result<(), UploadError> {
     let _ = std::fs::remove_file(&upload.temp);
     db::delete_upload(&dconn, id).map_err(UploadError::Db)?;
     db::delete_upload_chunks(&dconn, id).map_err(UploadError::Db)?;
+    forget_drive(id);
     Ok(())
 }
 

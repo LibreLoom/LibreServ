@@ -132,9 +132,14 @@ pub fn router() -> Router<AppState> {
         )
 }
 
+/// Read size for streamed downloads. Each read is a hop to the blocking
+/// pool; tokio's 4 KiB default meant ~27k hops a second at LAN speed on a
+/// 4-core Atom.
+pub(crate) const STREAM_CHUNK: usize = 256 * 1024;
+
 /// Runs drive-touching work off the async runtime so a slow or hung drive
 /// stalls one request, not every connection.
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     f: impl FnOnce() -> Result<T, (StatusCode, Json<Value>)> + Send + 'static,
 ) -> Result<T, (StatusCode, Json<Value>)> {
     tokio::task::spawn_blocking(f).await.unwrap_or_else(|_| {
@@ -1165,7 +1170,7 @@ async fn serve_folder_zip(
         )
     })?;
     let len = async_file.metadata().await.map(|m| m.len()).unwrap_or(0);
-    let stream = ReaderStream::new(async_file);
+    let stream = ReaderStream::with_capacity(async_file, STREAM_CHUNK);
     // Keep the temp file alive until the response body finishes streaming.
     let body = Body::from_stream(ZipBody { stream, _keep: tmp });
 
@@ -1342,7 +1347,7 @@ async fn serve_file_content(
             })?;
     }
 
-    let stream = ReaderStream::new(file.take(stream_len));
+    let stream = ReaderStream::with_capacity(file.take(stream_len), STREAM_CHUNK);
     let name = if in_trash {
         // The meta leaf is authoritative — a rename in trash retitles the
         // origin while the on-disk name keeps its `{nonce}-` prefix.

@@ -704,3 +704,18 @@ fn username_is_normalized_and_unique() {
             .is_err()
     );
 }
+
+#[test]
+fn token_activity_is_recorded_once_per_throttle_window() {
+    let key = format!("{}\u{1f}Photos\u{1f}Uploaded photos", uuid::Uuid::new_v4());
+    let other = format!("{}\u{1f}Photos\u{1f}Browsed photos", uuid::Uuid::new_v4());
+    let t0 = std::time::Instant::now();
+    assert!(token_activity_due(&key, t0));
+    assert!(!token_activity_due(
+        &key,
+        t0 + std::time::Duration::from_secs(1)
+    ));
+    // A different activity is its own entry.
+    assert!(token_activity_due(&other, t0));
+    assert!(token_activity_due(&key, t0 + TOKEN_ACTIVITY_THROTTLE));
+}

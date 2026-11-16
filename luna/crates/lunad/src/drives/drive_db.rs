@@ -66,8 +66,34 @@ pub fn open(root: &Path) -> anyhow::Result<Connection> {
 fn open_file(path: &Path) -> anyhow::Result<Connection> {
     let conn = Connection::open(path)?;
     configure(&conn)?;
+    // Request paths open the microdb many times a second (listings, search,
+    // upload chunks); the ~60-statement migration and the photo-place COUNT
+    // only need to run once per file per process. The stamp lives in the
+    // file itself, so a different drive at the same mount point, a reformat
+    // or a rebuilt marker always carries some other value and is migrated.
+    let stamp = migrated_stamp();
+    let current: i64 = conn
+        .pragma_query_value(None, "user_version", |r| r.get(0))
+        .unwrap_or(0);
+    if current == stamp {
+        return Ok(conn);
+    }
     migrate_schema(&conn)?;
+    // A read-only drive can't take the stamp; it just migrates on each open.
+    let _ = conn.pragma_update(None, "user_version", stamp);
     Ok(conn)
+}
+
+/// A random non-zero value fixed for this process: written to a microdb's
+/// `user_version` once its schema is current, so a new lunad binary (a new
+/// process) always re-runs the migration.
+fn migrated_stamp() -> i64 {
+    static STAMP: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
+    *STAMP.get_or_init(|| {
+        // user_version is a signed 32-bit header field.
+        let v = uuid::Uuid::new_v4().as_u128() as u32 as i32;
+        i64::from(if v == 0 { 1 } else { v })
+    })
 }
 
 /// The `.luna-<uuid>` prefix this drive already uses, read from the Luna-owned
@@ -546,6 +572,10 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
             added_at INTEGER NOT NULL,
             PRIMARY KEY (album_id, drive_id, path)
          );
+         -- Photo cleanup and the timeline's album filter look rows up by
+         -- path alone; the primary keys lead with user_id / album_id.
+         CREATE INDEX IF NOT EXISTS favorites_path ON favorites(path);
+         CREATE INDEX IF NOT EXISTS album_items_drive_path ON album_items(drive_id, path);
          CREATE TABLE IF NOT EXISTS trash_meta (
             entry_name TEXT PRIMARY KEY NOT NULL,
             original_path TEXT NOT NULL
@@ -728,6 +758,34 @@ mod tests {
         assert!(!dir.path().join(format!("{prefix}.sqlite3-wal")).exists());
         assert!(!dir.path().join(format!("{prefix}.sqlite3-shm")).exists());
         assert_eq!(prefix_for(dir.path()).as_deref(), Some(prefix.as_str()));
+    }
+
+    #[test]
+    fn open_migrates_once_but_always_migrates_a_replaced_file() {
+        let dir = tempdir().unwrap();
+        let marker = Marker::new("drive-1", "Photos");
+        let prefix = marker::pick_prefix(dir.path()).unwrap();
+        create(dir.path(), &marker, &prefix).unwrap();
+        let conn = open(dir.path()).unwrap();
+        let stamp: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(stamp, migrated_stamp());
+        // A stamped file is trusted: a dropped table stays dropped.
+        conn.execute_batch("DROP TABLE trash_meta").unwrap();
+        drop(conn);
+        let conn = open(dir.path()).unwrap();
+        assert!(!table_exists(&conn, "trash_meta"));
+        drop(conn);
+
+        // The same marker path replaced by a fresh file (a reformat, another
+        // drive at this mount point) carries no stamp and gets the schema.
+        let path = find_db_file(dir.path()).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        marker::write_marker(dir.path(), &marker, &prefix).unwrap();
+        let conn = open(dir.path()).unwrap();
+        assert!(table_exists(&conn, "trash_meta"));
+        assert!(table_exists(&conn, "photos"));
     }
 
     #[test]

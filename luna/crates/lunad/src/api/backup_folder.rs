@@ -574,7 +574,10 @@ async fn file_response(path: &Path, name: &str) -> Result<Response, ApiError> {
         builder = builder.header(header::CONTENT_LENGTH, len);
     }
     builder
-        .body(Body::from_stream(ReaderStream::new(file)))
+        .body(Body::from_stream(ReaderStream::with_capacity(
+            file,
+            crate::api::files::STREAM_CHUNK,
+        )))
         .map_err(|_| {
             fail(
                 StatusCode::INTERNAL_SERVER_ERROR,

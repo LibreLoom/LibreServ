@@ -114,7 +114,13 @@ pub fn fstrim_mount(mount: &Path) -> anyhow::Result<()> {
 
 /// Trim every adopted as_is mount that supports discard. Returns how many ran.
 pub fn fstrim_all_drives(conn: &Connection) -> anyhow::Result<u64> {
-    let drives = db::list_drives(conn).unwrap_or_default();
+    Ok(fstrim_drives(&db::list_drives(conn).unwrap_or_default()))
+}
+
+/// Trim each adopted drive in a snapshot of the registry. Takes no
+/// connection: a trim of a large drive can take minutes, and the database
+/// lock must not be held for it.
+pub fn fstrim_drives(drives: &[db::DriveRow]) -> u64 {
     let mut n = 0u64;
     for drive in drives {
         if drive.state != "as_is" || drive.mount_point.is_empty() {
@@ -129,7 +135,7 @@ pub fn fstrim_all_drives(conn: &Connection) -> anyhow::Result<u64> {
             Err(err) => tracing::warn!(drive = %drive.id, error = %err, "fstrim skipped"),
         }
     }
-    Ok(n)
+    n
 }
 
 #[cfg(test)]

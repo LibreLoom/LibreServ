@@ -1320,7 +1320,10 @@ pub fn list_photos(
             Ok(c) => c,
             Err(_) => continue,
         };
-        let rows = query_drive_photos(&conn, id, filter, album_paths.as_ref())?;
+        // offset + limit + 1 rows per drive are enough to fill this page from
+        // the merged order and still tell whether more follow.
+        let cap = i64::from(offset) + i64::from(limit) + 1;
+        let rows = query_drive_photos(&conn, id, filter, album_paths.as_ref(), Some(cap))?;
         all.extend(rows);
     }
     all.sort_by(|a, b| {
@@ -1482,6 +1485,7 @@ fn query_drive_photos(
     drive_id: &str,
     filter: &ListFilter,
     album_paths: Option<&HashSet<(String, String)>>,
+    cap: Option<i64>,
 ) -> anyhow::Result<Vec<Photo>> {
     let uid = filter
         .favorites_user
@@ -1727,6 +1731,27 @@ fn query_drive_photos(
     if let Some(pq) = parsed_q.as_ref().filter(|p| !p.is_empty()) {
         append_query_clauses(&mut sql, &mut binds, pq);
     }
+    // Format filter: refine in Rust when a format was requested — the
+    // `format` param and `q` format words ("heic", "raw") both apply.
+    let mut allowed: HashSet<String> = format
+        .split(',')
+        .map(normalize_format_ext)
+        .filter(|s| !s.is_empty())
+        .collect();
+    if let Some(pq) = parsed_q.as_ref().filter(|p| !p.is_empty()) {
+        allowed.extend(pq.formats.iter().cloned());
+    }
+    // A page needs only this drive's newest `cap` rows when nothing below
+    // drops rows in Rust: SQLite keeps a bounded top-N heap instead of every
+    // photo becoming a `Photo`. Same order as `list_photos`' merge sort.
+    if let Some(cap) = cap
+        && album_paths.is_none()
+        && allowed.is_empty()
+    {
+        sql.push_str(&format!(
+            " ORDER BY COALESCE(NULLIF(p.taken_at, 0), p.mtime) DESC, p.path LIMIT {cap}"
+        ));
+    }
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_from_iter(binds), |row| {
         let path: String = row.get(0)?;
@@ -1779,16 +1804,6 @@ fn query_drive_photos(
             && !set.contains(&(drive_id.to_string(), photo.path.clone()))
         {
             continue;
-        }
-        // Format filter: refine in Rust when a format was requested — the
-        // `format` param and `q` format words ("heic", "raw") both apply.
-        let mut allowed: HashSet<String> = format
-            .split(',')
-            .map(normalize_format_ext)
-            .filter(|s| !s.is_empty())
-            .collect();
-        if let Some(pq) = parsed_q.as_ref().filter(|p| !p.is_empty()) {
-            allowed.extend(pq.formats.iter().cloned());
         }
         if !allowed.is_empty() {
             let ext = normalize_format_ext(&path_ext_lower(&photo.path));

@@ -24,6 +24,10 @@ use crate::files::{self, FilesError};
 use crate::photos::photos_indexer::PhotosIndexer;
 
 const COPY_BUF: usize = 1024 * 1024;
+/// Minimum gap between progress writes to luna.db during a copy. Each write
+/// takes the global DB lock and commits on eMMC, so per-buffer writes would
+/// mean one commit per MiB copied.
+const PROGRESS_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// Copy/move work is disk-bound — a couple of jobs already saturate a USB
 /// drive, and every extra one just thrashes it. At most this many run at
@@ -619,6 +623,8 @@ struct CopyState<'a> {
     job_id: &'a str,
     total: u64,
     cancel: &'a AtomicBool,
+    /// When progress was last written to the DB (see [`PROGRESS_EVERY`]).
+    last_progress: std::time::Instant,
 }
 
 /// Repeat the enqueue-time authorization at execution: a grant revoked
@@ -790,6 +796,7 @@ fn run_job(
         job_id: &prepared.row.id,
         total: prepared.total,
         cancel: &cancel,
+        last_progress: std::time::Instant::now(),
     };
     let mut created_private_root = false;
     let result = (|| -> Result<(), JobError> {
@@ -914,6 +921,9 @@ fn run_job(
         if state == "done" {
             let _ =
                 db::update_job_progress(&conn, &prepared.row.id, prepared.total, prepared.total);
+        } else {
+            // Progress writes are throttled, so record the last bytes copied.
+            let _ = db::update_job_progress(&conn, &prepared.row.id, st.done, prepared.total);
         }
     }
     if (state == "cancelled" || state == "error") && st.owned_dest {
@@ -1174,9 +1184,10 @@ fn copy_node(
         if count_bytes {
             st.done += n as u64;
         }
-        if (st.done % (COPY_BUF as u64) < (COPY_BUF as u64 / 4) || st.done == st.total)
+        if (st.last_progress.elapsed() >= PROGRESS_EVERY || st.done == st.total)
             && let Ok(conn) = ctx.db.lock()
         {
+            st.last_progress = std::time::Instant::now();
             let _ = db::update_job_progress(&conn, st.job_id, st.done, st.total);
         }
     }

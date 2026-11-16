@@ -995,7 +995,20 @@ impl DriveManager {
     /// which would otherwise leave a healthy stick stuck read-only forever.
     /// Readonly drives that pass the probe again are restored to `as_is`.
     pub fn health_check(&self, conn: &Connection) -> anyhow::Result<()> {
-        for drive in db::list_drives(conn)? {
+        let rows = db::list_drives(conn)?;
+        for (id, _was, state) in self.health_probe(&rows) {
+            db::set_drive_state(conn, &id, state)?;
+        }
+        Ok(())
+    }
+
+    /// The I/O half of [`Self::health_check`]: probes each drive in the
+    /// snapshot and returns `(drive id, state it had, new state)` for those
+    /// that changed. Takes no connection, so the daemon's periodic check
+    /// never holds the database lock while a USB disk spins up.
+    pub fn health_probe(&self, rows: &[db::DriveRow]) -> Vec<(String, String, &'static str)> {
+        let mut changes = Vec::new();
+        for drive in rows {
             if drive.mount_point.is_empty() {
                 continue;
             }
@@ -1010,13 +1023,14 @@ impl DriveManager {
                 continue;
             }
             let writable = self.ensure_writable_mount(root);
-            match (drive.state.as_str(), writable) {
-                ("as_is", false) => db::set_drive_state(conn, &drive.id, "readonly")?,
-                ("readonly", true) => db::set_drive_state(conn, &drive.id, "as_is")?,
-                _ => {}
-            }
+            let next = match (drive.state.as_str(), writable) {
+                ("as_is", false) => "readonly",
+                ("readonly", true) => "as_is",
+                _ => continue,
+            };
+            changes.push((drive.id.clone(), drive.state.clone(), next));
         }
-        Ok(())
+        changes
     }
 
     /// Probe writes; if that fails, remount RW once and probe again.

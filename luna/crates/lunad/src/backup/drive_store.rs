@@ -184,9 +184,8 @@ impl Store {
     ) -> std::io::Result<Put> {
         let segs = rel_segments(rel)?;
         let dst = join_rel(&self.current_dir(), &segs);
-        if let Some(parent) = dst.parent() {
-            fs::create_dir_all(parent)?;
-        }
+        // Check for an unchanged copy first: most files on a repeat run are
+        // unchanged, and they should not pay a stat walk up the parent chain.
         let existing = match fs::symlink_metadata(&dst) {
             Ok(meta) if meta.is_file() => {
                 if meta.len() == src_meta.len() && same_mtime(&meta, src_meta) {
@@ -200,9 +199,14 @@ impl Store {
                     "The backup has a folder where this file should go.",
                 ));
             }
-            Err(e) if e.kind() == ErrorKind::NotFound => false,
+            // A missing parent folder (or a file where one should be) is left
+            // to create_dir_all below, which reports it as before.
+            Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => false,
             Err(e) => return Err(e),
         };
+        if let Some(parent) = dst.parent() {
+            fs::create_dir_all(parent)?;
+        }
 
         // Copy first: until the new copy is complete, the old one stays put.
         let staged = stage_copy(src, src_meta, &dst)?;

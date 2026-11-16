@@ -21,7 +21,6 @@ use crate::files::index;
 /// A written-to folder is re-read this long after its last write, so a burst
 /// of uploads costs one read instead of one each.
 const DIRTY_DEBOUNCE: Duration = Duration::from_millis(1200);
-const IDLE_POLL: Duration = Duration::from_millis(250);
 /// How often a running scan re-checks that its drive is still mounted.
 const MOUNT_CHECK_EVERY: u64 = 16;
 
@@ -185,7 +184,13 @@ fn worker(rx: mpsc::Receiver<Job>, shared: Arc<Shared>, content: Arc<ContentInde
     let mut scans: VecDeque<(String, bool)> = VecDeque::new();
     let mut dirty: HashMap<(String, String), Instant> = HashMap::new();
     loop {
-        match rx.recv_timeout(IDLE_POLL) {
+        // Sleep until a job arrives or the next dirty folder is due, never on
+        // a fixed tick: an idle box must not wake up four times a second.
+        let got = match next_wait(&scans, &dirty) {
+            None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+            Some(wait) => rx.recv_timeout(wait),
+        };
+        match got {
             Ok(job) => queue_job(job, &mut scans, &mut dirty),
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return,
@@ -219,6 +224,22 @@ fn worker(rx: mpsc::Receiver<Job>, shared: Arc<Shared>, content: Arc<ContentInde
             }
         }
     }
+}
+
+/// How long the worker may block for the next job: `None` (until one comes)
+/// when nothing is queued, zero while scans wait, else until the earliest
+/// dirty folder's debounce ends.
+fn next_wait(
+    scans: &VecDeque<(String, bool)>,
+    dirty: &HashMap<(String, String), Instant>,
+) -> Option<Duration> {
+    if !scans.is_empty() {
+        return Some(Duration::ZERO);
+    }
+    dirty
+        .values()
+        .map(|at| DIRTY_DEBOUNCE.saturating_sub(at.elapsed()))
+        .min()
 }
 
 fn queue_job(
@@ -325,6 +346,24 @@ mod tests {
     use super::*;
     use crate::files::search::{self, DriveRef, KindFilter};
     use crate::files::search_rank::Query;
+
+    #[test]
+    fn idle_worker_blocks_until_work_is_due() {
+        let mut scans = VecDeque::new();
+        let mut dirty = HashMap::new();
+        assert_eq!(next_wait(&scans, &dirty), None);
+        dirty.insert(("d".to_string(), "a".to_string()), Instant::now());
+        let wait = next_wait(&scans, &dirty).unwrap();
+        assert!(wait > Duration::ZERO && wait <= DIRTY_DEBOUNCE);
+        dirty.insert(
+            ("d".to_string(), "b".to_string()),
+            Instant::now() - DIRTY_DEBOUNCE * 2,
+        );
+        assert_eq!(next_wait(&scans, &dirty), Some(Duration::ZERO));
+        dirty.clear();
+        scans.push_back(("d".to_string(), false));
+        assert_eq!(next_wait(&scans, &dirty), Some(Duration::ZERO));
+    }
 
     fn make_drive(dir: &Path) -> PathBuf {
         let root = dir.join("drive");

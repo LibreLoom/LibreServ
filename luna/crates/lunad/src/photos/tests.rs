@@ -307,6 +307,70 @@ fn merge_lists_across_drives() {
 }
 
 #[test]
+fn paged_merge_across_drives_matches_one_full_sort() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut mounts = Vec::new();
+    // (path, mtime, taken_at): ties on the effective date and the same path
+    // on both drives, so the per-drive LIMIT has to agree with the merge.
+    let rows: [&[(&str, i64, i64)]; 2] = [
+        &[
+            ("a.jpg", 50, 0),
+            ("b.jpg", 10, 40),
+            ("c.jpg", 30, 0),
+            ("same.jpg", 20, 0),
+            ("d.jpg", 5, 20),
+        ],
+        &[
+            ("e.jpg", 60, 0),
+            ("same.jpg", 20, 0),
+            ("f.jpg", 1, 30),
+            ("g.jpg", 20, 0),
+        ],
+    ];
+    for (i, drive_rows) in rows.iter().enumerate() {
+        let id = format!("d{i}");
+        let root = dir.path().join(&id);
+        std::fs::create_dir(&root).unwrap();
+        adopt(&root, &id);
+        let conn = open_drive_db(&root).unwrap();
+        for (path, mtime, taken) in drive_rows.iter() {
+            conn.execute(
+                "INSERT INTO photos (path, name, size, mtime, taken_at, kind)
+                 VALUES (?1, ?1, 1, ?2, ?3, 'image')",
+                params![path, mtime, taken],
+            )
+            .unwrap();
+        }
+        mounts.push((id, root));
+    }
+    let key = |p: &Photo| (p.drive_id.clone(), p.path.clone());
+    let all = list_photos(&mounts, None, &ListFilter::default(), 100, 0).unwrap();
+    assert_eq!(all.items.len(), 9);
+    assert!(!all.has_more);
+    let expected: Vec<_> = all.items.iter().map(key).collect();
+    assert_eq!(
+        expected.iter().map(|(_, p)| p.as_str()).collect::<Vec<_>>(),
+        [
+            "e.jpg", "a.jpg", "b.jpg", "c.jpg", "f.jpg", "d.jpg", "g.jpg", "same.jpg", "same.jpg"
+        ]
+    );
+    for limit in 1..=4u32 {
+        let mut got = Vec::new();
+        let mut offset = 0;
+        loop {
+            let page = list_photos(&mounts, None, &ListFilter::default(), limit, offset).unwrap();
+            got.extend(page.items.iter().map(key));
+            assert_eq!(page.has_more, (page.next_offset as usize) < expected.len());
+            if !page.has_more {
+                break;
+            }
+            offset = page.next_offset;
+        }
+        assert_eq!(got, expected, "limit {limit}");
+    }
+}
+
+#[test]
 fn camera_make_model_indexed_and_filtered() {
     let dir = tempfile::tempdir().unwrap();
     let photos_dir = dir.path().join("photos");

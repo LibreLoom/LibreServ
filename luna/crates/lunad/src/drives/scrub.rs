@@ -38,6 +38,51 @@ pub fn upsert_hash(
     Ok(())
 }
 
+/// Hashes waiting to be written. Each autocommitted row on the drive microdb
+/// (journal_mode=DELETE) costs a journal create, fsync and unlink on USB, so
+/// rows are flushed together in one short transaction. The write lock is held
+/// only for the flush, never while a file is being read and hashed.
+struct HashBatch {
+    rows: Vec<(String, u64, i64, String)>,
+    last_flush: std::time::Instant,
+}
+
+impl HashBatch {
+    const MAX_ROWS: usize = 256;
+    const MAX_AGE: std::time::Duration = std::time::Duration::from_secs(2);
+
+    fn new() -> Self {
+        Self {
+            rows: Vec::new(),
+            last_flush: std::time::Instant::now(),
+        }
+    }
+
+    fn push(&mut self, conn: &Connection, drive_id: &str, row: (String, u64, i64, String)) {
+        self.rows.push(row);
+        if self.rows.len() >= Self::MAX_ROWS || self.last_flush.elapsed() >= Self::MAX_AGE {
+            self.flush(conn, drive_id);
+        }
+    }
+
+    /// Best effort, like the per-row upserts it replaces: a failed batch is
+    /// dropped and those files are simply hashed again on the next pass.
+    fn flush(&mut self, conn: &Connection, drive_id: &str) {
+        self.last_flush = std::time::Instant::now();
+        if self.rows.is_empty() {
+            return;
+        }
+        let rows = std::mem::take(&mut self.rows);
+        let Ok(tx) = conn.unchecked_transaction() else {
+            return;
+        };
+        for (path, size, mtime, hash) in &rows {
+            let _ = upsert_hash(&tx, drive_id, path, *size, *mtime, hash);
+        }
+        let _ = tx.commit();
+    }
+}
+
 pub fn hash_file(path: &Path) -> anyhow::Result<String> {
     let mut file = std::fs::File::open(path)?;
     let mut hasher = blake3::Hasher::new();
@@ -76,6 +121,7 @@ fn hash_drive_walk(drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
         mismatches: 0,
         bytes_hashed: 0,
     };
+    let mut batch = HashBatch::new();
     // Each folder carries its real path: private items sit on disk under
     // `.luna-` names but are baselined under the names people see.
     let mut stack = vec![(root.to_path_buf(), String::new())];
@@ -136,11 +182,12 @@ fn hash_drive_walk(drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
             let Ok(hash) = hash_file(&entry.path()) else {
                 continue;
             };
-            let _ = upsert_hash(&conn, drive_id, rel, size, mtime, &hash);
+            batch.push(&conn, drive_id, (rel.clone(), size, mtime, hash));
             report.files_hashed += 1;
             report.bytes_hashed += size;
         }
     }
+    batch.flush(&conn, drive_id);
     Ok(report)
 }
 
@@ -167,6 +214,7 @@ fn scrub_drive_walk(drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> 
         mismatches: 0,
         bytes_hashed: 0,
     };
+    let mut batch = HashBatch::new();
     let mut stmt =
         conn.prepare("SELECT path, size, mtime, hash FROM file_hashes WHERE drive_id = ?1")?;
     let rows = stmt.query_map(params![drive_id], |row| {
@@ -205,11 +253,13 @@ fn scrub_drive_walk(drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> 
             let Ok(actual) = hash_file(&path) else {
                 continue;
             };
-            let _ = upsert_hash(&conn, drive_id, &rel, meta.len(), mtime, &actual);
+            batch.push(&conn, drive_id, (rel, meta.len(), mtime, actual));
             report.files_hashed += 1;
             report.bytes_hashed += meta.len();
         }
     }
+    drop(stmt);
+    batch.flush(&conn, drive_id);
     Ok(report)
 }
 

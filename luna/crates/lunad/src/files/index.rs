@@ -78,6 +78,13 @@ pub fn forget_dir_tree(conn: &Connection, drive_id: &str, rel: &str) -> anyhow::
     Ok(())
 }
 
+/// Bring one folder's rows in line with `entries`. Only names that are gone
+/// are deleted and only new or changed rows are written: every written row
+/// also rewrites its trigram postings in `index_fts`, so rewriting a whole
+/// 10k-entry folder after one upload would be wasted work on a USB drive.
+///
+/// Atomic on its own, and nests inside a caller's batch transaction (see
+/// [`scan_tree`]) as a savepoint.
 pub fn replace_dir(
     conn: &Connection,
     drive_id: &str,
@@ -85,21 +92,72 @@ pub fn replace_dir(
     dir_mtime: i64,
     entries: &[FileEntry],
 ) -> anyhow::Result<()> {
-    let tx = conn.unchecked_transaction()?;
-    tx.execute(
-        "DELETE FROM index_entries WHERE drive_id = ?1 AND parent = ?2",
-        params![drive_id, parent],
-    )?;
+    // On its own it takes the write lock up front: it reads before it
+    // writes, and a deferred transaction that upgrades from a read lock gets
+    // SQLITE_BUSY at once (no busy wait) while another connection commits.
+    let (begin, commit, rollback) = if conn.is_autocommit() {
+        ("BEGIN IMMEDIATE", "COMMIT", "ROLLBACK")
+    } else {
+        (
+            "SAVEPOINT replace_dir",
+            "RELEASE replace_dir",
+            "ROLLBACK TO replace_dir; RELEASE replace_dir",
+        )
+    };
+    conn.execute_batch(begin)?;
+    match replace_dir_rows(conn, drive_id, parent, dir_mtime, entries) {
+        Ok(()) => {
+            if let Err(e) = conn.execute_batch(commit) {
+                let _ = conn.execute_batch(rollback);
+                return Err(e.into());
+            }
+            Ok(())
+        }
+        Err(e) => {
+            let _ = conn.execute_batch(rollback);
+            Err(e)
+        }
+    }
+}
+
+fn replace_dir_rows(
+    conn: &Connection,
+    drive_id: &str,
+    parent: &str,
+    dir_mtime: i64,
+    entries: &[FileEntry],
+) -> anyhow::Result<()> {
+    // Names compare exactly (binary), like the primary key does.
+    let mut gone: std::collections::HashSet<String> = {
+        let mut stmt = conn
+            .prepare_cached("SELECT name FROM index_entries WHERE drive_id = ?1 AND parent = ?2")?;
+        stmt.query_map(params![drive_id, parent], |row| row.get::<_, String>(0))?
+            .collect::<Result<_, _>>()?
+    };
+    for entry in entries {
+        gone.remove(&entry.name);
+    }
     {
-        let mut stmt = tx.prepare(
+        let mut stmt = conn.prepare_cached(
+            "DELETE FROM index_entries WHERE drive_id = ?1 AND parent = ?2 AND name = ?3",
+        )?;
+        for name in &gone {
+            stmt.execute(params![drive_id, parent, name])?;
+        }
+    }
+    {
+        let mut stmt = conn.prepare_cached(
             // Upsert, not INSERT OR REPLACE: the search table's triggers
-            // only see an update, never a silent replace.
+            // only see an update, never a silent replace. The WHERE skips
+            // unchanged rows, so they keep their FTS postings untouched.
             "INSERT INTO index_entries
              (drive_id, parent, name, kind, size, modified, hidden)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT (drive_id, parent, name) DO UPDATE SET
                kind = excluded.kind, size = excluded.size,
-               modified = excluded.modified, hidden = excluded.hidden",
+               modified = excluded.modified, hidden = excluded.hidden
+             WHERE kind IS NOT excluded.kind OR size IS NOT excluded.size
+               OR modified IS NOT excluded.modified OR hidden IS NOT excluded.hidden",
         )?;
         for entry in entries {
             stmt.execute(params![
@@ -113,12 +171,11 @@ pub fn replace_dir(
             ])?;
         }
     }
-    tx.execute(
+    conn.execute(
         "INSERT OR REPLACE INTO indexed_dirs (drive_id, path, dir_mtime, indexed_at)
          VALUES (?1, ?2, ?3, ?4)",
         params![drive_id, parent, dir_mtime, db::now_unix()],
     )?;
-    tx.commit()?;
     Ok(())
 }
 
@@ -272,16 +329,70 @@ pub fn sync_dir(
     rel: &str,
     force: bool,
 ) -> anyhow::Result<Vec<String>> {
+    let read = read_dir_state(conn, drive_id, root, rel, force)?;
+    let children = read.children(rel);
+    apply_dir(conn, drive_id, rel, read)?;
+    Ok(children)
+}
+
+/// What [`read_dir_state`] found for one folder, before anything is written.
+enum DirRead {
+    /// Still matches its indexed stamp: these are its subfolder names.
+    Fresh(Vec<String>),
+    /// No longer a folder on disk.
+    Gone,
+    /// Read from disk; `before` lists the subfolders the index had.
+    Changed {
+        mtime: i64,
+        entries: Vec<FileEntry>,
+        before: Vec<String>,
+    },
+}
+
+impl DirRead {
+    /// The folder's subfolders, as drive-relative paths.
+    fn children(&self, rel: &str) -> Vec<String> {
+        let names: Vec<&str> = match self {
+            DirRead::Fresh(names) => names.iter().map(String::as_str).collect(),
+            DirRead::Gone => Vec::new(),
+            DirRead::Changed { entries, .. } => entries
+                .iter()
+                .filter(|e| e.kind == "dir")
+                .map(|e| e.name.as_str())
+                .collect(),
+        };
+        names.into_iter().map(|n| join_child(rel, n)).collect()
+    }
+
+    /// Rough count of rows this folder will write, to bound a batch.
+    fn weight(&self) -> usize {
+        match self {
+            DirRead::Changed { entries, .. } => entries.len() + 1,
+            _ => 1,
+        }
+    }
+}
+
+fn join_child(rel: &str, name: &str) -> String {
+    if rel.is_empty() {
+        name.to_string()
+    } else {
+        format!("{rel}/{name}")
+    }
+}
+
+/// The read half of [`sync_dir`]: DB reads and the disk listing, no writes,
+/// so [`scan_tree`] can read folders without holding the write lock.
+fn read_dir_state(
+    conn: &Connection,
+    drive_id: &str,
+    root: &std::path::Path,
+    rel: &str,
+    force: bool,
+) -> anyhow::Result<DirRead> {
     if !root.is_dir() {
         anyhow::bail!("drive is not reachable");
     }
-    let join = |name: &str| {
-        if rel.is_empty() {
-            name.to_string()
-        } else {
-            format!("{rel}/{name}")
-        }
-    };
     // Private folders sit on disk under their `.luna-` names, so the folder
     // is found there and its private children are listed under real names;
     // reading the real path or skipping the rows would index a listing
@@ -293,12 +404,7 @@ pub fn sync_dir(
     };
     let meta = match std::fs::metadata(&dir) {
         Ok(meta) if meta.is_dir() => meta,
-        _ => {
-            if !rel.is_empty() {
-                forget_dir_tree(conn, drive_id, rel)?;
-            }
-            return Ok(Vec::new());
-        }
+        _ => return Ok(DirRead::Gone),
     };
     let mtime = dir_stamp(&meta);
     let indexed: Option<i64> = conn
@@ -319,7 +425,7 @@ pub fn sync_dir(
         Ok(names)
     };
     if !force && indexed == Some(mtime) {
-        return Ok(indexed_children(conn)?.iter().map(|n| join(n)).collect());
+        return Ok(DirRead::Fresh(indexed_children(conn)?));
     }
     let before = if indexed.is_some() {
         indexed_children(conn)?
@@ -331,16 +437,41 @@ pub fn sync_dir(
         &crate::private::children_of(root, rel),
         crate::private::boundary_for(root, rel).is_some(),
     )?;
-    replace_dir(conn, drive_id, rel, mtime, &entries)?;
-    let now: Vec<&str> = entries
-        .iter()
-        .filter(|e| e.kind == "dir")
-        .map(|e| e.name.as_str())
-        .collect();
-    for gone in before.iter().filter(|n| !now.contains(&n.as_str())) {
-        forget_dir_tree(conn, drive_id, &join(gone))?;
+    Ok(DirRead::Changed {
+        mtime,
+        entries,
+        before,
+    })
+}
+
+/// The write half of [`sync_dir`]. When the contents changed, subfolders
+/// that vanished take their whole indexed subtree with them.
+fn apply_dir(conn: &Connection, drive_id: &str, rel: &str, read: DirRead) -> anyhow::Result<()> {
+    match read {
+        DirRead::Fresh(_) => Ok(()),
+        DirRead::Gone => {
+            if !rel.is_empty() {
+                forget_dir_tree(conn, drive_id, rel)?;
+            }
+            Ok(())
+        }
+        DirRead::Changed {
+            mtime,
+            entries,
+            before,
+        } => {
+            replace_dir(conn, drive_id, rel, mtime, &entries)?;
+            let now: Vec<&str> = entries
+                .iter()
+                .filter(|e| e.kind == "dir")
+                .map(|e| e.name.as_str())
+                .collect();
+            for gone in before.iter().filter(|n| !now.contains(&n.as_str())) {
+                forget_dir_tree(conn, drive_id, &join_child(rel, gone))?;
+            }
+            Ok(())
+        }
     }
-    Ok(now.iter().map(|n| join(n)).collect())
 }
 
 /// Index `start` and everything under it, shallowest folders first so the
@@ -354,28 +485,75 @@ pub fn scan_tree(
     force: bool,
     tick: &mut dyn FnMut() -> bool,
 ) -> anyhow::Result<u64> {
+    // Folders are read with no lock held, then their rows are written in one
+    // short transaction per batch: the drive DB uses a rollback journal, so
+    // each commit costs a journal create, fsync and unlink on USB, which
+    // would dominate a first scan of thousands of folders. The batch is
+    // bounded by rows as well as folders so the write lock is held briefly.
+    const BATCH_DIRS: usize = 200;
+    const BATCH_ROWS: usize = 20_000;
+    const BATCH_TIME: std::time::Duration = std::time::Duration::from_millis(500);
+    let mut pending: Vec<(String, DirRead)> = Vec::new();
+    let mut rows = 0usize;
+    let mut since = std::time::Instant::now();
     let mut queue = std::collections::VecDeque::from([start.to_string()]);
     let mut visited = 0u64;
     while let Some(rel) = queue.pop_front() {
         if !tick() {
             break;
         }
-        match sync_dir(conn, drive_id, root, &rel, force) {
-            // Hidden folders stay unread: search never shows them, and
-            // they're where tools keep huge caches.
-            Ok(children) => queue.extend(
-                children
-                    .into_iter()
-                    .filter(|c| !c.rsplit('/').next().unwrap_or(c).starts_with('.')),
-            ),
+        match read_dir_state(conn, drive_id, root, &rel, force) {
+            Ok(read) => {
+                // Hidden folders stay unread: search never shows them, and
+                // they're where tools keep huge caches.
+                queue.extend(
+                    read.children(&rel)
+                        .into_iter()
+                        .filter(|c| !c.rsplit('/').next().unwrap_or(c).starts_with('.')),
+                );
+                if !matches!(read, DirRead::Fresh(_)) {
+                    if pending.is_empty() {
+                        since = std::time::Instant::now();
+                    }
+                    rows += read.weight();
+                    pending.push((rel, read));
+                }
+            }
             // The drive going away is a failed scan; one unreadable folder
             // is just skipped.
             Err(e) if !root.is_dir() => return Err(e),
             Err(e) => tracing::debug!(drive_id, rel, error = %e, "search index skipped a folder"),
         }
         visited += 1;
+        if pending.len() >= BATCH_DIRS || rows >= BATCH_ROWS || since.elapsed() >= BATCH_TIME {
+            apply_batch(conn, drive_id, &mut pending);
+            rows = 0;
+        }
     }
+    apply_batch(conn, drive_id, &mut pending);
     Ok(visited)
+}
+
+/// Write a batch of folder reads in one transaction. A folder that fails to
+/// write is skipped, as is a whole batch whose commit fails; either is read
+/// again on a later scan because its freshness stamp was not stored.
+fn apply_batch(conn: &Connection, drive_id: &str, pending: &mut Vec<(String, DirRead)>) {
+    if pending.is_empty() {
+        return;
+    }
+    // Immediate: replace_dir reads rows before writing them, and a read lock
+    // upgraded later fails at once if another connection is committing. If
+    // the lock can't be had, each folder writes on its own.
+    let batched = conn.is_autocommit() && conn.execute_batch("BEGIN IMMEDIATE").is_ok();
+    for (rel, read) in pending.drain(..) {
+        if let Err(e) = apply_dir(conn, drive_id, &rel, read) {
+            tracing::debug!(drive_id, rel, error = %e, "search index skipped a folder");
+        }
+    }
+    if batched && let Err(e) = conn.execute_batch("COMMIT") {
+        let _ = conn.execute_batch("ROLLBACK");
+        tracing::debug!(drive_id, error = %e, "search index batch was not saved");
+    }
 }
 
 /// Recursively re-read an adopted drive in full. The background indexer
@@ -589,5 +767,159 @@ mod tests {
             )
             .unwrap();
         assert_eq!(left, 0);
+    }
+
+    fn file(name: &str, size: u64, modified: i64) -> FileEntry {
+        FileEntry {
+            name: name.into(),
+            kind: "file".into(),
+            size,
+            modified,
+            hidden: false,
+            saving: false,
+            save_failed: false,
+            original_name: None,
+            original_path: None,
+            link_target: None,
+            caps: String::new(),
+            private: false,
+            in_private: false,
+        }
+    }
+
+    #[test]
+    fn replace_dir_writes_only_what_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = luna_core::marker::Marker::new("d1", "D");
+        let conn = crate::drives::drive_db::create(
+            dir.path(),
+            &marker,
+            &luna_core::marker::pick_prefix(dir.path()).unwrap(),
+        )
+        .unwrap();
+        let rowid = |name: &str| -> Option<i64> {
+            conn.query_row(
+                "SELECT rowid FROM index_entries WHERE drive_id = 'd1' AND parent = 'p' AND name = ?1",
+                [name],
+                |r| r.get(0),
+            )
+            .ok()
+        };
+        let fts = |q: &str| -> i64 {
+            conn.query_row(
+                "SELECT count(*) FROM index_fts WHERE index_fts MATCH ?1",
+                [q],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        replace_dir(
+            &conn,
+            "d1",
+            "p",
+            1,
+            &[
+                file("same.txt", 1, 1),
+                file("grows.txt", 1, 1),
+                file("gone.txt", 1, 1),
+            ],
+        )
+        .unwrap();
+        let same = rowid("same.txt").unwrap();
+        let grows = rowid("grows.txt").unwrap();
+        let changes_before = conn.total_changes();
+
+        replace_dir(
+            &conn,
+            "d1",
+            "p",
+            2,
+            &[
+                file("same.txt", 1, 1),
+                file("grows.txt", 9, 2),
+                file("renamed.txt", 1, 1),
+            ],
+        )
+        .unwrap();
+        assert_eq!(rowid("same.txt"), Some(same));
+        assert_eq!(rowid("grows.txt"), Some(grows));
+        assert!(rowid("gone.txt").is_none());
+        let size: i64 = conn
+            .query_row(
+                "SELECT size FROM index_entries WHERE rowid = ?1",
+                [grows],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(size, 9);
+        assert!(fresh_entries(&conn, "d1", "p", 2).is_some());
+        assert_eq!(fts("renamed"), 1);
+        assert_eq!(fts("gone"), 0);
+        assert_eq!(fts("same"), 1);
+
+        // A repeat of the same listing writes no entry rows at all; only the
+        // folder's own freshness stamp changes.
+        let changes = conn.total_changes();
+        assert!(changes > changes_before);
+        replace_dir(
+            &conn,
+            "d1",
+            "p",
+            3,
+            &[
+                file("same.txt", 1, 1),
+                file("grows.txt", 9, 2),
+                file("renamed.txt", 1, 1),
+            ],
+        )
+        .unwrap();
+        assert_eq!(conn.total_changes() - changes, 1);
+        assert!(conn.is_autocommit());
+    }
+
+    #[test]
+    fn replace_dir_nests_inside_a_batch_and_rolls_back_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = luna_core::marker::Marker::new("d1", "D");
+        let conn = crate::drives::drive_db::create(
+            dir.path(),
+            &marker,
+            &luna_core::marker::pick_prefix(dir.path()).unwrap(),
+        )
+        .unwrap();
+        conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+        replace_dir(&conn, "d1", "a", 1, &[file("x.txt", 1, 1)]).unwrap();
+        assert!(!conn.is_autocommit());
+        conn.execute_batch("COMMIT").unwrap();
+        assert!(fresh_entries(&conn, "d1", "a", 1).is_some());
+    }
+
+    #[test]
+    fn scan_tree_indexes_more_folders_than_one_batch() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("drive");
+        for i in 0..250 {
+            std::fs::create_dir_all(root.join(format!("f{i}"))).unwrap();
+            std::fs::write(root.join(format!("f{i}/n{i}.txt")), b"x").unwrap();
+        }
+        let marker = luna_core::marker::Marker::new("d1", "D");
+        let conn = crate::drives::drive_db::create(
+            &root,
+            &marker,
+            &luna_core::marker::pick_prefix(&root).unwrap(),
+        )
+        .unwrap();
+        let visited = scan_tree(&conn, "d1", &root, "", true, &mut || true).unwrap();
+        assert_eq!(visited, 251);
+        assert!(conn.is_autocommit());
+        let files: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM index_entries
+                 WHERE drive_id = 'd1' AND parent != '' AND kind = 'file'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(files, 250);
     }
 }

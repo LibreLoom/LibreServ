@@ -400,9 +400,32 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(15 * 60));
         loop {
             ticker.tick().await;
-            if let Ok(conn) = health_db.lock() {
-                let _ = health_drives.health_check(&conn);
-            }
+            // Probe writes can wait seconds on a USB disk spinning up: do them
+            // on a blocking thread and without the database lock.
+            let (db, drives) = (health_db.clone(), health_drives.clone());
+            let _ = tokio::task::spawn_blocking(move || {
+                let Some(rows) = db.lock().ok().and_then(|c| lunad::db::list_drives(&c).ok())
+                else {
+                    return;
+                };
+                let changes = drives.health_probe(&rows);
+                if changes.is_empty() {
+                    return;
+                }
+                let Ok(conn) = db.lock() else { return };
+                for (id, was, state) in changes {
+                    // Skip a drive whose state moved on while it was probed
+                    // (ejected, formatting, marked by another path).
+                    let unchanged = lunad::db::get_drive(&conn, &id)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|d| d.state == was);
+                    if unchanged {
+                        let _ = lunad::db::set_drive_state(&conn, &id, state);
+                    }
+                }
+            })
+            .await;
         }
     }));
 
@@ -693,8 +716,14 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
             }
             let db = trim_state.db.clone();
             let _ = tokio::task::spawn_blocking(move || {
+                // Snapshot the registry, then trim without the lock: a trim
+                // can take minutes and every request needs that lock.
+                let Some(drives) = db.lock().ok().and_then(|c| lunad::db::list_drives(&c).ok())
+                else {
+                    return;
+                };
+                lunad::drives::fstrim::fstrim_drives(&drives);
                 if let Ok(conn) = db.lock() {
-                    let _ = lunad::drives::fstrim::fstrim_all_drives(&conn);
                     let _ = lunad::db::set_meta(&conn, "last_fstrim_at", &now.to_string());
                 }
             })

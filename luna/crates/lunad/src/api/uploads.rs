@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::AppState;
-use crate::api::files::parse_range;
+use crate::api::files::{blocking, parse_range};
 use crate::api::response::{json_error, json_error_code};
 use crate::files::uploads::{self, UploadError};
 use crate::files::{self, FilesError};
@@ -129,7 +129,12 @@ async fn write_chunk(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    check_upload_access(&state, &user, &id)?;
+    // Session lookups and the chunk write are disk and lock work: keep them
+    // off the two async workers so one upload never stalls other requests.
+    let id = {
+        let state = state.clone();
+        blocking(move || check_upload_access(&state, &user, &id).map(|()| id)).await?
+    };
     let spec = headers
         .get(header::CONTENT_RANGE)
         .and_then(|v| v.to_str().ok())
@@ -163,7 +168,11 @@ async fn write_chunk(
         ));
     }
 
-    let received = uploads::write_chunk(&state.db, &id, start, &body).map_err(map_upload_err)?;
+    let received = {
+        let (db, id) = (state.db.clone(), id.clone());
+        blocking(move || uploads::write_chunk(&db, &id, start, &body).map_err(map_upload_err))
+            .await?
+    };
     Ok(Json(json!({ "upload_id": id, "received": received })))
 }
 
@@ -172,6 +181,16 @@ async fn complete(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
     Query(query): Query<CompleteQuery>,
+) -> Result<Json<crate::files::FileEntry>, (StatusCode, Json<Value>)> {
+    // Completion fsyncs (and may hash) the whole file: never on an async worker.
+    blocking(move || complete_sync(state, user, id, query)).await
+}
+
+fn complete_sync(
+    state: AppState,
+    user: crate::auth::CurrentUser,
+    id: String,
+    query: CompleteQuery,
 ) -> Result<Json<crate::files::FileEntry>, (StatusCode, Json<Value>)> {
     check_upload_access(&state, &user, &id)?;
     let overwrite = query.overwrite.as_deref() == Some("1");

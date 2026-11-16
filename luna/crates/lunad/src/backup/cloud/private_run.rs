@@ -248,7 +248,8 @@ fn publish_and_copy(
         &prepared.scope,
         &prepared.auth_public,
     )?;
-    copy_and_commit(db, &prepared.ctx, root, store, now)
+    // Private trees live in the database as JSON; reading every file keeps this path simple.
+    copy_and_commit(db, &prepared.ctx, root, store, now, None)
 }
 
 /// Seals a private backup to its scope's key. The scope key is checked before this is built, so the
