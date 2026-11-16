@@ -164,8 +164,12 @@ impl PhotosIndexer {
     }
 
     pub fn notify(&self, event: PhotosEvent) {
-        if self.tx.send(event).is_ok() {
-            self.pending.fetch_add(1, Ordering::Relaxed);
+        // Count before sending: the worker may take the event (and count it
+        // down) before `send` even returns, which used to leave `pending`
+        // stuck above zero and Photos saying "pending" forever.
+        self.pending.fetch_add(1, Ordering::Relaxed);
+        if self.tx.send(event).is_err() {
+            self.pending.fetch_sub(1, Ordering::Relaxed);
         }
     }
 
@@ -295,6 +299,13 @@ fn handle_watch_event(indexer: &PhotosIndexer, drive_id: &str, root: &Path, even
         };
         // Private items sit on disk under `.luna-` names; index them by real path.
         let rel = normalize_rel(&crate::private::logical_rel(root, &normalize_rel(rel)));
+        // Luna's own files (drive DB, thumbnails, content index) never hold
+        // photos. Their renames used to queue a rescan each, and every new
+        // rescan restarts the debounce, so while Luna was busy writing them
+        // the catch-up scan never ran.
+        if is_internal_rel(&rel) {
+            continue;
+        }
         if !should_index_rel(&rel) && !remove_like && !rename {
             continue;
         }
@@ -543,6 +554,12 @@ pub fn join_rel(dir: &str, name: &str) -> String {
     }
 }
 
+/// A path inside one of Luna's own folders on the drive (after private
+/// items are mapped back to the names people see).
+fn is_internal_rel(rel: &str) -> bool {
+    rel.split('/').any(photos::skip_photos_dir)
+}
+
 pub fn should_index_rel(rel: &str) -> bool {
     let rel = normalize_rel(rel);
     if rel.is_empty() || crate::files::is_internal_temp(&rel) {
@@ -562,6 +579,16 @@ mod tests {
     use super::*;
     use std::fs;
     use std::io::Write;
+
+    #[test]
+    fn luna_internal_paths_are_not_watched() {
+        let id = ".luna-0b6c7a9e-2f4d-4c1b-9a77-5d0e3c2f1a88";
+        assert!(is_internal_rel(&format!("{id}/thumbs/a.v3.jpg.tmp")));
+        assert!(is_internal_rel(&format!("{id}.sqlite3-wal")));
+        assert!(is_internal_rel(&format!("Photos/{id}-trash/x.jpg")));
+        assert!(!is_internal_rel("Photos/2024/IMG_0001.jpg"));
+        assert!(!is_internal_rel(".luna-notes/IMG_0001.jpg"));
+    }
 
     fn tiny_jpeg(path: &Path) {
         // Minimal valid-ish JPEG so is_media + open work; EXIF may fail.
