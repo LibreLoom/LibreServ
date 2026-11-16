@@ -24,7 +24,13 @@ pub const AGGRESSIVE_POLL_SECS: u64 = 10;
 /// End-to-end Connect HTTP budget. ureq 3 defaults to *no* timeout — without this,
 /// wedged DNS/TCP during late network bring-up can freeze the Connect poll thread
 /// until reboot (sticky "Luna will keep trying").
+#[cfg(not(test))]
 const CONNECT_HTTP_TIMEOUT: Duration = Duration::from_secs(20);
+/// Tests talk to local servers that answer in milliseconds; the hanging-peer
+/// test waits out the whole budget, so a short one keeps it from setting the
+/// floor for the whole suite.
+#[cfg(test)]
+const CONNECT_HTTP_TIMEOUT: Duration = Duration::from_secs(4);
 /// TCP/TLS connect budget inside the global timeout.
 const CONNECT_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Cap on Connect reply bodies — status JSON is small, and a hostile or

@@ -30,6 +30,24 @@ pub(crate) const SCOPE_DOMAIN: &[u8] = b"luna-scope-v1";
 /// A pack is uploaded once its plain bytes reach this size.
 const PACK_FLUSH_BYTES: usize = 8 << 20;
 
+#[cfg(test)]
+thread_local! {
+    /// Lets a test make small data span several packs instead of writing
+    /// megabytes of it. Per thread, so tests that don't set it keep the real size.
+    pub(super) static PACK_FLUSH_OVERRIDE: std::cell::Cell<Option<usize>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// The size at which a pack is uploaded: `PACK_FLUSH_BYTES`, except in a test
+/// that asked for less.
+fn pack_flush_bytes() -> usize {
+    #[cfg(test)]
+    if let Some(bytes) = PACK_FLUSH_OVERRIDE.with(|c| c.get()) {
+        return bytes;
+    }
+    PACK_FLUSH_BYTES
+}
+
 /// Shown when a run is held because its source drive or folder is gone.
 const NO_ADMIN_PHRASE: &str = "Waiting for an Admin to set up the recovery phrase.";
 pub(crate) const SOURCE_MISSING: &str = "Most files to back up are missing, or the drive is unplugged. Check the drive and folder, then try again.";
@@ -464,7 +482,7 @@ impl CopyState<'_> {
         let (offset, len) = builder.add(id, plain);
         self.pending.push((id, offset, len));
         self.placed.insert(id);
-        if builder.len() >= PACK_FLUSH_BYTES {
+        if builder.len() >= pack_flush_bytes() {
             self.flush()?;
         }
         Ok(id)

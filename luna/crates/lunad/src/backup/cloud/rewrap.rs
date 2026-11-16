@@ -1117,6 +1117,9 @@ mod tests {
     }
 
     fn setup(dir: &Path) -> crate::Db {
+        // Upload a pack per ~1 MiB so the 4 MiB fixture below spans several packs
+        // (production flushes at 8 MiB, which took 13 MiB of data per test).
+        run::PACK_FLUSH_OVERRIDE.with(|c| c.set(Some(1 << 20)));
         let conn = db::open(&dir.join("luna.db")).unwrap();
         db::insert_user(&conn, "owner", "owner", "Owner", "x", "admin").unwrap();
         identity::load_or_create(&conn, 1).unwrap();
@@ -1157,12 +1160,13 @@ mod tests {
         v
     }
 
-    /// Two files, the first large enough to fill more than one pack.
+    /// Two files, the first large enough to fill more than one pack (the tests
+    /// flush a pack per 1 MiB; see `setup`).
     fn source(dir: &Path) -> PathBuf {
         let src = dir.join("src");
         std::fs::create_dir_all(&src).unwrap();
-        std::fs::write(src.join("a.bin"), random_vec(10 << 20)).unwrap();
-        std::fs::write(src.join("b.bin"), random_vec(3 << 20)).unwrap();
+        std::fs::write(src.join("a.bin"), random_vec(3 << 20)).unwrap();
+        std::fs::write(src.join("b.bin"), random_vec(1 << 20)).unwrap();
         src
     }
 
