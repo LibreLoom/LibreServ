@@ -45,11 +45,7 @@ lane_check() {
 	cargo fmt --all --check
 	lap fmt "$_t"
 
-	echo "==> cargo clippy"
-	_t=$(date +%s)
-	cargo clippy --workspace --all-targets -- -D warnings
-	lap clippy "$_t"
-
+	
 	echo "==> cargo test"
 	_t=$(date +%s)
 	# Output goes to a file so the lunad suite's own "finished in" time can be
@@ -75,6 +71,17 @@ lane_check() {
 		echo "    cargo-llvm-cov is not installed; skipping (cargo install cargo-llvm-cov)"
 	fi
 	sh scripts/test-presence.sh
+}
+
+# clippy has its own lane and target dir: it only type-checks, so it needs
+# none of lane_check's build output, and a separate dir keeps the two from
+# queueing on cargo's build-directory lock.
+lane_clippy() {
+	echo "==> cargo clippy"
+	export CARGO_TARGET_DIR="$ROOT/target/ci-clippy"
+	_t=$(date +%s)
+	cargo clippy --workspace --all-targets -- -D warnings
+	lap clippy "$_t"
 }
 
 # OS image shell tests and build-script rules. Seconds; no toolchain.
@@ -255,18 +262,19 @@ start() {
 	pids="$pids $!"
 }
 
-# lane_check owns luna/target (fmt, clippy, tests) and is the long pole, so it
+# lane_check owns luna/target (fmt, tests) and is the long pole, so it
 # always runs alone in its lane; the rest are grouped to fit the memory share.
-echo "==> parallel lanes ($LANES): rust checks, desktop, mobile, web, os scripts"
+echo "==> parallel lanes ($LANES): rust tests, clippy, desktop, mobile, web, os scripts"
 case "$LANES" in
 4)
 	start check lane_check
-	start rust lane_rust
+	start clippy lane_clippy lane_rust
 	start mobile lane_mobile lane_os
 	start web lane_web
 	;;
 *)
 	start check lane_check
+	start clippy lane_clippy
 	start rest lane_rust lane_mobile lane_web lane_os
 	;;
 esac
