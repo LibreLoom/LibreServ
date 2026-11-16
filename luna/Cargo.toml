@@ -50,3 +50,24 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 lto = true
 codegen-units = 1
 strip = true
+
+# Tests build at opt-level 0, where Argon2 (19 MiB, 2 passes per hash) and the
+# other hashing crates run ~50x slower than shipped. Every API test that makes
+# a user pays for a hash, so optimize just these dependencies; our own code
+# keeps fast, debuggable builds.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
+[profile.dev.package.blake3]
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.sha1]
+opt-level = 3
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.zip]
+opt-level = 3
+[profile.dev.package.lzma-rust2]
+opt-level = 3
