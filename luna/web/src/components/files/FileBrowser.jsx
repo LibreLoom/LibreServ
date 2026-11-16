@@ -158,6 +158,10 @@ const SORT_OPTIONS = [
 const SORT_VALUES = new Set(SORT_OPTIONS.map((option) => option.value));
 /** Folders longer than this render only the rows near the viewport. */
 const VIRTUALIZE_AFTER = 80;
+/** Rows mounted past each edge of the viewport while scrolling. */
+const ROW_OVERSCAN = 12;
+/** The same on a folder's first frame (see fullOverscan). */
+const FIRST_FRAME_OVERSCAN = 2;
 const SORT_STORAGE_KEY = "luna.files.sort";
 const HIDDEN_STORAGE_KEY = "luna.files.showHidden";
 
@@ -411,9 +415,20 @@ export default function FileBrowser({
     setLastClicked(null);
   }
 
+  const listingKey = fileListKey(source, driveId, path);
+  const fetchListing = () => /** @type {Promise<FileEntry[]>} */ (source.listDir(driveId, path));
+  // Ask for the folder during the render that opens it. useQuery only starts
+  // fetching from an effect, and a navigation renders as a transition whose
+  // effects wait for the next frame: ~100 ms later on a slow box (W4). Only a
+  // query that never fetched (another hook may have created it idle): data,
+  // an error, or a request in flight all leave it alone.
+  const listingState = driveId ? queryClient.getQueryState(listingKey) : null;
+  if (driveId && (!listingState || (listingState.status === "pending" && listingState.fetchStatus === "idle"))) {
+    queryClient.prefetchQuery({ queryKey: listingKey, queryFn: fetchListing });
+  }
   const listing = useQuery({
-    queryKey: fileListKey(source, driveId, path),
-    queryFn: () => /** @type {Promise<FileEntry[]>} */ (source.listDir(driveId, path)),
+    queryKey: listingKey,
+    queryFn: fetchListing,
     enabled: !!driveId,
     // Keep the previous folder visible while the next listing loads so the list
     // card does not collapse empty and pop back in.
@@ -587,13 +602,31 @@ export default function FileBrowser({
   // Long folders mount only the rows near the viewport (the page scrolls on
   // the window). Short folders and pickers render every row.
   const virtualOn = !isPicker && visibleEntries.length > VIRTUALIZE_AFTER;
+  // A folder's first frame mounts only the rows on screen and a couple more:
+  // every row carries its action buttons, and twelve rows of scroll headroom
+  // nearly doubled the time to the first rows on a slow box (W4). The
+  // headroom mounts once that frame has painted.
+  const overscanKey = `${driveId}:${path}`;
+  const [fullOverscanFor, setFullOverscanFor] = useState(/** @type {string | null} */ (null));
+  const fullOverscan = fullOverscanFor === overscanKey;
+  useEffect(() => {
+    if (!virtualOn || !listingShown || fullOverscan) return undefined;
+    let timer = 0;
+    const frame = window.requestAnimationFrame(() => {
+      timer = window.setTimeout(() => setFullOverscanFor(overscanKey), 0);
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [virtualOn, listingShown, fullOverscan, overscanKey]);
   const topSpacerRef = useRef(/** @type {HTMLLIElement|null} */ (null));
   const [scrollMargin, setScrollMargin] = useState(0);
   const dragIndexRef = useRef(-1);
   const virtualizer = useWindowVirtualizer({
     count: virtualOn ? visibleEntries.length : 0,
     estimateSize: () => (dense ? 37 : 45),
-    overscan: 12,
+    overscan: fullOverscan ? ROW_OVERSCAN : FIRST_FRAME_OVERSCAN,
     // Scrolling must not synchronously re-render the whole list on every event.
     useFlushSync: false,
     scrollMargin,

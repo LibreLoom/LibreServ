@@ -23,6 +23,8 @@ const RUNS = Math.max(1, int(env.LUNA_PERF_RUNS, 10));
 const LOGIN_RUNS = Math.min(Math.max(1, int(env.LUNA_PERF_LOGIN_RUNS, 5)), 8);
 const SCROLL_RUNS = Math.max(1, int(env.LUNA_PERF_SCROLL_RUNS, 3));
 const SCROLL_STEP_PX = Math.max(10, int(env.LUNA_PERF_SCROLL_STEP, 120));
+/** One W6 run stops after this long, end reached or not. */
+const SCROLL_CAP_MS = 180_000;
 const OFFICE_RUNS = Math.max(1, int(env.LUNA_PERF_OFFICE_RUNS, 5));
 const CPU_THROTTLE = Math.max(1, Number(env.LUNA_PERF_CPU_THROTTLE) || 1);
 const NETWORK = env.LUNA_PERF_NETWORK === "remote" ? "remote" : "lan";
@@ -133,7 +135,11 @@ function recordJourney(id, result, browserVersion) {
   writeFileSync(LATEST_FILE, text);
   const r = doc.journeys[id];
   const verdict = r.skipped ? `skipped (${r.skipped})` : r.within_budget === false ? "OVER BUDGET" : r.within_budget ? "ok" : "";
-  console.log(`[perf] ${id.padEnd(8)} p50=${r.p50_ms ?? "-"} p95=${r.p95_ms ?? "-"} budget=${r.budget_ms ?? "-"} ${verdict}`);
+  // W6 is frames per second, not a duration.
+  const numbers = r.fps
+    ? `min_fps=${r.min_fps ?? "-"} max_frame=${r.max_frame_ms ?? "-"}ms budget=${r.budget_min_fps ?? "-"}fps`
+    : `p50=${r.p50_ms ?? "-"} p95=${r.p95_ms ?? "-"} budget=${r.budget_ms ?? "-"}`;
+  console.log(`[perf] ${id.padEnd(8)} ${numbers} ${verdict}`);
 }
 
 /**
@@ -334,12 +340,12 @@ test.describe("Luna web journeys", () => {
     if (wanted("W2")) recordJourney("W2", { ...stats(warm, budgetFor("W2")), lcp: stats(lcpWarm) });
   });
 
-  test("W4/W5/W6 folders", async ({ browser }) => {
+  test("W4/W5 folders", async ({ browser }) => {
     const folders = [
       { id: "W4", folder: drivePath(env.LUNA_PERF_FOLDER_SMALL), env: "LUNA_PERF_FOLDER_SMALL" },
       { id: "W5", folder: drivePath(env.LUNA_PERF_FOLDER_LARGE), env: "LUNA_PERF_FOLDER_LARGE" },
     ];
-    test.skip(!wanted("W4", "W5", "W6"), "not selected");
+    test.skip(!wanted("W4", "W5"), "not selected");
     for (const { id, folder, env: name } of folders) {
       if (!wanted(id)) continue;
       if (!folder) {
@@ -379,37 +385,54 @@ test.describe("Luna web journeys", () => {
           budget.max_long_task_ms == null || maxLongTask == null ? null : maxLongTask <= budget.max_long_task_ms,
       });
     }
+  });
 
-    if (!wanted("W6")) return;
+  // Its own test: three slow scrolls can take minutes, and sharing W4/W5's
+  // timeout lost the whole W6 result whenever the folder runs ran long.
+  test("W6 scroll", async ({ browser }) => {
+    test.skip(!wanted("W6"), "not selected");
     const large = drivePath(env.LUNA_PERF_FOLDER_LARGE);
     if (!large) {
       recordJourney("W6", { skipped: "set LUNA_PERF_FOLDER_LARGE" });
       return;
     }
     const runs = [];
+    let missed = 0;
+    const budget = BUDGETS.journeys.W6 || {};
+    const save = () => {
+      const fps = runs.map((r) => r.fps);
+      const maxFrame = runs.length ? Math.max(...runs.map((r) => r.max_frame_ms)) : null;
+      const minFps = fps.length ? Math.min(...fps) : null;
+      recordJourney("W6", {
+        runs: runs.length,
+        ...(missed ? { missed_runs: missed, note: "the folder never finished loading in those runs" } : {}),
+        scroll_step_px: SCROLL_STEP_PX,
+        fps: fps.map(round),
+        min_fps: round(minFps),
+        p95_frame_ms: round(runs.length ? Math.max(...runs.map((r) => r.p95_frame_ms)) : null),
+        max_frame_ms: round(maxFrame),
+        frames_over_50ms: runs.reduce((n, r) => n + r.slow_frames, 0),
+        // A run stops after SCROLL_CAP_MS; at low fps it never reaches the end.
+        reached_end: runs.map((r) => r.reached_end),
+        scrolled_fraction: runs.map((r) => round(r.scrolled_fraction)),
+        budget_min_fps: budget.min_fps ?? null,
+        budget_max_frame_ms: budget.max_frame_ms ?? null,
+        fps_tolerance: FPS_TOLERANCE,
+        within_budget:
+          minFps == null ? null : minFps >= (budget.min_fps ?? 0) - FPS_TOLERANCE && maxFrame <= (budget.max_frame_ms ?? Infinity),
+      });
+    };
     await eachFreshContext(browser, SCROLL_RUNS, async (page) => {
       await page.goto(folderUrl(large));
-      if (!(await waitMeasure(page, "W4", { timeout: 120_000 }))) return;
-      runs.push(await page.evaluate(scrollEndToEnd, SCROLL_STEP_PX));
+      if (!(await waitMeasure(page, "W4", { timeout: 120_000 }))) {
+        missed += 1;
+        return;
+      }
+      runs.push(await page.evaluate(scrollEndToEnd, { step: SCROLL_STEP_PX, capMs: SCROLL_CAP_MS }));
+      // Written after every run, so a timeout later keeps what was measured.
+      save();
     });
-    const budget = BUDGETS.journeys.W6 || {};
-    const fps = runs.map((r) => r.fps);
-    const maxFrame = runs.length ? Math.max(...runs.map((r) => r.max_frame_ms)) : null;
-    const minFps = fps.length ? Math.min(...fps) : null;
-    recordJourney("W6", {
-      runs: runs.length,
-      scroll_step_px: SCROLL_STEP_PX,
-      fps: fps.map(round),
-      min_fps: round(minFps),
-      p95_frame_ms: round(runs.length ? Math.max(...runs.map((r) => r.p95_frame_ms)) : null),
-      max_frame_ms: round(maxFrame),
-      frames_over_50ms: runs.reduce((n, r) => n + r.slow_frames, 0),
-      budget_min_fps: budget.min_fps ?? null,
-      budget_max_frame_ms: budget.max_frame_ms ?? null,
-      fps_tolerance: FPS_TOLERANCE,
-      within_budget:
-        minFps == null ? null : minFps >= (budget.min_fps ?? 0) - FPS_TOLERANCE && maxFrame <= (budget.max_frame_ms ?? Infinity),
-    });
+    if (!runs.length) save();
   });
 
   test("W7/W8/W9 photos", async ({ browser }) => {
@@ -587,13 +610,15 @@ test.describe("Luna web journeys", () => {
       await openDashboard(page);
       for (let i = 0; i < RUNS; i += 1) {
         for (const route of routes) {
+          const link = page.locator(`nav[aria-label="Primary"] a[href="${route}"]`).filter({ visible: true }).first();
+          // locator.click() first checks, inside the throttled page, that the
+          // link is visible, stable and not covered: 40–80 ms that landed inside
+          // the measure. Find the spot first, then press it like a person.
+          const box = await link.boundingBox();
           const before = await measureCount(page, "W16");
           const actionAt = await startJourney(page, "W16");
-          await page
-            .locator(`nav[aria-label="Primary"] a[href="${route}"]`)
-            .filter({ visible: true })
-            .first()
-            .click();
+          if (box) await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+          else await link.click();
           const sample = await waitMeasure(page, "W16", { after: before, timeout: 30_000, actionAt });
           if (sample) {
             samples.push(sample.duration);
@@ -622,10 +647,11 @@ test.describe("Luna web journeys", () => {
 
 /**
  * Runs in the page: scroll the window from top to bottom a fixed step per
- * frame and sample frame times with requestAnimationFrame (W6).
- * @param {number} step
+ * frame and sample frame times with requestAnimationFrame (W6). Stops after
+ * `capMs` even when the end is still far away.
+ * @param {{ step: number, capMs: number }} options
  */
-async function scrollEndToEnd(step) {
+async function scrollEndToEnd({ step, capMs }) {
   window.scrollTo(0, 0);
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   const frames = [];
@@ -636,7 +662,7 @@ async function scrollEndToEnd(step) {
       frames.push(t - last);
       last = t;
       const bottom = document.documentElement.scrollHeight - window.innerHeight;
-      if (window.scrollY >= bottom - 1 || t - t0 > 180_000) {
+      if (window.scrollY >= bottom - 1 || t - t0 > capMs) {
         resolve(t - t0);
         return;
       }
@@ -648,7 +674,10 @@ async function scrollEndToEnd(step) {
   // The first delta includes the wait for the first frame.
   const deltas = frames.slice(1);
   const sorted = [...deltas].sort((a, b) => a - b);
+  const bottom = document.documentElement.scrollHeight - window.innerHeight;
   return {
+    reached_end: window.scrollY >= bottom - 1,
+    scrolled_fraction: bottom > 0 ? window.scrollY / bottom : 1,
     fps: deltas.length / (done / 1000),
     p95_frame_ms: sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] ?? 0,
     max_frame_ms: sorted[sorted.length - 1] ?? 0,

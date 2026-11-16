@@ -274,6 +274,8 @@ export function PropertiesButton({ label, onClick, surface = "secondary" }) {
         variant="ghost"
         surface={surface}
         size="iconSm"
+        // Every row mounts a set of these and an icon never changes width.
+        smoothResize={false}
         aria-label={`Properties for ${label}`}
         onClick={onClick}
       >

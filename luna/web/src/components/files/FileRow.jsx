@@ -243,6 +243,8 @@ function FileRow({
                     variant="ghost"
                     surface={surface}
                     size="iconSm"
+                    // Every row mounts a set of these and an icon never changes width.
+                    smoothResize={false}
                     asChild
                     aria-label={aria}
                   >
@@ -255,6 +257,8 @@ function FileRow({
                     variant="ghost"
                     surface={surface}
                     size="iconSm"
+                    // Every row mounts a set of these and an icon never changes width.
+                    smoothResize={false}
                     aria-label={aria}
                     onClick={run}
                   >

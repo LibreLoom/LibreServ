@@ -40,8 +40,13 @@ after every scroll) run only in detailed mode: the spec turns it on, and in
 devtools `sessionStorage.setItem("luna.perf", "1")` plus a reload does. The
 module is inert until `initPerf()` (main.jsx) runs, so unit tests never see it.
 
-W6 (scroll FPS) is sampled by the spec with `requestAnimationFrame`. W13/W14
-(transfer throughput) are not covered yet.
+W6 (scroll FPS) is sampled by the spec with `requestAnimationFrame`, in its
+own test. A run stops after 180 s; `reached_end` and `scrolled_fraction` say
+how far it got. W13/W14 (transfer throughput) are not covered yet.
+
+W16 presses the navbar link with a raw mouse click at its centre:
+`locator.click()` first runs its visibility and stability checks inside the
+throttled page, which added about 40–80 ms to each sample in our runs.
 
 **Journey run** (`web/perf/journeys.spec.js`, config
 `web/playwright.perf.config.js`). Point it at a real lunad serving the

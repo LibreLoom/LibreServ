@@ -15,27 +15,23 @@ import Navbar from "./components/ui/Navbar";
 import LoadingBar from "@libreloom/ui/components/common/LoadingBar.jsx";
 import useRecentItemsTracker from "./hooks/useRecentItemsTracker";
 import { perfEndAfterPaint, perfStart } from "./lib/perf.js";
+import lazyWithPreload from "./lib/lazyWithPreload.js";
 
 // One chunk per page: the first paint downloads only the page being opened.
-const loadFilesPage = () => import("./pages/FilesPage");
-const loadFilePage = () => import("./pages/FilePage");
-const loadPhotosPage = () => import("./pages/PhotosPage");
-const loadSharedPage = () => import("./pages/SharedPage");
-const loadDashboardPage = () => import("./pages/DashboardPage");
-const loadSettingsPage = () => import("./pages/SettingsPage");
-const FilesPage = lazy(loadFilesPage);
-const FilePage = lazy(loadFilePage);
-const PhotosPage = lazy(loadPhotosPage);
-const SharedPage = lazy(loadSharedPage);
-const DashboardPage = lazy(loadDashboardPage);
+// usePreloadPages fetches the rest once the app is idle, and a preloaded page
+// then renders without a blank wait (see lazyWithPreload).
+const FilesPage = lazyWithPreload(() => import("./pages/FilesPage"));
+const FilePage = lazyWithPreload(() => import("./pages/FilePage"));
+const PhotosPage = lazyWithPreload(() => import("./pages/PhotosPage"));
+const SharedPage = lazyWithPreload(() => import("./pages/SharedPage"));
+const DashboardPage = lazyWithPreload(() => import("./pages/DashboardPage"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const SetupPage = lazy(() => import("./pages/SetupPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
-const SettingsPage = lazy(loadSettingsPage);
+const SettingsPage = lazyWithPreload(() => import("./pages/SettingsPage"));
 // The file task card and its animation library stay out of the first download:
 // most page loads never start a file operation.
-const loadFileOpsDock = () => import("./components/files/fileOps/FileOpsDock.jsx");
-const FileOpsDock = lazy(loadFileOpsDock);
+const FileOpsDock = lazyWithPreload(() => import("./components/files/fileOps/FileOpsDock.jsx"));
 const PublicSharePage = lazy(() => import("./pages/PublicSharePage"));
 const RecoveryWizardPage = lazy(() => import("./pages/RecoveryWizardPage"));
 // Dev only: opens flows that have no button of their own, for the state gallery.
@@ -110,7 +106,7 @@ function PageRendered() {
 function usePreloadPages() {
   useEffect(() => {
     if (/** @type {any} */ (navigator).connection?.saveData) return undefined;
-    const loaders = [loadFilePage, loadFilesPage, loadPhotosPage, loadSharedPage, loadDashboardPage, loadSettingsPage, loadFileOpsDock];
+    const loaders = [DashboardPage, FilePage, FilesPage, PhotosPage, SharedPage, SettingsPage, FileOpsDock].map((page) => page.preload);
     const idle = window.requestIdleCallback
       ? (fn) => window.requestIdleCallback(fn, { timeout: 4000 })
       : (fn) => window.setTimeout(fn, 1500);
@@ -163,6 +159,18 @@ function AppShell() {
   );
 }
 
+/**
+ * /login fetches the Dashboard's code while the user types (W3). Only that
+ * page: the rest would be decoding on a slow box right as sign-in finishes.
+ */
+function LoginRoute() {
+  useEffect(() => {
+    if (/** @type {any} */ (navigator).connection?.saveData) return;
+    DashboardPage.preload().catch(() => {});
+  }, []);
+  return <LoginPage />;
+}
+
 function GalleryToPhotosRedirect() {
   const { hash } = useLocation();
   return <Navigate to={{ pathname: "/photos", hash }} replace />;
@@ -181,7 +189,7 @@ export default function App() {
             <AuthProvider>
             <Suspense fallback={null}>
             <Routes>
-              <Route path="/login" element={<LoginPage />} />
+              <Route path="/login" element={<LoginRoute />} />
               <Route path="/recover" element={<RecoveryWizardPage />} />
               <Route path="/setup" element={<SetupPage />} />
               <Route path="/s/:token" element={<PublicSharePage />} />
