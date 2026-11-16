@@ -6,6 +6,7 @@ import { useOptionalAuth } from "../../../context/AuthContext.jsx";
 import { useTheme } from "@libreloom/ui/hooks/useTheme.jsx";
 import { useFileSource } from "../../../lib/fileSource.jsx";
 import { pathBasename } from "../../../lib/paths.js";
+import { perfEnd } from "../../../lib/perf.js";
 import {
   canSaveOfficeExt,
   createEuroOfficeSession,
@@ -525,6 +526,8 @@ export default function EuroOfficeHost({
               if (!cancelled) setStatus("ready");
             },
             onDocumentReady: () => {
+              // W12 (luna/perf): the document is open and editable.
+              perfEnd("W12");
               sawReadyRef.current = true;
               if (!cancelled) setStatus("ready");
               // The iframe has navigated by now — hide the pack's statusbar

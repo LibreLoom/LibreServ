@@ -30,6 +30,7 @@ import {
 import { apiErrorMessage, deleteJson, getDrives, getJson } from "../../lib/api";
 import { parentPath, pathBasename } from "../../lib/paths";
 import { isImageFile } from "../../lib/fileKinds.js";
+import { perfEndAfterPaint, perfStart } from "../../lib/perf.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { useFileOps } from "../../context/FileOpsContext.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
@@ -176,6 +177,20 @@ export default function FileSearch() {
 
   const trimmed = typed.trim();
   const search = useFileSearch(trimmed, { enabled: present && !isClosing, kind });
+
+  // W10/W11 (luna/perf): keystroke to rendered results. W10:query starts when
+  // the debounce lets the search go out, so the debounce's share is visible;
+  // W11 ends only once a "meaning" or "photo" match (neural search) is shown.
+  useEffect(() => {
+    if (search.active && search.q === trimmed) perfStart("W10:query");
+  }, [search.active, search.q, trimmed]);
+  const { active: searchActive, q: searchQ, isLoading: searchLoading, isUpdating: searchUpdating, isError: searchFailed, hits: searchHits } = search;
+  useEffect(() => {
+    if (!searchActive || searchQ !== trimmed || searchLoading || searchUpdating || searchFailed) return;
+    perfEndAfterPaint("W10");
+    perfEndAfterPaint("W10:query");
+    if (searchHits.some((hit) => hit.match === "meaning" || hit.match === "photo")) perfEndAfterPaint("W11");
+  }, [typed, trimmed, searchActive, searchQ, searchLoading, searchUpdating, searchFailed, searchHits]);
 
   const remaining = search.hits.slice(1);
   const groups = [
@@ -503,7 +518,11 @@ export default function FileSearch() {
                         className="file-search-input w-full min-w-0 appearance-none bg-transparent text-secondary text-sm border-0 shadow-none outline-none no-focus-outline"
                         placeholder="A name, or words inside a file"
                         value={typed}
-                        onChange={(e) => setTyped(e.target.value)}
+                        onChange={(e) => {
+                          perfStart("W10");
+                          perfStart("W11");
+                          setTyped(e.target.value);
+                        }}
                         onKeyDown={handleInputKeyDown}
                         aria-label="Search for a file"
                         autoComplete="off"

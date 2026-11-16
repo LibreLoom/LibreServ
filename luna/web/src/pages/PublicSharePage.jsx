@@ -12,6 +12,7 @@ import { getJson } from "../lib/api";
 import { CAP, hasCap } from "../lib/access.js";
 import { FileSourceProvider, shareSource } from "../lib/fileSource.jsx";
 import { parentPath, pathBasename } from "../lib/paths.js";
+import { perfSinceNavigation } from "../lib/perf.js";
 import DriveFileExplorer from "../components/files/DriveFileExplorer.jsx";
 import UploadFilesPanel from "../components/files/UploadFilesPanel.jsx";
 import useFileNavigation from "../hooks/useFileNavigation.js";
@@ -129,6 +130,14 @@ function PublicShareSession() {
     io.observe(el);
     return () => io.disconnect();
   }, [album.hasNextPage, loadMore, albumItems.length]);
+
+  // W15 (luna/perf): a guest's first screen. Files and folders end in
+  // FileBrowser once the listing is up; the other link kinds end here.
+  const guestScreenShown = !loading && !needPassword && !error
+    && (Boolean(formDoc) || isDropbox || (isAlbum && !album.isLoading));
+  useEffect(() => {
+    if (guestScreenShown) perfSinceNavigation("W15", { path: /^\/s\// });
+  }, [guestScreenShown]);
 
   useEffect(() => {
     let alive = true;

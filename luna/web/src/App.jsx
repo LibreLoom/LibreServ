@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Agentation } from "agentation";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
@@ -14,6 +14,7 @@ import FileOpsDock from "./components/files/fileOps/FileOpsDock.jsx";
 import Navbar from "./components/ui/Navbar";
 import LoadingBar from "@libreloom/ui/components/common/LoadingBar.jsx";
 import useRecentItemsTracker from "./hooks/useRecentItemsTracker";
+import { perfEndAfterPaint, perfStart } from "./lib/perf.js";
 
 // One chunk per page: the first paint downloads only the page being opened.
 const loadFilesPage = () => import("./pages/FilesPage");
@@ -69,13 +70,32 @@ function RecentItemsTracker() {
  */
 function PageOutlet() {
   const location = useLocation();
+  // W16 (luna/perf): a route change starts the timer; PageRendered ends it.
+  const firstPath = useRef(location.pathname);
+  useLayoutEffect(() => {
+    if (location.pathname === firstPath.current) return;
+    firstPath.current = null;
+    perfStart("W16", { fromInput: true, keep: true });
+  }, [location.pathname]);
   return (
     <div key={location.pathname} className="grow w-full animate-page-enter">
       <Suspense fallback={null}>
         <Outlet />
+        <PageRendered />
       </Suspense>
     </div>
   );
+}
+
+/**
+ * Mounts in the same Suspense boundary as the page, so its effect runs once
+ * the (lazy) page has committed: the end of W16.
+ */
+function PageRendered() {
+  useEffect(() => {
+    perfEndAfterPaint("W16");
+  }, []);
+  return null;
 }
 
 /**

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { HardDrive } from "lucide-react";
@@ -19,6 +19,7 @@ import { KIND_ALBUM } from "../lib/access.js";
 import { memberAccessRoots } from "../lib/shareTree.js";
 import { checkPhraseWords, PHRASE_CHECKED_TOAST, PHRASE_QUERY_KEY } from "../lib/cloudPhrase.js";
 import { readRecentItems } from "../lib/recentItems.js";
+import { perfAppReady } from "../lib/perf.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 import useNeedsYou from "../hooks/useNeedsYou.js";
 import { useSoftwareUpdates } from "../hooks/useSoftwareUpdates.jsx";
@@ -154,6 +155,12 @@ export default function DashboardPage() {
     return byDrive;
   }, [grants]);
   const memberSharesLoading = !isAdmin && access.isLoading;
+  // W1/W2/W3 (luna/perf): the Dashboard is usable once its drives, files and
+  // recents have answered (or failed).
+  const dashboardSettled = !drives.isLoading && !recentsQuery.isLoading && !memberSharesLoading;
+  useEffect(() => {
+    if (dashboardSettled) perfAppReady();
+  }, [dashboardSettled]);
   const memberHasNothingShared =
     !isAdmin &&
     !drives.isLoading &&

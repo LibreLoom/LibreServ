@@ -851,6 +851,7 @@ export default function PhotoLightbox({
                   downloadSrc={isCurrent && downloadSrc ? downloadSrc : resolveDownloadSrc(p)}
                   autoPlay={isCurrent ? !slideshow : false}
                   lite={lite}
+                  timed={isCurrent}
                 />
               </div>
             );

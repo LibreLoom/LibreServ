@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { login as loginQuips } from "../lib/greetings.jsx";
+import { perfCancel, perfStart } from "../lib/perf.js";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import StepTransition from "@libreloom/ui/components/common/StepTransition.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -119,11 +120,14 @@ export default function LoginPage() {
     }
     setFieldErrors({});
     setLoading(true);
+    // W3 (luna/perf): ends when the Dashboard is usable.
+    perfStart("W3", { fromInput: true });
     try {
       await login(username.trim(), password);
       addToast({ type: "success", message: "Signed in." });
       if (!inPlace) navigate(returnTo, { replace: true });
     } catch (err) {
+      perfCancel("W3");
       setErrorStatus(err.status || "NetworkError");
     } finally {
       setLoading(false);

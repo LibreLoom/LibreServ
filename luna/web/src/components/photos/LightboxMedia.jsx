@@ -3,6 +3,7 @@ import PropTypes from "prop-types";
 import { Download, ImageOff, VideoOff } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { isHeicFile } from "../../lib/fileKinds.js";
+import { perfCancel, perfEnd, perfPending } from "../../lib/perf.js";
 
 /** @typedef {import("./PhotoThumb.jsx").PhotosPhoto} PhotosPhoto */
 
@@ -32,9 +33,12 @@ const THUMB_STAGE_CAP = "max-h-[45%] max-w-[45%]";
  * ready are the one exception: they fall back to the drive thumbnail and
  * say so, since a stretched thumb beats a dead pane but is still a preview.
  *
- * @param {{ photo: PhotosPhoto, src: string, downloadSrc?: string, autoPlay?: boolean, lite?: boolean }} props
+ * `timed` marks the pane the person opened: it ends the W9 timing in
+ * luna/perf (preview decoded, then full photo decoded). No visible effect.
+ *
+ * @param {{ photo: PhotosPhoto, src: string, downloadSrc?: string, autoPlay?: boolean, lite?: boolean, timed?: boolean }} props
  */
-export default function LightboxMedia({ photo, src, downloadSrc = "", autoPlay = true, lite = false }) {
+export default function LightboxMedia({ photo, src, downloadSrc = "", autoPlay = true, lite = false, timed = false }) {
   // "loading" (thumbnail only) → "primed" (media at thumbnail scale) → "grown".
   const [phase, setPhase] = useState("loading");
   const [failed, setFailed] = useState(false);
@@ -76,7 +80,23 @@ export default function LightboxMedia({ photo, src, downloadSrc = "", autoPlay =
     };
   }, [phase]);
 
+  /**
+   * End a W9 timing once `el` has decoded (luna/perf).
+   * @param {string} id
+   * @param {Element | null} el
+   */
+  function endOnDecode(id, el) {
+    if (!timed || !perfPending(id)) return;
+    const done = () => perfEnd(id);
+    if (el instanceof HTMLImageElement && typeof el.decode === "function") el.decode().then(done, done);
+    else done();
+  }
+
   function handleReady() {
+    if (!thumbFallback) {
+      endOnDecode("W9", mediaRef.current);
+      endOnDecode("W9:full", mediaRef.current);
+    }
     if (phase !== "loading") return;
     if (reduced) {
       setPhase("grown");
@@ -127,6 +147,7 @@ export default function LightboxMedia({ photo, src, downloadSrc = "", autoPlay =
           aria-hidden="true"
           draggable={false}
           className={`${THUMB_STAGE_CAP} rounded-large-element object-contain`}
+          onLoad={(e) => endOnDecode("W9", e.currentTarget)}
           style={{
             opacity: phase === "grown" || failed ? 0 : 1,
             transition: reduced
@@ -193,6 +214,7 @@ export default function LightboxMedia({ photo, src, downloadSrc = "", autoPlay =
               setThumbFallback(true);
               e.currentTarget.src = photo.thumb;
             } else {
+              if (timed) perfCancel("W9:full");
               setFailed(true);
             }
           }}
@@ -217,10 +239,12 @@ LightboxMedia.propTypes = {
   downloadSrc: PropTypes.string,
   autoPlay: PropTypes.bool,
   lite: PropTypes.bool,
+  timed: PropTypes.bool,
 };
 
 LightboxMedia.defaultProps = {
   downloadSrc: "",
   autoPlay: true,
   lite: false,
+  timed: false,
 };

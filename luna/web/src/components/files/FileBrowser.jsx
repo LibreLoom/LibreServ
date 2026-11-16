@@ -95,6 +95,8 @@ import {
   readLunaPaths,
 } from "../../lib/dnd.js";
 import FileRow from "./FileRow.jsx";
+import { perfSinceNavigation } from "../../lib/perf.js";
+import usePerfJourney from "../../hooks/usePerfJourney.js";
 import { warmTextEditor } from "./editorWarm.js";
 import { canOpenRow, displayNameOf } from "./fileRowUtils.js";
 import PrivateBadge from "../private/PrivateBadge.jsx";
@@ -421,6 +423,15 @@ export default function FileBrowser({
     refetchInterval: (query) =>
       (query.state.data || []).some((e) => e?.saving) ? 750 : false,
   });
+
+  // W4/W5 (luna/perf): opening a folder ends once its own rows (not the
+  // previous folder's placeholder) are on screen. A guest opening a shared
+  // link counts toward W15 instead.
+  const listingShown = listing.isSuccess && !listing.isPlaceholderData;
+  usePerfJourney("W4", driveId && !isPicker && !source.guest ? `${driveId}:${path}` : null, listingShown);
+  useEffect(() => {
+    if (source.guest && !isPicker && listingShown) perfSinceNavigation("W15", { path: /^\/s\// });
+  }, [source.guest, isPicker, listingShown]);
 
   const rawEntries = listing.data || [];
 

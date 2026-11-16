@@ -59,6 +59,7 @@ import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
 import { useAuth } from "../context/AuthContext";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { perfCancel, perfDetailed, perfStart, perfWhenImagesShown } from "../lib/perf.js";
 import { useShortcut, useShortcutsSheet } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import {
   apiErrorMessage,
@@ -423,6 +424,9 @@ export function parsePhotosHash(hash) {
   if (SEGMENT_IDS.includes(head)) return { segment: head, ...extra };
   return { segment: DEFAULT_SEGMENT };
 }
+
+/** Timeline thumbnails, for the W7/W8 timing in luna/perf. */
+const TIMELINE_THUMBS = '[data-slot="photo-timeline"] img';
 
 function readGridCols() {
   try {
@@ -1395,6 +1399,9 @@ export default function PhotosPage() {
   }
 
   const openPhoto = useCallback((photo) => {
+    // W9 (luna/perf): ends in LightboxMedia once the preview, then the full photo, decode.
+    perfStart("W9", { fromInput: true });
+    perfStart("W9:full", { fromInput: true });
     setLightbox({ key: photoSelectionKey(photo) });
   }, []);
 
@@ -1519,6 +1526,27 @@ export default function PhotosPage() {
         (activeSegment === "albums" &&
           (albumView || viewLabel || filterActiveCount > 0))),
   );
+
+  // W7/W8 (luna/perf): the first screen of timeline thumbnails, and the
+  // thumbnails once a scroll or day jump comes to rest.
+  const timelineShown = showTimeline && photos.length > 0;
+  useEffect(() => {
+    perfStart("W7", { fromInput: true, keep: true });
+    return () => perfCancel("W7");
+  }, []);
+  useEffect(() => {
+    if (timelineShown) perfWhenImagesShown("W7", TIMELINE_THUMBS);
+  }, [timelineShown]);
+  useEffect(() => {
+    // W8 checks the thumbnails after every scroll, so only in detailed mode.
+    if (!timelineShown || !perfDetailed()) return undefined;
+    const onScrollEnd = () => {
+      perfStart("W8");
+      perfWhenImagesShown("W8", TIMELINE_THUMBS);
+    };
+    window.addEventListener("scrollend", onScrollEnd, { passive: true });
+    return () => window.removeEventListener("scrollend", onScrollEnd);
+  }, [timelineShown]);
 
   // Track window scroll into the hash (`?y=`) so a reload lands back here.
   useEffect(() => {

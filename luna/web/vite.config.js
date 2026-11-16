@@ -4,6 +4,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import sharedFonts from "../../shared/ui/vite/sharedFonts.js";
+import { bundleReportPlugin } from "./scripts/bundle-report.js";
 
 // Dev proxies in front of Vite (browser preview, port forwards) rewrite
 // Host but leave Origin pointing at the outer port, so lunad's CSRF guard
@@ -105,7 +106,7 @@ const statesResults = () => {
 };
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), excalidrawAssets(), sharedFonts(), statesResults()],
+  plugins: [react(), tailwindcss(), excalidrawAssets(), sharedFonts(), statesResults(), bundleReportPlugin()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

@@ -15,6 +15,7 @@ import { fileExtension, openableKind } from "../../lib/fileKinds.js";
 import { officeConversionFor } from "../../lib/officeConvert.js";
 import { useFileSource } from "../../lib/fileSource.jsx";
 import { joinPath, parentPath, pathBasename } from "../../lib/paths.js";
+import { perfStart } from "../../lib/perf.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -190,6 +191,11 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
     setOfficeMissing(false);
     setEditorPresence("");
   }
+
+  // W12 (luna/perf): opening an office document; EuroOfficeHost ends it.
+  useEffect(() => {
+    if (open && isOffice && path) perfStart("W12", { fromInput: true, keep: true });
+  }, [open, isOffice, path, driveId]);
 
   useEffect(() => {
     if (wasExpandedRef.current && !expanded) {
