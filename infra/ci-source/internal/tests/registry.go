@@ -740,4 +740,21 @@ func addLunaTests() {
 			"LUNA_CONTRACT_RECORD=1",
 		},
 	})
+	// The edit/test loop: just the unit tests a change can break, in parallel
+	// (luna/ci-fast.sh). The gate (luna-ci) adds clippy, the musl and desktop
+	// builds, Android and the OS script checks.
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-fast",
+		Name:        "Luna Fast Tests",
+		Description: "Run luna/ci-fast.sh (Rust workspace tests and web unit tests, in parallel)",
+		Type:        TestTypeUnit,
+		Container:   LocalImagePrefix + "luna-ci",
+		Command:     "./luna/ci-fast.sh",
+		WorkDir:     "/repo",
+		Timeout:     30 * time.Minute,
+		Env: []string{
+			"CARGO_HOME=/cache/cargo-home",
+			"npm_config_cache=/cache/npm",
+		},
+	})
 }

@@ -182,14 +182,13 @@ lane_web() {
 	  npm install --no-audit --no-fund --cache /tmp/luna-npm-cache
 	  cd "$ROOT/web"
 	  npm install --no-audit --no-fund --cache /tmp/luna-npm-cache
-	  npm run scan:colors
+	  # scan:colors, lint and typecheck for luna/web are their own steps in the
+	  # luna profile (luna-web-colors, -lint, -typecheck); not repeated here.
 	  cd "$ROOT/../shared/ui"
 	  npm test
 	  npm run typecheck
 	  cd "$ROOT/web"
 	  npm run build
-	  npm run lint
-	  npm run typecheck
 	  npm test -- --run
 	)
 
@@ -214,17 +213,19 @@ lane_web() {
 }
 
 
-# How many lanes run at once follows the job's memory share: the ci runner
-# exports LIBRESERV_CI_MEM_BYTES for host tests (empty/unset means unlimited).
-# rustc, gradle and vite are each memory-hungry. Node otherwise sizes its heap
-# from the cgroup, which is far too small for a vite build under a bounded job,
-# so give it half the share.
-LANES=4
+# How many lanes run at once. Measured on an 8-core, 11 GB box: with four lanes
+# the rust checks took 974s instead of ~540s alone and the web lane 796s instead
+# of ~330s, because a lunad test compile, vite and gradle together exceed RAM and
+# the starved tests time out. So two lanes by default: the Rust checks alone
+# (they own luna/target and are the long pole) and everything else in the
+# other. A job with 16 GB or more may run four.
+# The ci runner exports LIBRESERV_CI_MEM_BYTES for host tests (empty/unset means
+# unlimited). Node otherwise sizes its heap from the cgroup, which is far too
+# small for a vite build under a bounded job, so give it half the share.
+LANES=2
 if [ -n "${LIBRESERV_CI_MEM_BYTES:-}" ] && [ "$LIBRESERV_CI_MEM_BYTES" -gt 0 ]; then
-	if [ "$LIBRESERV_CI_MEM_BYTES" -lt 6000000000 ]; then
-		LANES=2
-	elif [ "$LIBRESERV_CI_MEM_BYTES" -lt 10000000000 ]; then
-		LANES=3
+	if [ "$LIBRESERV_CI_MEM_BYTES" -ge 16000000000 ]; then
+		LANES=4
 	fi
 	heap=$((LIBRESERV_CI_MEM_BYTES / 2 / 1024 / 1024))
 	[ "$heap" -lt 1024 ] && heap=1024
@@ -269,17 +270,11 @@ case "$LANES" in
 	start mobile lane_mobile lane_os
 	start web lane_web
 	;;
-3)
-	start check lane_check
-	start rust lane_rust lane_os
-	start mobileweb lane_mobile lane_web
-	;;
 *)
 	start check lane_check
 	start rest lane_rust lane_mobile lane_web lane_os
 	;;
 esac
-
 lane_fail=0
 for pid in $pids; do
 	wait "$pid" || lane_fail=1

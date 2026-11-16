@@ -181,6 +181,12 @@ var Profiles = map[string]*Profile{
 		Description: "Luna daemon, web, desktop, and mobile CI (luna/ci.sh), with web unit, browser, and color checks",
 		TestIDs:     slices.Concat(lunaTests),
 	},
+	"luna-fast": {
+		ID:          "luna-fast",
+		Name:        "Luna Fast",
+		Description: "Luna edit/test loop - Rust workspace tests and web unit tests in parallel; no builds, clippy, Android or browser E2E (use luna for the release gate)",
+		TestIDs:     []string{"luna-fast"},
+	},
 	// nightly is identical to nofuzz (see above): same 45 test IDs in the same
 	// order. One of the two is dead weight; both stay until that is decided.
 	"nightly": {
@@ -209,7 +215,7 @@ func GetProfile(id string) *Profile {
 // so a profile cannot go missing the way "release" did.
 var profileOrder = []string{
 	"quick", "backend", "frontend", "deep", "security", "fuzz", "nofuzz",
-	"connect", "sol", "luna", "release", "nightly", "full",
+	"connect", "sol", "luna-fast", "luna", "release", "nightly", "full",
 }
 
 // ListProfiles returns every profile exactly once: those named in profileOrder
