@@ -58,3 +58,11 @@ strip = true
 # compile fast and debug well. Dependencies rebuild only when versions change.
 [profile.dev.package."*"]
 opt-level = 2
+
+# Generic crypto (ChaCha, SHA) is compiled inside the crate that calls it, at
+# that crate's opt-level, so the override above cannot reach it. Level 1 keeps
+# debug info and fast incremental builds but inlines the hot loops.
+[profile.dev.package.lunad]
+opt-level = 1
+[profile.dev.package.luna-core]
+opt-level = 1
