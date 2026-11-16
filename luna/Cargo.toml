@@ -51,23 +51,10 @@ lto = true
 codegen-units = 1
 strip = true
 
-# Tests build at opt-level 0, where Argon2 (19 MiB, 2 passes per hash) and the
-# other hashing crates run ~50x slower than shipped. Every API test that makes
-# a user pays for a hash, so optimize just these dependencies; our own code
-# keeps fast, debuggable builds.
-[profile.dev.package.argon2]
-opt-level = 3
-[profile.dev.package.blake2]
-opt-level = 3
-[profile.dev.package.blake3]
-opt-level = 3
-[profile.dev.package.sha2]
-opt-level = 3
-[profile.dev.package.sha1]
-opt-level = 3
-[profile.dev.package.image]
-opt-level = 3
-[profile.dev.package.zip]
-opt-level = 3
-[profile.dev.package.lzma-rust2]
-opt-level = 3
+# Tests build at opt-level 0, where crypto (Argon2, ML-KEM/ML-DSA, ed25519,
+# ChaCha) and chunking run 50-100x slower than shipped; every cloud-backup and
+# user-creating test paid for it (single tests took minutes). Optimize all
+# third-party dependencies and leave our own crates unoptimized so they still
+# compile fast and debug well. Dependencies rebuild only when versions change.
+[profile.dev.package."*"]
+opt-level = 2
