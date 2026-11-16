@@ -397,6 +397,7 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
     let mut report = ScanReport::default();
     let mut seen = HashSet::new();
     let mut pending: Vec<PendingUpsert> = Vec::with_capacity(BATCH_UPSERT);
+    let mut todo: Vec<ScanWork> = Vec::new();
     // Each folder carries its real path: private items sit on disk under
     // `.luna-` names but are indexed under the names people see.
     let mut stack = vec![(root.to_path_buf(), String::new())];
@@ -465,106 +466,54 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
                 continue;
             }
 
-            let limits = crate::budget::limits();
-            if (size as u64) > limits.source_max_bytes {
-                report.found += 1;
-                report.failed += 1;
-                pending.push(PendingUpsert {
-                    path: rel,
-                    name,
-                    size,
-                    mtime,
-                    taken_at: 0,
-                    kind: kind.to_string(),
-                    width: 0,
-                    height: 0,
-                    lat: None,
-                    lon: None,
-                    place_label: String::new(),
-                    place_city: String::new(),
-                    place_region: String::new(),
-                    place_country: String::new(),
-                    camera_make: String::new(),
-                    camera_model: String::new(),
-                    lens: String::new(),
-                    iso: 0,
-                    focal_mm: 0.0,
-                    flash: -1,
-                    duration_secs: 0,
-                    has_thumb: false,
-                });
-                flush_if_full(&mut conn, &mut pending)?;
-                continue;
-            }
-
-            let meta = crate::photos::exif::capture_meta(&path_buf).unwrap_or_default();
-            // `0` means no EXIF capture date; list/sort fall back to mtime.
-            let taken_at = meta.taken_at.unwrap_or(0);
-            let lat = meta.lat;
-            let lon = meta.lon;
-            let camera_make = meta.camera_make.unwrap_or_default();
-            let camera_model = meta.camera_model.unwrap_or_default();
-            let lens = meta.lens.unwrap_or_default();
-            let iso = meta.iso.unwrap_or(0);
-            let focal_mm = meta.focal_mm.unwrap_or(0.0);
-            let flash = flash_to_i64(meta.flash);
-            let place = match (lat, lon) {
-                (Some(la), Some(lo)) => crate::photos::places::index().enrich(la, lo),
-                _ => crate::photos::places::PlaceInfo::default(),
-            };
-
-            let mut width = 0;
-            let mut height = 0;
-            let mut has_thumb = false;
-            match ensure_thumb(&path_buf, &dest, kind) {
-                Ok((w, h, made)) => {
-                    width = w;
-                    height = h;
-                    has_thumb = dest.exists();
-                    report.found += 1;
-                    if made {
-                        report.thumbnailed += 1;
-                    }
-                }
-                Err(_) => {
-                    report.found += 1;
-                    report.failed += 1;
-                }
-            }
-
-            let duration_secs = if kind == "video" {
-                probe_video_duration_secs(&path_buf)
-            } else {
-                0
-            };
-
-            pending.push(PendingUpsert {
-                path: rel,
+            todo.push(ScanWork {
+                path_buf,
+                rel,
                 name,
                 size,
                 mtime,
-                taken_at,
-                kind: kind.to_string(),
-                width,
-                height,
-                lat,
-                lon,
-                place_label: place.label,
-                place_city: place.city.to_string(),
-                place_region: place.region.to_string(),
-                place_country: place.country.to_string(),
-                camera_make,
-                camera_model,
-                lens,
-                iso,
-                focal_mm,
-                flash,
-                duration_secs,
-                has_thumb,
+                kind,
+                dest,
             });
-            flush_if_full(&mut conn, &mut pending)?;
         }
     }
+
+    // Thumbnails are the slow part (a 12 MP decode is ~1.8 s on one Wyse
+    // 3040 core), so they run on a few workers while this thread writes the
+    // results. One core stays free for the web UI.
+    let workers = scan_workers();
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let (tx, rx) = std::sync::mpsc::sync_channel::<(PendingUpsert, ScanOutcome)>(workers * 4);
+    std::thread::scope(|scope| -> anyhow::Result<()> {
+        for _ in 0..workers {
+            let tx = tx.clone();
+            let (todo, next) = (&todo, &next);
+            scope.spawn(move || {
+                loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(work) = todo.get(i) else {
+                        break;
+                    };
+                    if tx.send(index_scanned_file(work)).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+        drop(tx);
+        for (row, outcome) in rx {
+            report.found += 1;
+            report.failed += u64::from(outcome.failed);
+            report.thumbnailed += u64::from(outcome.thumbnailed);
+            pending.push(row);
+            if let Err(e) = flush_if_full(&mut conn, &mut pending) {
+                // Stop the workers: they see the next index past the end.
+                next.store(usize::MAX / 2, std::sync::atomic::Ordering::Relaxed);
+                return Err(e);
+            }
+        }
+        Ok(())
+    })?;
     flush_batch(&mut conn, &mut pending)?;
 
     // Prune vanished paths in one pass.
@@ -588,6 +537,142 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
         tx.commit()?;
     }
     Ok(report)
+}
+
+/// One media file found by [`scan_drive`] that needs (re)indexing.
+struct ScanWork {
+    path_buf: PathBuf,
+    rel: String,
+    name: String,
+    size: i64,
+    mtime: i64,
+    kind: &'static str,
+    dest: PathBuf,
+}
+
+#[derive(Default)]
+struct ScanOutcome {
+    failed: bool,
+    thumbnailed: bool,
+}
+
+/// Thumbnail workers for a scan: all cores but one (the web UI keeps one),
+/// at most 3, and fewer when free memory is short (each 12 MP decode holds
+/// ~50 MB).
+fn scan_workers() -> usize {
+    let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let by_memory = (crate::budget::limits().available_bytes / (256 * 1024 * 1024)) as usize;
+    cores.saturating_sub(1).min(3).min(by_memory).max(1)
+}
+
+/// EXIF, place and thumbnail for one file. Runs on a scan worker thread.
+fn index_scanned_file(work: &ScanWork) -> (PendingUpsert, ScanOutcome) {
+    let ScanWork {
+        path_buf,
+        rel,
+        name,
+        size,
+        mtime,
+        kind,
+        dest,
+    } = work;
+    let (rel, name, size, mtime, kind) = (rel.clone(), name.clone(), *size, *mtime, *kind);
+    let limits = crate::budget::limits();
+    if (size as u64) > limits.source_max_bytes {
+        let row = PendingUpsert {
+            path: rel,
+            name,
+            size,
+            mtime,
+            taken_at: 0,
+            kind: kind.to_string(),
+            width: 0,
+            height: 0,
+            lat: None,
+            lon: None,
+            place_label: String::new(),
+            place_city: String::new(),
+            place_region: String::new(),
+            place_country: String::new(),
+            camera_make: String::new(),
+            camera_model: String::new(),
+            lens: String::new(),
+            iso: 0,
+            focal_mm: 0.0,
+            flash: -1,
+            duration_secs: 0,
+            has_thumb: false,
+        };
+        return (
+            row,
+            ScanOutcome {
+                failed: true,
+                thumbnailed: false,
+            },
+        );
+    }
+
+    let meta = crate::photos::exif::capture_meta(path_buf).unwrap_or_default();
+    // `0` means no EXIF capture date; list/sort fall back to mtime.
+    let taken_at = meta.taken_at.unwrap_or(0);
+    let lat = meta.lat;
+    let lon = meta.lon;
+    let camera_make = meta.camera_make.unwrap_or_default();
+    let camera_model = meta.camera_model.unwrap_or_default();
+    let lens = meta.lens.unwrap_or_default();
+    let iso = meta.iso.unwrap_or(0);
+    let focal_mm = meta.focal_mm.unwrap_or(0.0);
+    let flash = flash_to_i64(meta.flash);
+    let place = match (lat, lon) {
+        (Some(la), Some(lo)) => crate::photos::places::index().enrich(la, lo),
+        _ => crate::photos::places::PlaceInfo::default(),
+    };
+
+    let mut width = 0;
+    let mut height = 0;
+    let mut has_thumb = false;
+    let mut outcome = ScanOutcome::default();
+    match ensure_thumb(path_buf, dest, kind) {
+        Ok((w, h, made)) => {
+            width = w;
+            height = h;
+            has_thumb = dest.exists();
+            outcome.thumbnailed = made;
+        }
+        Err(_) => outcome.failed = true,
+    }
+
+    let duration_secs = if kind == "video" {
+        probe_video_duration_secs(path_buf)
+    } else {
+        0
+    };
+
+    let row = PendingUpsert {
+        path: rel,
+        name,
+        size,
+        mtime,
+        taken_at,
+        kind: kind.to_string(),
+        width,
+        height,
+        lat,
+        lon,
+        place_label: place.label,
+        place_city: place.city.to_string(),
+        place_region: place.region.to_string(),
+        place_country: place.country.to_string(),
+        camera_make,
+        camera_model,
+        lens,
+        iso,
+        focal_mm,
+        flash,
+        duration_secs,
+        has_thumb,
+    };
+    (row, outcome)
 }
 
 fn flush_if_full(conn: &mut Connection, pending: &mut Vec<PendingUpsert>) -> anyhow::Result<()> {
@@ -1162,6 +1247,25 @@ fn read_capped(path: &Path, max: u64) -> anyhow::Result<Vec<u8>> {
     Ok(buf)
 }
 
+/// Fit `img` inside a `max`×`max` box with Lanczos3, the same result as
+/// `DynamicImage::resize` but through SIMD (`fast_image_resize`): on a Wyse
+/// 3040 a 12 MP photo drops from ~3.6 s to a fraction of a second. Falls
+/// back to the `image` resizer for pixel types the fast path rejects.
+fn resize_lanczos3(img: &image::DynamicImage, max: u32) -> image::DynamicImage {
+    use fast_image_resize::{FilterType, ResizeAlg, ResizeOptions, Resizer};
+    let (w, h) = (img.width(), img.height());
+    // Like `DynamicImage::resize`, small images are scaled up to fit too.
+    let ratio = f64::min(f64::from(max) / f64::from(w), f64::from(max) / f64::from(h));
+    let dw = ((f64::from(w) * ratio).round() as u32).clamp(1, max);
+    let dh = ((f64::from(h) * ratio).round() as u32).clamp(1, max);
+    let mut dst = image::DynamicImage::new(dw, dh, img.color());
+    let options = ResizeOptions::new().resize_alg(ResizeAlg::Convolution(FilterType::Lanczos3));
+    match Resizer::new().resize(img, &mut dst, &options) {
+        Ok(()) => dst,
+        Err(_) => img.resize(max, max, image::imageops::FilterType::Lanczos3),
+    }
+}
+
 fn decode_and_save_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool)> {
     let limits = crate::budget::limits();
     let mut img_limits = image::Limits::default();
@@ -1175,7 +1279,8 @@ fn decode_and_save_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, b
     // `thumbnail()` is the fast box sampler — visibly soft next to Lanczos3.
     // And save_with_format encodes JPEG at q75; thumbs get an explicit
     // higher quality since they're the only pixels most photos ever show.
-    let thumb = img.resize(THUMB_MAX, THUMB_MAX, image::imageops::FilterType::Lanczos3);
+    let thumb = resize_lanczos3(&img, THUMB_MAX);
+    drop(img);
     let tmp = dest.with_extension("jpg.tmp");
     if let Some(parent) = tmp.parent() {
         std::fs::create_dir_all(parent)?;

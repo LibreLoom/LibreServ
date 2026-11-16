@@ -14,6 +14,7 @@ base64.workspace = true
 blake3.workspace = true
 axum.workspace = true
 image.workspace = true
+fast_image_resize.workspace = true
 kamadak-exif.workspace = true
 include_dir.workspace = true
 jsonwebtoken.workspace = true
