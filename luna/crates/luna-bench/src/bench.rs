@@ -712,12 +712,13 @@ impl Ctx<'_> {
         let prefixes: Vec<String> = (2..=q.len()).map(|n| q[..n].iter().collect()).collect();
         let s = self.rounds(|i| {
             let p = &prefixes[i % prefixes.len()];
-            self.client.get("/api/v1/search", &[("q", p)])
+            self.client
+                .get("/api/v1/search", &[("q", p), ("quick", "1")])
         });
         let mut v = s.to_json();
-        v["request"] = json!("GET /api/v1/search?q=<prefix>");
+        v["request"] = json!("GET /api/v1/search?q=<prefix>&quick=1");
         v["note"] = json!(
-            "Name and neural search share this endpoint; with a meaning model installed, W10 includes the neural pass."
+            "While typing the web asks without the neural passes (quick=1); W11 times the full search."
         );
         Ok(v)
     }

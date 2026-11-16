@@ -13,9 +13,12 @@ export const MIN_SEARCH_LENGTH = 2;
  * @param {string} q
  * @param {"all" | "dir" | "file"} [kind]
  */
-export function searchUrl(q, kind = "all") {
-  const base = `/api/v1/search?q=${encodeURIComponent(q)}`;
-  return kind === "all" ? base : `${base}&kind=${kind}`;
+export function searchUrl(q, kind = "all", { quick = false } = {}) {
+  let url = `/api/v1/search?q=${encodeURIComponent(q)}`;
+  if (kind !== "all") url += `&kind=${kind}`;
+  // Names and text only: the neural passes cost about a second per new query.
+  if (quick) url += "&quick=1";
+  return url;
 }
 
 /**

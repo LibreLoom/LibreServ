@@ -3,7 +3,11 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { getJson } from "../lib/api";
 import { MIN_SEARCH_LENGTH, parseSearchResponse, searchUrl } from "../lib/fileSearch.js";
 
-const DEBOUNCE_MS = 250;
+/** Names and text: cheap, so ask almost as soon as a key lands. */
+const QUICK_DEBOUNCE_MS = 120;
+/** Photos and passages by meaning embed the query with a model (about a
+ * second on Luna), so ask for them only once typing pauses. */
+const FULL_DEBOUNCE_MS = 700;
 /** How often to ask again while Luna is still reading drives. */
 const SCAN_POLL_MS = 1200;
 /** Reading inside files takes much longer; ask less often meanwhile. */
@@ -20,28 +24,43 @@ const CONTENT_POLL_MS = 5000;
  */
 export default function useFileSearch(typed, { enabled = true, kind = "all" } = {}) {
   const [q, setQ] = useState("");
+  const [fullQ, setFullQ] = useState("");
   const trimmed = typed.trim();
 
   useEffect(() => {
-    const t = setTimeout(() => setQ(trimmed), DEBOUNCE_MS);
-    return () => clearTimeout(t);
+    const t = setTimeout(() => setQ(trimmed), QUICK_DEBOUNCE_MS);
+    const full = setTimeout(() => setFullQ(trimmed), FULL_DEBOUNCE_MS);
+    return () => {
+      clearTimeout(t);
+      clearTimeout(full);
+    };
   }, [trimmed]);
 
   // `q` trails the box by the debounce, so also require the live text to be
   // long enough — otherwise old results linger once the text gets too short.
   const active = enabled && q.length >= MIN_SEARCH_LENGTH && trimmed.length >= MIN_SEARCH_LENGTH;
 
-  const query = useQuery({
-    queryKey: ["search", q, kind],
-    queryFn: () => getJson(searchUrl(q, kind)),
+  const quickQuery = useQuery({
+    queryKey: ["search", q, kind, "quick"],
+    queryFn: () => getJson(searchUrl(q, kind, { quick: true })),
     enabled: active,
     placeholderData: keepPreviousData,
+  });
+  // The full answer (with photos and meaning) for the same text replaces the
+  // quick one once it lands; it alone keeps polling while drives are read.
+  const fullActive = active && fullQ === q;
+  const fullQuery = useQuery({
+    queryKey: ["search", fullQ, kind],
+    queryFn: () => getJson(searchUrl(fullQ, kind)),
+    enabled: fullActive,
     refetchInterval: (state) => {
       const scan = state.state.data?.scan;
       if (scan?.scanning) return SCAN_POLL_MS;
       return scan?.contents_reading ? CONTENT_POLL_MS : false;
     },
   });
+  const useFull = fullActive && fullQuery.data !== undefined;
+  const query = useFull ? fullQuery : quickQuery;
 
   const { hits, closeOnly, truncated, incomplete, scan } = parseSearchResponse(query.data);
   return {

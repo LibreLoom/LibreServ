@@ -104,8 +104,21 @@ pub fn search_all(
     query: &Query,
     kind: KindFilter,
 ) -> anyhow::Result<(Vec<Candidate>, bool)> {
+    search_all_with(drives, query, kind, true)
+}
+
+/// [`search_all`], optionally without the neural passes (what photos show,
+/// passages by meaning). Those embed the query with a model, which costs
+/// ~1 s per new query on a Wyse 3040; while someone is still typing the web
+/// asks without them and fills them in once typing pauses.
+pub fn search_all_with(
+    drives: &[DriveRef],
+    query: &Query,
+    kind: KindFilter,
+    neural: bool,
+) -> anyhow::Result<(Vec<Candidate>, bool)> {
     // What photos show: one text embedding for every drive.
-    let photo_q = if kind == KindFilter::Folders {
+    let photo_q = if kind == KindFilter::Folders || !neural {
         None
     } else {
         let _neural = crate::perf::Timer::debug("W11", "search.photo_query");
@@ -118,7 +131,8 @@ pub fn search_all(
             .map(|drive| {
                 scope.spawn(move || {
                     let conn = crate::drives::drive_db::open(&drive.mount)?;
-                    let (mut hits, limited) = search_drive_bounded(&conn, &drive.id, query, kind)?;
+                    let (mut hits, limited) =
+                        search_drive_bounded(&conn, &drive.id, query, kind, neural)?;
                     if let Some(q) = photo_q {
                         let _neural = crate::perf::Timer::debug("W11", "search.photos");
                         let seen: HashSet<(String, String)> = hits
@@ -196,7 +210,7 @@ fn search_drive(
     query: &Query,
     kind: KindFilter,
 ) -> anyhow::Result<Vec<Candidate>> {
-    Ok(search_drive_bounded(conn, drive_id, query, kind)?.0)
+    Ok(search_drive_bounded(conn, drive_id, query, kind, true)?.0)
 }
 
 /// Each lookup reads stable rowid-ordered pages under a fixed per-step budget.
@@ -210,6 +224,7 @@ fn search_drive_bounded(
     drive_id: &str,
     query: &Query,
     kind: KindFilter,
+    neural: bool,
 ) -> anyhow::Result<(Vec<Candidate>, bool)> {
     search_drive_with_limits(
         conn,
@@ -218,6 +233,7 @@ fn search_drive_bounded(
         kind,
         ROW_BUDGET,
         Some(std::time::Duration::from_secs(2)),
+        neural,
     )
 }
 
@@ -228,6 +244,7 @@ fn search_drive_with_limits(
     kind: KindFilter,
     row_budget: i64,
     timeout: Option<std::time::Duration>,
+    neural: bool,
 ) -> anyhow::Result<(Vec<Candidate>, bool)> {
     // SQLite can spend work inside MATCH before yielding a row. Interrupt long
     // queries as well as bounding rows; incomplete results are labelled above.
@@ -337,12 +354,15 @@ fn search_drive_with_limits(
     }
     // Passages about the same thing, in other words. Neural search (W11),
     // timed per drive at debug.
-    let mut neural = crate::perf::Timer::debug("W11", "search.meaning");
-    neural.field("drive", drive_id);
-    if !incomplete && let Some(qv) = crate::files::content::meaning::query_vector(&query.words) {
+    let mut meaning_timer = crate::perf::Timer::debug("W11", "search.meaning");
+    meaning_timer.field("drive", drive_id);
+    if neural
+        && !incomplete
+        && let Some(qv) = crate::files::content::meaning::query_vector(&query.words)
+    {
         // Without this field no neural pass ran (no model, or name search
         // was already cut short).
-        neural.field("ran", true);
+        meaning_timer.field("ran", true);
         match crate::files::content::meaning::candidates(conn, drive_id, &qv, kind) {
             Ok(hits) => {
                 for found in hits {
@@ -707,7 +727,8 @@ mod tests {
             conn.execute("INSERT INTO index_entries (drive_id,parent,name,kind,size,modified,hidden) VALUES ('d1','',?1,'file',1,1,0)", params![format!("budget {i:05}.txt")]).unwrap();
         }
         let (_, incomplete) =
-            search_drive_bounded(&conn, "d1", &Query::new("budget"), KindFilter::All).unwrap();
+            search_drive_bounded(&conn, "d1", &Query::new("budget"), KindFilter::All, true)
+                .unwrap();
         assert!(incomplete);
     }
 
@@ -720,12 +741,12 @@ mod tests {
         }
         let query = Query::new("budget");
         let (exact, incomplete) =
-            search_drive_with_limits(&conn, "d1", &query, KindFilter::All, 3, None).unwrap();
+            search_drive_with_limits(&conn, "d1", &query, KindFilter::All, 3, None, true).unwrap();
         assert_eq!(exact.len(), 3);
         assert!(!incomplete);
         conn.execute("INSERT INTO index_entries (drive_id,parent,name,kind,size,modified,hidden) VALUES ('d1','',?1,'file',1,1,0)", params!["budget visible.txt"]).unwrap();
         let (limited, incomplete) =
-            search_drive_with_limits(&conn, "d1", &query, KindFilter::All, 3, None).unwrap();
+            search_drive_with_limits(&conn, "d1", &query, KindFilter::All, 3, None, true).unwrap();
         assert_eq!(limited.len(), 3);
         assert!(
             limited

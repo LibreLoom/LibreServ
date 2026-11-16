@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use crate::AppState;
 use crate::api::response::json_error;
-use crate::files::search::{Candidate, KindFilter, indexable_drives, search_all};
+use crate::files::search::{Candidate, KindFilter, indexable_drives, search_all_with};
 use crate::files::search_rank::{Query as NameQuery, Tier};
 
 #[derive(Deserialize)]
@@ -19,6 +19,9 @@ struct SearchQuery {
     /// `dir` or `file` to show only folders or only files.
     kind: Option<String>,
     limit: Option<usize>,
+    /// `1`: names and text only, without the neural passes (the web asks
+    /// this while someone is still typing).
+    quick: Option<u8>,
 }
 
 const DEFAULT_LIMIT: usize = 60;
@@ -51,6 +54,7 @@ async fn search(
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let raw = query.q.trim().to_string();
+    let quick = query.quick;
     if raw.chars().count() < 2 {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
@@ -80,9 +84,12 @@ async fn search(
             let conn = work_state.db.lock().map_err(|_| ())?;
             indexable_drives(&conn, false)
         };
-        let (candidates, incomplete) = search_all(&drives, &parsed, kind).map_err(|e| {
-            tracing::warn!(error = %e, "search failed");
-        })?;
+        let neural = quick != Some(1);
+        perf.field("neural", neural);
+        let (candidates, incomplete) =
+            search_all_with(&drives, &parsed, kind, neural).map_err(|e| {
+                tracing::warn!(error = %e, "search failed");
+            })?;
         let expr = crate::files::content::query::fts_expr(&parsed);
         let conn = work_state.db.lock().map_err(|_| ())?;
         let (hits, truncated) = visible_hits(&conn, &work_user, candidates, limit, expr.as_deref());
