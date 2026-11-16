@@ -859,6 +859,7 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 
 	hostConfig := &container.HostConfig{
 		Binds: binds,
+		Tmpfs: t.Tmpfs,
 	}
 
 	// A repo-built image runs as the invoking user, not root. Two reasons:

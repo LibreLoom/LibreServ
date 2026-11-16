@@ -716,6 +716,11 @@ func addReleaseSlowTest() {
 	})
 }
 
+// lunaTmpfs keeps lunad's temp files in RAM: its tests write ~2.7 GB across a
+// million writes and delete it all, which on the container's disk-backed /tmp
+// took 450s instead of 46s. 3g is a cap, not a reservation.
+var lunaTmpfs = map[string]string{"/tmp": "rw,mode=1777,size=3g"}
+
 func addLunaTests() {
 	DefaultRegistry.Add(&Test{
 		ID:          "luna-ci",
@@ -729,6 +734,7 @@ func addLunaTests() {
 		Container: LocalImagePrefix + "luna-ci",
 		Command:   "./luna/ci.sh",
 		WorkDir:   "/repo",
+		Tmpfs:     lunaTmpfs,
 		// Under the gentle .ci.conf limits, cargo test alone takes about 27 minutes.
 		Timeout: 90 * time.Minute,
 		Env: []string{
@@ -751,6 +757,7 @@ func addLunaTests() {
 		Container:   LocalImagePrefix + "luna-ci",
 		Command:     "./luna/ci-fast.sh",
 		WorkDir:     "/repo",
+		Tmpfs:       lunaTmpfs,
 		Timeout:     30 * time.Minute,
 		Env: []string{
 			"CARGO_HOME=/cache/cargo-home",
