@@ -71,7 +71,10 @@ function FileSearchRow({
   const actionsRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   // The row link is the row's one Tab stop; ←/→ (see FileSearch) reach the
   // actions, so a long list isn't six Tab presses per row.
+  // The wide layout passes tabIndex to its buttons itself; the phone menu
+  // has no prop for it.
   useEffect(() => {
+    if (isSmUp) return;
     actionsRef.current
       ?.querySelectorAll("a, button")
       .forEach((el) => el.setAttribute("tabindex", "-1"));
@@ -228,6 +231,8 @@ function FileSearchRow({
             </p>
           </div>
           {isSmUp ? (
+            // Every row mounts a set of these and an icon never changes
+            // width, so they skip the smooth resize (a forced layout each).
             <ActionTooltipGroup>
               <div
                 ref={actionsRef}
@@ -238,7 +243,7 @@ function FileSearchRow({
                 {actions.map(({ key, label, aria, icon: Icon, to, href, run }) => (
                   <Tooltip key={key} content={label}>
                     {to ? (
-                      <Button variant="ghost" surface="primary" size="iconSm" asChild aria-label={aria}>
+                      <Button variant="ghost" surface="primary" size="iconSm" smoothResize={false} tabIndex={-1} asChild aria-label={aria}>
                         <Link
                           to={to}
                           onClick={(event) => {
@@ -250,7 +255,7 @@ function FileSearchRow({
                         </Link>
                       </Button>
                     ) : href ? (
-                      <Button variant="ghost" surface="primary" size="iconSm" asChild aria-label={aria}>
+                      <Button variant="ghost" surface="primary" size="iconSm" smoothResize={false} tabIndex={-1} asChild aria-label={aria}>
                         <a href={href}>
                           <Icon size={14} />
                         </a>
@@ -260,6 +265,8 @@ function FileSearchRow({
                         variant="ghost"
                         surface="primary"
                         size="iconSm"
+                        smoothResize={false}
+                        tabIndex={-1}
                         aria-label={aria}
                         onClick={run}
                       >

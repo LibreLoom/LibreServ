@@ -1,4 +1,4 @@
-import { Fragment, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
@@ -45,6 +45,14 @@ const MATCH_DIVIDERS = {
   meaning: "Close in meaning",
   photo: "Seen in photos",
 };
+
+/**
+ * A new search paints this many rows first (about what the panel shows) and
+ * the rest right after, in an interruptible render: building all ~60 rows
+ * before the first paint kept the answer off screen for several hundred ms
+ * on Luna's slowest hardware.
+ */
+const FIRST_ROWS = 12;
 
 /** Match ModalCard exit + FLIP morph duration. */
 const OVERLAY_EXIT_MS = 320;
@@ -207,6 +215,27 @@ export default function FileSearch() {
     { label: "Files", hits: remaining.filter((hit) => hit.kind !== "dir" && !isImageFile(hit.name)) },
     { label: "Image files", hits: remaining.filter((hit) => hit.kind !== "dir" && isImageFile(hit.name)) },
   ].filter((group) => group.hits.length > 0);
+
+  // Pace only a fresh search (new text or kind). The full answer and the
+  // polls that follow for the same text update rows already on screen.
+  const pacingKey = `${kind}\u0000${search.q}`;
+  const [paced, setPaced] = useState({ key: "", limit: Infinity });
+  const freshAnswer = search.hits.length > FIRST_ROWS && !search.isUpdating && paced.key !== pacingKey;
+  if (freshAnswer) setPaced({ key: pacingKey, limit: FIRST_ROWS });
+  const rowLimit = freshAnswer ? FIRST_ROWS : paced.limit;
+  useEffect(() => {
+    if (paced.limit === Infinity) return;
+    startTransition(() => setPaced((prev) => ({ ...prev, limit: Infinity })));
+  }, [paced]);
+  let rowsLeft = rowLimit;
+  const shownGroups = groups
+    .map((group) => {
+      const hits = group.hits.slice(0, Math.max(0, rowsLeft));
+      rowsLeft -= hits.length;
+      return { ...group, hits };
+    })
+    .filter((group) => group.hits.length > 0);
+  const allRowsShown = rowLimit === Infinity;
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives, enabled: present });
   const labels = Object.fromEntries((drives.data || []).map((d) => [d.id, d.label]));
@@ -649,7 +678,7 @@ export default function FileSearch() {
                     className="grid grid-cols-[minmax(0,1fr)] gap-2"
                     onKeyDown={handleListKeyDown}
                   >
-                    {groups.map((group) => (
+                    {shownGroups.map((group) => (
                       <Fragment key={group.label}>
                         <li role="presentation" className="px-1 pt-2 text-xs font-mono text-primary">
                           {group.label}
@@ -680,7 +709,7 @@ export default function FileSearch() {
                       </Fragment>
                     ))}
                   </ul>
-                  {search.truncated && !search.incomplete && !search.isUpdating && trimmed === search.q && (
+                  {search.truncated && allRowsShown && !search.incomplete && !search.isUpdating && trimmed === search.q && (
                     <p data-slot="file-search-truncated" className="px-1 pt-3 text-xs font-mono text-primary">
                       There are more matches than fit here. Type more words to narrow it down.
                     </p>
