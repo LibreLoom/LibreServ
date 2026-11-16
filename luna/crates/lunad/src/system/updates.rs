@@ -16,6 +16,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use luna_feed::{self as feed, FeedError, Part};
@@ -1109,6 +1110,9 @@ pub struct UpdateService {
     /// the previous source published, and offers its build even when its
     /// version is not newer. Cleared once that build is installed.
     adopt_source: Mutex<bool>,
+    /// True from the moment an install starts until it fails or Luna restarts,
+    /// so a page opened (or refreshed) mid-install still shows it.
+    applying: AtomicBool,
 }
 
 impl UpdateService {
@@ -1164,6 +1168,7 @@ impl UpdateService {
             installer,
             active: Mutex::new(active_from(feed_url, channel, keys)),
             cache: Mutex::new(None),
+            applying: AtomicBool::new(false),
             adopt_source: Mutex::new(false),
         }
     }
@@ -1346,7 +1351,31 @@ impl UpdateService {
         })
     }
 
+    /// Whether an install is running right now.
+    pub fn is_applying(&self) -> bool {
+        self.applying.load(Ordering::SeqCst)
+    }
+
     pub fn apply(&self, current_version: &str) -> Result<UpdateInfo, UpdateError> {
+        if self
+            .applying
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return Err(UpdateError::Other(
+                "Luna is already installing an update.".into(),
+            ));
+        }
+        let result = self.apply_inner(current_version);
+        // On success the flag stays set: Luna restarts right after, and the
+        // new process starts with it cleared.
+        if result.is_err() {
+            self.applying.store(false, Ordering::SeqCst);
+        }
+        result
+    }
+
+    fn apply_inner(&self, current_version: &str) -> Result<UpdateInfo, UpdateError> {
         let resolved = self.read_feed(current_version)?;
         let mut info = resolved.info.clone();
         if !info.update_available {

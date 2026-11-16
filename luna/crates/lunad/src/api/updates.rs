@@ -58,6 +58,8 @@ async fn check(
     let mut out = serde_json::to_value(info).unwrap_or(json!({}));
     // Not part of the cached feed answer: it changes when the boot settles.
     out["os_update_failed"] = os_update_failed_json(&state);
+    // Also live: a page opened mid-install must still show it installing.
+    out["applying"] = json!(state.updates.is_applying());
     Ok(Json(out))
 }
 
@@ -97,26 +99,39 @@ async fn apply(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_admin(&user)?;
     let svc = state.updates.clone();
-    let info = tokio::task::spawn_blocking(move || svc.apply(crate::version()))
-        .await
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't install the update. Try again.",
-            )
-        })?
-        .map_err(|e| map_err(e, "Luna couldn't install the update. Try again."))?;
+    // Run it detached: if the page is refreshed mid-install the request is
+    // dropped, and the install and restart must still finish.
+    let info = tokio::spawn(async move {
+        let info = tokio::task::spawn_blocking(move || svc.apply(crate::version()))
+            .await
+            .map_err(|_| {
+                json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Luna couldn't install the update. Try again.",
+                )
+            })?
+            .map_err(|e| map_err(e, "Luna couldn't install the update. Try again."))?;
+        let reboot = info.reboot_required;
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            if reboot {
+                let _ = std::process::Command::new("reboot").status();
+                // If reboot is unavailable (dev), fall back to process exit.
+                std::process::exit(0);
+            }
+            std::process::exit(0);
+        });
+        Ok::<_, (StatusCode, Json<Value>)>(info)
+    })
+    .await
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't install the update. Try again.",
+        )
+    })??;
     let reboot = info.reboot_required;
     let latest = info.latest_version.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        if reboot {
-            let _ = std::process::Command::new("reboot").status();
-            // If reboot is unavailable (dev), fall back to process exit.
-            std::process::exit(0);
-        }
-        std::process::exit(0);
-    });
     Ok(Json(json!({
         "ok": true,
         "latest_version": latest,

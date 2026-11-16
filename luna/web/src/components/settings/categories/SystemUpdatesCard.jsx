@@ -29,8 +29,9 @@ const HEALTH_GIVE_UP_DOWN_MS = 20_000;
 /**
  * Waits for Luna to restart: reloads the page once /health answers again after a gap.
  * @param {boolean} active
+ * @param {{ giveUp?: boolean }} [options] giveUp: reload even if Luna never looked down (false while an install is still running)
  */
-function useReloadWhenLunaIsBack(active) {
+function useReloadWhenLunaIsBack(active, { giveUp = true } = {}) {
   useEffect(() => {
     if (!active) return undefined;
     let cancelled = false;
@@ -41,7 +42,7 @@ function useReloadWhenLunaIsBack(active) {
     async function poll() {
       try {
         const res = await fetch("/health", { cache: "no-store" });
-        if (res.ok && (sawDown || Date.now() - startedAt > HEALTH_GIVE_UP_DOWN_MS)) {
+        if (res.ok && (sawDown || (giveUp && Date.now() - startedAt > HEALTH_GIVE_UP_DOWN_MS))) {
           if (!cancelled) window.location.reload();
           return;
         }
@@ -56,7 +57,7 @@ function useReloadWhenLunaIsBack(active) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [active]);
+  }, [active, giveUp]);
 }
 
 export default function SystemUpdatesCard({ index = 0 }) {
@@ -68,12 +69,17 @@ export default function SystemUpdatesCard({ index = 0 }) {
   const [retrying, setRetrying] = useState(false);
   // "installing" while lunad downloads and installs; "restarting" once it has answered and is going down.
   const [phase, setPhase] = useState(/** @type {null | "installing" | "restarting"} */ (null));
-  useReloadWhenLunaIsBack(phase === "restarting");
 
   const updates = useQuery({
     queryKey: ["system-updates"],
     queryFn: () => getJson("/api/v1/system/updates"),
-    refetchInterval: 60 * 60 * 1000,
+    // While an install runs (even one started before a page refresh), keep asking.
+    refetchInterval: (query) => (query.state.data?.applying ? 3000 : 60 * 60 * 1000),
+  });
+  // A page opened mid-install has no `phase`; lunad's `applying` flag stands in for it.
+  const serverInstalling = Boolean(updates.data?.applying);
+  useReloadWhenLunaIsBack(phase === "restarting" || serverInstalling, {
+    giveUp: phase === "restarting",
   });
 
   const check = useMutation({
@@ -163,7 +169,6 @@ export default function SystemUpdatesCard({ index = 0 }) {
       ? apiErrorMessage(check.error, "Couldn't check for updates. Try again.")
       : null;
   const checking = check.isPending || (updates.isLoading && !updateInfo);
-  const serverInstalling = Boolean(updateInfo?.applying);
   const updating = phase != null || apply.isPending || retry.isPending || serverInstalling;
   const failedUpdate = updateInfo?.os_update_failed;
 

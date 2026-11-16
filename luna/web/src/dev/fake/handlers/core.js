@@ -466,7 +466,7 @@ post("/api/v1/system/updates/apply", ({ world, user, fake }) => {
   const latest = world.updates.latest_version ?? world.updates.current_version;
   // lunad answers once the new software is installed, then restarts a second later.
   // Its pages go quiet for a few seconds, then come back on the new version.
-  world.updates = { current_version: latest, update_available: false };
+  world.updates = { current_version: latest, update_available: false, applying: false };
   interruptJobs(world);
   fake.restartServer(1000, 4000);
   return { ok: true, latest_version: latest, reboot_required: false, message: "The update is installed. Luna will restart in a moment." };
