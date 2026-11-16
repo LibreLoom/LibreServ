@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "unit": "luna-android",
+  "channel": "beta",
+  "version": "0.0.1",
+  "published": "2026-11-16T04:03:53Z",
+  "notes": "- fix(luna): mobile menu opens and closes smoothly\n- fix(luna): mobile backs up videos and photo locations; one clearer upload screen\n- test(luna): a partly matching file name doesn't hide the file's text\n- fix(luna): second copy-truth pass, reviewing the 22 unreviewed chunks\n- fix(luna-android): the first upload follows the Wi-Fi and charging settings\n- fix(luna-android): truthful, concise app, store and leaflet text\n- fix(luna): close verification gaps in backup recovery\n- fix(luna): retain paid backups and improve photo upload recovery\n- feat(luna): new drives get a dashboard card; Drives page becomes Files\n- feat(luna): Backups card and See all backups show cloud and private backups, health checks, phrase reminder, upload copy on desktop and Android\n- fix(release): verify cloudflared, pin OS bases and rustup by digest/sha256, pin Gradle checksum\n- feat(release): per-unit VERSION files and fix Sol version stamping\n- feat(luna-android): stop when Luna and the app speak different API versions\n- feat(brand): update Luna logo to the softened-tip version\n- fix(apps): harden sync, pairing, installer, and supply chain\n- feat(brand): Luna uses the Luna logo, Sol uses the Sol logo\n- test(luna): cover credential and irreversible paths; split big modules\n- feat(luna-web): accessibility pass (menus, lightbox, filters, map, errors, Android)\n- chore(luna): remove My files and private member homes\n- fix(luna): review fixes for admin home folders\n- feat(luna): everyone gets My files, admins included\n- refactor(repo): reorganize monorepo into sol/, luna/, infra/ areas\n- fix(luna-mobile): make backupUri suspend for setForeground\n- feat(luna-mobile): back up MediaStore videos with photos\n- fix(luna): remove home internet limitation copy across console, web, and docs\n- …and 15 more changes\n",
+  "parts": [
+    {
+      "name": "apk",
+      "os": "android",
+      "arch": "any",
+      "file": "luna-android.apk",
+      "size": 6129689,
+      "sha256": "da78ffa7f73803f4b7431e902d09ab38d710eb92fb3a18168d257e2ea059e6f3",
+      "urls": [
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna-android/0.0.1/luna-android.apk"
+      ]
+    }
+  ]
+}
