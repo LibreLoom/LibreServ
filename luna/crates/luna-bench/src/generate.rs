@@ -143,7 +143,10 @@ fn write_drive_json(drive: &Path) -> anyhow::Result<()> {
         .unwrap_or_else(|| "luna-perf".into());
     // lunad only offers devices named like block devices for adoption
     // (`is_storage_candidate`); mock drives must look like `sdmock*`.
-    let device = format!("sdmock{}", name.replace(|c: char| !c.is_ascii_alphanumeric(), ""));
+    let device = format!(
+        "sdmock{}",
+        name.replace(|c: char| !c.is_ascii_alphanumeric(), "")
+    );
     // Reported as ext4, the usual format for a drive Luna keeps; mock
     // drives otherwise default to exFAT.
     let config = serde_json::json!({
