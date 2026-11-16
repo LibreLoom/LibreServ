@@ -1504,6 +1504,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "luna-bench"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "image",
+ "kamadak-exif",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "luna-core"
 version = "0.0.0"
 dependencies = [
