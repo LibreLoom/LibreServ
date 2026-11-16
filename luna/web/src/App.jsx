@@ -1,16 +1,16 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Agentation } from "agentation";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { ThemeProvider } from"@libreloom/ui/context/ThemeContext.jsx";
 import { AuthProvider, useAuth } from "./context/AuthContext";
-import { FileOpsProvider } from "./context/FileOpsContext.jsx";
+import { FileOpsProvider, useFileOpsState } from "./context/FileOpsContext.jsx";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 import FileSearch from "./components/files/FileSearch";
-import FileOpsDock from "./components/files/fileOps/FileOpsDock.jsx";
+import { visibleOps } from "./lib/fileOps/selectors.js";
 import Navbar from "./components/ui/Navbar";
 import LoadingBar from "@libreloom/ui/components/common/LoadingBar.jsx";
 import useRecentItemsTracker from "./hooks/useRecentItemsTracker";
@@ -32,6 +32,10 @@ const LoginPage = lazy(() => import("./pages/LoginPage"));
 const SetupPage = lazy(() => import("./pages/SetupPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 const SettingsPage = lazy(loadSettingsPage);
+// The file task card and its animation library stay out of the first download:
+// most page loads never start a file operation.
+const loadFileOpsDock = () => import("./components/files/fileOps/FileOpsDock.jsx");
+const FileOpsDock = lazy(loadFileOpsDock);
 const PublicSharePage = lazy(() => import("./pages/PublicSharePage"));
 const RecoveryWizardPage = lazy(() => import("./pages/RecoveryWizardPage"));
 // Dev only: opens flows that have no button of their own, for the state gallery.
@@ -106,7 +110,7 @@ function PageRendered() {
 function usePreloadPages() {
   useEffect(() => {
     if (/** @type {any} */ (navigator).connection?.saveData) return undefined;
-    const loaders = [loadFilePage, loadFilesPage, loadPhotosPage, loadSharedPage, loadDashboardPage, loadSettingsPage];
+    const loaders = [loadFilePage, loadFilesPage, loadPhotosPage, loadSharedPage, loadDashboardPage, loadSettingsPage, loadFileOpsDock];
     const idle = window.requestIdleCallback
       ? (fn) => window.requestIdleCallback(fn, { timeout: 4000 })
       : (fn) => window.setTimeout(fn, 1500);
@@ -123,6 +127,24 @@ function usePreloadPages() {
   }, []);
 }
 
+const hasVisibleOps = (/** @type {any} */ state) => visibleOps(state).length > 0;
+
+/**
+ * Mounts the file task card the first time there is something to show, then
+ * keeps it mounted: the card animates its own exit, which needs it to stay.
+ */
+function FileOpsDockSlot() {
+  const visible = useFileOpsState(hasVisibleOps);
+  const [wanted, setWanted] = useState(false);
+  if (visible && !wanted) setWanted(true);
+  if (!wanted) return null;
+  return (
+    <Suspense fallback={null}>
+      <FileOpsDock />
+    </Suspense>
+  );
+}
+
 /** Authenticated chrome: page content + fixed bottom navbar. */
 function AppShell() {
   usePreloadPages();
@@ -133,7 +155,7 @@ function AppShell() {
         <LoadingBar />
         <a href="#main-content" className="skip-link">Skip to main content</a>
         <PageOutlet />
-        <FileOpsDock />
+        <FileOpsDockSlot />
         <Navbar />
         <FileSearch />
       </div>

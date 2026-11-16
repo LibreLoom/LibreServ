@@ -60,6 +60,7 @@ import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
 import { useAuth } from "../context/AuthContext";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { perfCancel, perfDetailed, perfStart, perfWhenImagesShown } from "../lib/perf.js";
+import { INDEXING_REFRESH_MS, indexingRefreshDelay } from "../lib/photosIndexing.js";
 import { useShortcut, useShortcutsSheet } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import {
   apiErrorMessage,
@@ -942,20 +943,29 @@ export default function PhotosPage() {
       : null;
 
   // While indexing, new photos appear without a refresh. Every refetch reloads
-  // and re-lays-out the whole timeline, so only do it when the found count has
-  // actually moved, and not more than every 4 seconds.
+  // every loaded page and re-lays-out the whole timeline, so only do it when
+  // the found count has actually moved, and wait longer the more pages are
+  // loaded (see indexingRefreshDelay).
   const foundCountRef = useRef(foundCount);
   foundCountRef.current = foundCount;
+  const loadedPagesRef = useRef(0);
+  loadedPagesRef.current = photoQuery.data?.pages?.length ?? 0;
   useEffect(() => {
     if (!indexing) return undefined;
     let refreshedAt = foundCountRef.current;
+    // Counted in ticks, not wall time, so a tick that lands a hair early
+    // still counts as a full interval.
+    let ticksSinceRefresh = 0;
     const id = setInterval(() => {
+      ticksSinceRefresh += 1;
       if (foundCountRef.current === refreshedAt) return;
+      if (ticksSinceRefresh * INDEXING_REFRESH_MS < indexingRefreshDelay(loadedPagesRef.current)) return;
       refreshedAt = foundCountRef.current;
+      ticksSinceRefresh = 0;
       queryClient.invalidateQueries({ queryKey: ["photos"] });
       queryClient.invalidateQueries({ queryKey: ["photos-places"] });
       queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
-    }, 4000);
+    }, INDEXING_REFRESH_MS);
     return () => clearInterval(id);
   }, [indexing, queryClient]);
 

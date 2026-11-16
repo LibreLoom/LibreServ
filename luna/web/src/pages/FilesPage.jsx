@@ -36,6 +36,7 @@ import usePageTitle from "../hooks/usePageTitle.js";
 import useReleaseInspectedDrive from "../hooks/useReleaseInspectedDrive.js";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
 import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
+import { DRIVE_POLL_MS, detectedDrivesQueryOptions } from "../hooks/detectedDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
 import { formatBytes } from "../lib/formatBytes.js";
 import { isLocked, isUnopenable } from "../lib/drives.js";
@@ -445,14 +446,9 @@ export default function FilesPage() {
     queryKey: ["drives"],
     queryFn: getDrives,
     // Keep pace with detected reconcile so Ejected sticks after umount/reconcile.
-    refetchInterval: 5000,
+    refetchInterval: DRIVE_POLL_MS,
   });
-  const detected = useQuery({
-    queryKey: ["drives-detected"],
-    queryFn: () => getJson("/api/v1/drives/detected"),
-    refetchInterval: 5000,
-    enabled: isAdmin,
-  });
+  const detected = useQuery(detectedDrivesQueryOptions(isAdmin));
   const [inspectFor, setInspectFor] = useState(null);
   const [ejectTarget, setEjectTarget] = useState(null);
   const [removeTarget, setRemoveTarget] = useState(null);

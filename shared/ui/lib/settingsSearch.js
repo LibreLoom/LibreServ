@@ -59,6 +59,11 @@ export function extractSettingsItems(root) {
   return items;
 }
 
+/** Let the browser handle input and paint before the next chunk of work. */
+function yieldToMain() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 /**
  * Render every category and collect what it says. A category that cannot render
  * on its own (needs live data first) still gets its own entry.
@@ -75,7 +80,13 @@ export async function buildSettingsIndex(categories, wrap, { onError } = {}) {
   ]);
   /** @type {SettingsHit[]} */
   const hits = [];
+  let first = true;
   for (const { id, label, Component } of categories) {
+    // Rendering every category is one long run of work, usually started by the
+    // first key press. Hand the main thread back between categories so typing
+    // keeps up; the order of hits stays the same.
+    if (!first) await yieldToMain();
+    first = false;
     hits.push({ kind: "category", categoryId: id, categoryLabel: label, title: label, cardTitle: "", text: "" });
     try {
       const html = renderToStaticMarkup(/** @type {any} */ (wrap(createElement(Component))));

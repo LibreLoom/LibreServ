@@ -457,9 +457,17 @@ export default function FileBrowser({
 
   // Warm the text editor as soon as the folder is on screen. It is the most
   // common file to open, and its chunk landing mid-click is what made the
-  // opening animation stutter the first time.
+  // opening animation stutter the first time. Wait for an idle moment so the
+  // chunk's download and parse don't compete with the listing and thumbnails;
+  // hover and focus on a text file still warm it at once. Skipped on Data Saver.
   useEffect(() => {
-    warmTextEditor();
+    if (/** @type {any} */ (navigator).connection?.saveData) return undefined;
+    if (window.requestIdleCallback) {
+      const handle = window.requestIdleCallback(() => warmTextEditor(), { timeout: 3000 });
+      return () => window.cancelIdleCallback(handle);
+    }
+    const handle = window.setTimeout(() => warmTextEditor(), 1500);
+    return () => window.clearTimeout(handle);
   }, []);
 
   // A file path answers `list` with a one-entry "folder" containing the

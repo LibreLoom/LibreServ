@@ -22,6 +22,7 @@ import { readRecentItems } from "../lib/recentItems.js";
 import { perfAppReady } from "../lib/perf.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 import useNeedsYou from "../hooks/useNeedsYou.js";
+import { detectedDrivesQueryOptions } from "../hooks/detectedDrives.js";
 import { useSoftwareUpdates } from "../hooks/useSoftwareUpdates.jsx";
 import { useSystemHealthCheck } from "../hooks/useSystemHealthCheck.jsx";
 import { pillChecks } from "../lib/needsYouChecks.js";
@@ -76,12 +77,7 @@ export default function DashboardPage() {
   const systemHealth = useSystemHealthCheck();
   const { rows, phrase } = useBackupRows();
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
-  const detected = useQuery({
-    queryKey: ["drives-detected"],
-    queryFn: () => getJson("/api/v1/drives/detected"),
-    refetchInterval: 5000,
-    enabled: isAdmin,
-  });
+  const detected = useQuery(detectedDrivesQueryOptions(isAdmin));
   const access = useQuery({
     queryKey: ["my-access"],
     queryFn: () => getJson("/api/v1/me/access"),

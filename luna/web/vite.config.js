@@ -121,6 +121,9 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes("node_modules")) return undefined;
+          // react-dom/server is only imported lazily (settings search); left to
+          // the vendor rule it would ride in the preloaded vendor chunk.
+          if (/node_modules\/react-dom\/(server|cjs\/react-dom-server)/.test(id)) return undefined;
           if (/node_modules\/(react|react-dom|react-router|react-router-dom|scheduler)\//.test(id)) return "vendor";
           if (id.includes("node_modules/lucide-react/")) return "ui";
           if (id.includes("node_modules/@tanstack/")) return "query";

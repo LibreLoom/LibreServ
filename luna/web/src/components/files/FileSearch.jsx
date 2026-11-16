@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
@@ -13,8 +13,6 @@ import { showPageLevelError } from "../../lib/modalScopedError";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Typewriter from "@libreloom/ui/components/ui/Typewriter.jsx";
-import ShareSheet from "../share/ShareSheet.jsx";
-import FolderPickerModal from "./FolderPickerModal";
 import FileSearchRow from "./FileSearchRow.jsx";
 import FileSearchStatus from "./FileSearchStatus.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
@@ -138,6 +136,11 @@ function searchTrigger() {
   return [...all].find((el) => !el.closest('[aria-hidden="true"]')) ?? null;
 }
 
+// Search is mounted on every page, but these two only open from a hit's
+// actions; loading them then keeps them out of the first download.
+const ShareSheet = lazy(() => import("../share/ShareSheet.jsx"));
+const FolderPickerModal = lazy(() => import("./FolderPickerModal"));
+
 /**
  * Universal search across drives — an overlay that morphs out of the header
  * search icon (`FileSearchButton`) when the page has one. Mounted once in
@@ -157,6 +160,11 @@ export default function FileSearch() {
   const [copyTarget, setCopyTarget] = useState(null);
   const [copyKind, setCopyKind] = useState(/** @type {"copy" | "move"} */ ("copy"));
   const [accessTarget, setAccessTarget] = useState(null);
+  // Mounted from the first open on, and kept: they animate their own close.
+  const [pickerUsed, setPickerUsed] = useState(false);
+  const [shareUsed, setShareUsed] = useState(false);
+  if (copyTarget != null && !pickerUsed) setPickerUsed(true);
+  if (accessTarget != null && !shareUsed) setShareUsed(true);
 
   const [present, setPresent] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
@@ -741,34 +749,42 @@ export default function FileSearch() {
         )}
       </ModalCard>
 
-      <FolderPickerModal
-        open={copyTarget != null}
-        title={copyKind === "move" ? `Move ${copyTarget?.name || ""}` : `Copy ${copyTarget?.name || ""}`}
-        drives={drives.data || []}
-        initialDriveId={copyTarget?.drive_id || ""}
-        initialPath={copyTarget ? (copyTarget.parent != null ? copyTarget.parent : folderOf(copyTarget.path)) : ""}
-        movingPaths={copyKind === "move" && copyTarget ? [copyTarget.path] : []}
-        confirmLabel={copyKind === "move" ? "Start moving" : "Start copying"}
-        error={copyTarget != null ? actionError : null}
-        onClose={() => {
-          setActionError(null);
-          setCopyTarget(null);
-        }}
-        onConfirm={(dest, close) => {
-          startTransfer(dest);
-          close();
-        }}
-      />
+      {pickerUsed && (
+        <Suspense fallback={null}>
+          <FolderPickerModal
+            open={copyTarget != null}
+            title={copyKind === "move" ? `Move ${copyTarget?.name || ""}` : `Copy ${copyTarget?.name || ""}`}
+            drives={drives.data || []}
+            initialDriveId={copyTarget?.drive_id || ""}
+            initialPath={copyTarget ? (copyTarget.parent != null ? copyTarget.parent : folderOf(copyTarget.path)) : ""}
+            movingPaths={copyKind === "move" && copyTarget ? [copyTarget.path] : []}
+            confirmLabel={copyKind === "move" ? "Start moving" : "Start copying"}
+            error={copyTarget != null ? actionError : null}
+            onClose={() => {
+              setActionError(null);
+              setCopyTarget(null);
+            }}
+            onConfirm={(dest, close) => {
+              startTransfer(dest);
+              close();
+            }}
+          />
+        </Suspense>
+      )}
 
-      <ShareSheet
-        open={accessTarget != null}
-        subject={
-          accessTarget
-            ? { kind: "path", driveId: accessTarget.driveId, path: accessTarget.path || "" }
-            : null
-        }
-        onClose={() => setAccessTarget(null)}
-      />
+      {shareUsed && (
+        <Suspense fallback={null}>
+          <ShareSheet
+            open={accessTarget != null}
+            subject={
+              accessTarget
+                ? { kind: "path", driveId: accessTarget.driveId, path: accessTarget.path || "" }
+                : null
+            }
+            onClose={() => setAccessTarget(null)}
+          />
+        </Suspense>
+      )}
     </>
   );
 }
