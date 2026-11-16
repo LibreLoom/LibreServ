@@ -757,6 +757,7 @@
     "used_bytes": "number"
   },
   "GET /api/v1/system/updates": {
+    "applying": "boolean",
     "binary_name": "string",
     "checksum": "string",
     "current_version": "string",
