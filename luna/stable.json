@@ -2,9 +2,9 @@
   "format": 1,
   "unit": "luna",
   "channel": "stable",
-  "version": "0.0.6",
-  "published": "2026-11-16T03:49:02Z",
-  "notes": "- test(luna): regenerate the lunad response contract\n- test(luna): align web tests with current copy and drive rules\n- test(luna): cover the viewer close race\n- fix(luna): closing a file viewer wins before the URL updates\n- test(luna): a partly matching file name doesn't hide the file's text\n- fix(luna): text search no longer hides files a fuzzy name match rejected\n- checkpoint\n- feat(luna): album card shows its item count right-aligned on the name line\n- refactor(luna): remove album lock\n- fix(luna): second copy-truth pass, reviewing the 22 unreviewed chunks\n- fix(lunad): a drive being erased says so, never \"unplug it\"\n- fix(luna): progress fill is flush with the track's left edge\n- fix(luna): progress bar is an outlined track with a solid fill\n- feat(luna): storage line reads \"x of y used (z%)\"\n- feat(ui): storage uses the file task card's bar and rolling line; LayeredPill collapses fully\n- feat(ui): status pill is always the LayeredPill, inverted for the panel, hugging its corner\n- feat(ui): LayeredCard action is a plain Button; the band's rest clicks through\n- feat(ui): the whole LayeredCard band opens the drive; one shared storage bar\n- feat(ui): the drive's status sits in the panel's top-right corner\n- feat(ui): LayeredCard puts the drive's identity on the tray band\n- docs(luna): open items from the copy truth audit\n- fix(luna-android): truthful, concise app, store and leaflet text\n- fix(luna): truthful, concise Luna web copy\n- fix(luna): truthful, concise lunad error and status text\n- test(luna): regenerate lunad response shapes for /api/v1/photos\n- …and 56 more changes\n",
+  "version": "0.0.7",
+  "published": "2026-11-16T04:28:24Z",
+  "notes": "",
   "parts": [
     {
       "name": "os",
@@ -14,7 +14,7 @@
       "size": 312224588,
       "sha256": "04c1bbd301e1f9ad70a8b8aeb7b30bd2b5ac3095f2ca93235ae55315d38b9b7b",
       "urls": [
-        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.6/luna-os-x86_64.img.xz"
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.7/luna-os-x86_64.img.xz"
       ]
     },
     {
@@ -25,7 +25,7 @@
       "size": 562688832,
       "sha256": "30a0d8b8fc818af735951cef6903c3ef162177dea972d97ffdccda1ea7ff0660",
       "urls": [
-        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.6/luna-rapidinstall-x86_64.iso.xz"
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.7/luna-rapidinstall-x86_64.iso.xz"
       ]
     }
   ],
