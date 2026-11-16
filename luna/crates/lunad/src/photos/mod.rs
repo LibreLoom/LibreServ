@@ -987,12 +987,18 @@ pub fn ensure_thumb(src: &Path, dest: &Path, kind: &str) -> anyhow::Result<(u32,
     if meta.len() > limits.source_max_bytes {
         anyhow::bail!("photo is too large to preview with the free memory on this Luna");
     }
+    // One thumbnail (D5), at debug: LUNA_PERF=debug.
+    let mut perf = crate::perf::Timer::debug("D5", "photos.thumb");
+    perf.field("bytes", meta.len());
     if kind == "video" {
+        perf.field("kind", "video");
         return ensure_video_thumb(src, dest);
     }
     if crate::photos::heif::is_heif(src) {
+        perf.field("kind", "heic");
         return ensure_heif_thumb(src, dest);
     }
+    perf.field("kind", "image");
     decode_and_save_thumb(src, dest)
 }
 

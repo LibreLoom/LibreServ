@@ -236,6 +236,28 @@ pub fn run(
     accept_missing: bool,
     now: i64,
 ) -> CloudOutcome {
+    // D7 budgets the nothing-changed run; `uploaded_bytes` tells which one this was.
+    let mut perf = crate::perf::Timer::new("D7", "backup.cloud");
+    let out = run_untimed(db, id, store, connect, started_by, accept_missing, now);
+    if perf.active() {
+        perf.field("files", out.files);
+        perf.field("uploaded_bytes", out.uploaded_bytes);
+        perf.field("reused_chunks", out.reused_chunks);
+        perf.field("busy", out.busy);
+        perf.field("problem", out.problem.is_some());
+    }
+    out
+}
+
+fn run_untimed(
+    db: &crate::Db,
+    id: &str,
+    store: &dyn CloudStore,
+    connect: &ConnectService,
+    started_by: &str,
+    accept_missing: bool,
+    now: i64,
+) -> CloudOutcome {
     let Some(_slot) = drive_backup::try_hold(db, id) else {
         return problem_outcome("This backup is busy right now. Try again in a minute.");
     };

@@ -220,13 +220,36 @@ pub fn create(
 /// Run one drive backup now. Records the result on the row (ok / error /
 /// stopped / source gone) and returns what happened.
 pub fn run(db: &crate::Db, id: &str, now: i64) -> anyhow::Result<RunOutcome> {
-    run_inner(db, id, now, false)
+    run_timed(db, id, now, false)
 }
 
 /// Like [`run`], but applies deletions even when most of the source seems
 /// gone (the person pressed "Run anyway" after the mass-delete guard).
 pub fn run_allowing_mass_delete(db: &crate::Db, id: &str, now: i64) -> anyhow::Result<RunOutcome> {
-    run_inner(db, id, now, true)
+    run_timed(db, id, now, true)
+}
+
+/// [`run_inner`] with a perf timer (D8) around it.
+fn run_timed(
+    db: &crate::Db,
+    id: &str,
+    now: i64,
+    allow_mass_delete: bool,
+) -> anyhow::Result<RunOutcome> {
+    let mut perf = crate::perf::Timer::new("D8", "backup.drive");
+    let out = run_inner(db, id, now, allow_mass_delete);
+    if perf.active() {
+        match &out {
+            Ok(o) => {
+                perf.field("copied", o.copied);
+                perf.field("unchanged", o.unchanged);
+                perf.field("removed", o.removed);
+                perf.field("problem", o.problem.is_some());
+            }
+            Err(_) => perf.field("error", true),
+        }
+    }
+    out
 }
 
 /// Run every active drive backup. True when any backup's state changed (so

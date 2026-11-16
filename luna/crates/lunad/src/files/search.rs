@@ -108,6 +108,7 @@ pub fn search_all(
     let photo_q = if kind == KindFilter::Folders {
         None
     } else {
+        let _neural = crate::perf::Timer::debug("W11", "search.photo_query");
         crate::files::content::photos::query_vector(&query.norm)
     };
     let photo_q = photo_q.as_ref();
@@ -119,6 +120,7 @@ pub fn search_all(
                     let conn = crate::drives::drive_db::open(&drive.mount)?;
                     let (mut hits, limited) = search_drive_bounded(&conn, &drive.id, query, kind)?;
                     if let Some(q) = photo_q {
+                        let _neural = crate::perf::Timer::debug("W11", "search.photos");
                         let seen: HashSet<(String, String)> = hits
                             .iter()
                             .map(|c| (c.hit.parent.clone(), c.hit.name.clone()))
@@ -333,8 +335,14 @@ fn search_drive_with_limits(
             }
         }
     }
-    // Passages about the same thing, in other words.
+    // Passages about the same thing, in other words. Neural search (W11),
+    // timed per drive at debug.
+    let mut neural = crate::perf::Timer::debug("W11", "search.meaning");
+    neural.field("drive", drive_id);
     if !incomplete && let Some(qv) = crate::files::content::meaning::query_vector(&query.words) {
+        // Without this field no neural pass ran (no model, or name search
+        // was already cut short).
+        neural.field("ran", true);
         match crate::files::content::meaning::candidates(conn, drive_id, &qv, kind) {
             Ok(hits) => {
                 for found in hits {

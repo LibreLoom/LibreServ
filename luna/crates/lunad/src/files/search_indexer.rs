@@ -254,6 +254,11 @@ fn run_scan(shared: &Shared, drive_id: &str, force: bool) -> bool {
     let Some(root) = shared.mounts.lock().unwrap().get(drive_id).cloned() else {
         return false;
     };
+    // First scan (D4) or rescan (D6): `force` alone can't tell them apart,
+    // so the line carries `force` and the folder count.
+    let mut perf = crate::perf::Timer::new("D4|D6", "files.scan");
+    perf.field("drive", drive_id);
+    perf.field("force", force);
     set_progress(shared, drive_id, DriveScan::Scanning, Some(0));
     let conn = match crate::drives::drive_db::open(&root) {
         Ok(conn) => conn,
@@ -288,6 +293,8 @@ fn run_scan(shared: &Shared, drive_id: &str, force: bool) -> bool {
         }
     };
     set_progress(shared, drive_id, state, Some(visited));
+    perf.field("dirs", visited);
+    perf.field("ok", result.is_ok());
     // A scan cut short by an unmount returns Ok too; only a drive that is
     // still mounted has a complete index.
     result.is_ok() && shared.mounts.lock().unwrap().get(drive_id) == Some(&root)

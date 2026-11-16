@@ -62,6 +62,7 @@ pub mod net;
 pub mod office;
 pub mod packs;
 pub mod password;
+pub mod perf;
 pub mod photos;
 pub mod private;
 pub mod rate_limit;

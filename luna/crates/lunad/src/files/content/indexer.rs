@@ -146,6 +146,14 @@ fn run(rx: mpsc::Receiver<Msg>, shared: Arc<Shared>) {
         let Some(root) = shared.mounts.lock().unwrap().get(&drive_id).cloned() else {
             continue;
         };
+        // Part of the first scan (D4). Small nudges log at debug only.
+        let mut perf = if full {
+            crate::perf::Timer::new("D4", "files.content")
+        } else {
+            crate::perf::Timer::debug("D4", "files.content")
+        };
+        perf.field("drive", &drive_id);
+        perf.field("full", full);
         if let Err(e) = pass(
             &shared,
             &drive_id,
@@ -156,7 +164,9 @@ fn run(rx: mpsc::Receiver<Msg>, shared: Arc<Shared>) {
             &mut queued,
         ) {
             tracing::debug!(drive_id, error = %e, "content reading stopped");
+            perf.field("stopped", true);
         }
+        drop(perf);
         if let Some(p) = shared.progress.lock().unwrap().get_mut(&drive_id) {
             p.reading = false;
         }

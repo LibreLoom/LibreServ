@@ -5,6 +5,8 @@ use lunad::{
 };
 
 fn main() -> anyhow::Result<()> {
+    // D1 (process start to answering requests) counts from here.
+    let started = std::time::Instant::now();
     // The sandboxed text reader: lunad re-runs itself as `nobody` with
     // memory and CPU caps to parse one file, then exits. No runtime, no logs.
     let args: Vec<String> = std::env::args().collect();
@@ -29,11 +31,12 @@ fn main() -> anyhow::Result<()> {
         .enable_all()
         .build()
         .map_err(|e| anyhow::anyhow!("could not start async runtime: {e}"))?
-        .block_on(async_main())
+        .block_on(async_main(started))
 }
 
 /// Sleep until the system has been up for `seconds`, if it has not been yet.
-fn wait_for_usb_to_settle(seconds: f64) {
+/// Returns how long it slept.
+fn wait_for_usb_to_settle(seconds: f64) -> std::time::Duration {
     let up = std::fs::read_to_string("/proc/uptime").ok().and_then(|t| {
         t.split_whitespace()
             .next()
@@ -48,18 +51,32 @@ fn wait_for_usb_to_settle(seconds: f64) {
             "waiting for USB drives to show up"
         );
         std::thread::sleep(wait);
+        return wait;
     }
+    std::time::Duration::ZERO
 }
 
-async fn async_main() -> anyhow::Result<()> {
+async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
+    // Perf logs (target lunad::perf) stay off unless LUNA_PERF=1 or RUST_LOG
+    // names the target; see luna/perf/README.md.
+    let perf = lunad::perf::settings_from(
+        std::env::var("LUNA_PERF").ok().as_deref(),
+        std::env::var("RUST_LOG").ok().as_deref(),
+    );
+    lunad::perf::set_enabled(perf.enabled);
+    let mut filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "lunad=info,tower_http=warn".into());
+    if let Some(directive) = perf.directive.as_deref().and_then(|d| d.parse().ok()) {
+        filter = filter.add_directive(directive);
+    }
     tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "lunad=info,tower_http=warn".into()),
-        )
+        .with_env_filter(filter)
         .with_target(false)
         .compact()
         .init();
+    let perf_sampler = perf
+        .enabled
+        .then(|| lunad::perf::spawn_sampler(lunad::perf::sample_interval()));
 
     let mut cfg = Config::from_env().overlay_from_args();
     // The data dir holds device tokens, session secrets, the user database,
@@ -100,7 +117,7 @@ async fn async_main() -> anyhow::Result<()> {
     // is the only look at them before the password-recovery stick scan below
     // (it runs once, before the network is up). Starting this early on a fast
     // boot would miss them, so give them until 8 seconds of uptime.
-    wait_for_usb_to_settle(8.0);
+    let usb_wait = wait_for_usb_to_settle(8.0);
     let detected = {
         let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
         lunad::drives::detect::scan_with_dev_mocks(std::path::Path::new("/sys/block"), &mounts)
@@ -783,15 +800,26 @@ async fn async_main() -> anyhow::Result<()> {
                 )),
         );
     }
-    let app =
-        app.with_state(state)
-            .fallback(axum::routing::get(|uri: axum::http::Uri| async move {
-                lunad::system::staticweb::handle(uri.path())
-            }));
+    let app = app
+        .with_state(state)
+        .fallback(axum::routing::get(|uri: axum::http::Uri| async move {
+            lunad::system::staticweb::handle(uri.path())
+        }))
+        // Last, so it wraps every route and the fallback, auth included.
+        // A no-op unless perf is enabled.
+        .layer(axum::middleware::from_fn(lunad::perf::http_timing));
 
     let addr: SocketAddr = format!("{}:{}", cfg.host, cfg.port).parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, product = "Luna", "listening");
+    tracing::info!(
+        target: lunad::perf::TARGET,
+        journey = "D1",
+        op = "startup",
+        ms = started.elapsed().as_millis() as u64,
+        usb_wait_ms = usb_wait.as_millis() as u64,
+        "perf"
+    );
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
@@ -802,7 +830,7 @@ async fn async_main() -> anyhow::Result<()> {
     // cloudflared running or the supervisors ticking behind a dead listener.
     shutting_down.store(true, std::sync::atomic::Ordering::Relaxed);
     connect.stop_tunnel();
-    for task in bg_tasks {
+    for task in bg_tasks.into_iter().chain(perf_sampler) {
         task.abort();
     }
     Ok(())

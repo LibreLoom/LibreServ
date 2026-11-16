@@ -405,6 +405,9 @@ fn worker_loop(
         // Apply settled upserts.
         if last_upsert_at.elapsed() >= WATCH_SETTLE && !upserts.is_empty() {
             let batch: Vec<_> = upserts.drain().collect();
+            // New photos arriving while Luna runs: index plus thumbnail (D5).
+            let mut perf = crate::perf::Timer::new("D5", "photos.new");
+            perf.field("count", batch.len());
             for (drive_id, rel) in batch {
                 pending.fetch_sub(1.min(pending.load(Ordering::Relaxed)), Ordering::Relaxed);
                 let mount = {
@@ -489,7 +492,18 @@ fn worker_loop(
             }
             found_count.store(0, Ordering::Relaxed);
             scanning.store(true, Ordering::Relaxed);
-            match photos::scan_drive(&drive_id, &root) {
+            // Photos catch-up: index plus thumbnails (D4 first scan, D5 new photos).
+            let mut perf = crate::perf::Timer::new("D4|D5", "photos.scan");
+            perf.field("drive", &drive_id);
+            let scanned = photos::scan_drive(&drive_id, &root);
+            if let Ok(report) = &scanned {
+                perf.field("found", report.found);
+                perf.field("thumbnailed", report.thumbnailed);
+                perf.field("failed", report.failed);
+                perf.field("pruned", report.pruned);
+            }
+            drop(perf);
+            match scanned {
                 Ok(report) => {
                     found_count.store(report.found, Ordering::Relaxed);
                     *scan_error.lock().unwrap() = None;

@@ -69,6 +69,9 @@ async fn search(
     let work_state = state.clone();
     let work_user = user.clone();
     let (hits, truncated, incomplete) = tokio::task::spawn_blocking(move || {
+        // Name search (W10) and neural search (W11) share this endpoint; the
+        // neural passes are timed separately at debug.
+        let mut perf = crate::perf::Timer::new("W10|W11", "search");
         let parsed = NameQuery::new(&raw);
         if parsed.is_empty() {
             return Ok((Vec::new(), false, false));
@@ -83,6 +86,9 @@ async fn search(
         let expr = crate::files::content::query::fts_expr(&parsed);
         let conn = work_state.db.lock().map_err(|_| ())?;
         let (hits, truncated) = visible_hits(&conn, &work_user, candidates, limit, expr.as_deref());
+        perf.field("drives", drives.len());
+        perf.field("hits", hits.len());
+        perf.field("incomplete", incomplete);
         Ok::<_, ()>((hits, truncated, incomplete))
     })
     .await
