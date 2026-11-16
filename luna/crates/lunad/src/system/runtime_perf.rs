@@ -419,6 +419,16 @@ fn runtime_perf_numbers() {
         uploads::complete(&db, &up.id, false, false, None).unwrap();
     }
 
+    // Wall-clock thresholds only mean something on a quiet machine: under a
+    // loaded CI run they fail for reasons that have nothing to do with lunad. The
+    // numbers are always printed (PERF lines above); asserting on them is opt-in,
+    // for a quiet box: LUNA_PERF_STRICT=1 cargo test -p lunad runtime_perf.
+    if std::env::var_os("LUNA_PERF_STRICT").is_none() {
+        eprintln!(
+            "PERF timing thresholds not asserted (set LUNA_PERF_STRICT=1 on a quiet machine)"
+        );
+        return;
+    }
     assert!(
         second_ms * 3 < first_ms || second_ms < 80,
         "rescan must be much cheaper than first scan: first={first_ms}ms second={second_ms}ms"
