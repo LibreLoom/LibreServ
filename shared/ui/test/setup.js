@@ -1,25 +1,9 @@
 import "@testing-library/jest-dom";
-import { vi } from "vitest";
-import { configure } from "@testing-library/react";
+import { installAsyncDefaults } from "./waitFor.js";
 import { installContrastCheck } from "./contrast.js";
 
-// CI containers are slow (cold npm install + import phase); give async
-// assertions (waitFor/findBy) headroom beyond testing-library's 1s default so
-// they don't flake under load. Assertions themselves are unchanged.
-configure({ asyncUtilTimeout: 10000 });
-
-// vi.waitFor has its own 1s default, separate from testing-library's, and it
-// is what failed under load in the release gate. Give it the same headroom and
-// a fast poll: it returns the moment the condition holds, so the longer limit
-// only bounds a real failure. A test that passes its own timeout still wins.
-const waitFor = vi.waitFor.bind(vi);
-vi.waitFor = (fn, options) =>
-  waitFor(
-    fn,
-    typeof options === "number"
-      ? { timeout: options, interval: 10 }
-      : { timeout: 10000, interval: 10, ...options },
-  );
+// How long async assertions may wait (testing-library and vi.waitFor): see waitFor.js.
+installAsyncDefaults();
 
 // Fail any test that leaves text in the same color as the surface behind it.
 installContrastCheck();

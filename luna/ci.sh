@@ -169,13 +169,24 @@ lane_web() {
 	  npm run typecheck
 	  cd "$ROOT/web"
 	  npm run build
-	  npm test -- --run
 	)
 
 	# Luna Connect's web app and the quick-start leaflet are tested by the
 	# connect profile (luna-connect-web-*, luna-quick-start-check), not here.
 }
 
+
+# The luna/web unit tests run last, after every lane, for two reasons: they read
+# the lunad response contract that lane_check records (reading it mid-write
+# fails the contract tests), and they are the suite that times out when a Rust
+# compile is starving them, so they get the whole machine.
+lane_web_unit() {
+	echo "==> web unit tests"
+	(
+	  cd "$ROOT/web"
+	  npm test -- --run
+	)
+}
 
 # How many lanes run at once. Measured on an 8-core, 11 GB box: with four lanes
 # the rust checks took 974s instead of ~540s alone and the web lane 796s instead
@@ -256,5 +267,7 @@ if [ "$lane_fail" -ne 0 ]; then
 fi
 grep -h '^==> lane ' "$LANE_DIR"/*.log
 rm -rf "$LANE_DIR"
+
+timed web-unit lane_web_unit
 
 echo "==> ci ok"
