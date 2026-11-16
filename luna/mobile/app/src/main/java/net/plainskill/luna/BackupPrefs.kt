@@ -138,17 +138,35 @@ object BackupPrefs {
 
     fun clearSession(context: Context) {
         prefs(context)?.edit()?.clear()?.apply()
+        uploadedLog(context).clear()
     }
 
+    /**
+     * Which photos and videos already reached each destination. The entries are
+     * MediaStore ids, sizes and dates, nothing secret, so they live in a plain
+     * append-only file in app storage. In the encrypted prefs every lookup cost a
+     * decryption and every save rewrote the whole growing store.
+     */
+    internal var uploadedFile: (Context) -> java.io.File = {
+        java.io.File(it.applicationContext.filesDir, "uploaded-items.txt")
+    }
+
+    private fun uploadedLog(context: Context) = UploadedLog(uploadedFile(context))
+
+    /** Items already uploaded to [destination]; load once per run, then check in memory. */
+    fun uploadedItems(context: Context, destination: String): MutableSet<String> =
+        uploadedLog(context).items(destination)
+
     fun uploaded(context: Context, destination: String, item: String): Boolean =
-        prefs(context)?.getBoolean("uploaded:$destination:$item", false) ?: false
+        item in uploadedItems(context, destination)
 
     fun markUploaded(context: Context, destination: String, item: String) {
-        val store = prefs(context) ?: error("This phone couldn't save upload progress safely.")
-        check(store.edit().putBoolean("uploaded:$destination:$item", true)
-            .putLong("last_upload_completed_at", System.currentTimeMillis()).commit()) {
-            "This phone couldn't save upload progress. Try again."
+        try {
+            uploadedLog(context).add(destination, item)
+        } catch (_: java.io.IOException) {
+            throw IllegalStateException("This phone couldn't save upload progress. Try again.")
         }
+        prefs(context)?.edit()?.putLong("last_upload_completed_at", System.currentTimeMillis())?.apply()
     }
 
     fun markBackedUp(context: Context, time: Long) {

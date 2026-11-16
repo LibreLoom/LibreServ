@@ -40,11 +40,9 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
         }
         val notifier = BackupNotifications(context)
         BackupProgress.set(true, "Copying photos and videos to Luna", "Checking for new photos and videos")
-        try {
-            setForeground(foregroundInfo("Checking for new photos and videos…"))
-        } catch (_: Exception) {
-            // Notification permission denied — still try the backup.
-        }
+        // The foreground promotion (and its notification) waits for the first
+        // upload: a check that finds nothing new stays a quiet background job.
+        var lastForegroundAt = 0L
 
         return try {
             LunaApi.requireCompatible(baseUrl)
@@ -53,6 +51,8 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
             // History belongs to the destination, not a global media timestamp.
             val destination = "$baseUrl/$driveId/$folder"
             val since = 0L
+            // One read of the upload record per run, then in-memory checks.
+            val done = BackupPrefs.uploadedItems(context, destination)
 
             data class MediaCol(val id: Int, val name: Int, val size: Int, val date: Int)
 
@@ -81,12 +81,16 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
                         val date = cursor.getLong(cols.date)
                         val uri = android.content.ContentUris.withAppendedId(collection, id)
                         val item = "$uri:$size:$date"
-                        if (BackupPrefs.uploaded(context, destination, item)) {
+                        if (item in done) {
                             remaining--
                             continue
                         }
                         BackupProgress.set(true, "Copying photos and videos to Luna", name)
-                        if (remaining > 0) {
+                        // Rebuilding the notification per item is wasted work on a fast
+                        // run of small photos; refresh it at most every couple of seconds.
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (remaining > 0 && (lastForegroundAt == 0L || now - lastForegroundAt >= FOREGROUND_REFRESH_MS)) {
+                            lastForegroundAt = now
                             try {
                                 setForeground(foregroundInfo(progressText(remaining)))
                             } catch (_: Exception) {
@@ -107,6 +111,7 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
                             val remoteName = "$stem-$hash" + if (ext.isEmpty()) "" else ".$ext"
                             LunaApi.uploadStream(baseUrl, token, driveId, LunaApi.joinPath(folder, month), remoteName, size, stream)
                             BackupPrefs.markUploaded(context, destination, item)
+                            done.add(item)
                         }
                         remaining--
                     }
@@ -240,5 +245,6 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : CoroutineW
 
     companion object {
         private const val FOREGROUND_ID = 2002
+        private const val FOREGROUND_REFRESH_MS = 2_000L
     }
 }

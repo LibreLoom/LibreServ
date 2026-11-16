@@ -82,8 +82,10 @@ class BackupPrefsTest {
     fun clearingTheSessionForgetsEverything() {
         BackupPrefs.saveSession(context, "http://luna.local", "tok", "max", "d1", "Photos")
         BackupPrefs.markBackedUp(context, 1234L)
+        BackupPrefs.markUploaded(context, "luna/d1/photos", "image:1:2:3")
         BackupPrefs.clearSession(context)
         assertFalse(BackupPrefs.signedIn(context))
+        assertFalse(BackupPrefs.uploaded(context, "luna/d1/photos", "image:1:2:3"))
         assertNull(BackupPrefs.driveId(context))
         assertEquals(0L, BackupPrefs.lastBackupAt(context))
     }

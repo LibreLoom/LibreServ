@@ -13,7 +13,9 @@ import java.net.URL
  * create → PUT ranges → complete.
  */
 object LunaApi {
-    const val CHUNK_SIZE = 1024 * 1024 // 1 MiB
+    // Luna accepts at least 8 MiB per chunk (lunad's MIN_UPLOAD_CHUNK_BYTES, same as the
+    // web app); bigger chunks mean fewer round trips per photo.
+    const val CHUNK_SIZE = 8 * 1024 * 1024
     private val deadlineMs = ThreadLocal<Long?>()
 
     fun <T> withDeadline(ms: Long, block: () -> T): T {
@@ -312,13 +314,28 @@ object LunaApi {
         val buf = ByteArray(CHUNK_SIZE)
         var start = 0L
         while (true) {
-            val read = stream.read(buf)
+            val read = fill(stream, buf)
             if (read <= 0) break
             val chunk = if (read == buf.size) buf else buf.copyOf(read)
             putChunk(baseUrl, token, uploadId, start, chunk, size)
             start += read
         }
         completeUpload(baseUrl, token, uploadId)
+    }
+
+    /**
+     * Reads until [buf] is full or the stream ends. A single read() may return less
+     * (content providers often hand out 64 KiB at a time), which would send many
+     * small chunks.
+     */
+    internal fun fill(stream: InputStream, buf: ByteArray): Int {
+        var off = 0
+        while (off < buf.size) {
+            val n = stream.read(buf, off, buf.size - off)
+            if (n < 0) break
+            off += n
+        }
+        return off
     }
 
     private fun badTokenMessage() =
@@ -363,18 +380,23 @@ object LunaApi {
             headers.forEach { (k, v) -> conn.setRequestProperty(k, v) }
             if (body != null) {
                 conn.doOutput = true
+                conn.setFixedLengthStreamingMode(body.size)
                 conn.outputStream.use { it.write(body) }
             }
             val code = conn.responseCode
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-            val bytes = stream?.readBytes() ?: ByteArray(0)
+            // Reading the body to the end and closing it hands the connection back
+            // to the keep-alive pool, so the next chunk skips a new TLS handshake.
+            val bytes = stream?.use { it.readBytes() } ?: ByteArray(0)
             val setCookie = conn.headerFields?.entries
                 ?.firstOrNull { it.key.equals("Set-Cookie", ignoreCase = true) }
                 ?.value
                 ?.firstOrNull()
             return HttpResult(code, bytes, setCookie)
-        } finally {
+        } catch (e: Exception) {
+            // A half-read connection must not go back to the pool.
             conn.disconnect()
+            throw e
         }
     }
 
@@ -398,7 +420,9 @@ object LunaApi {
             out.write(req.toByteArray(Charsets.ISO_8859_1))
             if (body != null) out.write(body)
             out.flush()
-            val parsed = HttpIo.readResponse(sock.getInputStream())
+            // Buffered: the header parser reads one byte at a time. The same stream
+            // reads the body, so nothing buffered past the headers is lost.
+            val parsed = HttpIo.readResponse(java.io.BufferedInputStream(sock.getInputStream()))
             return HttpResult(parsed.code, parsed.body, parsed.setCookie)
         }
     }
