@@ -1154,6 +1154,24 @@ mod tests {
         crate::Db::new(conn)
     }
 
+    /// Bytes that look random to the chunker but are the same every run (splitmix64
+    /// from a seed). Chunk cuts, and so how many packs a backup makes and which step
+    /// finishes a snapshot, must not change from run to run; with OS randomness a
+    /// 4 MiB fixture crossed a pack boundary about 1 run in 12.
+    fn seeded_vec(len: usize, seed: u64) -> Vec<u8> {
+        let mut state = seed;
+        let mut out = Vec::with_capacity(len + 8);
+        while out.len() < len {
+            state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            out.extend_from_slice(&(z ^ (z >> 31)).to_le_bytes());
+        }
+        out.truncate(len);
+        out
+    }
+
     fn random_vec(len: usize) -> Vec<u8> {
         let mut v = vec![0u8; len];
         OsRng.fill_bytes(&mut v);
@@ -1165,8 +1183,8 @@ mod tests {
     fn source(dir: &Path) -> PathBuf {
         let src = dir.join("src");
         std::fs::create_dir_all(&src).unwrap();
-        std::fs::write(src.join("a.bin"), random_vec(3 << 20)).unwrap();
-        std::fs::write(src.join("b.bin"), random_vec(1 << 20)).unwrap();
+        std::fs::write(src.join("a.bin"), seeded_vec(3 << 20, 1)).unwrap();
+        std::fs::write(src.join("b.bin"), seeded_vec(1 << 20, 2)).unwrap();
         src
     }
 
