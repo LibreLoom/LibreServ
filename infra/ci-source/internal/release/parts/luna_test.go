@@ -117,6 +117,9 @@ func TestLunadSpecs(t *testing.T) {
 	if !hasArg(sargs, "none") || !strings.Contains(strings.Join(sargs, " "), "EXPECT_VERSION") {
 		t.Errorf("smoke args %v", sargs)
 	}
+	if !strings.Contains(strings.Join(sargs, " "), ":/web") {
+		t.Errorf("smoke must mount the web bundle it checks lunad against: %v", sargs)
+	}
 	if smoke.Image != "alpine-smoke" {
 		t.Errorf("smoke image %s", smoke.Image)
 	}
