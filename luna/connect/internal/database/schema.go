@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS devices (
   created_at INTEGER NOT NULL,
   FOREIGN KEY(account_id) REFERENCES accounts(id)
 );
+CREATE INDEX IF NOT EXISTS idx_devices_account ON devices(account_id);
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY,
   account_id TEXT NOT NULL,
@@ -241,6 +242,7 @@ CREATE TABLE IF NOT EXISTS devices (
   revoked INTEGER NOT NULL DEFAULT 0,
   created_at BIGINT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_devices_account ON devices(account_id);
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY,
   account_id TEXT NOT NULL,

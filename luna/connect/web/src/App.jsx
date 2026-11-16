@@ -86,5 +86,3 @@ export default function App() {
     </Suspense>
   );
 }
-
-export { BackupsTab } from "./pages/BackupsPage.jsx";
