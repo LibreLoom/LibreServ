@@ -52,7 +52,16 @@ lane_check() {
 
 	echo "==> cargo test"
 	_t=$(date +%s)
-	LUNA_CONTRACT_RECORD=1 cargo test --workspace
+	# Output goes to a file so the lunad suite's own "finished in" time can be
+	# logged next to the step's total: the difference is compile time. Shown in
+	# full here, since the step's log is the only evidence when it fails.
+	mkdir -p "$ROOT/target"
+	_rc=0
+	LUNA_CONTRACT_RECORD=1 cargo test --workspace >"$ROOT/target/ci-cargo-test.log" 2>&1 || _rc=$?
+	cat "$ROOT/target/ci-cargo-test.log"
+	_run=$(grep -o 'test result: .* [1-9][0-9][0-9][0-9]* passed.*finished in [0-9.]*s' "$ROOT/target/ci-cargo-test.log" | sed 's/.*finished in //' | head -1)
+	echo "$(date +%FT%T) cargo-test: lunad tests ran ${_run:-?} of the step's $(($(date +%s) - _t))s" >>"$ROOT/target/ci-lane-times.log"
+	[ "$_rc" -eq 0 ] || exit "$_rc"
 	lap cargo-test "$_t"
 
 	# Coverage is a report, not a gate, and re-running the whole workspace test
