@@ -327,7 +327,8 @@ func TestMissingPacksFailCutsOnly(t *testing.T) {
 	t.Setenv("LUNA_PACKS_DIR", "")
 	var logs []string
 	logf := func(f string, a ...any) { logs = append(logs, fmt.Sprintf(f, a...)) }
-	if err := checkPacks(packCtx(t, false), logf); err != nil || len(logs) != 2 {
+	// A dev build warns once per missing pack and still succeeds.
+	if err := checkPacks(packCtx(t, false), logf); err != nil || len(logs) != len(packDefs) {
 		t.Fatalf("dev build: err %v, logs %v", err, logs)
 	}
 	b := packCtx(t, true)
