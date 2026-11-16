@@ -2,9 +2,9 @@
   "format": 1,
   "unit": "luna-connect",
   "channel": "beta",
-  "version": "0.0.5",
-  "published": "2026-11-16T03:15:41Z",
-  "notes": "- fix(luna): second copy-truth pass, reviewing the 22 unreviewed chunks\n- fix(luna-connect): going back in onboarding never unlinks the Luna\n- fix(luna-connect): truthful, concise Connect web and server copy\n- feat(ui): PathTrail for menu, file, external-site paths and nav links\n- feat(ui): one SettingsPath component for every settings reference\n- fix(luna): close verification gaps in backup recovery\n- fix(luna): retain paid backups and improve photo upload recovery\n- docs(connect): Managed Payments migration deployed (0.0.4)\n- docs(connect): the production webhook stays on dahlia, with all seven events\n",
+  "version": "0.0.6",
+  "published": "2026-11-16T15:54:44Z",
+  "notes": "",
   "parts": [
     {
       "name": "server",
@@ -12,9 +12,9 @@
       "arch": "amd64",
       "file": "luna-connect-server-linux-amd64",
       "size": 18563232,
-      "sha256": "cd07e3d0c084c5c7b317a5cbd4a21dc3ce434f5e8875b3c10fd6dd5cced54529",
+      "sha256": "7777780157f8b3d43e21155ba2b57a32fb41a33c0fdcda85e8e8ccb1b939d794",
       "urls": [
-        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna-connect/0.0.5/luna-connect-server-linux-amd64"
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna-connect/0.0.6/luna-connect-server-linux-amd64"
       ]
     },
     {
@@ -25,7 +25,7 @@
       "size": 1086576,
       "sha256": "12506a9f80daec1cd65721088a3c143e68ca87c9973f9bf78d7b2868ed0e68ca",
       "urls": [
-        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna-connect/0.0.5/luna-connect-web.tar.gz"
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna-connect/0.0.6/luna-connect-web.tar.gz"
       ]
     }
   ]
