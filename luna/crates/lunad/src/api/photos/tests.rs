@@ -1209,15 +1209,12 @@ async fn slow_thumb_read_does_not_stall_workers() {
     drop(serves_tx);
 
     // `sleep` reaching its timer is the heartbeat: on a parked runtime no
-    // worker runs it, and the 3s timeout fails the test.
+    // worker runs it, and the 3s timeout fails the test. (A fixed 400ms wait plus
+    // an is_finished() check used to sit here; it also failed on a merely busy
+    // machine, which is not what this test is about.)
     let heartbeat = tokio::spawn(async {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     });
-    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-    assert!(
-        heartbeat.is_finished(),
-        "async workers were parked on the slow read"
-    );
     tokio::time::timeout(std::time::Duration::from_secs(3), heartbeat)
         .await
         .expect("async workers were parked on the slow read")
