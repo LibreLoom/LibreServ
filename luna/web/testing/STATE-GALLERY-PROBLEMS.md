@@ -735,3 +735,58 @@ passes the optional blake3 `hash` to `uploads::complete` and gets a mismatch
 refusal, and the fake has no hasher to compare with. Inventing one would mean a
 dependency the harness does not otherwise need, so the fake ignores the
 parameter; everything else about the route is the daemon's.
+
+## Tenth review: the guest's forms, and the numbers in a range
+
+The ninth review left the form routes and the upload chunk's arithmetic alone.
+Both turned out to hold more than the shapes a guest reads.
+
+| Round | Routes | Findings | What happened |
+|---|---|---|---|
+| 3c | `/media`, the guest root's `?meta` | 4 | all 4 confirmed and fixed |
+| 3d | `/items`, `/respond`, `/respond-file` | 7 | all 7 confirmed and fixed |
+| 3e | `/respond`, `/respond-file`, `/items`, `/media` | 4 | all 4 confirmed and fixed |
+| 3f | the answer helpers, the two attachment ceilings | 7 | all 7 confirmed and fixed |
+| 3g | `validate_answers` and its helpers | 3 | all 3 confirmed and fixed |
+| 3h | `validate_answers`, line by line | 0 | clean |
+| 3i | uploads, `/zip`, the gate order | 4 | all 4 confirmed and fixed |
+| 3j | the chunk range, the start window | 2 | both confirmed and fixed |
+| 3k | the chunk range's numbers | 2 | both confirmed and fixed |
+| 3l | the chunk range, end to end | 0 | clean |
+
+An answer is a document Luna writes, so it is judged like one. Answers to
+questions the form no longer asks are dropped rather than refused — a question
+removed while someone was typing must not cost them the rest — while an answer
+that is not the shape its question takes is refused with the question named.
+What "shape" means is per type, and it is stricter than a page's own hints: an
+email is trimmed before it is judged and its domain may not begin or end with a
+dot, a number must sit inside the question's own `min` and `max` and those bounds
+count only when they are real numbers, a choice reads `config.options` alone and
+keeps only the non-empty strings in it, and a file answer must name an attachment
+the server minted. A question whose id is `""` is still judged, but no answer can
+be filed under it, and a label that is not text is not repeated in a refusal.
+
+An attachment has four refusals of its own, in the daemon's order: nothing to
+attach, the wrong kind, an empty file, one past 10 MB — and then two ceilings,
+which are two folders. The waiting queue of unsent attachments has 256 MB and the
+form's whole folder has 2 GB, so a form full of sent files still takes an upload,
+and an answer that names an attachment moves its bytes out of the queue.
+
+The chunk range is read the way lunad reads it, which is stranger than it looks:
+everything from the `/` on is dropped, and what is left is parsed against the
+daemon's one-terabyte file ceiling rather than against the session. A suffix form
+therefore counts back from a terabyte and lands past the file, where it is refused
+for its length — or, if the length happens to fit, by the write. A missing end
+runs to the ceiling and fails the same way. The numbers are read exactly as
+`u64::from_str` reads them: one optional leading `+`, and a value that does not
+fit in 64 bits is a parse refusal rather than a clamp. Only then does the memory
+ceiling apply, and it is the healthy-memory 16 MiB rather than a flat 8.
+
+The start limiter is a fixed minute that resets, not a sliding window, so five
+starts either side of the turn all pass.
+
+Thirty-three findings across these ten rounds, and every one of them fixed. The
+two structural gaps the ninth review recorded — the blake3 `hash` check and
+`/respond-file`'s `.lunaform` resolution — are still recorded rather than fixed,
+because neither can be expressed without a hasher or a form file this fake does
+not have.
