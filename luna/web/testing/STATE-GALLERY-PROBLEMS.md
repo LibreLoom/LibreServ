@@ -636,3 +636,56 @@ re-probed.
 
 The public-share half was swept separately in between, all sixteen `public/`
 scenarios, which is where the seventh review's fixes live; it came back empty too.
+
+## Eighth review: the public-link routes, answered exactly
+
+The seventh review's fixes were checked by re-reading the same eight public
+routes in narrow rounds — a handful of addresses at a time, because a wider
+prompt ran out of steps before it said anything. Two rounds came back empty and
+three more found real gaps, all of them in the fake's answer rather than in a
+screen:
+
+| Round | Asked about | Findings | What they were |
+|---|---|---|---|
+| 2c | root, `/items`, `/list`, `/file`, `/zip` | 10 | 9 confirmed, 1 the reviewer missed (see below) |
+| 2d | `/stat`, `/media`, uploads, `/respond` | 15 | all 15 confirmed |
+| 2c-b | `/file` wording on a folder link | 1 | confirmed |
+| 2c-c | root, `/items`, `/zip`, `/media` after the first fixes | 5 | all 5 confirmed |
+| 2c-d | root `?path`, `/items` paging, album zip name | 5 | all 5 confirmed |
+| 2c-e | root `?path`/`?meta`/`?download`, `/items`, `/list`, `/file`, `/zip` | 6 | all 6 confirmed |
+| 2d-d | `/stat`, `/media`, uploads, `/respond`, the password lock | 13 | 12 confirmed, 1 recorded below |
+
+Every finding was checked against `luna/crates/lunad/src` before anything
+changed, and each fix was then proved in a live frame — a wrong-password count,
+a chunk without a range, a session finished twice, a photo asked for on the wrong
+drive, a single-file link asked for its own root. Two rounds ended without a
+`VERDICT:` line at all (a silent provider, and a thread that vanished mid-report);
+neither counted as a review, and the scope they had covered was re-asked rather
+than assumed.
+
+Two things are worth keeping. A review is a hypothesis, not a verdict on the
+code: 2c's tenth finding — `/zip` on a file link answering the folder wording
+where lunad raises `not_in_share` — was one the reviewer never listed, found
+while checking its nine. And a wide review prompt is a liability: the rounds that
+answered were the ones that asked about five routes and required the verdict on
+the first line, so a step budget could not swallow it.
+
+The upload contract was the largest single correction, and it is now the
+daemon's: a full-access link receives files (CAP_ALL includes CAP_UPLOAD), a
+1 TB ceiling and `safe_name` refuse the same names, an album takes only pictures
+and video, a view-blind link refuses a nested path, a chunk must carry a range
+whose length matches its body, completing before every byte is there is refused,
+a finished or cancelled session is *unknown* (404) rather than *not active*
+(409), and the answer is a `FileEntry` with no stat-only fields. The password
+lock became the daemon's time window — 60 seconds, doubling, cleared by the right
+password — instead of a permanent count, and a single-file link's root serves its
+bytes unless the caller asked for `?meta=1` or JSON. Every view gate now reads
+`full`, `edit`, `write` and `read` as the capabilities they stand for, which they
+did not before: a `full` link was being treated as if it could see nothing.
+
+One finding is recorded and not fixed, because the fake has no form file to lose:
+`respond_lookup` in lunad resolves the `.lunaform` file and answers "This form
+isn't available right now." when it is gone, while the fake keeps the form and
+its answers on the link record itself. Simulating that would mean inventing a
+second store for the same data, so the scenario that exercises a deleted form
+(`forms/respond-link`) covers the answers path instead.
