@@ -94,11 +94,14 @@ struct Inner {
     /// Drives being ejected or removed: new dirty accepts are refused.
     closing: HashSet<String>,
     failed: HashMap<String, FailedSave>,
+    /// Last thumb or listing hit or fill, for [`RamCache::expire_idle`].
+    last_used: Instant,
 }
 
 impl Inner {
     fn new() -> Self {
         Self {
+            last_used: Instant::now(),
             thumbs: HashMap::new(),
             thumb_order: VecDeque::new(),
             thumb_bytes: 0,
@@ -138,6 +141,94 @@ static DRIVE_WRITE_GEN: std::sync::LazyLock<Mutex<HashMap<String, u64>>> =
 
 static DRIVE_WRITTEN: std::sync::LazyLock<tokio::sync::Notify> =
     std::sync::LazyLock::new(tokio::sync::Notify::new);
+
+/// Every live cache, so background work without an `AppState` (the photos
+/// indexer swapping in full-quality thumbnails) can drop stale thumbs.
+static CACHES: std::sync::LazyLock<Mutex<Vec<std::sync::Weak<Mutex<Inner>>>>> =
+    std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
+
+/// A thumbnail file was replaced on disk: no cache may keep serving the old one.
+pub fn thumb_replaced(drive_id: &str, rel: &str) {
+    let mut caches = CACHES.lock().unwrap_or_else(|e| e.into_inner());
+    caches.retain(|weak| match weak.upgrade() {
+        Some(inner) => {
+            let mut g = inner.lock().unwrap_or_else(|e| e.into_inner());
+            RamCache::remove_thumb_locked(&mut g, &thumb_key(drive_id, rel));
+            true
+        }
+        None => false,
+    });
+}
+
+/// After this long without a cache hit or fill, clean entries are dropped so
+/// the RAM-pressure loop can sleep until the next use (D3). The kernel's page
+/// cache still holds the thumbnail files.
+pub const IDLE_EXPIRY: Duration = Duration::from_secs(5 * 60);
+
+/// How long the RAM-pressure loop waits between checks: often only when free
+/// memory is close to the line where it starts shrinking (256 MiB). A memory
+/// stall wakes it sooner where the kernel reports one ([`watch_memory_pressure`]).
+pub fn pressure_check_interval(available_bytes: u64) -> Duration {
+    if available_bytes < 512 * MIB {
+        Duration::from_secs(5)
+    } else {
+        Duration::from_secs(60)
+    }
+}
+
+/// Wake `notify` whenever tasks stall on memory (Linux PSI: 150 ms stalled
+/// within 2 s), from a thread that sleeps in `poll` until then. False when
+/// the kernel offers no trigger (no PSI, or no permission, as in a rootless
+/// container); the RAM-pressure loop then relies on its timer alone.
+pub fn watch_memory_pressure(notify: Arc<tokio::sync::Notify>) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        use std::io::Write;
+        use std::os::fd::AsRawFd;
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/proc/pressure/memory");
+        let Ok(mut file) = file else {
+            return false;
+        };
+        if file.write_all(b"some 150000 2000000\0").is_err() {
+            return false;
+        }
+        std::thread::Builder::new()
+            .name("luna-mem-pressure".into())
+            .spawn(move || {
+                let mut fds = libc::pollfd {
+                    fd: file.as_raw_fd(),
+                    events: libc::POLLPRI,
+                    revents: 0,
+                };
+                loop {
+                    // SAFETY: one valid pollfd that outlives the call.
+                    let n = unsafe { libc::poll(&mut fds, 1, -1) };
+                    if n < 0 {
+                        if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
+                        {
+                            continue;
+                        }
+                        return;
+                    }
+                    if fds.revents & libc::POLLERR != 0 {
+                        return;
+                    }
+                    if fds.revents & libc::POLLPRI != 0 {
+                        notify.notify_one();
+                    }
+                }
+            })
+            .is_ok()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = notify;
+        false
+    }
+}
 
 /// Record that Luna just changed something on this drive.
 pub fn note_drive_write(drive_id: &str) {
@@ -191,11 +282,37 @@ pub fn thumb_etag(len: u64, mtime_secs: u64) -> String {
 
 impl RamCache {
     pub fn new() -> Self {
+        let inner = Arc::new(Mutex::new(Inner::new()));
+        CACHES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(Arc::downgrade(&inner));
         Self {
-            inner: Arc::new(Mutex::new(Inner::new())),
+            inner,
             settled: Arc::new(Condvar::new()),
             filled: Arc::new(tokio::sync::Notify::new()),
         }
+    }
+
+    fn remove_thumb_locked(g: &mut Inner, key: &str) {
+        if let Some(old) = g.thumbs.remove(key) {
+            g.thumb_bytes = g.thumb_bytes.saturating_sub(old.bytes.len() as u64);
+            g.thumb_order.retain(|k| k != key);
+        }
+    }
+
+    /// Drop every thumb and listing once none was used for `idle`; dirty
+    /// buffers always stay. True when the cache is empty afterwards.
+    pub fn expire_idle(&self, idle: Duration) -> bool {
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if g.last_used.elapsed() >= idle {
+            g.thumbs.clear();
+            g.thumb_order.clear();
+            g.thumb_bytes = 0;
+            g.listings.clear();
+            g.listing_order.clear();
+        }
+        g.thumbs.is_empty() && g.listings.is_empty() && g.dirty.is_empty()
     }
 
     fn budget() -> CacheBudget {
@@ -225,6 +342,7 @@ impl RamCache {
             g.thumb_order.retain(|k| k != &key);
         }
         g.thumb_bytes += entry.bytes.len() as u64;
+        g.last_used = Instant::now();
         g.thumbs.insert(key.clone(), entry);
         g.thumb_order.push_back(key);
         self.filled.notify_one();
@@ -249,6 +367,7 @@ impl RamCache {
         let key = thumb_key(drive_id, rel);
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let entry = g.thumbs.get(&key)?.clone();
+        g.last_used = Instant::now();
         // LRU touch
         g.thumb_order.retain(|k| k != &key);
         g.thumb_order.push_back(key);
@@ -262,10 +381,7 @@ impl RamCache {
     pub fn invalidate_thumb(&self, drive_id: &str, rel: &str) {
         let key = thumb_key(drive_id, rel);
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(old) = g.thumbs.remove(&key) {
-            g.thumb_bytes = g.thumb_bytes.saturating_sub(old.bytes.len() as u64);
-            g.thumb_order.retain(|k| k != &key);
-        }
+        Self::remove_thumb_locked(&mut g, &key);
     }
 
     pub fn put_listing(&self, drive_id: &str, rel: &str, dir_mtime: i64, entries: Vec<FileEntry>) {
@@ -287,6 +403,7 @@ impl RamCache {
             },
         );
         g.listing_order.push_back(key);
+        g.last_used = Instant::now();
         self.filled.notify_one();
     }
 
@@ -311,6 +428,7 @@ impl RamCache {
             return None;
         }
         let out = entry.entries.clone();
+        g.last_used = Instant::now();
         g.listing_order.retain(|k| k != &key);
         g.listing_order.push_back(key);
         Some(out)
@@ -908,6 +1026,39 @@ impl RamCache {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[test]
+    fn an_unused_cache_empties_itself_and_a_used_one_does_not() {
+        let cache = RamCache::new();
+        cache.put_thumb("d1", "a.jpg", b"jpeg-a".to_vec(), 10);
+        assert!(
+            !cache.expire_idle(Duration::from_secs(60)),
+            "just used: kept"
+        );
+        assert!(cache.get_thumb("d1", "a.jpg").is_some());
+        assert!(
+            cache.expire_idle(Duration::ZERO),
+            "idle long enough: emptied"
+        );
+        assert!(cache.get_thumb("d1", "a.jpg").is_none());
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn a_replaced_thumbnail_leaves_every_cache() {
+        let (a, b) = (RamCache::new(), RamCache::new());
+        a.put_thumb("d-replaced", "x.jpg", b"old".to_vec(), 1);
+        b.put_thumb("d-replaced", "x.jpg", b"old".to_vec(), 1);
+        thumb_replaced("d-replaced", "x.jpg");
+        assert!(a.get_thumb("d-replaced", "x.jpg").is_none());
+        assert!(b.get_thumb("d-replaced", "x.jpg").is_none());
+    }
+
+    #[test]
+    fn the_pressure_check_is_frequent_only_near_the_line() {
+        assert_eq!(pressure_check_interval(300 * MIB), Duration::from_secs(5));
+        assert_eq!(pressure_check_interval(1500 * MIB), Duration::from_secs(60));
+    }
 
     #[test]
     fn thumb_round_trip_and_lru_evict() {

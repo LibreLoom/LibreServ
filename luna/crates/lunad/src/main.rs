@@ -229,6 +229,8 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
             .spawn(move || {
                 use std::sync::atomic::Ordering;
                 use std::time::Duration;
+                const RESTART_GAP: Duration = Duration::from_secs(5);
+                let mut last_restart: Option<std::time::Instant> = None;
 
                 while !stop.load(Ordering::Relaxed) {
                     let _ = connect.poll_status();
@@ -242,21 +244,32 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
                     let interval = Duration::from_secs(connect.poll_interval_secs(setup_open));
                     let deadline = std::time::Instant::now() + interval;
                     // Block until the next pull (or a wake) instead of ticking every
-                    // second. While a tunnel is expected, look every 5 s during long
-                    // steady-state waits (300 s): otherwise a dead cloudflared child
-                    // is not noticed until the next Connect poll.
+                    // second. While a tunnel is expected but its child can't be
+                    // watched (no pidfd, or a connector left by an earlier lunad),
+                    // look every 5 s during long steady-state waits (300 s):
+                    // otherwise a dead cloudflared is not noticed until the next poll.
                     while !stop.load(Ordering::Relaxed) {
                         let left = deadline.saturating_duration_since(std::time::Instant::now());
                         if left.is_zero() {
                             break;
                         }
-                        let slice = if connect.expects_tunnel() {
+                        // A watched cloudflared wakes this loop itself when
+                        // it exits; only an unwatched one is looked at.
+                        let slice = if connect.expects_tunnel() && !connect.tunnel_watched() {
                             left.min(Duration::from_secs(5))
                         } else {
                             left
                         };
                         if wake.wait(slice) {
-                            break;
+                            if !connect.take_tunnel_exit() {
+                                break;
+                            }
+                            // The watched cloudflared exited: restart it, at
+                            // most every 5 s so one that dies at once can't spin.
+                            if let Some(at) = last_restart {
+                                std::thread::sleep(RESTART_GAP.saturating_sub(at.elapsed()));
+                            }
+                            last_restart = Some(std::time::Instant::now());
                         }
                         connect.ensure_tunnel_if_needed();
                     }
@@ -436,13 +449,33 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
     // flush dirty writes early rather than dropping them.
     // An empty cache has nothing to reclaim, so the loop sleeps until
     // something is cached instead of waking every 5 s on an idle Luna.
+    // While it holds something it checks every minute (every 5 s close to
+    // the line), wakes at once on a kernel memory-stall report, and empties
+    // itself after IDLE_EXPIRY without use, so a used-but-idle Luna sleeps (D3).
     let pressure_state = state.clone();
+    let stalled = std::sync::Arc::new(tokio::sync::Notify::new());
+    let psi = lunad::drives::ram_cache::watch_memory_pressure(stalled.clone());
+    tracing::info!(
+        psi,
+        "RAM cache: memory stalls {}",
+        if psi {
+            "wake the pressure check"
+        } else {
+            "not reported by this kernel; pressure check runs on its timer"
+        }
+    );
     bg_tasks.push(tokio::spawn(async move {
+        use lunad::drives::ram_cache::{IDLE_EXPIRY, pressure_check_interval};
         loop {
             pressure_state.ram_cache.wait_until_filled().await;
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            let wait = pressure_check_interval(lunad::budget::meminfo().available_bytes);
+            tokio::select! {
+                _ = tokio::time::sleep(wait) => {}
+                _ = stalled.notified() => {}
+            }
             let state = pressure_state.clone();
             let _ = tokio::task::spawn_blocking(move || {
+                state.ram_cache.expire_idle(IDLE_EXPIRY);
                 state.ram_cache.reclaim_for_pressure(|drive_id| {
                     let Ok(conn) = state.db.lock() else {
                         return None;

@@ -180,6 +180,11 @@ pub struct ConnectService {
     cached_wan_ip: Mutex<Option<std::net::IpAddr>>,
     /// Set to cut the poll loop's sleep short (link came up, device token saved).
     poll_wake: Arc<PollWake>,
+    /// Watch number of the cloudflared child a thread is waiting on, 0 when
+    /// none is (see [`watch_child_exit`]).
+    tunnel_watch: Arc<std::sync::atomic::AtomicU64>,
+    /// Set by the watch when the managed cloudflared exits on its own.
+    tunnel_exited: Arc<std::sync::atomic::AtomicBool>,
     local_port: u16,
 }
 
@@ -216,6 +221,8 @@ impl ConnectService {
             tunnel_error: Mutex::new(None),
             cached_wan_ip: Mutex::new(cached_wan_ip),
             poll_wake: Arc::new(PollWake::default()),
+            tunnel_watch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            tunnel_exited: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             local_port: 8090,
         }
     }
@@ -273,6 +280,19 @@ impl ConnectService {
             status.backup_sources = Vec::new();
         }
         status
+    }
+
+    /// True while a thread waits on the managed cloudflared child and will
+    /// wake the poll loop the moment it exits, so the loop need not look.
+    pub fn tunnel_watched(&self) -> bool {
+        self.tunnel_watch.load(std::sync::atomic::Ordering::Acquire) != 0
+    }
+
+    /// True once after the watched cloudflared exited on its own (not
+    /// stopped or replaced by Luna): the poll loop's wake was for that.
+    pub fn take_tunnel_exit(&self) -> bool {
+        self.tunnel_exited
+            .swap(false, std::sync::atomic::Ordering::AcqRel)
     }
 
     /// Wakes the poll loop; waking it makes the next pull happen now.
@@ -1156,6 +1176,37 @@ impl ConnectService {
 
         self.clear_tunnel_error();
         *self.active_tunnel_token.lock().unwrap() = Some(token);
+        // Wake the poll loop when this child exits, so it restarts the tunnel
+        // without polling the child every few seconds.
+        static WATCHES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let id = WATCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let (watch, exited, wake) = (
+            self.tunnel_watch.clone(),
+            self.tunnel_exited.clone(),
+            self.poll_wake.clone(),
+        );
+        self.tunnel_watch
+            .store(id, std::sync::atomic::Ordering::Release);
+        let watched = watch_child_exit(child.id(), move || {
+            // Still the current child: it died by itself. A child Luna
+            // stopped or replaced has a cleared or newer watch number.
+            let current = watch
+                .compare_exchange(
+                    id,
+                    0,
+                    std::sync::atomic::Ordering::AcqRel,
+                    std::sync::atomic::Ordering::Acquire,
+                )
+                .is_ok();
+            if current {
+                exited.store(true, std::sync::atomic::Ordering::Release);
+                wake.wake();
+            }
+        });
+        if !watched {
+            self.tunnel_watch
+                .store(0, std::sync::atomic::Ordering::Release);
+        }
         if let Some(mut old) = self.child.lock().unwrap().replace(child) {
             let _ = old.kill();
             let _ = old.wait();
@@ -1226,6 +1277,8 @@ impl ConnectService {
 
     fn stop_tunnel_unlocked(&self) {
         *self.active_tunnel_token.lock().unwrap() = None;
+        self.tunnel_watch
+            .store(0, std::sync::atomic::Ordering::Release);
         if let Some(mut child) = self.child.lock().unwrap().take() {
             let _ = child.kill();
             let _ = child.wait();
@@ -1466,6 +1519,50 @@ impl ConnectService {
 pub struct ConnectLunaId {
     pub luna_id: String,
     pub has_signing_key: bool,
+}
+
+/// Call `on_exit` from a new thread once process `pid` (a child not yet
+/// reaped) exits. The thread sleeps in `poll` on a pidfd: no timer, and
+/// reaping by `Child::wait` elsewhere is unaffected. False when the kernel
+/// has no pidfd (before Linux 5.3); callers then keep polling.
+pub(crate) fn watch_child_exit(pid: u32, on_exit: impl FnOnce() + Send + 'static) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+        // SAFETY: pidfd_open takes a pid and flags and returns a new fd or -1.
+        let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) };
+        if fd < 0 {
+            return false;
+        }
+        // SAFETY: a fresh fd we own.
+        let fd = unsafe { OwnedFd::from_raw_fd(fd as i32) };
+        std::thread::Builder::new()
+            .name("luna-tunnel-watch".into())
+            .spawn(move || {
+                let mut pfd = libc::pollfd {
+                    fd: fd.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                loop {
+                    // SAFETY: one valid pollfd that outlives the call.
+                    let n = unsafe { libc::poll(&mut pfd, 1, -1) };
+                    if n >= 0
+                        || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+                    {
+                        break;
+                    }
+                }
+                drop(fd);
+                on_exit();
+            })
+            .is_ok()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (pid, on_exit);
+        false
+    }
 }
 
 fn luna_ids_unreadable() -> ConnectError {
@@ -1861,6 +1958,25 @@ pub fn detect_public_ip_fallback() -> Option<std::net::IpAddr> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_watched_child_reports_its_exit_without_polling() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("0.2")
+            .spawn()
+            .unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        assert!(super::watch_child_exit(child.id(), move || {
+            let _ = tx.send(());
+        }));
+        assert!(
+            rx.recv_timeout(std::time::Duration::from_secs(10)).is_ok(),
+            "the exit is reported"
+        );
+        // The watch does not reap: the owner's wait still gets the status.
+        assert!(child.wait().unwrap().success());
+    }
+
     #[test]
     fn poll_wake_cuts_the_wait_short_once() {
         let wake = std::sync::Arc::new(super::PollWake::default());
