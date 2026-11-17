@@ -326,27 +326,27 @@ function open(w, token, headers) {
   // behind a password is not refused after the folder next to it opened fine.
   if (l.password) {
     const proofs = proofsOf(w);
-    // lunad locks the link after eight consecutive wrong passwords, and the
-    // lock is checked before the header is even read — so a then-correct
-    // password is refused until the wait is over. The window grows with each
-    // failure beyond the eighth (60s, then 120s, 240s…), and a correct
-    // password clears the count once the wait has passed.
+    // A proof cookie is checked before the lock, as lunad does: a guest who
+    // already unlocked keeps working while someone else is guessing.
+    if (proofs.get(l.id) === l.password) return { s, l };
     const tries = failedTries(w);
-    const bucket = tries.get(l.id);
-    if (bucket && bucket.until > nowSec())
+    const mine = tries.get(l.id);
+    const anyone = tries.get(`${l.id}:any`);
+    const now = nowSec();
+    if ((mine && mine.until > now) || (anyone && anyone.until > now))
       return {
         err: fail(429, "Too many wrong passwords. Wait a few minutes and try again."),
       };
     const given = header(headers, "x-share-password");
-    const unlocked = proofs.get(l.id) === l.password;
     if (given && given === l.password) {
       proofs.set(l.id, l.password);
+      // Only this client's budget clears; the link-wide one an attacker is
+      // burning through stays spent, as `clear_success` does.
       tries.delete(l.id);
-    } else if (!unlocked) {
+    } else {
       if (given) {
-        const count = (bucket?.count || 0) + 1;
-        const until = count >= 8 ? nowSec() + 60 * 2 ** Math.min(count - 8, 10) : 0;
-        tries.set(l.id, { count, until });
+        bumpShareAuth(tries, `${l.id}:any`, 64);
+        bumpShareAuth(tries, l.id, 8);
       }
       return { err: fail(401, "This link needs its password.") };
     }
@@ -378,6 +378,24 @@ function linkSegments(raw) {
 function failedTries(w) {
   if (!w.shareAuthTries) w.shareAuthTries = new Map();
   return w.shareAuthTries;
+}
+
+/**
+ * `share_auth_failure`: count a wrong guess and start the wait once the count
+ * reaches this bucket's ceiling. A bucket that is already waiting is left
+ * alone, and the window doubles for each failure past the ceiling.
+ *
+ * @param {Map<string, { count: number, until: number }>} tries
+ * @param {string} key
+ * @param {number} max
+ */
+function bumpShareAuth(tries, key, max) {
+  const now = nowSec();
+  const bucket = tries.get(key);
+  if (bucket && bucket.until > now) return;
+  const count = (bucket?.count || 0) + 1;
+  const until = count >= max ? now + 60 * 2 ** Math.min(count - max, 10) : 0;
+  tries.set(key, { count, until });
 }
 
 /**
@@ -419,9 +437,12 @@ function zipArchiveBase(fullRel) {
   if (trimmed === ".luna-trash") return "trash";
   if (!trimmed) return "drive";
   const leaf = trimmed.split("/").pop();
+  // `content_disposition_filename` runs first: a folder whose name only cleans
+  // to "download" (`:download`) collides with the browser's own default too.
+  const cleaned = dispositionName(leaf);
   // A folder genuinely named "download" would collide with the browser's own
   // default name, so the daemon renames the archive instead.
-  return leaf === "download" ? "folder" : leaf;
+  return cleaned === "download" ? "folder" : cleaned;
 }
 
 function treeOf(w, token, s) {
@@ -538,7 +559,7 @@ function dispositionName(name) {
  * splitting alone misses the aliases and lets a full-access link through as if
  * it could not see anything.
  *
- * @param {string} caps
+ * @param {string | string[]} caps
  * @returns {Set<string>}
  */
 function capSet(caps) {
@@ -561,6 +582,40 @@ function sees(caps) {
 /** `accept_json`: does the caller want to be told about the file, not handed it? */
 function acceptJson(headers) {
   return /application\/json/i.test(String(header(headers, "accept") || ""));
+}
+
+/**
+ * Axum deserializes a query before the handler runs, so `?limit=abc` is a 400
+ * rather than a clamped page. The fake answers with the same rejection so a
+ * guest who mistypes a number is told, not quietly served page one.
+ *
+ * @param {Record<string, any>} query
+ * @param {string} name
+ * @param {"u8" | "u32"} kind
+ * @returns {{ value?: number, error?: any }}
+ */
+function queryInt(query, name, kind) {
+  const raw = query?.[name];
+  if (raw === undefined) return {};
+  const text = String(raw);
+  if (!/^\d+$/.test(text))
+    return {
+      error: fail(400, `Failed to deserialize query string: ${name}: invalid digit found in string`),
+    };
+  const max = kind === "u8" ? 255 : 4_294_967_295;
+  const n = Number(text);
+  if (n > max)
+    return {
+      error: fail(400, `Failed to deserialize query string: ${name}: number too large to fit in target type`),
+    };
+  return { value: n };
+}
+
+/** `marker::extract_prefix(name).is_some()`: a `.luna-<uuid>` name is ours. */
+function isInternalName(name) {
+  return /^\.luna-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/.test(
+    String(name || ""),
+  );
 }
 
 /** `files::safe_name`: a bare, non-empty basename a drive can hold. */
@@ -623,6 +678,10 @@ function nodeAt(tree, segments) {
 const publicGet = (p, h) => get(p, h, { public: true });
 
 publicGet("/s/:token", ({ world, params, query, headers }) => {
+  // Axum rejects a query it cannot deserialize before the handler body runs, so
+  // a bad `?meta` or `?download` is a 400 even for a token that is unknown.
+  const badRoot = queryInt(query, "meta", "u8").error || queryInt(query, "download", "u8").error;
+  if (badRoot) return badRoot;
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
   const { s, l } = r;
@@ -725,6 +784,8 @@ publicGet("/s/:token", ({ world, params, query, headers }) => {
 });
 
 publicGet("/s/:token/items", ({ world, params, query, headers }) => {
+  const badItems = queryInt(query, "limit", "u32").error || queryInt(query, "offset", "u32").error;
+  if (badItems) return badItems;
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
   // lunad's `public_items` answers `gone()` for any link that is not a viewable
@@ -800,13 +861,20 @@ publicGet("/s/:token/media", ({ world, params, query, headers }) => {
     return fail(404, "Luna couldn't find that photo.");
   const variant = String(query.variant || "content");
   const url = variant === "thumb" ? photo.thumb : photo.content;
-  if (!url) return fail(404, "Luna can't find that anymore. Refresh and try again.");
+  // `public_media` names the thumb's own miss after the album ("that photo is
+  // not part of this shared album"), and every other variant's miss after the
+  // file ("couldn't find that photo"), because a thumb is derived from an
+  // album item while content is resolved on the drive.
+  const missingVariant = (name) =>
+    variant === "thumb"
+      ? fail(404, "That photo is not part of this shared album.")
+      : fail(404, `Luna couldn't find that ${name}.`);
+  if (!url) return missingVariant("photo");
   // The fake's pictures are inline `data:` URLs, so the guest's bytes are the
   // decoded body of one. Any parameters before the comma (`;utf8`) are part of
   // the media type, not of the payload.
   const comma = url.indexOf(",");
-  if (!url.startsWith("data:") || comma < 0)
-    return fail(404, "Luna can't find that anymore. Refresh and try again.");
+  if (!url.startsWith("data:") || comma < 0) return missingVariant("photo");
   const meta = url.slice(5, comma);
   const body = url.slice(comma + 1);
   const type = meta.split(";")[0];
@@ -824,6 +892,8 @@ publicGet("/s/:token/media", ({ world, params, query, headers }) => {
 });
 
 publicGet("/s/:token/list", ({ world, params, query, headers }) => {
+  const badList = queryInt(query, "download", "u8").error;
+  if (badList) return badList;
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
   // lunad's public_list requires a path subject with view access: an album or a
@@ -850,11 +920,31 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
     // asks what the target is, so asking a file link for something below the
     // file is a miss with the listing's own wording, not the is_dir refusal.
     if (segments.length) return fail(404, "The shared folder isn't available right now.");
-    return listing([{ name: r.s.name, kind: "file", size: 120_000, modified: nowSec() - 86400, hidden: false }]);
+    // The one entry is `files::stat`'s own answer, so it carries what a stat
+    // carries — including the fields that are always printed as null.
+    return listing([
+      {
+        name: r.s.name,
+        kind: "file",
+        size: 120_000,
+        modified: nowSec() - 86400,
+        created: nowSec() - 86400 * 30,
+        hidden: false,
+        writable: false,
+        children: null,
+        totals: null,
+      },
+    ]);
   }
   // A guest who opens a folder sees that folder's entries, not the root again.
   const tree = treeOf(world, params.token, r.s);
-  if (!segments.length) return listing(tree.filter((e) => linkReaches(world, r.l, e.name, r.s.drive_id, r.s.path)));
+  // `public_list` drops hidden entries and Luna's own marker folders before it
+  // answers, so a dotfile or a `.luna-` marker is never listed to a guest.
+  const visible = (e) => !e.hidden && !isInternalName(e.name);
+  if (!segments.length)
+    return listing(
+      tree.filter((e) => visible(e) && linkReaches(world, r.l, e.name, r.s.drive_id, r.s.path)),
+    );
   let level = tree;
   for (const [i, seg] of segments.entries()) {
     const soFar = segments.slice(0, i + 1).join("/");
@@ -878,7 +968,13 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
     }
     level = found.children || [];
   }
-  return listing(level.filter((e) => linkReaches(world, r.l, [...segments, e.name].join("/"), r.s.drive_id, r.s.path)));
+  return listing(
+    level.filter(
+      (e) =>
+        visible(e) &&
+        linkReaches(world, r.l, [...segments, e.name].join("/"), r.s.drive_id, r.s.path),
+    ),
+  );
 });
 // `GET /s/:token/zip`: an album link zips the album, a folder link zips that
 // folder, and a link to one file hands back the file itself. Without this the
@@ -956,14 +1052,6 @@ function serveSharedFile(world, r, rel, name, download = false) {
   });
 }
 
-/** The entries directly inside a link's own folder, for a stat of its root. */
-function sharedLevel(world, token, r, linkRel) {
-  const tree = treeOf(world, token, r.s);
-  const inner = linkRel ? nodeAt(tree, linkRel.split("/")) : null;
-  const level = inner ? inner.children || [] : tree;
-  const prefix = linkRel ? `${linkRel}/` : "";
-  return level.filter((e) => linkReaches(world, r.l, `${prefix}${e.name}`, r.s.drive_id, r.s.path));
-}
 
 /** `files::inline_safe`: mimes a browser may render in place. */
 /** `files::inline_safe`: mimes a browser may render in place. */
@@ -981,6 +1069,8 @@ function inlineSafe(type) {
 }
 
 publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
+  const badZip = queryInt(query, "download", "u8").error;
+  if (badZip) return badZip;
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
   // lunad's gate is `caps & CAP_VIEW == 0`. "full" is CAP_ALL, which includes
@@ -1106,22 +1196,28 @@ publicGet("/s/:token/stat", ({ world, params, query, headers }) => {
   if (!entry) return fail(404, "Luna can't find that anymore. Refresh and try again.");
   if (!linkReaches(world, r.l, rel, r.s.drive_id, r.s.path))
     return fail(404, "That item isn't part of this shared link.");
+  // `files::stat` counts a folder's direct contents unfiltered — a private item
+  // inside the share is counted too — so the root's counts come from the tree
+  // level itself rather than from what this link may list.
+  const level = entry.kind === "dir"
+    ? entry.children || (segments.length ? [] : treeOf(world, params.token, r.s))
+    : [];
   return {
     name: entry.name,
     kind: entry.kind === "dir" ? "dir" : "file",
     size: entry.size ?? (entry.kind === "dir" ? 0 : 120_000),
     modified: nowSec() - 86400,
-    // `FileStat` only carries child counts for a folder, and leaves both
-    // `children` and `totals` out when it has nothing to say.
-    ...(entry.kind === "dir"
-      ? { children: childCounts(entry.children || sharedLevel(world, params.token, r, statRel)) }
-      : {}),
     created: nowSec() - 86400 * 30,
     hidden: false,
     // `CAP_ALL` ("full") includes `CAP_EDIT`, and the share's own root is
     // never writable whatever the capability says: the daemon compares the
     // resolved drive path against the link's own path.
     writable: capSet(caps).has("edit") && [statRel, rel].filter(Boolean).join("/") !== statRel,
+    // `public_stat` re-wraps the stat in `json!`, which prints `None` as null,
+    // so both keys are always there — null for a file, a count object for a
+    // folder, and `totals` (which the daemon never fills) always null.
+    children: entry.kind === "dir" ? childCounts(level) : null,
+    totals: null,
   };
 });
 
@@ -1129,6 +1225,8 @@ publicGet("/s/:token/stat", ({ world, params, query, headers }) => {
 // so without this route a link's editor showed "{}" — the router's answer for
 // a path nothing matched — as if that were the file's text.
 publicGet("/s/:token/file", ({ world, params, query, headers }) => {
+  const badFile = queryInt(query, "download", "u8").error;
+  if (badFile) return badFile;
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
   // Same subject and capability rule as lunad's public_file: only a path link
@@ -1224,22 +1322,59 @@ post("/s/:token/upload", ({ world, params, headers, body }) => {
   if (!name) return fail(400, "That file name can't be used. Try renaming it.");
   const dest = String(body.path ?? "").trim().replace(/^\/+|\/+$/g, "");
   const caps = capSet(r.l.caps);
-  // `guest_child_for_create`: a view-blind link can name one item at the shared
-  // root but cannot navigate, because a nested path would leak its layout.
-  if (!caps.has("view") && dest.includes("/"))
-    return fail(400, "This link only accepts items at the top level.");
   // An album holds pictures and video and nothing else, so an upload there has
   // to be one of those or it would land somewhere nobody can open.
   if (r.s.kind === "album" && !isMediaName(name))
     return fail(400, "Only photos and videos can go in this album.");
+  // `upload_dest` resolves the destination before a session exists, so a dead
+  // drive, a folder outside the link or a file where a folder was named all
+  // answer here rather than at complete time.
+  let landIn = "";
+  let finalName = name;
+  if (r.s.kind === "album") {
+    // `album_for_link`: the album's own drive has to be there and readable.
+    const albumRes = albumFor(world, r.s);
+    if (albumRes.err) return albumRes.err;
+  } else {
+    const gone = unavailableShare(world, r.s, "The shared folder isn't available right now.");
+    if (gone) return gone;
+    if (r.s.is_file) {
+      // A full-access link to one file replaces that file: the daemon takes the
+      // name from the link's own path, not from the request body.
+      finalName = safeName(String(r.s.path || "").split("/").pop()) || name;
+    } else {
+      // Drop boxes always land at the share root — letting a blind uploader
+      // name a subfolder would let them probe which folders exist, so the path
+      // is dropped rather than refused.
+      const asked = caps.has("view") ? dest : "";
+      const segments = linkSegments(asked);
+      if (!segments) return fail(400, "That folder isn't part of this shared link.");
+      const tree = treeOf(world, params.token, r.s);
+      const target = nodeAt(tree, segments);
+      if (!target) return fail(404, "That folder isn't part of this shared link.");
+      if (target.kind !== "dir") return fail(400, "Uploads can only go into a folder.");
+      if (!linkReaches(world, r.l, segments.join("/"), r.s.drive_id, r.s.path))
+        return fail(404, "That item isn't part of this shared link.");
+      landIn = segments.join("/");
+    }
+  }
   const id = nextId("up");
   // A session outlives the request that made it, and the daemon tells one it
   // never made (404) from one another link owns (403), so the bookkeeping lives
   // on the world rather than in a list beside the link.
   world.uploads ||= {};
-  world.uploads[id] = { linkId: r.l.id, name, size, dest, received: 0, covered: 0, state: "open" };
+  world.uploads[id] = {
+    linkId: r.l.id,
+    name: finalName,
+    size,
+    dest: landIn,
+    received: 0,
+    covered: 0,
+    ranges: [],
+    state: "open",
+  };
   r.l.uploadIds = [...(r.l.uploadIds || []), id];
-  return { upload_id: id, received: 0, size, name };
+  return { upload_id: id, received: 0, size, name: finalName };
 }, { public: true });
 // Every later request proves the session belongs to this link and is still
 // running. lunad deletes the session row when an upload finishes or is
@@ -1260,13 +1395,17 @@ put("/s/:token/upload/:id", ({ world, params, headers, raw }) => {
   if (denied) return denied;
   const found = uploadFor(world, r, params.id);
   if (found.err) return found.err;
-  const spec = headers["content-range"];
+  const spec = String(headers["content-range"] ?? "");
   if (!spec)
     return fail(400, "Each chunk needs a Content-Range header (bytes start-end/total).");
-  const range = /^bytes\s+(\d+)-(\d+)/.exec(String(spec));
-  if (!range) return fail(400, "That chunk range isn't valid.");
-  const start = Number(range[1]);
-  const end = Number(range[2]);
+  // `strip_prefix("bytes ")` is literal: two spaces is not a range. A suffix
+  // form (`bytes -100/200`) counts back from the total.
+  const rest = spec.startsWith("bytes ") ? spec.slice(6) : null;
+  const suffix = rest ? /^-(\d+)\/(\d+)$/.exec(rest) : null;
+  const range = !suffix && rest ? /^(\d+)-(\d+)(?:\/.*)?$/.exec(rest) : null;
+  if (!suffix && !range) return fail(400, "That chunk range isn't valid.");
+  const start = suffix ? Math.max(Number(suffix[2]) - Number(suffix[1]), 0) : Number(range[1]);
+  const end = suffix ? Number(suffix[2]) - 1 : Number(range[2]);
   // lunad reads the range up to the `/`, so a missing total is fine, but a
   // start past its end is refused rather than measured.
   if (start > end) return fail(400, "That chunk range isn't valid.");
@@ -1275,8 +1414,23 @@ put("/s/:token/upload/:id", ({ world, params, headers, raw }) => {
   // Every byte is counted once: a short body would leave a hole that is written
   // out as zeroes, so it is refused instead of accepted.
   if (got !== expected) return fail(400, "The chunk size doesn't match its range.");
+  // `write_chunk` refuses a range that runs past the declared size instead of
+  // growing the file beyond what was asked for.
+  if (end >= found.up.size)
+    return fail(400, "The upload isn't complete yet. Check the connection and try again.");
+  // Coverage is the union of the ranges written, so out-of-order chunks still
+  // add up — a single `max` would forget everything but the widest chunk.
+  found.up.ranges.push([start, end]);
+  const merged = [...found.up.ranges].sort((a, b) => a[0] - b[0]);
+  let covered = 0;
+  let openEnd = -1;
+  for (const [from, to] of merged) {
+    if (to <= openEnd) continue;
+    covered += to - Math.max(from, openEnd + 1) + 1;
+    openEnd = to;
+  }
+  found.up.covered = covered;
   found.up.received = Math.max(found.up.received, end + 1);
-  found.up.covered = Math.max(found.up.covered, expected);
   return { upload_id: params.id, received: found.up.received };
 }, { public: true });
 post("/s/:token/upload/:id/complete", ({ world, params, query, headers }) => {
@@ -1288,9 +1442,12 @@ post("/s/:token/upload/:id/complete", ({ world, params, query, headers }) => {
   if (found.err) return found.err;
   const up = found.up;
   // `uploads::complete` installs nothing until every byte is there, so a session
-  // that skipped a chunk is refused rather than written out with a hole.
-  if (up.covered < up.size)
+  // that skipped a chunk is refused rather than written out with a hole — and a
+  // refused complete marks the session errored, so it cannot be retried.
+  if (up.covered < up.size) {
+    up.state = "error";
     return fail(400, "The upload isn't complete yet. Check the connection and try again.");
+  }
   const caps = capSet(r.l.caps);
   // A guest who can see the folder gets a refusal on a taken name; a guest who
   // cannot (a drop box, an album) gets a new name instead, because a refusal
@@ -1321,8 +1478,11 @@ del("/s/:token/upload/:id", ({ world, params, headers }) => {
   if (r.err) return r.err;
   const denied = uploadGate(r);
   if (denied) return denied;
-  const found = uploadFor(world, r, params.id);
-  if (found.err) return found.err;
+  // `uploads::cancel` does not look at the session state: cancelling an upload
+  // whose complete failed is how a guest clears it out.
+  const session = world.uploads?.[params.id];
+  if (!session) return fail(404, "Luna doesn't know this upload.");
+  if (session.linkId !== r.l.id) return fail(403, "That upload isn't part of this link.");
   // Cancelling drops the session, so the id is unknown afterwards, exactly as
   // it is after a finished upload.
   delete world.uploads[params.id];
@@ -1340,12 +1500,12 @@ function destTaken(world, r, dest, name) {
   }
 }
 
-/** The `"name (2).ext"` a view-blind upload lands on when the name is taken. */
+/** The `"name (1).ext"` a view-blind upload lands on when the name is taken. */
 function freeName(world, r, dest, name) {
   const dot = name.lastIndexOf(".");
   const stem = dot > 0 ? name.slice(0, dot) : name;
   const ext = dot > 0 ? name.slice(dot) : "";
-  for (let n = 2; n < 1000; n += 1) {
+  for (let n = 1; n < 1000; n += 1) {
     const candidate = `${stem} (${n})${ext}`;
     if (!destTaken(world, r, dest, candidate)) return candidate;
   }
