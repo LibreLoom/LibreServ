@@ -595,8 +595,36 @@ function respondGate(s, caps) {
 }
 
 /** One `settings` key of a form document. */
+/**
+ * The form document a respond link answers. A scenario that does not carry one
+ * answers the RSVP the gallery shows, so the questions a page asks and the
+ * answers the route judges come from the same place.
+ *
+ * @param {any} l
+ */
+function formOf(l) {
+  return (
+    l.form || {
+      title: "RSVP",
+      version: 1,
+      questions: [
+        { id: "q1", type: "short_text", label: "Your name", required: true },
+        {
+          id: "q2",
+          type: "choice",
+          label: "Can you come?",
+          required: true,
+          config: { options: ["Yes", "No", "Maybe"] },
+        },
+        { id: "q3", type: "long_text", label: "Anything we should know?" },
+      ],
+      settings: { allowEdits: true, collecting: true },
+    }
+  );
+}
+
 function formSetting(l, key) {
-  return l.form?.settings?.[key];
+  return formOf(l).settings?.[key];
 }
 
 /** `form_allows_edits`: a missing flag means changes are allowed. */
@@ -659,6 +687,86 @@ function metaWanted(query, headers) {
 /** The extensions a form attachment may use, and the name the daemon mints. */
 const ATTACH_EXTS = { jpg: "jpg", jpeg: "jpg", png: "png", gif: "gif", webp: "webp", pdf: "pdf" };
 const ATTACH_KIND_MESSAGE = "Attach a photo (JPG, PNG, GIF, or WebP) or a PDF.";
+
+/** `answer_value_ok`: a scalar, or a list of scalars. */
+function answerValueOk(value) {
+  if (value === null || typeof value !== "object") return true;
+  if (!Array.isArray(value)) return false;
+  return value.every((item) => item === null || typeof item !== "object");
+}
+
+/** `is_answered`: a non-empty string, a non-empty list, or any scalar. */
+function isAnswered(value) {
+  if (value === undefined || value === null) return false;
+  if (typeof value === "string") return value.trim() !== "";
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+}
+
+/** The options a choice question offers, as strings. */
+function questionOptions(question) {
+  const config = question?.config?.options ?? question?.options;
+  return Array.isArray(config) ? config.map((o) => String(o)) : [];
+}
+
+/**
+ * `keep_known_answers` then `validate_answers`: a question removed while
+ * somebody was answering must not cost them the rest, and an answer that is not
+ * the shape its question takes is refused with the question named.
+ *
+ * @param {any} l
+ * @param {Record<string, any>} answers
+ * @returns {import("../router.js").Res | null}
+ */
+function checkAnswers(l, answers) {
+  const questions = (formOf(l).questions || []).filter((q) => q && typeof q.id === "string");
+  const known = new Map(questions.map((q) => [q.id, q]));
+  for (const key of Object.keys(answers)) if (!known.has(key)) delete answers[key];
+  for (const question of questions) {
+    const label = String(question.label || "").trim() || "A question";
+    const value = answers[question.id];
+    const answered = isAnswered(value);
+    if (question.required === true && !answered)
+      return fail(400, `"${label}" still needs an answer.`);
+    if (!answered) continue;
+    const options = questionOptions(question);
+    const other = question.config?.other === true || question.other === true;
+    const inOptions = (v) => options.length === 0 || other || options.includes(String(v));
+    let ok = false;
+    switch (question.type) {
+      case "multi_choice":
+        ok = Array.isArray(value) && value.every((v) => typeof v === "string" && inOptions(v));
+        break;
+      case "choice":
+      case "dropdown":
+        ok = typeof value === "string" && inOptions(value);
+        break;
+      case "yes_no":
+        ok = value === "yes" || value === "no";
+        break;
+      case "date":
+      case "short_text":
+      case "long_text":
+        ok = typeof value === "string";
+        break;
+      case "email":
+        ok = typeof value === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+        break;
+      case "number":
+        ok = typeof value === "number" && Number.isFinite(value);
+        break;
+      case "file":
+        ok = typeof value === "string";
+        break;
+      // A type from a newer Luna stores any flat value it was sent.
+      default:
+        ok = answerValueOk(value);
+    }
+    if (!ok)
+      return fail(400, `The answer for "${label}" isn't in a shape Luna can store. Try again.`);
+  }
+  return null;
+}
 
 /**
  * Axum deserializes a query before the handler runs, so `?limit=abc` is a 400
@@ -778,16 +886,7 @@ publicGet("/s/:token", ({ world, params, query, headers }) => {
     return {
       kind: "form",
       permission: "respond",
-      form: l.form || {
-        title: s.name,
-        version: 1,
-        questions: [
-          { id: "q1", type: "short_text", label: "Your name", required: true },
-          { id: "q2", type: "choice", label: "Can you come?", required: true, config: { options: ["Yes", "No", "Maybe"] } },
-          { id: "q3", type: "long_text", label: "Anything we should know?" },
-        ],
-        settings: { allowEdits: true, collecting: true },
-      },
+      form: formOf(l),
       accepting: !hardClosed(l),
       full,
       closed_message:
@@ -960,14 +1059,15 @@ publicGet("/s/:token/media", ({ world, params, query, headers }) => {
   if (!photoDrive || !driveUsable(world, driveId))
     return fail(404, "Luna couldn't find that photo.");
   const variant = String(query.variant || "content");
-  const url = variant === "thumb" ? photo.thumb : photo.content;
-  // `public_media` names the thumb's own miss after the album ("that photo is
-  // not part of this shared album"), and every other variant's miss after the
-  // file ("couldn't find that photo"), because a thumb is derived from an
-  // album item while content is resolved on the drive.
+  // A thumb that has not been built yet is built from the photo when it is
+  // asked for, so a missing thumb is not a missing photo; only when there is
+  // nothing to build from does the thumb route say it isn't ready.
+  const url = variant === "thumb" ? photo.thumb || photo.content : photo.content;
+  // Every other variant's miss is named after the file — content and downloads
+  // are resolved on the drive, not derived from the album.
   const missingVariant = (name) =>
     variant === "thumb"
-      ? fail(404, "That photo is not part of this shared album.")
+      ? fail(404, "This thumbnail isn't ready yet.")
       : fail(404, `Luna couldn't find that ${name}.`);
   if (!url) return missingVariant("photo");
   // The fake's pictures are inline `data:` URLs, so the guest's bytes are the
@@ -1684,6 +1784,13 @@ post("/s/:token/respond", ({ world, params, headers, body }) => {
     return fail(403, "This form doesn't let you change answers after you send them.");
   if (!body.answers || typeof body.answers !== "object" || Array.isArray(body.answers))
     return fail(400, "Those answers didn't come through whole. Try sending them again.");
+  if (
+    Object.keys(body.answers).length > 500 ||
+    !Object.values(body.answers).every(answerValueOk)
+  )
+    return fail(400, "Some answers are in a shape Luna can't store. Try again.");
+  const shaped = checkAnswers(r.l, body.answers);
+  if (shaped) return shaped;
   const list = (r.l.responses ||= []);
   // A presented secret only ever identifies an answer to amend; a target id on
   // its own is an attempt with a missing half of the pair.
@@ -1727,16 +1834,23 @@ post("/s/:token/respond-file", ({ world, params, headers, raw }) => {
   // An upload on a closed form says only that it is closed — the daemon does
   // not repeat which date passed here.
   if (hardClosed(r.l)) return fail(403, "This form isn't collecting answers anymore.");
-  const questions = r.l.form?.questions || [];
+  const questions = formOf(r.l).questions || [];
   if (!questions.some((q) => q && q.type === "file"))
     return fail(400, "This form doesn't ask for files.");
   const file = raw && typeof raw.get === "function" ? raw.get("file") : null;
-  const filename = typeof file?.name === "string" ? file.name : "";
+  // A body with no `file` part is not a file of the wrong kind — it is nothing
+  // to attach, and the daemon says so before it reads a name.
+  if (!file || typeof file === "string")
+    return fail(400, "Choose a file to attach.");
+  const filename = typeof file.name === "string" ? file.name : "";
   const ext = ATTACH_EXTS[filename.split(".").pop()?.toLowerCase()] || null;
   if (!ext) return fail(400, ATTACH_KIND_MESSAGE);
-  const size = Number(file?.size) || 0;
+  const size = Number(file.size) || 0;
   if (size > 10 * 1024 * 1024)
     return fail(413, "That file is over 10 MB. Choose a smaller one.");
+  // An empty part is its own refusal: there is nothing to keep.
+  if (size === 0)
+    return fail(400, "That file was empty. Choose another one and try again.");
   // Unsent attachments wait in one folder, so the queue and the form itself
   // each have a ceiling.
   const pending = (world.formPendingBytes ||= 0);
