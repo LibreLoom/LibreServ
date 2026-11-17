@@ -94,3 +94,39 @@ wakeups. The HDMI console refresh (10 s) is the floor on a fresh box.
 - W8 remote: thumbnails after a scrub take ~1.9 s over the tunnel; fewer,
   smaller first requests would help.
 - D3: event-driven HDMI console, cache expiry, cloudflared child watch.
+
+## Round 4 (d384592e … e8a9eeb9)
+
+Measured by interleaved A/B on separate stand-ins, HEAD before vs after,
+so machine load hits both sides equally. Not yet in a clean whole-suite
+pass: the pass at e8a9eeb9 ran while another session on the machine was
+compiling (load avg ~10; even untouched W1/W2 doubled and D1 start-up went
+1.5 → 6.4 s), so those numbers (`results/final-2/`) are not used here.
+
+| Journey | Before | After | Budget |
+|---|---|---|---|
+| W4 open folder, p95 | 513 ms | 225 ms | 250 ✅ |
+| W6 large-folder scroll, min fps | 7 | 28 | 60 ⚠ |
+| W10 name search, p95 | 366 ms | 241 ms | 150 ⚠ |
+| W8 remote scrub, p95 | 2224 ms | 1021 ms | 300 ⚠ |
+| D5 first stage, 200 mixed photos | 83.8 s | 25.1 s | 24 s (scaled) ⚠ |
+| D5 scan peak RSS | 77 MB | 46 MB | |
+| D3 idle after use, switches/min | 109–118 | 42–48 | ~1 ⚠ |
+| K4 desktop edit reaches Luna | never | 514–638 ms | 5000 ✅ |
+| K3 desktop no-change pass, 50k files | 1720 ms | 1040 ms | 2000 ✅ |
+| Desktop engine RSS after sync | 62–69 MB | 24–32 MB | |
+| C3 Connect onboarding cold load, p95 | 1444–1681 ms | 940–1290 ms | 1500 ✅ |
+| C4 Connect dashboard after sign-in, p95 | 995–1126 ms | 851–978 ms | 1000 ✅ |
+
+Also measured, within budget with no change: K1 desktop start 70–320 ms
+(1000), C2 device status p95 2.6–3.1 ms (50). Still over: K2 desktop idle
+memory 71 MB vs 60 (GTK/libadwaita base ~53 MB); A1 Android cold start
+1581–1894 ms vs 1500 on a debug build (not replaced, to keep the phone's
+data). W3 and W7 were under budget on the round-4 stand-in (390/761 ms).
+
+Desktop also had two real bugs fixed on the way: edits to existing files
+never uploaded, and a signed-in app could hang on "Checking your sign-in".
+
+Pending: one clean whole-suite pass at HEAD on a quiet machine
+(`scratchpad final3.sh`: bench + web journeys LAN and remote against the
+running luna-3040).
