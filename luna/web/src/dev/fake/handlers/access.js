@@ -326,10 +326,23 @@ function open(w, token, headers) {
   // behind a password is not refused after the folder next to it opened fine.
   if (l.password) {
     const proofs = proofsOf(w);
+    // lunad locks the link after eight consecutive wrong passwords, and the
+    // lock is checked before the header is even read — so a then-correct
+    // password is refused until the wait is over, not let straight through.
+    const tries = failedTries(w);
+    if ((tries.get(l.id) || 0) >= 8)
+      return {
+        err: fail(429, "Too many wrong passwords. Wait a few minutes and try again."),
+      };
     const given = header(headers, "x-share-password");
     const unlocked = proofs.get(l.id) === l.password;
-    if (given && given === l.password) proofs.set(l.id, l.password);
-    else if (!unlocked) return { err: fail(401, "This link needs its password.") };
+    if (given && given === l.password) {
+      proofs.set(l.id, l.password);
+      tries.delete(l.id);
+    } else if (!unlocked) {
+      if (given) tries.set(l.id, (tries.get(l.id) || 0) + 1);
+      return { err: fail(401, "This link needs its password.") };
+    }
   }
   return { s, l };
 }
@@ -352,6 +365,36 @@ function linkSegments(raw) {
   if (segments[0] === ".") return null;
   if (segments.some((seg) => seg === "..")) return null;
   return segments.filter((seg) => seg !== ".");
+}
+
+/** Consecutive wrong share passwords per link, as `ShareAuthGuard` counts them. */
+function failedTries(w) {
+  if (!w.shareAuthTries) w.shareAuthTries = new Map();
+  return w.shareAuthTries;
+}
+
+/**
+ * Mirrors lunad's `scoped_child`: a link that does not itself sit in the trash
+ * can never reach the trash alias, and says so before it reads anything.
+ *
+ * @param {{ path?: string }} s
+ * @param {string[]} segments
+ */
+function trashProbe(s, segments) {
+  if (segments[0] !== ".luna-trash") return null;
+  if (String(s.path || "").replace(/^\/+|\/+$/g, "").startsWith(".luna-trash")) return null;
+  return fail(404, "That item isn't part of this shared link.");
+}
+
+/** `zip_archive_basename`: the resolved path names the archive, or "drive". */
+function zipArchiveBase(fullRel) {
+  const trimmed = String(fullRel || "").replace(/^\/+|\/+$/g, "");
+  if (trimmed === ".luna-trash") return "trash";
+  if (!trimmed) return "drive";
+  const leaf = trimmed.split("/").pop();
+  // A folder genuinely named "download" would collide with the browser's own
+  // default name, so the daemon renames the archive instead.
+  return leaf === "download" ? "folder" : leaf;
 }
 
 function treeOf(w, token, s) {
@@ -518,6 +561,12 @@ publicGet("/s/:token", ({ world, params, query, headers }) => {
     if (String(query.path ?? "").trim()) return fail(400, "That folder isn't part of this shared link.");
     return { kind: "dropbox", caps: l.caps };
   }
+  // `public_root_inner` resolves the album before it answers: a gone drive or a
+  // deleted album closes the page rather than showing an empty gallery.
+  if (s.kind === "album") {
+    const found = albumFor(world, s);
+    if (found.err) return found.err;
+  }
   const kind = s.kind === "album" ? "album" : s.is_file ? "file" : "folder";
   const count = s.kind === "album" ? (world.albumItems?.[s.album_id] || []).length : undefined;
   // `public_root_inner` resolves a viewable path subject through
@@ -551,6 +600,9 @@ publicGet("/s/:token/items", ({ world, params, query, headers }) => {
   const itemCaps = String(r.l.caps || "").split("+").filter(Boolean);
   const itemCanView = itemCaps.includes("view") || itemCaps.includes("full") || itemCaps.includes("read");
   if (r.s.kind !== "album" || !itemCanView) return fail(410, "This link has expired or been removed.");
+  // `public_items` resolves the album's drive first.
+  const itemAlbum = albumFor(world, r.s);
+  if (itemAlbum.err) return itemAlbum.err;
   const keys = new Set(world.albumItems?.[r.s.album_id] || []);
   const all = (world.photos || []).filter((p) => keys.has(photoKey(p)));
   const limit = Number(query.limit) || 80;
@@ -591,16 +643,10 @@ publicGet("/s/:token/media", ({ world, params, query, headers }) => {
   if (r.s.kind !== "album" || !canView) return fail(410, "This link has expired or been removed.");
   const path = String(query.path || "");
   // `album_for_link` resolves the album's own drive before the photo is looked
-  // up, and each failure has its own sentence: unknown, unplugged, unreadable.
+  // up: unknown, unplugged, unreadable and deleted each say their own thing.
   const albumDrive = r.s.drive_id || "d1";
-  try {
-    needDrive(world, albumDrive);
-  } catch (e) {
-    if (e?.body?.code === "missing_drive_db")
-      return fail(500, "Luna couldn't read this album.");
-    if (!driveRow(world, albumDrive)) return fail(404, "Luna doesn't know this drive.");
-    return fail(404, "This album's drive isn't plugged in right now.");
-  }
+  const albumFound = albumFor(world, r.s);
+  if (albumFound.err) return albumFound.err;
   // `album_item_allowed` tests the drive and path pair the request named, not
   // the path alone: the same path on another drive is not this album's photo.
   const driveId = String(query.drive_id || albumDrive);
@@ -651,6 +697,8 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
   if (r.s.kind !== "path" || !canView) return fail(410, "This link has expired or been removed.");
   const segments = linkSegments(query.path);
   if (!segments) return fail(400, "That folder isn't part of this shared link.");
+  const trash = trashProbe(r.s, segments);
+  if (trash) return trash;
   // `public_list` goes through `confined_read` too, so a folder whose drive is
   // gone stops listing rather than looking empty to the guest.
   const goneFolder = unavailableShare(world, r.s, "The shared folder isn't available right now.");
@@ -713,6 +761,28 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
  * @param {string} msg the caller's not-available wording
  * @returns {any | null} the refusal, or null when the drive is fine
  */
+/**
+ * `resolve_album` / `album_for_link`: an album's own drive has to be there and
+ * the album has to still exist before any of its photos are answered for.
+ *
+ * @returns {{ err?: any, album?: any }}
+ */
+function albumFor(world, s) {
+  const driveId = s.drive_id || "d1";
+  try {
+    needDrive(world, driveId);
+  } catch (e) {
+    if (e?.body?.code === "missing_drive_db")
+      return { err: fail(500, "Luna couldn't read this album.") };
+    if (!driveRow(world, driveId)) return { err: fail(404, "Luna doesn't know this drive.") };
+    return { err: fail(404, "This album's drive isn't plugged in right now.") };
+  }
+  const album = (world.albums || []).find((a) => a.id === s.album_id);
+  // A link whose album was deleted has closed, not lost its photos.
+  if (!album) return { err: fail(410, "This link has expired or been removed.") };
+  return { err: null, album };
+}
+
 function unavailableShare(world, s, msg) {
   if (s.kind !== "path") return null;
   try {
@@ -750,8 +820,10 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
   const canView = caps.includes("view") || caps.includes("full") || caps.includes("read");
   if (!canView) return fail(410, "This link has expired or been removed.");
   if (r.s.kind === "album") {
-    // `public_zip` counts the album's refs first: an empty album and one over
-    // the 500-photo limit are both refusals, not empty or enormous downloads.
+    // `album_zip_response` resolves the album's drive, then counts its refs: an
+    // empty album and one over the 500-photo limit are both refusals.
+    const albumRes = albumFor(world, r.s);
+    if (albumRes.err) return albumRes.err;
     const photos = (world.albumItems?.[r.s.album_id] || []).length;
     if (!photos) return fail(400, "This album has no photos to download yet.");
     if (photos > 500) {
@@ -769,13 +841,17 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
   if (r.s.kind !== "path") return fail(410, "This link has expired or been removed.");
   const segments = linkSegments(query.path);
   if (!segments) return fail(400, "That folder isn't part of this shared link.");
+  const trashSegment = trashProbe(r.s, segments);
+  if (trashSegment) return trashSegment;
   // `public_zip` resolves the target through `confined_read` before it asks
   // whether the target is a directory, so a dead drive is refused for a
   // single-file link too — and its `link_reaches` runs inside that same read.
   const goneFiles = unavailableShare(world, r.s, "The shared files aren't available right now.");
   if (goneFiles) return goneFiles;
   if (r.s.is_file) {
-    if (segments.length) return fail(400, "That folder isn't part of this shared link.");
+    // A file link has nothing beneath it, so `confined_read` misses and the
+    // guest reads the zip route's own plural wording.
+    if (segments.length) return fail(404, "The shared files aren't available right now.");
     if (!linkReaches(world, r.l, "", r.s.drive_id, r.s.path))
       return fail(404, "That item isn't part of this shared link.");
     return serveSharedFile(world, r, "", r.s.name || "download");
@@ -805,9 +881,11 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
     // answers with an empty zip wearing the name `notes.txt.zip`.
     if (found.kind !== "dir") return serveSharedFile(world, r, segments.join("/"), found.name);
   }
-  const base = segments.length ? segments[segments.length - 1] : (r.s.name || "download");
+  // `zip_archive_basename` names the archive from the resolved path, so a
+  // whole-drive link zips as `drive.zip` rather than wearing the drive label.
+  const zipBase = zipArchiveBase([r.s.path, segments.join("/")].filter(Boolean).join("/"));
   return raw(new TextEncoder().encode(`PK\x05\x06${"\0".repeat(18)}`), "application/zip", 200, {
-    "Content-Disposition": `attachment; filename="${dispositionName(base)}.zip"`,
+    "Content-Disposition": `attachment; filename="${dispositionName(zipBase)}.zip"`,
   });
 });
 
@@ -824,6 +902,8 @@ publicGet("/s/:token/stat", ({ world, params, query, headers }) => {
   if (r.s.kind !== "path") return fail(410, "This link has expired or been removed.");
   const segments = linkSegments(query.path);
   if (!segments) return fail(400, "That path isn't inside this share.");
+  const trash = trashProbe(r.s, segments);
+  if (trash) return trash;
   const rel = segments.join("/");
   // `public_stat` hands the path to `confined_read`, so a file link asked for
   // anything below the file is a miss with the guest's wording, not the lexical
@@ -883,6 +963,8 @@ publicGet("/s/:token/file", ({ world, params, query, headers }) => {
   if (!segments) {
     return fail(400, "That file isn't part of this shared link.");
   }
+  const trash = trashProbe(r.s, segments);
+  if (trash) return trash;
   // A link to one file has nothing beneath it, so any relative path asks for
   // something that cannot exist — and `public_file` reaches that answer through
   // `confined_read`, so it wears the not-available wording, not the lexical one.
