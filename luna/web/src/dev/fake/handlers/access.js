@@ -688,11 +688,19 @@ function metaWanted(query, headers) {
 const ATTACH_EXTS = { jpg: "jpg", jpeg: "jpg", png: "png", gif: "gif", webp: "webp", pdf: "pdf" };
 const ATTACH_KIND_MESSAGE = "Attach a photo (JPG, PNG, GIF, or WebP) or a PDF.";
 
-/** `answer_value_ok`: a scalar, or a list of scalars. */
+/** A random lowercase-hex string, as the daemon mints its file names. */
+function mintHex(len) {
+  const alphabet = "0123456789abcdef";
+  let out = "";
+  for (let i = 0; i < len; i++) out += alphabet[Math.floor(Math.random() * 16)];
+  return out;
+}
+
+/** `answer_value_ok`: a scalar, or a list of strings, numbers and booleans. */
 function answerValueOk(value) {
   if (value === null || typeof value !== "object") return true;
   if (!Array.isArray(value)) return false;
-  return value.every((item) => item === null || typeof item !== "object");
+  return value.every((item) => typeof item === "string" || typeof item === "number" || typeof item === "boolean");
 }
 
 /** `is_answered`: a non-empty string, a non-empty list, or any scalar. */
@@ -703,10 +711,54 @@ function isAnswered(value) {
   return true;
 }
 
-/** The options a choice question offers, as strings. */
+/** `question_options`: only `config.options`, and only the real strings in it. */
 function questionOptions(question) {
-  const config = question?.config?.options ?? question?.options;
-  return Array.isArray(config) ? config.map((o) => String(o)) : [];
+  const list = question?.config?.options;
+  if (!Array.isArray(list)) return [];
+  return list.filter((o) => typeof o === "string" && o.trim() !== "");
+}
+
+/** `allows_other`: a choice that also takes a typed answer. */
+function allowsOther(question) {
+  return question?.config?.allowOther === true;
+}
+
+/** `number_in_range`: the answer inside the question's own bounds. */
+function numberInRange(question, n) {
+  if (!Number.isFinite(n)) return false;
+  const min = Number(question?.config?.min);
+  const max = Number(question?.config?.max);
+  const hasMin = question?.config?.min !== undefined && Number.isFinite(min);
+  const hasMax = question?.config?.max !== undefined && Number.isFinite(max);
+  return (!hasMin || n >= min) && (!hasMax || n <= max);
+}
+
+/** `email_ok`: trimmed, one `@`, a dotted domain that does not start or end there. */
+function emailOk(value) {
+  const text = String(value).trim();
+  const parts = text.split("@");
+  if (parts.length !== 2) return false;
+  const [local, domain] = parts;
+  return (
+    local !== "" &&
+    domain.includes(".") &&
+    !domain.startsWith(".") &&
+    !domain.endsWith(".") &&
+    !/\s/.test(text)
+  );
+}
+
+/** `upload_name_ok`: a server-minted name — 16 lowercase hex and an extension. */
+function uploadNameOk(name) {
+  const dot = String(name).lastIndexOf(".");
+  if (dot < 0) return false;
+  const stem = String(name).slice(0, dot);
+  const ext = String(name).slice(dot + 1);
+  return (
+    stem.length === 16 &&
+    /^[0-9a-f]{16}$/.test(stem) &&
+    ["jpg", "jpeg", "png", "gif", "webp", "pdf"].includes(ext)
+  );
 }
 
 /**
@@ -719,7 +771,10 @@ function questionOptions(question) {
  * @returns {import("../router.js").Res | null}
  */
 function checkAnswers(l, answers) {
-  const questions = (formOf(l).questions || []).filter((q) => q && typeof q.id === "string");
+  // A question with no id (`""`) is not one an answer can belong to.
+  const questions = (formOf(l).questions || []).filter(
+    (q) => q && typeof q.id === "string" && q.id !== "",
+  );
   const known = new Map(questions.map((q) => [q.id, q]));
   for (const key of Object.keys(answers)) if (!known.has(key)) delete answers[key];
   for (const question of questions) {
@@ -730,8 +785,8 @@ function checkAnswers(l, answers) {
       return fail(400, `"${label}" still needs an answer.`);
     if (!answered) continue;
     const options = questionOptions(question);
-    const other = question.config?.other === true || question.other === true;
-    const inOptions = (v) => options.length === 0 || other || options.includes(String(v));
+    const other = allowsOther(question);
+    const inOptions = (v) => options.length === 0 || other || options.includes(v);
     let ok = false;
     switch (question.type) {
       case "multi_choice":
@@ -750,13 +805,13 @@ function checkAnswers(l, answers) {
         ok = typeof value === "string";
         break;
       case "email":
-        ok = typeof value === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+        ok = typeof value === "string" && emailOk(value);
         break;
       case "number":
-        ok = typeof value === "number" && Number.isFinite(value);
+        ok = typeof value === "number" && numberInRange(question, value);
         break;
       case "file":
-        ok = typeof value === "string";
+        ok = typeof value === "string" && uploadNameOk(value);
         break;
       // A type from a newer Luna stores any flat value it was sent.
       default:
@@ -1817,6 +1872,16 @@ post("/s/:token/respond", ({ world, params, headers, body }) => {
   }
   entry.answers = body.answers;
   entry.at = nowSec();
+  // An answer that names an attachment claims it: the bytes move out of the
+  // waiting queue and count against the form's own folder from then on.
+  for (const question of formOf(r.l).questions || []) {
+    if (question?.type !== "file") continue;
+    const name = entry.answers?.[question.id];
+    if (typeof name !== "string" || !world.formPending?.[name]) continue;
+    (world.formSentBytes ||= 0);
+    world.formSentBytes += world.formPending[name];
+    delete world.formPending[name];
+  }
   // The form's owner sees the same answers on the Files side.
   const fk = r.s.drive_id ? formKey({ drive_id: r.s.drive_id, path: r.s.path }) : null;
   if (fk) formsOf(world)[fk] = list.map((x) => ({ id: x.id, at: x.at, answers: x.answers }));
@@ -1851,21 +1916,24 @@ post("/s/:token/respond-file", ({ world, params, headers, raw }) => {
   // An empty part is its own refusal: there is nothing to keep.
   if (size === 0)
     return fail(400, "That file was empty. Choose another one and try again.");
-  // Unsent attachments wait in one folder, so the queue and the form itself
-  // each have a ceiling.
-  const pending = (world.formPendingBytes ||= 0);
+  // Two ceilings, two folders: the waiting queue of unsent attachments has its
+  // own limit, and the form's whole attachment folder (sent and unsent) has a
+  // bigger one. A form can therefore be full of sent files and still take an
+  // upload, which one shared counter could not say.
+  const pending = Object.values((world.formPending ||= {})).reduce((a, b) => a + b, 0);
   if (pending + size > 256 * 1024 * 1024)
     return fail(
       503,
       "Lots of files are arriving on this form right now. Wait a few minutes and attach it again.",
     );
-  if (pending + size > 2 * 1024 ** 3)
+  if (pending + (world.formSentBytes || 0) + size > 2 * 1024 ** 3)
     return fail(
       507,
       "This form has no room for more files. Ask the person who shared it to clear some out.",
     );
-  world.formPendingBytes = pending + size;
-  return { ok: true, name: `${nextId("a")}.${ext}` };
+  const name = `${mintHex(16)}.${ext}`;
+  world.formPending[name] = size;
+  return { ok: true, name };
 }, { public: true });
 get("/s/:token/form-image", () => json({}), { public: true });
 
