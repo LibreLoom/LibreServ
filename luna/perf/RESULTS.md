@@ -177,3 +177,34 @@ slow sample each; p50 well under), W10 LAN (the 30 ms debounce plus
 ~70 ms server p95 and the render leave little room for 150 ms), W8 remote
 (no remote budget set), D3 after use (~5/min), K2 desktop idle memory
 (71 MB, GTK base), A1 Android cold start (debug build only).
+
+## Round 6 and clean pass at 88e37540 (2026-11-17)
+
+Round 6: file-row icons drawn as cached images instead of inline SVGs,
+quick name search without the 30 ms wait, no idle prefetch of every
+Places point (~11 MB JSON), pages preloaded one at a time, and the RAM
+cache sleeping to its expiry when kernel stall reports watch memory
+(D3 after use 5.0–5.2 → 2.4–2.6 switches/min, 3 pairs).
+
+Clean whole-suite pass (host load ≤ 1.6, nothing else running; raw in
+`results/final-5/`, `web-journeys-final5-*.json`):
+
+| Journey | LAN p95 | Budget | Remote p95 (budget) |
+|---|---|---|---|
+| W1 cold load | 565 | 1500 ✅ | 1019 (3000) ✅ |
+| W2 warm load | 362 | 600 ✅ | 602 (1200) ✅ |
+| W3 sign-in | 443 | 500 ✅ | 512 (1000) ✅ |
+| W4 open folder | 218 | 250 ✅ | 300 (600) ✅ |
+| W5 large folder | 355 | 800 ✅ | 457 (1500) ✅ |
+| W6 scroll | 59.4 fps, max frame 83 ms | 60 fps, 50 ms ⚠ | 59.4 fps, 67 ms ⚠ |
+| W7 photos timeline | 616 | 1000 ✅ | 910 (2000) ✅ |
+| W8 scrub | 144 | 300 ✅ | 809 (—) ⚠ |
+| W9 open photo | 150 | 300 ✅ | 100 (2000) ✅ |
+| W10 name search | 132 | 150 ✅ | 281 (400) ✅ |
+| W15 share link | 692 | 1500 ✅ | 3816, p50 1083 (2500) ⚠ |
+| W16 page switch | 112 | 150 ✅ | 137 (150) ✅ |
+
+lunad LAN p95: W10 65 ms, W11 51, W13 929, W14 295. D1 start-up 2.5 s.
+W6 now holds ~60 fps but has 3–5 frames over 50 ms per run; W15 remote's
+over-budget sample is the first open through a new tunnel (the other four
+are ~1.1 s).
