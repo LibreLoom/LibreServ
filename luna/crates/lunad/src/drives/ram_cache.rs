@@ -176,6 +176,37 @@ pub fn pressure_check_interval(available_bytes: u64) -> Duration {
     }
 }
 
+/// How long the RAM-pressure loop sleeps before its next check. `idle_left`
+/// is [`RamCache::idle_left`]: the time until clean entries expire, or `None`
+/// when only dirty buffers are held.
+///
+/// Far from the line with kernel stall reports (`psi`), a stall is what wakes
+/// it to reclaim, so it sleeps straight to the expiry instead of checking
+/// every minute while a used Luna sits idle (D3). Otherwise it keeps the
+/// [`pressure_check_interval`] timer, never sleeping past the expiry. Dirty
+/// buffers alone always keep the timer: they don't expire, and the timer is
+/// what flushes them early near the line.
+pub fn pressure_wait(available_bytes: u64, psi: bool, idle_left: Option<Duration>) -> Duration {
+    let interval = pressure_check_interval(available_bytes);
+    let Some(left) = idle_left else {
+        return interval;
+    };
+    // Expiry is due (or a hair away): look again soon, never spin.
+    let left = left.max(Duration::from_secs(1));
+    if psi && available_bytes >= 512 * MIB {
+        left
+    } else {
+        interval.min(left)
+    }
+}
+
+static PSI_WATCHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// True while the memory-stall watcher from [`watch_memory_pressure`] runs.
+pub fn psi_watching() -> bool {
+    PSI_WATCHING.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Wake `notify` whenever tasks stall on memory (Linux PSI: 150 ms stalled
 /// within 2 s), from a thread that sleeps in `poll` until then. False when
 /// the kernel offers no trigger (no PSI, or no permission, as in a rootless
@@ -195,9 +226,19 @@ pub fn watch_memory_pressure(notify: Arc<tokio::sync::Notify>) -> bool {
         if file.write_all(b"some 150000 2000000\0").is_err() {
             return false;
         }
-        std::thread::Builder::new()
+        PSI_WATCHING.store(true, std::sync::atomic::Ordering::Relaxed);
+        let spawned = std::thread::Builder::new()
             .name("luna-mem-pressure".into())
             .spawn(move || {
+                // Any way out of the loop below ends the stall reports: the
+                // pressure loop goes back to its timer.
+                struct Stopped;
+                impl Drop for Stopped {
+                    fn drop(&mut self) {
+                        PSI_WATCHING.store(false, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+                let _stopped = Stopped;
                 let mut fds = libc::pollfd {
                     fd: file.as_raw_fd(),
                     events: libc::POLLPRI,
@@ -221,7 +262,11 @@ pub fn watch_memory_pressure(notify: Arc<tokio::sync::Notify>) -> bool {
                     }
                 }
             })
-            .is_ok()
+            .is_ok();
+        if !spawned {
+            PSI_WATCHING.store(false, std::sync::atomic::Ordering::Relaxed);
+        }
+        spawned
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -313,6 +358,16 @@ impl RamCache {
             g.listing_order.clear();
         }
         g.thumbs.is_empty() && g.listings.is_empty() && g.dirty.is_empty()
+    }
+
+    /// Time until [`RamCache::expire_idle`] with `idle` empties the clean
+    /// entries; `None` when no thumb or listing is held.
+    pub fn idle_left(&self, idle: Duration) -> Option<Duration> {
+        let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if g.thumbs.is_empty() && g.listings.is_empty() {
+            return None;
+        }
+        Some(idle.saturating_sub(g.last_used.elapsed()))
     }
 
     fn budget() -> CacheBudget {
@@ -941,7 +996,9 @@ impl RamCache {
     /// Returns at once while anything is cached; otherwise waits until
     /// something is.
     pub async fn wait_until_filled(&self) {
-        if self.is_empty() {
+        // Every fill leaves a wake-up behind while the loop is busy elsewhere;
+        // one left from before the cache emptied must not count as a fill.
+        while self.is_empty() {
             self.filled.notified().await;
         }
     }
@@ -1058,6 +1115,54 @@ mod tests {
     fn the_pressure_check_is_frequent_only_near_the_line() {
         assert_eq!(pressure_check_interval(300 * MIB), Duration::from_secs(5));
         assert_eq!(pressure_check_interval(1500 * MIB), Duration::from_secs(60));
+    }
+
+    #[test]
+    fn with_stall_reports_an_idle_cache_sleeps_until_it_expires() {
+        let four_min = Some(Duration::from_secs(240));
+        // Far from the line, stalls reported: one wake, at the expiry.
+        assert_eq!(
+            pressure_wait(1500 * MIB, true, four_min),
+            Duration::from_secs(240)
+        );
+        // No stall reports: the minute timer stays.
+        assert_eq!(
+            pressure_wait(1500 * MIB, false, four_min),
+            Duration::from_secs(60)
+        );
+        // Near the line: every 5 s, stall reports or not.
+        assert_eq!(
+            pressure_wait(300 * MIB, true, four_min),
+            Duration::from_secs(5)
+        );
+        // Expiry closer than the timer: wake for it.
+        assert_eq!(
+            pressure_wait(1500 * MIB, false, Some(Duration::from_secs(20))),
+            Duration::from_secs(20)
+        );
+        // Only dirty buffers (they never expire): the timer, never a spin.
+        assert_eq!(
+            pressure_wait(1500 * MIB, true, None),
+            Duration::from_secs(60)
+        );
+        assert_eq!(pressure_wait(300 * MIB, true, None), Duration::from_secs(5));
+        // Expiry already due: a short wait, not zero.
+        assert_eq!(
+            pressure_wait(1500 * MIB, true, Some(Duration::ZERO)),
+            Duration::from_secs(1)
+        );
+    }
+
+    #[test]
+    fn idle_left_counts_down_only_while_clean_entries_are_held() {
+        let cache = RamCache::new();
+        assert_eq!(cache.idle_left(IDLE_EXPIRY), None);
+        cache.put_thumb("d-idle-left", "a.jpg", b"jpeg".to_vec(), 1);
+        let left = cache.idle_left(IDLE_EXPIRY).expect("a thumb is held");
+        assert!(left <= IDLE_EXPIRY && left > IDLE_EXPIRY - Duration::from_secs(5));
+        assert_eq!(cache.idle_left(Duration::ZERO), Some(Duration::ZERO));
+        cache.expire_idle(Duration::ZERO);
+        assert_eq!(cache.idle_left(IDLE_EXPIRY), None);
     }
 
     #[test]

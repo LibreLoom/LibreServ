@@ -356,9 +356,11 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
     // flush dirty writes early rather than dropping them.
     // An empty cache has nothing to reclaim, so the loop sleeps until
     // something is cached instead of waking every 5 s on an idle Luna.
-    // While it holds something it checks every minute (every 5 s close to
-    // the line), wakes at once on a kernel memory-stall report, and empties
-    // itself after IDLE_EXPIRY without use, so a used-but-idle Luna sleeps (D3).
+    // While it holds something it wakes at once on a kernel memory-stall
+    // report, and on a timer (every minute, every 5 s close to the line) only
+    // where the kernel gives no stall reports or memory is close to the line;
+    // otherwise its one timed wake is when the cache empties itself after
+    // IDLE_EXPIRY without use, so a used-but-idle Luna sleeps (D3).
     let pressure_state = state.clone();
     let stalled = std::sync::Arc::new(tokio::sync::Notify::new());
     let psi = lunad::drives::ram_cache::watch_memory_pressure(stalled.clone());
@@ -372,17 +374,26 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
         }
     );
     bg_tasks.push(tokio::spawn(async move {
-        use lunad::drives::ram_cache::{IDLE_EXPIRY, pressure_check_interval};
+        use lunad::drives::ram_cache::{IDLE_EXPIRY, pressure_wait, psi_watching};
+        let cache = &pressure_state.ram_cache;
         loop {
-            pressure_state.ram_cache.wait_until_filled().await;
-            let wait = pressure_check_interval(lunad::budget::meminfo().available_bytes);
+            cache.wait_until_filled().await;
+            let wait = pressure_wait(
+                lunad::budget::meminfo().available_bytes,
+                psi_watching(),
+                cache.idle_left(IDLE_EXPIRY),
+            );
             tokio::select! {
                 _ = tokio::time::sleep(wait) => {}
                 _ = stalled.notified() => {}
             }
+            // Expiry is a quick in-memory clear; an emptied cache has nothing
+            // to reclaim, so no blocking thread is started for it.
+            if cache.expire_idle(IDLE_EXPIRY) {
+                continue;
+            }
             let state = pressure_state.clone();
             let _ = tokio::task::spawn_blocking(move || {
-                state.ram_cache.expire_idle(IDLE_EXPIRY);
                 state.ram_cache.reclaim_for_pressure(|drive_id| {
                     let Ok(conn) = state.db.lock() else {
                         return None;
