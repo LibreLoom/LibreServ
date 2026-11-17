@@ -611,11 +611,18 @@ function queryInt(query, name, kind) {
   return { value: n };
 }
 
-/** `marker::extract_prefix(name).is_some()`: a `.luna-<uuid>` name is ours. */
+/**
+ * `files::is_internal_temp`: Luna's own bookkeeping — any `.luna-<uuid>`
+ * segment, or a dotfile left half-written — is never shown to a guest.
+ *
+ * @param {string} name
+ * @returns {boolean}
+ */
 function isInternalName(name) {
-  return /^\.luna-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/.test(
-    String(name || ""),
-  );
+  const raw = String(name || "");
+  const base = raw.split("/").pop() || "";
+  const luna = /\.luna-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/;
+  return luna.test(base) || (base.startsWith(".") && base.endsWith(".part"));
 }
 
 /** `files::safe_name`: a bare, non-empty basename a drive can hold. */
@@ -920,8 +927,9 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
     // asks what the target is, so asking a file link for something below the
     // file is a miss with the listing's own wording, not the is_dir refusal.
     if (segments.length) return fail(404, "The shared folder isn't available right now.");
-    // The one entry is `files::stat`'s own answer, so it carries what a stat
-    // carries — including the fields that are always printed as null.
+    // The one entry is `files::stat`'s own answer, serialized as-is: a file
+    // carries no `children` or `totals` key at all, because both are skipped
+    // when empty rather than printed as null.
     return listing([
       {
         name: r.s.name,
@@ -931,8 +939,6 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
         created: nowSec() - 86400 * 30,
         hidden: false,
         writable: false,
-        children: null,
-        totals: null,
       },
     ]);
   }
@@ -1158,6 +1164,10 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
 // no view is a 403 that names the drop-box link, a non-path subject has closed,
 // and the target has to resolve inside the share.
 publicGet("/s/:token/stat", ({ world, params, query, headers }) => {
+  // `public_stat` takes the same query struct as `/list`, so axum rejects a
+  // non-numeric `download` before the handler runs.
+  const badDownload = queryInt(query, "download", "u8");
+  if (badDownload) return badDownload;
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
   const caps = String(r.l.caps || "").split("+").filter(Boolean);
@@ -1309,6 +1319,17 @@ function uploadGate(r) {
 }
 
 post("/s/:token/upload", ({ world, params, headers, body }) => {
+  // The daemon's share limiter turns away a client that starts too many
+  // sessions (5 a minute), before it even resolves the link.
+  const starts = (world.uploadStarts ||= []);
+  const since = nowSec() - 60;
+  while (starts.length && starts[0] < since) starts.shift();
+  if (starts.length >= 5)
+    return fail(
+      429,
+      "Too many uploads from this address just now. Wait a minute and try again.",
+    );
+  starts.push(nowSec());
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
   const denied = uploadGate(r);
@@ -1322,19 +1343,21 @@ post("/s/:token/upload", ({ world, params, headers, body }) => {
   if (!name) return fail(400, "That file name can't be used. Try renaming it.");
   const dest = String(body.path ?? "").trim().replace(/^\/+|\/+$/g, "");
   const caps = capSet(r.l.caps);
-  // An album holds pictures and video and nothing else, so an upload there has
-  // to be one of those or it would land somewhere nobody can open.
-  if (r.s.kind === "album" && !isMediaName(name))
-    return fail(400, "Only photos and videos can go in this album.");
   // `upload_dest` resolves the destination before a session exists, so a dead
   // drive, a folder outside the link or a file where a folder was named all
   // answer here rather than at complete time.
   let landIn = "";
   let finalName = name;
   if (r.s.kind === "album") {
-    // `album_for_link`: the album's own drive has to be there and readable.
+    // `album_for_link`: the album's own drive has to be there and readable,
+    // and it is asked before the name is judged — a dead album answers about
+    // the album, not about the file.
     const albumRes = albumFor(world, r.s);
     if (albumRes.err) return albumRes.err;
+    // An album holds pictures and video and nothing else, so an upload there
+    // has to be one of those or it would land somewhere nobody can open.
+    if (!isMediaName(name))
+      return fail(400, "Only photos and videos can go in this album.");
   } else {
     const gone = unavailableShare(world, r.s, "The shared folder isn't available right now.");
     if (gone) return gone;
@@ -1378,14 +1401,13 @@ post("/s/:token/upload", ({ world, params, headers, body }) => {
 }, { public: true });
 // Every later request proves the session belongs to this link and is still
 // running. lunad deletes the session row when an upload finishes or is
-// cancelled, so a second request about that id is one it never made (404);
-// `NotActive` (409) is only for a session that errored.
+// cancelled, so a second request about that id is one it never made (404).
+// A session that errored is only refused once the request itself has been read:
+// `NotActive` comes from `write_chunk`, after the chunk is validated.
 function uploadFor(world, r, id) {
   const up = world.uploads?.[id];
   if (!up) return { err: fail(404, "Luna doesn't know this upload.") };
   if (up.linkId !== r.l.id) return { err: fail(403, "That upload isn't part of this link.") };
-  if (up.state === "error")
-    return { err: fail(409, "This upload is already finished or cancelled.") };
   return { err: null, up };
 }
 put("/s/:token/upload/:id", ({ world, params, headers, raw }) => {
@@ -1414,6 +1436,17 @@ put("/s/:token/upload/:id", ({ world, params, headers, raw }) => {
   // Every byte is counted once: a short body would leave a hole that is written
   // out as zeroes, so it is refused instead of accepted.
   if (got !== expected) return fail(400, "The chunk size doesn't match its range.");
+  // `upload_chunk_bytes` is the memory budget for one piece; a bigger body is
+  // refused with its own status before the bytes are ever written.
+  if (got > 8 * 1024 * 1024)
+    return fail(
+      413,
+      "That upload chunk is too large for the free memory on this Luna. Try a smaller piece, or free some space and try again.",
+    );
+  // `write_chunk` is where a session that already errored is refused, so the
+  // chunk above is validated first and this 409 comes after it.
+  if (found.up.state === "error")
+    return fail(409, "This upload is already finished or cancelled.");
   // `write_chunk` refuses a range that runs past the declared size instead of
   // growing the file beyond what was asked for.
   if (end >= found.up.size)
@@ -1441,6 +1474,8 @@ post("/s/:token/upload/:id/complete", ({ world, params, query, headers }) => {
   const found = uploadFor(world, r, params.id);
   if (found.err) return found.err;
   const up = found.up;
+  if (up.state === "error")
+    return fail(409, "This upload is already finished or cancelled.");
   // `uploads::complete` installs nothing until every byte is there, so a session
   // that skipped a chunk is refused rather than written out with a hole — and a
   // refused complete marks the session errored, so it cannot be retried.
@@ -1458,7 +1493,11 @@ post("/s/:token/upload/:id/complete", ({ world, params, query, headers }) => {
   if (destTaken(world, r, up.dest, finalName) && !overwrite) {
     if (!caps.has("view") || keepBoth) finalName = freeName(world, r, up.dest, finalName);
     else
-      return fail(409, "A file with this name is already here. Rename it or choose another.");
+      return fail(
+        409,
+        "A file with this name is already here. Rename it or choose another.",
+        "exists",
+      );
   }
   delete world.uploads[params.id];
   r.l.uploads = (r.l.uploads || 0) + 1;
