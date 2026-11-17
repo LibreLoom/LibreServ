@@ -5,6 +5,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/domainname"
@@ -47,6 +48,17 @@ func loadBoundDeviceDomain(db *database.DB, deviceID string) (boundDeviceDomain,
 	}
 	d.Port = port
 	return d, 0, ""
+}
+
+// tunnelName is the Cloudflare name of a Luna's tunnel. Cloudflare allows each name once per
+// account (HTTP 409), so a tunnel left behind by a removed Luna would otherwise block anyone from
+// taking that name again. The device id makes the name unique to this Luna.
+func tunnelName(sub, deviceID string) string {
+	id := strings.TrimPrefix(deviceID, "dev_")
+	if len(id) > 8 {
+		id = id[:8]
+	}
+	return "luna-" + sub + "-" + id
 }
 
 // providerFailureStatus is what we answer when Cloudflare (or Stripe) refuses a call. Not 502:
@@ -165,7 +177,7 @@ func applyDeviceDomain(deps Deps, deviceID, sub string, port int) (map[string]an
 		_ = deps.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, domainname.Hostname(d.Subdomain, config.C.Server.PublicZone))
 	}
 
-	creds, err := deps.Tunnel.CreateTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, "luna-"+sub)
+	creds, err := deps.Tunnel.CreateTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tunnelName(sub, deviceID))
 	if err != nil {
 		slog.Error("domain: create tunnel failed", "device", deviceID, "subdomain", sub, "err", err)
 		releaseClaim()
@@ -226,7 +238,7 @@ func regenerateDeviceTunnel(deps Deps, deviceID string) (map[string]any, int, st
 		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, d.TunnelID)
 	}
 
-	creds, err := deps.Tunnel.CreateTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, "luna-"+d.Subdomain)
+	creds, err := deps.Tunnel.CreateTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tunnelName(d.Subdomain, deviceID))
 	if err != nil {
 		slog.Error("domain: regenerate tunnel failed", "device", deviceID, "err", err)
 		return nil, providerFailureStatus, "Could not create the secure connection. Try again."
