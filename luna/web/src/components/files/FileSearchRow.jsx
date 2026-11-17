@@ -10,9 +10,8 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import Button from "@libreloom/ui/components/ui/Button.jsx";
 import RowActionMenu from "@libreloom/ui/components/ui/RowActionMenu.jsx";
-import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import IconActions from "@libreloom/ui/components/ui/IconActions.jsx";
 import PrivateBadge from "../private/PrivateBadge.jsx";
 import { highlightParts, locationParts, searchWhen } from "../../lib/fileSearch.js";
 import { canViewerOpen } from "../../lib/officeConvert.js";
@@ -231,52 +230,18 @@ function FileSearchRow({
             </p>
           </div>
           {isSmUp ? (
-            // Every row mounts a set of these and an icon never changes
-            // width, so they skip the smooth resize (a forced layout each).
-            <ActionTooltipGroup>
-              <div
-                ref={actionsRef}
-                data-slot="file-search-actions"
-                className="flex items-center gap-1 shrink-0 pointer-events-auto"
-                onClick={(event) => event.stopPropagation()}
-              >
-                {actions.map(({ key, label, aria, icon: Icon, to, href, run }) => (
-                  <Tooltip key={key} content={label}>
-                    {to ? (
-                      <Button variant="ghost" surface="primary" size="iconSm" smoothResize={false} tabIndex={-1} asChild aria-label={aria}>
-                        <Link
-                          to={to}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onNavigate();
-                          }}
-                        >
-                          <Icon size={14} />
-                        </Link>
-                      </Button>
-                    ) : href ? (
-                      <Button variant="ghost" surface="primary" size="iconSm" smoothResize={false} tabIndex={-1} asChild aria-label={aria}>
-                        <a href={href}>
-                          <Icon size={14} />
-                        </a>
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="ghost"
-                        surface="primary"
-                        size="iconSm"
-                        smoothResize={false}
-                        tabIndex={-1}
-                        aria-label={aria}
-                        onClick={run}
-                      >
-                        <Icon size={14} />
-                      </Button>
-                    )}
-                  </Tooltip>
-                ))}
-              </div>
-            </ActionTooltipGroup>
+            // Plain icon buttons with one shared tooltip: every result row
+            // carries these, and a Button plus a Tooltip each made a long
+            // answer slow to paint (W10).
+            <IconActions
+              ref={actionsRef}
+              data-slot="file-search-actions"
+              className="gap-1 shrink-0 pointer-events-auto flex-nowrap"
+              onClick={(event) => event.stopPropagation()}
+              actions={actions}
+              surface="primary"
+              tabIndex={-1}
+            />
           ) : (
             <div
               ref={actionsRef}

@@ -3,8 +3,11 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { getJson } from "../lib/api";
 import { MIN_SEARCH_LENGTH, parseSearchResponse, searchUrl } from "../lib/fileSearch.js";
 
-/** Names and text: cheap, so ask almost as soon as a key lands. */
-const QUICK_DEBOUNCE_MS = 120;
+/** Names and text: cheap (a quick name answer takes lunad well under 100 ms),
+ * so ask as soon as a key lands. Keys inside this window share one request,
+ * and a newer request cancels the one still on its way (see `signal` below);
+ * lunad still finishes a cancelled one. */
+const QUICK_DEBOUNCE_MS = 30;
 /** Photos and passages by meaning embed the query with a model (about a
  * second on Luna), so ask for them only once typing pauses. */
 const FULL_DEBOUNCE_MS = 700;
@@ -42,7 +45,9 @@ export default function useFileSearch(typed, { enabled = true, kind = "all" } = 
 
   const quickQuery = useQuery({
     queryKey: ["search", q, kind, "quick"],
-    queryFn: () => getJson(searchUrl(q, kind, { quick: true })),
+    // The signal aborts this request once newer text replaces it, so fast
+    // typing doesn't leave a queue of stale answers on the connection.
+    queryFn: ({ signal }) => getJson(searchUrl(q, kind, { quick: true }), { signal }),
     enabled: active,
     placeholderData: keepPreviousData,
   });
@@ -51,7 +56,7 @@ export default function useFileSearch(typed, { enabled = true, kind = "all" } = 
   const fullActive = active && fullQ === q;
   const fullQuery = useQuery({
     queryKey: ["search", fullQ, kind],
-    queryFn: () => getJson(searchUrl(fullQ, kind)),
+    queryFn: ({ signal }) => getJson(searchUrl(fullQ, kind), { signal }),
     enabled: fullActive,
     refetchInterval: (state) => {
       const scan = state.state.data?.scan;

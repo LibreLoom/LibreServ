@@ -1,7 +1,7 @@
 import { useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { defaultRangeExtractor, useWindowVirtualizer } from "@tanstack/react-virtual";
+import { defaultRangeExtractor, measureElement as measureVirtualElement, useWindowVirtualizer } from "@tanstack/react-virtual";
 import {
   Archive,
   Check,
@@ -162,7 +162,28 @@ const VIRTUALIZE_AFTER = 80;
 const ROW_OVERSCAN = 12;
 /** The same on a folder's first frame (see fullOverscan). */
 const FIRST_FRAME_OVERSCAN = 2;
+/** A row's height before any row is measured; the first measured row replaces it. */
+const ROW_HEIGHT_GUESS = 47;
+const DENSE_ROW_HEIGHT_GUESS = 43;
 const SORT_STORAGE_KEY = "luna.files.sort";
+
+/** @type {WeakMap<object, boolean>} */
+const savingCache = new WeakMap();
+/**
+ * Whether any entry is still being written. React Query asks on every render
+ * of the browser (each scroll step in a long folder), so the answer is kept
+ * per listing instead of walking thousands of entries each time.
+ * @param {unknown} data
+ */
+function anySaving(data) {
+  if (!Array.isArray(data)) return false;
+  let saving = savingCache.get(data);
+  if (saving === undefined) {
+    saving = data.some((e) => e?.saving);
+    savingCache.set(data, saving);
+  }
+  return saving;
+}
 const HIDDEN_STORAGE_KEY = "luna.files.showHidden";
 
 function readStoredHidden() {
@@ -260,6 +281,86 @@ function compareEntries(a, b, sortKey) {
  *   caps?: number|string,
  * }} FileStat
  */
+
+/**
+ * The window of rows a long folder mounts, with a spacer above and below for
+ * the rest. It owns the virtualizer, so scrolling re-renders only this list
+ * (and only rows that come into the window), never the whole browser (W6).
+ *
+ * @param {{
+ *   count: number,
+ *   rowKey: (index: number) => string | number,
+ *   dense: boolean,
+ *   fullOverscan: boolean,
+ *   scrollMargin: number,
+ *   dragIndexRef: import("react").MutableRefObject<number>,
+ *   virtualizerRef: import("react").MutableRefObject<any>,
+ *   topSpacerRef: import("react").RefObject<HTMLLIElement | null>,
+ *   renderRow: (index: number, measureRef: (el: Element | null) => void) => import("react").ReactNode,
+ * }} props
+ */
+function VirtualRowWindow({
+  count,
+  rowKey,
+  dense,
+  fullOverscan,
+  scrollMargin,
+  dragIndexRef,
+  virtualizerRef,
+  topSpacerRef,
+  renderRow,
+}) {
+  // Rows all share one height, so the first measured row becomes the estimate
+  // for the rest. A wrong estimate made every newly mounted row while
+  // scrolling re-lay the offsets of all the rows after it (W6).
+  const rowHeightRef = useRef(0);
+  const measureRow = useCallback((element, entry, instance) => {
+    const size = measureVirtualElement(element, entry, instance);
+    if (!rowHeightRef.current && size > 0) rowHeightRef.current = size;
+    return size;
+  }, []);
+  const virtualizer = useWindowVirtualizer({
+    count,
+    estimateSize: () => rowHeightRef.current || (dense ? DENSE_ROW_HEIGHT_GUESS : ROW_HEIGHT_GUESS),
+    measureElement: measureRow,
+    overscan: fullOverscan ? ROW_OVERSCAN : FIRST_FRAME_OVERSCAN,
+    // Scrolling must not synchronously re-render the whole list on every event.
+    useFlushSync: false,
+    scrollMargin,
+    getItemKey: rowKey,
+    initialRect: { width: 1024, height: typeof window === "undefined" ? 800 : window.innerHeight },
+    // The row being dragged stays mounted: a source node removed mid-drag
+    // never fires dragend.
+    rangeExtractor: (range) => {
+      const base = defaultRangeExtractor(range);
+      const held = dragIndexRef.current;
+      if (held >= 0 && held < range.count && !base.includes(held)) {
+        base.push(held);
+        base.sort((a, b) => a - b);
+      }
+      return base;
+    },
+  });
+  useLayoutEffect(() => {
+    virtualizerRef.current = virtualizer;
+    return () => {
+      virtualizerRef.current = null;
+    };
+  }, [virtualizer, virtualizerRef]);
+
+  const items = virtualizer.getVirtualItems();
+  const topPad = items.length ? Math.max(0, items[0].start - scrollMargin) : 0;
+  const bottomPad = items.length
+    ? Math.max(0, virtualizer.getTotalSize() - (items[items.length - 1].end - scrollMargin))
+    : 0;
+  return (
+    <>
+      <li ref={topSpacerRef} aria-hidden="true" style={{ height: topPad }} />
+      {items.map((item) => renderRow(item.index, virtualizer.measureElement))}
+      <li aria-hidden="true" style={{ height: bottomPad }} />
+    </>
+  );
+}
 
 /**
  * Shared file browser for the full files page and folder pickers.
@@ -435,8 +536,7 @@ export default function FileBrowser({
     placeholderData: keepPreviousData,
     // Poll while any file is still flushing from RAM to the drive so "Saving…"
     // clears without a manual refresh.
-    refetchInterval: (query) =>
-      (query.state.data || []).some((e) => e?.saving) ? 750 : false,
+    refetchInterval: (query) => (anySaving(query.state.data) ? 750 : false),
   });
 
   // W4/W5 (luna/perf): opening a folder ends once its own rows (not the
@@ -623,27 +723,11 @@ export default function FileBrowser({
   const topSpacerRef = useRef(/** @type {HTMLLIElement|null} */ (null));
   const [scrollMargin, setScrollMargin] = useState(0);
   const dragIndexRef = useRef(-1);
-  const virtualizer = useWindowVirtualizer({
-    count: virtualOn ? visibleEntries.length : 0,
-    estimateSize: () => (dense ? 37 : 45),
-    overscan: fullOverscan ? ROW_OVERSCAN : FIRST_FRAME_OVERSCAN,
-    // Scrolling must not synchronously re-render the whole list on every event.
-    useFlushSync: false,
-    scrollMargin,
-    getItemKey: (i) => visibleEntries[i]?.name ?? i,
-    initialRect: { width: 1024, height: typeof window === "undefined" ? 800 : window.innerHeight },
-    // The row being dragged stays mounted: a source node removed mid-drag
-    // never fires dragend.
-    rangeExtractor: (range) => {
-      const base = defaultRangeExtractor(range);
-      const held = dragIndexRef.current;
-      if (held >= 0 && held < range.count && !base.includes(held)) {
-        base.push(held);
-        base.sort((a, b) => a - b);
-      }
-      return base;
-    },
-  });
+  // The list window's virtualizer, for revealRow (see VirtualRowWindow).
+  const virtualizerRef = useRef(/** @type {any} */ (null));
+  // The virtualizer recomputes every row's offset whenever this function
+  // changes, so it keeps one identity per listing, not per render (W6).
+  const rowKey = useCallback((i) => visibleEntries[i]?.name ?? i, [visibleEntries]);
 
   // Where the rows start on the page: everything above them (breadcrumbs,
   // toolbars) can change height, so re-measure when the page layout shifts.
@@ -680,7 +764,7 @@ export default function FileBrowser({
     const idx = visibleIndex.get(rowPath) ?? -1;
     const find = () => listRef.current?.querySelector(`[data-file-path="${cssEscape(rowPath)}"]`);
     if (virtualOn && idx >= 0 && !find()) {
-      virtualizer.scrollToIndex(idx, { align: "auto" });
+      virtualizerRef.current?.scrollToIndex(idx, { align: "auto" });
     }
     window.requestAnimationFrame(() => {
       find()?.scrollIntoView?.({ block: "nearest", behavior });
@@ -1190,15 +1274,6 @@ export default function FileBrowser({
     dragPathsRef.current = [];
   }
 
-  const virtualItems = virtualOn ? virtualizer.getVirtualItems() : [];
-  const rowIndexes = virtualOn
-    ? virtualItems.map((v) => v.index)
-    : visibleEntries.map((_, i) => i);
-  const topPad = virtualItems.length ? Math.max(0, virtualItems[0].start - scrollMargin) : 0;
-  const bottomPad = virtualItems.length
-    ? Math.max(0, virtualizer.getTotalSize() - (virtualItems[virtualItems.length - 1].end - scrollMargin))
-    : 0;
-
   // Stable handle for the memoized rows. Methods read the latest closure
   // through the ref, so rows never re-render just because a handler changed.
   const latest = useRef(/** @type {any} */ (null));
@@ -1256,6 +1331,57 @@ export default function FileBrowser({
   }, []);
   // Whether a folder row accepts drops — same gate folderDropProps applies.
   const rowDropEnabled = (rowPath) => Object.keys(folderDropProps(rowPath, rowPath)).length > 0;
+
+  /**
+   * One listing row. Long folders call it from VirtualRowWindow with the
+   * virtualizer's measure ref; short ones render every row directly.
+   * @param {number} rowIndex
+   * @param {((el: Element | null) => void) | undefined} [measureRef]
+   */
+  const renderRow = (rowIndex, measureRef = undefined) => {
+    const entry = visibleEntries[rowIndex];
+    const rowPath = fileRoot ? path : joinPath(path, entry.name);
+    return (
+      <FileRow
+        key={entry.name}
+        entry={entry}
+        path={path}
+        fileRoot={fileRoot}
+        // Trash and Backups count as the rows above, so the striping stays on
+        // the listing's one alternation either way.
+        striped={(rowIndex + rowsAboveFiles) % 2 === 1}
+        isLast={rowIndex === visibleEntries.length - 1}
+        isSelected={selectedSet.has(rowPath)}
+        isDrop={dropTarget === rowPath}
+        isPicker={isPicker}
+        pickerMode={pickerMode}
+        pickSelected={isPicker && selectedPath === rowPath}
+        pickBlocked={isPicker && Boolean(isPickBlocked?.(rowPath))}
+        multiSelect={multiSelect}
+        linkNavigation={linkNavigation}
+        canDragRow={!isPicker && Boolean(onInternalMove)}
+        dropEnabled={rowDropEnabled(rowPath)}
+        trashView={trashView}
+        driveId={driveId}
+        surface={surface}
+        dense={dense}
+        hasShare={Boolean(onShare)}
+        hasCopy={Boolean(onCopy)}
+        hasMove={Boolean(onMove)}
+        hasRename={Boolean(onRename)}
+        hasDelete={Boolean(onDelete)}
+        enableDownload={enableDownload}
+        renderRowActions={renderRowActions}
+        renderRowSheetActions={renderRowSheetActions}
+        folderHref={folderHref}
+        fileHref={fileHref}
+        api={rowApi}
+        measureRef={measureRef}
+        dataIndex={measureRef ? rowIndex : undefined}
+        setSize={measureRef ? visibleEntries.length : undefined}
+      />
+    );
+  };
 
   const padY = dense ? "py-2" : "py-2.5";
   const allSelected = visiblePaths.length > 0 && visiblePaths.every((p) => selectedSet.has(p));
@@ -2155,60 +2281,20 @@ export default function FileBrowser({
             {visibleEntries.length > 0 ? (
               <>
                 {virtualOn ? (
-                  <li
-                    ref={topSpacerRef}
-                    aria-hidden="true"
-                    style={{ height: topPad }}
+                  <VirtualRowWindow
+                    count={visibleEntries.length}
+                    rowKey={rowKey}
+                    dense={dense}
+                    fullOverscan={fullOverscan}
+                    scrollMargin={scrollMargin}
+                    dragIndexRef={dragIndexRef}
+                    virtualizerRef={virtualizerRef}
+                    topSpacerRef={topSpacerRef}
+                    renderRow={renderRow}
                   />
-                ) : null}
-                {rowIndexes.map((rowIndex) => {
-                  const entry = visibleEntries[rowIndex];
-                  const rowPath = fileRoot ? path : joinPath(path, entry.name);
-                  return (
-                    <FileRow
-                      key={entry.name}
-                      entry={entry}
-                      path={path}
-                      fileRoot={fileRoot}
-                      // Trash and Backups count as the rows above, so the
-                      // striping stays on the listing's one alternation
-                      // either way.
-                      striped={(rowIndex + rowsAboveFiles) % 2 === 1}
-                      isLast={rowIndex === visibleEntries.length - 1}
-                      isSelected={selectedSet.has(rowPath)}
-                      isDrop={dropTarget === rowPath}
-                      isPicker={isPicker}
-                      pickerMode={pickerMode}
-                      pickSelected={isPicker && selectedPath === rowPath}
-                      pickBlocked={isPicker && Boolean(isPickBlocked?.(rowPath))}
-                      multiSelect={multiSelect}
-                      linkNavigation={linkNavigation}
-                      canDragRow={!isPicker && Boolean(onInternalMove)}
-                      dropEnabled={rowDropEnabled(rowPath)}
-                      trashView={trashView}
-                      driveId={driveId}
-                      surface={surface}
-                      dense={dense}
-                      hasShare={Boolean(onShare)}
-                      hasCopy={Boolean(onCopy)}
-                      hasMove={Boolean(onMove)}
-                      hasRename={Boolean(onRename)}
-                      hasDelete={Boolean(onDelete)}
-                      enableDownload={enableDownload}
-                      renderRowActions={renderRowActions}
-                      renderRowSheetActions={renderRowSheetActions}
-                      folderHref={folderHref}
-                      fileHref={fileHref}
-                      api={rowApi}
-                      measureRef={virtualOn ? virtualizer.measureElement : undefined}
-                      dataIndex={virtualOn ? rowIndex : undefined}
-                      setSize={virtualOn ? visibleEntries.length : undefined}
-                    />
-                  );
-                })}
-                {virtualOn ? (
-                  <li aria-hidden="true" style={{ height: bottomPad }} />
-                ) : null}
+                ) : (
+                  visibleEntries.map((_, rowIndex) => renderRow(rowIndex))
+                )}
               </>
             ) : listing.isError ? (
               <li

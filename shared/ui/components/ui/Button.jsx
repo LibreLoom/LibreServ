@@ -43,7 +43,7 @@
  * ═══════════════════════════════════════════════════════════════════════
  */
 // @ts-nocheck
-import { Children, useRef, cloneElement, isValidElement } from "react";
+import { Children, useRef, useState, cloneElement, isValidElement } from "react";
 import PropTypes from "prop-types";
 import { cva } from "class-variance-authority";
 import { cn } from "../../lib/utils";
@@ -65,7 +65,7 @@ function Slot({ children, ...props }) {
   });
 }
 
-const buttonVariants = cva(
+export const buttonVariants = cva(
   "inline-flex items-center justify-center gap-2 rounded-pill font-medium motion-safe:transition-all enabled:active:motion-safe:scale-95 outline-none no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
   {
     variants: {
@@ -196,6 +196,12 @@ export default function Button({
     onClick?.(event);
   };
 
+  // An icon button's spinner layer (a dozen nodes) mounts the first time it
+  // loads and then stays for its exit slide. Lists mount hundreds of icon
+  // buttons that never load, and the idle layer was most of their DOM.
+  const [spinnerStaged, setSpinnerStaged] = useState(loading);
+  if ((size === "icon" || size === "iconSm") && loading && !spinnerStaged) setSpinnerStaged(true);
+
   // asChild: style the child element (e.g. a router Link or anchor) as a
   // Button. Button-only attributes (type, disabled) don't apply to links.
   const nativeTitle = tooltip ? undefined : title;
@@ -248,7 +254,9 @@ export default function Button({
         /* Icon buttons swap glyph-for-spinner: the icon lifts up and out
            while the spinner rises into place from below, both clipped by
            the wrapper. Under reduced motion the state flips instantly. */
-        <span className="relative inline-flex overflow-hidden">
+        // The clip only matters once the spinner exists; idle, it would add
+        // a clip to every icon in a long list for nothing.
+        <span className={spinnerStaged ? "relative inline-flex overflow-hidden" : "relative inline-flex"}>
           <span
             className={cn(
               "inline-flex motion-safe:transition-all motion-safe:ease-[var(--motion-easing-emphasized)]",
@@ -258,17 +266,20 @@ export default function Button({
           >
             {children}
           </span>
-          <span
-            aria-hidden={!loading}
-            className={cn(
-              "absolute inset-0 inline-flex items-center justify-center motion-safe:transition-all motion-safe:ease-[var(--motion-easing-emphasized)]",
-              loading ? "translate-y-0 opacity-100" : "translate-y-full opacity-0",
-              loading && "will-change-transform",
-            )}
-            style={{ transitionDuration: "var(--motion-duration-medium2)" }}
-          >
-            <Spinner decorative paused={!loading} size={spinnerSize} className="pointer-events-none" />
-          </span>
+          {spinnerStaged ? (
+            <span
+              aria-hidden={!loading}
+              className={cn(
+                // starting: rises from below the clip on the frame it mounts.
+                "absolute inset-0 inline-flex items-center justify-center motion-safe:transition-all motion-safe:ease-[var(--motion-easing-emphasized)] starting:translate-y-full starting:opacity-0",
+                loading ? "translate-y-0 opacity-100" : "translate-y-full opacity-0",
+                loading && "will-change-transform",
+              )}
+              style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+            >
+              <Spinner decorative paused={!loading} size={spinnerSize} className="pointer-events-none" />
+            </span>
+          ) : null}
           {loading && <span className="sr-only">Loading</span>}
         </span>
       ) : (

@@ -36,7 +36,8 @@ import IconCircle from "@libreloom/ui/components/ui/IconCircle.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
-import { TermHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import IconActions from "@libreloom/ui/components/ui/IconActions.jsx";
+import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import PrivateBadge from "../private/PrivateBadge.jsx";
 import { apiErrorMessage } from "../../lib/api.js";
 import { fileExtension, openableKind } from "../../lib/fileKinds.js";
@@ -268,20 +269,13 @@ TrashDetails.propTypes = {
 
 /** @param {{ label: string, onClick: () => void, surface?: "primary" | "secondary" }} props */
 export function PropertiesButton({ label, onClick, surface = "secondary" }) {
+  // Every file row carries one, so it is the light icon button (W4/W6).
   return (
-    <Tooltip content="Properties">
-      <Button
-        variant="ghost"
-        surface={surface}
-        size="iconSm"
-        // Every row mounts a set of these and an icon never changes width.
-        smoothResize={false}
-        aria-label={`Properties for ${label}`}
-        onClick={onClick}
-      >
-        <Info size={ICON_SIZE.sm} />
-      </Button>
-    </Tooltip>
+    <IconActions
+      surface={surface}
+      iconSize={ICON_SIZE.sm}
+      actions={[{ key: "properties", label: "Properties", aria: `Properties for ${label}`, icon: Info, run: onClick }]}
+    />
   );
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { canViewerOpen } from "../../lib/officeConvert.js";
 import { viewerNeedsSession } from "../../lib/fileKinds.js";
 
@@ -18,19 +18,32 @@ export function canOpenRow(entry, displayName, trashView) {
 
 const SM_UP_QUERY = "(min-width: 640px)";
 
-/** Phones get one action button; a missing matchMedia (tests) counts as desktop. */
+/** @type {MediaQueryList | null} */
+let smUpQuery = null;
+/** @type {unknown} */
+let smUpSource = null;
+function smUpList() {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return null;
+  // Re-query when matchMedia itself was swapped (tests stub it per case).
+  if (smUpSource !== window.matchMedia) {
+    smUpSource = window.matchMedia;
+    smUpQuery = window.matchMedia(SM_UP_QUERY);
+  }
+  return smUpQuery;
+}
+/** @param {() => void} onChange */
+function subscribeSmUp(onChange) {
+  const mq = smUpList();
+  if (!mq) return () => {};
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
+}
+const readSmUp = () => smUpList()?.matches ?? true;
+
+/**
+ * Phones get one action button; a missing matchMedia (tests) counts as desktop.
+ * One shared media query for every row, instead of a listener and state each.
+ */
 export function useIsSmUp() {
-  const read = () =>
-    typeof window === "undefined" || typeof window.matchMedia !== "function"
-      ? true
-      : window.matchMedia(SM_UP_QUERY).matches;
-  const [isSmUp, setIsSmUp] = useState(read);
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") return undefined;
-    const mq = window.matchMedia(SM_UP_QUERY);
-    const onChange = () => setIsSmUp(mq.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
-  return isSmUp;
+  return useSyncExternalStore(subscribeSmUp, readSmUp, () => true);
 }
