@@ -112,3 +112,20 @@ Follow-up validation: all 19 checks selected by `./ci check -r` passed;
 Rust formatting and diff whitespace checks passed. Regression tests were not
 executed under the repository authorization rule, and FAT/image/hardware
 power-loss behavior remains unverified.
+
+## Authorized test run
+
+`./ci run -p luna` passed all seven gate checks (`EXIT=0`, 38m50s).
+The daemon suite passed 1,702 tests, including the update interruption and
+uncertain-commit cases. Four intentionally ignored cases are two fixture
+regenerators and two benchmarks. Desktop passed 72 tests; shared UI passed
+284 tests. The web unit suite, production build, browser recovery checks,
+Android tests, Clippy and OS script checks passed, including the pack-installation
+control-flow regression.
+
+Before the release-tool gate, the image validator was corrected to redirect
+output outside its chroot: the target `/dev` is empty during assembly, so an
+internal redirection could create a plain `/dev/null` file in the image. Shell
+syntax was checked; the release-tool build tests will exercise this correction.
+The Luna gate ran on `b4e09392`; this follow-up changes only the validator and
+this report. The release-tool gate remains pending at this point.

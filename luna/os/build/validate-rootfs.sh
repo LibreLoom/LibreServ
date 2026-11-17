@@ -21,19 +21,20 @@ done
 [ -d "$ROOTFS/usr/share/luna/eurooffice/fonts" ] || fail 'missing office fonts'
 # Resolve commands inside the target tree. Host existence checks accept broken
 # absolute symlinks and cannot establish that dynamic libraries are installed.
+# Redirect outside chroot: the target /dev is populated only when it boots.
 chroot "$ROOTFS" /bin/sh -eu -c '
     for b in acpid tune2fs e2label e2fsck grub-editenv mkfs.exfat wipefs sfdisk \
         partprobe blkid blockdev smartctl ffmpeg ffprobe heif-dec curl timeout \
         logrotate findmnt cryptsetup mkfs.ext4 fsck.exfat pdftotext pdftoppm \
         tesseract fstrim findfs lsblk mount umount reboot; do
-        command -v "$b" >/dev/null || exit 1
+        command -v "$b" || exit 1
     done
     /usr/local/bin/lunad --version
     /usr/local/bin/cloudflared --version
-    ffmpeg -version >/dev/null
+    ffmpeg -version
     pdftotext -v
     tesseract --version
-' || fail 'a required program cannot run in the target filesystem'
+' >/dev/null || fail 'a required program cannot run in the target filesystem'
 # Load both ONNX encoders against the libraries in the image, then EOF exits
 # the runner. This catches mismatched ONNX Runtime and missing shared libraries.
 for mode in image text; do
