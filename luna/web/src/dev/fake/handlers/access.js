@@ -688,8 +688,13 @@ function metaWanted(query, headers) {
 const ATTACH_EXTS = { jpg: "jpg", jpeg: "jpg", png: "png", gif: "gif", webp: "webp", pdf: "pdf" };
 const ATTACH_KIND_MESSAGE = "Attach a photo (JPG, PNG, GIF, or WebP) or a PDF.";
 
+/** `u64::from_str`: digits, with one optional leading `+`. */
+function parseU64(text) {
+  return /^\+?\d+$/.test(text) ? BigInt(text.replace("+", "")) : null;
+}
+
 /** The daemon's own ceiling on one file, used to judge a chunk range. */
-const MAX_FILE_BYTES = 1024 ** 4;
+const MAX_FILE_BYTES = 1099511627776n;
 
 /** A random lowercase-hex string, as the daemon mints its file names. */
 function mintHex(len) {
@@ -1689,32 +1694,37 @@ put("/s/:token/upload/:id", ({ world, params, headers, raw }) => {
   const rest = spec.startsWith("bytes ") ? spec.slice(6) : null;
   const range = rest ? rest.split("/")[0] : null;
   if (range === null) return fail(400, "That chunk range isn't valid.");
-  const pair = /^(\d*)-(\d*)$/.exec(range);
-  if (!pair) return fail(400, "That chunk range isn't valid.");
+  const dash = range.indexOf("-");
+  if (dash < 0) return fail(400, "That chunk range isn't valid.");
+  const startText = range.slice(0, dash);
+  const endText = range.slice(dash + 1);
   const ceiling = MAX_FILE_BYTES;
   let start;
   let end;
-  if (pair[1] === "") {
-    const n = Number(pair[2]);
-    if (!pair[2] || !Number.isSafeInteger(n) || n === 0) return fail(400, "That chunk range isn't valid.");
-    start = Math.max(ceiling - n, 0);
-    end = ceiling - 1;
+  if (startText === "") {
+    const n = parseU64(endText);
+    if (n === null || n === 0n) return fail(400, "That chunk range isn't valid.");
+    // A suffix longer than the file counts back from zero and runs to the end
+    // of the ceiling, so it fails the length check below rather than parsing.
+    start = ceiling - n > 0n ? ceiling - n : 0n;
+    end = ceiling - 1n;
   } else {
-    start = Number(pair[1]);
-    if (!Number.isSafeInteger(start)) return fail(400, "That chunk range isn't valid.");
-    if (pair[2] === "") end = ceiling - 1;
-    else {
-      end = Number(pair[2]);
-      if (!Number.isSafeInteger(end)) return fail(400, "That chunk range isn't valid.");
+    start = parseU64(startText);
+    if (start === null) return fail(400, "That chunk range isn't valid.");
+    if (endText === "") {
+      end = ceiling - 1n;
+    } else {
+      end = parseU64(endText);
+      if (end === null) return fail(400, "That chunk range isn't valid.");
     }
   }
   if (start > end || start >= ceiling) return fail(400, "That chunk range isn't valid.");
-  end = Math.min(end, ceiling - 1);
-  const expected = end - start + 1;
+  if (end > ceiling - 1n) end = ceiling - 1n;
+  const expected = end - start + 1n;
   const got = raw ? raw.size ?? raw.byteLength ?? raw.length ?? 0 : 0;
   // Every byte is counted once: a short body would leave a hole that is written
   // out as zeroes, so it is refused instead of accepted.
-  if (got !== expected) return fail(400, "The chunk size doesn't match its range.");
+  if (BigInt(got) !== expected) return fail(400, "The chunk size doesn't match its range.");
   // `upload_chunk_bytes` is the memory budget for one piece; a bigger body is
   // refused with its own status before the bytes are ever written.
   if (got > 16 * 1024 * 1024)
@@ -1728,11 +1738,11 @@ put("/s/:token/upload/:id", ({ world, params, headers, raw }) => {
     return fail(409, "This upload is already finished or cancelled.");
   // `write_chunk` refuses a range that runs past the declared size instead of
   // growing the file beyond what was asked for.
-  if (end >= found.up.size)
+  if (end >= BigInt(found.up.size))
     return fail(400, "The upload isn't complete yet. Check the connection and try again.");
   // Coverage is the union of the ranges written, so out-of-order chunks still
   // add up — a single `max` would forget everything but the widest chunk.
-  found.up.ranges.push([start, end]);
+  found.up.ranges.push([Number(start), Number(end)]);
   const merged = [...found.up.ranges].sort((a, b) => a[0] - b[0]);
   let covered = 0;
   let openEnd = -1;
@@ -1742,7 +1752,7 @@ put("/s/:token/upload/:id", ({ world, params, headers, raw }) => {
     openEnd = to;
   }
   found.up.covered = covered;
-  found.up.received = Math.max(found.up.received, end + 1);
+  found.up.received = Math.max(found.up.received, Number(end) + 1);
   return { upload_id: params.id, received: found.up.received };
 }, { public: true });
 post("/s/:token/upload/:id/complete", ({ world, params, query, headers }) => {
