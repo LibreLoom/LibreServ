@@ -29,7 +29,7 @@ panel as `luna:W…`). No UI, nothing sent anywhere.
 | W7 | Photos page mounts | every timeline thumbnail in the viewport loaded |
 | W8 | a scroll on the timeline comes to rest (`scrollend`); detailed mode only | same as W7. No scrubber exists yet, so this is an approximation. |
 | W9, W9:full | photo opened (`PhotosPage.openPhoto`) | preview, then full photo decoded (`LightboxMedia`, current pane only) |
-| W10, W10:query | search keystroke / debounce fires (`FileSearch`) | the first rows of results for that text painted (a long answer paints 12 rows, then the rest). The 120 ms quick debounce is inside W10. |
+| W10, W10:query | search keystroke / debounce fires (`FileSearch`) | the first rows of results for that text painted (a long answer paints 12 rows, then the rest). The 30 ms quick debounce is inside W10. |
 | W11 | search keystroke | results with a `meaning` or `photo` match rendered (same `/api/v1/search`) |
 | W12 | office document opened (`FileViewer`) | EuroOffice `onDocumentReady` |
 | W15 | page load at `/s/…` | the link's first screen (listing, album, form or upload box) |
@@ -161,3 +161,84 @@ cargo run --release -p luna-bench -- run --user admin --password … \
 cargo run --release -p luna-bench -- run --journeys D1 \
   --spawn 'env LUNA_PERF=1 LUNA_MOCK_DRIVES=only LUNA_MOCK_DRIVES_PATH=perf/data/drives target/release/lunad --data-dir perf/data/lunad'
 ```
+
+## Desktop and Connect (luna/desktop, luna/connect)
+
+Scripts live in `perf/clients/`. Each prints JSON lines; results are not
+written into the repo.
+
+**Desktop engine, no GTK** (`desktop.sh`, built from
+`desktop/examples/clients_bench.rs`). Drives the real sync and backup engines
+against a running lunad. `LUNA_DESKTOP_PERF=1` (set by the script) adds one
+`K3 sync pass` line per full pass to stderr (remote walk, local walk, diff,
+ledger save). The engine is pinned to one host core (`K_CPU`, default 5): the
+desktop runs on the person's computer, not on the Luna, so only lunad sits in
+the 3040 stand-in.
+
+| Mode | Prints |
+|---|---|
+| `sync <remote> <local parent> [cycles] [edits]` | `K-first-pass` (start to first full pass done, i.e. synced), `K3` per idle cycle (30 s wait + one full pass: CPU ms, RSS), `K4` per edit: `idle` (engine waiting) and `mid-pass` (edit 0.5 s into a full pass), ms until Luna lists the new size |
+| `backup <remote> <local dir>` | `K5`: Mbit/s and the CPU-bound ceiling (bytes / CPU s) |
+| `walk <remote> <unused>` | one remote walk, 5 times: wall and CPU ms |
+
+```sh
+LUNA_URL=http://localhost:8098 LUNA_PASSWORD=… LUNA_DRIVE=<drive id> \
+  perf/clients/desktop.sh sync library /path/to/local-parent 3 3
+```
+
+The local parent should already hold a copy of the remote folder (the first
+pass then only compares). Edits append a line to small files, so the data set
+drifts slowly; regenerate it with `luna-bench gen` when that matters.
+`BENCH=<binary>` runs a prebuilt bench, for interleaved A/B runs.
+
+**Desktop app, K1 and K2** (`desktop-gui.sh`). Starts the real GTK app on Xvfb
+with a private D-Bus bus (no activatable services: no portal, keyring or
+accessibility bus is started, and the real ones are never touched), a fresh
+`HOME`, and a `session.json` signed in to lunad. K1 marks come from the app
+(`LUNA_DESKTOP_PERF=1`, ms since exec, 10 ms steps): `tray` (tray service up),
+`window` (window mapped), `session` (saved sign-in checked, Files or sign-in
+screen shown). After the idle time it reads RSS and PSS. `K_PAIR=library:<local
+parent>` adds a sync pair; `K_ARGS=--background` starts it as start-on-boot
+does. Xvfb only has software GL (llvmpipe), which alone maps about 75 MB; run
+once more with `GDK_DEBUG=gl-disable` to see the app's own share.
+
+**Connect, C2 and C5** (`connect.sh`). `start <dir>` builds (or takes
+`CONNECT_BIN`) and runs Luna Connect in dev mode on `C_PORT` (8099) with
+everything in `<dir>`: config, SQLite DB, pack store. It mints `C_DEVICES`
+(5000) unbound device tokens, registers `perf@example.test`, marks it verified
+with a card, binds one Luna and gives it a public name. `c2` times
+`GET /api/v1/status` with that Luna's token (`C_RUNS`, 200). `c5` uploads
+`C_PACKS` (8) random 32 MiB packs, as lunad's cloud backup does, and prints
+MB/s plus Connect's own `Server-Timing` split (body read to disk, store put,
+DB commit). `CONNECT_WEB=<dist>` serves another web build. Production runs
+PostgreSQL and Backblaze B2; this measures SQLite and the local store.
+
+**Connect pages, C3 and C4** (`connect-pages.mjs`, uses `luna/web`'s
+Playwright). C3: cold load of `/onboarding` to its first heading with no
+"Loading...". C4: sign-in submitted to the Luna page's public address card.
+Each sample is a fresh browser context. `C_CPU` (4), `C_NET`: `4g` = 9 Mbit/s
+down, 1.5 up, 150 ms RTT (default); `slow4g` = 1.6/0.75 Mbit/s, 560 ms.
+`C_EDGE_GZIP=1` (default) puts a gzip proxy in front, standing in for
+Cloudflare's compression; Go's file server sends no compression. Locally the
+page loads over HTTP/1.1 (6 connections), where Cloudflare serves HTTP/2, so
+many small files cost more here than in production. `C_DEBUG=1` prints each
+request's timeline.
+
+```sh
+perf/clients/connect.sh start /tmp/connect-perf
+LUNA_CONNECT_URL=http://127.0.0.1:8099 node perf/clients/connect-pages.mjs
+perf/clients/connect.sh c2 /tmp/connect-perf; perf/clients/connect.sh c5 /tmp/connect-perf
+perf/clients/connect.sh stop /tmp/connect-perf
+```
+
+**Android A1** (needs a phone on adb, the app installed): `adb shell am start
+-W -S -n net.plainskill.luna/.LoginActivity` a few times and read
+`TotalTime` (cold start to the first frame of the next screen). Note whether
+the installed build is a debug one (`dumpsys package net.plainskill.luna`
+shows `DEBUGGABLE`): debug builds start slower than release.
+
+Not measured here: C1 (tunnel overhead is Cloudflare's edge and
+`cloudflared`, not Connect code), Android A2–A5 (A2 uploads the phone's
+photos, A3/A4 need hours on a release build, A5 needs a scripted scroll).
+K5 over loopback is bound by lunad in the stand-in, not the link; read
+`cpu_bound_mbit_s` for the desktop's own share.
