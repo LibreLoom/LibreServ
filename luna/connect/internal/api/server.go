@@ -47,6 +47,9 @@ func (s *Server) ProcessRetention(now int64) {
 	handlers.ProcessRetention(s.deps, now)
 }
 
+// SweepOrphanTunnels deletes Cloudflare tunnels that no Luna owns any more.
+func (s *Server) SweepOrphanTunnels() { handlers.SweepOrphanTunnels(s.deps) }
+
 func (s *Server) routes() {
 	r := chi.NewRouter()
 	r.Use(handlers.SecurityHeaders)

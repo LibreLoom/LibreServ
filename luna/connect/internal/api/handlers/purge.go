@@ -76,13 +76,13 @@ func teardownDeviceRemote(deps Deps, subdomain, tunnelID string) {
 	providers.RefreshCloudflare()
 	if deps.Tunnel != nil && tunnelID != "" {
 		if err := deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tunnelID); err != nil {
-			slog.Warn("purge device: tunnel delete failed", "tunnel_id", tunnelID, "err", err)
+			slog.Error("tunnel delete failed; the orphan sweep will retry", "tunnel_id", tunnelID, "err", err)
 		}
 	}
 	if deps.DNS != nil && subdomain != "" {
 		host := domainname.Hostname(subdomain, config.C.Server.PublicZone)
 		if err := deps.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, host); err != nil {
-			slog.Warn("purge device: dns delete failed", "host", host, "err", err)
+			slog.Error("dns record delete failed", "host", host, "err", err)
 		}
 	}
 }

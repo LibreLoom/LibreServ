@@ -125,12 +125,7 @@ func (h DeviceHandler) Unbind(w http.ResponseWriter, r *http.Request) {
 
 func unbindDevice(deps Deps, d Device, accountID string) {
 	providers.RefreshCloudflare()
-	if deps.Tunnel != nil && d.TunnelID != "" {
-		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, d.TunnelID)
-	}
-	if deps.DNS != nil && d.Subdomain != "" {
-		_ = deps.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, domainname.Hostname(d.Subdomain, config.C.Server.PublicZone))
-	}
+	teardownDeviceRemote(deps, d.Subdomain, d.TunnelID)
 	_, _ = deps.DB.Exec(`UPDATE devices SET account_id = NULL, subdomain = NULL, tunnel_id = NULL, tunnel_token = NULL, name = NULL WHERE id = ?`, d.ID)
 }
 
