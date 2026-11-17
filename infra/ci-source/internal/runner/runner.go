@@ -430,15 +430,10 @@ func (r *Runner) runHostTest(ctx context.Context, t *tests.Test) *tests.TestResu
 		r.outputChan <- OutputLine{TestID: t.ID, Type: OutputStatus, Line: warning}
 	}
 
-	out, err := cmd.CombinedOutput()
-	output := string(out)
-	for _, line := range strings.Split(strings.TrimRight(output, "\n"), "\n") {
-		if line != "" {
-			r.streamManager.AddLine(t.ID, line)
-			r.outputChan <- OutputLine{TestID: t.ID, Type: OutputStdout, Line: line}
-		}
-	}
-
+	output, err := streamHostCommand(cmd, func(line string) {
+		r.streamManager.AddLine(t.ID, line)
+		r.outputChan <- OutputLine{TestID: t.ID, Type: OutputStdout, Line: line}
+	})
 	result.Output = output
 	result.EndTime = time.Now()
 	result.Duration = result.EndTime.Sub(result.StartTime)

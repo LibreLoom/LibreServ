@@ -1,9 +1,12 @@
 package parts
 
 import (
+	"debug/buildinfo"
+	"debug/elf"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -35,6 +38,54 @@ func Artifacts(b *engine.BuildContext, ps []engine.Part) []Artifact {
 		}
 	}
 	return out
+}
+
+// validateStaticELF checks the actual release artifact, including cross builds.
+func validateStaticELF(path, arch string) error {
+	f, err := elf.Open(path)
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	defer f.Close()
+	want, ok := map[string]elf.Machine{"amd64": elf.EM_X86_64, "arm64": elf.EM_AARCH64}[arch]
+	if !ok || f.Machine != want || f.Class != elf.ELFCLASS64 {
+		return fmt.Errorf("%s: expected a 64-bit %s ELF executable", path, arch)
+	}
+	if f.Type != elf.ET_EXEC && f.Type != elf.ET_DYN {
+		return fmt.Errorf("%s: not an executable", path)
+	}
+	for _, p := range f.Progs {
+		if p.Type == elf.PT_INTERP {
+			return fmt.Errorf("%s: executable needs a dynamic loader", path)
+		}
+	}
+	libs, err := f.ImportedLibraries()
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	if len(libs) != 0 {
+		return fmt.Errorf("%s: executable needs shared libraries: %v", path, libs)
+	}
+	return nil
+}
+
+// validateSolEmbeds requires the tags that embed both payloads in the Go
+// executable. Check build info rather than merely finding the word "restic".
+func validateSolEmbeds(path string) error {
+	info, err := buildinfo.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	for _, setting := range info.Settings {
+		if setting.Key != "-tags" {
+			continue
+		}
+		tags := strings.FieldsFunc(setting.Value, func(r rune) bool { return r == ',' || r == ' ' })
+		if slices.Contains(tags, "embedfront") && slices.Contains(tags, "embedrestic") {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s: built without the embedded web UI or restic", path)
 }
 
 // buildTime is the stamped BuildTime; a variable so tests can pin it.

@@ -43,12 +43,32 @@ laptop.
 Bots merge to `main` daily, and only the mirror may move commits to Forgejo:
 
 1. Preflight: secrets proven, clean tree, on `main`, tag free.
-   Then the tests: `./ci run --profile <product> --session` and
-   `./ci run --profile release --session` (the product's profile is `sol`,
-   `luna` or `connect`; `release` is this tool's own tests including the slow
-   builds). `-session` means no resource limits, so they run flat out and can
-   take a long time. Any failure stops the cut before anything is pushed.
-   `--resume` and `--skip-tests` skip this step.
+   Then `./ci run --profile cut-<unit> --session`: one scoped gate for the
+   selected release unit, with inexpensive CI/release tool unit tests included.
+   `--session` removes resource limits. A failure stops the cut before any push.
+   `--resume` and `--skip-tests` skip the gate; artifact validation still runs
+   during the build. The former `--skip-release-tests` flag has been removed:
+   cuts no longer run the exhaustive release-tool build regressions.
+
+   | Cut profile | Product checks | Actual build and validation |
+   |---|---|---|
+   | `cut-sol` | Sol backend, web and security | Both binary architectures, embedded web/restic, static ELF and version checks |
+   | `cut-sol-connect` | Sol Connect backend, admin/customer webs, security and shared deployment | Server and deployable web bundle |
+   | `cut-luna-connect` | Luna Connect backend, web and deployment | Server and deployable web bundle |
+   | `cut-luna` | Daemon/shared crates, web/shared UI, recovery browser and OS scripts | Daemon smoke, OS image and installer ISO |
+   | `cut-luna-desktop` | Desktop and its shared feed library | Flatpak bundles and Windows installer |
+   | `cut-luna-android` | Android unit tests | Signed APK, version and certificate checks |
+
+   Luna OS cuts never run desktop or Android checks. Companion cuts never run
+   the daemon/web/OS suite. Connect cuts never test or build the other service
+   or the quick-start leaflet. Production build jobs run in step 3, rather
+   than in a throwaway preflight integration build as well.
+
+   `./ci run -p release` remains the exhaustive release-tool regression suite:
+   real builds for every unit, warm-cache repeats and daemon version changes.
+   Its slow job selects only the slow tests, without repeating the ordinary
+   integration suite. Broad `sol`, `connect` and `luna` profiles remain available.
+
 2. Bump commit, pushed to origin **immediately** (fetch + rebase + retry if
    `main` moved; nothing is built yet). This SHA is the release.
 3. Build that exact SHA → sums + sign → upload → re-download and check hashes.

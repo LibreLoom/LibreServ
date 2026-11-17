@@ -2,37 +2,76 @@
 # Luna CI — runs everything a Luna commit must pass. Read-only except build artifacts.
 set -eu
 
+# Select lanes before any SDK/cache setup. --list-lanes is read-only and is
+# also used by the CI scope regression tests.
+list_lanes=0
+if [ "${1:-}" = --list-lanes ]; then
+	list_lanes=1
+	shift
+fi
+SCOPE=${1:-all}
+check_lanes= clippy_lanes= rest_lanes= web_lanes= final_lanes=
+case "$SCOPE" in
+all)
+	check_lanes=lane_check
+	clippy_lanes="lane_clippy lane_rust"
+	rest_lanes="lane_mobile lane_os"
+	web_lanes=lane_web
+	final_lanes=lane_web_unit
+	;;
+os)
+	check_lanes=lane_check
+	clippy_lanes=lane_clippy
+	rest_lanes=lane_os
+	web_lanes=lane_web
+	final_lanes=lane_web_unit
+	;;
+desktop) rest_lanes="lane_rust lane_feed" ;;
+android) rest_lanes=lane_mobile ;;
+*) echo "Usage: luna/ci.sh [--list-lanes] [all|os|desktop|android]" >&2; exit 2 ;;
+esac
+if [ "$list_lanes" -eq 1 ]; then
+	# Intentional splitting: these are lists of function names, not paths.
+	printf '%s\n' $check_lanes $clippy_lanes $rest_lanes $web_lanes $final_lanes
+	exit 0
+fi
+
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
-# The container/host maps ~/.cargo and ~/.npm read-only in this environment;
-# point caches at /tmp when the defaults are unwritable.
-if [ ! -w "${CARGO_HOME:-$HOME/.cargo}" ]; then
-  export CARGO_HOME="${CARGO_HOME:-/tmp/luna-cargo-home}"
-else
-  export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
+if [ "$SCOPE" != android ]; then
+	# The container/host maps ~/.cargo and ~/.npm read-only in this environment;
+	# point caches at /tmp when the defaults are unwritable.
+	if [ ! -w "${CARGO_HOME:-$HOME/.cargo}" ]; then
+	  export CARGO_HOME="${CARGO_HOME:-/tmp/luna-cargo-home}"
+	else
+	  export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
+	fi
+	mkdir -p "$CARGO_HOME"
 fi
-mkdir -p "$CARGO_HOME"
 
-# Cloud Agent / CI host shells often skip /etc/profile.d. Find the SDK in the
-# install.sh location or the standard Android Studio location so mobile tests
-# do not depend on a login shell exporting it. A configured ANDROID_SDK_ROOT
-# counts too, and either name covers for the other.
-if [ -z "${ANDROID_HOME:-}" ] && [ -n "${ANDROID_SDK_ROOT:-}" ]; then
-  export ANDROID_HOME="$ANDROID_SDK_ROOT"
-fi
-if [ -z "${ANDROID_HOME:-}" ] && [ -d /usr/local/android-sdk ]; then
-  export ANDROID_HOME=/usr/local/android-sdk
-fi
-if [ -z "${ANDROID_HOME:-}" ] && [ -d "$HOME/Android/Sdk" ]; then
-  export ANDROID_HOME="$HOME/Android/Sdk"
-fi
-if [ -n "${ANDROID_HOME:-}" ]; then
-  export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-  export PATH="${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools:${PATH}"
-fi
-if [ -n "${ANDROID_HOME:-}" ] && [ ! -f mobile/local.properties ]; then
-  echo "sdk.dir=${ANDROID_HOME}" > mobile/local.properties
+# Desktop and OS cuts never initialize or write Android configuration.
+if [ "$SCOPE" = all ] || [ "$SCOPE" = android ]; then
+	# Cloud Agent / CI host shells often skip /etc/profile.d. Find the SDK in the
+	# install.sh location or the standard Android Studio location so mobile tests
+	# do not depend on a login shell exporting it. A configured ANDROID_SDK_ROOT
+	# counts too, and either name covers for the other.
+	if [ -z "${ANDROID_HOME:-}" ] && [ -n "${ANDROID_SDK_ROOT:-}" ]; then
+	  export ANDROID_HOME="$ANDROID_SDK_ROOT"
+	fi
+	if [ -z "${ANDROID_HOME:-}" ] && [ -d /usr/local/android-sdk ]; then
+	  export ANDROID_HOME=/usr/local/android-sdk
+	fi
+	if [ -z "${ANDROID_HOME:-}" ] && [ -d "$HOME/Android/Sdk" ]; then
+	  export ANDROID_HOME="$HOME/Android/Sdk"
+	fi
+	if [ -n "${ANDROID_HOME:-}" ]; then
+	  export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+	  export PATH="${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools:${PATH}"
+	fi
+	if [ -n "${ANDROID_HOME:-}" ] && [ ! -f mobile/local.properties ]; then
+	  echo "sdk.dir=${ANDROID_HOME}" > mobile/local.properties
+	fi
 fi
 
 # Every block below is a lane: its own toolchain and directory, run in
@@ -42,7 +81,11 @@ fi
 lane_check() {
 	echo "==> cargo fmt"
 	_t=$(date +%s)
-	cargo fmt --all --check
+	if [ "$SCOPE" = all ]; then
+		cargo fmt --all --check
+	else
+		cargo fmt -p lunad -p luna-core -p luna-feed --check
+	fi
 	lap fmt "$_t"
 
 	
@@ -53,7 +96,12 @@ lane_check() {
 	# full here, since the step's log is the only evidence when it fails.
 	mkdir -p "$ROOT/target"
 	_rc=0
-	LUNA_CONTRACT_RECORD=1 cargo test --workspace >"$ROOT/target/ci-cargo-test.log" 2>&1 || _rc=$?
+	if [ "$SCOPE" = all ]; then
+		set -- --workspace
+	else
+		set -- -p lunad -p luna-core -p luna-feed
+	fi
+	LUNA_CONTRACT_RECORD=1 cargo test "$@" >"$ROOT/target/ci-cargo-test.log" 2>&1 || _rc=$?
 	cat "$ROOT/target/ci-cargo-test.log"
 	_run=$(grep -o 'test result: .* [1-9][0-9][0-9][0-9]* passed.*finished in [0-9.]*s' "$ROOT/target/ci-cargo-test.log" | sed 's/.*finished in //' | head -1)
 	echo "$(date +%FT%T) cargo-test: lunad tests ran ${_run:-?} of the step's $(($(date +%s) - _t))s" >>"$ROOT/target/ci-lane-times.log"
@@ -66,7 +114,7 @@ lane_check() {
 	if [ "${LUNA_COVERAGE:-0}" != "1" ]; then
 		echo "    skipped (set LUNA_COVERAGE=1 to re-run the suite for a coverage report)"
 	elif cargo llvm-cov --version >/dev/null 2>&1; then
-		cargo llvm-cov --workspace --summary-only || echo "    coverage run failed (not gating)"
+		cargo llvm-cov "$@" --summary-only || echo "    coverage run failed (not gating)"
 	else
 		echo "    cargo-llvm-cov is not installed; skipping (cargo install cargo-llvm-cov)"
 	fi
@@ -80,7 +128,12 @@ lane_clippy() {
 	echo "==> cargo clippy"
 	export CARGO_TARGET_DIR="$ROOT/target/ci-clippy"
 	_t=$(date +%s)
-	cargo clippy --workspace --all-targets -- -D warnings
+	if [ "$SCOPE" = all ]; then
+		set -- --workspace
+	else
+		set -- -p lunad -p luna-core -p luna-feed
+	fi
+	cargo clippy "$@" --all-targets -- -D warnings
 	lap clippy "$_t"
 }
 
@@ -162,6 +215,13 @@ lane_rust() {
 	)
 }
 
+# Desktop's only path dependency: do not test the daemon workspace here.
+lane_feed() {
+	cargo fmt -p luna-feed --check
+	cargo clippy -p luna-feed --all-targets -- -D warnings
+	cargo test -p luna-feed
+}
+
 lane_mobile() {
 	echo "==> mobile unit tests"
 	(
@@ -178,7 +238,7 @@ lane_mobile() {
 
 
 lane_web() {
-	echo "==> web build"
+	echo "==> web dependencies and shared UI checks"
 	(
 	  cd "$ROOT/../shared/ui"
 	  npm install --no-audit --no-fund --cache /tmp/luna-npm-cache
@@ -190,7 +250,7 @@ lane_web() {
 	  npm test
 	  npm run typecheck
 	  cd "$ROOT/web"
-	  npm run build
+	  if [ "$SCOPE" = all ]; then npm run build; fi
 	)
 
 	# Luna Connect's web app and the quick-start leaflet are tested by the
@@ -264,18 +324,17 @@ start() {
 
 # lane_check owns luna/target (fmt, tests) and is the long pole, so it
 # always runs alone in its lane; the rest are grouped to fit the memory share.
-echo "==> parallel lanes ($LANES): rust tests, clippy, desktop, mobile, web, os scripts"
+echo "==> $SCOPE checks ($LANES lanes)"
+if [ -n "$check_lanes" ]; then start check $check_lanes; fi
 case "$LANES" in
 4)
-	start check lane_check
-	start clippy lane_clippy lane_rust
-	start mobile lane_mobile lane_os
-	start web lane_web
+	if [ -n "$clippy_lanes" ]; then start clippy $clippy_lanes; fi
+	if [ -n "$rest_lanes" ]; then start rest $rest_lanes; fi
+	if [ -n "$web_lanes" ]; then start web $web_lanes; fi
 	;;
 *)
-	start check lane_check
-	start clippy lane_clippy
-	start rest lane_rust lane_mobile lane_web lane_os
+	if [ -n "$clippy_lanes" ]; then start clippy $clippy_lanes; fi
+	if [ -n "$rest_lanes$web_lanes" ]; then start rest $rest_lanes $web_lanes; fi
 	;;
 esac
 lane_fail=0
@@ -293,8 +352,10 @@ fi
 grep -h '^==> lane ' "$LANE_DIR"/*.log
 rm -rf "$LANE_DIR"
 
-_t0=$(date +%s)
-lane_web_unit
-lap web-unit "$_t0"
+for _lane in $final_lanes; do
+	_t0=$(date +%s)
+	"$_lane"
+	lap "$_lane" "$_t0"
+done
 
 echo "==> ci ok"

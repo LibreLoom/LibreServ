@@ -56,16 +56,18 @@ var (
 	// connectSecurityTests is the Sol Connect security scan.
 	connectSecurityTests = []string{"connect-gosec", "connect-staticcheck"}
 
-	// connectWebTests is every Connect web frontend (admin, customer, Luna
-	// Connect), plus the Luna quick-start page and the Luna Connect deploy
-	// script tests.
-	connectWebTests = []string{
+	// Keep the two services separate for cuts; broad profiles compose both.
+	solConnectWebTests = []string{
 		"connect-web-admin-lint", "connect-web-admin-typecheck", "connect-web-admin-build",
 		"connect-web-customer-lint", "connect-web-customer-typecheck", "connect-web-customer-build",
+	}
+	lunaConnectWebTests = []string{
 		"luna-connect-web-lint", "luna-connect-web-test", "luna-connect-web-build",
 		"luna-connect-web-colors", "luna-connect-web-typecheck",
-		"luna-quick-start-check", "luna-connect-deploy-test",
+		"luna-connect-deploy-test",
 	}
+	connectWebTests = slices.Concat(solConnectWebTests, lunaConnectWebTests,
+		[]string{"connect-deploy-test", "luna-quick-start-check"})
 
 	// fuzzTests is every fuzz test in the Sol backend.
 	fuzzTests = []string{
@@ -75,9 +77,12 @@ var (
 		"fuzz-config-main", "fuzz-config-smtp", "fuzz-config-runtime", "fuzz-config-caddy", "fuzz-config-acme",
 	}
 
-	// lunaTests is the Luna gate: luna/ci.sh plus the web unit, browser and
-	// color checks.
-	lunaTests = []string{"luna-web-recovery-login-test", "luna-shared-ui-recovery-test", "luna-web-colors", "luna-web-lint", "luna-web-typecheck", "luna-web-e2e", "luna-ci"}
+	lunaWebTests     = []string{"luna-web-recovery-login-test", "luna-shared-ui-recovery-test", "luna-web-colors", "luna-web-lint", "luna-web-typecheck", "luna-web-e2e"}
+	lunaOSTests      = slices.Concat(lunaWebTests, []string{"luna-os-ci"})
+	lunaDesktopTests = []string{"luna-desktop-ci"}
+	lunaAndroidTests = []string{"luna-android-ci"}
+	// Broad Luna coverage uses the same lanes as the three cut classes.
+	lunaTests = slices.Concat(lunaWebTests, []string{"luna-ci"})
 
 	// releaseTests is the release and ci tools' own tests that need no long
 	// builds; releaseSlowTests is the multi-minute builds only the release
@@ -163,6 +168,32 @@ var Profiles = map[string]*Profile{
 		Description: "The release and ci tools' own tests, including the podman integration tests and the slow builds",
 		TestIDs:     slices.Concat(releaseTests, releaseSlowTests),
 	},
+	// Cut profiles include cheap tool tests. Packaging validation happens in
+	// the actual release build; cache/rebuild stress tests stay in release.
+	"cut-sol": {
+		ID: "cut-sol", Name: "Cut Sol", Description: "Sol backend, web, security and release tool unit tests",
+		TestIDs: cutChecks(solBackendTests, solFrontendTests, solSecurityTests, []string{"release-test"}),
+	},
+	"cut-sol-connect": {
+		ID: "cut-sol-connect", Name: "Cut Sol Connect", Description: "Sol Connect backend, web, security, deployment and release tool unit tests",
+		TestIDs: cutChecks(connectGoTests, connectSecurityTests, solConnectWebTests, []string{"connect-deploy-test", "release-test"}),
+	},
+	"cut-luna-connect": {
+		ID: "cut-luna-connect", Name: "Cut Luna Connect", Description: "Luna Connect backend, web, deployment and release tool unit tests",
+		TestIDs: cutChecks(lunaConnectGoTests, lunaConnectWebTests, []string{"connect-deploy-test", "release-test"}),
+	},
+	"cut-luna": {
+		ID: "cut-luna", Name: "Cut Luna OS", Description: "Luna daemon, shared crates, web, recovery browser, OS scripts and release tool unit tests",
+		TestIDs: slices.Concat(lunaOSTests, []string{"release-test"}),
+	},
+	"cut-luna-desktop": {
+		ID: "cut-luna-desktop", Name: "Cut Luna Desktop", Description: "Luna Desktop, its shared feed library and release tool unit tests",
+		TestIDs: slices.Concat(lunaDesktopTests, []string{"release-test"}),
+	},
+	"cut-luna-android": {
+		ID: "cut-luna-android", Name: "Cut Luna Android", Description: "Luna Android and release tool unit tests",
+		TestIDs: slices.Concat(lunaAndroidTests, []string{"release-test"}),
+	},
 	"connect": {
 		ID:          "connect",
 		Name:        "Connect",
@@ -202,6 +233,19 @@ var Profiles = map[string]*Profile{
 	},
 }
 
+// Production compilation and packaging are already checked by the real cut
+// build. Keep ordinary product tests/static checks, without a second build.
+func cutChecks(groups ...[]string) []string {
+	return slices.DeleteFunc(slices.Concat(groups...), func(id string) bool {
+		switch id {
+		case "go-build", "frontend-build", "podman-build", "connect-build", "luna-connect-build",
+			"connect-web-admin-build", "connect-web-customer-build", "luna-connect-web-build":
+			return true
+		}
+		return false
+	})
+}
+
 func GetProfile(id string) *Profile {
 	return Profiles[id]
 }
@@ -215,7 +259,9 @@ func GetProfile(id string) *Profile {
 // so a profile cannot go missing the way "release" did.
 var profileOrder = []string{
 	"quick", "backend", "frontend", "deep", "security", "fuzz", "nofuzz",
-	"connect", "sol", "luna-fast", "luna", "release", "nightly", "full",
+	"connect", "sol", "luna-fast", "luna",
+	"cut-sol", "cut-sol-connect", "cut-luna-connect", "cut-luna", "cut-luna-desktop", "cut-luna-android",
+	"release", "nightly", "full",
 }
 
 // ListProfiles returns every profile exactly once: those named in profileOrder
