@@ -295,9 +295,13 @@ const proofsOf = (w) => {
 /** Runs every check a real link goes through; returns an error answer or the link. */
 function open(w, token, headers) {
   const hit = lookup(w, token);
-  if (!hit) return { err: fail(404, "Not found.") };
+  // `resolve_public_link` words these two refusals itself: a token nothing
+  // matches is "doesn't exist", and an expired link is the same closed-link
+  // page a revoked one gets, not a shorter sentence of its own.
+  if (!hit) return { err: fail(404, "This link doesn't exist.") };
   const { s, l } = hit;
-  if (l.expires_at && l.expires_at < nowSec()) return { err: fail(410, "This link has expired.") };
+  if (l.expires_at && l.expires_at < nowSec())
+    return { err: fail(410, "This link has expired or been removed.") };
   // lunad's `load_link` gate, which runs for every link before anything else:
   // when the link's own subject sits inside a private item whose owner is
   // deleted, the item stays private rather than becoming readable, so the link
@@ -479,7 +483,7 @@ function nodeAt(tree, segments) {
 
 const publicGet = (p, h) => get(p, h, { public: true });
 
-publicGet("/s/:token", ({ world, params, headers }) => {
+publicGet("/s/:token", ({ world, params, query, headers }) => {
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
   const { s, l } = r;
@@ -501,7 +505,17 @@ publicGet("/s/:token", ({ world, params, headers }) => {
       closed_message: l.closed_message || "",
     };
   }
-  const kind = s.kind === "album" ? "album" : s.is_file ? "file" : l.caps === "upload" ? "dropbox" : "folder";
+  // A link with no view capability is a drop box: `public_root_inner` sends it
+  // straight to `{kind:"dropbox", caps}` and never lets it name what it points
+  // at, because the whole promise of the link is that the uploader sees
+  // nothing. Asking it for a path is refused rather than ignored.
+  const caps = String(l.caps || "").split("+").filter(Boolean);
+  const canView = caps.includes("view") || caps.includes("full") || caps.includes("read");
+  if (s.kind !== "album" && !canView) {
+    if (String(query.path ?? "").trim()) return fail(400, "That folder isn't part of this shared link.");
+    return { kind: "dropbox", caps: l.caps };
+  }
+  const kind = s.kind === "album" ? "album" : s.is_file ? "file" : "folder";
   const count = s.kind === "album" ? (world.albumItems?.[s.album_id] || []).length : undefined;
   // `public_root_inner` resolves a viewable path subject through
   // `confined_read`. A link whose drive is gone therefore answers with the
@@ -525,8 +539,68 @@ publicGet("/s/:token/items", ({ world, params, query, headers }) => {
   const all = (world.photos || []).filter((p) => keys.has(photoKey(p)));
   const limit = Number(query.limit) || 80;
   const offset = Number(query.offset) || 0;
-  const items = all.slice(offset, offset + limit).map((p) => ({ ...p, download: p.content }));
-  return { items, has_more: offset + items.length < all.length, next_offset: offset + items.length };
+  // `album_media_urls` names the guest bytes route, so a public photo is never
+  // fetched from the signed-in drive API. The gallery's pictures come back
+  // through `/s/:token/media`, exactly as they would from the daemon — the
+  // media URLs below are the only difference from the drive's own item shape.
+  const mediaUrl = (p, variant) =>
+    `/s/${encodeURIComponent(params.token)}/media?drive_id=${encodeURIComponent(p.drive_id || "d1")}` +
+    `&path=${encodeURIComponent(p.path || "")}&variant=${variant}`;
+  const items = all.slice(offset, offset + limit).map((p) => ({
+    ...p,
+    thumb: mediaUrl(p, "thumb"),
+    content: mediaUrl(p, "content"),
+    download: mediaUrl(p, "download"),
+  }));
+  return {
+    kind: "album",
+    name: r.s.name,
+    item_count: all.length,
+    caps: r.l.caps,
+    items,
+    has_more: offset + items.length < all.length,
+    next_offset: offset + items.length,
+  };
+});
+
+// `GET /s/:token/media` — the guest's own bytes for one album photo. Without
+// this the album page's pictures load from a route lunad doesn't serve.
+publicGet("/s/:token/media", ({ world, params, query, headers }) => {
+  const r = open(world, params.token, headers);
+  if (r.err) return r.err;
+  // Same gate as `public_media`: anything that is not a viewable album closes,
+  // it does not answer bytes.
+  const caps = String(r.l.caps || "").split("+").filter(Boolean);
+  const canView = caps.includes("view") || caps.includes("full") || caps.includes("read");
+  if (r.s.kind !== "album" || !canView) return fail(410, "This link has expired or been removed.");
+  const path = String(query.path || "");
+  const photo = (world.photos || []).find(
+    (p) => p.path === path && (world.albumItems?.[r.s.album_id] || []).includes(photoKey(p)),
+  );
+  if (!photo) return fail(404, "Luna can't find that anymore. Refresh and try again.");
+  const variant = String(query.variant || "content");
+  const url = variant === "thumb" ? photo.thumb : photo.content;
+  if (!url) return fail(404, "Luna can't find that anymore. Refresh and try again.");
+  // The fake's pictures are inline `data:` URLs, so the guest's bytes are the
+  // decoded body of one. Any parameters before the comma (`;utf8`) are part of
+  // the media type, not of the payload.
+  const comma = url.indexOf(",");
+  if (!url.startsWith("data:") || comma < 0)
+    return fail(404, "Luna can't find that anymore. Refresh and try again.");
+  const meta = url.slice(5, comma);
+  const body = url.slice(comma + 1);
+  const type = meta.split(";")[0];
+  const bytes = /;base64/i.test(meta)
+    ? Uint8Array.from(atob(body), (ch) => ch.charCodeAt(0))
+    : new TextEncoder().encode(decodeURIComponent(body));
+  return raw(
+    bytes,
+    type,
+    200,
+    variant === "download"
+      ? { "Content-Disposition": `attachment; filename="${dispositionName(photo.name || "photo")}"` }
+      : {},
+  );
 });
 
 publicGet("/s/:token/list", ({ world, params, query, headers }) => {
@@ -539,18 +613,18 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
   // "full" is CAP_ALL, which includes CAP_VIEW; a drop box ("upload") and an
   // answering-only link ("respond") carry no view at all, so they list nothing.
   const canView = caps.includes("view") || caps.includes("full") || caps.includes("read");
-  if (r.s.kind !== "path" || !canView) return fail(404, "Not found.");
-  // A single-file link still gets a listing, because its page mounts a file
-  // browser: that browser must show the one shared file, not an error. Asking
-  // for anything else under it is refused.
+  if (r.s.kind !== "path" || !canView) return fail(410, "This link has expired or been removed.");
   const segments = linkSegments(query.path);
   if (!segments) return fail(400, "That folder isn't part of this shared link.");
   // `public_list` goes through `confined_read` too, so a folder whose drive is
   // gone stops listing rather than looking empty to the guest.
   const goneFolder = unavailableShare(world, r.s, "The shared folder isn't available right now.");
   if (goneFolder) return goneFolder;
+  // A single-file link still gets a listing, because its page mounts a file
+  // browser: that browser must show the one shared file, not an error. Asking
+  // for anything below it asks for something that cannot be a folder.
   if (r.s.is_file) {
-    if (segments.length) return fail(404, "Not found.");
+    if (segments.length) return fail(400, "That isn't a folder.");
     return listing([{ name: r.s.name, kind: "file", size: 120_000, modified: nowSec() - 86400, hidden: false }]);
   }
   // A guest who opens a folder sees that folder's entries, not the root again.
@@ -559,10 +633,16 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
   let level = tree;
   for (const [i, seg] of segments.entries()) {
     const soFar = segments.slice(0, i + 1).join("/");
-    const found = level?.find?.((e) => e.name === seg && e.kind === "dir");
+    const found = level?.find?.((e) => e.name === seg) || null;
+    // `confined_read` fails when the path is not there at all, and `public_list`
+    // then asks `!meta.is_dir()` — a file where a folder was expected is the
+    // 400 that points at Download, not a bare miss.
+    if (!found) return fail(404, "The shared folder isn't available right now.");
+    if (found.kind !== "dir") return fail(400, "That isn't a folder.");
     // Walking *through* a private folder is reaching into it, so it answers
-    // 404 rather than walking on and merely hiding what's below.
-    if (!found || !linkReaches(world, r.l, soFar, r.s.drive_id, r.s.path)) return fail(404, "Not found.");
+    // with `not_in_share` rather than walking on and merely hiding what's below.
+    if (!linkReaches(world, r.l, soFar, r.s.drive_id, r.s.path))
+      return fail(404, "That item isn't part of this shared link.");
     level = found.children || [];
   }
   return listing(level.filter((e) => linkReaches(world, r.l, [...segments, e.name].join("/"), r.s.drive_id, r.s.path)));
@@ -627,7 +707,7 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
   // substring-match, or "full" is wrongly refused.
   const caps = String(r.l.caps || "").split("+").filter(Boolean);
   const canView = caps.includes("view") || caps.includes("full") || caps.includes("read");
-  if (!canView) return fail(404, "Not found.");
+  if (!canView) return fail(410, "This link has expired or been removed.");
   if (r.s.kind === "album") {
     // A real zip would be megabytes of real photos; the harness only needs the
     // download to happen and the name to be right.
@@ -635,7 +715,7 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
       "Content-Disposition": `attachment; filename="${dispositionName(r.s.name || "album")}.zip"`,
     });
   }
-  if (r.s.kind !== "path") return fail(404, "Not found.");
+  if (r.s.kind !== "path") return fail(410, "This link has expired or been removed.");
   const segments = linkSegments(query.path);
   if (!segments) return fail(400, "That folder isn't part of this shared link.");
   // `public_zip` resolves the target through `confined_read` before it asks
@@ -644,7 +724,7 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
   const goneFiles = unavailableShare(world, r.s, "The shared files aren't available right now.");
   if (goneFiles) return goneFiles;
   if (r.s.is_file) {
-    if (segments.length) return fail(400, "That file isn't part of this shared link.");
+    if (segments.length) return fail(400, "That folder isn't part of this shared link.");
     if (!linkReaches(world, r.l, "", r.s.drive_id, r.s.path)) return fail(404, "Not found.");
     return serveSharedFile(world, r, "", r.s.name || "download");
   }
@@ -656,16 +736,18 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
     let found = null;
     for (const [i, seg] of segments.entries()) {
       found = level?.find?.((e) => e.name === seg) || null;
-      if (!found) return fail(404, "Not found.");
+      // `public_zip` resolves the target through `confined_read`, whose failure
+      // wording for a zip is the plural one — the guest was downloading files.
+      if (!found) return fail(404, "The shared files aren't available right now.");
       if (i < segments.length - 1) {
-        if (found.kind !== "dir") return fail(404, "Not found.");
+        if (found.kind !== "dir") return fail(404, "The shared files aren't available right now.");
         level = found.children || [];
       }
     }
     // Zipping must obey the same private-folder boundary as listing and
     // reading, or a guest could zip a folder the link may see but never enter.
     if (!linkReaches(world, r.l, segments.join("/"), r.s.drive_id, r.s.path))
-      return fail(404, "Not found.");
+      return fail(404, "That folder isn't part of this shared link.");
     // `public_zip` checks the resolved target: only a directory is zipped, and
     // anything else is the file itself. Without this, `?path=Holiday/notes.txt`
     // answers with an empty zip wearing the name `notes.txt.zip`.
@@ -677,10 +759,41 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
   });
 });
 
-publicGet("/s/:token/stat", ({ world, params, headers }) => {
+// `public_stat` gates like every other path route before it answers a size:
+// no view is a 403 that names the drop-box link, a non-path subject has closed,
+// and the target has to resolve inside the share.
+publicGet("/s/:token/stat", ({ world, params, query, headers }) => {
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
-  return { name: r.s.name, kind: r.s.is_file ? "file" : "dir", size: 120_000, modified: nowSec() - 86400, children: null, created: nowSec() - 86400 * 30, hidden: false, totals: null, writable: false };
+  const caps = String(r.l.caps || "").split("+").filter(Boolean);
+  const canView = caps.includes("view") || caps.includes("full") || caps.includes("read");
+  if (!canView)
+    return fail(403, "This link is for dropping files off — it doesn't open what others have added.");
+  if (r.s.kind !== "path") return fail(410, "This link has expired or been removed.");
+  const segments = linkSegments(query.path);
+  if (!segments) return fail(400, "That path isn't inside this share.");
+  const rel = segments.join("/");
+  if (r.s.is_file && segments.length) return fail(400, "That path isn't inside this share.");
+  const entry = r.s.is_file
+    ? { name: r.s.name, kind: "file" }
+    : nodeAt(treeOf(world, params.token, r.s), segments);
+  // `confined_read` words a missing target for the guest rather than saying
+  // the path was never there.
+  if (!entry) return fail(404, "Luna can't find that anymore. Refresh and try again.");
+  if (!linkReaches(world, r.l, rel, r.s.drive_id, r.s.path))
+    return fail(404, "Luna can't find that anymore. Refresh and try again.");
+  return {
+    name: entry.name,
+    kind: entry.kind === "dir" ? "dir" : "file",
+    size: entry.size ?? 120_000,
+    modified: nowSec() - 86400,
+    children: null,
+    created: nowSec() - 86400 * 30,
+    hidden: false,
+    totals: null,
+    // Only an edit link may write, and never the share's own root.
+    writable: Boolean(caps.includes("edit")) && rel !== "",
+  };
 });
 
 // The file's own bytes. A guest reads these from the link, not the drive API,
@@ -695,7 +808,7 @@ publicGet("/s/:token/file", ({ world, params, query, headers }) => {
   // contradict screens that promise as much.
   const caps = String(r.l.caps || "").split("+").filter(Boolean);
   const canView = caps.includes("view") || caps.includes("full") || caps.includes("read");
-  if (r.s.kind !== "path" || !canView) return fail(404, "Not found.");
+  if (r.s.kind !== "path" || !canView) return fail(410, "This link has expired or been removed.");
   const segments = linkSegments(query.path);
   if (!segments) {
     return fail(400, "That file isn't part of this shared link.");
@@ -713,10 +826,11 @@ publicGet("/s/:token/file", ({ world, params, query, headers }) => {
   const entry = r.s.is_file
     ? { name: r.s.name || name, kind: "file" }
     : nodeAt(treeOf(world, params.token, r.s), segments);
-  if (!entry) return fail(404, "Not found.");
+  if (!entry) return fail(404, "The shared file isn't available right now.");
   // Every shape goes through the boundary check, single-file links included: a
   // link pointing straight at a private file is the easiest one to leak.
-  if (!linkReaches(world, r.l, rel, r.s.drive_id, r.s.path)) return fail(404, "Not found.");
+  if (!linkReaches(world, r.l, rel, r.s.drive_id, r.s.path))
+    return fail(404, "That file isn't part of this shared link.");
   // An ejected drive serves nothing, exactly as it serves nothing over REST.
   // `public_file` passes its own wording to `confined_read`, and a folder
   // share says "files" where a single file says "file".
@@ -759,22 +873,54 @@ publicGet("/s/:token/file", ({ world, params, query, headers }) => {
 post("/s/:token/upload", ({ world, params, headers, body }) => {
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
+  // `public_upload_create` asks for the upload capability before anything else:
+  // a view-only link must not be able to receive files.
+  const caps = String(r.l.caps || "").split("+").filter(Boolean);
+  if (!caps.includes("upload"))
+    return fail(403, "This link is view-only, so it can't receive files. Ask for a link that allows uploads.");
   if (sharing(world).failUpload) return fail(500, "Luna couldn't save that file.");
-  return { upload_id: nextId("up"), name: body.name };
+  const id = nextId("up");
+  r.l.uploadIds = [...(r.l.uploadIds || []), id];
+  return { upload_id: id, name: body.name };
 }, { public: true });
-put("/s/:token/upload/:id", () => ({}), { public: true });
+// Every later request has to prove it belongs to this link, so a made-up upload
+// id is refused rather than completing cleanly.
+const scopedUpload = (world, token, id) => {
+  const hit = lookup(world, token);
+  if (!hit || !(hit.l.uploadIds || []).includes(id))
+    return { err: fail(404, "Luna doesn't know this upload.") };
+  return { err: null, link: hit.l };
+};
+put("/s/:token/upload/:id", ({ world, params }) => {
+  const r = scopedUpload(world, params.token, params.id);
+  return r.err ? r.err : {};
+}, { public: true });
 post("/s/:token/upload/:id/complete", ({ world, params }) => {
-  const hit = lookup(world, params.token);
-  if (hit) hit.l.uploads = (hit.l.uploads || 0) + 1;
+  const r = scopedUpload(world, params.token, params.id);
+  if (r.err || !r.link) return r.err;
+  r.link.uploads = (r.link.uploads || 0) + 1;
+  r.link.uploadIds = (r.link.uploadIds || []).filter((x) => x !== params.id);
   return {};
 }, { public: true });
-del("/s/:token/upload/:id", () => ({}), { public: true });
+del("/s/:token/upload/:id", ({ world, params }) => {
+  const r = scopedUpload(world, params.token, params.id);
+  if (r.err || !r.link) return r.err;
+  r.link.uploadIds = (r.link.uploadIds || []).filter((x) => x !== params.id);
+  return {};
+}, { public: true });
 
 // Answers to a form link.
-get("/s/:token/respond", ({ world, params, query }) => {
-  const hit = lookup(world, params.token);
-  const r = hit?.l.responses?.find((x) => x.edit_token === query.edit_token);
-  return r ? { id: r.id, answers: r.answers, ok: true } : fail(404, "We couldn't find answers for that edit link.");
+// `respond_lookup` resolves the link on the same rails as every other `/s/`
+// address — expiry and the password gate included — before it hands back
+// answers for an edit token.
+get("/s/:token/respond", ({ world, params, query, headers }) => {
+  const r = open(world, params.token, headers);
+  if (r.err) return r.err;
+  const hit = { l: r.l };
+  const found = hit.l.responses?.find((x) => x.edit_token === query.edit_token);
+  return found
+    ? { id: found.id, answers: found.answers, ok: true }
+    : fail(404, "We couldn't find answers for that edit link.");
 }, { public: true });
 post("/s/:token/respond", ({ world, params, headers, body }) => {
   const r = open(world, params.token, headers);
