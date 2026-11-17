@@ -219,13 +219,19 @@ pub fn watch_link_up(
 }
 
 /// Link and IPv4 address changes from the kernel (rtnetlink), so the watcher
-/// can sleep instead of reading sysfs every two seconds.
-struct LinkEvents {
+/// can sleep instead of reading sysfs every two seconds. The HDMI console
+/// opens its own (each socket gets every event).
+pub(crate) struct LinkEvents {
     fd: std::os::fd::OwnedFd,
 }
 
 impl LinkEvents {
     fn open() -> Option<Self> {
+        Self::open_groups((libc::RTMGRP_LINK | libc::RTMGRP_IPV4_IFADDR) as u32)
+    }
+
+    /// Subscribe to these `RTMGRP_*` multicast groups.
+    pub(crate) fn open_groups(groups: u32) -> Option<Self> {
         use std::os::fd::FromRawFd;
         // SAFETY: plain socket call; the fd is owned below.
         let raw = unsafe {
@@ -243,7 +249,7 @@ impl LinkEvents {
         // SAFETY: zeroed sockaddr_nl is a valid value.
         let mut addr: libc::sockaddr_nl = unsafe { std::mem::zeroed() };
         addr.nl_family = libc::AF_NETLINK as libc::sa_family_t;
-        addr.nl_groups = (libc::RTMGRP_LINK | libc::RTMGRP_IPV4_IFADDR) as u32;
+        addr.nl_groups = groups;
         // SAFETY: `addr` is a valid sockaddr_nl of the given size.
         let bound = unsafe {
             libc::bind(
@@ -257,6 +263,20 @@ impl LinkEvents {
 
     /// Wait up to `timeout` for a change, then drain what arrived.
     fn wait(&self, timeout: Duration) {
+        self.wait_ms(timeout.as_millis().min(i32::MAX as u128) as i32);
+    }
+
+    /// Wait for a change with no timeout, then drain what arrived. A failed
+    /// wait (only an interrupt is expected) returns after 10 s, so a broken
+    /// socket degrades to looking every 10 s instead of spinning.
+    pub(crate) fn wait_forever(&self) {
+        if !self.wait_ms(-1) {
+            std::thread::sleep(Duration::from_secs(10));
+        }
+    }
+
+    /// True when something arrived (and was drained) within `ms` (-1: no limit).
+    fn wait_ms(&self, ms: i32) -> bool {
         use std::os::fd::AsRawFd;
         let fd = self.fd.as_raw_fd();
         let mut pfd = libc::pollfd {
@@ -264,10 +284,9 @@ impl LinkEvents {
             events: libc::POLLIN,
             revents: 0,
         };
-        let ms = timeout.as_millis().min(i32::MAX as u128) as i32;
         // SAFETY: one valid pollfd.
         if unsafe { libc::poll(&mut pfd, 1, ms) } <= 0 {
-            return;
+            return false;
         }
         let mut buf = [0u8; 8192];
         for _ in 0..1024 {
@@ -283,6 +302,7 @@ impl LinkEvents {
             }
             break;
         }
+        true
     }
 }
 

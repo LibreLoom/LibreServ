@@ -154,7 +154,12 @@ pub fn rank(query: &Query, name: &str, is_dir: bool) -> Option<Rank> {
     if name_n.starts_with(&query.norm) {
         return Some(make(Tier::Prefix, 0));
     }
-    if name_n.contains(&format!(" {}", query.norm)) {
+    // A word of the name starts with the query: `name_n` holds " " + norm
+    // (checked without building that string for every candidate).
+    if name_n
+        .match_indices(' ')
+        .any(|(i, _)| name_n[i + 1..].starts_with(&query.norm))
+    {
         return Some(make(Tier::WordPrefix, 0));
     }
     if name_n.contains(&query.norm) {

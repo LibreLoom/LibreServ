@@ -15,8 +15,23 @@ use std::time::{Duration, Instant};
 /// is written out together.
 pub const TICK: Duration = Duration::from_secs(2);
 /// With no exFAT or FAT drive in use, how often the flusher looks for one
-/// that appeared without a recorded write.
-pub const IDLE_RECHECK: Duration = Duration::from_secs(60);
+/// that appeared without a recorded write. A change to the drives table
+/// (adopt, mount, state) wakes it at once ([`drives_changed`]), so this is
+/// only a safety net.
+pub const IDLE_RECHECK: Duration = Duration::from_secs(30 * 60);
+
+static DRIVES_CHANGED: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// A row in the drives table changed (cheap; callers may hold the database lock).
+pub fn note_drives_changed() {
+    DRIVES_CHANGED.notify_one();
+}
+
+/// Resolves after the next [`note_drives_changed`] (at once when one came
+/// since the last wait).
+pub async fn drives_changed() {
+    DRIVES_CHANGED.notified().await;
+}
 /// Even with no recorded write, write out at least this often: writers such
 /// as backups don't report each change.
 const BACKSTOP: Duration = Duration::from_secs(30);

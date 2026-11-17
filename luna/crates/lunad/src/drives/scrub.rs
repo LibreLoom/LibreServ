@@ -295,6 +295,36 @@ pub fn should_run_periodic(
     true
 }
 
+/// How long the scrub and trim loops sleep before looking again: `tick` inside
+/// the night window, otherwise until it opens, so an idle Luna doesn't wake
+/// all day for work that only runs at night. Capped at an hour because the
+/// sleep can't see the wall clock move (time set after boot, DST, time zone).
+pub fn next_night_look(tick: std::time::Duration) -> std::time::Duration {
+    let Some(tm) = crate::time::local_tm(db::now_unix()) else {
+        return tick;
+    };
+    let hour = tm.tm_hour.clamp(0, 23) as u32;
+    if in_night_window(hour) {
+        return tick;
+    }
+    let until = secs_until_night_window(
+        hour,
+        tm.tm_min.clamp(0, 59) as u32,
+        tm.tm_sec.clamp(0, 60) as u32,
+    );
+    std::time::Duration::from_secs(until.clamp(1, 60 * 60))
+}
+
+/// Seconds from local `hour:min:sec` until the night window opens (0 inside it).
+pub fn secs_until_night_window(hour: u32, min: u32, sec: u32) -> u64 {
+    if in_night_window(hour) {
+        return 0;
+    }
+    let now = u64::from(hour) * 3600 + u64::from(min) * 60 + u64::from(sec.min(59));
+    let opens = 3600; // 1 AM
+    (opens + 24 * 3600 - now) % (24 * 3600)
+}
+
 pub fn local_hour_now() -> u32 {
     crate::time::local_tm(db::now_unix()).map_or(0, |tm| tm.tm_hour.clamp(0, 23) as u32)
 }
@@ -473,5 +503,16 @@ mod tests {
             0,
             1_000
         ));
+    }
+
+    #[test]
+    fn night_window_wait_counts_to_one_am() {
+        assert_eq!(secs_until_night_window(1, 0, 0), 0);
+        assert_eq!(secs_until_night_window(4, 59, 59), 0);
+        assert_eq!(secs_until_night_window(0, 59, 30), 30);
+        assert_eq!(secs_until_night_window(5, 0, 0), 20 * 3600);
+        assert_eq!(secs_until_night_window(23, 0, 0), 2 * 3600);
+        // Leap second reads as :59.
+        assert_eq!(secs_until_night_window(0, 59, 60), 1);
     }
 }

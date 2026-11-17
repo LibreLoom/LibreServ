@@ -101,6 +101,8 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
         cfg.data_dir = fallback;
     }
     let conn = db::open(&cfg.db_path())?;
+    // Row changes the HDMI console shows ask it to look again (no polling).
+    lunad::system::console::watch_db(&conn);
     // Nothing is uploading yet, so any cloud backup run left open by a crash or restart is over.
     let ended_runs = db::recover_interrupted_runs(&conn, db::now_unix())?;
     if ended_runs > 0 {
@@ -231,12 +233,15 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
                 use std::time::Duration;
                 const RESTART_GAP: Duration = Duration::from_secs(5);
                 let mut last_restart: Option<std::time::Instant> = None;
+                // What the HDMI console shows of Connect; a change asks it to look again.
+                let mut shown = lunad::system::console::ConnectShown::default();
 
                 while !stop.load(Ordering::Relaxed) {
                     let _ = connect.poll_status();
                     // Supervisor: if Connect poll failed/flapped but local tunnel credentials exist,
                     // keep (re)starting cloudflared so DNS does not stick on Error 1033.
                     connect.ensure_tunnel_if_needed();
+                    shown.note(&connect.status());
                     let setup_open = db
                         .lock()
                         .map(|conn| lunad::auth::setup_wizard_open_conn(&conn))
@@ -272,6 +277,7 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
                             last_restart = Some(std::time::Instant::now());
                         }
                         connect.ensure_tunnel_if_needed();
+                        shown.note(&connect.status());
                     }
                 }
             })
@@ -285,108 +291,9 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
         let stop = shutting_down.clone();
         std::thread::Builder::new()
             .name("luna-console-help".into())
-            .spawn(move || {
-                use std::sync::atomic::Ordering;
-                while !stop.load(Ordering::Relaxed) {
-                    let proc_route = std::fs::read_to_string("/proc/net/route").unwrap_or_default();
-                    let net = lunad::net::read_status(
-                        std::path::Path::new("/sys/class/net"),
-                        &proc_route,
-                    );
-                    let st = connect.status();
-                    let mut problems: Vec<String> = Vec::new();
-
-                    if let Some(err) = st.device_token_error.clone() {
-                        problems.push(err);
-                    }
-                    if let Some(err) = st.connect_unreachable.clone() {
-                        problems.push(err);
-                    }
-                    if let Some(err) = st.tunnel_error.clone() {
-                        problems.push(err);
-                    }
-
-                    if !net.ethernet_connected {
-                        problems.push(
-                            "No ethernet cable detected. Plug Luna into your router or modem with the included RJ45 (ethernet) cable."
-                                .into(),
-                        );
-                    } else if net.ipv4.is_empty() {
-                        problems.push(
-                            "Waiting for a network address from your router or modem.".into(),
-                        );
-                    } else if !net.has_default_route {
-                        problems.push(
-                            "Luna has a network address but can't reach the internet. Make sure your router or modem is online."
-                                .into(),
-                        );
-                    }
-
-                    if let Ok(conn) = db.lock() {
-                        // Core checks only: network and Connect problems are
-                        // listed above, and feature warnings don't belong on
-                        // a small HDMI screen.
-                        let core = lunad::system::system_health::run_core(
-                            &data_dir,
-                            &conn,
-                            lunad::system::system_health::ClockReading::live(),
-                            false,
-                        );
-                        let mut preflight_errors: Vec<_> = core
-                            .checks
-                            .into_values()
-                            .filter(|c| c.status == lunad::system::system_health::FAILED)
-                            .map(|c| c.message)
-                            .collect();
-                        preflight_errors.sort();
-                        problems.extend(preflight_errors);
-
-                        if let Ok(drives) = lunad::db::list_drives(&conn) {
-                            for drive in drives {
-                                // Unplugged is normal — not an HDMI-console problem.
-                                if drive.state.as_str() == "readonly" {
-                                    problems.push(format!(
-                                        "Luna can read {} but can't save to it. If the drive has a write-lock switch, turn it off.",
-                                        drive.label
-                                    ));
-                                }
-                            }
-                        }
-
-                        // Same rows and wording as the web's system checks.
-                        let mut backup_problems: Vec<_> =
-                            lunad::system::system_health::backup_checks(
-                                &conn,
-                                lunad::db::now_unix(),
-                            )
-                            .into_values()
-                            .filter(|c| c.status == lunad::system::system_health::WARNING)
-                            .map(|c| c.message)
-                            .collect();
-                        backup_problems.sort();
-                        problems.extend(backup_problems);
-                    }
-
-                    // Keep problem list short enough for a small HDMI screen.
-                    problems.truncate(6);
-
-                    let snap = lunad::system::console::ConsoleSnapshot {
-                        ipv4: net.ipv4.clone(),
-                        cable_in: net.ethernet_connected,
-                        has_default_route: net.has_default_route,
-                        device_code: st.device_code.clone(),
-                        connect_hostname: st.hostname.clone(),
-                        problems,
-                    };
-                    // Always rewrite so luna-console's mtime liveness check stays
-                    // honest when status text is unchanged (e.g. Connect hostname
-                    // already shown). Every 10s is plenty for a small HDMI screen.
-                    let _ = lunad::system::console::write_issue(&data_dir, &snap);
-                    // One wait, not second-sized slices: nothing joins this thread
-                    // at shutdown, so slicing only woke an idle Luna every second.
-                    std::thread::sleep(std::time::Duration::from_secs(10));
-                }
-            })
+            // Rebuilds the screen on network, database and Connect changes,
+            // with a 5-minute heartbeat for luna-console's liveness check.
+            .spawn(move || lunad::system::console::run(&data_dir, &db, &connect, stop))
             .ok();
     }
 
@@ -513,6 +420,8 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
                     // Let a burst of writes finish, then write them out together.
                     tokio::time::sleep(TICK).await;
                 }
+                // A drive was adopted, mounted or changed state (console::watch_db).
+                _ = lunad::drives::flusher::drives_changed() => {}
             }
             wait = TICK;
             let drives = flush_state
@@ -632,25 +541,39 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
     // Connect is active. Steps take each backup's run lock, so they never overlap a backup.
     let move_db = state.db.clone();
     let move_connect = state.connect.clone();
+    // With nothing to move (the usual case) the wait doubles up to 30 minutes,
+    // and a new key version (see console::watch_db) cuts it short.
     bg_tasks.push(tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
+        const STEP_GAP: std::time::Duration = std::time::Duration::from_secs(60);
+        const IDLE_MAX: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+        let mut wait = STEP_GAP;
         loop {
-            ticker.tick().await;
+            tokio::select! {
+                _ = tokio::time::sleep(wait) => {}
+                _ = lunad::backup::cloud::rewrap::nudged() => wait = STEP_GAP,
+            }
             // Without Connect there is nothing to move: skip the blocking
             // thread (a new one each minute, past the pool's keep-alive).
             if !move_connect.is_connect_active() {
+                wait = (wait * 2).min(IDLE_MAX);
                 continue;
             }
             let db = move_db.clone();
             let connect = move_connect.clone();
-            let _ = tokio::task::spawn_blocking(move || {
+            let worked = tokio::task::spawn_blocking(move || {
                 let store = lunad::api::cloud_backups::connect_store(&connect, &db);
                 let store_ref = store
                     .as_ref()
                     .map(|s| s as &dyn lunad::backup::cloud::store::CloudStore);
-                lunad::backup::cloud::rewrap::trickle(&db, store_ref, lunad::db::now_unix());
+                lunad::backup::cloud::rewrap::trickle(&db, store_ref, lunad::db::now_unix())
             })
-            .await;
+            .await
+            .unwrap_or(0);
+            wait = if worked > 0 {
+                STEP_GAP
+            } else {
+                (wait * 2).min(IDLE_MAX)
+            };
         }
     }));
 
@@ -704,11 +627,15 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
         }
     }));
 
+    // Scrub and trim only run in the night window: outside it they sleep
+    // until it opens instead of waking every few minutes all day.
     let scrub_state = state.clone();
     bg_tasks.push(tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(10 * 60));
         loop {
-            ticker.tick().await;
+            tokio::time::sleep(lunad::drives::scrub::next_night_look(
+                std::time::Duration::from_secs(10 * 60),
+            ))
+            .await;
             let hour = lunad::drives::scrub::local_hour_now();
             let now = lunad::db::now_unix();
             let last_run = scrub_state
@@ -769,9 +696,11 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
 
     let trim_state = state.clone();
     bg_tasks.push(tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
         loop {
-            ticker.tick().await;
+            tokio::time::sleep(lunad::drives::scrub::next_night_look(
+                std::time::Duration::from_secs(30 * 60),
+            ))
+            .await;
             let hour = lunad::drives::scrub::local_hour_now();
             let now = lunad::db::now_unix();
             let last_run = trim_state

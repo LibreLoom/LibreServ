@@ -583,6 +583,10 @@ impl ConnectService {
     /// or while the last pull reported Connect unreachable/challenged.
     /// Steady 5 minutes once cloudflared is running (or Connect is inactive).
     pub fn poll_interval_secs(&self, setup_wizard_open: bool) -> u64 {
+        // No device token: a pull does nothing, and saving one wakes the loop.
+        if !self.has_valid_device_code() {
+            return STEADY_POLL_SECS;
+        }
         if self.tunnel_ready() && self.connect_unreachable_msg().is_none() {
             return STEADY_POLL_SECS;
         }
@@ -2401,6 +2405,13 @@ mod tests {
             STEADY_POLL_SECS,
             "unbound device with setup closed can use steady interval"
         );
+    }
+
+    #[test]
+    fn poll_interval_steady_without_a_device_token_even_during_setup() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        assert_eq!(service.poll_interval_secs(true), STEADY_POLL_SECS);
     }
 
     #[test]

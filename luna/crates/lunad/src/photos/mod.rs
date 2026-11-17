@@ -509,10 +509,11 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
     let next = std::sync::atomic::AtomicUsize::new(0);
     let (tx, rx) = std::sync::mpsc::sync_channel::<(PendingUpsert, ScanOutcome)>(workers * 4);
     std::thread::scope(|scope| -> anyhow::Result<()> {
-        for _ in 0..workers {
+        for worker in 0..workers {
             let tx = tx.clone();
             let (todo, next) = (&todo, &next);
             scope.spawn(move || {
+                set_batch_decode_slot(worker);
                 loop {
                     let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let Some(work) = todo.get(i) else {
@@ -1239,11 +1240,12 @@ pub fn upgrade_thumbs(
     let next = std::sync::atomic::AtomicUsize::new(0);
     let (tx, rx) = std::sync::mpsc::channel::<(String, Option<(u32, u32)>)>();
     std::thread::scope(|scope| {
-        for _ in 0..workers.max(1) {
+        for worker in 0..workers.max(1) {
             let (tx, next, thumb_dir) = (tx.clone(), &next, &thumb_dir);
             scope.spawn(move || {
                 if background {
                     lower_thread_priority();
+                    set_batch_decode_slot(worker);
                 }
                 loop {
                     let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -1529,6 +1531,80 @@ fn resize_lanczos3(img: &image::DynamicImage, max: u32) -> image::DynamicImage {
     }
 }
 
+thread_local! {
+    /// This thread's place among the scan or upgrade workers, when it is one.
+    static BATCH_DECODE_SLOT: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+/// Mark this thread as batch thumbnail worker `slot` (see [`OneCpu`]).
+fn set_batch_decode_slot(slot: usize) {
+    BATCH_DECODE_SLOT.with(|s| s.set(Some(slot)));
+}
+
+/// While alive, keeps a batch worker's JPEG decode on one CPU of its own:
+/// the worker's `slot`-th allowed CPU. `jpeg-decoder` starts a thread per
+/// colour channel for every photo and hands it each row; spread over all
+/// cores that cost about 1.7x the CPU of the same decode on one core (D5,
+/// stand-in: a 12 MP phone JPEG went from ~100 ms to ~180 ms). Those
+/// threads inherit the mask, and dropping the guard puts the worker's own
+/// mask back. Only batch workers pin: one thumbnail asked for by a page
+/// keeps the parallel decode.
+struct OneCpu {
+    #[cfg(target_os = "linux")]
+    saved: Option<libc::cpu_set_t>,
+}
+
+impl OneCpu {
+    fn for_batch_decode() -> Self {
+        #[cfg(target_os = "linux")]
+        {
+            let saved = BATCH_DECODE_SLOT
+                .with(std::cell::Cell::get)
+                .and_then(Self::pin);
+            Self { saved }
+        }
+        #[cfg(not(target_os = "linux"))]
+        Self {}
+    }
+
+    /// Pin the calling thread to its `slot`-th allowed CPU; returns the mask
+    /// it had.
+    #[cfg(target_os = "linux")]
+    fn pin(slot: usize) -> Option<libc::cpu_set_t> {
+        let size = std::mem::size_of::<libc::cpu_set_t>();
+        // SAFETY: affinity calls on the calling thread (pid 0) with a
+        // zeroed, correctly sized `cpu_set_t`; CPU_ISSET/CPU_SET only
+        // touch bits below CPU_SETSIZE.
+        unsafe {
+            let mut saved: libc::cpu_set_t = std::mem::zeroed();
+            if libc::sched_getaffinity(0, size, &mut saved) != 0 {
+                return None;
+            }
+            let allowed: Vec<usize> = (0..libc::CPU_SETSIZE as usize)
+                .filter(|&cpu| libc::CPU_ISSET(cpu, &saved))
+                .collect();
+            if allowed.len() < 2 {
+                return None;
+            }
+            let mut one: libc::cpu_set_t = std::mem::zeroed();
+            libc::CPU_SET(allowed[slot % allowed.len()], &mut one);
+            (libc::sched_setaffinity(0, size, &one) == 0).then_some(saved)
+        }
+    }
+}
+
+impl Drop for OneCpu {
+    fn drop(&mut self) {
+        #[cfg(target_os = "linux")]
+        if let Some(saved) = self.saved.take() {
+            // SAFETY: restores the mask read by `pin` on this same thread.
+            unsafe {
+                libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &saved);
+            }
+        }
+    }
+}
+
 /// A JPEG decoded straight at 1/2, 1/4 or 1/8 size (the smallest that still
 /// covers `fit` on its long edge): the scaling happens inside the inverse DCT,
 /// so most of the full decode's work is never done (D5). Returns the picture,
@@ -1560,7 +1636,10 @@ fn decode_jpeg_scaled(
         (info.width, info.height)
     };
     let (ow, oh) = dec.scale(rw, rh).ok()?;
-    let pixels = dec.decode().ok()?;
+    let pixels = {
+        let _pin = OneCpu::for_batch_decode();
+        dec.decode().ok()?
+    };
     let (ow, oh) = (u32::from(ow), u32::from(oh));
     let img = match dec.info()?.pixel_format {
         jpeg_decoder::PixelFormat::RGB24 => {

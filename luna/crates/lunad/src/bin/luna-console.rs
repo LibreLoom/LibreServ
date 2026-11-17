@@ -1,8 +1,9 @@
 //! Live HDMI status screen + getty-shaped login for Luna OS tty1.
 //!
-//! lunad writes `{LUNA_DATA_DIR}/issue` on every console-help tick (including
-//! when the text is unchanged). This binary redraws when the painted screen
-//! changes, then hands a username to `/bin/login`.
+//! lunad rewrites `{LUNA_DATA_DIR}/issue` when its status changes and touches
+//! its mtime at least every few minutes (`console::HEARTBEAT_SECS`) even when
+//! nothing changed. This binary redraws when the painted screen changes, then
+//! hands a username to `/bin/login`.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
@@ -52,7 +53,7 @@ fn run() -> io::Result<()> {
         let screen = compose_screen(&body, is_issue_stale(mtime), &username);
 
         // Repaint only when the visible screen changes. lunad heartbeats the
-        // issue file mtime every few seconds; that must not flicker the VT.
+        // issue file mtime every few minutes; that must not flicker the VT.
         if screen != last_paint {
             paint(&screen)?;
             last_paint = screen;

@@ -449,6 +449,20 @@ pub fn tick(db: &crate::Db, store: &dyn CloudStore, now: i64) -> Step {
 /// How many steps one trickle pass may take before it waits for the next pass.
 const STEPS_PER_PASS: usize = 4;
 
+/// A new key version was saved: the trickle loop, backing off while there is
+/// nothing to move, looks again now.
+static NUDGE: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// Wake the trickle loop (cheap; callers may hold the database lock).
+pub fn nudge() {
+    NUDGE.notify_one();
+}
+
+/// Resolves on the next [`nudge`], or at once if one came since the last wait.
+pub async fn nudged() {
+    NUDGE.notified().await;
+}
+
 /// What the daemon's background loop calls. With no store (Luna Connect is not active) nothing
 /// happens. Otherwise it takes up to a few steps, stopping early when nothing is left to do, the
 /// store is full, or every backup is busy. Blocking: call it from a blocking worker.
