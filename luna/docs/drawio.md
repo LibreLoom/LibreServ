@@ -138,7 +138,7 @@ nothing. See
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /drawio/**` | Static webapp pack via one wildcard route — mounted at boot when the pack is present in the image (or a data-dir copy from an older install) |
+| `GET /drawio/**` | Static webapp pack via one wildcard route — mounted at boot when the pack is present in the image; a development run may use a data-dir copy |
 | `GET /api/v1/collab/ws` | Member collab room (presence, opaque diff patches, save election) — the same endpoint EuroOffice uses |
 | `GET /s/{token}/collab/ws` | Guest collab room for a shared diagram or whiteboard. Refuses anything that is not a `.drawio` / `.drawio.svg` / `.drawio.png` / `.excalidraw` file |
 

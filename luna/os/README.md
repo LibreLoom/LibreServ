@@ -71,9 +71,10 @@ podman, named-volume caches, `--memory` limit via `LUNA_BUILD_MEMORY`).
 | image | `build/image.sh` | `build/Containerfile.os` | `/rootfs`, `/luna/os` | `/out/luna-os-x86_64.img.xz` + `.sha256` |
 | ISO | `build/iso.sh` | `build/Containerfile.iso` | `/luna/os`, `/payload` (the `.img.xz`), optional `/cache` | `/out/luna-rapidinstall-x86_64.iso` |
 
-`build/input-hash.sh` prints the OS input hash (rootfs scripts, pins, slot
-size). A box records the sha256 of the exact `.img.xz` as `os-image.sha256`,
-which is what the update feed lists for the `os` part.
+`build/input-hash.sh` prints the OS input hash (application and UI sources,
+rootfs scripts, pins, slot size). A box records the sha256 of the exact
+`.img.xz` as `os-image.sha256`, which is what the update feed lists for the
+`os` part.
 
 ## End-to-end test (QEMU, rootless)
 
