@@ -580,6 +580,66 @@ function sees(caps) {
 }
 
 /** `accept_json`: does the caller want to be told about the file, not handed it? */
+/**
+ * `resolve_respond_link`: a respond link is a path subject carrying the
+ * answering capability. Every other link says so and stops.
+ *
+ * @param {any} s the link's subject row
+ * @param {string} caps the link's capabilities
+ * @returns {import("../router.js").Res | null}
+ */
+function respondGate(s, caps) {
+  if (s.kind !== "path" || !capSet(caps).has("respond"))
+    return fail(403, "This link doesn't open a form.");
+  return null;
+}
+
+/** One `settings` key of a form document. */
+function formSetting(l, key) {
+  return l.form?.settings?.[key];
+}
+
+/** `form_allows_edits`: a missing flag means changes are allowed. */
+function formAllowsEdits(l) {
+  const set = formSetting(l, "allowEdits");
+  return set === undefined ? true : Boolean(set);
+}
+
+/** `form_max_responses`: missing, zero or junk means no cap. */
+function formMaxResponses(l) {
+  const n = Number(formSetting(l, "maxResponses"));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Today in the daemon's `YYYY-MM-DD` form, in local time. */
+function localYmd() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
+ * `hard_closed_message`: the two ways a form stops taking answers, in the order
+ * the daemon tests them. The answer cap is not one of them — someone holding an
+ * edit link may still change an answer.
+ *
+ * @param {any} l
+ * @returns {string | null}
+ */
+function hardClosed(l) {
+  // The fake's scenarios close a link either on the row itself or in the form
+  // document it answers; lunad reads the document, and the row is how a seeded
+  // scenario says the same thing.
+  if (l.accepting === false)
+    return l.closed_message || "This form isn't collecting answers anymore.";
+  if (formSetting(l, "collecting") === false)
+    return "This form isn't collecting answers anymore.";
+  const closeOn = formSetting(l, "closeOn");
+  if (typeof closeOn === "string" && /^\d{4}-\d{2}-\d{2}$/.test(closeOn) && localYmd() > closeOn)
+    return `This form stopped taking answers after ${closeOn}.`;
+  return null;
+}
+
 function acceptJson(headers) {
   return /application\/json/i.test(String(header(headers, "accept") || ""));
 }
@@ -595,6 +655,10 @@ function acceptJson(headers) {
 function metaWanted(query, headers) {
   return Number(query.meta ?? 0) !== 0 || acceptJson(headers);
 }
+
+/** The extensions a form attachment may use, and the name the daemon mints. */
+const ATTACH_EXTS = { jpg: "jpg", jpeg: "jpg", png: "png", gif: "gif", webp: "webp", pdf: "pdf" };
+const ATTACH_KIND_MESSAGE = "Attach a photo (JPG, PNG, GIF, or WebP) or a PDF.";
 
 /**
  * Axum deserializes a query before the handler runs, so `?limit=abc` is a 400
@@ -704,6 +768,10 @@ publicGet("/s/:token", ({ world, params, query, headers }) => {
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
   const { s, l } = r;
+  // `public_form_document` reports the answer cap separately from closure: an
+  // answer cap blocks new answers but not an edit of one already sent.
+  const formMax = formMaxResponses(l);
+  const full = l.full === true || (formMax !== null && (l.responses || []).length >= formMax);
   if (l.caps === "respond") {
     // `respond_document` names the permission as well as the form: the page
     // reads it to know an answer is what this link is for.
@@ -720,9 +788,11 @@ publicGet("/s/:token", ({ world, params, query, headers }) => {
         ],
         settings: { allowEdits: true, collecting: true },
       },
-      accepting: l.accepting !== false,
-      full: Boolean(l.full),
-      closed_message: l.closed_message || "",
+      accepting: !hardClosed(l),
+      full,
+      closed_message:
+        hardClosed(l) ||
+        (full ? "This form has all the answers it can take." : ""),
     };
   }
   // A link with no view capability is a drop box: `public_root_inner` sends it
@@ -831,7 +901,10 @@ publicGet("/s/:token/items", ({ world, params, query, headers }) => {
   const mediaUrl = (p, variant) =>
     `/s/${encodeURIComponent(params.token)}/media?drive_id=${encodeURIComponent(p.drive_id || "d1")}` +
     `&path=${encodeURIComponent(p.path || "")}&variant=${variant}`;
-  const items = all.slice(offset, offset + limit).map((p) => ({
+  // `public_items` clamps the start to the number of photos, so a page asked
+  // for past the end still names the end rather than the offset it never had.
+  const start = Math.min(offset, all.length);
+  const items = all.slice(start, start + limit).map((p) => ({
     ...p,
     thumb: mediaUrl(p, "thumb"),
     content: mediaUrl(p, "content"),
@@ -839,12 +912,12 @@ publicGet("/s/:token/items", ({ world, params, query, headers }) => {
   }));
   return {
     kind: "album",
-    name: r.s.name,
+    name: itemAlbum.album?.name ?? r.s.name,
     item_count: all.length,
     caps: r.l.caps,
     items,
-    has_more: offset + items.length < all.length,
-    next_offset: offset + items.length,
+    has_more: start + items.length < all.length,
+    next_offset: start + items.length,
   };
 });
 
@@ -1579,17 +1652,15 @@ function freeName(world, r, dest, name) {
 get("/s/:token/respond", ({ world, params, query, headers }) => {
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
-  // Only a path subject carrying the answering capability opens a form; every
-  // other link closes here rather than answering about a form it never was.
-  const caps = String(r.l.caps || "").split("+").filter(Boolean);
-  if (r.s.kind !== "path" || !caps.includes("respond"))
-    return fail(403, "This link doesn't open a form.");
+  // Only a path subject carrying the answering capability opens a form.
+  const gate = respondGate(r.s, r.l.caps);
+  if (gate) return gate;
   const editToken = String(query.edit_token ?? "");
   if (!editToken)
     return fail(400, "That edit link is incomplete. Ask for the full link and try again.");
   // The lookup exists only to power edit mode, so a form that refuses changes
   // answers with its own refusal instead of handing the answers back.
-  if (r.l.form?.settings?.allowEdits === false)
+  if (!formAllowsEdits(r.l))
     return fail(403, "This form doesn't let you change answers after you send them.");
   const found = r.l.responses?.find((x) => x.edit_token === editToken);
   return found
@@ -1599,17 +1670,88 @@ get("/s/:token/respond", ({ world, params, query, headers }) => {
 post("/s/:token/respond", ({ world, params, headers, body }) => {
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
-  if (r.l.accepting === false) return fail(409, "This form isn't collecting answers anymore.");
-  const id = body.response_id || nextId("r");
+  const gate = respondGate(r.s, r.l.caps);
+  if (gate) return gate;
+  // A closed form refuses the answer itself, not with a conflict.
+  const shut = hardClosed(r.l);
+  if (shut) return fail(403, shut);
+  const allowEdits = formAllowsEdits(r.l);
+  const presented = String(body.edit_token ?? "").trim();
+  const targetId = String(body.response_id ?? "").trim();
+  // With changes refused, anything shaped like an edit is refused before it
+  // can reach the answers.
+  if (!allowEdits && (presented || targetId))
+    return fail(403, "This form doesn't let you change answers after you send them.");
+  if (!body.answers || typeof body.answers !== "object" || Array.isArray(body.answers))
+    return fail(400, "Those answers didn't come through whole. Try sending them again.");
   const list = (r.l.responses ||= []);
-  const entry = { id, at: nowSec(), answers: body.answers, edit_token: body.edit_token };
-  const at = list.findIndex((x) => x.id === id);
-  if (at >= 0) list[at] = entry; else list.push(entry);
+  // A presented secret only ever identifies an answer to amend; a target id on
+  // its own is an attempt with a missing half of the pair.
+  let entry = null;
+  if (presented)
+    entry =
+      list.find(
+        (x) => x.edit_token === presented && (!targetId || x.id === targetId),
+      ) || null;
+  if (presented && !entry)
+    return fail(403, "This edit link doesn't match a saved answer on this form.");
+  if (!presented && targetId)
+    return fail(403, "This edit link doesn't match a saved answer on this form.");
+  let token = presented;
+  if (!entry) {
+    const max = formMaxResponses(r.l);
+    if (max !== null && list.length >= max)
+      return fail(403, "This form has all the answers it can take.");
+    // A new answer always gets a secret the server minted, never one the client
+    // offered, so a copied edit link can't be guessed or shared by accident.
+    token = nextId("et");
+    entry = { id: nextId("r"), at: nowSec(), answers: body.answers, edit_token: token };
+    list.push(entry);
+  }
+  entry.answers = body.answers;
+  entry.at = nowSec();
   // The form's owner sees the same answers on the Files side.
   const fk = r.s.drive_id ? formKey({ drive_id: r.s.drive_id, path: r.s.path }) : null;
   if (fk) formsOf(world)[fk] = list.map((x) => ({ id: x.id, at: x.at, answers: x.answers }));
-  return { id, edit_token: body.edit_token };
+  // Edit material only exists when the form allows changes; a form that doesn't
+  // saves the record but never hands the secret back.
+  return { ok: true, id: entry.id, edit_token: allowEdits ? token : null };
 }, { public: true });
-post("/s/:token/respond-file", () => ({ name: "attachment.png" }), { public: true });
+// `POST /s/:token/respond-file` — a picture or PDF waiting to be named by an
+// answer. It is not storage: only a form with a file question takes one.
+post("/s/:token/respond-file", ({ world, params, headers, raw }) => {
+  const r = open(world, params.token, headers);
+  if (r.err) return r.err;
+  const gate = respondGate(r.s, r.l.caps);
+  if (gate) return gate;
+  // An upload on a closed form says only that it is closed — the daemon does
+  // not repeat which date passed here.
+  if (hardClosed(r.l)) return fail(403, "This form isn't collecting answers anymore.");
+  const questions = r.l.form?.questions || [];
+  if (!questions.some((q) => q && q.type === "file"))
+    return fail(400, "This form doesn't ask for files.");
+  const file = raw && typeof raw.get === "function" ? raw.get("file") : null;
+  const filename = typeof file?.name === "string" ? file.name : "";
+  const ext = ATTACH_EXTS[filename.split(".").pop()?.toLowerCase()] || null;
+  if (!ext) return fail(400, ATTACH_KIND_MESSAGE);
+  const size = Number(file?.size) || 0;
+  if (size > 10 * 1024 * 1024)
+    return fail(413, "That file is over 10 MB. Choose a smaller one.");
+  // Unsent attachments wait in one folder, so the queue and the form itself
+  // each have a ceiling.
+  const pending = (world.formPendingBytes ||= 0);
+  if (pending + size > 256 * 1024 * 1024)
+    return fail(
+      503,
+      "Lots of files are arriving on this form right now. Wait a few minutes and attach it again.",
+    );
+  if (pending + size > 2 * 1024 ** 3)
+    return fail(
+      507,
+      "This form has no room for more files. Ask the person who shared it to clear some out.",
+    );
+  world.formPendingBytes = pending + size;
+  return { ok: true, name: `${nextId("a")}.${ext}` };
+}, { public: true });
 get("/s/:token/form-image", () => json({}), { public: true });
 
