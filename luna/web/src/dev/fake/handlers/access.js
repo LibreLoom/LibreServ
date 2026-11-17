@@ -309,7 +309,9 @@ function open(w, token, headers) {
       fsOf(w, s.drive_id);
       const own = privateBoundary(w, s.drive_id, String(s.path ?? "").replace(/^\/+|\/+$/g, ""));
       if (own && (w.deletedUsers || []).some((u) => u.id === own.owner)) {
-        return { err: fail(404, "Not found.") };
+        // lunad answers `gone()` here, not `not found`: the link has closed for
+        // good, and the share page says so instead of suggesting a typo.
+        return { err: fail(410, "This link has expired or been removed.") };
       }
     } catch {
       // No tree to inspect: leave the link open, as `link_reaches` does.
@@ -460,17 +462,20 @@ function listing(entries) {
   return { entries: entries.map(({ children: _children, ...rest }) => rest) };
 }
 
-function inTree(tree, segments) {
-  if (!segments.length) return null;
+/** The entry at `segments`, directories included, or null when nothing is there. */
+function nodeAt(tree, segments) {
+  if (!segments.length) return { kind: "dir", name: "" };
   let level = tree;
-  for (let i = 0; i < segments.length; i += 1) {
-    const found = level?.find?.((e) => e.name === segments[i]);
+  let found = null;
+  for (const [i, seg] of segments.entries()) {
+    found = level?.find?.((e) => e.name === seg) || null;
     if (!found) return null;
-    if (i === segments.length - 1) return found.kind === "dir" ? null : found;
-    if (found.kind !== "dir") return null;
-    level = found.children || [];
+    if (i < segments.length - 1) {
+      if (found.kind !== "dir") return null;
+      level = found.children || [];
+    }
   }
-  return null;
+  return found;
 }
 
 const publicGet = (p, h) => get(p, h, { public: true });
@@ -499,12 +504,24 @@ publicGet("/s/:token", ({ world, params, headers }) => {
   }
   const kind = s.kind === "album" ? "album" : s.is_file ? "file" : l.caps === "upload" ? "dropbox" : "folder";
   const count = s.kind === "album" ? (world.albumItems?.[s.album_id] || []).length : undefined;
+  // `public_root_inner` resolves a viewable path subject through
+  // `confined_read`. A link whose drive is gone therefore answers with the
+  // unavailable wording, not with a shell that mounts a browser over nothing.
+  if (kind === "file" || kind === "folder") {
+    const goneRoot = unavailableShare(world, s, "The shared files aren't available right now.");
+    if (goneRoot) return goneRoot;
+  }
   return { kind, name: s.name, caps: l.caps, size: s.is_file ? 120_000 : undefined, item_count: count };
 });
 
 publicGet("/s/:token/items", ({ world, params, query, headers }) => {
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
+  // lunad's `public_items` answers `gone()` for any link that is not a viewable
+  // album, so a folder, file or drop box share has no photo page at all.
+  const itemCaps = String(r.l.caps || "").split("+").filter(Boolean);
+  const itemCanView = itemCaps.includes("view") || itemCaps.includes("full") || itemCaps.includes("read");
+  if (r.s.kind !== "album" || !itemCanView) return fail(410, "This link has expired or been removed.");
   const keys = new Set(world.albumItems?.[r.s.album_id] || []);
   const all = (world.photos || []).filter((p) => keys.has(photoKey(p)));
   const limit = Number(query.limit) || 80;
@@ -696,7 +713,7 @@ publicGet("/s/:token/file", ({ world, params, query, headers }) => {
   // `Holiday`, so a same-named file outside it is not served instead.
   const entry = r.s.is_file
     ? { name: r.s.name || name, kind: "file" }
-    : inTree(treeOf(world, params.token, r.s), segments);
+    : nodeAt(treeOf(world, params.token, r.s), segments);
   if (!entry) return fail(404, "Not found.");
   // Every shape goes through the boundary check, single-file links included: a
   // link pointing straight at a private file is the easiest one to leak.
@@ -710,6 +727,11 @@ publicGet("/s/:token/file", ({ world, params, query, headers }) => {
     r.s.is_file ? "The shared file isn't available right now." : "The shared files aren't available right now.",
   );
   if (goneFile) return goneFile;
+  // `public_file` asks the target what it is and answers a folder with a 400
+  // pointing at the zip download, rather than pretending the folder is missing.
+  if (entry.kind === "dir") {
+    return fail(400, "That's a folder. Use Download to save it as a zip file.");
+  }
   // Serve recognisable bytes for the kind, the same ones the drive's own
   // content route hands out, so a shared image or PDF actually previews.
   const nodeFor = (full) => {

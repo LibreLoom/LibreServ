@@ -118,7 +118,11 @@ export function installFake({ world, scenario, now, restored = {} }) {
     setTimeout(() => { if (pending) notify(); }, 50);
   };
 
-  const realFetch = window.fetch?.bind(window);
+  // A second installation must reach the browser's own fetch, not the previous
+  // installation's wrapper, or every install would keep the world before it
+  // alive through one more closure. Same rule as the `src` setter below.
+  const nativeFetch = window.fetch?.__mockNative ?? window.fetch;
+  const realFetch = nativeFetch?.bind(window);
   const clock = freezeClock(now, restored.clock);
 
   // /s/... data calls are the public share pages; page loads are not fetches, so never caught here.
@@ -283,6 +287,7 @@ export function installFake({ world, scenario, now, restored = {} }) {
       headers: { "Content-Type": "application/json", ...result.headers },
     });
   };
+  window.fetch.__mockNative = nativeFetch;
 
   window.XMLHttpRequest = createXHR({ isFake, dispatch });
 
@@ -297,6 +302,23 @@ export function installFake({ world, scenario, now, restored = {} }) {
   // What each element was last asked to show. A reply that arrives after the
   // element moved on (or lost its src) must not put the old picture back.
   const wanted = new WeakMap();
+  // The one object URL an element is showing right now. Each element makes its
+  // own URL from a body shared by everyone who asked for the same href, so a
+  // superseded element releases exactly its own URL and never the URL another
+  // element is about to render.
+  const shown = new WeakMap();
+  const showUrl = (el, url) => {
+    const previous = shown.get(el);
+    if (previous && previous !== url) URL.revokeObjectURL(previous);
+    shown.set(el, url);
+    realSetters.get(el)?.call(el, url);
+  };
+  const dropUrl = (el) => {
+    const previous = shown.get(el);
+    if (!previous) return;
+    shown.delete(el);
+    URL.revokeObjectURL(previous);
+  };
   // Bumped per installation so a callback from a replaced world can tell it is
   // stale, even when the element and href it remembers still look current.
   window.__mockGeneration = (window.__mockGeneration || 0) + 1;
@@ -310,12 +332,17 @@ export function installFake({ world, scenario, now, restored = {} }) {
     wanted.set(el, href);
     let parsed;
     try { parsed = new URL(href, window.location.origin); } catch { return null; }
-    if (parsed.origin !== window.location.origin || !isFake(parsed.pathname)) return null;
+    if (parsed.origin !== window.location.origin || !isFake(parsed.pathname)) {
+      // The element now shows something the fake does not own, so the picture it
+      // was showing is finished with.
+      dropUrl(el);
+      return null;
+    }
     if (!blobs.has(href)) {
       const request = (async () => {
         const result = await dispatch("GET", href, undefined, {}, {});
         if (result.status >= 400) throw new Error(`[mock] ${result.status} ${href}`);
-        return URL.createObjectURL(new Blob([result.bytes ?? result.text], { type: result.headers?.["Content-Type"] || "application/octet-stream" }));
+        return new Blob([result.bytes ?? result.text], { type: result.headers?.["Content-Type"] || "application/octet-stream" });
       })();
       blobs.set(href, request);
       // Dedupe only what is in flight. Keeping a finished request would answer
@@ -330,20 +357,13 @@ export function installFake({ world, scenario, now, restored = {} }) {
     // `wanted` has already said what belongs there.
     const mine = generation;
     blobs.get(href)
-      .then((blobUrl) => {
+      .then((body) => {
         // Two ways a finished reply is not used: the world was replaced, or the
-        // element asked for something else. Either way the URL it allocated is
-        // ours to release — nothing will read it, and left alone it pins the
-        // body until the document unloads.
-        if (mine !== window.__mockGeneration) {
-          URL.revokeObjectURL(blobUrl);
-          return;
-        }
-        if (wanted.get(el) !== href) {
-          URL.revokeObjectURL(blobUrl);
-          return;
-        }
-        realSetters.get(el)?.call(el, blobUrl);
+        // element asked for something else. Nothing was allocated yet, so there
+        // is nothing to release — the element still shows what it showed.
+        if (mine !== window.__mockGeneration) return;
+        if (wanted.get(el) !== href) return;
+        showUrl(el, URL.createObjectURL(body));
       })
       .catch(() => {
         if (mine !== window.__mockGeneration) return;
@@ -486,7 +506,7 @@ export function installFake({ world, scenario, now, restored = {} }) {
   document.addEventListener("click", onDownloadClick, true);
   document.addEventListener("auxclick", onAuxClick, true);
 
-  const RealWS = window.WebSocket;
+  const RealWS = window.WebSocket?.__mockNative ?? window.WebSocket;
   class FakeWS extends EventTarget {
     constructor(url, protocols) {
       if (!String(url).includes("/api/")) return new RealWS(url, protocols);
@@ -504,7 +524,7 @@ export function installFake({ world, scenario, now, restored = {} }) {
     send() {}
     close() { this.readyState = 3; }
   }
-  Object.assign(FakeWS, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
+  Object.assign(FakeWS, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3, __mockNative: RealWS });
   window.WebSocket = FakeWS;
 
   const control = {
