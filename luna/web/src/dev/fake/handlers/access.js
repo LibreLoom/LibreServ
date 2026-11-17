@@ -585,6 +585,18 @@ function acceptJson(headers) {
 }
 
 /**
+ * `public_root_inner`'s test: a nonzero `?meta` (it is a `u8`, so `0` means
+ * "send the bytes"), or an `Accept` that asks for JSON.
+ *
+ * @param {Record<string, string>} query
+ * @param {Record<string, string>} headers
+ * @returns {boolean}
+ */
+function metaWanted(query, headers) {
+  return Number(query.meta ?? 0) !== 0 || acceptJson(headers);
+}
+
+/**
  * Axum deserializes a query before the handler runs, so `?limit=abc` is a 400
  * rather than a clamped page. The fake answers with the same rejection so a
  * guest who mistypes a number is told, not quietly served page one.
@@ -724,10 +736,13 @@ publicGet("/s/:token", ({ world, params, query, headers }) => {
     return { kind: "dropbox", caps: l.caps };
   }
   // `public_root_inner` resolves the album before it answers: a gone drive or a
-  // deleted album closes the page rather than showing an empty gallery.
+  // deleted album closes the page rather than showing an empty gallery, and the
+  // name it prints is the album's own, read now rather than kept on the link.
+  let albumRow = null;
   if (s.kind === "album") {
     const found = albumFor(world, s);
     if (found.err) return found.err;
+    albumRow = found.album;
   }
   const kind = s.kind === "album" ? "album" : s.is_file ? "file" : "folder";
   const count = s.kind === "album" ? (world.albumItems?.[s.album_id] || []).length : undefined;
@@ -768,8 +783,8 @@ publicGet("/s/:token", ({ world, params, query, headers }) => {
   const rootName = rel === ".luna-trash" ? "Trash" : rel ? rel.split("/").pop() : "download";
   if (found && found.kind !== "dir") {
     // A path to a file downloads it unless the caller said it wants to be told
-    // about it instead — `?meta=1`, or an Accept that asks for JSON.
-    if (!query.meta && !acceptJson(headers))
+    // about it instead — a nonzero `?meta`, or an Accept that asks for JSON.
+    if (!metaWanted(query, headers))
       return serveSharedFile(world, r, rel, found.name, Number(query.download ?? 0) !== 0);
     return { kind: "file", name: rootName, caps: l.caps, size: found.size ?? 120_000 };
   }
@@ -777,13 +792,13 @@ publicGet("/s/:token", ({ world, params, query, headers }) => {
   // serves it exactly as it serves a path to a file: bytes, or the descriptor
   // when asked for one. The browser never sees the difference.
   if (kind === "file") {
-    if (!query.meta && !acceptJson(headers))
+    if (!metaWanted(query, headers))
       return serveSharedFile(world, r, "", s.name, Number(query.download ?? 0) !== 0);
     return { kind: "file", name: rootName, caps: l.caps, size: 120_000 };
   }
   return {
     kind: kind === "album" ? "album" : segments.length ? "folder" : kind,
-    name: kind === "album" ? s.name : rootName,
+    name: kind === "album" ? (albumRow?.name ?? s.name) : rootName,
     caps: l.caps,
     size: s.is_file ? 120_000 : undefined,
     item_count: count,
@@ -836,6 +851,11 @@ publicGet("/s/:token/items", ({ world, params, query, headers }) => {
 // `GET /s/:token/media` — the guest's own bytes for one album photo. Without
 // this the album page's pictures load from a route lunad doesn't serve.
 publicGet("/s/:token/media", ({ world, params, query, headers }) => {
+  // `PublicMediaQuery` has two required fields, so axum refuses a request that
+  // leaves either out before the token is even resolved.
+  for (const field of ["drive_id", "path"])
+    if (query[field] === undefined)
+      return fail(400, `Failed to deserialize query string: missing field \`${field}\``);
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
   // Same gate as `public_media`: anything that is not a viewable album closes,
@@ -888,14 +908,15 @@ publicGet("/s/:token/media", ({ world, params, query, headers }) => {
   const bytes = /;base64/i.test(meta)
     ? Uint8Array.from(atob(body), (ch) => ch.charCodeAt(0))
     : new TextEncoder().encode(decodeURIComponent(body));
-  return raw(
-    bytes,
-    type,
-    200,
+  // A download is an attachment, a photo to show is inline, and a thumb is
+  // streamed as an image with no name at all.
+  const disposition =
     variant === "download"
       ? { "Content-Disposition": `attachment; filename="${dispositionName(photo.name || "photo")}"` }
-      : {},
-  );
+      : variant === "thumb"
+        ? {}
+        : { "Content-Disposition": `inline; filename="${dispositionName(photo.name || "photo")}"` };
+  return raw(bytes, type, 200, disposition);
 });
 
 publicGet("/s/:token/list", ({ world, params, query, headers }) => {
