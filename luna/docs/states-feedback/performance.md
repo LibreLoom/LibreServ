@@ -52,7 +52,7 @@ Both the app and the gallery run as dev builds, and the app also runs under `Str
 - Search runs its drive-index queries outside the lock.
 - Upload progress is already throttled (`DriveFileExplorer.jsx:513-520`).
 - React Query refreshes after changes are scoped sensibly; I found no invalidation storm.
-- Web polling stops in background tabs (React Query default) and has sane intervals: 5 s for drive state, 60 s for summaries, 1 s for jobs only while a job is busy.
+- Web polling stops in background tabs (React Query default) and has sane intervals: 15 s for drive state, 60 s for summaries, 1 s for jobs only while a job is busy.
 - Mobile: `StatusFragment` ticks every 1 s but reads memory only and stops in `onPause` (`StatusFragment.kt:17-35`). Photo backup scans MediaStore each run, skips items already uploaded to that destination, every 6 h (`WorkScheduler.kt:32`, `PhotoBackupWorker.kt:48-102`).
 - Connect: lunad polls every 300 s when steady and every 10 s when it needs a fast answer (`net/connect.rs:20-22,505-518`). Connect's web page refreshes devices every 30 s (`LunaPage.jsx:191-197`).
 - Fake lunad: listings scale with node count and stat walks twice; that's fine at 5,000.
