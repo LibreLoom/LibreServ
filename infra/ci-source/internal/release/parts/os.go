@@ -15,7 +15,6 @@ import (
 	"sync"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/engine"
-	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/version"
 )
 
 func init() {
@@ -241,7 +240,7 @@ func (o *osBuilder) decide(ctx context.Context, b *engine.BuildContext, j *engin
 	}
 	// The image carries the packs, so a changed pack must rebuild it. The OS
 	// input hash alone does not know about them.
-	osKey := osImageKey(hash, packKeys)
+	osKey := osImageKey(hash, packKeys, b.Commit, b.Version)
 	key, err := installerKey(filepath.Join(b.SrcDir, "luna", "os"), osKey, packKeys)
 	if err != nil {
 		return err
@@ -274,16 +273,16 @@ func (o *osBuilder) decide(ctx context.Context, b *engine.BuildContext, j *engin
 }
 
 // osImageKey is the cache key of the OS image: its input hash plus what the
-// packs are made from. The packs are inside the image, so a changed pin or
-// build script must produce a new image, not a cached one with the old packs.
-func osImageKey(osHash string, packKeys map[string]string) string {
+// packs are made from, the application source commit and the stamped version.
+// The daemon embeds the UI; both must invalidate the complete image cache.
+func osImageKey(osHash string, packKeys map[string]string, commit, ver string) string {
 	names := make([]string, 0, len(packKeys))
 	for n := range packKeys {
 		names = append(names, n)
 	}
 	sort.Strings(names)
 	h := sha256.New()
-	fmt.Fprintf(h, "os=%s\n", osHash)
+	fmt.Fprintf(h, "os=%s\ncommit=%s\nversion=%s\n", osHash, commit, ver)
 	for _, n := range names {
 		fmt.Fprintf(h, "pack=%s %s\n", n, packKeys[n])
 	}
@@ -606,19 +605,10 @@ func cachedLunadVersion(b *engine.BuildContext, kind, key string) string {
 	return strings.TrimSpace(string(raw))
 }
 
-// cacheUsable is cacheHas, and for a cut also requires that the cached file
-// was built with a release lunad: a dev build's image carries a
-// "0.x-0.dev.N" lunad that must never ship in a release. A file with no
-// recorded lunad version is not trusted for a cut.
+// cacheUsable requires the exact daemon version as well as the image key,
+// which includes the exported commit. A release must never relabel old software.
 func cacheUsable(b *engine.BuildContext, kind, key, file string) bool {
-	if !cacheHas(b, kind, key, file) {
-		return false
-	}
-	if b.Released == nil {
-		return true
-	}
-	v, err := version.Parse(cachedLunadVersion(b, kind, key))
-	return err == nil && !isDevVersion(v)
+	return cacheHas(b, kind, key, file) && cachedLunadVersion(b, kind, key) == b.Version
 }
 
 func fileOK(p string) bool {
@@ -770,17 +760,11 @@ func osRootfsSpec(b *engine.BuildContext) (engine.RunSpec, error) {
 	env["LUNA_CACHE_DIR"] = "/cache"
 	env["LUNAD_BIN"] = "/in/lunad/" + LunadFile
 	env["LUNA_CONSOLE_BIN"] = "/in/console/" + lunaConsoleName
-	// A cut must never produce an image without its editor packs.
-	if b.Released != nil {
-		env["LUNA_PACKS_REQUIRED"] = "1"
-	}
 	// The editor packs are baked into the image, so they are mounted into the
-	// rootfs build. A pack that is missing is a hard error for a cut: an image
-	// without its editors must never ship.
+	// rootfs build. Missing software is an error for every image build.
 	packs := packsDir(b)
 	// The mount needs a host path that exists even when a dev build has no
-	// packs yet; the rootfs step warns about a missing pack rather than
-	// failing to start.
+	// packs yet; the rootfs step reports the missing pack.
 	if err := os.MkdirAll(packs, 0o755); err != nil {
 		return engine.RunSpec{}, err
 	}

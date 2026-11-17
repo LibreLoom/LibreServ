@@ -5,9 +5,9 @@
 //! update replaces the whole image. Nothing executable belongs on the data
 //! partition.
 //!
-//! A pack found under the data dir is still honoured, because a box installed
-//! from an older ISO carries one there and must keep working until it updates.
-//! The image copy wins when both exist: it matches the running system.
+//! Data-directory packs are supported only outside Luna OS for development.
+//! An appliance uses the image even when a pack is missing: report the broken
+//! image instead of silently running a different version from writable data.
 
 use std::path::{Path, PathBuf};
 
@@ -21,11 +21,16 @@ pub fn root() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(IMAGE_PACK_ROOT))
 }
 
+/// The appliance marker is baked into every Luna OS slot.
+pub(crate) fn on_luna_os() -> bool {
+    Path::new("/etc/luna-os-release").is_file()
+}
+
 /// Where the search models are: the image's `models/` folder, or on a dev
 /// machine `$LUNA_DATA_DIR/models` (`make models`) when the image has none.
 pub fn models_dir() -> PathBuf {
     let image = root().join("models");
-    if image.is_dir() {
+    if image.is_dir() || on_luna_os() {
         return image;
     }
     match std::env::var_os("LUNA_DATA_DIR") {
@@ -38,13 +43,16 @@ pub fn models_dir() -> PathBuf {
 
 /// Directory of one pack (`eurooffice`, `drawio`), whichever copy exists.
 ///
-/// The image's copy wins when it is there. A data-dir copy is honoured next, so
-/// a box installed from an older ISO keeps its editors until it updates. When
+/// The image is authoritative on Luna OS. Outside the appliance, the image's
+/// copy wins when present and a data-dir copy is honoured next. When
 /// neither exists the answer depends on where packs are supposed to live: the
 /// image on a Luna OS box (so a missing pack is reported against its real
 /// home), the data dir everywhere else, which is what a dev run and the tests
 /// have.
 pub fn dir(data_dir: &Path, pack: &str) -> PathBuf {
+    if on_luna_os() {
+        return root().join(pack);
+    }
     dir_in(&root(), data_dir, pack)
 }
 

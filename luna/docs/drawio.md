@@ -114,20 +114,19 @@ are excluded during extraction.
 
 `make drawio-pack` (or `scripts/build-drawio-pack.sh`) produces
 `os/dist/drawio-pack.tar.zst` — the whole pack as a self-describing `drawio/`
-dir. The tarball already carries that top-level `drawio/` dir, so `035.frag`
+dir. The tarball already carries that top-level `drawio/` dir, so `05.frag`
 unpacks it into the pack root (`/usr/share/luna`), never into a `drawio/` dir
 of its own — that would nest `drawio/drawio/` and fail the image's sanity check.
 
 The pack is a program file, so it lives in the OS image, not on the data
 partition. The release tool builds it before the rootfs and mounts it in;
-`os/lib/build-rootfs.d/035.frag` unpacks it to `/usr/share/luna/drawio`.
-A release cut refuses an image without it (`LUNA_PACKS_REQUIRED=1`); a dev
-build only warns. `os/build-iso.sh` builds the packs into `os/dist/` before its
+`os/lib/build-rootfs.d/05.frag` unpacks it to `/usr/share/luna/drawio`.
+Every image build refuses missing packs or checksums. `os/build-iso.sh` builds
+the packs into `os/dist/` before its
 `os/build-rootfs.sh` step, and `build-rootfs.sh` mounts `os/dist` (or
 `LUNA_PACKS_DIR`) at `/in/packs`, so a dev image carries them too. lunad serves it from
-there (`crates/lunad/src/packs.rs`): the image's copy wins, and a
-`{data_dir}/drawio` copy is honoured next, so a box from an older ISO keeps its
-editors until it updates. A device whose image lacks the pack shows the normal
+there (`crates/lunad/src/packs.rs`). Luna OS uses only the image copy;
+data-directory copies are for development. A device whose image lacks the pack shows the normal
 "not installed" card on diagram files.
 
 There is no separate pack update: a new pack is a new OS image, which

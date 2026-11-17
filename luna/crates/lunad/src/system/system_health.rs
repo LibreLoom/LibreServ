@@ -673,8 +673,8 @@ const OFFICE_EDITORS: &[(&str, &str, &str)] = &[
 const FILES_KEPT: &str = "Your files are still on your drives and can be downloaded.";
 
 fn add_feature_checks(checks: &mut Checks, data_dir: &Path, probes: &Probes) {
-    // The packs ship in the OS image; a data-dir copy is only a fallback for a
-    // box from an older ISO, so ask `packs` where they actually are.
+    // Appliance packs come from the active image; development runs can use
+    // data-directory copies. Ask `packs` for the appropriate location.
     let office = crate::packs::dir(data_dir, "eurooffice");
     let all_nouns: Vec<&str> = OFFICE_EDITORS.iter().map(|(_, noun, _)| *noun).collect();
     let mut missing: Vec<&str> = OFFICE_SHARED

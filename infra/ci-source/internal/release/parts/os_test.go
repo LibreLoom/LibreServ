@@ -149,15 +149,20 @@ func TestInstallerKey(t *testing.T) {
 }
 
 func TestOSImageKeyFollowsPacks(t *testing.T) {
-	k1 := osImageKey("os1", map[string]string{"eurooffice": "aa", "drawio": "bb"})
-	if k2 := osImageKey("os1", map[string]string{"drawio": "bb", "eurooffice": "aa"}); k2 != k1 {
+	k1 := osImageKey("os1", map[string]string{"eurooffice": "aa", "drawio": "bb"}, "commit1", "0.4.1")
+	if k2 := osImageKey("os1", map[string]string{"drawio": "bb", "eurooffice": "aa"}, "commit1", "0.4.1"); k2 != k1 {
 		t.Fatal("key depends on map order")
 	}
-	if k2 := osImageKey("os2", map[string]string{"eurooffice": "aa", "drawio": "bb"}); k2 == k1 {
+	if k2 := osImageKey("os2", map[string]string{"eurooffice": "aa", "drawio": "bb"}, "commit1", "0.4.1"); k2 == k1 {
 		t.Fatal("a new OS input hash must change the key")
 	}
-	if k2 := osImageKey("os1", map[string]string{"eurooffice": "aa", "drawio": "cc"}); k2 == k1 {
+	if k2 := osImageKey("os1", map[string]string{"eurooffice": "aa", "drawio": "cc"}, "commit1", "0.4.1"); k2 == k1 {
 		t.Fatal("a changed pack must change the image key")
+	}
+	for _, identity := range [][2]string{{"commit2", "0.4.1"}, {"commit1", "0.4.2"}} {
+		if osImageKey("os1", map[string]string{"eurooffice": "aa", "drawio": "bb"}, identity[0], identity[1]) == k1 {
+			t.Fatal("changed application source or version reused the image key")
+		}
 	}
 }
 
@@ -367,8 +372,14 @@ func TestCachedImageForCutNeedsReleaseLunad(t *testing.T) {
 	if err := recordLunadVersion(cut, "luna-os", "k", "0.4.0"); err != nil {
 		t.Fatal(err)
 	}
+	if cacheUsable(cut, "luna-os", "k", OSFile) {
+		t.Error("a cut reused an older release daemon")
+	}
+	if err := recordLunadVersion(cut, "luna-os", "k", cut.Version); err != nil {
+		t.Fatal(err)
+	}
 	if !cacheUsable(cut, "luna-os", "k", OSFile) {
-		t.Error("a cut must reuse an image built with a release lunad")
+		t.Error("a cut must reuse an image with the exact requested daemon")
 	}
 	forgetLunadVersion(cut, "luna-os", "k")
 	if cacheUsable(cut, "luna-os", "k", OSFile) {

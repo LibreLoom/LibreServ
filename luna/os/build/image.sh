@@ -27,6 +27,11 @@ XZ_THREADS="${XZ_THREADS:-$(nproc)}"
 XZ_MEM="${XZ_MEM:-1536MiB}"
 
 [ -d "$ROOTFS/boot" ] || { echo "missing rootfs at $ROOTFS: run the rootfs step first" >&2; exit 2; }
+if [ -n "${OS_INPUT_HASH:-}" ]; then
+    [ "$(cat "$ROOTFS/etc/luna-image-inputs" 2>/dev/null)" = "$OS_INPUT_HASH" ] \
+        || { echo "rootfs inputs changed: rebuild the rootfs before making the image" >&2; exit 1; }
+fi
+sh "$OSDIR/build/validate-rootfs.sh" "$ROOTFS"
 mkdir -p "$OUT"
 # Scratch space for the raw image: next to the output so it never fills the
 # container's small writable layer.

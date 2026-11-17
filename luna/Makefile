@@ -81,7 +81,7 @@ eurooffice-assets:
 		bash scripts/install-eurooffice-assets.sh
 
 # Release pack: os/dist/eurooffice-pack.tar.zst, unpacked into the OS image at
-# /usr/share/luna/eurooffice by the rootfs step (035.frag). Reuses the dev pack
+# /usr/share/luna/eurooffice by the rootfs step (05.frag). Reuses the dev pack
 # when present (EUROOFFICE_DIR to point elsewhere); fetches it otherwise.
 eurooffice-pack:
 	LUNA_DATA_DIR="$(DATA_DIR)" sh scripts/build-eurooffice-pack.sh
@@ -96,14 +96,14 @@ drawio:
 		bash scripts/install-drawio-assets.sh
 
 # Release pack: os/dist/drawio-pack.tar.zst, unpacked into the OS image at
-# /usr/share/luna/drawio by the rootfs step (035.frag). Reuses the dev pack
+# /usr/share/luna/drawio by the rootfs step (05.frag). Reuses the dev pack
 # when present (DRAWIO_DIR to point elsewhere); fetches it otherwise.
 drawio-pack:
 	LUNA_DATA_DIR="$(DATA_DIR)" sh scripts/build-drawio-pack.sh
 
 # Search models pack (MIT, never committed): Model2Vec for meaning search and
 # TinyCLIP for photo search, pinned by sha256 → os/dist/models-pack.tar.zst,
-# unpacked into the OS image at /usr/share/luna/models (035.frag).
+# unpacked into the OS image at /usr/share/luna/models (05.frag).
 models-pack:
 	sh scripts/build-models-pack.sh
 

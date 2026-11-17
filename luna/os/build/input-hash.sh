@@ -2,12 +2,9 @@
 # Input hash of the Luna OS image: sha256 over everything that goes into the
 # rootfs and the slot image.
 #
-# lunad and luna-console are NOT hashed here, and that is not an omission: the
-# release tool builds them from the same commit as this image, and the image's
-# version is the release version, so a new daemon always means a new image.
-# Nothing updates the daemon on its own any more (the whole system is the
-# image), which is exactly why the old "lunad updates itself over the air, so
-# exclude it" reasoning had to go: it let a release ship no image at all.
+# Includes application and UI sources: the development wrappers use this key
+# before deciding whether to skip even building lunad. The release engine also
+# keys the image by its exported commit and stamped version.
 #
 # Plain POSIX sh + sha256sum: runs on the host, in CI, or in any container.
 #
@@ -35,8 +32,16 @@ export LC_ALL=C
 	printf 'cloudflared=%s\n' "$CLOUDFLARED_VERSION"
 	printf 'slot_mib=%s\n' "${SIZE_MB:-$LUNA_SLOT_SIZE_MIB}"
 	printf 'refresh=%s\n' "${LUNA_OS_REFRESH:-}"
+	# Dev wrappers see the full checkout. Release jobs mount only os/; their
+	# outer cache key includes the exported commit and version instead.
+	if [ -f "$OSDIR/../Cargo.toml" ]; then
+		cd "$OSDIR/../.."
+		find luna/crates luna/web shared/ui \( -name target -o -name node_modules -o -name dist \) -prune \
+			-o -type f ! -path 'luna/web/testing/*' -exec sha256sum {} \; | sort
+		sha256sum luna/Cargo.toml luna/Cargo.lock luna/VERSION keys/luna.minisign.pub
+	fi
 	cd "$OSDIR"
-	for f in build/Containerfile.os build/rootfs.sh build/image.sh lib/alpine-image.sh \
+	for f in build/Containerfile.os build/rootfs.sh build/image.sh build/validate-rootfs.sh clip/luna-clip.cpp lib/alpine-image.sh \
 		lib/cloudflared-bake.sh lib/disk.sh lib/build-rootfs.d/*.frag; do
 		printf 'file=%s %s\n' "$f" "$(sha256sum < "$f" | awk '{print $1}')"
 	done

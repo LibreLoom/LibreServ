@@ -17,3 +17,10 @@ trap 'rm -f "$TMP"' EXIT
 # shellcheck disable=SC2012
 cat $(ls "$PARTS"/*.frag | sort) > "$TMP"
 /bin/sh "$TMP" "$@"
+
+# Validate the finished tree independently of the fragment control flow.
+sh "$HERE/validate-rootfs.sh" "${ROOTFS:-/rootfs}"
+# The dev image wrapper must not label a stale rootfs with today's source key.
+if [ -n "${OS_INPUT_HASH:-}" ]; then
+    printf '%s\n' "$OS_INPUT_HASH" > "${ROOTFS:-/rootfs}/etc/luna-image-inputs"
+fi

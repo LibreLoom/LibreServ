@@ -1228,6 +1228,9 @@ impl ConnectService {
             .unwrap_or_else(|| PathBuf::from("."));
         let local = data_dir.join("bin").join("cloudflared");
         for candidate in cloudflared_candidate_paths(&local) {
+            if on_luna_os() && candidate == local {
+                continue;
+            }
             if cloudflared_looks_runnable(&candidate) {
                 return Ok(candidate);
             }
@@ -1657,9 +1660,10 @@ fn encode_object_key(rel: &str) -> String {
 /// True when this process booted from a Luna OS A/B slot. The image ships
 /// cloudflared, so the appliance never downloads one.
 fn on_luna_os() -> bool {
-    std::fs::read_to_string("/proc/cmdline")
-        .map(|c| c.split_whitespace().any(|t| t.starts_with("luna.slot=")))
-        .unwrap_or(false)
+    crate::packs::on_luna_os()
+        || std::fs::read_to_string("/proc/cmdline")
+            .map(|c| c.split_whitespace().any(|t| t.starts_with("luna.slot=")))
+            .unwrap_or(false)
 }
 
 fn cloudflared_candidate_paths(data_bin: &Path) -> Vec<PathBuf> {

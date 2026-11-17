@@ -1,7 +1,7 @@
 # Remount root read-only in the boot runlevel, before lunad or other writers start.
 cat > "$ROOTFS/usr/local/sbin/luna-root-ro" <<'NORW'
 #!/bin/sh
-mount -o remount,ro,noatime / 2>/dev/null || mount -o remount,noatime / 2>/dev/null || true
+exec mount -o remount,ro,noatime /
 NORW
 chmod +x "$ROOTFS/usr/local/sbin/luna-root-ro"
 
@@ -48,9 +48,14 @@ while [ "$_i" -lt 45 ]; do
 done
 _saved=0
 _pending=0
-# The ESP lives on its own FAT partition; prefer the stable by-label path over findfs.
-for _esp in /dev/disk/by-label/LUNAESP; do
+# Alpine uses mdev, which need not create /dev/disk/by-label links. Resolve
+# the GPT name, then require the same parent disk as the running root slot.
+_root_dev="$(findmnt -n -o SOURCE / 2>/dev/null)"
+_root_disk="$(lsblk -ndo PKNAME "$_root_dev" 2>/dev/null)"
+for _esp in $(blkid -t PARTLABEL=LUNAESP -o device 2>/dev/null); do
     [ -e "$_esp" ] || continue
+    [ -n "$_root_disk" ] || continue
+    [ "$(lsblk -ndo PKNAME "$_esp" 2>/dev/null)" = "$_root_disk" ] || continue
     _m="$(mktemp -d /tmp/luna-esp.XXXXXX 2>/dev/null)" || continue
     if timeout 2 mount -o rw "$_esp" "$_m" 2>/dev/null; then
         if [ "$(grub-editenv "$_m/grub/grubenv" list 2>/dev/null | sed -n 's/^luna_boot_ok=//p')" = 0 ]; then

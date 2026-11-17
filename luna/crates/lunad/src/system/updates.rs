@@ -1385,7 +1385,7 @@ impl UpdateService {
     fn apply_inner(&self, current_version: &str) -> Result<UpdateInfo, UpdateError> {
         let resolved = self.read_feed(current_version)?;
         let mut info = resolved.info.clone();
-        if !info.update_available {
+        if !info.update_available || !resolved.os_needed {
             return Err(UpdateError::NoneAvailable);
         }
 
@@ -1688,6 +1688,23 @@ mod tests {
         assert_eq!(info.release_notes, "notes for 0.4.0");
         assert_eq!(info.checksum, sha(b"os-image-v1"));
         assert_eq!(info.binary_name, "luna-os-x86_64.img.xz");
+    }
+
+    #[test]
+    fn apply_never_reports_success_without_writing_an_image() {
+        let (svc, inst) = Release::default().service();
+        // A newer feed with no factory hash used to succeed and restart without
+        // changing anything. The same happened after rollback or before reboot.
+        assert_eq!(svc.apply("0.3.0").unwrap_err(), UpdateError::NoneAvailable);
+        assert!(!svc.is_applying());
+        *inst.os_hash.lock().unwrap() = Some("old-os-hash".into());
+        *inst.os_failed.lock().unwrap() = Some(sha(b"os-image-v1"));
+        assert_eq!(svc.apply("0.3.0").unwrap_err(), UpdateError::NoneAvailable);
+        assert!(!svc.is_applying());
+        *inst.os_failed.lock().unwrap() = None;
+        *inst.os_pending.lock().unwrap() = Some(sha(b"os-image-v1"));
+        assert_eq!(svc.apply("0.3.0").unwrap_err(), UpdateError::NoneAvailable);
+        assert!(inst.os.lock().unwrap().is_empty());
     }
 
     #[test]
