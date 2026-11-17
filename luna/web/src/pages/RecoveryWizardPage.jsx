@@ -215,7 +215,7 @@ export default function RecoveryWizardPage() {
                   required
                   error={errorField === "confirm" ? error : undefined}
                 />
-                <p className="text-secondary text-sm">The selected accounts will be signed out on their other devices.</p>
+                <p className="text-sm text-primary">The selected accounts will be signed out on their other devices.</p>
               </section>
 
               {error && <InlineError>{error}</InlineError>}
