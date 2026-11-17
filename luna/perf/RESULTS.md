@@ -127,6 +127,26 @@ data). W3 and W7 were under budget on the round-4 stand-in (390/761 ms).
 Desktop also had two real bugs fixed on the way: edits to existing files
 never uploaded, and a signed-in app could hang on "Checking your sign-in".
 
+## Round 5 (in 464a840b "checkpoint")
+
+Interleaved A/B, 3+ pairs each, on separate 3040 stand-ins:
+
+| Journey | Before | After | Budget |
+|---|---|---|---|
+| D3 idle, fresh box, switches/min | 43–45 | 1.4 | ~1 ≈ ✅ |
+| D3 idle after use, switches/min | 38–42 | 4.8–5.2 | ~1 ⚠ |
+| D5 first stage, 200 mixed photos | ~24.6 s | ~16.3 s | 24 s ✅ |
+| W10 quick name answer, server p95 | ~70 ms | ~50 ms | — |
+| HDMI screen shows a new address | 6.5–7 s | 0.1–1 s | — |
+
+How: the HDMI status redraws only on change (netlink, a SQLite update
+hook, Connect status) with a 5-min heartbeat; its "not updating" note now
+appears after ~12 min instead of 90 s. Background jobs sleep until their
+window or a nudge. Photo decodes during a scan are held to one CPU per
+worker. Name search sorts without cloning, reads each pass in one
+statement and keeps a per-drive connection for 3 s (an eject right after
+a search may retry for a moment).
+
 Pending: one clean whole-suite pass at HEAD on a quiet machine
 (`scratchpad final3.sh`: bench + web journeys LAN and remote against the
 running luna-3040).
