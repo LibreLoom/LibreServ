@@ -519,7 +519,7 @@ func (h AdminConsoleHandler) RevokeDeviceCode(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if account.Valid && account.String != "" {
-		JSONError(w, http.StatusConflict, "Unbind this Luna from its account before revoking the device token.")
+		JSONError(w, http.StatusConflict, "Unlink this Luna from its account before revoking the device token.")
 		return
 	}
 	_, err = h.DB.Exec(`UPDATE devices SET revoked = 1 WHERE id = ?`, id)
@@ -528,6 +528,35 @@ func (h AdminConsoleHandler) RevokeDeviceCode(w http.ResponseWriter, r *http.Req
 		return
 	}
 	JSON(w, http.StatusOK, map[string]any{"ok": true, "id": id, "status": "revoked"})
+}
+
+// UnlinkDeviceCode detaches a Luna from its customer account and stops its remote
+// access, but keeps the device token so it can be linked again.
+func (h AdminConsoleHandler) UnlinkDeviceCode(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(chi.URLParam(r, "codeID"))
+	if id == "" {
+		JSONError(w, http.StatusBadRequest, "Device token id is required.")
+		return
+	}
+	var account sql.NullString
+	err := h.DB.QueryRow(`SELECT account_id FROM devices WHERE id = ?`, id).Scan(&account)
+	if err == sql.ErrNoRows {
+		JSONError(w, http.StatusNotFound, "That device token was not found.")
+		return
+	}
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not unlink that Luna. Try again.")
+		return
+	}
+	if !account.Valid || account.String == "" {
+		JSONError(w, http.StatusConflict, "That Luna is not linked to an account.")
+		return
+	}
+	if err := unlinkDeviceFromAccount(h.Deps, id); err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not unlink that Luna. Try again.")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]any{"ok": true, "id": id, "status": "unbound"})
 }
 
 // PurgeDeviceCode removes a device token and its live Connect state. Backups stay.

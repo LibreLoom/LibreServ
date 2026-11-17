@@ -52,6 +52,7 @@ export default function AdminTokensPage() {
   const [listLoading, setListLoading] = useState(true);
   const [revokeBusy, setRevokeBusy] = useState("");
   const [purgeBusy, setPurgeBusy] = useState("");
+  const [unlinkBusy, setUnlinkBusy] = useState("");
   const [filter, setFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [appliedQuery, setAppliedQuery] = useState("");
@@ -117,6 +118,21 @@ export default function AdminTokensPage() {
       setError(err.message);
     } finally {
       setRevokeBusy("");
+    }
+  };
+
+  const unlink = async (row) => {
+    const label = row.device_hostname || row.hint || row.id;
+    if (!window.confirm(`Unlink ${label} from ${row.account_email || "its account"}? Remote access stops, the token stays, and the Luna can be linked again.`)) return;
+    setUnlinkBusy(row.id);
+    setError("");
+    try {
+      await adminApi(`/admin/device-codes/${encodeURIComponent(row.id)}/unlink`, { method: "POST" });
+      await loadTokens();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUnlinkBusy("");
     }
   };
 
@@ -361,6 +377,16 @@ export default function AdminTokensPage() {
                             onClick={() => revoke(r.id)}
                           >
                             Revoke
+                          </Button>
+                        )}
+                        {r.status === "bound" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            loading={unlinkBusy === r.id}
+                            onClick={() => unlink(r)}
+                          >
+                            Unlink
                           </Button>
                         )}
                         <Button

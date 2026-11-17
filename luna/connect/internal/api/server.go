@@ -185,6 +185,7 @@ func (s *Server) routes() {
 			r.Post("/admin/device-codes", onb.AdminMint)
 			r.With(handlers.LimitJSONBody).Post("/admin/device-codes/bulk", onb.AdminMintBulk)
 			r.Delete("/admin/device-codes/{codeID}", console.RevokeDeviceCode)
+			r.Post("/admin/device-codes/{codeID}/unlink", console.UnlinkDeviceCode)
 			r.Post("/admin/device-codes/{codeID}/purge", console.PurgeDeviceCode)
 			r.Get("/admin/providers", prov.ListProviders)
 			r.With(handlers.LimitJSONBody).Post("/admin/providers", prov.CreateProvider)

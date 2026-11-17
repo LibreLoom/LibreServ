@@ -45,9 +45,9 @@ FROM devices WHERE id = ?`, deviceID).
 
 	// device_backup_buckets is deliberately NOT deleted: the "Backups stay"
 	// contract keeps stored packs and records, and they are only reachable
-	// through the recorded bucket name/id/keys. Dropping the mapping would
-	// orphan the paid bucket and let EnsureDeviceBucket silently provision a
-	// new empty one on the next read.
+	// through the recorded bucket name/id/keys (keyed by account and Luna id,
+	// not by this device row). Dropping the mapping would orphan the paid
+	// bucket and let EnsureDeviceBucket silently provision a new empty one.
 	if _, err := deps.DB.Exec(`DELETE FROM devices WHERE id = ?`, deviceID); err != nil {
 		return err
 	}

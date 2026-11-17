@@ -182,3 +182,41 @@ func TestStorageCallClearsPendingLunaPurge(t *testing.T) {
 		t.Fatalf("purge_after %d after the Luna was used again, want 0", purgeAfter)
 	}
 }
+
+func TestUnlinkDeviceCodeKeepsToken(t *testing.T) {
+	d := testDeps(t)
+	h := AdminConsoleHandler{Deps: d}
+	now := time.Now().Unix()
+	_, _ = d.DB.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, email_verified, created_at)
+VALUES ('acct_unlink', 'unlink@b.co', 'x', 0, 'none', 1, ?)`, now)
+	devID, code, err := insertPermanentDevice(d.DB, "official", security.OfficialDeviceToken(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = d.DB.Exec(`UPDATE devices SET account_id = 'acct_unlink', subdomain = 'unlinkbox' WHERE id = ?`, devID)
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/device-codes/"+devID+"/unlink", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("codeID", devID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+	h.UnlinkDeviceCode(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unlink %d %s", rec.Code, rec.Body.String())
+	}
+	var acct, sub *string
+	var revoked int
+	if err := d.DB.QueryRow(`SELECT account_id, subdomain, revoked FROM devices WHERE id = ?`, devID).Scan(&acct, &sub, &revoked); err != nil {
+		t.Fatalf("token should survive unlink: %v", err)
+	}
+	if acct != nil || sub != nil || revoked != 0 {
+		t.Fatalf("want unlinked and usable, got account=%v sub=%v revoked=%d", acct, sub, revoked)
+	}
+	_ = code
+
+	rec = httptest.NewRecorder()
+	h.UnlinkDeviceCode(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("second unlink %d, want 409", rec.Code)
+	}
+}
