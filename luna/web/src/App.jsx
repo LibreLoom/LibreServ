@@ -106,20 +106,31 @@ function PageRendered() {
 function usePreloadPages() {
   useEffect(() => {
     if (/** @type {any} */ (navigator).connection?.saveData) return undefined;
-    const loaders = [DashboardPage, FilePage, FilesPage, PhotosPage, SharedPage, SettingsPage, FileOpsDock].map((page) => page.preload);
+    // Navbar pages first. FilePage last: it brings the file viewer, which
+    // warms the ~650 kB text editor. One page at a time, each after the last
+    // has landed: loading them all at once kept the CPU busy parsing exactly
+    // when someone tapped Photos a moment after the Dashboard (W7).
+    const loaders = [DashboardPage, PhotosPage, FilesPage, SharedPage, SettingsPage, FileOpsDock, FilePage].map((page) => page.preload);
     const idle = window.requestIdleCallback
       ? (fn) => window.requestIdleCallback(fn, { timeout: 4000 })
       : (fn) => window.setTimeout(fn, 1500);
     const cancel = window.cancelIdleCallback || window.clearTimeout;
     let i = 0;
     let handle = 0;
+    let stopped = false;
     const next = () => {
-      if (i >= loaders.length) return;
-      loaders[i++]().catch(() => {});
-      handle = idle(next);
+      if (stopped || i >= loaders.length) return;
+      loaders[i++]()
+        .catch(() => {})
+        .then(() => {
+          if (!stopped) handle = idle(next);
+        });
     };
     handle = idle(next);
-    return () => cancel(handle);
+    return () => {
+      stopped = true;
+      cancel(handle);
+    };
   }, []);
 }
 

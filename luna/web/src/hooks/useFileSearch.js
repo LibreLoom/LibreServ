@@ -3,11 +3,10 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { getJson } from "../lib/api";
 import { MIN_SEARCH_LENGTH, parseSearchResponse, searchUrl } from "../lib/fileSearch.js";
 
-/** Names and text: cheap (a quick name answer takes lunad well under 100 ms),
- * so ask as soon as a key lands. Keys inside this window share one request,
- * and a newer request cancels the one still on its way (see `signal` below);
- * lunad still finishes a cancelled one. */
-const QUICK_DEBOUNCE_MS = 30;
+/* Names and text are cheap (a quick name answer takes lunad well under
+ * 100 ms), so the quick search asks on every key, with no debounce: a key
+ * waiting even 30 ms showed in W10. A newer request cancels the one still on
+ * its way (see `signal` below); lunad still finishes a cancelled one. */
 /** Photos and passages by meaning embed the query with a model (about a
  * second on Luna), so ask for them only once typing pauses. */
 const FULL_DEBOUNCE_MS = 700;
@@ -26,22 +25,16 @@ const CONTENT_POLL_MS = 5000;
  * @param {{ enabled?: boolean, kind?: "all" | "dir" | "file" }} [options]
  */
 export default function useFileSearch(typed, { enabled = true, kind = "all" } = {}) {
-  const [q, setQ] = useState("");
   const [fullQ, setFullQ] = useState("");
   const trimmed = typed.trim();
+  const q = trimmed;
 
   useEffect(() => {
-    const t = setTimeout(() => setQ(trimmed), QUICK_DEBOUNCE_MS);
     const full = setTimeout(() => setFullQ(trimmed), FULL_DEBOUNCE_MS);
-    return () => {
-      clearTimeout(t);
-      clearTimeout(full);
-    };
+    return () => clearTimeout(full);
   }, [trimmed]);
 
-  // `q` trails the box by the debounce, so also require the live text to be
-  // long enough — otherwise old results linger once the text gets too short.
-  const active = enabled && q.length >= MIN_SEARCH_LENGTH && trimmed.length >= MIN_SEARCH_LENGTH;
+  const active = enabled && q.length >= MIN_SEARCH_LENGTH;
 
   const quickQuery = useQuery({
     queryKey: ["search", q, kind, "quick"],
@@ -69,7 +62,7 @@ export default function useFileSearch(typed, { enabled = true, kind = "all" } = 
 
   const { hits, closeOnly, truncated, incomplete, scan } = parseSearchResponse(query.data);
   return {
-    /** The text actually being searched (trails the box by the debounce). */
+    /** The text being searched (the box, trimmed). */
     q,
     active,
     hits: active ? hits : [],

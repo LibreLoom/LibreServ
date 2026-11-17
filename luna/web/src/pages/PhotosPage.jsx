@@ -199,7 +199,6 @@ export async function downloadErrorMessage(response) {
 
 const placesUrlFor = (listUrl) =>
   listUrl.replace("/api/v1/photos?", "/api/v1/photos/places?");
-const UNFILTERED_PLACES_URL = placesUrlFor(photosUrl());
 /** Shared empty list so an unloaded places query keeps a stable prop identity. */
 const NO_PLACES = [];
 
@@ -700,15 +699,14 @@ export default function PhotosPage() {
       (!isAdmin && drivesEmpty),
   });
 
-  // Warm Places and Albums while the Library is idle, so switching tabs shows
-  // data and the map code immediately instead of loading on click.
+  // Warm the map code and Albums while the Library is idle, so switching tabs
+  // doesn't wait on them. Not the Places points: that list is every geotagged
+  // photo (~11 MB for 35,000), and reading it froze the page for ~0.4 s
+  // in the middle of the first screen or a scroll (W7/W8). Places fetches it
+  // when opened.
   useEffect(() => {
     const warm = () => {
       loadPlacesMap();
-      queryClient.prefetchQuery({
-        queryKey: ["photos-places", UNFILTERED_PLACES_URL],
-        queryFn: () => getJson(UNFILTERED_PLACES_URL),
-      });
       queryClient.prefetchQuery({
         queryKey: ["photos-albums"],
         queryFn: () => getJson("/api/v1/photos/albums"),

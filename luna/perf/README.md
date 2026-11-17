@@ -29,7 +29,7 @@ panel as `luna:W…`). No UI, nothing sent anywhere.
 | W7 | Photos page mounts | every timeline thumbnail in the viewport loaded |
 | W8 | a scroll on the timeline comes to rest (`scrollend`); detailed mode only | same as W7. No scrubber exists yet, so this is an approximation. |
 | W9, W9:full | photo opened (`PhotosPage.openPhoto`) | preview, then full photo decoded (`LightboxMedia`, current pane only) |
-| W10, W10:query | search keystroke / debounce fires (`FileSearch`) | the first rows of results for that text painted (a long answer paints 12 rows, then the rest). The 30 ms quick debounce is inside W10. |
+| W10, W10:query | search keystroke / the new text rendered and the quick search sent (`FileSearch`) | the first rows of results for that text painted (a long answer paints 12 rows, then the rest). The quick search has no debounce. |
 | W11 | search keystroke | results with a `meaning` or `photo` match rendered (same `/api/v1/search`) |
 | W12 | office document opened (`FileViewer`) | EuroOffice `onDocumentReady` |
 | W15 | page load at `/s/…` | the link's first screen (listing, album, form or upload box) |

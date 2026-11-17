@@ -4,6 +4,8 @@ import { cn } from "../../lib/utils";
 import { haptic } from "../../utils/haptics.js";
 import { buttonVariants } from "./Button.jsx";
 import { TooltipTargets } from "./Tooltip.jsx";
+import IconImage from "./IconImage.jsx";
+import { useToneColor } from "../../lib/iconImage.js";
 
 /** @type {Map<string, string>} */
 const classCache = new Map();
@@ -55,6 +57,9 @@ export default function IconActions({
   ...rest
 }) {
   const cls = iconButtonClass(surface);
+  // The ghost button's text color on this backdrop: icons are images in
+  // that color, not inline SVGs (lib/iconImage.js, W6).
+  const color = useToneColor(surface === "primary" ? "secondary" : "primary");
   return (
     <TooltipTargets className={cn("flex items-center gap-0.5 flex-wrap justify-end", className)} {...rest}>
       {actions.map(({ key, label, aria, icon: Icon, run, to, href }) => {
@@ -67,7 +72,7 @@ export default function IconActions({
           "aria-label": aria,
           tabIndex,
         };
-        const icon = <Icon size={iconSize} aria-hidden="true" />;
+        const icon = <IconImage icon={Icon} size={iconSize} color={color} />;
         if (to) {
           return (
             <Link

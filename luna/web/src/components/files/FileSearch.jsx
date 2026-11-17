@@ -194,8 +194,8 @@ export default function FileSearch() {
   const trimmed = typed.trim();
   const search = useFileSearch(trimmed, { enabled: present && !isClosing, kind });
 
-  // W10/W11 (luna/perf): keystroke to rendered results. W10:query starts when
-  // the debounce lets the search go out, so the debounce's share is visible;
+  // W10/W11 (luna/perf): keystroke to rendered results. W10:query starts once
+  // the new text has rendered and the quick search goes out;
   // W11 ends only once a "meaning" or "photo" match (neural search) is shown.
   useEffect(() => {
     if (search.active && search.q === trimmed) perfStart("W10:query");

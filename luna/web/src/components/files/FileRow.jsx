@@ -17,6 +17,8 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import RowActionMenu from "@libreloom/ui/components/ui/RowActionMenu.jsx";
 import AnimatedCheckbox from "@libreloom/ui/components/ui/AnimatedCheckbox.jsx";
 import IconActions from "@libreloom/ui/components/ui/IconActions.jsx";
+import IconImage from "@libreloom/ui/components/ui/IconImage.jsx";
+import { useToneColor } from "@libreloom/ui/lib/iconImage.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useFileSource } from "../../lib/fileSource.jsx";
 import { CAP, capsBits } from "../../lib/access.js";
@@ -80,6 +82,9 @@ function FileRow({
   );
 
   const well = surface === "primary" ? "secondary" : "primary";
+  // The row's text color, for its icon image (an inline SVG per row cost
+  // scroll frames, W6).
+  const iconColor = useToneColor(well);
   const fg = surface === "primary" ? "text-secondary" : "text-primary";
   const cardSurface = surface === "primary" ? "surface-primary" : "surface-secondary";
   // color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
@@ -249,7 +254,7 @@ function FileRow({
   const Icon = isDir ? Folder : FileIcon;
   const label = (
     <>
-      <Icon size={16} className="shrink-0" aria-hidden="true" />
+      <IconImage icon={Icon} size={16} color={iconColor} className="shrink-0" />
       <span className="font-mono text-sm truncate">{displayName}</span>
     </>
   );
