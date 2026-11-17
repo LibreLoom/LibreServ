@@ -689,3 +689,49 @@ isn't available right now." when it is gone, while the fake keeps the form and
 its answers on the link record itself. Simulating that would mean inventing a
 second store for the same data, so the scenario that exercises a deleted form
 (`forms/respond-link`) covers the answers path instead.
+
+### Ninth review: the shapes a guest actually reads
+
+Three further rounds on the same fake, each narrow enough to finish:
+
+| Round | Asked about | Findings | Outcome |
+|---|---|---|---|
+| 2d-e | `/stat`, `/media`, uploads, `/respond`, the password lock | 15 | 14 confirmed and fixed, 1 recorded below |
+| 3a | `/stat`, `/list`, `/items` | 3 | all 3 confirmed |
+| 3b | upload create/chunk/complete/cancel, the password gate | 5 | all 5 confirmed |
+
+The shapes were where it showed. `public_stat` re-wraps every field in `json!`,
+so a folder answer always carries `children` and `totals` even when one is null —
+but `public_list` on a single-file link serializes the `FileStat` directly, where
+both keys are skipped when empty, so the listing must *omit* them. Two routes,
+one struct, opposite answers, and a guest page reads both.
+
+Counts were the other shape error: `public_stat` counts a folder's children
+before any reachability filter, so a hidden entry and a private one are both in
+the number the page prints, while the listing that follows hides them. A
+`.part` file left half-written counts as Luna's own bookkeeping (`is_internal_temp`
+checks for a dotfile ending `.part` as well as a `.luna-<uuid>` segment), so it is
+never listed — and an upload named `<something>.part` is not a user file either.
+
+Uploads were rebuilt around what the daemon writes rather than what a single
+chunk says. Coverage is the union of the ranges received, so two chunks arriving
+out of order still add up; a range past the declared size is refused instead of
+growing the file; a complete that fails marks the session errored, and cancel
+still clears it, because `uploads::cancel` never looks at state. The destination
+is resolved at create time — a dead folder, a file where a folder was named, a
+folder outside the link — and a drop box *drops* a nested path rather than
+refusing it, so a blind uploader learns nothing about which folders exist. A link
+to one file takes the file's own name, whatever the guest called the upload. One
+address may start five sessions a minute; the sixth is the share limiter's 429.
+
+The password gate now reads the proof cookie before the lock, as lunad does: a
+guest who already unlocked keeps working while another address is guessing. Both
+counters are modelled — the per-client one that a right password clears, and the
+link-wide one that it does not — and a taken name answers `code: "exists"`,
+because the web app reads that code rather than the sentence.
+
+One finding stays recorded rather than fixed, beside the form one: `complete`
+passes the optional blake3 `hash` to `uploads::complete` and gets a mismatch
+refusal, and the fake has no hasher to compare with. Inventing one would mean a
+dependency the harness does not otherwise need, so the fake ignores the
+parameter; everything else about the route is the daemon's.
