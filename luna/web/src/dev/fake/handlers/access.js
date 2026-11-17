@@ -726,10 +726,11 @@ function allowsOther(question) {
 /** `number_in_range`: the answer inside the question's own bounds. */
 function numberInRange(question, n) {
   if (!Number.isFinite(n)) return false;
-  const min = Number(question?.config?.min);
-  const max = Number(question?.config?.max);
-  const hasMin = question?.config?.min !== undefined && Number.isFinite(min);
-  const hasMax = question?.config?.max !== undefined && Number.isFinite(max);
+  // A bound is a JSON number or it is no bound at all: `"5"` is not a limit.
+  const min = typeof question?.config?.min === "number" ? question.config.min : null;
+  const max = typeof question?.config?.max === "number" ? question.config.max : null;
+  const hasMin = min !== null && Number.isFinite(min);
+  const hasMax = max !== null && Number.isFinite(max);
   return (!hasMin || n >= min) && (!hasMax || n <= max);
 }
 
@@ -771,14 +772,15 @@ function uploadNameOk(name) {
  * @returns {import("../router.js").Res | null}
  */
 function checkAnswers(l, answers) {
-  // A question with no id (`""`) is not one an answer can belong to.
-  const questions = (formOf(l).questions || []).filter(
-    (q) => q && typeof q.id === "string" && q.id !== "",
-  );
-  const known = new Map(questions.map((q) => [q.id, q]));
+  // A question with no id at all is not judged; one whose id is `""` is still
+  // judged (it can be required), but no answer can be filed under it.
+  const questions = (formOf(l).questions || []).filter((q) => typeof q?.id === "string");
+  const known = new Map(questions.filter((q) => q.id !== "").map((q) => [q.id, q]));
   for (const key of Object.keys(answers)) if (!known.has(key)) delete answers[key];
   for (const question of questions) {
-    const label = String(question.label || "").trim() || "A question";
+    // The label names the question in a refusal only when it is real text.
+    const label =
+      (typeof question.label === "string" && question.label.trim()) || "A question";
     const value = answers[question.id];
     const answered = isAnswered(value);
     if (question.required === true && !answered)
