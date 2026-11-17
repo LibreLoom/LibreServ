@@ -500,3 +500,40 @@ verified in the browser, by counting the calls rather than reading the code:
   the `src` setter and of `setAttribute` was 1 before and 1 after. Each install
   replaces the wrapper over the browser's own method instead of wrapping the
   previous wrapper, so earlier worlds are not kept alive.
+
+## Sixth review (same reviewer, on the fixes): seven findings, six answered
+
+Re-reading the corrected fake produced seven more findings. Each was checked
+against lunad before anything changed, and each fix was proven able to fail by
+stashing it and watching the old answer return.
+
+| # | Where | What was wrong | Answer |
+|---|---|---|---|
+| 1 | `/s/:token` | Answered a folder or file share even when its drive was gone. Rust reads the subject through `confined_read`, so it says `The shared files aren't available right now.` | fixed |
+| 2 | `engine.js` `swapSrc` | Two elements showing the same picture shared one object URL, so superseding one revoked the URL the other was about to render. Proven: with the old code the second element's URL answered `TypeError: Failed to fetch`. | fixed — the body is fetched once, each element allocates and releases its own URL |
+| 3 | `/s/:token/items` | Answered an empty photo page for folder, file and drop box links. Rust's `public_items` answers `gone()` for anything but a viewable album. | fixed |
+| 4 | `/s/:token/file` | Called a folder `Not found.`; Rust answers 400 `That's a folder. Use Download to save it as a zip file.` | fixed |
+| 5 | `open()` | A link whose subject sits in a deleted owner's private folder answered 404 `Not found.`; `resolve_public_link` answers `gone()`, which the share page reads as "this link has expired or been removed". | fixed |
+| 6 | `/s/:token/list` | Reported as returning the wrong thing for a subpath under a single-file link. Rust resolves that subpath through `confined_read`, which fails, so the answer is a 404 either way; only the wording differs. | not reproduced — nothing to fix |
+| 7 | `engine.js` | `fetch` and `WebSocket` were rewrapped from the previous wrapper on every `installFake()`, keeping the replaced world alive. | fixed — both keep their native method under `__mockNative`, as `src` and anchor `click` already did |
+
+Fix 2 is worth restating, because it is the one a person would notice: two
+thumbnails of the same photo, one of them re-pointed, and the other one goes
+blank. The body still comes from one request; only the URL is per element.
+
+## Third and fourth clean sweeps, on the code that answered the sixth review
+
+Both sweeps were re-earned from zero on `f1799b5a9`, after the checker was
+reinstalled and again proven able to fail by injecting a `[object Object]` and a
+`Luna couldn't do that` into a rendered frame.
+
+| Pass | Head | Rendered | Unique | Missing | Flagged |
+|---|---|---|---|---|---|
+| 3 | `f1799b5a9` | 317 | 317 | 0 | 0 |
+| 4 | `f1799b5a9` | 317 | 317 | 0 | 0 |
+
+The share-gate fixes have their own evidence, taken in a live share frame rather
+than from the code: `/items` answers 410, `/file` on a folder answers 400 with
+the zip hint, and with the drive ejected `/s/:token`, `/zip` and `/file` answer
+404 with the unavailable wording while `/list` answers the folder's own wording.
+Restoring the drive brings every route back to 200.
