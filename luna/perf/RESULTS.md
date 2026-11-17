@@ -147,6 +147,33 @@ worker. Name search sorts without cloning, reads each pass in one
 statement and keeps a per-drive connection for 3 s (an eject right after
 a search may retry for a moment).
 
-Pending: one clean whole-suite pass at HEAD on a quiet machine
-(`scratchpad final3.sh`: bench + web journeys LAN and remote against the
-running luna-3040).
+## Clean final pass at d06d9cc9 (2026-11-17)
+
+Whole suite on the 3040 stand-in, nothing else running (host load ≤ 2.4,
+no other containers). Raw: `results/final-4/`, `web-journeys-final4-*.json`.
+
+| Journey | Baseline LAN | Final LAN | Budget | Final remote (budget) |
+|---|---|---|---|---|
+| W1 cold load | 902 | 710 | 1500 ✅ | 1686 (3000) ✅ |
+| W2 warm load | 615 | 404 | 600 ✅ | 783 (1200) ✅ |
+| W3 sign-in | 705 | 397 | 500 ✅ | 443 (1000) ✅ |
+| W4 open folder | 828 | 237 | 250 ✅ | 370 (600) ✅ |
+| W5 large folder | 1383 | 325 | 800 ✅ | 473 (1500) ✅ |
+| W6 scroll, min fps | 10.8 | 45 | 60 ⚠ | 45 ⚠ |
+| W7 photos timeline | 2521 | 1132 (p50 590) | 1000 ⚠ | 1074 (2000) ✅ |
+| W8 scrub | 2220 | 565 (p50 134) | 300 ⚠ | 974 (—) ⚠ |
+| W9 open photo | 379 | 128 | 300 ✅ | 83 (2000) ✅ |
+| W10 name search | 2162 | 217 (p50 153) | 150 ⚠ | 299 (400) ✅ |
+| W15 share link | 1318 | 582 | 1500 ✅ | 2035 (2500) ✅ |
+| W16 page switch | 459 | 102 | 150 ✅ | 145 (150) ✅ |
+
+lunad (luna-bench LAN p95): W10 1468 → 70 ms, W11 480 → 46, W14 2035 →
+304, W13 1181 → 1064, W7 580 → 77, W5 136 → 75. D1 start-up 1.8 s. Idle
+after start-up: ~19 MB RSS, 4–6 voluntary switches/min with the 30 s perf
+sampler itself running.
+
+Still over: W6 (45 vs 60 fps at 4× CPU slowdown), W7 and W8 LAN p95 (one
+slow sample each; p50 well under), W10 LAN (the 30 ms debounce plus
+~70 ms server p95 and the render leave little room for 150 ms), W8 remote
+(no remote budget set), D3 after use (~5/min), K2 desktop idle memory
+(71 MB, GTK base), A1 Android cold start (debug build only).
