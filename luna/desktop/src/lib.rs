@@ -5,6 +5,58 @@ pub fn product_name() -> &'static str {
     "Luna Desktop"
 }
 
+/// Whether `LUNA_DESKTOP_PERF=1` is set: timing lines for the K journeys
+/// (luna/perf/budgets.json) go to stderr.
+pub fn perf_enabled() -> bool {
+    std::env::var_os("LUNA_DESKTOP_PERF").is_some_and(|v| v == "1")
+}
+
+/// With perf on, print a start-up mark (journey K1): ms since this process
+/// was started, from /proc (10 ms steps), so dynamic loading counts too.
+pub fn perf_mark(what: &str) {
+    if perf_enabled() {
+        let since_exec = (|| {
+            let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
+            let ticks: f64 = stat
+                .rsplit_once(')')?
+                .1
+                .split_whitespace()
+                .nth(19)?
+                .parse()
+                .ok()?;
+            let up: f64 = std::fs::read_to_string("/proc/uptime")
+                .ok()?
+                .split_whitespace()
+                .next()?
+                .parse()
+                .ok()?;
+            // Linux reports start time in USER_HZ ticks, 100 per second.
+            Some(((up - ticks / 100.0) * 1000.0).round() as i64)
+        })();
+        match since_exec {
+            Some(ms) => eprintln!("luna-desktop: K1 {what} since_exec_ms={ms}"),
+            None => eprintln!("luna-desktop: K1 {what}"),
+        }
+    }
+}
+
+/// Hand freed heap back to the system. A full sync pass builds and drops
+/// maps of every file on both sides (tens of MB for 50,000 files); glibc
+/// keeps that memory in its pools, so without this the idle app stays at its
+/// peak size (journey K2).
+pub fn trim_heap() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        unsafe extern "C" {
+            fn malloc_trim(pad: usize) -> i32;
+        }
+        // SAFETY: malloc_trim only releases free memory; it takes no pointers.
+        unsafe {
+            malloc_trim(0);
+        }
+    }
+}
+
 pub mod autostart;
 pub mod backup;
 #[cfg(target_os = "macos")]

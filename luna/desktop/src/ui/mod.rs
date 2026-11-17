@@ -121,6 +121,7 @@ pub fn run() -> glib::ExitCode {
                     }
                 });
                 tray_present.set(tray.is_some());
+                luna_desktop::perf_mark(if tray.is_some() { "tray" } else { "no-tray" });
                 if tray.is_none() {
                     eprintln!(
                         "luna-desktop: no system tray host; closing the window minimizes it — use Settings → Quit {} to stop",
@@ -134,6 +135,7 @@ pub fn run() -> glib::ExitCode {
                 });
             }
 
+            win.connect_map(|_| luna_desktop::perf_mark("window"));
             if !background {
                 win.present();
             }
@@ -241,7 +243,6 @@ fn build_ui(app: &adw::Application, state: Arc<AppState>) -> adw::ApplicationWin
     stack_rc.set_visible_child_name("boot");
 
     let state_boot = state.clone();
-    let state_done = state.clone();
     let stack_boot = stack_rc.clone();
     let show_shell_boot = show_shell.clone();
     let toast_boot = toast_rc.clone();
@@ -251,14 +252,13 @@ fn build_ui(app: &adw::Application, state: Arc<AppState>) -> adw::ApplicationWin
         move |outcome| {
             // An injected dev token (auto sign-in) may already have shown the
             // shell before this restore lands — never yank it back to login.
-            if state_done
-                .session
-                .lock()
-                .map(|s| s.is_some())
-                .unwrap_or(false)
-            {
+            // Check the screen, not the session: a successful restore fills
+            // the session itself, and checking that kept a signed-in app on
+            // "Checking your sign-in…" with its syncs and backups never started.
+            if stack_boot.visible_child_name().as_deref() != Some("boot") {
                 return;
             }
+            luna_desktop::perf_mark("session");
             match outcome {
                 luna_desktop::RestoreOutcome::Restored(info) => show_shell_boot(info),
                 luna_desktop::RestoreOutcome::NoSession => {
