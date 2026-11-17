@@ -375,15 +375,35 @@ function failedTries(w) {
 
 /**
  * Mirrors lunad's `scoped_child`: a link that does not itself sit in the trash
- * can never reach the trash alias, and says so before it reads anything.
+ * can never reach the trash, and says so before it reads anything. The test is
+ * on the *joined* path, so a link rooted elsewhere passes this gate and misses
+ * on the read instead.
  *
  * @param {{ path?: string }} s
  * @param {string[]} segments
  */
 function trashProbe(s, segments) {
-  if (segments[0] !== ".luna-trash") return null;
-  if (String(s.path || "").replace(/^\/+|\/+$/g, "").startsWith(".luna-trash")) return null;
+  const own = String(s.path || "").replace(/^\/+|\/+$/g, "");
+  const joined = [own, segments.join("/")].filter(Boolean).join("/");
+  if (!isTrashApi(joined) && !isTrashRel(joined)) return null;
+  if (isTrashApi(own)) return null;
   return fail(404, "That item isn't part of this shared link.");
+}
+
+/** `is_trash_api`: the alias the API accepts for the trash root, or below it. */
+function isTrashApi(rel) {
+  return rel === ".luna-trash" || rel.startsWith(".luna-trash/");
+}
+
+/**
+ * `is_trash_rel`: a top-level entry named `{marker prefix}-trash`, the trash
+ * root's real on-disk name. `marker::extract_prefix` only accepts a real UUID.
+ */
+function isTrashRel(rel) {
+  const first = rel.split("/")[0] || "";
+  return /^\.luna-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}-trash$/.test(
+    first,
+  );
 }
 
 /** `zip_archive_basename`: the resolved path names the archive, or "drive". */
@@ -504,6 +524,11 @@ function dispositionName(name) {
   return !cleaned || cleaned === "." || cleaned === ".." ? "download" : cleaned;
 }
 
+/** `accept_json`: does the caller want to be told about the file, not handed it? */
+function acceptJson(headers) {
+  return /application\/json/i.test(String(header(headers, "accept") || ""));
+}
+
 function listing(entries) {
   return { entries: entries.map(({ children: _children, ...rest }) => rest) };
 }
@@ -569,6 +594,15 @@ publicGet("/s/:token", ({ world, params, query, headers }) => {
   }
   const kind = s.kind === "album" ? "album" : s.is_file ? "file" : "folder";
   const count = s.kind === "album" ? (world.albumItems?.[s.album_id] || []).length : undefined;
+  // `public_root_inner` also answers for a path below the link: the lexical
+  // gate, then the trash gate, then the read. An album ignores the path — its
+  // branch in the daemon comes first.
+  const segments = kind === "album" ? [] : linkSegments(query.path);
+  if (!segments) return fail(400, "That folder isn't part of this shared link.");
+  if (kind !== "album") {
+    const trash = trashProbe(s, segments);
+    if (trash) return trash;
+  }
   // `public_root_inner` resolves a viewable path subject through
   // `confined_read`. A link whose drive is gone therefore answers with the
   // unavailable wording, not with a shell that mounts a browser over nothing.
@@ -576,15 +610,33 @@ publicGet("/s/:token", ({ world, params, query, headers }) => {
     const goneRoot = unavailableShare(world, s, "The shared files aren't available right now.");
     if (goneRoot) return goneRoot;
   }
-  // `public_root_inner` names a path subject after the last piece of its own
-  // path, not after something it invented: a whole-drive link (empty path)
-  // falls through to "download", and a trash entry is spelled "Trash" because
-  // its on-disk name carries a nonce.
   const linkRel = String(s.path || "").replace(/^\/+|\/+$/g, "");
-  const rootName =
-    linkRel === ".luna-trash" ? "Trash" : linkRel ? linkRel.split("/").pop() : "download";
+  const rel = segments.length ? segments.join("/") : linkRel;
+  // `confined_read` runs `link_reaches` inside the same read, so reaching above
+  // the link is the same miss as asking for something that is not there.
+  if (kind !== "album" && segments.length && !linkReaches(world, r.l, rel, s.drive_id, s.path))
+    return fail(404, "The shared files aren't available right now.");
+  // A file link has nothing beneath it, so any path below it is a miss rather
+  // than a walk into a tree that only exists for folder links.
+  if (s.is_file && segments.length)
+    return fail(404, "The shared files aren't available right now.");
+  const found =
+    kind !== "album" && segments.length ? nodeAt(treeOf(world, params.token, s), segments) : null;
+  if (kind !== "album" && segments.length && !found)
+    return fail(404, "The shared files aren't available right now.");
+  // `public_root_inner` names a path subject after the last piece of the
+  // resolved path, not after something it invented: a whole-drive link (empty
+  // path) falls through to "download", and the trash root is spelled "Trash"
+  // because its on-disk name carries a nonce.
+  const rootName = rel === ".luna-trash" ? "Trash" : rel ? rel.split("/").pop() : "download";
+  if (found && found.kind !== "dir") {
+    // A path to a file downloads it unless the caller said it wants to be told
+    // about it instead — `?meta=1`, or an Accept that asks for JSON.
+    if (!query.meta && !acceptJson(headers)) return serveSharedFile(world, r, rel, found.name);
+    return { kind: "file", name: rootName, caps: l.caps, size: found.size ?? 120_000 };
+  }
   return {
-    kind,
+    kind: kind === "album" ? "album" : segments.length ? "folder" : kind,
     name: kind === "album" ? s.name : rootName,
     caps: l.caps,
     size: s.is_file ? 120_000 : undefined,
@@ -605,7 +657,10 @@ publicGet("/s/:token/items", ({ world, params, query, headers }) => {
   if (itemAlbum.err) return itemAlbum.err;
   const keys = new Set(world.albumItems?.[r.s.album_id] || []);
   const all = (world.photos || []).filter((p) => keys.has(photoKey(p)));
-  const limit = Number(query.limit) || 80;
+  const limitRaw = Number(query.limit);
+  // `public_items` clamps the page size rather than trusting it: 0 is one
+  // photo, and a request for a thousand is two hundred.
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.trunc(limitRaw), 1), 200) : 80;
   const offset = Number(query.offset) || 0;
   // `album_media_urls` names the guest bytes route, so a public photo is never
   // fetched from the signed-in drive API. The gallery's pictures come back
@@ -834,8 +889,13 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
     }
     // A real zip would be megabytes of real photos; the harness only needs the
     // download to happen and the name to be right.
+    // `album_zip_response` names the archive after the album row, not after the
+    // cached name on the link's subject, and falls back to `album.zip` when
+    // that name sanitises away to nothing.
+    const albumBase = dispositionName(albumRes.album.name || r.s.name || "album");
+    const albumZipName = albumBase === "download" ? "album" : albumBase;
     return raw(new TextEncoder().encode(`PK\x05\x06${"\0".repeat(18)}`), "application/zip", 200, {
-      "Content-Disposition": `attachment; filename="${dispositionName(r.s.name || "album")}.zip"`,
+      "Content-Disposition": `attachment; filename="${albumZipName}.zip"`,
     });
   }
   if (r.s.kind !== "path") return fail(410, "This link has expired or been removed.");
