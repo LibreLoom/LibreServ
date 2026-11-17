@@ -436,3 +436,67 @@ fragment kept, the Security page renders in full.
 One static check is worth knowing about: `scan:colors` reports the word
 "white" inside a check description in `sharing.scenarios.js`. It is prose, not
 a colour token, and the line predates this branch.
+
+## Fifth review (gemini-3.8-flash-low on Antigravity): four findings, three fixed
+
+The Codex reviewers used for the earlier rounds are no longer available, so this
+round was run on Antigravity's `gemini-3.8-flash-low`. It reported four defects.
+All four were read against the Rust daemon before any edit; three were real, one
+is recorded below as deferred.
+
+| # | Where | What is wrong | Status |
+|---|---|---|---|
+| 1 | `access.js` `/s/:token/zip` | A single-file share was served before the drive check, so a link whose drive had been ejected still zipped. | fixed |
+| 2 | `access.js` `/s/:token/file` | Said `Not found.` where lunad says `The shared file isn't available right now.` | fixed |
+| 3 | `access.js` `open()` | Never checked that the link's own subject still exists (`exists === false` on the resolved entry). | **deferred** |
+| 4 | `access.js` `/s/:token/list` | Never consulted whether the drive is usable. | fixed |
+
+The three fixes share one helper, `unavailableShare(world, s, message)`, which
+returns the route's own 404 message when `needDrive` refuses and `null`
+otherwise. Three guards with three distinct messages stay distinct, and a fourth
+route cannot drift, because it has to call the same helper.
+
+Finding 3 is deferred rather than fixed: giving the fake a "the link's subject
+was deleted" state means adding a scenario that does not exist, which is a new
+feature, not the repair of an existing one. lunad's rule is
+`resolve_public_link` (`access_public.rs:48-80`): an entry whose subject is gone
+resolves to `gone()`, never to an empty listing. Recorded here so the gap is
+visible instead of forgotten.
+
+A real defect found while verifying the above, not from any review: the newer
+`GET /s/:token/zip` (a folder share) never called `needDrive` at all. Proven by
+ejecting the drive under a live frame: `200 PK` → ejected `404 {` → restored
+`200 PK`, and proven able to fail by stashing the fix and watching the ejected
+case answer `200 PK` again.
+
+## Two clean sweeps on the final code
+
+After the last share fix (`f69a16845`) both sweeps were started again from zero,
+in the same browser tab, against the running dev server, with the checker
+reinstalled and then proven able to fail by injecting a `[object Object]` and a
+`Luna couldn't do that` into a rendered frame. Each sweep walked all 317
+scenarios in registry order, read each frame's own `contentDocument`, and
+settled slow states before reading them.
+
+| Pass | Head | Rendered | Unique | Missing | Flagged |
+|---|---|---|---|---|---|
+| 1 | `f69a16845` | 317 | 317 | 0 | 0 |
+| 2 | `f69a16845` | 317 | 317 | 0 | 0 |
+
+An earlier partial pass on this head was discarded rather than continued: the
+first flagged frame was a blank dashboard that turned out to be a 2600 ms settle
+race, and widening the settle changed the checker, which voids a partial run.
+
+The two adversarial checks that the third review listed as unverified are now
+verified in the browser, by counting the calls rather than reading the code:
+
+- **Media blobs are released.** In a live scenario frame, one `<img>` was pointed
+  at a fake image and then immediately at a second one. `createObjectURL` ran
+  twice and `revokeObjectURL` once, the revoked URL was the superseded one, and
+  the element kept the live `blob:` URL. So the reply nobody reads releases its
+  URL instead of pinning the body for the life of the document.
+- **The anchor patch does not chain.** After two more `installFake()` calls in
+  the same frame, the wrapper depth of `HTMLAnchorElement.prototype.click`, of
+  the `src` setter and of `setAttribute` was 1 before and 1 after. Each install
+  replaces the wrapper over the browser's own method instead of wrapping the
+  previous wrapper, so earlier worlds are not kept alive.
