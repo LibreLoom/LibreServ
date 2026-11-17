@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
@@ -17,6 +17,12 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Fetch the Luna page's code while the person types, so signing in waits
+  // only for the account, not for another download (C4 in luna/perf/budgets.json).
+  useEffect(() => {
+    import("./LunaPage.jsx").catch(() => {});
+  }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();
