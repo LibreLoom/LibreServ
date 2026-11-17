@@ -40,6 +40,9 @@ type CutRequest struct {
 	Jobs, HeavyJobs int
 	// SkipTests skips the test gate (see Config.TestGate).
 	SkipTests bool
+	// SkipReleaseTests runs the product's tests but not the release tool's own
+	// (the slow "release" profile).
+	SkipReleaseTests bool
 }
 
 // TestProfiles are the ./ci profiles that must pass before a unit is cut: the
@@ -360,6 +363,9 @@ func (a *App) Cut(ctx context.Context, req CutRequest) (*CutResult, error) {
 	// released. A resume skips them: its bump commit is already out and passed.
 	if a.cfg.TestGate != nil && !req.Resume && !req.SkipTests {
 		profiles := TestProfiles(req.Unit)
+		if req.SkipReleaseTests {
+			profiles = profiles[:1]
+		}
 		a.emit.note(req.Unit, "running tests through ./ci (%s), without resource limits", strings.Join(profiles, ", "))
 		if err := a.cfg.TestGate(ctx, profiles, func(l string) { a.emit.note(req.Unit, "%s", a.Redact(l)) }); err != nil {
 			return nil, fmt.Errorf("tests failed, nothing was released: %s", a.Redact(err.Error()))

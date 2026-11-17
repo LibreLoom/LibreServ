@@ -303,6 +303,16 @@ func TestCutRunsTheTestGateFirstAndStopsOnFailure(t *testing.T) {
 	if ran {
 		t.Fatal("SkipTests still ran the gate")
 	}
+
+	// --skip-release-tests runs only the product's profile.
+	var skipped []string
+	w.app.cfg.TestGate = func(_ context.Context, p []string, _ func(string)) error { skipped = p; return nil }
+	if _, err := w.app.Cut(t.Context(), CutRequest{Unit: "fake", Channel: "stable", Dry: true, SkipReleaseTests: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(skipped) != 1 || skipped[0] == "release" {
+		t.Fatalf("SkipReleaseTests profiles = %v", skipped)
+	}
 }
 
 func TestTestProfiles(t *testing.T) {

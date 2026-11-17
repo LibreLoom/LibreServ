@@ -31,9 +31,10 @@ func cmdCut(args []string) int {
 	asJSON := fs.Bool("json", false, "print the result as JSON on stdout (progress stays on stderr)")
 	quiet := fs.Bool("quiet", false, "no progress lines")
 	skipTests := fs.Bool("skip-tests", false, "do not run the ./ci tests first (they run unlimited and can take a long time)")
+	skipReleaseTests := fs.Bool("skip-release-tests", false, "run the product's ./ci tests but not the release tool's own (the slow 'release' profile)")
 	rebuild := fs.Bool("rebuild", false, "luna: build the OS image and installer again even if nothing they are made from changed")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: release cut <unit> --channel beta|stable [--bump patch|minor|major|beta | --version V] [--resume] [--rebuild] [--dry-run] [--skip-tests]")
+		fmt.Fprintln(os.Stderr, "Usage: release cut <unit> --channel beta|stable [--bump patch|minor|major|beta | --version V] [--resume] [--rebuild] [--dry-run] [--skip-tests] [--skip-release-tests]")
 		fmt.Fprintln(os.Stderr, "Order: preflight, ./ci tests (unlimited resources), bump commit pushed to origin, build that SHA, sign, upload, verify, feed commit, wait for the mirror, tag.")
 		fs.PrintDefaults()
 	}
@@ -67,7 +68,7 @@ func cmdCut(args []string) int {
 	ctx, stop := signalContext()
 	defer stop()
 	res, err := a.Cut(ctx, app.CutRequest{Unit: pos[0], Channel: *channel, Bump: *bump, Version: *ver,
-		Notes: text, Resume: *resume, Dry: *dry, Jobs: *jobs, HeavyJobs: *heavy, Rebuild: *rebuild, SkipTests: *skipTests})
+		Notes: text, Resume: *resume, Dry: *dry, Jobs: *jobs, HeavyJobs: *heavy, Rebuild: *rebuild, SkipTests: *skipTests, SkipReleaseTests: *skipReleaseTests})
 
 	var pe *app.PreflightError
 	isPre := errors.As(err, &pe)
