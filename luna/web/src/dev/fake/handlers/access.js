@@ -688,9 +688,14 @@ function metaWanted(query, headers) {
 const ATTACH_EXTS = { jpg: "jpg", jpeg: "jpg", png: "png", gif: "gif", webp: "webp", pdf: "pdf" };
 const ATTACH_KIND_MESSAGE = "Attach a photo (JPG, PNG, GIF, or WebP) or a PDF.";
 
-/** `u64::from_str`: digits, with one optional leading `+`. */
+/**
+ * `u64::from_str`: digits, with one optional leading `+`, and a number that
+ * fits in 64 bits — a longer one fails to parse rather than wrapping.
+ */
 function parseU64(text) {
-  return /^\+?\d+$/.test(text) ? BigInt(text.replace("+", "")) : null;
+  if (!/^\+?\d+$/.test(text)) return null;
+  const n = BigInt(text.replace("+", ""));
+  return n <= 18446744073709551615n ? n : null;
 }
 
 /** The daemon's own ceiling on one file, used to judge a chunk range. */
