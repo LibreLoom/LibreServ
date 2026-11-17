@@ -47,6 +47,7 @@ type cutScreen struct {
 	previews  []app.BumpPreview
 	dry       bool
 	rebuild   bool
+	skipRel   bool // skip the release tool's own tests
 	notesHint string
 	row       int
 	un        []publish.State // unfinished cuts of the chosen unit
@@ -213,7 +214,7 @@ func (s *cutScreen) setupKey(k tea.KeyMsg) (screen, tea.Cmd) {
 	case "up", "k":
 		s.row = max(s.row-1, 0)
 	case "down", "j", "tab":
-		s.row = min(s.row+1, 4)
+		s.row = min(s.row+1, 5)
 	case "left", "h", "right", "l":
 		d := 1
 		if k.String() == "left" || k.String() == "h" {
@@ -226,6 +227,8 @@ func (s *cutScreen) setupKey(k tea.KeyMsg) (screen, tea.Cmd) {
 			s.dry = !s.dry
 		case 4:
 			s.rebuild = !s.rebuild
+		case 5:
+			s.skipRel = !s.skipRel
 		}
 	case "d":
 		s.dry = !s.dry
@@ -248,7 +251,7 @@ func (s *cutScreen) setupKey(k tea.KeyMsg) (screen, tea.Cmd) {
 			s.notice = "That bump is not possible: " + p.Err
 			return s, nil
 		}
-		s.req = app.CutRequest{Unit: s.unit(), Channel: s.channel, Bump: p.Kind, Dry: s.dry, Rebuild: s.rebuild}
+		s.req = app.CutRequest{Unit: s.unit(), Channel: s.channel, Bump: p.Kind, Dry: s.dry, Rebuild: s.rebuild, SkipReleaseTests: s.skipRel}
 		s.version = p.Version
 		s.phase = cpNotes
 		return s, s.loadNotes()
@@ -276,6 +279,8 @@ func (s *cutScreen) change(d int) {
 		s.dry = !s.dry
 	case 4:
 		s.rebuild = !s.rebuild
+	case 5:
+		s.skipRel = !s.skipRel
 	}
 	s.refresh()
 }
@@ -526,6 +531,7 @@ func (s *cutScreen) setupView(f frame, w, h int) frame {
 	lines = append(lines, row(2, "Bump", strings.Join(kinds, "  ")))
 	lines = append(lines, row(3, "Dry run", checkbox(s.dry)+dimStyle.Render("  build and sign here, push and upload nothing")))
 	lines = append(lines, row(4, "Rebuild", checkbox(s.rebuild)+dimStyle.Render("  Luna: rebuild the OS image and installer")))
+	lines = append(lines, row(5, "Skip tests", checkbox(s.skipRel)+dimStyle.Render("  skip the release tool's own slow tests (the product's still run)")))
 	lines = append(lines, "")
 	p := s.previews[s.bumpIdx]
 	cur := "?"
