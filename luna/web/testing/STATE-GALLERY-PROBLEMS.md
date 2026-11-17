@@ -72,8 +72,8 @@ check was proved able to fail by injecting a violation, then re-run on a clean p
 The two runs above predate the fixes the code review produced, which changed the fake's
 request layer (media swapping, downloads, link proofs). The whole gallery was therefore
 walked again, twice, from a clean start on the current code, with a second, harder driver
-alongside the first. The gallery holds 317 scenarios now: `public/download-limit` was
-removed as fake-only (§14).
+alongside the first. The gallery held 317 scenarios then: `public/download-limit` had
+been removed as fake-only (§14).
 
 | Run | Hardened audit | Original audit |
 | --- | --- | --- |
@@ -286,6 +286,36 @@ it joins the share's path with the whole relative path, so `Holiday/notes.txt` i
 `Photos` reads `Photos/Holiday/notes.txt`. The built-in folder tree is a list of names
 with no files behind them, so those entries get generated text, and browsing into a
 folder now lists that folder rather than the root again.
+
+### 14. A public link had a download limit — **removed from the gallery**
+
+`public/download-limit`
+
+lunad has no per-link download count or cap: there is no `max_downloads`,
+`download_limit` or `downloads_left` anywhere under `crates/lunad`, and
+`access/access_public.rs` never answers 403. The scenario, and the fake rule behind
+it, therefore described a state real Luna cannot reach, and made the fake refuse a
+download that lunad would have served. The scenario is gone rather than ported: a
+gallery entry nobody can reproduce in the product tests nothing and teaches the wrong
+thing about the product.
+
+### 15. A public link could be switched off — **removed from the gallery and the fake**
+
+`public/disabled`
+
+Same shape, found later. `AccessLinkRow` (`crates/lunad/src/db.rs:1116`) has no
+disabled or revoked column, and the only link routes are create, update and delete
+(`crates/lunad/src/api/access.rs:56-60`); removing a link deletes the row, so a link
+that once worked answers `404 This link doesn't exist.` The fake nonetheless answered
+`403 This link has been turned off.` to any link carrying a `disabled` flag, and a
+scenario set that flag — inventing both a screen (*Says the link has been turned off*)
+and an answer the daemon can never send. Both are gone: the gate out of `open()` in
+`dev/fake/handlers/access.js`, the scenario out of
+`dev/scenarios/sharing.scenarios.js`. The reachable states it sat beside are unchanged
+and still covered: a token that matches nothing (`public/invalid-token`, 404), an
+expired one (`public/expired`, 410 `This link has expired or has been removed.`), a
+password one (`public/password`, 401), and one whose drive is gone (404 with the
+unavailable wording).
 
 ---
 

@@ -392,14 +392,6 @@ export default [
     check: ["Same calm 'doesn't exist' message", "Nothing crashes on the odd characters"],
   },
   {
-    id: "public/disabled",
-    area: "Public link",
-    title: "Link switched off",
-    url: "/s/tokoff",
-    seed: (w) => { guest(w); subject(w, { links: [{ ...link({ disabled: true }), token: "tokoff" }] }); },
-    check: ["Says the link has been turned off", "Not shown as 'expired' or 'missing'"],
-  },
-  {
     id: "public/offline",
     area: "Public link",
     title: "Opening a link with no connection",

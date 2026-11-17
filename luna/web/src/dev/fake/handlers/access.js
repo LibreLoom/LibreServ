@@ -13,7 +13,7 @@
 //     failAdd, failLink,      // make adding a person / making a link fail
 //     tree:     { [token]: entries for a folder link },
 //   }
-//   link = { id, token, caps, password, has_password, expires_at, disabled,
+//   link = { id, token, caps, password, has_password, expires_at,
 //            downloads, form, kind }
 import { del, fail, get, json, patch, post, put, raw } from "../engine.js";
 import { nextId } from "../world.js";
@@ -297,7 +297,6 @@ function open(w, token, headers) {
   const hit = lookup(w, token);
   if (!hit) return { err: fail(404, "Not found.") };
   const { s, l } = hit;
-  if (l.disabled) return { err: fail(403, "This link has been turned off.") };
   if (l.expires_at && l.expires_at < nowSec()) return { err: fail(410, "This link has expired.") };
   // lunad's `load_link` gate, which runs for every link before anything else:
   // when the link's own subject sits inside a private item whose owner is
