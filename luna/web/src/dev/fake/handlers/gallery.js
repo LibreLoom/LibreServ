@@ -77,6 +77,14 @@ del("/api/v1/gallery/albums/:drive/:id", ({ world, user, params }) => {
   if (a.owner_user_id !== user.id && user.role !== "admin") return fail(403, "Only the person who made this album can delete it.");
   world.albums = world.albums.filter((x) => x !== a);
   delete world.albumItems[a.id];
+  // `gallery::delete_album` calls `delete_access_for_subject` for the album, so
+  // every link minted on it dies with it: the token stops resolving and its URL
+  // answers "This link doesn't exist." rather than serving a deleted album.
+  if (world.sharing?.subjects) {
+    world.sharing.subjects = world.sharing.subjects.filter(
+      (s) => !(s.kind === "album" && s.album_id === a.id),
+    );
+  }
   return {};
 });
 

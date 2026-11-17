@@ -488,8 +488,11 @@ publicGet("/s/:token", ({ world, params, query, headers }) => {
   if (r.err) return r.err;
   const { s, l } = r;
   if (l.caps === "respond") {
+    // `respond_document` names the permission as well as the form: the page
+    // reads it to know an answer is what this link is for.
     return {
       kind: "form",
+      permission: "respond",
       form: l.form || {
         title: s.name,
         version: 1,
@@ -524,7 +527,20 @@ publicGet("/s/:token", ({ world, params, query, headers }) => {
     const goneRoot = unavailableShare(world, s, "The shared files aren't available right now.");
     if (goneRoot) return goneRoot;
   }
-  return { kind, name: s.name, caps: l.caps, size: s.is_file ? 120_000 : undefined, item_count: count };
+  // `public_root_inner` names a path subject after the last piece of its own
+  // path, not after something it invented: a whole-drive link (empty path)
+  // falls through to "download", and a trash entry is spelled "Trash" because
+  // its on-disk name carries a nonce.
+  const linkRel = String(s.path || "").replace(/^\/+|\/+$/g, "");
+  const rootName =
+    linkRel === ".luna-trash" ? "Trash" : linkRel ? linkRel.split("/").pop() : "download";
+  return {
+    kind,
+    name: kind === "album" ? s.name : rootName,
+    caps: l.caps,
+    size: s.is_file ? 120_000 : undefined,
+    item_count: count,
+  };
 });
 
 publicGet("/s/:token/items", ({ world, params, query, headers }) => {
@@ -624,7 +640,10 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
   // browser: that browser must show the one shared file, not an error. Asking
   // for anything below it asks for something that cannot be a folder.
   if (r.s.is_file) {
-    if (segments.length) return fail(400, "That isn't a folder.");
+    // `public_list` asks `confined_read` for `<link.path>/<extra>` before it
+    // asks what the target is, so asking a file link for something below the
+    // file is a miss with the listing's own wording, not the is_dir refusal.
+    if (segments.length) return fail(404, "The shared folder isn't available right now.");
     return listing([{ name: r.s.name, kind: "file", size: 120_000, modified: nowSec() - 86400, hidden: false }]);
   }
   // A guest who opens a folder sees that folder's entries, not the root again.
@@ -638,11 +657,14 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
     // then asks `!meta.is_dir()` — a file where a folder was expected is the
     // 400 that points at Download, not a bare miss.
     if (!found) return fail(404, "The shared folder isn't available right now.");
-    if (found.kind !== "dir") return fail(400, "That isn't a folder.");
-    // Walking *through* a private folder is reaching into it, so it answers
-    // with `not_in_share` rather than walking on and merely hiding what's below.
+    // `confined_read` runs its `link_reaches` boundary inside the same read
+    // that resolves the path, and `public_list` only asks `is_dir` afterwards —
+    // so a private file where a folder was expected is `not_in_share`, not the
+    // "isn't a folder" refusal. Walking *through* a private folder is reaching
+    // into it and answers the same way rather than hiding what is below.
     if (!linkReaches(world, r.l, soFar, r.s.drive_id, r.s.path))
       return fail(404, "That item isn't part of this shared link.");
+    if (found.kind !== "dir") return fail(400, "That isn't a folder.");
     level = found.children || [];
   }
   return listing(level.filter((e) => linkReaches(world, r.l, [...segments, e.name].join("/"), r.s.drive_id, r.s.path)));
@@ -709,6 +731,16 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
   const canView = caps.includes("view") || caps.includes("full") || caps.includes("read");
   if (!canView) return fail(410, "This link has expired or been removed.");
   if (r.s.kind === "album") {
+    // `public_zip` counts the album's refs first: an empty album and one over
+    // the 500-photo limit are both refusals, not empty or enormous downloads.
+    const photos = (world.albumItems?.[r.s.album_id] || []).length;
+    if (!photos) return fail(400, "This album has no photos to download yet.");
+    if (photos > 500) {
+      return fail(
+        400,
+        "This album has too many photos to download as one zip (limit 500).",
+      );
+    }
     // A real zip would be megabytes of real photos; the harness only needs the
     // download to happen and the name to be right.
     return raw(new TextEncoder().encode(`PK\x05\x06${"\0".repeat(18)}`), "application/zip", 200, {
@@ -725,7 +757,8 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
   if (goneFiles) return goneFiles;
   if (r.s.is_file) {
     if (segments.length) return fail(400, "That folder isn't part of this shared link.");
-    if (!linkReaches(world, r.l, "", r.s.drive_id, r.s.path)) return fail(404, "Not found.");
+    if (!linkReaches(world, r.l, "", r.s.drive_id, r.s.path))
+      return fail(404, "That item isn't part of this shared link.");
     return serveSharedFile(world, r, "", r.s.name || "download");
   }
   const tree = treeOf(world, params.token, r.s);
@@ -747,7 +780,7 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
     // Zipping must obey the same private-folder boundary as listing and
     // reading, or a guest could zip a folder the link may see but never enter.
     if (!linkReaches(world, r.l, segments.join("/"), r.s.drive_id, r.s.path))
-      return fail(404, "That folder isn't part of this shared link.");
+      return fail(404, "That item isn't part of this shared link.");
     // `public_zip` checks the resolved target: only a directory is zipped, and
     // anything else is the file itself. Without this, `?path=Holiday/notes.txt`
     // answers with an empty zip wearing the name `notes.txt.zip`.
@@ -814,9 +847,10 @@ publicGet("/s/:token/file", ({ world, params, query, headers }) => {
     return fail(400, "That file isn't part of this shared link.");
   }
   // A link to one file has nothing beneath it, so any relative path asks for
-  // something that cannot exist.
+  // something that cannot exist — and `public_file` reaches that answer through
+  // `confined_read`, so it wears the not-available wording, not the lexical one.
   if (r.s.is_file && segments.length > 0) {
-    return fail(400, "That file isn't part of this shared link.");
+    return fail(404, "The shared file isn't available right now.");
   }
   const rel = segments.join("/");
   const name = segments[segments.length - 1] || r.s.name;
@@ -830,7 +864,7 @@ publicGet("/s/:token/file", ({ world, params, query, headers }) => {
   // Every shape goes through the boundary check, single-file links included: a
   // link pointing straight at a private file is the easiest one to leak.
   if (!linkReaches(world, r.l, rel, r.s.drive_id, r.s.path))
-    return fail(404, "That file isn't part of this shared link.");
+    return fail(404, "That item isn't part of this shared link.");
   // An ejected drive serves nothing, exactly as it serves nothing over REST.
   // `public_file` passes its own wording to `confined_read`, and a folder
   // share says "files" where a single file says "file".
