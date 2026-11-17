@@ -151,6 +151,16 @@ VALUES ('acct_del', 'del@b.co', 'x', 0, 'none', 1, ?)`, now)
 	if packCount != 0 {
 		t.Fatal("storage packs should be deleted with the account")
 	}
+
+	// The device token belongs to the Luna: it survives, unlinked and not revoked.
+	var devAccount *string
+	var revoked int
+	if err := d.DB.QueryRow(`SELECT account_id, revoked FROM devices WHERE id = ?`, devID).Scan(&devAccount, &revoked); err != nil {
+		t.Fatalf("device token should survive account deletion: %v", err)
+	}
+	if devAccount != nil || revoked != 0 {
+		t.Fatalf("device should be unlinked and usable, account=%v revoked=%d", devAccount, revoked)
+	}
 }
 
 // Linking a Luna again (any storage call by its owning device) cancels its pending purge.

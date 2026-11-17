@@ -54,6 +54,24 @@ FROM devices WHERE id = ?`, deviceID).
 	return nil
 }
 
+// unlinkDeviceFromAccount frees a Luna from its account and tears down its
+// tunnel and address, but keeps the device token row.
+func unlinkDeviceFromAccount(deps Deps, deviceID string) error {
+	var account sql.NullString
+	var sub, tunnelID, name string
+	err := deps.DB.QueryRow(`
+SELECT account_id, COALESCE(subdomain, ''), COALESCE(tunnel_id, ''), COALESCE(name, '')
+FROM devices WHERE id = ?`, deviceID).Scan(&account, &sub, &tunnelID, &name)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	unbindDevice(deps, Device{ID: deviceID, AccountID: account, Subdomain: sub, TunnelID: tunnelID, Name: name}, account.String)
+	return nil
+}
+
 func teardownDeviceRemote(deps Deps, subdomain, tunnelID string) {
 	providers.RefreshCloudflare()
 	if deps.Tunnel != nil && tunnelID != "" {
@@ -69,8 +87,9 @@ func teardownDeviceRemote(deps Deps, subdomain, tunnelID string) {
 	}
 }
 
-// deleteCustomerAccount purges every linked Luna, clears sign-in sessions and
-// billing metadata, and removes the account row. Backup objects stay in storage.
+// deleteCustomerAccount unlinks every Luna (their device tokens stay), clears
+// sign-in sessions and billing metadata, deletes the account's cloud storage and
+// removes the account row.
 func deleteCustomerAccount(deps Deps, accountID string) error {
 	var subID string
 	err := deps.DB.QueryRow(`SELECT COALESCE(stripe_subscription_id, '') FROM accounts WHERE id = ?`, accountID).Scan(&subID)
@@ -109,8 +128,10 @@ func deleteCustomerAccount(deps Deps, accountID string) error {
 	}
 	rows.Close()
 
+	// A device token belongs to the Luna, not the account: unlink each Luna
+	// (tunnel, DNS, account link) but keep its token so it can be linked again.
 	for _, id := range deviceIDs {
-		if err := purgeDeviceToken(deps, id); err != nil {
+		if err := unlinkDeviceFromAccount(deps, id); err != nil {
 			return err
 		}
 	}
