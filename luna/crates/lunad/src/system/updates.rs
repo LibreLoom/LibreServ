@@ -144,10 +144,16 @@ pub trait Installer: Send + Sync {
         ))
     }
 
-    /// Stream-decompress the `.img.xz` at `path` onto the inactive A/B partition.
+    /// Prepare the inactive A/B partition, without changing boot selection.
+    /// Activation happens only after the pending record has been persisted.
     fn install_os_image_file(&self, path: &Path) -> Result<(), UpdateError> {
         let bytes = std::fs::read(path).map_err(|e| UpdateError::Other(e.to_string()))?;
         self.install_os_image(&bytes)
+    }
+
+    /// Persist the pending update before making it eligible to boot.
+    fn activate_os_image(&self, hash: &str, version: &str) -> Result<(), UpdateError> {
+        self.mark_os_pending(hash, version)
     }
 
     /// Where update downloads are staged. `/tmp` is a small tmpfs on the
@@ -279,24 +285,21 @@ impl DataDirInstaller {
 }
 
 impl Installer for DataDirInstaller {
-    fn install_os_image(&self, bytes: &[u8]) -> Result<(), UpdateError> {
+    fn install_os_image_file(&self, src: &Path) -> Result<(), UpdateError> {
         let (part, inactive) = inactive_slot_device()?;
-        write_os_slot(&RealSlotOps, &part, inactive, || {
-            let mut f =
-                std::fs::File::create(&part).map_err(|e| UpdateError::Other(e.to_string()))?;
-            f.write_all(bytes)
-                .map_err(|e| UpdateError::Other(e.to_string()))?;
-            f.sync_all().map_err(|e| UpdateError::Other(e.to_string()))
+        // Preparation never changes the boot selection. Even a cut-short write
+        // leaves the running system selected for the next boot.
+        prepare_os_slot(&RealSlotOps, &part, inactive, || {
+            decompress_xz_streaming(src, &part, OS_IMAGE_MAX_BYTES)
         })
     }
 
-    fn install_os_image_file(&self, src: &Path) -> Result<(), UpdateError> {
-        let (part, inactive) = inactive_slot_device()?;
-        // The inactive slot is not booted from until `write_os_slot` arms it,
-        // so a failed or cut-short write here leaves the running system alone.
-        write_os_slot(&RealSlotOps, &part, inactive, || {
-            decompress_xz_streaming(src, &part, OS_IMAGE_MAX_BYTES)
-        })
+    fn activate_os_image(&self, hash: &str, version: &str) -> Result<(), UpdateError> {
+        let (_, inactive) = inactive_slot_device()?;
+        activate_prepared_image(
+            || self.mark_os_pending(hash, version),
+            || set_tryboot_slot(inactive),
+        )
     }
 
     fn staging_dir(&self) -> PathBuf {
@@ -312,17 +315,19 @@ impl Installer for DataDirInstaller {
 
     fn write_os_hash(&self, hash: &str) -> Result<(), UpdateError> {
         std::fs::create_dir_all(&self.data_dir).map_err(|e| UpdateError::Other(e.to_string()))?;
-        let path = self.hash_path();
-        let tmp = path.with_extension("sha256.tmp");
-        std::fs::write(&tmp, format!("{hash}\n")).map_err(|e| UpdateError::Other(e.to_string()))?;
-        std::fs::rename(&tmp, &path).map_err(|e| UpdateError::Other(e.to_string()))?;
-        Ok(())
+        write_atomic(&self.hash_path(), &format!("{hash}\n"))
     }
 
     fn mark_os_pending(&self, hash: &str, version: &str) -> Result<(), UpdateError> {
         let active = active_slot_letter()?;
         let slot = if active == 'A' { 'B' } else { 'A' };
-        let line = format!("{hash} {slot} {} {version}\n", current_boot_id());
+        let boot_id = current_boot_id();
+        if boot_id.is_empty() {
+            return Err(UpdateError::Other(
+                "Luna couldn't record this startup, so the update was not activated.".into(),
+            ));
+        }
+        let line = format!("{hash} {slot} {boot_id} {version}\n");
         std::fs::create_dir_all(&self.data_dir).map_err(|e| UpdateError::Other(e.to_string()))?;
         write_atomic(&self.data_dir.join(OS_PENDING_FILE), &line)
     }
@@ -447,10 +452,45 @@ fn read_pending(data_dir: &Path) -> Option<Pending> {
     })
 }
 
+/// Write, flush, replace, and flush the containing directory. Rename alone
+/// does not make the new contents or the directory entry durable after power loss.
 fn write_atomic(path: &Path, text: &str) -> Result<(), UpdateError> {
-    let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, text).map_err(|e| UpdateError::Other(e.to_string()))?;
-    std::fs::rename(&tmp, path).map_err(|e| UpdateError::Other(e.to_string()))
+    replace_durable(path, |tmp| std::fs::write(tmp, text).map_err(update_io))
+}
+
+fn update_io(e: std::io::Error) -> UpdateError {
+    UpdateError::Other(e.to_string())
+}
+
+/// Prepare a replacement beside the live file. Failed preparation leaves the
+/// live file untouched; after rename, an error must be treated as an uncertain
+/// commit (callers must retain the pending update record).
+fn replace_durable(
+    path: &Path,
+    prepare: impl FnOnce(&Path) -> Result<(), UpdateError>,
+) -> Result<(), UpdateError> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| UpdateError::Other("The update state has no containing folder.".into()))?;
+    let tmp = tempfile::NamedTempFile::new_in(parent).map_err(update_io)?;
+    prepare(tmp.path())?;
+    std::fs::File::open(tmp.path())
+        .and_then(|file| file.sync_all())
+        .map_err(update_io)?;
+    tmp.persist(path).map_err(|e| update_io(e.error))?;
+    std::fs::File::open(parent)
+        .and_then(|dir| dir.sync_all())
+        .map_err(update_io)
+}
+
+/// The ordering is deliberate: a failed state write must never arm tryboot;
+/// a failed/uncertain boot-state commit must keep the durable pending record.
+fn activate_prepared_image(
+    persist_pending: impl FnOnce() -> Result<(), UpdateError>,
+    arm: impl FnOnce() -> Result<(), UpdateError>,
+) -> Result<(), UpdateError> {
+    persist_pending()?;
+    arm()
 }
 
 fn current_boot_id() -> String {
@@ -518,7 +558,7 @@ trait SlotOps {
     fn check_fs(&self, part: &Path) -> Result<(), UpdateError>;
     fn set_uuid(&self, part: &Path, uuid: &str) -> Result<(), UpdateError>;
     fn set_label(&self, part: &Path, label: &str);
-    fn arm(&self, slot: char) -> Result<(), UpdateError>;
+    fn sync_slot(&self, part: &Path) -> Result<(), UpdateError>;
 }
 
 struct RealSlotOps;
@@ -568,8 +608,10 @@ impl SlotOps for RealSlotOps {
         let _ = Command::new("e2label").arg(part).arg(label).status();
     }
 
-    fn arm(&self, slot: char) -> Result<(), UpdateError> {
-        set_tryboot_slot(slot)
+    fn sync_slot(&self, part: &Path) -> Result<(), UpdateError> {
+        std::fs::File::open(part)
+            .and_then(|file| file.sync_all())
+            .map_err(update_io)
     }
 }
 
@@ -618,12 +660,12 @@ fn read_ext4_uuid(dev: &Path) -> Result<String, UpdateError> {
     ))
 }
 
-/// Put a new OS image on the spare slot and arm the next boot into it.
+/// Prepare and flush the spare slot; boot selection is a separate commit.
 ///
 /// Each image build has its own random filesystem UUID, but GRUB finds the
 /// slots by the UUIDs pinned at install time. So the slot's UUID is read
 /// before anything is written, and put back after the check.
-fn write_os_slot(
+fn prepare_os_slot(
     ops: &dyn SlotOps,
     part: &Path,
     inactive: char,
@@ -634,7 +676,7 @@ fn write_os_slot(
     ops.check_fs(part)?;
     ops.set_uuid(part, &uuid)?;
     ops.set_label(part, &format!("LUNA_{inactive}"));
-    ops.arm(inactive)
+    ops.sync_slot(part)
 }
 
 /// Decompress the `.img.xz` at `src` into `dest` (the inactive slot) as a
@@ -827,30 +869,31 @@ pub(crate) fn device_is_factory_media(dev: &str) -> bool {
 fn set_tryboot_slot(slot: char) -> Result<(), UpdateError> {
     let esp = find_esp_mount_or_temp()?;
     let env = esp.path.join("grub/grubenv");
-    if !env.exists() {
-        let _ = Command::new("grub-editenv")
-            .arg(&env)
-            .arg("create")
-            .status();
-    }
-    for (k, v) in [
-        ("luna_slot", slot.to_string()),
-        ("luna_boot_ok", "0".into()),
-        ("luna_tries", "3".into()),
-    ] {
+    replace_durable(&env, |tmp| {
+        // Never edit the live environment in place: interrupted preparation
+        // must retain the old selection and its matching rollback settings.
+        std::fs::copy(&env, tmp).map_err(update_io)?;
         let status = Command::new("grub-editenv")
-            .arg(&env)
+            .arg(tmp)
             .arg("set")
-            .arg(format!("{k}={v}"))
+            .args(tryboot_settings(slot))
             .status()
-            .map_err(|e| UpdateError::Other(e.to_string()))?;
+            .map_err(update_io)?;
         if !status.success() {
             return Err(UpdateError::Other(
                 "Luna couldn't prepare the reboot into the new software.".into(),
             ));
         }
-    }
-    Ok(())
+        Ok(())
+    })
+}
+
+fn tryboot_settings(slot: char) -> [String; 3] {
+    [
+        format!("luna_slot={slot}"),
+        "luna_boot_ok=0".into(),
+        "luna_tries=3".into(),
+    ]
 }
 
 struct EspGuard {
@@ -1401,7 +1444,7 @@ impl UpdateService {
             // Not the installed hash yet: that is recorded only once the new
             // slot has booted (`Installer::settle_os_boot`).
             self.installer
-                .mark_os_pending(&os.sha256.to_lowercase(), &info.latest_version)?;
+                .activate_os_image(&os.sha256.to_lowercase(), &info.latest_version)?;
             info.reboot_required = true;
         } else {
             info.reboot_required = false;
@@ -1932,15 +1975,15 @@ mod tests {
         fn set_label(&self, _part: &Path, label: &str) {
             let _ = self.step(&format!("label {label}"));
         }
-        fn arm(&self, slot: char) -> Result<(), UpdateError> {
-            self.step(&format!("arm {slot}"))
+        fn sync_slot(&self, _part: &Path) -> Result<(), UpdateError> {
+            self.step("sync")
         }
     }
 
     #[test]
-    fn slot_is_written_checked_given_its_old_uuid_then_armed() {
+    fn slot_is_written_checked_given_its_old_uuid_then_flushed() {
         let ops = FakeSlot::default();
-        write_os_slot(&ops, Path::new("/dev/x"), 'B', || ops.step("write")).unwrap();
+        prepare_os_slot(&ops, Path::new("/dev/x"), 'B', || ops.step("write")).unwrap();
         assert_eq!(
             ops.log(),
             [
@@ -1949,33 +1992,136 @@ mod tests {
                 "fsck",
                 "uuid 11111111-2222-3333-4444-555555555555",
                 "label LUNA_B",
-                "arm B"
+                "sync"
             ]
         );
     }
 
     #[test]
-    fn slot_is_never_armed_when_a_step_fails() {
+    fn slot_preparation_stops_when_a_step_fails() {
         for bad in [
             "read_uuid",
             "write",
             "fsck",
             "uuid 11111111-2222-3333-4444-555555555555",
+            "sync",
         ] {
             let ops = FakeSlot {
                 fail_at: Some(bad),
                 ..FakeSlot::default()
             };
-            assert!(write_os_slot(&ops, Path::new("/dev/x"), 'A', || ops.step("write")).is_err());
-            assert!(!ops.log().iter().any(|l| l.starts_with("arm")), "{bad}");
+            assert!(prepare_os_slot(&ops, Path::new("/dev/x"), 'A', || ops.step("write")).is_err());
+            assert_eq!(ops.log().last().map(String::as_str), Some(bad));
         }
         // Nothing is written when the old UUID can't be read.
         let ops = FakeSlot {
             fail_at: Some("read_uuid"),
             ..FakeSlot::default()
         };
-        let _ = write_os_slot(&ops, Path::new("/dev/x"), 'A', || ops.step("write"));
+        let _ = prepare_os_slot(&ops, Path::new("/dev/x"), 'A', || ops.step("write"));
         assert_eq!(ops.log(), ["read_uuid"]);
+    }
+
+    #[test]
+    fn interrupted_activation_preserves_boot_settings_and_pending_intent() {
+        for fail_at in [Some("pending"), Some("boot preparation"), None] {
+            let dir = tempfile::tempdir().unwrap();
+            let installer = DataDirInstaller::new(dir.path());
+            installer.write_os_hash("old-hash").unwrap();
+            let pending = dir.path().join(OS_PENDING_FILE);
+            let env = dir.path().join("grubenv");
+            let old = "luna_slot=A\nluna_boot_ok=1\nluna_tries=3\n";
+            std::fs::write(&env, old).unwrap();
+            let result = activate_prepared_image(
+                || {
+                    if fail_at == Some("pending") {
+                        return Err(UpdateError::Other("pending failed".into()));
+                    }
+                    write_atomic(&pending, "new-hash B boot-before 0.5.0\n")
+                },
+                || {
+                    // Activation must find a complete pending record before
+                    // attempting to change any boot settings.
+                    assert_eq!(read_pending(dir.path()).unwrap().hash, "new-hash");
+                    replace_durable(&env, |tmp| {
+                        std::fs::write(tmp, tryboot_settings('B').join("\n")).map_err(update_io)?;
+                        // Interrupt after preparing the replacement, before
+                        // exposing it as the live boot environment.
+                        assert_eq!(std::fs::read_to_string(&env).unwrap(), old);
+                        if fail_at == Some("boot preparation") {
+                            return Err(UpdateError::Other("boot preparation failed".into()));
+                        }
+                        Ok(())
+                    })
+                },
+            );
+            assert_eq!(result.is_err(), fail_at.is_some());
+            assert_eq!(pending.exists(), fail_at != Some("pending"));
+            assert_eq!(installer.read_os_hash().as_deref(), Some("old-hash"));
+            if fail_at.is_some() {
+                assert_eq!(std::fs::read_to_string(&env).unwrap(), old);
+            } else {
+                assert_eq!(
+                    std::fs::read_to_string(&env).unwrap(),
+                    "luna_slot=B\nluna_boot_ok=0\nluna_tries=3"
+                );
+                assert_eq!(
+                    installer.settle_pending(Some('B'), "boot-after", false),
+                    Settle::Unconfirmed
+                );
+                assert_eq!(installer.read_os_hash().as_deref(), Some("old-hash"));
+                assert_eq!(
+                    installer.settle_pending(Some('B'), "boot-after", true),
+                    Settle::Booted
+                );
+                assert_eq!(installer.read_os_hash().as_deref(), Some("new-hash"));
+            }
+        }
+    }
+
+    #[test]
+    fn uncertain_boot_commit_keeps_the_pending_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let pending = dir.path().join(OS_PENDING_FILE);
+        let env = dir.path().join("grubenv");
+        let result = activate_prepared_image(
+            || write_atomic(&pending, "new-hash B boot-before 0.5.0\n"),
+            || {
+                write_atomic(&env, &tryboot_settings('B').join("\n"))?;
+                // The rename may have happened even when a later directory
+                // flush or unmount reports an error. Do not erase its intent.
+                Err(UpdateError::Other("boot commit uncertain".into()))
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(read_pending(dir.path()).unwrap().hash, "new-hash");
+        assert_eq!(
+            std::fs::read_to_string(env).unwrap(),
+            tryboot_settings('B').join("\n")
+        );
+    }
+
+    #[test]
+    fn interruption_before_boot_commit_keeps_the_old_system_recoverable() {
+        let dir = tempfile::tempdir().unwrap();
+        let installer = DataDirInstaller::new(dir.path());
+        installer.write_os_hash("old-hash").unwrap();
+        write_atomic(
+            &dir.path().join(OS_PENDING_FILE),
+            "new-hash B boot-before 0.5.0\n",
+        )
+        .unwrap();
+        // Pending intent survived, but boot selection did not change. This
+        // becomes a failed update that can be retried from the existing UI.
+        assert_eq!(
+            installer.settle_pending(Some('A'), "boot-after", true),
+            Settle::FellBack
+        );
+        assert_eq!(installer.read_os_hash().as_deref(), Some("old-hash"));
+        assert_eq!(installer.read_os_failed().as_deref(), Some("new-hash"));
+        assert!(installer.read_os_pending().is_none());
+        installer.clear_os_failed().unwrap();
+        assert!(installer.read_os_failed().is_none());
     }
 
     #[test]

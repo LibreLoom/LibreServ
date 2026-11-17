@@ -59,10 +59,19 @@ of a successful physical update.
 
 - The new image must be built and booted before its dependencies, feature checks,
   slot capacity, and update/rollback behavior can be considered verified.
-- The live updater writes its pending record after arming GRUB. Power loss or a
-  data-write failure between those steps can leave boot selection and update
-  bookkeeping out of agreement. GRUB variables are also currently set through
-  separate commands. This ordering was not changed here.
+- Follow-up: slot preparation now flushes the completed device before activation.
+  Activation persists and flushes the pending record first, then prepares all
+  three GRUB settings in a temporary environment and replaces the live file
+  only after flushing it. The containing directories are flushed too. Failed
+  preparation retains the old boot settings; an uncertain commit retains the
+  pending record. Installed-hash settlement uses the same durable-write helper.
+  A cut before boot selection changes is conservatively recorded as a failed
+  update on the next boot and can be retried from the existing UI.
+- The replacement relies on filesystem rename behavior and the storage device
+  honoring flushes. The ESP is FAT, not a journaled filesystem; no claim of
+  arbitrary power-failure immunity or physical cut-power validation is made.
+  Bootloader-driven try-count writes and boot confirmation remain separate
+  from this application-side handoff fix.
 - Boot confirmation checks HTTP liveness, not every feature's health. The new
   build validator catches missing software earlier, but does not replace a boot
   and feature exercise of the release artifact.
@@ -90,3 +99,16 @@ tooling gap. Added regression tests were not run: repository instructions requir
 explicit authorization for test runs. The new rootfs validator, image assembly,
 boot, update and rollback remain unverified against an actual artifact. No
 release was published or installed.
+
+## Update handoff follow-up
+
+Added interruption cases for pending-record failure, boot-environment preparation
+failure, a completed handoff awaiting boot confirmation, and a reboot before the
+boot selection changed. These are regression cases for the control flow and file
+replacement, not a simulation of FAT metadata tearing or hardware power loss.
+
+Follow-up validation: all 19 checks selected by `./ci check -r` passed;
+`cargo check --locked -p lunad --tests` compiled the daemon and regression cases;
+Rust formatting and diff whitespace checks passed. Regression tests were not
+executed under the repository authorization rule, and FAT/image/hardware
+power-loss behavior remains unverified.
