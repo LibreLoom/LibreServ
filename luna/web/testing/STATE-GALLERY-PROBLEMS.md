@@ -1,8 +1,8 @@
 # State gallery problems
 
 Audit of every scenario in the state gallery (`/__states`). The audit covered the
-318 scenarios the gallery held at the time; one fake-only scenario has since been
-removed (see §14), leaving 317 today.
+318 scenarios the gallery held at the time; two fake-only scenarios have since been
+removed (see §14 and §15), leaving 316 today.
 
 Two passes:
 
@@ -313,7 +313,7 @@ and an answer the daemon can never send. Both are gone: the gate out of `open()`
 `dev/fake/handlers/access.js`, the scenario out of
 `dev/scenarios/sharing.scenarios.js`. The reachable states it sat beside are unchanged
 and still covered: a token that matches nothing (`public/invalid-token`, 404), an
-expired one (`public/expired`, 410 `This link has expired or has been removed.`), a
+expired one (`public/expired`, 410 `This link has expired or been removed.`), a
 password one (`public/password`, 401), and one whose drive is gone (404 with the
 unavailable wording).
 
@@ -567,3 +567,72 @@ than from the code: `/items` answers 410, `/file` on a folder answers 400 with
 the zip hint, and with the drive ejected `/s/:token`, `/zip` and `/file` answer
 404 with the unavailable wording while `/list` answers the folder's own wording.
 Restoring the drive brings every route back to 200.
+
+## Seventh review (glm-5.3-flash): thirteen findings against lunad, twelve fixed
+
+This round read `dev/fake/handlers/access.js` and `engine.js` line by line
+against `luna/crates/lunad/src/api/access/`. Each finding was reproduced in the
+fake or matched to Rust before it was touched; twelve were real and are fixed,
+one is recorded below.
+
+| # | Where | What lunad does, and the fake did not | Answer |
+|---|---|---|---|
+| 1 | `open()` | A token that matches nothing: 404 `This link doesn't exist.` (`access_public.rs:53`). The fake said `Not found.` | fixed |
+| 2 | `open()` | Expiry answers `gone()` — 410 `This link has expired or been removed.` (`access_public.rs:32-34`) | fixed |
+| 3 | `/s/:token/list` | A link that is not a path subject, or has no view: 410, not 404 (`access_public.rs:396-398`) | fixed |
+| 4 | `/s/:token/file` | Same gate, same 410 (`access_stream.rs:19-21`) | fixed |
+| 5 | `/s/:token/zip` | Same gate, same 410 (`access_stream.rs:279-281`) | fixed |
+| 6 | `/s/:token/stat` | Had no gates at all. Rust: 403 without view (`This link is for dropping files off — it doesn't open what others have added.`), `gone()`, then `confined_read`'s 404 | fixed |
+| 7 | uploads | Rust refuses a view-only link with 403 `This link is view-only, so it can't receive files. Ask for a link that allows uploads.` (`access_public.rs:737`), and scopes chunk/complete/cancel to the upload id (`:792-812`) | fixed |
+| 8 | `/s/:token` | A link with no view is a drop box: `{kind:"dropbox",caps}`, no name, and a non-empty `?path` is 400 `That folder isn't part of this shared link.` (`access_public.rs:309-323`) | fixed |
+| 9 | `/s/:token/list` | A segment that turns out to be a file: 400 `That isn't a folder.` (`access_public.rs:433`) | fixed |
+| 10 | `/list`, `/file`, `/zip` | A missing or fenced-off target says which: `confined_read`'s own 404 per route (`access_public.rs:413-423`, `access_stream.rs:26-34`, `:289-297`) and `not_in_share`'s `That item isn't part of this shared link.` (`access_public.rs:224-234`) | fixed |
+| 11 | `engine.js` `shown` | Every `installFake()` builds fresh `WeakMap`s, so object URLs painted by the previous installation are never revoked | **recorded, not fixed** |
+| 12 | `/s/:token/respond` | Skipped `open()`, so expiry and the password gate did not apply; Rust resolves through the same rails (`forms.rs:173,1447`) | fixed |
+| 13 | `/s/:token/items` | Rust names `/s/{token}/media?…&variant=thumb\|content\|download` for every photo (`access_stream.rs:58-70`) and serves `public_media` (`:75`); the fake handed out `data:` URLs and had no `/media` route | fixed |
+
+Finding 11 is recorded rather than fixed: releasing the previous installation's
+URLs means keeping a registry of tenths of thousands of entries across
+installations, and a gallery frame is a document that goes away with them. The
+leak is one URL per painted media element per reinstall, inside a frame that is
+removed when the next scenario starts. Fixing it would add exactly the kind of
+cross-installation lifetime bookkeeping the rest of this round removed.
+
+Two of the fixes are worth restating. Finding 13 was visible to a person: the
+album page's pictures now arrive over `/s/:token/media`, the address the daemon
+serves, and the fake's own bytes are decoded out of the `data:` URL first. Proved
+in a live frame — 80 images, all 80 pointing at `blob:` URLs minted from the
+route, 70 loaded above the fold. And finding 8's drop box now carries no name, so
+a share that promises nobody can see its contents cannot leak the folder's name
+in the page's own `/s/:token` answer.
+
+## Two clean sweeps on the code that answered the seventh review
+
+Sweeping `e178f5f47` turned up one flag that was not a defect, and it changed how
+the checker measures. A sweep of all 316 came back clean, and the sweep after it
+read `forms/password` as a blank page. Re-timed in two fresh frames with the same
+URL, that page had 0 characters at 300 ms, 24 at 900 ms and 143 from 2600 ms, and
+loaded standalone in under a second and a half: the frame had been read before the
+app had painted, not after it had failed. Two things followed.
+
+- A blank reading is now re-probed 3000 ms later before it is believed. Nothing
+  else about the checker changed.
+- Each scenario's result is written to this browser's `localStorage` as it is
+  taken, so a tab that goes away mid-sweep costs one scenario instead of the
+  sweep. Three tabs were lost to this environment while these passes were being
+eared; the ones recorded here were finished without losing one.
+
+Because the checker changed, both sweeps were started again from zero. Each
+walked all 316 scenarios in registry order on `e178f5f47` with checker `v9`, whose
+self-test was re-run on install and still flagged a white-on-white paragraph, an
+`[object Object]`, an all-caps line and a `Luna couldn't do that`, and still
+passed a plain paragraph. Both came back with nothing flagged and nothing
+re-probed.
+
+| Pass | Head | Checker | Rendered | Unique | Missing | Flagged | Re-probed |
+|---|---|---|---|---|---|---|---|
+| A | `e178f5f47` | `v9` | 316 | 316 | 0 | 0 | 0 |
+| B | `e178f5f47` | `v9` | 316 | 316 | 0 | 0 | 0 |
+
+The public-share half was swept separately in between, all sixteen `public/`
+scenarios, which is where the seventh review's fixes live; it came back empty too.
