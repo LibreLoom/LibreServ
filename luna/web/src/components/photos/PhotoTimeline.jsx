@@ -39,6 +39,16 @@ const COL_CLASS = {
   6: "grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6",
 };
 
+// A cell's width for each COL_CLASS, as `sizes` for the thumbnails' srcset:
+// the whole viewport over the column count (a little over the real cell,
+// so the browser errs toward the sharper thumbnail).
+const COL_SIZES = {
+  3: "34vw",
+  4: "(min-width: 640px) 25vw, 34vw",
+  5: "(min-width: 768px) 20vw, (min-width: 640px) 25vw, 34vw",
+  6: "(min-width: 1024px) 17vw, (min-width: 768px) 20vw, (min-width: 640px) 25vw, 34vw",
+};
+
 /**
  * One day: sticky header plus its photo grid. Memoized with a custom check so
  * selecting a photo or loading the next page only re-renders the days it
@@ -50,6 +60,7 @@ const DaySection = memo(/** @param {any} props */ function DaySection({
   selectedKeys,
   selectMode,
   gridClass,
+  thumbSizes,
   hasOpen,
   hasToggle,
   hasLongPress,
@@ -161,6 +172,7 @@ const DaySection = memo(/** @param {any} props */ function DaySection({
                   key={key || `${photo.drive_id}/${photo.path}`}
                   photo={photo}
                   index={index}
+                  sizes={thumbSizes}
                   selected={!!selectedKeys?.has(key)}
                   selectMode={selectMode}
                   onOpen={selectMode || !hasOpen ? undefined : onOpen}
@@ -342,6 +354,7 @@ export default function PhotoTimeline({
           selectedKeys={selectedKeys}
           selectMode={selectMode}
           gridClass={gridClass}
+          thumbSizes={COL_SIZES[columns] || COL_SIZES[6]}
           hasOpen={Boolean(onOpen)}
           hasToggle={Boolean(onToggle)}
           hasLongPress={Boolean(onLongPress)}

@@ -4,6 +4,7 @@ import { Download, ImageOff, VideoOff } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { isHeicFile } from "../../lib/fileKinds.js";
 import { perfCancel, perfEnd, perfPending } from "../../lib/perf.js";
+import { isLunadThumb, stageThumbSrcSet } from "./thumbSrc.js";
 
 /** @typedef {import("./PhotoThumb.jsx").PhotosPhoto} PhotosPhoto */
 
@@ -143,6 +144,8 @@ export default function LightboxMedia({ photo, src, downloadSrc = "", autoPlay =
         <img
           ref={thumbRef}
           src={photo.thumb}
+          // The grid's size of it, already in the browser cache.
+          srcSet={isLunadThumb(photo.thumb) ? stageThumbSrcSet(photo.thumb) : undefined}
           alt=""
           aria-hidden="true"
           draggable={false}

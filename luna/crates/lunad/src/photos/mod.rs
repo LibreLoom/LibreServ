@@ -21,7 +21,15 @@ const THUMB_MAX: u32 = 640;
 const THUMB_JPEG_QUALITY: u8 = 85;
 /// Thumb recipe version, baked into the filename. Bump when size, filter,
 /// or quality changes — scans regenerate, stale names get swept.
-const THUMB_GEN: u32 = 2;
+/// 3: thumbnails follow EXIF orientation (2 left phone portraits sideways).
+const THUMB_GEN: u32 = 3;
+/// `photos.has_thumb`: no thumbnail yet.
+pub const THUMB_NONE: i64 = 0;
+/// `photos.has_thumb`: the full-quality thumbnail.
+pub const THUMB_FULL: i64 = 1;
+/// `photos.has_thumb`: made from the picture embedded in the file (D5 stage
+/// one); [`upgrade_thumbs`] replaces it with the full-quality one.
+pub const THUMB_PREVIEW: i64 = 2;
 const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "heic", "heif", "hif"];
 const VIDEO_EXTS: &[&str] = &["mp4", "mov", "m4v", "webm"];
 const BATCH_UPSERT: usize = 64;
@@ -115,6 +123,8 @@ impl Serialize for Photo {
 pub struct ScanReport {
     pub found: u64,
     pub thumbnailed: u64,
+    /// Thumbnails made from an embedded preview, waiting for an upgrade.
+    pub previews: u64,
     pub failed: u64,
     pub pruned: u64,
 }
@@ -294,6 +304,17 @@ fn thumb_path_in(thumb_dir: &Path, drive_id: &str, rel: &str) -> PathBuf {
     thumb_dir.join(format!("{hash}.v{THUMB_GEN}.jpg"))
 }
 
+/// The thumbnail URL for a photo row, or "" without one. A preview's URL
+/// differs from the full one's: browsers keep a thumbnail for an hour
+/// (`THUMB_CACHE_CONTROL`), and the upgrade must not hide behind that.
+fn thumb_url_for(drive_id: &str, rel: &str, has_thumb: i64) -> String {
+    match has_thumb {
+        THUMB_NONE => String::new(),
+        THUMB_PREVIEW => format!("{}&q=preview", thumb_url(drive_id, rel)),
+        _ => thumb_url(drive_id, rel),
+    }
+}
+
 pub fn thumb_url(drive_id: &str, rel: &str) -> String {
     format!(
         "/api/v1/photos/thumb?drive_id={drive_id}&path={}",
@@ -335,7 +356,8 @@ struct PendingUpsert {
     focal_mm: f64,
     flash: i64,
     duration_secs: u32,
-    has_thumb: bool,
+    /// `THUMB_NONE`, `THUMB_FULL` or `THUMB_PREVIEW`.
+    has_thumb: i64,
 }
 
 fn flash_to_i64(flash: Option<bool>) -> i64 {
@@ -480,7 +502,9 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
 
     // Thumbnails are the slow part (a 12 MP decode is ~1.8 s on one Wyse
     // 3040 core), so they run on a few workers while this thread writes the
-    // results. One core stays free for the web UI.
+    // results. One core stays free for the web UI. A photo with a big enough
+    // embedded preview gets that first; `upgrade_thumbs` does the full
+    // decode later.
     let workers = scan_workers();
     let next = std::sync::atomic::AtomicUsize::new(0);
     let (tx, rx) = std::sync::mpsc::sync_channel::<(PendingUpsert, ScanOutcome)>(workers * 4);
@@ -505,6 +529,7 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
             report.found += 1;
             report.failed += u64::from(outcome.failed);
             report.thumbnailed += u64::from(outcome.thumbnailed);
+            report.previews += u64::from(row.has_thumb == THUMB_PREVIEW);
             pending.push(row);
             if let Err(e) = flush_if_full(&mut conn, &mut pending) {
                 // Stop the workers: they see the next index past the end.
@@ -559,7 +584,7 @@ struct ScanOutcome {
 /// Thumbnail workers for a scan: all cores but one (the web UI keeps one),
 /// at most 3, and fewer when free memory is short (each 12 MP decode holds
 /// ~50 MB).
-fn scan_workers() -> usize {
+pub(crate) fn scan_workers() -> usize {
     let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
     let by_memory = (crate::budget::limits().available_bytes / (256 * 1024 * 1024)) as usize;
     cores.saturating_sub(1).min(3).min(by_memory).max(1)
@@ -601,7 +626,7 @@ fn index_scanned_file(work: &ScanWork) -> (PendingUpsert, ScanOutcome) {
             focal_mm: 0.0,
             flash: -1,
             duration_secs: 0,
-            has_thumb: false,
+            has_thumb: THUMB_NONE,
         };
         return (
             row,
@@ -630,13 +655,15 @@ fn index_scanned_file(work: &ScanWork) -> (PendingUpsert, ScanOutcome) {
 
     let mut width = 0;
     let mut height = 0;
-    let mut has_thumb = false;
+    let mut has_thumb = THUMB_NONE;
     let mut outcome = ScanOutcome::default();
-    match ensure_thumb(path_buf, dest, kind) {
-        Ok((w, h, made)) => {
+    match ensure_thumb_first(path_buf, dest, kind) {
+        Ok((w, h, made, quality)) => {
             width = w;
             height = h;
-            has_thumb = dest.exists();
+            if dest.exists() {
+                has_thumb = quality;
+            }
             outcome.thumbnailed = made;
         }
         Err(_) => outcome.failed = true,
@@ -735,7 +762,7 @@ fn flush_batch(conn: &mut Connection, pending: &mut Vec<PendingUpsert>) -> anyho
                 row.focal_mm,
                 row.flash,
                 row.duration_secs as i64,
-                if row.has_thumb { 1 } else { 0 },
+                row.has_thumb,
             ],
         )?;
     }
@@ -826,14 +853,25 @@ pub fn index_one_meta(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<
         focal_mm,
         flash,
         duration_secs,
-        has_thumb: false,
+        has_thumb: THUMB_NONE,
     }];
     flush_batch(&mut conn, &mut pending)?;
     Ok(Some(()))
 }
 
-/// Build (or refresh) the thumbnail for an already-indexed photo.
+/// Build (or refresh) the thumbnail for an already-indexed photo: from its
+/// embedded preview when it has a big enough one ([`upgrade_thumbs`] makes
+/// the full one later), else the full-quality one.
 pub fn finish_thumb(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<()> {
+    finish_thumb_with(drive_id, root, rel, true)
+}
+
+fn finish_thumb_with(
+    drive_id: &str,
+    root: &Path,
+    rel: &str,
+    preview_first: bool,
+) -> anyhow::Result<()> {
     let path_buf = root.join(crate::private::disk_rel(root, rel));
     if !path_buf.is_file() || !is_media(&path_buf) {
         return Ok(());
@@ -849,19 +887,19 @@ pub fn finish_thumb(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<()
     if let Some(dir) = thumbs_dir(root) {
         let _ = std::fs::create_dir_all(dir);
     }
-    let (width, height, has_thumb) = match ensure_thumb(&path_buf, &dest, kind) {
-        Ok((w, h, _)) => (w, h, dest.exists()),
-        Err(_) => (0, 0, false),
+    let built = if preview_first {
+        ensure_thumb_first(&path_buf, &dest, kind)
+    } else {
+        ensure_thumb(&path_buf, &dest, kind).map(|(w, h, made)| (w, h, made, THUMB_FULL))
+    };
+    let (width, height, has_thumb) = match built {
+        Ok((w, h, _, quality)) if dest.exists() => (w, h, quality),
+        _ => (0, 0, THUMB_NONE),
     };
     let conn = open_drive_db(root)?;
     conn.execute(
         "UPDATE photos SET width = ?1, height = ?2, has_thumb = ?3 WHERE path = ?4",
-        params![
-            width as i64,
-            height as i64,
-            if has_thumb { 1 } else { 0 },
-            rel
-        ],
+        params![width as i64, height as i64, has_thumb, rel],
     )?;
     Ok(())
 }
@@ -919,7 +957,9 @@ pub fn index_one(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<Optio
     if index_one_meta(drive_id, root, rel)?.is_none() {
         return Ok(None);
     }
-    let _ = finish_thumb(drive_id, root, rel);
+    // Shared-album uploads show their thumbnail right away and nothing
+    // queues an upgrade for them, so build the full one now.
+    let _ = finish_thumb_with(drive_id, root, rel, false);
     let conn = open_drive_db(root)?;
     let mut stmt = conn.prepare(
         "SELECT path, name, size, COALESCE(NULLIF(taken_at, 0), mtime), kind, width, height, lat, lon, place_label,
@@ -954,11 +994,7 @@ pub fn index_one(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<Optio
                 taken_at,
                 width: width as u32,
                 height: height as u32,
-                thumb: if has_thumb != 0 {
-                    thumb_url(drive_id, &path)
-                } else {
-                    String::new()
-                },
+                thumb: thumb_url_for(drive_id, &path, has_thumb),
                 kind,
                 lat,
                 lon,
@@ -1053,11 +1089,8 @@ fn should_reindex_after_rename(rel: &str) -> bool {
     is_media(Path::new(rel))
 }
 
-/// Generate a JPEG thumbnail (fit within THUMB_MAX). Returns (width, height, was_created).
-pub fn ensure_thumb(src: &Path, dest: &Path, kind: &str) -> anyhow::Result<(u32, u32, bool)> {
-    if dest.exists() {
-        return Ok((0, 0, false));
-    }
+/// Checks every thumbnail source passes. Returns the source's size.
+fn check_thumb_source(src: &Path) -> anyhow::Result<u64> {
     // A source that resolves into Luna's own namespace (thumbs,
     // trash, the microdb itself) must never be thumbnailed: album
     // and link surfaces reach here through paths a member only *named*, and
@@ -1072,9 +1105,239 @@ pub fn ensure_thumb(src: &Path, dest: &Path, kind: &str) -> anyhow::Result<(u32,
     if meta.len() > limits.source_max_bytes {
         anyhow::bail!("photo is too large to preview with the free memory on this Luna");
     }
+    Ok(meta.len())
+}
+
+/// Stage one of a thumbnail (D5): from the picture embedded in the file when
+/// it is big enough for the grid, else the full-quality one. Returns
+/// (width, height, was_created, `THUMB_FULL` or `THUMB_PREVIEW`); the size is
+/// the photo's own, the same the full path reports.
+pub fn ensure_thumb_first(
+    src: &Path,
+    dest: &Path,
+    kind: &str,
+) -> anyhow::Result<(u32, u32, bool, i64)> {
+    if dest.exists() {
+        return Ok((0, 0, false, existing_thumb_quality(dest)));
+    }
+    if kind == "image" {
+        let len = check_thumb_source(src)?;
+        let mut perf = crate::perf::Timer::debug("D5", "photos.thumb_preview");
+        perf.field("bytes", len);
+        if let Some(found) = embedded_preview(src, dest) {
+            let (pw, ph) = (found.image.width(), found.image.height());
+            save_thumb_image(&found.image, dest)?;
+            // A preview that already fills the thumbnail box (a camera's
+            // 1–2 MP MPF picture) is as good as a full decode: done.
+            let quality = if pw.max(ph) >= THUMB_MAX {
+                THUMB_FULL
+            } else {
+                THUMB_PREVIEW
+            };
+            perf.field("quality", quality);
+            return Ok((found.width, found.height, true, quality));
+        }
+        perf.field("quality", "none");
+    }
+    ensure_thumb(src, dest, kind).map(|(w, h, made)| (w, h, made, THUMB_FULL))
+}
+
+/// Whether a thumbnail already on disk is full quality. A preview is smaller
+/// than the thumbnail box; so is a small photo's full thumbnail, which then
+/// gets one cheap, needless upgrade rather than a preview kept for good.
+fn existing_thumb_quality(dest: &Path) -> i64 {
+    match image::image_dimensions(dest) {
+        Ok((w, h)) if w.max(h) >= THUMB_MAX => THUMB_FULL,
+        _ => THUMB_PREVIEW,
+    }
+}
+
+/// A photo's size as it shows: EXIF orientations 5–8 turn it a quarter.
+pub(crate) fn displayed_size(
+    w: u32,
+    h: u32,
+    orientation: image::metadata::Orientation,
+) -> (u32, u32) {
+    use image::metadata::Orientation::*;
+    match orientation {
+        Rotate90 | Rotate270 | Rotate90FlipH | Rotate270FlipH => (h, w),
+        _ => (w, h),
+    }
+}
+
+fn embedded_preview(src: &Path, dest: &Path) -> Option<preview::Embedded> {
+    let bytes = read_capped(src, crate::budget::limits().source_max_bytes).ok()?;
+    if crate::photos::heif::is_heif(src) {
+        preview::heif_preview(src, &bytes, dest)
+    } else {
+        preview::jpeg_preview(&bytes)
+    }
+}
+
+/// Encode `img` as the thumbnail at `dest`, shrunk to fit THUMB_MAX (never
+/// enlarged), through a temp file so readers never see half a JPEG.
+fn save_thumb_image(img: &image::DynamicImage, dest: &Path) -> anyhow::Result<()> {
+    let fits = img.width() <= THUMB_MAX && img.height() <= THUMB_MAX;
+    let resized;
+    let thumb = if fits {
+        img
+    } else {
+        resized = resize_lanczos3(img, THUMB_MAX);
+        &resized
+    };
+    write_thumb_jpeg(thumb, dest)
+}
+
+fn write_thumb_jpeg(thumb: &image::DynamicImage, dest: &Path) -> anyhow::Result<()> {
+    let tmp = dest.with_extension("jpg.tmp");
+    if let Some(parent) = tmp.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    {
+        let mut out = std::io::BufWriter::new(std::fs::File::create(&tmp)?);
+        // JPEG has no alpha: PNG previews (HEIC) may carry one.
+        let rgb;
+        let thumb = if thumb.color().has_alpha() {
+            rgb = image::DynamicImage::ImageRgb8(thumb.to_rgb8());
+            &rgb
+        } else {
+            thumb
+        };
+        thumb.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(
+            &mut out,
+            THUMB_JPEG_QUALITY,
+        ))?;
+        std::io::Write::flush(&mut out)?;
+    }
+    std::fs::rename(&tmp, dest)?;
+    Ok(())
+}
+
+/// Up to `limit` photos on this drive whose thumbnail is still a preview.
+pub fn pending_thumb_upgrades(root: &Path, limit: usize) -> anyhow::Result<Vec<String>> {
+    let conn = open_drive_db(root)?;
+    let mut stmt = conn.prepare_cached(
+        "SELECT path FROM photos WHERE has_thumb = ?1 ORDER BY taken_at DESC LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![THUMB_PREVIEW, limit as i64], |r| r.get(0))?;
+    Ok(rows.filter_map(Result::ok).collect())
+}
+
+/// Stage two (D5): replace preview thumbnails with full-quality ones, on up
+/// to `workers` threads; in the `background` at idle CPU priority, so the web
+/// UI, scans and on-demand thumbnails always go first. Every RAM cache drops
+/// the old thumbnail. Returns how many were upgraded.
+pub fn upgrade_thumbs(
+    drive_id: &str,
+    root: &Path,
+    rels: &[String],
+    workers: usize,
+    background: bool,
+) -> anyhow::Result<usize> {
+    let thumb_dir = thumbs_dir(root)
+        .ok_or_else(|| anyhow::anyhow!("drive is not adopted — no .luna-<uuid> marker"))?;
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let (tx, rx) = std::sync::mpsc::channel::<(String, Option<(u32, u32)>)>();
+    std::thread::scope(|scope| {
+        for _ in 0..workers.max(1) {
+            let (tx, next, thumb_dir) = (tx.clone(), &next, &thumb_dir);
+            scope.spawn(move || {
+                if background {
+                    lower_thread_priority();
+                }
+                loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(rel) = rels.get(i) else {
+                        break;
+                    };
+                    let src = root.join(crate::private::disk_rel(root, rel));
+                    let dest = thumb_path_in(thumb_dir, drive_id, rel);
+                    let size = rebuild_full_thumb(&src, &dest).ok();
+                    if tx.send((rel.clone(), size)).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+    drop(tx);
+    let conn = open_drive_db(root)?;
+    let mut done = 0;
+    let tx = conn.unchecked_transaction()?;
+    for (rel, size) in rx {
+        // A failed full build (no HEIC decoder, too little free memory)
+        // keeps the preview as the thumbnail rather than retrying forever.
+        match size {
+            Some((w, h)) => tx.execute(
+                "UPDATE photos SET has_thumb = ?1, width = ?2, height = ?3 WHERE path = ?4 AND has_thumb = ?5",
+                params![THUMB_FULL, w as i64, h as i64, rel, THUMB_PREVIEW],
+            )?,
+            None => tx.execute(
+                "UPDATE photos SET has_thumb = ?1 WHERE path = ?2 AND has_thumb = ?3",
+                params![THUMB_FULL, rel, THUMB_PREVIEW],
+            )?,
+        };
+        if size.is_some() {
+            crate::drives::ram_cache::thumb_replaced(drive_id, &rel);
+            done += 1;
+        }
+    }
+    tx.commit()?;
+    Ok(done)
+}
+
+/// Make sure `rel`'s thumbnail is the full-quality one, upgrading a preview
+/// now. For HEIC, whose thumbnail doubles as the photo viewer's picture.
+pub fn ensure_full_thumb(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<()> {
+    let conn = open_drive_db(root)?;
+    let quality: Option<i64> = conn
+        .query_row(
+            "SELECT has_thumb FROM photos WHERE path = ?1",
+            params![rel],
+            |r| r.get(0),
+        )
+        .optional()?;
+    drop(conn);
+    if quality == Some(THUMB_PREVIEW) {
+        upgrade_thumbs(drive_id, root, &[rel.to_string()], 1, false)?;
+    }
+    Ok(())
+}
+
+/// Build the full-quality thumbnail beside `dest` and swap it in.
+fn rebuild_full_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32)> {
+    let kind = if is_video(src) { "video" } else { "image" };
+    // Ends in `.jpg` but not `.v{THUMB_GEN}.jpg`, so a scan sweeps leftovers.
+    let fresh = dest.with_extension("full.jpg");
+    let _ = std::fs::remove_file(&fresh);
+    let (w, h, _) = ensure_thumb(src, &fresh, kind)?;
+    std::fs::rename(&fresh, dest)?;
+    Ok((w, h))
+}
+
+/// Run this thread at idle CPU priority (Linux `SCHED_IDLE`): it only gets
+/// cores nothing else wants.
+fn lower_thread_priority() {
+    #[cfg(target_os = "linux")]
+    // SAFETY: plain syscalls on the calling thread; an all-zero
+    // `sched_param` is valid (priority 0, which SCHED_IDLE requires).
+    unsafe {
+        let param: libc::sched_param = std::mem::zeroed();
+        if libc::sched_setscheduler(0, libc::SCHED_IDLE, &param) != 0 {
+            let _ = libc::setpriority(libc::PRIO_PROCESS, 0, 19);
+        }
+    }
+}
+
+/// Generate a JPEG thumbnail (fit within THUMB_MAX). Returns (width, height, was_created).
+pub fn ensure_thumb(src: &Path, dest: &Path, kind: &str) -> anyhow::Result<(u32, u32, bool)> {
+    if dest.exists() {
+        return Ok((0, 0, false));
+    }
+    let len = check_thumb_source(src)?;
     // One thumbnail (D5), at debug: LUNA_PERF=debug.
     let mut perf = crate::perf::Timer::debug("D5", "photos.thumb");
-    perf.field("bytes", meta.len());
+    perf.field("bytes", len);
     if kind == "video" {
         perf.field("kind", "video");
         return ensure_video_thumb(src, dest);
@@ -1266,34 +1529,108 @@ fn resize_lanczos3(img: &image::DynamicImage, max: u32) -> image::DynamicImage {
     }
 }
 
+/// A JPEG decoded straight at 1/2, 1/4 or 1/8 size (the smallest that still
+/// covers `fit` on its long edge): the scaling happens inside the inverse DCT,
+/// so most of the full decode's work is never done (D5). Returns the picture,
+/// the photo's frame size and its EXIF orientation; None for anything the
+/// scaled decoder can't read, which then takes the regular decode.
+///
+/// It decodes from memory: through a `Read` of the file (even buffered) the
+/// LTO release build made the whole thumbnail over twice as slow.
+fn decode_jpeg_scaled(
+    bytes: &[u8],
+    fit: u32,
+) -> Option<(image::DynamicImage, u32, u32, image::metadata::Orientation)> {
+    let limits = crate::budget::limits();
+    let mut dec = jpeg_decoder::Decoder::new(bytes);
+    dec.set_max_decoding_buffer_size(usize::try_from(limits.decode_max_bytes).ok()?);
+    dec.read_info().ok()?;
+    let info = dec.info()?;
+    let (w, h) = (u32::from(info.width), u32::from(info.height));
+    if w == 0 || h == 0 || w.max(h) > limits.max_image_dim {
+        return None;
+    }
+    let scale = f64::from(fit) / f64::from(w.max(h));
+    let (rw, rh) = if scale < 1.0 {
+        (
+            ((f64::from(w) * scale).ceil() as u16).max(1),
+            ((f64::from(h) * scale).ceil() as u16).max(1),
+        )
+    } else {
+        (info.width, info.height)
+    };
+    let (ow, oh) = dec.scale(rw, rh).ok()?;
+    let pixels = dec.decode().ok()?;
+    let (ow, oh) = (u32::from(ow), u32::from(oh));
+    let img = match dec.info()?.pixel_format {
+        jpeg_decoder::PixelFormat::RGB24 => {
+            image::DynamicImage::ImageRgb8(image::RgbImage::from_raw(ow, oh, pixels)?)
+        }
+        jpeg_decoder::PixelFormat::L8 => {
+            image::DynamicImage::ImageLuma8(image::GrayImage::from_raw(ow, oh, pixels)?)
+        }
+        // CMYK and 16-bit: the regular decoder handles them.
+        _ => return None,
+    };
+    let orientation = dec
+        .exif_data()
+        .and_then(|raw| ::exif::Reader::new().read_raw(raw.to_vec()).ok())
+        .and_then(|e| {
+            e.get_field(::exif::Tag::Orientation, ::exif::In::PRIMARY)
+                .and_then(|f| f.value.get_uint(0))
+        })
+        .and_then(|v| u8::try_from(v).ok())
+        .and_then(image::metadata::Orientation::from_exif)
+        .unwrap_or(image::metadata::Orientation::NoTransforms);
+    Some((img, w, h, orientation))
+}
+
 fn decode_and_save_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool)> {
+    let is_jpeg = std::fs::File::open(src)
+        .and_then(|mut f| {
+            let mut magic = [0u8; 2];
+            std::io::Read::read_exact(&mut f, &mut magic).map(|()| magic == [0xFF, 0xD8])
+        })
+        .unwrap_or(false);
+    let scaled = if is_jpeg {
+        let bytes = read_capped(src, crate::budget::limits().source_max_bytes)?;
+        decode_jpeg_scaled(&bytes, THUMB_MAX)
+    } else {
+        None
+    };
+    if let Some((img, w, h, orientation)) = scaled {
+        let mut thumb = if img.width().max(img.height()) > THUMB_MAX {
+            resize_lanczos3(&img, THUMB_MAX)
+        } else {
+            img
+        };
+        thumb.apply_orientation(orientation);
+        write_thumb_jpeg(&thumb, dest)?;
+        let (w, h) = displayed_size(w, h, orientation);
+        return Ok((w, h, true));
+    }
     let limits = crate::budget::limits();
     let mut img_limits = image::Limits::default();
     img_limits.max_image_width = Some(limits.max_image_dim);
     img_limits.max_image_height = Some(limits.max_image_dim);
     img_limits.max_alloc = Some(limits.decode_max_bytes);
-    let mut reader = ImageReader::open(src)?;
+    let mut reader = ImageReader::open(src)?.with_guessed_format()?;
     reader.limits(img_limits);
-    let img = reader.decode()?;
-    let (w, h) = (img.width(), img.height());
+    let mut decoder = reader.into_decoder()?;
+    let orientation = image::ImageDecoder::orientation(&mut decoder)
+        .unwrap_or(image::metadata::Orientation::NoTransforms);
+    let img = image::DynamicImage::from_decoder(decoder)?;
+    // The photo's size as it shows (a phone portrait is stored sideways).
+    let (w, h) = displayed_size(img.width(), img.height(), orientation);
     // `thumbnail()` is the fast box sampler — visibly soft next to Lanczos3.
     // And save_with_format encodes JPEG at q75; thumbs get an explicit
     // higher quality since they're the only pixels most photos ever show.
-    let thumb = resize_lanczos3(&img, THUMB_MAX);
+    let mut thumb = resize_lanczos3(&img, THUMB_MAX);
     drop(img);
-    let tmp = dest.with_extension("jpg.tmp");
-    if let Some(parent) = tmp.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    {
-        let mut out = std::io::BufWriter::new(std::fs::File::create(&tmp)?);
-        thumb.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(
-            &mut out,
-            THUMB_JPEG_QUALITY,
-        ))?;
-        std::io::Write::flush(&mut out)?;
-    }
-    std::fs::rename(&tmp, dest)?;
+    // Phones store portrait shots sideways plus an EXIF turn; the thumbnail
+    // has no EXIF, so turn its pixels (the embedded preview does the same).
+    thumb.apply_orientation(orientation);
+    write_thumb_jpeg(&thumb, dest)?;
     Ok((w, h, true))
 }
 
@@ -1383,11 +1720,7 @@ pub fn list_duplicates(
                 taken_at: row.get(3)?,
                 width: row.get::<_, i64>(4)?.max(0) as u32,
                 height: row.get::<_, i64>(5)?.max(0) as u32,
-                thumb: if has_thumb != 0 {
-                    thumb_url(drive_id, &path)
-                } else {
-                    String::new()
-                },
+                thumb: thumb_url_for(drive_id, &path, has_thumb),
                 kind: row.get(6)?,
                 lat: row.get(7)?,
                 lon: row.get(8)?,
@@ -1773,11 +2106,7 @@ fn query_drive_photos(
             taken_at: row.get(3)?,
             width: row.get::<_, i64>(4)? as u32,
             height: row.get::<_, i64>(5)? as u32,
-            thumb: if has_thumb != 0 {
-                thumb_url(drive_id, &path)
-            } else {
-                String::new()
-            },
+            thumb: thumb_url_for(drive_id, &path, has_thumb),
             kind: row.get(6)?,
             lat: row.get(7)?,
             lon: row.get(8)?,
@@ -2092,7 +2421,7 @@ pub fn list_places(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<PlaceClus
                 entry.label = label;
             }
             if entry.cover_thumb.is_empty() && has_thumb != 0 {
-                entry.cover_thumb = thumb_url(drive_id, &path);
+                entry.cover_thumb = thumb_url_for(drive_id, &path, has_thumb);
             }
         }
     }
@@ -2138,11 +2467,7 @@ pub fn list_place_markers(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<Pl
                 },
                 lat,
                 lon,
-                cover_thumb: if has_thumb != 0 {
-                    thumb_url(drive_id, &path)
-                } else {
-                    String::new()
-                },
+                cover_thumb: thumb_url_for(drive_id, &path, has_thumb),
             });
         }
     }
@@ -3055,3 +3380,4 @@ pub mod exif;
 pub mod heif;
 pub mod photos_indexer;
 pub mod places;
+mod preview;

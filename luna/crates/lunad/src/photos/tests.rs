@@ -1184,3 +1184,73 @@ fn update_album_sets_cover() {
     assert_eq!(got.cover_path, "cover.png");
     assert_eq!(got.cover_drive_id, "d1");
 }
+
+#[test]
+fn a_first_scan_shows_the_embedded_preview_then_upgrades_it() {
+    use super::preview::tests::{jpeg, photo};
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("photos");
+    std::fs::create_dir_all(&root).unwrap();
+    // A sideways phone-style shot with a 480×360 preview: big enough for the
+    // grid, smaller than the 640 px thumbnail, so it waits for an upgrade.
+    std::fs::write(
+        root.join("side.jpg"),
+        photo(&jpeg(1600, 1200), 6, None, Some(&jpeg(480, 360))),
+    )
+    .unwrap();
+    // A camera shot whose preview already fills the thumbnail: done at once.
+    std::fs::write(
+        root.join("camera.jpg"),
+        photo(&jpeg(1600, 1200), 1, None, Some(&jpeg(800, 600))),
+    )
+    .unwrap();
+
+    let report = scan("d1", &root).unwrap();
+    assert_eq!((report.found, report.previews), (2, 1));
+    let mounts = vec![("d1".into(), root.clone())];
+    let page = list_photos(&mounts, None, &ListFilter::default(), 10, 0).unwrap();
+    let side = page.items.iter().find(|p| p.path == "side.jpg").unwrap();
+    assert_eq!(
+        (side.width, side.height),
+        (1200, 1600),
+        "the size as it shows"
+    );
+    assert!(side.thumb.ends_with("&q=preview"), "{}", side.thumb);
+    let camera = page.items.iter().find(|p| p.path == "camera.jpg").unwrap();
+    assert!(!camera.thumb.contains("q=preview"));
+    let dest = thumb_path(&root, "d1", "side.jpg").unwrap();
+    assert_eq!(image::image_dimensions(&dest).unwrap(), (360, 480));
+
+    // A rescan keeps the preview waiting rather than calling it full.
+    scan("d1", &root).unwrap();
+    let pending = pending_thumb_upgrades(&root, 10).unwrap();
+    assert_eq!(pending, vec!["side.jpg".to_string()]);
+
+    assert_eq!(upgrade_thumbs("d1", &root, &pending, 1, false).unwrap(), 1);
+    assert!(pending_thumb_upgrades(&root, 10).unwrap().is_empty());
+    assert_eq!(image::image_dimensions(&dest).unwrap(), (480, 640));
+    let page = list_photos(&mounts, None, &ListFilter::default(), 10, 0).unwrap();
+    let side = page.items.iter().find(|p| p.path == "side.jpg").unwrap();
+    assert_eq!((side.width, side.height), (1200, 1600));
+    assert!(!side.thumb.contains("q=preview"));
+}
+
+#[test]
+fn a_thumbnail_on_disk_counts_as_full_only_when_it_fills_the_box() {
+    let dir = tempfile::tempdir().unwrap();
+    let small = dir.path().join("small.jpg");
+    image::RgbImage::new(320, 240).save(&small).unwrap();
+    let big = dir.path().join("big.jpg");
+    image::RgbImage::new(640, 480).save(&big).unwrap();
+    assert_eq!(existing_thumb_quality(&small), THUMB_PREVIEW);
+    assert_eq!(existing_thumb_quality(&big), THUMB_FULL);
+    use image::metadata::Orientation;
+    assert_eq!(
+        displayed_size(4032, 3024, Orientation::Rotate90),
+        (3024, 4032)
+    );
+    assert_eq!(
+        displayed_size(4032, 3024, Orientation::FlipHorizontal),
+        (4032, 3024)
+    );
+}

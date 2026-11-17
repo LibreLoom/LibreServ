@@ -1,49 +1,51 @@
-//! D5 micro-bench: one photo thumbnail, before and after scaled decoding.
+//! D5 micro-bench: one photo thumbnail, full decode against the embedded
+//! preview (stage one).
 //!
-//! `thumb_split <out-dir> <jpeg>...` times the old recipe (full decode,
-//! Lanczos3 over every pixel, JPEG q85) against `lunad::photos::ensure_thumb`
-//! and prints the average ms per photo. Run it pinned to one slow core to
-//! approximate a Wyse 3040 (see luna/perf/README.md).
+//! `thumb_split <out-dir> <photo>...` times `lunad::photos::ensure_thumb`
+//! (the full-quality thumbnail) and `ensure_thumb_first` (the embedded
+//! preview when it is big enough, else the same full decode) and prints the
+//! average ms per photo. Both must report the same original size. Run it
+//! pinned to one slow core to approximate a Wyse 3040 (see
+//! luna/perf/README.md); HEIC needs `heif-dec` and `heif-thumbnailer`.
 use std::path::Path;
 use std::time::Instant;
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let out = args.next().expect("usage: thumb_split <out-dir> <jpeg>...");
+    let out = args
+        .next()
+        .expect("usage: thumb_split <out-dir> <photo>...");
     let files: Vec<String> = args.collect();
     std::fs::create_dir_all(&out).unwrap();
-    let (mut old_ms, mut new_ms) = (0.0, 0.0);
+    let (mut full_ms, mut first_ms, mut previews) = (0.0, 0.0, 0);
     for (i, f) in files.iter().enumerate() {
-        let t = Instant::now();
-        let img = image::ImageReader::open(f).unwrap().decode().unwrap();
-        let thumb = img.resize(640, 640, image::imageops::FilterType::Lanczos3);
-        let mut buf = std::io::BufWriter::new(
-            std::fs::File::create(Path::new(&out).join(format!("{i}-old.jpg"))).unwrap(),
-        );
-        thumb
-            .write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(
-                &mut buf, 85,
-            ))
-            .unwrap();
-        drop(buf);
-        old_ms += t.elapsed().as_secs_f64() * 1e3;
+        let full = Path::new(&out).join(format!("{i}-full.jpg"));
+        let first = Path::new(&out).join(format!("{i}-first.jpg"));
+        let _ = std::fs::remove_file(&full);
+        let _ = std::fs::remove_file(&first);
 
         let t = Instant::now();
-        let dest = Path::new(&out).join(format!("{i}-new.jpg"));
-        let (w, h, _) = lunad::photos::ensure_thumb(Path::new(f), &dest, "image").unwrap();
-        new_ms += t.elapsed().as_secs_f64() * 1e3;
+        let (w, h, _) = lunad::photos::ensure_thumb(Path::new(f), &full, "image").unwrap();
+        full_ms += t.elapsed().as_secs_f64() * 1e3;
+
+        let t = Instant::now();
+        let (fw, fh, _, quality) =
+            lunad::photos::ensure_thumb_first(Path::new(f), &first, "image").unwrap();
+        first_ms += t.elapsed().as_secs_f64() * 1e3;
+        previews += usize::from(quality == lunad::photos::THUMB_PREVIEW);
         assert_eq!(
+            (fw, fh),
             (w, h),
-            (img.width(), img.height()),
-            "original size must be reported"
+            "{f}: both stages report the original size"
         );
     }
     let n = files.len() as f64;
     println!(
-        "n={} old={:.0}ms new={:.0}ms per photo ({:.1}x)",
+        "n={} full={:.0}ms first={:.0}ms per photo ({:.1}x), {} from an embedded preview",
         files.len(),
-        old_ms / n,
-        new_ms / n,
-        old_ms / new_ms
+        full_ms / n,
+        first_ms / n,
+        full_ms / first_ms,
+        previews
     );
 }

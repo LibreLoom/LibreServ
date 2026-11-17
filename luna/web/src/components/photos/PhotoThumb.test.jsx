@@ -47,3 +47,21 @@ describe("PhotoThumb private", () => {
     expect(view.queryByLabelText("Private")).toBeNull();
   });
 });
+
+describe("PhotoThumb loading", () => {
+  const thumb = "/api/v1/photos/thumb?drive_id=d1&path=a.jpg";
+
+  it("offers the grid-sized lunad thumbnail through srcset", () => {
+    const view = render(<PhotoThumb photo={{ ...photo, thumb }} sizes="17vw" />);
+    const img = view.container.querySelector("img");
+    expect(img.getAttribute("src")).toBe(thumb);
+    expect(img.getAttribute("srcset")).toBe(`${thumb}&size=s 270w, ${thumb} 480w`);
+    expect(img.getAttribute("sizes")).toBe("17vw");
+  });
+
+  it("leaves other thumbnails as they are", () => {
+    const view = render(<PhotoThumb photo={{ ...photo, thumb: "data:image/png;base64,AA" }} sizes="17vw" />);
+    const img = view.container.querySelector("img");
+    expect(img.hasAttribute("srcset")).toBe(false);
+  });
+});

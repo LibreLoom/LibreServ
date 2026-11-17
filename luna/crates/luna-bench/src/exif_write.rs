@@ -1,6 +1,7 @@
-//! A minimal EXIF writer: camera make/model, DateTimeOriginal and GPS, as a
-//! JPEG APP1 segment. The `image` crate writes no EXIF and lunad's photo
-//! index reads exactly these tags, so fixtures need them to look real.
+//! A minimal EXIF writer: camera make/model, DateTimeOriginal, orientation,
+//! GPS and the small EXIF thumbnail (IFD1), as a JPEG APP1 segment; plus the
+//! Multi-Picture (MPF) preview many cameras append. The `image` crate writes
+//! no EXIF and lunad reads exactly these, so fixtures need them to look real.
 
 const ASCII: u16 = 2;
 const SHORT: u16 = 3;
@@ -76,7 +77,12 @@ fn ifd_len(entries: &[Entry]) -> usize {
 }
 
 /// Append one IFD at `tiff.len()` (offsets count from the TIFF header).
-fn write_ifd(tiff: &mut Vec<u8>, mut entries: Vec<Entry>) {
+fn write_ifd(tiff: &mut Vec<u8>, entries: Vec<Entry>) {
+    write_ifd_then(tiff, entries, 0);
+}
+
+/// [`write_ifd`] whose next-IFD pointer is `next`.
+fn write_ifd_then(tiff: &mut Vec<u8>, mut entries: Vec<Entry>, next: u32) {
     entries.sort_by_key(|e| e.tag);
     let start = tiff.len();
     let mut extra_at = start + 2 + entries.len() * 12 + 4;
@@ -98,7 +104,7 @@ fn write_ifd(tiff: &mut Vec<u8>, mut entries: Vec<Entry>) {
             extra_at += padded;
         }
     }
-    tiff.extend_from_slice(&0u32.to_le_bytes());
+    tiff.extend_from_slice(&next.to_le_bytes());
     tiff.extend_from_slice(&extra);
 }
 
@@ -111,6 +117,11 @@ pub struct Meta<'a> {
     pub gps: Option<(f64, f64)>,
     pub width: u32,
     pub height: u32,
+    /// EXIF orientation: 1 upright, 6 stored sideways (a phone held upright).
+    pub orientation: u16,
+    /// The EXIF thumbnail (IFD1), a small JPEG. Real ones are about 160×120,
+    /// which also caps them: APP1 holds 64 KiB at most.
+    pub thumbnail: Option<&'a [u8]>,
 }
 
 /// The APP1 segment (marker included) carrying `meta`.
@@ -144,9 +155,9 @@ pub fn app1(meta: &Meta) -> Vec<u8> {
         let mut v = vec![
             ascii(0x010F, meta.make),
             ascii(0x0110, meta.model),
-            ascii(0x0132, meta.taken), // DateTime
-            short(0x0112, 1),          // Orientation
-            long(0x8769, exif_at),     // ExifIFDPointer
+            ascii(0x0132, meta.taken),       // DateTime
+            short(0x0112, meta.orientation), // Orientation
+            long(0x8769, exif_at),           // ExifIFDPointer
         ];
         if let Some(at) = gps_at {
             v.push(long(0x8825, at)); // GPSInfoIFDPointer
@@ -158,18 +169,38 @@ pub fn app1(meta: &Meta) -> Vec<u8> {
     let exif_at = 8 + ifd0_size;
     let gps_at = exif_at + ifd_len(&exif_entries());
 
+    let ifd1_at = gps_at + gps_entries().map_or(0, |g| ifd_len(&g));
+    let ifd1_entries = |thumb_at: u32, len: u32| {
+        vec![
+            short(0x0103, 6),       // Compression: JPEG
+            long(0x0201, thumb_at), // JPEGInterchangeFormat
+            long(0x0202, len),      // JPEGInterchangeFormatLength
+        ]
+    };
+
     let mut tiff = Vec::with_capacity(512);
     tiff.extend_from_slice(b"II*\0");
     tiff.extend_from_slice(&8u32.to_le_bytes());
-    write_ifd(
+    write_ifd_then(
         &mut tiff,
         ifd0_entries(exif_at as u32, meta.gps.map(|_| gps_at as u32)),
+        if meta.thumbnail.is_some() {
+            ifd1_at as u32
+        } else {
+            0
+        },
     );
     debug_assert_eq!(tiff.len(), exif_at);
     write_ifd(&mut tiff, exif_entries());
     if let Some(gps) = gps_entries() {
         debug_assert_eq!(tiff.len(), gps_at);
         write_ifd(&mut tiff, gps);
+    }
+    if let Some(thumb) = meta.thumbnail {
+        debug_assert_eq!(tiff.len(), ifd1_at);
+        let thumb_at = ifd1_at + ifd_len(&ifd1_entries(0, 0));
+        write_ifd(&mut tiff, ifd1_entries(thumb_at as u32, thumb.len() as u32));
+        tiff.extend_from_slice(thumb);
     }
 
     let mut seg = Vec::with_capacity(tiff.len() + 10);
@@ -178,6 +209,60 @@ pub fn app1(meta: &Meta) -> Vec<u8> {
     seg.extend_from_slice(b"Exif\0\0");
     seg.extend_from_slice(&tiff);
     seg
+}
+
+/// `jpeg` (one picture) turned into a Multi-Picture file whose second
+/// picture is `preview`, typed "large thumbnail" (CIPA DC-007), the way
+/// many cameras store a 1–2 MP preview after the main picture.
+pub fn with_mpf_preview(jpeg: &[u8], preview: &[u8]) -> Vec<u8> {
+    // APP2: "MPF\0", then a TIFF header that MP offsets count from.
+    let entries_len = 2 * 16;
+    let index_ifd_len = 2 + 3 * 12 + 4;
+    let mut app2_body = Vec::new();
+    app2_body.extend_from_slice(b"MPF\0");
+    let header_len = 8 + index_ifd_len + entries_len;
+    let seg_len = 2 + app2_body.len() + header_len;
+    let total = jpeg.len() + 2 + seg_len;
+    // The MP header sits after SOI (2), the marker (2), length (2) and "MPF\0" (4).
+    let header_at = 2 + 2 + 2 + 4;
+    let mut t = Vec::with_capacity(header_len);
+    t.extend_from_slice(b"II*\0");
+    t.extend_from_slice(&8u32.to_le_bytes());
+    t.extend_from_slice(&3u16.to_le_bytes());
+    for (tag, kind, count, value) in [
+        (0xB000u16, 7u16, 4u32, u32::from_le_bytes(*b"0100")), // MPFVersion
+        (0xB001, LONG, 1, 2),                                  // NumberOfImages
+        (0xB002, 7, entries_len as u32, (8 + index_ifd_len) as u32), // MPEntry
+    ] {
+        t.extend_from_slice(&tag.to_le_bytes());
+        t.extend_from_slice(&kind.to_le_bytes());
+        t.extend_from_slice(&count.to_le_bytes());
+        t.extend_from_slice(&value.to_le_bytes());
+    }
+    t.extend_from_slice(&0u32.to_le_bytes());
+    // Entry 1: the primary picture (representative, baseline MP primary).
+    for v in [0x2003_0000u32, total as u32, 0] {
+        t.extend_from_slice(&v.to_le_bytes());
+    }
+    t.extend_from_slice(&[0; 4]);
+    // Entry 2: large thumbnail (full-HD class), right after the primary.
+    for v in [
+        0x0001_0002u32,
+        preview.len() as u32,
+        (total - header_at) as u32,
+    ] {
+        t.extend_from_slice(&v.to_le_bytes());
+    }
+    t.extend_from_slice(&[0; 4]);
+    app2_body.extend_from_slice(&t);
+
+    let mut seg = vec![0xFF, 0xE2];
+    seg.extend_from_slice(&(seg_len as u16).to_be_bytes());
+    seg.extend_from_slice(&app2_body);
+    let mut out = insert_after_soi(jpeg, &seg);
+    debug_assert_eq!(out.len(), total);
+    out.extend_from_slice(preview);
+    out
 }
 
 /// `jpeg` with `segment` inserted right after the SOI marker.

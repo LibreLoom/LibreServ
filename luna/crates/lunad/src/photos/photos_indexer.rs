@@ -340,8 +340,34 @@ fn worker_loop(
     let mut renames: Vec<(String, String, String)> = Vec::new();
     let mut rescans: HashMap<String, Instant> = HashMap::new();
     let mut last_upsert_at = Instant::now();
+    // Drives that may hold preview thumbnails (D5 stage one), with the timer
+    // and count of their upgrade pass.
+    let mut upgrades: HashMap<String, Option<(crate::perf::Timer, usize)>> = HashMap::new();
 
     loop {
+        let quiet =
+            upserts.is_empty() && removes.is_empty() && renames.is_empty() && rescans.is_empty();
+        if quiet && !upgrades.is_empty() {
+            // Upgrades run between events: take what arrived, else do one batch.
+            match rx.try_recv() {
+                Ok(event) => {
+                    take_event(
+                        event,
+                        &pending,
+                        &mut upserts,
+                        &mut removes,
+                        &mut renames,
+                        &mut rescans,
+                        &mut last_upsert_at,
+                    );
+                    continue;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => return,
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+            upgrade_batch(&mounts, &mut upgrades);
+            continue;
+        }
         let timeout = if !upserts.is_empty() && last_upsert_at.elapsed() < WATCH_SETTLE {
             WATCH_SETTLE.saturating_sub(last_upsert_at.elapsed())
         } else if !rescans.is_empty() {
@@ -370,50 +396,15 @@ fn worker_loop(
         };
         match received {
             Ok(event) => {
-                match event {
-                    PhotosEvent::Upsert { drive_id, rel } => {
-                        removes.remove(&(drive_id.clone(), rel.clone()));
-                        if !upserts.insert((drive_id, rel)) {
-                            pending.fetch_sub(
-                                1.min(pending.load(Ordering::Relaxed)),
-                                Ordering::Relaxed,
-                            );
-                        }
-                        last_upsert_at = Instant::now();
-                    }
-                    PhotosEvent::Remove { drive_id, rel } => {
-                        if upserts.remove(&(drive_id.clone(), rel.clone())) {
-                            pending.fetch_sub(
-                                1.min(pending.load(Ordering::Relaxed)),
-                                Ordering::Relaxed,
-                            );
-                        }
-                        if !removes.insert((drive_id, rel)) {
-                            pending.fetch_sub(
-                                1.min(pending.load(Ordering::Relaxed)),
-                                Ordering::Relaxed,
-                            );
-                        }
-                    }
-                    PhotosEvent::Rename { drive_id, from, to } => {
-                        if upserts.remove(&(drive_id.clone(), from.clone())) {
-                            pending.fetch_sub(
-                                1.min(pending.load(Ordering::Relaxed)),
-                                Ordering::Relaxed,
-                            );
-                        }
-                        removes.remove(&(drive_id.clone(), to.clone()));
-                        renames.push((drive_id, from, to));
-                    }
-                    PhotosEvent::Rescan { drive_id } => {
-                        if rescans.insert(drive_id, Instant::now()).is_some() {
-                            pending.fetch_sub(
-                                1.min(pending.load(Ordering::Relaxed)),
-                                Ordering::Relaxed,
-                            );
-                        }
-                    }
-                }
+                take_event(
+                    event,
+                    &pending,
+                    &mut upserts,
+                    &mut removes,
+                    &mut renames,
+                    &mut rescans,
+                    &mut last_upsert_at,
+                );
                 continue;
             }
             Err(RecvTimeoutError::Disconnected) => return,
@@ -423,6 +414,9 @@ fn worker_loop(
         // Apply settled upserts.
         if last_upsert_at.elapsed() >= WATCH_SETTLE && !upserts.is_empty() {
             let batch: Vec<_> = upserts.drain().collect();
+            for (drive_id, _) in &batch {
+                upgrades.entry(drive_id.clone()).or_insert(None);
+            }
             // New photos arriving while Luna runs: index plus thumbnail (D5).
             let mut perf = crate::perf::Timer::new("D5", "photos.new");
             perf.field("count", batch.len());
@@ -517,6 +511,7 @@ fn worker_loop(
             if let Ok(report) = &scanned {
                 perf.field("found", report.found);
                 perf.field("thumbnailed", report.thumbnailed);
+                perf.field("previews", report.previews);
                 perf.field("failed", report.failed);
                 perf.field("pruned", report.pruned);
             }
@@ -524,6 +519,8 @@ fn worker_loop(
             match scanned {
                 Ok(report) => {
                     found_count.store(report.found, Ordering::Relaxed);
+                    // Previews from this scan, or left by an earlier run.
+                    upgrades.entry(drive_id.clone()).or_insert(None);
                     *scan_error.lock().unwrap() = None;
                     // New thumbnails: photo search can look at them now.
                     crate::files::content::indexer::nudge_drive(&drive_id);
@@ -543,6 +540,90 @@ fn worker_loop(
                 let mut active = active_drive.lock().unwrap();
                 *active = None;
             }
+        }
+    }
+}
+
+/// File one event into the batches the loop works through.
+#[allow(clippy::too_many_arguments)]
+fn take_event(
+    event: PhotosEvent,
+    pending: &AtomicUsize,
+    upserts: &mut HashSet<(String, String)>,
+    removes: &mut HashSet<(String, String)>,
+    renames: &mut Vec<(String, String, String)>,
+    rescans: &mut HashMap<String, Instant>,
+    last_upsert_at: &mut Instant,
+) {
+    let settle = || {
+        pending.fetch_sub(1.min(pending.load(Ordering::Relaxed)), Ordering::Relaxed);
+    };
+    match event {
+        PhotosEvent::Upsert { drive_id, rel } => {
+            removes.remove(&(drive_id.clone(), rel.clone()));
+            if !upserts.insert((drive_id, rel)) {
+                settle();
+            }
+            *last_upsert_at = Instant::now();
+        }
+        PhotosEvent::Remove { drive_id, rel } => {
+            if upserts.remove(&(drive_id.clone(), rel.clone())) {
+                settle();
+            }
+            if !removes.insert((drive_id, rel)) {
+                settle();
+            }
+        }
+        PhotosEvent::Rename { drive_id, from, to } => {
+            if upserts.remove(&(drive_id.clone(), from.clone())) {
+                settle();
+            }
+            removes.remove(&(drive_id.clone(), to.clone()));
+            renames.push((drive_id, from, to));
+        }
+        PhotosEvent::Rescan { drive_id } => {
+            if rescans.insert(drive_id, Instant::now()).is_some() {
+                settle();
+            }
+        }
+    }
+}
+
+/// One batch of D5 stage two: swap a few preview thumbnails on one drive for
+/// full-quality ones. Small batches keep new events waiting a few seconds
+/// at most. A drive with none left is dropped from `upgrades`.
+fn upgrade_batch(
+    mounts: &Mutex<Inner>,
+    upgrades: &mut HashMap<String, Option<(crate::perf::Timer, usize)>>,
+) {
+    let Some(drive_id) = upgrades.keys().next().cloned() else {
+        return;
+    };
+    let root = mounts.lock().unwrap().mounts.get(&drive_id).cloned();
+    let workers = photos::scan_workers();
+    let rels = root
+        .as_deref()
+        .and_then(|root| photos::pending_thumb_upgrades(root, workers * 2).ok())
+        .unwrap_or_default();
+    let (Some(root), false) = (root, rels.is_empty()) else {
+        // Done (or the drive went away): log the pass and let search see
+        // the full-quality thumbnails.
+        if let Some((mut perf, done)) = upgrades.remove(&drive_id).flatten() {
+            perf.field("drive", &drive_id);
+            perf.field("upgraded", done);
+            crate::files::content::indexer::nudge_drive(&drive_id);
+        }
+        return;
+    };
+    let slot = upgrades.get_mut(&drive_id).expect("drive is in upgrades");
+    // Full-quality thumbnails after a first scan's previews (D5).
+    let (_, done) =
+        slot.get_or_insert_with(|| (crate::perf::Timer::new("D5", "photos.upgrade"), 0));
+    match photos::upgrade_thumbs(&drive_id, &root, &rels, workers, true) {
+        Ok(n) => *done += n,
+        Err(e) => {
+            tracing::debug!(drive_id, error = %e, "photo thumbnail upgrade stopped");
+            upgrades.remove(&drive_id);
         }
     }
 }

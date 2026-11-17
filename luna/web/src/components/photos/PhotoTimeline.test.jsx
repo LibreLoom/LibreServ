@@ -24,13 +24,13 @@ describe("PhotoThumb cascading animation", () => {
     expect(button.style.animationFillMode).toBe("backwards");
   });
 
-  it("caps animationDelay at 30 items (1050ms)", () => {
+  it("only cascades the first 30 items; later ones appear at once", () => {
     const photo = { name: "mountain.jpg", path: "mountain.jpg", drive_id: "d1" };
     render(<PhotoThumb photo={photo} index={45} />);
 
     const button = screen.getByRole("button", { name: "mountain.jpg" });
-    // min(45, 30) * 35ms = 1050ms
-    expect(button.style.animationDelay).toBe("1050ms");
+    // A page loaded after a scroll must not wait out the first screen's cascade.
+    expect(button.style.animationDelay).toBe("0ms");
     expect(button.style.animationFillMode).toBe("backwards");
   });
 

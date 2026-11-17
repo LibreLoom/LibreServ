@@ -239,6 +239,10 @@ fn parse_place_bbox(raw: &str) -> Option<[f64; 4]> {
 struct ThumbQuery {
     drive_id: String,
     path: String,
+    /// `s`: the grid-sized variant (see `small_thumb`). Anything else, or
+    /// none, is the regular 640 px thumbnail.
+    #[serde(default)]
+    size: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -936,7 +940,8 @@ async fn thumb(
             "You don't have permission to view this.",
         ));
     }
-    if let Some(cached) = state.ram_cache.get_thumb(&query.drive_id, &query.path) {
+    let small = query.size.as_deref() == Some("s");
+    if !small && let Some(cached) = state.ram_cache.get_thumb(&query.drive_id, &query.path) {
         return serve_thumb_bytes(cached.bytes, cached.mtime_secs, cached.etag, &headers);
     }
     let root = resolve_mount(&state, &query.drive_id)?;
@@ -984,7 +989,15 @@ async fn thumb(
             )
         })?;
     }
-    serve_thumb_file(&state, &query.drive_id, &query.path, thumb_path, &headers).await
+    if small && let Some(resp) = small_thumb::serve_if_built(thumb_path.clone(), &headers).await? {
+        return Ok(resp);
+    }
+    let mut resp =
+        serve_thumb_file(&state, &query.drive_id, &query.path, thumb_path, &headers).await?;
+    if small {
+        small_thumb::mark_stand_in(&mut resp);
+    }
+    Ok(resp)
 }
 
 async fn serve_thumb_file(
@@ -1291,7 +1304,11 @@ pub(crate) async fn resolve_browser_safe_file(
             .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna couldn't find that photo."))?;
         let src2 = src.clone();
         let thumb2 = thumb.clone();
+        let (mount2, drive2, rel2) = (mount.to_path_buf(), drive_id.to_string(), rel.to_string());
         let jpeg = tokio::task::spawn_blocking(move || {
+            // A first scan's thumbnail may still be the small embedded
+            // preview: the viewer needs the full-quality one.
+            let _ = photos::ensure_full_thumb(&drive2, &mount2, &rel2);
             photos::ensure_heic_preview_jpeg(&src2, &thumb2).map_err(|_| ())?;
             Ok::<PathBuf, ()>(thumb2)
         })
@@ -2259,6 +2276,8 @@ async fn cover(
     )
     .await
 }
+
+mod small_thumb;
 
 #[cfg(test)]
 mod tests;

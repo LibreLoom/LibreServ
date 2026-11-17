@@ -336,6 +336,247 @@ fn read_box(buf: &[u8], pos: usize) -> Option<(u64, [u8; 4], usize, usize)> {
     Some((size, typ, pos + header, end))
 }
 
+/// Where a HEIF keeps its primary picture and the thumbnail stored with it.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct HeifLayout {
+    /// The primary picture's size as it displays (`ispe`, turned by `irot`),
+    /// which is what `heif-dec` output measures.
+    pub width: u32,
+    pub height: u32,
+    /// The largest stored thumbnail of the primary picture (`thmb`), as
+    /// stored (before its own rotation).
+    pub thumb: Option<(u32, u32)>,
+}
+
+#[derive(Default)]
+struct PropCtx {
+    primary: Option<u32>,
+    /// `thmb` references: (thumbnail item, the item it shows).
+    thumbs: Vec<(u32, u32)>,
+    /// `ipco` children in order: `ispe` size or `irot` quarter turns.
+    props: Vec<Prop>,
+    /// `ipma`: item → 1-based property indexes.
+    assoc: Vec<(u32, Vec<u16>)>,
+}
+
+enum Prop {
+    Size(u32, u32),
+    Rotate(u8),
+    Other,
+}
+
+/// Primary size and stored thumbnail size, from the `meta` box alone.
+pub fn layout(bytes: &[u8]) -> Option<HeifLayout> {
+    let mut ctx = PropCtx::default();
+    let mut pos = 0usize;
+    while pos + 8 <= bytes.len() {
+        let (size, typ, header, end) = read_box(bytes, pos)?;
+        if &typ == b"meta" && header + 4 <= end {
+            walk_meta_props(&bytes[header + 4..end], &mut ctx);
+            break;
+        }
+        pos = if size == 0 { bytes.len() } else { end };
+    }
+    let primary = ctx.primary?;
+    let size_of = |item: u32| -> Option<(u32, u32)> {
+        let (_, idx) = ctx.assoc.iter().find(|(i, _)| *i == item)?;
+        idx.iter()
+            .find_map(|&k| match ctx.props.get(usize::from(k).checked_sub(1)?) {
+                Some(Prop::Size(w, h)) if *w > 0 && *h > 0 => Some((*w, *h)),
+                _ => None,
+            })
+    };
+    let turns = ctx
+        .assoc
+        .iter()
+        .find(|(i, _)| *i == primary)
+        .and_then(|(_, idx)| {
+            idx.iter()
+                .find_map(|&k| match ctx.props.get(usize::from(k).checked_sub(1)?) {
+                    Some(Prop::Rotate(t)) => Some(*t),
+                    _ => None,
+                })
+        })
+        .unwrap_or(0);
+    let (w, h) = size_of(primary)?;
+    let (width, height) = if turns % 2 == 1 { (h, w) } else { (w, h) };
+    let thumb = ctx
+        .thumbs
+        .iter()
+        .filter(|(_, to)| *to == primary)
+        .filter_map(|(from, _)| size_of(*from))
+        .max_by_key(|(w, h)| u64::from(*w) * u64::from(*h));
+    Some(HeifLayout {
+        width,
+        height,
+        thumb,
+    })
+}
+
+fn walk_meta_props(meta: &[u8], ctx: &mut PropCtx) {
+    let mut pos = 0usize;
+    while pos + 8 <= meta.len() {
+        let Some((size, typ, header, end)) = read_box(meta, pos) else {
+            break;
+        };
+        let payload = &meta[header..end];
+        match &typ {
+            b"pitm" if payload.len() >= 6 => {
+                ctx.primary = Some(if payload[0] == 0 {
+                    u32::from(u16::from_be_bytes([payload[4], payload[5]]))
+                } else if payload.len() >= 8 {
+                    u32::from_be_bytes(payload[4..8].try_into().unwrap())
+                } else {
+                    break;
+                });
+            }
+            b"iref" if payload.len() >= 4 => parse_iref(payload, ctx),
+            b"iprp" => {
+                let mut p = 0usize;
+                while p + 8 <= payload.len() {
+                    let Some((sz, t, h, e)) = read_box(payload, p) else {
+                        break;
+                    };
+                    match &t {
+                        b"ipco" => parse_ipco(&payload[h..e], ctx),
+                        b"ipma" => parse_ipma(&payload[h..e], ctx),
+                        _ => {}
+                    }
+                    p = if sz == 0 { payload.len() } else { e };
+                }
+            }
+            _ => {}
+        }
+        pos = if size == 0 { meta.len() } else { end };
+    }
+}
+
+fn parse_iref(payload: &[u8], ctx: &mut PropCtx) {
+    let wide = payload[0] != 0;
+    let id_len = if wide { 4 } else { 2 };
+    let read_id = |b: &[u8], at: usize| -> Option<u32> {
+        let s = b.get(at..at + id_len)?;
+        Some(if wide {
+            u32::from_be_bytes(s.try_into().ok()?)
+        } else {
+            u32::from(u16::from_be_bytes(s.try_into().ok()?))
+        })
+    };
+    let mut pos = 4usize;
+    while pos + 8 <= payload.len() {
+        let Some((size, typ, header, end)) = read_box(payload, pos) else {
+            break;
+        };
+        if &typ == b"thmb" {
+            let body = &payload[header..end];
+            if let (Some(from), Some(count)) = (read_id(body, 0), body.get(id_len..id_len + 2)) {
+                let count = usize::from(u16::from_be_bytes([count[0], count[1]]));
+                for k in 0..count {
+                    if let Some(to) = read_id(body, id_len + 2 + k * id_len) {
+                        ctx.thumbs.push((from, to));
+                    }
+                }
+            }
+        }
+        pos = if size == 0 { payload.len() } else { end };
+    }
+}
+
+fn parse_ipco(payload: &[u8], ctx: &mut PropCtx) {
+    let mut pos = 0usize;
+    while pos + 8 <= payload.len() {
+        let Some((size, typ, header, end)) = read_box(payload, pos) else {
+            break;
+        };
+        let body = &payload[header..end];
+        ctx.props.push(match &typ {
+            // Full box: version/flags, then width and height.
+            b"ispe" if body.len() >= 12 => Prop::Size(
+                u32::from_be_bytes(body[4..8].try_into().unwrap()),
+                u32::from_be_bytes(body[8..12].try_into().unwrap()),
+            ),
+            b"irot" if !body.is_empty() => Prop::Rotate(body[0] & 3),
+            _ => Prop::Other,
+        });
+        pos = if size == 0 { payload.len() } else { end };
+    }
+}
+
+fn parse_ipma(payload: &[u8], ctx: &mut PropCtx) {
+    if payload.len() < 8 {
+        return;
+    }
+    let version = payload[0];
+    let wide_index = payload[3] & 1 == 1;
+    let count = u32::from_be_bytes(payload[4..8].try_into().unwrap());
+    let mut p = 8usize;
+    for _ in 0..count {
+        let item = if version < 1 {
+            let Some(b) = payload.get(p..p + 2) else {
+                return;
+            };
+            p += 2;
+            u32::from(u16::from_be_bytes([b[0], b[1]]))
+        } else {
+            let Some(b) = payload.get(p..p + 4) else {
+                return;
+            };
+            p += 4;
+            u32::from_be_bytes(b.try_into().unwrap())
+        };
+        let Some(&n) = payload.get(p) else {
+            return;
+        };
+        p += 1;
+        let mut idx = Vec::with_capacity(usize::from(n));
+        for _ in 0..n {
+            if wide_index {
+                let Some(b) = payload.get(p..p + 2) else {
+                    return;
+                };
+                idx.push(u16::from_be_bytes([b[0], b[1]]) & 0x7fff);
+                p += 2;
+            } else {
+                let Some(&b) = payload.get(p) else {
+                    return;
+                };
+                idx.push(u16::from(b & 0x7f));
+                p += 1;
+            }
+        }
+        ctx.assoc.push((item, idx));
+    }
+}
+
+/// Decode the stored thumbnail of a HEIC (not the primary picture) to a PNG
+/// at `png_out`, upright. Only call it when [`layout`] found a thumbnail:
+/// without one, `heif-thumbnailer` decodes the full picture instead.
+/// Sandboxed like [`decode_heif_to_jpeg`].
+pub fn decode_heif_thumbnail_png(src: &Path, longest: u32, png_out: &Path) -> anyhow::Result<()> {
+    let bin = which("heif-thumbnailer")
+        .ok_or_else(|| anyhow::anyhow!("HEIC thumbnailer is not installed on this Luna."))?;
+    let mut io = crate::sandbox::SandboxIo::new()?;
+    let input = io.input_path(src)?;
+    let staged = io.out_path("thumb.png")?;
+    let mut cmd = Command::new(bin);
+    // `-s` at the stored thumbnail's own size: it is used as is, not scaled.
+    cmd.arg("-s")
+        .arg(longest.to_string())
+        .arg(&input)
+        .arg(&staged)
+        .stdout(Stdio::null());
+    let status = crate::sandbox::run(&mut cmd, &io, Duration::from_secs(15))?;
+    if !status.success() || !staged.exists() {
+        anyhow::bail!("heif-thumbnailer produced no picture");
+    }
+    let mut rd = io.open_out("thumb.png")?;
+    let tmp = png_out.with_extension("png.tmp");
+    let mut wr = std::fs::File::create(&tmp)?;
+    std::io::copy(&mut rd, &mut wr)?;
+    std::fs::rename(&tmp, png_out)?;
+    Ok(())
+}
+
 /// Decode a HEIC file to `jpeg_out` using Alpine `libheif-tools` when present.
 /// Never writes next to the original photo.
 ///
@@ -512,6 +753,46 @@ mod tests {
         tiff.extend_from_slice(&0u32.to_le_bytes());
         tiff.extend_from_slice(&ascii_bytes);
         tiff
+    }
+
+    #[test]
+    fn heif_layout_reads_the_turned_size_and_the_stored_thumbnail() {
+        fn boxed(typ: &[u8; 4], body: &[u8]) -> Vec<u8> {
+            let mut b = ((body.len() + 8) as u32).to_be_bytes().to_vec();
+            b.extend_from_slice(typ);
+            b.extend_from_slice(body);
+            b
+        }
+        fn ispe(w: u32, h: u32) -> Vec<u8> {
+            let mut body = vec![0; 4];
+            body.extend_from_slice(&w.to_be_bytes());
+            body.extend_from_slice(&h.to_be_bytes());
+            boxed(b"ispe", &body)
+        }
+        // Item 1 is the 4032×3024 primary, turned a quarter (irot 1);
+        // item 2 its 320×240 thumbnail.
+        let pitm = boxed(b"pitm", &[0, 0, 0, 0, 0, 1]);
+        let iref = boxed(
+            b"iref",
+            &[&[0u8, 0, 0, 0][..], &boxed(b"thmb", &[0, 2, 0, 1, 0, 1])].concat(),
+        );
+        let ipco = boxed(
+            b"ipco",
+            &[ispe(4032, 3024), ispe(320, 240), boxed(b"irot", &[1])].concat(),
+        );
+        let ipma = boxed(
+            b"ipma",
+            &[0, 0, 0, 0, 0, 0, 0, 2, 0, 1, 2, 1, 3, 0, 2, 1, 2],
+        );
+        let iprp = boxed(b"iprp", &[ipco, ipma].concat());
+        let meta = boxed(
+            b"meta",
+            &[&[0u8, 0, 0, 0][..], &pitm, &iref, &iprp].concat(),
+        );
+        let file = [boxed(b"ftyp", b"heic\0\0\0\0mif1heic"), meta].concat();
+        let layout = layout(&file).expect("layout");
+        assert_eq!((layout.width, layout.height), (3024, 4032));
+        assert_eq!(layout.thumb, Some((320, 240)));
     }
 
     #[test]

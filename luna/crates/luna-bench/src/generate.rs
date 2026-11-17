@@ -525,6 +525,11 @@ const PLACES: &[(f64, f64)] = &[
     (46.5197, 6.6323),    // Lausanne
 ];
 
+/// Who "took" each photo, and so what the file carries besides the picture,
+/// modelled on real files: every JPEG has a 160×120 EXIF thumbnail; the
+/// cameras (Canon, FUJIFILM) add a 1920 px MPF preview after the picture;
+/// about a third of phone JPEGs are stored sideways with EXIF orientation 6;
+/// HEICs (any make) carry a 320×240 `thmb` item, like an iPhone's.
 const CAMERAS: &[(&str, &str)] = &[
     ("Apple", "iPhone 13"),
     ("Google", "Pixel 7"),
@@ -542,7 +547,14 @@ fn heic_encoder() -> Option<Vec<String>> {
             .is_ok_and(|o| o.status.success())
     };
     if found("heif-enc") {
-        return Some(vec!["heif-enc".into(), "-q".into(), "60".into()]);
+        // `-t 320`: a 320×240 stored thumbnail, like an iPhone's.
+        return Some(vec![
+            "heif-enc".into(),
+            "-q".into(),
+            "60".into(),
+            "-t".into(),
+            "320".into(),
+        ]);
     }
     for bin in ["magick", "convert"] {
         let heic = Command::new(bin)
@@ -665,6 +677,16 @@ fn write_photo(
     });
     let mut jpeg = Vec::new();
     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 85).encode_image(&img)?;
+    // What real files carry besides the picture (see `CAMERAS`).
+    let heic = heic.filter(|_| rng.f64() < cfg.heic_fraction);
+    let camera = matches!(make, "Canon" | "FUJIFILM");
+    // A phone held upright stores the picture sideways plus an EXIF turn.
+    let orientation = if heic.is_none() && !camera && rng.f64() < 0.3 {
+        6
+    } else {
+        1
+    };
+    let thumb = encode_scaled(&img, 160, 75)?;
     let app1 = exif_write::app1(&exif_write::Meta {
         make,
         model,
@@ -672,14 +694,18 @@ fn write_photo(
         gps,
         width: w,
         height: h,
+        orientation,
+        thumbnail: Some(&thumb),
     });
-    let jpeg = exif_write::insert_after_soi(&jpeg, &app1);
+    let mut jpeg = exif_write::insert_after_soi(&jpeg, &app1);
+    if camera && heic.is_none() {
+        let preview = encode_scaled(&img, 1920.min(w / 2), 85)?;
+        jpeg = exif_write::with_mpf_preview(&jpeg, &preview);
+    }
     let jpg_path = folder.join(format!("{stem}.jpg"));
     fs::write(&jpg_path, &jpeg)?;
 
-    if let Some(enc) = heic
-        && rng.f64() < cfg.heic_fraction
-    {
+    if let Some(enc) = heic {
         let heic_path = folder.join(format!("{stem}.heic"));
         if to_heic(enc, &jpg_path, &heic_path) {
             fs::remove_file(&jpg_path)?;
@@ -687,6 +713,20 @@ fn write_photo(
         }
     }
     Ok(false)
+}
+
+/// `img` shrunk to `long_edge` on its longer side, as JPEG.
+fn encode_scaled(img: &image::RgbImage, long_edge: u32, quality: u8) -> anyhow::Result<Vec<u8>> {
+    let (w, h) = img.dimensions();
+    let (tw, th) = if w >= h {
+        (long_edge, (h * long_edge / w).max(1))
+    } else {
+        ((w * long_edge / h).max(1), long_edge)
+    };
+    let small = image::imageops::resize(img, tw, th, image::imageops::FilterType::Triangle);
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, quality).encode_image(&small)?;
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -702,6 +742,8 @@ mod tests {
             gps: Some((48.8566, -2.3522)),
             width: 64,
             height: 48,
+            orientation: 6,
+            thumbnail: Some(&encode_scaled(&image::RgbImage::new(64, 48), 16, 75).unwrap()),
         });
         let img = image::RgbImage::new(64, 48);
         let mut jpeg = Vec::new();
@@ -724,5 +766,24 @@ mod tests {
             .get_field(::exif::Tag::GPSLongitudeRef, ::exif::In::PRIMARY)
             .unwrap();
         assert!(lon_ref.display_value().to_string().contains('W'));
+        let turn = data
+            .get_field(::exif::Tag::Orientation, ::exif::In::PRIMARY)
+            .unwrap();
+        assert_eq!(turn.value.get_uint(0), Some(6));
+        let at = data
+            .get_field(::exif::Tag::JPEGInterchangeFormat, ::exif::In::THUMBNAIL)
+            .and_then(|f| f.value.get_uint(0))
+            .unwrap() as usize;
+        assert_eq!(
+            &data.buf()[at..at + 2],
+            &[0xFF, 0xD8],
+            "IFD1 thumbnail is a JPEG"
+        );
+        // An MPF preview after the picture leaves the picture readable.
+        let preview = encode_scaled(&image::RgbImage::new(64, 48), 32, 75).unwrap();
+        let mpf = exif_write::with_mpf_preview(&jpeg, &preview);
+        assert!(mpf.ends_with(&preview));
+        let decoded = image::load_from_memory(&mpf).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (64, 48));
     }
 }

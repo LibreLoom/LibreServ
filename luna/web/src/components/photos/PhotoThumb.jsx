@@ -3,8 +3,11 @@ import PropTypes from "prop-types";
 import { Check, Play } from "lucide-react";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import PrivateBadge from "../private/PrivateBadge.jsx";
+import { gridThumbSrcSet, isLunadThumb } from "./thumbSrc.js";
 
 const LONG_PRESS_MS = 450;
+/** Cells that fade in one after another when a grid first appears. */
+const CASCADE_CELLS = 30;
 
 /**
  * One photos photo as lunad lists it (`member_photo_json` in
@@ -54,7 +57,10 @@ const LONG_PRESS_MS = 450;
  *   index?: number,
  *   staggerIndex?: number,
  *   style?: object,
+ *   sizes?: string,
  * }} props
+ *   sizes: the cell's width for `srcset`; lunad thumbnails then come
+ *   grid-sized where that is enough.
  */
 function PhotoThumb({
   photo,
@@ -68,8 +74,10 @@ function PhotoThumb({
   index = undefined,
   staggerIndex = undefined,
   style = undefined,
+  sizes = undefined,
 }) {
   const [loaded, setLoaded] = useState(false);
+  const srcSet = sizes && isLunadThumb(photo.thumb) ? gridThumbSrcSet(photo.thumb) : undefined;
   const longTimer = useRef(/** @type {ReturnType<typeof setTimeout>|null} */ (null));
   const longFired = useRef(false);
   const toggledOnPointerDown = useRef(false);
@@ -77,7 +85,9 @@ function PhotoThumb({
   const animationStyle =
     typeof stagger === "number"
       ? {
-          animationDelay: `${Math.min(stagger, 30) * 35}ms`,
+          // Only the first screen cascades. Clamping instead held every
+          // later cell (a page loaded after a scroll) invisible for 1 s.
+          animationDelay: `${stagger < CASCADE_CELLS ? stagger * 35 : 0}ms`,
           animationFillMode: "backwards",
           ...style,
         }
@@ -158,6 +168,8 @@ function PhotoThumb({
       {photo.thumb ? (
         <img
           src={photo.thumb}
+          srcSet={srcSet}
+          sizes={srcSet ? sizes : undefined}
           alt=""
           loading="lazy"
           decoding="async"
@@ -215,6 +227,7 @@ PhotoThumb.propTypes = {
   index: PropTypes.number,
   staggerIndex: PropTypes.number,
   style: PropTypes.object,
+  sizes: PropTypes.string,
 };
 
 PhotoThumb.defaultProps = {
@@ -228,4 +241,5 @@ PhotoThumb.defaultProps = {
   index: undefined,
   staggerIndex: undefined,
   style: undefined,
+  sizes: undefined,
 };

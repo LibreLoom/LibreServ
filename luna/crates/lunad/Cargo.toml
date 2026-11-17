@@ -15,6 +15,8 @@ blake3.workspace = true
 axum.workspace = true
 image.workspace = true
 fast_image_resize.workspace = true
+# Thumbnails: JPEG decoded at 1/2–1/8 size inside the IDCT (D5).
+jpeg-decoder = { version = "0.3.2", default-features = false }
 kamadak-exif.workspace = true
 include_dir.workspace = true
 jsonwebtoken.workspace = true
