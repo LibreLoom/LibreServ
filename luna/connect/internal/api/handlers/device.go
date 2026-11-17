@@ -328,13 +328,15 @@ func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
 		_ = h.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, oldHost)
 	}
 	if err := h.Tunnel.ConfigureIngress(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tunnelID, newHost, "http://127.0.0.1:"+itoa(port)); err != nil {
+		slog.Error("domain: move ingress failed", "device", dev.ID, "subdomain", sub, "err", err)
 		releaseClaim()
-		JSONError(w, http.StatusBadGateway, "Could not move the address. Try again.")
+		JSONError(w, providerFailureStatus, "Could not move the address. Try again.")
 		return
 	}
 	if err := h.DNS.UpsertCNAME(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, newHost, tunnelID+".cfargotunnel.com"); err != nil {
+		slog.Error("domain: move DNS record failed", "device", dev.ID, "subdomain", sub, "err", err)
 		releaseClaim()
-		JSONError(w, http.StatusBadGateway, "Could not publish the new address. Try again.")
+		JSONError(w, providerFailureStatus, "Could not publish the new address. Try again.")
 		return
 	}
 	_, _ = h.DB.Exec(`UPDATE devices SET name = ? WHERE id = ?`, sub, dev.ID)

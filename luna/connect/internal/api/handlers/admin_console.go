@@ -283,7 +283,7 @@ func (h AdminConsoleHandler) AddAccountCredit(w http.ResponseWriter, r *http.Req
 	}
 	cust, err := billing.EnsureCustomer(email, customerID)
 	if err != nil {
-		JSONError(w, http.StatusBadGateway, "Could not reach Stripe to add that credit. Try again in a minute.")
+		JSONError(w, providerFailureStatus, "Could not reach Stripe to add that credit. Try again in a minute.")
 		return
 	}
 	if cust != customerID {
@@ -299,13 +299,13 @@ func (h AdminConsoleHandler) AddAccountCredit(w http.ResponseWriter, r *http.Req
 		case errors.Is(err, billing.ErrCreditAmountInvalid):
 			JSONError(w, http.StatusBadRequest, "Enter an amount greater than zero.")
 		default:
-			JSONError(w, http.StatusBadGateway, "Stripe did not accept that credit. Try again in a minute.")
+			JSONError(w, providerFailureStatus, "Stripe did not accept that credit. Try again in a minute.")
 		}
 		return
 	}
 	credits, err := billing.CreditSummary(cust)
 	if err != nil {
-		JSONError(w, http.StatusBadGateway, "Credit added, but the new balance could not be read from Stripe.")
+		JSONError(w, providerFailureStatus, "Credit added, but the new balance could not be read from Stripe.")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]any{"ok": true, "credits": credits})
