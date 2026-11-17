@@ -688,6 +688,9 @@ function metaWanted(query, headers) {
 const ATTACH_EXTS = { jpg: "jpg", jpeg: "jpg", png: "png", gif: "gif", webp: "webp", pdf: "pdf" };
 const ATTACH_KIND_MESSAGE = "Attach a photo (JPG, PNG, GIF, or WebP) or a PDF.";
 
+/** The daemon's own ceiling on one file, used to judge a chunk range. */
+const MAX_FILE_BYTES = 1024 ** 4;
+
 /** A random lowercase-hex string, as the daemon mints its file names. */
 function mintHex(len) {
   const alphabet = "0123456789abcdef";
@@ -1572,15 +1575,22 @@ function uploadGate(r) {
 post("/s/:token/upload", ({ world, params, headers, body }) => {
   // The daemon's share limiter turns away a client that starts too many
   // sessions (5 a minute), before it even resolves the link.
-  const starts = (world.uploadStarts ||= []);
-  const since = nowSec() - 60;
-  while (starts.length && starts[0] < since) starts.shift();
-  if (starts.length >= 5)
+  // A fixed window, not a sliding one: the count resets when the minute that
+  // opened the window is over, so five starts just before the turn and five
+  // just after all pass.
+  const now = nowSec();
+  const bucket = (world.uploadWindow ||= { count: 0, start: 0 });
+  if (bucket.count === 0 || now - bucket.start >= 60) {
+    bucket.count = 1;
+    bucket.start = now;
+  } else if (bucket.count >= 5) {
     return fail(
       429,
       "Too many uploads from this address just now. Wait a minute and try again.",
     );
-  starts.push(nowSec());
+  } else {
+    bucket.count += 1;
+  }
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
   const denied = uploadGate(r);
@@ -1671,17 +1681,35 @@ put("/s/:token/upload/:id", ({ world, params, headers, raw }) => {
   const spec = String(headers["content-range"] ?? "");
   if (!spec)
     return fail(400, "Each chunk needs a Content-Range header (bytes start-end/total).");
-  // `strip_prefix("bytes ")` is literal: two spaces is not a range. A suffix
-  // form (`bytes -100/200`) counts back from the total.
+  // `strip_prefix("bytes ")` is literal: two spaces is not a range, and
+  // everything from the `/` on (the total) is dropped. What is left is parsed
+  // against the daemon's one-terabyte file ceiling, not against this session —
+  // so a suffix form counts back from a terabyte and lands far past the file,
+  // where its length no longer matches and it is refused for that instead.
   const rest = spec.startsWith("bytes ") ? spec.slice(6) : null;
-  const suffix = rest ? /^-(\d+)\/(\d+)$/.exec(rest) : null;
-  const range = !suffix && rest ? /^(\d+)-(\d+)(?:\/.*)?$/.exec(rest) : null;
-  if (!suffix && !range) return fail(400, "That chunk range isn't valid.");
-  const start = suffix ? Math.max(Number(suffix[2]) - Number(suffix[1]), 0) : Number(range[1]);
-  const end = suffix ? Number(suffix[2]) - 1 : Number(range[2]);
-  // lunad reads the range up to the `/`, so a missing total is fine, but a
-  // start past its end is refused rather than measured.
-  if (start > end) return fail(400, "That chunk range isn't valid.");
+  const range = rest ? rest.split("/")[0] : null;
+  if (range === null) return fail(400, "That chunk range isn't valid.");
+  const pair = /^(\d*)-(\d*)$/.exec(range);
+  if (!pair) return fail(400, "That chunk range isn't valid.");
+  const ceiling = MAX_FILE_BYTES;
+  let start;
+  let end;
+  if (pair[1] === "") {
+    const n = Number(pair[2]);
+    if (!pair[2] || !Number.isSafeInteger(n) || n === 0) return fail(400, "That chunk range isn't valid.");
+    start = Math.max(ceiling - n, 0);
+    end = ceiling - 1;
+  } else {
+    start = Number(pair[1]);
+    if (!Number.isSafeInteger(start)) return fail(400, "That chunk range isn't valid.");
+    if (pair[2] === "") end = ceiling - 1;
+    else {
+      end = Number(pair[2]);
+      if (!Number.isSafeInteger(end)) return fail(400, "That chunk range isn't valid.");
+    }
+  }
+  if (start > end || start >= ceiling) return fail(400, "That chunk range isn't valid.");
+  end = Math.min(end, ceiling - 1);
   const expected = end - start + 1;
   const got = raw ? raw.size ?? raw.byteLength ?? raw.length ?? 0 : 0;
   // Every byte is counted once: a short body would leave a hole that is written
@@ -1689,7 +1717,7 @@ put("/s/:token/upload/:id", ({ world, params, headers, raw }) => {
   if (got !== expected) return fail(400, "The chunk size doesn't match its range.");
   // `upload_chunk_bytes` is the memory budget for one piece; a bigger body is
   // refused with its own status before the bytes are ever written.
-  if (got > 8 * 1024 * 1024)
+  if (got > 16 * 1024 * 1024)
     return fail(
       413,
       "That upload chunk is too large for the free memory on this Luna. Try a smaller piece, or free some space and try again.",
