@@ -1487,6 +1487,7 @@ function serdeHint(value) {
  * @param {string} structName
  */
 function writeShape(body, fields, structName) {
+  const values = {};
   const dataErr = (detail) =>
     fail(422, `Failed to deserialize the JSON body into the target type: ${detail}`);
   const one = (kind, value) => {
@@ -1502,37 +1503,42 @@ function writeShape(body, fields, structName) {
     return null;
   };
   if (Array.isArray(body)) {
-    // A derived struct reads a sequence positionally, in declaration order.
-    if (body.length > fields.length) return { err: dataErr("trailing characters") };
-    if (body.length < fields.length && fields[body.length][1] !== "optional")
-      return {
-        err: dataErr(
-          `invalid length ${body.length}, expected struct ${structName} with ${fields.length} elements`,
-        ),
-      };
-    const values = {};
-    for (let i = 0; i < body.length; i += 1) {
+    // A derived struct reads a sequence positionally, so each element is
+    // checked as it is read, and only then does the reader notice a sequence
+    // that ran out or one with something left over.
+    for (let i = 0; i < Math.min(body.length, fields.length); i += 1) {
       const [name, kind] = fields[i];
       if (kind === "optional" && body[i] === null) continue;
       const bad = one(kind, body[i]);
       if (bad) return { err: dataErr(bad) };
       values[name] = body[i];
     }
+    if (body.length > fields.length) return { err: dataErr("trailing characters") };
+    if (body.length < fields.length)
+      return {
+        err: dataErr(
+          `invalid length ${body.length}, expected struct ${structName} with ${fields.length} ${
+            fields.length === 1 ? "element" : "elements"
+          }`,
+        ),
+      };
     return { values };
   }
   if (!body || typeof body !== "object") {
     return { err: dataErr(`invalid type: ${serdeHint(body)}, expected struct ${structName}`) };
   }
-  const values = {};
-  for (const [name, kind] of fields) {
-    if (body[name] === undefined) {
-      if (kind === "optional") continue;
-      return { err: dataErr(`missing field \`${name}\``) };
-    }
+  for (const key of Object.keys(body)) {
+    const field = fields.find(([name]) => name === key);
+    if (!field) continue;
+    const [name, kind] = field;
     if (kind === "optional" && body[name] === null) continue;
     const bad = one(kind, body[name]);
     if (bad) return { err: dataErr(bad) };
     values[name] = body[name];
+  }
+  for (const [name, kind] of fields) {
+    if (kind === "optional" || body[name] !== undefined) continue;
+    return { err: dataErr(`missing field \`${name}\``) };
   }
   return { values };
 }
@@ -1761,15 +1767,6 @@ post("/s/:token/move", ({ world, params, headers, body }) => {
     const level = treeFolder(tree, segments.slice(0, -1));
     const name = segments[segments.length - 1];
     const at = level ? level.findIndex((e) => e.name === name) : -1;
-    if (at >= 0 && !destIsDir) {
-        results.push({
-        path: rawPath,
-        ok: false,
-        status: 500,
-        error: "Luna couldn't do that. Check the drive and try again.",
-      });
-      continue;
-    }
     if (at < 0) {
       results.push({
         path: rawPath,
@@ -1780,7 +1777,8 @@ post("/s/:token/move", ({ world, params, headers, body }) => {
       continue;
     }
     // `move_rel` refuses when the item would land where it already is, or
-    // inside itself — the destination with the leaf, not the folder alone.
+    // inside itself — the destination with the leaf, not the folder alone —
+    // before it resolves anything about the destination.
     const toRel = [...destSegments, name].join("/");
     const fromRel = segments.join("/");
     if (toRel === fromRel || toRel.startsWith(`${fromRel}/`)) {
@@ -1789,6 +1787,17 @@ post("/s/:token/move", ({ world, params, headers, body }) => {
         ok: false,
         status: 400,
         error: "That name isn't allowed here.",
+      });
+      continue;
+    }
+    // A destination that is a file meets `ENOTDIR` inside the walk, which the
+    // daemon answers with its catch-all rather than a wording of its own.
+    if (!destIsDir) {
+      results.push({
+        path: rawPath,
+        ok: false,
+        status: 500,
+        error: "Luna couldn't do that. Check the drive and try again.",
       });
       continue;
     }
