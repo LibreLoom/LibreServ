@@ -1566,8 +1566,6 @@ const guestNew = (kind) => ({ world, params, headers, body }) => {
     // a name past what a filesystem takes fails as an ordinary write error.
     if (isInternalName(segments.join("/")) || segments[0] === ".luna-trash")
       return fail(400, "That name isn't allowed here.");
-    if (new TextEncoder().encode(name).length > 255)
-      return fail(500, "Luna couldn't do that. Check the drive and try again.");
   } else if (!safeName(name) || isInternalName(name)) {
     // `files::create` holds the leaf to `safe_name` and the temp-name bar; a
     // padded name still passes, because only the check trims, not the path.
@@ -1575,6 +1573,10 @@ const guestNew = (kind) => ({ world, params, headers, body }) => {
   }
   const level = treeFolder(guestTree(world, params.token, r.s), segments.slice(0, -1));
   if (!level) return fail(404, "Luna can't find that anymore. Refresh and try again.");
+  // Only once the parent is there does the write itself meet the name, so an
+  // over-long folder name is an ordinary write failure rather than a refusal.
+  if (kind === "dir" && new TextEncoder().encode(name).length > 255)
+    return fail(500, "Luna couldn't do that. Check the drive and try again.");
   if (level.some((e) => e.name === name))
     return fail(409, "An item with this name is already here. Choose another name.");
   level.push({
@@ -1662,11 +1664,11 @@ post("/s/:token/move", ({ world, params, headers, body }) => {
   const trashDest = trashProbe(r.s, destSegments);
   if (trashDest) return trashDest;
   const destRelBase = destSegments.join("/");
-  if (destRelBase && !linkReaches(world, r.l, destRelBase, r.s.drive_id, r.s.path))
-    return fail(404, "That item isn't part of this shared link.");
   const destIsDir = destSegments.length === 0 || Boolean(treeFolder(tree, destSegments));
   const destExists = destSegments.length === 0 || Boolean(nodeAt(tree, destSegments));
   if (!destExists) return fail(404, "Luna can't find that anymore. Refresh and try again.");
+  if (destRelBase && !linkReaches(world, r.l, destRelBase, r.s.drive_id, r.s.path))
+    return fail(404, "That item isn't part of this shared link.");
   const destLevel = destSegments.length === 0 ? tree : treeFolder(tree, destSegments);
   const results = [];
   for (const rawPath of body.paths) {
