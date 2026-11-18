@@ -1586,19 +1586,29 @@ post("/s/:token/upload", ({ world, params, headers, body }) => {
   // Axum deserializes the body before the handler runs, so a body that is not
   // the shape the route declares is refused before the limiter counts it and
   // before the link is resolved — no session, no slot used.
-  const bodyErr = (field, what) =>
-    fail(
-      400,
-      `Failed to deserialize the JSON body into the target type: ${what} \`${field}\``,
-    );
+  // A body that is the wrong shape is a data error, which axum answers with
+  // 422 — a body that is not JSON at all would be a 400, but it never reaches
+  // here because the fake's engine already parsed it.
+  const shapeHint = (value) => {
+    if (value === null) return "null";
+    if (Array.isArray(value)) return "sequence";
+    if (typeof value === "number") return `integer \`${value}\``;
+    if (typeof value === "string") return "a string";
+    if (typeof value === "boolean") return "a boolean";
+    return "a map";
+  };
+  const dataErr = (detail) =>
+    fail(422, `Failed to deserialize the JSON body into the target type: ${detail}`);
   if (!body || typeof body !== "object" || Array.isArray(body))
-    return fail(400, "Failed to deserialize the JSON body into the target type.");
-  if (typeof body.name !== "string") return bodyErr("name", "missing field");
-  if (body.size === undefined || body.size === null) return bodyErr("size", "missing field");
+    return dataErr(`invalid type: ${shapeHint(body)}, expected struct PublicUploadCreate`);
+  if (body.name === undefined) return dataErr("missing field `name`");
+  if (typeof body.name !== "string")
+    return dataErr(`name: invalid type: ${shapeHint(body.name)}, expected a string`);
+  if (body.size === undefined) return dataErr("missing field `size`");
   if (typeof body.size !== "number" || !Number.isSafeInteger(body.size) || body.size < 0)
-    return bodyErr("size", "invalid type: expected u64, found a value for");
+    return dataErr(`size: invalid type: ${shapeHint(body.size)}, expected u64`);
   if (body.path !== undefined && body.path !== null && typeof body.path !== "string")
-    return bodyErr("path", "invalid type: expected a string, found a value for");
+    return dataErr(`path: invalid type: ${shapeHint(body.path)}, expected a string`);
   // The daemon's share limiter turns away a client that starts too many
   // sessions (5 a minute), before it even resolves the link.
   // A fixed window, not a sliding one: the count resets when the minute that
@@ -1628,7 +1638,10 @@ post("/s/:token/upload", ({ world, params, headers, body }) => {
   if (size > 1024 ** 4) return fail(400, "Luna can't accept files larger than 1 TB.");
   const name = safeName(body.name);
   if (!name) return fail(400, "That file name can't be used. Try renaming it.");
-  const dest = String(body.path ?? "").trim().replace(/^\/+|\/+$/g, "");
+  // The daemon passes the path through untouched, and a leading slash is read
+  // as "outside this link" rather than trimmed away.
+  const dest = String(body.path ?? "").trim().replace(/\/+$/g, "");
+  if (dest.startsWith("/")) return fail(400, "That folder isn't part of this shared link.");
   const caps = capSet(r.l.caps);
   // `upload_dest` resolves the destination before a session exists, so a dead
   // drive, a folder outside the link or a file where a folder was named all
