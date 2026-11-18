@@ -244,7 +244,9 @@ export default function PhotoLightbox({
     }
   }, []);
 
-  useEffect(() => lockBodyScroll(), []);
+  // Before the first paint: the page must never scroll under a lightbox
+  // already on screen.
+  useLayoutEffect(() => lockBodyScroll(), []);
 
 
 
