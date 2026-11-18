@@ -13,20 +13,28 @@ export const MIN_SEARCH_LENGTH = 2;
  * @param {string} q
  * @param {"all" | "dir" | "file"} [kind]
  */
-export function searchUrl(q, kind = "all") {
-  const base = `/api/v1/search?q=${encodeURIComponent(q)}`;
-  return kind === "all" ? base : `${base}&kind=${kind}`;
+export function searchUrl(q, kind = "all", { quick = false } = {}) {
+  let url = `/api/v1/search?q=${encodeURIComponent(q)}`;
+  if (kind !== "all") url += `&kind=${kind}`;
+  // Names and text only: the neural passes cost about a second per new query.
+  if (quick) url += "&quick=1";
+  return url;
 }
 
 /**
+ * How a hit matched: its name, a near miss of its name, words inside the
+ * file, a passage about the same thing, or what a photo shows.
+ * @typedef {"name" | "close" | "content" | "meaning" | "photo"} SearchMatch
  * @typedef {{
  *   drive_id: string, path: string, parent: string, name: string,
  *   kind: string, size: number, modified: number,
- *   match: "name" | "close", private?: boolean,
+ *   match: SearchMatch, private?: boolean,
+ *   snippet?: { text: string, hit: boolean }[] | null,
  * }} SearchHit
  * @typedef {{
  *   scanning: boolean, drives_total: number, drives_done: number,
  *   drives_failed?: number, dirs_indexed: number | null,
+ *   contents_reading?: boolean, contents_left?: number | null,
  * }} ScanStatus
  */
 

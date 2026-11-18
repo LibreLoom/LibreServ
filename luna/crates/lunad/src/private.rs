@@ -267,7 +267,7 @@ fn is_disk_id(id: &str) -> bool {
     id.len() == 26
         && id
             .bytes()
-            .all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b))
+            .all(|b| b.is_ascii_alphabetic() || (b'2'..=b'7').contains(&b))
 }
 
 /// The nearest private item at or above a path, for the access rule.
@@ -296,7 +296,11 @@ fn boundary_in(r: &Rows, rel: &str) -> Option<Boundary> {
     for seg in rel.split('/').filter(|s| !s.is_empty() && *s != ".") {
         // A path that names the disk entry itself is not how anyone reaches
         // a private item: it belongs to nobody.
-        if seg.strip_prefix(&lead).is_some_and(is_disk_id) {
+        if seg
+            .get(..lead.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(&lead))
+            && seg.get(lead.len()..).is_some_and(is_disk_id)
+        {
             return Some(Boundary {
                 path: join(&logical, seg),
                 owner: SEALED.to_string(),
@@ -824,7 +828,10 @@ pub fn give_orphan(
             continue;
         }
         let mut failed = false;
-        for item in under(root, "").into_iter().filter(|item| item.owner == owner) {
+        for item in under(root, "")
+            .into_iter()
+            .filter(|item| item.owner == owner)
+        {
             match set_owner(root, &item.path, target) {
                 Ok(true) => report.moved += 1,
                 Ok(false) => {}
@@ -1701,7 +1708,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sharing_and_gallery_use_effective_private_access() {
+    async fn sharing_and_photos_use_effective_private_access() {
         let (dir, state) = fixture();
         {
             let conn = state.db.lock().unwrap();
@@ -1727,13 +1734,13 @@ mod tests {
         .await;
         assert_eq!(status, 200);
         assert_eq!(body["members"][0]["effective_caps"], "view");
-        let dconn = crate::gallery::open_drive_db(&dir.path().join("b")).unwrap();
+        let dconn = crate::photos::open_drive_db(&dir.path().join("b")).unwrap();
         dconn.execute("INSERT INTO photos (path,name,size,mtime,camera_make,camera_model) VALUES ('Photos/a.jpg','a.jpg',1,1,'TestCamera','Owned')", []).unwrap();
         let (status, body) = request(
             &state,
             "carol",
             "GET",
-            "/api/v1/gallery/cameras",
+            "/api/v1/photos/cameras",
             serde_json::json!({}),
         )
         .await;

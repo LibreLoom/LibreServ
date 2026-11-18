@@ -17,4 +17,3 @@ luna_cloudflared_ensure "$ROOTFS/usr/local/bin/cloudflared" || true
 mkdir -p "$ROOTFS/var/lib/luna"
 find "$ROOTFS/var/lib/luna" -mindepth 1 -maxdepth 1 ! -name chrony -exec rm -rf {} +
 mkdir -p "$ROOTFS/var/lib/luna/chrony"
-printf 'rootfs ready in %s\n' "$ROOTFS"

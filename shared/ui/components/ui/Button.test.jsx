@@ -46,32 +46,41 @@ describe("Button loading", () => {
     expect(button.querySelector('[data-slot="spinner"]')).toBeNull();
   });
 
-  it("icon buttons stage the spinner below the clip and raise it while loading", () => {
+  it("icon buttons mount the spinner on first load, raise it, and park it below the clip after", () => {
     const { rerender } = render(
       <Button size="icon" variant="ghost" surface="secondary" aria-label="Save">
         <svg data-testid="save-icon" />
       </Button>,
     );
     const button = screen.getByRole("button", { name: "Save" });
-    // Idle: spinner is mounted but parked below the overflow-hidden clip.
-    const spinnerWrap = button.querySelector('[data-slot="spinner"]').parentElement;
-    expect(spinnerWrap.className).toMatch(/translate-y-full/);
-    expect(spinnerWrap).toHaveAttribute("aria-hidden", "true");
-    // Loading: icon slides up out, spinner rises in.
+    // Idle and never loaded: no spinner layer at all (lists mount hundreds).
+    expect(button.querySelector('[data-slot="spinner"]')).toBeNull();
+    // Loading: icon slides up out, spinner rises in from below the clip.
     rerender(
       <Button size="icon" variant="ghost" surface="secondary" loading aria-label="Save">
         <svg data-testid="save-icon" />
       </Button>,
     );
     const iconWrap = button.querySelector('[data-testid="save-icon"]').parentElement;
+    const spinnerWrap = button.querySelector('[data-slot="spinner"]').parentElement;
     expect(iconWrap.className).toMatch(/-translate-y-full/);
     expect(spinnerWrap.className).toMatch(/translate-y-0/);
+    expect(spinnerWrap.className).toMatch(/starting:translate-y-full/);
     expect(spinnerWrap).toHaveAttribute("aria-hidden", "false");
+    // Done: the spinner stays mounted and slides back below the clip.
+    rerender(
+      <Button size="icon" variant="ghost" surface="secondary" aria-label="Save">
+        <svg data-testid="save-icon" />
+      </Button>,
+    );
+    expect(button.querySelector('[data-slot="spinner"]').parentElement).toBe(spinnerWrap);
+    expect(spinnerWrap.className).toMatch(/(^|\s)translate-y-full/);
+    expect(spinnerWrap).toHaveAttribute("aria-hidden", "true");
   });
 
-  it("pauses the hidden spinner dots on idle icon buttons and runs them while loading", () => {
+  it("runs the spinner dots while loading and pauses them once done", () => {
     const { rerender } = render(
-      <Button size="iconSm" variant="ghost" surface="secondary" aria-label="Save">
+      <Button size="iconSm" variant="ghost" surface="secondary" loading aria-label="Save">
         <svg />
       </Button>,
     );
@@ -81,16 +90,16 @@ describe("Button loading", () => {
       Array.from(button.querySelectorAll("span.comet-spinner__dot"))
     );
     expect(dots()).toHaveLength(8);
-    dots().forEach((d) => expect(d.style.animation).toBe("none"));
+    dots().forEach((d) => expect(d.style.animation).not.toBe("none"));
     const wrap = button.querySelector('[data-slot="spinner"]').parentElement;
-    expect(wrap.className).not.toMatch(/will-change-transform/);
+    expect(wrap.className).toMatch(/will-change-transform/);
     rerender(
-      <Button size="iconSm" variant="ghost" surface="secondary" loading aria-label="Save">
+      <Button size="iconSm" variant="ghost" surface="secondary" aria-label="Save">
         <svg />
       </Button>,
     );
-    dots().forEach((d) => expect(d.style.animation).not.toBe("none"));
-    expect(wrap.className).toMatch(/will-change-transform/);
+    dots().forEach((d) => expect(d.style.animation).toBe("none"));
+    expect(wrap.className).not.toMatch(/will-change-transform/);
   });
 
   it("forwards ref and autoFocus to the underlying button element", () => {

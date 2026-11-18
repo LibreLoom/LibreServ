@@ -80,7 +80,7 @@ export default [
         w.sharing.withMe.push({ id: `wm${i}`, kind: "path", drive_id: "d1", drive_label: "Family photos", path: `Shared/Folder ${i + 1}`, album_id: "", name: `Folder ${i + 1}`, is_file: i % 4 === 0, caps: i % 3 ? "view" : "full", shared_by: "Max", exists: true });
       }
     },
-    check: ["Both tabs scroll and the table stays aligned", "Search 'Trip 7' narrows both lists; a nonsense search says 'Nothing matches'", "Press / outside a field: the Find a shared item box gets focus", "Hover a row: no white hairlines between the cells", "Long name is cut off cleanly", "Phone width shows cards, not a squashed table"],
+    check: ["Both tabs scroll and the table stays aligned", "Search 'Trip 7' narrows both lists; a nonsense search says 'Nothing matches'", "Press / outside a field: the Find a shared item box gets focus", "Hover a row: no hairlines between the cells", "Long name is cut off cleanly", "Phone width shows cards, not a squashed table"],
   },
   {
     id: "shared/loading",
@@ -105,7 +105,7 @@ export default [
         { id: "d", kind: "path", drive_id: "d1", drive_label: "Family photos", path: "Docs/plan.pdf", album_id: "", name: "plan.pdf", is_file: true, caps: "view", shared_by: "", exists: true },
       ] };
     },
-    check: ["The unplugged drive's item says 'Unavailable' and cannot be opened", "A missing 'Shared by' shows a dash", "Leave asks first, then the row disappears and a toast confirms", "Open album goes to Photos at that album"],
+    check: ["The unplugged drive's item says 'Unavailable' and cannot be opened", "A missing 'Shared by' shows 'Unknown'", "Leave asks first, then the row disappears and a toast confirms", "Open album goes to Photos at that album"],
   },
   {
     id: "shared/leave-fails",
@@ -174,7 +174,7 @@ export default [
     title: "Sheet cannot load the sharing details",
     url: "/shared",
     seed: (w) => { subject(w, {}); },
-    faults: [{ match: "GET /api/v1/access/subject", mode: "403", message: "You don't have access to share this." }],
+    faults: [{ match: "GET /api/v1/access/subject", mode: "403", message: "You don't have access to this." }],
     check: ["Manage opens a sheet that says you don't have access", "Close works"],
   },
   {
@@ -240,7 +240,7 @@ export default [
     id: "share/album-sheet",
     area: "Sharing sheet",
     title: "Sharing an album",
-    url: "/gallery#albums",
+    url: "/photos#albums",
     seed: (w) => { people(w, 2); w.photos = makePhotos(20); albumSubject(w, "al1", "Weekend"); },
     check: ["Share button on the album opens a sheet titled Album", "Only 'Can view' and 'Can view + add photos' are offered", "Add Sam: the album now shows as shared in Photos"],
   },

@@ -23,7 +23,7 @@ const AUTOSAVE_RETRY_MS = 5_000;
 const AUTOSAVE_TICK_MS = 250;
 
 const HYDRATE_TIMEOUT_MS = 10_000;
-const HYDRATE_POLL_MS = 50;
+const HYDRATE_POLL_MS = 10;
 
 /**
  * Fullscreen plaintext/markdown editor — the writable counterpart to the
@@ -255,7 +255,9 @@ function EditorSession({
         : ""
       : connStatus === "connecting" || connStatus === "reconnecting"
         ? "Connecting…"
-        : "Offline — your changes stay here and sync when Luna reconnects";
+        : canWrite
+          ? "Live editing with others stopped. Luna keeps trying to save your changes."
+          : "Live updates stopped. Reopen the file to see new changes.";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -355,23 +357,23 @@ function EditorSession({
       <div className="flex h-9 shrink-0 items-center justify-between gap-3 border-t border-secondary/15 px-4 text-xs">
         {/* surface-scan: ignore-next-line -- status bar readout, mono is its face */}
         <span className="font-mono">
-          {error
-            ? "Not loaded"
-            : `Ln ${stats.line}, Col ${stats.col} · ${stats.words} ${stats.words === 1 ? "word" : "words"}`}
+          Ln {stats.line}, Col {stats.col} · {stats.words}{" "}
+          {stats.words === 1 ? "word" : "words"}
         </span>
         <span className="truncate">
-          {!error &&
-            (connNote ||
-              (isMarkdown ? (
-                <TermHint
-                  content="Markdown is a plain-text way to add formatting — headings, lists, links. In Write mode you see the result as you type; Source shows the raw marks."
-                  surface="primary"
-                >
-                  Markdown
-                </TermHint>
-              ) : (
-                "Plain text"
-              )))}
+          {connNote ||
+            (isMarkdown ? (
+              <TermHint
+                content={canWrite
+                  ? "Markdown is plain text with marks for headings, lists, and links. Write shows the result as you type, and Source shows the marks."
+                  : "Markdown is plain text with marks for headings, lists, and links. Read shows the result, and Source shows the marks."}
+                surface="primary"
+              >
+                Markdown
+              </TermHint>
+            ) : (
+              "Plain text"
+            ))}
         </span>
       </div>
     </div>

@@ -137,7 +137,7 @@ export default function AdminSecurityPage() {
           <dl className="space-y-2 text-sm">
             <div className="flex justify-between gap-4">
               <dt className="text-muted-foreground">Email</dt>
-              <dd className="font-mono">{account?.email || "—"}</dd>
+              <dd className="font-mono">{account?.email || "Unknown"}</dd>
             </div>
             <div className="flex justify-between items-center gap-4">
               <dt className="text-muted-foreground">Two-factor authentication</dt>
@@ -257,7 +257,7 @@ export default function AdminSecurityPage() {
           <CardTitle className="flex items-center gap-2">
             <Users className="h-4 w-4" /> Admin accounts
           </CardTitle>
-          <CardDescription>People who can mint device tokens and manage this Connect.</CardDescription>
+          <CardDescription>People who can create device tokens and manage this Luna Connect site.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {adminsError && <p className="text-sm text-error">{adminsError}</p>}

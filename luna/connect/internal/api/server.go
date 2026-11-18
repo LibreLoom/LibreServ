@@ -47,6 +47,9 @@ func (s *Server) ProcessRetention(now int64) {
 	handlers.ProcessRetention(s.deps, now)
 }
 
+// SweepOrphanTunnels deletes Cloudflare tunnels that no Luna owns any more.
+func (s *Server) SweepOrphanTunnels() { handlers.SweepOrphanTunnels(s.deps) }
+
 func (s *Server) routes() {
 	r := chi.NewRouter()
 	r.Use(handlers.SecurityHeaders)
@@ -112,7 +115,8 @@ func (s *Server) routes() {
 					r.Group(func(r chi.Router) {
 						r.Use(acct.RequireVerifiedEmail)
 						r.Get("/billing/usage", acct.Usage)
-						r.Post("/billing/attach-card", acct.AttachCard)
+						r.Post("/billing/checkout", acct.StartCheckout)
+						r.Post("/billing/checkout/complete", acct.CompleteCheckout)
 						r.Post("/billing/cancel", acct.CancelBilling)
 						r.Get("/account/devices", acct.Devices)
 						r.Get("/account/devices/{deviceID}/code", acct.RevealDeviceCode)
@@ -131,7 +135,6 @@ func (s *Server) routes() {
 						r.Get("/onboarding/status", onb.Status)
 						r.Post("/onboarding/backups", onb.Backups)
 						r.Post("/onboarding/progress", onb.SetOnboardingProgress)
-						r.Post("/account/verify-human", onb.VerifyHuman)
 						r.Post("/account/diy-token", onb.MintDIY)
 					})
 				})
@@ -185,6 +188,7 @@ func (s *Server) routes() {
 			r.Post("/admin/device-codes", onb.AdminMint)
 			r.With(handlers.LimitJSONBody).Post("/admin/device-codes/bulk", onb.AdminMintBulk)
 			r.Delete("/admin/device-codes/{codeID}", console.RevokeDeviceCode)
+			r.Post("/admin/device-codes/{codeID}/unlink", console.UnlinkDeviceCode)
 			r.Post("/admin/device-codes/{codeID}/purge", console.PurgeDeviceCode)
 			r.Get("/admin/providers", prov.ListProviders)
 			r.With(handlers.LimitJSONBody).Post("/admin/providers", prov.CreateProvider)

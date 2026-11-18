@@ -7,7 +7,7 @@ use rusqlite::params;
 
 /// Open (and initialize) the central metadata database.
 ///
-/// Drive-scoped high-churn metadata (file index, scrub hashes, gallery, trash
+/// Drive-scoped high-churn metadata (file index, scrub hashes, photos, trash
 /// paths, upload sessions) lives in each drive's `.luna` SQLite microdb.
 /// This OS-disk DB keeps users, auth, access members/links, protection rules,
 /// jobs, and the thin drives registry.
@@ -47,6 +47,8 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             fs_type TEXT NOT NULL DEFAULT '',
             device TEXT NOT NULL DEFAULT '',
             mount_point TEXT NOT NULL DEFAULT '',
+            encrypted INTEGER NOT NULL DEFAULT 0,
+            locked INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
@@ -251,24 +253,10 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
     )?;
     // Thin upgrade path for boxes that already had an older CREATE.
     ensure_column(&conn, "drives", "mount_point", "TEXT NOT NULL DEFAULT ''")?;
-    // Encryption. `encrypted` is a property of the drive on disk; `locked` is
-    // whether its container is open right now, which is false after every boot
-    // because the key only ever lived in the kernel. `converting` marks a drive
-    // held exclusively by an in-place conversion.
-    ensure_column(&conn, "drives", "encrypted", "INTEGER NOT NULL DEFAULT 0")?;
-    ensure_column(&conn, "drives", "locked", "INTEGER NOT NULL DEFAULT 0")?;
-    ensure_column(&conn, "drives", "converting", "INTEGER NOT NULL DEFAULT 0")?;
-    // A format only runs inside this process, so a `converting` flag found at
-    // startup belongs to a run that died with the last one — a crash or a power
-    // cut. Nothing will ever clear it, and `drive_root()` refuses a converting
-    // drive, so leaving it set locks the drive out of the UI permanently.
-    // Clearing it is safe: the disk is either fully formatted or not, and the
-    // drive is re-probed on the next scan either way.
-    let _ = conn.execute("UPDATE drives SET converting = 0 WHERE converting != 0", []);
     // Trim the tables that otherwise grow without bound. Cheap, and it runs
     // before anything can read them.
     let _ = trim_housekeeping(&conn);
-    // Legacy eMMC photos table (pre on-drive .lunagallery) — drop if present.
+    // Legacy eMMC photos table (pre on-drive .LUNAPHOTOS_KEEP) — drop if present.
     let _ = conn.execute_batch("DROP TABLE IF EXISTS photos;");
     ensure_column(
         &conn,
@@ -353,35 +341,15 @@ pub struct DriveRow {
     pub fs_type: String,
     pub device: String,
     pub mount_point: String,
-    /// The drive on disk is a LUKS2 container. A property of the drive, not of
-    /// the session: it stays true while the drive is locked.
+    /// The drive is a LUKS2 container with ext4 inside. Set by the format run
+    /// and by adding an encrypted drive; never guessed from a mount.
     pub encrypted: bool,
-    /// The container is not open, so there is nothing mounted and no files can
-    /// be read. False after every boot — the key only ever lived in the kernel.
+    /// An encrypted drive whose container is not open. A locked drive has no
+    /// mount point, and `files::drive_root` refuses it.
     pub locked: bool,
-    /// An in-place conversion holds this drive exclusively.
-    pub converting: bool,
 }
 
-impl DriveRow {
-    /// The drive is present and healthy, but its container is not open.
-    pub fn is_locked(&self) -> bool {
-        self.encrypted && self.locked
-    }
-
-    /// Files can be read right now: present, mounted, not locked, and not
-    /// mid-conversion.
-    pub fn is_readable(&self) -> bool {
-        !self.mount_point.is_empty()
-            && self.state != "missing"
-            && self.state != "ejected"
-            && !self.locked
-            && !self.converting
-    }
-}
-
-const DRIVE_COLS: &str =
-    "id, label, state, fs_type, device, mount_point, encrypted, locked, converting";
+const DRIVE_COLS: &str = "id, label, state, fs_type, device, mount_point, encrypted, locked";
 
 fn drive_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DriveRow> {
     Ok(DriveRow {
@@ -393,7 +361,6 @@ fn drive_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DriveRow> {
         mount_point: row.get(5)?,
         encrypted: row.get::<_, i64>(6)? != 0,
         locked: row.get::<_, i64>(7)? != 0,
-        converting: row.get::<_, i64>(8)? != 0,
     })
 }
 
@@ -538,63 +505,6 @@ pub fn set_drive_state(conn: &Connection, id: &str, state: &str) -> anyhow::Resu
     Ok(())
 }
 
-/// Record whether the drive's container is open. Locking also clears the mount
-/// point: a locked drive has nothing mounted, and leaving a stale path behind
-/// would let a file operation reach an empty directory and blame the drive.
-pub fn set_drive_locked(conn: &Connection, id: &str, locked: bool) -> anyhow::Result<()> {
-    if locked {
-        conn.execute(
-            "UPDATE drives SET locked = 1, mount_point = '', updated_at = ?2 WHERE id = ?1",
-            params![id, now_unix()],
-        )?;
-    } else {
-        conn.execute(
-            "UPDATE drives SET locked = 0, updated_at = ?2 WHERE id = ?1",
-            params![id, now_unix()],
-        )?;
-    }
-    Ok(())
-}
-
-/// Mark a drive as encrypted (or not) and, for a fresh format, unlocked.
-pub fn set_drive_encrypted(conn: &Connection, id: &str, encrypted: bool) -> anyhow::Result<()> {
-    conn.execute(
-        "UPDATE drives SET encrypted = ?2, updated_at = ?3 WHERE id = ?1",
-        params![id, if encrypted { 1 } else { 0 }, now_unix()],
-    )?;
-    Ok(())
-}
-
-/// Record where a reformatted drive is mounted, without touching its
-/// encryption flags. Used after a wipe, when the drive keeps its identity but
-/// gets a fresh mount point.
-pub fn set_drive_mount_point(conn: &Connection, id: &str, mount_point: &str) -> anyhow::Result<()> {
-    conn.execute(
-        "UPDATE drives SET mount_point = ?2, updated_at = ?3 WHERE id = ?1",
-        params![id, mount_point, now_unix()],
-    )?;
-    Ok(())
-}
-
-/// Record the filesystem a reformat put on the drive, so the next mount and
-/// the encryption page describe it correctly without waiting for a rescan.
-pub fn set_drive_fs_type(conn: &Connection, id: &str, fs_type: &str) -> anyhow::Result<()> {
-    conn.execute(
-        "UPDATE drives SET fs_type = ?2, updated_at = ?3 WHERE id = ?1",
-        params![id, fs_type, now_unix()],
-    )?;
-    Ok(())
-}
-
-/// Hold the drive exclusively for a conversion, or release it.
-pub fn set_drive_converting(conn: &Connection, id: &str, converting: bool) -> anyhow::Result<()> {
-    conn.execute(
-        "UPDATE drives SET converting = ?2, updated_at = ?3 WHERE id = ?1",
-        params![id, if converting { 1 } else { 0 }, now_unix()],
-    )?;
-    Ok(())
-}
-
 /// Update kernel device name (and optionally mount point) together with state.
 /// Used when a stick returns under a new `/dev/sdX` name but the same `.luna` id.
 pub fn update_drive_placement(
@@ -617,6 +527,34 @@ pub fn update_drive_placement(
             params![id, device, state, now],
         )?;
     }
+    Ok(())
+}
+
+/// Record that a drive's container is open or not. Locking also clears the
+/// mount point: a locked drive has nothing mounted, and a stale path would let
+/// a file operation reach an empty folder and blame the drive.
+pub fn set_drive_locked(conn: &Connection, id: &str, locked: bool) -> anyhow::Result<()> {
+    if locked {
+        conn.execute(
+            "UPDATE drives SET locked = 1, mount_point = '', updated_at = ?2 WHERE id = ?1",
+            params![id, now_unix()],
+        )?;
+    } else {
+        conn.execute(
+            "UPDATE drives SET locked = 0, updated_at = ?2 WHERE id = ?1",
+            params![id, now_unix()],
+        )?;
+    }
+    Ok(())
+}
+
+/// Mark a drive encrypted (or not). A drive is only ever marked encrypted
+/// together with an open container, so `locked` is cleared too.
+pub fn set_drive_encrypted(conn: &Connection, id: &str, encrypted: bool) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE drives SET encrypted = ?2, locked = 0, updated_at = ?3 WHERE id = ?1",
+        params![id, encrypted as i64, now_unix()],
+    )?;
     Ok(())
 }
 
@@ -651,7 +589,7 @@ pub fn delete_drive_cascade(conn: &Connection, id: &str) -> anyhow::Result<()> {
 /// Wipe all user data and return the box to first-run state, keeping the
 /// schema. Clears users/access/device-tokens, protections/jobs, drives,
 /// and resets setup + the JWT and BLE setup secrets. Per-drive `.luna`
-/// microdbs (index, hashes, gallery, uploads, trash meta) are not part of
+/// microdbs (index, hashes, photos, uploads, trash meta) are not part of
 /// `luna.db` and are left on the sticks.
 pub fn factory_reset(conn: &Connection) -> anyhow::Result<()> {
     for table in [
@@ -1996,9 +1934,11 @@ fn commit_snapshot_in(
             )
             .optional()?;
         match state.as_deref() {
-            None => anyhow::bail!("Backup pack {pack_id} is missing from the database."),
+            None => anyhow::bail!(
+                "Luna lost its record of part of this cloud backup, so this backup didn't finish."
+            ),
             Some("deleting") => anyhow::bail!(
-                "Backup pack {pack_id} is being removed, so this backup cannot use it."
+                "Part of this cloud backup was being deleted, so this backup didn't finish."
             ),
             _ => {}
         }

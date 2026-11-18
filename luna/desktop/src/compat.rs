@@ -43,7 +43,7 @@ pub fn parse_api(health_body: &str) -> Option<ApiInfo> {
     Some(api)
 }
 
-const LUNA_TOO_OLD: &str = "This Luna is too old for this app. Update Luna in Settings \u{2192} About \u{2192} System updates.";
+const LUNA_TOO_OLD: &str = "This Luna is too old for this app. An Admin can update Luna in Settings \u{2192} About \u{2192} System updates.";
 const APP_TOO_OLD_LINUX: &str =
     "This app is too old for your Luna. Update Luna Desktop from your software center.";
 const APP_TOO_OLD_OTHER: &str =
@@ -135,7 +135,7 @@ mod tests {
         assert_eq!(
             message_for(Compat::LunaTooOld, true),
             Some(
-                "This Luna is too old for this app. Update Luna in Settings \u{2192} About \u{2192} System updates."
+                "This Luna is too old for this app. An Admin can update Luna in Settings \u{2192} About \u{2192} System updates."
             )
         );
         assert_eq!(

@@ -35,7 +35,7 @@ use crate::db;
 /// listing, no other downloads.
 ///
 /// Attachments and question pictures live in the form's files folder (see
-/// [`form_files_dir`]): a Luna-owned name, so listings, search, Gallery, zips,
+/// [`form_files_dir`]): a Luna-owned name, so listings, search, Photos, zips,
 /// WebDAV, and the files API never show it. Only the form routes here read
 /// it, with the same access as the answers themselves.
 pub const PERMISSION_RESPOND: &str = "respond";
@@ -408,7 +408,7 @@ fn read_form_document(path: &FsPath) -> Result<Map<String, Value>, (StatusCode, 
     if version > FORM_DOC_VERSION {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            "This form was made with a newer version of Luna. Ask the person who shared it to update theirs.",
+            "This form was made with a newer version of Luna. Ask the person who shared it to update Luna.",
         ));
     }
     Ok(obj)
@@ -623,7 +623,7 @@ fn member_managed_form(
     if !auth::has_cap(user, &conn, drive_id, path, crate::access::CAP_EDIT) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "You need edit access to this form to manage its answers.",
+            "You need Write access to this form to do this.",
         ));
     }
     resolve_form(&conn, drive_id, path)
@@ -639,7 +639,7 @@ fn guest_managed_form(
     if link.caps & crate::access::CAP_EDIT == 0 {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "This link doesn't include permission to manage the form's answers.",
+            "This link doesn't give Write access to this form.",
         ));
     }
     let path = crate::api::access::link_file(state, link, rel)?;
@@ -1193,10 +1193,14 @@ fn validate_answers(
             _ => answer_value_ok(value),
         };
         if !ok {
-            return Err(json_error(
-                StatusCode::BAD_REQUEST,
-                format!("The answer for \"{label}\" isn't in a shape Luna can store. Try again."),
-            ));
+            // An unsent attachment expires after an hour, so a file answer
+            // that no longer matches needs the file again, not a new value.
+            let message = if qtype == "file" {
+                format!("Attach the file for \"{label}\" again.")
+            } else {
+                format!("Check the answer for \"{label}\" and try again.")
+            };
+            return Err(json_error(StatusCode::BAD_REQUEST, message));
         }
     }
     Ok(())
@@ -1502,7 +1506,7 @@ fn respond_lookup_inner(
     else {
         return Err(json_error(
             StatusCode::NOT_FOUND,
-            "We couldn't find answers for that edit link.",
+            "Luna can't find answers for that edit link.",
         ));
     };
     Ok(Json(json!({
@@ -1708,7 +1712,7 @@ async fn respond_upload_inner(
     if dir_file_bytes(&pending).saturating_add(incoming) > MAX_PENDING_BYTES {
         return Err(json_error(
             StatusCode::SERVICE_UNAVAILABLE,
-            "Lots of files are arriving on this form right now. Wait a few minutes and attach it again.",
+            "Too many files are waiting to be sent on this form. Attach it again in an hour.",
         ));
     }
     check_form_room(&form, incoming)?;
@@ -1818,7 +1822,7 @@ fn ensure_real_dir(dir: &FsPath) -> Result<(), (StatusCode, Json<Value>)> {
     {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Luna couldn't save that file. Try again.",
+            "Luna couldn't save that file to this form.",
         ));
     }
     Ok(())

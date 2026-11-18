@@ -286,7 +286,7 @@ Job 2: forensic review then patch/minor bumps if clean. Major or new dep: skip o
 Do not mix pins and version bumps; prefer pins first. Wrapper will split PRs.
 Write the summary to ${LOCK_RESULT}. Empty file = failed job.
 Do not merge. Do not post pull-request reviews. Do not stop containers.
-Do not take atlas-bot or ai-proxy down."
+Do not take atlas-bot or ai-gateway down."
 
 echo "==> dsh start $(date -u +%H:%M:%SZ) job=${JOBID}"
 : > "${DSH_LOG}"

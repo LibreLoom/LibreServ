@@ -479,7 +479,7 @@ describe("FileViewer text editor (fullscreen)", () => {
     const editor = await screen.findByLabelText("Contents of note.txt");
     expect(editor).toHaveAttribute("contenteditable", "false");
     expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
-    expect(screen.queryByText(/converting it to a/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/convert it to a/i)).not.toBeInTheDocument();
   });
 });
 
@@ -583,7 +583,7 @@ describe("FileViewer markdown editor", () => {
     const preview = await screen.findByLabelText("Preview of roadmap.md");
     expect(preview.querySelector("h1")).toHaveTextContent("Title");
     expect(screen.queryByRole("radio", { name: "Write" })).not.toBeInTheDocument();
-    expect(screen.queryByText(/converting it to a/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/convert it to a/i)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("radio", { name: "Source" }));
     const source = screen.getByLabelText("Contents of roadmap.md");
@@ -726,20 +726,20 @@ describe("FileViewer fullscreen office overlay", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("explains a format with no support instead of staying blank", async () => {
-    // These open the viewer like anything else: it says it cannot show the
-    // file and offers Download, rather than mounting a blank overlay or an
-    // office editor that was never going to work.
+  it("opens nothing for formats with no implemented support", async () => {
+    // No fullscreen overlay, no office editor, no fake preview pane — these
+    // never reach FileViewer from the browser (openableKind returns null),
+    // but a stale deep link must not mount the office editor either.
     for (const path of ["mesh.stl", "old.doc", "deck.key", "clip.mkv"]) {
       const { unmount } = render(
         <FileViewer open driveId="d1" path={`f/${path}`} onClose={() => {}} />,
       );
       await act(async () => {});
-      // No supported kind means no fullscreen frame: the viewer itself is a
-      // dialog that explains the file and offers a download.
+      expect(
+        document.querySelector('[data-slot="file-viewer-overlay"]'),
+        path,
+      ).not.toBeInTheDocument();
       expect(screen.queryByTestId("office-editor"), path).not.toBeInTheDocument();
-      expect(screen.getByRole("dialog"), path).toBeInTheDocument();
-      expect(screen.getAllByText(/cannot open this kind of file yet/i).length, path).toBeGreaterThan(0);
       unmount();
     }
   });
@@ -1193,7 +1193,7 @@ describe("FileViewer conversion hints", () => {
 
     expect(await screen.findByRole("table")).toBeInTheDocument();
     expect(
-      screen.getByText(/converting it to a/i),
+      screen.getByText(/To edit this file, convert it to a/i),
     ).toBeInTheDocument();
     expect(screen.getByText(".xlsx")).toBeInTheDocument();
 
@@ -1218,7 +1218,7 @@ describe("FileViewer conversion hints", () => {
           uploadAttempts += 1;
           return uploadAttempts === 1
             ? new Response(
-                JSON.stringify({ error: "A file with this name is already here." }),
+                JSON.stringify({ error: "A file with this name is already here.", code: "exists" }),
                 { status: 409 },
               )
             : new Response("{}", { status: 200 });
@@ -1290,7 +1290,7 @@ describe("FileViewer conversion hints", () => {
         <FileViewer open driveId="d1" path="docs/report.pdf" onClose={() => {}} />,
       );
       expect(await screen.findByTitle("PDF preview")).toBeInTheDocument();
-      expect(screen.getByText(/save a copy as a/i)).toBeInTheDocument();
+      expect(screen.getByText(/To edit this file, convert it to a/i)).toBeInTheDocument();
       expect(screen.getByText(".docx")).toBeInTheDocument();
       expect(
         screen.queryByRole("button", { name: /Convert & open/ }),
@@ -1312,7 +1312,7 @@ describe("FileViewer conversion hints", () => {
     expect(
       await screen.findByText(/cannot open this kind of file/i),
     ).toBeInTheDocument();
-    expect(screen.getByText(/save a copy as a/i)).toBeInTheDocument();
+    expect(screen.getByText(/To edit this file, convert it to a/i)).toBeInTheDocument();
     expect(screen.getByText(".docx")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Convert & open/ }),
@@ -1331,7 +1331,8 @@ describe("FileViewer conversion hints", () => {
       />,
     );
     expect(await screen.findByRole("table")).toBeInTheDocument();
-    expect(screen.getByText(/save a copy as a/i)).toBeInTheDocument();
+    // A reader can't upload the converted copy, so the hint stays hidden.
+    expect(screen.queryByText(/To edit this file, convert it to a/i)).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Convert & open/ }),
     ).not.toBeInTheDocument();

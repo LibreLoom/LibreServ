@@ -84,8 +84,8 @@ describe("describeDriveHealth", () => {
       detail: "Its own self-check failed. Copy your files to another drive now.",
     });
     expect(copy.steps).toEqual([
-      "Unplug this drive from Luna and plug it into a computer.",
-      "Copy all the files off it to the computer.",
+      "Plug another drive into Luna.",
+      "Copy all the files from this drive to the other drive.",
       "When the copy is done, stop using this drive.",
     ]);
     expect(row(copy, "replaced-blocks").value).toBe("120 · too many");
@@ -127,7 +127,7 @@ describe("describeDriveHealth", () => {
     });
     expect(copy.steps).toEqual([
       "Keep using it.",
-      "Make sure its files are backed up: use the Back up button on this drive's card.",
+      "Make sure its files are backed up.",
     ]);
   });
 

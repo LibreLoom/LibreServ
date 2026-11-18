@@ -66,7 +66,7 @@ export default function PrivateRestoreCard() {
       setWords("");
       setProgress(null);
       setError(err?.name === "AbortError"
-        ? "Restore stopped. Some private versions may already be back; you can safely try again."
+        ? "Restore stopped. Some private versions may already be back. You can safely try again."
         : apiErrorMessage(err, "Could not bring back your private items. Try again."));
       // shakeElement fires the error haptic, so no separate haptic call here.
       if (err?.name !== "AbortError") shakeElement(fieldRef.current);
@@ -121,15 +121,13 @@ export default function PrivateRestoreCard() {
     <SettingsCard icon={CloudDownload} title="Bring back your private items">
       <div className="space-y-3">
         <p className="text-primary text-sm">
-          Luna lost its list of your private items in the cloud. Enter your recovery phrase to find them again.
+          Some of your private items in the cloud are missing from Luna&apos;s list. Enter your recovery phrase to find them again.
         </p>
         <p className="text-primary text-sm">
-          Your phrase is the key to sealed copies of Luna&apos;s private-file key kept with Luna
-          Connect. This browser checks each copy against Luna&apos;s public key, opens it, and sends
-          Luna only the opened key — your phrase never leaves this browser.{" "}
+          Your phrase never leaves this browser.{" "}
           <InfoHint
             label="Where your phrase goes"
-            content="Your browser opens the list with your phrase and gives Luna only the file list. Luna never sees the phrase."
+            content="This browser opens your private backups with your phrase. It sends Luna their file lists, not the phrase."
           />
         </p>
 

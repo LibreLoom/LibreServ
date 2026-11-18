@@ -1,6 +1,6 @@
 /** Classify drive files for in-app open/edit. Matches lunad `inline_safe` for view. */
 
-// heic/heif/hif are left out on purpose: lunad transcodes them for gallery
+// heic/heif/hif are left out on purpose: lunad transcodes them for photos
 // grids, but the file viewer loads raw bytes and no browser we target can
 // display them natively.
 const IMAGE_EXT = new Set([

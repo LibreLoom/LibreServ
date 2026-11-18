@@ -3,7 +3,7 @@ import { InfoHint } from "./ui/Tooltip.jsx";
 const PRICING_ROWS = [
   { label: "Storage", value: "$8 / terabyte / month" },
   { label: "Minimum a month", value: "$3 once you store something" },
-  { label: "Downloads", value: "Free up to 3× stored amount" },
+  { label: "Downloads", value: "Free up to 3× what you store" },
   { label: "Extra download traffic", value: "$0.01 / GB" },
 ];
 
@@ -20,7 +20,7 @@ export function BackupPricingTable({ surface = "secondary", className = "" }) {
           surface={surface}
           delayMs={0}
           label="How cloud backup pricing works"
-          content="We bill from your average storage over the month, not a single day. A month costs at least $3 once you store something, and nothing before that. Downloads are free up to 3× stored amount; extra download traffic costs $0.01 per GB."
+          content="We bill your average storage over the month, not one day. You pay nothing until you store something."
         />
       </div>
       <div
@@ -54,6 +54,9 @@ export function BackupPricingTable({ surface = "secondary", className = "" }) {
           </tbody>
         </table>
       </div>
+      <p className="text-sm text-foreground" data-testid="backup-pricing-tax">
+        Prices are in US dollars, before tax. Sales tax or VAT is added where it applies, and Stripe's payment page may show your own currency.
+      </p>
     </section>
   );
 }

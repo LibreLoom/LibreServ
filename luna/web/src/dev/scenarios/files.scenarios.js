@@ -120,27 +120,20 @@ export default [
 
   // ── Drive condition ───────────────────────────────────────────────────────
   {
-    id: "files/encryption",
+    id: "files/drive-needs-setup",
     area: A,
-    title: "Turn encryption on",
+    title: "Plugged-in drive Luna can't use yet (blank or installer)",
     url: "/files",
-    seed: (w) => { demo(w); },
-    check: [
-      "Encryption on the Family photos card opens a sheet, not a page",
-      "The sheet says Not encrypted and explains what that means",
-      "Encrypt this drive asks for a password twice and warns there is no recovery",
-      "The wipe dialog lists what is on the drive and makes the button wait",
-      "After confirming, the page starts a format and only says Drive encrypted once the drive reports it finished",
-      "The drive then shows as Locked, not left in a half-formatted state",
-    ],
+    seed: (w) => { demo(w); w.detected = [{ name: "sdb", model: "Blank USB stick", size_bytes: 16_000_000_000, fs_type: null, readable: false, needs_setup: true }]; },
+    check: ["The Unrecognized drives card says Blank, or a format Luna can't read", "It says using the drive with Luna erases what's on it", "Add drive opens the Add-drive window, whose Erase and set up opens the erase window (see the Drive erase scenarios for the rest)"],
   },
   {
-    id: "files/encryption-locked",
+    id: "files/drive-encrypted",
     area: A,
-    title: "Encrypted drive, locked",
+    title: "Plugged-in encrypted drive",
     url: "/files",
-    seed: (w) => { demo(w); w.drives[0].encrypted = true; w.drives[0].locked = true; w.drives[0].fs_type = "ext4"; },
-    check: ["Open Encryption on the card: it says Locked and asks for the password", "A wrong password stays inline", "The right password unlocks and says so"],
+    seed: (w) => { demo(w); w.detected = [{ name: "sdb", model: "Locked USB stick", size_bytes: 16_000_000_000, fs_type: "crypto_LUKS", readable: false, encrypted: true }]; },
+    check: ["The Unrecognized drives card says Encrypted", "It says Luna can't open encrypted drives in this version yet", "Add drive is disabled, and there is no password box or Unlock button anywhere"],
   },
   {
     id: "files/readonly-drive", area: A, title: "Read-only drive", url: "/files/d1",
@@ -159,7 +152,7 @@ export default [
   },
   {
     id: "files/unplugged-mid-browse", area: A, title: "Drive pulled out while browsing", url: "/files/d1?path=Documents",
-    faults: [{ match: "GET /api/v1/drives/d1/files", mode: "404", code: "unknown_drive", message: "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.", on: false }],
+    faults: [{ match: "GET /api/v1/drives/d1/files", mode: "404", code: "unknown_drive", message: "Luna can't find this drive. Make sure it is plugged in, or unplug it and plug it in again.", on: false }],
     check: ["In Break things, tick the prepared rule (GET /api/v1/drives/d1/files → 404), then open a folder", "The unplugged message shows, not a blank list", "Untick the rule and press Try again: the list returns"],
   },
   {
@@ -189,7 +182,7 @@ export default [
   },
   {
     id: "files/listing-error", area: A, title: "Listing fails with a server error", url: "/files/d1",
-    faults: [{ match: "GET /api/v1/drives/d1/files", mode: "500", message: "Luna couldn't read this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in." }],
+    faults: [{ match: "GET /api/v1/drives/d1/files", mode: "500", message: "Luna couldn't use this drive. Make sure it is plugged in, or unplug it and plug it in again." }],
     check: ["Only the folder listing fails (the rest of the page still loads)", "Plain message and a Try again button", "No raw JSON or status codes"],
   },
 
@@ -241,7 +234,7 @@ export default [
   },
   {
     id: "files/upload-fails", area: A, title: "Upload fails (server error)", url: "/files/d1?path=Documents",
-    faults: [{ match: "POST /api/v1/drives/d1/files/upload", mode: "500", message: "Luna couldn't save this file. Check that the drive is connected and try again." }],
+    faults: [{ match: "POST /api/v1/drives/d1/files/upload", mode: "500", message: "Luna couldn't save this file. Make sure the drive is plugged in and try again." }],
     check: ["Row shows the failure in plain words", "Retry is offered; Remove clears the row", "File does not appear in the list"],
   },
   {
@@ -260,7 +253,7 @@ export default [
   {
     id: "files/upload-no-space-huge", area: A, title: "Huge upload that can't fit", url: "/files/d1?path=Documents",
     seed: (w) => { demo(w); w.summaries.d1.free_bytes = 10_000_000; },
-    check: ["Pick a file larger than 32 MB → refused up front: \"This drive is full. Free up some space and try again.\"", "No endless retry"],
+    check: ["Pick a file larger than 32 MB → refused up front: \"This file is larger than the free space on this drive. Free up some space and try again.\"", "No endless retry"],
   },
   {
     id: "files/upload-offline", area: A, title: "Go offline during an upload", url: "/files/d1?path=Documents",
@@ -328,7 +321,7 @@ export default [
     },
     check: [
       "Move Spain to Backup drive → starts, then stops at about half",
-      "Row says it failed (not silent): \"Backup drive is full. Free up some space on it and try again. Nothing was moved. Your files are still where they were.\"",
+      "Row says it failed (not silent): \"Backup drive is full. Free up some space on it and try again. Nothing was moved.\"",
       "Spain is untouched in Photos/2024, and Backup drive has no partial copy",
     ],
   },
@@ -357,7 +350,7 @@ export default [
   },
   {
     id: "files/job-server-error", area: A, title: "Starting a copy fails", url: "/files/d1?path=Photos",
-    faults: [{ match: "POST /api/v1/jobs", mode: "503", message: "Luna's job queue isn't responding." }],
+    faults: [{ match: "POST /api/v1/jobs", mode: "503", message: "Luna couldn't start this copy or move. Try again." }],
     check: ["Error is visible next to what you did", "No ghost progress card"],
   },
 
@@ -370,7 +363,7 @@ export default [
   {
     id: "files/private-others", area: A, title: "Someone else's private folder (I'm an Admin)", url: "/files/d1",
     seed: (w) => { demo(w); w.users.push(user({ id: "u2", username: "sam", display_name: "Sam" })); addDir(w, "d1", "Sam's stuff", { private: true, owner: "u2" }); addFile(w, "d1", "Sam's stuff/x.txt", { text: "x" }); },
-    check: ["The Admin does not see Sam's private folder in the list (the Admin role stops at a private wall)", "Opening its address directly says the Admin has no permission to view this folder — not a blank list or raw error", "Search never shows its contents"],
+    check: ["The Admin does not see Sam's private folder in the list (the Admin role stops at a private wall)", "Opening its address directly says \"You don't have permission to open this.\", not a blank list or raw error", "Search never shows its contents"],
   },
   {
     id: "files/private-orphaned", area: A, title: "Private folders of a removed person", url: "/settings#users",
@@ -404,7 +397,7 @@ export default [
   },
   {
     id: "files/protect-new", area: A, title: "Protect a folder for the first time", url: "/files/d1",
-    seed: (w) => { demo(w); withBackupDrive(w); w.connect = { enabled: true, card_on_file: true }; w.connectActive = true; },
+    seed: (w) => { demo(w); withBackupDrive(w); w.connect = { enabled: true, backup_unlocked: true }; w.connectActive = true; },
     check: ["Pick Backup drive → Back up → toast, row appears as starting", "Back up now makes it 'up to date'", "Delete asks first"],
   },
   {
@@ -419,12 +412,12 @@ export default [
   },
   {
     id: "files/protect-cloud-on", area: A, title: "Cloud backup with Luna Connect on", url: "/files/d1",
-    seed: (w) => { demo(w); w.connect = { enabled: true, card_on_file: true }; w.connectActive = true; w.cloudBackups.push(cloudBackup({ source_drive: "d1", source_path: "Documents", source_name: "Documents", source_missing: false })); },
+    seed: (w) => { demo(w); w.connect = { enabled: true, backup_unlocked: true }; w.connectActive = true; w.cloudBackups.push(cloudBackup({ source_drive: "d1", source_path: "Documents", source_name: "Documents", source_missing: false })); },
     check: ["Documents shows a cloud backup row with last backed up time", "Photos offers to start one", "Older versions option asks first"],
   },
   {
     id: "files/protect-cloud-no-phrase", area: A, title: "Cloud backup before any recovery phrase", url: "/files/d1",
-    seed: (w) => { demo(w); w.connect = { enabled: true, card_on_file: true }; w.connectActive = true; w.phrase = { ...w.phrase, set: false }; },
+    seed: (w) => { demo(w); w.connect = { enabled: true, backup_unlocked: true }; w.connectActive = true; w.phrase = { ...w.phrase, set: false }; },
     check: [
       "Photos offers 'Back up to the cloud'",
       "Pressing it asks for a recovery phrase first, in a dialog, instead of failing",
@@ -433,7 +426,7 @@ export default [
   },
   {
     id: "files/protect-cloud-no-card", area: A, title: "Cloud backup, no payment card", url: "/files/d1",
-    seed: (w) => { demo(w); w.connect = { enabled: true, card_on_file: false }; w.connectActive = true; },
+    seed: (w) => { demo(w); w.connect = { enabled: true, backup_unlocked: false }; w.connectActive = true; },
     check: ["Says a card is needed, and where to add it"],
   },
   {
@@ -447,7 +440,7 @@ export default [
     seed: (w) => {
       demo(w);
       withBackupDrive(w);
-      w.connect = { enabled: true, connect_active: true, card_on_file: true };
+      w.connect = { enabled: true, connect_active: true, backup_unlocked: true };
       w.connectActive = true;
       addDir(w, "d1", "Diary/2025", { private: false });
       w.fs.d1.nodes.Diary.private = true;
@@ -555,7 +548,7 @@ export default [
   { id: "files/view-missing", area: A, title: "Open a file that was just deleted", url: "/files/d1?path=Documents&file=ghost.txt", check: ["Says the file isn't here anymore", "Doesn't spin forever"] },
   {
     id: "files/view-load-error", area: A, title: "File contents fail to load", url: open("notes.txt"), seed: viewerSamples,
-    faults: [{ match: "GET /api/v1/drives/d1/files/content", mode: "500", message: "Luna couldn't read this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in." }],
+    faults: [{ match: "GET /api/v1/drives/d1/files/content", mode: "500", message: "Luna couldn't use this drive. Make sure it is plugged in, or unplug it and plug it in again." }],
     check: ["Plain error with a way to retry or close", "Editor does not open on an empty document"],
   },
   {
@@ -578,7 +571,7 @@ export default [
   },
   {
     id: "files/edit-text-save-error", area: A, title: "Save fails (server error)", url: open("notes.txt"), seed: viewerSamples,
-    faults: [{ match: "POST /api/v1/drives/d1/files/upload", mode: "500", message: "Luna couldn't save this file. Check that the drive is connected and try again." }],
+    faults: [{ match: "POST /api/v1/drives/d1/files/upload", mode: "500", message: "Luna couldn't save this file. Make sure the drive is plugged in and try again." }],
     check: ["Edit, Save → error shown, still marked unsaved", "Autosave retries without a flood of messages", "Remove the fault, Save works"],
   },
   {

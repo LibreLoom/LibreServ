@@ -1,12 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Globe2 } from "lucide-react";
 import { Link } from "react-router-dom";
+import PathTrail from "@libreloom/ui/components/common/PathTrail.jsx";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import { getJson } from "../../../lib/api";
+import { useOptionalAuth } from "../../../context/AuthContext";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const LUNA_CONNECT_URL = "https://connect.luna.libreloom.org";
@@ -26,6 +28,7 @@ export default function RemoteCategory() {
   const hardError = tokenError || unreachable;
   const tunnelWarn = !hardError ? tunnelError : "";
   const isOn = Boolean(s.enabled);
+  const isAdmin = useOptionalAuth()?.user?.role === "admin";
 
   return (
     <div className="space-y-5">
@@ -54,9 +57,9 @@ export default function RemoteCategory() {
                 role="alert"
               >
                 <p className="text-sm text-error leading-relaxed">{hardError}</p>
-                {tokenError ? (
+                {tokenError && isAdmin ? (
                   <Button variant="outline" surface="primary" size="sm" asChild>
-                    <Link to="/settings#about">Change the device token in About → Advanced</Link>
+                    <Link to="/settings#about">Change the device token in <PathTrail steps={["About", "Advanced"]} /></Link>
                   </Button>
                 ) : null}
               </div>
@@ -74,7 +77,7 @@ export default function RemoteCategory() {
                 </p>
                 <p className="font-mono text-sm text-secondary break-all">
                   <TermHint
-                    content="The short name you pick on Luna Connect becomes the first part of this address — for example kitchen in kitchen.luna.servers.libreloom.org."
+                    content="The short name you pick on Luna Connect becomes the first part of this address, for example kitchen in kitchen.luna.servers.libreloom.org."
                     surface="primary"
                   >
                     yourname
@@ -94,10 +97,20 @@ export default function RemoteCategory() {
             ) : null}
           </div>
 
-          {!isOn && !hardError ? (
+          {!isOn && !hardError && status.data ? (
             <p className="text-primary text-sm leading-relaxed motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
-              Pick a name on Luna Connect — the address shows up here once it&apos;s
-              ready, and you can add cloud backup there too.
+              {s.connect_active === false ? (
+                isAdmin ? (
+                  <>
+                    Luna Connect needs a device token. Add it in{" "}
+                    <PathTrail steps={["Settings", "About", "Advanced"]} />.
+                  </>
+                ) : (
+                  "Luna Connect needs a device token. An Admin can add it."
+                )
+              ) : (
+                "Pick a name on Luna Connect. The address shows here when it is ready."
+              )}
             </p>
           ) : null}
 
@@ -105,7 +118,7 @@ export default function RemoteCategory() {
             <>
               {address ? (
                 <p className="text-primary text-sm leading-relaxed">
-                  To change this address, open Luna Connect → Devices → Change address.
+                  To change this address, open <PathTrail steps={["Luna Connect", "Devices", "Change address"]} />.
                 </p>
               ) : null}
               <Button variant="outline" fullWidth asChild className="justify-between">

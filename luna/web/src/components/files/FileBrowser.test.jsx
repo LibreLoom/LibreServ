@@ -57,7 +57,7 @@ describe("FileBrowser", () => {
     );
     renderBrowser();
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("You can use Universal Search to try and find it.");
+    expect(alert).toHaveTextContent("Use Universal Search to look for it.");
     await userEvent.click(within(alert).getByRole("button", { name: "Universal Search" }));
     expect(seen).toHaveBeenCalled();
     window.removeEventListener("luna:open-file-search", seen);
@@ -87,7 +87,7 @@ describe("FileBrowser", () => {
       "fetch",
       vi.fn(async () => new Response(
         JSON.stringify({
-          error: "Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again. Your files stay on the drive, but items in its Trash won't show up after you add it again.",
+          error: "Luna can't write its database to this drive, but your files are still on it. Free up space or check the drive's write-lock switch, then try again.",
           code: "missing_drive_db",
         }),
         { status: 500, headers: { "Content-Type": "application/json" } },
@@ -96,7 +96,7 @@ describe("FileBrowser", () => {
     renderBrowser();
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(
-      "items in its Trash won't show up after you add it again.",
+      "your files are still on it.",
     );
     expect(alert).not.toHaveTextContent("No data on the drive will be lost");
     expect(alert).not.toHaveTextContent(/unplugg/i);
@@ -113,7 +113,7 @@ describe("FileBrowser", () => {
       )),
     );
     renderBrowser();
-    expect(await screen.findByRole("alert")).toHaveTextContent(/unplugging it/i);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/unplug it/i);
   });
 
   it("lists folders and files with a current-path label", async () => {
@@ -1458,7 +1458,7 @@ describe("FileBrowser", () => {
 
   it("shows the caller's notice instead of an error on a 403 listing", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(
-      JSON.stringify({ error: "You don't have permission to view this folder." }),
+      JSON.stringify({ error: "You don't have permission to open this." }),
       { status: 403, headers: { "Content-Type": "application/json" } },
     )));
     renderBrowser({
@@ -2001,11 +2001,11 @@ describe("FileBrowser sorting and filtering", () => {
     const dialog = await screen.findByRole("dialog");
     expect(await within(dialog).findByText("≥ 12.5 KB")).toBeInTheDocument();
     expect(
-      within(dialog).getByText(/at least 12,500 bytes/),
+      within(dialog).getByText(/At least 12,500 bytes/),
     ).toBeInTheDocument();
     expect(within(dialog).getByText("8+")).toBeInTheDocument();
     // Never claims the folder was too big to count.
-    expect(within(dialog).queryByText(/too much inside to count the total size/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/too (much|large|big)/)).not.toBeInTheDocument();
   });
 
   it("shows the view controls in picker mode without the select-all checkbox", async () => {
@@ -2179,6 +2179,67 @@ describe("FileBrowser long folders", () => {
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.length).toBeLessThan(150);
     expect(rows[0]).toHaveAttribute("aria-setsize", "600");
+    offsetHeight.mockRestore();
+  });
+
+  /** Scroll the window to `rows` rows down and let the list window follow. */
+  async function scrollToRow(rows) {
+    await act(async () => {
+      window.scrollY = rows * 45;
+      window.dispatchEvent(new Event("scroll"));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+  }
+
+  it("reuses row elements for the rows that scroll in", async () => {
+    /** @this {HTMLElement} */
+    function rowHeight() {
+      return this.hasAttribute("data-index") ? 45 : 0;
+    }
+    const offsetHeight = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get")
+      .mockImplementation(rowHeight);
+    stubListing({ "": names.map((name) => ({ name, kind: "file", size: 1 })) });
+    renderBrowser();
+    await screen.findByText("file-0000.txt");
+    // Away from the top, so the window holds its full headroom on both sides.
+    await scrollToRow(100);
+    await screen.findByText("file-0100.txt");
+    const before = new Set(document.querySelectorAll("li[data-file-path]"));
+    await scrollToRow(300);
+    await screen.findByText("file-0300.txt");
+    expect(screen.queryByText("file-0100.txt")).not.toBeInTheDocument();
+    const after = [...document.querySelectorAll("li[data-file-path]")];
+    expect(after.length).toBe(before.size);
+    expect(after.every((li) => before.has(li))).toBe(true);
+    // Each element now names its own row.
+    const row = screen.getByText("file-0300.txt").closest("li");
+    expect(row).toHaveAttribute("data-file-path", "file-0300.txt");
+    expect(row).toHaveAttribute("aria-posinset", "301");
+    window.scrollY = 0;
+    offsetHeight.mockRestore();
+  });
+
+  it("drops focus when the focused row's element goes to another row", async () => {
+    /** @this {HTMLElement} */
+    function rowHeight() {
+      return this.hasAttribute("data-index") ? 45 : 0;
+    }
+    const offsetHeight = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get")
+      .mockImplementation(rowHeight);
+    stubListing({ "": names.map((name) => ({ name, kind: "file", size: 1 })) });
+    renderBrowser({ onCopy: vi.fn() });
+    await screen.findByText("file-0000.txt");
+    await scrollToRow(100);
+    await screen.findByText("file-0100.txt");
+    const copy = screen.getByRole("button", { name: "Copy file-0100.txt" });
+    act(() => copy.focus());
+    expect(document.activeElement).toBe(copy);
+    await scrollToRow(300);
+    await screen.findByText("file-0300.txt");
+    // Enter must not act on a file the person never picked.
+    expect(copy.getAttribute("aria-label")).not.toBe("Copy file-0100.txt");
+    expect(document.activeElement).not.toBe(copy);
+    window.scrollY = 0;
     offsetHeight.mockRestore();
   });
 });

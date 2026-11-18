@@ -11,14 +11,23 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
 )
 
-func TestCancelSetsPurgeAndReattachClears(t *testing.T) {
+// cancelPayment turns off payment for a fresh account with an active (dev) subscription.
+func cancelPayment(t *testing.T, email string, seed func(d Deps, id string)) (AccountHandler, *mail.Recording, string) {
+	t.Helper()
+	prev := runInBackground
+	runInBackground = func(f func()) { f() }
+	t.Cleanup(func() { runInBackground = prev })
 	_, acct, _ := testOnboarding(t)
 	recMail := &mail.Recording{}
 	acct.Mail = recMail
-	cookie := registerAccount(t, acct, "pay@b.co")
+	cookie := registerAccount(t, acct, email)
 	var id string
-	_ = acct.DB.QueryRow(`SELECT id FROM accounts WHERE email = 'pay@b.co'`).Scan(&id)
+	_ = acct.DB.QueryRow(`SELECT id FROM accounts WHERE email = ?`, email).Scan(&id)
 	_, _ = acct.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = 'dev', stripe_subscription_id = 'sub_dev' WHERE id = ?`, id)
+	if seed != nil {
+		seed(acct.Deps, id)
+	}
+	recMail.Sends = nil
 
 	req := httptest.NewRequest(http.MethodPost, "/billing/cancel", nil)
 	req.AddCookie(cookie)
@@ -27,39 +36,44 @@ func TestCancelSetsPurgeAndReattachClears(t *testing.T) {
 		t.Fatalf("cancel %d %s", rec.Code, rec.Body.String())
 	}
 	var has int
-	var status string
-	var purge, mailDay int64
-	_ = acct.DB.QueryRow(`SELECT has_card, billing_status, COALESCE(backup_purge_after,0), COALESCE(purge_mail_day,-2) FROM accounts WHERE id = ?`, id).
-		Scan(&has, &status, &purge, &mailDay)
-	if has != 0 || status != "canceled" {
-		t.Fatalf("has=%d status=%s", has, status)
+	var status, sub string
+	_ = acct.DB.QueryRow(`SELECT has_card, billing_status, COALESCE(stripe_subscription_id,'') FROM accounts WHERE id = ?`, id).Scan(&has, &status, &sub)
+	if has != 0 || status != "canceled" || sub != "" {
+		t.Fatalf("has=%d status=%s sub=%q", has, status, sub)
 	}
-	now := time.Now().Unix()
-	if purge < now+29*86400 || purge > now+31*86400 {
-		t.Fatalf("purge %d", purge)
-	}
-	if mailDay != 0 {
-		t.Fatalf("mail day %d", mailDay)
-	}
-	if len(recMail.Sends) != 1 || recMail.Sends[0][0] != "pay@b.co" {
-		t.Fatalf("mail %+v", recMail.Sends)
-	}
-	if !strings.Contains(recMail.Sends[0][1], "have your files") || !strings.Contains(recMail.Sends[0][2], "download") {
-		t.Fatalf("warning should ask them to keep their files: %+v", recMail.Sends)
-	}
-	if strings.Contains(strings.ToLower(recMail.Sends[0][2]), "add a payment card") {
-		t.Fatalf("warning should not pitch a card: %+v", recMail.Sends)
-	}
+	return acct, recMail, id
+}
 
-	attach := httptest.NewRequest(http.MethodPost, "/billing/attach-card", strings.NewReader("{}"))
-	attach.AddCookie(cookie)
-	arec := withAccount(acct, acct.AttachCard, attach)
-	if arec.Code != 200 {
-		t.Fatalf("attach %d %s", arec.Code, arec.Body.String())
+func TestCancelDeletesStoredCopiesRightAway(t *testing.T) {
+	packID := strings.Repeat("d", 64)
+	acct, recMail, id := cancelPayment(t, "pay@b.co", func(d Deps, id string) {
+		seedLunaWithPack(t, d, id, "luna-p", "dev_pay1", 0, packID)
+	})
+	if n := countRows(t, acct.Deps, `SELECT COUNT(*) FROM storage_packs WHERE account_id = ?`, id); n != 0 {
+		t.Fatalf("packs left %d", n)
 	}
-	_ = acct.DB.QueryRow(`SELECT COALESCE(backup_purge_after,0), COALESCE(purge_mail_day,-2) FROM accounts WHERE id = ?`, id).Scan(&purge, &mailDay)
+	if _, err := acct.Store.Get(id, store.StorageSlot("luna-p"), store.StoragePackPath(packID)); err == nil {
+		t.Fatal("store file should be gone")
+	}
+	var purge int64
+	_ = acct.DB.QueryRow(`SELECT COALESCE(backup_purge_after,0) FROM accounts WHERE id = ?`, id).Scan(&purge)
 	if purge != 0 {
-		t.Fatalf("purge still set %d", purge)
+		t.Fatalf("finished purge must not stay scheduled: %d", purge)
+	}
+	if len(recMail.Sends) != 1 || !strings.Contains(recMail.Sends[0][1], "were deleted") || strings.Contains(recMail.Sends[0][2], "30 days") {
+		t.Fatalf("want one 'deleted' mail, no 30-day wording: %+v", recMail.Sends)
+	}
+}
+
+func TestCancelWithNothingStoredDeletesNothingAndSendsNoMail(t *testing.T) {
+	acct, recMail, id := cancelPayment(t, "empty@b.co", nil)
+	var purge int64
+	_ = acct.DB.QueryRow(`SELECT COALESCE(backup_purge_after,0) FROM accounts WHERE id = ?`, id).Scan(&purge)
+	if purge != 0 {
+		t.Fatalf("nothing stored, nothing to purge: %d", purge)
+	}
+	if len(recMail.Sends) != 0 {
+		t.Fatalf("no mail expected: %+v", recMail.Sends)
 	}
 }
 
@@ -144,7 +158,7 @@ func countRows(t *testing.T, d Deps, query string, args ...any) int {
 	return n
 }
 
-func TestRetentionPurgesOnlyUnlinkedLuna(t *testing.T) {
+func TestRetentionKeepsUnlinkedLuna(t *testing.T) {
 	d := testDeps(t)
 	_, acct, _ := testOnboarding(t)
 	acct.Deps = d
@@ -157,10 +171,10 @@ func TestRetentionPurgesOnlyUnlinkedLuna(t *testing.T) {
 
 	ProcessRetention(d, now)
 
-	if n := countRows(t, d, `SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = 'luna-gone'`, id); n != 0 {
+	if n := countRows(t, d, `SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = 'luna-gone'`, id); n != 1 {
 		t.Fatalf("unlinked luna packs left %d", n)
 	}
-	if n := countRows(t, d, `SELECT COUNT(*) FROM luna_ids WHERE account_id = ? AND luna_id = 'luna-gone'`, id); n != 0 {
+	if n := countRows(t, d, `SELECT COUNT(*) FROM luna_ids WHERE account_id = ? AND luna_id = 'luna-gone'`, id); n != 1 {
 		t.Fatalf("unlinked luna row left %d", n)
 	}
 	if n := countRows(t, d, `SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = 'luna-kept'`, id); n != 1 {
@@ -202,17 +216,28 @@ func TestShouldSendWarningSchedule(t *testing.T) {
 }
 
 func TestPurgeMailAsksForDataNotACard(t *testing.T) {
-	subj, body := purgeMail(0)
+	subj, body := purgeMail(0, false, "")
 	if !strings.Contains(subj, "have your files") || !strings.Contains(body, "download") || strings.Contains(strings.ToLower(body), "payment card") {
 		t.Fatalf("day0 %q %q", subj, body)
 	}
-	subj, body = purgeMail(27)
+	subj, body = purgeMail(27, false, "")
 	if !strings.Contains(body, "3 days") || strings.Contains(strings.ToLower(body), "payment card") {
 		t.Fatalf("day27 %q %q", subj, body)
 	}
-	subj, body = purgeMail(30)
+	subj, body = purgeMail(30, false, "")
 	if !strings.Contains(subj, "were deleted") {
 		t.Fatalf("day30 %q %q", subj, body)
+	}
+}
+
+func TestPurgeMailSaysWhenAPaymentFailed(t *testing.T) {
+	subj, body := purgeMail(0, true, "")
+	if !strings.Contains(subj, "didn't go through") || strings.Contains(body, "is off") || !strings.Contains(body, "link.com") || !strings.Contains(body, "download") {
+		t.Fatalf("failed payment %q %q", subj, body)
+	}
+	_, body = purgeMail(3, true, "https://invoice.stripe.com/i/x")
+	if !strings.Contains(body, "https://invoice.stripe.com/i/x") || !strings.Contains(body, "confirm it with your bank") || strings.Contains(body, "link.com") {
+		t.Fatalf("with the bill's page the mail links it: %q", body)
 	}
 }
 
@@ -263,7 +288,7 @@ func TestKeepLunaStopsRetryOfStuckPurge(t *testing.T) {
 	}
 }
 
-func TestRetentionRetriesLunaStuckMidPurge(t *testing.T) {
+func TestRetentionStopsFormerUnlinkPurge(t *testing.T) {
 	d := testDeps(t)
 	_, acct, _ := testOnboarding(t)
 	acct.Deps = d
@@ -276,10 +301,10 @@ func TestRetentionRetriesLunaStuckMidPurge(t *testing.T) {
 
 	ProcessRetention(d, now)
 
-	if n := countRows(t, d, `SELECT COUNT(*) FROM luna_ids WHERE account_id = ? AND luna_id = 'luna-stuck'`, id); n != 0 {
-		t.Fatalf("stuck luna row %d after retention, want purged (0)", n)
+	if n := countRows(t, d, `SELECT COUNT(*) FROM luna_ids WHERE account_id = ? AND luna_id = 'luna-stuck'`, id); n != 1 {
+		t.Fatalf("stuck luna row %d after retention, want retained (1)", n)
 	}
-	if n := countRows(t, d, `SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = 'luna-stuck'`, id); n != 0 {
-		t.Fatalf("stuck luna packs %d after retention, want 0", n)
+	if n := countRows(t, d, `SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = 'luna-stuck'`, id); n != 1 {
+		t.Fatalf("stuck luna packs %d after retention, want 1", n)
 	}
 }

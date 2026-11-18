@@ -47,7 +47,7 @@ describe("fake shared restore event stream", () => {
     const failed = await eventFrames(first);
     expect(failed).toEqual([
       { type: "progress", processed: 1, total: 3, snapshots: 1, already_indexed: 0, skipped: 0 },
-      { type: "error", message: "Luna couldn't finish restoring your backup list. Some versions may already be back; try again to continue." },
+      { type: "error", message: "Luna couldn't finish restoring your backup list. Try again to restore the rest." },
     ]);
     expect(world.restore).toMatchObject({ needed: true, indexed_snapshots: 1 });
 

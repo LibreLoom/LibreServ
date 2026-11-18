@@ -21,9 +21,13 @@ use uuid::Uuid;
 
 use crate::db::{self, JobRow};
 use crate::files::{self, FilesError};
-use crate::gallery::gallery_indexer::GalleryIndexer;
+use crate::photos::photos_indexer::PhotosIndexer;
 
 const COPY_BUF: usize = 1024 * 1024;
+/// Minimum gap between progress writes to luna.db during a copy. Each write
+/// takes the global DB lock and commits on eMMC, so per-buffer writes would
+/// mean one commit per MiB copied.
+const PROGRESS_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// Copy/move work is disk-bound — a couple of jobs already saturate a USB
 /// drive, and every extra one just thrashes it. At most this many run at
@@ -46,19 +50,19 @@ pub enum JobError {
     UnknownKind,
     #[error("Luna is already working on a lot of copies and moves. Try again when they finish.")]
     QueueFull,
-    #[error("Luna's job queue isn't responding.")]
+    #[error("Luna couldn't start this copy or move. Try again.")]
     Runner,
     #[error("{0}")]
     Files(FilesError),
     #[error("{0}")]
     Db(#[source] anyhow::Error),
-    #[error("Luna doesn't know this job.")]
+    #[error("Luna can't find this copy or move.")]
     NotFound,
     #[error("{0}")]
     Io(#[source] std::io::Error),
     #[error("A file or folder with this name is already there.")]
     Conflict,
-    #[error("Luna can't copy links yet.")]
+    #[error("This includes a shortcut (symbolic link). Luna can't copy or move shortcuts.")]
     Symlink,
     #[error("You no longer have permission to do this.")]
     Denied,
@@ -92,7 +96,7 @@ pub enum OnConflict {
 /// Appended to a failed copy that removed its partial destination.
 const REMOVED_PARTIAL_COPY: &str = "Luna removed the partial copy.";
 /// Appended to a failed move that had only copied so far.
-const NOTHING_MOVED: &str = "Nothing was moved. Your files are still where they were.";
+const NOTHING_MOVED: &str = "Nothing was moved.";
 
 impl From<FilesError> for JobError {
     fn from(e: FilesError) -> Self {
@@ -107,7 +111,7 @@ type JobQueue = Arc<Mutex<VecDeque<(PreparedJob, Arc<AtomicBool>)>>>;
 pub struct JobManager {
     db: Arc<crate::Db>,
     cancels: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
-    gallery: Arc<GalleryIndexer>,
+    photos: Arc<PhotosIndexer>,
     queue: JobQueue,
     /// How many workers are running right now.
     running: Arc<AtomicUsize>,
@@ -128,7 +132,7 @@ struct PreparedJob {
 }
 
 impl JobManager {
-    pub fn new(db: Arc<crate::Db>, gallery: Arc<GalleryIndexer>) -> Self {
+    pub fn new(db: Arc<crate::Db>, photos: Arc<PhotosIndexer>) -> Self {
         // A restart strands every in-flight row in "running" — nothing will
         // ever move them, and they would count against the queue ceiling
         // forever. Mark them interrupted once, at boot.
@@ -137,13 +141,13 @@ impl JobManager {
                 "UPDATE jobs SET state = 'interrupted', error = ?1, \
                  updated_at = CAST(strftime('%s', 'now') AS INTEGER) \
                  WHERE state = 'running'",
-                rusqlite::params!["Luna restarted while this job was running."],
+                rusqlite::params!["Luna restarted while this copy or move was running."],
             );
         }
         Self {
             db,
             cancels: Arc::new(Mutex::new(HashMap::new())),
-            gallery,
+            photos,
             queue: Arc::new(Mutex::new(VecDeque::new())),
             running: Arc::new(AtomicUsize::new(0)),
         }
@@ -229,7 +233,7 @@ impl JobManager {
             &self.running,
             &self.cancels,
             &self.db,
-            &self.gallery,
+            &self.photos,
         );
     }
 
@@ -392,7 +396,7 @@ fn prepare(
     }
     let dest_dir = files::dest_dir(conn, to_drive, &to_path)?;
     let to_root = PathBuf::from(files::drive_root(conn, to_drive)?.mount_point);
-    let mut dest_rel = crate::gallery::gallery_indexer::join_rel(
+    let mut dest_rel = crate::photos::photos_indexer::join_rel(
         crate::access::normalize_subject_path(&to_real).as_str(),
         &name,
     );
@@ -439,11 +443,25 @@ fn prepare(
             OnConflict::KeepBoth => {
                 name = crate::files::uploads::find_free_name(&dest_dir, &name);
                 dest = dest_dir.join(&name);
-                dest_rel = crate::gallery::gallery_indexer::join_rel(
+                dest_rel = crate::photos::photos_indexer::join_rel(
                     crate::access::normalize_subject_path(&to_real).as_str(),
                     &name,
                 );
             }
+        }
+    }
+    // A tree copied onto another drive must fit that drive's format: refuse
+    // before the first byte is written, not halfway through a copy.
+    // The walk that totals the copy below checks every name inside it.
+    let fit_rules = (from_drive != to_drive)
+        .then(|| files::fsrules::rules_at(&to_root))
+        .filter(files::fsrules::FsRules::is_restricted);
+    if let Some(rules) = &fit_rules {
+        rules.check_name(&name).map_err(FilesError::from)?;
+        if !meta.is_dir() {
+            rules
+                .check_size(&name, meta.len())
+                .map_err(FilesError::from)?;
         }
     }
     let user_row = db::get_user(conn, user_id)
@@ -468,7 +486,13 @@ fn prepare(
                 )
             })
     };
-    let total = walk_total(&src_root, &src, meta.is_dir(), &readable)?;
+    let total = walk_total(
+        &src_root,
+        &src,
+        meta.is_dir(),
+        &readable,
+        fit_rules.as_ref(),
+    )?;
     if total == 0 && !meta.is_dir() {
         // Zero-byte files are still valid copies.
     }
@@ -527,6 +551,7 @@ fn walk_total(
     path: &Path,
     is_dir: bool,
     readable: &dyn Fn(&Path) -> bool,
+    fits: Option<&files::fsrules::FsRules>,
 ) -> Result<u64, JobError> {
     if !readable(path) {
         return Ok(0);
@@ -541,6 +566,9 @@ fn walk_total(
     let mut total = 0;
     let mut stack = vec![path.to_path_buf()];
     while let Some(dir) = stack.pop() {
+        // Names in this folder as they land on the destination, so a
+        // case-insensitive one can refuse two that differ only in capitals.
+        let mut names: Vec<String> = Vec::new();
         for entry in std::fs::read_dir(&dir).map_err(JobError::Io)? {
             let entry = entry.map_err(JobError::Io)?;
             // Luna's `.luna-<uuid>-*` bookkeeping and in-flight `.part` temps
@@ -557,11 +585,28 @@ fn walk_total(
             if meta.file_type().is_symlink() {
                 return Err(JobError::Symlink);
             }
+            if let Some(rules) = fits {
+                // A private folder is stored under a `.luna-` name; its real
+                // name is what lands on the destination.
+                let name = files::leaf_of(&entry.path())
+                    .unwrap_or_else(|| entry.file_name().to_string_lossy().into_owned());
+                rules.check_name(&name).map_err(FilesError::from)?;
+                if !meta.is_dir() {
+                    rules
+                        .check_size(&name, meta.len())
+                        .map_err(FilesError::from)?;
+                }
+                names.push(name);
+            }
             if meta.is_dir() {
                 stack.push(entry.path());
             } else {
                 total += meta.len() + form_files_total(root, &entry.path());
             }
+        }
+        if let Some(rules) = fits {
+            files::fsrules::check_siblings(rules, names.iter().map(String::as_str))
+                .map_err(FilesError::from)?;
         }
     }
     Ok(total)
@@ -578,6 +623,8 @@ struct CopyState<'a> {
     job_id: &'a str,
     total: u64,
     cancel: &'a AtomicBool,
+    /// When progress was last written to the DB (see [`PROGRESS_EVERY`]).
+    last_progress: std::time::Instant,
 }
 
 /// Repeat the enqueue-time authorization at execution: a grant revoked
@@ -622,7 +669,7 @@ fn recheck_job_caps_for(conn: &Connection, row: &JobRow, from_path: &str) -> Res
 
 fn run_job(
     db: Arc<crate::Db>,
-    gallery: Arc<GalleryIndexer>,
+    photos: Arc<PhotosIndexer>,
     prepared: PreparedJob,
     cancel: Arc<AtomicBool>,
 ) {
@@ -712,7 +759,7 @@ fn run_job(
                         let _ = db::set_job_state(&conn, &prepared.row.id, "done", "");
                     }
                 }
-                notify_job_gallery(&gallery, &prepared, true);
+                notify_job_photos(&photos, &prepared, true);
                 return;
             }
             Ok(false) => {
@@ -749,6 +796,7 @@ fn run_job(
         job_id: &prepared.row.id,
         total: prepared.total,
         cancel: &cancel,
+        last_progress: std::time::Instant::now(),
     };
     let mut created_private_root = false;
     let result = (|| -> Result<(), JobError> {
@@ -873,6 +921,9 @@ fn run_job(
         if state == "done" {
             let _ =
                 db::update_job_progress(&conn, &prepared.row.id, prepared.total, prepared.total);
+        } else {
+            // Progress writes are throttled, so record the last bytes copied.
+            let _ = db::update_job_progress(&conn, &prepared.row.id, st.done, prepared.total);
         }
     }
     if (state == "cancelled" || state == "error") && st.owned_dest {
@@ -895,7 +946,7 @@ fn run_job(
             files::note_write(&conn, &prepared.row.from_drive, &prepared.row.from_path);
             files::note_write(&conn, &prepared.row.to_drive, &prepared.row.to_path);
         }
-        notify_job_gallery(&gallery, &prepared, prepared.row.kind == "move");
+        notify_job_photos(&photos, &prepared, prepared.row.kind == "move");
     }
 }
 
@@ -917,10 +968,10 @@ fn repath_rows(conn: &Connection, prepared: &PreparedJob, undo: bool) -> anyhow:
     }
 }
 
-fn notify_job_gallery(gallery: &GalleryIndexer, prepared: &PreparedJob, moved: bool) {
-    gallery.rescan(&prepared.row.to_drive);
+fn notify_job_photos(photos: &PhotosIndexer, prepared: &PreparedJob, moved: bool) {
+    photos.rescan(&prepared.row.to_drive);
     if moved {
-        gallery.rescan(&prepared.row.from_drive);
+        photos.rescan(&prepared.row.from_drive);
     }
 }
 
@@ -1051,8 +1102,8 @@ fn copy_node(
             }
             let name = item.map_or(disk, |i| i.name());
             let child_src = entry.path();
-            let child_rel = crate::gallery::gallery_indexer::join_rel(rel, name);
-            let child_dest_rel = crate::gallery::gallery_indexer::join_rel(dest_rel, name);
+            let child_rel = crate::photos::photos_indexer::join_rel(rel, name);
+            let child_dest_rel = crate::photos::photos_indexer::join_rel(dest_rel, name);
             // A private item inside the tree lands as a private item. A copy
             // leaves out what the caller can't reach; a move carries the
             // whole boundary with its owner — the mover reads none of it.
@@ -1133,9 +1184,10 @@ fn copy_node(
         if count_bytes {
             st.done += n as u64;
         }
-        if (st.done % (COPY_BUF as u64) < (COPY_BUF as u64 / 4) || st.done == st.total)
+        if (st.last_progress.elapsed() >= PROGRESS_EVERY || st.done == st.total)
             && let Ok(conn) = ctx.db.lock()
         {
+            st.last_progress = std::time::Instant::now();
             let _ = db::update_job_progress(&conn, st.job_id, st.done, st.total);
         }
     }
@@ -1208,6 +1260,10 @@ fn copy_plain_tree(
             copy_plain_tree(&entry.path(), &target, st, count_bytes)?;
         } else if meta.is_file() {
             let bytes = std::fs::copy(entry.path(), &target).map_err(JobError::Io)?;
+            // No journal on exFAT: the copied file must be on the drive.
+            if let Ok(f) = std::fs::File::open(&target) {
+                let _ = f.sync_all();
+            }
             if count_bytes {
                 st.done += bytes;
             }
@@ -1224,7 +1280,7 @@ fn pump_queue(
     running: &Arc<AtomicUsize>,
     cancels: &Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     db: &Arc<crate::Db>,
-    gallery: &Arc<GalleryIndexer>,
+    photos: &Arc<PhotosIndexer>,
 ) {
     loop {
         let Some((job, cancel)) = ({
@@ -1241,13 +1297,13 @@ fn pump_queue(
             return;
         };
         let job_id = job.row.id.clone();
-        let (db2, gallery2) = (db.clone(), gallery.clone());
+        let (db2, photos2) = (db.clone(), photos.clone());
         let (cancels2, queue2, running2) = (cancels.clone(), queue.clone(), running.clone());
         tokio::task::spawn_blocking(move || {
-            run_job(db2.clone(), gallery2.clone(), job, cancel);
+            run_job(db2.clone(), photos2.clone(), job, cancel);
             lock_cancels(&cancels2).remove(&job_id);
             running2.fetch_sub(1, Ordering::SeqCst);
-            pump_queue(&queue2, &running2, &cancels2, &db2, &gallery2);
+            pump_queue(&queue2, &running2, &cancels2, &db2, &photos2);
         });
     }
 }
@@ -1274,7 +1330,9 @@ fn index_busy() -> JobError {
 fn plain_job_error(err: &JobError) -> String {
     match err {
         JobError::Conflict => "A file or folder with this name is already there.".into(),
-        JobError::Symlink => "Luna can't copy links yet.".into(),
+        JobError::Symlink => {
+            "This includes a shortcut (symbolic link). Luna can't copy or move shortcuts.".into()
+        }
         JobError::Denied => "You no longer have permission to do this.".into(),
         JobError::Blocked => {
             "This folder holds private items that only their owners can move.".into()
@@ -1287,9 +1345,18 @@ fn plain_job_error(err: &JobError) -> String {
             "The files were copied, but Luna couldn't move the originals to Trash. Both are there now.".into()
         }
         JobError::Files(FilesError::UnknownDrive) => {
-            "Luna doesn't know one of these drives. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.".into()
+            "Luna can't find one of these drives. Make sure it is plugged in, or unplug it and plug it back in.".into()
+        }
+        JobError::Files(FilesError::Locked) => {
+            "One of these drives is locked. Unlock it, then try again.".into()
+        }
+        JobError::Files(FilesError::Erasing) => {
+            "Luna is erasing one of these drives right now. Try again when it finishes.".into()
         }
         JobError::Files(FilesError::MissingDriveDb) => files::MISSING_DRIVE_DB_MSG.into(),
+        JobError::Files(FilesError::Io(e)) if files::fsrules::problem_of(e).is_some() => {
+            files::fsrules::problem_of(e).map(|p| p.to_string()).unwrap_or_default()
+        }
         JobError::Files(FilesError::Path(_)) => "Luna can't use that path.".into(),
         JobError::Io(e) if e.kind() == std::io::ErrorKind::NotFound => {
             "A file disappeared while Luna was copying it.".into()
@@ -1297,7 +1364,7 @@ fn plain_job_error(err: &JobError) -> String {
         _ if is_no_space(err) => {
             "The destination drive is full. Free up some space on it and try again.".into()
         }
-        _ => "Luna couldn't finish this job. Check the drives and try again.".into(),
+        _ => "Luna couldn't finish this copy or move. Check the drives and try again.".into(),
     }
 }
 

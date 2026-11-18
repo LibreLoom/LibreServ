@@ -88,7 +88,7 @@ const TRASH_MARK: &str = ".deleting-";
 pub fn delete(db: &crate::Db, conn: &Connection, row: &ProtectionRow) -> anyhow::Result<()> {
     // Held for the whole delete, so a run cannot start while the row goes.
     let Some(_slot) = crate::backup::drive_backup::try_hold(db, &row.id) else {
-        anyhow::bail!("This backup is copying right now. Try again in a minute.");
+        anyhow::bail!("This backup is busy right now. Try again in a minute.");
     };
     db::delete_protection(conn, &row.id)?;
     // Recorded first, so a store left behind (drive absent, or removal
@@ -545,7 +545,7 @@ mod tests {
         let err = delete(&hold_db, &conn, &row).unwrap_err();
         assert_eq!(
             err.to_string(),
-            "This backup is copying right now. Try again in a minute."
+            "This backup is busy right now. Try again in a minute."
         );
         assert!(store.root().exists());
         assert!(db::get_protection(&conn, &row.id).unwrap().is_some());

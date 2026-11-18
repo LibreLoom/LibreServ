@@ -45,7 +45,7 @@ func TestStripeWebhookLocksBackups(t *testing.T) {
 		t.Fatalf("lock has=%d status=%s", has, status)
 	}
 	if subID != "" {
-		t.Fatalf("canceled subscription id %q must be cleared so AttachCard can resubscribe", subID)
+		t.Fatalf("canceled subscription id %q must be cleared so StartCheckout can resubscribe", subID)
 	}
 	var purge int64
 	_ = d.DB.QueryRow(`SELECT COALESCE(backup_purge_after,0) FROM accounts WHERE id = ?`, id).Scan(&purge)

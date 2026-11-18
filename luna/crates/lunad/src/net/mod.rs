@@ -110,14 +110,55 @@ pub fn read_status(sys_net: &Path, proc_route: &str) -> NetworkStatus {
 
 /// Current IPv4 addresses on non-loopback interfaces (never the old 169.254 product address).
 pub fn live_ipv4() -> Vec<String> {
-    let out = std::process::Command::new("ip")
-        .args(["-4", "-o", "addr", "show"])
-        .output()
-        .ok();
-    let text = out
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .unwrap_or_default();
-    parse_ip_dash_o(&text)
+    ipv4_addrs(None).unwrap_or_default()
+}
+
+/// IPv4 addresses the kernel holds, on one interface or all of them, with
+/// the same filter as [`parse_ip_dash_o`]: no loopback, no 169.254 link-local.
+/// Read with `getifaddrs` rather than by running `ip`, which the link
+/// watcher and the HDMI console would otherwise start every few seconds.
+/// `None` when the kernel can't be asked.
+pub(crate) fn ipv4_addrs(iface: Option<&str>) -> Option<Vec<String>> {
+    let mut head: *mut libc::ifaddrs = std::ptr::null_mut();
+    // SAFETY: getifaddrs fills `head` with a list we free below.
+    if unsafe { libc::getifaddrs(&mut head) } != 0 {
+        return None;
+    }
+    let mut ips: Vec<String> = Vec::new();
+    let mut cur = head;
+    while !cur.is_null() {
+        // SAFETY: `cur` is a node of the list getifaddrs returned, which stays
+        // valid until freeifaddrs.
+        let ifa = unsafe { &*cur };
+        cur = ifa.ifa_next;
+        if ifa.ifa_addr.is_null() || ifa.ifa_name.is_null() {
+            continue;
+        }
+        // SAFETY: non-null sockaddr from getifaddrs.
+        if i32::from(unsafe { (*ifa.ifa_addr).sa_family }) != libc::AF_INET {
+            continue;
+        }
+        if let Some(want) = iface {
+            // SAFETY: ifa_name is a NUL-terminated string owned by the list.
+            let name = unsafe { std::ffi::CStr::from_ptr(ifa.ifa_name) };
+            if name.to_bytes() != want.as_bytes() {
+                continue;
+            }
+        }
+        // SAFETY: an AF_INET address is a sockaddr_in.
+        let sin = unsafe { &*(ifa.ifa_addr as *const libc::sockaddr_in) };
+        let ip = std::net::Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr));
+        if ip.is_loopback() || ip.is_link_local() {
+            continue;
+        }
+        let ip = ip.to_string();
+        if !ips.contains(&ip) {
+            ips.push(ip);
+        }
+    }
+    // SAFETY: `head` came from a successful getifaddrs.
+    unsafe { libc::freeifaddrs(head) };
+    Some(ips)
 }
 
 pub fn parse_ip_dash_o(text: &str) -> Vec<String> {
@@ -186,6 +227,28 @@ fn read_trimmed(path: &Path) -> Option<String> {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn kernel_ipv4_list_skips_loopback() {
+        assert_eq!(ipv4_addrs(Some("lo")), Some(Vec::new()));
+        let all = ipv4_addrs(None).expect("getifaddrs");
+        assert!(
+            all.iter()
+                .all(|ip| !ip.starts_with("127.") && !ip.starts_with("169.254."))
+        );
+        // Same list as `ip` gave before, where `ip` is installed.
+        if let Ok(out) = std::process::Command::new("ip")
+            .args(["-4", "-o", "addr", "show"])
+            .output()
+            && out.status.success()
+        {
+            let mut from_ip = parse_ip_dash_o(&String::from_utf8_lossy(&out.stdout));
+            let mut from_kernel = all.clone();
+            from_ip.sort();
+            from_kernel.sort();
+            assert_eq!(from_kernel, from_ip);
+        }
+    }
 
     fn fake_sys(root: &Path) -> std::path::PathBuf {
         let net = root.join("sys/class/net");

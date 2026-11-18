@@ -195,7 +195,7 @@ Toast.propTypes = {
     id: PropTypes.number.isRequired,
     type: PropTypes.oneOf(["success", "error", "info"]).isRequired,
     message: PropTypes.string.isRequired,
-    description: PropTypes.string,
+    description: PropTypes.node,
     duration: PropTypes.number,
     exiting: PropTypes.bool,
     action: PropTypes.shape({

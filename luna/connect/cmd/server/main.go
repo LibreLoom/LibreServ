@@ -135,6 +135,16 @@ func main() {
 			}
 		}()
 
+		// Hourly: delete Cloudflare tunnels no Luna owns any more.
+		go func() {
+			t := time.NewTicker(1 * time.Hour)
+			defer t.Stop()
+			srv.SweepOrphanTunnels()
+			for range t.C {
+				srv.SweepOrphanTunnels()
+			}
+		}()
+
 		go func() {
 			srv.ProcessRetention(time.Now().Unix())
 			t := time.NewTicker(24 * time.Hour)

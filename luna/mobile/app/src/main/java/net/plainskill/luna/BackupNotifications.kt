@@ -27,10 +27,10 @@ class BackupNotifications(private val context: Context) {
         if (!allowed()) return
         val note = NotificationCompat.Builder(context, PROGRESS_CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentTitle("Backing up photos")
+            .setContentTitle("Uploading photos")
             .setContentText(
-                if (remaining == 1) "Saving 1 photo to Luna…"
-                else "Saving $remaining photos to Luna…"
+                if (remaining == 1) "Uploading 1 item to Luna…"
+                else "Uploading $remaining items to Luna…"
             )
             .setProgress(0, 0, true)
             .setOngoing(true)
@@ -45,7 +45,7 @@ class BackupNotifications(private val context: Context) {
         if (!allowed()) return
         val note = NotificationCompat.Builder(context, ALERT_CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_error)
-            .setContentTitle("Luna photo upload had a problem")
+            .setContentTitle("Photo upload stopped")
             .setContentText(message)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
@@ -82,7 +82,7 @@ class BackupNotifications(private val context: Context) {
                     "Photo upload progress",
                     NotificationManager.IMPORTANCE_LOW,
                 ).apply {
-                    description = "Quiet progress while photos save to Luna"
+                    description = "Quiet progress while photos upload to Luna"
                     setShowBadge(false)
                 }
             )
@@ -92,7 +92,7 @@ class BackupNotifications(private val context: Context) {
                     "Photo upload alerts",
                     NotificationManager.IMPORTANCE_DEFAULT,
                 ).apply {
-                    description = "Only when photo upload needs you to sign in again"
+                    description = "When photo upload stops and needs you to act"
                 }
             )
         }

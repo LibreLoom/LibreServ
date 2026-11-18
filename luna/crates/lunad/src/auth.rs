@@ -160,7 +160,10 @@ impl AuthService {
     ) -> Result<(UserRow, crate::hibp::BreachCheck), AuthError> {
         let username = normalize_username(username)?;
         let display_name = display_name.trim();
-        if display_name.is_empty() || display_name.len() > 80 {
+        // Characters, not bytes: the API promises "1-80 characters", and a
+        // name in a non-Latin script must not fall through to the username
+        // message.
+        if display_name.is_empty() || display_name.chars().count() > 80 {
             return Err(AuthError::BadUsername);
         }
         if let Err(err) = crate::password::validate_password(password) {
@@ -204,7 +207,7 @@ impl AuthService {
     }
 
     pub fn login(&self, username: &str, password: &str) -> Result<(UserRow, String), AuthError> {
-        let username = username.trim().to_lowercase();
+        let username = username_lookup_key(username);
         let conn = self
             .db
             .lock()
@@ -504,7 +507,7 @@ impl AuthService {
             ));
         }
         let hash = hash_password_unchecked(password)?;
-        let username = username.trim().to_lowercase();
+        let username = username_lookup_key(username);
         let conn = self
             .db
             .lock()
@@ -894,22 +897,30 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
             let (action, detail) = categorize_api_request(&method, &path);
 
             // The global database lock is a std mutex: take it on a blocking thread so a slow
-            // write never holds one of the daemon's two async workers.
-            let st = state.clone();
-            let _ = tokio::task::spawn_blocking(move || {
-                if let Ok(conn) = st.db.lock() {
-                    let _ = crate::db::note_device_token_activity_rich(
-                        &conn,
-                        &token_ctx.token_id,
-                        token_ctx.last_used_at,
-                        &action,
-                        &detail,
-                        &client,
-                        &origin,
-                    );
-                }
-            })
-            .await;
+            // write never holds one of the daemon's two async workers. The request does not
+            // wait for it, and a repeat of the same activity within a few seconds (every
+            // chunk of a photo backup) is not written again: the merged row would only
+            // move its time by those seconds.
+            let key = format!(
+                "{}\u{1f}{action}\u{1f}{detail}\u{1f}{client}\u{1f}{origin}",
+                token_ctx.token_id
+            );
+            if token_activity_due(&key, std::time::Instant::now()) {
+                let st = state.clone();
+                drop(tokio::task::spawn_blocking(move || {
+                    if let Ok(conn) = st.db.lock() {
+                        let _ = crate::db::note_device_token_activity_rich(
+                            &conn,
+                            &token_ctx.token_id,
+                            token_ctx.last_used_at,
+                            &action,
+                            &detail,
+                            &client,
+                            &origin,
+                        );
+                    }
+                }));
+            }
         }
     }
 
@@ -922,6 +933,33 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
         return maybe_attach_csrf(response, issue_csrf, secure);
     }
     json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first.").into_response()
+}
+
+/// How long the same device-token activity is not re-recorded. Far below the
+/// usage log's 15-minute merge window, so the log reads the same.
+const TOKEN_ACTIVITY_THROTTLE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// True when this activity (token, action, detail, client, origin) was not
+/// recorded in the last [`TOKEN_ACTIVITY_THROTTLE`]; marks it recorded.
+fn token_activity_due(key: &str, now: std::time::Instant) -> bool {
+    static SEEN: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
+    > = std::sync::OnceLock::new();
+    let Ok(mut seen) = SEEN.get_or_init(Default::default).lock() else {
+        return true;
+    };
+    if seen
+        .get(key)
+        .is_some_and(|at| now.saturating_duration_since(*at) < TOKEN_ACTIVITY_THROTTLE)
+    {
+        return false;
+    }
+    // Bounded by tokens × activity kinds; drop stale keys when it grows.
+    if seen.len() >= 1024 {
+        seen.retain(|_, at| now.saturating_duration_since(*at) < TOKEN_ACTIVITY_THROTTLE);
+    }
+    seen.insert(key.to_string(), now);
+    true
 }
 
 /// Extract the authenticated user (handlers are behind the guard).
@@ -1062,7 +1100,7 @@ pub fn categorize_api_request(method: &axum::http::Method, path: &str) -> (Strin
     if path.starts_with("/api/v1/uploads") {
         return ("File upload".to_string(), "Uploaded files".to_string());
     }
-    if path.starts_with("/api/v1/gallery") {
+    if path.starts_with("/api/v1/photos") {
         if *method == axum::http::Method::POST || *method == axum::http::Method::PUT {
             return ("Photos".to_string(), "Uploaded photos".to_string());
         }
@@ -1761,8 +1799,12 @@ pub(crate) fn verify_password_hash(
         .map_err(|_| AuthError::BadLogin)
 }
 
+pub(crate) fn username_lookup_key(username: &str) -> String {
+    username.trim().to_lowercase()
+}
+
 pub(crate) fn normalize_username(username: &str) -> Result<String, AuthError> {
-    let username = username.trim().to_lowercase();
+    let username = username_lookup_key(username);
     let valid = !username.is_empty()
         && username.len() <= 32
         && username.len() >= 3

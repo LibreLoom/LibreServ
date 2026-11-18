@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { AnimatePresence, MotionConfig, motion as Motion } from "motion/react";
+import { MotionConfig } from "motion/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { File as FileIcon, Folder, Image as ImageIcon, Search, Share2 } from "lucide-react";
@@ -15,6 +15,7 @@ import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.j
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import ShareSheet from "../components/share/ShareSheet.jsx";
+import SlidePages from "../components/common/SlidePages.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { apiErrorMessage, deleteJson, getJson } from "../lib/api";
@@ -28,16 +29,6 @@ import {
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 
-// Same carousel as the form builder's tabs: Manage sharing sits right of
-// Shared with you, so going there pushes the list left and the new one follows
-// in from the right. Variants so the leaving list reads the new direction.
-const TAB_SLIDE = {
-  enter: (/** @type {number} */ dir) => ({ x: `${100 * dir}%`, opacity: 0.6 }),
-  shown: { x: 0, opacity: 1 },
-  leave: (/** @type {number} */ dir) => ({ x: `${-100 * dir}%`, opacity: 0.6 }),
-};
-/** @type {import("motion/react").Transition} */
-const TAB_SPRING = { type: "spring", duration: 0.35, bounce: 0.12 };
 
 function SubjectIcon({ kind, isFile }) {
   const Icon = kind === KIND_ALBUM ? ImageIcon : isFile ? FileIcon : Folder;
@@ -92,7 +83,7 @@ export default function SharedPage() {
       queryClient.invalidateQueries({ queryKey: ["access-mine"] });
       queryClient.invalidateQueries({ queryKey: ["my-access"] });
       queryClient.invalidateQueries({ queryKey: ["drives"] });
-      queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
       queryClient.invalidateQueries({ queryKey: ["files"] });
     },
     onError: (err) => {
@@ -159,17 +150,8 @@ export default function SharedPage() {
             </label>
           </div>
 
-          <div className="relative overflow-x-clip">
-          <AnimatePresence mode="popLayout" initial={false} custom={tab === "manage" ? 1 : -1}>
-          <Motion.div
-            key={tab}
-            custom={tab === "manage" ? 1 : -1}
-            variants={TAB_SLIDE}
-            initial="enter"
-            animate="shown"
-            exit="leave"
-            transition={TAB_SPRING}
-          >
+          {/* Manage sharing sits right of Shared with you, as in the tab bar. */}
+          <SlidePages pageKey={tab} position={tab === "manage" ? 1 : 0}>
           {tab === "with_me" && (
             shownWithMe.length === 0 ? (
               <EmptyState
@@ -177,7 +159,7 @@ export default function SharedPage() {
                 title={query ? "Nothing matches" : "Nothing shared with you yet"}
                 description={query
                   ? `Nothing shared with you matches "${search.trim()}".`
-                  : "When someone shares a file, folder, drive, or album with you, it lands here."}
+                  : "When someone shares a file, folder, drive, or album with you, it shows here."}
               />
             ) : (
               <Card
@@ -219,7 +201,8 @@ export default function SharedPage() {
                       {
                         key: "shared_by",
                         label: "Shared by",
-                        render: (row) => row.shared_by || "—",
+                        // Empty when the account that shared it no longer exists.
+                        render: (row) => row.shared_by || "Unknown",
                       },
                       {
                         key: "actions",
@@ -271,7 +254,7 @@ export default function SharedPage() {
                 title={query ? "Nothing matches" : "Nothing shared yet"}
                 description={query
                   ? `Nothing you manage matches "${search.trim()}".`
-                  : "Use the share button on a file, folder, drive, or album — everything you share lands here."}
+                  : "Use the share button on a file, folder, drive, or album. Everything you share shows here."}
               />
             ) : (
               <Card
@@ -296,7 +279,7 @@ export default function SharedPage() {
                               </span>
                               {!s.exists && (
                                 <span className="block text-xs">
-                                  Not available right now
+                                  Unavailable
                                 </span>
                               )}
                             </span>
@@ -353,9 +336,7 @@ export default function SharedPage() {
               </Card>
             )
           )}
-          </Motion.div>
-          </AnimatePresence>
-          </div>
+          </SlidePages>
         </>
       )}
 
@@ -379,7 +360,7 @@ export default function SharedPage() {
         onConfirm={() => leaving && leave.mutate(leaving.id)}
       >
         <p className="text-primary text-sm">
-          Leave this share? You'll lose the access it gives you — access through other shared folders stays.
+          You lose the access this share gives you. Your access through other shared folders stays.
         </p>
       </ConfirmModal>
     </Page>

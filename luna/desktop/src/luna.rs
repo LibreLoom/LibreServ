@@ -51,16 +51,31 @@ pub fn is_auth_failure(err: &str) -> bool {
 
 pub fn plain_connect_error(err: &ureq::Error) -> String {
     match err {
+        // Every signed-in call uses an access token, so a 401 means Luna no
+        // longer accepts it. Keep "didn't work": `is_auth_failure` keys off it.
         ureq::Error::StatusCode(401) => {
-            "That username or password didn't work. Check them and try again.".into()
+            "That access token didn't work. Create a new one in Luna → Settings → Security.".into()
         }
         ureq::Error::StatusCode(403) => "You don't have permission to do that on Luna.".into(),
         ureq::Error::StatusCode(404) => {
-            "Luna couldn't find this drive or file. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.".into()
+            "Luna couldn't find this drive, folder, or file. Make sure the drive is plugged in to Luna.".into()
         }
         ureq::Error::StatusCode(409) => {
             "A file with this name is already here. Rename it or choose another.".into()
         }
+        ureq::Error::StatusCode(413) => {
+            "Luna doesn't have enough free memory for this upload right now. Try again later.".into()
+        }
+        ureq::Error::StatusCode(423) => {
+            "This drive is locked. Open Luna in a browser and enter the drive's password.".into()
+        }
+        ureq::Error::StatusCode(507) => {
+            "This drive on Luna is full. Free up some space and try again.".into()
+        }
+        ureq::Error::StatusCode(code) if *code >= 500 => {
+            "Luna had a problem and couldn't finish this. Try again.".into()
+        }
+        ureq::Error::StatusCode(_) => "Luna refused this request.".into(),
         other => {
             let text = other.to_string();
             if text.contains("Connection refused")
@@ -73,7 +88,8 @@ pub fn plain_connect_error(err: &ureq::Error) -> String {
                 "Luna couldn't be reached. Check the address and that Luna is on, then try again."
                     .into()
             } else {
-                format!("Something went wrong talking to Luna. {text}")
+                "Couldn't talk to Luna. Check the address and your network, then try again."
+                    .into()
             }
         }
     }
@@ -228,7 +244,7 @@ pub fn auth_me(base_url: &str, token: &str) -> Result<(String, String), String> 
     let value: serde_json::Value = resp
         .body_mut()
         .read_json()
-        .map_err(|_| "Luna returned a bad sign-in reply.".to_string())?;
+        .map_err(|_| "Luna sent a sign-in reply this app can't read. Try again.".to_string())?;
     if value.is_null() {
         return Err(
             "That access token didn't work. Create a new one in Luna → Settings → Security.".into(),
@@ -261,7 +277,7 @@ pub fn list_drives(base_url: &str, token: &str) -> Result<Vec<Drive>, String> {
     let values: Vec<serde_json::Value> = resp
         .body_mut()
         .read_json()
-        .map_err(|_| "Luna returned a bad drive list.".to_string())?;
+        .map_err(|_| "Luna sent a drive list this app can't read. Try again.".to_string())?;
     Ok(values
         .into_iter()
         .filter_map(|v| {
@@ -299,20 +315,16 @@ pub fn list_files(
         return Err("unauthorized".into());
     }
     if !(200..300).contains(&status) {
+        // Luna's own message names the real cause (missing drive database,
+        // locked drive, unknown path), so prefer it over a guess.
         let parsed: Option<serde_json::Value> = resp.body_mut().read_json().ok();
-        if parsed
+        if let Some(msg) = parsed
             .as_ref()
-            .and_then(|v| v.get("code"))
-            .and_then(|c| c.as_str())
-            == Some("missing_drive_db")
+            .and_then(|v| v.get("error"))
+            .and_then(|e| e.as_str())
+            .map(str::trim)
+            .filter(|m| !m.is_empty())
         {
-            let msg = parsed
-                .as_ref()
-                .and_then(|v| v.get("error"))
-                .and_then(|e| e.as_str())
-                .unwrap_or(
-                    "Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again.",
-                );
             return Err(msg.to_string());
         }
         if status == 403 {
@@ -320,27 +332,75 @@ pub fn list_files(
         }
         if status == 404 {
             return Err(
-                "Luna couldn't find this drive. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.".into(),
+                "Luna couldn't find this drive or folder. Make sure the drive is plugged in to Luna.".into(),
             );
         }
         return Err("Luna couldn't open that folder. Try again.".into());
     }
-    let values: Vec<serde_json::Value> = resp
+    // Only the fields sync reads, each still optional and loosely typed, so
+    // an odd entry is skipped as before; parsing straight into this skips a
+    // map per entry (a 50,000-file sync lists every folder every 30 s).
+    #[derive(Deserialize)]
+    struct Raw {
+        name: Option<serde_json::Value>,
+        kind: Option<serde_json::Value>,
+        size: Option<serde_json::Value>,
+        modified: Option<serde_json::Value>,
+        private: Option<serde_json::Value>,
+    }
+    let values: Vec<Raw> = resp
         .body_mut()
         .read_json()
-        .map_err(|_| "Luna returned a bad folder listing.".to_string())?;
+        .map_err(|_| "Luna sent a folder list this app can't read. Try again.".to_string())?;
     Ok(values
         .into_iter()
         .filter_map(|v| {
+            let text = |v: Option<serde_json::Value>| match v? {
+                serde_json::Value::String(s) => Some(s),
+                _ => None,
+            };
             Some(FileEntry {
-                name: v.get("name")?.as_str()?.to_string(),
-                kind: v.get("kind")?.as_str()?.to_string(),
-                size: v.get("size")?.as_u64().unwrap_or(0),
-                modified: v.get("modified")?.as_i64().unwrap_or(0),
-                private: v.get("private").and_then(|p| p.as_bool()).unwrap_or(false),
+                name: text(v.name)?,
+                kind: text(v.kind)?,
+                size: v.size?.as_u64().unwrap_or(0),
+                modified: v.modified?.as_i64().unwrap_or(0),
+                private: v.private.and_then(|p| p.as_bool()).unwrap_or(false),
             })
         })
         .collect())
+}
+
+/// One file's details (`GET …/files/stat`), or `None` when Luna has nothing
+/// at that path. Sync uses it to check a single file instead of walking the
+/// whole folder.
+pub fn stat_file(
+    base_url: &str,
+    token: &str,
+    drive_id: &str,
+    path: &str,
+) -> Result<Option<FileEntry>, String> {
+    let enc = urlencoding_path(path);
+    let mut resp = agent()
+        .get(&format!(
+            "{}/api/v1/drives/{drive_id}/files/stat?path={enc}",
+            base_url.trim_end_matches('/')
+        ))
+        .config()
+        .http_status_as_error(false)
+        .build()
+        .header("Authorization", &format!("Bearer {token}"))
+        .call()
+        .map_err(|e| plain_connect_error(&e))?;
+    match resp.status().as_u16() {
+        200 => resp
+            .body_mut()
+            .read_json::<FileEntry>()
+            .map(Some)
+            .map_err(|_| "Luna sent file details this app can't read. Try again.".to_string()),
+        401 => Err("unauthorized".into()),
+        404 => Ok(None),
+        _ => Err("Luna couldn't check that file. Try again.".into()),
+    }
 }
 
 /// Create a folder. With `private`, only you (and people you share it with
@@ -429,13 +489,20 @@ pub fn download_file(
     Ok(())
 }
 
-const CHUNK: usize = 1024 * 1024;
+/// Upload chunk size: what the web app and Android send, and the smallest
+/// chunk lunad always accepts (`MIN_UPLOAD_CHUNK_BYTES`). 1 MiB chunks paid a
+/// round trip per MiB (journey K5).
+const CHUNK: usize = 8 * 1024 * 1024;
 
 /// Upload `local` to `dest` / `remote_rel`.
 ///
 /// When `overwrite` is true, complete uses `?overwrite=1` so an existing file at
 /// that path is replaced. Use that only for ledger-authorized same-path updates.
 /// New files and conflict copies must pass `overwrite: false`.
+///
+/// Returns the stored file's `modified` time as Luna reports it, when the
+/// complete response carries one. Sync records it so the next listing does not
+/// look like a remote change.
 pub fn upload_file(
     base_url: &str,
     token: &str,
@@ -443,7 +510,7 @@ pub fn upload_file(
     local: &Path,
     remote_rel: &str,
     overwrite: bool,
-) -> Result<(), String> {
+) -> Result<Option<i64>, String> {
     let meta = std::fs::metadata(local)
         .map_err(|_| "Couldn't read that file on this computer.".to_string())?;
     let size = meta.len();
@@ -462,19 +529,30 @@ pub fn upload_file(
     let dest_dir = full.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
     let file_name = full.rsplit('/').next().unwrap_or(&name);
 
+    let mut body = serde_json::json!({
+        "drive_id": dest.drive_id,
+        "path": dest_dir,
+        "name": file_name,
+        "size": size
+    });
+    // Luna refuses to start an upload onto a taken name unless the request
+    // says what to do about it; a replace says so up front.
+    if overwrite {
+        body["on_conflict"] = serde_json::Value::from("overwrite");
+    }
     let mut created = agent()
         .post(&format!(
             "{}/api/v1/uploads",
             base_url.trim_end_matches('/')
         ))
         .header("Authorization", &format!("Bearer {token}"))
-        .send_json(serde_json::json!({
-            "drive_id": dest.drive_id,
-            "path": dest_dir,
-            "name": file_name,
-            "size": size
-        }))
-        .map_err(|e| plain_connect_error(&e))?;
+        .send_json(body)
+        .map_err(|e| match e {
+            ureq::Error::StatusCode(409) => {
+                "A file with this name is already here. Rename it or choose another.".to_string()
+            }
+            e => plain_connect_error(&e),
+        })?;
     if created.status() == 401 {
         return Err("unauthorized".into());
     }
@@ -484,11 +562,11 @@ pub fn upload_file(
     let created_val: serde_json::Value = created
         .body_mut()
         .read_json()
-        .map_err(|_| "Luna didn't return an upload id.".to_string())?;
+        .map_err(|_| "Luna couldn't start the upload. Try again.".to_string())?;
     let upload_id = created_val
         .get("upload_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| "Luna didn't return an upload id.".to_string())?;
+        .ok_or_else(|| "Luna couldn't start the upload. Try again.".to_string())?;
 
     let mut file = std::fs::File::open(local)
         .map_err(|_| "Couldn't open that file on this computer.".to_string())?;
@@ -534,8 +612,12 @@ pub fn upload_file(
         .header("Authorization", &format!("Bearer {token}"))
         .send_empty()
     {
-        Ok(complete) => match complete.status().as_u16() {
-            200 | 201 => Ok(()),
+        Ok(mut complete) => match complete.status().as_u16() {
+            200 | 201 => Ok(complete
+                .body_mut()
+                .read_json::<serde_json::Value>()
+                .ok()
+                .and_then(|v| v.get("modified")?.as_i64())),
             _ => Err("Luna couldn't finish the upload. Try again.".into()),
         },
         Err(ureq::Error::StatusCode(409)) => {
@@ -564,26 +646,52 @@ fn urlencoding_path(path: &str) -> String {
 }
 
 /// Recursively list files under a Luna folder as (relative path, entry).
+/// One folder at a time on purpose: listing several at once was slower on a
+/// busy Luna (measured on the Wyse 3040 stand-in, journey K3).
 pub fn walk_remote_files(
     base_url: &str,
     token: &str,
     drive_id: &str,
     root_path: &str,
 ) -> Result<Vec<(String, FileEntry)>, String> {
-    let mut out = Vec::new();
-    walk_remote_rec(base_url, token, drive_id, root_path, "", &mut out)?;
-    Ok(out)
+    walk_remote_files_until(base_url, token, drive_id, root_path, &mut || true)
+        .map(Option::unwrap_or_default)
 }
 
-fn walk_remote_rec(
+/// [`walk_remote_files`] that asks `keep_going` between folders and stops
+/// early (`Ok(None)`) when it says no, so a long walk can make way for
+/// something more urgent.
+pub fn walk_remote_files_until(
+    base_url: &str,
+    token: &str,
+    drive_id: &str,
+    root_path: &str,
+    keep_going: &mut dyn FnMut() -> bool,
+) -> Result<Option<Vec<(String, FileEntry)>>, String> {
+    let mut out = Vec::new();
+    let mut todo = vec![(root_path.to_string(), String::new())];
+    while let Some((abs_path, rel)) = todo.pop() {
+        let (dirs, files) = list_dir_entries(base_url, token, drive_id, &abs_path, &rel)?;
+        todo.extend(dirs);
+        out.extend(files);
+        if !todo.is_empty() && !keep_going() {
+            return Ok(None);
+        }
+    }
+    Ok(Some(out))
+}
+
+/// One folder's listing, split into subfolders to walk next and files.
+#[allow(clippy::type_complexity)]
+fn list_dir_entries(
     base_url: &str,
     token: &str,
     drive_id: &str,
     abs_path: &str,
     rel: &str,
-    out: &mut Vec<(String, FileEntry)>,
-) -> Result<(), String> {
+) -> Result<(Vec<(String, String)>, Vec<(String, FileEntry)>), String> {
     let entries = list_files(base_url, token, drive_id, abs_path)?;
+    let (mut dirs, mut files) = (Vec::new(), Vec::new());
     for e in entries {
         if e.name.starts_with('.') {
             continue;
@@ -603,18 +711,18 @@ fn walk_remote_rec(
         } else {
             format!("{rel}/{}", e.name)
         };
-        let child_abs = if abs_path.is_empty() {
-            e.name.clone()
-        } else {
-            format!("{abs_path}/{}", e.name)
-        };
         if e.kind == "dir" {
-            walk_remote_rec(base_url, token, drive_id, &child_abs, &child_rel, out)?;
+            let child_abs = if abs_path.is_empty() {
+                e.name.clone()
+            } else {
+                format!("{abs_path}/{}", e.name)
+            };
+            dirs.push((child_abs, child_rel));
         } else if e.kind == "file" {
-            out.push((child_rel, e));
+            files.push((child_rel, e));
         }
     }
-    Ok(())
+    Ok((dirs, files))
 }
 
 #[cfg(test)]
@@ -637,10 +745,34 @@ mod tests {
                 if stop2.load(std::sync::atomic::Ordering::Relaxed) {
                     break;
                 }
-                let mut buf = [0u8; 4096];
                 let mut s = stream;
-                let n = s.read(&mut buf).unwrap_or(0);
-                let req = String::from_utf8_lossy(&buf[..n]);
+                // Read the head, then the body named by Content-Length: a
+                // client may send them in separate writes.
+                let mut raw = Vec::new();
+                let mut buf = [0u8; 4096];
+                loop {
+                    let n = s.read(&mut buf).unwrap_or(0);
+                    raw.extend_from_slice(&buf[..n]);
+                    let text = String::from_utf8_lossy(&raw).to_string();
+                    let Some(head_end) = text.find("\r\n\r\n") else {
+                        if n == 0 {
+                            break;
+                        }
+                        continue;
+                    };
+                    let want = text[..head_end]
+                        .lines()
+                        .find_map(|l| {
+                            let (k, v) = l.split_once(':')?;
+                            k.eq_ignore_ascii_case("content-length")
+                                .then(|| v.trim().parse::<usize>().ok())?
+                        })
+                        .unwrap_or(0);
+                    if n == 0 || raw.len() >= head_end + 4 + want {
+                        break;
+                    }
+                }
+                let req = String::from_utf8_lossy(&raw);
                 let extra = if req.contains("/api/v1/auth/login") {
                     "Set-Cookie: luna_session=sess-cookie; Path=/\r\nSet-Cookie: luna_csrf=csrf-tok; Path=/\r\n"
                 } else {
@@ -693,7 +825,7 @@ mod tests {
                 } else if req.contains("missing-db") {
                     (
                         500,
-                        r#"{"error":"Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again.","code":"missing_drive_db"}"#.to_string(),
+                        r#"{"error":"Luna can't write its database to this drive, but your files are still on it. Free up space or check the drive's write-lock switch, then try again.","code":"missing_drive_db"}"#.to_string(),
                     )
                 } else if req.contains("/files") {
                     (
@@ -701,6 +833,13 @@ mod tests {
                         r#"[{"name":"Family","kind":"dir","size":0,"modified":1,"hidden":false}]"#
                             .to_string(),
                     )
+                } else if (req.contains("POST /api/v1/uploads ")
+                    || req.contains("POST /api/v1/uploads\r")
+                    || (req.starts_with("POST /api/v1/uploads") && !req.contains("/complete")))
+                    && !req.contains("on_conflict")
+                {
+                    // Like lunad: a taken name needs a decision at create.
+                    (409, r#"{"error":"exists","code":"exists"}"#.to_string())
                 } else if req.contains("POST /api/v1/uploads ")
                     || req.contains("POST /api/v1/uploads\r")
                     || (req.starts_with("POST /api/v1/uploads") && !req.contains("/complete"))
@@ -776,11 +915,8 @@ mod tests {
     fn list_files_reports_a_missing_drive_database() {
         let (base, handle, stop) = spawn_server();
         let err = list_files(&base, "device-tok-456", "a", "missing-db").unwrap_err();
-        assert!(err.contains("database for this drive is missing"), "{err}");
-        assert!(
-            err.contains("On the Files page, remove this drive, then add it again."),
-            "{err}"
-        );
+        assert!(err.contains("can't write its database"), "{err}");
+        assert!(err.contains("your files are still on it."), "{err}");
         assert!(!err.to_ascii_lowercase().contains("unplug"), "{err}");
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
         drop(handle);
@@ -807,16 +943,103 @@ mod tests {
             drive_id: "a".into(),
             path: "Docs".into(),
         };
-        // Create-only complete returns 409 on this fake server.
+        // A new-file upload onto a taken name is refused (at create, as lunad does).
         let err = upload_file(&base, "device-tok-456", &dest, &local, "note.txt", false)
-            .expect_err("create-only complete should fail when the name exists");
-        assert!(
-            err.contains("already here") || err.contains("409") || err.contains("http status"),
-            "unexpected error: {err}"
-        );
-        // Replace path must send ?overwrite=1 and succeed.
-        upload_file(&base, "device-tok-456", &dest, &local, "note.txt", true).unwrap();
+            .expect_err("create-only upload should fail when the name exists");
+        assert!(err.contains("already here"), "unexpected error: {err}");
+        // Replace must say so at create (on_conflict) and complete
+        // (?overwrite=1) and succeed, reporting Luna's mtime.
+        let modified =
+            upload_file(&base, "device-tok-456", &dest, &local, "note.txt", true).unwrap();
+        assert_eq!(modified, Some(1));
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
         drop(handle);
+    }
+
+    /// Serves folder listings by `path=` query, one request per connection.
+    fn listing_server(listings: Vec<(&'static str, &'static str)>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut s) = stream else { break };
+                let mut buf = [0u8; 4096];
+                let n = s.read(&mut buf).unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                let path = req
+                    .split_once("path=")
+                    .map(|(_, r)| r.split([' ', '&']).next().unwrap_or(""))
+                    .unwrap_or("");
+                let body = listings
+                    .iter()
+                    .find(|(p, _)| *p == path)
+                    .map(|(_, b)| *b)
+                    .unwrap_or("[]");
+                let _ = write!(
+                    s,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+        base
+    }
+
+    #[test]
+    fn walk_remote_files_lists_nested_files_and_skips_odd_entries() {
+        let base = listing_server(vec![
+            (
+                "Root",
+                r#"[{"name":"A","kind":"dir","size":0,"modified":1},
+                    {"name":"x.txt","kind":"file","size":3,"modified":5,"extra":true},
+                    {"name":".hidden","kind":"file","size":1,"modified":1},
+                    {"name":"no-kind","size":1,"modified":1},
+                    {"name":7,"kind":"file","size":1,"modified":1}]"#,
+            ),
+            (
+                "Root%2FA",
+                r#"[{"name":"y.txt","kind":"file","size":"big","modified":9,"private":true}]"#,
+            ),
+        ]);
+        let mut files = walk_remote_files(&base, "t", "d", "Root").unwrap();
+        files.sort_by(|a, b| a.0.cmp(&b.0));
+        let got: Vec<_> = files
+            .iter()
+            .map(|(rel, e)| (rel.as_str(), e.size, e.modified, e.private))
+            .collect();
+        // A size that isn't a number reads as 0, as before the typed parse.
+        assert_eq!(got, vec![("A/y.txt", 0, 9, true), ("x.txt", 3, 5, false)]);
+    }
+
+    #[test]
+    fn walk_remote_files_refuses_a_listing_with_an_unsafe_name() {
+        let base = listing_server(vec![(
+            "Root",
+            r#"[{"name":"a/b","kind":"dir","size":0,"modified":1}]"#,
+        )]);
+        let err = walk_remote_files(&base, "t", "d", "Root").unwrap_err();
+        assert!(err.contains("can't store"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn walk_remote_files_until_stops_between_folders() {
+        let base = listing_server(vec![
+            (
+                "Root",
+                r#"[{"name":"A","kind":"dir","size":0,"modified":1}]"#,
+            ),
+            (
+                "Root%2FA",
+                r#"[{"name":"y.txt","kind":"file","size":1,"modified":1}]"#,
+            ),
+        ]);
+        let mut asked = 0;
+        let got = walk_remote_files_until(&base, "t", "d", "Root", &mut || {
+            asked += 1;
+            false
+        })
+        .unwrap();
+        assert!(got.is_none());
+        assert_eq!(asked, 1);
     }
 }

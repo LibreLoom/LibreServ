@@ -170,7 +170,7 @@ export default function FolderPickerModal({
       addToast({ type: "success", message: "Folder created." });
     } catch (err) {
       haptic("error");
-      setCreateError(apiErrorMessage(err, "Couldn't create that folder. Try another name."));
+      setCreateError(apiErrorMessage(err, "Couldn't create that folder. Try again."));
       throw err;
     } finally {
       setCreateBusy(false);
@@ -193,7 +193,7 @@ export default function FolderPickerModal({
               <p className="text-primary text-sm mb-3">Loading your folders…</p>
             ) : roots.length === 0 ? (
               <p className="text-primary text-sm mb-3">
-                You don't have anywhere to put files yet. Ask an admin to share a folder with you.
+                You don't have anywhere to put files yet. Ask an Admin to share a folder with you.
               </p>
             ) : roots.length > 1 ? (
               <div className="mb-3">
@@ -248,7 +248,7 @@ export default function FolderPickerModal({
               pathFloor={rooted ? (root?.path || "") : ""}
               forbiddenState={rooted ? (
                 <p className="text-secondary text-sm">
-                  You can add files here, but this folder can't be opened.
+                  You can add files here, but you can't open this folder.
                 </p>
               ) : null}
               onPathChange={setPath}
@@ -265,7 +265,7 @@ export default function FolderPickerModal({
                 : <NewItemMenu ids={["folder"]} onPick={openCreateFolder} surface="primary" />}
             />
           ) : rooted && roots && roots.length === 0 ? null : (
-            <p className="text-primary text-sm">No drives available. Make sure your drive is plugged in — if it already is, try unplugging it and plugging it back in.</p>
+            <p className="text-primary text-sm">No drives are available. Make sure a drive is plugged in. If it is, unplug it and plug it back in.</p>
           )}
 
           {isInsideMoved(path) ? (

@@ -71,5 +71,39 @@ export function bootMock() {
     if (scenario.restart) control.restartServer(0, scenario.restart);
   }
   control.saveNow = keepWorld(control, id);
+  showFakeBadge(id);
   return true;
+}
+
+/**
+ * A tab opened from the gallery keeps its fake world for as long as the tab
+ * lives, and looks exactly like a real Luna. This badge says which one it is
+ * and leaves the fake. Hidden inside the gallery's own frames so it never
+ * lands in a captured state.
+ * @param {string} id
+ */
+function showFakeBadge(id) {
+  if (window.self !== window.top) return;
+  const mount = () => {
+    const badge = document.createElement("div");
+    badge.className =
+      "fixed bottom-3 left-3 z-[2147483647] flex items-center gap-2 rounded-pill surface-secondary border-2 border-accent px-3 py-1 text-xs";
+    badge.setAttribute("role", "note");
+    const label = document.createElement("span");
+    label.textContent = `Fake Luna: ${id}`;
+    label.title = "This tab runs the state gallery's fake Luna, not your real one.";
+    const leave = document.createElement("button");
+    leave.type = "button";
+    leave.className = "underline decoration-accent";
+    leave.textContent = "Leave";
+    leave.addEventListener("click", () => {
+      try { sessionStorage.removeItem(KEY); } catch { /* storage blocked */ }
+      clearState();
+      window.location.reload();
+    });
+    badge.append(label, leave);
+    document.body.appendChild(badge);
+  };
+  if (document.body) mount();
+  else window.addEventListener("DOMContentLoaded", mount, { once: true });
 }

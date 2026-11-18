@@ -82,7 +82,7 @@ export default function SharePage() {
     body = (
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          {info.sent_by} shared backups from {lunaName}. The link turns off {formatWhen(info.expires_at)}.
+          {info.sent_by} shared backups from {lunaName}. The link stops working on {formatWhen(info.expires_at)}.
         </p>
         <UnlockCard
           testId="share-unlock"

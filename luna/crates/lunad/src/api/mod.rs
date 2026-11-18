@@ -10,8 +10,9 @@ pub mod connect;
 #[cfg(test)]
 pub(crate) mod contract;
 pub mod device_tokens;
+pub mod drive_crypt;
+pub mod drive_format;
 pub mod drives;
-pub mod encryption;
 pub mod forms;
 pub mod health;
 pub mod network;
@@ -29,10 +30,10 @@ use crate::AppState;
 
 pub mod collab;
 pub mod files;
-pub mod gallery;
 pub mod jobs;
 pub mod office;
 pub mod office_ws;
+pub mod photos;
 pub mod uploads;
 
 pub fn router() -> Router<AppState> {
@@ -55,10 +56,11 @@ pub fn router() -> Router<AppState> {
         .merge(network::router())
         .merge(setup::router())
         .merge(drives::router())
-        .merge(encryption::router())
+        .merge(drive_crypt::router())
+        .merge(drive_format::router())
         .merge(collab::router())
         .merge(files::router())
-        .merge(gallery::router())
+        .merge(photos::router())
         .merge(uploads::router())
         .merge(jobs::router())
         .merge(updates::router())

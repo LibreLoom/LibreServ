@@ -22,7 +22,7 @@ const ROLE_OPTIONS = [
 
 const ROLE_HINTS = {
   admin: "An Admin can add users, change settings, manage drives, and open everything on this Luna except other people's private items.",
-  user: "A Member can use folders and albums shared with them. They cannot manage users, drives, or Luna settings.",
+  user: "A Member can use what is shared with them, plus their own albums and private folders. They cannot manage users, drives, or Luna settings.",
 };
 
 /**
@@ -214,7 +214,7 @@ function EditUserBody({ target, onClose }) {
           {password ? <PasswordStrengthChecklist password={password} surface="primary" /> : null}
           {password ? (
             <p className="text-sm">
-              Saving signs {displayLabel} out on every device. Tell them the new password.
+              Saving signs {displayLabel} out in every browser and app. Tell them the new password.
             </p>
           ) : null}
         </section>
@@ -224,8 +224,7 @@ function EditUserBody({ target, onClose }) {
         <section className="rounded-large-element surface-primary p-4 space-y-3">
           <h3 className="font-mono text-sm">Remove from this Luna</h3>
           <p className="text-sm">
-            {displayLabel} won't be able to sign in anymore and loses access to everything shared
-            with them.
+            {displayLabel} can no longer sign in and loses access to everything shared with them.
           </p>
           <Button
             variant="accent"
@@ -243,11 +242,11 @@ function EditUserBody({ target, onClose }) {
         open={confirmRemove}
         title="Remove user"
         disabledConfirm={privateCountQuery.isPending || privateCountQuery.isError}
-        message={`Remove "${displayLabel}" from this Luna? They will lose access to shared drives.${
+        message={`Remove "${displayLabel}" from this Luna? They can no longer sign in, and their share links stop working.${
           privateCountQuery.isError ? " Luna couldn't check for their private folders, so removing is paused. Close this and try again." : ""
         }${
           privateCount > 0
-            ? ` Their ${privateCount === 1 ? "1 private folder stays" : `${privateCount} private folders stay`} on the drives, hidden from everyone — you can delete them under "Private folders left behind" on the Users page.`
+            ? ` Their ${privateCount === 1 ? "1 private folder stays" : `${privateCount} private folders stay`} on the drives, hidden from everyone. You can delete them under "Private folders left behind" on the Users page.`
             : ""
         }`}
         confirmLabel="Remove"

@@ -2,6 +2,7 @@ import PropTypes from "prop-types";
 import { Cloud, HardDrive, Lock } from "lucide-react";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import PausedByLockNote from "./PausedByLockNote.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { backupKindLabel, backupStatus, lastCopyLine } from "../../lib/backupRows.js";
 
@@ -59,6 +60,7 @@ export default function BackupItem({ backup, surface = "primary", note = null, c
         <span>{lastCopyLine(backup)}</span>
       </div>
 
+      <PausedByLockNote backup={backup} />
       {note && <div className="text-sm space-y-1">{note}</div>}
       {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
     </div>

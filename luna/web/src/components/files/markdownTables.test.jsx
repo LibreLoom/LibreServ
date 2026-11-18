@@ -136,7 +136,7 @@ describe("table in live preview", () => {
     await settled(view);
     const ta = await openCell(view, 0, 0);
     fireEvent.change(ta, { target: { value: "one\ntwo" } });
-    expect(input(view).value).toBe("one two");
+    await vi.waitFor(() => expect(input(view).value).toBe("one two"));
     expect(view.state.doc.toString()).toContain("| one two | B |");
     view.destroy();
   });

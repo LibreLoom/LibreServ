@@ -58,4 +58,10 @@ export default defineConfig([
     files: ["e2e/**/*.js"],
     languageOptions: { globals: globals.node },
   },
+  {
+    // The perf journey spec and Playwright configs run in Node too (the spec's
+    // page.evaluate callbacks keep the browser globals from the block above).
+    files: ["perf/**/*.js", "playwright.*.config.js"],
+    languageOptions: { globals: globals.node },
+  },
 ]);

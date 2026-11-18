@@ -33,6 +33,10 @@ const privateTokenMessage = "Enter your recovery phrase again to open your priva
 
 const privateOpenReadErr = "Cloud storage could not open your private items. Try again."
 
+// privateLinkMessage answers a share link for one backup that asks for private items: only a link
+// for one person's backups can open them.
+const privateLinkMessage = "This link cannot open private items."
+
 // errPrivateDenied is every refusal that the caller should see as the same 403.
 var errPrivateDenied = errors.New("private open denied")
 
@@ -342,7 +346,7 @@ func writePrivateOpenErr(w http.ResponseWriter, err error) {
 func writeChallenge(d Deps, w http.ResponseWriter, s readScope, linkID string, now time.Time) {
 	challenge, err := newPrivateChallenge(d, s, linkID, now)
 	if errors.Is(err, errTooManyChallenges) {
-		JSONError(w, http.StatusTooManyRequests, "Too many sign-in attempts are open. Wait a few minutes, then try again.")
+		JSONError(w, http.StatusTooManyRequests, "Too many unlock attempts are in progress. Wait 5 minutes, then try again.")
 		return
 	}
 	if err != nil {
@@ -401,7 +405,7 @@ func (h PrivateHandler) ShareChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.Kind != "user" {
-		JSONError(w, http.StatusForbidden, privateTokenMessage)
+		JSONError(w, http.StatusForbidden, privateLinkMessage)
 		return
 	}
 	writeChallenge(h.Deps, w, s, linkID, now)
@@ -415,7 +419,7 @@ func (h PrivateHandler) ShareOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.Kind != "user" {
-		JSONError(w, http.StatusForbidden, privateTokenMessage)
+		JSONError(w, http.StatusForbidden, privateLinkMessage)
 		return
 	}
 	body, ok := readPrivateOpen(w, r)

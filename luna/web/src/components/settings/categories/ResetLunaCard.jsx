@@ -25,7 +25,7 @@ export default function ResetLunaCard({ index = 0 }) {
     mutationFn: () => postJson("/api/v1/system/factory-reset", { confirm: true, password }),
     onSuccess: () => { window.location.href = "/setup"; },
     // The dialog is open and owns this error.
-    onError: (err) => setError(apiErrorMessage(err)),
+    onError: (err) => setError(apiErrorMessage(err, "Couldn't reset this Luna. Try again.")),
   });
 
   function close() {
@@ -39,7 +39,7 @@ export default function ResetLunaCard({ index = 0 }) {
     <SettingsCard icon={RotateCcw} title="Reset this Luna" padding={false} index={index}>
       <SettingsRow
         label="Erase accounts and settings"
-        description="Removes every account, share, and setting, then starts setup over. Files on your drives stay where they are."
+        description="Removes every account, share, backup setting, and drive from Luna, then starts setup again. Files on your drives are not deleted."
         hideDivider
         stack
       >
@@ -56,7 +56,7 @@ export default function ResetLunaCard({ index = 0 }) {
         }}
         icon={RotateCcw}
         title="Reset this Luna?"
-        message="Everyone is signed out and Remote access turns off. Files on your drives are not deleted."
+        message="Everyone is signed out, backups stop, and Luna Connect turns off. To get cloud backups back later, you need your recovery phrase. Files on your drives are not deleted."
         variant="danger"
         confirmLabel="Reset this Luna"
         loading={reset.isPending}

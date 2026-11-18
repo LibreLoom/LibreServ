@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/luna-core", "crates/luna-feed", "crates/lunad"]
+members = ["crates/luna-bench", "crates/luna-core", "crates/luna-feed", "crates/lunad"]
 exclude = ["desktop"]
 
 [workspace.package]
@@ -17,6 +17,8 @@ base64 = "0.22"
 blake3 = "1"
 getrandom = "0.2"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif"] }
+# SIMD resize for photo thumbnails (Lanczos3 over 12 MP was 3.6 s on a Wyse 3040).
+fast_image_resize = { version = "5", features = ["image"] }
 kamadak-exif = "0.6"
 include_dir = "0.7"
 jsonwebtoken = "9"
@@ -50,3 +52,19 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 lto = true
 codegen-units = 1
 strip = true
+
+# Tests build at opt-level 0, where crypto (Argon2, ML-KEM/ML-DSA, ed25519,
+# ChaCha) and chunking run 50-100x slower than shipped; every cloud-backup and
+# user-creating test paid for it (single tests took minutes). Optimize all
+# third-party dependencies and leave our own crates unoptimized so they still
+# compile fast and debug well. Dependencies rebuild only when versions change.
+[profile.dev.package."*"]
+opt-level = 2
+
+# Generic crypto (ChaCha, SHA) is compiled inside the crate that calls it, at
+# that crate's opt-level, so the override above cannot reach it. Level 1 keeps
+# debug info and fast incremental builds but inlines the hot loops.
+[profile.dev.package.lunad]
+opt-level = 1
+[profile.dev.package.luna-core]
+opt-level = 1

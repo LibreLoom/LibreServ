@@ -1,11 +1,9 @@
 import "@testing-library/jest-dom";
-import { configure } from "@testing-library/react";
+import { installAsyncDefaults } from "./waitFor.js";
 import { installContrastCheck } from "./contrast.js";
 
-// CI containers are slow (cold npm install + import phase); give async
-// assertions (waitFor/findBy) headroom beyond testing-library's 1s default so
-// they don't flake under load. Assertions themselves are unchanged.
-configure({ asyncUtilTimeout: 10000 });
+// How long async assertions may wait (testing-library and vi.waitFor): see waitFor.js.
+installAsyncDefaults();
 
 // Fail any test that leaves text in the same color as the surface behind it.
 installContrastCheck();

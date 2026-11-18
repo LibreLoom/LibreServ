@@ -16,20 +16,20 @@ func TestCIGateRunsProfilesUnlimitedAndReportsFailure(t *testing.T) {
 	var lines []string
 	log := func(l string) { lines = append(lines, l) }
 
-	if err := ciGate(repo)(t.Context(), []string{"sol", "release"}, log); err != nil {
+	if err := ciGate(repo)(t.Context(), []string{"cut-sol", "cut-luna"}, log); err != nil {
 		t.Fatal(err)
 	}
 	all := strings.Join(lines, "\n")
-	if !strings.Contains(all, "args: run --profile sol --session") || !strings.Contains(all, "args: run --profile release --session") {
+	if !strings.Contains(all, "args: run --profile cut-sol --session") || !strings.Contains(all, "args: run --profile cut-luna --session") {
 		t.Fatalf("ci must run each profile with -session, got:\n%s", all)
 	}
 
 	lines = nil
-	err := ciGate(repo)(t.Context(), []string{"bad", "release"}, log)
+	err := ciGate(repo)(t.Context(), []string{"bad", "cut-luna"}, log)
 	if err == nil || !strings.Contains(err.Error(), `profile "bad"`) {
 		t.Fatalf("want failure naming the profile, got %v", err)
 	}
-	if strings.Contains(strings.Join(lines, "\n"), "--profile release") {
+	if strings.Contains(strings.Join(lines, "\n"), "--profile cut-luna") {
 		t.Fatal("a failed profile must stop the gate")
 	}
 	if !strings.Contains(strings.Join(lines, "\n"), "Broken") {

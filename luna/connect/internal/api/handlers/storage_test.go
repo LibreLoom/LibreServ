@@ -862,3 +862,49 @@ func TestStorageLunaCapPerAccount(t *testing.T) {
 		t.Fatalf("existing luna = %d", rec.Code)
 	}
 }
+
+// A pack body arriving slowly from a home uplink must not hold the account write
+// fence: on SQLite that fence is the database-wide writer lock.
+func TestStoragePackBodyStreamsOutsideWriteFence(t *testing.T) {
+	h, d, tok := storageFixture(t, "slowbody", 0)
+	acctID := fixtureAccountID(t, d, "slowbody")
+	body := []byte("slow-pack-bytes")
+	sum := sha256.Sum256(body)
+	pr, pw := io.Pipe()
+	req := httptest.NewRequest(http.MethodPut, "/storage/packs/"+hex.EncodeToString(sum[:]), pr)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("X-Luna-Id", "luna1")
+	rec := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		h.ServeHTTP(rec, req)
+		close(done)
+	}()
+	if _, err := pw.Write(body[:4]); err != nil { // The handler is now reading the body.
+		t.Fatal(err)
+	}
+
+	tx, err := d.DB.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`UPDATE accounts SET id = id WHERE id = ?`, acctID); err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("another writer waited on a pack body: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := pw.Write(body[4:]); err != nil {
+		t.Fatal(err)
+	}
+	_ = pw.Close()
+	<-done
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"created":true`) {
+		t.Fatalf("put %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Header().Get("Server-Timing"), "spool;dur=") {
+		t.Fatalf("Server-Timing missing: %q", rec.Header().Get("Server-Timing"))
+	}
+}

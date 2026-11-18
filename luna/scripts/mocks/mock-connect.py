@@ -697,7 +697,7 @@ class MockConnectHandler(BaseHTTPRequestHandler):
                 self._send_json(413, {"error": "Cloud backup for this account is full. Remove some files, then try again."})
                 return
             if mode == "backup_locked" or not self.state.backup_unlocked:
-                self._send_json(402, {"error": "Add a payment card at connect.luna.libreloom.org so we can store a cloud backup. It costs $8 per terabyte each month."})
+                self._send_json(402, {"error": "Add a payment card at connect.luna.libreloom.org to store your cloud backup."})
                 return
 
             ok, _ = self._check_auth()

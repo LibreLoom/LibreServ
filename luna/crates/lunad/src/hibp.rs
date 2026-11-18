@@ -17,11 +17,12 @@ use std::time::Duration;
 use sha1::{Digest, Sha1};
 
 /// Same plain-language copy as Sol.
-pub const BREACHED_PASSWORD_MESSAGE: &str = "That password has appeared in known data breaches, so it isn't safe to use. Please choose a different password.";
+pub const BREACHED_PASSWORD_MESSAGE: &str =
+    "That password is in known data breaches, so it is not safe. Choose a different password.";
 
 /// What the person is told when the breach service could not answer and the
 /// password was therefore allowed unchecked.
-pub const BREACH_CHECK_UNAVAILABLE_MESSAGE: &str = "Luna couldn't check this password against known data breaches, so it was allowed. Please choose a different password if you can.";
+pub const BREACH_CHECK_UNAVAILABLE_MESSAGE: &str = "Luna couldn't check this password against known data breaches, but saved it anyway. Choose a different password if you can.";
 
 const DEFAULT_HIBP_RANGE_URL: &str = "https://api.pwnedpasswords.com/range/";
 
@@ -403,10 +404,10 @@ mod tests {
     }
 
     #[test]
-    fn breached_copy_matches_sol_constant() {
+    fn breached_copy_matches_connect_constant() {
         assert_eq!(
             BREACHED_PASSWORD_MESSAGE,
-            "That password has appeared in known data breaches, so it isn't safe to use. Please choose a different password."
+            "That password is in known data breaches, so it is not safe. Choose a different password."
         );
     }
 
@@ -414,7 +415,7 @@ mod tests {
     fn unavailable_copy_is_plain_language() {
         assert_eq!(
             BREACH_CHECK_UNAVAILABLE_MESSAGE,
-            "Luna couldn't check this password against known data breaches, so it was allowed. Please choose a different password if you can."
+            "Luna couldn't check this password against known data breaches, but saved it anyway. Choose a different password if you can."
         );
     }
 }

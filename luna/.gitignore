@@ -30,3 +30,7 @@ office_bundles/
 # Vitest's placeholder build.outDir, materialised when a Vite plugin copies
 # into it during a test run (see shared/ui/vite/sharedFonts.js). Never source.
 dummy-non-existing-folder/
+
+# Perf fixtures and results (luna/perf)
+/perf/data/
+/perf/results/

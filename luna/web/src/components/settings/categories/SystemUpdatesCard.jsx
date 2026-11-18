@@ -29,8 +29,9 @@ const HEALTH_GIVE_UP_DOWN_MS = 20_000;
 /**
  * Waits for Luna to restart: reloads the page once /health answers again after a gap.
  * @param {boolean} active
+ * @param {{ giveUp?: boolean }} [options] giveUp: reload even if Luna never looked down (false while an install is still running)
  */
-function useReloadWhenLunaIsBack(active) {
+function useReloadWhenLunaIsBack(active, { giveUp = true } = {}) {
   useEffect(() => {
     if (!active) return undefined;
     let cancelled = false;
@@ -41,7 +42,7 @@ function useReloadWhenLunaIsBack(active) {
     async function poll() {
       try {
         const res = await fetch("/health", { cache: "no-store" });
-        if (res.ok && (sawDown || Date.now() - startedAt > HEALTH_GIVE_UP_DOWN_MS)) {
+        if (res.ok && (sawDown || (giveUp && Date.now() - startedAt > HEALTH_GIVE_UP_DOWN_MS))) {
           if (!cancelled) window.location.reload();
           return;
         }
@@ -56,7 +57,7 @@ function useReloadWhenLunaIsBack(active) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [active]);
+  }, [active, giveUp]);
 }
 
 export default function SystemUpdatesCard({ index = 0 }) {
@@ -68,12 +69,17 @@ export default function SystemUpdatesCard({ index = 0 }) {
   const [retrying, setRetrying] = useState(false);
   // "installing" while lunad downloads and installs; "restarting" once it has answered and is going down.
   const [phase, setPhase] = useState(/** @type {null | "installing" | "restarting"} */ (null));
-  useReloadWhenLunaIsBack(phase === "restarting");
 
   const updates = useQuery({
     queryKey: ["system-updates"],
     queryFn: () => getJson("/api/v1/system/updates"),
-    refetchInterval: 60 * 60 * 1000,
+    // While an install runs (even one started before a page refresh), keep asking.
+    refetchInterval: (query) => (query.state.data?.applying ? 3000 : 60 * 60 * 1000),
+  });
+  // A page opened mid-install has no `phase`; lunad's `applying` flag stands in for it.
+  const serverInstalling = Boolean(updates.data?.applying);
+  useReloadWhenLunaIsBack(phase === "restarting" || serverInstalling, {
+    giveUp: phase === "restarting",
   });
 
   const check = useMutation({
@@ -88,7 +94,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
       });
     },
     onError: (err) => {
-      setCheckMessage(apiErrorMessage(err));
+      setCheckMessage(apiErrorMessage(err, "Couldn't check for updates. Try again."));
     },
   });
 
@@ -158,12 +164,11 @@ export default function SystemUpdatesCard({ index = 0 }) {
 
   const updateInfo = updates.data;
   const error = updates.isError
-    ? apiErrorMessage(updates.error)
+    ? apiErrorMessage(updates.error, "Couldn't check for updates. Try again.")
     : check.isError
-      ? apiErrorMessage(check.error)
+      ? apiErrorMessage(check.error, "Couldn't check for updates. Try again.")
       : null;
   const checking = check.isPending || (updates.isLoading && !updateInfo);
-  const serverInstalling = Boolean(updateInfo?.applying);
   const updating = phase != null || apply.isPending || retry.isPending || serverInstalling;
   const failedUpdate = updateInfo?.os_update_failed;
 
@@ -173,8 +178,13 @@ export default function SystemUpdatesCard({ index = 0 }) {
   };
 
   const hasUpdate = updateInfo?.update_available;
+  // The offer may be the build of a source the Admin just switched Luna to, in
+  // which case it is the first thing to install, not an upgrade.
+  const fromNewSource = updateInfo?.from_new_source === true;
+  const olderThanRunning = updateInfo?.feed_is_newer === false;
   const isUpToDate = updateInfo && !hasUpdate;
-  const notChecked = !updateInfo && !updates.isLoading;
+  // A failed check shows its own error; "Not checked yet" would be untrue.
+  const notChecked = !updateInfo && !updates.isLoading && !updates.isError;
 
   return (
     <div data-slot="system-updates-card">
@@ -226,6 +236,13 @@ export default function SystemUpdatesCard({ index = 0 }) {
               </span>
             )}
           </div>
+
+          {hasUpdate && fromNewSource && (
+            <p className="mb-4 text-sm">
+              You changed where Luna gets its updates. This is the version from that source.
+              {olderThanRunning ? " It is older than the version Luna runs now." : ""}
+            </p>
+          )}
 
           {failedUpdate && (
             <PageNotice variant="warning" className="mb-4">
@@ -310,7 +327,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
                 className="justify-center font-sans"
               >
                 <ExternalLink size={ICON_SIZE.md} aria-hidden="true" />
-                See what&apos;s new in {updateInfo.latest_version}
+                {olderThanRunning ? "See what's in" : "See what's new in"} {updateInfo.latest_version}
               </Button>
 
               {!updating && (
@@ -341,7 +358,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
           )}
 
           <p className="mt-4 text-sm">
-            Luna only installs updates when you tell it to. No automatic or forced updates here.
+            Luna only installs updates when you tell it to.
           </p>
         </div>
       </SettingsCard>
@@ -359,7 +376,9 @@ export default function SystemUpdatesCard({ index = 0 }) {
           retrying
             ? "Luna will install the update again and restart. Your files stay put."
             : updateInfo
-            ? `Luna will download version ${updateInfo.latest_version}, install it, and restart. Your files stay put.`
+            ? fromNewSource
+              ? `Luna will download version ${updateInfo.latest_version} from the source you set, install it, and restart. Your files stay put.`
+              : `Luna will download version ${updateInfo.latest_version}, install it, and restart. Your files stay put.`
             : "Install the available update?"
         }
         variant="warning"
@@ -370,7 +389,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
 
       {showReleaseNotesModal && (
         <ModalCard
-          title={`What's new in ${updateInfo?.latest_version}`}
+          title={`${olderThanRunning ? "What's in" : "What's new in"} ${updateInfo?.latest_version}`}
           onClose={() => setShowReleaseNotesModal(false)}
           size="lg"
         >

@@ -102,7 +102,7 @@ func (p connectServer) Jobs(b *engine.BuildContext) ([]engine.Job, error) {
 			if err != nil {
 				return err
 			}
-			return j.Container(ctx, engine.RunSpec{
+			err = j.Container(ctx, engine.RunSpec{
 				Name:   j.ID + "-check",
 				Image:  "go",
 				Source: b.SrcDir,
@@ -113,6 +113,10 @@ func (p connectServer) Jobs(b *engine.BuildContext) ([]engine.Job, error) {
 				Cmd: []string{"sh", "-c", checkStampScript, "sh", "/out/" + file,
 					st.Version, st.Commit, st.Time, workdir, u.Main, "version", "gitCommit", "buildTime"},
 			})
+			if err != nil {
+				return err
+			}
+			return validateStaticELF(filepath.Join(out, file), "amd64")
 		},
 	}}, nil
 }
@@ -165,7 +169,11 @@ func (p connectWeb) Jobs(b *engine.BuildContext) ([]engine.Job, error) {
 				return err
 			}
 			j.Logf("packed %s", u.webFile())
-			return nil
+			return j.Container(ctx, engine.RunSpec{
+				Name: u.Unit + "-deploy-check", Image: "go", Source: b.SrcDir,
+				Out: b.PartOutDir("web"), Memory: "1g",
+				Cmd: []string{"bash", "-c", `set -e; source /src/infra/connect-deploy/deploy.sh; load_unit "$1"; unpack_web "/out/$2" /tmp/web`, "bash", u.Unit, u.webFile()},
+			})
 		},
 	})
 	return jobs, nil

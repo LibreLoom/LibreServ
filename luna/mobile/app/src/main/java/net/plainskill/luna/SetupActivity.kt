@@ -2,6 +2,7 @@ package net.plainskill.luna
 
 import android.app.Activity
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.widget.RadioButton
@@ -37,7 +38,8 @@ class SetupActivity : AppCompatActivity() {
         showPermissions()
     }
 
-    private val requestPerms = registerForActivityResult(
+    // Photos and videos first (they are required), then notifications, then background use.
+    private val requestMedia = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
         if (!BackupConfig.hasPhotoAccess(this)) {
@@ -45,6 +47,12 @@ class SetupActivity : AppCompatActivity() {
             grantButton.isEnabled = true
             return@registerForActivityResult
         }
+        askNotificationsThenBattery()
+    }
+
+    private val requestNotifications = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
         askBatteryThenFinish()
     }
 
@@ -106,7 +114,14 @@ class SetupActivity : AppCompatActivity() {
     private fun showPermissions() {
         driveStep.visibility = View.GONE
         permissionStep.visibility = View.VISIBLE
-        grantStatus.text = getString(R.string.perm_grant_help)
+        grantStatus.text = ""
+        // Android 9 and older has no location or notification prompt to explain.
+        val hasLocation = Build.VERSION.SDK_INT >= 29
+        val hasNotifications = BackupConfig.notificationPermissions().isNotEmpty()
+        findViewById<View>(R.id.permLocationRow).visibility = if (hasLocation) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.permLocationDivider).visibility = if (hasLocation) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.permNotifyRow).visibility = if (hasNotifications) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.permNotifyDivider).visibility = if (hasNotifications) View.VISIBLE else View.GONE
     }
 
     private fun loadDrives() {
@@ -126,7 +141,7 @@ class SetupActivity : AppCompatActivity() {
                     bindDriveRows()
                     if (list.isEmpty()) {
                         driveStatus.text = getString(R.string.no_drives)
-                        driveContinue.text = "Check again"
+                        driveContinue.text = getString(R.string.check_again)
                         driveContinue.isEnabled = true
                     } else {
                         driveStatus.text = getString(R.string.tap_a_drive)
@@ -138,7 +153,7 @@ class SetupActivity : AppCompatActivity() {
                 runOnUiThread {
                     if (isFinishing) return@runOnUiThread
                     driveStatus.text = LunaApi.describeError(e)
-                    driveContinue.text = "Check again"
+                    driveContinue.text = getString(R.string.check_again)
                     driveContinue.isEnabled = true
                 }
             }
@@ -157,7 +172,7 @@ class SetupActivity : AppCompatActivity() {
             driveList.addView(row)
         }
         if (drives.isEmpty()) {
-            driveContinue.text = "Check again"
+            driveContinue.text = getString(R.string.check_again)
             driveContinue.isEnabled = true
         } else {
             driveContinue.text = getString(R.string.continue_label)
@@ -191,7 +206,19 @@ class SetupActivity : AppCompatActivity() {
     private fun startGrant() {
         grantButton.isEnabled = false
         grantStatus.text = getString(R.string.asking_permissions)
-        requestPerms.launch(BackupConfig.photosNeeded())
+        requestMedia.launch(BackupConfig.mediaPermissions())
+    }
+
+    private fun askNotificationsThenBattery() {
+        val missing = BackupConfig.notificationPermissions().filter {
+            androidx.core.content.ContextCompat.checkSelfPermission(this, it) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) {
+            askBatteryThenFinish()
+        } else {
+            requestNotifications.launch(missing.toTypedArray())
+        }
     }
 
     private fun askBatteryThenFinish() {
@@ -226,10 +253,13 @@ class SetupActivity : AppCompatActivity() {
                     grantButton.isEnabled = true
                     return@runOnUiThread
                 }
+                BackupPrefs.setAskedMediaExtras(this, true)
                 BackupPrefs.setSetupComplete(this, true)
                 BackupPrefs.setBackupEnabled(this, true)
+                // The periodic work runs its first pass as soon as the Wi-Fi and
+                // charging settings allow. runSoon would skip them and send the
+                // whole library over mobile data.
                 WorkScheduler.schedule(this)
-                WorkScheduler.runSoon(this)
                 startActivity(Intent(this, ShellActivity::class.java))
                 finish()
             }

@@ -44,7 +44,7 @@ _ROOTFS_BODY="$(mktemp)"
 # shellcheck disable=SC2012
 cat $(ls "$FRAGS"/*.frag | sort) > "$_ROOTFS_BODY"
 assert_file_has "$_ROOTFS_BODY" 'LABEL=LUNA_DATA /var/lib/luna' "rootfs must mount data"
-assert_file_has "$_ROOTFS_BODY" 'luna-run' "OpenRC must prefer data-dir lunad"
+assert_file_has "$_ROOTFS_BODY" 'command="/usr/local/bin/lunad"' "OpenRC must run the baked lunad"
 assert_file_has "$_ROOTFS_BODY" 'remount,ro,noatime' "root must remount read-only"
 assert_file_has "$_ROOTFS_BODY" 'critical_mounts="/var/lib/luna"' "LUNA_DATA must be a critical mount"
 assert_file_lacks "$_ROOTFS_BODY" 'runlevels/default/local' "boot hooks must not use OpenRC local.d"

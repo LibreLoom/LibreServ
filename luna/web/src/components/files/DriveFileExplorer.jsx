@@ -21,7 +21,8 @@ import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { RowActionSheet } from "@libreloom/ui/components/ui/RowActionMenu.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
-import { ActionTooltipGroup, InfoHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import IconActions from "@libreloom/ui/components/ui/IconActions.jsx";
+import { InfoHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
@@ -349,7 +350,7 @@ export default function DriveFileExplorer({
     },
     onError: (err) => {
       haptic("error");
-      setActionError(apiErrorMessage(err, "Couldn't create that folder. Try another name."));
+      setActionError(apiErrorMessage(err, "Couldn't create that folder. Try again."));
     },
   });
 
@@ -379,7 +380,7 @@ export default function DriveFileExplorer({
     },
     onError: (err) => {
       haptic("error");
-      setActionError(apiErrorMessage(err, "Couldn't create that file. Try another name."));
+      setActionError(apiErrorMessage(err, "Couldn't create that file. Try again."));
     },
   });
 
@@ -718,42 +719,13 @@ export default function DriveFileExplorer({
   }, [access.data, driveId, guest, guestCaps, source, isAdmin, showProtect, canView, inBackups]);
 
   const renderRowActions = useCallback((ctx) => {
-    if (inBackups) return <BackupRowActions driveId={driveId} ctx={ctx} onVersions={openVersions} />;
+    // Keyed by file: long folders recycle row elements, and a restore error
+    // must not carry over to the next file that takes the row.
+    if (inBackups) return <BackupRowActions key={ctx.fullPath} driveId={driveId} ctx={ctx} onVersions={openVersions} />;
     const actions = rowActionsFor(ctx);
     if (!actions) return null;
-    return (
-      <ActionTooltipGroup>
-        <div className="flex items-center gap-0.5 flex-wrap justify-end">
-          {actions.map(({ key, label, aria, icon: Icon, href, run }) => (
-            <Tooltip key={key} content={label}>
-              {href ? (
-                <Button
-                  variant="ghost"
-                  surface="secondary"
-                  size="iconSm"
-                  asChild
-                  aria-label={aria}
-                >
-                  <a href={href}>
-                    <Icon size={ICON_SIZE.sm} />
-                  </a>
-                </Button>
-              ) : (
-                <Button
-                  variant="ghost"
-                  surface="secondary"
-                  size="iconSm"
-                  aria-label={aria}
-                  onClick={run}
-                >
-                  <Icon size={ICON_SIZE.sm} />
-                </Button>
-              )}
-            </Tooltip>
-          ))}
-        </div>
-      </ActionTooltipGroup>
-    );
+    // One shared tooltip and plain buttons: every row carries these (W4/W6).
+    return <IconActions actions={actions} surface="secondary" iconSize={ICON_SIZE.sm} />;
   }, [rowActionsFor, inBackups, driveId, openVersions]);
 
   // The phone sheet: the same actions as labeled rows, in the shared shape.
@@ -1016,7 +988,7 @@ export default function DriveFileExplorer({
         open={broadenRetry != null}
         variant="warning"
         title="Restore outside the private folder?"
-        message="Everyone with access to the destination will be able to open it."
+        message="Everyone with access to the destination can open it."
         confirmLabel="Restore anyway"
         loading={restoreMutation.isPending}
         overlayClassName={NESTED_OVERLAY_CLASS}
@@ -1083,9 +1055,9 @@ export default function DriveFileExplorer({
         {({ close }) => (
           <>
             <p className="text-primary text-sm">
-              Luna will move it out of Trash
-              to {restoreDestFolder ? `“${restoreDestFolder}”` : `the top of ${driveLabel}`}.
-              Choose the name it should have.
+              Luna moves it out of Trash to{" "}
+              {restoreDestFolder ? <InlinePill>{restoreDestFolder}</InlinePill> : <>the top of <InlinePill>{driveLabel}</InlinePill></>}.
+              Choose a name for it.
             </p>
             <ShakeTarget shake={actionError}>
               <input

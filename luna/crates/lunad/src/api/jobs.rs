@@ -47,7 +47,7 @@ async fn create(
         let conn = state.db.lock().map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
+                "Luna couldn't start this copy or move. Try again.",
             )
         })?;
         let from_path = body.from_path.as_deref().unwrap_or("");
@@ -68,10 +68,13 @@ async fn create(
         // grants inside has_cap).
         let from_cap = crate::jobs::job_source_cap(&conn, &body.kind, &body.from_drive, from_path);
         if !crate::auth::has_cap(&user, &conn, &body.from_drive, from_path, from_cap) {
-            return Err(json_error(
-                StatusCode::FORBIDDEN,
-                "You don't have permission to copy from here.",
-            ));
+            // A move (or anything out of Trash) needs edit, not just view.
+            let message = if from_cap == crate::access::CAP_EDIT {
+                "You don't have permission to move or restore items from here."
+            } else {
+                "You don't have permission to copy from here."
+            };
+            return Err(json_error(StatusCode::FORBIDDEN, message));
         }
         if !crate::auth::has_cap(
             &user,
@@ -129,17 +132,14 @@ async fn list(
 ) -> Result<Json<Vec<Value>>, (StatusCode, Json<Value>)> {
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
     let jobs = if user.role == "admin" {
-        state.job_manager.list(limit).map_err(map_job_err)?
+        state.job_manager.list(limit).map_err(|_| read_failed())?
     } else {
         state
             .job_manager
             .list_for_user(&user.id, limit)
-            .map_err(map_job_err)?
+            .map_err(|_| read_failed())?
     };
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| map_job_err(JobError::NotFound))?;
+    let conn = state.db.lock().map_err(|_| read_failed())?;
     Ok(Json(
         jobs.into_iter()
             .map(|job| job_json(job, &user, &conn))
@@ -155,18 +155,12 @@ async fn get_one(
     let job = state
         .job_manager
         .get(&id)
-        .map_err(map_job_err)?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know this job."))?;
+        .map_err(|_| read_failed())?
+        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, JOB_NOT_FOUND))?;
     if !state.job_manager.owns_or_admin(&job, &user) {
-        return Err(json_error(
-            StatusCode::NOT_FOUND,
-            "Luna doesn't know this job.",
-        ));
+        return Err(json_error(StatusCode::NOT_FOUND, JOB_NOT_FOUND));
     }
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| map_job_err(JobError::NotFound))?;
+    let conn = state.db.lock().map_err(|_| read_failed())?;
     Ok(Json(job_json(job, &user, &conn)))
 }
 
@@ -178,16 +172,31 @@ async fn cancel(
     let job = state
         .job_manager
         .get(&id)
-        .map_err(map_job_err)?
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know this job."))?;
+        .map_err(|_| read_failed())?
+        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, JOB_NOT_FOUND))?;
     if !state.job_manager.owns_or_admin(&job, &user) {
-        return Err(json_error(
-            StatusCode::NOT_FOUND,
-            "Luna doesn't know this job.",
-        ));
+        return Err(json_error(StatusCode::NOT_FOUND, JOB_NOT_FOUND));
     }
-    state.job_manager.cancel(&id).map_err(map_job_err)?;
+    // A job that is not in the cancel table has finished, or ran before
+    // lunad last restarted.
+    state.job_manager.cancel(&id).map_err(|err| match err {
+        JobError::NotFound => json_error(
+            StatusCode::NOT_FOUND,
+            "This copy or move is no longer running.",
+        ),
+        other => map_job_err(other),
+    })?;
     Ok(Json(json!({ "ok": true })))
+}
+
+const JOB_NOT_FOUND: &str = "Luna can't find this copy or move.";
+
+/// Reading the job list failed (database lock or query), not a missing job.
+fn read_failed() -> (StatusCode, Json<Value>) {
+    json_error(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Luna couldn't read the list of copies and moves. Try again.",
+    )
 }
 
 fn job_json(
@@ -283,14 +292,27 @@ fn map_job_err(err: JobError) -> (StatusCode, Json<Value>) {
             StatusCode::CONFLICT,
             "A file or folder with this name is already there. Choose a different destination.",
         ),
-        JobError::Symlink => json_error(StatusCode::BAD_REQUEST, "Luna can't copy links yet."),
+        JobError::Symlink => json_error(
+            StatusCode::BAD_REQUEST,
+            "This includes a shortcut (symbolic link). Luna can't copy or move shortcuts.",
+        ),
         JobError::Blocked => json_error(
             StatusCode::FORBIDDEN,
             "This folder holds private items that only their owners can move.",
         ),
         JobError::Files(crate::files::FilesError::UnknownDrive) => json_error(
             StatusCode::NOT_FOUND,
-            "Luna doesn't know one of these drives. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.",
+            "Luna can't find one of these drives. Make sure it is plugged in, or unplug it and plug it back in.",
+        ),
+        JobError::Files(crate::files::FilesError::Locked) => json_error_code(
+            StatusCode::LOCKED,
+            "drive_locked",
+            "One of these drives is locked. Unlock it, then try again.",
+        ),
+        JobError::Files(crate::files::FilesError::Erasing) => json_error_code(
+            StatusCode::CONFLICT,
+            "drive_erasing",
+            "Luna is erasing one of these drives right now. Try again when it finishes.",
         ),
         JobError::Files(crate::files::FilesError::MissingDriveDb) => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -298,6 +320,12 @@ fn map_job_err(err: JobError) -> (StatusCode, Json<Value>) {
         ),
         JobError::Files(crate::files::FilesError::Path(_)) => {
             json_error(StatusCode::BAD_REQUEST, "Luna can't use that path.")
+        }
+        JobError::Files(crate::files::FilesError::Io(ref e))
+            if crate::files::fsrules::problem_of(e).is_some() =>
+        {
+            let p = crate::files::fsrules::problem_of(e).expect("checked");
+            json_error_code(StatusCode::BAD_REQUEST, p.code(), p.to_string())
         }
         JobError::Files(crate::files::FilesError::Io(ref e))
             if e.kind() == std::io::ErrorKind::InvalidInput =>
@@ -327,16 +355,16 @@ fn map_job_err(err: JobError) -> (StatusCode, Json<Value>) {
         ),
         JobError::Runner => json_error(
             StatusCode::SERVICE_UNAVAILABLE,
-            "Luna's job queue isn't responding.",
+            "Luna couldn't start this copy or move. Try again.",
         ),
-        JobError::NotFound => json_error(StatusCode::NOT_FOUND, "Luna doesn't know this job."),
+        JobError::NotFound => json_error(StatusCode::NOT_FOUND, JOB_NOT_FOUND),
         JobError::Denied => json_error(
             StatusCode::FORBIDDEN,
             "You no longer have permission to do this.",
         ),
         _ => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't start this job. Check the drives and try again.",
+            "Luna couldn't start this copy or move. Check the drives and try again.",
         ),
     }
 }
@@ -378,7 +406,10 @@ mod error_body_tests {
     fn runner_failure_is_a_503_without_a_code() {
         let (status, body) = body_of(JobError::Runner);
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(body["error"], "Luna's job queue isn't responding.");
+        assert_eq!(
+            body["error"],
+            "Luna couldn't start this copy or move. Try again."
+        );
         assert!(body.get("code").is_none());
     }
 }

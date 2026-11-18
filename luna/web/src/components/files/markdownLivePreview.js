@@ -45,7 +45,7 @@ class CheckboxWidget extends WidgetType {
     input.type = "checkbox";
     input.className = "cm-lp-task";
     input.checked = this.checked;
-    input.setAttribute("aria-label", this.checked ? "Done — click to reopen" : "To do — click to mark done");
+    input.setAttribute("aria-label", this.checked ? "Done. Click to mark as not done." : "Not done. Click to mark as done.");
     input.addEventListener("mousedown", (event) => {
       event.preventDefault();
       // `[x]` — the state char sits one byte into the marker.

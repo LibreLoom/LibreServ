@@ -1,13 +1,16 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Cloud } from "lucide-react";
+import { ChevronRight, Cloud } from "lucide-react";
+import { Link } from "react-router-dom";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
+import PathTrail from "@libreloom/ui/components/common/PathTrail.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { apiErrorMessage, deleteJson, getJson, postJson } from "../../../lib/api";
 import { formatBytes } from "../../../lib/formatBytes.js";
@@ -133,8 +136,8 @@ export default function CloudBackupCategory() {
     enabled: connected,
   });
 
-  // Missing from older status replies: treat as on file, so only a clear false blocks backups.
-  const cardOnFile = connect.data?.card_on_file !== false;
+  // Linked is not enough: Luna Connect stores nothing until the account has an active payment card.
+  const needsPayment = connected && connect.data?.cloud_backup === "no_payment";
   const backups = cloudQuery.data || [];
 
   const runBackup = useMutation({
@@ -159,7 +162,7 @@ export default function CloudBackupCategory() {
     },
     onError: (err) => {
       haptic("error");
-      setError(apiErrorMessage(err));
+      setError(apiErrorMessage(err, "Couldn't start the cloud backup. Try again."));
     },
     onSettled: (_data, _err, { id }) => {
       setPending((prev) => {
@@ -184,7 +187,7 @@ export default function CloudBackupCategory() {
     },
     onError: (err) => {
       haptic("error");
-      setError(apiErrorMessage(err));
+      setError(apiErrorMessage(err, "Couldn't check the cloud backup. Try again."));
     },
     onSettled: (_data, _err, id) => {
       setPending((prev) => {
@@ -206,7 +209,7 @@ export default function CloudBackupCategory() {
     onError: (err) => {
       haptic("error");
       setDeleting(null);
-      setError(apiErrorMessage(err));
+      setError(apiErrorMessage(err, "Couldn't delete the cloud backup. Try again."));
     },
   });
 
@@ -221,21 +224,43 @@ export default function CloudBackupCategory() {
           headerActions={
             <InfoHint
               label="What cloud backup means"
-              content="An off-site copy of your latest files, kept with Luna Connect. It keeps the latest copy, plus about one older copy from each of the last day, week and month."
+              content="An off-site copy of your files, kept by Luna Connect. It keeps the latest copy and about one older copy from each of the last day, week, and month."
             />
           }
         >
           {error && <PageNotice variant="error" className="mb-3">{error}</PageNotice>}
 
           {!connected ? (
-            <p className="text-primary text-sm">
-              {isAdmin
-                ? "Cloud backup needs Luna Connect. Add your device token in Settings → About → Advanced."
-                : "Cloud backup needs Luna Connect. An Admin can turn it on."}
-            </p>
+            <div className="space-y-2">
+              <p className="text-primary text-sm">
+                {isAdmin ? (
+                  <>
+                    Cloud backup needs Luna Connect. Add your device token in{" "}
+                    <PathTrail steps={["Settings", "About", "Advanced"]} />.
+                  </>
+                ) : (
+                  "Cloud backup needs Luna Connect. An Admin can turn it on."
+                )}
+              </p>
+              {isAdmin && (
+                <Button variant="outline" surface="secondary" size="sm" asChild>
+                  <Link to="/settings#about">
+                    <span>Open Advanced</span>
+                    <ChevronRight size={ICON_SIZE.md} aria-hidden="true" />
+                  </Link>
+                </Button>
+              )}
+            </div>
+          ) : cloudQuery.isPending ? (
+            <p role="status">Loading cloud backups…</p>
+          ) : cloudQuery.isError ? (
+            <PageNotice variant="error">
+              <p>Luna couldn't load your cloud backups.</p>
+              <Button variant="outline" surface="primary" size="sm" onClick={() => cloudQuery.refetch()}>Try again</Button>
+            </PageNotice>
           ) : backups.length === 0 ? (
             <div className="space-y-3">
-              {!cardOnFile && (
+              {needsPayment && (
                 <p className="text-primary text-sm">
                   Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>. Cloud backup can start after that.
                 </p>
@@ -246,7 +271,7 @@ export default function CloudBackupCategory() {
             </div>
           ) : (
             <div className="space-y-3">
-              {!cardOnFile && (
+              {needsPayment && (
                 <p className="text-primary text-sm">
                   Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>. Backups stay paused until then.
                 </p>

@@ -295,6 +295,8 @@ describe("privateRestore", () => {
     });
   });
 
+  // These pagination cases sign 65 snapshots and verify every restored record.
+  // Keep their crypto budget separate from ordinary tests under bounded CI CPUs.
   it("walks bounded private-name pages and retries from the first page without duplicate writes", async () => {
     const phrase = entropyToPhrase(hexToBytes(fixture.alice_entropy));
     const signed = JSON.parse(new TextDecoder().decode(hexToBytes(priv.records.psnapshots[0].data)));
@@ -348,7 +350,7 @@ describe("privateRestore", () => {
       skipped: 0,
       message: "Restoring version 65 of 65 in private backup 1",
     }));
-  });
+  }, 60_000);
 
   it("fails explicitly when a private inventory changes between pages without changing its total", async () => {
     const phrase = entropyToPhrase(hexToBytes(fixture.alice_entropy));
@@ -367,9 +369,9 @@ describe("privateRestore", () => {
       return baseGet(path);
     });
 
-    await expect(restorePrivateFromPhrase(phrase, ctx)).rejects.toThrow("private backup list changed");
+    await expect(restorePrivateFromPhrase(phrase, ctx)).rejects.toThrow("complete, current list of your private backups");
     expect(restoreBodies()).toHaveLength(64);
-  });
+  }, 60_000);
 
   it("stops before the next snapshot request and keeps an already committed version retryable", async () => {
     const phrase = entropyToPhrase(hexToBytes(fixture.alice_entropy));

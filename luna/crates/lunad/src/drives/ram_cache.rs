@@ -94,11 +94,14 @@ struct Inner {
     /// Drives being ejected or removed: new dirty accepts are refused.
     closing: HashSet<String>,
     failed: HashMap<String, FailedSave>,
+    /// Last thumb or listing hit or fill, for [`RamCache::expire_idle`].
+    last_used: Instant,
 }
 
 impl Inner {
     fn new() -> Self {
         Self {
+            last_used: Instant::now(),
             thumbs: HashMap::new(),
             thumb_order: VecDeque::new(),
             thumb_bytes: 0,
@@ -118,6 +121,9 @@ pub struct RamCache {
     inner: Arc<Mutex<Inner>>,
     /// Signalled whenever a dirty flush settles (landed, failed, cancelled).
     settled: Arc<Condvar>,
+    /// Signalled when something is cached, so the RAM-pressure loop can
+    /// sleep while the cache holds nothing.
+    filled: Arc<tokio::sync::Notify>,
 }
 
 impl Default for Inner {
@@ -133,13 +139,168 @@ impl Default for Inner {
 static DRIVE_WRITE_GEN: std::sync::LazyLock<Mutex<HashMap<String, u64>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
+static DRIVE_WRITTEN: std::sync::LazyLock<tokio::sync::Notify> =
+    std::sync::LazyLock::new(tokio::sync::Notify::new);
+
+/// Every live cache, so background work without an `AppState` (the photos
+/// indexer swapping in full-quality thumbnails) can drop stale thumbs.
+static CACHES: std::sync::LazyLock<Mutex<Vec<std::sync::Weak<Mutex<Inner>>>>> =
+    std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
+
+/// A thumbnail file was replaced on disk: no cache may keep serving the old one.
+pub fn thumb_replaced(drive_id: &str, rel: &str) {
+    let mut caches = CACHES.lock().unwrap_or_else(|e| e.into_inner());
+    caches.retain(|weak| match weak.upgrade() {
+        Some(inner) => {
+            let mut g = inner.lock().unwrap_or_else(|e| e.into_inner());
+            RamCache::remove_thumb_locked(&mut g, &thumb_key(drive_id, rel));
+            true
+        }
+        None => false,
+    });
+}
+
+/// After this long without a cache hit or fill, clean entries are dropped so
+/// the RAM-pressure loop can sleep until the next use (D3). The kernel's page
+/// cache still holds the thumbnail files.
+pub const IDLE_EXPIRY: Duration = Duration::from_secs(5 * 60);
+
+/// How long the RAM-pressure loop waits between checks: often only when free
+/// memory is close to the line where it starts shrinking (256 MiB). A memory
+/// stall wakes it sooner where the kernel reports one ([`watch_memory_pressure`]).
+pub fn pressure_check_interval(available_bytes: u64) -> Duration {
+    if available_bytes < 512 * MIB {
+        Duration::from_secs(5)
+    } else {
+        Duration::from_secs(60)
+    }
+}
+
+/// How long the RAM-pressure loop sleeps before its next check. `idle_left`
+/// is [`RamCache::idle_left`]: the time until clean entries expire, or `None`
+/// when only dirty buffers are held.
+///
+/// Far from the line with kernel stall reports (`psi`), a stall is what wakes
+/// it to reclaim, so it sleeps straight to the expiry instead of checking
+/// every minute while a used Luna sits idle (D3). Otherwise it keeps the
+/// [`pressure_check_interval`] timer, never sleeping past the expiry. Dirty
+/// buffers alone always keep the timer: they don't expire, and the timer is
+/// what flushes them early near the line.
+pub fn pressure_wait(available_bytes: u64, psi: bool, idle_left: Option<Duration>) -> Duration {
+    let interval = pressure_check_interval(available_bytes);
+    let Some(left) = idle_left else {
+        return interval;
+    };
+    // Expiry is due (or a hair away): look again soon, never spin.
+    let left = left.max(Duration::from_secs(1));
+    if psi && available_bytes >= 512 * MIB {
+        left
+    } else {
+        interval.min(left)
+    }
+}
+
+/// Whether a wake of the RAM-pressure loop that did not empty the cache
+/// should start a reclaim (on a blocking thread). With stall reports and free
+/// memory far from the line, a timer wake is only the expiry look, and use
+/// after the sleep began moves the expiry on: nothing to reclaim, so it just
+/// sleeps again (D3). A stall, the timer near the line, or no stall reports
+/// still reclaim as before.
+pub fn reclaim_on_wake(stalled: bool, psi: bool, available_bytes: u64) -> bool {
+    stalled || !psi || available_bytes < 512 * MIB
+}
+
+static PSI_WATCHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// True while the memory-stall watcher from [`watch_memory_pressure`] runs.
+pub fn psi_watching() -> bool {
+    PSI_WATCHING.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Wake `notify` whenever tasks stall on memory (Linux PSI: 150 ms stalled
+/// within 2 s), from a thread that sleeps in `poll` until then. False when
+/// the kernel offers no trigger (no PSI, or no permission, as in a rootless
+/// container); the RAM-pressure loop then relies on its timer alone.
+pub fn watch_memory_pressure(notify: Arc<tokio::sync::Notify>) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        use std::io::Write;
+        use std::os::fd::AsRawFd;
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/proc/pressure/memory");
+        let Ok(mut file) = file else {
+            return false;
+        };
+        if file.write_all(b"some 150000 2000000\0").is_err() {
+            return false;
+        }
+        PSI_WATCHING.store(true, std::sync::atomic::Ordering::Relaxed);
+        let spawned = std::thread::Builder::new()
+            .name("luna-mem-pressure".into())
+            .spawn(move || {
+                // Any way out of the loop below ends the stall reports: the
+                // pressure loop goes back to its timer.
+                struct Stopped;
+                impl Drop for Stopped {
+                    fn drop(&mut self) {
+                        PSI_WATCHING.store(false, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+                let _stopped = Stopped;
+                let mut fds = libc::pollfd {
+                    fd: file.as_raw_fd(),
+                    events: libc::POLLPRI,
+                    revents: 0,
+                };
+                loop {
+                    // SAFETY: one valid pollfd that outlives the call.
+                    let n = unsafe { libc::poll(&mut fds, 1, -1) };
+                    if n < 0 {
+                        if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
+                        {
+                            continue;
+                        }
+                        return;
+                    }
+                    if fds.revents & libc::POLLERR != 0 {
+                        return;
+                    }
+                    if fds.revents & libc::POLLPRI != 0 {
+                        notify.notify_one();
+                    }
+                }
+            })
+            .is_ok();
+        if !spawned {
+            PSI_WATCHING.store(false, std::sync::atomic::Ordering::Relaxed);
+        }
+        spawned
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = notify;
+        false
+    }
+}
+
 /// Record that Luna just changed something on this drive.
 pub fn note_drive_write(drive_id: &str) {
     let mut g = DRIVE_WRITE_GEN.lock().unwrap_or_else(|e| e.into_inner());
     *g.entry(drive_id.to_string()).or_insert(0) += 1;
+    drop(g);
+    DRIVE_WRITTEN.notify_one();
 }
 
-fn drive_write_gen(drive_id: &str) -> u64 {
+/// Resolves after the next [`note_drive_write`] on any drive (at once when
+/// one happened since the last wait), so the flusher can sleep while
+/// nothing is written.
+pub async fn drive_written() {
+    DRIVE_WRITTEN.notified().await;
+}
+
+pub fn drive_write_gen(drive_id: &str) -> u64 {
     let g = DRIVE_WRITE_GEN.lock().unwrap_or_else(|e| e.into_inner());
     g.get(drive_id).copied().unwrap_or(0)
 }
@@ -176,10 +337,47 @@ pub fn thumb_etag(len: u64, mtime_secs: u64) -> String {
 
 impl RamCache {
     pub fn new() -> Self {
+        let inner = Arc::new(Mutex::new(Inner::new()));
+        CACHES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(Arc::downgrade(&inner));
         Self {
-            inner: Arc::new(Mutex::new(Inner::new())),
+            inner,
             settled: Arc::new(Condvar::new()),
+            filled: Arc::new(tokio::sync::Notify::new()),
         }
+    }
+
+    fn remove_thumb_locked(g: &mut Inner, key: &str) {
+        if let Some(old) = g.thumbs.remove(key) {
+            g.thumb_bytes = g.thumb_bytes.saturating_sub(old.bytes.len() as u64);
+            g.thumb_order.retain(|k| k != key);
+        }
+    }
+
+    /// Drop every thumb and listing once none was used for `idle`; dirty
+    /// buffers always stay. True when the cache is empty afterwards.
+    pub fn expire_idle(&self, idle: Duration) -> bool {
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if g.last_used.elapsed() >= idle {
+            g.thumbs.clear();
+            g.thumb_order.clear();
+            g.thumb_bytes = 0;
+            g.listings.clear();
+            g.listing_order.clear();
+        }
+        g.thumbs.is_empty() && g.listings.is_empty() && g.dirty.is_empty()
+    }
+
+    /// Time until [`RamCache::expire_idle`] with `idle` empties the clean
+    /// entries; `None` when no thumb or listing is held.
+    pub fn idle_left(&self, idle: Duration) -> Option<Duration> {
+        let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if g.thumbs.is_empty() && g.listings.is_empty() {
+            return None;
+        }
+        Some(idle.saturating_sub(g.last_used.elapsed()))
     }
 
     fn budget() -> CacheBudget {
@@ -209,8 +407,10 @@ impl RamCache {
             g.thumb_order.retain(|k| k != &key);
         }
         g.thumb_bytes += entry.bytes.len() as u64;
+        g.last_used = Instant::now();
         g.thumbs.insert(key.clone(), entry);
         g.thumb_order.push_back(key);
+        self.filled.notify_one();
         while g.thumb_bytes > budget.thumb_bytes {
             if !Self::evict_one_thumb(&mut g) {
                 break;
@@ -232,6 +432,7 @@ impl RamCache {
         let key = thumb_key(drive_id, rel);
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let entry = g.thumbs.get(&key)?.clone();
+        g.last_used = Instant::now();
         // LRU touch
         g.thumb_order.retain(|k| k != &key);
         g.thumb_order.push_back(key);
@@ -245,10 +446,7 @@ impl RamCache {
     pub fn invalidate_thumb(&self, drive_id: &str, rel: &str) {
         let key = thumb_key(drive_id, rel);
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(old) = g.thumbs.remove(&key) {
-            g.thumb_bytes = g.thumb_bytes.saturating_sub(old.bytes.len() as u64);
-            g.thumb_order.retain(|k| k != &key);
-        }
+        Self::remove_thumb_locked(&mut g, &key);
     }
 
     pub fn put_listing(&self, drive_id: &str, rel: &str, dir_mtime: i64, entries: Vec<FileEntry>) {
@@ -270,6 +468,8 @@ impl RamCache {
             },
         );
         g.listing_order.push_back(key);
+        g.last_used = Instant::now();
+        self.filled.notify_one();
     }
 
     /// Hot listing when still trusted (short TTL) or when `dir_mtime` matches.
@@ -293,6 +493,7 @@ impl RamCache {
             return None;
         }
         let out = entry.entries.clone();
+        g.last_used = Instant::now();
         g.listing_order.retain(|k| k != &key);
         g.listing_order.push_back(key);
         Some(out)
@@ -362,7 +563,7 @@ impl RamCache {
         };
         if g.dirty_bytes.saturating_add(additional) > budget.dirty_bytes {
             return Err(
-                "Luna is low on memory. Wait a moment and try saving again, or free some space by closing other apps."
+                "Luna has no more memory for unsaved files right now. Luna will write this file straight to the drive."
                     .into(),
             );
         }
@@ -383,6 +584,7 @@ impl RamCache {
                 cancelled: false,
             },
         );
+        self.filled.notify_one();
         // Parent listing must show the new file immediately.
         let parent = parent_rel(rel);
         if let Some(listing) = g.listings.get_mut(&listing_key(drive_id, &parent)) {
@@ -721,6 +923,7 @@ impl RamCache {
         if !landed {
             return Ok(false);
         }
+        note_drive_write(drive_id);
         self.invalidate_listing(drive_id, &parent_rel(rel));
         // The landing bumps the parent dir's mtime, but the index compares
         // stamps — a landing inside the filesystem's timestamp granularity
@@ -792,6 +995,22 @@ impl RamCache {
             return Ok(false);
         }
         Ok(true)
+    }
+
+    /// True when nothing is cached, so pressure has nothing to reclaim.
+    pub fn is_empty(&self) -> bool {
+        let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        g.thumbs.is_empty() && g.listings.is_empty() && g.dirty.is_empty()
+    }
+
+    /// Returns at once while anything is cached; otherwise waits until
+    /// something is.
+    pub async fn wait_until_filled(&self) {
+        // Every fill leaves a wake-up behind while the loop is busy elsewhere;
+        // one left from before the cache emptied must not count as a fill.
+        while self.is_empty() {
+            self.filled.notified().await;
+        }
     }
 
     /// Under pressure: drop thumbs, then listings. Dirty: flush using the
@@ -874,6 +1093,97 @@ impl RamCache {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[test]
+    fn an_unused_cache_empties_itself_and_a_used_one_does_not() {
+        let cache = RamCache::new();
+        cache.put_thumb("d1", "a.jpg", b"jpeg-a".to_vec(), 10);
+        assert!(
+            !cache.expire_idle(Duration::from_secs(60)),
+            "just used: kept"
+        );
+        assert!(cache.get_thumb("d1", "a.jpg").is_some());
+        assert!(
+            cache.expire_idle(Duration::ZERO),
+            "idle long enough: emptied"
+        );
+        assert!(cache.get_thumb("d1", "a.jpg").is_none());
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn a_replaced_thumbnail_leaves_every_cache() {
+        let (a, b) = (RamCache::new(), RamCache::new());
+        a.put_thumb("d-replaced", "x.jpg", b"old".to_vec(), 1);
+        b.put_thumb("d-replaced", "x.jpg", b"old".to_vec(), 1);
+        thumb_replaced("d-replaced", "x.jpg");
+        assert!(a.get_thumb("d-replaced", "x.jpg").is_none());
+        assert!(b.get_thumb("d-replaced", "x.jpg").is_none());
+    }
+
+    #[test]
+    fn the_pressure_check_is_frequent_only_near_the_line() {
+        assert_eq!(pressure_check_interval(300 * MIB), Duration::from_secs(5));
+        assert_eq!(pressure_check_interval(1500 * MIB), Duration::from_secs(60));
+    }
+
+    #[test]
+    fn with_stall_reports_an_idle_cache_sleeps_until_it_expires() {
+        let four_min = Some(Duration::from_secs(240));
+        // Far from the line, stalls reported: one wake, at the expiry.
+        assert_eq!(
+            pressure_wait(1500 * MIB, true, four_min),
+            Duration::from_secs(240)
+        );
+        // No stall reports: the minute timer stays.
+        assert_eq!(
+            pressure_wait(1500 * MIB, false, four_min),
+            Duration::from_secs(60)
+        );
+        // Near the line: every 5 s, stall reports or not.
+        assert_eq!(
+            pressure_wait(300 * MIB, true, four_min),
+            Duration::from_secs(5)
+        );
+        // Expiry closer than the timer: wake for it.
+        assert_eq!(
+            pressure_wait(1500 * MIB, false, Some(Duration::from_secs(20))),
+            Duration::from_secs(20)
+        );
+        // Only dirty buffers (they never expire): the timer, never a spin.
+        assert_eq!(
+            pressure_wait(1500 * MIB, true, None),
+            Duration::from_secs(60)
+        );
+        assert_eq!(pressure_wait(300 * MIB, true, None), Duration::from_secs(5));
+        // Expiry already due: a short wait, not zero.
+        assert_eq!(
+            pressure_wait(1500 * MIB, true, Some(Duration::ZERO)),
+            Duration::from_secs(1)
+        );
+    }
+
+    #[test]
+    fn an_early_expiry_look_far_from_the_line_reclaims_nothing() {
+        // Stall reports, plenty free: a timer wake only looks at the expiry.
+        assert!(!reclaim_on_wake(false, true, 1500 * MIB));
+        // A stall, no stall reports, or near the line: reclaim.
+        assert!(reclaim_on_wake(true, true, 1500 * MIB));
+        assert!(reclaim_on_wake(false, false, 1500 * MIB));
+        assert!(reclaim_on_wake(false, true, 300 * MIB));
+    }
+
+    #[test]
+    fn idle_left_counts_down_only_while_clean_entries_are_held() {
+        let cache = RamCache::new();
+        assert_eq!(cache.idle_left(IDLE_EXPIRY), None);
+        cache.put_thumb("d-idle-left", "a.jpg", b"jpeg".to_vec(), 1);
+        let left = cache.idle_left(IDLE_EXPIRY).expect("a thumb is held");
+        assert!(left <= IDLE_EXPIRY && left > IDLE_EXPIRY - Duration::from_secs(5));
+        assert_eq!(cache.idle_left(Duration::ZERO), Some(Duration::ZERO));
+        cache.expire_idle(Duration::ZERO);
+        assert_eq!(cache.idle_left(IDLE_EXPIRY), None);
+    }
 
     #[test]
     fn thumb_round_trip_and_lru_evict() {

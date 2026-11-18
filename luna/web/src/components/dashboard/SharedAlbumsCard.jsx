@@ -3,13 +3,13 @@ import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { sharedItemAction, sharedItemHref } from "../../lib/access.js";
 
-/** The dashboard lists only the first few; the gallery holds the full list. */
+/** The dashboard lists only the first few; the Photos page holds the full list. */
 const MAX_ALBUMS = 8;
 
 /**
  * Albums other people shared with a Member. Each row shows the album name and a button that
- * opens it in the gallery. When there are more than eight, a "See all albums" button leads to
- * the gallery's album list. Renders nothing when there are no albums.
+ * opens it on the Photos page. When there are more than eight, a "See all albums" button leads to
+ * the Photos page's album list. Renders nothing when there are no albums.
  *
  * The card is a surface-secondary panel, so the names are primary-colored and the buttons use
  * their default (card) surface.
@@ -36,7 +36,7 @@ export default function SharedAlbumsCard({ albums }) {
       {albums.length > MAX_ALBUMS ? (
         <div className="mt-3">
           <Button size="sm" variant="outline" asChild>
-            <Link to="/gallery#albums">See all albums</Link>
+            <Link to="/photos#albums">See all albums</Link>
           </Button>
         </div>
       ) : null}

@@ -18,7 +18,7 @@ export default function useFileNavigation({ defaultFile = null, singleFile = fal
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const [singleClosed, setSingleClosed] = useState(false);
+  const [singleClosedAt, setSingleClosedAt] = useState(/** @type {string | null} */ (null));
 
   const rawPath = searchParams.get("path") || "";
   const path = singleFile ? "" : rawPath;
@@ -31,7 +31,10 @@ export default function useFileNavigation({ defaultFile = null, singleFile = fal
 
   const viewerPath = useMemo(() => {
     if (singleFile) {
-      return singleClosed && !fileParam ? null : defaultFile;
+      // Closing must win while the router is still removing ?file=. A new
+      // visit with that parameter may reopen the file, including the same URL.
+      const closed = singleClosedAt !== null && (!fileParam || singleClosedAt === location.key);
+      return closed ? null : defaultFile;
     }
     if (!candidateFile) return null;
     const name = pathBasename(candidateFile);
@@ -44,11 +47,11 @@ export default function useFileNavigation({ defaultFile = null, singleFile = fal
       return candidateFile;
     }
     return joinPath(path, candidateFile);
-  }, [singleFile, singleClosed, fileParam, defaultFile, inTrash, candidateFile, path]);
+  }, [singleFile, singleClosedAt, location.key, fileParam, defaultFile, inTrash, candidateFile, path]);
 
   const onViewerPathChange = useCallback((next) => {
     if (singleFile) {
-      setSingleClosed(next == null);
+      setSingleClosedAt(next == null ? location.key : null);
       if (next == null && (searchParams.has("file") || searchParams.has("open"))) {
         const params = new URLSearchParams(searchParams);
         params.delete("file");
@@ -82,7 +85,7 @@ export default function useFileNavigation({ defaultFile = null, singleFile = fal
         { replace: true },
       );
     }
-  }, [singleFile, searchParams, setSearchParams, navigate, location.pathname, path]);
+  }, [singleFile, searchParams, setSearchParams, navigate, location.pathname, location.key, path]);
 
   const onPathChange = useCallback((next) => {
     const params = new URLSearchParams(searchParams);

@@ -56,6 +56,7 @@ function ChangeAddressForm({ deviceId, hostname, onSaved, onCancel }) {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="kitchen"
+          maxLength={32}
           autoFocus
           aria-invalid={error ? "true" : undefined}
           aria-describedby="luna-address-hint"
@@ -65,7 +66,7 @@ function ChangeAddressForm({ deviceId, hostname, onSaved, onCancel }) {
         </p>
       </ShakeTarget>
       <p id="luna-address-hint" className="text-sm leading-relaxed text-muted-foreground">
-        Use letters and numbers, at least 3 characters. The old address stops working, and Luna switches to the new one the next time it checks in.
+        Use 3 to 32 letters, numbers, or dashes. The old address stops working at once, and Luna moves to the new one within about 5 minutes.
       </p>
       {error && (
         <p className="text-sm text-error" role="alert">
@@ -101,7 +102,7 @@ function DeviceStatusRow({ online, codeHint }) {
       </span>
       {codeHint ? (
         <span className="font-mono text-xs">
-          Device hint <span className="text-foreground">{codeHint}</span>
+          Device token <span className="text-foreground">{codeHint}</span>
         </span>
       ) : null}
     </div>
@@ -182,6 +183,7 @@ export default function LunaPage() {
   const [copied, setCopied] = useState(null);
   const [changingAddress, setChangingAddress] = useState(false);
   const [addressNotice, setAddressNotice] = useState("");
+  const [tokenNotice, setTokenNotice] = useState("");
 
   const load = useCallback(() => {
     return api("/api/v1/account/devices")
@@ -207,8 +209,10 @@ export default function LunaPage() {
     setError("");
     try {
       const res = await api(`/api/v1/account/devices/${luna.id}/code`);
-      setShownCode(res.code || res.code_hint || "");
-      if (res.message && !res.code) setError(res.message);
+      setShownCode(res.code || "");
+      setTokenNotice(
+        res.code ? "" : res.message || "The full device token is on the card that came with Luna.",
+      );
     } catch (err) {
       setError(err.message);
     }
@@ -297,7 +301,7 @@ export default function LunaPage() {
                   data-testid="luna-hostname-pending"
                 >
                   <p className="text-sm text-muted-foreground">
-                    Linked, but no public name yet.{" "}
+                    Linked, but no address yet.{" "}
                     <Link className="underline text-foreground" to="/onboarding">
                       Finish setup
                     </Link>
@@ -307,11 +311,12 @@ export default function LunaPage() {
 
               <DeviceToolbar
                 hostname={luna.hostname}
-                shownCode={shownCode}
+                shownCode={shownCode || tokenNotice}
                 confirmUnbind={confirmUnbind}
                 onToggleCode={() => {
-                  if (shownCode) {
+                  if (shownCode || tokenNotice) {
                     setShownCode("");
+                    setTokenNotice("");
                     setCopied(null);
                     return;
                   }
@@ -338,7 +343,7 @@ export default function LunaPage() {
                   onSaved={async (newHostname) => {
                     await load();
                     setChangingAddress(false);
-                    setAddressNotice(`Address changed to ${newHostname}. Luna switches to it the next time it checks in.`);
+                    setAddressNotice(`Address changed to ${newHostname}. Luna moves to it within about 5 minutes.`);
                   }}
                 />
               )}
@@ -349,7 +354,7 @@ export default function LunaPage() {
                   data-testid="luna-unbind-confirm"
                 >
                   <p className="text-sm leading-relaxed">
-                    The public address goes away. Cloud backups stay on this account and stay billed until you turn off payment in Cloud backups. Someone else can link this Luna later with the same device token.
+                    The public address stops working. Cloud backups stay on this account, and you pay for them until you turn off payment in Cloud backups. Anyone with this device token can link this Luna again later.
                   </p>
                   <div className="flex flex-col sm:flex-row gap-2">
                     <Button variant="destructive" loading={unbinding} onClick={unbind}>
@@ -378,6 +383,12 @@ export default function LunaPage() {
                 {copied === "token" ? "Copied" : "Copy token"}
               </Button>
             </div>
+          )}
+
+          {tokenNotice && (
+            <p className="text-sm leading-relaxed" role="status">
+              {tokenNotice}
+            </p>
           )}
 
           {error && <p className="text-sm text-error">{error}</p>}

@@ -20,7 +20,7 @@ object BackupConfig {
 
     private const val TEST_DEADLINE_MS = 15_000L
     const val TIMEOUT_MESSAGE =
-        "Luna didn't finish checking that folder. The drive may be busy, or this phone lost the connection. Open Luna in a browser → Drives and confirm the drive works, then try again."
+        "Luna didn't finish checking that folder in time. Check this phone's network connection and the drive on Luna's Files page, then try again."
 
     fun hasPhotoAccess(context: Context): Boolean {
         return if (Build.VERSION.SDK_INT >= 33) {
@@ -32,17 +32,38 @@ object BackupConfig {
         }
     }
 
-    fun photosNeeded(): Array<String> {
-        return if (Build.VERSION.SDK_INT >= 33) {
-            arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.POST_NOTIFICATIONS)
+    /** Photos, videos, and the location Android hides from them, asked together. */
+    fun mediaPermissions(): Array<String> {
+        val list = ArrayList<String>()
+        if (Build.VERSION.SDK_INT >= 33) {
+            list += Manifest.permission.READ_MEDIA_IMAGES
+            list += Manifest.permission.READ_MEDIA_VIDEO
         } else {
-            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+            list += Manifest.permission.READ_EXTERNAL_STORAGE
         }
+        if (Build.VERSION.SDK_INT >= 29) list += Manifest.permission.ACCESS_MEDIA_LOCATION
+        return list.toTypedArray()
     }
 
+    /** Notifications only need asking on Android 13 and newer. */
+    fun notificationPermissions(): Array<String> =
+        if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.POST_NOTIFICATIONS) else emptyArray()
+
+    /** True when photos keep their GPS location when Luna reads them. */
+    fun canReadOriginals(context: Context): Boolean =
+        Build.VERSION.SDK_INT >= 29 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_MEDIA_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+
+    /** Media permissions this phone still lacks (videos and location can be missing after an update). */
+    fun missingMediaPermissions(context: Context): List<String> =
+        mediaPermissions().filter {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+
     fun photosDeniedMessage(): String =
-        "Luna needs access to photos on this phone to copy them. Tap Grant again, then choose Allow. " +
-            "If you already picked Don't allow, open this phone's Settings → Apps → Luna → Permissions → Photos, and allow access."
+        "Luna needs access to the photos and videos on this phone. " +
+            "Allow it in this phone's Settings → Apps → Luna → Permissions."
 
     fun testSaved(context: Context): Result {
         val url = BackupPrefs.baseUrl(context)
@@ -51,7 +72,7 @@ object BackupConfig {
         if (url.isNullOrBlank() || token.isNullOrBlank()) {
             return Result(
                 false,
-                "You're not signed in. Sign out, then sign in again with an access token from Luna → Settings → Security.",
+                "You are not signed in. Tap Sign out, then sign in with an access token from Luna → Settings → Security.",
             )
         }
         if (driveId.isNullOrBlank()) {
@@ -108,13 +129,13 @@ object BackupConfig {
             if (drives.isEmpty()) {
                 return Result(
                     false,
-                    "No drives found on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
+                    "No drives found on Luna. Make sure the drive is plugged in, or ask an Admin for access to a drive.",
                 )
             }
             val drive = drives.firstOrNull { it.id == driveId }
                 ?: return Result(
                     false,
-                    "The drive you picked is no longer on Luna. Ensure that the drive is plugged in. If it is, try unplugging it and plugging it back in.",
+                    "Luna no longer shows the drive you picked. Make sure it is plugged in, or ask an Admin for access to it.",
                 )
             LunaApi.listFiles(baseUrl, token, driveId, folder)
             LunaApi.probeWrite(baseUrl, token, driveId, folder)

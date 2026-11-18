@@ -6,7 +6,7 @@
 //! | ------------------------------- | ----------------------------------- |
 //! | `{p}.sqlite3`                   | marker + microdb (drive_db)         |
 //! | `{p}-trash/`                    | deleted files                       |
-//! | `{p}-thumbs/`                   | gallery thumbnails                  |
+//! | `{p}-thumbs/`                   | photos thumbnails                  |
 //! | `{p}-shared-albums/`            | shared album image copies           |
 //! | `{p}-backups/`                  | drive backups stored on this drive  |
 //! | `{p}-upload.<id>.part`          | in-flight uploads                   |
@@ -45,7 +45,7 @@ impl Layout {
         format!("{}-trash", self.prefix)
     }
 
-    /// Gallery thumbnails directory name.
+    /// Photos thumbnails directory name.
     pub fn thumbs_name(&self) -> String {
         format!("{}-thumbs", self.prefix)
     }
@@ -85,6 +85,6 @@ impl Layout {
     /// *any* drive's Luna namespace? Generic on the UUID — the exact prefix
     /// is never needed to hide or reject Luna's own files.
     pub fn is_luna_name(name: &str) -> bool {
-        luna_core::marker::extract_prefix(name).is_some()
+        luna_core::marker::is_namespace_name(name)
     }
 }

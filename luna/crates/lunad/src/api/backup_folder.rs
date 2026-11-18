@@ -23,7 +23,7 @@ use tokio_util::io::ReaderStream;
 
 use crate::AppState;
 use crate::access::{self, CAP_EDIT};
-use crate::api::gallery::stream_zip_response;
+use crate::api::photos::stream_zip_response;
 use crate::api::response::json_error;
 use crate::auth::{self, CurrentUser};
 use crate::backup::drive_backup;
@@ -32,7 +32,7 @@ use crate::backup::status::BackupState;
 use crate::db::{self, DriveRow, ProtectionRow};
 use crate::drives::layout::Layout;
 use crate::files::{self, FilesError};
-use crate::gallery;
+use crate::photos;
 use crate::private;
 
 type ApiError = (StatusCode, Json<Value>);
@@ -211,6 +211,8 @@ fn store_home(conn: &rusqlite::Connection, drive_id: &str) -> Result<(PathBuf, L
             StatusCode::CONFLICT,
             "Connect that drive to see its backups.",
         ),
+        FilesError::Locked => fail(StatusCode::LOCKED, "Unlock that drive to see its backups."),
+        FilesError::Erasing => fail(StatusCode::CONFLICT, files::DRIVE_ERASING_MSG),
         _ => fail(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't read that drive. Try again.",
@@ -554,7 +556,7 @@ async fn file_response(path: &Path, name: &str) -> Result<Response, ApiError> {
     let file = tokio::fs::File::open(path).await.map_err(|_| {
         fail(
             StatusCode::NOT_FOUND,
-            "Luna couldn't open that file. Check the drive is still connected.",
+            "Luna couldn't open that file. Make sure the drive is still connected.",
         )
     })?;
     let len = file.metadata().await.ok().map(|m| m.len());
@@ -572,7 +574,10 @@ async fn file_response(path: &Path, name: &str) -> Result<Response, ApiError> {
         builder = builder.header(header::CONTENT_LENGTH, len);
     }
     builder
-        .body(Body::from_stream(ReaderStream::new(file)))
+        .body(Body::from_stream(ReaderStream::with_capacity(
+            file,
+            crate::api::files::STREAM_CHUNK,
+        )))
         .map_err(|_| {
             fail(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -716,7 +721,7 @@ async fn zip_response(rel: &str, entries: Vec<(String, PathBuf)>) -> Result<Resp
     stream_zip_response(&format!("{root}.zip"), move |tmp: &Path| {
         let out =
             fs::File::create(tmp).map_err(|_| fail(StatusCode::INTERNAL_SERVER_ERROR, zip_fail))?;
-        gallery::write_items_zip(&entries, out, files::ZIP_MAX_FILES)
+        photos::write_items_zip(&entries, out, files::ZIP_MAX_FILES)
             .map(|_| ())
             .map_err(|_| fail(StatusCode::INTERNAL_SERVER_ERROR, zip_fail))
     })
@@ -881,7 +886,7 @@ async fn restore(
         let Some(slot) = drive_backup::try_hold(&state.db, &id) else {
             return Err(fail(
                 StatusCode::CONFLICT,
-                "This backup is copying right now. Try again in a minute.",
+                "This backup is busy right now. Try again in a minute.",
             ));
         };
 
@@ -1665,7 +1670,7 @@ mod tests {
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(
             body["error"],
-            "This backup is copying right now. Try again in a minute."
+            "This backup is busy right now. Try again in a minute."
         );
     }
 

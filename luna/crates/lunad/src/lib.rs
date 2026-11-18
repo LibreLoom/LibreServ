@@ -56,12 +56,14 @@ pub mod db;
 pub mod dev_mock;
 pub mod drives;
 pub mod files;
-pub mod gallery;
 pub mod hibp;
 pub mod jobs;
 pub mod net;
 pub mod office;
+pub mod packs;
 pub mod password;
+pub mod perf;
+pub mod photos;
 pub mod private;
 pub mod rate_limit;
 pub mod sandbox;
@@ -132,12 +134,12 @@ pub struct AppState {
     pub db: Arc<Db>,
     pub drive_manager: Arc<DriveManager>,
     pub job_manager: Arc<crate::jobs::JobManager>,
-    pub gallery: Arc<crate::gallery::gallery_indexer::GalleryIndexer>,
+    pub photos: Arc<crate::photos::photos_indexer::PhotosIndexer>,
     pub auth: Arc<crate::auth::AuthService>,
     pub connect: Arc<crate::net::connect::ConnectService>,
     pub login_limiter: Arc<crate::rate_limit::RateLimiter>,
     /// Wrong passwords on an encrypted drive: per user, per drive.
-    pub unlock_limiter: Arc<crate::rate_limit::RateLimiter>,
+    pub unlock_guard: Arc<crate::rate_limit::UnlockGuard>,
     pub dav_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub share_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub public_upload_limiter: Arc<crate::rate_limit::RateLimiter>,
@@ -154,6 +156,8 @@ pub struct AppState {
     pub search_index: Arc<crate::files::search_indexer::SearchIndexer>,
     pub collab: std::sync::Arc<crate::office::collab::CollabHub>,
     pub office_docs: std::sync::Arc<crate::office::office_docs::OfficeDocHub>,
+    /// Drive erase previews and runs, in memory (`drives::format`).
+    pub format: Arc<crate::drives::format::FormatService>,
 }
 
 impl AppState {
@@ -162,7 +166,13 @@ impl AppState {
         drive_manager: Arc<DriveManager>,
         data_dir: &std::path::Path,
     ) -> Self {
+        crate::sandbox::disable_daemon_core_dumps().expect("disable daemon core dumps");
         private::install();
+        // After a boot every encrypted drive is locked; after a daemon-only
+        // restart one stays open only if mapper, mount and marker agree.
+        if let Err(e) = crate::drives::crypt::vault::startup(&conn, &drive_manager) {
+            tracing::warn!(error = %e, "could not settle encrypted drives at startup");
+        }
         let db = Arc::new(crate::Db::new(conn));
         let secret =
             crate::secrets::ensure_jwt_secret(data_dir, &db.lock().unwrap()).expect("jwt secret");
@@ -171,8 +181,8 @@ impl AppState {
             secret,
             data_dir.to_path_buf(),
         ));
-        let gallery = crate::gallery::gallery_indexer::GalleryIndexer::start();
-        let job_manager = Arc::new(crate::jobs::JobManager::new(db.clone(), gallery.clone()));
+        let photos = crate::photos::photos_indexer::PhotosIndexer::start();
+        let job_manager = Arc::new(crate::jobs::JobManager::new(db.clone(), photos.clone()));
         let updates = Arc::new(crate::system::updates::UpdateService::from_db(
             &db.lock().unwrap(),
             data_dir,
@@ -181,7 +191,7 @@ impl AppState {
             db: db.clone(),
             drive_manager,
             job_manager,
-            gallery,
+            photos,
             auth,
             connect: Arc::new(crate::net::connect::ConnectService::new(
                 data_dir,
@@ -192,14 +202,7 @@ impl AppState {
                 std::time::Duration::from_secs(300),
                 10,
             )),
-            // Five wrong passwords on a drive, then a five-minute wait. A
-            // Member with a live session can unlock a drive they can already
-            // read, so this is what keeps guessing from being free.
-            unlock_limiter: Arc::new(crate::rate_limit::RateLimiter::new(
-                db.clone(),
-                std::time::Duration::from_secs(300),
-                5,
-            )),
+            unlock_guard: Arc::new(crate::rate_limit::UnlockGuard::new(db.clone())),
             dav_limiter: Arc::new(crate::rate_limit::RateLimiter::new(
                 db.clone(),
                 std::time::Duration::from_secs(300),
@@ -232,6 +235,7 @@ impl AppState {
             search_index: crate::files::search_indexer::SearchIndexer::start(),
             collab: Arc::new(crate::office::collab::CollabHub::new()),
             office_docs: Arc::new(crate::office::office_docs::OfficeDocHub::new()),
+            format: Arc::new(crate::drives::format::FormatService::default()),
         }
     }
 

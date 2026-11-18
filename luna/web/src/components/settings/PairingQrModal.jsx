@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { encodePairing } from "../../lib/pairing.js";
 
 /**
@@ -43,8 +44,8 @@ export default function PairingQrModal({ open, token, onClose }) {
       {({ close }) => (
         <div className="space-y-3">
           <p className="text-primary text-sm">
-            On the phone, open Luna, tap Scan QR code, then Sign in — it
-            fills in the address and access token for you.
+            On the phone, open the Luna app and tap Scan QR code. The scan
+            fills in the address and access token. Then tap Sign in.
           </p>
           <div className="flex justify-center rounded-large-element surface-primary p-4">
             {failed ? (
@@ -62,9 +63,9 @@ export default function PairingQrModal({ open, token, onClose }) {
             )}
           </div>
           <p className="text-primary text-sm">
-            This QR includes the address you are using now ({url || "this page"})
-            and the access token. Anyone who scans it can reach your files on
-            Luna.
+            This QR code holds the access token and the address you use now
+            ({url ? <InlinePill>{url}</InlinePill> : "this page"}). Anyone who
+            scans it can reach your files on Luna.
           </p>
           <div className="flex justify-end">
             <Button onClick={close}>Done</Button>

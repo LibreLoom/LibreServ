@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { UserPlus, Mail } from "lucide-react";
+import PathTrail from "@libreloom/ui/components/common/PathTrail.jsx";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
@@ -22,7 +23,11 @@ export default function AddUserPage() {
     addToast({
       type: "info",
       message: "Invitations need email setup",
-      description: "Go to Settings → External services to enable email invitations.",
+      description: (
+        <>
+          Go to <PathTrail steps={["Settings", "External services"]} /> to enable email invitations.
+        </>
+      ),
     });
   };
 
@@ -45,7 +50,7 @@ export default function AddUserPage() {
                 disabled: !smtpConfigured,
                 title: smtpConfigured
                   ? "Send an invitation by email"
-                  : "Set up email in Settings → External services first",
+                  : "Set up email in Settings first",
               },
             ]}
           />
@@ -59,7 +64,7 @@ export default function AddUserPage() {
 
         {!smtpConfigured && (
           <p className="text-xs text-primary mt-6 text-center">
-            Want to send an invitation instead? Set up email in Settings → External services first.
+            Want to send an invitation instead? Set up email in <PathTrail steps={["Settings", "External services"]} /> first.
           </p>
         )}
       </Card>

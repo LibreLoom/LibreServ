@@ -40,7 +40,7 @@ export default function ConnectDeviceCodeForm({ surface = "secondary" }) {
     onError: (err) => {
       haptic("error");
       setSaved(false);
-      setError(apiErrorMessage(err));
+      setError(apiErrorMessage(err, "Couldn't save the device token. Try again."));
     },
   });
   const removeToken = useMutation({
@@ -55,7 +55,7 @@ export default function ConnectDeviceCodeForm({ surface = "secondary" }) {
     },
     onError: (err) => {
       haptic("error");
-      setError(apiErrorMessage(err));
+      setError(apiErrorMessage(err, "Couldn't remove the device token. Try again."));
     },
   });
 
@@ -90,7 +90,7 @@ export default function ConnectDeviceCodeForm({ surface = "secondary" }) {
         >
           {LUNA_CONNECT_HOST}
         </a>
-        , or remove the saved token to disable Luna Connect.
+        . To turn off Luna Connect, remove the saved token.
       </p>
       {tokenError && (
         <p className={cn("flex items-start gap-2 text-sm leading-relaxed", textClass)} role="alert">

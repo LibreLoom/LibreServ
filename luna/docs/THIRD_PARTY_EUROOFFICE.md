@@ -2,8 +2,9 @@
 
 EuroOffice is an AGPL-3.0-licensed office suite by the Euro-Office
 contributors (derived from ONLYOFFICE, © Ascensio System SIA). Luna can
-**optionally** load EuroOffice static web assets from
-`{data_dir}/eurooffice` and serve them at `/eurooffice`.
+**optionally** load EuroOffice static web assets from the OS image
+(`/usr/share/luna/eurooffice`) and serve them at `/eurooffice`. A dev run may
+instead use a copy in `{data_dir}/eurooffice`.
 
 License: GNU Affero General Public License v3.0 —
 <https://www.gnu.org/licenses/agpl-3.0.html>

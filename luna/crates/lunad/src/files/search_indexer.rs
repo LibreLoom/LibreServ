@@ -4,9 +4,9 @@
 //! not just the ones someone happened to open. This worker reads whole drives
 //! in the background (shallow folders first, so results appear early), keeps
 //! counts for the "still reading" notice, and re-reads single folders when
-//! Luna writes into them ([`nudge_dir`]) or someone plugs the drive into
-//! another computer (the periodic rescan, which skips folders whose mtime
-//! hasn't moved).
+//! Luna writes into them or the drive's change watch sees a change
+//! ([`nudge_dir`]), and on the periodic rescan, which skips folders whose
+//! mtime hasn't moved.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -15,12 +15,12 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::files::content::indexer::{ContentIndexer, ContentStatus};
 use crate::files::index;
 
 /// A written-to folder is re-read this long after its last write, so a burst
 /// of uploads costs one read instead of one each.
 const DIRTY_DEBOUNCE: Duration = Duration::from_millis(1200);
-const IDLE_POLL: Duration = Duration::from_millis(250);
 /// How often a running scan re-checks that its drive is still mounted.
 const MOUNT_CHECK_EVERY: u64 = 16;
 
@@ -67,6 +67,8 @@ struct Shared {
 pub struct SearchIndexer {
     tx: Sender<Job>,
     shared: Arc<Shared>,
+    /// Reads files' words once their names are indexed.
+    content: Arc<ContentIndexer>,
 }
 
 static NUDGE: Mutex<Option<Sender<Job>>> = Mutex::new(None);
@@ -83,31 +85,55 @@ pub fn nudge_dir(drive_id: &str, rel: &str) {
     }
 }
 
+/// Re-read a whole drive the indexer already knows (its change watch missed
+/// events). Folders whose timestamp hasn't moved cost one stat each.
+pub fn nudge_drive(drive_id: &str) {
+    if let Some(tx) = NUDGE.lock().unwrap().as_ref() {
+        let _ = tx.send(Job::Scan {
+            drive_id: drive_id.to_string(),
+            force: false,
+        });
+    }
+}
+
 impl SearchIndexer {
     pub fn start() -> Arc<Self> {
         let (tx, rx) = mpsc::channel::<Job>();
         let shared = Arc::new(Shared::default());
         let worker_shared = shared.clone();
+        let content = ContentIndexer::start();
+        let worker_content = content.clone();
         thread::Builder::new()
             .name("luna-search-indexer".into())
-            .spawn(move || worker(rx, worker_shared))
+            .spawn(move || worker(rx, worker_shared, worker_content))
             .expect("spawn search indexer");
         // The newest indexer receives nudges; an older one (tests) then ends
         // once its owner drops it.
         *NUDGE.lock().unwrap() = Some(tx.clone());
-        Arc::new(Self { tx, shared })
+        Arc::new(Self {
+            tx,
+            shared,
+            content,
+        })
     }
 
     /// Start (or restart) reading a mounted drive. Folders that haven't
     /// changed since the last read cost one stat each.
     pub fn watch_mount(&self, drive_id: &str, mount: PathBuf) {
+        self.content.watch_mount(drive_id, mount.clone());
         self.enqueue(drive_id, mount, false);
     }
 
     /// Forget a drive that was ejected or unplugged.
     pub fn unwatch_mount(&self, drive_id: &str) {
+        self.content.unwatch_mount(drive_id);
         self.shared.mounts.lock().unwrap().remove(drive_id);
         self.shared.progress.lock().unwrap().remove(drive_id);
+    }
+
+    /// How far reading files' words has got.
+    pub fn content_status(&self) -> ContentStatus {
+        self.content.status()
     }
 
     /// Re-read these drives. `force` re-reads every folder instead of
@@ -164,12 +190,18 @@ impl SearchIndexer {
     }
 }
 
-fn worker(rx: mpsc::Receiver<Job>, shared: Arc<Shared>) {
+fn worker(rx: mpsc::Receiver<Job>, shared: Arc<Shared>, content: Arc<ContentIndexer>) {
     // (drive, force), oldest first; a drive appears once.
     let mut scans: VecDeque<(String, bool)> = VecDeque::new();
     let mut dirty: HashMap<(String, String), Instant> = HashMap::new();
     loop {
-        match rx.recv_timeout(IDLE_POLL) {
+        // Sleep until a job arrives or the next dirty folder is due, never on
+        // a fixed tick: an idle box must not wake up four times a second.
+        let got = match next_wait(&scans, &dirty) {
+            None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+            Some(wait) => rx.recv_timeout(wait),
+        };
+        match got {
             Ok(job) => queue_job(job, &mut scans, &mut dirty),
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return,
@@ -179,7 +211,9 @@ fn worker(rx: mpsc::Receiver<Job>, shared: Arc<Shared>) {
         }
 
         if let Some((drive_id, force)) = scans.pop_front() {
-            run_scan(&shared, &drive_id, force);
+            if run_scan(&shared, &drive_id, force) {
+                content.kick(&drive_id, true);
+            }
             continue;
         }
 
@@ -191,13 +225,32 @@ fn worker(rx: mpsc::Receiver<Job>, shared: Arc<Shared>) {
         for key in due {
             dirty.remove(&key);
             let mount = shared.mounts.lock().unwrap().get(&key.0).cloned();
-            if let Some(root) = mount
-                && let Err(e) = refresh_dir(&key.0, &root, &key.1)
-            {
-                tracing::debug!(drive = %key.0, rel = %key.1, error = %e, "search index refresh failed");
+            if let Some(root) = mount {
+                match refresh_dir(&key.0, &root, &key.1) {
+                    Ok(()) => content.kick(&key.0, false),
+                    Err(e) => {
+                        tracing::debug!(drive = %key.0, rel = %key.1, error = %e, "search index refresh failed");
+                    }
+                }
             }
         }
     }
+}
+
+/// How long the worker may block for the next job: `None` (until one comes)
+/// when nothing is queued, zero while scans wait, else until the earliest
+/// dirty folder's debounce ends.
+fn next_wait(
+    scans: &VecDeque<(String, bool)>,
+    dirty: &HashMap<(String, String), Instant>,
+) -> Option<Duration> {
+    if !scans.is_empty() {
+        return Some(Duration::ZERO);
+    }
+    dirty
+        .values()
+        .map(|at| DIRTY_DEBOUNCE.saturating_sub(at.elapsed()))
+        .min()
 }
 
 fn queue_job(
@@ -227,17 +280,24 @@ fn set_progress(shared: &Shared, drive_id: &str, state: DriveScan, dirs: Option<
     }
 }
 
-fn run_scan(shared: &Shared, drive_id: &str, force: bool) {
+/// Read a whole drive's names. True when the read finished, so the index
+/// is complete for that drive.
+fn run_scan(shared: &Shared, drive_id: &str, force: bool) -> bool {
     let Some(root) = shared.mounts.lock().unwrap().get(drive_id).cloned() else {
-        return;
+        return false;
     };
+    // First scan (D4) or rescan (D6): `force` alone can't tell them apart,
+    // so the line carries `force` and the folder count.
+    let mut perf = crate::perf::Timer::new("D4|D6", "files.scan");
+    perf.field("drive", drive_id);
+    perf.field("force", force);
     set_progress(shared, drive_id, DriveScan::Scanning, Some(0));
     let conn = match crate::drives::drive_db::open(&root) {
         Ok(conn) => conn,
         Err(e) => {
             tracing::warn!(drive_id, error = %e, "search index could not open the drive");
             set_progress(shared, drive_id, DriveScan::Failed, None);
-            return;
+            return false;
         }
     };
     let mut visited = 0u64;
@@ -265,6 +325,11 @@ fn run_scan(shared: &Shared, drive_id: &str, force: bool) {
         }
     };
     set_progress(shared, drive_id, state, Some(visited));
+    perf.field("dirs", visited);
+    perf.field("ok", result.is_ok());
+    // A scan cut short by an unmount returns Ok too; only a drive that is
+    // still mounted has a complete index.
+    result.is_ok() && shared.mounts.lock().unwrap().get(drive_id) == Some(&root)
 }
 
 /// Re-read one folder, plus any subfolder that isn't indexed yet (a folder
@@ -293,6 +358,24 @@ mod tests {
     use crate::files::search::{self, DriveRef, KindFilter};
     use crate::files::search_rank::Query;
 
+    #[test]
+    fn idle_worker_blocks_until_work_is_due() {
+        let mut scans = VecDeque::new();
+        let mut dirty = HashMap::new();
+        assert_eq!(next_wait(&scans, &dirty), None);
+        dirty.insert(("d".to_string(), "a".to_string()), Instant::now());
+        let wait = next_wait(&scans, &dirty).unwrap();
+        assert!(wait > Duration::ZERO && wait <= DIRTY_DEBOUNCE);
+        dirty.insert(
+            ("d".to_string(), "b".to_string()),
+            Instant::now() - DIRTY_DEBOUNCE * 2,
+        );
+        assert_eq!(next_wait(&scans, &dirty), Some(Duration::ZERO));
+        dirty.clear();
+        scans.push_back(("d".to_string(), false));
+        assert_eq!(next_wait(&scans, &dirty), Some(Duration::ZERO));
+    }
+
     fn make_drive(dir: &Path) -> PathBuf {
         let root = dir.join("drive");
         std::fs::create_dir_all(&root).unwrap();
@@ -320,15 +403,14 @@ mod tests {
             .collect()
     }
 
-    fn wait_for(what: &str, mut ok: impl FnMut() -> bool) {
-        let start = Instant::now();
-        while start.elapsed() < Duration::from_secs(10) {
-            if ok() {
-                return;
-            }
-            thread::sleep(Duration::from_millis(50));
-        }
-        panic!("timed out waiting for {what}");
+    /// Waits for `ok`, up to a cap that only matters when something is really
+    /// stuck: it returns the moment the condition holds, so a loaded machine just
+    /// takes longer instead of failing (a fixed 10s once timed out under load).
+    fn wait_for(what: &str, ok: impl FnMut() -> bool) {
+        assert!(
+            crate::testutil::wait_until(Duration::from_secs(30), ok),
+            "timed out waiting for {what}"
+        );
     }
 
     #[test]

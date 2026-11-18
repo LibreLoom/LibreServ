@@ -1,4 +1,4 @@
-import { apiErrorMessage, getJson, postJson, putJson } from "./api";
+import { apiErrorMessage, getJson, isRequestGuardError, postJson, putJson } from "./api";
 import { canonical, derive, encrypt, packId, phraseToEntropy, SIG_PUBLIC_LEN, sign } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { openScopeSecret, sealScopeSecret } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
@@ -27,14 +27,20 @@ export const PHRASE_CHECKED_TOAST = {
   description: "Luna will ask you to check it again in 90 days.",
 };
 
-/** Shown when Luna stops taking tries for a while (HTTP 429). */
-export const LOCKED_OUT_MESSAGE = "Too many wrong tries. Wait a few minutes, then try again.";
+/** Shown when Luna stops taking tries for a while (HTTP 429). Luna counts every try, right or wrong. */
+export const LOCKED_OUT_MESSAGE = "Too many tries. Wait a few minutes, then try again.";
 
-/** Refused by the server: a wrong phrase is 403. Any other 4xx (an expired check, say) throws Luna's own message. */
-const REFUSED_STATUSES = new Set([403]);
+/**
+ * Refused by the server: a wrong phrase is 403. Any other 4xx (an expired check, say) throws Luna's own message.
+ * An expired page or a request from another website is also 403, but it is not a wrong phrase.
+ * @param {any} err
+ */
+function isRefused(err) {
+  return err?.status === 403 && !isRequestGuardError(err);
+}
 
 /** Shown when the new phrase could not open a re-sealed private backup key. Nothing is sent. */
-export const RESEAL_CHECK_FAILED = "Your phrase was not changed. Luna could not safely move your private backups to the new phrase. Your old phrase still works.";
+export const RESEAL_CHECK_FAILED = "Luna could not safely move your private backups to the new phrase. Your phrase did not change, and your old phrase still works.";
 
 const encoder = new TextEncoder();
 
@@ -215,7 +221,7 @@ export async function checkPhraseWords(phrase, lunaId) {
     await checkPhrase(signature);
     return entropy;
   } catch (err) {
-    if (REFUSED_STATUSES.has(err?.status)) return null;
+    if (isRefused(err)) return null;
     if (err?.status === 429) throw new Error(LOCKED_OUT_MESSAGE);
     throw new Error(apiErrorMessage(err, "Could not check your phrase. Try again."));
   }
@@ -236,8 +242,9 @@ export async function resealScopes(oldEntropy, lunaId, newSealPublic, newSealSec
   let reply;
   try {
     reply = await getJson(`${PHRASE_PATH}/scopes`);
-  } catch {
-    throw new Error(unreadable);
+  } catch (err) {
+    // Say the real cause (no connection, Luna busy, Luna's own message) when there is one.
+    throw new Error(apiErrorMessage(err, unreadable));
   }
   if (!reply || !Array.isArray(reply.scopes)) throw new Error(unreadable);
   const keys = derive(oldEntropy, lunaId);
@@ -325,7 +332,7 @@ export async function replacePhrase(opts) {
  */
 export function replaceErrorMessage(err, proofKind) {
   if (err?.status === 429) return LOCKED_OUT_MESSAGE;
-  if (err?.status === 403) {
+  if (isRefused(err)) {
     return proofKind === "password"
       ? "That is not your Luna password. Try again."
       : "Luna did not accept your old phrase. Start again from Change phrase.";

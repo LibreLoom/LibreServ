@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { accountSource, getShareInfo, listLunas, shareSource } from "./cloudSource.js";
 
-const RECORDS_FAILED = "Could not load your cloud backups. Check your connection, then try again.";
-const PACK_FAILED = "Could not download part of this backup. Check your connection, then try again.";
+const RECORDS_FAILED = "Could not load your cloud backups. Try again in a few minutes.";
+const PACK_FAILED = "Could not download part of this backup. Try again in a few minutes.";
 
 /** A JSON reply shaped like the fetch Response the code reads. */
 function jsonReply(body, status = 200) {
@@ -78,6 +78,13 @@ describe("accountSource", () => {
   it("falls back to the records sentence when the server gives none", async () => {
     globalThis.fetch.mockResolvedValue(jsonReply({}, 500));
     await expect(accountSource("L1").listRecords("self")).rejects.toThrow(RECORDS_FAILED);
+  });
+
+  it("asks to check the internet connection only when the request gets no answer", async () => {
+    globalThis.fetch.mockRejectedValue(new TypeError("Failed to fetch"));
+    await expect(accountSource("L1").listRecords("self")).rejects.toThrow(
+      "Could not load your cloud backups. Check your internet connection, then try again.",
+    );
   });
 
   it("falls back to the pack sentence when a pack fails", async () => {
@@ -172,7 +179,7 @@ describe("private session routes", () => {
 
     globalThis.fetch.mockResolvedValueOnce(jsonReply({}, 500));
     const broken = await accountSource("L1").privateChallenge().catch((e) => e);
-    expect(broken.message).toBe("Could not open your private items. Check your connection, then try again.");
+    expect(broken.message).toBe("Could not open your private items. Try again in a few minutes.");
   });
 });
 

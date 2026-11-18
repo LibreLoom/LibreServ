@@ -8,7 +8,8 @@ FRAGS="$ROOT/os/lib/build-rootfs.d"
 CF_BAKE="$ROOT/os/lib/cloudflared-bake.sh"
 # Assemble frags into a temp script so static asserts scan the real body.
 BUILD="$(mktemp)"
-trap 'rm -f "$BUILD"' EXIT
+TAIL_CASE="$(mktemp -d)"
+trap 'rm -f "$BUILD"; rm -rf "$TAIL_CASE"' EXIT
 # shellcheck disable=SC2012
 cat $(ls "$FRAGS"/*.frag | sort) > "$BUILD"
 
@@ -83,7 +84,8 @@ assert_file_has "$BUILD" 'modules-load.d/luna-crypt.conf' \
 	"rootfs must load device-mapper modules or encrypted drives cannot be unlocked"
 assert_file_has "$BUILD" 'dm-crypt' "rootfs must load dm-crypt for encrypted drives"
 assert_file_has "$BUILD" 'cryptsetup' "rootfs must ship cryptsetup to open encrypted drives"
-assert_file_has "$BUILD" 'resize2fs' "rootfs must ship resize2fs to convert drives in place"
+assert_file_has "$BUILD" 'fsck.exfat' "rootfs must ship fsck.exfat to repair exFAT drives after a power cut"
+assert_file_has "$BUILD" 'exfatprogs' "rootfs must ship exfatprogs (mkfs.exfat and fsck.exfat)"
 assert_file_has "$BUILD" 'luna-input-up' "rootfs must ship keyboard / HID bring-up script"
 assert_file_has "$BUILD" 'usbhid' "rootfs must load usbhid for USB keyboards"
 assert_file_has "$BUILD" 'hid-generic' "rootfs must load hid-generic"
@@ -111,8 +113,10 @@ assert_file_has "$BUILD" 'LABEL=LUNA_DATA /var/lib/luna' \
 	"rootfs must mount the data partition at /var/lib/luna"
 assert_file_has "$BUILD" 'luna-root-ro' \
 	"rootfs must remount root read-only + noatime"
-assert_file_has "$BUILD" 'luna-run' \
-	"rootfs must prefer /var/lib/luna/bin/lunad for daemon OTA"
+assert_file_has "$BUILD" 'command="/usr/local/bin/lunad"' \
+	"rootfs must run the daemon baked into the OS image"
+assert_file_lacks "$BUILD" '/var/lib/luna/bin/lunad' \
+	"no daemon may live on the data partition: the whole system is the image"
 assert_file_has "$BUILD" 'util-linux' \
 	"rootfs must include util-linux (provides fstrim)"
 assert_file_has "$ASSEMBLER" 'build-rootfs.d' \
@@ -275,5 +279,29 @@ assert_file_has "$BUILD" 'nameserver 1.1.1.1' \
 	[ "$(cat "$T/resolv.conf")" = "$(printf 'search lan\nnameserver 192.168.1.1')" ] || {
 		echo "FAIL: DNS servers from DHCP must not be overwritten by the fallback" >&2; exit 1; }
 )
+
+
+# Exercise the assembled control flow with Alpine's usual pre-existing root
+# account. Missing packs must fail regardless of which shadow branch runs.
+sed -n '/^# Console accounts/,$p' "$BUILD" > "$TAIL_CASE/tail.sh"
+mkdir -p "$TAIL_CASE/source/os/lib" "$TAIL_CASE/rootfs/etc"
+printf 'luna_cloudflared_ensure() { :; }\n' > "$TAIL_CASE/source/os/lib/cloudflared-bake.sh"
+for shadow in present absent; do
+    printf 'root:x:0:0:root:/root:/bin/ash\nluna:x:1000:1000:Luna:/home/luna:/sbin/nologin\n' > "$TAIL_CASE/rootfs/etc/passwd"
+    : > "$TAIL_CASE/rootfs/etc/shadow"
+    if [ "$shadow" = present ]; then
+        printf 'root::19000:0:99999:7:::\n' > "$TAIL_CASE/rootfs/etc/shadow"
+    fi
+    if ROOT="$TAIL_CASE/source" ROOTFS="$TAIL_CASE/rootfs" \
+        LUNA_PACKS_IN="$TAIL_CASE/missing-packs" sh -eu "$TAIL_CASE/tail.sh" > "$TAIL_CASE/log" 2>&1; then
+        echo "FAIL: missing packs accepted with root shadow $shadow" >&2
+        exit 1
+    fi
+    grep -q 'packs are not mounted' "$TAIL_CASE/log" || {
+        cat "$TAIL_CASE/log" >&2
+        echo "FAIL: build failed before checking packs" >&2
+        exit 1
+    }
+done
 
 echo "rootfs_test ok"

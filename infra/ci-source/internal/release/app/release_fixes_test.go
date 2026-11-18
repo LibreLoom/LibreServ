@@ -16,9 +16,11 @@ import (
 
 	"aead.dev/minisign"
 
+	ciconfig "gt.plainskill.net/LibreLoom/LibreServ/ci/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/engine"
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/publish"
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/secrets"
+	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/version"
 )
 
 func TestDefaultClientsSplitAPIAndTransfer(t *testing.T) {
@@ -277,20 +279,30 @@ func TestUnfinishedIsNewestFirstAndSkipsFinished(t *testing.T) {
 func TestCutRunsTheTestGateFirstAndStopsOnFailure(t *testing.T) {
 	w := newWorld(t)
 	before := git(t, w.origin, "rev-parse", "main")
+	// Give the fake build fixture a real cut class for this gate test.
+	w.app.cfg.VersionFiles["sol"] = "fake/VERSION"
+	w.app.cfg.Units = func() []string { return []string{"fake", "sol"} }
+	fixtureParts := w.app.cfg.Parts
+	w.app.cfg.Parts = func(unit string) []engine.Part {
+		if unit == "sol" {
+			unit = "fake"
+		}
+		return fixtureParts(unit)
+	}
 	var got []string
 	w.app.cfg.TestGate = func(_ context.Context, profiles []string, log func(string)) error {
 		got = profiles
 		log("✗ Something (1s)")
 		return errors.New("profile failed")
 	}
-	_, err := w.app.Cut(t.Context(), CutRequest{Unit: "fake", Channel: "stable"})
+	_, err := w.app.Cut(t.Context(), CutRequest{Unit: "sol", Channel: "stable"})
 	if err == nil || !strings.Contains(err.Error(), "tests failed, nothing was released") {
 		t.Fatalf("want a test failure, got %v", err)
 	}
 	if git(t, w.origin, "rev-parse", "main") != before {
 		t.Fatal("a bump was pushed although the tests failed")
 	}
-	if len(got) != 2 || got[1] != "release" {
+	if len(got) != 1 || got[0] != "cut-sol" {
 		t.Fatalf("profiles = %v", got)
 	}
 
@@ -306,9 +318,30 @@ func TestCutRunsTheTestGateFirstAndStopsOnFailure(t *testing.T) {
 }
 
 func TestTestProfiles(t *testing.T) {
-	for unit, want := range map[string]string{"sol": "sol", "sol-connect": "connect", "luna-connect": "connect", "luna": "luna", "luna-android": "luna", "luna-desktop": "luna"} {
-		if got := TestProfiles(unit); got[0] != want || got[1] != "release" {
+	for _, unit := range version.UnitNames() {
+		if got := TestProfiles(unit); len(got) != 1 || got[0] != "cut-"+unit {
 			t.Errorf("%s: %v", unit, got)
+		} else if ciconfig.GetProfile(got[0]) == nil {
+			t.Errorf("%s selects an unregistered profile %s", unit, got[0])
 		}
+	}
+	for _, unit := range []string{"", "fake", "all"} {
+		if got := TestProfiles(unit); len(got) != 0 {
+			t.Errorf("unknown unit %q got gate %v", unit, got)
+		}
+	}
+}
+
+func TestCutWithoutScopedProfileStopsBeforeGateOrPush(t *testing.T) {
+	w := newWorld(t)
+	before := git(t, w.origin, "rev-parse", "main")
+	ran := false
+	w.app.cfg.TestGate = func(context.Context, []string, func(string)) error { ran = true; return nil }
+	_, err := w.app.Cut(t.Context(), CutRequest{Unit: "fake", Channel: "stable"})
+	if err == nil || !strings.Contains(err.Error(), "no cut test profile") {
+		t.Fatalf("got %v", err)
+	}
+	if ran || git(t, w.origin, "rev-parse", "main") != before {
+		t.Fatal("unscoped cut ran the gate or pushed")
 	}
 }

@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
@@ -13,8 +13,6 @@ import { showPageLevelError } from "../../lib/modalScopedError";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Typewriter from "@libreloom/ui/components/ui/Typewriter.jsx";
-import ShareSheet from "../share/ShareSheet.jsx";
-import FolderPickerModal from "./FolderPickerModal";
 import FileSearchRow from "./FileSearchRow.jsx";
 import FileSearchStatus from "./FileSearchStatus.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
@@ -30,10 +28,31 @@ import {
 import { apiErrorMessage, deleteJson, getDrives, getJson } from "../../lib/api";
 import { parentPath, pathBasename } from "../../lib/paths";
 import { isImageFile } from "../../lib/fileKinds.js";
+import { perfEndAfterPaint, perfStart } from "../../lib/perf.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { useFileOps } from "../../context/FileOpsContext.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+
+/**
+ * Within a group, matches that aren't by name sit under a small heading
+ * saying how they matched, so a looser match never passes for a name match.
+ * @type {Record<string, string>}
+ */
+const MATCH_DIVIDERS = {
+  content: "Found in the text",
+  close: "Similar names",
+  meaning: "Close in meaning",
+  photo: "Seen in photos",
+};
+
+/**
+ * A new search paints this many rows first (about what the panel shows) and
+ * the rest right after, in an interruptible render: building all ~60 rows
+ * before the first paint kept the answer off screen for several hundred ms
+ * on Luna's slowest hardware.
+ */
+const FIRST_ROWS = 12;
 
 /** Match ModalCard exit + FLIP morph duration. */
 const OVERLAY_EXIT_MS = 320;
@@ -125,6 +144,11 @@ function searchTrigger() {
   return [...all].find((el) => !el.closest('[aria-hidden="true"]')) ?? null;
 }
 
+// Search is mounted on every page, but these two only open from a hit's
+// actions; loading them then keeps them out of the first download.
+const ShareSheet = lazy(() => import("../share/ShareSheet.jsx"));
+const FolderPickerModal = lazy(() => import("./FolderPickerModal"));
+
 /**
  * Universal search across drives — an overlay that morphs out of the header
  * search icon (`FileSearchButton`) when the page has one. Mounted once in
@@ -144,6 +168,11 @@ export default function FileSearch() {
   const [copyTarget, setCopyTarget] = useState(null);
   const [copyKind, setCopyKind] = useState(/** @type {"copy" | "move"} */ ("copy"));
   const [accessTarget, setAccessTarget] = useState(null);
+  // Mounted from the first open on, and kept: they animate their own close.
+  const [pickerUsed, setPickerUsed] = useState(false);
+  const [shareUsed, setShareUsed] = useState(false);
+  if (copyTarget != null && !pickerUsed) setPickerUsed(true);
+  if (accessTarget != null && !shareUsed) setShareUsed(true);
 
   const [present, setPresent] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
@@ -165,6 +194,20 @@ export default function FileSearch() {
   const trimmed = typed.trim();
   const search = useFileSearch(trimmed, { enabled: present && !isClosing, kind });
 
+  // W10/W11 (luna/perf): keystroke to rendered results. W10:query starts once
+  // the new text has rendered and the quick search goes out;
+  // W11 ends only once a "meaning" or "photo" match (neural search) is shown.
+  useEffect(() => {
+    if (search.active && search.q === trimmed) perfStart("W10:query");
+  }, [search.active, search.q, trimmed]);
+  const { active: searchActive, q: searchQ, isLoading: searchLoading, isUpdating: searchUpdating, isError: searchFailed, hits: searchHits } = search;
+  useEffect(() => {
+    if (!searchActive || searchQ !== trimmed || searchLoading || searchUpdating || searchFailed) return;
+    perfEndAfterPaint("W10");
+    perfEndAfterPaint("W10:query");
+    if (searchHits.some((hit) => hit.match === "meaning" || hit.match === "photo")) perfEndAfterPaint("W11");
+  }, [typed, trimmed, searchActive, searchQ, searchLoading, searchUpdating, searchFailed, searchHits]);
+
   const remaining = search.hits.slice(1);
   const groups = [
     { label: "Best match", hits: search.hits.slice(0, 1) },
@@ -172,6 +215,27 @@ export default function FileSearch() {
     { label: "Files", hits: remaining.filter((hit) => hit.kind !== "dir" && !isImageFile(hit.name)) },
     { label: "Image files", hits: remaining.filter((hit) => hit.kind !== "dir" && isImageFile(hit.name)) },
   ].filter((group) => group.hits.length > 0);
+
+  // Pace only a fresh search (new text or kind). The full answer and the
+  // polls that follow for the same text update rows already on screen.
+  const pacingKey = `${kind}\u0000${search.q}`;
+  const [paced, setPaced] = useState({ key: "", limit: Infinity });
+  const freshAnswer = search.hits.length > FIRST_ROWS && !search.isUpdating && paced.key !== pacingKey;
+  if (freshAnswer) setPaced({ key: pacingKey, limit: FIRST_ROWS });
+  const rowLimit = freshAnswer ? FIRST_ROWS : paced.limit;
+  useEffect(() => {
+    if (paced.limit === Infinity) return;
+    startTransition(() => setPaced((prev) => ({ ...prev, limit: Infinity })));
+  }, [paced]);
+  let rowsLeft = rowLimit;
+  const shownGroups = groups
+    .map((group) => {
+      const hits = group.hits.slice(0, Math.max(0, rowsLeft));
+      rowsLeft -= hits.length;
+      return { ...group, hits };
+    })
+    .filter((group) => group.hits.length > 0);
+  const allRowsShown = rowLimit === Infinity;
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives, enabled: present });
   const labels = Object.fromEntries((drives.data || []).map((d) => [d.id, d.label]));
@@ -489,9 +553,13 @@ export default function FileSearch() {
                       <input
                         ref={inputRef}
                         className="file-search-input w-full min-w-0 appearance-none bg-transparent text-secondary text-sm border-0 shadow-none outline-none no-focus-outline"
-                        placeholder="A filename, please."
+                        placeholder="A name, or words inside a file"
                         value={typed}
-                        onChange={(e) => setTyped(e.target.value)}
+                        onChange={(e) => {
+                          perfStart("W10");
+                          perfStart("W11");
+                          setTyped(e.target.value);
+                        }}
                         onKeyDown={handleInputKeyDown}
                         aria-label="Search for a file"
                         autoComplete="off"
@@ -570,24 +638,26 @@ export default function FileSearch() {
 
               {search.incomplete && !search.isError && !search.isUpdating && trimmed === search.q && (
                 <PageNotice variant="warning" className="mb-3">
-                  Luna could not check every match or drive. Try again or type more of the name to narrow your search.
+                  Luna could not check every match or drive. Try again, or type more words.
                 </PageNotice>
               )}
 
               {search.active && !search.isLoading && !search.isError && !search.incomplete && search.hits.length === 0 && (
-                search.scan?.scanning ? (
+                search.scan?.scanning || search.scan?.contents_reading ? (
                   <EmptyState
                     className="mt-1"
                     surface="primary"
                     title="Nothing yet"
-                    description="Luna is still reading your drives. Matches appear here as they're found."
+                    description={search.scan?.scanning
+                      ? "Luna is still reading your drives. Matches appear here as they're found."
+                      : "Luna is still reading inside your files. Matches appear here as they're found."}
                   />
                 ) : (
                   <EmptyState
                     className="mt-1"
                     surface="primary"
                     title="Nothing matched"
-                    description="Try another name, or open a drive and browse. Luna only shows files you're allowed to see."
+                    description="Try other words, or open a drive and browse. Luna shows only the files you can open."
                   />
                 )
               )}
@@ -608,16 +678,18 @@ export default function FileSearch() {
                     className="grid grid-cols-[minmax(0,1fr)] gap-2"
                     onKeyDown={handleListKeyDown}
                   >
-                    {groups.map((group) => (
+                    {shownGroups.map((group) => (
                       <Fragment key={group.label}>
                         <li role="presentation" className="px-1 pt-2 text-xs font-mono text-primary">
                           {group.label}
                         </li>
                         {group.hits.map((item, index) => (
                           <Fragment key={`${item.drive_id}:${item.path}`}>
-                            {!search.closeOnly && item.match === "close" && group.hits[index - 1]?.match !== "close" && (
+                            {!(search.closeOnly && item.match === "close")
+                              && MATCH_DIVIDERS[item.match]
+                              && group.hits[index - 1]?.match !== item.match && (
                               <li role="presentation" className="file-search-row-enter px-1 pt-2 text-xs font-mono text-primary">
-                                Similar names
+                                {MATCH_DIVIDERS[item.match]}
                               </li>
                             )}
                             <FileSearchRow
@@ -637,9 +709,9 @@ export default function FileSearch() {
                       </Fragment>
                     ))}
                   </ul>
-                  {search.truncated && !search.incomplete && !search.isUpdating && trimmed === search.q && (
+                  {search.truncated && allRowsShown && !search.incomplete && !search.isUpdating && trimmed === search.q && (
                     <p data-slot="file-search-truncated" className="px-1 pt-3 text-xs font-mono text-primary">
-                      There are more matches than fit here. Type more of the name to narrow it down.
+                      There are more matches than fit here. Type more words to narrow it down.
                     </p>
                   )}
                 </>
@@ -706,34 +778,42 @@ export default function FileSearch() {
         )}
       </ModalCard>
 
-      <FolderPickerModal
-        open={copyTarget != null}
-        title={copyKind === "move" ? `Move ${copyTarget?.name || ""}` : `Copy ${copyTarget?.name || ""}`}
-        drives={drives.data || []}
-        initialDriveId={copyTarget?.drive_id || ""}
-        initialPath={copyTarget ? (copyTarget.parent != null ? copyTarget.parent : folderOf(copyTarget.path)) : ""}
-        movingPaths={copyKind === "move" && copyTarget ? [copyTarget.path] : []}
-        confirmLabel={copyKind === "move" ? "Start moving" : "Start copying"}
-        error={copyTarget != null ? actionError : null}
-        onClose={() => {
-          setActionError(null);
-          setCopyTarget(null);
-        }}
-        onConfirm={(dest, close) => {
-          startTransfer(dest);
-          close();
-        }}
-      />
+      {pickerUsed && (
+        <Suspense fallback={null}>
+          <FolderPickerModal
+            open={copyTarget != null}
+            title={copyKind === "move" ? `Move ${copyTarget?.name || ""}` : `Copy ${copyTarget?.name || ""}`}
+            drives={drives.data || []}
+            initialDriveId={copyTarget?.drive_id || ""}
+            initialPath={copyTarget ? (copyTarget.parent != null ? copyTarget.parent : folderOf(copyTarget.path)) : ""}
+            movingPaths={copyKind === "move" && copyTarget ? [copyTarget.path] : []}
+            confirmLabel={copyKind === "move" ? "Start moving" : "Start copying"}
+            error={copyTarget != null ? actionError : null}
+            onClose={() => {
+              setActionError(null);
+              setCopyTarget(null);
+            }}
+            onConfirm={(dest, close) => {
+              startTransfer(dest);
+              close();
+            }}
+          />
+        </Suspense>
+      )}
 
-      <ShareSheet
-        open={accessTarget != null}
-        subject={
-          accessTarget
-            ? { kind: "path", driveId: accessTarget.driveId, path: accessTarget.path || "" }
-            : null
-        }
-        onClose={() => setAccessTarget(null)}
-      />
+      {shareUsed && (
+        <Suspense fallback={null}>
+          <ShareSheet
+            open={accessTarget != null}
+            subject={
+              accessTarget
+                ? { kind: "path", driveId: accessTarget.driveId, path: accessTarget.path || "" }
+                : null
+            }
+            onClose={() => setAccessTarget(null)}
+          />
+        </Suspense>
+      )}
     </>
   );
 }

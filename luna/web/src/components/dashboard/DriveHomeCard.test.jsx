@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
+import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import DriveHomeCard from "./DriveHomeCard.jsx";
 
 function jsonResponse(body, status = 200) {
@@ -45,21 +46,23 @@ function renderCard(props = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <MemoryRouter>
-      <QueryClientProvider client={client}>
-        <DriveHomeCard
-          drive={{ id: "d1", label: "Family photos", state: "as_is" }}
-          {...props}
-        />
-      </QueryClientProvider>
+      <ToastProvider>
+        <QueryClientProvider client={client}>
+          <DriveHomeCard
+            drive={{ id: "d1", label: "Family photos", state: "as_is" }}
+            {...props}
+          />
+        </QueryClientProvider>
+      </ToastProvider>
     </MemoryRouter>,
   );
   return client;
 }
 
 /**
- * Wait until the summary answer has reached the screen. The Browse files link
- * is there while loading, so "nothing is shown" checks must wait for this
- * first or they pass without ever seeing the answer.
+ * Wait until the summary answer has reached the screen. The Open link is there
+ * while loading, so "nothing is shown" checks must wait for this first or they
+ * pass without ever seeing the answer.
  * @param {QueryClient} client
  */
 async function summaryShown(client) {
@@ -91,8 +94,8 @@ describe("DriveHomeCard storage", () => {
     stubSummary(FULL_SUMMARY);
     renderCard();
     expect(await screen.findByText("12 GB free")).toBeInTheDocument();
-    expect(screen.getByText("52 GB used · 64 GB total")).toBeInTheDocument();
-    expect(screen.getByText("Storage")).toBeInTheDocument();
+    expect(screen.getByText("52 GB of 64 GB used (81%)")).toBeInTheDocument();
+    expect(screen.getByText("Available storage")).toBeInTheDocument();
     const bar = screen.getByRole("progressbar", { name: "81% used" });
     expect(bar).toHaveAttribute("aria-valuenow", "81");
   });
@@ -102,18 +105,19 @@ describe("DriveHomeCard storage", () => {
     renderCard();
     expect(await screen.findByText("12 GB free")).toBeInTheDocument();
     expect(screen.getByText("64 GB total")).toBeInTheDocument();
-    expect(screen.queryByText(/used ·/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ used \(/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
   });
 
   it("omits storage and any filler line when the drive is not mounted", async () => {
     stubSummary({ ...FULL_SUMMARY, mounted: false, shortcuts: [] });
     await summaryShown(renderCard());
-    expect(screen.getByRole("link", { name: "Browse files" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open" })).toBeInTheDocument();
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
-    expect(screen.queryByText("Storage")).not.toBeInTheDocument();
+    expect(screen.queryByText("Available storage")).not.toBeInTheDocument();
     expect(screen.queryByText(/free/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Checking space/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Open this drive to see your files/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Luna could not load the details of this drive/i)).not.toBeInTheDocument();
   });
 
   it.each([
@@ -147,8 +151,8 @@ describe("DriveHomeCard storage", () => {
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
     expect(screen.queryByText(/free|used|total/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Checking space/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Open this drive to see your files/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Browse files" })).toHaveAttribute("href", "/files/d1");
+    expect(screen.queryByText(/Luna could not load the details of this drive/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open" })).toHaveAttribute("href", "/files/d1");
   });
 
   it("asks for the summary of this drive only", async () => {
@@ -212,7 +216,7 @@ describe("DriveHomeCard open button", () => {
   it("lets an Admin browse the drive files", async () => {
     stubSummary(FULL_SUMMARY);
     renderCard({ isAdmin: true });
-    expect(await screen.findByRole("link", { name: "Browse files" })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: "Open" })).toHaveAttribute(
       "href",
       "/files/d1",
     );
@@ -267,7 +271,7 @@ describe("DriveHomeCard open button", () => {
     renderCard({
       grants: [{ ...photosDropGrant, id: "m5", path: "", name: "", caps: "view" }],
     });
-    expect(await screen.findByRole("link", { name: "Browse files" })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: "Open" })).toHaveAttribute(
       "href",
       "/files/d1",
     );
@@ -276,7 +280,7 @@ describe("DriveHomeCard open button", () => {
   it("falls back to the drive root for a Member who has no grants", async () => {
     stubSummary(FULL_SUMMARY);
     renderCard();
-    expect(await screen.findByRole("link", { name: "Browse files" })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: "Open" })).toHaveAttribute(
       "href",
       "/files/d1",
     );
@@ -300,7 +304,7 @@ describe("DriveHomeCard open button", () => {
     renderCard({ drive: { id: "d1", label: "Family photos", state: "readonly" } });
     expect(await screen.findByText("12 GB free")).toBeInTheDocument();
     expect(screen.getByText("Read only")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Browse files" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open" })).toBeInTheDocument();
   });
 });
 
@@ -365,7 +369,7 @@ describe("DriveHomeCard drives that are not ready", () => {
     const fetchMock = stubSummary(FULL_SUMMARY);
     renderCard({ drive: notReady("missing"), isAdmin: true });
     expect(
-      screen.getByText("Unplugged. Plug it back in when you want its files and space here."),
+      screen.getByText("Unplugged. Plug it back in to use its files."),
     ).toBeInTheDocument();
     expect(screen.getByText("Unplugged")).toBeInTheDocument();
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
@@ -378,7 +382,7 @@ describe("DriveHomeCard drives that are not ready", () => {
     const fetchMock = stubSummary(FULL_SUMMARY);
     renderCard({ drive: notReady("ejected"), isAdmin: true });
     expect(
-      screen.getByText("Safely removed. Plug it in again when you need it."),
+      screen.getByText("Ejected. To use its files again, unplug it and plug it back in."),
     ).toBeInTheDocument();
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
@@ -395,7 +399,7 @@ describe("DriveHomeCard drives that are not ready", () => {
     expect(screen.getByText("Can't open")).toBeInTheDocument();
     expect(screen.queryByText("Ready")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open Files" })).toHaveAttribute("href", "/files#drive-d1");
-    expect(screen.queryByRole("link", { name: "Browse files" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open" })).not.toBeInTheDocument();
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -461,10 +465,10 @@ describe("DriveHomeCard health", () => {
 });
 
 describe("DriveHomeCard when the summary fails", () => {
-  it("tells an Admin to open the drive and shows no storage or buttons", async () => {
+  it("tells an Admin the details did not load and shows no storage or buttons", async () => {
     stubSummary("error");
     renderCard({ isAdmin: true });
-    expect(await screen.findByText("Open this drive to see your files.")).toBeInTheDocument();
+    expect(await screen.findByText("Luna could not load the details of this drive.")).toBeInTheDocument();
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
@@ -472,7 +476,7 @@ describe("DriveHomeCard when the summary fails", () => {
   it("gives a Member with a grant their open button", async () => {
     stubSummary("error");
     renderCard({ grants: [photosDropGrant] });
-    expect(await screen.findByText("Open this drive to see your files.")).toBeInTheDocument();
+    expect(await screen.findByText("Luna could not load the details of this drive.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Browse files" })).toHaveAttribute(
       "href",
       "/files/d1?path=docs%2Fdrop",
@@ -482,7 +486,18 @@ describe("DriveHomeCard when the summary fails", () => {
   it("gives a Member without a grant only the sentence", async () => {
     stubSummary("error");
     renderCard();
-    expect(await screen.findByText("Open this drive to see your files.")).toBeInTheDocument();
+    expect(await screen.findByText("Luna could not load the details of this drive.")).toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+});
+
+describe("DriveHomeCard when the drive is locked", () => {
+  it("shows the Locked pill and the password prompt, not Can't open or Open", async () => {
+    stubSummary("never");
+    renderCard({ drive: { id: "d1", label: "Family photos", state: "as_is", mounted: false, encrypted: true, locked: true } });
+    expect(screen.getByText("Locked")).toBeInTheDocument();
+    expect(screen.getByLabelText("Drive password")).toBeInTheDocument();
+    expect(screen.queryByText("Can't open")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open" })).not.toBeInTheDocument();
   });
 });

@@ -1,38 +1,41 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Agentation } from "agentation";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { ThemeProvider } from"@libreloom/ui/context/ThemeContext.jsx";
 import { AuthProvider, useAuth } from "./context/AuthContext";
-import { FileOpsProvider } from "./context/FileOpsContext.jsx";
+import { FileOpsProvider, useFileOpsState } from "./context/FileOpsContext.jsx";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 import FileSearch from "./components/files/FileSearch";
-import FileOpsDock from "./components/files/fileOps/FileOpsDock.jsx";
+import { visibleOps } from "./lib/fileOps/selectors.js";
 import Navbar from "./components/ui/Navbar";
 import LoadingBar from "@libreloom/ui/components/common/LoadingBar.jsx";
 import useRecentItemsTracker from "./hooks/useRecentItemsTracker";
+import { perfEndAfterPaint, perfStart } from "./lib/perf.js";
+import lazyWithPreload from "./lib/lazyWithPreload.js";
 
 // One chunk per page: the first paint downloads only the page being opened.
-const loadFilesPage = () => import("./pages/FilesPage");
-const loadFilePage = () => import("./pages/FilePage");
-const loadGalleryPage = () => import("./pages/GalleryPage");
-const loadSharedPage = () => import("./pages/SharedPage");
-const loadDashboardPage = () => import("./pages/DashboardPage");
-const loadSettingsPage = () => import("./pages/SettingsPage");
-const FilesPage = lazy(loadFilesPage);
-const FilePage = lazy(loadFilePage);
-const GalleryPage = lazy(loadGalleryPage);
-const SharedPage = lazy(loadSharedPage);
-const DashboardPage = lazy(loadDashboardPage);
+// usePreloadPages fetches the rest once the app is idle, and a preloaded page
+// then renders without a blank wait (see lazyWithPreload).
+const FilesPage = lazyWithPreload(() => import("./pages/FilesPage"));
+const FilePage = lazyWithPreload(() => import("./pages/FilePage"));
+const PhotosPage = lazyWithPreload(() => import("./pages/PhotosPage"));
+const SharedPage = lazyWithPreload(() => import("./pages/SharedPage"));
+const DashboardPage = lazyWithPreload(() => import("./pages/DashboardPage"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const SetupPage = lazy(() => import("./pages/SetupPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
-const SettingsPage = lazy(loadSettingsPage);
+const SettingsPage = lazyWithPreload(() => import("./pages/SettingsPage"));
+// The file task card and its animation library stay out of the first download:
+// most page loads never start a file operation.
+const FileOpsDock = lazyWithPreload(() => import("./components/files/fileOps/FileOpsDock.jsx"));
 const PublicSharePage = lazy(() => import("./pages/PublicSharePage"));
 const RecoveryWizardPage = lazy(() => import("./pages/RecoveryWizardPage"));
+// Dev only: opens flows that have no button of their own, for the state gallery.
+const FormatFlowHarness = import.meta.env.DEV ? lazy(() => import("./dev/flows/FormatFlowHarness.jsx")) : null;
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -67,13 +70,32 @@ function RecentItemsTracker() {
  */
 function PageOutlet() {
   const location = useLocation();
+  // W16 (luna/perf): a route change starts the timer; PageRendered ends it.
+  const firstPath = useRef(location.pathname);
+  useLayoutEffect(() => {
+    if (location.pathname === firstPath.current) return;
+    firstPath.current = null;
+    perfStart("W16", { fromInput: true, keep: true });
+  }, [location.pathname]);
   return (
     <div key={location.pathname} className="grow w-full animate-page-enter">
       <Suspense fallback={null}>
         <Outlet />
+        <PageRendered />
       </Suspense>
     </div>
   );
+}
+
+/**
+ * Mounts in the same Suspense boundary as the page, so its effect runs once
+ * the (lazy) page has committed: the end of W16.
+ */
+function PageRendered() {
+  useEffect(() => {
+    perfEndAfterPaint("W16");
+  }, []);
+  return null;
 }
 
 /**
@@ -84,21 +106,50 @@ function PageOutlet() {
 function usePreloadPages() {
   useEffect(() => {
     if (/** @type {any} */ (navigator).connection?.saveData) return undefined;
-    const loaders = [loadFilePage, loadFilesPage, loadGalleryPage, loadSharedPage, loadDashboardPage, loadSettingsPage];
+    // Navbar pages first. FilePage last: it brings the file viewer, which
+    // warms the ~650 kB text editor. One page at a time, each after the last
+    // has landed: loading them all at once kept the CPU busy parsing exactly
+    // when someone tapped Photos a moment after the Dashboard (W7).
+    const loaders = [DashboardPage, PhotosPage, FilesPage, SharedPage, SettingsPage, FileOpsDock, FilePage].map((page) => page.preload);
     const idle = window.requestIdleCallback
       ? (fn) => window.requestIdleCallback(fn, { timeout: 4000 })
       : (fn) => window.setTimeout(fn, 1500);
     const cancel = window.cancelIdleCallback || window.clearTimeout;
     let i = 0;
     let handle = 0;
+    let stopped = false;
     const next = () => {
-      if (i >= loaders.length) return;
-      loaders[i++]().catch(() => {});
-      handle = idle(next);
+      if (stopped || i >= loaders.length) return;
+      loaders[i++]()
+        .catch(() => {})
+        .then(() => {
+          if (!stopped) handle = idle(next);
+        });
     };
     handle = idle(next);
-    return () => cancel(handle);
+    return () => {
+      stopped = true;
+      cancel(handle);
+    };
   }, []);
+}
+
+const hasVisibleOps = (/** @type {any} */ state) => visibleOps(state).length > 0;
+
+/**
+ * Mounts the file task card the first time there is something to show, then
+ * keeps it mounted: the card animates its own exit, which needs it to stay.
+ */
+function FileOpsDockSlot() {
+  const visible = useFileOpsState(hasVisibleOps);
+  const [wanted, setWanted] = useState(false);
+  if (visible && !wanted) setWanted(true);
+  if (!wanted) return null;
+  return (
+    <Suspense fallback={null}>
+      <FileOpsDock />
+    </Suspense>
+  );
 }
 
 /** Authenticated chrome: page content + fixed bottom navbar. */
@@ -111,7 +162,7 @@ function AppShell() {
         <LoadingBar />
         <a href="#main-content" className="skip-link">Skip to main content</a>
         <PageOutlet />
-        <FileOpsDock />
+        <FileOpsDockSlot />
         <Navbar />
         <FileSearch />
       </div>
@@ -119,9 +170,21 @@ function AppShell() {
   );
 }
 
-function PhotosToGalleryRedirect() {
+/**
+ * /login fetches the Dashboard's code while the user types (W3). Only that
+ * page: the rest would be decoding on a slow box right as sign-in finishes.
+ */
+function LoginRoute() {
+  useEffect(() => {
+    if (/** @type {any} */ (navigator).connection?.saveData) return;
+    DashboardPage.preload().catch(() => {});
+  }, []);
+  return <LoginPage />;
+}
+
+function GalleryToPhotosRedirect() {
   const { hash } = useLocation();
-  return <Navigate to={{ pathname: "/gallery", hash }} replace />;
+  return <Navigate to={{ pathname: "/photos", hash }} replace />;
 }
 
 export default function App() {
@@ -137,7 +200,7 @@ export default function App() {
             <AuthProvider>
             <Suspense fallback={null}>
             <Routes>
-              <Route path="/login" element={<LoginPage />} />
+              <Route path="/login" element={<LoginRoute />} />
               <Route path="/recover" element={<RecoveryWizardPage />} />
               <Route path="/setup" element={<SetupPage />} />
               <Route path="/s/:token" element={<PublicSharePage />} />
@@ -145,10 +208,11 @@ export default function App() {
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/files" element={<FilesPage />} />
                 <Route path="/files/:id" element={<FilePage />} />
-                <Route path="/gallery" element={<GalleryPage />} />
+                <Route path="/photos" element={<PhotosPage />} />
                 <Route path="/shared" element={<SharedPage />} />
-                <Route path="/photos" element={<PhotosToGalleryRedirect />} />
+                <Route path="/gallery" element={<GalleryToPhotosRedirect />} />
                 <Route path="/settings" element={<SettingsPage />} />
+                {FormatFlowHarness && <Route path="/__flow/format" element={<FormatFlowHarness />} />}
               </Route>
               <Route path="*" element={<NotFoundPage />} />
             </Routes>

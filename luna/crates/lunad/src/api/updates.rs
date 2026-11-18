@@ -51,13 +51,15 @@ async fn check(
         .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't check for updates.",
+                "Luna couldn't check for updates. Try again.",
             )
         })?
-        .map_err(map_err)?;
+        .map_err(|e| map_err(e, "Luna couldn't check for updates. Try again."))?;
     let mut out = serde_json::to_value(info).unwrap_or(json!({}));
     // Not part of the cached feed answer: it changes when the boot settles.
     out["os_update_failed"] = os_update_failed_json(&state);
+    // Also live: a page opened mid-install must still show it installing.
+    out["applying"] = json!(state.updates.is_applying());
     Ok(Json(out))
 }
 
@@ -97,31 +99,44 @@ async fn apply(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_admin(&user)?;
     let svc = state.updates.clone();
-    let info = tokio::task::spawn_blocking(move || svc.apply(crate::version()))
-        .await
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't install the update.",
-            )
-        })?
-        .map_err(map_err)?;
+    // Run it detached: if the page is refreshed mid-install the request is
+    // dropped, and the install and restart must still finish.
+    let info = tokio::spawn(async move {
+        let info = tokio::task::spawn_blocking(move || svc.apply(crate::version()))
+            .await
+            .map_err(|_| {
+                json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Luna couldn't install the update. Try again.",
+                )
+            })?
+            .map_err(|e| map_err(e, "Luna couldn't install the update. Try again."))?;
+        let reboot = info.reboot_required;
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            if reboot {
+                let _ = std::process::Command::new("reboot").status();
+                // If reboot is unavailable (dev), fall back to process exit.
+                std::process::exit(0);
+            }
+            std::process::exit(0);
+        });
+        Ok::<_, (StatusCode, Json<Value>)>(info)
+    })
+    .await
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't install the update. Try again.",
+        )
+    })??;
     let reboot = info.reboot_required;
     let latest = info.latest_version.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        if reboot {
-            let _ = std::process::Command::new("reboot").status();
-            // If reboot is unavailable (dev), fall back to process exit.
-            std::process::exit(0);
-        }
-        std::process::exit(0);
-    });
     Ok(Json(json!({
         "ok": true,
         "latest_version": latest,
         "reboot_required": reboot,
-        "message": "The new software is installed. Luna will restart in a moment — sign in again after it comes back.",
+        "message": "The update is installed. Luna will restart in a moment.",
     })))
 }
 
@@ -243,7 +258,8 @@ fn require_admin(user: &crate::auth::CurrentUser) -> Result<(), (StatusCode, Jso
     Ok(())
 }
 
-fn map_err(err: UpdateError) -> (StatusCode, Json<Value>) {
+/// `failed` names the action that went wrong, for errors with no plain cause.
+fn map_err(err: UpdateError, failed: &'static str) -> (StatusCode, Json<Value>) {
     match err {
         UpdateError::NoneAvailable => json_error(StatusCode::BAD_REQUEST, err.to_string()),
         UpdateError::Checksum
@@ -256,11 +272,8 @@ fn map_err(err: UpdateError) -> (StatusCode, Json<Value>) {
         UpdateError::Unreachable => json_error(StatusCode::BAD_GATEWAY, err.to_string()),
         UpdateError::NoFeed => json_error(StatusCode::NOT_FOUND, err.to_string()),
         UpdateError::Other(reason) => {
-            tracing::warn!(reason = %reason, "an update could not be installed");
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't install the update. Try again.",
-            )
+            tracing::warn!(reason = %reason, "an update check or install failed");
+            json_error(StatusCode::INTERNAL_SERVER_ERROR, failed)
         }
     }
 }
@@ -286,13 +299,9 @@ mod tests {
         }
     }
     struct NoopInstall;
-    impl Installer for NoopInstall {
-        fn install_lunad(&self, _bytes: &[u8]) -> Result<(), UpdateError> {
-            Ok(())
-        }
-    }
+    impl Installer for NoopInstall {}
 
-    const FEED_JSON: &str = r#"{"format":1,"unit":"luna","channel":"stable","version":"0.9.0","published":"2026-10-12T14:03:00Z","notes":"hello luna","parts":[{"name":"lunad","os":"linux","arch":"ARCH","file":"lunad-linux-amd64-musl","size":3,"sha256":"3a2d1f1ad8a24b0e0cbd9f1fae1f8bbd0c4b3c6c1d4b6f6c8b1a1d1f1f1f1f1f","urls":["http://dl.test/lunad"]}]}"#;
+    const FEED_JSON: &str = r#"{"format":1,"unit":"luna","channel":"stable","version":"0.9.0","published":"2026-10-12T14:03:00Z","notes":"hello luna","parts":[{"name":"os","os":"linux","arch":"ARCH","file":"luna-os-x86_64.img.xz","size":3,"sha256":"3a2d1f1ad8a24b0e0cbd9f1fae1f8bbd0c4b3c6c1d4b6f6c8b1a1d1f1f1f1f1f","urls":["http://dl.test/os"]}]}"#;
 
     fn app() -> (axum::Router, String, crate::AppState) {
         let arch = match std::env::consts::ARCH {
@@ -379,9 +388,6 @@ mod tests {
 
     struct FailedInstall(std::sync::Mutex<Option<String>>);
     impl Installer for FailedInstall {
-        fn install_lunad(&self, _bytes: &[u8]) -> Result<(), UpdateError> {
-            Ok(())
-        }
         fn read_os_failed(&self) -> Option<String> {
             self.0.lock().unwrap().clone().map(|_| "deadbeef".into())
         }
@@ -637,9 +643,11 @@ mod tests {
         assert!(crate::system::updates::load_settings(&state.db.lock().unwrap()).is_some());
 
         // …then restore this binary's defaults: the stored row goes away.
+        // `keys: []` says "use the built-in release key"; omitting the field
+        // would keep the keys Luna is using now, which is not a reset.
         let d = crate::system::updates::default_settings();
         let body = format!(
-            r#"{{"feed_url":"{}","channel":"{}"}}"#,
+            r#"{{"feed_url":"{}","channel":"{}","keys":[]}}"#,
             d.feed_url, d.channel
         );
         let response = router.oneshot(put(&token, &body)).await.unwrap();

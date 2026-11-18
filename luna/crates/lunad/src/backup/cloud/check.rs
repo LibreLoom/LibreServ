@@ -268,8 +268,7 @@ fn sample_packs(mut ids: Vec<String>, sample: Sample) -> Vec<String> {
 fn summarise(r: &CheckReport) -> Option<String> {
     if !r.bad_records.is_empty() {
         return Some(
-            "A cloud backup record failed its signature check or is missing. Contact your Admin."
-                .into(),
+            "A record of this cloud backup is missing or damaged. Contact your Admin.".into(),
         );
     }
     if !r.missing_packs.is_empty() {
@@ -605,7 +604,7 @@ mod tests {
         let report = check(&db, "p1", &store, Sample::All, 200).unwrap();
         assert_eq!(report.bad_records, vec!["snap-1".to_string()]);
         assert_eq!(report.snapshots_checked, 0);
-        assert!(report.problem.unwrap().contains("signature check"));
+        assert!(report.problem.unwrap().contains("missing or damaged"));
     }
 
     #[test]

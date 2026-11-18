@@ -18,12 +18,12 @@ impl AuthFailedView {
         box_.set_margin_start(24);
         box_.set_margin_end(24);
 
-        let title = gtk::Label::new(Some("Authentication Failed"));
+        let title = gtk::Label::new(Some("Sign in again"));
         title.add_css_class("title-1");
         title.set_halign(gtk::Align::Start);
 
         let body = gtk::Label::new(Some(
-            "The configured credentials don't seem to work anymore. Let's reconfigure them.",
+            "Luna no longer accepts the access token on this computer. Sign in with a new access token.",
         ));
         body.set_wrap(true);
         body.set_halign(gtk::Align::Start);

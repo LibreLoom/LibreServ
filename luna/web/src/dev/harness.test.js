@@ -52,10 +52,10 @@ describe("fault rules", () => {
     expect(ruleMatches(rule("DELETE /api/v1/users/*"), "DELETE", "/api/v1/users")).toBe(false);
   });
   it("can ask for query pairs", () => {
-    const r = rule("GET /api/v1/gallery?favorites=true");
-    expect(ruleMatches(r, "GET", "/api/v1/gallery", "?favorites=true&limit=80")).toBe(true);
-    expect(ruleMatches(r, "GET", "/api/v1/gallery", "?limit=80")).toBe(false);
-    expect(ruleMatches(r, "GET", "/api/v1/gallery", "")).toBe(false);
+    const r = rule("GET /api/v1/photos?favorites=true");
+    expect(ruleMatches(r, "GET", "/api/v1/photos", "?favorites=true&limit=80")).toBe(true);
+    expect(ruleMatches(r, "GET", "/api/v1/photos", "?limit=80")).toBe(false);
+    expect(ruleMatches(r, "GET", "/api/v1/photos", "")).toBe(false);
   });
   it("ignore an empty rule", () => {
     expect(parseRule("  ")).toBeNull();

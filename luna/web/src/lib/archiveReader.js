@@ -62,7 +62,7 @@ export async function readZipEntry(buf, entry) {
     const ab = await new Response(stream).arrayBuffer();
     return new Uint8Array(ab);
   }
-  throw new Error("This zip uses a compression Luna cannot open yet.");
+  throw new Error("This zip uses a compression type that Luna cannot open.");
 }
 
 /**

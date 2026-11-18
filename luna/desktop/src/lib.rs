@@ -5,6 +5,58 @@ pub fn product_name() -> &'static str {
     "Luna Desktop"
 }
 
+/// Whether `LUNA_DESKTOP_PERF=1` is set: timing lines for the K journeys
+/// (luna/perf/budgets.json) go to stderr.
+pub fn perf_enabled() -> bool {
+    std::env::var_os("LUNA_DESKTOP_PERF").is_some_and(|v| v == "1")
+}
+
+/// With perf on, print a start-up mark (journey K1): ms since this process
+/// was started, from /proc (10 ms steps), so dynamic loading counts too.
+pub fn perf_mark(what: &str) {
+    if perf_enabled() {
+        let since_exec = (|| {
+            let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
+            let ticks: f64 = stat
+                .rsplit_once(')')?
+                .1
+                .split_whitespace()
+                .nth(19)?
+                .parse()
+                .ok()?;
+            let up: f64 = std::fs::read_to_string("/proc/uptime")
+                .ok()?
+                .split_whitespace()
+                .next()?
+                .parse()
+                .ok()?;
+            // Linux reports start time in USER_HZ ticks, 100 per second.
+            Some(((up - ticks / 100.0) * 1000.0).round() as i64)
+        })();
+        match since_exec {
+            Some(ms) => eprintln!("luna-desktop: K1 {what} since_exec_ms={ms}"),
+            None => eprintln!("luna-desktop: K1 {what}"),
+        }
+    }
+}
+
+/// Hand freed heap back to the system. A full sync pass builds and drops
+/// maps of every file on both sides (tens of MB for 50,000 files); glibc
+/// keeps that memory in its pools, so without this the idle app stays at its
+/// peak size (journey K2).
+pub fn trim_heap() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        unsafe extern "C" {
+            fn malloc_trim(pad: usize) -> i32;
+        }
+        // SAFETY: malloc_trim only releases free memory; it takes no pointers.
+        unsafe {
+            malloc_trim(0);
+        }
+    }
+}
+
 pub mod autostart;
 pub mod backup;
 #[cfg(target_os = "macos")]
@@ -117,7 +169,7 @@ fn require_session(state: &AppState) -> Result<session::SessionData, String> {
     state
         .session
         .lock()
-        .map_err(|_| "Internal error.".to_string())?
+        .map_err(|_| "Luna Desktop hit a problem. Quit it and open it again.".to_string())?
         .clone()
         .ok_or_else(|| "Sign in first.".to_string())
 }
@@ -293,7 +345,8 @@ pub fn login(state: &AppState, base_url: &str, access_token: &str) -> Result<Ses
     *state
         .session
         .lock()
-        .map_err(|_| "Internal error.".to_string())? = Some(data.clone());
+        .map_err(|_| "Luna Desktop hit a problem. Quit it and open it again.".to_string())? =
+        Some(data.clone());
     set_compat(state, Some(found));
     Ok(SessionInfo {
         base_url: data.base_url,
@@ -404,7 +457,7 @@ pub fn start_backup_job(state: &AppState, id: &str) -> Result<(), String> {
     if state
         .backup_handles
         .lock()
-        .map_err(|_| "Internal error.".to_string())?
+        .map_err(|_| "Luna Desktop hit a problem. Quit it and open it again.".to_string())?
         .contains_key(id)
     {
         return Ok(());
@@ -420,7 +473,7 @@ pub fn start_backup_job(state: &AppState, id: &str) -> Result<(), String> {
     state
         .backup_handles
         .lock()
-        .map_err(|_| "Internal error.".to_string())?
+        .map_err(|_| "Luna Desktop hit a problem. Quit it and open it again.".to_string())?
         .insert(id.to_string(), handle);
     Ok(())
 }
@@ -524,7 +577,7 @@ pub fn start_sync_pair(state: &AppState, id: &str) -> Result<(), String> {
     if state
         .sync_handles
         .lock()
-        .map_err(|_| "Internal error.".to_string())?
+        .map_err(|_| "Luna Desktop hit a problem. Quit it and open it again.".to_string())?
         .contains_key(id)
     {
         return Ok(());
@@ -540,7 +593,7 @@ pub fn start_sync_pair(state: &AppState, id: &str) -> Result<(), String> {
     state
         .sync_handles
         .lock()
-        .map_err(|_| "Internal error.".to_string())?
+        .map_err(|_| "Luna Desktop hit a problem. Quit it and open it again.".to_string())?
         .insert(id.to_string(), handle);
     Ok(())
 }
@@ -672,7 +725,7 @@ mod tests {
         let err = login(&state, &base, "token").unwrap_err();
         assert_eq!(
             err,
-            "This Luna is too old for this app. Update Luna in Settings \u{2192} About \u{2192} System updates."
+            "This Luna is too old for this app. An Admin can update Luna in Settings \u{2192} About \u{2192} System updates."
         );
         assert!(session::load().is_none());
         stop.store(true, Ordering::Relaxed);

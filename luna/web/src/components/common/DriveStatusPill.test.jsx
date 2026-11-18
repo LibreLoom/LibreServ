@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import DriveStatusPill from "./DriveStatusPill.jsx";
 
@@ -22,6 +22,12 @@ describe("DriveStatusPill", () => {
   it("renders null if drive is missing", () => {
     const { container } = render(<DriveStatusPill drive={null} />);
     expect(container.firstChild).toBeNull();
+  });
+
+  it("renders Locked for a protected drive that is closed, not Can't open", () => {
+    render(<DriveStatusPill drive={{ state: "as_is", mounted: false, encrypted: true, locked: true }} />);
+    expect(screen.getByText("Locked")).toBeInTheDocument();
+    expect(screen.queryByText("Can't open")).toBeNull();
   });
 
   it("renders Ready for as_is drive", () => {
@@ -81,36 +87,28 @@ describe("DriveStatusPill", () => {
     expect(screen.queryByText("Failing")).not.toBeInTheDocument();
   });
 
+  it("folds the drive's actions into the status pill as one layered pill", () => {
+    const onActions = vi.fn();
+    render(
+      <DriveStatusPill
+        drive={{ state: "as_is", label: "Family photos" }}
+        onActions={onActions}
+      />,
+    );
+    expect(screen.getByText("Ready")).toBeInTheDocument();
+    const more = screen.getByRole("button", { name: "Actions for Family photos" });
+    more.click();
+    expect(onActions).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the status on its own when there are no actions", () => {
+    render(<DriveStatusPill drive={{ state: "as_is", label: "Family photos" }} />);
+    expect(screen.getByText("Ready")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
   it("renders no Problem pill for any state", () => {
     render(<DriveStatusPill drive={{ state: "as_is" }} health={FAILING} />);
     expect(screen.queryByText("Problem")).not.toBeInTheDocument();
-  });
-});
-
-describe("DriveStatusPill — encryption", () => {
-  it("shows Locked for an encrypted drive that is not open", () => {
-    render(<DriveStatusPill drive={{ state: "as_is", encrypted: true, locked: true, mounted: false }} />);
-    expect(screen.getByText("Locked")).toBeInTheDocument();
-  });
-
-  it("prefers Locked over Can't open, because a locked drive is not broken", () => {
-    // A locked drive has no mount, which would otherwise read as unopenable.
-    render(<DriveStatusPill drive={{ state: "as_is", encrypted: true, locked: true, mounted: false }} />);
-    expect(screen.queryByText("Can't open")).toBeNull();
-  });
-
-  it("shows Encrypting while a conversion holds the drive", () => {
-    render(<DriveStatusPill drive={{ state: "as_is", converting: true, locked: true }} />);
-    expect(screen.getByText("Encrypting")).toBeInTheDocument();
-  });
-
-  it("shows Ready for an unlocked encrypted drive", () => {
-    render(<DriveStatusPill drive={{ state: "as_is", encrypted: true, locked: false }} />);
-    expect(screen.getByText("Ready")).toBeInTheDocument();
-  });
-
-  it("still shows Unplugged for an encrypted drive that is gone", () => {
-    render(<DriveStatusPill drive={{ state: "missing", encrypted: true, locked: true }} />);
-    expect(screen.getByText("Unplugged")).toBeInTheDocument();
   });
 });

@@ -60,7 +60,7 @@ export function VersionsModal({ driveId, backup, file, onClose }) {
       title={
         <span className="inline-flex items-center gap-2">
           Versions of <InlinePill>{file.name}</InlinePill>
-          <InfoHint content="Each version is a copy Luna kept from an earlier time. Download saves a copy to this device. Restore puts it back in the original folder." />
+          <InfoHint content="Each version is a copy Luna kept from an earlier time. Download saves a copy to this device, and Restore puts one back in the original folder." />
         </span>
       }
       onClose={onClose}

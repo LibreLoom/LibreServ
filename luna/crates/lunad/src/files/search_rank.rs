@@ -19,8 +19,14 @@ pub enum Tier {
     Substring,
     /// Every query word appears in the name, in any order.
     AllWords,
+    /// Every query word appears in the file's text (or text read from it).
+    Content,
     /// Every query word is within a typo or two of a word in the name.
     Close,
+    /// A passage of the file's text is about what was typed, in other words.
+    Meaning,
+    /// The photo shows what was typed.
+    Photo,
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +56,9 @@ impl Query {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Rank {
     pub tier: Tier,
+    /// Order within a scored tier (content, meaning, photo): lower is a
+    /// better match. Zero for name tiers.
+    pub score: u32,
     /// Typos spent (only non-zero for [`Tier::Close`]).
     pub typos: u32,
     /// 0 for folders, 1 for files.
@@ -133,6 +142,7 @@ pub fn rank(query: &Query, name: &str, is_dir: bool) -> Option<Rank> {
     let file = if is_dir { 0 } else { 1 };
     let make = |tier, typos| Rank {
         tier,
+        score: 0,
         typos,
         file,
         len: name_n.len(),
@@ -144,7 +154,12 @@ pub fn rank(query: &Query, name: &str, is_dir: bool) -> Option<Rank> {
     if name_n.starts_with(&query.norm) {
         return Some(make(Tier::Prefix, 0));
     }
-    if name_n.contains(&format!(" {}", query.norm)) {
+    // A word of the name starts with the query: `name_n` holds " " + norm
+    // (checked without building that string for every candidate).
+    if name_n
+        .match_indices(' ')
+        .any(|(i, _)| name_n[i + 1..].starts_with(&query.norm))
+    {
         return Some(make(Tier::WordPrefix, 0));
     }
     if name_n.contains(&query.norm) {
@@ -220,10 +235,10 @@ pub fn osa(a: &[char], b: &[char], max: u32) -> Option<u32> {
 /// FTS5 MATCH string for the letters-in-common lookup, plus whether any
 /// word was long enough (3+ letters) to use the index at all.
 ///
-/// `exact`: every word must appear (AND). Otherwise any 3-letter piece of any
-/// word may match (OR), which is how a typo still finds its target.
+/// `exact`: every word must appear (AND). Otherwise the candidates for the
+/// close pass: names sharing 3-letter pieces with the query, which is how a
+/// typo still finds its target (see [`close_groups`]).
 pub fn fts_match(query: &Query, exact: bool) -> Option<String> {
-    const MAX_PIECES: usize = 48;
     let quote = |s: &str| format!("\"{}\"", s.replace('"', "\"\""));
     if exact {
         let words: Vec<String> = query
@@ -234,24 +249,86 @@ pub fn fts_match(query: &Query, exact: bool) -> Option<String> {
             .collect();
         return (!words.is_empty()).then(|| words.join(" AND "));
     }
-    let mut pieces: Vec<String> = Vec::new();
-    for word in &query.words {
-        let chars: Vec<char> = word.chars().collect();
-        for win in chars.windows(3) {
-            let piece: String = win.iter().collect();
-            if !pieces.contains(&piece) {
-                pieces.push(piece);
-            }
-        }
+    let groups = close_groups(query);
+    if groups.is_empty() {
+        return None;
     }
-    pieces.truncate(MAX_PIECES);
-    (!pieces.is_empty()).then(|| {
+    let any = |pieces: &[String]| {
         pieces
             .iter()
             .map(|p| quote(p))
             .collect::<Vec<_>>()
             .join(" OR ")
+    };
+    Some(if groups.len() == 1 {
+        any(&groups[0])
+    } else {
+        groups
+            .iter()
+            .map(|g| format!("({})", any(g)))
+            .collect::<Vec<_>>()
+            .join(" AND ")
     })
+}
+
+/// The 3-letter pieces a close match must share with the query: the name
+/// needs at least one piece from every group.
+///
+/// Every query word must be within its typos of some word of the name, and
+/// one typo changes at most 4 pieces (a swapped pair touches 4). So a word
+/// with more than 4 pieces per typo always shares a piece with its match,
+/// and gets a group of its own. If no word is that long, any piece of any
+/// word will do (one group): a short word with a typo can share none.
+pub fn close_groups(query: &Query) -> Vec<Vec<String>> {
+    const MAX_PIECES: usize = 48;
+    let pieces_of = |word: &str| -> Vec<String> {
+        let chars: Vec<char> = word.chars().collect();
+        let mut out: Vec<String> = Vec::new();
+        for win in chars.windows(3) {
+            let piece: String = win.iter().collect();
+            if !out.contains(&piece) {
+                out.push(piece);
+            }
+        }
+        out
+    };
+    let mut groups: Vec<Vec<String>> = Vec::new();
+    let mut total = 0;
+    for word in &query.words {
+        let pieces = pieces_of(word);
+        let chars = word.chars().count();
+        let sure = chars >= 3 && chars - 2 > 4 * typo_budget(chars) as usize;
+        if !sure || groups.contains(&pieces) {
+            continue;
+        }
+        // Leaving a word's group out only lets more names through, so the
+        // cap drops whole groups, never pieces of one.
+        if total > 0 && total + pieces.len() > MAX_PIECES {
+            continue;
+        }
+        total += pieces.len();
+        groups.push(pieces);
+    }
+    if !groups.is_empty() {
+        for group in &mut groups {
+            group.truncate(MAX_PIECES);
+        }
+        return groups;
+    }
+    let mut any: Vec<String> = Vec::new();
+    for word in &query.words {
+        for piece in pieces_of(word) {
+            if !any.contains(&piece) {
+                any.push(piece);
+            }
+        }
+    }
+    any.truncate(MAX_PIECES);
+    if any.is_empty() {
+        Vec::new()
+    } else {
+        vec![any]
+    }
 }
 
 #[cfg(test)]
@@ -348,11 +425,68 @@ mod tests {
     fn fts_match_builds_and_or_expressions() {
         let q = Query::new("tax 2024");
         assert_eq!(fts_match(&q, true).unwrap(), "\"tax\" AND \"2024\"");
+        // "tax" has no typo slack, so a close name contains it; "2024" may
+        // be a typo away with no piece in common.
+        assert_eq!(fts_match(&q, false).unwrap(), "\"tax\"");
         assert_eq!(
-            fts_match(&q, false).unwrap(),
-            "\"tax\" OR \"202\" OR \"024\""
+            fts_match(&Query::new("pasport"), false).unwrap(),
+            "\"pas\" OR \"asp\" OR \"spo\" OR \"por\" OR \"ort\""
         );
         assert!(fts_match(&Query::new("ab"), true).is_none());
         assert!(fts_match(&Query::new("ab"), false).is_none());
+    }
+
+    #[test]
+    fn close_pieces_need_every_long_enough_word() {
+        // "holiday" (5 pieces, 1 typo) and "the" (1 piece, no typos) always
+        // share a piece with a close name; "summer" and "from" may not.
+        let q = Query::new("receipts from the summer holiday");
+        assert_eq!(
+            close_groups(&q),
+            vec![
+                vec!["the".to_string()],
+                ["hol", "oli", "lid", "ida", "day"]
+                    .map(String::from)
+                    .to_vec(),
+            ]
+        );
+        assert_eq!(
+            fts_match(&q, false).unwrap(),
+            "(\"the\") AND (\"hol\" OR \"oli\" OR \"lid\" OR \"ida\" OR \"day\")"
+        );
+        // No word is long enough: any piece of any word will do.
+        assert_eq!(
+            close_groups(&Query::new("tset repor")),
+            vec![
+                ["tse", "set", "rep", "epo", "por"]
+                    .map(String::from)
+                    .to_vec()
+            ]
+        );
+    }
+
+    #[test]
+    fn every_close_match_shares_a_piece_from_each_group() {
+        // One typo of each kind on a word long enough to get a group.
+        let cases = [
+            ("passport", "pasport"),
+            ("passport", "passprot"),
+            ("holiday", "holidya"),
+            ("holiday", "hloiday"),
+            ("holiday", "holidays"),
+            ("insurance", "insurnace"),
+            ("insurance", "insuranec"),
+            ("certificates", "certifciates"),
+        ];
+        for (name, typed) in cases {
+            let q = Query::new(typed);
+            assert!(r(typed, name, false).is_some(), "{typed} ~ {name}");
+            for group in close_groups(&q) {
+                assert!(
+                    group.iter().any(|p| name.contains(p.as_str())),
+                    "{typed} ~ {name}: {group:?}"
+                );
+            }
+        }
     }
 }

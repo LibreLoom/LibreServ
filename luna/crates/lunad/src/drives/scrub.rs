@@ -38,6 +38,51 @@ pub fn upsert_hash(
     Ok(())
 }
 
+/// Hashes waiting to be written. Each autocommitted row on the drive microdb
+/// (journal_mode=DELETE) costs a journal create, fsync and unlink on USB, so
+/// rows are flushed together in one short transaction. The write lock is held
+/// only for the flush, never while a file is being read and hashed.
+struct HashBatch {
+    rows: Vec<(String, u64, i64, String)>,
+    last_flush: std::time::Instant,
+}
+
+impl HashBatch {
+    const MAX_ROWS: usize = 256;
+    const MAX_AGE: std::time::Duration = std::time::Duration::from_secs(2);
+
+    fn new() -> Self {
+        Self {
+            rows: Vec::new(),
+            last_flush: std::time::Instant::now(),
+        }
+    }
+
+    fn push(&mut self, conn: &Connection, drive_id: &str, row: (String, u64, i64, String)) {
+        self.rows.push(row);
+        if self.rows.len() >= Self::MAX_ROWS || self.last_flush.elapsed() >= Self::MAX_AGE {
+            self.flush(conn, drive_id);
+        }
+    }
+
+    /// Best effort, like the per-row upserts it replaces: a failed batch is
+    /// dropped and those files are simply hashed again on the next pass.
+    fn flush(&mut self, conn: &Connection, drive_id: &str) {
+        self.last_flush = std::time::Instant::now();
+        if self.rows.is_empty() {
+            return;
+        }
+        let rows = std::mem::take(&mut self.rows);
+        let Ok(tx) = conn.unchecked_transaction() else {
+            return;
+        };
+        for (path, size, mtime, hash) in &rows {
+            let _ = upsert_hash(&tx, drive_id, path, *size, *mtime, hash);
+        }
+        let _ = tx.commit();
+    }
+}
+
 pub fn hash_file(path: &Path) -> anyhow::Result<String> {
     let mut file = std::fs::File::open(path)?;
     let mut hasher = blake3::Hasher::new();
@@ -76,6 +121,7 @@ fn hash_drive_walk(drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
         mismatches: 0,
         bytes_hashed: 0,
     };
+    let mut batch = HashBatch::new();
     // Each folder carries its real path: private items sit on disk under
     // `.luna-` names but are baselined under the names people see.
     let mut stack = vec![(root.to_path_buf(), String::new())];
@@ -101,10 +147,8 @@ fn hash_drive_walk(drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
             if item.is_none() && crate::files::is_internal_temp(disk) {
                 continue;
             }
-            let rel = &crate::gallery::gallery_indexer::join_rel(
-                &dir_rel,
-                item.map_or(disk, |i| i.name()),
-            );
+            let rel =
+                &crate::photos::photos_indexer::join_rel(&dir_rel, item.map_or(disk, |i| i.name()));
             if meta.is_dir() {
                 stack.push((entry.path(), rel.clone()));
                 continue;
@@ -138,11 +182,12 @@ fn hash_drive_walk(drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> {
             let Ok(hash) = hash_file(&entry.path()) else {
                 continue;
             };
-            let _ = upsert_hash(&conn, drive_id, rel, size, mtime, &hash);
+            batch.push(&conn, drive_id, (rel.clone(), size, mtime, hash));
             report.files_hashed += 1;
             report.bytes_hashed += size;
         }
     }
+    batch.flush(&conn, drive_id);
     Ok(report)
 }
 
@@ -169,6 +214,7 @@ fn scrub_drive_walk(drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> 
         mismatches: 0,
         bytes_hashed: 0,
     };
+    let mut batch = HashBatch::new();
     let mut stmt =
         conn.prepare("SELECT path, size, mtime, hash FROM file_hashes WHERE drive_id = ?1")?;
     let rows = stmt.query_map(params![drive_id], |row| {
@@ -207,11 +253,13 @@ fn scrub_drive_walk(drive_id: &str, root: &Path) -> anyhow::Result<ScrubReport> 
             let Ok(actual) = hash_file(&path) else {
                 continue;
             };
-            let _ = upsert_hash(&conn, drive_id, &rel, meta.len(), mtime, &actual);
+            batch.push(&conn, drive_id, (rel, meta.len(), mtime, actual));
             report.files_hashed += 1;
             report.bytes_hashed += meta.len();
         }
     }
+    drop(stmt);
+    batch.flush(&conn, drive_id);
     Ok(report)
 }
 
@@ -245,6 +293,36 @@ pub fn should_run_periodic(
         return false;
     }
     true
+}
+
+/// How long the scrub and trim loops sleep before looking again: `tick` inside
+/// the night window, otherwise until it opens, so an idle Luna doesn't wake
+/// all day for work that only runs at night. Capped at an hour because the
+/// sleep can't see the wall clock move (time set after boot, DST, time zone).
+pub fn next_night_look(tick: std::time::Duration) -> std::time::Duration {
+    let Some(tm) = crate::time::local_tm(db::now_unix()) else {
+        return tick;
+    };
+    let hour = tm.tm_hour.clamp(0, 23) as u32;
+    if in_night_window(hour) {
+        return tick;
+    }
+    let until = secs_until_night_window(
+        hour,
+        tm.tm_min.clamp(0, 59) as u32,
+        tm.tm_sec.clamp(0, 60) as u32,
+    );
+    std::time::Duration::from_secs(until.clamp(1, 60 * 60))
+}
+
+/// Seconds from local `hour:min:sec` until the night window opens (0 inside it).
+pub fn secs_until_night_window(hour: u32, min: u32, sec: u32) -> u64 {
+    if in_night_window(hour) {
+        return 0;
+    }
+    let now = u64::from(hour) * 3600 + u64::from(min) * 60 + u64::from(sec.min(59));
+    let opens = 3600; // 1 AM
+    (opens + 24 * 3600 - now) % (24 * 3600)
 }
 
 pub fn local_hour_now() -> u32 {
@@ -425,5 +503,16 @@ mod tests {
             0,
             1_000
         ));
+    }
+
+    #[test]
+    fn night_window_wait_counts_to_one_am() {
+        assert_eq!(secs_until_night_window(1, 0, 0), 0);
+        assert_eq!(secs_until_night_window(4, 59, 59), 0);
+        assert_eq!(secs_until_night_window(0, 59, 30), 30);
+        assert_eq!(secs_until_night_window(5, 0, 0), 20 * 3600);
+        assert_eq!(secs_until_night_window(23, 0, 0), 2 * 3600);
+        // Leap second reads as :59.
+        assert_eq!(secs_until_night_window(0, 59, 60), 1);
     }
 }

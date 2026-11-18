@@ -255,9 +255,9 @@ func addFrontendTests() {
 		Container:   "node:26-alpine",
 		// --cache turns a repeat lint from ~43s into ~1s (measured); the file
 		// lives in the runner's shared /cache mount so it survives runs.
-		Command:     "npm run lint -- --cache --cache-location /cache/eslint/frontend-lint.cache",
-		WorkDir:     "/repo/sol/server/frontend",
-		Timeout:     10 * time.Minute,
+		Command: "npm run lint -- --cache --cache-location /cache/eslint/frontend-lint.cache",
+		WorkDir: "/repo/sol/server/frontend",
+		Timeout: 10 * time.Minute,
 	})
 
 	DefaultRegistry.Add(&Test{
@@ -314,9 +314,9 @@ func addConnectWebTests() {
 		Container:   "node:26-alpine",
 		// --cache turns a repeat lint from ~43s into ~1s (measured); the file
 		// lives in the runner's shared /cache mount so it survives runs.
-		Command:     "npm run lint -- --cache --cache-location /cache/eslint/luna-connect-web-lint.cache",
-		WorkDir:     "/repo/luna/connect/web",
-		Timeout:     10 * time.Minute,
+		Command: "npm run lint -- --cache --cache-location /cache/eslint/luna-connect-web-lint.cache",
+		WorkDir: "/repo/luna/connect/web",
+		Timeout: 10 * time.Minute,
 	})
 
 	DefaultRegistry.Add(&Test{
@@ -331,9 +331,9 @@ func addConnectWebTests() {
 		// that same shared dir — `npm ci` deletes node_modules first, so the
 		// others died with "eslint: not found" / "tsc: not found" instead of
 		// checking anything.
-		Command:     "npm test -- --run src/pages/RecoveryWizardPage.test.jsx src/pages/LoginPage.test.jsx",
-		WorkDir:     "/repo/luna/web",
-		Timeout:     10 * time.Minute,
+		Command: "npm test -- --run src/pages/RecoveryWizardPage.test.jsx src/pages/LoginPage.test.jsx",
+		WorkDir: "/repo/luna/web",
+		Timeout: 10 * time.Minute,
 	})
 
 	DefaultRegistry.Add(&Test{
@@ -364,9 +364,9 @@ func addConnectWebTests() {
 		Container:   "node:26-alpine",
 		// --cache turns a repeat lint from ~43s into ~1s (measured); the file
 		// lives in the runner's shared /cache mount so it survives runs.
-		Command:     "npm run lint -- --cache --cache-location /cache/eslint/luna-web-lint.cache",
-		WorkDir:     "/repo/luna/web",
-		Timeout:     10 * time.Minute,
+		Command: "npm run lint -- --cache --cache-location /cache/eslint/luna-web-lint.cache",
+		WorkDir: "/repo/luna/web",
+		Timeout: 10 * time.Minute,
 	})
 
 	DefaultRegistry.Add(&Test{
@@ -389,10 +389,10 @@ func addConnectWebTests() {
 		// No npm install, for the same reason as the recovery-login test above:
 		// warmCaches provides the shared node_modules, and `npm ci` here would
 		// delete it under the lint/typecheck/colour runs sharing that dir.
-		Command:     "npm run test:e2e:recovery",
-		WorkDir:     "/repo/luna/web",
-		Timeout:     10 * time.Minute,
-		Env:         []string{"PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1"},
+		Command: "npm run test:e2e:recovery",
+		WorkDir: "/repo/luna/web",
+		Timeout: 10 * time.Minute,
+		Env:     []string{"PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1"},
 	})
 
 	DefaultRegistry.Add(&Test{
@@ -458,9 +458,9 @@ func addConnectWebTests() {
 		Container:   "node:26-alpine",
 		// --cache turns a repeat lint from ~43s into ~1s (measured); the file
 		// lives in the runner's shared /cache mount so it survives runs.
-		Command:     "npm run lint -- --cache --cache-location /cache/eslint/connect-web-admin-lint.cache",
-		WorkDir:     "/repo/sol/connect/web/admin",
-		Timeout:     10 * time.Minute,
+		Command: "npm run lint -- --cache --cache-location /cache/eslint/connect-web-admin-lint.cache",
+		WorkDir: "/repo/sol/connect/web/admin",
+		Timeout: 10 * time.Minute,
 	})
 
 	DefaultRegistry.Add(&Test{
@@ -493,9 +493,9 @@ func addConnectWebTests() {
 		Container:   "node:26-alpine",
 		// --cache turns a repeat lint from ~43s into ~1s (measured); the file
 		// lives in the runner's shared /cache mount so it survives runs.
-		Command:     "npm run lint -- --cache --cache-location /cache/eslint/connect-web-customer-lint.cache",
-		WorkDir:     "/repo/sol/connect/web/customer",
-		Timeout:     10 * time.Minute,
+		Command: "npm run lint -- --cache --cache-location /cache/eslint/connect-web-customer-lint.cache",
+		WorkDir: "/repo/sol/connect/web/customer",
+		Timeout: 10 * time.Minute,
 	})
 
 	DefaultRegistry.Add(&Test{
@@ -521,6 +521,14 @@ func addConnectWebTests() {
 	})
 
 	DefaultRegistry.Add(&Test{
+		ID: "connect-deploy-test", Name: "Connect deployment tests",
+		Description: "Shared Connect feed, signature, download and staging checks",
+		Type:        TestTypeUnit, Container: "alpine:3.23",
+		Command: "apk add --no-cache bash curl jq minisign python3 && bash test.sh",
+		WorkDir: "/repo/infra/connect-deploy", Timeout: 5 * time.Minute,
+	})
+
+	DefaultRegistry.Add(&Test{
 		ID:          "luna-connect-deploy-test",
 		Name:        "Luna Connect Deploy Script Tests",
 		Description: "Unit tests for luna/connect deploy.sh ref resolution (no root required)",
@@ -543,9 +551,9 @@ func addSharedUIRecoveryTests() {
 		// No npm install: warmCaches provides this workdir's shared
 		// node_modules. `npm ci` here deleted it under the luna/web tests that
 		// bind the same cache dir.
-		Command:     "npm test -- lib/passwordPolicy.test.js lib/colorContrast.test.js",
-		WorkDir:     "/repo/shared/ui",
-		Timeout:     10 * time.Minute,
+		Command: "npm test -- lib/passwordPolicy.test.js lib/colorContrast.test.js",
+		WorkDir: "/repo/shared/ui",
+		Timeout: 10 * time.Minute,
 	})
 }
 
@@ -688,7 +696,7 @@ func addReleaseTests() {
 		Type:        TestTypeIntegration,
 		Container:   ContainerHost,
 		NeedsHost:   "starts real containers with the host's podman (same SELinux socket constraint as podman-build)",
-		Command:     "go test -count=1 -timeout 45m ./internal/release/...",
+		Command:     "go test -v -count=1 -timeout 45m ./internal/release/...",
 		WorkDir:     "/repo/infra/ci-source",
 		Timeout:     45 * time.Minute,
 	})
@@ -704,17 +712,22 @@ func addReleaseSlowTest() {
 		Type:        TestTypeIntegration,
 		Container:   ContainerHost,
 		NeedsHost:   "builds Flatpak, Windows, APK and Luna OS images with the host's podman",
-		// The slow tests build the same parts as release-integration, but run
-		// beside it: -p 1 keeps the go packages (which both build the Luna web
+		// Slow tests share some build dependencies with release-integration and
+		// run beside it: -p 1 keeps the go packages (which both build the Luna web
 		// bundle through the same named podman volumes) from racing each
 		// other, and the volume prefix keeps the whole set away from
 		// release-integration's — two npm ci/vite pairs on one node_modules
 		// volume corrupt it (ENOTEMPTY, gutted trees behind a matching stamp).
-		Command:     "LIBRESERV_RELEASE_VOLUME_PREFIX=libreserv-release-slow- LIBRESERV_RELEASE_SLOW_TESTS=1 go test -count=1 -p 1 -timeout 120m ./internal/release/...",
-		WorkDir:     "/repo/infra/ci-source",
-		Timeout:     150 * time.Minute,
+		Command: "LIBRESERV_RELEASE_VOLUME_PREFIX=libreserv-release-slow- LIBRESERV_RELEASE_SLOW_TESTS=1 go test -v -count=1 -p 1 -timeout 120m -run '^(TestBuildLunaOSAndInstaller|TestIntegrationAPK|TestIntegrationAPKSigned|TestIntegrationFlatpak|TestIntegrationWindows|TestLunadVersionChangeRebuilds)$' ./internal/release/app ./internal/release/parts",
+		WorkDir: "/repo/infra/ci-source",
+		Timeout: 150 * time.Minute,
 	})
 }
+
+// lunaTmpfs keeps lunad's temp files in RAM: its tests write ~2.7 GB across a
+// million writes and delete it all, which on the container's disk-backed /tmp
+// took 450s instead of 46s. 3g is a cap, not a reservation.
+var lunaTmpfs = map[string]string{"/tmp": "rw,mode=1777,size=3g"}
 
 func addLunaTests() {
 	DefaultRegistry.Add(&Test{
@@ -729,6 +742,7 @@ func addLunaTests() {
 		Container: LocalImagePrefix + "luna-ci",
 		Command:   "./luna/ci.sh",
 		WorkDir:   "/repo",
+		Tmpfs:     lunaTmpfs,
 		// Under the gentle .ci.conf limits, cargo test alone takes about 27 minutes.
 		Timeout: 90 * time.Minute,
 		Env: []string{
@@ -738,6 +752,37 @@ func addLunaTests() {
 			"ANDROID_USER_HOME=/cache/android",
 			"npm_config_cache=/cache/npm",
 			"LUNA_CONTRACT_RECORD=1",
+		},
+	})
+	for _, scope := range []struct{ id, title, arg string }{
+		{"luna-os-ci", "Luna OS checks", "os"},
+		{"luna-desktop-ci", "Luna Desktop checks", "desktop"},
+		{"luna-android-ci", "Luna Android checks", "android"},
+	} {
+		DefaultRegistry.Add(&Test{
+			ID: scope.id, Name: scope.title, Description: "Scoped product checks through luna/ci.sh " + scope.arg,
+			Type: TestTypeUnit, Container: LocalImagePrefix + "luna-ci",
+			Command: "./luna/ci.sh " + scope.arg, WorkDir: "/repo", Tmpfs: lunaTmpfs,
+			Timeout: 90 * time.Minute,
+			Env:     []string{"CARGO_HOME=/cache/cargo-home", "GRADLE_USER_HOME=/cache/gradle", "ANDROID_USER_HOME=/cache/android", "npm_config_cache=/cache/npm", "LUNA_CONTRACT_RECORD=1"},
+		})
+	}
+	// The edit/test loop: just the unit tests a change can break, in parallel
+	// (luna/ci-fast.sh). The gate (luna-ci) adds clippy, the musl and desktop
+	// builds, Android and the OS script checks.
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-fast",
+		Name:        "Luna Fast Tests",
+		Description: "Run luna/ci-fast.sh (Rust workspace tests and web unit tests, in parallel)",
+		Type:        TestTypeUnit,
+		Container:   LocalImagePrefix + "luna-ci",
+		Command:     "./luna/ci-fast.sh",
+		WorkDir:     "/repo",
+		Tmpfs:       lunaTmpfs,
+		Timeout:     30 * time.Minute,
+		Env: []string{
+			"CARGO_HOME=/cache/cargo-home",
+			"npm_config_cache=/cache/npm",
 		},
 	})
 }

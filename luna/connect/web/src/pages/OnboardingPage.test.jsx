@@ -3,7 +3,6 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import OnboardingPage from "./OnboardingPage.jsx";
 import { api } from "../api.js";
-import { stripeLooksConfigured } from "../billing/stripeConfig.js";
 import { ThemeProvider } from "../context/ThemeContext.jsx";
 
 const register = vi.fn();
@@ -11,30 +10,27 @@ const login = vi.fn();
 const refresh = vi.fn();
 const markEmailVerified = vi.fn();
 const updateAccountEmail = vi.fn();
-const authState = vi.hoisted(() => ({ isAuthenticated: false, me: null }));
+// stripe: whether this Connect site takes card payments (the account's stripe_enabled).
+const authState = vi.hoisted(() => ({ isAuthenticated: false, me: null, stripe: false }));
+
+/** @param {boolean} enabled */
+function setStripe(enabled) {
+  authState.stripe = enabled;
+}
+
+const CHECKOUT = "/api/v1/billing/checkout";
 
 vi.mock("../api.js", () => ({
   api: vi.fn(),
 }));
 
-vi.mock("../billing/stripeConfig.js", () => ({
-  stripeLooksConfigured: vi.fn(() => false),
-}));
-
-vi.mock("../components/VerifyHumanCard.jsx", () => ({
-  VerifyHumanCard: ({ onConfirm, loading }) => (
-    <button type="button" disabled={loading} onClick={() => onConfirm("pm_test_diy")}>
-      Confirm with a dollar
-    </button>
-  ),
-}));
 
 vi.mock("../context/AuthContext.jsx", () => ({
   useAuth: () => ({
     isAuthenticated: authState.isAuthenticated,
     register,
     login,
-    me: authState.me,
+    me: authState.me && { stripe_enabled: authState.stripe, ...authState.me },
     refresh,
     refreshMe: refresh,
     markEmailVerified,
@@ -50,6 +46,7 @@ beforeEach(() => {
   };
   authState.isAuthenticated = false;
   authState.me = null;
+  authState.stripe = false;
 });
 
 function mount(path = "/onboarding") {
@@ -80,14 +77,14 @@ describe("OnboardingPage DIY verify", () => {
     localStorage.clear();
     authState.isAuthenticated = false;
     authState.me = null;
-    register.mockResolvedValue({ email: "me@example.com", email_verified: true });
-    login.mockResolvedValue({ email: "me@example.com", email_verified: true });
-    refresh.mockImplementation(async () => authState.me);
+    register.mockImplementation(async () => ({ email: "me@example.com", email_verified: true, stripe_enabled: authState.stripe }));
+    login.mockImplementation(async () => ({ email: "me@example.com", email_verified: true, stripe_enabled: authState.stripe }));
+    refresh.mockImplementation(async () => authState.me && { stripe_enabled: authState.stripe, ...authState.me });
     updateAccountEmail.mockResolvedValue({});
-    stripeLooksConfigured.mockReturnValue(false);
+    setStripe(false);
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/account/verification-status") return { email_verified: false };
-      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === CHECKOUT) return { ok: true, done: true, dev: true };
       if (path === "/api/v1/account/diy-token") {
         return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", device_id: "dev_diy", message: "Put this on Luna." };
       }
@@ -103,7 +100,7 @@ describe("OnboardingPage DIY verify", () => {
     expect(await screen.findByRole("heading", { name: /Check your inbox/i })).toBeTruthy();
     expect(screen.getByText(/Want to change your email\?/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Go Back/i })).toBeTruthy();
-    expect(api.mock.calls.map((call) => call[0])).not.toContain("/api/v1/account/verify-human");
+    expect(api.mock.calls.map((call) => call[0])).not.toContain(CHECKOUT);
     expect(api.mock.calls.map((call) => call[0])).not.toContain("/api/v1/account/diy-token");
   });
 
@@ -158,7 +155,7 @@ describe("OnboardingPage DIY verify", () => {
     refresh.mockResolvedValue({ email: "me@example.com", email_verified: true });
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/account/verification-status") return { email_verified: true };
-      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === CHECKOUT) return { ok: true, done: true, dev: true };
       if (path === "/api/v1/account/diy-token") {
         return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", device_id: "dev_diy" };
       }
@@ -180,7 +177,7 @@ describe("OnboardingPage DIY verify", () => {
         statusCalls += 1;
         return { email_verified: statusCalls >= 2 };
       }
-      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === CHECKOUT) return { ok: true, done: true, dev: true };
       if (path === "/api/v1/account/diy-token") {
         return { code: "POLL-ADVANCE-CODE-1234-5678", device_id: "dev_diy" };
       }
@@ -199,7 +196,7 @@ describe("OnboardingPage DIY verify", () => {
     refresh.mockResolvedValue({ email: "me@example.com", email_verified: true });
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/account/verification-status") return { email_verified: true };
-      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === CHECKOUT) return { ok: true, done: true, dev: true };
       if (path === "/api/v1/account/diy-token") {
         return { code: "CROSS-TAB-CODE-1234-5678", device_id: "dev_diy" };
       }
@@ -230,7 +227,7 @@ describe("OnboardingPage DIY verify", () => {
         // First poll(s) still waiting; Check again sees verified.
         return { email_verified: statusCalls > 1 };
       }
-      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === CHECKOUT) return { ok: true, done: true, dev: true };
       if (path === "/api/v1/account/diy-token") {
         return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", device_id: "dev_diy" };
       }
@@ -254,7 +251,7 @@ describe("OnboardingPage DIY verify", () => {
       if (path === "/api/v1/account/resend-verification") {
         return { email_verified: true, already_verified: true, message: "Your email is already verified." };
       }
-      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === CHECKOUT) return { ok: true, done: true, dev: true };
       if (path === "/api/v1/account/diy-token") {
         return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", device_id: "dev_diy" };
       }
@@ -280,7 +277,7 @@ describe("OnboardingPage DIY verify", () => {
         err.status = 400;
         throw err;
       }
-      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === CHECKOUT) return { ok: true, done: true, dev: true };
       if (path === "/api/v1/account/diy-token") {
         return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", device_id: "dev_diy" };
       }
@@ -306,7 +303,7 @@ describe("OnboardingPage DIY verify", () => {
     refresh.mockResolvedValue({ email: "owner@example.com", email_verified: true });
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/account/verification-status") return { email_verified: true };
-      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === CHECKOUT) return { ok: true, done: true, dev: true };
       if (path === "/api/v1/account/diy-token") {
         return { code: "BACK-TO-DEVICE-CODE-1234-5678", device_id: "dev_diy" };
       }
@@ -348,12 +345,12 @@ describe("OnboardingPage DIY verify", () => {
       human_verified: true,
       stripe_publishable_key: "pk_test_x",
     };
-    stripeLooksConfigured.mockReturnValue(true);
+    setStripe(true);
     mount("/diyonboarding");
     fireEvent.click(await screen.findByRole("button", { name: /^Continue/i }));
 
     expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
-    expect(api.mock.calls.map((call) => call[0])).not.toContain("/api/v1/account/verify-human");
+    expect(api.mock.calls.map((call) => call[0])).not.toContain(CHECKOUT);
   });
 
   it("skips device token when account already has a bound Luna on official path", async () => {
@@ -432,7 +429,7 @@ describe("OnboardingPage DIY verify", () => {
 
     expect(await screen.findByRole("heading", { name: /Optional cloud backup/i })).toBeTruthy();
     expect(
-      screen.getByText(/Adding your card allows you to backup files from your Luna to the cloud/i),
+      screen.getByText(/Add a card to back up the files on Luna to the cloud/i),
     ).toBeTruthy();
     expect(screen.getByTestId("backup-pricing-table")).toBeTruthy();
     expect(screen.getByText(/\$8 \/ terabyte \/ month/i)).toBeTruthy();
@@ -466,7 +463,7 @@ describe("OnboardingPage DIY verify", () => {
         throw err;
       }
       if (path === "/api/v1/account/verification-status") return { email_verified: false };
-      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === CHECKOUT) return { ok: true, done: true, dev: true };
       if (path === "/api/v1/account/diy-token") {
         return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", device_id: "dev_diy" };
       }
@@ -517,7 +514,7 @@ describe("OnboardingPage DIY verify", () => {
     expect(
       screen.queryByText("Use at least 12 characters, including a letter and a number."),
     ).toBeNull();
-    expect(screen.getByText("12+ chars")).toBeTruthy();
+    expect(screen.getByText("12+ characters")).toBeTruthy();
     expect(screen.getByText("letters")).toBeTruthy();
     expect(screen.getByText("numbers")).toBeTruthy();
     expect(screen.getByText("symbols")).toBeTruthy();
@@ -529,48 +526,71 @@ describe("OnboardingPage DIY verify", () => {
     expect(screen.getByRole("button", { name: /create account/i }).disabled).toBe(false);
   });
 
-  it("does not call verify-human before a card action when Stripe looks configured", async () => {
-    stripeLooksConfigured.mockReturnValue(true);
+  it("does not open the $1 check before a card action when Stripe is on", async () => {
+    setStripe(true);
     await createDiyAccount();
 
     await waitFor(() => {
       expect(register).toHaveBeenCalled();
     });
-    expect(api.mock.calls.map((c) => c[0])).not.toContain("/api/v1/account/verify-human");
-    expect(screen.getByRole("button", { name: /confirm with a dollar/i })).toBeTruthy();
+    expect(api.mock.calls.map((c) => c[0])).not.toContain(CHECKOUT);
+    const pay = await screen.findByRole("button", { name: /Pay \$1 on Stripe/i });
+    expect(screen.getByText(/plus any sales tax or VAT/i)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: /confirm with a dollar/i }));
+    fireEvent.click(pay);
 
     await waitFor(() => {
-      expect(api).toHaveBeenCalledWith("/api/v1/account/verify-human", {
+      expect(api).toHaveBeenCalledWith(CHECKOUT, {
         method: "POST",
-        body: JSON.stringify({ payment_method_id: "pm_test_diy" }),
+        body: JSON.stringify({ kind: "card_check", return_to: "diyonboarding" }),
+      });
+    });
+    expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
+  });
+
+  it("finishes the $1 check when Stripe sends the browser back", async () => {
+    setStripe(true);
+    authState.isAuthenticated = true;
+    authState.me = { email: "owner@example.com", email_verified: true };
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/billing/checkout/complete") return { ok: true, done: true, kind: "card_check" };
+      if (path === "/api/v1/account/diy-token") {
+        return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", device_id: "dev_diy", message: "Put this on Luna." };
+      }
+      return {};
+    });
+    mount("/diyonboarding?step=card&checkout=cs_test_123");
+
+    await waitFor(() => {
+      expect(api).toHaveBeenCalledWith("/api/v1/billing/checkout/complete", {
+        method: "POST",
+        body: JSON.stringify({ session_id: "cs_test_123" }),
       });
     });
     expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
   });
 
   it("skips the card step when Stripe is not configured and still mints a code", async () => {
-    stripeLooksConfigured.mockReturnValue(false);
+    setStripe(false);
     await createDiyAccount();
 
     await waitFor(() => {
-      expect(api).toHaveBeenCalledWith("/api/v1/account/verify-human", {
+      expect(api).toHaveBeenCalledWith(CHECKOUT, {
         method: "POST",
-        body: "{}",
+        body: JSON.stringify({ kind: "card_check", return_to: "diyonboarding" }),
       });
     });
     expect(await screen.findByText("A1B2-C3D4-E5F6-G7H8-J9K0")).toBeTruthy();
     expect(screen.getByText(/when you install Luna on your device/i)).toBeTruthy();
-    expect(screen.getByText(/Settings → About → Advanced/i)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /confirm with a dollar/i })).toBeNull();
+    expect(screen.getByText(/select Change device token/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Pay \$1 on Stripe/i })).toBeNull();
   });
 
   it("binds and goes to name when continuing from the DIY token step", async () => {
-    stripeLooksConfigured.mockReturnValue(false);
+    setStripe(false);
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/account/verification-status") return { email_verified: false };
-      if (path === "/api/v1/account/verify-human") return { ok: true };
+      if (path === CHECKOUT) return { ok: true, done: true, dev: true };
       if (path === "/api/v1/account/diy-token") {
         return { code: "A1B2-C3D4-E5F6-G7H8-J9K0", device_id: "dev_diy" };
       }
@@ -594,7 +614,7 @@ describe("OnboardingPage DIY verify", () => {
   });
 
   it("keeps the official path free of a card step and binds after account", async () => {
-    stripeLooksConfigured.mockReturnValue(true);
+    setStripe(true);
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/devices/bind") return { device_id: "dev_1", already_bound: false };
       if (path === "/api/v1/onboarding/progress") return { ok: true };
@@ -622,13 +642,13 @@ describe("OnboardingPage DIY verify", () => {
         body: JSON.stringify({ code: "ABCD-EFGH-IJKM-NPQR-STUV" }),
       });
     });
-    expect(api.mock.calls.map((c) => c[0])).not.toContain("/api/v1/account/verify-human");
-    expect(screen.queryByRole("button", { name: /confirm with a dollar/i })).toBeNull();
+    expect(api.mock.calls.map((c) => c[0])).not.toContain(CHECKOUT);
+    expect(screen.queryByRole("button", { name: /Pay \$1 on Stripe/i })).toBeNull();
     expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
   });
 
-  it("unbinds the linked Luna when returning to the device token step", async () => {
-    stripeLooksConfigured.mockReturnValue(true);
+  it("never unlinks the Luna: no Back from the name step once it is linked", async () => {
+    setStripe(true);
     let devices = [];
     api.mockImplementation(async (path, opts = {}) => {
       if (path === "/api/v1/account/devices") return { devices };
@@ -664,17 +684,8 @@ describe("OnboardingPage DIY verify", () => {
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
     expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: /^Back$/i }));
-
-    await waitFor(() => {
-      expect(api).toHaveBeenCalledWith("/api/v1/devices/dev_1", { method: "DELETE" });
-    });
-    expect(await screen.findByLabelText(/^Device token$/i)).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
-    await waitFor(() => {
-      expect(api.mock.calls.filter((c) => c[0] === "/api/v1/devices/bind").length).toBe(2);
-    });
+    expect(screen.queryByRole("button", { name: /^Back$/i })).toBeNull();
+    expect(api.mock.calls.some(([, opts]) => opts?.method === "DELETE")).toBe(false);
   });
 });
 
@@ -699,7 +710,7 @@ describe("OnboardingPage finish flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /Use this name/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /^Nah\.$/i })).toBeTruthy();
+      expect(screen.getByRole("button", { name: /^Skip for now$/i })).toBeTruthy();
     });
   }
 
@@ -710,7 +721,7 @@ describe("OnboardingPage finish flow", () => {
     authState.me = { email: "owner@example.com", email_verified: true };
     refresh.mockImplementation(async () => authState.me);
     updateAccountEmail.mockResolvedValue({});
-    stripeLooksConfigured.mockReturnValue(false);
+    setStripe(false);
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText: vi.fn().mockResolvedValue(undefined) },
@@ -744,11 +755,11 @@ describe("OnboardingPage finish flow", () => {
 
   it("skips the plug-in step and shows the simplified done card when Luna is already online", async () => {
     await advanceToBackupStep();
-    fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Skip for now$/i }));
 
     expect(await screen.findByRole("heading", { name: /You're connected/i })).toBeTruthy();
     expect(screen.getByText(/Luna is linked to your account/i)).toBeTruthy();
-    expect(screen.getByText(/Go here to continue setup directly on your Luna\./i)).toBeTruthy();
+    expect(screen.getByText(/Open this link to finish setup on Luna\./i)).toBeTruthy();
     const lunaLink = screen.getByRole("link", {
       name: "kitchen.luna.servers.libreloom.org",
     });
@@ -760,13 +771,13 @@ describe("OnboardingPage finish flow", () => {
     expect(lunaLink.getAttribute("rel")).toBe("noreferrer");
     expect(lunaLink.className).toMatch(/underline/);
     expect(lunaLink.className).toMatch(/hover:no-underline/);
-    expect(screen.getByRole("button", { name: /Copy address/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Copy setup link/i })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /Plug in Luna/i })).toBeNull();
     expect(screen.queryByText(/one-time code/i)).toBeNull();
     expect(document.body.textContent).not.toMatch(/\?token=/);
     expect(document.body.textContent).not.toMatch(/\?setup=/);
 
-    fireEvent.click(screen.getByRole("button", { name: /Copy address/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Copy setup link/i }));
     await waitFor(() => {
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
         "https://kitchen.luna.servers.libreloom.org/setup?token=ABCD-EFGH-IJKM-NPQR-STUV",
@@ -802,7 +813,7 @@ describe("OnboardingPage finish flow", () => {
     });
 
     await advanceToBackupStep();
-    fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Skip for now$/i }));
 
     expect(await screen.findByRole("heading", { name: /Plug in Luna/i })).toBeTruthy();
     expect(screen.getByText(/^Waiting…$/)).toBeTruthy();
@@ -842,10 +853,10 @@ describe("OnboardingPage finish flow", () => {
     });
 
     await advanceToBackupStep();
-    fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Skip for now$/i }));
 
-    expect(await screen.findByRole("heading", { name: /Provisioning Address\.\.\./i })).toBeTruthy();
-    expect(screen.getByText(/We're using Cloudflare to create your Luna's domain name/i)).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /Making your address\.\.\./i })).toBeTruthy();
+    expect(screen.getByText(/Cloudflare is making the address for this Luna/i)).toBeTruthy();
     expect(screen.getByText(/\.luna\.servers\.libreloom\.org/)).toBeTruthy();
   });
 
@@ -878,11 +889,11 @@ describe("OnboardingPage finish flow", () => {
     });
 
     await advanceToBackupStep();
-    fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Skip for now$/i }));
 
     expect(await screen.findByRole("heading", { name: /Finishing up\.\.\./i })).toBeTruthy();
-    expect(screen.getByText(/Your Luna is now connecting to its provisioned domain name/i)).toBeTruthy();
-    expect(screen.getByRole("region", { name: /Connecting Luna to Cloudflare domain/i })).toBeTruthy();
+    expect(screen.getByText(/Luna is connecting to its new address/i)).toBeTruthy();
+    expect(screen.getByRole("region", { name: /Connecting Luna to its web address/i })).toBeTruthy();
     expect(screen.getByLabelText("Cloudflare")).toBeTruthy();
   });
 
@@ -919,14 +930,14 @@ describe("OnboardingPage finish flow", () => {
     });
 
     await advanceToBackupStep();
-    fireEvent.click(screen.getByRole("button", { name: /^Nah\.$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Skip for now$/i }));
     expect(await screen.findByRole("heading", { name: /Plug in Luna/i })).toBeTruthy();
 
     ready = true;
     await vi.advanceTimersByTimeAsync(5000);
 
     expect(await screen.findByRole("heading", { name: /You're connected/i })).toBeTruthy();
-    expect(screen.getByText(/Go here to continue setup directly on your Luna\./i)).toBeTruthy();
+    expect(screen.getByText(/Open this link to finish setup on Luna\./i)).toBeTruthy();
     expect(
       screen
         .getByRole("link", { name: "kitchen.luna.servers.libreloom.org" })

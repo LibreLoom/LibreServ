@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Image as ImageIcon, Lock } from "lucide-react";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
@@ -10,8 +10,10 @@ import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import { getJson } from "../lib/api";
 import { CAP, hasCap } from "../lib/access.js";
-import { FileSourceProvider, shareSource } from "../lib/fileSource.jsx";
+import { FileSourceProvider, fileListKey, shareSource } from "../lib/fileSource.jsx";
+import { takeEarlyShareList, takeEarlyShareMeta } from "../lib/shareEarly.js";
 import { parentPath, pathBasename } from "../lib/paths.js";
+import { perfSinceNavigation } from "../lib/perf.js";
 import DriveFileExplorer from "../components/files/DriveFileExplorer.jsx";
 import UploadFilesPanel from "../components/files/UploadFilesPanel.jsx";
 import useFileNavigation from "../hooks/useFileNavigation.js";
@@ -19,15 +21,15 @@ import { useFileOps } from "../context/FileOpsContext.jsx";
 import FileOpsDock from "../components/files/fileOps/FileOpsDock.jsx";
 import FormResponder from "../components/files/forms/FormResponder.jsx";
 import DocumentLoadingScreen from "../components/files/DocumentLoadingScreen.jsx";
-import PhotoThumb from "../components/gallery/PhotoThumb.jsx";
+import PhotoThumb from "../components/photos/PhotoThumb.jsx";
 import PhotoLightbox, {
   resolveDisplaySrc,
   resolveDownloadSrc,
-} from "../components/gallery/PhotoLightbox.jsx";
+} from "../components/photos/PhotoLightbox.jsx";
 import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 
-/** @typedef {import("../components/gallery/PhotoThumb.jsx").GalleryPhoto} GalleryPhoto */
+/** @typedef {import("../components/photos/PhotoThumb.jsx").PhotosPhoto} PhotosPhoto */
 
 function isMediaName(name) {
   return /\.(jpe?g|png|gif|webp|avif|heic|heif|mp4|mov|webm|mkv|avi|m4v)$/i.test(name || "");
@@ -40,6 +42,7 @@ export default function PublicSharePage() {
 
 function PublicShareSession() {
   const { token } = useParams();
+  const queryClient = useQueryClient();
   const fileOps = useFileOps();
   const [password, setPassword] = useState("");
   const [needPassword, setNeedPassword] = useState(false);
@@ -109,7 +112,7 @@ function PublicShareSession() {
   });
   const albumPages = useMemo(() => album.data?.pages || [], [album.data?.pages]);
   const albumItems = useMemo(
-    () => /** @type {GalleryPhoto[]} */ (albumPages.flatMap((p) => p.items || [])),
+    () => /** @type {PhotosPhoto[]} */ (albumPages.flatMap((p) => p.items || [])),
     [albumPages],
   );
   const selection = useMultiSelect({ items: albumItems });
@@ -130,6 +133,14 @@ function PublicShareSession() {
     return () => io.disconnect();
   }, [album.hasNextPage, loadMore, albumItems.length]);
 
+  // W15 (luna/perf): a guest's first screen. Files and folders end in
+  // FileBrowser once the listing is up; the other link kinds end here.
+  const guestScreenShown = !loading && !needPassword && !error
+    && (Boolean(formDoc) || isDropbox || (isAlbum && !album.isLoading));
+  useEffect(() => {
+    if (guestScreenShown) perfSinceNavigation("W15", { path: /^\/s\// });
+  }, [guestScreenShown]);
+
   useEffect(() => {
     let alive = true;
     async function load() {
@@ -141,10 +152,12 @@ function PublicShareSession() {
         // Meta describes the link, not the folder you're standing in — fetch
         // it once so navigating never remounts the explorer (that remount is
         // what killed the browser's transition animation).
+        // The first open may already have its answer (lib/shareEarly.js).
+        const early = submittedPassword ? null : takeEarlyShareMeta(token || "");
         const params = new URLSearchParams({ meta: "1" });
-        const res = await fetch(`/s/${token}?${params}`, {
+        const res = await (early || fetch(`/s/${token}?${params}`, {
           headers: { Accept: "application/json", ...authHeaders() },
-        });
+        }));
         const type = res.headers.get("content-type") || "";
         if (res.status === 401) {
           if (alive) {
@@ -154,7 +167,7 @@ function PublicShareSession() {
           return;
         }
         if (res.status === 410) {
-          if (alive) setError("This link has expired. Ask the person who sent it to make a new one.");
+          if (alive) setError("This link expired or was removed. Ask the person who sent it for a new link.");
           return;
         }
         if (res.status === 404) {
@@ -180,6 +193,17 @@ function PublicShareSession() {
         if (data.kind === "form") {
           setFormDoc(data);
           return;
+        }
+        // Hand the early listing to the folder view before it mounts, so it
+        // doesn't ask again. A listing that failed is asked for as usual.
+        const startPath = new URLSearchParams(window.location.search).get("path") || "";
+        const earlyList = early && data.kind === "folder" ? takeEarlyShareList(token || "", startPath) : null;
+        if (earlyList) {
+          const src = shareSource({ token: token || "", password: "", kind: data.kind, fileName: data.name || "", caps: data.caps || "" });
+          queryClient.prefetchQuery({
+            queryKey: fileListKey(src, token || "", startPath),
+            queryFn: async () => (await earlyList) ?? src.listDir(token || "", startPath),
+          });
         }
         setMeta(data);
       } catch {
@@ -237,17 +261,22 @@ function PublicShareSession() {
     } else {
       const picked = isAlbum ? input.files.filter((f) => isMediaName(f.name)) : input.files;
       if (picked.length < input.files.length) {
+        // Same as a drop: skip what doesn't belong and upload the rest.
         setUploadError("Only photos and videos can go in this album.");
-        return;
+        if (!picked.length) return;
       }
       const files = picked.filter((f) => f.size > 0);
+      // Only the picker skips empty files; a drop uploads them. Say what
+      // happened here, not a rule that the drop path breaks.
       if (!files.length) {
-        if (picked.length) setUploadError("Luna can't add empty files.");
+        if (picked.length) {
+          setUploadError(`Skipped ${picked.length} empty file${picked.length === 1 ? "" : "s"}. Nothing to upload.`);
+        }
         return;
       }
       if (files.length < picked.length) {
         const skipped = picked.length - files.length;
-        setUploadError(`Skipped ${skipped} empty file${skipped === 1 ? "" : "s"} — Luna can't add empty files.`);
+        setUploadError(`Skipped ${skipped} empty file${skipped === 1 ? "" : "s"}.`);
       }
       request = { files };
     }
@@ -268,7 +297,7 @@ function PublicShareSession() {
     return photo?.download || photo?.content || photo?.thumb || "";
   }
   function downloadSelected() {
-    for (const photo of /** @type {GalleryPhoto[]} */ (selection.selectedItems)) {
+    for (const photo of /** @type {PhotosPhoto[]} */ (selection.selectedItems)) {
       const href = albumDownloadSrc(photo);
       if (!href) continue;
       const a = document.createElement("a");

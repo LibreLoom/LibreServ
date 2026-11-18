@@ -11,6 +11,7 @@ import {
   base, clean, descendants, driveReady, driveUsable, driveRow, ensureDirs, fsOf, fsOpts, join, moveToTrash, nowS, parentOf,
   pathExists, recordMove, resolveMove, trashEntry, uniqueName, under,
 } from "../fsmodel.js";
+import { activeRun } from "./format.js";
 import { broadensAccess, cancelJob, enqueueJob, findJob, jobJson, tickJobs, visibleJobs } from "../jobs.js";
 import { extOf } from "../mimetypes.js";
 import { nextId } from "../world.js";
@@ -19,8 +20,10 @@ import { nextId } from "../world.js";
 export { addDir, addFile, addMany, demoTree, fsOf, fsOpts, fsRaw, viewerSamples, TRASH, BACKUPS } from "../fsmodel.js";
 
 // ── Messages (api/files.rs map_files_err and friends) ───────────────────────
-const UNKNOWN_DRIVE = "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.";
-export const MISSING_DRIVE_DB = "Luna's database for this drive is missing. The drive is still plugged in. On the Files page, remove this drive, then add it again. Your files stay on the drive, but items in its Trash won't show up after you add it again.";
+const UNKNOWN_DRIVE = "Luna can't find this drive. Make sure it is plugged in, or unplug it and plug it in again.";
+export const MISSING_DRIVE_DB = "Luna can't write its database to this drive, but your files are still on it. Free up space or check the drive's write-lock switch, then try again.";
+const DRIVE_LOCKED = "This drive is locked. Enter its password to open its files.";
+const DRIVE_ERASING = "Luna is erasing this drive right now. Try again when it finishes.";
 const notFound = () => fail(404, "Luna can't find that file or folder.", "not_found");
 const gone = () => fail(404, "This file doesn't exist anymore.", "not_found");
 const badPath = () => fail(400, "Luna can't open that path.");
@@ -28,6 +31,11 @@ const readOnlyDrive = () => fail(409, "This drive is read-only right now, so Lun
 
 /** files::drive_root. */
 export function needDrive(world, id) {
+  // A locked drive is there and healthy: 423, so the client asks for the password.
+  if (driveRow(world, id)?.locked) throw fail(423, DRIVE_LOCKED, "drive_locked");
+  // Being erased comes before "can't find": the drive is plugged in, and unplugging it now would harm it.
+  const device = driveRow(world, id)?.device;
+  if (device && activeRun(world, device)) throw fail(409, DRIVE_ERASING, "drive_erasing");
   if (!driveUsable(world, id)) throw fail(404, UNKNOWN_DRIVE, "unknown_drive");
   if (world.driveDbMissing?.includes(id)) throw fail(500, MISSING_DRIVE_DB, "missing_drive_db");
   return driveRow(world, id);
@@ -76,7 +84,7 @@ function entryOf(world, user, driveId, path, node, extra = {}) {
 
 // ── Trash gates (check_trash_list / check_trash_item) ───────────────────────
 function checkTrashList(world, user, driveId) {
-  if (!hasWriteOnDrive(world, user, driveId)) throw fail(403, "You don't have permission to view trash on this drive.");
+  if (!hasWriteOnDrive(world, user, driveId)) throw fail(403, "You don't have permission to open the trash on this drive.");
 }
 function checkTrashItem(world, user, driveId, path) {
   if (!path.startsWith(`${TRASH}/`)) throw fail(400, "Luna only works with files that are already in the trash.");
@@ -275,9 +283,9 @@ post("/api/v1/me/recents", ({ world, user, body }) => {
   const path = requestPath(body.path);
   if (!path) {
     if (!driveRow(world, driveId)) throw fail(404, "Luna can't find that drive.");
-    if (!hasDriveAccess(world, user, driveId)) throw fail(403, "Luna can't open that.");
+    if (!hasDriveAccess(world, user, driveId)) throw fail(403, "You don't have permission to open this.");
   } else if (!canInspectPath(world, user, driveId, path)) {
-    throw fail(403, "Luna can't open that.");
+    throw fail(403, "You don't have permission to open this.");
   }
   if (isTrashPath(path) || !driveId) return { ok: true };
   const kind = ["file", "folder", "drive"].includes(body.kind) ? body.kind : path ? "file" : "drive";
@@ -374,6 +382,28 @@ get("/api/v1/drives/:id/files/content", ({ world, user, params, query }) => {
   return raw(data, type, 200, query.download === "1" ? { "Content-Disposition": `attachment; filename="${base(rel)}"` } : {});
 });
 
+// ── Names the drive's format can't hold (files/fsrules.rs) ──────────────────
+/** exFAT and FAT drives refuse these characters; ext4 takes every one. */
+const FAT_LIKE = /^(exfat|vfat|fat|fat32|msdos|fuseblk)$/i;
+const RESERVED = /[:*?"<>|\\]/;
+const restricted = (world, driveId) => FAT_LIKE.test(driveRow(world, driveId)?.fs_type || "");
+/** NameProblem::code and message, as lunad's map_files_err sends them. */
+function nameProblem(world, driveId, name) {
+  if (!restricted(world, driveId)) return null;
+  const bad = RESERVED.exec(name);
+  if (bad) return fail(400, `Names on this drive can't contain "${bad[0]}". Remove it from "${name}" and try again.`, "bad_name");
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(name)) return fail(400, `Names on this drive can't contain hidden control characters. Rename "${name}" and try again.`, "bad_name");
+  if (/[. ]$/.test(name)) return fail(400, `Names on this drive can't end with a dot or a space. Remove it from "${name}" and try again.`, "bad_name");
+  return null;
+}
+/** A node that differs from `path` only in capitals, on a drive that ignores them. */
+function caseTwin(world, driveId, fs, path) {
+  if (!restricted(world, driveId)) return null;
+  const low = path.toLowerCase();
+  return Object.keys(fs.nodes).find((k) => k !== path && k.toLowerCase() === low) || null;
+}
+
 // ── Changes: create, mkdir, rename, delete ──────────────────────────────────
 function newItem(kind) {
   return ({ world, user, params, body }) => {
@@ -386,10 +416,12 @@ function newItem(kind) {
     needDrive(world, driveId);
     needWritable(world, driveId);
     const name = base(path);
+    const refused = nameProblem(world, driveId, name);
+    if (refused) throw refused;
     if (ILLEGAL.test(name) || name === TRASH) throw badPath();
     const fs = fsOf(world, driveId);
     if (folder && fs.nodes[folder]?.kind !== "dir") throw fail(404, "Luna can't find the parent folder. Open it and try again.");
-    if (fs.nodes[path]) throw fail(409, kind === "dir" ? "A folder with this name is already here. Choose another name." : "A file with this name is already here. Choose another name.");
+    if (fs.nodes[path] || caseTwin(world, driveId, fs, path)) throw fail(409, "A file or folder with this name is already here. Choose another name.");
     fs.nodes[path] = { kind, ...(kind === "file" ? { size: 0, text: "" } : {}), modified: nowS(), ...(kind === "dir" && body.private ? { private: true, owner: user.id } : {}) };
     if (fs.nodes[folder]) fs.nodes[folder].modified = nowS();
     return { ok: true, path };
@@ -403,6 +435,8 @@ post("/api/v1/drives/:id/files/rename", ({ world, user, params, body }) => {
   const path = requestPath(body.path);
   checkAccess(world, user, driveId, path, CAP_EDIT);
   needDrive(world, driveId);
+  const refused = nameProblem(world, driveId, String(body.new_name ?? "").trim());
+  if (refused) throw refused;
   const newName = safeName(body.new_name);
   if (ILLEGAL.test(newName)) throw badPath();
   needWritable(world, driveId);
@@ -411,7 +445,9 @@ post("/api/v1/drives/:id/files/rename", ({ world, user, params, body }) => {
   if (!fs.nodes[path]) throw notFound();
   const to = join(parentOf(path), newName);
   if (to === path) return { ok: true };
-  if (fs.nodes[to]) throw fail(409, "A file with this name is already here. Choose another name.");
+  // A capitals-only rename is the same entry, so it is allowed; any other case twin is taken.
+  const twin = caseTwin(world, driveId, fs, to);
+  if (fs.nodes[to] || (twin && twin !== path)) throw fail(409, "A file or folder with this name is already here. Choose another name.");
   for (const k of descendants(fs, path)) {
     fs.nodes[k === path ? to : to + k.slice(path.length)] = fs.nodes[k];
     delete fs.nodes[k];
@@ -445,13 +481,13 @@ post("/api/v1/drives/:id/files/restore", ({ world, user, params, body }) => {
   const { entry, sub } = trashEntry(fs, path);
   if (!entry) throw notFound();
   // Only whole top-level entries restore.
-  if (sub) throw fail(400, "Luna can only put files back from the trash on this drive.");
-  if (isTrashPath(dest) || !dest) throw fail(400, "Luna can only put files back from the trash on this drive.");
+  if (sub) throw fail(400, "Luna can restore only a whole item from the trash, to a folder outside the trash.");
+  if (isTrashPath(dest) || !dest) throw fail(400, "Luna can restore only a whole item from the trash, to a folder outside the trash.");
   if (!body.confirm_broaden && broadensAccess(world, driveId, path, driveId, parentOf(dest))) {
     throw fail(409, "Restoring here lets everyone with access to this folder open it.", "broadens_access");
   }
   needWritable(world, driveId);
-  if (fs.nodes[dest]) throw fail(409, "A file with this name is already there. Choose another name.");
+  if (fs.nodes[dest]) throw fail(409, "A file or folder with this name is already there. Choose another name.");
   // The folders the item came from may be gone by now: make them again.
   ensureDirs(fs, parentOf(dest));
   for (const [rel, n] of Object.entries(entry.nodes)) fs.nodes[rel ? join(dest, rel) : dest] = n;
@@ -487,7 +523,7 @@ post("/api/v1/drives/:id/files/purge", ({ world, user, params, body }) => {
 // ── Uploads in one request (multipart) ──────────────────────────────────────
 /** api/uploads.rs name_clash: a taken name needs a decision. */
 function nameClash(kind) {
-  const message = kind === "dir" ? "A folder with this name is already here. Choose another name." : "A file with this name is already here. Rename it or choose another.";
+  const message = kind === "dir" ? "A folder with this name is already here. Choose another name." : kind ? "A file with this name is already here. Rename it or choose another." : "A file or folder with this name is already here. Choose another name.";
   return fail(409, message, "exists", kind ? { existing_kind: kind } : {});
 }
 const kindOf = (node) => (node.kind === "dir" ? "dir" : "file");
@@ -500,10 +536,10 @@ const TEXT_FILE = /\.(txt|md|markdown|json|csv|log|ya?ml|html?|css|js|xml)$/i;
 /** Drive-level failures a write meets once the drive is chosen (plain_upload_error). */
 function saveBlockers(world, driveId, bytes) {
   if (driveRow(world, driveId)?.state === "readonly") {
-    throw fail(500, "Luna couldn't save this file. This drive is read-only, so Luna can't save to it.");
+    throw fail(500, "Luna couldn't save this file. This drive is read-only.");
   }
   const free = world.summaries[driveId]?.free_bytes;
-  if (free != null && bytes > free) throw fail(500, "Luna couldn't save this file. This drive is full. Free up space or choose another drive.");
+  if (free != null && bytes > free) throw fail(500, "Luna couldn't save this file. This drive is full, so free up space or choose another drive.");
 }
 
 post("/api/v1/drives/:id/files/upload", async ({ world, user, params, query, body, checkAbort }) => {
@@ -512,6 +548,8 @@ post("/api/v1/drives/:id/files/upload", async ({ world, user, params, query, bod
   checkAccess(world, user, driveId, folder, CAP_UPLOAD);
   const file = body.file;
   if (!file || typeof file === "string") throw fail(400, "Choose a file to upload first.");
+  const refused = nameProblem(world, driveId, String(file.name || "file").trim());
+  if (refused) throw refused;
   const name = (() => { try { return safeName(file.name || "file"); } catch { throw fail(400, SAVE_FAIL); } })();
   if (ILLEGAL.test(name)) throw fail(400, SAVE_FAIL);
   needDrive(world, driveId);
@@ -544,7 +582,7 @@ const NO_SAVE = "You don't have permission to save here.";
 
 function uploadOf(world, user, id) {
   const u = world.uploads?.[id];
-  if (!u) throw fail(404, "Luna doesn't know this upload.");
+  if (!u) throw fail(404, "Luna can't find this upload. Upload the file again.");
   if (!isAdmin(user) && u.principal !== `user:${user.id}`) throw fail(403, "That upload belongs to someone else.");
   if (!hasCap(world, user, u.drive_id, u.path, CAP_UPLOAD)) throw fail(403, NO_SAVE);
   return u;
@@ -556,13 +594,15 @@ post("/api/v1/uploads", ({ world, user, body }) => {
   if (!hasCap(world, user, driveId, folder, CAP_UPLOAD)) throw fail(403, NO_SAVE);
   if (Number(body.size) > MAX_FILE_BYTES) throw fail(400, "Luna can't accept files larger than 1 TB.");
   needDrive(world, driveId);
+  const refused = nameProblem(world, driveId, String(body.name ?? "").trim());
+  if (refused) throw refused;
   let name;
   try { name = safeName(body.name); } catch { throw fail(500, "Luna couldn't finish this upload. Check the drive and try again."); }
   // Look before taking the bytes: a taken name needs a decision, and a drive with too little room says so now.
   const taken = fsOf(world, driveId).nodes[join(folder, name)];
   if (taken && !body.on_conflict) throw nameClash(kindOf(taken));
   const free = world.summaries[driveId]?.free_bytes;
-  if (free != null && free < (Number(body.size) || 0)) throw fail(507, "This drive is full. Free up some space and try again.");
+  if (free != null && free < (Number(body.size) || 0)) throw fail(507, "This file is larger than the free space on this drive. Free up some space and try again.");
   const id = nextId("up");
   world.uploads ??= {};
   world.uploads[id] = { id, drive_id: driveId, path: folder, name, size: Number(body.size) || 0, received: 0, principal: `user:${user.id}`, on_conflict: body.on_conflict || "" };
@@ -628,6 +668,23 @@ del("/api/v1/jobs/:id", ({ world, user, params }) => {
 });
 
 // ── Search (api/search.rs) ──────────────────────────────────────────────────
+/** About a dozen words around the first match, as lunad's snippet runs. */
+function fakeSnippet(text, words) {
+  const flat = text.replace(/\s+/g, " ").trim();
+  const lower = flat.toLowerCase();
+  const at = Math.max(0, lower.indexOf(words[0]));
+  const start = Math.max(0, flat.lastIndexOf(" ", Math.max(0, at - 40)));
+  const end = Math.min(flat.length, at + 80);
+  const piece = (start > 0 ? "…" : "") + flat.slice(start, end).trim() + (end < flat.length ? "…" : "");
+  const parts = [];
+  const re = new RegExp(`(${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
+  for (const bit of piece.split(re)) {
+    if (!bit) continue;
+    parts.push({ text: bit, hit: words.includes(bit.toLowerCase()) });
+  }
+  return parts;
+}
+
 get("/api/v1/search", async ({ world, user, query }) => {
   const o = fsOpts(world).search;
   if (o.delayMs) await new Promise((r) => setTimeout(r, o.delayMs));
@@ -636,6 +693,7 @@ get("/api/v1/search", async ({ world, user, query }) => {
   if (q.trim().length < 2) throw fail(400, "Type at least 2 letters to search.");
   const words = q.split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 2);
   const hits = [];
+  const contentHits = [];
   for (const driveId of Object.keys(world.fs || {})) {
     if (!driveReady(world, driveId)) continue;
     for (const [p, n] of Object.entries(world.fs[driveId].nodes)) {
@@ -643,15 +701,25 @@ get("/api/v1/search", async ({ world, user, query }) => {
       if (query.kind === "file" && n.kind === "dir") continue;
       if (!hasCap(world, user, driveId, p, CAP_VIEW)) continue;
       const name = base(p).toLowerCase();
-      if (!words.every((w) => name.includes(w))) continue;
       const priv = privateBoundary(world, driveId, p);
-      hits.push({ drive_id: driveId, path: p, parent: parentOf(p), name: base(p), kind: n.kind, size: n.size || 0, modified: n.modified, match: "name", ...(priv ? { private: true } : {}) });
+      const row = { drive_id: driveId, path: p, parent: parentOf(p), name: base(p), kind: n.kind, size: n.size || 0, modified: n.modified, snippet: null, ...(priv ? { private: true } : {}) };
+      if (words.every((w) => name.includes(w))) {
+        hits.push({ ...row, match: "name" });
+        continue;
+      }
+      // Words inside the file (lunad: content_fts). Snippets come only after the access check above.
+      const text = n.kind === "dir" ? "" : String(n.text || "");
+      if (text && words.every((w) => text.toLowerCase().includes(w))) {
+        contentHits.push({ ...row, match: "content", snippet: fakeSnippet(text, words) });
+      }
     }
   }
+  hits.push(...contentHits);
   const limit = o.limit ?? 100;
-  return { hits: hits.slice(0, limit), close_only: false, truncated: hits.length > limit, incomplete: false, scan: o.scanning ? { scanning: true, drives_total: 2, drives_done: 1, dirs_indexed: 1200 } : { scanning: false, drives_total: 1, drives_done: 1, dirs_indexed: 100 } };
+  const contents = o.contentsLeft ? { contents_reading: true, contents_left: o.contentsLeft } : { contents_reading: false, contents_left: 0 };
+  return { hits: hits.slice(0, limit), close_only: false, truncated: hits.length > limit, incomplete: false, scan: o.scanning ? { scanning: true, drives_total: 2, drives_done: 1, dirs_indexed: 1200, ...contents } : { scanning: false, drives_total: 1, drives_done: 1, dirs_indexed: 100, ...contents } };
 });
 
 // ── Office editors: the fake has no document server ─────────────────────────
-post("/api/v1/office/session", () => fail(503, "The document editor isn't available in this preview. Open it on a real Luna.", "office_unavailable"));
+post("/api/v1/office/session", () => fail(503, "The fake Luna can't run the document editor. Open this file on a real Luna to edit it.", "office_unavailable"));
 

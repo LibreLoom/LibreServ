@@ -1,0 +1,160 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import PhotosFilterSheet, {
+  EMPTY_FILTERS,
+  clearFilterChip,
+  countActiveFilters,
+  datePresetRange,
+  filterChipList,
+  monthDayLabel,
+} from "./PhotosFilterSheet.jsx";
+
+vi.mock("../../lib/api", () => ({
+  getJson: vi.fn(async (url) => {
+    if (String(url).includes("/cameras")) {
+      return { cameras: [{ make: "Canon", model: "EOS", count: 3 }] };
+    }
+    if (String(url).includes("/filter-facets")) {
+      const err = /** @type {Error & { status?: number }} */ (new Error("not found"));
+      err.status = 404;
+      throw err;
+    }
+    return {};
+  }),
+}));
+
+// Leaflet needs a real layout size; stub the map for section render tests.
+vi.mock("./GeozoneMap.jsx", () => ({
+  default: function MockGeozoneMap() {
+    return <div data-testid="geozone-map">Drag on the map to choose an area.</div>;
+  },
+}));
+
+describe("datePresetRange", () => {
+  it("returns last-7 / this-month / this-year ranges", () => {
+    const last7 = datePresetRange("last7");
+    expect(last7.from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(last7.to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(datePresetRange("thisMonth").from.endsWith("-01")).toBe(true);
+    expect(datePresetRange("thisYear").from.endsWith("-01-01")).toBe(true);
+  });
+});
+
+describe("PhotosFilterSheet", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("renders filter sections", async () => {
+    render(
+      <PhotosFilterSheet
+        open
+        value={{ ...EMPTY_FILTERS }}
+        onClose={vi.fn()}
+        onApply={vi.fn()}
+        onOpenDates={vi.fn()}
+      />,
+    );
+    expect(await screen.findByRole("heading", { name: /^When$/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^Where$/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^Camera$/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^Look$/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^Time of day$/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^Saved filters$/i })).toBeInTheDocument();
+    expect(screen.getByTestId("geozone-map")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Apply$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Clear all/i })).toBeInTheDocument();
+  });
+
+  it("offers When quick presets including Undated", async () => {
+    render(
+      <PhotosFilterSheet
+        open
+        value={{ ...EMPTY_FILTERS }}
+        onClose={vi.fn()}
+        onApply={vi.fn()}
+      />,
+    );
+    expect(await screen.findByRole("button", { name: /Last 7 days/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /This month/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /This year/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Undated$/i })).toBeInTheDocument();
+  });
+
+  it("offers album membership filters in Look", async () => {
+    render(
+      <PhotosFilterSheet
+        open
+        value={{ ...EMPTY_FILTERS }}
+        onClose={vi.fn()}
+        onApply={vi.fn()}
+      />,
+    );
+    expect(await screen.findByText(/Album membership/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^In an album$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Not in an album$/i })).toBeInTheDocument();
+  });
+
+  it("names each section by its heading and reports chip state with aria-pressed", async () => {
+    render(
+      <PhotosFilterSheet
+        open
+        value={{ ...EMPTY_FILTERS }}
+        onClose={vi.fn()}
+        onApply={vi.fn()}
+      />,
+    );
+    await screen.findByRole("heading", { name: /^When$/i });
+    for (const name of ["When", "Where", "Look"]) {
+      expect(screen.getByRole("region", { name })).toBeInTheDocument();
+    }
+    const photos = screen.getByRole("button", { name: /^Photos$/i });
+    expect(photos).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(photos);
+    expect(screen.getByRole("button", { name: /^Photos$/i })).toHaveAttribute("aria-pressed", "true");
+    const undated = screen.getByRole("button", { name: /^Undated$/i });
+    expect(undated).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(undated);
+    expect(screen.getByRole("button", { name: /^Undated$/i })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("toggles the On this day filter from the When section", async () => {
+    const onApply = vi.fn();
+    render(
+      <PhotosFilterSheet
+        open
+        value={{ ...EMPTY_FILTERS }}
+        onClose={vi.fn()}
+        onApply={onApply}
+      />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /^On this day$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Apply$/i }));
+    expect(onApply.mock.calls[0][0].monthDay).toBe("today");
+  });
+
+  it("counts, labels, and clears the monthDay filter like any other", () => {
+    const f = { ...EMPTY_FILTERS, monthDay: "today" };
+    expect(countActiveFilters(f)).toBe(1);
+    expect(filterChipList(f)).toEqual([{ id: "monthDay", label: "On this day" }]);
+    expect(clearFilterChip(f, "monthDay").monthDay).toBe("");
+    expect(monthDayLabel("today")).toBe("On this day");
+    expect(monthDayLabel("03-14")).toMatch(/^Every /);
+  });
+
+  it("applies Undated preset into onApply payload", async () => {
+    const onApply = vi.fn();
+    render(
+      <PhotosFilterSheet
+        open
+        value={{ ...EMPTY_FILTERS }}
+        onClose={vi.fn()}
+        onApply={onApply}
+      />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /^Undated$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Apply$/i }));
+    expect(onApply).toHaveBeenCalled();
+    expect(onApply.mock.calls[0][0].undated).toBe(true);
+  });
+});

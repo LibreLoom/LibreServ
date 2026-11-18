@@ -90,7 +90,7 @@ export function MovingNote({ moving, resealing = false, className = "", member =
     <div className={`space-y-2 text-sm ${className}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <p>{line}</p>
-        {eta ? <p className="text-xs text-primary">{eta}</p> : null}
+        {eta ? <p className="text-xs">{eta}</p> : null}
       </div>
       {pct != null ? (
         // color-scan: ignore-next-line overlay tint over theme variables only
@@ -101,13 +101,13 @@ export function MovingNote({ moving, resealing = false, className = "", member =
         <LinearProgress active label="Updating cloud backups" />
       )}
       {pct != null && !eta && (
-        <p className="text-xs text-primary">This runs in the background; you can close this page.</p>
+        <p className="text-xs">This runs in the background. You can close this page.</p>
       )}
       {moving?.paused_full && (
         <p>
           {member
-            ? "Connect storage is full, so the update is paused. Nothing old was deleted. An Admin can free up space or add storage."
-            : "Connect storage is full, so the update is paused. Nothing old was deleted. Free up space or add storage on Luna Connect to continue."}
+            ? "Connect storage is full, so the update is paused and nothing old was deleted. An Admin can free up space or add storage."
+            : "Connect storage is full, so the update is paused and nothing old was deleted. Free up space or add storage on Luna Connect to continue."}
         </p>
       )}
     </div>
@@ -207,7 +207,11 @@ export default function RecoveryPhraseCard() {
   const retireOlder = useMutation({
     mutationFn: () => deleteJson("/api/v1/private-backups/older-versions"),
     onSuccess: () => {
-      addToast({ type: "success", message: "Older private versions deleted." });
+      addToast({
+        type: "success",
+        message: "Older private versions will be deleted.",
+        description: "Luna deletes them from the cloud at its next cloud backup, usually within 6 hours.",
+      });
       queryClient.invalidateQueries({ queryKey: PHRASE_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
       closeReplace();
@@ -221,7 +225,11 @@ export default function RecoveryPhraseCard() {
     onSuccess: () => {
       setConfirmingDelete(false);
       setDeleteError("");
-      addToast({ type: "success", message: "Backups made with your old phrase were deleted." });
+      addToast({
+        type: "success",
+        message: "Backups made with your old phrase will be deleted.",
+        description: "Luna deletes them from the cloud at its next cloud backup, usually within 6 hours.",
+      });
       queryClient.invalidateQueries({ queryKey: PHRASE_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
     },
@@ -300,9 +308,9 @@ export default function RecoveryPhraseCard() {
 
   let body;
   if (status.isPending) {
-    body = <p className="px-4 py-3 text-primary text-sm">Checking your recovery phrase…</p>;
+    body = <p className="px-4 py-3 text-primary text-sm">Loading your recovery phrase details…</p>;
   } else if (status.isError) {
-    body = <p className="px-4 py-3 text-primary text-sm">Could not load your recovery phrase. Try again later.</p>;
+    body = <p className="px-4 py-3 text-primary text-sm">Could not load your recovery phrase details. Try again later.</p>;
   } else if (!isSet) {
     // A phrase is only needed for cloud backups, so this is the ordinary state until someone
     // sets one up. Nothing blocks the app on it.
@@ -369,7 +377,7 @@ export default function RecoveryPhraseCard() {
         <div className="px-4 py-3">
           <CollapsibleSection title="Lost your recovery phrase?" mono pill surface="secondary">
             <p className="mb-3 text-primary text-sm">
-              Get a new phrase without the old one. Private items backed up with the old phrase can't be opened anymore. Your shared cloud backups stay open to you.
+              Get a new phrase without the old one. The new phrase opens your shared cloud backups, but not private items backed up with the old phrase.
             </p>
             <Button variant="accent" size="sm" disabled={!userId || !lunaId} onClick={() => setDialog({ kind: "lost" })}>
               Get a new phrase

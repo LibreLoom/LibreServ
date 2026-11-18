@@ -3,6 +3,8 @@ package providers
 import (
 	"fmt"
 	"net/http"
+	"strings"
+	"time"
 )
 
 // Tunnel is the Cloudflare tunnel surface Name/Unregister use.
@@ -10,6 +12,14 @@ type Tunnel interface {
 	CreateTunnel(accountID, apiToken, name string) (*TunnelCredentials, error)
 	ConfigureIngress(accountID, apiToken, tunnelID, hostname, serviceURL string) error
 	DeleteTunnel(accountID, apiToken, tunnelID string) error
+	ListTunnels(accountID, apiToken string) ([]TunnelInfo, error)
+}
+
+// TunnelInfo is one tunnel as Cloudflare lists it.
+type TunnelInfo struct {
+	ID        string
+	Name      string
+	CreatedAt time.Time
 }
 
 type TunnelClient struct {
@@ -113,11 +123,53 @@ func (c *TunnelClient) ConfigureIngress(accountID, apiToken, tunnelID, hostname,
 	return doJSON(c.HTTP, http.MethodPut, url, headers, body, nil)
 }
 
+// DeleteTunnel removes a tunnel. Cloudflare refuses to delete one that still has connected
+// connectors, so those are cleared first. A tunnel that is already gone counts as deleted.
 func (c *TunnelClient) DeleteTunnel(accountID, apiToken, tunnelID string) error {
 	if c.MockMode || tunnelID == "" {
 		return nil
 	}
-	url := fmt.Sprintf("%s/accounts/%s/cfd_tunnel/%s", c.api(), accountID, tunnelID)
+	base := fmt.Sprintf("%s/accounts/%s/cfd_tunnel/%s", c.api(), accountID, tunnelID)
 	headers := map[string]string{"Authorization": "Bearer " + apiToken}
-	return doJSON(c.HTTP, http.MethodDelete, url, headers, nil, nil)
+	_ = doJSON(c.HTTP, http.MethodDelete, base+"/connections", headers, nil, nil)
+	if err := doJSON(c.HTTP, http.MethodDelete, base, headers, nil, nil); err != nil {
+		if strings.Contains(err.Error(), "status 404") {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+// ListTunnels returns every tunnel in the account that is not deleted.
+func (c *TunnelClient) ListTunnels(accountID, apiToken string) ([]TunnelInfo, error) {
+	if c.MockMode {
+		return nil, nil
+	}
+	headers := map[string]string{"Authorization": "Bearer " + apiToken}
+	var out []TunnelInfo
+	for page := 1; page <= 20; page++ {
+		url := fmt.Sprintf("%s/accounts/%s/cfd_tunnel?is_deleted=false&per_page=100&page=%d", c.api(), accountID, page)
+		var resp struct {
+			Result []struct {
+				ID        string `json:"id"`
+				Name      string `json:"name"`
+				CreatedAt string `json:"created_at"`
+			} `json:"result"`
+			ResultInfo struct {
+				TotalPages int `json:"total_pages"`
+			} `json:"result_info"`
+		}
+		if err := doJSON(c.HTTP, http.MethodGet, url, headers, nil, &resp); err != nil {
+			return nil, err
+		}
+		for _, t := range resp.Result {
+			created, _ := time.Parse(time.RFC3339Nano, t.CreatedAt)
+			out = append(out, TunnelInfo{ID: t.ID, Name: t.Name, CreatedAt: created})
+		}
+		if page >= resp.ResultInfo.TotalPages {
+			break
+		}
+	}
+	return out, nil
 }

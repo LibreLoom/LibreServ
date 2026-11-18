@@ -49,7 +49,7 @@ describe("SharedAlbumsCard", () => {
 
       expect(screen.getByText("Albums shared with you")).toBeInTheDocument();
       expect(screen.getByText("Summer trip")).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "View album" })).toHaveAttribute("href", "/gallery#albums/d1/al1");
+      expect(screen.getByRole("link", { name: "View album" })).toHaveAttribute("href", "/photos#albums/d1/al1");
       expect(screen.queryByRole("link", { name: "See all albums" })).not.toBeInTheDocument();
     });
 
@@ -60,7 +60,7 @@ describe("SharedAlbumsCard", () => {
 
       expect(screen.getByRole("link", { name: "View album" })).toHaveAttribute(
         "href",
-        "/gallery#albums/d%201/al%2F1",
+        "/photos#albums/d%201/al%2F1",
       );
     });
   });
@@ -86,7 +86,7 @@ describe("SharedAlbumsCard", () => {
       expect(screen.getByText("Album 1")).toBeInTheDocument();
       expect(screen.getByText("Album 8")).toBeInTheDocument();
       expect(screen.queryByText("Album 9")).not.toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "See all albums" })).toHaveAttribute("href", "/gallery#albums");
+      expect(screen.getByRole("link", { name: "See all albums" })).toHaveAttribute("href", "/photos#albums");
     });
 
     it("keeps the first eight in order for a long list", () => {

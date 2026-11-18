@@ -14,13 +14,27 @@ object BackupPrefs {
      * encrypted at rest (Android Keystore-backed). If encryption is
      * unavailable we fail closed — never fall back to a plaintext file.
      */
-    private fun prefs(context: Context): SharedPreferences? = storeFactory(context)
+    private fun prefs(context: Context): SharedPreferences? {
+        cached?.let { return it }
+        return synchronized(this) {
+            // Opening the encrypted store loads a Keystore key and is slow, so
+            // do it once. The screens read settings every second.
+            cached ?: storeFactory(context.applicationContext)?.also { cached = it }
+        }
+    }
+
+    @Volatile
+    private var cached: SharedPreferences? = null
 
     /**
      * Where the values live. Production uses the encrypted store; unit tests
      * swap in a plain one (there is no Keystore on the JVM).
      */
     internal var storeFactory: (Context) -> SharedPreferences? = { encryptedPrefs(it) }
+        set(value) {
+            field = value
+            cached = null
+        }
 
     private fun encryptedPrefs(context: Context): SharedPreferences? {
         return try {
@@ -56,7 +70,12 @@ object BackupPrefs {
         prefs(context)?.getBoolean("backup_enabled", true) ?: true
     fun askedBattery(context: Context): Boolean =
         prefs(context)?.getBoolean("asked_battery", false) ?: false
-    fun lastBackupAt(context: Context): Long = prefs(context)?.getLong("last_backup_at", 0L) ?: 0L
+    fun askedMediaExtras(context: Context): Boolean =
+        prefs(context)?.getBoolean("asked_media_extras", false) ?: false
+    fun setAskedMediaExtras(context: Context, asked: Boolean) {
+        prefs(context)?.edit()?.putBoolean("asked_media_extras", asked)?.apply()
+    }
+    fun lastBackupAt(context: Context): Long = prefs(context)?.getLong("last_upload_completed_at", 0L) ?: 0L
 
     fun signedIn(context: Context): Boolean = !token(context).isNullOrBlank()
 
@@ -119,9 +138,38 @@ object BackupPrefs {
 
     fun clearSession(context: Context) {
         prefs(context)?.edit()?.clear()?.apply()
+        uploadedLog(context).clear()
+    }
+
+    /**
+     * Which photos and videos already reached each destination. The entries are
+     * MediaStore ids, sizes and dates, nothing secret, so they live in a plain
+     * append-only file in app storage. In the encrypted prefs every lookup cost a
+     * decryption and every save rewrote the whole growing store.
+     */
+    internal var uploadedFile: (Context) -> java.io.File = {
+        java.io.File(it.applicationContext.filesDir, "uploaded-items.txt")
+    }
+
+    private fun uploadedLog(context: Context) = UploadedLog(uploadedFile(context))
+
+    /** Items already uploaded to [destination]; load once per run, then check in memory. */
+    fun uploadedItems(context: Context, destination: String): MutableSet<String> =
+        uploadedLog(context).items(destination)
+
+    fun uploaded(context: Context, destination: String, item: String): Boolean =
+        item in uploadedItems(context, destination)
+
+    fun markUploaded(context: Context, destination: String, item: String) {
+        try {
+            uploadedLog(context).add(destination, item)
+        } catch (_: java.io.IOException) {
+            throw IllegalStateException("This phone couldn't save upload progress. Try again.")
+        }
+        prefs(context)?.edit()?.putLong("last_upload_completed_at", System.currentTimeMillis())?.apply()
     }
 
     fun markBackedUp(context: Context, time: Long) {
-        prefs(context)?.edit()?.putLong("last_backup_at", time)?.apply()
+        prefs(context)?.edit()?.putLong("last_upload_completed_at", time)?.apply()
     }
 }

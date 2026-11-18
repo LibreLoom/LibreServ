@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
-import { HardDrive, Trash2 } from "lucide-react";
+import { HardDrive, Lock, Trash2 } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
@@ -13,14 +13,16 @@ import { FileSearchButton } from "../components/files/FileSearch";
 import DriveFileExplorer from "../components/files/DriveFileExplorer";
 import DriveMenu from "../components/files/DriveMenu";
 import useDriveMove from "../hooks/useDriveMove";
-import { getDrives, getJson } from "../lib/api";
+import { apiErrorMessage, getDrives, getJson } from "../lib/api";
 import { folderHref, isTrashPath, pathBasename, TRASH_PATH, trashDisplayName } from "../lib/paths";
 import useFileNavigation from "../hooks/useFileNavigation.js";
 import useMovedLinkForwarding from "../hooks/useMovedLinkForwarding.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 import { useAuth } from "../context/AuthContext";
 import { CAP, hasCapOnDrive, memberWritableRoots } from "../lib/shareTree.js";
-import { isPresentDrive, isUnopenable } from "../lib/drives.js";
+import { isLocked, isPresentDrive, isUnopenable } from "../lib/drives.js";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import UnlockPrompt from "../components/drives/UnlockPrompt.jsx";
 
 export default function FilePage() {
   const { id } = useParams();
@@ -53,7 +55,8 @@ export default function FilePage() {
   const moveFilesMutation = useDriveMove({ driveId: id, driveLabel: drive?.label });
 
   const unopenable = drive != null && isUnopenable(drive);
-  const browsable = drive != null && drive.state !== "missing" && !unopenable;
+  const locked = drive != null && isLocked(drive) && drive.state !== "missing" && drive.state !== "ejected";
+  const browsable = drive != null && drive.state !== "missing" && !unopenable && !locked;
   // Only an Admin sees a drive's health; a failing or worn drive still browses.
   const health = useDriveHealth(drive ?? { id: id ?? "" }, isAdmin && drive != null);
   const healthCopy = health.data ? describeDriveHealth(health.data) : null;
@@ -127,14 +130,28 @@ export default function FilePage() {
       ) : undefined}
       rightContent={<FileSearchButton />}
     >
-      {!drives.isLoading && !drive && (
+      {drives.isError && !drive && (
+        <EmptyState
+          className="mt-4"
+          icon={HardDrive}
+          title="Luna couldn't load your drives"
+          description={apiErrorMessage(drives.error, "Try again in a moment.")}
+          action={
+            <Button size="sm" variant="primary" loading={drives.isFetching} onClick={() => drives.refetch()}>
+              Try again
+            </Button>
+          }
+        />
+      )}
+
+      {drives.isSuccess && !drive && (
         <EmptyState
           className="mt-4"
           icon={HardDrive}
           title="Drive not found"
           description={
             isAdmin
-              ? "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
+              ? "Luna has no drive at this link. Someone may have removed it from Luna."
               : "Luna couldn't open this drive. Ask an Admin if you still need access."
           }
           action={
@@ -152,7 +169,7 @@ export default function FilePage() {
           title="Drive unplugged"
           description={
             isAdmin
-              ? "This drive is unplugged. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
+              ? "Plug it in to open its files. If it is already plugged in, unplug it and plug it in again."
               : "This drive is unplugged. Ask an Admin, or wait until it's plugged back in."
           }
           action={
@@ -161,6 +178,17 @@ export default function FilePage() {
             </Button>
           }
         />
+      )}
+
+      {drive && locked && (
+        <Card className="mt-4 max-w-lg" icon={Lock} title="This drive is locked">
+          <div className="space-y-3">
+            <p className="text-primary text-sm">
+              <InlinePill>{drive.label}</InlinePill> is protected with a password. Enter it to open its files.
+            </p>
+            <UnlockPrompt driveId={drive.id} />
+          </div>
+        </Card>
       )}
 
       {drive && unopenable && (
@@ -200,7 +228,7 @@ export default function FilePage() {
           className="mt-4"
           icon={Trash2}
           title="Trash isn't available here"
-          description="You need Write access somewhere on this drive to open trash."
+          description="You need Write access somewhere on this drive to open Trash."
           action={
             <Button size="sm" variant="primary" asChild>
               <Link to={folderHref(id, "")}>Back to files</Link>

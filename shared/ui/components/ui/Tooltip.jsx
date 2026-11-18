@@ -675,6 +675,10 @@ ActionTooltipGroup.propTypes = {
  * trigger (active hover on the given button) — never parent-row :hover or
  * CSS group-hover. Delayed opens re-check that the pointer is still inside.
  *
+ * Until the first hover or keyboard focus the trigger is a bare span: lists
+ * mount hundreds of these, and the popup's timers, guards and listeners
+ * (TooltipController) only mount once someone actually reaches for one.
+ *
  * @param {{
  *   content: import("react").ReactNode,
  *   children: import("react").ReactNode,
@@ -685,10 +689,230 @@ ActionTooltipGroup.propTypes = {
  * }} props
  */
 export function Tooltip({ content, children, surface: _surface = "secondary", delayMs, className = "", popupClassName = "" }) {
+  const triggerRef = useRef(/** @type {HTMLElement | null} */ (null));
+  /** @type {import("react").MutableRefObject<null | TooltipHandlers>} */
+  const handlersRef = useRef(null);
+  // What woke the controller, replayed once it mounts. Cleared when the
+  // pointer leaves (or focus goes) before that.
+  const wakeRef = useRef(/** @type {null | "pointer" | "focus"} */ (null));
+  const [live, setLive] = useState(false);
+
+  return (
+    <span
+      ref={triggerRef}
+      className={cn("relative inline-flex", className)}
+      data-slot="tooltip"
+      onPointerEnter={(event) => {
+        // Touch "hover" is just the start of a tap; the control's own click runs.
+        if (event.pointerType === "touch") return;
+        if (handlersRef.current) handlersRef.current.pointerEnter();
+        else {
+          wakeRef.current = "pointer";
+          setLive(true);
+        }
+      }}
+      onPointerLeave={(event) => {
+        if (event.pointerType === "touch") return;
+        if (handlersRef.current) handlersRef.current.pointerLeave();
+        else if (wakeRef.current === "pointer") wakeRef.current = null;
+      }}
+      onFocusCapture={() => {
+        if (handlersRef.current) {
+          handlersRef.current.focus();
+          return;
+        }
+        // Mouse or finger focus never opens a popup; hover and click own it.
+        if (wakeRef.current === "pointer" || !keyboardModality) return;
+        wakeRef.current = "focus";
+        setLive(true);
+      }}
+      onBlurCapture={(event) => {
+        if (handlersRef.current) handlersRef.current.blur(event);
+        else if (wakeRef.current === "focus") wakeRef.current = null;
+      }}
+      onClick={() => handlersRef.current?.click()}
+    >
+      {children}
+      {live ? (
+        <TooltipController
+          content={content}
+          delayMs={delayMs}
+          popupClassName={popupClassName}
+          triggerRef={triggerRef}
+          handlersRef={handlersRef}
+          wakeRef={wakeRef}
+        />
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * One tooltip for a group of controls, instead of a Tooltip around each.
+ * Every descendant with a `data-tooltip` attribute gets that text as its
+ * label, with the same rules as Tooltip: hover after a short delay (then
+ * siblings at once), keyboard focus, never mouse focus, dismissed on click
+ * and Escape. Nothing but this element's listeners mounts until someone
+ * reaches for a control, so long lists can give every row its icon buttons.
+ * Pair each control with an aria-label; the tooltip is only the visible label.
+ *
+ * @param {{
+ *   children: import("react").ReactNode,
+ *   delayMs?: number,
+ *   className?: string,
+ *   popupClassName?: string,
+ *   ref?: import("react").Ref<HTMLDivElement>,
+ *   [key: string]: any,
+ * }} props
+ */
+export function TooltipTargets({
+  children,
+  delayMs = 400,
+  className = "",
+  popupClassName = "",
+  ref = undefined,
+  onClick = undefined,
+  ...rest
+}) {
+  const hostRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  /** @param {HTMLDivElement | null} node */
+  const setHost = (node) => {
+    hostRef.current = node;
+    if (typeof ref === "function") ref(node);
+    else if (ref) ref.current = node;
+  };
+  const triggerRef = useRef(/** @type {HTMLElement | null} */ (null));
+  /** @type {import("react").MutableRefObject<null | TooltipHandlers>} */
+  const handlersRef = useRef(null);
+  const wakeRef = useRef(/** @type {null | "pointer" | "focus"} */ (null));
+  // The control the tooltip belongs to; a new one remounts the controller.
+  const [target, setTarget] = useState(/** @type {null | { n: number, content: string }} */ (null));
+  const seq = useRef(0);
+  const pointerInside = useRef(false);
+
+  /** @param {EventTarget | null} node */
+  const controlOf = (node) => {
+    const el = node instanceof Element ? node.closest("[data-tooltip]") : null;
+    return el instanceof HTMLElement && hostRef.current?.contains(el) ? el : null;
+  };
+  /** @param {HTMLElement} el @param {"pointer" | "focus"} how */
+  const wake = (el, how) => {
+    triggerRef.current = el;
+    // A Tab onto another control while the pointer rests elsewhere: the
+    // pointer is not on this one until it says so.
+    pointerInside.current = how === "pointer";
+    wakeRef.current = how;
+    seq.current += 1;
+    setTarget({ n: seq.current, content: el.getAttribute("data-tooltip") || "" });
+  };
+
+  return (
+    <div
+      {...rest}
+      ref={setHost}
+      className={className}
+      onPointerOver={(event) => {
+        // Touch "hover" is just the start of a tap; the control's own click runs.
+        if (event.pointerType === "touch") return;
+        const el = controlOf(event.target);
+        if (!el) return;
+        if (el === triggerRef.current) {
+          // Moving between the control's own children is not a new hover.
+          if (pointerInside.current) return;
+          pointerInside.current = true;
+          if (handlersRef.current) handlersRef.current.pointerEnter();
+          else wakeRef.current = "pointer";
+          return;
+        }
+        handlersRef.current?.pointerLeave();
+        wake(el, "pointer");
+      }}
+      onPointerOut={(event) => {
+        if (event.pointerType === "touch") return;
+        const el = controlOf(event.target);
+        if (!el || el !== triggerRef.current) return;
+        if (event.relatedTarget instanceof Node && el.contains(event.relatedTarget)) return;
+        pointerInside.current = false;
+        if (handlersRef.current) handlersRef.current.pointerLeave();
+        else if (wakeRef.current === "pointer") wakeRef.current = null;
+      }}
+      onFocus={(event) => {
+        const el = controlOf(event.target);
+        if (!el) return;
+        if (el === triggerRef.current && handlersRef.current) {
+          handlersRef.current.focus();
+          return;
+        }
+        // Mouse or finger focus never opens a popup; hover and click own it.
+        if (!keyboardModality) return;
+        wake(el, "focus");
+      }}
+      onBlur={(event) => {
+        const el = controlOf(event.target);
+        if (!el || el !== triggerRef.current) return;
+        if (handlersRef.current) handlersRef.current.blur(event);
+        else if (wakeRef.current === "focus") wakeRef.current = null;
+      }}
+      onClick={(event) => {
+        if (controlOf(event.target) === triggerRef.current) handlersRef.current?.click();
+        onClick?.(event);
+      }}
+    >
+      {children}
+      {target ? (
+        // The provider outlives each controller, so moving to a sibling
+        // opens its label at once, as in an ActionTooltipGroup.
+        <TooltipProvider delayMs={delayMs}>
+          <TooltipController
+            key={target.n}
+            content={target.content}
+            popupClassName={popupClassName}
+            triggerRef={triggerRef}
+            handlersRef={handlersRef}
+            wakeRef={wakeRef}
+          />
+        </TooltipProvider>
+      ) : null}
+    </div>
+  );
+}
+
+TooltipTargets.propTypes = {
+  children: PropTypes.node,
+  ref: PropTypes.oneOfType([PropTypes.func, PropTypes.shape({ current: PropTypes.any })]),
+  onClick: PropTypes.func,
+  delayMs: PropTypes.number,
+  className: PropTypes.string,
+  popupClassName: PropTypes.string,
+};
+
+/**
+ * @typedef {{
+ *   pointerEnter: () => void,
+ *   pointerLeave: () => void,
+ *   focus: () => void,
+ *   blur: (event: import("react").FocusEvent) => void,
+ *   click: () => void,
+ * }} TooltipHandlers
+ */
+
+/**
+ * The live half of Tooltip: open state, timers, the popup and its guards.
+ * Renders only the portaled popup; the trigger span stays in Tooltip.
+ *
+ * @param {{
+ *   content: import("react").ReactNode,
+ *   delayMs?: number,
+ *   popupClassName: string,
+ *   triggerRef: import("react").RefObject<HTMLElement | null>,
+ *   handlersRef: import("react").MutableRefObject<null | TooltipHandlers>,
+ *   wakeRef: import("react").MutableRefObject<null | "pointer" | "focus">,
+ * }} props
+ */
+function TooltipController({ content, delayMs, popupClassName, triggerRef, handlersRef, wakeRef }) {
   const group = useContext(TooltipGroupContext);
   const localId = useId();
   const tooltipId = useId();
-  const triggerRef = useRef(/** @type {HTMLElement | null} */ (null));
   const popupRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const openTimer = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
   const closeTimer = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
@@ -800,41 +1024,33 @@ export function Tooltip({ content, children, surface: _surface = "secondary", de
     [clearTimers, localId],
   );
 
-  const onPointerEnter = (event) => {
-    // Touch "hover" is just the start of a tap; the control's own click runs.
-    if (event.pointerType === "touch") return;
-    pointerInsideRef.current = true;
-    scheduleShow();
-  };
-
-  const onPointerLeave = (event) => {
-    if (event.pointerType === "touch") return;
-    pointerInsideRef.current = false;
-    scheduleHide();
-  };
-
-  return (
-    <span
-      ref={triggerRef}
-      className={cn("relative inline-flex", className)}
-      data-slot="tooltip"
-      onPointerEnter={onPointerEnter}
-      onPointerLeave={onPointerLeave}
-      onFocusCapture={() => {
+  // The trigger span forwards its events here; always the latest closures.
+  const ownHandlers = useRef(/** @type {null | TooltipHandlers} */ (null));
+  useLayoutEffect(() => {
+    handlersRef.current = ownHandlers.current = {
+      pointerEnter: () => {
+        pointerInsideRef.current = true;
+        scheduleShow();
+      },
+      pointerLeave: () => {
+        pointerInsideRef.current = false;
+        scheduleHide();
+      },
+      focus: () => {
         // Mouse focus (pointer inside) or finger/click focus: hover and click own it.
         if (pointerInsideRef.current || !keyboardModality) return;
         keyboardFocusRef.current = true;
         showNow();
-      }}
-      onBlurCapture={(event) => {
+      },
+      blur: (event) => {
         const next = event.relatedTarget;
         if (triggerRef.current?.contains(next) || popupRef.current?.contains(next)) return;
         keyboardFocusRef.current = false;
         // Stay armed while the pointer is still on this button.
         if (pointerInsideRef.current) return;
         hideNow();
-      }}
-      onClick={() => {
+      },
+      click: () => {
         // Dismiss on activate. If the pointer is still on this button, active
         // hover remains the source of truth — re-arm after hide so we do not
         // stay stuck closed until an artificial leave/enter. Opening a modal
@@ -842,38 +1058,51 @@ export function Tooltip({ content, children, surface: _surface = "secondary", de
         // the pending reopen via isActivelyArmed().
         hideNow();
         if (pointerInsideRef.current) scheduleShow();
+      },
+    };
+  });
+  // Only clear our own: under TooltipTargets the next trigger's controller
+  // mounts (and sets its handlers) before this cleanup runs.
+  useEffect(() => () => {
+    if (handlersRef.current === ownHandlers.current) handlersRef.current = null;
+  }, [handlersRef]);
+
+  // Replay what woke this controller (the hover or keyboard focus that the
+  // bare trigger saw before it mounted), unless it already ended.
+  useEffect(() => {
+    const wake = wakeRef.current;
+    wakeRef.current = null;
+    if (wake === "pointer") handlersRef.current?.pointerEnter();
+    else if (wake === "focus") handlersRef.current?.focus();
+  }, [handlersRef, wakeRef]);
+
+  if (!open) return null;
+  return createPortal(
+    <div
+      ref={popupRef}
+      id={tooltipId}
+      role="tooltip"
+      data-slot="tooltip-popup"
+      onPointerEnter={() => {
+        popupInsideRef.current = true;
+        showNow();
       }}
+      onPointerLeave={() => {
+        popupInsideRef.current = false;
+        scheduleHide();
+      }}
+      style={{ position: "fixed", top: position.top, left: position.left }}
+      className={cn(
+        POPUP_Z,
+        "surface-secondary ring-2 ring-inset ring-accent",
+        "max-w-xs rounded-large-element px-3 py-1.5 text-xs leading-snug pointer-events-auto",
+        "motion-safe:transition-opacity motion-safe:duration-150",
+        popupClassName,
+      )}
     >
-      {children}
-      {open &&
-        createPortal(
-          <div
-            ref={popupRef}
-            id={tooltipId}
-            role="tooltip"
-            data-slot="tooltip-popup"
-            onPointerEnter={() => {
-              popupInsideRef.current = true;
-              showNow();
-            }}
-            onPointerLeave={() => {
-              popupInsideRef.current = false;
-              scheduleHide();
-            }}
-            style={{ position: "fixed", top: position.top, left: position.left }}
-            className={cn(
-              POPUP_Z,
-              "surface-secondary ring-2 ring-inset ring-accent",
-              "max-w-xs rounded-large-element px-3 py-1.5 text-xs leading-snug pointer-events-auto",
-              "motion-safe:transition-opacity motion-safe:duration-150",
-              popupClassName,
-            )}
-          >
-            {content}
-          </div>,
-          document.body,
-        )}
-    </span>
+      {content}
+    </div>,
+    document.body,
   );
 }
 

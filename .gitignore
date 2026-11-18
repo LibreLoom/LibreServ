@@ -190,3 +190,6 @@ t3.json
 
 # Feed test fixtures are tiny fakes that must be committed (*.exe, *.tar.gz above)
 !/infra/feed-testdata/files/**
+
+# Security scan output (Strix)
+strix_runs/

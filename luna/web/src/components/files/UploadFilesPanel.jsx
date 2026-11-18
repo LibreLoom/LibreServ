@@ -154,7 +154,7 @@ export default function UploadFilesPanel({
               }
               // An empty folder (or one holding only empty folders) gives the
               // picker nothing to hand over. Say so instead of doing nothing.
-              setPickNotice("That folder has no files in it. The folder picker can't copy empty folders — drag the folder in instead.");
+              setPickNotice("That folder has no files in it. The folder picker can't copy empty folders. Drag the folder in instead.");
             }}
           />
         ) : null}

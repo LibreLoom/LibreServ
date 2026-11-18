@@ -44,6 +44,7 @@ import { haptic } from "../../utils/haptics.js";
  *   actionHaptic?: boolean,  // false when onAction opens something that buzzes itself
  *   actionIconOnly?: boolean,  // icon-only action: a square segment so the icon sits centered in the track's rounded end
  *   actionRef?: React.Ref<HTMLButtonElement>,
+ *   surface?: "primary" | "secondary",  // the BACKDROP it sits on; "secondary" (default) = a card, "primary" = the page or a card's panel — the layers invert so the track never melts into it
  *   mono?: boolean,
  *   title?: string,
  *   className?: string,
@@ -61,6 +62,7 @@ export default function LayeredPill({
   actionIconOnly = false,
   noWrap = false,
   actionRef,
+  surface = "secondary",
   mono = false,
   title,
   className,
@@ -71,8 +73,10 @@ export default function LayeredPill({
   const btnIcon = actionIcon
     ? cloneElement(actionIcon, { className: cn("shrink-0", actionIcon.props?.className) })
     : null;
+  const onPage = surface === "primary";
   const segmentBase = cn(
-    "flex items-center gap-1 whitespace-nowrap text-xs py-1 rounded-pill text-secondary",
+    "flex items-center gap-1 whitespace-nowrap text-xs py-1 rounded-pill",
+    onPage ? "text-primary" : "text-secondary",
     actionIconOnly ? "size-6 justify-center p-0" : "pl-2 pr-4",
     mono && "font-mono",
   );
@@ -80,14 +84,16 @@ export default function LayeredPill({
   const pill = (
     <div
       className={cn(
-        "inline-flex max-w-full items-center rounded-pill surface-primary text-xs p-1",
+        "inline-flex max-w-full items-center rounded-pill text-xs p-1",
+        onPage ? "surface-secondary" : "surface-primary",
         noWrap ? "flex-nowrap" : "flex-wrap",
         className,
       )}
     >
       <span
         className={cn(
-          "flex items-center gap-1.5 whitespace-nowrap surface-secondary rounded-pill py-1 px-3",
+          "flex items-center gap-1.5 whitespace-nowrap rounded-pill py-1 px-3",
+          onPage ? "surface-primary" : "surface-secondary",
           noWrap && "min-w-0",
           mono && "font-mono",
         )}
@@ -107,27 +113,41 @@ export default function LayeredPill({
           hasAction ? "grid-cols-[1fr] opacity-100" : "grid-cols-[0fr] opacity-0",
         )}
       >
-        <span className="min-w-0 overflow-hidden pl-1">
-          {onAction && hasAction ? (
-            <button
-              ref={actionRef}
-              type="button"
-              onClick={() => {
-                if (actionHaptic) haptic("light");
-                onAction();
-              }}
-              disabled={actionDisabled}
-              aria-label={actionAriaLabel}
-              className={cn(
-                segmentBase,
-                "cursor-pointer enabled:hover:ring-1 enabled:hover:ring-inset enabled:hover:ring-accent enabled:hover:underline underline-offset-2 motion-safe:transition-shadow disabled:opacity-50 disabled:cursor-not-allowed",
-              )}
-            >
-              {btnIcon} {actionLabel}
-            </button>
-          ) : (
-            <span className={segmentBase}>{btnIcon} {actionLabel}</span>
-          )}
+        {/* The gap before the segment lives on an inner wrapper: padding on the
+            collapsing item itself would stay 4px wide at 0fr. */}
+        <span className="min-w-0 overflow-hidden">
+          <span className="block pl-1">
+            {onAction && hasAction ? (
+              <button
+                ref={actionRef}
+                type="button"
+                onClick={() => {
+                  if (actionHaptic) haptic("light");
+                  onAction();
+                }}
+                disabled={actionDisabled}
+                aria-label={actionAriaLabel}
+                className={cn(
+                  segmentBase,
+                  "cursor-pointer motion-safe:transition-[background-color,color,box-shadow] disabled:opacity-50 disabled:cursor-not-allowed",
+                  actionIconOnly
+                    ? // An icon alone has no edge of its own, so it keeps a 1px outline,
+                      // and fills with the chip's color on hover (dots invert with it).
+                      cn(
+                        "ring-1 ring-inset ring-current",
+                        onPage
+                          ? "enabled:hover:bg-primary enabled:hover:text-secondary"
+                          : "enabled:hover:bg-secondary enabled:hover:text-primary",
+                      )
+                    : "enabled:hover:ring-1 enabled:hover:ring-inset enabled:hover:ring-accent enabled:hover:underline underline-offset-2",
+                )}
+              >
+                {btnIcon} {actionLabel}
+              </button>
+            ) : (
+              <span className={segmentBase}>{btnIcon} {actionLabel}</span>
+            )}
+          </span>
         </span>
       </span>
     </div>
@@ -152,6 +172,7 @@ LayeredPill.propTypes = {
   actionHaptic: PropTypes.bool,
   actionIconOnly: PropTypes.bool,
   noWrap: PropTypes.bool,
+  surface: PropTypes.oneOf(["primary", "secondary"]),
   actionRef: PropTypes.oneOfType([
     PropTypes.func,
     PropTypes.shape({ current: PropTypes.elementType }),

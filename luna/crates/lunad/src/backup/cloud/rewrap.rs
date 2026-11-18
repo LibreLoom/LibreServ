@@ -449,6 +449,20 @@ pub fn tick(db: &crate::Db, store: &dyn CloudStore, now: i64) -> Step {
 /// How many steps one trickle pass may take before it waits for the next pass.
 const STEPS_PER_PASS: usize = 4;
 
+/// A new key version was saved: the trickle loop, backing off while there is
+/// nothing to move, looks again now.
+static NUDGE: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// Wake the trickle loop (cheap; callers may hold the database lock).
+pub fn nudge() {
+    NUDGE.notify_one();
+}
+
+/// Resolves on the next [`nudge`], or at once if one came since the last wait.
+pub async fn nudged() {
+    NUDGE.notified().await;
+}
+
 /// What the daemon's background loop calls. With no store (Luna Connect is not active) nothing
 /// happens. Otherwise it takes up to a few steps, stopping early when nothing is left to do, the
 /// store is full, or every backup is busy. Blocking: call it from a blocking worker.
@@ -745,7 +759,7 @@ fn rewrite_one(
     let (identity, signer, old_key) = {
         let conn = run::lock(db);
         let identity = identity::load(&conn)?
-            .ok_or_else(|| anyhow!("Set up cloud backup on this Luna before running a backup."))?;
+            .ok_or_else(|| anyhow!("Luna's cloud identity is missing. Try again."))?;
         let seed: [u8; 32] = db::get_cloud_identity(&conn)?
             .ok_or_else(|| anyhow!("Luna's cloud identity is missing."))?
             .signing_seed
@@ -919,9 +933,11 @@ fn commit_rewrite(
             )
             .optional()?;
         match state.as_deref() {
-            None => bail!("Backup pack {pack} is missing from the database."),
+            None => bail!(
+                "Luna lost its record of part of this cloud backup, so this backup didn't finish."
+            ),
             Some("deleting") => {
-                bail!("Backup pack {pack} is being removed, so this backup cannot use it.")
+                bail!("Part of this cloud backup was being deleted, so this backup didn't finish.")
             }
             _ => {}
         }
@@ -1115,6 +1131,9 @@ mod tests {
     }
 
     fn setup(dir: &Path) -> crate::Db {
+        // Upload a pack per ~1 MiB so the 4 MiB fixture below spans several packs
+        // (production flushes at 8 MiB, which took 13 MiB of data per test).
+        run::PACK_FLUSH_OVERRIDE.with(|c| c.set(Some(1 << 20)));
         let conn = db::open(&dir.join("luna.db")).unwrap();
         db::insert_user(&conn, "owner", "owner", "Owner", "x", "admin").unwrap();
         identity::load_or_create(&conn, 1).unwrap();
@@ -1149,18 +1168,37 @@ mod tests {
         crate::Db::new(conn)
     }
 
+    /// Bytes that look random to the chunker but are the same every run (splitmix64
+    /// from a seed). Chunk cuts, and so how many packs a backup makes and which step
+    /// finishes a snapshot, must not change from run to run; with OS randomness a
+    /// 4 MiB fixture crossed a pack boundary about 1 run in 12.
+    fn seeded_vec(len: usize, seed: u64) -> Vec<u8> {
+        let mut state = seed;
+        let mut out = Vec::with_capacity(len + 8);
+        while out.len() < len {
+            state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            out.extend_from_slice(&(z ^ (z >> 31)).to_le_bytes());
+        }
+        out.truncate(len);
+        out
+    }
+
     fn random_vec(len: usize) -> Vec<u8> {
         let mut v = vec![0u8; len];
         OsRng.fill_bytes(&mut v);
         v
     }
 
-    /// Two files, the first large enough to fill more than one pack.
+    /// Two files, the first large enough to fill more than one pack (the tests
+    /// flush a pack per 1 MiB; see `setup`).
     fn source(dir: &Path) -> PathBuf {
         let src = dir.join("src");
         std::fs::create_dir_all(&src).unwrap();
-        std::fs::write(src.join("a.bin"), random_vec(10 << 20)).unwrap();
-        std::fs::write(src.join("b.bin"), random_vec(3 << 20)).unwrap();
+        std::fs::write(src.join("a.bin"), seeded_vec(3 << 20, 1)).unwrap();
+        std::fs::write(src.join("b.bin"), seeded_vec(1 << 20, 2)).unwrap();
         src
     }
 

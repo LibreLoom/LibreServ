@@ -16,7 +16,7 @@ import {
 
 const knownPages = [
   { to: "/files", label: "Files" },
-  { to: "/gallery", label: "Photos" },
+  { to: "/photos", label: "Photos" },
   { to: "/settings", label: "Settings" },
   { to: "/settings#users", label: "Users" },
   { to: "/login", label: "Login" },
@@ -91,9 +91,9 @@ describe("scoreKnownPages", () => {
   });
 
   it("flags a one-letter typo as a close match", () => {
-    // "galery" vs "gallery" — one deletion.
-    const matches = scoreKnownPages("/galery", knownPages);
-    expect(matches[0].to).toBe("/gallery");
+    // "phots" vs "photos" — one deletion.
+    const matches = scoreKnownPages("/phots", knownPages);
+    expect(matches[0].to).toBe("/photos");
     expect(matches[0].isClose).toBe(true);
     expect(matches[0].lettersOff).toBe(1);
   });
@@ -112,8 +112,8 @@ describe("scoreKnownPages", () => {
   });
 
   it("is deterministic across calls with the same input", () => {
-    const a = scoreKnownPages("/galery", knownPages).map((m) => m.to);
-    const b = scoreKnownPages("/galery", knownPages).map((m) => m.to);
+    const a = scoreKnownPages("/phots", knownPages).map((m) => m.to);
+    const b = scoreKnownPages("/phots", knownPages).map((m) => m.to);
     expect(a).toEqual(b);
   });
 
@@ -144,10 +144,10 @@ describe("pickStableQuip", () => {
 });
 describe("scoreKnownPages aliases", () => {
   it("scores an alias on behalf of its real route", () => {
-    const pages = [{ to: "/gallery", label: "Photos", match: "/pictures" }];
+    const pages = [{ to: "/photos", label: "Photos", match: "/pictures" }];
     const [best] = scoreKnownPages("/pictures", pages);
     expect(best.isClose).toBe(true);
-    expect(best.to).toBe("/gallery");
+    expect(best.to).toBe("/photos");
   });
 });
 

@@ -125,9 +125,7 @@ pub fn create(
     let source_label = drive_label(conn, source_drive);
     let folder = folder_name(&norm, &source_label);
     if files::drive_root(conn, source_drive).is_err() {
-        return Err(refuse(format!(
-            "Connect {source_label} first, then try again."
-        )));
+        return Err(refuse(not_ready(conn, source_drive)));
     }
     let meta = match files::resolve_any(conn, source_drive, &norm) {
         Ok((_, meta)) => meta,
@@ -144,12 +142,7 @@ pub fn create(
     }
     match connected(conn, target_drive) {
         Some(_) => {}
-        None => {
-            let target_label = drive_label(conn, target_drive);
-            return Err(refuse(format!(
-                "Connect {target_label} first, then try again."
-            )));
-        }
+        None => return Err(refuse(not_ready(conn, target_drive))),
     }
     // An encrypted drive's files must not land in the clear on a plain one.
     if let Some(message) = refuse_plaintext_backup(conn, source_drive, target_drive) {
@@ -227,13 +220,36 @@ pub fn create(
 /// Run one drive backup now. Records the result on the row (ok / error /
 /// stopped / source gone) and returns what happened.
 pub fn run(db: &crate::Db, id: &str, now: i64) -> anyhow::Result<RunOutcome> {
-    run_inner(db, id, now, false)
+    run_timed(db, id, now, false)
 }
 
 /// Like [`run`], but applies deletions even when most of the source seems
 /// gone (the person pressed "Run anyway" after the mass-delete guard).
 pub fn run_allowing_mass_delete(db: &crate::Db, id: &str, now: i64) -> anyhow::Result<RunOutcome> {
-    run_inner(db, id, now, true)
+    run_timed(db, id, now, true)
+}
+
+/// [`run_inner`] with a perf timer (D8) around it.
+fn run_timed(
+    db: &crate::Db,
+    id: &str,
+    now: i64,
+    allow_mass_delete: bool,
+) -> anyhow::Result<RunOutcome> {
+    let mut perf = crate::perf::Timer::new("D8", "backup.drive");
+    let out = run_inner(db, id, now, allow_mass_delete);
+    if perf.active() {
+        match &out {
+            Ok(o) => {
+                perf.field("copied", o.copied);
+                perf.field("unchanged", o.unchanged);
+                perf.field("removed", o.removed);
+                perf.field("problem", o.problem.is_some());
+            }
+            Err(_) => perf.field("error", true),
+        }
+    }
+    out
 }
 
 /// Run every active drive backup. True when any backup's state changed (so
@@ -352,20 +368,8 @@ fn run_inner(
         return Ok(problem_outcome(&message));
     }
 
-    // Step 2: the backup drive must be connected.
-    let Some(target) = with_conn(db, |c| connected(c, &row.target_drive)) else {
-        let name = with_conn(db, |c| drive_label(c, &row.target_drive));
-        return fail(
-            db,
-            id,
-            &format!("Waiting: {name} isn't connected."),
-            false,
-            now,
-        );
-    };
-
-    // Step 2b: the pairing still has to be safe. Checked on every run, not
-    // only at create, because either drive can be reformatted afterwards —
+    // Step 2a: the pairing still has to be safe. Checked on every run, not
+    // only at create, because either drive can be reformatted afterwards:
     // encrypting the source or decrypting the target would otherwise turn an
     // allowed backup into one that writes the source's files in the clear.
     if let Some(message) = with_conn(db, |c| {
@@ -376,18 +380,18 @@ fn run_inner(
         return fail(db, id, &message, true, now);
     }
 
+    // Step 2: the backup drive must be connected (and unlocked).
+    let Some(target) = with_conn(db, |c| connected(c, &row.target_drive)) else {
+        let waiting = with_conn(db, |c| waiting_for(c, &row.target_drive));
+        return fail(db, id, &waiting, false, now);
+    };
+
     // Step 3: the source drive must be connected. Its folder can't be read,
     // so the deleted-files clock freezes until it is back.
     let Some(source) = with_conn(db, |c| connected(c, &row.source_drive)) else {
         pause_clock(&target, id, now);
-        let name = with_conn(db, |c| drive_label(c, &row.source_drive));
-        return fail(
-            db,
-            id,
-            &format!("Waiting: {name} isn't connected."),
-            false,
-            now,
-        );
+        let waiting = with_conn(db, |c| waiting_for(c, &row.source_drive));
+        return fail(db, id, &waiting, false, now);
     };
 
     // Step 4: the folder itself must still be there.
@@ -478,7 +482,7 @@ fn run_inner(
             db,
             id,
             &format!(
-                "Most of {folder} seems to be gone, so Luna paused this backup to keep the copies. Check the drive, then run the backup again."
+                "Most of the files in {folder} are gone, so Luna paused this backup to keep their copies. Check {folder}, then run the backup again."
             ),
             true,
             now,
@@ -921,18 +925,32 @@ fn plan_names(
     let mut out = Vec::new();
     let mut kept = Vec::new();
     for entry in walked {
+        // A name the target's format can't hold is saved with `_` in place of
+        // each refused character, and says so.
+        let rel_for_target = if limits.reserved_chars {
+            let fixed = sanitize_rel_for_target(&entry.rel);
+            if fixed != entry.rel {
+                notes.push(format!(
+                    "{} has characters {target_name}'s format can't hold, so it was saved as {fixed}.",
+                    entry.rel
+                ));
+            }
+            fixed
+        } else {
+            entry.rel.clone()
+        };
         if limits.max_file.is_some_and(|max| entry.size > max) {
             notes.push(format!(
                 "{} is too big for {target_name}'s format (largest 4 GB).",
                 entry.rel
             ));
-            kept.push(entry.rel.clone());
+            kept.push(rel_for_target.clone());
             continue;
         }
-        if taken.insert(name_key(&entry.rel, limits)) {
-            out.push((entry.rel.clone(), entry));
+        if taken.insert(name_key(&rel_for_target, limits)) {
+            out.push((rel_for_target, entry));
         } else {
-            let alt = free_alt_name(&entry.rel, limits, &mut taken);
+            let alt = free_alt_name(&rel_for_target, limits, &mut taken);
             notes.push(format!(
                 "{} has the same name as another file on {target_name} apart from capitals, so it was saved as {alt}.",
                 entry.rel
@@ -941,6 +959,34 @@ fn plan_names(
         }
     }
     (out, notes, kept)
+}
+
+/// Replace each character the target's format refuses with `_`, folder by
+/// folder, and drop a trailing dot or space.
+fn sanitize_rel_for_target(rel: &str) -> String {
+    rel.split('/')
+        .map(|seg| {
+            let mut out: String = seg
+                .chars()
+                .map(|c| {
+                    if c.is_control() || crate::files::fsrules::RESERVED_CHARS.contains(&c) {
+                        '_'
+                    } else {
+                        c
+                    }
+                })
+                .collect();
+            while out.ends_with('.') || out.ends_with(' ') {
+                out.pop();
+            }
+            // A name of only dots and spaces would end up empty, `.` or `..`.
+            if out.is_empty() && !seg.is_empty() {
+                out.push('_');
+            }
+            out
+        })
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn name_key(rel: &str, limits: drive_store::FsLimits) -> String {
@@ -993,12 +1039,10 @@ fn drive_is_encrypted(conn: &Connection, drive_id: &str) -> bool {
 /// Refuse a pairing that would write an encrypted drive's files in the clear.
 ///
 /// Encryption protects a drive's contents at rest. Copying those contents onto
-/// an unencrypted drive undoes that completely — the backup is plaintext, and
-/// whoever picks up the backup drive reads everything. So the rule is: an
-/// encrypted source may only be backed up to an encrypted target.
-///
-/// The other direction is fine. A plain source onto an encrypted target is
-/// strictly more protection than the source had.
+/// an unencrypted drive undoes that completely: the backup is plaintext, and
+/// whoever picks up the backup drive reads everything. So an encrypted source
+/// may only be backed up to an encrypted target. The other direction is fine:
+/// a plain source onto an encrypted target is strictly more protection.
 ///
 /// Returns the refusal in plain words, or `None` when the pairing is allowed.
 fn refuse_plaintext_backup(
@@ -1012,8 +1056,39 @@ fn refuse_plaintext_backup(
     let source = drive_label(conn, source_drive);
     let target = drive_label(conn, target_drive);
     Some(format!(
-        "{source} is encrypted, but {target} isn't. A backup of an encrypted drive has to go on an encrypted drive, or it would be readable by anyone who picks it up."
+        "{source} is encrypted, but {target} isn't. Back up an encrypted drive only to an encrypted drive, so nobody can read the copies without a password."
     ))
+}
+
+/// Is this drive locked? A locked drive isn't missing: it needs its password,
+/// and backups of it wait for that.
+fn drive_is_locked(conn: &Connection, drive_id: &str) -> bool {
+    db::get_drive(conn, drive_id)
+        .ok()
+        .flatten()
+        .is_some_and(|d| d.locked)
+}
+
+/// Why a backup is waiting on this drive, in plain words.
+fn waiting_for(conn: &Connection, drive_id: &str) -> String {
+    let name = drive_label(conn, drive_id);
+    if drive_is_locked(conn, drive_id) {
+        format!("Waiting: {name} is locked. Unlock it to continue the backups.")
+    } else {
+        format!("Waiting: {name} isn't connected.")
+    }
+}
+
+/// Why a new backup can't start yet because this drive isn't ready.
+fn not_ready(conn: &Connection, drive_id: &str) -> String {
+    let name = drive_label(conn, drive_id);
+    if crate::drives::format::drive_is_formatting(drive_id) {
+        format!("Luna is erasing {name} right now. Try again when it finishes.")
+    } else if drive_is_locked(conn, drive_id) {
+        format!("Unlock {name} first, then try again.")
+    } else {
+        format!("Connect {name} first, then try again.")
+    }
 }
 
 fn connected(conn: &Connection, drive_id: &str) -> Option<Target> {
@@ -1152,6 +1227,16 @@ mod tests {
 
     const NOW: i64 = 1_800_000_000;
 
+    #[test]
+    fn names_exfat_refuses_are_made_to_fit() {
+        assert_eq!(sanitize_rel_for_target("Docs/a:b?.txt"), "Docs/a_b_.txt");
+        assert_eq!(sanitize_rel_for_target("Docs/notes. "), "Docs/notes");
+        // Only dots and spaces: never `.`, `..` or an empty folder name.
+        assert_eq!(sanitize_rel_for_target("Docs/.../a.txt"), "Docs/_/a.txt");
+        assert_eq!(sanitize_rel_for_target("Docs/. ./a.txt"), "Docs/_/a.txt");
+        assert_eq!(sanitize_rel_for_target("Docs/.hidden"), "Docs/.hidden");
+    }
+
     struct Setup {
         _dir: tempfile::TempDir,
         db: crate::Db,
@@ -1226,7 +1311,7 @@ mod tests {
         create(&conn, &s.admin, &s.src, "Docs", &s.tgt).unwrap().id
     }
 
-    /// Mark a drive encrypted or not, the way the encryption page does.
+    /// Mark a drive encrypted or not, the way the format run does.
     fn set_encrypted(s: &Setup, drive_id: &str, encrypted: bool) {
         let conn = s.db.lock().unwrap();
         db::set_drive_encrypted(&conn, drive_id, encrypted).unwrap();
@@ -1251,7 +1336,6 @@ mod tests {
 
     #[test]
     fn an_encrypted_drive_can_be_backed_up_to_an_encrypted_one() {
-        // Both sides protected: the copy is as safe as the original.
         let s = setup();
         set_encrypted(&s, &s.src, true);
         set_encrypted(&s, &s.tgt, true);
@@ -1270,9 +1354,9 @@ mod tests {
 
     #[test]
     fn encrypting_the_source_later_stops_an_existing_backup() {
-        // A backup can be created while both drives are plain, then the
-        // source is encrypted. The rule has to be re-checked on every run or
-        // the next one silently writes the files in the clear.
+        // A backup can be created while both drives are plain, then the source
+        // is encrypted. The rule has to be re-checked on every run or the next
+        // one silently writes the files in the clear.
         let s = setup();
         let id = make_backup(&s);
         set_encrypted(&s, &s.src, true);
@@ -1286,8 +1370,7 @@ mod tests {
 
     #[test]
     fn decrypting_the_target_later_stops_an_existing_backup() {
-        // The same hazard from the other side: the backup was fine while the
-        // target was encrypted, and stops being fine when it isn't.
+        // The same hazard from the other side.
         let s = setup();
         set_encrypted(&s, &s.src, true);
         set_encrypted(&s, &s.tgt, true);
@@ -1296,6 +1379,35 @@ mod tests {
 
         let outcome = run(&s.db, &id, NOW).unwrap();
         assert!(outcome.problem.is_some_and(|p| p.contains("encrypted")));
+    }
+
+    #[test]
+    fn a_locked_drive_pauses_its_backups_in_words_that_say_so() {
+        // Both encrypted, so the pairing is fine; then the source is locked.
+        let s = setup();
+        set_encrypted(&s, &s.src, true);
+        set_encrypted(&s, &s.tgt, true);
+        let id = make_backup(&s);
+        {
+            let conn = s.db.lock().unwrap();
+            db::set_drive_locked(&conn, &s.src, true).unwrap();
+        }
+        let outcome = run(&s.db, &id, NOW).unwrap();
+        let problem = outcome
+            .problem
+            .expect("a locked source cannot be backed up");
+        assert!(problem.contains("Photos is locked"), "got: {problem}");
+        assert!(!problem.contains("isn't connected"), "got: {problem}");
+        // Not hard: unlocking is all it takes.
+        assert!(!row(&s, &id).hard);
+        // A new backup says to unlock, not to connect.
+        let conn = s.db.lock().unwrap();
+        let refused = create(&conn, &s.admin, &s.src, "Docs", &s.tgt).unwrap_err();
+        assert!(
+            refused.0.contains("Unlock Photos first"),
+            "got: {}",
+            refused.0
+        );
     }
 
     fn row(s: &Setup, id: &str) -> ProtectionRow {
@@ -1628,11 +1740,14 @@ mod tests {
             held.problem
                 .as_deref()
                 .unwrap()
-                .starts_with("Most of Docs seems to be gone")
+                .starts_with("Most of the files in Docs are gone")
         );
         let r = row(&s, &id);
         assert!(r.hard);
-        assert!(r.last_error.starts_with("Most of Docs seems to be gone"));
+        assert!(
+            r.last_error
+                .starts_with("Most of the files in Docs are gone")
+        );
         assert_eq!(store(&s, &id).current_files().unwrap().len(), 30);
 
         let forced = run_allowing_mass_delete(&s.db, &id, NOW + 120).unwrap();
@@ -1751,10 +1866,12 @@ mod tests {
         let blind = drive_store::FsLimits {
             case_insensitive: true,
             max_file: None,
+            reserved_chars: false,
         };
         let exact = drive_store::FsLimits {
             case_insensitive: false,
             max_file: None,
+            reserved_chars: false,
         };
         assert_eq!(name_key("Docs/A.txt", blind), name_key("docs/a.txt", blind));
         assert_ne!(name_key("Docs/A.txt", exact), name_key("docs/a.txt", exact));
@@ -1907,6 +2024,7 @@ mod tests {
         let limits = drive_store::FsLimits {
             case_insensitive: true,
             max_file: Some(100),
+            reserved_chars: false,
         };
         let (out, notes, kept) = plan_names(
             vec![
@@ -1995,6 +2113,7 @@ mod tests {
             drive_store::FsLimits {
                 case_insensitive: false,
                 max_file: Some(5),
+                reserved_chars: false,
             },
         );
         let walked = scope::walk(&docs(&s)).unwrap();
@@ -2036,6 +2155,7 @@ mod tests {
             drive_store::FsLimits {
                 case_insensitive: true,
                 max_file: None,
+                reserved_chars: false,
             },
         );
         let walked = scope::walk(&docs(&s)).unwrap();

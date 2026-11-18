@@ -87,13 +87,13 @@ async fn create_session(
         ));
     }
 
-    ensure_file(&state, &drive_id, &path)?;
     if !user_can(&state, &user, &drive_id, &path, false)? {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "You don't have permission to open this file.",
         ));
     }
+    ensure_file(&state, &drive_id, &path)?;
     let can_write = user_can(&state, &user, &drive_id, &path, true).unwrap_or(false);
 
     prepare_session(
@@ -136,7 +136,7 @@ async fn guest_session(
             )) {
                 return Err(json_error(
                     StatusCode::TOO_MANY_REQUESTS,
-                    "Too many attempts. Wait a few minutes and try again.",
+                    "Too many attempts. Wait a minute and try again.",
                 ));
             }
             let path = access::link_file(&state, &link, &rel)?;
@@ -256,7 +256,7 @@ async fn prepare_session(
     {
         return Err(json_error(
             StatusCode::SERVICE_UNAVAILABLE,
-            "Too many documents are open for editing right now. Try again in a minute.",
+            "Too many documents are open right now. Try again later.",
         ));
     }
 
@@ -416,7 +416,10 @@ async fn bundle_read(
         )
     })?;
     Ok(builder
-        .body(Body::from_stream(ReaderStream::new(file)))
+        .body(Body::from_stream(ReaderStream::with_capacity(
+            file,
+            crate::api::files::STREAM_CHUNK,
+        )))
         .unwrap())
 }
 
@@ -438,7 +441,7 @@ async fn bundle_write(
     if body.is_empty() {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            "Luna couldn't store the converted document — the upload was empty. Try saving again.",
+            "Luna couldn't store the converted document because it arrived empty. Try saving again.",
         ));
     }
     if body.len() > MAX_BUNDLE_FILE_BYTES {
@@ -460,7 +463,7 @@ async fn bundle_write(
     tokio::fs::write(&temp, &body).await.map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't store the converted document. Check that the drive still has space.",
+            "Luna couldn't store the converted document in its own storage. An Admin can check that storage in Settings → About → System checks.",
         )
     })?;
     if let Err(e) = tokio::fs::rename(&temp, &file).await {
@@ -883,7 +886,7 @@ fn ensure_file(
     if !meta.is_file() {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            "Luna can only open files in EuroOffice — not folders.",
+            "Luna can open only files in EuroOffice, not folders.",
         ));
     }
     Ok(())

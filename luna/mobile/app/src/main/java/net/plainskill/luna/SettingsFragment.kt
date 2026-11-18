@@ -52,38 +52,22 @@ class SettingsFragment : Fragment() {
         view.findViewById<MaterialButton>(R.id.chooseFolder).setOnClickListener {
             pickFolder.launch(FolderPickerActivity.intent(requireActivity(), pickDrive = true))
         }
-        view.findViewById<TextView>(R.id.batteryButton).setOnClickListener {
-            BackgroundAccess.requestUnrestricted(requireActivity())
-        }
         bindDestination()
-        bindBattery()
         testDestination()
     }
 
     override fun onResume() {
         super.onResume()
-        bindBattery()
         bindDestination()
     }
 
     private fun bindDestination() {
         val view = view ?: return
-        view.findViewById<TextView>(R.id.destinationLabel).text =
-            getString(R.string.folder_help) + "\n\n" + BackupPrefs.destinationLabel(requireContext())
-    }
-
-    private fun bindBattery() {
-        val view = view ?: return
-        val hint = view.findViewById<TextView>(R.id.batteryHint)
-        val button = view.findViewById<TextView>(R.id.batteryButton)
-        if (BackgroundAccess.isUnrestricted(requireContext())) {
-            hint.text = "Android is allowing Luna to run in the background."
-            button.visibility = View.GONE
-        } else {
-            hint.text =
-                "Android can pause apps set to Optimized, so photo upload may not run. Tap Allow background upload, then choose Unrestricted (or Don't optimize) for Luna."
-            button.visibility = View.VISIBLE
-        }
+        val ctx = requireContext()
+        view.findViewById<TextView>(R.id.driveValue).text =
+            BackupPrefs.driveLabel(ctx)?.ifBlank { null } ?: getString(R.string.drive_label)
+        view.findViewById<TextView>(R.id.folderValue).text =
+            BackupPrefs.folderPrefix(ctx).ifEmpty { getString(R.string.drive_root) }
     }
 
     private fun testDestination() {

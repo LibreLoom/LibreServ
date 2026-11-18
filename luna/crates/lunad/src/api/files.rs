@@ -132,9 +132,14 @@ pub fn router() -> Router<AppState> {
         )
 }
 
+/// Read size for streamed downloads. Each read is a hop to the blocking
+/// pool; tokio's 4 KiB default meant ~27k hops a second at LAN speed on a
+/// 4-core Atom.
+pub(crate) const STREAM_CHUNK: usize = 256 * 1024;
+
 /// Runs drive-touching work off the async runtime so a slow or hung drive
 /// stalls one request, not every connection.
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     f: impl FnOnce() -> Result<T, (StatusCode, Json<Value>)> + Send + 'static,
 ) -> Result<T, (StatusCode, Json<Value>)> {
     tokio::task::spawn_blocking(f).await.unwrap_or_else(|_| {
@@ -735,10 +740,16 @@ async fn record_recent(
             ));
         }
         if !crate::auth::has_drive_access(&user, &conn, &body.drive_id) {
-            return Err(json_error(StatusCode::FORBIDDEN, "Luna can't open that."));
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "You don't have permission to open this.",
+            ));
         }
     } else if !crate::auth::can_inspect_path(&user, &conn, &body.drive_id, &path) {
-        return Err(json_error(StatusCode::FORBIDDEN, "Luna can't open that."));
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to open this.",
+        ));
     }
     let kind = body
         .kind
@@ -808,7 +819,7 @@ fn stat_entry_sync(
     let in_trash =
         rel == files::TRASH_API_ALIAS || rel.starts_with(&format!("{}/", files::TRASH_API_ALIAS));
 
-    // Luna's own bookkeeping (index db, gallery, trash root) is not a
+    // Luna's own bookkeeping (index db, photos, trash root) is not a
     // user file — never stat it.
     if !in_trash && files::is_internal_temp(&rel) {
         return Err(json_error(
@@ -1159,7 +1170,7 @@ async fn serve_folder_zip(
         )
     })?;
     let len = async_file.metadata().await.map(|m| m.len()).unwrap_or(0);
-    let stream = ReaderStream::new(async_file);
+    let stream = ReaderStream::with_capacity(async_file, STREAM_CHUNK);
     // Keep the temp file alive until the response body finishes streaming.
     let body = Body::from_stream(ZipBody { stream, _keep: tmp });
 
@@ -1336,7 +1347,7 @@ async fn serve_file_content(
             })?;
     }
 
-    let stream = ReaderStream::new(file.take(stream_len));
+    let stream = ReaderStream::with_capacity(file.take(stream_len), STREAM_CHUNK);
     let name = if in_trash {
         // The meta leaf is authoritative — a rename in trash retitles the
         // origin while the on-disk name keeps its `{nonce}-` prefix.
@@ -1422,7 +1433,7 @@ async fn delete_entry(
         .await
         .map_err(map_files_err)?
     };
-    state.gallery.remove(&id, &rel);
+    state.photos.remove(&id, &rel);
     // Eagerly drop album refs so shared albums update without waiting on the indexer.
     if let Ok(conn) = state.db.lock()
         && let Ok(drives) = crate::db::list_drives(&conn)
@@ -1432,7 +1443,7 @@ async fn delete_entry(
             .filter(|d| d.state == "as_is" && !d.mount_point.is_empty())
             .map(|d| (d.id, std::path::PathBuf::from(d.mount_point)))
             .collect();
-        crate::gallery::purge_album_item_refs_on_mounts(&mounts, &id, &rel);
+        crate::photos::purge_album_item_refs_on_mounts(&mounts, &id, &rel);
     }
     invalidate_parent_listing(&state, &id, &rel);
     state.ram_cache.invalidate_thumb(&id, &rel);
@@ -1480,7 +1491,7 @@ async fn mkdir_entry(
     .map_err(|e| match e {
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
             StatusCode::CONFLICT,
-            "A folder with this name is already here. Choose another name.",
+            "A file or folder with this name is already here. Choose another name.",
         ),
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::NotFound => json_error(
             StatusCode::NOT_FOUND,
@@ -1525,7 +1536,7 @@ async fn create_entry(
         .map_err(|e| match e {
             FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
                 StatusCode::CONFLICT,
-                "A file with this name is already here. Choose another name.",
+                "A file or folder with this name is already here. Choose another name.",
             ),
             FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::NotFound => json_error(
                 StatusCode::NOT_FOUND,
@@ -1550,7 +1561,7 @@ async fn rename_entry(
     let rel = request_path(&body.path)?;
     check_access(&state, &user, &id, &rel, crate::access::CAP_EDIT)?;
     let parent = rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
-    let new_rel = crate::gallery::gallery_indexer::join_rel(parent, &body.new_name);
+    let new_rel = crate::photos::photos_indexer::join_rel(parent, &body.new_name);
     let (drive, path, new_name, moved_to) = (
         id.clone(),
         rel.clone(),
@@ -1567,14 +1578,14 @@ async fn rename_entry(
     .map_err(|e| match e {
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
             StatusCode::CONFLICT,
-            "A file with this name is already here. Choose another name.",
+            "A file or folder with this name is already here. Choose another name.",
         ),
         other => map_files_err(other),
     })?;
     if renamed_dir {
-        state.gallery.rescan(&id);
+        state.photos.rescan(&id);
     } else {
-        state.gallery.rename(&id, &rel, &new_rel);
+        state.photos.rename(&id, &rel, &new_rel);
     }
     invalidate_parent_listing(&state, &id, &rel);
     invalidate_parent_listing(&state, &id, &new_rel);
@@ -1617,15 +1628,15 @@ async fn restore_entry(
     .map_err(|e| match e {
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
             StatusCode::CONFLICT,
-            "A file with this name is already there. Choose another name.",
+            "A file or folder with this name is already there. Choose another name.",
         ),
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::InvalidInput => json_error(
             StatusCode::BAD_REQUEST,
-            "Luna can only put files back from the trash on this drive.",
+            "Luna can restore only a whole item from the trash, to a folder outside the trash.",
         ),
         other => map_files_err(other),
     })?;
-    state.gallery.upsert(&id, &dest);
+    state.photos.upsert(&id, &dest);
     invalidate_parent_listing(&state, &id, &dest);
     state.touch_io_activity();
     Ok(Json(json!({ "ok": true })))
@@ -1716,7 +1727,7 @@ async fn upload(
                 if !query_path.is_empty() && dest_rel != query_path {
                     return Err(json_error(
                         StatusCode::FORBIDDEN,
-                        "You don't have permission to change this folder.",
+                        "This upload names a different folder than the one it was sent to.",
                     ));
                 }
                 check_access(&state, &user, &id, &dest_rel, crate::access::CAP_UPLOAD)?;
@@ -1724,6 +1735,17 @@ async fn upload(
             Some("file") => {
                 check_access(&state, &user, &id, &dest_rel, crate::access::CAP_UPLOAD)?;
                 let original = field.file_name().unwrap_or("file").to_string();
+                // A name this drive's format can't hold is refused first,
+                // naming the character, before anything is written.
+                let drive_root = crate::db::with_db(
+                    &state.db,
+                    || FilesError::UnknownDrive,
+                    |conn| files::drive_root(conn, &id),
+                )
+                .map_err(map_files_err)?;
+                files::fsrules::rules_at(std::path::Path::new(&drive_root.mount_point))
+                    .check_name(original.trim())
+                    .map_err(|p| map_files_err(p.into()))?;
                 let mut name = files::safe_name(&original).map_err(|_| {
                     json_error(
                         StatusCode::BAD_REQUEST,
@@ -1763,7 +1785,7 @@ async fn upload(
                     } else {
                         // Overwriting is an edit, not an upload: a drop-only
                         // member cannot replace a file that is already there.
-                        let file_rel = crate::gallery::gallery_indexer::join_rel(&dest_rel, &name);
+                        let file_rel = crate::photos::photos_indexer::join_rel(&dest_rel, &name);
                         if !can_write(&state, &user, &id, &file_rel)? {
                             return Err(json_error(
                                 StatusCode::FORBIDDEN,
@@ -1774,7 +1796,7 @@ async fn upload(
                     }
                 }
 
-                let rel = crate::gallery::gallery_indexer::join_rel(&dest_rel, &name);
+                let rel = crate::photos::photos_indexer::join_rel(&dest_rel, &name);
                 let max_dirty =
                     crate::budget::cache_budget_from(crate::budget::meminfo().available_bytes)
                         .dirty_max_file_bytes;
@@ -1849,7 +1871,7 @@ async fn upload(
                                         return;
                                     }
                                 }
-                                flush_state.gallery.upsert(&flush_id, &flush_rel);
+                                flush_state.photos.upsert(&flush_id, &flush_rel);
                                 flush_state.touch_io_activity();
                                 // The save is durable NOW — only here may
                                 // the collab room compact its op backlog to
@@ -1942,7 +1964,7 @@ async fn upload(
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0);
-                state.gallery.upsert(&id, &rel);
+                state.photos.upsert(&id, &rel);
                 invalidate_parent_listing(&state, &id, &rel);
                 state.touch_io_activity();
                 crate::api::collab::note_diagram_saved(
@@ -2050,7 +2072,7 @@ fn check_trash_list(
     } else {
         Err(json_error(
             StatusCode::FORBIDDEN,
-            "You don't have permission to view trash on this drive.",
+            "You don't have permission to open the trash on this drive.",
         ))
     }
 }
@@ -2135,7 +2157,7 @@ fn check_inspect(
     } else {
         Err(json_error(
             StatusCode::FORBIDDEN,
-            "You don't have permission to view this folder.",
+            "You don't have permission to open this.",
         ))
     }
 }
@@ -2155,15 +2177,20 @@ fn check_access(
     })?;
     if crate::auth::has_cap(user, &conn, drive_id, path, cap) {
         Ok(())
+    } else if cap == crate::access::CAP_UPLOAD {
+        Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to save here.",
+        ))
     } else if cap != crate::access::CAP_VIEW {
         Err(json_error(
             StatusCode::FORBIDDEN,
-            "You don't have permission to change this folder.",
+            "You don't have permission to change this.",
         ))
     } else {
         Err(json_error(
             StatusCode::FORBIDDEN,
-            "You don't have permission to view this folder.",
+            "You don't have permission to open this.",
         ))
     }
 }
@@ -2219,17 +2246,18 @@ pub(crate) fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
         FilesError::UnknownDrive => json_error_code(
             StatusCode::NOT_FOUND,
             "unknown_drive",
-            "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.",
+            "Luna can't find this drive. Make sure it is plugged in, or unplug it and plug it in again.",
         ),
         // 423 Locked is the honest status: the drive is there, and the client
         // should ask for a password rather than retry. The UI keys off `code`.
         FilesError::Locked => {
             json_error_code(StatusCode::LOCKED, "drive_locked", files::DRIVE_LOCKED_MSG)
         }
-        FilesError::Converting => json_error_code(
-            StatusCode::LOCKED,
-            "drive_converting",
-            files::DRIVE_CONVERTING_MSG,
+        // The drive is plugged in and busy: wait, don't unplug.
+        FilesError::Erasing => json_error_code(
+            StatusCode::CONFLICT,
+            "drive_erasing",
+            files::DRIVE_ERASING_MSG,
         ),
         // The drive is adopted and mounted, but its on-drive database could not
         // be rebuilt (read-only, or no space).
@@ -2257,6 +2285,10 @@ pub(crate) fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
         FilesError::Io(e) if e.kind() == std::io::ErrorKind::InvalidInput => {
             json_error(StatusCode::BAD_REQUEST, "Luna can't open that path.")
         }
+        FilesError::Io(ref e) if files::fsrules::problem_of(e).is_some() => {
+            let p = files::fsrules::problem_of(e).expect("checked");
+            json_error_code(StatusCode::BAD_REQUEST, p.code(), p.to_string())
+        }
         // A name the drive itself refuses (too long, or characters its
         // format can't hold) is the name's fault, not the drive's.
         FilesError::Io(e) if e.kind() == std::io::ErrorKind::InvalidFilename => json_error(
@@ -2283,7 +2315,7 @@ pub(crate) fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
             tracing::warn!(error = ?other, "a file operation failed on a drive");
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't read this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.",
+                "Luna couldn't use this drive. Make sure it is plugged in, or unplug it and plug it in again.",
             )
         }
     }
@@ -2292,16 +2324,17 @@ pub(crate) fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
 fn plain_upload_error(err: &anyhow::Error) -> String {
     let text = err.to_string();
     if text.contains("No space left") || text.contains("no space") {
-        "This drive is full. Free up space or choose another drive.".into()
+        "This drive is full, so free up space or choose another drive.".into()
     } else if text.contains("Read-only") || text.contains("read-only") {
-        "This drive is read-only, so Luna can't save to it.".into()
+        "This drive is read-only.".into()
     } else if text.contains("Operation not permitted")
-        || text.contains("os error 1")
+        || text.contains("(os error 1)")
+        || text.contains("Permission denied")
         || text.contains("not supported")
     {
-        "This drive wouldn't accept the file. If it's a USB stick, try ejecting it and plugging it back in, then save again.".into()
+        "The drive refused the file, so unplug the drive, plug it in again, and save again.".into()
     } else {
-        "Check that the drive is connected and try again.".into()
+        "Make sure the drive is plugged in and try again.".into()
     }
 }
 

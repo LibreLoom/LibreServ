@@ -1,8 +1,7 @@
 //! Host checks for admin-configured update sources (SSRF hardening).
 
-const UPDATE_HOST_ERR: &str =
-    "That feed address points at a private or local network. Use a public address for updates.";
-const HTTP_SOURCE_ERR: &str = "That feed address is not safe to open in plain http. Use https://, or point it at a server on your own network.";
+const UPDATE_HOST_ERR: &str = "Luna opens an https:// feed address only on the public internet. For a server on your own network, use http://.";
+const HTTP_SOURCE_ERR: &str = "Luna opens an http:// feed address only on your own network. For a server on the internet, use https://.";
 
 /// True when an update-source host IP must not be contacted (SSRF hardening).
 pub(crate) fn is_blocked_update_host_ip(ip: std::net::IpAddr) -> bool {

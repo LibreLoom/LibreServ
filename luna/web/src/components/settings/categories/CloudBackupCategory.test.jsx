@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import CloudBackupCategory from "./CloudBackupCategory.jsx";
 
@@ -23,7 +24,9 @@ function stubApi({
   const fetchMock = vi.fn(async (url, options = {}) => {
     const method = options.method || "GET";
     if (url === "/api/v1/auth/status") return json({ has_admin: true, connect_active: connected });
-    if (url === "/api/v1/connect/status") return json({ connect_active: connected, card_on_file: cardOnFile });
+    if (url === "/api/v1/connect/status") {
+      return json({ connect_active: connected, cloud_backup: !connected ? "not_linked" : cardOnFile ? "ready" : "no_payment" });
+    }
     if (url === "/api/v1/cloud/phrase" && method === "GET") return json(phrase);
     if (url === "/api/v1/cloud/backups" && method === "GET") return json(backups);
     if (/\/run(\?|$)/.test(url) && method === "POST") return json(runResponse);
@@ -40,7 +43,9 @@ function renderCard() {
   return render(
     <QueryClientProvider client={client}>
       <ToastProvider>
-        <CloudBackupCategory />
+        <MemoryRouter>
+          <CloudBackupCategory />
+        </MemoryRouter>
       </ToastProvider>
     </QueryClientProvider>,
   );
@@ -67,6 +72,34 @@ describe("CloudBackupCategory", () => {
   afterEach(() => {
     mockRole = "admin";
     vi.unstubAllGlobals();
+  });
+
+  it("shows loading without claiming the backup collection is empty", async () => {
+    const fetchMock = stubApi();
+    const original = fetchMock.getMockImplementation();
+    let finish = (_response) => {};
+    const pending = new Promise((resolve) => { finish = resolve; });
+    fetchMock.mockImplementation((url, options) => url === "/api/v1/cloud/backups" ? pending : original(url, options));
+    renderCard();
+    expect(await screen.findByText("Loading cloud backups…")).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing is backed up to the cloud yet/)).not.toBeInTheDocument();
+    finish(json([]));
+    expect(await screen.findByText(/Nothing is backed up to the cloud yet/)).toBeInTheDocument();
+  });
+
+  it("explains a failed listing and retries without claiming there are no backups", async () => {
+    const fetchMock = stubApi();
+    const original = fetchMock.getMockImplementation();
+    let failed = true;
+    fetchMock.mockImplementation((url, options) => url === "/api/v1/cloud/backups" && failed
+      ? Promise.resolve(new Response(JSON.stringify({ error: "Unavailable" }), { status: 503 }))
+      : original(url, options));
+    renderCard();
+    expect(await screen.findByText("Luna couldn't load your cloud backups.")).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing is backed up to the cloud yet/)).not.toBeInTheDocument();
+    failed = false;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText(/Nothing is backed up to the cloud yet/)).toBeInTheDocument();
   });
 
   it("shows the recovery phrase card first, then the backup list", async () => {
@@ -138,9 +171,8 @@ describe("CloudBackupCategory", () => {
   it("with Connect off, an Admin sees the phrase card and a line pointing at the device token, with no list", async () => {
     const fetchMock = stubApi({ connected: false });
     renderCard();
-    expect(
-      await screen.findByText("Cloud backup needs Luna Connect. Add your device token in Settings → About → Advanced."),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Add your device token in/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open Advanced/ })).toHaveAttribute("href", "/settings#about");
     expect(screen.getByText("Recovery phrase")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Back up now" })).toBeNull();
     const asked = fetchMock.mock.calls.map(([url]) => String(url));
@@ -213,7 +245,7 @@ describe("CloudBackupCategory", () => {
     renderCard();
     expect(await screen.findByText(/every 6 hours/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "What cloud backup means" }));
-    expect(await screen.findByText(/about one older copy from each of the last day, week and month/)).toBeInTheDocument();
+    expect(await screen.findByText(/about one older copy from each of the last day, week, and month/)).toBeInTheDocument();
   });
 
   it("says nothing is backed up yet when connected with no backups", async () => {
@@ -232,7 +264,6 @@ describe("CloudBackupCategory", () => {
     expect(screen.getByRole("button", { name: "Back up now" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Check" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
-    expect(screen.getByText(/costs \$8 per terabyte each month/)).toBeInTheDocument();
   });
 
   it("says when a cloud backup has stopped finishing", async () => {

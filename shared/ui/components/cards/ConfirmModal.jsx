@@ -139,7 +139,7 @@ export default function ConfirmModal({
               <Callout tone={bannerTone} rounded="card">
                 {snap.variant === "danger"
                   ? "This action cannot be undone."
-                  : "Please review before proceeding."}
+                  : "Check the details before you continue."}
               </Callout>
             </div>
           )}

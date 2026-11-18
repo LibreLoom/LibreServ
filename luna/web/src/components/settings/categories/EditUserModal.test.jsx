@@ -100,7 +100,7 @@ describe("EditUserModal", () => {
     const user = userEvent.setup();
     renderModal();
     await user.type(await screen.findByLabelText(/New password/i), "hunter22hunter1");
-    expect(screen.getByText(/Saving signs Alex out on every device/)).toBeInTheDocument();
+    expect(screen.getByText(/Saving signs Alex out in every browser and app/)).toBeInTheDocument();
     expect(screen.getByText("✓ Acceptable")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Save changes/ })).toBeEnabled();
   });

@@ -15,7 +15,7 @@ const mineOf = (world, user) => world.tokens.filter((t) => (t.user_id ?? "u1") =
 get("/api/v1/device-tokens", ({ world, user }) => mineOf(world, user).map(tokenJson));
 post("/api/v1/device-tokens", ({ world, user, body }) => {
   const name = String(body.name || "").trim();
-  if (!name || name.length > 80) return fail(400, "Give this device a name between 1 and 80 characters.");
+  if (!name || name.length > 80) return fail(400, "Give this access token a name between 1 and 80 characters.");
   const created = {
     id: nextId("t"),
     user_id: user.id,
@@ -46,12 +46,13 @@ post("/api/v1/connect/device-token", ({ world, user, body }) => {
   if (!token) return fail(400, "Paste the device token first.");
   if (token === "bad") return fail(401, DEVICE_TOKEN_REJECTED);
   const { device_token_error: _gone, ...rest } = world.connect;
-  world.connect = { ...rest, enabled: true, connect_active: true };
+  // The fake Connect account already has a payment card, so cloud backup works right away.
+  world.connect = { backup_unlocked: true, ...rest, enabled: true, connect_active: true };
   world.connectActive = true;
   return {};
 });
 del("/api/v1/connect/device-token", ({ world, user }) => {
-  requireAdmin(user, "Only an Admin can change remote access.");
+  requireAdmin(user, "Only an Admin can remove the device token.");
   world.connect = { ...world.connect, enabled: false, connect_active: false };
   world.connectActive = false;
   return {};
@@ -70,7 +71,7 @@ post("/api/v1/cloud/phrase/check", ({ world }) => {
   world.phrase.last_checked_at = nowSec();
   return { ok: true };
 });
-// No private scopes in the gallery, so nothing to re-seal and nothing that fails to re-seal.
+// No private scopes in Photos, so nothing to re-seal and nothing that fails to re-seal.
 get("/api/v1/cloud/phrase/scopes", () => ({ scopes: [] }));
 put("/api/v1/cloud/phrase", ({ world, body }) => {
   if (world.passwordWrong && body?.proof === "password") {
@@ -141,7 +142,7 @@ function restoreStream(world, signal) {
         failureAfter = null;
         frame(controller, {
           type: "error",
-          message: "Luna couldn't finish restoring your backup list. Some versions may already be back; try again to continue.",
+          message: "Luna couldn't finish restoring your backup list. Try again to restore the rest.",
         });
         close(controller);
         return;

@@ -34,6 +34,22 @@ const SAFE_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin
 /// stay clear of stdio plumbing; each `input_path` call takes the next one.
 const FIRST_FD: i32 = 40;
 
+/// Passwords also pass through the daemon, not only its hardened children.
+/// Prevent a crash dump from persisting request bodies or temporary keys.
+pub fn disable_daemon_core_dumps() -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        let zero = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        if unsafe { libc::setrlimit(libc::RLIMIT_CORE, &zero) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
+
 /// Cap on bytes a sandboxed child may write to any file (RLIMIT_FSIZE).
 /// Thumbnails and decoded intermediates are far smaller; this is a disk-fill
 /// guard, not a format limit.
@@ -64,6 +80,10 @@ pub struct SandboxIo {
     dups: Vec<(i32, i32)>,
     #[cfg(target_os = "linux")]
     next_fd: i32,
+    /// Address-space cap (RLIMIT_AS) for the child, when set.
+    mem_limit: Option<u64>,
+    /// CPU-seconds cap (RLIMIT_CPU) for the child, when set.
+    cpu_limit: Option<u64>,
 }
 
 impl SandboxIo {
@@ -76,7 +96,22 @@ impl SandboxIo {
             dups: Vec::new(),
             #[cfg(target_os = "linux")]
             next_fd: FIRST_FD,
+            mem_limit: None,
+            cpu_limit: None,
         })
+    }
+
+    /// Cap the child's address space. A parser that tries to allocate past
+    /// it fails (or is killed) instead of pushing the box into swap.
+    pub fn limit_memory(&mut self, bytes: u64) -> &mut Self {
+        self.mem_limit = Some(bytes);
+        self
+    }
+
+    /// Cap the child's CPU time; the kernel kills it once spent.
+    pub fn limit_cpu(&mut self, seconds: u64) -> &mut Self {
+        self.cpu_limit = Some(seconds);
+        self
     }
 
     /// What the child should open to read `path`. On Linux the parent opens
@@ -225,10 +260,37 @@ pub fn output_limited(cmd: &mut Command, timeout: Duration) -> io::Result<std::p
     collect(child, timeout)
 }
 
-/// Wait for an already-spawned child and collect its output. For callers that
-/// had to write to the child's stdin first — a passphrase handed to
-/// `cryptsetup` — where [`output`] would have closed the pipe underneath them.
-pub fn collect_output(child: Child, timeout: Duration) -> io::Result<std::process::Output> {
+/// Run a [`hardened`] command with `input` on its stdin, then wait for it with
+/// a deadline. For tools that take a secret (a drive password) or a script on
+/// stdin: nothing sensitive ever reaches a command line, where `/proc` would
+/// show it to every process. stdout is discarded, so a chatty tool can never
+/// fill a pipe nobody is reading; stderr is captured for the error message.
+///
+/// A tool that exits before reading its input (a bad device, say) is not an
+/// error here: the broken pipe is ignored and its exit status and stderr say
+/// what went wrong.
+pub fn output_with_input(
+    cmd: &mut Command,
+    input: &[u8],
+    timeout: Duration,
+) -> io::Result<std::process::Output> {
+    use std::io::Write;
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        match stdin.write_all(input) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::BrokenPipe => {}
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(e);
+            }
+        }
+        // Dropping the handle closes the pipe, which is the only "end of input".
+    }
     collect(child, timeout)
 }
 
@@ -249,11 +311,22 @@ fn collect(mut child: Child, timeout: Duration) -> io::Result<std::process::Outp
     })
 }
 
-#[cfg(target_os = "linux")]
+/// Start a sandboxed child that lunad talks to over stdin and stdout (a
+/// long-lived worker). The caller owns the pipes and must reap the child.
+pub fn spawn_piped(cmd: &mut Command, io: &SandboxIo) -> io::Result<Child> {
+    spawn_with(cmd, io, true)
+}
+
 fn spawn_sandboxed(cmd: &mut Command, io: &SandboxIo) -> io::Result<Child> {
+    spawn_with(cmd, io, false)
+}
+
+#[cfg(target_os = "linux")]
+fn spawn_with(cmd: &mut Command, io: &SandboxIo, piped: bool) -> io::Result<Child> {
     use std::os::unix::process::CommandExt;
     let dups = io.dups.clone();
     let (uid, gid) = nobody_ids();
+    let (mem_limit, cpu_limit) = (io.mem_limit, io.cpu_limit);
     unsafe {
         cmd.pre_exec(move || {
             for &(src, dst) in &dups {
@@ -268,6 +341,24 @@ fn spawn_sandboxed(cmd: &mut Command, io: &SandboxIo) -> io::Result<Child> {
                 rlim_max: MAX_CHILD_WRITE,
             };
             libc::setrlimit(libc::RLIMIT_FSIZE, &cap);
+            if let Some(bytes) = mem_limit {
+                let cap = libc::rlimit {
+                    rlim_cur: bytes as libc::rlim_t,
+                    rlim_max: bytes as libc::rlim_t,
+                };
+                if libc::setrlimit(libc::RLIMIT_AS, &cap) != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+            }
+            if let Some(secs) = cpu_limit {
+                let cap = libc::rlimit {
+                    rlim_cur: secs as libc::rlim_t,
+                    rlim_max: secs as libc::rlim_t + 1,
+                };
+                if libc::setrlimit(libc::RLIMIT_CPU, &cap) != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+            }
             // Drop privilege last: root's supplementary groups include disk
             // and must be cleared while we still can.
             if libc::geteuid() == 0
@@ -280,20 +371,36 @@ fn spawn_sandboxed(cmd: &mut Command, io: &SandboxIo) -> io::Result<Child> {
             Ok(())
         });
     }
-    cmd.env_clear()
-        .env("PATH", SAFE_PATH)
-        .current_dir("/")
-        .stdin(Stdio::null());
+    pipes(cmd, piped);
     cmd.spawn()
 }
 
 #[cfg(not(target_os = "linux"))]
-fn spawn_sandboxed(cmd: &mut Command, _io: &SandboxIo) -> io::Result<Child> {
-    cmd.env_clear()
-        .env("PATH", SAFE_PATH)
-        .current_dir("/")
-        .stdin(Stdio::null());
+fn spawn_with(cmd: &mut Command, _io: &SandboxIo, piped: bool) -> io::Result<Child> {
+    pipes(cmd, piped);
     cmd.spawn()
+}
+
+/// Scrubbed environment, cwd `/`, and stdin from `/dev/null` — or, for a
+/// worker, stdin and stdout as pipes to lunad.
+fn pipes(cmd: &mut Command, piped: bool) {
+    // Keep whatever env the caller set on purpose (e.g. OMP_THREAD_LIMIT):
+    // env_clear() then re-adding PATH drops the inherited environment only.
+    let wanted: Vec<(std::ffi::OsString, std::ffi::OsString)> = cmd
+        .get_envs()
+        .filter_map(|(k, v)| v.map(|v| (k.to_owned(), v.to_owned())))
+        .collect();
+    cmd.env_clear().env("PATH", SAFE_PATH).current_dir("/");
+    for (k, v) in wanted {
+        if k != "PATH" {
+            cmd.env(k, v);
+        }
+    }
+    if piped {
+        cmd.stdin(Stdio::piped()).stdout(Stdio::piped());
+    } else {
+        cmd.stdin(Stdio::null());
+    }
 }
 
 /// `nobody`'s uid/gid, resolved once via getpwnam (65534/65534 fallback —

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	stripego "github.com/stripe/stripe-go/v76"
-	"github.com/stripe/stripe-go/v76/webhook"
+	stripego "github.com/stripe/stripe-go/v87"
+	"github.com/stripe/stripe-go/v87/webhook"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
@@ -48,21 +48,21 @@ func (h AccountHandler) StripeWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	var handleErr error
 	switch event.Type {
+	case "checkout.session.completed", "checkout.session.async_payment_succeeded":
+		// The return page usually got here first; fulfillCheckout is idempotent.
+		var c billing.Checkout
+		if c, handleErr = billing.CheckoutFromEvent(event.Data.Raw); handleErr == nil {
+			handleErr = fulfillCheckout(h.Deps, c)
+		}
 	case "customer.subscription.deleted":
 		handleErr = h.cancelSubscription(event.Data.Raw)
-	case "invoice.payment_failed":
+	case "invoice.payment_failed", "invoice.payment_action_required":
+		// action_required: the bank wants the customer to confirm the charge
+		// (common for EU cards). Both leave the bill unpaid; the warning mail
+		// links the bill's Stripe page, where either is fixed.
 		handleErr = h.lockFromInvoiceJSON(event.Data.Raw, "past_due")
 	case "invoice.paid", "customer.subscription.updated":
 		handleErr = h.unlockFromEvent(string(event.Type), event.Data.Raw)
-		if handleErr == nil && event.Type == "invoice.paid" {
-			// A paid invoice is the moment a credit balance is spent: the
-			// account's next bill is smaller by whatever we still owe them.
-			// Best-effort — a credit that fails to apply must never make
-			// Stripe retry an invoice we have already recorded as paid.
-			if err := h.applyCreditsFromInvoice(event.Data.Raw); err != nil {
-				slog.Error("could not apply credit to paid invoice", "error", err)
-			}
-		}
 	}
 	if handleErr != nil {
 		// A database failure is temporary: 500 makes Stripe retry the event.
@@ -74,8 +74,8 @@ func (h AccountHandler) StripeWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 // A canceled subscription no longer exists at Stripe. Clear the stored id so
-// AttachCard (which treats any stored id as already-subscribed) can open a
-// fresh subscription on the next card; billing_status stays for the record.
+// StartCheckout (which treats any stored id as already-subscribed) can open a
+// fresh subscription; billing_status stays for the record.
 // A subscription no account owns (for example one we cancelled ourselves after
 // losing a signup race) is not an error.
 func (h AccountHandler) cancelSubscription(raw json.RawMessage) error {
@@ -83,14 +83,18 @@ func (h AccountHandler) cancelSubscription(raw json.RawMessage) error {
 	if err := json.Unmarshal(raw, &sub); err != nil || sub.ID == "" {
 		return nil
 	}
-	var accountID, email string
-	if err := h.DB.QueryRow(`SELECT id, email FROM accounts WHERE stripe_subscription_id = ?`, sub.ID).Scan(&accountID, &email); err != nil {
+	var accountID, email, status string
+	if err := h.DB.QueryRow(`SELECT id, email, COALESCE(billing_status, '') FROM accounts WHERE stripe_subscription_id = ?`, sub.ID).Scan(&accountID, &email, &status); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}
 		return err
 	}
-	if _, err := h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = 'canceled', stripe_subscription_id = '', stripe_subscription_item_id = '' WHERE stripe_subscription_id = ?`, sub.ID); err != nil {
+	if status == "canceling" {
+		// The end "Turn off payment" scheduled: copies are already gone.
+		return finishCanceling(h.Deps, accountID, sub.ID)
+	}
+	if _, err := h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = 'canceled', stripe_subscription_id = '' WHERE stripe_subscription_id = ?`, sub.ID); err != nil {
 		return err
 	}
 	beginBackupPurgeForAccount(h.Deps, accountID, email)
@@ -113,16 +117,44 @@ func (h AccountHandler) lockFromInvoiceJSON(raw json.RawMessage, status string) 
 	return h.lockSubscription(subID, status)
 }
 
+// lockSubscription turns backups off after a failed or stalled payment and
+// starts the 30-day countdown. An account whose payment is being turned off
+// ("canceling") is left alone: its copies are already deleted.
 func (h AccountHandler) lockSubscription(subID, status string) error {
-	if _, err := h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = ? WHERE stripe_subscription_id = ?`, status, subID); err != nil {
+	res, err := h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = ? WHERE stripe_subscription_id = ? AND COALESCE(billing_status, '') != 'canceling'`, status, subID)
+	if err != nil {
 		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil
 	}
 	beginBackupPurgeForSubscription(h.Deps, subID)
 	return nil
 }
 
+// finishCanceling runs once a subscription that "Turn off payment" scheduled
+// to end has ended: it unlinks the account, charges the final invoice now
+// instead of in Stripe's hour, and clears this month's usage samples, which
+// that invoice billed, so a new subscription starts from zero.
+func finishCanceling(deps Deps, accountID, subID string) error {
+	if _, err := deps.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = 'canceled', stripe_subscription_id = '' WHERE id = ? AND stripe_subscription_id = ?`, accountID, subID); err != nil {
+		return err
+	}
+	period := billing.PeriodKeyUTC(time.Now())
+	if _, err := deps.DB.Exec(`DELETE FROM billing_storage_samples WHERE account_id = ? AND period_ym = ?`, accountID, period); err != nil {
+		slog.Error("could not clear billed usage samples; a new subscription this month would bill them again", "account", accountID, "error", err)
+	}
+	if _, err := deps.DB.Exec(`DELETE FROM billing_period_egress WHERE account_id = ? AND period_ym = ?`, accountID, period); err != nil {
+		slog.Error("could not clear billed egress; a new subscription this month would bill it again", "account", accountID, "error", err)
+	}
+	if err := billing.SettleFinalInvoice(subID); err != nil {
+		slog.Error("could not charge the final cloud backup invoice; Stripe finalizes it within the hour", "account", accountID, "subscription", subID, "error", err)
+	}
+	return nil
+}
+
 func (h AccountHandler) unlockFromEvent(kind string, raw json.RawMessage) error {
-	subID, itemID, status := "", "", "active"
+	subID, status := "", "active"
 	switch kind {
 	case "customer.subscription.updated":
 		var sub stripego.Subscription
@@ -133,9 +165,6 @@ func (h AccountHandler) unlockFromEvent(kind string, raw json.RawMessage) error 
 			return h.lockSubscription(sub.ID, string(sub.Status))
 		}
 		subID = sub.ID
-		if sub.Items != nil && len(sub.Items.Data) > 0 && sub.Items.Data[0] != nil {
-			itemID = sub.Items.Data[0].ID
-		}
 		status = string(sub.Status)
 	default:
 		subID = subscriptionIDFromInvoiceJSON(raw)
@@ -143,40 +172,10 @@ func (h AccountHandler) unlockFromEvent(kind string, raw json.RawMessage) error 
 	if subID == "" {
 		return nil
 	}
-	if itemID != "" {
-		_, err := h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_item_id = ?, backup_purge_after = NULL, purge_mail_day = NULL WHERE stripe_subscription_id = ?`,
-			status, itemID, subID)
-		return err
-	}
-	_, err := h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, backup_purge_after = NULL, purge_mail_day = NULL WHERE stripe_subscription_id = ?`, status, subID)
-	return err
-}
-
-// applyCreditsFromInvoice spends an account's credit balance against a paid
-// invoice. Stripe has already collected the invoice amount, so applying a
-// credit refunds that much back to the balance and the next invoice is smaller
-// by the same amount. Applies at most the invoice total and at most the
-// balance, so a credit can reduce a bill to zero but never create money owed.
-func (h AccountHandler) applyCreditsFromInvoice(raw json.RawMessage) error {
-	var inv struct {
-		ID         string `json:"id"`
-		AmountPaid int64  `json:"amount_paid"`
-	}
-	if err := json.Unmarshal(raw, &inv); err != nil || inv.ID == "" || inv.AmountPaid <= 0 {
-		return nil
-	}
-	subID := subscriptionIDFromInvoiceJSON(raw)
-	if subID == "" {
-		return nil
-	}
-	var accountID string
-	if err := h.DB.QueryRow(`SELECT id FROM accounts WHERE stripe_subscription_id = ?`, subID).Scan(&accountID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil
-		}
-		return err
-	}
-	_, err := billing.ApplyCreditsToInvoice(h.DB, accountID, inv.ID, int(inv.AmountPaid))
+	// "canceling": payment is being turned off. Scheduling the end fires
+	// customer.subscription.updated while it is still active, and that must
+	// not turn backups back on.
+	_, err := h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, backup_purge_after = NULL, purge_mail_day = NULL WHERE stripe_subscription_id = ? AND COALESCE(billing_status, '') != 'canceling'`, status, subID)
 	return err
 }
 

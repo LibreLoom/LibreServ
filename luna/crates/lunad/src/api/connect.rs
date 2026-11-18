@@ -44,15 +44,7 @@ async fn status(
     // The token is a credential and no screen shows it; only the on-device
     // console reads it, in-process.
     status.device_code = None;
-    let mut body = serde_json::to_value(status).unwrap_or_else(|_| json!({}));
-    if let Some(fields) = body.as_object_mut() {
-        // False after Luna Connect refused a cloud copy for a missing payment card.
-        fields.insert(
-            "card_on_file".into(),
-            json!(crate::backup::cloud::ops::card_on_file(&state.db)),
-        );
-    }
-    Json(body)
+    Json(serde_json::to_value(status).unwrap_or_else(|_| json!({})))
 }
 
 fn setup_or_admin(state: &AppState, current: Option<&Extension<crate::auth::CurrentUser>>) -> bool {
@@ -150,7 +142,7 @@ fn require_admin(user: crate::auth::CurrentUser) -> Result<(), (StatusCode, Json
     if user.role != "admin" {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an Admin can change remote access.",
+            "Only an Admin can remove the device token.",
         ));
     }
     Ok(())
@@ -160,7 +152,7 @@ fn map_connect_err(err: ConnectError) -> (StatusCode, Json<Value>) {
     match err {
         ConnectError::Unreachable => json_error(
             StatusCode::BAD_GATEWAY,
-            "Luna Connect couldn't be reached. Check your internet connection and try again.",
+            "Luna couldn't reach Luna Connect, or Luna Connect had a problem. Check your internet connection, then try again.",
         ),
         ConnectError::GatewayChallenge => json_error(
             StatusCode::BAD_GATEWAY,
@@ -168,7 +160,7 @@ fn map_connect_err(err: ConnectError) -> (StatusCode, Json<Value>) {
         ),
         ConnectError::Conflict => json_error(
             StatusCode::CONFLICT,
-            "That name is already in use, or Connect is already on. Pick another name or turn it off first.",
+            "Luna Connect did not accept this change. Try again.",
         ),
         ConnectError::InvalidToken => json_error(
             StatusCode::UNAUTHORIZED,
@@ -323,10 +315,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK, "{body}");
         assert!(h.state.connect.is_connect_active());
         assert!(
-            h.state
-                .connect
-                .poll_wake()
-                .load(std::sync::atomic::Ordering::Relaxed),
+            h.state.connect.poll_wake().is_set(),
             "saving a token wakes the poll loop"
         );
         // The accepted `code` spelling works too, and lowercase is normalized.
@@ -544,31 +533,35 @@ mod tests {
         assert_eq!(member_view["connect_active"], true);
     }
 
-    #[tokio::test]
-    async fn status_says_whether_a_card_is_on_file() {
-        let h = harness(true);
-        let (_, before) = send(
-            &h,
-            Method::GET,
-            "/api/v1/connect/status",
-            h.member.as_deref(),
-            None,
-        )
-        .await;
-        assert_eq!(before["card_on_file"], true);
+    async fn cloud_backup_state(h: &Harness) -> String {
+        let (_, body) = send(h, Method::GET, "/api/v1/connect/status", None, None).await;
+        body["cloud_backup"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string()
+    }
 
-        {
-            let conn = h.state.db.lock().unwrap_or_else(|p| p.into_inner());
-            db::set_meta(&conn, "cloud_payment_required", "1").unwrap();
-        }
-        let (_, after) = send(
-            &h,
-            Method::GET,
-            "/api/v1/connect/status",
-            h.member.as_deref(),
-            None,
+    #[tokio::test]
+    async fn status_says_whether_cloud_backup_can_store_anything() {
+        let h = harness(false);
+        assert_eq!(cloud_backup_state(&h).await, "not_linked");
+
+        std::fs::write(
+            h.data_dir.join(crate::net::connect::DEVICE_TOKEN_FILE),
+            TOKEN,
         )
-        .await;
-        assert_eq!(after["card_on_file"], false);
+        .unwrap();
+        // Connect is unreachable here, so the last thing it said is what counts.
+        h.state
+            .connect
+            .save(&json!({ "backup_unlocked": false }))
+            .unwrap();
+        assert_eq!(cloud_backup_state(&h).await, "no_payment");
+
+        h.state
+            .connect
+            .save(&json!({ "backup_unlocked": true }))
+            .unwrap();
+        assert_eq!(cloud_backup_state(&h).await, "ready");
     }
 }

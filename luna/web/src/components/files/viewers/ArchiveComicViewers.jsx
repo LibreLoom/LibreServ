@@ -12,10 +12,12 @@ import { BytesLoader } from "./bytesLoader.jsx";
 /** @param {{ driveId: string, path: string }} props */
 export default function ArchiveViewer({ driveId, path }) {
   const ext = fileExtension(path);
-  if (ext === "7z" || ext === "rar") {
+  // Only zip and plain tar have a reader here. Compressed tars, .gz/.bz2/.xz,
+  // 7z, and rar would parse as garbage or fail as "damaged".
+  if (ext !== "zip" && ext !== "tar") {
     return (
       <p className="text-primary text-sm">
-        Luna can list zip and tar archives. For {ext} files, download and open them on this computer.
+        Luna can only list zip and tar archives. Download this file to open it on your device.
       </p>
     );
   }
@@ -35,19 +37,7 @@ function ArchiveList({ bytes, path }) {
   const ext = fileExtension(path);
   const entries = useMemo(() => {
     try {
-      if (
-        ext === "tar"
-        || ext === "tar.gz"
-        || ext === "tgz"
-        || ext === "tar.bz2"
-        || ext === "tar.xz"
-      ) {
-        try {
-          return listTarEntries(bytes);
-        } catch {
-          return [];
-        }
-      }
+      if (ext === "tar") return listTarEntries(bytes);
       return listZipEntries(bytes);
     } catch {
       return null;
@@ -64,8 +54,7 @@ function ArchiveList({ bytes, path }) {
   if (entries.length === 0) {
     return (
       <p className="text-primary text-sm">
-        This archive looks empty. Luna can&rsquo;t unpack compressed tar files (.tar.gz, .tar.bz2,
-        .tar.xz) here — download it to check.
+        This archive is empty.
       </p>
     );
   }
@@ -104,7 +93,7 @@ export function ComicViewer({ driveId, path }) {
   if (ext === "cbr") {
     return (
       <p className="text-primary text-sm">
-        Luna opens CBZ comics in the browser. For CBR, download and open it on this computer.
+        Luna can open CBZ comics but not CBR. Download this file to read it in a comic app.
       </p>
     );
   }
@@ -132,11 +121,13 @@ function ComicPager({ bytes }) {
   }, [bytes]);
   const [index, setIndex] = useState(0);
   const [url, setUrl] = useState(/** @type {string|null} */ (null));
+  const [pageFailed, setPageFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     let objectUrl = /** @type {string|null} */ (null);
     (async () => {
+      setPageFailed(false);
       if (!pages[index]) {
         setUrl(null);
         return;
@@ -150,7 +141,10 @@ function ComicPager({ bytes }) {
           return objectUrl;
         });
       } catch {
-        if (!cancelled) setUrl(null);
+        if (!cancelled) {
+          setUrl(null);
+          setPageFailed(true);
+        }
       }
     })();
     return () => {
@@ -187,6 +181,8 @@ function ComicPager({ bytes }) {
       </div>
       {url ? (
         <img src={url} alt={`Page ${index + 1}`} className="max-h-[60vh] mx-auto object-contain" />
+      ) : pageFailed ? (
+        <p className="text-primary text-sm">Luna couldn&rsquo;t open this page. Download the comic to read it in a comic app.</p>
       ) : (
         <p className="text-primary text-sm">Loading page…</p>
       )}

@@ -64,7 +64,7 @@ describe("PreflightStep", () => {
     });
     renderStep();
     expect(await screen.findByText("Ready to continue")).toBeInTheDocument();
-    expect(screen.getByText(/1 thing won't work yet/)).toBeInTheDocument();
+    expect(screen.getByText(/1 check has a warning/)).toBeInTheDocument();
     expect(screen.getByText("Needs attention")).toBeInTheDocument();
     expect(screen.getByText(DIAGRAM_WARNING)).toBeInTheDocument();
     expect(screen.getByText("Diagrams")).toBeInTheDocument();

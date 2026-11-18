@@ -43,12 +43,32 @@ laptop.
 Bots merge to `main` daily, and only the mirror may move commits to Forgejo:
 
 1. Preflight: secrets proven, clean tree, on `main`, tag free.
-   Then the tests: `./ci run --profile <product> --session` and
-   `./ci run --profile release --session` (the product's profile is `sol`,
-   `luna` or `connect`; `release` is this tool's own tests including the slow
-   builds). `-session` means no resource limits, so they run flat out and can
-   take a long time. Any failure stops the cut before anything is pushed.
-   `--resume` and `--skip-tests` skip this step.
+   Then `./ci run --profile cut-<unit> --session`: one scoped gate for the
+   selected release unit, with inexpensive CI/release tool unit tests included.
+   `--session` removes resource limits. A failure stops the cut before any push.
+   `--resume` and `--skip-tests` skip the gate; artifact validation still runs
+   during the build. The former `--skip-release-tests` flag has been removed:
+   cuts no longer run the exhaustive release-tool build regressions.
+
+   | Cut profile | Product checks | Actual build and validation |
+   |---|---|---|
+   | `cut-sol` | Sol backend, web and security | Both binary architectures, embedded web/restic, static ELF and version checks |
+   | `cut-sol-connect` | Sol Connect backend, admin/customer webs, security and shared deployment | Server and deployable web bundle |
+   | `cut-luna-connect` | Luna Connect backend, web and deployment | Server and deployable web bundle |
+   | `cut-luna` | Daemon/shared crates, web/shared UI, recovery browser and OS scripts | Daemon smoke, OS image and installer ISO |
+   | `cut-luna-desktop` | Desktop and its shared feed library | Flatpak bundles and Windows installer |
+   | `cut-luna-android` | Android unit tests | Signed APK, version and certificate checks |
+
+   Luna OS cuts never run desktop or Android checks. Companion cuts never run
+   the daemon/web/OS suite. Connect cuts never test or build the other service
+   or the quick-start leaflet. Production build jobs run in step 3, rather
+   than in a throwaway preflight integration build as well.
+
+   `./ci run -p release` remains the exhaustive release-tool regression suite:
+   real builds for every unit, warm-cache repeats and daemon version changes.
+   Its slow job selects only the slow tests, without repeating the ordinary
+   integration suite. Broad `sol`, `connect` and `luna` profiles remain available.
+
 2. Bump commit, pushed to origin **immediately** (fetch + rebase + retry if
    `main` moved; nothing is built yet). This SHA is the release.
 3. Build that exact SHA → sums + sign → upload → re-download and check hashes.
@@ -73,7 +93,7 @@ a failed cut on the same commit.
   never the checkout itself.
 - Scripts that call podman themselves can't run inside a job container; the
   engine runs those steps as their own jobs.
-- Parts form a graph (web → lunad → rootfs → OS image → installer) and run in
+- Parts form a graph (web → lunad → packs → rootfs → OS image → installer) and run in
   parallel up to `--jobs`, with memory-heavy jobs capped.
 
 ## Rootless notes
@@ -85,9 +105,11 @@ a failed cut on the same commit.
   `luna-os-x86_64.img.xz` (exact bytes the feed lists); `rapidinstall.sh` /
   `flash-disk.sh` stream `xz -dc` onto both slots and write `os-image.sha256`.
 - **OS image:** `mkfs.ext4 -d` into a plain file; the rootfs lives in a podman
-  volume so ownership stays correct. `.img.xz` is compressed once. It is rebuilt
-  only when the rootfs inputs change (lunad updates itself); otherwise the
-  feed's `os`/`installer` parts point at the version that last built them.
+  volume so ownership stays correct. `.img.xz` is compressed once. The image is
+  the whole system — lunad, luna-console, cloudflared, the editor packs and the
+  search models are all inside it — so every luna release builds and ships it,
+  plus the installer. Nothing is reused from an earlier version: that reuse is
+  how 0.0.4 published a package holding only a daemon binary.
 - **Flatpak:** flatpak-builder's bubblewrap needs nested user namespaces. Run
   with `--security-opt seccomp=unconfined --security-opt label=disable
   --security-opt unmask=ALL`, plus `--cap-add SYS_ADMIN --cap-add NET_ADMIN` for

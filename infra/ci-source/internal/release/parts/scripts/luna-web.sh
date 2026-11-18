@@ -4,11 +4,14 @@ set -eu
 cd /src
 # Skip the whole build when nothing it is made from changed. Key: every file of
 # luna/web and shared/ui (except node_modules and dist), the node and npm
-# versions (so a new node image rebuilds), and the bundle must still be there.
-# The stamp lives in the node_modules volume, next to what it describes.
-stamp=/src/luna/web/node_modules/.libreserv-web-stamp
+# versions (so a new node image rebuilds). The key is stored IN the bundle
+# (/web-out/.web-source-key), so only the bundle that carries it can vouch for
+# itself. A stamp kept anywhere else (the node_modules volume is shared by every
+# output root and by dev and test builds) let a stale bundle in another output
+# dir pass as current, and a release shipped an old UI inside lunad.
+marker=/web-out/.web-source-key
 key=$( (find luna/web shared/ui \( -name node_modules -o -name dist \) -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum; node -v; npm -v) | sha256sum | cut -d' ' -f1)
-if [ "$(cat "$stamp" 2>/dev/null || true)" = "$key" ] && [ -f /web-out/index.html ]; then
+if [ "$(cat "$marker" 2>/dev/null || true)" = "$key" ] && [ -f /web-out/index.html ]; then
 	echo "==> web bundle unchanged ($key), skipping"
 	exit 0
 fi
@@ -38,4 +41,4 @@ done
 	fi
 done
 find /web-out -mindepth 1 -type d -empty -delete
-echo "$key" > "$stamp"
+echo "$key" > "$marker"

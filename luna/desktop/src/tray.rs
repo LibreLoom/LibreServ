@@ -61,7 +61,7 @@ impl ksni::Tray for LunaTray {
         use ksni::menu::*;
         vec![
             StandardItem {
-                label: "Open Luna".into(),
+                label: "Open Luna Desktop".into(),
                 activate: Box::new(|tray: &mut LunaTray| {
                     let _ = tray.tx.send(TrayCmd::Show);
                 }),
@@ -70,7 +70,7 @@ impl ksni::Tray for LunaTray {
             .into(),
             MenuItem::Separator,
             StandardItem {
-                label: "Quit Luna".into(),
+                label: "Quit Luna Desktop".into(),
                 activate: Box::new(|tray: &mut LunaTray| {
                     let _ = tray.tx.send(TrayCmd::Quit);
                 }),
@@ -174,7 +174,7 @@ fn macos_icon() -> Option<Icon> {
 #[cfg(target_os = "macos")]
 fn spawn_backend(tx: std::sync::mpsc::Sender<TrayCmd>) -> Option<TrayHandle> {
     let menu = Menu::new();
-    let open = MenuItem::new("Open Luna", true, None);
+    let open = MenuItem::new("Open Luna Desktop", true, None);
     let quit = MenuItem::new(format!("Quit {}", crate::product_name()), true, None);
     if menu.append_items(&[&open, &quit]).is_err() {
         return None;

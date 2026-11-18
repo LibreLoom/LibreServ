@@ -29,6 +29,7 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import ShareSheet from "../../share/ShareSheet.jsx";
 import EditorLoadingScreen from "../EditorLoadingScreen.jsx";
 import FormResponses from "./FormResponses.jsx";
+import SlidePages from "../../common/SlidePages.jsx";
 import FormInput from "../../common/forms/FormInput.jsx";
 import FileBrowser from "../FileBrowser.jsx";
 import {
@@ -92,18 +93,6 @@ const SPRING = { type: "spring", stiffness: 520, damping: 42, mass: 0.9 };
 const CARD_ENTER = { opacity: 0, scale: 0.97 };
 const CARD_SHOWN = { opacity: 1, scale: 1 };
 const CARD_EXIT = { opacity: 0, scale: 0.94, transition: { duration: 0.18 } };
-// Tabs move like a carousel, the way the tab bar reads: Responses sits right
-// of Questions, so going there pushes the page left and the new one follows it
-// in from the right — both at once, on the same kind of spring (350ms, a touch
-// of overshoot) as the tab bar's sliding pill. Variants, not inline objects, so
-// the leaving page reads the new direction from AnimatePresence's `custom`.
-const TAB_SLIDE = {
-  enter: (/** @type {number} */ dir) => ({ x: `${100 * dir}%`, opacity: 0.6 }),
-  shown: { x: 0, opacity: 1 },
-  leave: (/** @type {number} */ dir) => ({ x: `${-100 * dir}%`, opacity: 0.6 }),
-};
-/** @type {import("motion/react").Transition} */
-const TAB_SPRING = { type: "spring", duration: 0.35, bounce: 0.12 };
 const ROW_ENTER = { opacity: 0, height: 0, y: -6 };
 const ROW_SHOWN = { opacity: 1, height: "auto", y: 0 };
 const ROW_EXIT = { opacity: 0, height: 0, transition: { duration: 0.16 } };
@@ -177,6 +166,7 @@ function BuilderSession({
   /** Canonical JSON on the drive — the dirty baseline. */
   const [baseline, setBaseline] = useState(/** @type {string | null} */ (null));
   const [tab, setTab] = useState(/** @type {"questions" | "responses"} */ ("questions"));
+  const tabScrollRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   // "sheet" opens the Sharing sheet; "link" goes straight to a new responses link.
   const [sharing, setSharing] = useState(/** @type {false | "sheet" | "link"} */ (false));
   const [peers, setPeers] = useState(/** @type {import("../collabDocSync.js").PeerInfo[]} */ ([]));
@@ -450,7 +440,7 @@ function BuilderSession({
     guardedChange(
       question.id,
       "Remove this question?",
-      "People have already answered it. Their answers stay in the results — only the question goes away.",
+      "People have already answered it. Their answers stay in the results.",
       run,
     );
   }
@@ -492,7 +482,7 @@ function BuilderSession({
         : ""
       : connStatus === "connecting" || connStatus === "reconnecting"
         ? "Connecting…"
-        : "Offline — your changes stay here and sync when Luna reconnects";
+        : "Offline. Keep this tab open. Luna saves your changes when the connection comes back.";
 
   const questions = Array.isArray(doc?.questions) ? doc.questions : [];
   const settings = doc?.settings || {};
@@ -500,7 +490,6 @@ function BuilderSession({
   const orderedIds = dragOrder
     ? dragOrder.filter((id) => byId.has(id))
     : questions.map((q) => q.id);
-  const tabDirection = tab === "responses" ? 1 : -1;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -557,23 +546,20 @@ function BuilderSession({
           {connNote}
         </p>
       ) : null}
-      <div className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+      <div ref={tabScrollRef} className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         {loading || (!error && !doc) ? (
           <EditorLoadingScreen label={`Opening ${name}`} />
         ) : error ? (
           <div className="p-4"><PageNotice variant="error">{error}</PageNotice></div>
         ) : (
-          <AnimatePresence mode="popLayout" initial={false} custom={tabDirection}>
-            <Motion.div
-              key={tab}
-              custom={tabDirection}
-              variants={TAB_SLIDE}
-              initial="enter"
-              animate="shown"
-              exit="leave"
-              transition={TAB_SPRING}
-              className="min-h-full"
-            >
+          // Responses sits right of Questions, as in the tab bar.
+          <SlidePages
+            pageKey={tab}
+            position={tab === "responses" ? 1 : 0}
+            scrollRef={tabScrollRef}
+            className="min-h-full"
+            innerClassName="min-h-full"
+          >
               {tab === "responses" ? (
                 <FormResponses
                   driveId={driveId}
@@ -692,7 +678,7 @@ function BuilderSession({
                               if (picked) {
                                 setConfirm({
                                   title: "Remove this option?",
-                                  message: `Some answers picked “${label}”. Those answers stay in the results — the option just stops being offered.`,
+                                  message: `Some answers picked “${label}”. Those answers stay in the results, but people can't pick this option anymore.`,
                                   run: apply,
                                 });
                               } else {
@@ -746,7 +732,7 @@ function BuilderSession({
                       <Toggle
                         surface="primary"
                         label="Collecting answers"
-                        description="Turn this off and the link stops taking new answers."
+                        description="When this is off, the link takes no new answers and no changes."
                         checked={settings.collecting !== false}
                         disabled={!canWrite}
                         onChange={(next) => setSetting("collecting", next)}
@@ -793,7 +779,7 @@ function BuilderSession({
                     <SettingsGroup title="People answering">
                       <SettingRow
                         title="Answers per person"
-                        description="Luna remembers each person in their browser, so this is a reminder rather than a lock."
+                        description="Luna remembers each person in their browser. Someone can still answer again from another browser or device."
                       >
                         <SegmentedControl
                           options={[
@@ -809,7 +795,7 @@ function BuilderSession({
                       <Toggle
                         surface="primary"
                         label="Let people change their answers"
-                        description="Each person gets a private edit link after sending."
+                        description="Each person gets their own edit link after sending."
                         checked={settings.allowEdits !== false}
                         disabled={!canWrite}
                         onChange={(next) => setSetting("allowEdits", next)}
@@ -836,8 +822,7 @@ function BuilderSession({
                   </Motion.section>
                 </div>
               )}
-            </Motion.div>
-          </AnimatePresence>
+          </SlidePages>
         )}
       </div>
 
@@ -893,14 +878,36 @@ BuilderSession.propTypes = {
   onSaveStateChange: PropTypes.func.isRequired,
 };
 
+// Every textarea resizes itself to its text. Measuring one at a time (write
+// height:auto, read scrollHeight) forces a full layout per textarea, so a form
+// with a few hundred of them spent tens of seconds in layout when it opened.
+// Resizes are queued and done in three passes — reset all, read all, write all —
+// which costs two layouts however many textareas there are.
+const growQueue = new Set();
+let growScheduled = false;
+function flushGrow() {
+  growScheduled = false;
+  const els = [...growQueue].filter((el) => el.isConnected);
+  growQueue.clear();
+  for (const el of els) el.style.height = "auto";
+  const heights = els.map((el) => el.scrollHeight);
+  els.forEach((el, i) => {
+    el.style.height = `${heights[i]}px`;
+  });
+}
+function queueGrow(el) {
+  growQueue.add(el);
+  if (!growScheduled) {
+    growScheduled = true;
+    queueMicrotask(flushGrow);
+  }
+}
+
 /** A textarea that grows with what's typed, so nothing hides behind a scrollbar. */
 function AutoGrowTextarea({ value, onChange, className, ...rest }) {
   const ref = useRef(/** @type {HTMLTextAreaElement | null} */ (null));
   useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    if (ref.current) queueGrow(ref.current);
   }, [value]);
   return (
     <textarea
@@ -1660,7 +1667,7 @@ function OptionRow({ option, index, canWrite, mark, compact, autoFocus, duplicat
       </div>
       {duplicate ? (
         <p className="mt-1 text-xs">
-          Another option says the same thing. People could only pick one of them — change one.
+          Another option has the same text. Give each option its own text.
         </p>
       ) : !option.label.trim() && canWrite ? (
         <p className="mt-1 text-xs">Blank options are hidden from people answering.</p>
@@ -1765,7 +1772,7 @@ function SkipRow({ question, earlier, canWrite, onPatch }) {
         </p>
       ) : staleTrigger ? (
         <p className="text-xs">
-          That question can&apos;t decide a skip anymore — its type changed. Pick another question or choose Don&apos;t skip.
+          The type of that question changed, so this skip may not work. Pick another question or choose Don&apos;t skip.
         </p>
       ) : null}
     </div>

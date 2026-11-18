@@ -28,14 +28,14 @@ export const OPEN_SOURCE_LICENSES = [
     license: "AGPL-3.0",
     licenseFile: "/licenses/agpl-3.0.txt",
     copyright:
-      "Euro-Office contributors — derived from ONLYOFFICE, © Ascensio System SIA",
+      "Euro-Office contributors (derived from ONLYOFFICE, © Ascensio System SIA)",
     source: "https://github.com/Euro-Office/DocumentServer",
     notices: "License and notice files also ship inside the pack at /eurooffice.",
   },
   {
     id: "x2t-wasm",
     name: "x2t.wasm",
-    what: "Converts office documents between formats — also in your browser, so files never leave this Luna.",
+    what: "Converts office documents between formats. It runs in your browser, not on an outside service.",
     license: "AGPL-3.0",
     licenseFile: "/licenses/agpl-3.0.txt",
     copyright: "ONLYOFFICE core; WebAssembly build by the CryptPad project",

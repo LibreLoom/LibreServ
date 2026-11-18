@@ -192,7 +192,7 @@ export default function FormResponses({
         <EmptyState
           icon={Inbox}
           title="No responses yet"
-          description="Share the form's answer link and responses show up here as people send them."
+          description="Share a link to the form. Responses show here when people send them."
         />
       ) : (
         <>
@@ -257,7 +257,7 @@ export default function FormResponses({
                       ))}
                       {summary.items.length > SUMMARY_ITEMS && (
                         <li className="text-xs">
-                          and {summary.items.length - SUMMARY_ITEMS} more — open a response below to read it in full
+                          {summary.items.length - SUMMARY_ITEMS} more. Open a response below to read each one in full.
                         </li>
                       )}
                     </ul>
@@ -357,7 +357,7 @@ export default function FormResponses({
         open={confirmDelete}
         variant="danger"
         title="Delete this response?"
-        message="It disappears from the results and the CSV. This can't be undone."
+        message="Luna removes it from the results and the CSV, and deletes its attached files. You can't undo this."
         confirmLabel="Delete"
         loading={deleting}
         overlayClassName={NESTED_OVERLAY_CLASS}

@@ -1,8 +1,9 @@
 /**
  * Client-side bridge to the self-hosted diagrams.net (draw.io) webapp.
  *
- * The pack lives in `{data_dir}/drawio` (installed by
- * `scripts/install-drawio-assets.sh`) and lunad serves it at `/drawio`. The
+ * The pack ships in the OS image at `/usr/share/luna/drawio`; a dev install
+ * keeps a copy in `{data_dir}/drawio` (`scripts/install-drawio-assets.sh`).
+ * lunad serves it at `/drawio`. The
  * editor runs in a same-origin iframe and speaks draw.io's embed protocol:
  * JSON `postMessage` events/actions — `init` → `load` → `autosave`/`save` →
  * `status`. Nothing is sent to JGraph's servers: the pack is local and the

@@ -16,7 +16,7 @@
     "ok": "boolean",
     "trash_path": "string"
   },
-  "DELETE /api/v1/gallery/albums/{home}/{id}/items": {
+  "DELETE /api/v1/photos/albums/{home}/{id}/items": {
     "ok": "boolean"
   },
   "DELETE /api/v1/private-backups/old-copies": {
@@ -174,7 +174,9 @@
       "kind": "string",
       "last_error": "string",
       "last_ok_at": "number",
+      "locked_drive_names": [],
       "notes": [],
+      "paused": "null",
       "private": "boolean",
       "running": "boolean",
       "source_drive": "string",
@@ -275,7 +277,7 @@
     "backup_sources": [],
     "backup_unlocked": "boolean",
     "base_url": "string",
-    "card_on_file": "boolean",
+    "cloud_backup": "string",
     "connect_active": "boolean",
     "connect_unreachable?": "string",
     "device_code": "null",
@@ -306,12 +308,29 @@
       "used_at": "number"
     }
   ],
+  "GET /api/v1/drive-format/{id}": {
+    "device": "string",
+    "done": "boolean",
+    "drive_id": "null",
+    "encrypted": "boolean",
+    "erased": "boolean",
+    "error": "null",
+    "failed": "boolean",
+    "finished_at": "null",
+    "id": "string",
+    "phase": "string",
+    "phases": [
+      "string"
+    ],
+    "started_at": "number"
+  },
   "GET /api/v1/drives": [
     {
       "caps": "string",
-      "converting": "boolean",
       "device": "string",
       "encrypted": "boolean",
+      "format_id?": "string",
+      "formatting?": "boolean",
       "fs_type": "string",
       "id": "string",
       "label": "string",
@@ -353,14 +372,13 @@
     }
   ],
   "GET /api/v1/drives/{id}/encryption": {
-    "can_encrypt": "boolean",
-    "cannot_encrypt_reason": "string",
-    "converting": "boolean",
+    "can_protect": "boolean",
     "drive_id": "string",
     "encrypted": "boolean",
-    "fs_type": "string",
     "label": "string",
+    "locked": "boolean",
     "present": "boolean",
+    "status": "string",
     "unlocked": "boolean"
   },
   "GET /api/v1/drives/{id}/files": [
@@ -418,23 +436,6 @@
     "total_bytes": "null|number",
     "used_bytes": "null|number"
   },
-  "GET /api/v1/drives/{id}/wipe-preview/{intent}": {
-    "drive_id": "string",
-    "entries": [
-      {
-        "kind": "string",
-        "name": "string"
-      }
-    ],
-    "files": "number",
-    "folders": "number",
-    "label": "string",
-    "meaningful": "boolean",
-    "readable": "boolean",
-    "target_encrypted": "boolean",
-    "target_fs": "string",
-    "used_bytes": "null|number"
-  },
   "GET /api/v1/forms/responses": {
     "responses": [
       {
@@ -446,48 +447,6 @@
         "sent_at": "number"
       }
     ]
-  },
-  "GET /api/v1/gallery/albums": [
-    {
-      "cover_thumb": "string",
-      "created_at": "number",
-      "home_drive_id": "string",
-      "id": "string",
-      "item_count": "number",
-      "locked": "boolean",
-      "name": "string"
-    }
-  ],
-  "GET /api/v1/gallery/albums/{home}/{id}": {
-    "contrib_path?": "string",
-    "cover_drive_id?": "string",
-    "cover_path?": "string",
-    "cover_thumb": "string",
-    "created_at": "number",
-    "home_drive_id": "string",
-    "id": "string",
-    "item_count": "number",
-    "locked": "boolean",
-    "name": "string",
-    "owner_user_id?": "string"
-  },
-  "GET /api/v1/gallery/albums/{home}/{id}/items": [
-    {
-      "drive_id": "string",
-      "id": "string",
-      "name": "string",
-      "path": "string"
-    }
-  ],
-  "GET /api/v1/gallery/status": {
-    "busy": "boolean",
-    "drive_id": "null",
-    "drive_label": "null",
-    "found_count": "null|number",
-    "last_error": "null|string",
-    "pending": "number",
-    "phase": "string",
-    "scanning": "boolean"
   },
   "GET /api/v1/jobs": [
     {
@@ -545,6 +504,46 @@
     "ethernet_connected": "boolean",
     "has_default_route": "boolean",
     "wifi_connected": "boolean"
+  },
+  "GET /api/v1/photos/albums": [
+    {
+      "cover_thumb": "string",
+      "created_at": "number",
+      "home_drive_id": "string",
+      "id": "string",
+      "item_count": "number",
+      "name": "string"
+    }
+  ],
+  "GET /api/v1/photos/albums/{home}/{id}": {
+    "contrib_path?": "string",
+    "cover_drive_id?": "string",
+    "cover_path?": "string",
+    "cover_thumb": "string",
+    "created_at": "number",
+    "home_drive_id": "string",
+    "id": "string",
+    "item_count": "number",
+    "name": "string",
+    "owner_user_id?": "string"
+  },
+  "GET /api/v1/photos/albums/{home}/{id}/items": [
+    {
+      "drive_id": "string",
+      "id": "string",
+      "name": "string",
+      "path": "string"
+    }
+  ],
+  "GET /api/v1/photos/status": {
+    "busy": "boolean",
+    "drive_id": "null",
+    "drive_label": "null",
+    "found_count": "null|number",
+    "last_error": "null|string",
+    "pending": "number",
+    "phase": "string",
+    "scanning": "boolean"
   },
   "GET /api/v1/private-backups/item": {
     "inside_private": "boolean",
@@ -624,17 +623,6 @@
         "message": "string",
         "status": "string"
       },
-      "erase_tools": {
-        "category": "string",
-        "details?": {
-          "missing": [
-            "string"
-          ]
-        },
-        "message": "string",
-        "more?": "string",
-        "status": "string"
-      },
       "heic_tools": {
         "category": "string",
         "details?": {
@@ -651,10 +639,15 @@
         "message": "string",
         "status": "string"
       },
-      "network": {
+      "meaning_search": {
         "category": "string",
         "message": "string",
         "more?": "string",
+        "status": "string"
+      },
+      "network": {
+        "category": "string",
+        "message": "string",
         "status": "string"
       },
       "ntfs_support": {
@@ -682,6 +675,23 @@
       "os_update_tools?": {
         "category": "string",
         "message": "string",
+        "status": "string"
+      },
+      "photo_search": {
+        "category": "string",
+        "message": "string",
+        "more?": "string",
+        "status": "string"
+      },
+      "search_inside": {
+        "category": "string",
+        "details": {
+          "missing": [
+            "string"
+          ]
+        },
+        "message": "string",
+        "more": "string",
         "status": "string"
       },
       "smart_tool": {
@@ -746,9 +756,12 @@
     "used_bytes": "number"
   },
   "GET /api/v1/system/updates": {
+    "applying": "boolean",
     "binary_name": "string",
     "checksum": "string",
     "current_version": "string",
+    "feed_is_newer": "boolean",
+    "from_new_source": "boolean",
     "latest_version": "string",
     "os_update_failed": {
       "$oneOf": [
@@ -890,9 +903,6 @@
     "id": "string",
     "url": "string"
   },
-  "PATCH /api/v1/gallery/albums/{home}/{id}": {
-    "ok": "boolean"
-  },
   "PATCH /api/v1/users/{id}": {
     "display_name": "string",
     "id": "string",
@@ -998,10 +1008,6 @@
   "POST /api/v1/drives/{id}/eject": {
     "ok": "boolean"
   },
-  "POST /api/v1/drives/{id}/encrypt": {
-    "ok": "boolean",
-    "started": "boolean"
-  },
   "POST /api/v1/drives/{id}/files/create": {
     "ok": "boolean",
     "path": "string"
@@ -1027,35 +1033,22 @@
     "saving": "boolean",
     "size": "number"
   },
+  "POST /api/v1/drives/{id}/lock": {
+    "already_locked?": "boolean",
+    "ok": "boolean"
+  },
+  "POST /api/v1/drives/{id}/password": {
+    "ok": "boolean"
+  },
   "POST /api/v1/drives/{id}/remove": {
+    "ok": "boolean"
+  },
+  "POST /api/v1/drives/{id}/unlock": {
+    "already_unlocked?": "boolean",
     "ok": "boolean"
   },
   "POST /api/v1/drives/{name}/release": {
     "ok": "boolean"
-  },
-  "POST /api/v1/gallery/albums": {
-    "contrib_path": "string",
-    "cover_drive_id": "string",
-    "cover_path": "string",
-    "cover_thumb": "string",
-    "created_at": "number",
-    "home_drive_id": "string",
-    "id": "string",
-    "item_count": "number",
-    "locked": "boolean",
-    "name": "string",
-    "owner_user_id": "string"
-  },
-  "POST /api/v1/gallery/albums/{home}/{id}/items": {
-    "added": "number",
-    "ok": "boolean",
-    "skipped_forbidden": "number",
-    "skipped_not_media": "number"
-  },
-  "POST /api/v1/gallery/rescan": {
-    "busy": "boolean",
-    "ok": "boolean",
-    "queued": "number"
   },
   "POST /api/v1/jobs": {
     "id": "string",
@@ -1080,6 +1073,36 @@
       "id": "string",
       "name": "string"
     }
+  },
+  "POST /api/v1/photos/albums": {
+    "contrib_path": "string",
+    "cover_drive_id": "string",
+    "cover_path": "string",
+    "cover_thumb": "string",
+    "created_at": "number",
+    "home_drive_id": "string",
+    "id": "string",
+    "item_count": "number",
+    "name": "string",
+    "owner_user_id": "string"
+  },
+  "POST /api/v1/photos/albums/{home}/{id}/items": {
+    "added": "number",
+    "ok": "boolean",
+    "skipped_forbidden": "number",
+    "skipped_not_media": "number"
+  },
+  "POST /api/v1/photos/rescan": {
+    "busy": "boolean",
+    "ok": "boolean",
+    "queued": "number"
+  },
+  "POST /api/v1/private/orphans/{owner}/give": {
+    "failed_drives": [],
+    "moved": "number",
+    "offline_drives": [],
+    "ok": "boolean",
+    "skipped_readonly": []
   },
   "POST /api/v1/setup": {
     "current_step": "string",
@@ -1174,6 +1197,13 @@
     "received": "number",
     "size": "number",
     "upload_id": "string"
+  },
+  "POST /s/{token}/upload/{id}/complete": {
+    "hidden": "boolean",
+    "kind": "string",
+    "modified": "number",
+    "name": "string",
+    "size": "number"
   },
   "PUT /api/v1/cloud/phrase": {
     "rescope_failed": "number",

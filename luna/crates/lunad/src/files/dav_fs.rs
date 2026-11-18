@@ -37,7 +37,7 @@ pub struct JailedFs {
 }
 
 impl JailedFs {
-    #[allow(dead_code)] // kept for unit tests / simple jail without gallery hooks
+    #[allow(dead_code)] // kept for unit tests / simple jail without photos hooks
     pub fn new(root: impl AsRef<Path>) -> Self {
         Self {
             root: root.as_ref().to_path_buf(),
@@ -453,6 +453,15 @@ enum Visibility {
     Full,
 }
 
+/// Refuse a name the drive's format can't hold (DAV has no message channel,
+/// so the client sees a plain "forbidden" instead of a raw OS error).
+fn check_dav_name(root: &Path, rel: &str) -> FsResult<()> {
+    let leaf = rel.trim_matches('/').rsplit('/').next().unwrap_or("");
+    crate::files::fsrules::rules_at(root)
+        .check_name(leaf)
+        .map_err(|_| FsError::Forbidden)
+}
+
 fn io_to_fs(e: std::io::Error) -> FsError {
     match e.kind() {
         std::io::ErrorKind::NotFound => FsError::NotFound,
@@ -527,6 +536,8 @@ impl DavDirEntry for WaypointEntry {
 #[derive(Debug)]
 struct File {
     file: std::fs::File,
+    /// Written to a filesystem with no journal: `flush` also syncs to disk.
+    durable: bool,
 }
 
 impl DavFile for File {
@@ -565,6 +576,9 @@ impl DavFile for File {
     fn flush(&'_ mut self) -> FsFuture<'_, ()> {
         Box::pin(async move {
             self.file.flush().map_err(io_to_fs)?;
+            if self.durable {
+                self.file.sync_all().map_err(io_to_fs)?;
+            }
             Ok(())
         })
     }
@@ -609,13 +623,10 @@ fn files_to_fs(e: crate::files::FilesError) -> FsError {
         crate::files::FilesError::Path(p) => JailedFs::map_err(p),
         crate::files::FilesError::Io(e) => io_to_fs(e),
         crate::files::FilesError::UnknownDrive => FsError::NotFound,
-        // A locked or converting drive is unavailable, not missing. Forbidden
-        // is the closest DAV status that makes a client show the reason rather
-        // than an empty folder; `dav_handler_for` refuses before this point
-        // with a 423 and a `code`, so this is the in-band fallback.
-        crate::files::FilesError::Locked | crate::files::FilesError::Converting => {
-            FsError::Forbidden
-        }
+        // A locked drive is unavailable, not missing. Forbidden makes a client
+        // show the reason rather than an empty folder; `dav_handler_for`
+        // refuses first with a 423 and a `code`, so this is the in-band fallback.
+        crate::files::FilesError::Locked | crate::files::FilesError::Erasing => FsError::Forbidden,
         crate::files::FilesError::MissingDriveDb | crate::files::FilesError::Db(_) => {
             FsError::GeneralFailure
         }
@@ -634,6 +645,7 @@ impl DavFileSystem for JailedFs {
                 return Err(FsError::NotFound);
             }
             let disk = if options.create || options.create_new {
+                check_dav_name(&self.root, &rel)?;
                 resolve_for_create_nofollow(&self.root, &rel).map_err(Self::map_err)?
             } else {
                 resolve_child_nofollow(&self.root, &rel).map_err(Self::map_err)?
@@ -647,7 +659,9 @@ impl DavFileSystem for JailedFs {
                 .create_new(options.create_new)
                 .custom_flags(libc::O_NOFOLLOW);
             let file = opts.open(&disk).map_err(io_to_fs)?;
-            Ok(Box::new(File { file }) as Box<dyn DavFile>)
+            let durable = open_write_requested(&options)
+                && crate::files::fsrules::rules_at(&self.root).is_restricted();
+            Ok(Box::new(File { file, durable }) as Box<dyn DavFile>)
         })
     }
 
@@ -721,6 +735,7 @@ impl DavFileSystem for JailedFs {
             if is_reserved(&rel) {
                 return Err(FsError::Forbidden);
             }
+            check_dav_name(&self.root, &rel)?;
             let disk = resolve_for_create_nofollow(&self.root, &rel).map_err(Self::map_err)?;
             // A folder copied from a private folder is a private folder: its
             // own row and disk name, owned by whoever copied it.
@@ -780,8 +795,19 @@ impl DavFileSystem for JailedFs {
             if is_reserved(&from_rel) || is_reserved(&to_rel) {
                 return Err(FsError::Forbidden);
             }
+            check_dav_name(&self.root, &to_rel)?;
             let src = resolve_child_nofollow(&self.root, &from_rel).map_err(Self::map_err)?;
             let dest = resolve_for_create_nofollow(&self.root, &to_rel).map_err(Self::map_err)?;
+            if crate::files::fsrules::is_case_only_change(&src, &dest) {
+                crate::files::fsrules::rename_case_only(&src, &dest).map_err(io_to_fs)?;
+                crate::private::repath(
+                    &self.root,
+                    from_rel.trim_matches('/'),
+                    to_rel.trim_matches('/'),
+                )
+                .map_err(|_| FsError::GeneralFailure)?;
+                return Ok(());
+            }
             // A private item keeps its `.luna-` disk name; its real name
             // must be free of plain and private items alike.
             let (from_real, to_real) = (from_rel.trim_matches('/'), to_rel.trim_matches('/'));
@@ -820,6 +846,7 @@ impl DavFileSystem for JailedFs {
             if is_reserved(&from_rel) || is_reserved(&to_rel) {
                 return Err(FsError::Forbidden);
             }
+            check_dav_name(&self.root, &to_rel)?;
             let src = resolve_child_nofollow(&self.root, &from_rel).map_err(Self::map_err)?;
             let dest = resolve_for_create_nofollow(&self.root, &to_rel).map_err(Self::map_err)?;
             // A copy of a private file is a private file: its own row and
@@ -862,8 +889,20 @@ impl DavFileSystem for JailedFs {
                 })?;
             std::io::copy(&mut src_file, &mut dst_file).map_err(io_to_fs)?;
             // Match fs::copy: the destination inherits the source's mode.
-            if let Ok(meta) = src_file.metadata() {
+            // (exFAT has no permission bits; the call is skipped there.)
+            let restricted = crate::files::fsrules::rules_at(&self.root).is_restricted();
+            if !restricted && let Ok(meta) = src_file.metadata() {
                 let _ = dst_file.set_permissions(meta.permissions());
+            }
+            // No journal on exFAT: the copy and its folder entry must be on
+            // the drive before DAV says "done".
+            if restricted {
+                dst_file.sync_all().map_err(io_to_fs)?;
+                if let Some(parent) = dest.parent()
+                    && let Ok(dir) = std::fs::File::open(parent)
+                {
+                    let _ = dir.sync_all();
+                }
             }
             Ok(())
         })
@@ -983,8 +1022,20 @@ impl DavFileSystem for GrantFs {
             // carries any unreachable private folders whole — their boundary
             // and owner travel with the rename, so it needs no reach into
             // them.
-            self.flush_pending_under(&to_rel)?;
-            self.require_dest_free(to).await?;
+            // On exFAT a capitals-only rename "overwrites" itself: dav-server
+            // deletes the destination first, which is the very file being
+            // renamed. Drop those pending deletes and rename in place.
+            let case_only = crate::files::fsrules::rules_at(&self.inner.root).case_insensitive
+                && from_rel != to_rel
+                && from_rel.to_lowercase() == to_rel.to_lowercase();
+            if case_only {
+                if let Ok(mut pending) = self.pending_removes.lock() {
+                    pending.retain(|r| !crate::access::path_contains(&to_rel, r));
+                }
+            } else {
+                self.flush_pending_under(&to_rel)?;
+                self.require_dest_free(to).await?;
+            }
             self.inner.rename(from, to).await?;
             self.repath(&from_rel, &to_rel)?;
             self.note_landed(&from_rel);

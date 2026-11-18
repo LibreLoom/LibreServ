@@ -52,6 +52,12 @@ func runCI(ctx context.Context, repo, profile string, log func(string)) error {
 		}
 	}()
 	err = cmd.Wait()
+	// Let the reader drain what ci wrote before it exited (its failure summary
+	// comes last). A leftover child can hold the pipe open, so don't wait forever.
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+	}
 	r.Close()
 	<-done
 	return err

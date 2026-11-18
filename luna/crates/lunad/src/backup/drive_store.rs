@@ -184,9 +184,8 @@ impl Store {
     ) -> std::io::Result<Put> {
         let segs = rel_segments(rel)?;
         let dst = join_rel(&self.current_dir(), &segs);
-        if let Some(parent) = dst.parent() {
-            fs::create_dir_all(parent)?;
-        }
+        // Check for an unchanged copy first: most files on a repeat run are
+        // unchanged, and they should not pay a stat walk up the parent chain.
         let existing = match fs::symlink_metadata(&dst) {
             Ok(meta) if meta.is_file() => {
                 if meta.len() == src_meta.len() && same_mtime(&meta, src_meta) {
@@ -200,9 +199,14 @@ impl Store {
                     "The backup has a folder where this file should go.",
                 ));
             }
-            Err(e) if e.kind() == ErrorKind::NotFound => false,
+            // A missing parent folder (or a file where one should be) is left
+            // to create_dir_all below, which reports it as before.
+            Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => false,
             Err(e) => return Err(e),
         };
+        if let Some(parent) = dst.parent() {
+            fs::create_dir_all(parent)?;
+        }
 
         // Copy first: until the new copy is complete, the old one stays put.
         let staged = stage_copy(src, src_meta, &dst)?;
@@ -471,6 +475,9 @@ pub struct FsLimits {
     pub case_insensitive: bool,
     /// Largest file it can hold (FAT: 4 GiB - 1).
     pub max_file: Option<u64>,
+    /// Names can't hold `: * ? " < > | \\`, control characters, or end in a
+    /// dot or space (exFAT/FAT).
+    pub reserved_chars: bool,
 }
 
 /// The limits of the filesystem holding `target_root`, read from
@@ -495,17 +502,19 @@ fn limits_for_fs(fstype: &str) -> FsLimits {
         "exfat" | "fuseblk" => FsLimits {
             case_insensitive: true,
             max_file: None,
+            reserved_chars: true,
         },
         "vfat" | "fat" | "fat32" | "msdos" => FsLimits {
             case_insensitive: true,
             max_file: Some(FAT32_MAX_FILE),
+            reserved_chars: true,
         },
         _ => FsLimits::default(),
     }
 }
 
 /// The filesystem type of the most specific mount containing `path`.
-fn fs_type_at(mounts: &str, path: &Path) -> Option<String> {
+pub(crate) fn fs_type_at(mounts: &str, path: &Path) -> Option<String> {
     let mut best: Option<(usize, String)> = None;
     for line in mounts.lines() {
         let mut fields = line.split_whitespace();
@@ -988,6 +997,7 @@ mod tests {
             FsLimits {
                 case_insensitive: true,
                 max_file: Some(FAT32_MAX_FILE),
+                reserved_chars: true,
             }
         );
         let disk = fs_type_at(mounts, Path::new("/run/media/max/My Disk")).unwrap();
@@ -996,6 +1006,7 @@ mod tests {
             FsLimits {
                 case_insensitive: true,
                 max_file: None,
+                reserved_chars: true,
             }
         );
         let root = fs_type_at(mounts, Path::new("/home/max")).unwrap();
@@ -1010,6 +1021,7 @@ mod tests {
             FsLimits {
                 case_insensitive: true,
                 max_file: None,
+                reserved_chars: true,
             }
         );
     }

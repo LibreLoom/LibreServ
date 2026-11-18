@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { describe, expect, it } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
@@ -123,6 +124,53 @@ describe("useFileNavigation", () => {
 
     // A deep link with ?file= reopens after a close.
     act(() => result.current.go("/s/abc?file=report.pdf"));
+    expect(result.current.nav.viewerPath).toBe("report.pdf");
+  });
+
+  it.each(["before", "after"])("reopens a file link %s the closing URL update commits", async (reopen) => {
+    let blockClose = false;
+    let releaseClose = () => {};
+    const pendingClose = new Promise((resolve) => {
+      releaseClose = () => resolve(undefined);
+    });
+    function DelayClosingNavigation() {
+      const location = useLocation();
+      if (blockClose && !location.search) throw pendingClose;
+      return null;
+    }
+    const wrapper = ({ children }) => (
+      <MemoryRouter initialEntries={["/s/abc?file=report.pdf"]}>
+        <Suspense fallback={<span>Loading</span>}>
+          <DelayClosingNavigation />
+          {children}
+        </Suspense>
+      </MemoryRouter>
+    );
+    const { result } = renderHook(() => ({
+      nav: useFileNavigation({ defaultFile: "report.pdf", singleFile: true }),
+      go: useNavigate(),
+      loc: useLocation(),
+    }), { wrapper });
+
+    blockClose = true;
+    act(() => result.current.nav.onViewerPathChange(null));
+    // The dialog must close even while React keeps the old URL on screen.
+    expect(result.current.loc.search).toBe("?file=report.pdf");
+    expect(result.current.nav.viewerPath).toBeNull();
+
+    if (reopen === "before") {
+      act(() => result.current.go("/s/abc?file=report.pdf"));
+      expect(result.current.nav.viewerPath).toBe("report.pdf");
+    }
+
+    blockClose = false;
+    await act(async () => releaseClose());
+    if (reopen === "after") {
+      expect(result.current.loc.search).toBe("");
+      expect(result.current.nav.viewerPath).toBeNull();
+      act(() => result.current.go("/s/abc?file=report.pdf"));
+    }
+    expect(result.current.loc.search).toBe("?file=report.pdf");
     expect(result.current.nav.viewerPath).toBe("report.pdf");
   });
 });

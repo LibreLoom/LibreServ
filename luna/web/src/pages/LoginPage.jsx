@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { login as loginQuips } from "../lib/greetings.jsx";
+import { perfCancel, perfStart } from "../lib/perf.js";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import StepTransition from "@libreloom/ui/components/common/StepTransition.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -71,30 +72,28 @@ export default function LoginPage() {
     } else if (errorStatus === 429) {
       return (
         <p>
-          Too many tries from this device. Wait a few minutes, then try again.
+          Too many sign-in tries. Wait a few minutes, then try again.
         </p>
       );
-    } else if (errorStatus === 500) {
+    } else if (errorStatus === 502 || errorStatus === 503 || errorStatus === 504) {
       return (
         <p>
-          Luna may still be starting after a power-on or update. Wait a minute
-          and try again. If this keeps happening, power Luna off and on once,
-          then contact support.
+          Luna is not answering. If Luna just turned on or updated, wait a
+          minute and try again.
         </p>
       );
     } else if (errorStatus === "NetworkError") {
       return (
         <p>
-          This phone or computer cannot reach Luna. Check that it is on the
-          same Wi‑Fi or network as Luna, then try again. If Luna just powered
-          on, wait a minute and try once more.
+          This device cannot reach Luna. Check its connection, or wait a
+          minute if Luna just turned on.
         </p>
       );
     }
     return (
       <p>
-        Sign-in failed. Try again. If it keeps failing, power Luna off and on
-        once, then contact support.
+        Luna could not sign you in. Try again, and if it keeps failing, turn
+        Luna off and on again.
       </p>
     );
   }
@@ -121,11 +120,14 @@ export default function LoginPage() {
     }
     setFieldErrors({});
     setLoading(true);
+    // W3 (luna/perf): ends when the Dashboard is usable.
+    perfStart("W3", { fromInput: true });
     try {
       await login(username.trim(), password);
       addToast({ type: "success", message: "Signed in." });
       if (!inPlace) navigate(returnTo, { replace: true });
     } catch (err) {
+      perfCancel("W3");
       setErrorStatus(err.status || "NetworkError");
     } finally {
       setLoading(false);
@@ -196,7 +198,7 @@ export default function LoginPage() {
                   loading={loading}
                   className="mt-6"
                 >
-                  Login
+                  Sign in
                 </Button>
                 <div
                   className={

@@ -290,7 +290,7 @@ describe("FilePage", () => {
       __access: [
         { id: "g1", kind: "path", drive_id: "d1", path: "docs", caps: "view", name: "docs" },
       ],
-      __errors: { "": { status: 403, message: "You don't have permission to view this folder." } },
+      __errors: { "": { status: 403, message: "You don't have permission to open this." } },
     });
     renderFiles();
     expect(await screen.findByText("You don't have access to this folder")).toBeInTheDocument();
@@ -553,11 +553,11 @@ describe("FilePage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Restore photo.jpg" }));
     const dialog = await screen.findByRole("dialog", { name: "Restore this?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Restore" }));
-    expect(await within(dialog).findByText("Request failed (500)")).toBeInTheDocument();
-    expect(screen.getAllByText("Request failed (500)")).toHaveLength(1);
+    expect(await within(dialog).findByText("Couldn't restore that. Try again.")).toBeInTheDocument();
+    expect(screen.getAllByText("Couldn't restore that. Try again.")).toHaveLength(1);
     fireEvent.click(within(dialog).getByRole("button", { name: "Not now" }));
     await waitFor(() => {
-      expect(screen.queryByText("Request failed (500)")).not.toBeInTheDocument();
+      expect(screen.queryByText("Couldn't restore that. Try again.")).not.toBeInTheDocument();
     });
   });
 
@@ -614,7 +614,7 @@ describe("FilePage", () => {
     const dock = await screen.findByRole("region", { name: "File tasks" });
     // The card starts collapsed; open it for the assertions below.
     fireEvent.click(await within(dock).findByRole("button", { name: "Show details" }));
-    expect(await within(dock).findByText("Request failed (500)")).toBeInTheDocument();
+    expect(await within(dock).findByText("Luna couldn't empty Trash. Try again.")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 

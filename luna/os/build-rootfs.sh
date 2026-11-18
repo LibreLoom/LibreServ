@@ -33,13 +33,19 @@ podman volume exists "$LUNA_ROOTFS_VOLUME" || podman volume create "$LUNA_ROOTFS
 podman volume exists "$LUNA_CACHE_VOLUME" || podman volume create "$LUNA_CACHE_VOLUME" >/dev/null
 
 echo "==> rootfs (volume $LUNA_ROOTFS_VOLUME)"
+# All packs are required for every image, as they are for releases.
+# Build them first with `make eurooffice-pack drawio-pack models-pack`.
+PACKS_DIR="${LUNA_PACKS_DIR:-$ROOT/os/dist}"
+mkdir -p "$PACKS_DIR"
 podman run --rm --security-opt label=disable --memory "$LUNA_BUILD_MEMORY" \
 	-v "$OSDIR:/luna/os:ro" \
 	-v "$(dirname "$BIN"):/in/lunad:ro" \
 	-v "$(dirname "$CONSOLE_BIN"):/in/console:ro" \
+	-v "$PACKS_DIR:/in/packs:ro" \
 	-v "$LUNA_ROOTFS_VOLUME:/rootfs" \
 	-v "$LUNA_CACHE_VOLUME:/cache" \
 	-e ARCH="$ARCH" -e LUNA_CACHE_DIR=/cache \
+	-e OS_INPUT_HASH="$(luna_os_input_hash)" \
 	-e LUNAD_BIN="/in/lunad/$(basename "$BIN")" \
 	-e LUNA_CONSOLE_BIN="/in/console/$(basename "$CONSOLE_BIN")" \
 	${ALPINE_VERSION:+-e ALPINE_VERSION="$ALPINE_VERSION"} \

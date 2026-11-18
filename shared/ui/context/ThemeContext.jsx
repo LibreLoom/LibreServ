@@ -105,7 +105,8 @@ export function ThemeProvider({ children }) {
     const isDark = resolvedTheme === "dark";
     const target = resolveColors(isDark, customColors, darkColors, useSeparateDarkColors);
 
-    if (!initializedRef.current) {
+    const first = !initializedRef.current;
+    if (first) {
       initializedRef.current = true;
       root.dataset.noThemeTransition = "";
     }
@@ -134,12 +135,26 @@ export function ThemeProvider({ children }) {
       });
     }
 
-    const timerId = setTimeout(() => {
-      delete root.dataset.themeTransitioning;
-    }, 1500);
+    // Dropping the attribute restyles every element on the page. On first
+    // load nothing animates, so it goes once the first frame has painted,
+    // before a long page fills in; 1.5 s later it froze a scroll for ~60 ms.
+    let doneRaf;
+    let timerId;
+    if (first) {
+      doneRaf = requestAnimationFrame(() => {
+        doneRaf = requestAnimationFrame(() => {
+          delete root.dataset.themeTransitioning;
+        });
+      });
+    } else {
+      timerId = setTimeout(() => {
+        delete root.dataset.themeTransitioning;
+      }, 1500);
+    }
 
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
+      if (doneRaf) cancelAnimationFrame(doneRaf);
       clearTimeout(timerId);
       delete root.dataset.themeTransitioning;
     };

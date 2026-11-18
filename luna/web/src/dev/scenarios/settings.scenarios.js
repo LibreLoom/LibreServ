@@ -9,7 +9,7 @@ const SIGNING_PUBLIC = btoa(String.fromCharCode(...new Uint8Array(SIG_PUBLIC_LEN
 
 /** A phrase that is set and checked, with Luna's signing key present so a replacement can be built. */
 const setPhrase = (w, extra = {}) => {
-  w.connect = { enabled: true, connect_active: true, card_on_file: true };
+  w.connect = { enabled: true, connect_active: true, backup_unlocked: true };
   w.connectActive = true;
   w.cloudBackups = [cloudBackup()];
   w.phrase = { set: true, set_at: at(90 * DAY), luna_id: "luna-1", signing_public: SIGNING_PUBLIC, check_due: false, last_checked_at: at(DAY), ...extra };
@@ -226,7 +226,7 @@ export default [
     title: "Creating a token with a blank name",
     url: "/settings#security",
     seed: (w) => { w.tokens = [{ id: "t1", name: "Phone app", created_at: at(DAY), last_used_at: null, expires_at: null }]; },
-    check: ["An empty name is refused with \"Give this device a name between 1 and 80 characters.\" inside the dialog", "Luna allows two tokens with the same name: 'Phone app' again simply adds a second one"],
+    check: ["An empty name is refused with \"Give this access token a name between 1 and 80 characters.\" inside the dialog", "Luna allows two tokens with the same name: 'Phone app' again simply adds a second one"],
   },
   {
     id: "settings/tokens-load-fails",
@@ -254,7 +254,7 @@ export default [
     title: "Cloud backups: ok, source missing, check problem",
     url: "/settings#luna_connect",
     seed: (w) => {
-      w.connect = { enabled: true, connect_active: true, card_on_file: true };
+      w.connect = { enabled: true, connect_active: true, backup_unlocked: true };
       w.connectActive = true;
       w.cloudBackups = [
         cloudBackup({ source_name: "Documents" }),
@@ -269,7 +269,7 @@ export default [
     area: "Settings: Luna Connect",
     title: "Connect on but no payment card",
     url: "/settings#luna_connect",
-    seed: (w) => { w.connect = { enabled: true, connect_active: true, card_on_file: false }; w.connectActive = true; w.cloudBackups = [cloudBackup()]; },
+    seed: (w) => { w.connect = { enabled: true, connect_active: true, backup_unlocked: false }; w.connectActive = true; w.cloudBackups = [cloudBackup()]; },
     check: ["Says a card is needed before backing up, and where to add it"],
   },
   {
@@ -277,8 +277,8 @@ export default [
     area: "Settings: Luna Connect",
     title: "Running a cloud backup fails",
     url: "/settings#luna_connect",
-    seed: (w) => { w.connect = { enabled: true, connect_active: true, card_on_file: true }; w.connectActive = true; w.cloudBackups = [cloudBackup()]; },
-    faults: [{ match: "POST /api/v1/cloud/backups/*/run", mode: "502", message: "Luna Connect couldn't be reached. Check your internet connection and try again." }],
+    seed: (w) => { w.connect = { enabled: true, connect_active: true, backup_unlocked: true }; w.connectActive = true; w.cloudBackups = [cloudBackup()]; },
+    faults: [{ match: "POST /api/v1/cloud/backups/*/run", mode: "502", message: "Luna couldn't reach Luna Connect, or Luna Connect had a problem. Check your internet connection, then try again." }],
     check: ["Problem stays on the backup card, not a toast"],
   },
   {
@@ -287,7 +287,7 @@ export default [
     title: "No recovery phrase yet",
     url: "/settings#luna_connect",
     seed: (w) => {
-      w.connect = { enabled: true, connect_active: true, card_on_file: true };
+      w.connect = { enabled: true, connect_active: true, backup_unlocked: true };
       w.connectActive = true;
       w.phrase = { ...w.phrase, set: false };
     },
@@ -304,7 +304,7 @@ export default [
     title: "Recovery phrase check with the wrong words",
     url: "/settings#luna_connect",
     seed: (w) => {
-      w.connect = { enabled: true, connect_active: true, card_on_file: true };
+      w.connect = { enabled: true, connect_active: true, backup_unlocked: true };
       w.connectActive = true;
       w.cloudBackups = [cloudBackup()];
       w.phrase = { ...w.phrase, check_due: true };
@@ -318,7 +318,7 @@ export default [
     title: "Restore: Luna lost its list of cloud backups",
     url: "/settings#luna_connect",
     seed: (w) => {
-      w.connect = { enabled: true, connect_active: true, card_on_file: true };
+      w.connect = { enabled: true, connect_active: true, backup_unlocked: true };
       w.connectActive = true;
       w.restore = { needed: true, luna_id: "luna-1", signing_public: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=", cloud_snapshots: 14, indexed_snapshots: 0 };
     },
@@ -330,7 +330,7 @@ export default [
     title: "Restore: private backups list lost",
     url: "/settings#luna_connect",
     seed: (w) => {
-      w.connect = { enabled: true, connect_active: true, card_on_file: true };
+      w.connect = { enabled: true, connect_active: true, backup_unlocked: true };
       w.connectActive = true;
       w.restorePrivate = { needed: true, luna_id: "luna-1", signing_public: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=", scopes: 3 };
     },
@@ -342,7 +342,7 @@ export default [
     title: "Recovery phrase check for a 24-word phrase",
     url: "/settings#luna_connect",
     seed: (w) => {
-      w.connect = { enabled: true, connect_active: true, card_on_file: true };
+      w.connect = { enabled: true, connect_active: true, backup_unlocked: true };
       w.connectActive = true;
       w.cloudBackups = [cloudBackup()];
       w.phrase = { ...w.phrase, phrase_words: 24, check_due: true };
@@ -355,7 +355,7 @@ export default [
     title: "Recovery phrase check is due",
     url: "/settings#luna_connect",
     seed: (w) => {
-      w.connect = { enabled: true, connect_active: true, card_on_file: true };
+      w.connect = { enabled: true, connect_active: true, backup_unlocked: true };
       w.connectActive = true;
       w.cloudBackups = [cloudBackup()];
       w.phrase = { ...w.phrase, check_due: true };
@@ -390,7 +390,7 @@ export default [
       "The Connect note appears under it, with no older-private-items line under either answer",
       "After confirming the new phrase, the toast says 'Recovery phrase changed.' and the card shows 'Updating your cloud backups to the new phrase…'",
       "A last step 'Delete older private versions?' names earlier versions and files deleted from the drive that exist only in the cloud, and says Cancel keeps them and the old phrase may still open them",
-      "'Delete older versions' shows the toast 'Older private versions deleted.'; Cancel closes with nothing deleted",
+      "'Delete older versions' shows the toast 'Older private versions will be deleted.'; Cancel closes with nothing deleted",
     ],
   },
   {
@@ -401,7 +401,7 @@ export default [
     seed: (w) => setPhrase(w),
     check: [
       "'Get a new phrase' confirm names the private items that can't be opened",
-      "After 'Someone may have it', the private line says Luna removes your older private items now",
+      "After 'Someone may have it', the private line says Luna removes your older private items at its next cloud backup",
       "Asks for the Luna password, then the new phrase, then the toast 'New recovery phrase saved.'",
     ],
   },
@@ -478,7 +478,7 @@ export default [
     area: "Settings: Luna Connect",
     title: "Remote access on",
     url: "/settings#luna_connect",
-    seed: (w) => { w.connect = { enabled: true, connect_active: true, card_on_file: true }; w.connectActive = true; },
+    seed: (w) => { w.connect = { enabled: true, connect_active: true, backup_unlocked: true }; w.connectActive = true; },
     check: ["Shows it is connected", "Removing the device token turns it off after confirming"],
   },
   {
@@ -486,7 +486,7 @@ export default [
     area: "Settings: About",
     title: "Connect rejected the device token",
     url: "/settings#about",
-    seed: (w) => { w.connect = { enabled: false, connect_active: false, device_token_error: "Luna Connect did not accept this device token. It may be mistyped, revoked, or meant for a different Luna. Open Luna on a phone or computer, then go to Settings → About → Advanced and paste a new device token." }; w.connectActive = false; },
+    seed: (w) => { w.connect = { enabled: false, connect_active: false, device_token_error: "Luna Connect did not accept this device token. It may be mistyped, revoked, or for a different Luna. On a phone or computer, open Luna and paste a new device token in Settings → About → Advanced." }; w.connectActive = false; },
     check: ["Error is shown in plain words", "Replacing the token clears it"],
   },
   {
@@ -500,7 +500,7 @@ export default [
         overall_pass: false,
         checks: {
           drive_d1_smart: { status: "failed", message: "Drive 1 is failing. Copy your files to another drive now.", category: "drives" },
-          disk_space: { status: "failed", message: "Luna's own storage (its system disk) is almost full. Free some space on it, or Luna may stop working.", more: "This is the disk where Luna keeps its accounts and settings; your files are on your drives.", category: "system" },
+          disk_space: { status: "failed", message: "Luna's system disk is almost full, so Luna may stop working.", more: "This disk holds Luna's accounts and settings, not your files. To clear temporary files, select Free up space in Settings → About → System checks.", category: "system" },
           clock: { status: "warning", message: "The clock may be off.", more: "Luna sets its clock over the internet and hasn't managed to yet, so new and changed files may get wrong dates. Check that your router or modem is online, then check again in a minute.", category: "system" },
           database: { status: "passed", message: "Luna's database is working.", category: "system" },
         },
@@ -509,13 +509,44 @@ export default [
     check: ["Checks are grouped, failures first", "Luna's own storage shows what is using the disk, biggest first", "Free up space clears the temporary files and says how much", "Update now starts the update", "Open source licenses open and close"],
   },
   {
+    id: "settings/updates-from-new-source",
+    area: "Settings: About",
+    title: "Updates after changing the update source",
+    url: "/settings#about",
+    seed: (w) => {
+      // Luna just moved to this source, so its build is offered even though it
+      // is the version already running.
+      w.updates = {
+        update_available: true,
+        current_version: "1.4.2",
+        latest_version: "1.4.2",
+        feed_is_newer: false,
+        from_new_source: true,
+        release_notes: "## 1.4.2\n\nA build from this Luna's own update source.",
+      };
+      w.updateSource = {
+        ...w.updateSource,
+        feed_url: "https://updates.example.net/feeds",
+        default_keys: false,
+        keys: ["RWSELFSIGNED"],
+        effective_keys: ["RWSELFSIGNED"],
+      };
+    },
+    check: [
+      "Status says 1.4.2 available even though that is the running version",
+      "A line says the update source changed and this is the version it has",
+      "Update now installs that build and says it comes from the source you set",
+    ],
+  },
+  {
     id: "settings/update-source",
     area: "Settings: About",
     title: "Update source",
     url: "/settings#about",
     check: [
       "Changing Stable ↔ Beta keeps the feed address and says it saved",
-      "The card says Default source or Custom source and shows the address",
+      "Updates opens as one section: the channel and the source each on their own pill row",
+      "The source row shows Edit update source, not the address or a default/custom pill",
       "Edit update source opens with the warning and prefilled fields",
       "A bad address or key is refused inline and the old value stays",
     ],
@@ -534,7 +565,7 @@ export default [
       };
     },
     check: [
-      "The card says Custom source and shows the network address",
+      "The editor opens on the network address",
       "Switching Stable ↔ Beta saves without the private-network error",
       "The feed address stays 192.168.1.10",
     ],
@@ -568,7 +599,7 @@ export default [
     area: "Settings: Luna Connect",
     title: "Luna Connect for an Admin",
     url: "/settings#luna_connect",
-    seed: (w) => { w.connect = { enabled: true, connect_active: true, card_on_file: true }; w.connectActive = true; },
+    seed: (w) => { w.connect = { enabled: true, connect_active: true, backup_unlocked: true }; w.connectActive = true; },
     check: ["Luna Connect category shows for an Admin, with the remote access card", "Cloud backup is also in the sidebar, above Luna Connect"],
   },
   // ── Whole-page ────────────────────────────────────────────────────────────

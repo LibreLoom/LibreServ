@@ -4,8 +4,8 @@
 #
 #   in:  OSDIR   (/luna/os, read-only) installer scripts, package lists, hooks
 #        PAYLOAD (/payload, read-only) must hold luna-os-x86_64.img.xz and its
-#                .sha256; eurooffice-pack.tar.zst and drawio-pack.tar.zst
-#                (+ .sha256) are included when present
+#                .sha256. The image carries the daemon, cloudflared and both
+#                editor packs, so nothing else is needed here.
 #        CACHE   (/cache, optional volume) apt downloads + the finished live
 #                system, reused while its inputs are unchanged
 #   out: OUT/luna-rapidinstall-x86_64.iso   BIOS+UEFI hybrid, volume LUNAINST
@@ -88,23 +88,12 @@ for f in disk.sh flash-disk.sh console.sh factory-assets.sh; do
 	install -m 0644 "$OSDIR/lib/$f" "$LUNA/lib/$f"
 done
 chmod 0755 "$LUNA/lib/flash-disk.sh"
-# The big files are grafted from the payload directory instead of copied.
+# The image is grafted from the payload directory instead of copied. It already
+# holds the daemon, cloudflared and the editor packs, so it is the only file.
 GRAFTS="$WORK/grafts"
 : >"$GRAFTS"
-for f in "$IMG" "$IMG.sha256" eurooffice-pack.tar.zst eurooffice-pack.tar.zst.sha256 \
-	drawio-pack.tar.zst drawio-pack.tar.zst.sha256; do
-	if [ -f "$PAYLOAD/$f" ]; then
-		printf -- '-map %s /luna/%s\n' "$PAYLOAD/$f" "$f" >>"$GRAFTS"
-	else
-		case "$f" in
-		eurooffice-pack.tar.zst)
-			echo "WARNING: no $f in $PAYLOAD: installed devices will lack office editing." >&2
-			;;
-		drawio-pack.tar.zst)
-			echo "WARNING: no $f in $PAYLOAD: installed devices will lack diagram editing." >&2
-			;;
-		esac
-	fi
+for f in "$IMG" "$IMG.sha256"; do
+	printf -- '-map %s /luna/%s\n' "$PAYLOAD/$f" "$f" >>"$GRAFTS"
 done
 
 # --- boot menu --------------------------------------------------------------

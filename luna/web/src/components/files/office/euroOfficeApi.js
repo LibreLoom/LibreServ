@@ -252,7 +252,7 @@ async function putBundle(session, name, bytes, coverage) {
   // log for Editor.bin. Fail the save loudly instead.
   if (!bytes || (bytes.byteLength ?? 0) === 0) {
     throw new Error(
-      "Luna couldn't store the converted document — it came out empty. Try saving again.",
+      "The converted document came out empty, so Luna didn't store it. Try again.",
     );
   }
   // putBinary throws ApiError on non-2xx. `coverage` on an Editor.bin PUT
@@ -302,8 +302,7 @@ export async function ensureOfficeBundle(driveId, path, session, source = driveS
     // file is damaged, password-protected, or in a dialect the converter
     // can't read.
     throw new Error(
-      "Luna couldn't convert this file for editing. It may be damaged or " +
-        "password-protected. You can still download it.",
+      "Luna couldn't convert this file for editing. It may be damaged or password-protected.",
     );
   }
   await putBundle(session, "Editor.bin", conv.out);

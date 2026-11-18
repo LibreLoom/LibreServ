@@ -119,7 +119,7 @@ describe("file operation card: the fake answers like lunad", () => {
     await sleepFor(150);
     const job = (await call("GET", `/api/v1/jobs/${made.data.id}`)).data;
     expect(job.state).toBe("error");
-    expect(job.error).toBe("Backup drive is full. Free up some space on it and try again. Nothing was moved. Your files are still where they were.");
+    expect(job.error).toBe("Backup drive is full. Free up some space on it and try again. Nothing was moved.");
     expect(job.progress).toBeLessThan(job.total);
     expect(fsOf(world, "d1").nodes["Photos/2024/Spain/beach.jpg"]).toBeTruthy();
     expect(Object.keys(fsOf(world, "d2").nodes)).toEqual([]);

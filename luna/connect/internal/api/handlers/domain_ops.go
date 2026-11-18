@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"log/slog"
+	"net/http"
+	"strings"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/domainname"
@@ -48,13 +50,29 @@ func loadBoundDeviceDomain(db *database.DB, deviceID string) (boundDeviceDomain,
 	return d, 0, ""
 }
 
+// tunnelName is the Cloudflare name of a Luna's tunnel. Cloudflare allows each name once per
+// account (HTTP 409), so a tunnel left behind by a removed Luna would otherwise block anyone from
+// taking that name again. The device id makes the name unique to this Luna.
+func tunnelName(sub, deviceID string) string {
+	id := strings.TrimPrefix(deviceID, "dev_")
+	if len(id) > 8 {
+		id = id[:8]
+	}
+	return "luna-" + sub + "-" + id
+}
+
+// providerFailureStatus is what we answer when Cloudflare (or Stripe) refuses a call. Not 502:
+// Cloudflare replaces any 502 or 504 from our server with its own HTML error page, so the
+// person would never see our message. 503 passes through untouched.
+const providerFailureStatus = http.StatusServiceUnavailable
+
 func cloudflareDomainReady() (int, string) {
 	if !config.C.Cloudflare.Ready() && !config.DevMode() {
-		return 503, "Remote addresses need Cloudflare tunnel and DNS keys. Add them in Admin → Connections, or in the Luna Connect config file (cloudflare.account_id, api_token, zone_id)."
+		return 503, "Remote addresses are not set up on this Luna Connect site yet. Contact support."
 	}
 	if err := security.AtRestReady(); err != nil {
 		slog.Error("domain ops: at-rest key not configured", "error", err)
-		return 503, "Could not protect the connection secret. Try again."
+		return 503, "Remote addresses are not set up on this Luna Connect site yet. Contact support."
 	}
 	return 0, ""
 }
@@ -159,28 +177,31 @@ func applyDeviceDomain(deps Deps, deviceID, sub string, port int) (map[string]an
 		_ = deps.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, domainname.Hostname(d.Subdomain, config.C.Server.PublicZone))
 	}
 
-	creds, err := deps.Tunnel.CreateTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, "luna-"+sub)
+	creds, err := deps.Tunnel.CreateTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tunnelName(sub, deviceID))
 	if err != nil {
+		slog.Error("domain: create tunnel failed", "device", deviceID, "subdomain", sub, "err", err)
 		releaseClaim()
-		return nil, 502, "Could not create the secure connection. Try again."
+		return nil, providerFailureStatus, "Could not create the secure connection. Try again."
 	}
 	tid, ttoken := creds.TunnelID, creds.Token
 	if err := deps.Tunnel.ConfigureIngress(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid, host, "http://127.0.0.1:"+itoa(port)); err != nil {
+		slog.Error("domain: configure tunnel ingress failed", "device", deviceID, "subdomain", sub, "err", err)
 		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
 		releaseClaim()
-		return nil, 502, "Could not set up the address. Try again."
+		return nil, providerFailureStatus, "Could not set up the address. Try again."
 	}
 	if err := deps.DNS.UpsertCNAME(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, host, tid+".cfargotunnel.com"); err != nil {
+		slog.Error("domain: publish DNS record failed", "device", deviceID, "subdomain", sub, "err", err)
 		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
 		releaseClaim()
-		return nil, 502, "Could not publish the address. Try again."
+		return nil, providerFailureStatus, "Could not publish the address. Try again."
 	}
 	sealedTok, err := security.SealString(ttoken)
 	if err != nil {
 		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
 		_ = deps.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, host)
 		releaseClaim()
-		return nil, 500, "Could not protect the connection secret. Try again."
+		return nil, 500, "Could not set up the address. Try again."
 	}
 	// The subdomain claim above already holds; this update only fills in the
 	// tunnel material and display fields for the device we still own.
@@ -217,23 +238,26 @@ func regenerateDeviceTunnel(deps Deps, deviceID string) (map[string]any, int, st
 		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, d.TunnelID)
 	}
 
-	creds, err := deps.Tunnel.CreateTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, "luna-"+d.Subdomain)
+	creds, err := deps.Tunnel.CreateTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tunnelName(d.Subdomain, deviceID))
 	if err != nil {
-		return nil, 502, "Could not create the secure connection. Try again."
+		slog.Error("domain: regenerate tunnel failed", "device", deviceID, "err", err)
+		return nil, providerFailureStatus, "Could not create the secure connection. Try again."
 	}
 	tid, ttoken := creds.TunnelID, creds.Token
 	if err := deps.Tunnel.ConfigureIngress(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid, host, "http://127.0.0.1:"+itoa(d.Port)); err != nil {
+		slog.Error("domain: regenerate ingress failed", "device", deviceID, "err", err)
 		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
-		return nil, 502, "Could not set up the secure connection. Try again."
+		return nil, providerFailureStatus, "Could not set up the secure connection. Try again."
 	}
 	if err := deps.DNS.UpsertCNAME(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, host, tid+".cfargotunnel.com"); err != nil {
+		slog.Error("domain: regenerate DNS record failed", "device", deviceID, "err", err)
 		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
-		return nil, 502, "Could not publish the address. Try again."
+		return nil, providerFailureStatus, "Could not publish the address. Try again."
 	}
 	sealedTok, err := security.SealString(ttoken)
 	if err != nil {
 		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
-		return nil, 500, "Could not protect the connection secret. Try again."
+		return nil, 500, "Could not set up the address. Try again."
 	}
 	_, err = deps.DB.Exec(`UPDATE devices SET tunnel_id = ?, tunnel_token = ? WHERE id = ?`, tid, sealedTok, deviceID)
 	if err != nil {

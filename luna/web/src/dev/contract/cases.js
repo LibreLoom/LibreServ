@@ -44,13 +44,14 @@ export const CASES = {
   "GET /api/v1/drives/detected": plain("/api/v1/drives/detected"),
   "GET /api/v1/drives/:id/summary": onDrive((w, d) => `/api/v1/drives/${q(d)}/summary`),
   "GET /api/v1/drives/:id/encryption": onDrive((w, d) => `/api/v1/drives/${q(d)}/encryption`),
-  "GET /api/v1/drives/:id/wipe-preview": onDrive((w, d) => `/api/v1/drives/${q(d)}/wipe-preview`),
-  "GET /api/v1/drives/:id/wipe-preview/:intent": onDrive((w, d) => `/api/v1/drives/${q(d)}/wipe-preview/encrypt`),
   "GET /api/v1/drives/:id/health": onDrive((w, d) => `/api/v1/drives/${q(d)}/health`),
   "GET /api/v1/drives/:name/peek": { url: (w) => { const dev = detectedName(w); return dev ? `/api/v1/drives/${q(dev)}/peek` : null; } },
   // The app sends POST (FilesPage.jsx); lunad only has POST. The GET case checks the method.
   "GET /api/v1/drives/:name/inspect": { url: (w) => { const dev = (w.drives || []).find((d) => d?.device)?.device; return dev ? `/api/v1/drives/${q(dev)}/inspect` : null; } },
   "POST /api/v1/drives/:name/inspect": { url: (w) => { const dev = (w.drives || []).find((d) => d?.device)?.device; return dev ? `/api/v1/drives/${q(dev)}/inspect` : null; }, body: () => ({}) },
+
+  // Erasing a drive. A run exists only in worlds a scenario seeded with one.
+  "GET /api/v1/drive-format/:id": { url: (w) => { const id = Object.keys(w.formatRuns || {})[0]; return id ? `/api/v1/drive-format/${q(id)}` : null; } },
 
   // System
   "GET /health": plain("/health"),
@@ -157,13 +158,13 @@ export const CASES = {
   "GET /s/:token/file": { skip: "file bytes, not JSON" },
 
   // Photos
-  "GET /api/v1/gallery": plain("/api/v1/gallery"),
-  "GET /api/v1/gallery/albums": plain("/api/v1/gallery/albums"),
-  "GET /api/v1/gallery/places": plain("/api/v1/gallery/places"),
-  "GET /api/v1/gallery/status": plain("/api/v1/gallery/status"),
-  "GET /api/v1/gallery/cameras": plain("/api/v1/gallery/cameras"),
-  "GET /api/v1/gallery/filter-facets": plain("/api/v1/gallery/filter-facets"),
-  "GET /api/v1/gallery/duplicates": plain("/api/v1/gallery/duplicates"),
-  "GET /api/v1/gallery/preview": { skip: "image bytes, not JSON" },
+  "GET /api/v1/photos": plain("/api/v1/photos"),
+  "GET /api/v1/photos/albums": plain("/api/v1/photos/albums"),
+  "GET /api/v1/photos/places": plain("/api/v1/photos/places"),
+  "GET /api/v1/photos/status": plain("/api/v1/photos/status"),
+  "GET /api/v1/photos/cameras": plain("/api/v1/photos/cameras"),
+  "GET /api/v1/photos/filter-facets": plain("/api/v1/photos/filter-facets"),
+  "GET /api/v1/photos/duplicates": plain("/api/v1/photos/duplicates"),
+  "GET /api/v1/photos/preview": { skip: "image bytes, not JSON" },
 };
 

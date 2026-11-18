@@ -1,6 +1,6 @@
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { useState } from "react";
-import { Mail, Bell } from "lucide-react";
+import { Mail, Bell, ChevronRight } from "lucide-react";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import CheckboxOptionGroup from "../../common/CheckboxOptionGroup";
 import RadioOptionGroup from "../../common/RadioOptionGroup";
@@ -134,7 +134,7 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
           description={smtpConfigured ? "Connected — change provider in External services" : "Not configured — set up in External services"}
         >
           <Button asChild variant="outline" size="sm" surface="secondary">
-            <a href="#external_services">External services →</a>
+            <a href="#external_services"><span>External services</span><ChevronRight size={ICON_SIZE.md} aria-hidden="true" /></a>
           </Button>
         </SettingsRow>
       </SettingsCard>

@@ -1,0 +1,203 @@
+{
+  "date": "2026-11-13",
+  "host": {
+    "cpu": "Intel Core i7-1185G7",
+    "platform": "Linux-7.0.0-42-generic-x86_64-with-glibc2.39",
+    "python": "3.12.3",
+    "ort_threads": 1
+  },
+  "manifest": {
+    "model_revision": "9463a9c508a344c837ffefe9d724f3827bf2dc79",
+    "dataset_revision": "56f58c967835f7c508d684f36bd7897cca9d7634",
+    "files": {
+      "model.onnx": {
+        "bytes": 94071688,
+        "sha256": "31d28cb07209533d10fc4fef73ac324ce17de6741a2372e7e1531a4ac8fdaeb2"
+      },
+      "model_int8.onnx": {
+        "bytes": 24281512,
+        "sha256": "844d1a46ab18acf50c989e541b12fe3b6dc7f8d6004725b4e992d142788e0600"
+      },
+      "model-image.onnx": {
+        "bytes": 33302044,
+        "sha256": "0c0dc84f851b55901cfaadf18b52c77338c530cf2fb22d0409eeebb33b488ea5"
+      },
+      "model-text.onnx": {
+        "bytes": 60769786,
+        "sha256": "75df04ac47265972a3e697eb286ed24cb314254b411713588d64aa08c04f2bb5"
+      },
+      "model_int8-image.onnx": {
+        "bytes": 8957217,
+        "sha256": "3b8d3f1d031299cc96fc4c8fac3d99927ddccbdc3962c46e2f36d3e4d7fe9681"
+      },
+      "model_int8-text.onnx": {
+        "bytes": 15367058,
+        "sha256": "c4d75ebae0ae45b699a5bc9cceee1edffd73f60e465d4a6f64b56fd5f06c9a8c"
+      },
+      "tokenizer.json": {
+        "bytes": 3642073,
+        "sha256": "6d9109cc838977f3ca94a379eec36aecc7c807e1785cd729660ca2fc0171fb35"
+      },
+      "preprocessor_config.json": {
+        "bytes": 468,
+        "sha256": "5df7e578c37e907a431daf47fd592fc49fa50d23ed4c41285a0a34a58a9d2e06"
+      }
+    }
+  },
+  "corpus_sha256": "43b741ce1f08f6786176dece3bb9ba6a2c87d93d23641fa10b62f5381882184e",
+  "maximum_cached_image_dimension": 500,
+  "python_probe": {
+    "workers": [
+      {
+        "model": "model",
+        "mode": "image",
+        "onnxruntime": "1.32.0",
+        "count": 1000,
+        "baseline_rss_MiB": 54.62890625,
+        "loaded_rss_MiB": 119.1484375,
+        "final_rss_MiB": 123.99609375,
+        "peak_rss_MiB": 124.66015625,
+        "load_seconds": 0.10575891099870205,
+        "mean_ms": 45.94210566394031,
+        "p90_ms": 54.247789550572634,
+        "p99_ms": 66.73084525740705
+      },
+      {
+        "model": "model",
+        "mode": "text",
+        "onnxruntime": "1.32.0",
+        "count": 5000,
+        "baseline_rss_MiB": 54.57421875,
+        "loaded_rss_MiB": 130.62109375,
+        "final_rss_MiB": 173.109375,
+        "peak_rss_MiB": 172.859375,
+        "load_seconds": 0.11079602898098528,
+        "mean_ms": 1.264264670596458,
+        "p90_ms": 1.7108642845414581,
+        "p99_ms": 2.8728468460030863
+      },
+      {
+        "model": "model_int8",
+        "mode": "image",
+        "onnxruntime": "1.32.0",
+        "count": 1000,
+        "baseline_rss_MiB": 54.48828125,
+        "loaded_rss_MiB": 84.6796875,
+        "final_rss_MiB": 96.67578125,
+        "peak_rss_MiB": 96.35546875,
+        "load_seconds": 0.050144713022746146,
+        "mean_ms": 25.120042458060198,
+        "p90_ms": 29.22384140547365,
+        "p99_ms": 42.21144569804892
+      },
+      {
+        "model": "model_int8",
+        "mode": "text",
+        "onnxruntime": "1.32.0",
+        "count": 5000,
+        "baseline_rss_MiB": 54.4765625,
+        "loaded_rss_MiB": 83.72265625,
+        "final_rss_MiB": 127.19921875,
+        "peak_rss_MiB": 127.00390625,
+        "load_seconds": 0.0705820779548958,
+        "mean_ms": 0.9809428784530609,
+        "p90_ms": 1.3747944962233307,
+        "p99_ms": 2.0023799140471965
+      }
+    ],
+    "retrieval": {
+      "model": {
+        "recall_at_1": 0.4004,
+        "recall_at_5": 0.6874,
+        "recall_at_10": 0.7998,
+        "median_rank": 2.0
+      },
+      "model_int8": {
+        "recall_at_1": 0.3728,
+        "recall_at_5": 0.6608,
+        "recall_at_10": 0.7754,
+        "median_rank": 2.0
+      },
+      "comparison": {
+        "top1_agreement": 0.7338,
+        "mean_image_cosine": 0.9854937791824341,
+        "mean_text_cosine": 0.9951961636543274
+      }
+    },
+    "dataset": "jxie/flickr8k test rows 0:1000, all 5 captions per image; 1000 candidate images, 5000 queries"
+  },
+  "native_probe": [
+    {
+      "mode": "image",
+      "baseline_rss_MiB": 6.90625,
+      "loaded_rss_MiB": 86.6602,
+      "final_rss_MiB": 87.7812,
+      "peak_rss_MiB": 87.625,
+      "mean_inference_ms": 45.9373,
+      "model": "model"
+    },
+    {
+      "mode": "text",
+      "baseline_rss_MiB": 6.91016,
+      "loaded_rss_MiB": 97.2539,
+      "final_rss_MiB": 98.6289,
+      "peak_rss_MiB": 137.223,
+      "mean_inference_ms": 1.24099,
+      "model": "model"
+    },
+    {
+      "mode": "image",
+      "baseline_rss_MiB": 6.91016,
+      "loaded_rss_MiB": 51.1328,
+      "final_rss_MiB": 55.2109,
+      "peak_rss_MiB": 55.0586,
+      "mean_inference_ms": 24.6726,
+      "model": "model_int8"
+    },
+    {
+      "mode": "text",
+      "baseline_rss_MiB": 6.94141,
+      "loaded_rss_MiB": 50.4688,
+      "final_rss_MiB": 52.0898,
+      "peak_rss_MiB": 58.1562,
+      "mean_inference_ms": 0.607662,
+      "model": "model_int8"
+    }
+  ],
+  "validation": {
+    "equivalence": {
+      "model-image-combined_vs_split_max_abs": 0.0,
+      "model-text-combined_vs_split_max_abs": 0.0,
+      "model_int8-image-combined_vs_split_max_abs": 0.0,
+      "model_int8-text-combined_vs_split_max_abs": 0.0,
+      "int8-image-native_vs_python_max_abs": 0.0,
+      "int8-text-native_vs_python_max_abs": 0.0
+    },
+    "retrieval": {
+      "image=model,text=model": {
+        "recall_at_1": 0.4004,
+        "recall_at_5": 0.6874,
+        "recall_at_10": 0.7998,
+        "recall_at_20": 0.8858
+      },
+      "image=model_int8,text=model_int8": {
+        "recall_at_1": 0.3728,
+        "recall_at_5": 0.6608,
+        "recall_at_10": 0.7754,
+        "recall_at_20": 0.873
+      },
+      "image=model,text=model_int8": {
+        "recall_at_1": 0.394,
+        "recall_at_5": 0.6804,
+        "recall_at_10": 0.7942,
+        "recall_at_20": 0.8818
+      },
+      "image=model_int8,text=model": {
+        "recall_at_1": 0.3772,
+        "recall_at_5": 0.6662,
+        "recall_at_10": 0.784,
+        "recall_at_20": 0.8782
+      }
+    }
+  }
+}

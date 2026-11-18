@@ -15,6 +15,8 @@ import { fileExtension, openableKind } from "../../lib/fileKinds.js";
 import { officeConversionFor } from "../../lib/officeConvert.js";
 import { useFileSource } from "../../lib/fileSource.jsx";
 import { joinPath, parentPath, pathBasename } from "../../lib/paths.js";
+import { perfStart } from "../../lib/perf.js";
+import { whenIdleAndStill } from "../../lib/whenStill.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -22,12 +24,34 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 
 // Heavy viewers and editors (CodeMirror, forms, diagrams, whiteboard, office)
 // load only when a file of that kind is opened.
-const TextFileEditor = lazy(() => import("./TextFileEditor.jsx"));
-const FormBuilder = lazy(() => import("./forms/FormBuilder.jsx"));
+const loadTextFileEditor = () => import("./TextFileEditor.jsx");
+const loadFormBuilder = () => import("./forms/FormBuilder.jsx");
+const loadOfficeEditor = () => import("./office/OfficeEditor.jsx");
+const loadDiagramEditor = () => import("./diagram/DiagramEditor.jsx");
+const loadWhiteboardEditor = () => import("./whiteboard/WhiteboardEditor.jsx");
+const TextFileEditor = lazy(loadTextFileEditor);
+const FormBuilder = lazy(loadFormBuilder);
 const KindViewer = lazy(() => import("./viewers/KindViewer.jsx"));
-const OfficeEditor = lazy(() => import("./office/OfficeEditor.jsx"));
-const DiagramEditor = lazy(() => import("./diagram/DiagramEditor.jsx"));
-const WhiteboardEditor = lazy(() => import("./whiteboard/WhiteboardEditor.jsx"));
+const OfficeEditor = lazy(loadOfficeEditor);
+const DiagramEditor = lazy(loadDiagramEditor);
+const WhiteboardEditor = lazy(loadWhiteboardEditor);
+
+// The frame holds back the editor until its opening fade is over, so the
+// editor's code is fetched the moment a file is opened instead of when the
+// editor finally mounts.
+const loadEditorFor = (kind) =>
+  kind === "office" ? loadOfficeEditor
+    : kind === "form" ? loadFormBuilder
+      : kind === "diagram" ? loadDiagramEditor
+        : kind === "whiteboard" ? loadWhiteboardEditor
+          : loadTextFileEditor;
+
+// Text and Markdown are the commonest files to open. Fetch their editor while
+// the browser is idle so the first open doesn't wait on the download, but not
+// mid-scroll: its ~100 ms parse froze a long folder's scroll (W6).
+if (typeof window !== "undefined") {
+  whenIdleAndStill(() => void loadTextFileEditor().catch(() => {}), { timeout: 4000 });
+}
 
 function ViewerFallback() {
   return (
@@ -37,7 +61,7 @@ function ViewerFallback() {
   );
 }
 
-/** Match `fullscreen-overlay-out` duration in index.css. */
+/** Match `file-viewer-out` duration in index.css (the fade the editor shell uses). */
 const FULLSCREEN_EXIT_MS = 250;
 
 function prefersReducedMotion() {
@@ -50,7 +74,7 @@ function prefersReducedMotion() {
  * Hold a portaled fullscreen overlay mounted while its exit animation plays —
  * same deferred-unmount pattern as FileSearch/ModalCard. `present` follows
  * `active` up synchronously (so the enter animation starts on the same commit)
- * and drops one `fullscreen-overlay-out` duration after `active` goes false.
+ * and drops one `file-viewer-out` duration after `active` goes false.
  *
  * @param {boolean} active
  * @returns {{ present: boolean, isClosing: boolean }}
@@ -168,6 +192,11 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
     setEditorPresence("");
   }
 
+  // W12 (luna/perf): opening an office document; EuroOfficeHost ends it.
+  useEffect(() => {
+    if (open && isOffice && path) perfStart("W12", { fromInput: true, keep: true });
+  }, [open, isOffice, path, driveId]);
+
   useEffect(() => {
     if (wasExpandedRef.current && !expanded) {
       fullViewButtonRef.current?.focus();
@@ -235,15 +264,17 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
           );
           targetPath = candidate;
         } catch (err) {
-          if (!(err instanceof ApiError && err.status === 409)) throw err;
+          // Only a name clash means "try the next name". Other 409s (a
+          // read-only drive) carry their own message.
+          if (!(err instanceof ApiError && err.status === 409 && err.code === "exists")) throw err;
         }
       }
       if (!targetPath) {
         throw new Error(
-          "Couldn't create the converted copy — this folder already has too many files with that name. Rename or remove one, then try again.",
+          "Couldn't make the converted copy: this folder has too many files with that name. Rename or remove one, then try again.",
         );
       }
-      addToast({ type: "success", message: "Converted — the new file is open." });
+      addToast({ type: "success", message: "Converted. The new file is open." });
       onSaved?.();
       onOpenPath?.(targetPath);
     } catch (err) {
@@ -256,7 +287,24 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
 
   const canFullView = kind === "image" || kind === "video";
 
-  const editorActive = open && fullscreenEditor;
+  // The parent's `open` follows the URL, which lands a router transition
+  // later. Dismissing here as well starts the exit fade in the click's own
+  // commit instead of after that round trip. The flag is scoped to the open
+  // session (`previewKey` changes once the parent closes it).
+  const [dismissedKey, setDismissedKey] = useState(/** @type {string|null} */ (null));
+  const dismissed = dismissedKey === previewKey;
+  if (dismissedKey !== null && !dismissed) setDismissedKey(null);
+  const handleClose = useCallback(() => {
+    setDismissedKey(previewKey);
+    onClose();
+  }, [previewKey, onClose]);
+
+  const editorActive = open && fullscreenEditor && !dismissed;
+  // Start the editor's download as soon as the file opens (see loadEditorFor).
+  const editorKindKey = isOffice ? "office" : isForm ? "form" : isDiagram ? "diagram" : isWhiteboard ? "whiteboard" : "text";
+  useEffect(() => {
+    if (editorActive) void loadEditorFor(editorKindKey)().catch(() => {});
+  }, [editorActive, editorKindKey]);
   // Fullscreen shells animate out after `open`/`expanded` drop — keep them
   // mounted until the exit keyframes finish.
   const editorOverlay = useOverlayPresence(editorActive);
@@ -284,7 +332,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
         canWrite={canWrite}
         onShare={onShare}
         editorKind={frameView.isOffice ? "office" : frameView.isForm ? "form" : frameView.isDiagram ? "diagram" : frameView.isWhiteboard ? "whiteboard" : "text"}
-        onClose={onClose}
+        onClose={handleClose}
       >
         {({ onRegisterSave, onSaveStateChange, requestClose }) => (
           <Suspense fallback={null}>
@@ -295,7 +343,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               path={frameView.path}
               canWrite={canWrite}
               onSaved={onSaved}
-              onClose={onClose}
+              onClose={handleClose}
               onPresenceChange={setEditorPresence}
               onSaveStateChange={onSaveStateChange}
               onRegisterSave={onRegisterSave}
@@ -308,7 +356,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               path={frameView.path}
               canWrite={canWrite}
               onSaved={onSaved}
-              onClose={onClose}
+              onClose={handleClose}
               onPresenceChange={setEditorPresence}
               onSaveStateChange={onSaveStateChange}
               onRegisterSave={onRegisterSave}
@@ -320,7 +368,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               path={frameView.path}
               canWrite={canWrite}
               onSaved={onSaved}
-              onClose={onClose}
+              onClose={handleClose}
               onPresenceChange={setEditorPresence}
               onSaveStateChange={onSaveStateChange}
               onRegisterSave={onRegisterSave}
@@ -378,7 +426,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
             {kind === "video" && (
               mediaFailed ? (
                 <PageNotice variant="error">
-                  This video can't play in the browser. Download it to watch on your device.
+                  This video can't play here. Download it to watch it on your device.
                 </PageNotice>
               ) : (
                 <div className="rounded-large-element surface-primary p-2">
@@ -411,23 +459,13 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               </p>
             )}
 
-            {conversion && !guest && (
+            {conversion && !guest && canWrite && (
               <p className="mt-3 text-sm text-primary">
-                {conversion.convert && canWrite ? (
-                  <>
-                    You can open this file in the editing view by converting it to a{" "}
-                    <InlinePill>.{conversion.targetExt}</InlinePill> file.
-                  </>
-                ) : (
-                  // Read-only: Don't offer to convert it here and don't send
-                  // someone after an upload button they may not have. Download
-                  // gives them the file itself; the conversion happens wherever
-                  // they edit it.
-                  <>
-                    To edit this file, download it and save a copy as a{" "}
-                    <InlinePill>.{conversion.targetExt}</InlinePill> file in another app.
-                  </>
-                )}
+                To edit this file, convert it to a{" "}
+                <InlinePill>.{conversion.targetExt}</InlinePill> file.
+                {conversion.convert
+                  ? ""
+                  : " Convert it on another device, then upload the copy here."}
               </p>
             )}
 
@@ -512,8 +550,8 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
                 )}
                 <p className="text-sm">
                   {kind === "video"
-                    ? "This video can't play in the browser. Download it to watch on your device."
-                    : "This photo can't be displayed in the browser. Download it to try opening it on your device."}
+                    ? "This video can't play here. Download it to watch it on your device."
+                    : "This photo could not open here. Download it to open it on your device."}
                 </p>
                 <Button variant="primary" size="sm" asChild>
                   <a href={source.downloadHref(driveId, path)} download>

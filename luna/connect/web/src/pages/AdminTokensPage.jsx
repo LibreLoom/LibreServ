@@ -25,11 +25,11 @@ function downloadTokensFile(tokens) {
 }
 
 function formatWhen(unix) {
-  if (!unix) return "—";
+  if (!unix) return "Unknown";
   try {
     return new Date(Number(unix) * 1000).toLocaleString();
   } catch {
-    return "—";
+    return "Unknown";
   }
 }
 
@@ -37,7 +37,7 @@ function kindLabel(kind) {
   if (kind === "oss") return "Website";
   if (kind === "official") return "Official";
   if (kind === "diy") return "DIY";
-  return kind || "—";
+  return kind || "Unknown";
 }
 
 export default function AdminTokensPage() {
@@ -52,6 +52,7 @@ export default function AdminTokensPage() {
   const [listLoading, setListLoading] = useState(true);
   const [revokeBusy, setRevokeBusy] = useState("");
   const [purgeBusy, setPurgeBusy] = useState("");
+  const [unlinkBusy, setUnlinkBusy] = useState("");
   const [filter, setFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [appliedQuery, setAppliedQuery] = useState("");
@@ -107,7 +108,7 @@ export default function AdminTokensPage() {
   };
 
   const revoke = async (id) => {
-    if (!window.confirm("Revoke this unused device token? It will no longer work for setup or sign-in.")) return;
+    if (!window.confirm("Revoke this unused device token? Nobody can link a Luna with it after this.")) return;
     setRevokeBusy(id);
     setError("");
     try {
@@ -120,12 +121,27 @@ export default function AdminTokensPage() {
     }
   };
 
+  const unlink = async (row) => {
+    const label = row.device_hostname || row.hint || row.id;
+    if (!window.confirm(`Unlink ${label} from ${row.account_email || "its account"}? Remote access stops, the token stays, and the Luna can be linked again.`)) return;
+    setUnlinkBusy(row.id);
+    setError("");
+    try {
+      await adminApi(`/admin/device-codes/${encodeURIComponent(row.id)}/unlink`, { method: "POST" });
+      await loadTokens();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUnlinkBusy("");
+    }
+  };
+
   const purge = async (row) => {
     const label = row.device_hostname || row.hint || row.id;
     const bound = row.status === "bound";
     const msg = bound
-      ? `Purge ${label}? This disconnects the Luna from its account, stops remote access, and deletes the token. Cloud backups stay in storage.`
-      : `Purge ${label}? This deletes the token permanently. It will no longer work for setup or hello.`;
+      ? `Purge ${label}? This unlinks the Luna from its account, stops remote access, and deletes the token. Cloud backups stay in storage.`
+      : `Purge ${label}? This deletes the token permanently, and Luna Connect stops accepting it.`;
     if (!window.confirm(msg)) return;
     setPurgeBusy(row.id);
     setError("");
@@ -143,13 +159,13 @@ export default function AdminTokensPage() {
     <AdminLayout>
       <h2 className="font-mono text-2xl mb-2">Device tokens</h2>
       <p className="text-muted-foreground mb-8">
-        Each device token is one Luna. Mint tokens here for factory USB sticks, retail boxes, or a one-off token for support. The public OS image ships without a token. The table shows a short hint so you can scan the list; use Show full token when you need the whole token (Connect keeps it sealed for newer tokens).
+        Each device token belongs to one Luna. Create tokens here for factory USB sticks, retail boxes, or a one-off token for support.
       </p>
 
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Single device token</CardTitle>
-          <CardDescription>Create one token to print in a box or hand to support (****-****-****-****-****). Copy it now, or find it later with Show full token in the table below.</CardDescription>
+          <CardDescription>Create one token for a retail box or for support. To see it again later, use Show full token in the table.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <Button
@@ -178,7 +194,7 @@ export default function AdminTokensPage() {
         <CardHeader>
           <CardTitle>Bulk factory tokens</CardTitle>
           <CardDescription>
-            Create many device tokens for the installer USB. Download the list as TOKENS (one token per line) and put that file on the LUNAASSETS partition.
+            Create up to 500 device tokens for the installer USB. Download the TOKENS file (one token per line) and put that file on the LUNAASSETS partition.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -189,7 +205,7 @@ export default function AdminTokensPage() {
                 id="bulk-count"
                 type="number"
                 min={1}
-                max={10000}
+                max={500}
                 placeholder="e.g. 100"
                 value={bulkCount}
                 onChange={(e) => setBulkCount(e.target.value)}
@@ -244,7 +260,7 @@ export default function AdminTokensPage() {
         <CardHeader>
           <CardTitle>All device tokens</CardTitle>
           <CardDescription>
-            Every Luna on this Connect. Revoke unused tokens. Bound rows show the customer account and address when set.
+            Every device token on this Luna Connect site. Tokens in use show the customer account and the Luna&apos;s address.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -253,7 +269,7 @@ export default function AdminTokensPage() {
               {[
                 { id: "all", label: "All" },
                 { id: "unbound", label: "Unused" },
-                { id: "bound", label: "Bound" },
+                { id: "bound", label: "In use" },
                 { id: "revoked", label: "Revoked" },
               ].map((f) => (
                 <Button
@@ -346,10 +362,10 @@ export default function AdminTokensPage() {
                         <DeviceTokenStatusBadge status={r.status} />
                       </td>
                       <td className="px-3 py-2 font-mono break-all max-w-[14rem]">
-                        {r.account_email || "—"}
+                        {r.account_email || "None"}
                       </td>
                       <td className="px-3 py-2 font-mono break-all max-w-[14rem]">
-                        {r.device_hostname || "—"}
+                        {r.device_hostname || "None"}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">{formatWhen(r.created_at)}</td>
                       <td className="px-3 py-2 text-right space-x-1 whitespace-nowrap">
@@ -361,6 +377,16 @@ export default function AdminTokensPage() {
                             onClick={() => revoke(r.id)}
                           >
                             Revoke
+                          </Button>
+                        )}
+                        {r.status === "bound" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            loading={unlinkBusy === r.id}
+                            onClick={() => unlink(r)}
+                          >
+                            Unlink
                           </Button>
                         )}
                         <Button

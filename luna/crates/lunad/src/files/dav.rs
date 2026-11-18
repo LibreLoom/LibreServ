@@ -137,7 +137,7 @@ fn require_dav_user(
     }
     Err(json_error(
         StatusCode::UNAUTHORIZED,
-        "Use your Luna username and an access token as the password — create one in Settings → Security. Your Luna password will not work here.",
+        "Your Luna password does not work here. Enter your Luna username, and enter an access token from Settings → Security as the password.",
     ))
 }
 
@@ -201,37 +201,39 @@ fn dav_handler_for(
         )
     })?;
     let Some(drive) = crate::db::get_drive(&conn, id).map_err(|e| {
+        tracing::warn!(drive = %id, error = %e, "WebDAV could not read the drive row");
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Could not read drives. {e}"),
+            "Luna could not read its list of drives. Try again.",
         )
     })?
     else {
         return Err(json_error(
             StatusCode::NOT_FOUND,
-            "Luna doesn't know this drive.",
+            "Luna can't find this drive. Check the drive address in your app.",
         ));
     };
-    if drive.mount_point.is_empty() {
-        return Err(json_error(
-            StatusCode::BAD_REQUEST,
-            "This drive is not connected.",
-        ));
-    }
-    // A locked or converting drive must fail loudly here: Finder and Explorer
-    // would otherwise show an empty folder and invite a write into nothing.
-    if drive.locked {
+    // A locked drive must fail loudly here: Finder and Explorer would otherwise
+    // show an empty folder and invite a write into nothing. A locked drive has
+    // no mount point, so this comes first.
+    if drive.locked || crate::drives::crypt::vault::drive_is_locking(&drive.id) {
         return Err(json_error_code(
             StatusCode::LOCKED,
             "drive_locked",
             crate::files::DRIVE_LOCKED_MSG,
         ));
     }
-    if drive.converting {
-        return Err(json_error_code(
-            StatusCode::LOCKED,
-            "drive_converting",
-            crate::files::DRIVE_CONVERTING_MSG,
+    if drive.mount_point.is_empty() {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "This drive is not connected.",
+        ));
+    }
+    // Being erased: its mount folder is an empty folder on the system disk.
+    if crate::drives::format::drive_is_formatting(&drive.id) {
+        return Err(json_error(
+            StatusCode::CONFLICT,
+            "Luna is erasing this drive right now. Try again when it finishes.",
         ));
     }
     if !has_drive_access(&user, &conn, &drive.id) {

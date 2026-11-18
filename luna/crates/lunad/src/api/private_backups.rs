@@ -191,7 +191,7 @@ async fn remove_owner(
     {
         return Err(json_error(
             StatusCode::CONFLICT,
-            "Luna is copying one of these backups right now. Remove them when the copy finishes.",
+            "One of these backups is busy right now. Try again in a minute.",
         ));
     }
     let (cloud, local): (Vec<ProtectionRow>, Vec<ProtectionRow>) = rows
@@ -219,10 +219,18 @@ async fn remove_owner(
             Ok(Ok(None)) => {
                 return Err(json_error(
                     StatusCode::SERVICE_UNAVAILABLE,
-                    "Connect this Luna to Luna Connect before deleting a cloud backup. Its copies in the cloud can't be removed until then. Settings → About → Advanced.",
+                    "Connect this Luna to Luna Connect in Settings → About → Advanced. Luna can only delete the cloud copies through Luna Connect.",
                 ));
             }
-            Ok(Err(text)) => return Err(json_error(StatusCode::SERVICE_UNAVAILABLE, text)),
+            // The engine's error can be a raw database or network fault, so it goes to the
+            // log and the person gets a plain message.
+            Ok(Err(text)) => {
+                tracing::warn!(error = %text, "could not delete a private cloud backup");
+                return Err(json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Luna couldn't delete the cloud copies of these backups. Try again.",
+                ));
+            }
             Err(_) => {
                 return Err(json_error(
                     StatusCode::INTERNAL_SERVER_ERROR,

@@ -16,7 +16,9 @@ import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import RowActionMenu from "@libreloom/ui/components/ui/RowActionMenu.jsx";
 import AnimatedCheckbox from "@libreloom/ui/components/ui/AnimatedCheckbox.jsx";
-import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import IconActions from "@libreloom/ui/components/ui/IconActions.jsx";
+import IconImage from "@libreloom/ui/components/ui/IconImage.jsx";
+import { useToneColor } from "@libreloom/ui/lib/iconImage.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useFileSource } from "../../lib/fileSource.jsx";
 import { CAP, capsBits } from "../../lib/access.js";
@@ -80,6 +82,9 @@ function FileRow({
   );
 
   const well = surface === "primary" ? "secondary" : "primary";
+  // The row's text color, for its icon image (an inline SVG per row cost
+  // scroll frames, W6).
+  const iconColor = useToneColor(well);
   const fg = surface === "primary" ? "text-secondary" : "text-primary";
   const cardSurface = surface === "primary" ? "surface-primary" : "surface-secondary";
   // color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
@@ -184,13 +189,16 @@ function FileRow({
   }
 
   function renderActions() {
-    // Phones get one lightning button that opens every action, as in search
+    // Phones get one three-dot button that opens every action, as in search
     // results. This must come before renderRowActions: the explorer supplies
     // its own action row, and on a phone that row is a wall of buttons that
     // squeezes the file name down to nothing.
     if (!isSmUp && !isPicker) {
       return (
         <RowActionMenu
+          // Long folders recycle row elements (VirtualRowWindow): a sheet left
+          // open must not carry over to the next file that takes this row.
+          key={fullPath}
           label={displayName}
           actions={actions}
           renderSheet={renderRowSheetActions ? (close) => renderRowSheetActions(ctx, close) : undefined}
@@ -221,58 +229,35 @@ function FileRow({
     }
 
     const rowActions = actions.filter((action) => !action.rowHidden);
-    return rowActions.length ? (
-      <ActionTooltipGroup>
-        <div className="flex items-center gap-0.5 flex-wrap justify-end">
-          {rowActions.map(({ key, label, aria, icon: Icon, href, run, text }) => (
-            text ? (
-              <Button
-                key={key}
-                variant="ghost"
-                surface={surface}
-                size="sm"
-                aria-label={aria}
-                onClick={run}
-              >
-                {label}
-              </Button>
-            ) : (
-              <Tooltip key={key} content={label}>
-                {href ? (
-                  <Button
-                    variant="ghost"
-                    surface={surface}
-                    size="iconSm"
-                    asChild
-                    aria-label={aria}
-                  >
-                    <a href={href}>
-                      <Icon size={14} />
-                    </a>
-                  </Button>
-                ) : (
-                  <Button
-                    variant="ghost"
-                    surface={surface}
-                    size="iconSm"
-                    aria-label={aria}
-                    onClick={run}
-                  >
-                    <Icon size={14} />
-                  </Button>
-                )}
-              </Tooltip>
-            )
-          ))}
-        </div>
-      </ActionTooltipGroup>
-    ) : null;
+    if (!rowActions.length) return null;
+    const share = rowActions.find((action) => action.text);
+    // Plain icon buttons with one shared tooltip: every row carries these,
+    // and a Button plus a Tooltip each made rows slow to mount (W4/W6).
+    const icons = rowActions.filter((action) => !action.text);
+    return (
+      <div className="flex items-center gap-0.5 flex-wrap justify-end">
+        {share ? (
+          <Button
+            variant="ghost"
+            surface={surface}
+            size="sm"
+            // Its word never changes, so it skips the resize probe.
+            smoothResize={false}
+            aria-label={share.aria}
+            onClick={share.run}
+          >
+            {share.label}
+          </Button>
+        ) : null}
+        {icons.length ? <IconActions actions={icons} surface={surface} /> : null}
+      </div>
+    );
   }
 
   const Icon = isDir ? Folder : FileIcon;
   const label = (
     <>
-      <Icon size={16} className="shrink-0" aria-hidden="true" />
+      <IconImage icon={Icon} size={16} color={iconColor} className="shrink-0" />
       <span className="font-mono text-sm truncate">{displayName}</span>
     </>
   );

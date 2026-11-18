@@ -156,7 +156,7 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
     queryClient.invalidateQueries({ queryKey: ["access-subject"] });
     queryClient.invalidateQueries({ queryKey: ["access-mine"] });
     queryClient.invalidateQueries({ queryKey: ["my-access"] });
-    queryClient.invalidateQueries({ queryKey: ["gallery-albums"] });
+    queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
   };
 
   const updateMember = useMutation({
@@ -210,7 +210,7 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
   const sheetError =
     error ||
     (stateQuery.isError
-      ? apiErrorMessage(stateQuery.error, "You don't have access to share this.")
+      ? apiErrorMessage(stateQuery.error, "Couldn't load who has access. Try again.")
       : null);
 
   // Straight to the new-link form: the sheet stays hidden from the first
@@ -374,7 +374,7 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
                       )}
                       {m.effective_caps && m.effective_caps !== m.caps && (
                         <p className="text-secondary text-xs mt-1">
-                          Also has {capsLabel(m.effective_caps, { album: isAlbum, file: isFile })} through a parent folder.
+                          With access from a folder or drive above this, they have: {capsLabel(m.effective_caps, { album: isAlbum, file: isFile })}.
                         </p>
                       )}
                     </div>

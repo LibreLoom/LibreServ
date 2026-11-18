@@ -1,0 +1,898 @@
+//! Automatic photos indexing.
+//!
+//! Known write paths enqueue events so photos appear in Photos without a
+//! manual scan. A per-mount `notify` watcher plus adopt/startup rescans catch
+//! USB copies and anything that slipped past a hook.
+
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::mpsc::{self, RecvTimeoutError, Sender};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+
+use crate::photos;
+
+const RESCAN_DEBOUNCE: Duration = Duration::from_secs(2);
+const WATCH_SETTLE: Duration = Duration::from_millis(750);
+const IDLE_POLL: Duration = Duration::from_millis(200);
+
+#[derive(Debug, Clone)]
+pub enum PhotosEvent {
+    Upsert {
+        drive_id: String,
+        rel: String,
+    },
+    Remove {
+        drive_id: String,
+        rel: String,
+    },
+    Rename {
+        drive_id: String,
+        from: String,
+        to: String,
+    },
+    Rescan {
+        drive_id: String,
+    },
+}
+
+struct MountWatch {
+    _watcher: RecommendedWatcher,
+}
+
+struct Inner {
+    mounts: HashMap<String, PathBuf>,
+    watches: HashMap<String, MountWatch>,
+}
+
+/// A failed catch-up scan: which drive failed plus the user-facing message.
+/// `message` keeps a `{drive}` placeholder; the status endpoint fills it with
+/// the drive's label (or "this drive" when the caller cannot see that drive).
+#[derive(Debug, Clone)]
+struct ScanError {
+    drive_id: String,
+    message: String,
+}
+
+/// Snapshot for `/api/v1/photos/status`.
+#[derive(Debug, Clone)]
+pub struct PhotosStatus {
+    pub scanning: bool,
+    pub pending: usize,
+    pub busy: bool,
+    pub phase: &'static str,
+    pub drive_id: Option<String>,
+    pub found_count: u64,
+    pub last_error: Option<String>,
+    /// Drive whose catch-up scan produced `last_error`, for `{drive}` lookup.
+    pub error_drive_id: Option<String>,
+}
+
+pub struct PhotosIndexer {
+    tx: Sender<PhotosEvent>,
+    pending: Arc<AtomicUsize>,
+    scanning: Arc<AtomicBool>,
+    found_count: Arc<AtomicU64>,
+    active_drive: Arc<Mutex<Option<String>>>,
+    scan_error: Arc<Mutex<Option<ScanError>>>,
+    inner: Arc<Mutex<Inner>>,
+}
+
+impl PhotosIndexer {
+    pub fn start() -> Arc<Self> {
+        let (tx, rx) = mpsc::channel::<PhotosEvent>();
+        let pending = Arc::new(AtomicUsize::new(0));
+        let scanning = Arc::new(AtomicBool::new(false));
+        let found_count = Arc::new(AtomicU64::new(0));
+        let active_drive = Arc::new(Mutex::new(None));
+        let scan_error = Arc::new(Mutex::new(None));
+        let inner = Arc::new(Mutex::new(Inner {
+            mounts: HashMap::new(),
+            watches: HashMap::new(),
+        }));
+        let indexer = Arc::new(Self {
+            tx,
+            pending: pending.clone(),
+            scanning: scanning.clone(),
+            found_count: found_count.clone(),
+            active_drive: active_drive.clone(),
+            scan_error: scan_error.clone(),
+            inner: inner.clone(),
+        });
+
+        let mounts_for_worker = inner.clone();
+        thread::Builder::new()
+            .name("luna-photos-indexer".into())
+            .spawn(move || {
+                worker_loop(
+                    rx,
+                    mounts_for_worker,
+                    pending,
+                    scanning,
+                    found_count,
+                    active_drive,
+                    scan_error,
+                )
+            })
+            .expect("spawn photos indexer");
+
+        indexer
+    }
+
+    pub fn pending(&self) -> bool {
+        self.pending.load(Ordering::Relaxed) > 0 || self.scanning.load(Ordering::Relaxed)
+    }
+
+    pub fn status(&self) -> PhotosStatus {
+        let scanning = self.scanning.load(Ordering::Relaxed);
+        let pending = self.pending.load(Ordering::Relaxed);
+        let drive_id = self.active_drive.lock().unwrap().clone();
+        let scan_error = self.scan_error.lock().unwrap().clone();
+        let last_error = scan_error.as_ref().map(|e| e.message.clone());
+        let error_drive_id = scan_error.map(|e| e.drive_id);
+        let phase = if scanning {
+            "scanning"
+        } else if pending > 0 {
+            "pending"
+        } else {
+            "idle"
+        };
+        PhotosStatus {
+            scanning,
+            pending,
+            busy: scanning || pending > 0,
+            phase,
+            drive_id,
+            found_count: self.found_count.load(Ordering::Relaxed),
+            last_error,
+            error_drive_id,
+        }
+    }
+
+    /// Test hook: pretend a catch-up scan failed so API tests can exercise the
+    /// `last_error` / `{drive}` substitution path without a flaky real failure.
+    #[cfg(test)]
+    pub fn debug_set_error(&self, drive_id: &str, message: &str) {
+        *self.scan_error.lock().unwrap() = Some(ScanError {
+            drive_id: drive_id.to_string(),
+            message: message.to_string(),
+        });
+    }
+
+    pub fn notify(&self, event: PhotosEvent) {
+        // Count before sending: the worker may take the event (and count it
+        // down) before `send` even returns, which used to leave `pending`
+        // stuck above zero and Photos saying "pending" forever.
+        self.pending.fetch_add(1, Ordering::Relaxed);
+        if self.tx.send(event).is_err() {
+            self.pending.fetch_sub(1, Ordering::Relaxed);
+        }
+    }
+
+    pub fn upsert(&self, drive_id: &str, rel: &str) {
+        if !should_index_rel(rel) {
+            return;
+        }
+        self.notify(PhotosEvent::Upsert {
+            drive_id: drive_id.to_string(),
+            rel: normalize_rel(rel),
+        });
+    }
+
+    pub fn remove(&self, drive_id: &str, rel: &str) {
+        if rel.is_empty() {
+            return;
+        }
+        self.notify(PhotosEvent::Remove {
+            drive_id: drive_id.to_string(),
+            rel: normalize_rel(rel),
+        });
+    }
+
+    pub fn rename(&self, drive_id: &str, from: &str, to: &str) {
+        self.notify(PhotosEvent::Rename {
+            drive_id: drive_id.to_string(),
+            from: normalize_rel(from),
+            to: normalize_rel(to),
+        });
+    }
+
+    pub fn rescan(&self, drive_id: &str) {
+        self.notify(PhotosEvent::Rescan {
+            drive_id: drive_id.to_string(),
+        });
+    }
+
+    /// Enqueue a catch-up rescan for every mount currently being watched.
+    pub fn rescan_watched(&self) -> usize {
+        let ids: Vec<String> = {
+            let guard = self.inner.lock().unwrap();
+            guard.mounts.keys().cloned().collect()
+        };
+        let n = ids.len();
+        for id in ids {
+            self.rescan(&id);
+        }
+        n
+    }
+
+    /// True when this drive has an active photos watcher.
+    pub fn is_watching(&self, drive_id: &str) -> bool {
+        let guard = self.inner.lock().unwrap();
+        guard.watches.contains_key(drive_id)
+    }
+
+    /// Current mount path registered for photos indexing, if any.
+    pub fn watched_mount(&self, drive_id: &str) -> Option<PathBuf> {
+        let guard = self.inner.lock().unwrap();
+        guard.mounts.get(drive_id).cloned()
+    }
+
+    /// Register a mounted adopted drive: track its root, start a watcher, and
+    /// kick a catch-up rescan. Idempotent for remounts — replaces the watcher
+    /// and enqueues another rescan even when the path is unchanged.
+    pub fn watch_mount(self: &Arc<Self>, drive_id: &str, mount: PathBuf) {
+        {
+            let mut guard = self.inner.lock().unwrap();
+            guard.mounts.insert(drive_id.to_string(), mount.clone());
+            // Drop the previous watcher before starting a new one so remount
+            // (eject→replug / kernel remount) always re-arms notify.
+            guard.watches.remove(drive_id);
+        }
+        self.start_watcher(drive_id, &mount);
+        self.rescan(drive_id);
+    }
+
+    pub fn unwatch_mount(&self, drive_id: &str) {
+        let mut guard = self.inner.lock().unwrap();
+        guard.mounts.remove(drive_id);
+        guard.watches.remove(drive_id);
+    }
+
+    fn start_watcher(self: &Arc<Self>, drive_id: &str, mount: &Path) {
+        let drive_id_owned = drive_id.to_string();
+        let root = mount.to_path_buf();
+        let indexer = Arc::clone(self);
+        let watcher = RecommendedWatcher::new(
+            move |res: notify::Result<notify::Event>| {
+                // A failed watch (say, on a new folder past the kernel's
+                // watch limit) may miss changes: have search re-read the drive.
+                let event = match res {
+                    Ok(event) => event,
+                    Err(_) => {
+                        crate::files::search_indexer::nudge_drive(&drive_id_owned);
+                        return;
+                    }
+                };
+                handle_watch_event(&indexer, &drive_id_owned, &root, event);
+            },
+            notify::Config::default(),
+        );
+        let Ok(mut watcher) = watcher else {
+            tracing::warn!(
+                drive_id,
+                "photos watcher unavailable; rescans will catch up"
+            );
+            return;
+        };
+        if let Err(e) = watcher.watch(mount, RecursiveMode::Recursive) {
+            tracing::warn!(drive_id, error = %e, "could not watch drive for photos updates");
+            return;
+        }
+        let mut guard = self.inner.lock().unwrap();
+        guard
+            .watches
+            .insert(drive_id.to_string(), MountWatch { _watcher: watcher });
+    }
+}
+
+fn handle_watch_event(indexer: &PhotosIndexer, drive_id: &str, root: &Path, event: notify::Event) {
+    // The kernel dropped events: have search re-read the drive (folders whose
+    // timestamp hasn't moved cost one stat each).
+    if event.need_rescan() {
+        crate::files::search_indexer::nudge_drive(drive_id);
+    }
+    let remove_like = matches!(event.kind, EventKind::Remove(_) | EventKind::Any);
+    let rename = matches!(
+        event.kind,
+        EventKind::Modify(notify::event::ModifyKind::Name(_))
+    );
+    for path in event.paths {
+        let Ok(rel) = path.strip_prefix(root) else {
+            continue;
+        };
+        let Some(rel) = rel.to_str() else {
+            continue;
+        };
+        // Search reads folders by their on-disk names: re-read the folder
+        // that changed, so a change made outside Luna (a computer on the
+        // network share, a script) shows up without a timed rescan (D3).
+        if let Some(folder) = search_folder_to_reread(&event.kind, rel) {
+            crate::files::search_indexer::nudge_dir(drive_id, &folder);
+        }
+        // Private items sit on disk under `.luna-` names; index them by real path.
+        let rel = normalize_rel(&crate::private::logical_rel(root, &normalize_rel(rel)));
+        // Luna's own files (drive DB, thumbnails, content index) never hold
+        // photos. Their renames used to queue a rescan each, and every new
+        // rescan restarts the debounce, so while Luna was busy writing them
+        // the catch-up scan never ran.
+        if is_internal_rel(&rel) {
+            continue;
+        }
+        if !should_index_rel(&rel) && !remove_like && !rename {
+            continue;
+        }
+        if matches!(event.kind, EventKind::Remove(_)) {
+            indexer.remove(drive_id, &rel);
+            continue;
+        }
+        if path.is_file() && should_index_rel(&rel) {
+            // Settle delay is applied in the worker via watch coalescing —
+            // enqueue upsert; worker re-checks the file exists.
+            indexer.upsert(drive_id, &rel);
+        } else if path.is_dir() {
+            indexer.rescan(drive_id);
+        } else if rename {
+            // Name events often arrive as pairs; a rescan is safest.
+            indexer.rescan(drive_id);
+        }
+    }
+}
+
+/// The on-disk folder search should re-read after a watch event on `rel`,
+/// if any: only events that change what a folder lists (names, sizes,
+/// times), never each write while a file is still being written (an upload
+/// would wake search per chunk), and never Luna's own bookkeeping files.
+fn search_folder_to_reread(kind: &EventKind, rel: &str) -> Option<String> {
+    use notify::event::{AccessKind, AccessMode, ModifyKind};
+    let listing_changed = matches!(
+        kind,
+        EventKind::Create(_)
+            | EventKind::Remove(_)
+            | EventKind::Modify(ModifyKind::Name(_))
+            | EventKind::Access(AccessKind::Close(AccessMode::Write))
+    );
+    let rel = normalize_rel(rel);
+    if !listing_changed
+        || rel.is_empty()
+        || is_internal_rel(&rel)
+        || crate::files::is_internal_temp(&rel)
+        // The drive health probe's write test (drives::probe_writable).
+        || rel.rsplit('/').next().is_some_and(|b| b.starts_with(".luna-write-test."))
+    {
+        return None;
+    }
+    Some(rel.rsplit_once('/').map_or("", |(dir, _)| dir).to_string())
+}
+
+fn worker_loop(
+    rx: mpsc::Receiver<PhotosEvent>,
+    mounts: Arc<Mutex<Inner>>,
+    pending: Arc<AtomicUsize>,
+    scanning: Arc<AtomicBool>,
+    found_count: Arc<AtomicU64>,
+    active_drive: Arc<Mutex<Option<String>>>,
+    scan_error: Arc<Mutex<Option<ScanError>>>,
+) {
+    let mut upserts: HashSet<(String, String)> = HashSet::new();
+    let mut removes: HashSet<(String, String)> = HashSet::new();
+    let mut renames: Vec<(String, String, String)> = Vec::new();
+    let mut rescans: HashMap<String, Instant> = HashMap::new();
+    let mut last_upsert_at = Instant::now();
+    // Drives that may hold preview thumbnails (D5 stage one), with the timer
+    // and count of their upgrade pass.
+    let mut upgrades: HashMap<String, Option<(crate::perf::Timer, usize)>> = HashMap::new();
+
+    loop {
+        let quiet =
+            upserts.is_empty() && removes.is_empty() && renames.is_empty() && rescans.is_empty();
+        if quiet && !upgrades.is_empty() {
+            // Upgrades run between events: take what arrived, else do one batch.
+            match rx.try_recv() {
+                Ok(event) => {
+                    take_event(
+                        event,
+                        &pending,
+                        &mut upserts,
+                        &mut removes,
+                        &mut renames,
+                        &mut rescans,
+                        &mut last_upsert_at,
+                    );
+                    continue;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => return,
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+            upgrade_batch(&mounts, &mut upgrades);
+            continue;
+        }
+        let timeout = if !upserts.is_empty() && last_upsert_at.elapsed() < WATCH_SETTLE {
+            WATCH_SETTLE.saturating_sub(last_upsert_at.elapsed())
+        } else if !rescans.is_empty() {
+            RESCAN_DEBOUNCE
+                .checked_sub(
+                    rescans
+                        .values()
+                        .map(|at| at.elapsed())
+                        .min()
+                        .unwrap_or(Duration::ZERO),
+                )
+                .unwrap_or(Duration::ZERO)
+                .max(IDLE_POLL)
+        } else if upserts.is_empty() && removes.is_empty() && renames.is_empty() {
+            // Nothing waiting: a pass would do nothing, so sleep until the
+            // next event instead of waking on a timer.
+            Duration::MAX
+        } else {
+            IDLE_POLL
+        };
+
+        let received = if timeout == Duration::MAX {
+            rx.recv().map_err(|_| RecvTimeoutError::Disconnected)
+        } else {
+            rx.recv_timeout(timeout.max(Duration::from_millis(50)))
+        };
+        match received {
+            Ok(event) => {
+                take_event(
+                    event,
+                    &pending,
+                    &mut upserts,
+                    &mut removes,
+                    &mut renames,
+                    &mut rescans,
+                    &mut last_upsert_at,
+                );
+                continue;
+            }
+            Err(RecvTimeoutError::Disconnected) => return,
+            Err(RecvTimeoutError::Timeout) => {}
+        }
+
+        // Apply settled upserts.
+        if last_upsert_at.elapsed() >= WATCH_SETTLE && !upserts.is_empty() {
+            let batch: Vec<_> = upserts.drain().collect();
+            for (drive_id, _) in &batch {
+                upgrades.entry(drive_id.clone()).or_insert(None);
+            }
+            // New photos arriving while Luna runs: index plus thumbnail (D5).
+            let mut perf = crate::perf::Timer::new("D5", "photos.new");
+            perf.field("count", batch.len());
+            for (drive_id, rel) in batch {
+                pending.fetch_sub(1.min(pending.load(Ordering::Relaxed)), Ordering::Relaxed);
+                let mount = {
+                    let guard = mounts.lock().unwrap();
+                    guard.mounts.get(&drive_id).cloned()
+                };
+                let Some(root) = mount else {
+                    continue;
+                };
+                if let Err(e) = photos::index_one_meta(&drive_id, &root, &rel) {
+                    tracing::debug!(drive_id, rel, error = %e, "photos meta index skipped");
+                    continue;
+                }
+                found_count.fetch_add(1, Ordering::Relaxed);
+                if let Err(e) = photos::finish_thumb(&drive_id, &root, &rel) {
+                    tracing::debug!(drive_id, rel, error = %e, "photos thumb deferred");
+                }
+            }
+        }
+
+        if !removes.is_empty() {
+            let batch: Vec<_> = removes.drain().collect();
+            let mounts_snapshot: Vec<(String, PathBuf)> = {
+                let guard = mounts.lock().unwrap();
+                guard
+                    .mounts
+                    .iter()
+                    .map(|(id, root)| (id.clone(), root.clone()))
+                    .collect()
+            };
+            for (drive_id, rel) in batch {
+                pending.fetch_sub(1.min(pending.load(Ordering::Relaxed)), Ordering::Relaxed);
+                let mount = {
+                    let guard = mounts.lock().unwrap();
+                    guard.mounts.get(&drive_id).cloned()
+                };
+                let Some(root) = mount else {
+                    continue;
+                };
+                let _ = photos::remove_indexed_path(&root, &drive_id, &rel);
+                // Album homes may live on other mounts — purge cross-drive refs.
+                photos::purge_album_item_refs_on_mounts(&mounts_snapshot, &drive_id, &rel);
+            }
+        }
+
+        if !renames.is_empty() {
+            for (drive_id, from, to) in renames.drain(..) {
+                pending.fetch_sub(1.min(pending.load(Ordering::Relaxed)), Ordering::Relaxed);
+                let mount = {
+                    let guard = mounts.lock().unwrap();
+                    guard.mounts.get(&drive_id).cloned()
+                };
+                let Some(root) = mount else {
+                    continue;
+                };
+                let _ = photos::rename_indexed_path(&root, &drive_id, &from, &to);
+                if should_index_rel(&to) {
+                    let _ = photos::index_one_meta(&drive_id, &root, &to);
+                    let _ = photos::finish_thumb(&drive_id, &root, &to);
+                }
+            }
+        }
+
+        let due: Vec<String> = rescans
+            .iter()
+            .filter(|(_, at)| at.elapsed() >= RESCAN_DEBOUNCE)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for drive_id in due {
+            rescans.remove(&drive_id);
+            pending.fetch_sub(1.min(pending.load(Ordering::Relaxed)), Ordering::Relaxed);
+            let mount = {
+                let guard = mounts.lock().unwrap();
+                guard.mounts.get(&drive_id).cloned()
+            };
+            let Some(root) = mount else {
+                continue;
+            };
+            {
+                let mut active = active_drive.lock().unwrap();
+                *active = Some(drive_id.clone());
+            }
+            found_count.store(0, Ordering::Relaxed);
+            scanning.store(true, Ordering::Relaxed);
+            // Photos catch-up: index plus thumbnails (D4 first scan, D5 new photos).
+            let mut perf = crate::perf::Timer::new("D4|D5", "photos.scan");
+            perf.field("drive", &drive_id);
+            let scanned = photos::scan_drive(&drive_id, &root);
+            if let Ok(report) = &scanned {
+                perf.field("found", report.found);
+                perf.field("thumbnailed", report.thumbnailed);
+                perf.field("previews", report.previews);
+                perf.field("failed", report.failed);
+                perf.field("pruned", report.pruned);
+            }
+            drop(perf);
+            match scanned {
+                Ok(report) => {
+                    found_count.store(report.found, Ordering::Relaxed);
+                    // Previews from this scan, or left by an earlier run.
+                    upgrades.entry(drive_id.clone()).or_insert(None);
+                    *scan_error.lock().unwrap() = None;
+                    // New thumbnails: photo search can look at them now.
+                    crate::files::content::indexer::nudge_drive(&drive_id);
+                }
+                Err(e) => {
+                    tracing::warn!(drive_id, error = %e, "photos catch-up scan failed");
+                    *scan_error.lock().unwrap() = Some(ScanError {
+                        drive_id: drive_id.clone(),
+                        message:
+                            "Luna couldn't finish looking through {drive}. Select Rescan drives in Photos, or unplug the drive and plug it in again."
+                                .into(),
+                    });
+                }
+            }
+            scanning.store(false, Ordering::Relaxed);
+            if rescans.is_empty() && pending.load(Ordering::Relaxed) == 0 {
+                let mut active = active_drive.lock().unwrap();
+                *active = None;
+            }
+        }
+    }
+}
+
+/// File one event into the batches the loop works through.
+#[allow(clippy::too_many_arguments)]
+fn take_event(
+    event: PhotosEvent,
+    pending: &AtomicUsize,
+    upserts: &mut HashSet<(String, String)>,
+    removes: &mut HashSet<(String, String)>,
+    renames: &mut Vec<(String, String, String)>,
+    rescans: &mut HashMap<String, Instant>,
+    last_upsert_at: &mut Instant,
+) {
+    let settle = || {
+        pending.fetch_sub(1.min(pending.load(Ordering::Relaxed)), Ordering::Relaxed);
+    };
+    match event {
+        PhotosEvent::Upsert { drive_id, rel } => {
+            removes.remove(&(drive_id.clone(), rel.clone()));
+            if !upserts.insert((drive_id, rel)) {
+                settle();
+            }
+            *last_upsert_at = Instant::now();
+        }
+        PhotosEvent::Remove { drive_id, rel } => {
+            if upserts.remove(&(drive_id.clone(), rel.clone())) {
+                settle();
+            }
+            if !removes.insert((drive_id, rel)) {
+                settle();
+            }
+        }
+        PhotosEvent::Rename { drive_id, from, to } => {
+            if upserts.remove(&(drive_id.clone(), from.clone())) {
+                settle();
+            }
+            removes.remove(&(drive_id.clone(), to.clone()));
+            renames.push((drive_id, from, to));
+        }
+        PhotosEvent::Rescan { drive_id } => {
+            if rescans.insert(drive_id, Instant::now()).is_some() {
+                settle();
+            }
+        }
+    }
+}
+
+/// One batch of D5 stage two: swap a few preview thumbnails on one drive for
+/// full-quality ones. Small batches keep new events waiting a few seconds
+/// at most. A drive with none left is dropped from `upgrades`.
+fn upgrade_batch(
+    mounts: &Mutex<Inner>,
+    upgrades: &mut HashMap<String, Option<(crate::perf::Timer, usize)>>,
+) {
+    let Some(drive_id) = upgrades.keys().next().cloned() else {
+        return;
+    };
+    let root = mounts.lock().unwrap().mounts.get(&drive_id).cloned();
+    let workers = photos::scan_workers();
+    let rels = root
+        .as_deref()
+        .and_then(|root| photos::pending_thumb_upgrades(root, workers * 2).ok())
+        .unwrap_or_default();
+    let (Some(root), false) = (root, rels.is_empty()) else {
+        // Done (or the drive went away): log the pass and let search see
+        // the full-quality thumbnails.
+        if let Some((mut perf, done)) = upgrades.remove(&drive_id).flatten() {
+            perf.field("drive", &drive_id);
+            perf.field("upgraded", done);
+            crate::files::content::indexer::nudge_drive(&drive_id);
+        }
+        return;
+    };
+    let slot = upgrades.get_mut(&drive_id).expect("drive is in upgrades");
+    // Full-quality thumbnails after a first scan's previews (D5).
+    let (_, done) =
+        slot.get_or_insert_with(|| (crate::perf::Timer::new("D5", "photos.upgrade"), 0));
+    match photos::upgrade_thumbs(&drive_id, &root, &rels, workers, true) {
+        Ok(n) => *done += n,
+        Err(e) => {
+            tracing::debug!(drive_id, error = %e, "photo thumbnail upgrade stopped");
+            upgrades.remove(&drive_id);
+        }
+    }
+}
+
+pub fn normalize_rel(rel: &str) -> String {
+    rel.trim_matches('/').replace('\\', "/")
+}
+
+pub fn join_rel(dir: &str, name: &str) -> String {
+    let dir = normalize_rel(dir);
+    let name = name.trim_matches('/');
+    if dir.is_empty() {
+        name.to_string()
+    } else {
+        format!("{dir}/{name}")
+    }
+}
+
+/// A path inside one of Luna's own folders on the drive (after private
+/// items are mapped back to the names people see).
+fn is_internal_rel(rel: &str) -> bool {
+    rel.split('/').any(photos::skip_photos_dir)
+}
+
+pub fn should_index_rel(rel: &str) -> bool {
+    let rel = normalize_rel(rel);
+    if rel.is_empty() || crate::files::is_internal_temp(&rel) {
+        return false;
+    }
+    for part in rel.split('/') {
+        if photos::skip_photos_dir(part) {
+            return false;
+        }
+    }
+    let path = Path::new(&rel);
+    photos::is_media(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_rereads_the_folder_a_finished_change_landed_in() {
+        use notify::event::{
+            AccessKind, AccessMode, CreateKind, DataChange, ModifyKind, RemoveKind, RenameMode,
+        };
+        let created = EventKind::Create(CreateKind::File);
+        assert_eq!(
+            search_folder_to_reread(&created, "Docs/a.txt").as_deref(),
+            Some("Docs")
+        );
+        assert_eq!(
+            search_folder_to_reread(&created, "a.txt").as_deref(),
+            Some("")
+        );
+        let closed = EventKind::Access(AccessKind::Close(AccessMode::Write));
+        assert_eq!(
+            search_folder_to_reread(&closed, "/Docs/sub/b.pdf").as_deref(),
+            Some("Docs/sub")
+        );
+        let renamed = EventKind::Modify(ModifyKind::Name(RenameMode::Both));
+        assert!(search_folder_to_reread(&renamed, "Docs/c").is_some());
+        assert!(search_folder_to_reread(&EventKind::Remove(RemoveKind::Any), "x/y").is_some());
+        // Each chunk of a file being written: wait for the close instead.
+        let write = EventKind::Modify(ModifyKind::Data(DataChange::Any));
+        assert_eq!(search_folder_to_reread(&write, "Docs/a.txt"), None);
+        // Luna's own bookkeeping and partial uploads.
+        assert_eq!(
+            search_folder_to_reread(
+                &created,
+                ".luna-0b5c1d7e-2f4a-4c3b-9d8e-1a2b3c4d5e6f/thumbs/a.jpg"
+            ),
+            None
+        );
+        assert_eq!(search_folder_to_reread(&created, "Docs/.a.txt.part"), None);
+        assert_eq!(search_folder_to_reread(&created, ""), None);
+        assert_eq!(
+            search_folder_to_reread(&closed, ".luna-write-test.1.1794963158000"),
+            None
+        );
+    }
+    use std::fs;
+    use std::io::Write;
+
+    #[test]
+    fn luna_internal_paths_are_not_watched() {
+        let id = ".luna-0b6c7a9e-2f4d-4c1b-9a77-5d0e3c2f1a88";
+        assert!(is_internal_rel(&format!("{id}/thumbs/a.v3.jpg.tmp")));
+        assert!(is_internal_rel(&format!("{id}.sqlite3-wal")));
+        assert!(is_internal_rel(&format!("Photos/{id}-trash/x.jpg")));
+        assert!(!is_internal_rel("Photos/2024/IMG_0001.jpg"));
+        assert!(!is_internal_rel(".luna-notes/IMG_0001.jpg"));
+    }
+
+    fn tiny_jpeg(path: &Path) {
+        // Minimal valid-ish JPEG so is_media + open work; EXIF may fail.
+        let jpeg = [
+            0xFFu8, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00,
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xFF, 0xDB, 0x00, 0x43, 0x00, 0x08, 0x06, 0x06,
+            0x07, 0x06, 0x05, 0x08, 0x07, 0x07, 0x07, 0x09, 0x09, 0x08, 0x0A, 0x0C, 0x14, 0x0D,
+            0x0C, 0x0B, 0x0B, 0x0C, 0x19, 0x12, 0x13, 0x0F, 0x14, 0x1D, 0x1A, 0x1F, 0x1E, 0x1D,
+            0x1A, 0x1C, 0x1C, 0x20, 0x24, 0x2E, 0x27, 0x20, 0x22, 0x2C, 0x23, 0x1C, 0x1C, 0x28,
+            0x37, 0x29, 0x2C, 0x30, 0x31, 0x34, 0x34, 0x34, 0x1F, 0x27, 0x39, 0x3D, 0x38, 0x32,
+            0x3C, 0x2E, 0x33, 0x34, 0x32, 0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x01, 0x00, 0x01,
+            0x01, 0x01, 0x11, 0x00, 0xFF, 0xC4, 0x00, 0x14, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0xFF, 0xC4,
+            0x00, 0x14, 0x10, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00,
+            0x3F, 0x00, 0x7F, 0xFF, 0xD9,
+        ];
+        let mut f = fs::File::create(path).unwrap();
+        f.write_all(&jpeg).unwrap();
+    }
+
+    /// Give a test drive root a `.luna-<uuid>` marker so drive_db opens.
+    fn adopt(root: &Path) {
+        let prefix = luna_core::marker::pick_prefix(root).unwrap();
+        crate::drives::drive_db::create(
+            root,
+            &luna_core::marker::Marker::new("d1", "Test"),
+            &prefix,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn should_index_skips_trash_and_temps() {
+        let p = ".luna-3f6a8c1e-9b2d-4a7c-8e5f-1a2b3c4d5e6f";
+        assert!(should_index_rel("DCIM/IMG_001.JPG"));
+        assert!(!should_index_rel(&format!("{p}-trash/foo.jpg")));
+        assert!(!should_index_rel(&format!("{p}-thumbs/abc.jpg")));
+        assert!(!should_index_rel("docs/readme.txt"));
+        assert!(!should_index_rel(&format!("{p}-upload.xyz.part")));
+    }
+
+    #[test]
+    fn upsert_indexes_without_manual_scan() {
+        let root = tempfile::tempdir().unwrap();
+        adopt(root.path());
+        let photos = root.path().join("Photos");
+        fs::create_dir_all(&photos).unwrap();
+        tiny_jpeg(&photos.join("a.jpg"));
+
+        let indexer = PhotosIndexer::start();
+        indexer.watch_mount("d1", root.path().to_path_buf());
+        indexer.upsert("d1", "Photos/a.jpg");
+        let indexed = crate::testutil::wait_until(Duration::from_secs(20), || {
+            !indexer.pending()
+                && photos::open_drive_db(root.path())
+                    .map(|conn| {
+                        conn.query_row("SELECT COUNT(*) FROM photos", [], |r| r.get::<_, i64>(0))
+                            .unwrap_or(0)
+                    })
+                    .unwrap_or(0)
+                    >= 1
+        });
+        if indexed {
+            return;
+        }
+        // Final check with clear error context
+        let _ = photos::index_one_meta("d1", root.path(), "Photos/a.jpg");
+        let conn = photos::open_drive_db(root.path()).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM photos", [], |r| r.get(0))
+            .unwrap();
+        assert!(count >= 1, "expected photo row after automatic indexing");
+    }
+
+    #[test]
+    fn remount_rearms_watch_and_enqueues_rescan() {
+        let root = tempfile::tempdir().unwrap();
+        adopt(root.path());
+        let photos = root.path().join("Photos");
+        fs::create_dir_all(&photos).unwrap();
+        tiny_jpeg(&photos.join("a.jpg"));
+
+        let indexer = PhotosIndexer::start();
+        indexer.watch_mount("d1", root.path().to_path_buf());
+        assert!(indexer.is_watching("d1"));
+        assert_eq!(indexer.watched_mount("d1").as_deref(), Some(root.path()));
+
+        // Simulate eject / missing: photos stops watching.
+        indexer.unwatch_mount("d1");
+        assert!(!indexer.is_watching("d1"));
+        assert!(indexer.watched_mount("d1").is_none());
+
+        // Remount / Ready restore must re-arm watcher + rescan.
+        indexer.watch_mount("d1", root.path().to_path_buf());
+        assert!(
+            indexer.is_watching("d1"),
+            "remount must re-arm photos watch"
+        );
+        assert!(
+            indexer.pending() || indexer.status().busy,
+            "remount must enqueue a catch-up rescan"
+        );
+
+        let indexed = crate::testutil::wait_until(Duration::from_secs(20), || {
+            !indexer.status().busy
+                && photos::open_drive_db(root.path())
+                    .map(|conn| {
+                        conn.query_row("SELECT COUNT(*) FROM photos", [], |r| r.get::<_, i64>(0))
+                            .unwrap_or(0)
+                    })
+                    .unwrap_or(0)
+                    >= 1
+        });
+        assert!(indexed, "expected remount rescan to index Photos/a.jpg");
+    }
+
+    #[test]
+    fn status_exposes_phase_and_found_count_while_busy() {
+        let indexer = PhotosIndexer::start();
+        let st = indexer.status();
+        assert_eq!(st.phase, "idle");
+        assert!(!st.busy);
+        assert_eq!(st.pending, 0);
+        assert!(!st.scanning);
+        assert!(st.drive_id.is_none());
+        assert!(st.last_error.is_none());
+
+        let root = tempfile::tempdir().unwrap();
+        indexer.watch_mount("drive-a", root.path().to_path_buf());
+        let busy = indexer.status();
+        assert!(busy.busy);
+        assert!(busy.phase == "pending" || busy.phase == "scanning");
+    }
+}

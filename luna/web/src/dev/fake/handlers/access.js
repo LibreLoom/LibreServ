@@ -91,7 +91,7 @@ const linkRow = (s, l) => ({
 get("/api/v1/access/subject", ({ world, user, query }) => {
   const s = subjectFor(world, user, query);
   if (!s) return fail(404, "That album no longer exists.");
-  if (s.hidden) return fail(403, "You don't have access to share this.");
+  if (s.hidden) return fail(403, "You don't have access to this.");
   return {
     subject: { kind: s.kind, name: s.name, path: s.path, is_file: s.is_file, private: s.private, private_folder: Boolean(s.private_folder), album_id: s.album_id, drive_id: s.drive_id, exists: s.exists !== false, item_count: s.kind === "album" ? (world.albumItems?.[s.album_id] || []).length : (s.is_file ? 1 : 0), owner: s.owner_id },
     my_caps: s.my_caps,
@@ -2800,7 +2800,7 @@ get("/s/:token/respond", ({ world, params, query, headers }) => {
   const found = r.l.responses?.find((x) => x.edit_token === editToken);
   return found
     ? { id: found.id, answers: found.answers, ok: true }
-    : fail(404, "We couldn't find answers for that edit link.");
+    : fail(404, "Luna can't find answers for that edit link.");
 }, { public: true });
 post("/s/:token/respond", ({ world, params, headers, body }) => {
   const r = open(world, params.token, headers);

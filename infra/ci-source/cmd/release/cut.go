@@ -30,11 +30,11 @@ func cmdCut(args []string) int {
 	heavy := fs.Int("heavy-jobs", 2, "parallel memory-heavy jobs")
 	asJSON := fs.Bool("json", false, "print the result as JSON on stdout (progress stays on stderr)")
 	quiet := fs.Bool("quiet", false, "no progress lines")
-	skipTests := fs.Bool("skip-tests", false, "do not run the ./ci tests first (they run unlimited and can take a long time)")
+	skipTests := fs.Bool("skip-tests", false, "skip the scoped cut checks (artifact checks still run during the build)")
 	rebuild := fs.Bool("rebuild", false, "luna: build the OS image and installer again even if nothing they are made from changed")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: release cut <unit> --channel beta|stable [--bump patch|minor|major|beta | --version V] [--resume] [--rebuild] [--dry-run] [--skip-tests]")
-		fmt.Fprintln(os.Stderr, "Order: preflight, ./ci tests (unlimited resources), bump commit pushed to origin, build that SHA, sign, upload, verify, feed commit, wait for the mirror, tag.")
+		fmt.Fprintln(os.Stderr, "Order: preflight, scoped ./ci cut checks (unlimited resources), bump commit pushed to origin, build that SHA, sign, upload, verify, feed commit, wait for the mirror, tag.")
 		fs.PrintDefaults()
 	}
 	pos, err := parseInterspersed(fs, args)

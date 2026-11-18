@@ -1,8 +1,8 @@
 /* eslint-disable react-refresh/only-export-components -- page exports helpers used by tests */
 import { useEffect, useRef, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderOpen, HardDrive, PlugZap } from "lucide-react";
+import { FolderOpen, HardDrive, Lock, PlugZap, Shield, Trash2, Unplug, Users } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
@@ -11,18 +11,24 @@ import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import Callout from "@libreloom/ui/components/common/Callout.jsx";
 import DriveStatusPill from "../components/common/DriveStatusPill.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { RowActionSheet } from "@libreloom/ui/components/ui/RowActionMenu.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import ValueDisplay from "@libreloom/ui/components/common/ValueDisplay.jsx";
 import ShareSheet, { ShareButton } from "../components/share/ShareSheet.jsx";
-import ProtectSheet, { ProtectButton } from "../components/files/ProtectSheet";
-import DriveEncryptionSheet from "../components/drives/DriveEncryptionSheet.jsx";
+import ProtectSheet from "../components/files/ProtectSheet";
 import InspectModal from "../components/files/InspectModal.jsx";
+import FormatDriveFlow from "../components/drives/FormatDriveFlow.jsx";
+import DriveEncryptionSheet from "../components/drives/DriveEncryptionSheet.jsx";
+import UnlockPrompt from "../components/drives/UnlockPrompt.jsx";
+import DriveCard from "../components/drives/DriveCard.jsx";
+import DriveStorageBar from "../components/drives/DriveStorageBar.jsx";
 import useCanProtect from "../hooks/useCanProtect";
 import { FileSearchButton } from "../components/files/FileSearch";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import useStrandedErrorToast from "../hooks/useStrandedErrorToast";
@@ -30,8 +36,10 @@ import usePageTitle from "../hooks/usePageTitle.js";
 import useReleaseInspectedDrive from "../hooks/useReleaseInspectedDrive.js";
 import { apiErrorMessage, getDrives, getJson, postJson } from "../lib/api";
 import { withDevMockDetected, isMockUnknownDrive, mockInspectResult } from "../lib/devMockDrives.js";
+import { DRIVE_POLL_MS, detectedDrivesQueryOptions } from "../hooks/detectedDrives.js";
 import { describeDriveHealth } from "../lib/driveHealth";
-import { driveEncryptionLine, isConvertingDrive, isLockedDrive, isUnopenable } from "../lib/drives.js";
+import { formatBytes } from "../lib/formatBytes.js";
+import { isLocked, isUnopenable } from "../lib/drives.js";
 import useDriveHealth from "../hooks/useDriveHealth.js";
 import DriveHealthDetails from "../components/files/DriveHealthDetails.jsx";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
@@ -71,21 +79,6 @@ function PermissionPill({ caps, file = false }) {
   );
 }
 
-/** Decimal sizes for drive details (matches DashboardPage). */
-function formatBytes(bytes) {
-  if (bytes == null || Number.isNaN(Number(bytes))) return "";
-  const n = Number(bytes);
-  if (n < 1000) return `${Math.round(n)} B`;
-  const kb = n / 1000;
-  if (kb < 1000) return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB`;
-  const mb = kb / 1000;
-  if (mb < 1000) return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
-  const gb = mb / 1000;
-  if (gb < 1000) return `${gb < 10 ? gb.toFixed(1) : Math.round(gb)} GB`;
-  const tb = gb / 1000;
-  return `${tb < 10 ? tb.toFixed(1) : Math.round(tb)} TB`;
-}
-
 /** @param {string | undefined | null} fs */
 function prettyFsType(fs) {
   if (!fs) return "";
@@ -118,79 +111,6 @@ function detectedDriveKey(drive) {
 }
 
 /**
- * Dashboard-style free/total + usage bar (matches DriveHomeCard on DashboardPage).
- * Always visible on ready AdoptedCards — not inside Drive details.
- */
-function DriveStorageBar({ summary }) {
-  const freeLabel = formatBytes(summary.data?.free_bytes);
-  const totalLabel = formatBytes(summary.data?.total_bytes);
-  const usedLabel = formatBytes(summary.data?.used_bytes);
-  const hasSpace =
-    summary.data?.mounted &&
-    summary.data?.total_bytes != null &&
-    Number(summary.data.total_bytes) > 0 &&
-    freeLabel &&
-    totalLabel;
-  const usedPct = hasSpace
-    ? Math.min(100, Math.round((Number(summary.data.used_bytes) / Number(summary.data.total_bytes)) * 100))
-    : 0;
-
-  if (hasSpace) {
-    return (
-      <div data-slot="drive-storage-bar">
-        <div className="flex items-center gap-2 mb-1">
-          <span
-            className="inline-block h-2 w-2 rounded-full surface-primary shrink-0"
-            aria-hidden="true"
-          />
-          <span className="text-xs font-mono">
-            <TermHint content="How much room is left for new files on this drive.">
-              Available storage
-            </TermHint>
-          </span>
-        </div>
-        <div className="text-2xl font-mono font-normal leading-tight text-primary">
-          {freeLabel} free
-        </div>
-        <p className="text-primary text-sm mt-1">
-          {usedLabel ? `${usedLabel} used · ` : ""}
-          {totalLabel} total
-        </p>
-        <div
-          className="mt-3 h-2 rounded-pill surface-primary p-0.5 overflow-hidden"
-          role="progressbar"
-          aria-valuenow={usedPct}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label={`${usedPct}% used`}
-        >
-          <div
-            className="h-full rounded-pill surface-secondary motion-safe:transition-[width] motion-safe:duration-500"
-            style={{ width: `${usedPct}%` }}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  if (summary.isLoading) {
-    return <p className="text-primary text-sm">Checking space…</p>;
-  }
-  if (summary.isError) {
-    return (
-      <p className="text-primary text-sm">
-        Couldn&apos;t read free space. Try Browse files.
-      </p>
-    );
-  }
-  return (
-    <p className="text-primary text-sm">
-      Storage will show once Luna can read this drive.
-    </p>
-  );
-}
-
-/**
  * Collapsible tech details for a ready/read-only adopted drive.
  * Card-style CollapsibleSection (pill) + ValueDisplay rows — same pattern as
  * Sol settings disclosures / UserDetailPage profile table.
@@ -206,27 +126,31 @@ function AdoptedDriveDetails({ drive }) {
   const connectionValue = device || "Plugged in";
 
   return (
-    <CollapsibleSection title="Drive details" size="sm" mono pill>
+    <CollapsibleSection title="Drive details" size="sm" mono pill surface="primary">
       <div className="flex flex-col gap-2" role="list" aria-label="Drive detail values">
+        <ValueDisplay surface="primary" label="Protection" value={drive.encrypted ? "Password protected" : "Not protected"} />
         <ValueDisplay
+          surface="primary"
           label={(
-            <TermHint content="How files are arranged on this drive. Most USB sticks use exFAT so phones, Macs, and PCs can all open them.">
+            <TermHint content="How files are arranged on this drive. Most USB sticks use exFAT so phones, Macs, and PCs can all open them." surface="primary">
               File system
             </TermHint>
           )}
           value={fsLabel}
         />
         <ValueDisplay
+          surface="primary"
           label={(
-            <TermHint content="Sections of the drive that hold files. Many USB sticks have just one.">
+            <TermHint content="Sections of the drive that hold files. Many USB sticks have just one." surface="primary">
               Partitions
             </TermHint>
           )}
           value={partitionsValue}
         />
         <ValueDisplay
+          surface="primary"
           label={(
-            <TermHint content="Luna's short name for this plug. Useful if you need help from support.">
+            <TermHint content="The name the system gives this drive while it is plugged in, such as sda1. It can change when you plug the drive in again." surface="primary">
               Device connection
             </TermHint>
           )}
@@ -240,11 +164,19 @@ function AdoptedDriveDetails({ drive }) {
 /**
  * What the peek found, as card rows a person can act on.
  * `note` only appears when there's something to do about it.
- * @param {{ readable: boolean, needs_erase?: boolean, has_marker?: boolean, folders: number, files: number, sample?: { name: string }[] }} peek
+ * @param {{ readable: boolean, encrypted?: boolean, needs_setup?: boolean, has_marker?: boolean, folders: number, files: number, sample?: { name: string }[] }} peek
  * @returns {{ value: string, includes: string, history: string, note: string }}
  */
 export function describePeek(peek) {
-  if (!peek.readable && peek.needs_erase) {
+  if (peek.encrypted) {
+    return {
+      value: "Protected with a password",
+      includes: "",
+      history: "",
+      note: "Add drive asks for the password.",
+    };
+  }
+  if (!peek.readable && peek.needs_setup) {
     return {
       value: "Blank, or a format Luna can't read",
       includes: "",
@@ -257,10 +189,10 @@ export function describePeek(peek) {
       value: "Can't read it",
       includes: "",
       history: "",
-      note: "It may be blank or need formatting before Luna can use it.",
+      note: "It may be blank or damaged. Using it with Luna erases what's on it.",
     };
   }
-  if (peek.needs_erase) {
+  if (peek.needs_setup) {
     return {
       value: "Installer disk",
       includes: "",
@@ -284,7 +216,7 @@ export function describePeek(peek) {
 /** Card rows for what's on a drive that hasn't been added yet. */
 function DetectedContents({ peek }) {
   if (peek.isPending) {
-    return <ValueDisplay label="On the drive" value="Looking inside…" mono={false} />;
+    return <ValueDisplay surface="primary" label="On the drive" value="Looking inside…" mono={false} />;
   }
   // A failed look says nothing about the drive itself (Add drive can still
   // open it), so show nothing rather than guess; the query retries below.
@@ -292,15 +224,20 @@ function DetectedContents({ peek }) {
   const info = describePeek(peek.data);
   return (
     <>
-      <ValueDisplay label="On the drive" value={info.value} mono={false} />
-      {info.includes ? <ValueDisplay label="Includes" value={info.includes} mono={false} /> : null}
-      {info.history ? <ValueDisplay label="History" value={info.history} mono={false} /> : null}
-      {info.note ? <Callout tone="warning">{info.note}</Callout> : null}
+      <ValueDisplay surface="primary" label="On the drive" value={info.value} mono={false} />
+      {info.includes ? <ValueDisplay surface="primary" label="Includes" value={info.includes} mono={false} /> : null}
+      {info.history ? <ValueDisplay surface="primary" label="History" value={info.history} mono={false} /> : null}
+      {info.note ? <Callout tone="warning" surface="primary">{info.note}</Callout> : null}
     </>
   );
 }
 
-function DetectedCard({ drive, onOpen }) {
+/**
+ * A drive Luna hasn't added. "Add drive" opens the Add-drive window, which is
+ * where a drive that has to be erased first hands off to FormatDriveFlow; the
+ * card itself never offers to erase. `onShowProgress` reopens a running erase.
+ */
+function DetectedCard({ drive, onOpen, onShowProgress }) {
   // A card reader with nothing in it reports a size of 0.
   const empty = !drive.size_bytes;
   const title = drive.model || "New drive";
@@ -321,20 +258,28 @@ function DetectedCard({ drive, onOpen }) {
     refetchInterval: (query) => (query.state.status === "error" ? 15_000 : false),
     refetchOnWindowFocus: false,
   });
+  // The shelf is the card's one action: add it, or reopen the erase that is
+  // already running. Members never see this card; only an Admin gets the id.
+  const action = drive.formatting
+    ? drive.format_id && onShowProgress
+      ? { label: "Show progress", onClick: () => onShowProgress(drive) }
+      : null
+    : { label: "Add drive", onClick: () => onOpen(drive), disabled: empty };
+
   return (
-    <Card icon={HardDrive} title={title}>
+    <DriveCard icon={<HardDrive size={ICON_SIZE.lg} />} title={title} action={action}>
       <div className="flex flex-col gap-2">
-        <ValueDisplay label="Size" value={empty ? "Nothing inserted" : formatBytes(drive.size_bytes)} />
-        {empty ? null : <DetectedContents peek={peek} />}
+        <ValueDisplay surface="primary" label="Size" value={empty ? "Nothing inserted" : formatBytes(drive.size_bytes)} />
+        {empty ? null : drive.formatting ? <p className="text-sm">Being erased and set up. This drive is unavailable until that finishes.</p> : <DetectedContents peek={peek} />}
         {drive.read_only ? (
-          <Callout tone="warning">Read-only: Luna can&apos;t save files to this drive.</Callout>
+          <Callout tone="warning" surface="primary">Read-only: Luna can&apos;t save files to this drive.</Callout>
         ) : null}
-        <CollapsibleSection title="Drive details" size="sm" mono pill>
+        <CollapsibleSection title="Drive details" size="sm" mono pill surface="primary">
           <div className="flex flex-col gap-2" role="list" aria-label="Drive detail values">
             <ValueDisplay label="Kind" value={kind} />
             <ValueDisplay
               label={(
-                <TermHint content="How files are arranged on this drive. Most USB sticks use exFAT so phones, Macs, and PCs can all open them.">
+                <TermHint content="How files are arranged on this drive. Most USB sticks use exFAT so phones, Macs, and PCs can all open them." surface="primary">
                   File system
                 </TermHint>
               )}
@@ -343,34 +288,27 @@ function DetectedCard({ drive, onOpen }) {
           </div>
         </CollapsibleSection>
       </div>
-      <div className="mt-3">
-        <Button size="sm" variant="outline" disabled={empty} onClick={() => onOpen(drive)}>
-          Add drive
-        </Button>
-      </div>
-    </Card>
+    </DriveCard>
   );
 }
 
 const CANT_OPEN_MESSAGE =
   "Luna can't open this drive right now, so its files and free space aren't available.";
-const LOCKED_MESSAGE =
-  "Locked. Enter the password to open this drive and see its files.";
-const CONVERTING_MESSAGE =
-  "Being encrypted. This drive is unavailable until that finishes.";
+const ERASING_MESSAGE =
+  "Being erased and set up. This drive is unavailable until that finishes.";
 const CANT_OPEN_HINT =
-  "Luna knows this drive but couldn't open it. This can happen after it was pulled out without Eject, or when the drive has a problem. Unplug it, wait a few seconds, and plug it back in. If that doesn't help, the drive may be failing.";
+  "Unplug the drive, wait a few seconds, and plug it back in. If Luna still cannot open it, the drive may be damaged.";
 
-function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect, onEncryption }) {
+function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect, onShowProgress, onEncryption }) {
   const location = useLocation();
   const cardRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const unopenable = isUnopenable(drive);
-  // Ready means Luna can open it: the storage bar, Browse and the other drive actions apply.
-  const locked = isLockedDrive(drive);
-  const converting = isConvertingDrive(drive);
   // Ready means Luna can open it: the storage bar, Browse and the other drive
-  // actions apply. A locked or converting drive is present but not open.
-  const ready = (drive.state === "as_is" || drive.state === "readonly") && !unopenable && !locked && !converting;
+  // actions apply.
+  const erasing = drive.formatting === true;
+  // A locked drive isn't broken: it waits for its password, and the card asks for it.
+  const locked = isLocked(drive) && !erasing && drive.state !== "missing" && drive.state !== "ejected";
+  const ready = (drive.state === "as_is" || drive.state === "readonly") && !unopenable && !erasing && !locked;
   const health = useDriveHealth(drive, !!showHealth);
   const summary = useQuery({
     queryKey: ["drive-summary", drive.id],
@@ -379,14 +317,21 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
     staleTime: 30_000,
     refetchInterval: ready ? 60_000 : false,
   });
+  // The status pill's trailing segment opens this drive's rare actions.
+  const [actionsOpen, setActionsOpen] = useState(false);
   const copy = showHealth && health.data ? describeDriveHealth(health.data) : null;
   const showSummary = copy && ["failing", "watch", "unknown"].includes(copy.verdict);
   const statusMessage = driveStatusMessage(drive);
-  // The card carries one line about encryption and a way in. The page holds
-  // the detail and the actions, so nothing long or destructive lives here.
-  const encryptionLine = driveEncryptionLine(drive);
   const hashId = `drive-${drive.id}`;
   const targeted = location.hash === `#${hashId}`;
+  /** @type {import("@libreloom/ui/components/ui/RowActionMenu.jsx").RowAction[]} */
+  const actions = [
+    onShare && ready && { key: "share", label: "Share", icon: Users, run: () => onShare(drive) },
+    onProtect && ready && { key: "backup", label: "Back up", icon: Shield, run: () => onProtect(drive) },
+    onEncryption && (ready || locked) && { key: "encryption", label: "Encryption", icon: Lock, run: () => onEncryption(drive) },
+    showHealth && ready && { key: "eject", label: "Eject safely", icon: Unplug, run: () => onEject(drive) },
+    showHealth && { key: "remove", label: "Remove", icon: Trash2, danger: true, run: () => onRemove(drive) },
+  ].filter(Boolean);
 
   // The dashboard links to #drive-{id}. The drives load after the page does, so the
   // browser's own hash scrolling can't find the card; do it once it shows.
@@ -401,76 +346,90 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
     });
   }, [targeted, location.key]);
 
+  // The shelf is the card's one action: open the drive, or reopen the erase
+  // that is already running. No Erase button — erasing is never an action of
+  // its own, only a step inside a flow that needs it (FormatDriveFlow).
+  const shelf = erasing
+    ? drive.format_id && onShowProgress
+      ? { label: "Show progress", onClick: () => onShowProgress(drive) }
+      : null
+    : ready
+      ? { label: "Open", to: `/files/${drive.id}` }
+      : null;
+
   return (
     <div id={hashId} ref={cardRef} className="scroll-mt-4 h-full">
-      <Card
+      <DriveCard
         className="h-full"
-        icon={HardDrive}
+        icon={<HardDrive size={ICON_SIZE.lg} />}
         title={drive.label}
-        headerActions={<DriveStatusPill drive={drive} health={health.data} />}
+        status={
+          /* One LayeredPill: the drive's status, with its rare actions as the
+             pill's trailing segment. It sits in the panel's top-right corner;
+             the arrow disc on the tray opens the drive. */
+          <DriveStatusPill
+            drive={drive}
+            health={health.data}
+            onActions={actions.length > 0 ? () => setActionsOpen(true) : undefined}
+          />
+        }
+        action={shelf}
       >
         {statusMessage ? (
-          <p className="text-primary text-sm">
+          <p className="text-sm">
             {statusMessage}
-            {unopenable ? <> <InfoHint content={CANT_OPEN_HINT} /></> : null}
+            {unopenable ? <> <InfoHint content={CANT_OPEN_HINT} surface="primary" /></> : null}
           </p>
         ) : null}
+        {locked ? (
+          <div className="mt-3">
+            <UnlockPrompt driveId={drive.id} surface="primary" />
+          </div>
+        ) : null}
         {showSummary ? (
-          <p className={`text-primary text-sm${statusMessage ? " mt-2" : ""}`}>
+          <p className={`text-sm${statusMessage ? " mt-2" : ""}`}>
             {copy.summary}
-            {copy.hint ? <> <InfoHint content={copy.hint} /></> : null}
+            {copy.hint ? <> <InfoHint content={copy.hint} surface="primary" /></> : null}
           </p>
         ) : null}
         {ready ? (
           <div className={statusMessage || showSummary ? "mt-3 space-y-3" : "space-y-3"}>
             <DriveStorageBar summary={summary} />
-            {copy ? <DriveHealthDetails health={health.data} defaultOpen={targeted} /> : null}
+            {copy ? <DriveHealthDetails health={health.data} defaultOpen={targeted} surface="primary" /> : null}
             <AdoptedDriveDetails drive={drive} />
           </div>
         ) : null}
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          {ready && (
-            <Button size="sm" variant="primary" asChild>
-              <Link to={`/files/${drive.id}`}>Browse files</Link>
-            </Button>
-          )}
-          {/* Every drive opens the encryption sheet: a plain drive can be
-              encrypted, a locked one unlocked, and the card only carries the
-              one-line state. */}
-          <Button size="sm" variant="outline" onClick={() => onEncryption(drive)}>
-            {encryptionLine || "Encryption"}
-          </Button>
-          {showHealth && ready && (
-            <Button size="sm" variant="outline" onClick={() => onEject(drive)}>
-              Eject safely
-            </Button>
-          )}
-          {showHealth && (
-            <Button size="sm" variant="accent" onClick={() => onRemove(drive)}>
-              Remove
-            </Button>
-          )}
-          {onShare && ready && (
-            <ShareButton label={drive.label} onClick={() => onShare(drive)} />
-          )}
-          {onProtect && ready && (
-            <ProtectButton label={drive.label} onClick={() => onProtect(drive)} />
-          )}
-        </div>
-      </Card>
+      </DriveCard>
+      <ModalCard open={actionsOpen} title={drive.label} size="sm" onClose={() => setActionsOpen(false)}>
+        {({ close }) => <RowActionSheet actions={actions} close={close} />}
+      </ModalCard>
     </div>
   );
 }
 
+/**
+ * Why Remove leaves the drive database on the drive, or "" when Remove deletes
+ * it. Mirrors DriveManager::remove: a missing, ejected, read-only, or locked
+ * drive can't be written, so lunad only forgets it.
+ * @param {{ state?: string, encrypted?: boolean, locked?: boolean }} drive
+ */
+function removeKeepsDriveDatabase(drive) {
+  if (drive.state === "missing") return "unplugged";
+  if (drive.state === "ejected") return "ejected";
+  if (isLocked(drive)) return "locked";
+  if (drive.state === "readonly") return "read only";
+  return "";
+}
+
 /** Status line for non-ready drives, or the read-only note. Ready drives use Drive details instead. */
 function driveStatusMessage(drive) {
-  if (drive.state === "missing") return "Unplugged. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.";
-  if (drive.state === "ejected") return "Ejected. Plug it back in to use files again.";
-  if (isConvertingDrive(drive)) return CONVERTING_MESSAGE;
-  if (isLockedDrive(drive)) return LOCKED_MESSAGE;
+  if (drive.state === "missing") return "Unplugged. Plug it in. If it is already plugged in, unplug it and plug it in again.";
+  if (drive.state === "ejected") return "Ejected. To use its files again, unplug it and plug it back in.";
+  if (drive.formatting) return ERASING_MESSAGE;
+  if (isLocked(drive)) return "Locked. Enter the password to open its files.";
   if (isUnopenable(drive)) return CANT_OPEN_MESSAGE;
   if (drive.state === "readonly") {
-    return "Read only — Luna cannot save here. Usually a filesystem issue, or a write-lock switch on the stick.";
+    return "Read only: Luna tried to save a test file here and could not. A write-lock switch on the drive or a file system error can cause this.";
   }
   return null;
 }
@@ -480,27 +439,28 @@ export default function FilesPage() {
   const { addToast } = useToast();
   const releaseInspectedDrive = useReleaseInspectedDrive();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const drives = useQuery({
     queryKey: ["drives"],
     queryFn: getDrives,
     // Keep pace with detected reconcile so Ejected sticks after umount/reconcile.
-    refetchInterval: 5000,
+    refetchInterval: DRIVE_POLL_MS,
   });
-  const detected = useQuery({
-    queryKey: ["drives-detected"],
-    queryFn: () => getJson("/api/v1/drives/detected"),
-    refetchInterval: 5000,
-    enabled: isAdmin,
-  });
+  const detected = useQuery(detectedDrivesQueryOptions(isAdmin));
   const [inspectFor, setInspectFor] = useState(null);
   const [ejectTarget, setEjectTarget] = useState(null);
   const [removeTarget, setRemoveTarget] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [sharingDrive, setSharingDrive] = useState(null);
   const [protectingDrive, setProtectingDrive] = useState(null);
+  // The one erase window. `device` is the disk to look at; `format_id` reopens a run in progress.
+  const [eraseDevice, setEraseDevice] = useState(null);
+  // Set only when the erase is a Protect: the flow turns it into an encrypted drive.
+  const [erasePassword, setErasePassword] = useState(/** @type {string | undefined} */ (undefined));
   const [encryptionDrive, setEncryptionDrive] = useState(null);
+  const closeErase = () => { setEraseDevice(null); setErasePassword(undefined); };
   const protectAvailable = useCanProtect(isAdmin);
   const unknownDrives = withDevMockDetected(detected.data);
   // The dashboard's "New drive detected" card links to #unrecognized-drives. The drives load after
@@ -539,8 +499,8 @@ export default function FilesPage() {
   });
 
   const adopt = useMutation({
-    mutationFn: (/** @type {{ drive: any, label: string, erase?: boolean }} */ { drive, label, erase }) =>
-      postJson(`/api/v1/drives/${drive.name}/adopt`, { label, erase: Boolean(erase) }),
+    mutationFn: (/** @type {{ drive: any, label: string }} */ { drive, label }) =>
+      postJson(`/api/v1/drives/${drive.name}/adopt`, { label }),
     onSuccess: () => {
       // InspectModal closes via ModalCard's animated close (not an instant unmount).
       addToast({ type: "success", message: "Drive added." });
@@ -556,7 +516,7 @@ export default function FilesPage() {
   const eject = useMutation({
     mutationFn: (/** @type {any} */ drive) => postJson(`/api/v1/drives/${drive.id}/eject`, {}),
     onSuccess: () => {
-      addToast({ type: "success", message: "Drive ejected — safe to unplug." });
+      addToast({ type: "success", message: "Drive ejected. You can unplug it now." });
       setActionError(null);
       queryClient.invalidateQueries({ queryKey: ["drives"] });
       queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
@@ -593,18 +553,29 @@ export default function FilesPage() {
     return (
       <Page title="Files" titleId="files-title" rightContent={<FileSearchButton />}>
         <div className="grid gap-4 md:grid-cols-2">
-          {grants.map((grant) => (
+          {grants.map((grant) => {
+            // A locked drive asks for its password right here; anyone with access may enter it.
+            const locked = (drives.data || []).some((d) => d.id === grant.drive_id && isLocked(d));
+            return (
             <Card key={grant.id} icon={FolderOpen} title={grant.name || grant.drive_label}>
               <p className="text-primary text-sm">
                 {grant.path ? <InlinePill>{`${grant.drive_label} · ${grant.path}`}</InlinePill> : "Whole drive"}
               </p>
+              {locked && (
+                <div className="mt-3 space-y-3">
+                  <p className="text-primary text-sm">This drive is locked. Enter its password to open your files.</p>
+                  <UnlockPrompt driveId={grant.drive_id} />
+                </div>
+              )}
               <div className="mt-3 flex items-center justify-between gap-3">
                 <PermissionPill caps={grant.caps} file={grant.is_file === true} />
                 <div className="flex items-center gap-2">
+                  {!locked && (
                   <Button size="sm" variant="primary" asChild>
                     <Link to={sharedItemHref(grant)}>{sharedItemAction(grant)}</Link>
                   </Button>
-                  {hasCap(grant.caps, CAP.SHARE) && (
+                  )}
+                  {!locked && hasCap(grant.caps, CAP.SHARE) && (
                     <ShareButton
                       label={grant.path || grant.drive_label}
                       onClick={() => setSharingDrive({ id: grant.drive_id, path: grant.path || "" })}
@@ -613,9 +584,22 @@ export default function FilesPage() {
                 </div>
               </div>
             </Card>
-          ))}
+            );
+          })}
         </div>
-        {!access.isLoading && grants.length === 0 && (
+        {access.isError && (
+          <EmptyState
+            icon={FolderOpen}
+            title="Luna couldn't load what is shared with you"
+            description={apiErrorMessage(access.error, "Try again in a moment.")}
+            action={
+              <Button size="sm" variant="primary" loading={access.isFetching} onClick={() => access.refetch()}>
+                Try again
+              </Button>
+            }
+          />
+        )}
+        {access.isSuccess && grants.length === 0 && (
           <EmptyState
             icon={FolderOpen}
             title="Nothing shared with you yet"
@@ -637,7 +621,18 @@ export default function FilesPage() {
 
   return (
     <Page title="Files" titleId="files-title" rightContent={<FileSearchButton />}>
-      {(drives.data || []).length === 0 && (
+      {drives.isError && !drives.data && (
+        <Card icon={HardDrive} title="Luna couldn't load your drives" className="mb-6">
+          <p className="text-primary text-sm">
+            {apiErrorMessage(drives.error, "Try again in a moment.")}
+          </p>
+          <Button size="sm" variant="primary" className="mt-3" loading={drives.isFetching} onClick={() => drives.refetch()}>
+            Try again
+          </Button>
+        </Card>
+      )}
+
+      {drives.isSuccess && (drives.data || []).length === 0 && (
         <Card icon={PlugZap} title="No drives yet" className="mb-6">
           <p className="text-primary text-sm">
             Plug a USB drive into Luna to get started.
@@ -656,7 +651,8 @@ export default function FilesPage() {
               onRemove={(d) => setRemoveTarget(d)}
               onShare={(d) => setSharingDrive({ id: d.id, path: "" })}
               onProtect={protectAvailable ? (d) => setProtectingDrive({ id: d.id, path: "" }) : undefined}
-              onEncryption={(d) => setEncryptionDrive(d)}
+              onShowProgress={isAdmin ? (d) => setEraseDevice({ name: d.device, label: d.label, format_id: d.format_id }) : undefined}
+              onEncryption={isAdmin ? (d) => setEncryptionDrive(d) : undefined}
             />
           ))}
         </div>
@@ -677,6 +673,7 @@ export default function FilesPage() {
               <DetectedCard
                 key={drive.name}
                 drive={drive}
+                onShowProgress={(d) => setEraseDevice({ name: d.name, model: d.model, label: d.model || "", format_id: d.format_id })}
                 onOpen={(d) => {
                   inspect.reset();
                   adopt.reset();
@@ -704,11 +701,6 @@ export default function FilesPage() {
         path={protectingDrive?.path || ""}
         onClose={() => setProtectingDrive(null)}
       />
-      <DriveEncryptionSheet
-        open={encryptionDrive != null}
-        drive={encryptionDrive}
-        onClose={() => setEncryptionDrive(null)}
-      />
       <ModalCard
         open={ejectTarget != null}
         title="Eject this drive safely?"
@@ -720,9 +712,9 @@ export default function FilesPage() {
         {({ close }) => (
           <>
             <p className="text-primary text-sm">
-              After a safe eject, you&apos;ll need to physically unplug{" "}
-              <InlinePill>{ejectTarget?.label}</InlinePill> and plug it back
-              in again to use it.
+              Luna finishes saving files to{" "}
+              <InlinePill>{ejectTarget?.label}</InlinePill>, then closes it. To
+              use it again, unplug it and plug it back in.
             </p>
             <ModalErrorNotice error={actionError} />
             <div className="mt-4 flex gap-3">
@@ -754,20 +746,22 @@ export default function FilesPage() {
         {({ close }) => (
           <>
             <p className="text-primary text-sm">
-              {removeTarget?.state === "missing" || removeTarget?.state === "ejected" ? (
+              {removeTarget && removeKeepsDriveDatabase(removeTarget) ? (
                 <>
-                  Luna will stop managing{" "}
-                  <InlinePill>{removeTarget?.label}</InlinePill>, but the{" "}
-                  <InlinePill>.luna</InlinePill> drive database will stay on the
-                  drive since it is currently unplugged. Your files stay exactly where
-                  they are.
+                  Luna stops using{" "}
+                  <InlinePill>{removeTarget.label}</InlinePill>. Its drive
+                  database stays on the drive because the drive is{" "}
+                  {removeKeepsDriveDatabase(removeTarget)}. Your files stay on
+                  the drive, but shares and links to it stop working.
                 </>
               ) : (
                 <>
-                  Luna will stop managing{" "}
-                  <InlinePill>{removeTarget?.label}</InlinePill>, but your
-                  files stay on the drive — it only removes its tiny{" "}
-                  <InlinePill>.luna</InlinePill> drive database.
+                  Luna stops using{" "}
+                  <InlinePill>{removeTarget?.label}</InlinePill> and deletes its
+                  drive database from the drive. This deletes the albums and
+                  favorites for this drive, and hides its private items from
+                  everyone. Your files stay on the drive, but shares and links
+                  to it stop working.
                 </>
               )}
             </p>
@@ -791,13 +785,49 @@ export default function FilesPage() {
         )}
       </ModalCard>
 
+      <DriveEncryptionSheet
+        open={encryptionDrive != null}
+        drive={encryptionDrive}
+        onClose={() => setEncryptionDrive(null)}
+        // Protect and Remove protection both erase, so they open the one erase window.
+        onProtect={(d, password) => { setErasePassword(password); setEraseDevice({ name: d.device, label: d.label }); }}
+        onRemove={(d) => { setErasePassword(undefined); setEraseDevice({ name: d.device, label: d.label }); }}
+      />
+      {eraseDevice && (
+        <FormatDriveFlow
+          device={eraseDevice}
+          password={erasePassword}
+          onCancel={closeErase}
+          onDone={(driveId) => { closeErase(); navigate(`/files/${driveId}`); }}
+        />
+      )}
       <InspectModal
         open={inspectFor != null}
         drive={inspectFor}
         result={inspect.data}
-        error={inspect.isError ? "Luna couldn't look at this drive safely. Make sure it's plugged in and try again." : null}
+        error={inspect.isError ? apiErrorMessage(inspect.error, "Luna couldn't look at this drive safely. Make sure it's plugged in and try again.") : null}
         onClose={() => { releaseInspectedDrive(inspectFor); setInspectFor(null); inspect.reset(); adopt.reset(); }}
-        onAdopt={(label, erase) => adopt.mutateAsync({ drive: inspectFor, label, erase })}
+        onAdopt={(label) => adopt.mutateAsync({ drive: inspectFor, label })}
+        // The dev review drive isn't a real disk, so there is nothing to erase.
+        onErase={isMockUnknownDrive(inspectFor?.name) ? undefined : async (d) => {
+          // Looking at the drive takes its lock, so let go of the read-only look first.
+          await releaseInspectedDrive(d);
+          setInspectFor(null);
+          inspect.reset();
+          adopt.reset();
+          setErasePassword(undefined);
+          setEraseDevice({ name: d.name, model: d.model, label: d.model || "", format_id: d.format_id });
+        }}
+        // "Protect with a password": the password was just chosen, and this one erase sets it.
+        onProtect={isMockUnknownDrive(inspectFor?.name) ? undefined : async (d, password) => {
+          await releaseInspectedDrive(d);
+          setInspectFor(null);
+          inspect.reset();
+          adopt.reset();
+          setErasePassword(password);
+          setEraseDevice({ name: d.name, model: d.model, label: d.model || "", format_id: d.format_id });
+        }}
+        onBeforeUnlock={() => releaseInspectedDrive(inspectFor)}
         adoptError={adoptError}
         adopting={adopt.isPending}
       />

@@ -10,6 +10,8 @@
     "lint": "eslint .",
     "test": "vitest",
     "test:e2e:recovery": "playwright test --config playwright.recovery.config.js",
+    "perf:journeys": "playwright test --config playwright.perf.config.js",
+    "perf:bundle": "node scripts/bundle-report.js",
     "typecheck": "tsc --noEmit",
     "states:coverage": "node scripts/states-coverage.mjs",
     "scan:colors": "node ../../shared/ui/scripts/scan-hardcoded-colors.js && node ../../shared/ui/scripts/scan-surfaces.js src ../../shared/ui/components ../../shared/ui/lib ../../shared/ui/hooks ../../shared/ui/context ../../shared/ui/utils"

@@ -50,11 +50,14 @@ func fileList(t *testing.T, root string) []string {
 	return out
 }
 
-// Builds sol (amd64 only, to keep it quick; set LIBRESERV_PARTS_ARM64=1 for
-// both arches), sol-connect and luna-connect for real into a temp out dir, then checks
-// names, layout and stamped versions. The source export and the container
-// caches are the tool's own, so repeated runs are warm.
-func TestBuildSolAndConnect(t *testing.T) {
+// These packaging regressions are separate by release unit. Cuts validate
+// their actual artifacts instead; the exhaustive release profile builds here.
+func TestBuildSol(t *testing.T)         { testBuildUnit(t, "sol") }
+func TestBuildSolConnect(t *testing.T)  { testBuildUnit(t, "sol-connect") }
+func TestBuildLunaConnect(t *testing.T) { testBuildUnit(t, "luna-connect") }
+
+func testBuildUnit(t *testing.T, unit string) {
+	t.Helper()
 	skipWithoutPodman(t)
 	repo := repoRoot(t)
 	eng, err := engine.New(engine.Config{Repo: repo})
@@ -70,30 +73,24 @@ func TestBuildSolAndConnect(t *testing.T) {
 	before := fileList(t, srcDir)
 
 	outRoot := t.TempDir()
-	var all []engine.Part
-	var arts []Artifact
+	b := &engine.BuildContext{Engine: eng, Unit: unit, Version: itestVersion, Commit: sha, SrcDir: srcDir, OutRoot: outRoot}
+	g, err := engine.BuildGraph(b, For(unit))
+	if err != nil {
+		t.Fatal(err)
+	}
 	graph := engine.NewGraph()
-	for _, unit := range []string{"sol", "sol-connect", "luna-connect"} {
-		b := &engine.BuildContext{Engine: eng, Unit: unit, Version: itestVersion, Commit: sha, SrcDir: srcDir, OutRoot: outRoot}
-		g, err := engine.BuildGraph(b, For(unit))
-		if err != nil {
+	for _, j := range g.Jobs() {
+		if os.Getenv("LIBRESERV_PARTS_ARM64") == "" && strings.HasSuffix(j.ID, "arm64") {
+			continue
+		}
+		if err := graph.Add(j); err != nil {
 			t.Fatal(err)
 		}
-		for _, j := range g.Jobs() {
-			if os.Getenv("LIBRESERV_PARTS_ARM64") == "" && strings.HasSuffix(j.ID, "arm64") {
-				continue
-			}
-			if err := graph.Add(j); err != nil {
-				t.Fatal(err)
-			}
-		}
-		all = append(all, For(unit)...)
-		arts = append(arts, Artifacts(b, For(unit))...)
 	}
+	arts := Artifacts(b, For(unit))
 	if err := graph.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = all })
 
 	res, err := graph.Run(ctx, engine.Options{
 		Jobs: 3, Engine: eng,
@@ -114,9 +111,13 @@ func TestBuildSolAndConnect(t *testing.T) {
 	}
 	t.Logf("graph took %s", res.Duration.Round(time.Second))
 
-	want := map[string]bool{
-		"sol-linux-amd64": true, "sol-connect-server-linux-amd64": true, "sol-connect-web.tar.gz": true,
-		"luna-connect-server-linux-amd64": true, "luna-connect-web.tar.gz": true,
+	want := map[string]bool{}
+	switch unit {
+	case "sol":
+		want["sol-linux-amd64"] = true
+	case "sol-connect", "luna-connect":
+		want[unit+"-server-linux-amd64"] = true
+		want[unit+"-web.tar.gz"] = true
 	}
 	for _, a := range arts {
 		if os.Getenv("LIBRESERV_PARTS_ARM64") == "" && a.Arch == "arm64" {

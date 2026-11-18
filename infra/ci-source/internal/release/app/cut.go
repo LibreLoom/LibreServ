@@ -42,17 +42,16 @@ type CutRequest struct {
 	SkipTests bool
 }
 
-// TestProfiles are the ./ci profiles that must pass before a unit is cut: the
-// product's own tests, then the release tool's (which include the slow builds).
+// TestProfiles returns the gate for exactly one release unit. The profile
+// includes product checks and cheap release-tool tests; packaging checks run
+// on the real release artifacts instead of a throwaway preflight build.
 func TestProfiles(unit string) []string {
-	product := "sol"
 	switch unit {
-	case "sol-connect", "luna-connect":
-		product = "connect"
-	case "luna", "luna-desktop", "luna-android":
-		product = "luna"
+	case "sol", "sol-connect", "luna-connect", "luna", "luna-desktop", "luna-android":
+		return []string{"cut-" + unit}
+	default:
+		return nil
 	}
-	return []string{product, "release"}
 }
 
 // Check is one preflight line.
@@ -360,6 +359,9 @@ func (a *App) Cut(ctx context.Context, req CutRequest) (*CutResult, error) {
 	// released. A resume skips them: its bump commit is already out and passed.
 	if a.cfg.TestGate != nil && !req.Resume && !req.SkipTests {
 		profiles := TestProfiles(req.Unit)
+		if len(profiles) == 0 {
+			return nil, fmt.Errorf("no cut test profile for %q", req.Unit)
+		}
 		a.emit.note(req.Unit, "running tests through ./ci (%s), without resource limits", strings.Join(profiles, ", "))
 		if err := a.cfg.TestGate(ctx, profiles, func(l string) { a.emit.note(req.Unit, "%s", a.Redact(l)) }); err != nil {
 			return nil, fmt.Errorf("tests failed, nothing was released: %s", a.Redact(err.Error()))
@@ -486,7 +488,7 @@ func (a *App) cutResolve(req CutRequest, lk *feedLookup) func(ctx context.Contex
 			return r, err
 		}
 		var err error
-		if r.Parts, err = resolveSpecs(req.Unit, req.Channel, outDir, specs, lk.priorPart(ctx)); err != nil {
+		if r.Parts, err = resolveSpecs(req.Unit, req.Channel, outDir, specs); err != nil {
 			return r, err
 		}
 		if req.Unit == "luna" {

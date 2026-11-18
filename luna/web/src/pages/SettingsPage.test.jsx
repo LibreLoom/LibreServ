@@ -159,7 +159,7 @@ describe("SettingsPage", () => {
     ).toBeTruthy();
     expect(
       screen.getByText(
-        /Backup folders onto your Luna and access your Luna's files directly from your computer\. On Linux, the same download also works on Linux phones\./,
+        /Back up folders to your Luna, and keep a Luna folder in sync with your computer\. The Linux download also works on Linux phones\./,
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/copies new photos from the phone/i)).toBeNull();
@@ -199,7 +199,7 @@ describe("SettingsPage", () => {
     stubFetch("user", true);
     renderPage();
     await screen.findByText("max");
-    expect(screen.getByText(/You're signed in as a Member\. Some settings aren't accessible to you/i)).toBeTruthy();
+    expect(screen.getByText(/You're signed in as a Member\. Some settings are only for an Admin/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Luna Connect$/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Cloud backup$/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /^About$/i })).toBeNull();

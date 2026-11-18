@@ -6,6 +6,7 @@ import { withDevMockDetected } from "../lib/devMockDrives.js";
 import useBackupRows from "./useBackupRows.js";
 import { useSystemHealthCheck } from "./useSystemHealthCheck.jsx";
 import { driveHealthQueryOptions } from "./useDriveHealth.js";
+import { detectedDrivesQueryOptions } from "./detectedDrives.js";
 
 /** A drive Luna can browse: as is, or read only. */
 function isReady(drive) {
@@ -40,12 +41,7 @@ export default function useNeedsYou() {
   const userId = user?.id ?? "";
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
-  const detected = useQuery({
-    queryKey: ["drives-detected"],
-    queryFn: () => getJson("/api/v1/drives/detected"),
-    refetchInterval: 5000,
-    enabled: isAdmin,
-  });
+  const detected = useQuery(detectedDrivesQueryOptions(isAdmin));
   const network = useQuery({
     queryKey: ["network-status"],
     queryFn: () => getJson("/api/v1/network/status"),

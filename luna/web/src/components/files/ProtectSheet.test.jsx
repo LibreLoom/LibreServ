@@ -80,7 +80,7 @@ function stubBackupApi({
   drives?: any[],
   backups?: any[],
   cloudBackups?: any[],
-  connect?: { connect_active: boolean, card_on_file?: boolean },
+  connect?: { connect_active: boolean, cloud_backup?: string },
   onCreate?: (body: any) => void,
   onRun?: (body: any) => void,
   onDelete?: (url: string) => void,
@@ -178,7 +178,8 @@ function stubBackupApi({
         return json(backups);
       }
       if (u.includes("/api/v1/connect/status")) {
-        return json(connect);
+        // A linked Luna can store cloud copies unless a test says otherwise, as lunad answers.
+        return json({ cloud_backup: connect.connect_active ? "ready" : "not_linked", ...connect });
       }
       return new Response("{}", { status: 500 });
     }),
@@ -514,16 +515,27 @@ describe("ProtectSheet", () => {
     expect(await screen.findByText("Cloud backup deleted.")).toBeInTheDocument();
   });
 
-  it("asks for a payment card and keeps Back up to the cloud usable when no card is on file", async () => {
+  it("asks for a payment card and blocks Back up to the cloud while Luna Connect has none", async () => {
     stubBackupApi({
       drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
-      connect: { connect_active: true, card_on_file: false },
+      connect: { connect_active: true, cloud_backup: "no_payment" },
       cloudBackups: [],
     });
     renderSheet();
     expect(await screen.findByText(/Add a payment card at Luna Connect/)).toBeInTheDocument();
     expect(screen.getByText("connect.luna.libreloom.org")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Back up to the cloud" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Back up to the cloud" })).toBeDisabled();
+  });
+
+  it("does not ask for a card when the device token is the problem", async () => {
+    stubBackupApi({
+      drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
+      connect: { connect_active: true, cloud_backup: "not_linked" },
+      cloudBackups: [],
+    });
+    renderSheet();
+    expect(await screen.findByRole("button", { name: "Back up to the cloud" })).toBeDisabled();
+    expect(screen.queryByText(/Add a payment card/)).not.toBeInTheDocument();
   });
 
   it("offers Back up anyway when a cloud run says the source looks missing, and sends accept_missing", async () => {
@@ -726,7 +738,7 @@ describe("ProtectSheet", () => {
     await waitFor(() =>
       expect(onOldCopiesDelete).toHaveBeenCalledWith(expect.stringContaining("/api/v1/private-backups/old-copies")),
     );
-    expect(await screen.findByText("Older versions will be removed")).toBeInTheDocument();
+    expect(await screen.findByText("Luna will remove the older versions.")).toBeInTheDocument();
   });
 
   it("refreshes the private backup lists when a backup is created from the sheet", async () => {
@@ -771,7 +783,7 @@ describe("ProtectSheet", () => {
 
 describe("ProtectButton", () => {
   describe("starting a cloud backup with a phrase step", () => {
-    const connected = { connect_active: true, card_on_file: true };
+    const connected = { connect_active: true, cloud_backup: "ready" };
 
     it("starts the backup straight away when a phrase is saved, once", async () => {
       const user = userEvent.setup();

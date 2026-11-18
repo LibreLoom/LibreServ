@@ -1,6 +1,6 @@
 import { phraseToEntropy } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 import { findMyKeys } from "@libreloom/ui/lib/cloud/cloudKeys.js";
-import { apiFetch, getJson } from "./api";
+import { ApiError, apiErrorMessage, apiFetch, getJson } from "./api";
 import { buildPhraseBody, fromBase64, savePhrase, signFreshChallenge, toBase64 } from "./cloudPhrase";
 
 export const RESTORE_QUERY_KEY = ["cloud-restore"];
@@ -80,7 +80,9 @@ export async function restoreFromPhrase(words, { lunaId, signingPublic, userId, 
     }
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
-      throw new Error(payload.error || "Luna could not finish reading cloud backups. Try again.");
+      // With no message from Luna, a status that names a cause (busy, too large) beats the fallback.
+      const failed = new ApiError(response.status, payload?.error || "", payload?.code || null, payload);
+      throw new Error(apiErrorMessage(failed, "Luna could not finish reading cloud backups. Try again."));
     }
     if (!response.body) throw new Error("Luna could not show restore progress. Try again.");
     const reader = response.body.getReader();
@@ -109,14 +111,14 @@ export async function restoreFromPhrase(words, { lunaId, signingPublic, userId, 
       }
       if (done) break;
     }
-    if (!result) throw new Error("Restore stopped before it finished. Some backup versions may already be back; you can safely try again.");
+    if (!result) throw new Error("Restore stopped before it finished. Some backup versions may already be back. You can safely try again.");
 
     if (!phraseSet) {
       try {
         await savePhrase(buildPhraseBody(entropy, { lunaId, userId, signingPublic }));
       } catch {
         throw new Error(
-          "Your backups are back, but saving your recovery phrase to this account failed. Set it up again in Settings → Cloud backup.",
+          "Your backups are back, but Luna could not save your recovery phrase. Set it up again in Settings → Luna Connect.",
         );
       }
     }

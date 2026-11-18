@@ -150,30 +150,29 @@ pub const TRASH_API_ALIAS: &str = ".luna-trash";
 /// Shown when the drive row exists and the mount is there, but Luna could not
 /// rebuild the `.luna-<uuid>.sqlite3` microdb it keeps on the drive. This is
 /// not an unplug, and nothing on the drive is lost.
-pub const MISSING_DRIVE_DB_MSG: &str = "Luna can't write to this drive, so it can't rebuild its database. Your files are still on the drive — free up space or check the write-lock switch, then try again.";
+pub const MISSING_DRIVE_DB_MSG: &str = "Luna can't write its database to this drive, but your files are still on it. Free up space or check the drive's write-lock switch, then try again.";
 
 /// Shown when a file operation reaches an encrypted drive whose container is
-/// not open. Nothing is wrong with the drive — it needs its password.
-pub const DRIVE_LOCKED_MSG: &str =
-    "This drive is locked. An Admin can unlock it in Luna's web page.";
+/// not open. Nothing is wrong with the drive: it needs its password.
+pub const DRIVE_LOCKED_MSG: &str = "This drive is locked. Enter its password to open its files.";
 
-/// Shown while an in-place conversion holds the drive. The drive is fine; it is
-/// simply unavailable until the conversion finishes.
-pub const DRIVE_CONVERTING_MSG: &str =
-    "This drive is being encrypted. It will be available when that finishes.";
+/// Shown when a file operation reaches a drive that Luna is erasing. The
+/// drive is plugged in; telling someone to unplug it mid-erase would be harmful.
+pub const DRIVE_ERASING_MSG: &str =
+    "Luna is erasing this drive right now. Try again when it finishes.";
 
 #[derive(Debug, thiserror::Error)]
 pub enum FilesError {
     #[error(
-        "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in."
+        "Luna can't find this drive. Make sure it is plugged in, or unplug it and plug it in again."
     )]
     UnknownDrive,
-    /// The drive is present and healthy, but its container is not open.
+    /// The drive is here and healthy, but its container is not open.
     #[error("{}", DRIVE_LOCKED_MSG)]
     Locked,
-    /// An in-place conversion holds the drive exclusively.
-    #[error("{}", DRIVE_CONVERTING_MSG)]
-    Converting,
+    /// The drive is plugged in, but Luna is erasing it.
+    #[error("{}", DRIVE_ERASING_MSG)]
+    Erasing,
     #[error("{}", MISSING_DRIVE_DB_MSG)]
     MissingDriveDb,
     #[error("{0}")]
@@ -235,19 +234,22 @@ pub fn drive_root(conn: &rusqlite::Connection, drive_id: &str) -> Result<DriveRo
     let drive = db::get_drive(conn, drive_id)
         .map_err(FilesError::Db)?
         .ok_or(FilesError::UnknownDrive)?;
-    // Every file operation in Luna goes through here, so these two checks are
-    // the whole gate: browse, uploads, WebDAV, gallery, search and backups all
-    // stop at a locked or converting drive without knowing it exists.
-    //
-    // They come BEFORE the mount-point check: a locked drive has no mount
-    // point, so asking about the mount first would report "Luna can't find
-    // this drive" for a drive that is sitting right there and needs a
-    // password. The client keys off the 423 to open the unlock dialog.
-    if drive.locked {
+    // Every file operation in Luna goes through here, so this is the whole
+    // gate: browse, uploads, WebDAV, photos, search and backups all stop at a
+    // locked drive without knowing it exists. It comes BEFORE the mount-point
+    // check: a locked drive has no mount point, and "Luna can't find this
+    // drive" would be untrue for a drive that is sitting right there and needs
+    // a password. A drive being locked right now counts as locked: between the
+    // unmount and the database update its mount folder is empty.
+    if drive.locked || crate::drives::crypt::vault::drive_is_locking(drive_id) {
         return Err(FilesError::Locked);
     }
-    if drive.converting {
-        return Err(FilesError::Converting);
+    // A drive being erased is unmounted, so its mount folder is an empty folder
+    // on the system disk. Nothing may read or write there. This comes before the
+    // mount-point check: "can't find this drive, unplug it" is untrue mid-erase,
+    // and unplugging then would be harmful.
+    if crate::drives::format::drive_is_formatting(drive_id) {
+        return Err(FilesError::Erasing);
     }
     // An unplugged or ejected drive keeps its old mount path in the row;
     // reading it would only find an empty folder and blame the drive's
@@ -2358,6 +2360,11 @@ pub fn mkdir_as(
             "parent folder does not exist",
         )));
     }
+    if let Some(leaf) = rel.rsplit('/').next() {
+        fsrules::rules_at(&root)
+            .check_name(leaf)
+            .map_err(FilesError::from)?;
+    }
     let private = begin_private(&root, &rel, &path, private_owner)?;
     let path = if private {
         resolve_for_create_nofollow(&root, &rel)?
@@ -2416,6 +2423,9 @@ pub fn create(conn: &rusqlite::Connection, drive_id: &str, rel: &str) -> Result<
             "parent folder does not exist",
         )));
     }
+    fsrules::rules_at(&root)
+        .check_name(leaf)
+        .map_err(FilesError::from)?;
     match std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -2502,19 +2512,31 @@ pub fn rename(
     // items alike.
     let private_leaf = crate::private::disk_leaf(&root, &rel);
     let parent_real = rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
-    let new_real = crate::gallery::gallery_indexer::join_rel(parent_real, &dest_name);
+    let new_real = crate::photos::photos_indexer::join_rel(parent_real, &dest_name);
     if crate::private::item_at(&root, &new_real).is_some() {
         return Err(already_exists());
     }
+    let rules = fsrules::rules_at(&root);
+    rules.check_name(&new_name).map_err(FilesError::from)?;
     let dest = parent.join(private_leaf.as_deref().unwrap_or(&dest_name));
-    if private_leaf.is_some() {
+    if private_leaf.is_none()
+        && rules.case_insensitive
+        && fsrules::is_case_only_change(&path, &dest)
+    {
+        // exFAT answers "taken" because the new spelling finds this very
+        // entry, so a capitals-only rename takes its own path.
+        fsrules::rename_case_only(&path, &dest).map_err(FilesError::Io)?;
+    } else if private_leaf.is_some() {
         if resolve_child(&root, &new_real).is_ok() {
             return Err(already_exists());
         }
     } else {
         // No-replace move keeps the never-overwrites contract honest under
         // concurrency; plain rename(2) would silently overwrite.
-        rename_noreplace(&path, &dest).map_err(FilesError::Io)?;
+        match rename_noreplace(&path, &dest) {
+            Err(e) if noreplace_unavailable(&e) => install_by_exclusive_rename(&path, &dest)?,
+            other => other.map_err(FilesError::Io)?,
+        }
     }
     if let Err(e) = crate::private::repath(&root, &rel, &new_real) {
         // A private item never moved on disk; anything else did.
@@ -2538,7 +2560,7 @@ pub fn rename(
     // renamed subject (and anything under it, for folders). Subjects store
     // API paths, so repath with the `.luna-trash` form for trash items.
     let parent_rel = api_rel.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
-    let new_rel = crate::gallery::gallery_indexer::join_rel(parent_rel, &dest_name);
+    let new_rel = crate::photos::photos_indexer::join_rel(parent_rel, &dest_name);
     crate::access::repath_subjects(conn, drive_id, &api_rel, &new_rel).map_err(FilesError::Db)?;
     // A top-level entry's origin retitles with it: `docs/old` trashed and
     // renamed to `new` restores as `docs/new`.
@@ -2550,7 +2572,7 @@ pub fn rename(
             .rsplit_once('/')
             .map(|(p, _)| p)
             .unwrap_or("");
-        meta.original_path = crate::gallery::gallery_indexer::join_rel(orig_parent, &new_name);
+        meta.original_path = crate::photos::photos_indexer::join_rel(orig_parent, &new_name);
         write_trash_meta(&root, &dest_name, &meta)?;
         remove_trash_meta(&root, &old_entry);
     }
@@ -2612,6 +2634,11 @@ pub fn move_rel(
             std::io::ErrorKind::NotFound,
             "destination folder does not exist",
         )));
+    }
+    if let Some(leaf) = to_rel.rsplit('/').next() {
+        fsrules::rules_at(&root)
+            .check_name(leaf)
+            .map_err(FilesError::from)?;
     }
     // A private item keeps its `.luna-` disk name wherever it lands; the
     // real destination name must be free of plain and private items alike.
@@ -2693,9 +2720,11 @@ pub fn temp_path_at(root: &Path, dir: &Path) -> Result<PathBuf, FilesError> {
 #[cfg(test)]
 mod tests;
 
+pub mod content;
 pub mod dav;
 mod dav_fs;
 pub mod forwarding;
+pub mod fsrules;
 pub mod index;
 pub mod recents;
 pub mod search;
@@ -2759,5 +2788,51 @@ mod restore_folder_tests {
         assert!(restore_from_trash(&conn, &id, &trash_rel, "Blocked/note.txt").is_err());
         assert!(root.join("Blocked").is_file());
         assert!(root.join(real_rel(&root, &trash_rel).as_ref()).exists());
+    }
+
+    fn exfat_drive() -> (tempfile::TempDir, rusqlite::Connection, String, PathBuf) {
+        let (dir, conn, id) = drive_dir();
+        let root = PathBuf::from(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point);
+        fsrules::force_rules_for_tests(
+            &root,
+            fsrules::FsRules {
+                reserved_chars: true,
+                case_insensitive: true,
+                max_file: None,
+            },
+        );
+        (dir, conn, id, root)
+    }
+
+    fn bad_name_of(e: FilesError) -> Option<fsrules::NameProblem> {
+        match e {
+            FilesError::Io(io) => fsrules::problem_of(&io).cloned(),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn exfat_refuses_reserved_characters_before_creating_anything() {
+        let (_dir, conn, id, root) = exfat_drive();
+        let e = create(&conn, &id, "a:b.txt").unwrap_err();
+        assert!(matches!(
+            bad_name_of(e),
+            Some(fsrules::NameProblem::Char { ch: ':', .. })
+        ));
+        assert!(mkdir(&conn, &id, "what?").is_err());
+        create(&conn, &id, "ok.txt").unwrap();
+        let e = rename(&conn, &id, "ok.txt", "no|pipe.txt").unwrap_err();
+        assert!(bad_name_of(e).is_some());
+        assert!(root.join("ok.txt").exists());
+        mkdir(&conn, &id, "Dir").unwrap();
+        let e = move_rel(&conn, &id, "ok.txt", "Dir/q*.txt").unwrap_err();
+        assert!(bad_name_of(e).is_some());
+        assert!(root.join("ok.txt").exists());
+    }
+
+    #[test]
+    fn a_drive_that_takes_every_character_still_does() {
+        let (_dir, conn, id) = drive_dir();
+        create(&conn, &id, "a:b.txt").unwrap();
     }
 }

@@ -12,7 +12,11 @@
 //!   is written, the marker is removed.
 //! - Luna only unmounts mount points it created, except USB/removable sticks
 //!   that the OS mounted read-only (iso9660 installer media, or an automount
-//!   left `ro`). Those are remounted read-write — or erased, if the user said so.
+//!   left `ro`). Those are remounted read-write.
+//! - Adopt never erases or formats. A drive that has no filesystem Luna can
+//!   use is reported as needing setup, and an encrypted drive as encrypted.
+//!   Erasing a drive is a separate, explicit flow with exactly one
+//!   implementation: [`format`] (see `docs/drive-format/plan.md`).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -26,15 +30,26 @@ use uuid::Uuid;
 use crate::db;
 use crate::drives::detect::DetectedDrive;
 use crate::drives::fsprobe::{
-    FsProbe, MountChoice, is_intrinsically_read_only, is_writable_type, pick_mount_source,
+    FsProbe, MountChoice, is_intrinsically_read_only, is_luks_type, is_writable_type,
+    pick_mount_source,
 };
 use crate::drives::mount::Mounter;
 
-pub const INSTALLER_USB_MESSAGE: &str = "If you have moved any files you want to keep off this drive, choose Erase and add this drive. That deletes everything on it so Luna can use it for your photos and files.";
+/// Why a drive can't be written to when adding it: a drive Luna checked and
+/// couldn't repair says so; anything else is the lock-switch message.
+fn write_rejected_message(mount_point: &Path) -> String {
+    if crate::drives::fsck::is_unrepaired(mount_point) {
+        "Luna found problems on this drive that it couldn't fix. Check it on a Windows or Mac computer, then try again.".into()
+    } else {
+        WRITE_REJECTED_MESSAGE.into()
+    }
+}
+
+/// A blank, damaged, foreign-format or installer-media drive: Luna can't use it as it is.
+pub const NEEDS_SETUP_MESSAGE: &str = "Erase it first, which removes everything on it.";
+/// An encrypted drive: Luna can't open it.
+pub const ENCRYPTED_MESSAGE: &str = "This drive is encrypted. Enter its password to add it.";
 pub const WRITE_REJECTED_MESSAGE: &str = "This drive will not accept new files right now. If it has a lock switch, slide it to unlock, then try again.";
-/// Adopt failed because the stick stayed read-only after a remount attempt.
-pub const NEEDS_FORMAT_MESSAGE: &str =
-    "This drive is read-only. Format it before using it with Luna.";
 
 /// A removable drive with no filesystem Luna recognises (blank, damaged, or
 /// another system's format) that nothing has mounted.
@@ -51,19 +66,15 @@ pub struct Inspection {
     pub mounted_by_luna: bool,
     pub summary: luna_core::scan::TopLevelSummary,
     pub has_marker: bool,
-    pub needs_erase: bool,
+    /// Luna can't use this drive as it is: blank, damaged, another system's
+    /// format, or installer media. Setting such drives up is not available.
+    pub needs_setup: bool,
     /// True when Luna could list the top of the drive.
     pub readable: bool,
-    /// True when a safe create/write/delete probe succeeded (or will after erase).
+    /// True when a safe create/write/delete probe succeeded.
     pub writable: bool,
-    /// The drive is an encrypted Luna drive whose password has not been
-    /// entered. Nothing can be listed, and nothing should be erased.
-    pub locked: bool,
-    /// Bytes in use beyond what a fresh filesystem occupies, so the caller can
-    /// apply the same "does this hold anything?" rule the wipe dialog uses for
-    /// drives Luna already knows. `None` when it could not be measured, which
-    /// counts as holding something.
-    pub used_bytes: Option<u64>,
+    /// The drive is encrypted. Luna can't open it, so nothing can be listed.
+    pub encrypted: bool,
 }
 
 /// A passive look at a detected drive: what's on it, without writing to it.
@@ -74,11 +85,10 @@ pub struct Peek {
     /// or a format Linux can't read).
     pub readable: bool,
     pub has_marker: bool,
-    /// Installer media that would have to be erased before Luna could use it.
-    pub needs_erase: bool,
-    /// The drive is an encrypted Luna drive whose password has not been
-    /// entered. Nothing can be listed, and nothing should be erased.
-    pub locked: bool,
+    /// Luna can't use this drive as it is (see [`Inspection::needs_setup`]).
+    pub needs_setup: bool,
+    /// The drive is encrypted. Luna can't open it, so nothing can be listed.
+    pub encrypted: bool,
     pub summary: luna_core::scan::TopLevelSummary,
 }
 
@@ -130,8 +140,8 @@ type MarkerMemo = HashMap<(String, u64), Vec<String>>;
 pub struct DriveManager {
     mounter: Arc<dyn Mounter>,
     probe: Arc<dyn FsProbe>,
-    luks: Arc<dyn crate::drives::luks::Luks>,
-    mkfs: Arc<dyn crate::drives::format::Mkfs>,
+    /// The one `cryptsetup` wrapper (real, or a mock in tests).
+    luks: Arc<dyn crate::drives::crypt::luks::Luks>,
     foreign_base: PathBuf,
     adopted_base: PathBuf,
     /// Serializes the temporary look-inside mounts (peek, inspect) so two
@@ -145,6 +155,27 @@ pub struct DriveManager {
     /// so a background scan does not mount the same stick every few seconds. Cleared by
     /// every call that adopts, inspects, peeks, writes, ejects, releases or removes a drive.
     marker_memo: Arc<std::sync::Mutex<MarkerMemo>>,
+    /// Kernel names of disks a format is erasing right now. Background scans
+    /// must not mount or probe them: a read-only mount in the middle of a wipe
+    /// would pin the old partition table and could even resurrect the old
+    /// filesystem.
+    formatting_devices: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+}
+
+/// Keeps a disk out of background probing until dropped. See
+/// [`DriveManager::begin_formatting_device`].
+pub struct FormattingDeviceGuard {
+    devices: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    name: String,
+}
+
+impl Drop for FormattingDeviceGuard {
+    fn drop(&mut self) {
+        self.devices
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.name);
+    }
 }
 
 /// Keeps a drive out of background reconciliation until dropped.
@@ -179,27 +210,14 @@ impl DriveManager {
         Self {
             mounter,
             probe,
-            luks: Arc::new(crate::drives::luks::CommandLuks),
-            mkfs: Arc::new(crate::drives::format::CommandMkfs),
+            luks: Arc::new(crate::drives::crypt::luks::CommandLuks),
             foreign_base: data_dir.join("mounts/foreign"),
             adopted_base: data_dir.join("mounts/drives"),
             look_lock: Arc::new(std::sync::Mutex::new(())),
             closing: Arc::default(),
             marker_memo: Arc::default(),
+            formatting_devices: Arc::default(),
         }
-    }
-
-    /// Swap in a test double for the LUKS commands.
-    pub fn with_luks(mut self, luks: Arc<dyn crate::drives::luks::Luks>) -> Self {
-        self.luks = luks;
-        self
-    }
-
-    /// Replace the filesystem writer. Tests use a mock so a wipe never touches
-    /// a real device; production always uses [`crate::drives::format::CommandMkfs`].
-    pub fn with_mkfs(mut self, mkfs: Arc<dyn crate::drives::format::Mkfs>) -> Self {
-        self.mkfs = mkfs;
-        self
     }
 
     pub fn mounter(&self) -> &dyn Mounter {
@@ -210,16 +228,18 @@ impl DriveManager {
         self.probe.as_ref()
     }
 
-    pub fn mkfs(&self) -> &dyn crate::drives::format::Mkfs {
-        self.mkfs.as_ref()
-    }
-
-    pub fn luks(&self) -> &dyn crate::drives::luks::Luks {
+    pub fn luks(&self) -> &dyn crate::drives::crypt::luks::Luks {
         self.luks.as_ref()
     }
 
+    /// Swap in a test double for the LUKS commands.
+    pub fn with_luks(mut self, luks: Arc<dyn crate::drives::crypt::luks::Luks>) -> Self {
+        self.luks = luks;
+        self
+    }
+
     /// Drop every remembered marker id. Called whenever a drive is changed on purpose.
-    fn forget_marker_memo(&self) {
+    pub(crate) fn forget_marker_memo(&self) {
         self.marker_memo
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -238,6 +258,41 @@ impl DriveManager {
         }
     }
 
+    /// Mark a disk as being erased until the guard is dropped. Reconcile and the
+    /// boot-time recovery scan leave it alone (they see no markers on it), so
+    /// nothing mounts it under the format. Unlike filtering the disk out of
+    /// `detected`, a registered drive on it is not marked `missing`.
+    pub fn begin_formatting_device(&self, name: &str) -> FormattingDeviceGuard {
+        self.formatting_devices
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(name.to_string());
+        FormattingDeviceGuard {
+            devices: self.formatting_devices.clone(),
+            name: name.to_string(),
+        }
+    }
+
+    pub fn is_formatting_device(&self, name: &str) -> bool {
+        self.formatting_devices
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(name)
+    }
+
+    /// The lock every temporary look-inside mount takes, so two of them never
+    /// fight over one mount point.
+    pub(crate) fn look_guard(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.look_lock.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Where a partition is briefly mounted read-only to show what is on it
+    /// before it is erased.
+    pub(crate) fn format_look_point(&self, partition: &str) -> PathBuf {
+        self.foreign_base
+            .join(format!("fmt-{}", sanitize(partition)))
+    }
+
     fn is_closing(&self, id: &str) -> bool {
         self.closing
             .lock()
@@ -251,10 +306,8 @@ impl DriveManager {
         self.forget_marker_memo();
         let _look = self.look_lock.lock().unwrap_or_else(|e| e.into_inner());
         let choice = self.choice_for(device);
-        // An encrypted drive cannot be looked inside without its password, and
-        // must never be offered for erase. Report it as a candidate that needs
-        // unlocking, which is what the Add-drive card says.
-        if crate::drives::luks::is_luks_type(&choice.fs_type) {
+        // Luna can't open an encrypted drive, so it can't look inside it.
+        if is_luks_type(&choice.fs_type) {
             return Ok(Inspection {
                 device: device.name.clone(),
                 model: device.model.clone(),
@@ -263,12 +316,10 @@ impl DriveManager {
                 mounted_by_luna: false,
                 summary: Default::default(),
                 has_marker: false,
-                needs_erase: false,
+                needs_setup: false,
                 readable: false,
                 writable: false,
-                locked: true,
-                // Locked: Luna cannot see inside, so it cannot say it is empty.
-                used_bytes: None,
+                encrypted: true,
             });
         }
         let (mount_point, mounted_by_luna) = if let Some(existing) = &device.mount_point {
@@ -294,8 +345,7 @@ impl DriveManager {
                 );
                 if is_unrecognized(device, &choice) {
                     // No filesystem Luna knows: a new stick, a damaged one, or
-                    // another system's format. The only way forward is to
-                    // erase it, which the caller must confirm.
+                    // another system's format. Luna can't set it up yet.
                     return Ok(Inspection {
                         device: device.name.clone(),
                         model: device.model.clone(),
@@ -304,13 +354,10 @@ impl DriveManager {
                         mounted_by_luna: false,
                         summary: Default::default(),
                         has_marker: false,
-                        needs_erase: true,
+                        needs_setup: true,
                         readable: true,
                         writable: false,
-                        locked: false,
-                        // Unreadable format: the only way forward is a wipe,
-                        // and Luna cannot say what is on it.
-                        used_bytes: None,
+                        encrypted: false,
                     });
                 }
                 return Err(anyhow::anyhow!("Could not look at this drive safely. {e}"));
@@ -330,8 +377,13 @@ impl DriveManager {
         // remounted RW under the owner. The RW remount only happens at
         // adopt (remount_adopt_rw). Luna's own temp look-inside mount is
         // fair game — it flips right back to RO.
-        let writable = if choice.needs_erase {
+        let writable = if choice.needs_setup {
             false
+        } else if mounted_by_luna && fsck::is_dirty(&device_path(&choice.name)) {
+            // A dirty exFAT volume isn't flipped to read-write for the probe:
+            // only a mount that checks it first may do that. Adding it
+            // checks it, and a drive that can't be repaired fails there.
+            true
         } else if mounted_by_luna {
             self.probe_writability(&mount_point, true)
         } else if device.mount_readonly {
@@ -340,7 +392,6 @@ impl DriveManager {
             probe_writable(&mount_point).is_ok()
         };
 
-        let used_bytes = crate::drives::wipe::used_bytes(&mount_point);
         Ok(Inspection {
             device: device.name.clone(),
             model: device.model.clone(),
@@ -353,14 +404,10 @@ impl DriveManager {
             mounted_by_luna,
             summary,
             has_marker,
-            needs_erase: choice.needs_erase,
+            needs_setup: choice.needs_setup,
             readable,
             writable,
-            locked: false,
-            // Measured here so the Add-drive flow applies the same
-            // "does this hold anything?" rule as every other wipe, instead of
-            // deciding from a file count.
-            used_bytes,
+            encrypted: false,
         })
     }
 
@@ -376,16 +423,15 @@ impl DriveManager {
         } else {
             Some(choice.fs_type.clone())
         };
-        // An encrypted drive has no filesystem to look inside until its
-        // password arrives. Say so, rather than mounting it and failing —
-        // which would read as "Can't open" for a healthy drive.
-        if crate::drives::luks::is_luks_type(&choice.fs_type) {
+        // Luna can't open an encrypted drive. Say so, rather than mounting it
+        // and failing — which would read as "Can't open" for a healthy drive.
+        if is_luks_type(&choice.fs_type) {
             return Peek {
                 fs_type,
                 readable: false,
                 has_marker: false,
-                needs_erase: false,
-                locked: true,
+                needs_setup: false,
+                encrypted: true,
                 summary: Default::default(),
             };
         }
@@ -407,16 +453,16 @@ impl DriveManager {
                 fs_type,
                 readable: true,
                 has_marker,
-                needs_erase: choice.needs_erase,
-                locked: false,
+                needs_setup: choice.needs_setup,
+                encrypted: false,
                 summary,
             },
             None => Peek {
                 fs_type,
                 readable: false,
                 has_marker: false,
-                needs_erase: choice.needs_erase || is_unrecognized(device, &choice),
-                locked: false,
+                needs_setup: choice.needs_setup || is_unrecognized(device, &choice),
+                encrypted: false,
                 summary: Default::default(),
             },
         }
@@ -437,17 +483,35 @@ impl DriveManager {
         }
     }
 
+    /// Repair an exFAT drive left dirty before [`Self::adopt`] mounts it, so
+    /// the repair runs before the caller takes the database lock rather than
+    /// under it. Luna's own read-only look-inside mount (left by inspect) is
+    /// dropped first: a volume is never checked while mounted. A mount Luna
+    /// didn't make is left alone.
+    pub fn check_before_adopt(&self, device: &DetectedDrive) {
+        if let Some(existing) = &device.mount_point {
+            let existing = Path::new(existing);
+            if existing != self.foreign_mount_point(&device.name)
+                || self.mounter.unmount(existing).is_err()
+            {
+                return;
+            }
+        }
+        let choice = self.choice_for(device);
+        if choice.name.is_empty() || is_luks_type(&choice.fs_type) {
+            return;
+        }
+        fsck::precheck(&fsck::CommandExfatTools, &device_path(&choice.name));
+    }
+
     /// Adopt a drive as-is: ensure a writable mount, write the marker, then
     /// record it. On any failure before the DB row, the drive is untouched.
-    ///
-    /// `erase` wipes installer (iso9660) media and puts a new filesystem on it.
-    /// It is refused for non-USB disks.
+    /// Luna never erases or formats a drive here.
     pub fn adopt(
         &self,
         conn: &Connection,
         device: &DetectedDrive,
         label: &str,
-        erase: bool,
     ) -> anyhow::Result<db::DriveRow> {
         self.forget_marker_memo();
         if label.trim().is_empty() {
@@ -468,46 +532,25 @@ impl DriveManager {
                 .any(|p| self.is_system_mount(p))
         {
             anyhow::bail!(
-                "That's the system disk Luna runs from — Luna won't touch the operating system's own drive."
+                "That's the system disk Luna runs from, so Luna won't use it for your files."
             );
         }
 
-        let mut choice = self.choice_for(device);
-        if (choice.needs_erase || is_unrecognized(device, &choice)) && !erase {
-            anyhow::bail!("{INSTALLER_USB_MESSAGE}");
+        let choice = self.choice_for(device);
+        if is_luks_type(&choice.fs_type) {
+            anyhow::bail!("{ENCRYPTED_MESSAGE}");
         }
-        if erase && !(device.removable || device.usb) {
-            anyhow::bail!("Luna will only erase a USB stick, not the computer's own disk.");
+        if choice.needs_setup || is_unrecognized(device, &choice) {
+            anyhow::bail!("{NEEDS_SETUP_MESSAGE}");
         }
-
         let foreign_target = self.foreign_mount_point(&device.name);
         if foreign_target.exists() {
             let _ = self.mounter.unmount(&foreign_target);
             let _ = std::fs::remove_dir(&foreign_target);
         }
 
-        if erase {
-            // One backend for every wipe: unmount, wipe signatures, one
-            // partition, then the filesystem.
-            let made = crate::drives::format::run(
-                self.probe.as_ref(),
-                self.luks.as_ref(),
-                self.mkfs.as_ref(),
-                &device.name,
-                &crate::drives::format::Target::plain(label),
-                "",
-                |point| self.mounter.unmount(point),
-            )
-            .map_err(|e| anyhow::anyhow!("Luna couldn't erase this USB. {}", e.message()))?;
-            choice = MountChoice {
-                name: made.partition,
-                fs_type: made.filesystem.as_str().into(),
-                needs_erase: false,
-            };
-        }
-
         let (mut mount_point, mut mounted_by_luna) =
-            self.initial_adopt_mount(device, &choice, &id, erase)?;
+            self.initial_adopt_mount(device, &choice, &id)?;
 
         // Writing must work before Luna claims the drive. On failure, silently
         // unmount + remount read-write once, then probe again.
@@ -519,12 +562,12 @@ impl DriveManager {
                 }
                 Err(_) => {
                     self.cleanup_adopt_mount(&mount_point, mounted_by_luna);
-                    anyhow::bail!("{NEEDS_FORMAT_MESSAGE}");
+                    anyhow::bail!("{}", write_rejected_message(&mount_point));
                 }
             }
             if probe_writable(&mount_point).is_err() {
                 self.cleanup_adopt_mount(&mount_point, mounted_by_luna);
-                anyhow::bail!("{NEEDS_FORMAT_MESSAGE}");
+                anyhow::bail!("{}", write_rejected_message(&mount_point));
             }
         }
 
@@ -568,7 +611,7 @@ impl DriveManager {
                         {
                             self.cleanup_adopt_mount(&mount_point, mounted_by_luna);
                             if is_erofs(&e2) {
-                                return Err(anyhow::anyhow!("{NEEDS_FORMAT_MESSAGE}"));
+                                return Err(anyhow::anyhow!("{WRITE_REJECTED_MESSAGE}"));
                             }
                             return Err(anyhow::anyhow!(
                                 "Luna could not mark this drive as its own. {e2}"
@@ -577,7 +620,7 @@ impl DriveManager {
                     }
                     Err(_) => {
                         self.cleanup_adopt_mount(&mount_point, mounted_by_luna);
-                        return Err(anyhow::anyhow!("{NEEDS_FORMAT_MESSAGE}"));
+                        return Err(anyhow::anyhow!("{WRITE_REJECTED_MESSAGE}"));
                     }
                 }
             } else {
@@ -619,176 +662,6 @@ impl DriveManager {
             .unwrap_or_else(|| anyhow::bail!("Drive was added but could not be read back."))
     }
 
-    /// Adopt a drive as a **new encrypted drive**: wipe it, put a LUKS2
-    /// container on it, make ext4 inside, then adopt that as normal.
-    ///
-    /// This is destructive by definition — the caller has already made the
-    /// person read the warning that the password cannot be recovered. It only
-    /// ever runs on a USB stick, matching `erase`.
-    pub fn adopt_encrypted(
-        &self,
-        conn: &Connection,
-        device: &DetectedDrive,
-        label: &str,
-        password: &str,
-    ) -> anyhow::Result<db::DriveRow> {
-        if password.is_empty() {
-            anyhow::bail!("Enter a password for this drive.");
-        }
-        if !(device.removable || device.usb) {
-            anyhow::bail!(
-                "Luna will only set up encryption on a USB stick, not the computer's own disk."
-            );
-        }
-        if device.mount_point.as_deref() == Some("/")
-            || mounted_points_for_disk(&device.name)
-                .iter()
-                .any(|p| self.is_system_mount(p))
-        {
-            anyhow::bail!(
-                "That's the system disk Luna runs from — Luna won't touch the operating system's own drive."
-            );
-        }
-        self.unmount_disk_mounts(&device.name)?;
-
-        // Wipe, container, filesystem — all through the one format backend.
-        let made = crate::drives::format::run(
-            self.probe.as_ref(),
-            self.luks.as_ref(),
-            self.mkfs.as_ref(),
-            &device.name,
-            &crate::drives::format::Target::encrypted(label),
-            password,
-            |point| self.mounter.unmount(point),
-        )
-        .map_err(|e| anyhow::anyhow!("Luna couldn't set up this drive. {}", e.message()))?;
-        let part_dev = device_path(&made.partition);
-
-        // Now adopt the encrypted drive the ordinary way: it is ext4 inside an
-        // open container, so every step below is the same as any other drive.
-        let id = Uuid::new_v4().to_string();
-        self.luks
-            .open(&part_dev, &id, password)
-            .map_err(|e| anyhow::anyhow!("Luna couldn't open the new encrypted drive. {e}"))?;
-        let target = self.adopted_base.join(&id);
-        let mounted = self.mounter.mount_typed(
-            &format!("/dev/mapper/{}", crate::drives::luks::mapper_name(&id)),
-            &target,
-            false,
-            Some("ext4"),
-        );
-        if let Err(e) = mounted {
-            let _ = self.luks.close(&id);
-            anyhow::bail!("Luna couldn't open the new encrypted drive. {e}");
-        }
-
-        let prefix = match luna_core::marker::pick_prefix(&target) {
-            Ok(p) => p,
-            Err(e) => {
-                let _ = self.mounter.unmount(&target);
-                let _ = self.luks.close(&id);
-                anyhow::bail!("Luna could not mark this drive as its own. {e}");
-            }
-        };
-        let marker = Marker::new(id.clone(), label);
-        if let Err(e) = crate::drives::drive_db::create(&target, &marker, &prefix) {
-            let _ = self.mounter.unmount(&target);
-            let _ = self.luks.close(&id);
-            anyhow::bail!("Luna could not mark this drive as its own. {e}");
-        }
-        if let Err(e) = db::upsert_drive(
-            conn,
-            &id,
-            label,
-            "as_is",
-            "ext4",
-            &device.name,
-            target.to_str().unwrap_or(""),
-        ) {
-            let _ = remove_marker(&target, &id);
-            let _ = self.mounter.unmount(&target);
-            let _ = self.luks.close(&id);
-            anyhow::bail!("Could not add this drive. {e}");
-        }
-        db::set_drive_encrypted(conn, &id, true)?;
-        db::set_drive_locked(conn, &id, false)?;
-
-        if let Ok(Some(cloud)) = crate::backup::cloud::identity::load(conn)
-            && let Err(e) =
-                crate::backup::cloud::identity::copy_to_drive_at(&target, &cloud, db::now_unix())
-        {
-            tracing::warn!(error = %e, "could not copy the cloud signing key to the new drive");
-        }
-
-        db::get_drive(conn, &id)?
-            .map(Ok)
-            .unwrap_or_else(|| anyhow::bail!("Drive was added but could not be read back."))
-    }
-
-    /// Bring a drive back into use after it has been reformatted.
-    ///
-    /// A wipe destroys the `.luna-<uuid>` marker, and the marker is what ties
-    /// the drive on disk to its row in `luna.db` — its shares, access grants,
-    /// gallery index and backup rules. Reformatting keeps the id, so this puts
-    /// the same marker back and mounts the drive at the same place.
-    ///
-    /// Returns the mount point. On failure the drive is left unmounted rather
-    /// than half-claimed, and the caller reports it.
-    pub fn remount_after_format(
-        &self,
-        conn: &Connection,
-        id: &str,
-        label: &str,
-        encrypted: bool,
-        password: &str,
-    ) -> anyhow::Result<String> {
-        let target = self.adopted_mount_point(id);
-        if target.exists() {
-            let _ = self.mounter.unmount(&target);
-            let _ = std::fs::remove_dir(&target);
-        }
-        std::fs::create_dir_all(&target)?;
-
-        // An encrypted drive is mounted through its container; a plain one
-        // straight from the partition.
-        let source = if encrypted {
-            self.luks.open(&self.device_for(conn, id)?, id, password)?;
-            format!("/dev/mapper/{}", crate::drives::luks::mapper_name(id))
-        } else {
-            self.device_for(conn, id)?
-        };
-        let fs = if encrypted {
-            Some("ext4")
-        } else {
-            Some("exfat")
-        };
-        if let Err(e) = self.mounter.mount_typed(&source, &target, false, fs) {
-            if encrypted {
-                let _ = self.luks.close(id);
-            }
-            anyhow::bail!("Luna couldn't open this drive after wiping it. {e}");
-        }
-
-        let marker = Marker::new(id.to_string(), label);
-        let prefix = luna_core::marker::pick_prefix(&target)
-            .map_err(|e| anyhow::anyhow!("Luna could not mark this drive as its own. {e}"))?;
-        if let Err(e) = crate::drives::drive_db::create(&target, &marker, &prefix) {
-            let _ = self.mounter.unmount(&target);
-            if encrypted {
-                let _ = self.luks.close(id);
-            }
-            anyhow::bail!("Luna could not mark this drive as its own. {e}");
-        }
-        Ok(target.to_string_lossy().into_owned())
-    }
-
-    /// The device node for a drive row, as `/dev/...`.
-    fn device_for(&self, conn: &Connection, id: &str) -> anyhow::Result<String> {
-        let row = db::get_drive(conn, id)?
-            .ok_or_else(|| anyhow::anyhow!("Luna doesn't know this drive."))?;
-        Ok(crate::drives::format::device_path(&row.device))
-    }
-
     /// First mount for adopt: prefer an existing OS mount, else mount RW at a
     /// Luna-owned path. Does not yet guarantee writability.
     fn initial_adopt_mount(
@@ -796,14 +669,13 @@ impl DriveManager {
         device: &DetectedDrive,
         choice: &MountChoice,
         id: &str,
-        erase: bool,
     ) -> anyhow::Result<(PathBuf, bool)> {
         match &device.mount_point {
-            Some(existing) if !erase && !self.is_ours(Path::new(existing)) => {
+            Some(existing) if !self.is_ours(Path::new(existing)) => {
                 let existing = PathBuf::from(existing);
                 if self.is_system_mount(&existing) {
                     anyhow::bail!(
-                        "That's the system disk Luna runs from — Luna won't touch the operating system's own drive."
+                        "That's the system disk Luna runs from, so Luna won't use it for your files."
                     );
                 }
                 if device.mount_readonly {
@@ -878,34 +750,10 @@ impl DriveManager {
             choice.fs_type = fs.clone();
         }
         if !is_writable_type(&choice.fs_type) && is_intrinsically_read_only(&choice.fs_type) {
-            choice.needs_erase = true;
+            choice.needs_setup = true;
         }
         choice
     }
-    fn unmount_disk_mounts(&self, disk: &str) -> anyhow::Result<()> {
-        let mut points = mounted_points_for_disk(disk);
-        points.sort_by_key(|p| std::cmp::Reverse(p.as_os_str().len()));
-        for point in &points {
-            if self.is_system_mount(point) {
-                continue;
-            }
-            let _ = self.mounter.unmount(point);
-        }
-        let foreign = self.foreign_mount_point(disk);
-        if foreign.exists() {
-            let _ = self.mounter.unmount(&foreign);
-        }
-        // Whatever is still mounted (busy umount, a skipped system path)
-        // must stop the erase: repartitioning under a live mount can
-        // corrupt the running system, not just the stick.
-        if !mounted_points_for_disk(disk).is_empty() {
-            anyhow::bail!(
-                "Something is still using this drive, so Luna can't erase it. Close whatever has it open, then try again."
-            );
-        }
-        Ok(())
-    }
-
     /// Eject a drive that Luna knows about. Only unmounts Luna-owned mounts.
     ///
     /// Idempotent: already-ejected or already-unmounted drives succeed and
@@ -920,6 +768,9 @@ impl DriveManager {
         }
         self.eject_unmount(&drive)?;
         db::set_drive_state(conn, id, "ejected")?;
+        if drive.encrypted {
+            db::set_drive_locked(conn, id, true)?;
+        }
         Ok(())
     }
 
@@ -929,6 +780,10 @@ impl DriveManager {
     pub fn eject_unmount(&self, drive: &db::DriveRow) -> anyhow::Result<()> {
         self.forget_marker_memo();
         if drive.mount_point.is_empty() {
+            // A locked drive has no mount; make sure its key is gone too.
+            if drive.encrypted {
+                self.luks.close(&drive.id)?;
+            }
             return Ok(());
         }
         let target = Path::new(&drive.mount_point);
@@ -942,6 +797,10 @@ impl DriveManager {
                 }
             })?;
             let _ = std::fs::remove_dir(target);
+            // Ejecting an encrypted drive locks it: the key goes with the mount.
+            if drive.encrypted {
+                self.luks.close(&drive.id)?;
+            }
         } else if target.is_dir() {
             // The OS mounted this drive, so Luna leaves the mount alone — but
             // "safe to unplug" must not be said while the kernel still holds
@@ -969,6 +828,9 @@ impl DriveManager {
             db::delete_drive_cascade(conn, id)?;
             return Ok(());
         }
+        if drive.encrypted {
+            return self.remove_encrypted(conn, &drive);
+        }
         match self.clear_marker_for_remove(&drive) {
             Ok(()) => {}
             Err(_) if drive.state == "readonly" => {
@@ -984,6 +846,45 @@ impl DriveManager {
             }
         }
         db::delete_drive_cascade(conn, id)?;
+        Ok(())
+    }
+
+    /// Remove an encrypted drive. A locked one can't be opened to delete its
+    /// marker, so it is only forgotten (adding it again reads the marker back).
+    /// An unlocked one loses its marker, then is locked away.
+    fn remove_encrypted(&self, conn: &Connection, drive: &db::DriveRow) -> anyhow::Result<()> {
+        if !drive.locked && !drive.mount_point.is_empty() {
+            let root = Path::new(&drive.mount_point);
+            if self.mounter.is_mounted(root) {
+                // Kept so a failed unmount can put the marker back: without
+                // it the still-registered drive could never be unlocked again.
+                let ours: Vec<(String, Marker)> = luna_core::marker::read_markers(root)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|(_, m)| m.id == drive.id)
+                    .collect();
+                if remove_marker(root, &drive.id).is_err() {
+                    anyhow::bail!(
+                        "Luna couldn't remove its hidden Luna file from this drive. Try again."
+                    );
+                }
+                if let Err(e) = self.mounter.unmount(root) {
+                    for (prefix, marker) in &ours {
+                        if let Err(w) = luna_core::marker::write_marker(root, marker, prefix) {
+                            tracing::error!(drive = %drive.id, error = %w, "couldn't put the marker back after a failed unmount");
+                        }
+                    }
+                    return Err(if mount::is_busy(&e) {
+                        anyhow::anyhow!("Close any files open from this drive, then try again.")
+                    } else {
+                        anyhow::anyhow!("Luna couldn't unmount this drive.")
+                    });
+                }
+                let _ = std::fs::remove_dir(root);
+            }
+        }
+        self.luks.close(&drive.id)?;
+        db::delete_drive_cascade(conn, &drive.id)?;
         Ok(())
     }
 
@@ -1004,7 +905,9 @@ impl DriveManager {
                     let _ = std::fs::remove_dir(&root);
                 }
                 // Keep raw I/O out of the toast — users get a plain next step.
-                anyhow::bail!("Luna couldn't remove its sticker file from this drive. Try again.");
+                anyhow::bail!(
+                    "Luna couldn't remove its hidden Luna file from this drive. Try again."
+                );
             }
         }
     }
@@ -1034,7 +937,7 @@ impl DriveManager {
 
         if drive.device.is_empty() {
             anyhow::bail!(
-                "Plug the drive back in so Luna can remove its sticker file, then try again."
+                "Plug the drive back in so Luna can remove its hidden Luna file, then try again."
             );
         }
 
@@ -1077,7 +980,7 @@ impl DriveManager {
             )
             .map_err(|_| {
                 anyhow::anyhow!(
-                    "Plug the drive back in so Luna can remove its sticker file, then try again."
+                    "Plug the drive back in so Luna can remove its hidden Luna file, then try again."
                 )
             })?;
         Ok((target, true))
@@ -1092,7 +995,20 @@ impl DriveManager {
     /// which would otherwise leave a healthy stick stuck read-only forever.
     /// Readonly drives that pass the probe again are restored to `as_is`.
     pub fn health_check(&self, conn: &Connection) -> anyhow::Result<()> {
-        for drive in db::list_drives(conn)? {
+        let rows = db::list_drives(conn)?;
+        for (id, _was, state) in self.health_probe(&rows) {
+            db::set_drive_state(conn, &id, state)?;
+        }
+        Ok(())
+    }
+
+    /// The I/O half of [`Self::health_check`]: probes each drive in the
+    /// snapshot and returns `(drive id, state it had, new state)` for those
+    /// that changed. Takes no connection, so the daemon's periodic check
+    /// never holds the database lock while a USB disk spins up.
+    pub fn health_probe(&self, rows: &[db::DriveRow]) -> Vec<(String, String, &'static str)> {
+        let mut changes = Vec::new();
+        for drive in rows {
             if drive.mount_point.is_empty() {
                 continue;
             }
@@ -1107,13 +1023,14 @@ impl DriveManager {
                 continue;
             }
             let writable = self.ensure_writable_mount(root);
-            match (drive.state.as_str(), writable) {
-                ("as_is", false) => db::set_drive_state(conn, &drive.id, "readonly")?,
-                ("readonly", true) => db::set_drive_state(conn, &drive.id, "as_is")?,
-                _ => {}
-            }
+            let next = match (drive.state.as_str(), writable) {
+                ("as_is", false) => "readonly",
+                ("readonly", true) => "as_is",
+                _ => continue,
+            };
+            changes.push((drive.id.clone(), drive.state.clone(), next));
         }
-        Ok(())
+        changes
     }
 
     /// Probe writes; if that fails, remount RW once and probe again.
@@ -1168,6 +1085,11 @@ impl DriveManager {
             if self.is_closing(&row.id) {
                 continue;
             }
+            // Its marker is inside the container, so there is nothing to probe.
+            if row.encrypted {
+                self.reconcile_encrypted(row, detected, &mut plan);
+                continue;
+            }
             let mut present_by_name = detected.iter().any(|d| d.name == row.device);
             // Kernel names are reused: after a stick is pulled, the next stick
             // plugged in is `sdb` again. A missing drive only counts as back
@@ -1188,49 +1110,6 @@ impl DriveManager {
             };
             let present = present_by_name || marker_match.is_some();
             let rematch_name = marker_match.map(|d| d.name.as_str());
-            // An encrypted drive is never mounted by reconcile: its container
-            // cannot be opened without a password, and the key only ever lived
-            // in the kernel, so after a boot everything encrypted is locked.
-            // Presence tracking still runs — the card must say "unplugged"
-            // rather than "locked" when the drive is not there.
-            if row.encrypted {
-                match row.state.as_str() {
-                    "as_is" | "readonly" if !present => {
-                        plan.set_state(&row.id, "missing");
-                        self.detach_stale_mount(row);
-                    }
-                    "as_is" | "readonly" if rematch_name.is_some() => {
-                        plan.set_placement(&row.id, rematch_name.unwrap(), &row.state);
-                        let _ = self.release_foreign(rematch_name.unwrap());
-                    }
-                    "ejected" if !present => {
-                        plan.set_state(&row.id, "missing");
-                        self.detach_stale_mount(row);
-                    }
-                    "ejected" if rematch_name.is_some() => {
-                        plan.set_placement(&row.id, rematch_name.unwrap(), "ejected");
-                        let _ = self.release_foreign(rematch_name.unwrap());
-                    }
-                    "missing" if present => {
-                        let new_name = rematch_name.unwrap_or(row.device.as_str());
-                        if new_name != row.device {
-                            plan.set_placement(&row.id, new_name, "as_is");
-                        } else {
-                            plan.set_state(&row.id, "as_is");
-                        }
-                        let _ = self.release_foreign(new_name);
-                        self.detach_stale_mount(row);
-                    }
-                    _ => {}
-                }
-                // Whatever the state, a drive that is not open is locked. This
-                // is the boot-time truth, and it also covers a container that
-                // was closed while Luna was running.
-                if !self.luks.is_open(&row.id) && !row.locked {
-                    plan.lock_ids.push(row.id.clone());
-                }
-                continue;
-            }
             match row.state.as_str() {
                 "as_is" | "readonly" if !present => {
                     plan.set_state(&row.id, "missing");
@@ -1288,7 +1167,7 @@ impl DriveManager {
                     // at a device that no longer exists.
                     self.detach_stale_mount(row);
                     let _ = self.ensure_mounted(&updated);
-                    // Always re-arm gallery on Ready restore (eject→replug /
+                    // Always re-arm photos on Ready restore (eject→replug /
                     // missing→as_is). Prior unwatch left the indexer cold.
                     plan.remount_ids.push(updated.id.clone());
                 }
@@ -1299,8 +1178,44 @@ impl DriveManager {
         plan
     }
 
+    /// Reconcile one encrypted drive. Reconcile never opens a container, so
+    /// presence is by kernel name (a missing drive must also still carry a
+    /// LUKS container; unlocking then proves which drive it is), and whatever
+    /// the state, a drive whose container is not open and mounted is locked.
+    fn reconcile_encrypted(
+        &self,
+        row: &db::DriveRow,
+        detected: &[DetectedDrive],
+        plan: &mut ReconcilePlan,
+    ) {
+        let here = detected.iter().find(|d| d.name == row.device);
+        let present = here.is_some_and(|d| {
+            row.state != "missing"
+                || crate::drives::crypt::vault::luks_partition(self, &d.name).is_ok()
+        });
+        match row.state.as_str() {
+            "as_is" | "readonly" | "ejected" if !present => plan.set_state(&row.id, "missing"),
+            "missing" if present => plan.set_state(&row.id, "as_is"),
+            _ => {}
+        }
+        if row.locked {
+            // Nothing should be open for a locked drive; a leftover from a
+            // crash mid-unlock must not keep the key in the kernel.
+            if self.luks.is_open(&row.id) {
+                crate::drives::crypt::vault::close_for_lock(self, row);
+            }
+            return;
+        }
+        if !present || !crate::drives::crypt::vault::is_open_and_mounted(self, row) {
+            // Pulled out, closed behind our back, or left half-open by a crash
+            // or an aborted format: close what is open and record it as locked.
+            crate::drives::crypt::vault::close_for_lock(self, row);
+            plan.lock_ids.push(row.id.clone());
+        }
+    }
+
     /// The DB half of reconcile: apply the writes the scan collected, then
-    /// resolve each re-mounted drive's fresh mount path for gallery re-arm.
+    /// resolve each re-mounted drive's fresh mount path for photos re-arm.
     pub fn reconcile_apply(
         &self,
         conn: &Connection,
@@ -1320,7 +1235,7 @@ impl DriveManager {
         }
         let mut remounted = Vec::new();
         for id in plan.lock_ids {
-            // A locked drive has no mount point, so record that too — a stale
+            // A locked drive has no mount point, so record that too: a stale
             // path would let a file operation reach an empty directory.
             db::set_drive_locked(conn, &id, true)?;
         }
@@ -1363,6 +1278,11 @@ impl DriveManager {
         };
         if let Some(mp) = device.mount_point.as_deref() {
             return ids_at(Path::new(mp));
+        }
+        // A disk being erased has no markers worth reading, and mounting it
+        // would get in the way.
+        if self.is_formatting_device(&device.name) {
+            return Vec::new();
         }
         // A stick we already read under this plug-in gets no second mount.
         let memo_key = device.diskseq.map(|seq| (device.name.clone(), seq));
@@ -1516,7 +1436,7 @@ impl DriveManager {
         device: &DetectedDrive,
         f: impl FnOnce(&Path) -> R,
     ) -> Option<R> {
-        if device.mount_point.is_some() {
+        if device.mount_point.is_some() || self.is_formatting_device(&device.name) {
             return None;
         }
         let choice = self.choice_for(device);
@@ -1539,18 +1459,18 @@ impl DriveManager {
         Some(out)
     }
 
-    fn foreign_mount_point(&self, device_name: &str) -> PathBuf {
+    pub(crate) fn foreign_mount_point(&self, device_name: &str) -> PathBuf {
         self.foreign_base.join(sanitize(device_name))
     }
 
-    fn adopted_mount_point(&self, id: &str) -> PathBuf {
+    pub(crate) fn adopted_mount_point(&self, id: &str) -> PathBuf {
         self.adopted_base.join(id)
     }
 
     /// A system path, excluding Luna's own mounts: they live under the data
     /// directory (`/var/lib/luna/...` on a real Luna), which would otherwise
     /// look like part of the OS.
-    fn is_system_mount(&self, path: &Path) -> bool {
+    pub(crate) fn is_system_mount(&self, path: &Path) -> bool {
         !self.is_ours(path) && !is_mock_drive(path) && is_system_mountpoint(path)
     }
 
@@ -1560,7 +1480,7 @@ impl DriveManager {
 }
 
 /// Write out everything the kernel still holds for the filesystem at `path`.
-fn sync_filesystem(path: &Path) -> std::io::Result<()> {
+pub fn sync_filesystem(path: &Path) -> std::io::Result<()> {
     use std::os::fd::AsRawFd;
     let dir = std::fs::File::open(path)?;
     #[cfg(target_os = "linux")]
@@ -1728,28 +1648,6 @@ mod tests {
         assert!(mgr.is_system_mount(Path::new("/")));
     }
 
-    /// Records what it was asked to make, and makes nothing. A wipe in a test
-    /// must never reach a real device.
-    #[derive(Default)]
-    struct RecordingMkfs {
-        made: std::sync::Mutex<Vec<(String, String)>>,
-    }
-
-    impl crate::drives::format::Mkfs for RecordingMkfs {
-        fn make(
-            &self,
-            device: &str,
-            _label: &str,
-            filesystem: crate::drives::format::Filesystem,
-        ) -> Result<(), crate::drives::format::FormatError> {
-            self.made
-                .lock()
-                .unwrap()
-                .push((device.to_string(), filesystem.as_str().to_string()));
-            Ok(())
-        }
-    }
-
     fn detected(name: &str, mount: Option<&str>) -> DetectedDrive {
         DetectedDrive {
             name: name.into(),
@@ -1878,7 +1776,7 @@ mod tests {
         let inspection = mgr.inspect(&dev).unwrap();
         assert!(inspection.mounted_by_luna);
 
-        let row = mgr.adopt(&conn, &dev, "Photos Drive", false).unwrap();
+        let row = mgr.adopt(&conn, &dev, "Photos Drive").unwrap();
         assert_eq!(row.label, "Photos Drive");
         assert_eq!(row.state, "as_is");
         assert_eq!(row.device, "sdz");
@@ -1907,7 +1805,7 @@ mod tests {
         let mgr = DriveManager::new(mounter.clone(), dir);
         let dev = detected("sdz", None);
 
-        let row = mgr.adopt(&conn, &dev, "Photos Drive", false).unwrap();
+        let row = mgr.adopt(&conn, &dev, "Photos Drive").unwrap();
 
         let drive = drive_db::open(Path::new(&row.mount_point)).unwrap();
         let copies: Vec<String> = drive
@@ -1938,7 +1836,7 @@ mod tests {
         let mgr = DriveManager::new(mounter.clone(), dir);
         let mut dev = detected("sdz", existing.to_str());
         dev.mount_readonly = false;
-        let row = mgr.adopt(&conn, &dev, "Photos Drive", false).unwrap();
+        let row = mgr.adopt(&conn, &dev, "Photos Drive").unwrap();
         // Recovery remounts at a Luna-owned path where the marker can be written.
         assert!(row.mount_point.contains("mounts/drives"));
         assert!(
@@ -1976,11 +1874,11 @@ mod tests {
         let dev = detected("sdz", existing.to_str());
         // Pretend OS already mounted it (no new mount until recovery).
         let err = mgr
-            .adopt(&conn, &dev, "Photos Drive", false)
+            .adopt(&conn, &dev, "Photos Drive")
             .unwrap_err()
             .to_string();
         assert!(
-            err.contains("Format it") || err.contains("read-only"),
+            err.contains("lock switch") || err.contains("read-only"),
             "unexpected error: {err}"
         );
         assert!(db::list_drives(&conn).unwrap().is_empty());
@@ -2001,7 +1899,7 @@ mod tests {
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter, dir);
         let row = mgr
-            .adopt(&conn, &detected("sdz", None), "Photos Drive", false)
+            .adopt(&conn, &detected("sdz", None), "Photos Drive")
             .unwrap();
         let mount = PathBuf::from(&row.mount_point);
         assert!(luna_core::marker::read_marker(&mount).unwrap().is_some());
@@ -2029,12 +1927,7 @@ mod tests {
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter, dir);
         let row = mgr
-            .adopt(
-                &conn,
-                &detected("sdz", existing.to_str()),
-                "Photos Drive",
-                false,
-            )
+            .adopt(&conn, &detected("sdz", existing.to_str()), "Photos Drive")
             .unwrap();
         assert!(crate::drives::drive_db::find_db_file(&existing).is_some());
 
@@ -2055,7 +1948,7 @@ mod tests {
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter.clone(), dir);
         let row = mgr
-            .adopt(&conn, &detected("sdz", None), "Photos Drive", false)
+            .adopt(&conn, &detected("sdz", None), "Photos Drive")
             .unwrap();
         let mount = PathBuf::from(&row.mount_point);
         assert!(luna_core::marker::read_marker(&mount).unwrap().is_some());
@@ -2088,7 +1981,7 @@ mod tests {
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter.clone(), dir);
         let row = mgr
-            .adopt(&conn, &detected("sdz", None), "Photos Drive", false)
+            .adopt(&conn, &detected("sdz", None), "Photos Drive")
             .unwrap();
         mgr.eject(&conn, &row.id).unwrap();
         *mounter.fail_mount.lock().unwrap() = true;
@@ -2110,12 +2003,7 @@ mod tests {
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter, dir);
         let row = mgr
-            .adopt(
-                &conn,
-                &detected("sdz", existing.to_str()),
-                "Locked Stick",
-                false,
-            )
+            .adopt(&conn, &detected("sdz", existing.to_str()), "Locked Stick")
             .unwrap();
         db::set_drive_state(&conn, &row.id, "readonly").unwrap();
         let marker = crate::drives::drive_db::find_db_file(&existing).unwrap();
@@ -2148,7 +2036,7 @@ mod tests {
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter.clone(), dir);
         let dev = detected("sdz", None);
-        let row = mgr.adopt(&conn, &dev, "Backup Drive", false).unwrap();
+        let row = mgr.adopt(&conn, &dev, "Backup Drive").unwrap();
 
         mgr.eject(&conn, &row.id).unwrap();
         assert_eq!(
@@ -2166,7 +2054,7 @@ mod tests {
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter.clone(), dir);
         let row = mgr
-            .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
+            .adopt(&conn, &detected("sdz", None), "Backup Drive")
             .unwrap();
 
         mgr.eject(&conn, &row.id).unwrap();
@@ -2192,7 +2080,7 @@ mod tests {
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter, dir);
         let row = mgr
-            .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
+            .adopt(&conn, &detected("sdz", None), "Backup Drive")
             .unwrap();
         mgr.eject(&conn, &row.id).unwrap();
 
@@ -2212,7 +2100,7 @@ mod tests {
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter.clone(), dir);
         let row = mgr
-            .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
+            .adopt(&conn, &detected("sdz", None), "Backup Drive")
             .unwrap();
         // A reboot: the stick is plugged in, Luna's mount is gone, the registry still says Ready.
         mounter.unmount(Path::new(&row.mount_point)).unwrap();
@@ -2226,7 +2114,7 @@ mod tests {
         assert!(mounter.is_mounted(Path::new(&row.mount_point)));
         assert!(
             remounted.iter().any(|(id, _)| id == &row.id),
-            "gallery must be re-armed"
+            "photos must be re-armed"
         );
     }
 
@@ -2238,7 +2126,7 @@ mod tests {
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter.clone(), dir);
         let row = mgr
-            .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
+            .adopt(&conn, &detected("sdz", None), "Backup Drive")
             .unwrap();
         mounter.unmount(Path::new(&row.mount_point)).unwrap();
         *mounter.fail_mount.lock().unwrap() = true;
@@ -2258,7 +2146,7 @@ mod tests {
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter.clone(), dir);
         let row = mgr
-            .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
+            .adopt(&conn, &detected("sdz", None), "Backup Drive")
             .unwrap();
 
         // Drive gone.
@@ -2268,7 +2156,7 @@ mod tests {
             "missing"
         );
 
-        // Drive back — must report gallery remount so callers re-arm watch_mount.
+        // Drive back — must report photos remount so callers re-arm watch_mount.
         let remounted = mgr
             .reconcile(&conn, &[replugged(&mounter, &row, "sdz")])
             .unwrap();
@@ -2280,7 +2168,7 @@ mod tests {
             remounted
                 .iter()
                 .any(|(id, mp)| { id == &row.id && mp == &PathBuf::from(&row.mount_point) }),
-            "Ready restore must list the drive for gallery re-arm, got {remounted:?}"
+            "Ready restore must list the drive for photos re-arm, got {remounted:?}"
         );
     }
 
@@ -2292,7 +2180,7 @@ mod tests {
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter.clone(), dir);
         let row = mgr
-            .adopt(&conn, &detected("sdz", None), "Pulled Drive", false)
+            .adopt(&conn, &detected("sdz", None), "Pulled Drive")
             .unwrap();
         let mount = PathBuf::from(&row.mount_point);
         assert!(mounter.is_mounted(&mount));
@@ -2313,7 +2201,7 @@ mod tests {
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter, dir);
         let row = mgr
-            .adopt(&conn, &detected("sdz", None), "First stick", false)
+            .adopt(&conn, &detected("sdz", None), "First stick")
             .unwrap();
         mgr.reconcile(&conn, &[]).unwrap();
         assert_eq!(
@@ -2333,15 +2221,13 @@ mod tests {
     }
 
     #[test]
-    fn reconcile_ready_restore_lists_gallery_rearm() {
+    fn reconcile_ready_restore_lists_photos_rearm() {
         let mounter = shared_mock();
         let root = tempfile::tempdir().unwrap();
         let dir = root.path();
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter.clone(), dir);
-        let row = mgr
-            .adopt(&conn, &detected("sdz", None), "Photos", false)
-            .unwrap();
+        let row = mgr.adopt(&conn, &detected("sdz", None), "Photos").unwrap();
 
         let first = mgr
             .reconcile(&conn, &[replugged(&mounter, &row, "sdz")])
@@ -2374,7 +2260,7 @@ mod tests {
 
         // Adopt under kernel name sdc; marker lands on Luna mount with row.id.
         let row = mgr
-            .adopt(&conn, &detected("sdc", None), "General UDisk", false)
+            .adopt(&conn, &detected("sdc", None), "General UDisk")
             .unwrap();
         assert_eq!(row.device, "sdc");
         assert_eq!(row.state, "as_is");
@@ -2444,7 +2330,7 @@ mod tests {
         let mgr = DriveManager::new(mounter, dir);
 
         let row = mgr
-            .adopt(&conn, &detected("sdc", None), "Backup Drive", false)
+            .adopt(&conn, &detected("sdc", None), "Backup Drive")
             .unwrap();
         let marker_id = row.id.clone();
         mgr.eject(&conn, &row.id).unwrap();
@@ -2497,7 +2383,7 @@ mod tests {
         let mgr = DriveManager::new(mounter.clone(), dir);
 
         let row = mgr
-            .adopt(&conn, &detected("sdc", None), "Travel Stick", false)
+            .adopt(&conn, &detected("sdc", None), "Travel Stick")
             .unwrap();
         let marker = luna_core::marker::read_marker(Path::new(&row.mount_point))
             .unwrap()
@@ -2541,7 +2427,7 @@ mod tests {
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter.clone(), dir);
         let row = mgr
-            .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
+            .adopt(&conn, &detected("sdz", None), "Backup Drive")
             .unwrap();
         mgr.eject(&conn, &row.id).unwrap();
 
@@ -2567,7 +2453,7 @@ mod tests {
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter, dir);
         let row = mgr
-            .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
+            .adopt(&conn, &detected("sdz", None), "Backup Drive")
             .unwrap();
 
         #[cfg(unix)]
@@ -2595,7 +2481,7 @@ mod tests {
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter, dir);
         let row = mgr
-            .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
+            .adopt(&conn, &detected("sdz", None), "Backup Drive")
             .unwrap();
         db::set_drive_state(&conn, &row.id, "readonly").unwrap();
         mgr.health_check(&conn).unwrap();
@@ -2613,7 +2499,7 @@ mod tests {
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter, dir);
         let row = mgr
-            .adopt(&conn, &detected("sdz", None), "Backup Drive", false)
+            .adopt(&conn, &detected("sdz", None), "Backup Drive")
             .unwrap();
         let marker = crate::drives::drive_db::find_db_file(Path::new(&row.mount_point)).unwrap();
         assert!(marker.is_file());
@@ -2636,9 +2522,7 @@ mod tests {
         let dir = root.path();
         let conn = db::open(&dir.join("luna.db")).unwrap();
         let mgr = DriveManager::new(mounter.clone(), dir);
-        let err = mgr
-            .adopt(&conn, &detected("sdz", None), "   ", false)
-            .unwrap_err();
+        let err = mgr.adopt(&conn, &detected("sdz", None), "   ").unwrap_err();
         assert!(err.to_string().contains("name"));
         assert_eq!(mounter.mount_count(), 0);
     }
@@ -2658,19 +2542,19 @@ mod tests {
     }
 
     #[test]
-    fn installer_usb_inspect_sets_needs_erase() {
+    fn installer_usb_inspect_sets_needs_setup() {
         let mounter = shared_mock();
         let root = tempfile::tempdir().unwrap();
         let mgr = DriveManager::new_with_probe(mounter, root.path(), iso_probe("sdz"));
         let mut dev = detected("sdz", None);
         dev.fs_type = Some("iso9660".into());
         let inspection = mgr.inspect(&dev).unwrap();
-        assert!(inspection.needs_erase);
+        assert!(inspection.needs_setup);
         assert!(!inspection.writable);
     }
 
     #[test]
-    fn a_blank_usb_stick_can_be_erased_and_added() {
+    fn a_blank_usb_stick_is_reported_as_needing_setup_and_is_not_added() {
         let mounter = shared_mock();
         *mounter.fail_mount.lock().unwrap() = true;
         let root = tempfile::tempdir().unwrap();
@@ -2682,23 +2566,20 @@ mod tests {
         );
         let mut dev = detected("sdz", None);
         dev.fs_type = None;
-        // Nothing Luna can mount: looking inside offers an erase, not a dead end.
+        // Nothing Luna can mount: looking inside says it needs setting up.
         let inspection = mgr.inspect(&dev).unwrap();
-        assert!(inspection.needs_erase);
+        assert!(inspection.needs_setup);
         assert!(inspection.readable);
         assert!(inspection.fs_type.is_none());
-        assert!(mgr.peek(&dev).needs_erase);
-        // Adding it without the erase says so in words a person can act on.
-        let err = mgr.adopt(&conn, &dev, "New stick", false).unwrap_err();
-        assert!(
-            err.to_string().contains("Erase and add this drive"),
-            "{err}"
-        );
+        assert!(mgr.peek(&dev).needs_setup);
+        // Luna can't set it up, and says so plainly.
+        let err = mgr.adopt(&conn, &dev, "New stick").unwrap_err();
+        assert_eq!(err.to_string(), NEEDS_SETUP_MESSAGE);
         assert!(db::list_drives(&conn).unwrap().is_empty());
     }
 
     #[test]
-    fn an_internal_disk_with_no_known_format_is_never_offered_for_erase() {
+    fn an_internal_disk_with_no_known_format_is_never_offered_for_setup() {
         let mounter = shared_mock();
         *mounter.fail_mount.lock().unwrap() = true;
         let root = tempfile::tempdir().unwrap();
@@ -2712,11 +2593,11 @@ mod tests {
         dev.usb = false;
         dev.removable = false;
         assert!(mgr.inspect(&dev).is_err());
-        assert!(!mgr.peek(&dev).needs_erase);
+        assert!(!mgr.peek(&dev).needs_setup);
     }
 
     #[test]
-    fn installer_usb_adopt_without_erase_does_not_write() {
+    fn installer_usb_adopt_is_refused_and_does_not_write() {
         let mounter = shared_mock();
         let root = tempfile::tempdir().unwrap();
         let dir = root.path();
@@ -2724,100 +2605,34 @@ mod tests {
         let mgr = DriveManager::new_with_probe(mounter.clone(), dir, iso_probe("sdz"));
         let mut dev = detected("sdz", None);
         dev.fs_type = Some("iso9660".into());
-        let err = mgr
-            .adopt(&conn, &dev, "Lexar USB Flash Drive", false)
-            .unwrap_err();
-        assert!(
-            err.to_string().contains("Erase and add this drive"),
-            "expected erase-and-add guidance, got: {err}"
-        );
+        let err = mgr.adopt(&conn, &dev, "Lexar USB Flash Drive").unwrap_err();
+        assert_eq!(err.to_string(), NEEDS_SETUP_MESSAGE);
         assert!(db::list_drives(&conn).unwrap().is_empty());
     }
 
     #[test]
-    fn installer_usb_erase_formats_then_writes_marker() {
-        let mounter = shared_mock();
+    fn an_encrypted_drive_is_reported_as_encrypted_and_is_not_added() {
         let root = tempfile::tempdir().unwrap();
-        let dir = root.path();
-        let conn = db::open(&dir.join("luna.db")).unwrap();
-        let probe = iso_probe("sdz");
-        let mkfs = std::sync::Arc::new(RecordingMkfs::default());
-        let mgr = DriveManager::new_with_probe(mounter.clone(), dir, probe.clone())
-            .with_mkfs(mkfs.clone());
-        let mut dev = detected("sdz", None);
-        dev.fs_type = Some("iso9660".into());
-        let row = mgr
-            .adopt(&conn, &dev, "Lexar USB Flash Drive", true)
-            .unwrap();
-        assert_eq!(row.label, "Lexar USB Flash Drive");
-        assert!(
-            luna_core::marker::read_marker(Path::new(&row.mount_point))
-                .unwrap()
-                .is_some()
+        let conn = db::open(&root.path().join("luna.db")).unwrap();
+        let probe = MockFsProbe::default();
+        probe.disks.lock().unwrap().insert(
+            "sdz".into(),
+            vec![crate::drives::fsprobe::FsInfo {
+                name: "sdz1".into(),
+                fs_type: "crypto_LUKS".into(),
+                label: String::new(),
+                size_bytes: 8_000_000_000,
+            }],
         );
-        let formatted = probe.formats.lock().unwrap().clone();
-        assert_eq!(formatted, vec!["sdz".to_string()]);
-        // The filesystem went on the new partition, as exFAT.
-        assert_eq!(
-            mkfs.made.lock().unwrap().clone(),
-            vec![("/dev/sdz1".to_string(), "exfat".to_string())]
-        );
-        let mounts = mounter.mounts.lock().unwrap();
-        assert!(
-            mounts.iter().any(|m| m.0.ends_with("sdz1") && !m.2),
-            "erase must mount the new partition read-write, got {mounts:?}"
-        );
-    }
-
-    #[test]
-    fn a_reformatted_drive_keeps_its_identity_and_gets_its_marker_back() {
-        // A wipe destroys the marker, and the marker is what ties the drive to
-        // its row in luna.db. Reformatting must put the same marker back, or
-        // every share, grant, gallery index and backup rule detaches from a
-        // drive that still exists.
-        let mounter = shared_mock();
-        let root = tempfile::tempdir().unwrap();
-        let dir = root.path();
-        let conn = db::open(&dir.join("luna.db")).unwrap();
-        let mgr = DriveManager::new(mounter.clone(), dir);
-        db::upsert_drive(&conn, "d1", "Photos", "as_is", "exfat", "sdz", "").unwrap();
-
-        let mount = mgr
-            .remount_after_format(&conn, "d1", "Photos", false, "")
-            .unwrap();
-
-        // Mounted where Luna expects, read-write.
-        assert_eq!(mount, mgr.adopted_mount_point("d1").to_string_lossy());
-        // The marker is back, with the same id and label.
-        let marker = luna_core::marker::read_marker(Path::new(&mount))
-            .unwrap()
-            .expect("a reformatted drive must be marked as Luna's again");
-        assert_eq!(marker.id, "d1");
-        assert_eq!(marker.label, "Photos");
-    }
-
-    #[test]
-    fn a_reformatted_encrypted_drive_is_mounted_through_its_container() {
-        let mounter = shared_mock();
-        let root = tempfile::tempdir().unwrap();
-        let dir = root.path();
-        let conn = db::open(&dir.join("luna.db")).unwrap();
-        let luks = std::sync::Arc::new(crate::drives::luks::MockLuks::with_luks("/dev/sdz1"));
-        let mgr = DriveManager::new(mounter.clone(), dir).with_luks(luks.clone());
-        db::upsert_drive(&conn, "d1", "Photos", "as_is", "ext4", "sdz1", "").unwrap();
-
-        mgr.remount_after_format(&conn, "d1", "Photos", true, "hunter22hunter1")
-            .unwrap();
-
-        // The container is open, and the mount came from the mapper rather
-        // than the raw partition.
-        use crate::drives::luks::Luks;
-        assert!(luks.is_open("d1"));
-        let mounts = mounter.mounts.lock().unwrap();
-        assert!(
-            mounts.iter().any(|m| m.0.contains("luna-vault-d1")),
-            "an encrypted drive must mount through its container, got {mounts:?}"
-        );
+        let mgr = DriveManager::new_with_probe(shared_mock(), root.path(), Arc::new(probe));
+        let dev = detected("sdz", None);
+        let inspection = mgr.inspect(&dev).unwrap();
+        assert!(inspection.encrypted && !inspection.needs_setup && !inspection.readable);
+        let peek = mgr.peek(&dev);
+        assert!(peek.encrypted && !peek.needs_setup);
+        let err = mgr.adopt(&conn, &dev, "Vault").unwrap_err();
+        assert_eq!(err.to_string(), ENCRYPTED_MESSAGE);
+        assert!(db::list_drives(&conn).unwrap().is_empty());
     }
 
     #[test]
@@ -2867,7 +2682,7 @@ mod tests {
         let mgr = DriveManager::new(mounter.clone(), dir);
         let mut dev = detected("sdz", existing.to_str());
         dev.mount_readonly = true;
-        let row = mgr.adopt(&conn, &dev, "Photos Drive", false).unwrap();
+        let row = mgr.adopt(&conn, &dev, "Photos Drive").unwrap();
         assert_eq!(
             mounter.remounts.lock().unwrap().as_slice(),
             &[(existing.clone(), false)]
@@ -2880,18 +2695,17 @@ mod tests {
     }
 }
 
+pub mod crypt;
 pub mod detect;
 pub mod drive_db;
-pub mod ext4;
+pub mod flusher;
 pub mod format;
+pub mod fsck;
 pub mod fsprobe;
 pub mod fstrim;
 pub mod layout;
-pub mod luks;
 pub mod mount;
 pub mod ram_cache;
 pub mod scrub;
 pub mod smart;
 pub mod summary;
-pub mod vault;
-pub mod wipe;

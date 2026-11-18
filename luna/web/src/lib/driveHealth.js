@@ -86,8 +86,8 @@ export function describeDriveHealth(health) {
       needsYou: { tone: "problem", rank: 12, title: " is failing", detail: failingDetail(top) },
       rows: buildRows(health, signals),
       steps: [
-        "Unplug this drive from Luna and plug it into a computer.",
-        "Copy all the files off it to the computer.",
+        "Plug another drive into Luna.",
+        "Copy all the files from this drive to the other drive.",
         "When the copy is done, stop using this drive.",
       ],
     };
@@ -98,7 +98,7 @@ export function describeDriveHealth(health) {
     /** @type {string[]} */
     const steps = [
       "Keep using it.",
-      "Make sure its files are backed up: use the Back up button on this drive's card.",
+      "Make sure its files are backed up.",
     ];
     if (findSignal(signals, "temperature")?.level === "watch") {
       steps.push("Give it more air: away from heaters and out of closed cupboards.");
@@ -242,7 +242,7 @@ function buildRows(health, signals) {
     rows.push({
       key: "replaced-blocks",
       label: "Replaced blocks",
-      hint: "Blocks of the disk that wore out. The drive moved their data to spare space. A few is a warning sign, and the number usually grows. Luna treats 100 or more as failing.",
+      hint: "Worn-out blocks whose data the drive moved to spare space. One or more is a warning sign, and Luna treats 100 or more as failing.",
       value,
     });
   }

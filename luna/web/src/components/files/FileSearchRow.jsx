@@ -10,9 +10,8 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import Button from "@libreloom/ui/components/ui/Button.jsx";
 import RowActionMenu from "@libreloom/ui/components/ui/RowActionMenu.jsx";
-import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import IconActions from "@libreloom/ui/components/ui/IconActions.jsx";
 import PrivateBadge from "../private/PrivateBadge.jsx";
 import { highlightParts, locationParts, searchWhen } from "../../lib/fileSearch.js";
 import { canViewerOpen } from "../../lib/officeConvert.js";
@@ -71,7 +70,10 @@ function FileSearchRow({
   const actionsRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   // The row link is the row's one Tab stop; ←/→ (see FileSearch) reach the
   // actions, so a long list isn't six Tab presses per row.
+  // The wide layout passes tabIndex to its buttons itself; the phone menu
+  // has no prop for it.
   useEffect(() => {
+    if (isSmUp) return;
     actionsRef.current
       ?.querySelectorAll("a, button")
       .forEach((el) => el.setAttribute("tabindex", "-1"));
@@ -97,9 +99,12 @@ function FileSearchRow({
     : `Show ${item.name} in its folder`;
   // A near miss wasn't typed exactly, so underlining "the match" would lie.
   const detail = detailLine(item, driveLabel, isDir);
-  const parts = item.match === "close"
-    ? [{ text: item.name, hit: false }]
-    : highlightParts(item.name, query);
+  // Only a name match underlines the name: a file found by its words or
+  // meaning would otherwise show a few stray letters underlined.
+  const parts = item.match === "name"
+    ? highlightParts(item.name, query)
+    : [{ text: item.name, hit: false }];
+  const snippet = Array.isArray(item.snippet) && item.snippet.length ? item.snippet : null;
 
   // One action list, rendered two ways: icon buttons in the row on wide
   // screens, labeled rows in the phone sheet. Same order, same words, and
@@ -200,6 +205,20 @@ function FileSearchRow({
               </span>
               {item.private ? <PrivateBadge size={12} /> : null}
             </p>
+            {snippet ? (
+              // Why a file found by its words matched: the passage, with the matched words underlined.
+              <p data-slot="file-search-snippet" className="text-xs text-secondary line-clamp-2 break-words">
+                {snippet.map((part, i) =>
+                  part.hit ? (
+                    <span key={i} className="underline decoration-accent decoration-2 underline-offset-4">
+                      {part.text}
+                    </span>
+                  ) : (
+                    <span key={i}>{part.text}</span>
+                  ),
+                )}
+              </p>
+            ) : null}
             {/* Short on room, the folder end matters most: cut the start of the path. */}
             <p className="flex text-xs text-secondary" title={detail.full}>
               <span className="min-w-0 truncate text-left" dir="rtl">
@@ -211,48 +230,18 @@ function FileSearchRow({
             </p>
           </div>
           {isSmUp ? (
-            <ActionTooltipGroup>
-              <div
-                ref={actionsRef}
-                data-slot="file-search-actions"
-                className="flex items-center gap-1 shrink-0 pointer-events-auto"
-                onClick={(event) => event.stopPropagation()}
-              >
-                {actions.map(({ key, label, aria, icon: Icon, to, href, run }) => (
-                  <Tooltip key={key} content={label}>
-                    {to ? (
-                      <Button variant="ghost" surface="primary" size="iconSm" asChild aria-label={aria}>
-                        <Link
-                          to={to}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onNavigate();
-                          }}
-                        >
-                          <Icon size={14} />
-                        </Link>
-                      </Button>
-                    ) : href ? (
-                      <Button variant="ghost" surface="primary" size="iconSm" asChild aria-label={aria}>
-                        <a href={href}>
-                          <Icon size={14} />
-                        </a>
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="ghost"
-                        surface="primary"
-                        size="iconSm"
-                        aria-label={aria}
-                        onClick={run}
-                      >
-                        <Icon size={14} />
-                      </Button>
-                    )}
-                  </Tooltip>
-                ))}
-              </div>
-            </ActionTooltipGroup>
+            // Plain icon buttons with one shared tooltip: every result row
+            // carries these, and a Button plus a Tooltip each made a long
+            // answer slow to paint (W10).
+            <IconActions
+              ref={actionsRef}
+              data-slot="file-search-actions"
+              className="gap-1 shrink-0 pointer-events-auto flex-nowrap"
+              onClick={(event) => event.stopPropagation()}
+              actions={actions}
+              surface="primary"
+              tabIndex={-1}
+            />
           ) : (
             <div
               ref={actionsRef}

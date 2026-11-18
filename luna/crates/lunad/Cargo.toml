@@ -14,6 +14,9 @@ base64.workspace = true
 blake3.workspace = true
 axum.workspace = true
 image.workspace = true
+fast_image_resize.workspace = true
+# Thumbnails: JPEG decoded at 1/2–1/8 size inside the IDCT (D5).
+jpeg-decoder = { version = "0.3.2", default-features = false }
 kamadak-exif.workspace = true
 include_dir.workspace = true
 jsonwebtoken.workspace = true
@@ -59,6 +62,10 @@ ml-kem = { version = "0.3.3", features = ["hazmat"] }
 ml-dsa = "0.1.1"
 # Cloud backup chunking (backup/cloud/format.rs): content-defined chunk boundaries.
 fastcdc = "3"
+calamine = "0.38.0"
+cfb = "0.16.0"
+encoding_rs = "0.8.44"
+unicode-normalization = "0.1.26"
 
 [build-dependencies]
 semver.workspace = true

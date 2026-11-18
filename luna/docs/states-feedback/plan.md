@@ -95,8 +95,8 @@ After phase 1, retest every scenario whose note says "mock bug" / "harness": `ba
 | `dashboard/system-check-failed` | "Storage space is nearly gone" → say whose storage: "Luna's own storage (the system disk) is nearly full", plus an InfoHint on what that is. **Done.** The row itself went away — see decision 1a below. |
 | `files/create-collision` | Drop "Use a short name instead." |
 | `files/drive-database-missing` | Add "No data on the drive will be lost." |
-| `files/job-server-error` | "Luna's job queue isn't responding." (lunad message). |
-| `files/missing-folder` | "You can use Universal Search to try and find it." Clicking it opens search. |
+| `files/job-server-error` | "Luna couldn't start this copy or move. Try again." (lunad message). |
+| `files/missing-folder` | "Use Universal Search to look for it." Clicking it opens search. |
 
 ## 3. Small UI and behaviour fixes
 

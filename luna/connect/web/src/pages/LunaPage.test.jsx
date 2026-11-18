@@ -109,7 +109,7 @@ describe("LunaPage one Luna", () => {
     expect(await screen.findByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /Unbind Luna/i }));
-    expect(screen.getByText(/The public address goes away/i)).toBeTruthy();
+    expect(screen.getByText(/The public address stops working/i)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Unbind Luna/i }));
 
     await waitFor(() => {

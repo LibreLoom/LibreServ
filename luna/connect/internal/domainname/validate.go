@@ -25,7 +25,7 @@ func Normalize(name string) string {
 func Validate(name string) string {
 	n := Normalize(name)
 	if len(n) < 3 || len(n) > 32 {
-		return "Pick a name between 3 and 32 letters or numbers."
+		return "Use 3 to 32 letters, numbers, or dashes."
 	}
 	if _, ok := reserved[n]; ok {
 		return "That name is reserved for LibreLoom. Try another."

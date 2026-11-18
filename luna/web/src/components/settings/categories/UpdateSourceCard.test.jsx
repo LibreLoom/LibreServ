@@ -48,7 +48,13 @@ function renderCard() {
   );
 }
 
+/** The Updates section starts collapsed; open it before reading what is inside. */
+async function openUpdates(user) {
+  await user.click(await screen.findByRole("button", { name: "Updates" }));
+}
+
 async function openEditor(user) {
+  await openUpdates(user);
   await user.click(await screen.findByRole("button", { name: "Edit update source" }));
   return screen.findByRole("dialog", { name: "Update source" });
 }
@@ -58,22 +64,32 @@ const puts = (fetchMock) => fetchMock.mock.calls.filter(([, i]) => i?.method ===
 describe("UpdateSourceCard", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("says whether updates come from the default or a custom source", async () => {
+  it("offers the channel and the source as two rows, with no state pill or address", async () => {
     stub();
+    const user = userEvent.setup();
     renderCard();
-    expect(await screen.findByText("Default source")).toBeInTheDocument();
-    expect(screen.getByText("https://feeds.example.net/feeds")).toBeInTheDocument();
+    await openUpdates(user);
+    expect(await screen.findByText("Update channel")).toBeInTheDocument();
+    expect(screen.getByText("Update source")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit update source" })).toBeInTheDocument();
+    // The address and the default/custom state live in the editor now.
+    expect(screen.queryByText("https://feeds.example.net/feeds")).toBeNull();
+    expect(screen.queryByText("Default source")).toBeNull();
   });
 
-  it("flags a custom feed address", async () => {
+  it("opens a custom feed address in the editor", async () => {
     stub({ source: { ...SOURCE, feed_url: "https://staging.example.net/feeds" } });
+    const user = userEvent.setup();
     renderCard();
-    expect(await screen.findByText("Custom source")).toBeInTheDocument();
+    const dialog = await openEditor(user);
+    expect(dialog.querySelector("#us-feed-url")).toHaveValue("https://staging.example.net/feeds");
   });
 
   it("offers Stable and Beta with the current channel selected", async () => {
     stub({ source: { ...SOURCE, channel: "beta" } });
+    const user = userEvent.setup();
     renderCard();
+    await openUpdates(user);
     const group = await screen.findByRole("radiogroup", { name: "Update channel" });
     expect(within(group).getByRole("radio", { name: "Beta" })).toBeChecked();
     expect(within(group).getByRole("radio", { name: "Stable" })).not.toBeChecked();
@@ -83,6 +99,7 @@ describe("UpdateSourceCard", () => {
     const fetchMock = stub();
     const user = userEvent.setup();
     renderCard();
+    await openUpdates(user);
     const group = await screen.findByRole("radiogroup", { name: "Update channel" });
     await user.click(within(group).getByRole("radio", { name: "Beta" }));
     await waitFor(() => expect(puts(fetchMock)).toHaveLength(1));
@@ -93,6 +110,7 @@ describe("UpdateSourceCard", () => {
     stub({ onPut: () => json({ error: "Pick Stable or Beta as the update channel." }, 400) });
     const user = userEvent.setup();
     renderCard();
+    await openUpdates(user);
     const group = await screen.findByRole("radiogroup", { name: "Update channel" });
     await user.click(within(group).getByRole("radio", { name: "Beta" }));
     expect(await screen.findByText("Pick Stable or Beta as the update channel.")).toBeInTheDocument();

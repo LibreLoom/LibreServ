@@ -20,7 +20,9 @@ export const PRIVATE_RESTORE_PATH = "/api/v1/cloud/restore-private";
 export const KEPT_SCOPES_PATH = "/api/v1/cloud/phrase/kept-scopes";
 
 const NOT_FOUND_MESSAGE = "This recovery phrase doesn't open any private backups on this Luna. Check each word.";
-const PACK_FAILED_MESSAGE = "Could not download part of your private backups. Check your connection, then try again.";
+const PACK_FAILED_MESSAGE = "Luna could not download part of your private backups. Try again.";
+// Fires when the list changed during the restore or a page came back malformed or short.
+const LIST_FAILED_MESSAGE = "Luna could not get a complete, current list of your private backups. Try again.";
 
 /**
  * Whether Luna has lost its list of private items, and how many scopes exist.
@@ -55,12 +57,12 @@ function validateScopePage(page, { after, processed, expectedTotal, expectedVers
         || !/^[a-z0-9._-]+$/.test(page.next_after)
         || page.next_after === "."
         || page.next_after.includes("..")))) {
-    throw new Error("The private backup list changed or returned an invalid page. Try again.");
+    throw new Error(LIST_FAILED_MESSAGE);
   }
   let previous = "";
   for (const record of page.records) {
     if (typeof record.name !== "string" || !/^[a-f0-9]{32}$/.test(record.name) || record.name <= previous) {
-      throw new Error("The private backup list changed or returned an invalid page. Try again.");
+      throw new Error(LIST_FAILED_MESSAGE);
     }
     previous = record.name;
   }
@@ -69,7 +71,7 @@ function validateScopePage(page, { after, processed, expectedTotal, expectedVers
         || page.next_after <= (after ?? "")
         || page.records.some((record) => record.name > page.next_after)
         || processed + page.scanned >= page.total))) {
-    throw new Error("The private backup list changed or returned an incomplete page. Try again.");
+    throw new Error(LIST_FAILED_MESSAGE);
   }
 }
 
@@ -116,12 +118,12 @@ function validateRecordNamesPage(page, context) {
       || !Number.isSafeInteger(page.version) || page.version < 0
       || (expectedTotal !== undefined && page.total !== expectedTotal)
       || (expectedVersion !== undefined && page.version !== expectedVersion)) {
-    throw new Error("The private backup list changed or returned an invalid page. Try again.");
+    throw new Error(LIST_FAILED_MESSAGE);
   }
   let previous = after ?? prefix;
   for (const name of page.names) {
     if (typeof name !== "string" || !name.startsWith(prefix) || name <= previous) {
-      throw new Error("The private backup list changed or returned an invalid page. Try again.");
+      throw new Error(LIST_FAILED_MESSAGE);
     }
     previous = name;
   }
@@ -129,7 +131,7 @@ function validateRecordNamesPage(page, context) {
       || (page.next_after != null && (page.names.length !== 64
         || page.next_after !== page.names[page.names.length - 1]
         || page.next_after <= (after ?? "")))) {
-    throw new Error("The private backup list changed or returned an incomplete page. Try again.");
+    throw new Error(LIST_FAILED_MESSAGE);
   }
 }
 
@@ -187,7 +189,18 @@ async function fetchPack(scope, snapshotId, treePackId, signal) {
   const path = `${PRIVATE_RESTORE_PATH}/packs/${scope}/${snapshotId}/${treePackId}`;
   const res = await requestWithRestoreSignal(signal, () =>
     signal ? apiFetch(path, { signal }) : apiFetch(path));
-  if (!res.ok) throw new Error(PACK_FAILED_MESSAGE);
+  if (!res.ok) {
+    // lunad says why (no phrase yet, Luna Connect unreachable, pack missing); use its words when it gives them.
+    let message = PACK_FAILED_MESSAGE;
+    try {
+      const body = await res.json();
+      if (typeof body?.error === "string" && body.error.trim()) message = body.error;
+    } catch {
+      // No JSON body: keep the general message.
+    }
+    checkRestoreSignal(signal);
+    throw new Error(message);
+  }
   return new Uint8Array(await requestWithRestoreSignal(signal, () => res.arrayBuffer()));
 }
 
@@ -369,7 +382,7 @@ export async function restorePrivateFromPhrase(words, { lunaId, signingPublic, o
                 expectedVersion,
               });
               if (verification.names.length !== 0) {
-                throw new Error("The private backup list changed or returned an incomplete page. Try again.");
+                throw new Error(LIST_FAILED_MESSAGE);
               }
               break;
             }

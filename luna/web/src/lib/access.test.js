@@ -148,7 +148,7 @@ describe("labels and hints", () => {
       .toBe("Edits the form and reads its responses.");
     // Respond copy is unchanged — answer links still never see others'.
     expect(capsHint("respond", { form: true }))
-      .toBe("People fill in the form — they never see other answers or the file itself.");
+      .toBe("People fill in the form. They never see other answers or the file itself.");
     // And non-form copy is untouched by the flag's default.
     expect(capsHint("view", { file: true })).toBe("Opens and downloads the file.");
   });
@@ -179,8 +179,8 @@ describe("sharedItemHref / shareSubjectFromRow", () => {
     expect(sharedItemHref(fileRow)).toBe("/files/d1?path=docs%2Freport.pdf");
   });
 
-  it("opens an album in the gallery", () => {
-    expect(sharedItemHref(albumRow)).toBe("/gallery#albums/d1/al%201");
+  it("opens an album in Photos", () => {
+    expect(sharedItemHref(albumRow)).toBe("/photos#albums/d1/al%201");
   });
 
   it("maps a member row to a share subject", () => {

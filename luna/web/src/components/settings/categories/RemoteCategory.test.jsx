@@ -4,6 +4,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import RemoteCategory from "./RemoteCategory";
 
+// The "Change the device token" link points at About, which only an Admin can open.
+vi.mock("../../../context/AuthContext", () => ({
+  useOptionalAuth: () => ({ user: { id: "1", role: "admin" } }),
+}));
+
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -34,7 +39,7 @@ describe("RemoteCategory", () => {
     expect(screen.getByText(/yourname/i)).toBeTruthy();
     expect(screen.getByText(/\.luna\.servers\.libreloom\.org/)).toBeTruthy();
     expect(
-      screen.getByText(/Pick a name on Luna Connect.*the address shows up here once it.s ready/i),
+      await screen.findByText(/Pick a name on Luna Connect\. The address shows here when it is ready\./i),
     ).toBeTruthy();
 
     const cta = screen.getByRole("link", { name: /Open Luna Connect/i });
@@ -44,7 +49,7 @@ describe("RemoteCategory", () => {
     expect(screen.queryByRole("button", { name: /Save new address/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Turn Luna Connect off/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Sync with Luna Connect/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/About → Advanced/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Change the device token/i })).not.toBeInTheDocument();
   });
 
   it("shows copyable address and Manage CTA when on", async () => {
@@ -91,7 +96,7 @@ describe("RemoteCategory", () => {
               domain: "photos.luna.servers.libreloom.org",
               tunnel_active: false,
               tunnel_error:
-                "Remote access is set up, but the secure tunnel is not running yet. Luna will keep trying.",
+                "Remote access is set up, but it is not running yet. Luna will keep trying.",
             }),
             { status: 200, headers: { "Content-Type": "application/json" } },
           ),
@@ -102,7 +107,7 @@ describe("RemoteCategory", () => {
     expect(await screen.findByDisplayValue("https://photos.luna.servers.libreloom.org")).toBeTruthy();
     expect(
       screen.getByText(
-        /Remote access is set up, but the secure tunnel is not running yet\. Luna will keep trying\./i,
+        /Remote access is set up, but it is not running yet\. Luna will keep trying\./i,
       ),
     ).toBeTruthy();
     expect(screen.getByText("On")).toBeTruthy();
@@ -128,7 +133,7 @@ describe("RemoteCategory", () => {
       await screen.findByText("Luna Connect did not accept this device token."),
     ).toBeTruthy();
     expect(
-      screen.getByRole("link", { name: /Change the device token in About → Advanced/i }),
+      screen.getByRole("link", { name: /Change the device token in About\s*Advanced/i }),
     ).toHaveAttribute("href", "/settings#about");
     expect(screen.getByRole("link", { name: /Open Luna Connect/i })).toBeTruthy();
   });

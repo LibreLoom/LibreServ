@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CloudDownload } from "lucide-react";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
@@ -101,7 +102,7 @@ export default function CloudRestoreCard() {
       setWords("");
       setProgress(null);
       setError(err?.name === "AbortError"
-        ? "Restore stopped. Some backup versions may already be back; you can safely try again."
+        ? "Restore stopped. Some backup versions may already be back. You can safely try again."
         : apiErrorMessage(err, "Could not bring back your cloud backups. Try again."));
       queryClient.invalidateQueries({ queryKey: RESTORE_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
@@ -113,7 +114,16 @@ export default function CloudRestoreCard() {
     onSettled: () => { restoreAbortRef.current = null; },
   });
 
-  if (!isAdmin || restore.isPending || restore.isError
+  if (isAdmin && restore.isError) return (
+    <SettingsCard icon={CloudDownload} title="Bring back cloud backups">
+      <PageNotice variant="warning">
+        <p>Luna couldn't check whether your cloud backups need restoring.</p>
+        <Button variant="outline" surface="primary" size="sm" disabled={restore.isFetching} onClick={() => restore.refetch()}>Try again</Button>
+      </PageNotice>
+    </SettingsCard>
+  );
+
+  if (!isAdmin || restore.isPending
       || (!restore.data?.needed && !restore.data?.relink_pending)) return null;
 
   const submit = (e) => {
@@ -147,10 +157,11 @@ export default function CloudRestoreCard() {
             : "Some cloud backup versions are missing from Luna's list. Enter your recovery phrase to find them again."}
         </p>
         <p className="text-primary text-sm">
-          Your phrase is the key to sealed copies of Luna&apos;s backup key kept with Luna Connect.
-          Without it, nothing can open those copies. This browser checks each copy against Luna&apos;s
-          public key, opens it, and sends Luna only the opened key — your phrase never leaves this
-          browser.
+          Your phrase never leaves this browser.{" "}
+          <InfoHint
+            label="Where your phrase goes"
+            content="Luna Connect keeps sealed copies of Luna's backup keys. This browser opens them with your phrase and sends Luna the opened keys."
+          />
         </p>
         <p className="text-primary text-sm">
           {cloudCount === 1 ? "1 version is" : `${cloudCount} versions are`} in the cloud.{" "}

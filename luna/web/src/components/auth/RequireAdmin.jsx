@@ -12,7 +12,7 @@ export default function RequireAdmin({ children, title = "This page is only for 
     <Page title={title} titleId="admin-only-title">
       <Card>
         <p className="text-primary text-sm">
-          This page is only for Admins. Members can only edit their own user settings.
+          Ask an Admin if you need a change here.
         </p>
       </Card>
     </Page>

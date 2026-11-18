@@ -17,7 +17,7 @@ const FAIL = {
   healthy: false,
   checks: {
     ...PASS.checks,
-    disk_space: { status: "failed", message: "Luna's own storage (its system disk) is almost full. Free some space on it, or Luna may stop working.", more: "This is the disk where Luna keeps its accounts and settings; your files are on your drives." },
+    disk_space: { status: "failed", message: "Luna's system disk is almost full, so Luna may stop working.", more: "This disk holds Luna's accounts and settings, not your files. To clear temporary files, select Free up space in Settings → About → System checks." },
     network: { status: "warning", message: "Luna can't reach the internet.", more: "Updates, setting the clock, and Luna Connect (remote access and cloud backup) need the internet. Luna still works on your home network; check that your router or modem is online." },
   },
 };
@@ -142,7 +142,7 @@ export default [
     title: "Account step: creating the account fails",
     url: "/setup",
     seed: fresh({ setup: { current_step: "account", step_data: { preflight_passed: true } } }),
-    faults: [{ match: "POST /api/v1/auth/register", mode: "500", message: "Luna couldn't do that. Try again." }],
+    faults: [{ match: "POST /api/v1/auth/register", mode: "500", message: "Luna could not create the account. Try again." }],
     check: ["Message is shown next to the form", "Typed answers are kept for another try"],
   },
   {

@@ -128,8 +128,8 @@ fn show_menu(hwnd: HWND) {
         if menu.is_null() {
             return;
         }
-        let open = wide("Open Luna");
-        let quit = wide("Quit Luna");
+        let open = wide("Open Luna Desktop");
+        let quit = wide("Quit Luna Desktop");
         AppendMenuW(menu, MF_STRING, ID_OPEN, open.as_ptr());
         AppendMenuW(menu, MF_STRING, ID_QUIT, quit.as_ptr());
         let mut pt = POINT { x: 0, y: 0 };

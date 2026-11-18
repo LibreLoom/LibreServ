@@ -117,9 +117,8 @@ export default function OpenSourceLicenses() {
     <>
       <CollapsibleSection title="Open source licenses" mono pill>
         <p className="text-sm leading-relaxed mb-3">
-          Luna builds on open source. These are the components that ship with
-          the optional office editor — everything runs on this Luna, not in
-          the cloud.
+          Luna builds on open source. These editors and their file converter
+          come with Luna and run in your browser, not in the cloud.
         </p>
         <ul className="space-y-2">
           {OPEN_SOURCE_LICENSES.map((entry) => (

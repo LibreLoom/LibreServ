@@ -47,7 +47,7 @@ function IndexPanel() {
       <p className="eyebrow mb-[0.04in]">Luna quick start</p>
       <h2 className={panelH2}>Choose your setup</h2>
       <div className="mt-[0.12in] border-[1.5pt] border-ink px-[0.1in] py-[0.09in]">
-        <p className={`${chip} border-ink bg-ink text-paper`}>Option 1 — Recommended</p>
+        <p className={`${chip} border-ink bg-ink text-paper`}>Option 1: Recommended</p>
         <h3 className={panelH3}>Set up with Luna Connect</h3>
         <p className="mb-[0.08in]">Remote access from anywhere, with optional cloud backup.</p>
         <p className="bg-ink px-[0.06in] py-[0.04in] text-center font-mono text-[7.5pt] text-paper">Start on the panel beside this one →</p>
@@ -56,7 +56,7 @@ function IndexPanel() {
         or
       </p>
       <div className="mt-[0.12in] border-[0.75pt] border-accent px-[0.1in] py-[0.09in]">
-        <p className={`${chip} border-accent`}>Option 2 — Local only</p>
+        <p className={`${chip} border-accent`}>Option 2: Local only</p>
         <h3 className={panelH3}>Set up on your local network</h3>
         <p className="mb-[0.08in]">Everything stays on your home network.</p>
         <p className="border-[0.75pt] border-accent px-[0.06in] py-[0.04in] text-center font-mono text-[7.5pt]">Lift the flap on the right →</p>
@@ -74,7 +74,7 @@ function ConnectPanel({ token }) {
     <section className="panel panel-c">
       <p className="eyebrow mb-[0.04in]">Recommended</p>
       <h2 className={panelH2}>Set up with Luna Connect</h2>
-      <p className="mb-[0.11in]">Head to <strong className="font-semibold">connect.luna.libreloom.org/onboarding</strong> and follow the steps shown.</p>
+      <p className="mb-[0.11in]">Go to <strong className="font-semibold">connect.luna.libreloom.org/onboarding</strong> and follow the steps.</p>
       <p className="mb-[0.06in]">Your device token is</p>
       <span className="mt-[0.05in] block border-[0.75pt] border-b-0 border-ink px-[0.06in] py-[0.055in] text-center font-mono text-[9pt] tracking-[0.025em]">{token}</span>
       <p className="bg-ink px-[0.06in] py-[0.035in] text-center text-[7pt] text-paper">Do not share this token.</p>
@@ -91,10 +91,10 @@ function LocalPanel() {
       <ol className="grid list-decimal gap-[0.055in] pl-[0.19in]">
         <li>Plug your Luna into power using the adapter in the box.</li>
         <li>Connect Luna to your router or modem with the included RJ45 (ethernet) cable.</li>
-        <li>Wait a few minutes for Luna to start. On a phone or computer on the same network, open <strong className="font-semibold">luna.local</strong> in a web browser of your choice.</li>
+        <li>Wait a few minutes for Luna to start. On a phone or computer on the same network, open <strong className="font-semibold">luna.local</strong> in a web browser.</li>
         <li>If that doesn't work, connect a screen to a video port on the back of Luna. On your phone or computer, open the address shown on the screen.</li>
-        <li>Create the first Admin account. An Admin can manage people, settings, drives, and every file on Luna.</li>
-        <li>Name Luna, finish setup, then plug in a USB drive. Luna shows what is on it before changing anything.</li>
+        <li>Create the first Admin account. An Admin manages people, settings, drives, and all files except other people&apos;s private files and folders.</li>
+        <li>Name Luna, finish setup, then plug in a USB drive. Nothing on the drive changes until you add it in Luna.</li>
       </ol>
       <p className={`${footnote} mt-[0.16in]`}>Remote access and cloud backup stay off unless you link Luna Connect later.</p>
     </section>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import { BytesLoader, fetchDriveBlobUrl } from "./bytesLoader.jsx";
 import { useFileSource } from "../../../lib/fileSource.jsx";
+import { apiErrorMessage } from "../../../lib/api.js";
 
 /**
  * Sandboxed PDF preview via blob URL (never served inline at the Luna
@@ -21,8 +22,8 @@ export default function PdfViewer({ driveId, path, fill = false }) {
       try {
         objectUrl = await fetchDriveBlobUrl(source, driveId, path, "application/pdf");
         if (!revoked) setUrl(objectUrl);
-      } catch {
-        if (!revoked) setError("Luna couldn't open this PDF. Try downloading it.");
+      } catch (err) {
+        if (!revoked) setError(apiErrorMessage(err, "Luna couldn't open this PDF. Try downloading it."));
       }
     })();
     return () => {

@@ -22,7 +22,7 @@ export default function NewDriveCard({ drives }) {
         <p className="text-primary text-sm">
           {single ? (
             <>
-              <InlinePill>{first.model || "A new drive"}</InlinePill>
+              {first.model ? <InlinePill>{first.model}</InlinePill> : "A new drive"}
               {size ? ` (${size})` : ""} isn&apos;t added yet. Nothing on it changes until you add it.
             </>
           ) : (

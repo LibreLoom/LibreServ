@@ -117,7 +117,7 @@ describe("FileSearch", () => {
     const dialog = await openSearchOverlay();
     expect(dialog).toBeInTheDocument();
     const box = screen.getByRole("textbox", { name: "Search for a file" });
-    expect(box).toHaveAttribute("placeholder", "A filename, please.");
+    expect(box).toHaveAttribute("placeholder", "A name, or words inside a file");
     // No cycling example text on top of it.
     expect(document.querySelector("[data-slot=file-search-example]")).toBeNull();
     expect(screen.getByRole("button", { name: "Close search" })).toBeInTheDocument();
@@ -210,7 +210,7 @@ describe("FileSearch", () => {
       target: { value: "zz" },
     });
     expect(await screen.findByText(/Nothing matched/i)).toBeInTheDocument();
-    expect(screen.getByText(/only shows files you're allowed to see/i)).toBeInTheDocument();
+    expect(screen.getByText(/shows only the files you can open/i)).toBeInTheDocument();
   });
 
   it("offers open and download actions on a file hit", async () => {
@@ -250,7 +250,7 @@ describe("FileSearch", () => {
     expect(screen.getByRole("button", { name: /Move beach.jpg to trash/i })).toBeInTheDocument();
   });
 
-  it("shows one lightning-bolt button on phones that opens the actions", async () => {
+  it("shows one three-dot button on phones that opens the actions", async () => {
     const original = window.matchMedia;
     window.matchMedia = (query) => /** @type {any} */ ({
       matches: false,
@@ -591,6 +591,39 @@ describe("FileSearch", () => {
     expect(underlined).toHaveTextContent("beach");
   });
 
+  it("shows why a file matched on its words, under its own heading", async () => {
+    renderSearch([
+      { drive_id: "d1", path: "boiler.txt", parent: "", name: "boiler.txt", kind: "file", size: 1, modified: 1, match: "name" },
+      {
+        drive_id: "d1", path: "letters/landlord.docx", parent: "letters", name: "landlord.docx", kind: "file", size: 1, modified: 1,
+        match: "content",
+        snippet: [{ text: "…the ", hit: false }, { text: "boiler", hit: true }, { text: " is broken again…", hit: false }],
+      },
+    ]);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "boiler" } });
+    const link = await screen.findByRole("link", { name: "Open landlord.docx" });
+    const row = /** @type {HTMLElement} */ (link.closest("[data-slot=file-search-item]"));
+    const snippet = /** @type {HTMLElement} */ (row.querySelector("[data-slot=file-search-snippet]"));
+    expect(snippet).toHaveTextContent("…the boiler is broken again…");
+    expect(within(snippet).getByText("boiler")).toHaveClass("underline");
+    // The name didn't match, so nothing in it is underlined.
+    expect(row.querySelector("p .font-mono .underline")).toBeNull();
+    expect(screen.getByText("Found in the text")).toBeInTheDocument();
+  });
+
+  it("labels close-in-meaning and photo matches", async () => {
+    renderSearch([
+      { drive_id: "d1", path: "a.txt", parent: "", name: "a.txt", kind: "file", size: 1, modified: 1, match: "name" },
+      { drive_id: "d1", path: "tenancy.pdf", parent: "", name: "tenancy.pdf", kind: "file", size: 1, modified: 1, match: "meaning", snippet: [{ text: "rent is due monthly", hit: false }] },
+      { drive_id: "d1", path: "IMG_1.jpg", parent: "", name: "IMG_1.jpg", kind: "file", size: 1, modified: 1, match: "photo" },
+    ]);
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "lease" } });
+    expect(await screen.findByText("Close in meaning")).toBeInTheDocument();
+    expect(screen.getByText("Seen in photos")).toBeInTheDocument();
+  });
+
   it("asks for only folders or only files when you pick one", async () => {
     const { fetchMock } = renderSearch([]);
     await openSearchOverlay();
@@ -747,6 +780,18 @@ describe("FileSearch", () => {
     expect(document.querySelector("[data-slot=file-search-truncated]")).toHaveTextContent(/more matches/i);
   });
 
+  it("paints the first rows of a long answer, then the rest", async () => {
+    const hits = Array.from({ length: 30 }, (_, i) => ({
+      drive_id: "d1", path: `report-${i}.txt`, parent: "", name: `report-${i}.txt`, kind: "file", size: 1, modified: 1,
+    }));
+    renderSearch(hits, { truncated: true });
+    await openSearchOverlay();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "report" } });
+    await screen.findByRole("link", { name: /^Open report-0.txt$/i });
+    await waitFor(() => expect(document.querySelectorAll("[data-slot=file-search-item]")).toHaveLength(30));
+    expect(document.querySelector("[data-slot=file-search-truncated]")).toHaveTextContent(/more matches/i);
+  });
+
   it("warns when a drive could not be read", async () => {
     renderSearch([], { scan: { scanning: false, drives_total: 2, drives_done: 1, drives_failed: 1, dirs_indexed: 0 } });
     await openSearchOverlay();
@@ -813,7 +858,7 @@ describe("FileSearch", () => {
       { drive_id: "d1", path: "Tax notes.txt", parent: "", name: "Tax notes.txt", kind: "file", size: 10, modified: 1, private: false },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("A filename, please."), { target: { value: "tax" } });
+    fireEvent.change(screen.getByPlaceholderText("A name, or words inside a file"), { target: { value: "tax" } });
     expect(await screen.findByLabelText("Open Tax notes.txt")).toBeInTheDocument();
     expect(screen.getAllByLabelText("Private")).toHaveLength(1);
   });

@@ -228,11 +228,13 @@ func lunadBuildSpec(b *engine.BuildContext) (engine.RunSpec, error) {
 }
 
 func lunadSmokeSpec(b *engine.BuildContext) engine.RunSpec {
+	web, _ := lunaWebDistDir(b)
 	return lunaShell(engine.RunSpec{
 		Name:  "lunad-smoke",
 		Image: "alpine-smoke",
 		Mounts: []engine.Mount{
 			{Host: b.PartOutDir("lunad"), Target: "/w", ReadOnly: true},
+			{Host: web, Target: "/web", ReadOnly: true},
 			{Host: filepath.Dir(LunaConsolePath(b)), Target: "/x", ReadOnly: true}},
 		Env:     map[string]string{"EXPECT_VERSION": b.Version},
 		Network: "none",

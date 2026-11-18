@@ -4,6 +4,8 @@
 import "./files.js";
 import "./backups.js";
 import "./core.js";
+import "./format.js";
+import "./crypt.js";
 import "./settings.js";
-import "./gallery.js";
+import "./photos.js";
 import "./access.js";

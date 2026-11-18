@@ -59,7 +59,7 @@ export default function RecoveryWizardPage() {
     setDownloaded(false);
     const deviceToken = normalizedToken(token);
     if (hasToken && !/^[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{16,32}$/.test(deviceToken)) {
-      setError("Enter the 16 to 32 character device token from your Luna recovery card, or choose that this Luna has no device token.");
+      setError("Enter the 16 to 32 character device token from the quick-start guide, or turn off \"This Luna has a device token\".");
       setErrorField("device-token");
       return;
     }
@@ -107,7 +107,7 @@ export default function RecoveryWizardPage() {
             <div className="my-5 h-px bg-accent" />
             <h1 className="text-center text-primary font-mono text-xl font-normal">Create a password recovery file</h1>
             <p className="mx-auto mt-2 max-w-md text-center text-primary text-sm">
-              Put this file on a USB drive to set a new password when Luna starts. Your password never leaves this device.
+              Put this file on a USB flash drive to set a new password when Luna starts. Your browser makes the file and does not send your password over the network.
             </p>
 
             <form onSubmit={handleSubmit} className="mt-6 space-y-6" noValidate>
@@ -142,7 +142,7 @@ export default function RecoveryWizardPage() {
                       required
                       error={errorField === "username" ? error : undefined}
                     />
-                    <p className="text-secondary text-sm">
+                    <p className="text-primary text-sm">
                       {selectorType === "u" && "Use the existing Luna username."}
                       {selectorType === "n" && "Luna creates this Admin account when it starts with the recovery drive."}
                       {selectorType === "f" && "Luna changes the password if this account exists. Otherwise, it creates a new Admin account."}
@@ -155,7 +155,7 @@ export default function RecoveryWizardPage() {
                 <div>
                   <h2 className="font-mono text-base font-normal text-primary">Device token</h2>
                   <p className="mt-1 text-primary text-sm">
-                    A device token ties the file to this Luna. It is printed on the recovery card that came with Luna.
+                    A device token ties the file to this Luna. It is printed on the quick-start guide that came with Luna.
                   </p>
                 </div>
                 <Toggle
@@ -177,7 +177,7 @@ export default function RecoveryWizardPage() {
                     onChange={(e) => { clearFeedback(); setToken(e.target.value); }}
                     autoComplete="off"
                     required
-                    hint="Enter the token exactly as it appears on the recovery card."
+                    hint="Type the token from the quick-start guide. Dashes and spaces are optional."
                     error={errorField === "device-token" ? error : undefined}
                   />
                 )}
@@ -215,13 +215,13 @@ export default function RecoveryWizardPage() {
                   required
                   error={errorField === "confirm" ? error : undefined}
                 />
-                <p className="text-sm text-primary">The selected accounts will be signed out on their other devices.</p>
+                <p className="text-primary text-sm">Luna signs the selected accounts out on all devices.</p>
               </section>
 
               {error && <InlineError>{error}</InlineError>}
               {downloaded && (
                 <Callout tone="success">
-                  Your recovery file downloaded as <InlinePill>{filename}</InlinePill>.
+                  Your browser started to download the recovery file as <InlinePill>{filename}</InlinePill>.
                 </Callout>
               )}
               <Button type="submit" variant="primary" surface="secondary" fullWidth>Download recovery file</Button>
@@ -229,10 +229,10 @@ export default function RecoveryWizardPage() {
 
             <CollapsibleSection title="How to use the recovery file" pill className="mt-6">
               <ol className="list-decimal space-y-2 pl-5 text-sm text-primary">
-                <li>Use an otherwise-empty USB flash drive that has never been added to a Luna.</li>
-                <li>Put the downloaded recovery file directly on the drive, not inside a folder. Keep other files off it.</li>
+                <li>Use an empty USB flash drive that was never added to a Luna.</li>
+                <li>Put the recovery file directly on the drive, not in a folder. Put no other files on the drive.</li>
                 <li>Turn Luna off, plug in the drive, then turn Luna on. Luna checks the file once during startup, before it accepts connections.</li>
-                <li>After recovery, remove the drive. Luna tries to rename the file so it will not reset the password again on the next startup.</li>
+                <li>After recovery, remove the drive and delete the file from it. The file holds the new password as plain text.</li>
               </ol>
               <p className="mt-3 text-sm text-primary">A recovery file does not change the password while Luna is already running. It works only during startup.</p>
             </CollapsibleSection>

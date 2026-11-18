@@ -222,7 +222,7 @@ pub(crate) fn is_usb_bus_component(name: &std::ffi::OsStr) -> bool {
 
 /// Strip partition suffixes to the parent disk name: `sda1` -> `sda`,
 /// `nvme0n1p2` -> `nvme0n1`, `mmcblk0p1` -> `mmcblk0`.
-fn parent_device(name: &str) -> Option<String> {
+pub(crate) fn parent_device(name: &str) -> Option<String> {
     let mut end = name.len();
     while end > 0 && name.as_bytes()[end - 1].is_ascii_digit() {
         end -= 1;

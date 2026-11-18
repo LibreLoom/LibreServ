@@ -26,7 +26,6 @@ func Migrate(db *DB) error {
 
 func applyAdditiveColumnsSQLite(db *DB) error {
 	// Additive columns for older DBs / forward-compatible fields.
-	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN stripe_subscription_item_id TEXT`)
 	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN backup_quota_bytes INTEGER`)
 	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0`)
 	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN backup_purge_after INTEGER`)
@@ -59,7 +58,6 @@ func applyAdditiveColumnsSQLite(db *DB) error {
 
 func applyAdditiveColumnsPostgres(db *DB) error {
 	cols := []string{
-		`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS stripe_subscription_item_id TEXT`,
 		`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS backup_quota_bytes BIGINT`,
 		`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS email_verified INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS backup_purge_after BIGINT`,

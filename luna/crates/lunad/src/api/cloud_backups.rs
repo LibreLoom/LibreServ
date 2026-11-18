@@ -169,7 +169,7 @@ async fn remove(
     if drive_backup::is_running(&state.db, &id) {
         return Err(json_error(
             StatusCode::CONFLICT,
-            "Luna is copying this backup right now. Delete it when the copy finishes.",
+            "This backup is busy right now. Try again in a minute.",
         ));
     }
     let connect = state.connect.clone();
@@ -191,7 +191,7 @@ async fn remove(
         // Its copies in the cloud can only be removed through Connect.
         Ok(None) => Err(json_error(
             StatusCode::CONFLICT,
-            "Connect this Luna to Luna Connect before deleting a cloud backup. Its copies in the cloud can't be removed until then. Settings → About → Advanced.",
+            "Connect this Luna to Luna Connect in Settings → About → Advanced. Luna can only delete the cloud copies through Luna Connect.",
         )),
         Err(_) => Err(json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -437,6 +437,9 @@ fn run_answer(outcome: &CloudOutcome) -> Value {
 /// A refusal about who may do something is 403; anything else is 400.
 /// "Included in the backup of …" is a 400: it says why nothing is needed, not who may do it.
 fn refusal_status(msg: &str) -> StatusCode {
+    if msg == ops::NO_PAYMENT_REFUSAL {
+        return StatusCode::PAYMENT_REQUIRED;
+    }
     if msg.starts_with("You need")
         || msg.starts_with("Only an Admin")
         || (msg.starts_with("Only ") && msg.ends_with("can back up this item."))

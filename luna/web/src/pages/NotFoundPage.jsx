@@ -68,10 +68,10 @@ import usePageTitle from "../hooks/usePageTitle.js";
 // Home and Sign in are left out: "Where to next" always offers one of them.
 const DESTINATIONS = [
   {
-    to: "/gallery",
+    to: "/photos",
     label: "Photos",
     icon: ImageIcon,
-    aliases: ["photos", "photo", "pictures", "pics", "images", "albums", "videos"],
+    aliases: ["photos", "photo", "gallery", "pictures", "pics", "images", "albums", "videos"],
   },
   {
     to: "/files",
@@ -290,8 +290,8 @@ function FindFile({ initialTerm, user, className }) {
           type="search"
           value={typed}
           onChange={(e) => setTyped(e.target.value)}
-          placeholder="File or folder name"
-          aria-label="Search your files by name"
+          placeholder="A name, or words inside a file"
+          aria-label="Search your files"
           autoComplete="off"
           className="min-w-0 flex-1 appearance-none border-0 bg-transparent text-sm text-secondary outline-none no-focus-outline"
         />
@@ -307,7 +307,7 @@ function FindFile({ initialTerm, user, className }) {
 
         {searched && hits.length === 0 && (
           <p className="mt-3 text-sm text-primary">
-            Nothing named “{q}”. Try part of the name.
+            Nothing matched “{q}”. Try part of the name.
           </p>
         )}
 

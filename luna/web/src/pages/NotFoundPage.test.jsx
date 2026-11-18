@@ -43,7 +43,7 @@ describe("NotFoundPage", () => {
     renderAt("/galery");
     expect(screen.getByRole("link", { name: "Photos" })).toHaveAttribute(
       "href",
-      "/gallery",
+      "/photos",
     );
   });
 
@@ -51,7 +51,7 @@ describe("NotFoundPage", () => {
     renderAt("/pictures");
     expect(screen.getByRole("link", { name: "Photos" })).toHaveAttribute(
       "href",
-      "/gallery",
+      "/photos",
     );
   });
 
@@ -87,7 +87,7 @@ describe("NotFoundPage", () => {
     });
     renderAt("/documents/Tax%202024.pdf");
 
-    expect(screen.getByLabelText("Search your files by name")).toHaveValue("Tax 2024.pdf");
+    expect(screen.getByLabelText("Search your files")).toHaveValue("Tax 2024.pdf");
     const hit = await screen.findByRole("link", { name: /Tax 2024\.pdf/ });
     expect(hit).toHaveAttribute("href", expect.stringContaining("select="));
     expect(await screen.findByText(/in Big Drive \/ Taxes/)).toBeTruthy();
@@ -102,7 +102,7 @@ describe("NotFoundPage", () => {
     auth.value = { user: { role: "admin" }, loading: false };
     api.getJson.mockResolvedValue([]);
     renderAt("/summer-trip");
-    expect(await screen.findByText(/Nothing named “summer trip”/)).toBeTruthy();
+    expect(await screen.findByText(/Nothing matched “summer trip”/)).toBeTruthy();
   });
 
   it("hides Go back when this is the first page in the tab", () => {

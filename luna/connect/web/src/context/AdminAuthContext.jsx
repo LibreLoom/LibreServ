@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { fetchOrExplain, noSentence } from "../api.js";
 
 const TOKEN_KEY = "luna-connect-admin-token";
 const ACCOUNT_KEY = "luna-connect-admin-account";
@@ -32,17 +33,20 @@ export async function adminApi(path, opts = {}) {
     const match = typeof document !== "undefined" ? document.cookie.match(/(?:^|; )luna_connect_csrf=([^;]*)/) : null;
     if (match) headers["X-CSRF-Token"] = decodeURIComponent(match[1]);
   }
-  const res = await fetch(path, { ...opts, credentials: "include", headers });
+  const res = await fetchOrExplain(path, { ...opts, credentials: "include", headers });
   const text = await res.text();
   let data = {};
+  let parsed = true;
   try {
     data = text ? JSON.parse(text) : {};
   } catch {
+    parsed = false;
     data = { message: text };
   }
   if (!res.ok) {
+    const sentence = parsed ? data.message || data.error : "";
     const err = /** @type {Error & { status?: number }} */ (
-      new Error(data.message || data.error || "That didn't work. Try again.")
+      new Error(sentence || noSentence(res.status))
     );
     err.status = res.status;
     throw err;

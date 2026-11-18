@@ -193,12 +193,12 @@ export function requireAdmin(user, message) {
 /** files.rs `check_access`. */
 export function checkAccess(world, user, driveId, path, cap) {
   if (hasCap(world, user, driveId, path, cap)) return;
-  throw fail(403, cap !== CAP_VIEW ? "You don't have permission to change this folder." : "You don't have permission to view this folder.");
+  throw fail(403, cap === CAP_UPLOAD ? "You don't have permission to save here." : cap !== CAP_VIEW ? "You don't have permission to change this." : "You don't have permission to open this.");
 }
 
 /** files.rs `check_inspect`. */
 export function checkInspect(world, user, driveId, path) {
-  if (!canInspectPath(world, user, driveId, path)) throw fail(403, "You don't have permission to view this folder.");
+  if (!canInspectPath(world, user, driveId, path)) throw fail(403, "You don't have permission to open this.");
 }
 
 export { leaf as _leaf };

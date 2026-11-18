@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Globe, Check, AlertTriangle } from "lucide-react";
+import PathTrail from "@libreloom/ui/components/common/PathTrail.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
@@ -142,7 +143,7 @@ export default function DomainServiceModal({ open, onClose, onSaved, service, co
                 />
               </ShakeTarget>
               <p className="text-xs mt-1.5">
-                Your API token is on cloudflare.com → Profile → API Tokens → Create Token.
+                Your API token is on <PathTrail steps={["cloudflare.com", "Profile", "API Tokens", "Create Token"]} />.
               </p>
             </div>
           </div>

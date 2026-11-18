@@ -40,6 +40,12 @@ type Test struct {
 	Dependencies []string      `json:"dependencies,omitempty" yaml:"dependencies,omitempty"`
 	SkipIf       string        `json:"skipIf,omitempty" yaml:"skipIf,omitempty"`
 	FuzzPackage  string        `json:"fuzzPackage,omitempty" yaml:"fuzzPackage,omitempty"`
+	// Tmpfs mounts RAM-backed filesystems into the container, path -> mount
+	// options. A container's own /tmp is a disk overlay, so a suite that makes
+	// and deletes gigabytes of temp files (lunad: ~2.7 GB across a million
+	// writes) waits on the disk at 16-36 MB/s instead of never leaving the page
+	// cache, as it does on a host whose /tmp is tmpfs.
+	Tmpfs map[string]string `json:"tmpfs,omitempty" yaml:"tmpfs,omitempty"`
 }
 
 type TestResult struct {

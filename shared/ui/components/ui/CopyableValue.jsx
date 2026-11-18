@@ -119,7 +119,7 @@ export default function CopyableValue({
       </Button>
       {failed && (
         <p className={cn("text-sm", hintClass)}>
-          Copy didn't work in this browser — select the text and copy it.
+          Copy didn't work in this browser. Select the text and copy it.
         </p>
       )}
     </div>

@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -216,7 +218,7 @@ func authorizeLuna(exec storageQueryExec, w http.ResponseWriter, r *http.Request
 		keepLunaWith(exec, accountID, lunaID)
 		return true
 	}
-	if !lunaSigValid(r, signing, lunaID, time.Now()) {
+	if !lunaSigValid(r, signing, lunaID, requestArrival(r)) {
 		JSONError(w, http.StatusForbidden, "This Luna's cloud storage belongs to another device on your account.")
 		return false
 	}
@@ -298,27 +300,147 @@ func storageFull(w http.ResponseWriter) {
 	JSONError(w, http.StatusInsufficientStorage, "Your cloud storage is full.")
 }
 
+// putPackPrecheck runs PutPack's refusals with plain reads and no transaction, so a
+// request that will be turned away never streams its body, and the slow body read
+// that follows never holds the account write fence (on SQLite that fence is the
+// database-wide writer lock). PutPack repeats every check under the fence.
+// existing reports a pack that is already stored, so its body need not be read.
+func (h StorageHandler) putPackPrecheck(w http.ResponseWriter, r *http.Request) (remain int64, existing, ok bool) {
+	accountID, ok := storageAccount(w, r)
+	if !ok {
+		return 0, false, false
+	}
+	lunaID := strings.TrimSpace(r.Header.Get("X-Luna-Id"))
+	if !storageLunaIDPattern.MatchString(lunaID) {
+		JSONError(w, http.StatusBadRequest, "Luna did not say which Luna is asking. Update Luna and try again.")
+		return 0, false, false
+	}
+	bound, signing, found, err := lookupLuna(h.Deps, accountID, lunaID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Cloud storage could not check this Luna. Try again.")
+		return 0, false, false
+	}
+	if found && bound != deviceIDFrom(r) && !lunaSigValid(r, signing, lunaID, requestArrival(r)) {
+		JSONError(w, http.StatusForbidden, "This Luna's cloud storage belongs to another device on your account.")
+		return 0, false, false
+	}
+	if !backupUnlocked(h.DB, accountID) {
+		JSONError(w, http.StatusPaymentRequired, "Add a payment card at connect.luna.libreloom.org to store your cloud backup.")
+		return 0, false, false
+	}
+	id := chi.URLParam(r, "id")
+	if !storagePackIDPattern.MatchString(id) {
+		JSONError(w, http.StatusBadRequest, "That pack ID is not valid. Try the upload again from Luna.")
+		return 0, false, false
+	}
+	if scope := strings.TrimSpace(r.Header.Get("X-Luna-Scope")); scope != "" && !storageScopePattern.MatchString(scope) {
+		JSONError(w, http.StatusBadRequest, "That pack label is not valid. Try the upload again from Luna.")
+		return 0, false, false
+	}
+	var n int
+	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = ? AND id = ?`,
+		accountID, lunaID, id).Scan(&n)
+	if n > 0 {
+		return 0, true, true
+	}
+	remain = accountBackupCap(h.DB, accountID) - storageUsed(h.DB, accountID)
+	if remain <= 0 {
+		storageFull(w)
+		return 0, false, false
+	}
+	return remain, false, true
+}
+
+// spoolPack reads the body into a temp file and checks its hash before the store
+// is touched, so a mismatched upload never replaces bytes already stored under
+// this ID. The caller closes and removes the file.
+func spoolPack(w http.ResponseWriter, r *http.Request, id string, remain int64) (*os.File, int64, bool) {
+	limit := int64(maxStoragePackBytes)
+	if remain < limit {
+		limit = remain
+	}
+	spool, err := os.CreateTemp("", "luna-pack-*")
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Cloud storage could not save that data. Try again.")
+		return nil, 0, false
+	}
+	fail := func() (*os.File, int64, bool) {
+		_ = spool.Close()
+		_ = os.Remove(spool.Name())
+		return nil, 0, false
+	}
+	hasher := sha256.New()
+	size, err := io.Copy(io.MultiWriter(spool, hasher), http.MaxBytesReader(w, r.Body, limit))
+	if err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			if remain < maxStoragePackBytes {
+				storageFull(w)
+				return fail()
+			}
+			JSONError(w, http.StatusRequestEntityTooLarge, "That data is too large to store in cloud storage. The limit is 64 MB per piece.")
+			return fail()
+		}
+		JSONError(w, http.StatusBadRequest, "The upload stopped before it finished. Try again.")
+		return fail()
+	}
+	if hex.EncodeToString(hasher.Sum(nil)) != id {
+		JSONError(w, http.StatusBadRequest, "The data did not match its ID. Try the upload again from Luna.")
+		return fail()
+	}
+	if _, err := spool.Seek(0, io.SeekStart); err != nil {
+		JSONError(w, http.StatusInternalServerError, "Cloud storage could not save that data. Try again.")
+		return fail()
+	}
+	return spool, size, true
+}
+
+type requestArrivalKey struct{}
+
+// requestArrival is when the request reached Connect, if the handler recorded it.
+// A move signature is fresh relative to that moment, not to the end of a body
+// upload that may outlast the signature window.
+func requestArrival(r *http.Request) time.Time {
+	if t, ok := r.Context().Value(requestArrivalKey{}).(time.Time); ok {
+		return t
+	}
+	return time.Now()
+}
+
 func (h StorageHandler) PutPack(w http.ResponseWriter, r *http.Request) {
+	r = r.WithContext(context.WithValue(r.Context(), requestArrivalKey{}, time.Now()))
+	remain, existingBefore, ok := h.putPackPrecheck(w, r)
+	if !ok {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	scope := strings.TrimSpace(r.Header.Get("X-Luna-Scope"))
+	var spool *os.File
+	var size int64
+	spoolStart := time.Now()
+	if !existingBefore {
+		if spool, size, ok = spoolPack(w, r, id, remain); !ok {
+			return
+		}
+		defer func() {
+			_ = spool.Close()
+			_ = os.Remove(spool.Name())
+		}()
+	}
+	spoolDur := time.Since(spoolStart)
+
+	// The fence is taken only now, with the body already on disk. The store Put stays
+	// inside it so a purge or the pending-delete worker cannot remove these bytes
+	// between the Put and the row that records them.
 	accountID, lunaID, tx, ok := storageScope(h.Deps, w, r)
 	if !ok {
 		return
 	}
 	defer tx.Rollback()
 	if !backupUnlocked(tx, accountID) {
-		JSONError(w, http.StatusPaymentRequired, "Add a payment card at connect.luna.libreloom.org so we can store your cloud backup. It costs $8 per terabyte each month.")
+		JSONError(w, http.StatusPaymentRequired, "Add a payment card at connect.luna.libreloom.org to store your cloud backup.")
 		return
 	}
-	id := chi.URLParam(r, "id")
-	if !storagePackIDPattern.MatchString(id) {
-		JSONError(w, http.StatusBadRequest, "That pack ID is not valid. Try the upload again from Luna.")
-		return
-	}
-	scope := strings.TrimSpace(r.Header.Get("X-Luna-Scope"))
-	if scope != "" && !storageScopePattern.MatchString(scope) {
-		JSONError(w, http.StatusBadRequest, "That pack label is not valid. Try the upload again from Luna.")
-		return
-	}
-
 	var existing int
 	_ = tx.QueryRow(`SELECT COUNT(*) FROM storage_packs WHERE account_id = ? AND luna_id = ? AND id = ?`,
 		accountID, lunaID, id).Scan(&existing)
@@ -330,64 +452,31 @@ func (h StorageHandler) PutPack(w http.ResponseWriter, r *http.Request) {
 		JSON(w, http.StatusOK, map[string]any{"ok": true, "id": id, "created": false})
 		return
 	}
-
-	remain := accountBackupCap(tx, accountID) - storageUsed(tx, accountID)
-	if remain <= 0 {
+	if spool == nil {
+		// The pack was deleted after the precheck saw it; its body was never read.
+		JSONError(w, http.StatusConflict, "That data changed while it was being saved. Try the upload again from Luna.")
+		return
+	}
+	// Quota may have shrunk while the body streamed in.
+	if size > accountBackupCap(tx, accountID)-storageUsed(tx, accountID) {
 		storageFull(w)
 		return
 	}
-	limit := int64(maxStoragePackBytes)
-	if remain < limit {
-		limit = remain
-	}
-	slot := store.StorageSlot(lunaID)
-	rel := store.StoragePackPath(id)
 
-	// Spool the body and check its hash before the store is touched. A mismatched
-	// upload then never replaces bytes that are already stored under this ID.
-	spool, err := os.CreateTemp("", "luna-pack-*")
-	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Cloud storage could not save that data. Try again.")
-		return
-	}
-	defer func() {
-		_ = spool.Close()
-		_ = os.Remove(spool.Name())
-	}()
-	hasher := sha256.New()
-	limited := http.MaxBytesReader(w, r.Body, limit)
-	if _, err := io.Copy(io.MultiWriter(spool, hasher), limited); err != nil {
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) {
-			if remain < maxStoragePackBytes {
-				storageFull(w)
-				return
-			}
-			JSONError(w, http.StatusRequestEntityTooLarge, "That data is too large to store in cloud storage. The limit is 64 MB per piece.")
-			return
-		}
-		JSONError(w, http.StatusBadRequest, "Cloud storage could not save that data. Check your connection and try again.")
-		return
-	}
-	if hex.EncodeToString(hasher.Sum(nil)) != id {
-		JSONError(w, http.StatusBadRequest, "The data did not match its ID. Try the upload again from Luna.")
-		return
-	}
-	if _, err := spool.Seek(0, io.SeekStart); err != nil {
-		JSONError(w, http.StatusInternalServerError, "Cloud storage could not save that data. Try again.")
-		return
-	}
-	n, backend, err := h.Store.Put(accountID, slot, rel, spool)
+	putStart := time.Now()
+	n, backend, err := h.Store.Put(accountID, store.StorageSlot(lunaID), store.StoragePackPath(id), spool)
 	if err != nil {
 		if errors.Is(err, providers.ErrBackupNotConfigured) {
-			JSONError(w, http.StatusServiceUnavailable, "Cloud storage is not ready yet. Contact support and we will finish setting it up.")
+			JSONError(w, http.StatusServiceUnavailable, "Cloud storage is not set up yet. Contact support.")
 			return
 		}
-		JSONError(w, http.StatusBadRequest, "Cloud storage could not save that data. Check your connection and try again.")
+		JSONError(w, http.StatusBadRequest, "Cloud storage could not save that data. Try again.")
 		return
 	}
+	putDur := time.Since(putStart)
 	// If this insert fails the stored bytes are left in place: a concurrent upload of
 	// the same pack may have recorded them, and an unrecorded copy is harmless.
+	commitStart := time.Now()
 	if err := recordPack(tx, accountID, lunaID, id, scope, n, backend); err != nil {
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not record that data. Try again.")
 		return
@@ -396,7 +485,10 @@ func (h StorageHandler) PutPack(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not record that data. Try again.")
 		return
 	}
-	cancelRemoval(h.Deps, accountID, lunaID, rel)
+	cancelRemoval(h.Deps, accountID, lunaID, store.StoragePackPath(id))
+	// Phase split for the C5 cloud backup journey: body read, store upload, row commit.
+	w.Header().Set("Server-Timing", fmt.Sprintf("spool;dur=%d, put;dur=%d, commit;dur=%d",
+		spoolDur.Milliseconds(), putDur.Milliseconds(), time.Since(commitStart).Milliseconds()))
 	JSON(w, http.StatusOK, map[string]any{"ok": true, "id": id, "size": n, "created": true})
 }
 
@@ -490,7 +582,7 @@ func (h StorageHandler) PutRecord(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 	if !backupUnlocked(tx, accountID) {
-		JSONError(w, http.StatusPaymentRequired, "Add a payment card at connect.luna.libreloom.org so we can store your cloud backup. It costs $8 per terabyte each month.")
+		JSONError(w, http.StatusPaymentRequired, "Add a payment card at connect.luna.libreloom.org to store your cloud backup.")
 		return
 	}
 	kind, name := chi.URLParam(r, "kind"), chi.URLParam(r, "name")
@@ -547,10 +639,10 @@ func (h StorageHandler) PutRecord(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, providers.ErrBackupNotConfigured) {
-			JSONError(w, http.StatusServiceUnavailable, "Cloud storage is not ready yet. Contact support and we will finish setting it up.")
+			JSONError(w, http.StatusServiceUnavailable, "Cloud storage is not set up yet. Contact support.")
 			return
 		}
-		JSONError(w, http.StatusBadRequest, "Cloud storage could not save that record. Check your connection and try again.")
+		JSONError(w, http.StatusBadRequest, "Cloud storage could not save that record. Try again.")
 		return
 	}
 	if _, err := tx.Exec(`INSERT INTO storage_records (account_id, luna_id, kind, name, bytes, storage_backend, updated_at)

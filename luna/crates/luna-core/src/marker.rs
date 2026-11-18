@@ -4,7 +4,7 @@
 //! with files already on the drive, then writes one file named
 //! `.luna-<uuid>.sqlite3`. That file is a SQLite database (DELETE journal
 //! mode) whose `identity` row holds the drive id and label. Lunad opens the
-//! same file for index, hashes, gallery, trash metadata, and upload sessions.
+//! same file for index, hashes, photos, trash metadata, and upload sessions.
 //! Every other name Luna creates on the drive — trash, thumbnails, backups,
 //! upload temps — starts with the same `.luna-<uuid>` prefix, so a
 //! drive full of existing files can never clash with Luna's own bookkeeping.
@@ -61,9 +61,25 @@ pub enum MarkerError {
 /// `.luna-<uuid>-trash`, `.luna-<uuid>-upload.1.part`, …).
 pub fn extract_prefix(name: &str) -> Option<String> {
     let rest = name.strip_prefix(MARKER_PREFIX)?;
+    let uuid_part = namespace_uuid(rest)?;
+    Some(format!("{MARKER_PREFIX}{uuid_part}"))
+}
+
+/// Whether the name belongs to Luna's reserved namespace, including aliases
+/// on case-insensitive filesystems.
+pub fn is_namespace_name(name: &str) -> bool {
+    name.get(..MARKER_PREFIX.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(MARKER_PREFIX))
+        && name
+            .get(MARKER_PREFIX.len()..)
+            .and_then(namespace_uuid)
+            .is_some()
+}
+
+fn namespace_uuid(rest: &str) -> Option<&str> {
     let uuid_part = rest.get(..36)?;
     uuid::Uuid::parse_str(uuid_part).ok()?;
-    Some(format!("{MARKER_PREFIX}{uuid_part}"))
+    Some(uuid_part)
 }
 
 /// Marker file name for a prefix: `.luna-<uuid>.sqlite3`.
@@ -198,7 +214,7 @@ pub fn remove_marker(root: &Path, drive_id: &str) -> Result<bool, MarkerError> {
 /// - never creates directories, never touches anything except a temp file and
 ///   the final marker name (or an in-place identity update);
 /// - when the marker is already a SQLite microdb, updates the `identity` row
-///   only so index/gallery/hash/upload tables are preserved;
+///   only so index/photos/hash/upload tables are preserved;
 /// - for a new file, writes via `temp + fsync + rename` so a power cut cannot
 ///   leave a torn marker.
 pub fn write_marker(root: &Path, marker: &Marker, prefix: &str) -> Result<(), MarkerError> {

@@ -74,3 +74,14 @@ func TestStatusSyncsLocalPortFromHeader(t *testing.T) {
 		t.Fatalf("local_port = %d, want 80", port)
 	}
 }
+
+func TestTunnelNameIsUniquePerDevice(t *testing.T) {
+	a := tunnelName("max", "dev_957885a83e54a151")
+	b := tunnelName("max", "dev_aaaaaaaa11111111")
+	if a == b {
+		t.Fatalf("two Lunas with the same name must not share a tunnel name, both got %q", a)
+	}
+	if a != "luna-max-957885a8" {
+		t.Fatalf("tunnelName = %q", a)
+	}
+}

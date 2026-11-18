@@ -135,7 +135,7 @@ fn read_job(db: &crate::Db, protection_id: &str) -> Result<Option<Job>> {
     };
 
     let identity = identity::load(&conn)?
-        .ok_or_else(|| anyhow!("Set up cloud backup on this Luna before checking a backup."))?;
+        .ok_or_else(|| anyhow!("Luna's cloud identity is missing. Try again."))?;
     let seed: [u8; 32] = db::get_cloud_identity(&conn)?
         .ok_or_else(|| anyhow!("Luna's cloud identity is missing."))?
         .signing_seed

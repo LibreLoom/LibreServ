@@ -148,7 +148,10 @@ pub fn run_loop<P: PasswordPrompt + ?Sized>(
                 Ok(password) => match auth.reset_admin_password(&password) {
                     Ok((user, breach)) => {
                         tracing::info!(username = %user.username, "admin password reset from local keyboard");
-                        prompt.report("Password updated. Sign in on your phone or computer.");
+                        prompt.report(&format!(
+                            "Luna changed the password for {}. Sign in on your phone or computer.",
+                            user.username
+                        ));
                         // The breach service could not answer, so this
                         // password was never checked. Say so where the person
                         // is looking: the console.
@@ -159,7 +162,15 @@ pub fn run_loop<P: PasswordPrompt + ?Sized>(
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "console password reset failed");
-                        prompt.report(&e.to_string());
+                        let text = match e {
+                            crate::auth::AuthError::PasswordPolicy(m) => m,
+                            crate::auth::AuthError::Unauthenticated => {
+                                "Luna has no Admin account yet. Set up Luna in a browser first."
+                                    .to_string()
+                            }
+                            _ => "Luna couldn't change the password. Try again.".to_string(),
+                        };
+                        prompt.report(&text);
                     }
                 },
                 Err(e) => tracing::warn!(error = %e, "console password prompt failed"),
@@ -304,7 +315,7 @@ impl PasswordPrompt for ConsolePrompt {
         let mut tty = open_console()?;
         writeln!(
             tty,
-            "\nLuna recovery\nType a new admin password (at least 8 characters), then Enter."
+            "\nLuna recovery\nType a new Admin password (at least 12 characters, with a letter and a number), then press Enter."
         )
         .map_err(|e| e.to_string())?;
         let first = read_secret(&mut tty)?;
@@ -314,9 +325,9 @@ impl PasswordPrompt for ConsolePrompt {
             let _ = writeln!(tty, "Those didn't match. Nothing was changed.");
             return Err("passwords did not match".into());
         }
-        if first.len() < 8 {
-            let _ = writeln!(tty, "Use at least 8 characters. Nothing was changed.");
-            return Err("password too short".into());
+        if let Err(err) = crate::password::validate_password(&first) {
+            let _ = writeln!(tty, "{} Nothing was changed.", err.message());
+            return Err("password does not meet the policy".into());
         }
         Ok(first)
     }

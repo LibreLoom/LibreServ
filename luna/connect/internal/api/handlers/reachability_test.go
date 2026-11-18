@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -138,5 +139,34 @@ func TestProbeLunaHealthRejectsRedirect(t *testing.T) {
 	}
 	if internalHit {
 		t.Fatal("health client must not follow redirects to another host")
+	}
+}
+
+func TestProbeLunaCachedSharesOneRequest(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(530)
+	}))
+	defer srv.Close()
+
+	prev := lunaHealthHTTPClient
+	lunaHealthHTTPClient = &http.Client{
+		Timeout: lunaHealthProbeTimeout,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // test-only self-signed cert
+		},
+	}
+	defer func() { lunaHealthHTTPClient = prev }()
+
+	host := strings.TrimPrefix(srv.URL, "https://")
+	for range 3 {
+		provisioned, healthy := probeLunaCached(host)
+		if !provisioned || healthy {
+			t.Fatalf("530 gave provisioned=%v healthy=%v; want true, false", provisioned, healthy)
+		}
+	}
+	if n := hits.Load(); n != 1 {
+		t.Fatalf("health endpoint hit %d times; want 1 within the cache window", n)
 	}
 }

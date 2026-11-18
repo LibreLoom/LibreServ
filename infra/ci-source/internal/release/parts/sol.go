@@ -134,7 +134,7 @@ func (solBinaries) Jobs(b *engine.BuildContext) ([]engine.Job, error) {
 					if err != nil {
 						return err
 					}
-					return j.Container(ctx, engine.RunSpec{
+					err = j.Container(ctx, engine.RunSpec{
 						Name:   j.ID + "-check",
 						Image:  "go",
 						Source: b.SrcDir,
@@ -146,6 +146,13 @@ func (solBinaries) Jobs(b *engine.BuildContext) ([]engine.Job, error) {
 							st.Version, st.Commit, st.Time, workdir, solPkgSystem},
 							"Version", "GitCommit", "BuildTime"),
 					})
+					if err != nil {
+						return err
+					}
+					if err := validateStaticELF(filepath.Join(out, file), arch); err != nil {
+						return err
+					}
+					return validateSolEmbeds(filepath.Join(out, file))
 				},
 			})
 	}

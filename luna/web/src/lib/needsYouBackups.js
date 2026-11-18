@@ -128,6 +128,8 @@ function byId(a, b) {
  */
 export function buildBackupItems({ backupRows, isAdmin, userId, now } = {}) {
   return visibleBackupRows(backupRows, { isAdmin, userId })
+    // A backup waiting on a locked drive is explained by the locked-drive row, not repeated here.
+    .filter((row) => row.paused !== "locked")
     .filter(needsALook)
     .map((row) => backupItem(row, now))
     .sort(byId);

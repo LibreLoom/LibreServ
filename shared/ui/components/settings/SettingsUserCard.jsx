@@ -45,7 +45,7 @@ export default function SettingsUserCard({ user, href, deviceName = "this device
               <span>Admin</span>
               <InfoHint
                 label="What Admin means"
-                content={`An Admin can add users, change settings, and manage everything on ${deviceName}.`}
+                content={`An Admin can add users and change the settings of ${deviceName}.`}
               />
             </span>
           ) : (
@@ -53,7 +53,7 @@ export default function SettingsUserCard({ user, href, deviceName = "this device
               <span>Member</span>
               <InfoHint
                 label="What Member means"
-                content={`A Member can use what's shared with them but cannot manage users or change ${deviceName} settings.`}
+                content={`A Member can use what is shared with them. A Member cannot manage users or change the settings of ${deviceName}.`}
               />
             </span>
           )}

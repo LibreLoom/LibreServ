@@ -199,7 +199,7 @@ describe("postJson / postForm / putBinary / deleteJson", () => {
       /** @type {any} */ (
         new Response(
           JSON.stringify({
-            error: "Enter the first eight characters of your device token (****-****).",
+            error: "Paste the device token.",
             code: "setup_token_required",
           }),
           { status: 403, headers: { "Content-Type": "application/json" } },
@@ -210,7 +210,7 @@ describe("postJson / postForm / putBinary / deleteJson", () => {
     await expect(postJson("/api/v1/setup", {})).rejects.toMatchObject({
       status: 403,
       code: "setup_token_required",
-      message: "Enter the first eight characters of your device token (****-****).",
+      message: "Paste the device token.",
     });
   });
 });
@@ -229,6 +229,31 @@ describe("apiErrorMessage", () => {
     expect(apiErrorMessage(new TypeError("Failed to fetch"))).toBe(
       "Couldn't reach Luna. Check this device's connection and try again.",
     );
+  });
+
+  it("never calls an answered request a lost connection", () => {
+    expect(apiErrorMessage(new ApiError(500, "The upload was aborted on the drive."))).toBe(
+      "The upload was aborted on the drive.",
+    );
+  });
+
+  it("uses the caller's fallback when Luna answered without a message", () => {
+    expect(apiErrorMessage(new ApiError(500), "Couldn't restore that. Try again.")).toBe(
+      "Couldn't restore that. Try again.",
+    );
+    expect(apiErrorMessage(new ApiError(404))).toBe(
+      "Luna could not find this. It may have been moved or deleted.",
+    );
+    expect(apiErrorMessage(new ApiError(413), "Luna couldn't upload this file. Try again.")).toBe(
+      "This is too large for Luna to accept.",
+    );
+  });
+});
+
+describe("apiFetch cancel", () => {
+  it("keeps an AbortError instead of reporting a lost connection", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new DOMException("Aborted", "AbortError"));
+    await expect(apiFetch("/api/v1/x")).rejects.toMatchObject({ name: "AbortError" });
   });
 });
 
@@ -293,6 +318,7 @@ describe("XHR upload helpers", () => {
     expect(err.status).toBe(502);
     expect(err.code).toBeNull();
     expect(err.data).toBeUndefined();
-    expect(err.message).toBe("Request failed (502)");
+    expect(err.message).toBe("Luna is not answering right now. Wait a moment, then try again.");
+    expect(err.generic).toBe(true);
   });
 });

@@ -151,7 +151,9 @@ describe("groupByCreator and backupHeadline", () => {
 
   it("counts rows that need a look", () => {
     expect(backupHeadline([])).toBe("No backups yet");
-    expect(backupHeadline([drive()])).toBe("All backed up");
+    expect(backupHeadline([drive({ last_ok_at: 1000 })])).toBe("All backed up");
+    expect(backupHeadline([drive()])).toBe("1 backup has no copy yet");
+    expect(backupHeadline([drive(), drive({ id: "d2" })])).toBe("2 backups have no copy yet");
     expect(backupHeadline([drive({ state: "stale" })])).toBe("1 backup needs a look");
     expect(backupHeadline([drive({ state: "stale" }), cloud({ check_problem: "x" })])).toBe(
       "2 backups need a look",
@@ -195,5 +197,19 @@ describe("privateGroups", () => {
     const groups = privateGroups({ owners: [{ owner_id: "u1", name: "Max", backups: 1, needs_look: false }] }, []);
     expect(groups[0]).toMatchObject({ name: "Max", deleted: false });
     expect(privateGroups(null, [])).toEqual([]);
+  });
+});
+
+describe("backups paused by a locked drive", () => {
+  const paused = () => drive({ status: "active", state: "failing", paused: "locked", locked_drive_names: ["Photos"] });
+
+  it("is Paused, not a failure, and needs no look", () => {
+    expect(backupStatus(paused())).toEqual({ label: "Paused", variant: "warning" });
+    expect(needsALook(paused())).toBe(false);
+  });
+
+  it("is said in the headline instead of All backed up", () => {
+    expect(backupHeadline([paused()])).toBe("1 backup is paused");
+    expect(backupHeadline([paused(), paused()])).toBe("2 backups are paused");
   });
 });

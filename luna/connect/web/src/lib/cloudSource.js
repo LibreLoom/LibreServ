@@ -11,9 +11,27 @@ import { api } from "../api.js";
  * @property {(token: string) => CloudSource} withPrivateToken the same source, sending X-Private-Token
  */
 
-const RECORDS_FAILED = "Could not load your cloud backups. Check your connection, then try again.";
-const PACK_FAILED = "Could not download part of this backup. Check your connection, then try again.";
-const PRIVATE_FAILED = "Could not open your private items. Check your connection, then try again.";
+const RECORDS_FAILED = "Could not load your cloud backups.";
+const PACK_FAILED = "Could not download part of this backup.";
+const PRIVATE_FAILED = "Could not open your private items.";
+/** Luna Connect answered with an error and no sentence of its own. */
+const SERVER_HINT = "Try again in a few minutes.";
+/** The request never got an answer. */
+const NETWORK_HINT = "Check your internet connection, then try again.";
+
+/**
+ * fetch(), with a network failure turned into "<what failed> Check your internet connection…".
+ * @param {string} url
+ * @param {RequestInit} init
+ * @param {string} what
+ */
+async function send(url, init, what) {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw new Error(`${what} ${NETWORK_HINT}`);
+  }
+}
 
 /**
  * Decode base64 to bytes.
@@ -30,7 +48,7 @@ function fromBase64(text) {
  */
 async function failed(res, fallback) {
   const body = await res.json().catch(() => ({}));
-  const err = /** @type {Error & { status?: number }} */ (new Error(body.error || fallback));
+  const err = /** @type {Error & { status?: number }} */ (new Error(body.error || `${fallback} ${SERVER_HINT}`));
   err.status = res.status;
   return err;
 }
@@ -42,7 +60,7 @@ async function failed(res, fallback) {
  * @returns {Promise<CloudRecord[]>}
  */
 async function fetchRecords(url, headers) {
-  const res = await fetch(url, { credentials: "include", headers });
+  const res = await send(url, { credentials: "include", headers }, RECORDS_FAILED);
   if (!res.ok) throw await failed(res, RECORDS_FAILED);
   const body = await res.json();
   return (body.records || []).map((/** @type {{ name: string, data: string }} */ r) => ({
@@ -58,7 +76,7 @@ async function fetchRecords(url, headers) {
  * @returns {Promise<Uint8Array>}
  */
 async function fetchPack(url, headers) {
-  const res = await fetch(url, { credentials: "include", headers });
+  const res = await send(url, { credentials: "include", headers }, PACK_FAILED);
   if (!res.ok) throw await failed(res, PACK_FAILED);
   return new Uint8Array(await res.arrayBuffer());
 }
@@ -79,7 +97,7 @@ async function postPrivate(url, headers, body) {
     sent["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
-  const res = await fetch(url, init);
+  const res = await send(url, init, PRIVATE_FAILED);
   if (!res.ok) throw await failed(res, PRIVATE_FAILED);
   return res.json();
 }

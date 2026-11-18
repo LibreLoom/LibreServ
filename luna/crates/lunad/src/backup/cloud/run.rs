@@ -30,10 +30,27 @@ pub(crate) const SCOPE_DOMAIN: &[u8] = b"luna-scope-v1";
 /// A pack is uploaded once its plain bytes reach this size.
 const PACK_FLUSH_BYTES: usize = 8 << 20;
 
+#[cfg(test)]
+thread_local! {
+    /// Lets a test make small data span several packs instead of writing
+    /// megabytes of it. Per thread, so tests that don't set it keep the real size.
+    pub(super) static PACK_FLUSH_OVERRIDE: std::cell::Cell<Option<usize>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// The size at which a pack is uploaded: `PACK_FLUSH_BYTES`, except in a test
+/// that asked for less.
+fn pack_flush_bytes() -> usize {
+    #[cfg(test)]
+    if let Some(bytes) = PACK_FLUSH_OVERRIDE.with(|c| c.get()) {
+        return bytes;
+    }
+    PACK_FLUSH_BYTES
+}
+
 /// Shown when a run is held because its source drive or folder is gone.
 const NO_ADMIN_PHRASE: &str = "Waiting for an Admin to set up the recovery phrase.";
-pub(crate) const SOURCE_MISSING: &str =
-    "The source looks missing or unplugged. Plug the drive back in, then try again.";
+pub(crate) const SOURCE_MISSING: &str = "Most files to back up are missing, or the drive is unplugged. Check the drive and folder, then try again.";
 
 /// Shown when a run is held because it could not be compared with the last copy.
 pub(crate) const CHECK_FAILED: &str = "Luna couldn't compare this folder with the last cloud copy, so it paused this backup. Try again, or choose Back up anyway if the folder looks right.";
@@ -130,15 +147,18 @@ pub(crate) fn run_with_root(
 
     // Held before any run row is opened, so nothing is committed and nothing needs closing.
     // If the last copy cannot be read, the run is held too: a check that cannot run must not pass.
+    // The last copy's file list, already read for the check, also lets unchanged files skip
+    // being read again. A run that skips the check reads every file.
+    let mut prev = None;
     if !accept_missing {
         match source_looks_missing(db, protection_id, root, store) {
-            Ok(true) => {
+            Ok((true, _)) => {
                 return Ok(CloudOutcome {
                     source_missing: true,
                     ..problem_outcome(SOURCE_MISSING)
                 });
             }
-            Ok(false) => {}
+            Ok((false, last)) => prev = last,
             Err(err) => {
                 tracing::warn!(error = %err, protection_id, "could not check the source against the last copy; holding the run");
                 return Ok(CloudOutcome {
@@ -155,7 +175,7 @@ pub(crate) fn run_with_root(
         Err(e) => return Ok(problem_outcome(&e.to_string())),
     };
 
-    let result = publish_and_copy(db, &ctx, publish, root, store, now);
+    let result = publish_and_copy(db, &ctx, publish, root, store, now, prev.as_ref());
     // The run is over whether or not it committed, so always close it.
     if let Err(e) = db::end_run(&lock(db), &ctx.run_id, now) {
         return Ok(problem_outcome(&e.to_string()));
@@ -167,21 +187,32 @@ pub(crate) fn run_with_root(
     })
 }
 
-/// True when most files in the previous snapshot are gone from `root`. The previous snapshot's
-/// file list is read back from the cloud. A protection with no earlier snapshot is never held.
+/// The previous snapshot's file list, kept so a run can reuse the chunks of files that have not
+/// changed instead of reading them again.
+pub(crate) struct PrevTree {
+    pub(crate) tree: Tree,
+    /// When the previous run started. A file modified at or after this may have changed during
+    /// that run without its size or whole-second mtime changing, so it is always read again.
+    pub(crate) created_at: i64,
+    pub(crate) key_version: u32,
+}
+
+/// True when most files in the previous snapshot are gone from `root`, plus that snapshot's
+/// file list. The list is read back from the cloud. A protection with no earlier snapshot is
+/// never held.
 fn source_looks_missing(
     db: &crate::Db,
     protection_id: &str,
     root: &Path,
     store: &dyn CloudStore,
-) -> Result<bool> {
+) -> Result<(bool, Option<PrevTree>)> {
     let (record, tree_key) = {
         let conn = lock(db);
         let Some(last) = db::list_cloud_snapshots(&conn, protection_id)?
             .into_iter()
             .next()
         else {
-            return Ok(false);
+            return Ok((false, None));
         };
         let Some(identity) = identity::load(&conn)? else {
             return Err(anyhow!("Luna's cloud identity is missing."));
@@ -202,7 +233,15 @@ fn source_looks_missing(
         (record, tree_key)
     };
     let tree = read_tree(store, &record, &tree_key)?;
-    Ok(most_files_missing(&tree, root))
+    let missing = most_files_missing(&tree, root);
+    Ok((
+        missing,
+        Some(PrevTree {
+            tree,
+            created_at: record.created_at,
+            key_version: record.key_version,
+        }),
+    ))
 }
 
 /// True when most files of the last tree are gone from `root`. An empty tree is never missing.
@@ -302,7 +341,7 @@ fn prepare(
         .ok_or_else(|| anyhow!("This backup no longer exists."))?;
     // A run never mints an identity: a Luna without one has never been set up for cloud backup.
     let identity = identity::load(&conn)?
-        .ok_or_else(|| anyhow!("Set up cloud backup on this Luna before running a backup."))?;
+        .ok_or_else(|| anyhow!("Luna's cloud identity is missing. Try again."))?;
     let seed = db::get_cloud_identity(&conn)?
         .ok_or_else(|| anyhow!("Luna's cloud identity is missing."))?
         .signing_seed;
@@ -406,6 +445,7 @@ fn publish_and_copy(
     root: &Path,
     store: &dyn CloudStore,
     now: i64,
+    prev: Option<&PrevTree>,
 ) -> Result<CloudOutcome> {
     if let Some((recipients, user_pub, key)) = publish {
         keys::publish_key(
@@ -418,7 +458,7 @@ fn publish_and_copy(
             |user| user_pub.get(user).copied(),
         )?;
     }
-    copy_and_commit(db, ctx, root, store, now)
+    copy_and_commit(db, ctx, root, store, now, prev)
 }
 
 /// Mutable state for walking the source and filling packs.
@@ -436,6 +476,8 @@ struct CopyState<'a> {
     located: HashMap<[u8; 32], ([u8; 32], u64, u32)>,
     /// Pack ids this run references, for the commit.
     pack_ids: Vec<String>,
+    /// The same ids as `pack_ids`, for a constant-time "already listed" check per chunk.
+    pack_set: HashSet<String>,
     uploaded_bytes: u64,
     reused_chunks: u64,
 }
@@ -454,9 +496,7 @@ impl CopyState<'_> {
             self.reused_chunks += 1;
             let pack = unhex(&pack_id)?;
             self.located.insert(id, (pack, offset as u64, len as u32));
-            if !self.pack_ids.contains(&pack_id) {
-                self.pack_ids.push(pack_id);
-            }
+            self.add_pack(pack_id);
             return Ok(id);
         }
         let builder = self
@@ -465,7 +505,7 @@ impl CopyState<'_> {
         let (offset, len) = builder.add(id, plain);
         self.pending.push((id, offset, len));
         self.placed.insert(id);
-        if builder.len() >= PACK_FLUSH_BYTES {
+        if builder.len() >= pack_flush_bytes() {
             self.flush()?;
         }
         Ok(id)
@@ -501,8 +541,38 @@ impl CopyState<'_> {
             }
         }
         self.uploaded_bytes += sealed.bytes.len() as u64;
-        self.pack_ids.push(pack_id);
+        self.add_pack(pack_id);
         Ok(())
+    }
+
+    fn add_pack(&mut self, pack_id: String) {
+        if self.pack_set.insert(pack_id.clone()) {
+            self.pack_ids.push(pack_id);
+        }
+    }
+
+    /// The previous snapshot's chunks for a file that has not changed, when every one is still
+    /// stored exactly where that tree says (a pack dropped as damaged or by retention is not).
+    /// `None` means the file must be read again. Takes the DB lock once per file.
+    fn reuse(&mut self, refs: &[ChunkRef]) -> Result<Option<Vec<ChunkRef>>> {
+        {
+            let conn = lock(self.db);
+            for r in refs {
+                match db::find_chunk(&conn, &self.ctx.scope, &r.id)? {
+                    Some((pack, offset, len))
+                        if pack == hex(&r.pack)
+                            && offset == r.offset as i64
+                            && len == i64::from(r.len) => {}
+                    _ => return Ok(None),
+                }
+            }
+        }
+        for r in refs {
+            self.reused_chunks += 1;
+            // Listing the pack keeps retention from deleting it while this snapshot needs it.
+            self.add_pack(hex(&r.pack));
+        }
+        Ok(Some(refs.to_vec()))
     }
 
     /// The pack and place of a chunk this run has already stored or reused.
@@ -521,13 +591,24 @@ impl CopyState<'_> {
     }
 }
 
+/// A file's chunks before the last pack is flushed: chunk ids read from the file now, or the
+/// previous snapshot's refs for a file that has not changed.
+enum Draft {
+    Read(Vec<[u8; 32]>),
+    Reused(Vec<ChunkRef>),
+}
+
 /// Copies every file under `root`, uploads the tree and a signed snapshot record, and commits.
+///
+/// With `prev`, a file whose size and mtime match the previous snapshot reuses that snapshot's
+/// chunks without being read, like the drive-to-drive backup's size-and-mtime check.
 pub(crate) fn copy_and_commit(
     db: &crate::Db,
     ctx: &RunContext,
     root: &Path,
     store: &dyn CloudStore,
     now: i64,
+    prev: Option<&PrevTree>,
 ) -> Result<CloudOutcome> {
     let mut copy = CopyState {
         db,
@@ -539,32 +620,79 @@ pub(crate) fn copy_and_commit(
         placed: HashSet::new(),
         located: HashMap::new(),
         pack_ids: Vec::new(),
+        pack_set: HashSet::new(),
         uploaded_bytes: 0,
         reused_chunks: 0,
     };
+
+    // Chunk ids are keyed per backup key version, so only a tree sealed under this run's version
+    // can lend its chunks. Files modified at or after the previous run started are left out.
+    let unchanged: HashMap<&str, &TreeEntry> = prev
+        .filter(|p| p.key_version == ctx.key_version)
+        .map(|p| {
+            p.tree
+                .entries
+                .iter()
+                .filter(|e| e.mtime < p.created_at)
+                .map(|e| (e.path.as_str(), e))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut files_skipped = 0u64;
+    let mut bytes_read = 0u64;
 
     // Chunk ids per file; they become `ChunkRef`s once the last pack is flushed.
     let mut drafts = Vec::new();
     let files =
         scope::walk(root).map_err(|e| anyhow!("Could not read the folder being backed up: {e}"))?;
     for entry in &files {
+        if let Some(old) = unchanged.get(entry.rel.as_str())
+            && old.size == entry.size
+            && old.mtime == entry.mtime
+            && let Some(refs) = copy.reuse(&old.chunks)?
+        {
+            files_skipped += 1;
+            drafts.push((
+                entry.rel.clone(),
+                entry.size,
+                entry.mtime,
+                Draft::Reused(refs),
+            ));
+            continue;
+        }
         let mut file =
             File::open(&entry.abs).map_err(|e| anyhow!("Could not open {}: {e}", entry.rel))?;
         let mut chunk_ids = Vec::new();
         format::chunks(&mut file, |plain| {
+            bytes_read += plain.len() as u64;
             chunk_ids.push(copy.chunk(plain)?);
             Ok(())
         })?;
-        drafts.push((entry.rel.clone(), entry.size, entry.mtime, chunk_ids));
+        drafts.push((
+            entry.rel.clone(),
+            entry.size,
+            entry.mtime,
+            Draft::Read(chunk_ids),
+        ));
     }
+    // Plain debug line, not a perf timer: ops.rs already times the whole D7 run.
+    tracing::debug!(
+        files = files.len(),
+        files_skipped,
+        bytes_read,
+        "cloud backup read the source"
+    );
     copy.flush()?;
     let entries = drafts
         .into_iter()
-        .map(|(path, size, mtime, ids)| {
-            let chunks = ids
-                .iter()
-                .map(|id| copy.locate(id))
-                .collect::<Result<Vec<_>>>()?;
+        .map(|(path, size, mtime, draft)| {
+            let chunks = match draft {
+                Draft::Reused(refs) => refs,
+                Draft::Read(ids) => ids
+                    .iter()
+                    .map(|id| copy.locate(id))
+                    .collect::<Result<Vec<_>>>()?,
+            };
             Ok(TreeEntry {
                 path,
                 size,
@@ -703,9 +831,7 @@ pub fn read_tree(
 /// The outcome of a run that found the backup's lock taken. Never recorded as a protection error.
 pub(crate) fn busy_outcome() -> CloudOutcome {
     CloudOutcome {
-        problem: Some(
-            "This backup is busy right now. Luna will try again in a few minutes.".to_string(),
-        ),
+        problem: Some("This backup is busy right now. Try again in a few minutes.".to_string()),
         busy: true,
         ..Default::default()
     }
@@ -1036,7 +1162,7 @@ mod tests {
         let out = run_with_root(&db, "p1", &src, &store, "user-1", false, 100).unwrap();
         assert_eq!(
             out.problem.as_deref(),
-            Some("Set up cloud backup on this Luna before running a backup.")
+            Some("Luna's cloud identity is missing. Try again.")
         );
         assert_eq!(out.snapshot_id, None);
         assert!(identity::load(&lock(&db)).unwrap().is_none());
@@ -1093,6 +1219,98 @@ mod tests {
         assert_eq!(second.problem, None);
         assert!(second.reused_chunks > 0);
         assert!(second.uploaded_bytes < first.uploaded_bytes / 10);
+    }
+
+    /// The tree a run committed, read back from the store.
+    fn committed_tree(db: &crate::Db, store: &MemoryStore, pid: &str, snapshot_id: &str) -> Tree {
+        let conn = lock(db);
+        let identity = identity::load(&conn).unwrap().unwrap();
+        let bytes = store.get_record("snapshots", snapshot_id).unwrap().unwrap();
+        let record = format::SignedRecord::from_bytes(&bytes)
+            .unwrap()
+            .verify(&identity.public())
+            .unwrap();
+        let key = db::list_backup_keys(&conn, pid)
+            .unwrap()
+            .into_iter()
+            .find(|k| k.version as u32 == record.key_version)
+            .unwrap();
+        let tree_key: [u8; 32] = key.key.as_slice().try_into().unwrap();
+        read_tree(store, &record, &tree_key).unwrap()
+    }
+
+    fn chunks_of(tree: &Tree, path: &str) -> Vec<ChunkRef> {
+        tree.entries
+            .iter()
+            .find(|e| e.path == path)
+            .unwrap()
+            .chunks
+            .clone()
+    }
+
+    /// Same size and mtime, different bytes: only reading the file would notice.
+    fn rewrite_keeping_size_and_mtime(path: &Path) {
+        let mtime = std::fs::metadata(path).unwrap().modified().unwrap();
+        let len = std::fs::metadata(path).unwrap().len() as usize;
+        std::fs::write(path, random_vec(len)).unwrap();
+        File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(mtime)
+            .unwrap();
+    }
+
+    #[test]
+    fn unchanged_files_reuse_the_last_trees_chunks_without_being_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        // Every file was last modified before this run started.
+        let start = db::now_unix() + 60;
+        let first = run_with_root(&db, "p6", &src, &store, "user-1", false, start).unwrap();
+        assert_eq!(first.problem, None);
+        rewrite_keeping_size_and_mtime(&src.join("a.bin"));
+
+        let second = run_with_root(&db, "p6", &src, &store, "user-1", false, start + 100).unwrap();
+        assert_eq!(second.problem, None);
+        assert_eq!(second.files, 2);
+        assert!(second.reused_chunks > 0);
+        let t1 = committed_tree(&db, &store, "p6", first.snapshot_id.as_deref().unwrap());
+        let t2 = committed_tree(&db, &store, "p6", second.snapshot_id.as_deref().unwrap());
+        // a.bin was not read: its old chunks were carried over as they were.
+        assert_eq!(chunks_of(&t1, "a.bin"), chunks_of(&t2, "a.bin"));
+        assert_eq!(chunks_of(&t1, "b.bin"), chunks_of(&t2, "b.bin"));
+        // The reused packs are listed for the new snapshot, so retention keeps them.
+        let conn = lock(&db);
+        let second_id = second.snapshot_id.unwrap();
+        for chunk in chunks_of(&t2, "a.bin") {
+            let listed: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM cloud_snapshot_packs WHERE snapshot_id = ?1 AND pack_id = ?2",
+                    rusqlite::params![second_id, hex(&chunk.pack)],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(listed, 1);
+        }
+    }
+
+    #[test]
+    fn files_modified_during_the_last_run_are_read_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        // The files' mtimes are not before this start, so none can be trusted unread.
+        let first = run_with_root(&db, "p6", &src, &store, "user-1", false, 100).unwrap();
+        rewrite_keeping_size_and_mtime(&src.join("a.bin"));
+        let second = run_with_root(&db, "p6", &src, &store, "user-1", false, 200).unwrap();
+        assert_eq!(second.problem, None);
+        let t1 = committed_tree(&db, &store, "p6", first.snapshot_id.as_deref().unwrap());
+        let t2 = committed_tree(&db, &store, "p6", second.snapshot_id.as_deref().unwrap());
+        assert_ne!(chunks_of(&t1, "a.bin"), chunks_of(&t2, "a.bin"));
     }
 
     #[test]

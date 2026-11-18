@@ -287,34 +287,12 @@ textarea::placeholder {
     }
 }
 
-/* Fullscreen overlays (document editor, photo viewer/lightbox) — fade + gentle scale for z-[80] takeovers. */
-@keyframes fullscreen-overlay-in {
-    from {
-        opacity: 0;
-        transform: scale(0.96);
-    }
-    to {
-        opacity: 1;
-        /* `none`, not scale(1): same as .pop-in — a held transform on the
-           fixed overlay becomes a containing block/compositing layer. */
-        transform: none;
-    }
-}
-
-@keyframes fullscreen-overlay-out {
-    from {
-        opacity: 1;
-        transform: scale(1);
-    }
-    to {
-        opacity: 0;
-        transform: scale(0.96);
-    }
-}
-
-/* File viewers fade only. The editor mount lands on the main thread during
-   the opening, and scaling a full-viewport layer at the same time made the
-   entrance stutter; a fade runs on the compositor, so it survives that work. */
+/* Fullscreen overlays (document editor, photo lightbox, full view) fade only.
+   Scaling a full-viewport layer stutters while the page is busy; a fade runs
+   on the compositor, so it survives main-thread work. The enter class has no
+   will-change: it stays on for the overlay's whole life, and a held layer
+   would keep Excalidraw's canvases and EuroOffice's iframe promoted long
+   after the entrance. The running animation promotes it by itself. */
 @keyframes file-viewer-in {
     from { opacity: 0; }
     to { opacity: 1; }
@@ -323,19 +301,6 @@ textarea::placeholder {
 @keyframes file-viewer-out {
     from { opacity: 1; }
     to { opacity: 0; }
-}
-
-.fullscreen-overlay-enter {
-    /* No will-change here: this class stays on for the editor's whole life,
-       and a held will-change keeps the full-viewport overlay (Excalidraw's
-       canvases, EuroOffice's iframe) on its own compositor layer long after
-       the entrance ends. The running animation promotes it by itself. */
-    animation: fullscreen-overlay-in var(--motion-duration-medium3) var(--motion-easing-emphasized-decelerate) backwards;
-}
-
-.fullscreen-overlay-exit {
-    animation: fullscreen-overlay-out var(--motion-duration-medium1) var(--motion-easing-emphasized-accelerate) both;
-    will-change: transform, opacity;
 }
 
 .file-viewer-enter {
@@ -348,8 +313,6 @@ textarea::placeholder {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .fullscreen-overlay-enter,
-    .fullscreen-overlay-exit,
     .file-viewer-enter,
     .file-viewer-exit {
         animation: none;
@@ -578,6 +541,13 @@ textarea::placeholder {
 
 .animate-nav-slide-in {
     animation: nav-slide-in 200ms var(--motion-easing-emphasized-decelerate) both;
+}
+
+/* A page sliding in (SlidePages) already moves; its rows, cards and
+   thumbnails don't add their own entrance on top. */
+[data-slide-page][data-entering] .animate-nav-slide-in,
+[data-slide-page][data-entering] .animate-cascade-in {
+    animation: none;
 }
 
 /* Pop-out animation for modal/dialog exits */
@@ -1447,7 +1417,7 @@ textarea::placeholder {
 }
 
 
-/* Luna Gallery Places map — strip Leaflet popup chrome; card lives in React */
+/* Luna Photos Places map — strip Leaflet popup chrome; card lives in React */
 .places-map .leaflet-popup-content-wrapper,
 .places-map .leaflet-popup-content {
   background: transparent;

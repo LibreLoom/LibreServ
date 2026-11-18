@@ -6,6 +6,11 @@ import { GFM } from "@lezer/markdown";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { markdownLivePreview } from "./markdownLivePreview.js";
 
+// CodeMirror measures on animation frames, and a loaded machine can miss
+// vi.waitFor's 1s default. waitFor returns the moment the condition holds, so
+// the longer limit only bounds a real failure.
+const waitFor = (fn) => vi.waitFor(fn, { timeout: 8000, interval: 10 });
+
 const TABLE_DOC = "intro\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n\nafter";
 
 function mount(doc) {
@@ -21,7 +26,7 @@ function mount(doc) {
 }
 
 async function settled(view) {
-  await vi.waitFor(() => {
+  await waitFor(() => {
     view.requestMeasure();
     if (!view.dom.querySelector(".md-table-grid")) {
       throw new Error("table not rendered yet");
@@ -32,7 +37,7 @@ async function settled(view) {
 /** Open a menu by its trigger label and return the option labels. */
 async function openMenu(view, label) {
   fireEvent.click(within(view.dom).getByRole("button", { name: label }));
-  const menu = await vi.waitFor(() => {
+  const menu = await waitFor(() => {
     const el = document.querySelector("[data-slot='dropdown-menu']");
     if (!(el instanceof HTMLElement)) throw new Error("menu not open");
     return el;
@@ -45,7 +50,7 @@ async function openMenu(view, label) {
 async function choose(label) {
   fireEvent.click(screen.getByRole("option", { name: label }));
   // The dropdown plays a short close animation before unmounting.
-  await vi.waitFor(() => {
+  await waitFor(() => {
     if (document.querySelector("[data-slot='dropdown-menu']")) {
       throw new Error("menu still open");
     }
@@ -93,7 +98,7 @@ describe("column menu (header cells)", () => {
     expect(table(view)).toBe(
       "| A |  | B |\n| --- | --- | --- |\n| 1 |  | 2 |\n| 3 |  | 4 |",
     );
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(document.activeElement?.closest("[data-cell]")?.getAttribute("data-cell")).toBe("0,1");
     });
     await openMenu(view, "Column 1 options");
@@ -156,7 +161,7 @@ describe("add strips", () => {
     );
     fireEvent.click(within(view.dom).getByRole("button", { name: "Add row" }));
     expect(table(view).split("\n").at(-1)).toBe("|  |  |  |");
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(document.activeElement?.closest("[data-cell]")?.getAttribute("data-cell")).toBe("3,0");
     });
     view.destroy();

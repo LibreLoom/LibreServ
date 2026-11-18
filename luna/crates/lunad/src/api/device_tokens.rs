@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::api::response::json_error;
-use crate::auth::{self, AuthError};
+use crate::auth;
 
 #[derive(Deserialize)]
 struct CreateBody {
@@ -38,34 +38,22 @@ fn token_row_json(dt: &crate::db::DeviceTokenRow) -> Value {
     })
 }
 
-fn map_err(err: AuthError) -> (StatusCode, Json<Value>) {
-    match err {
-        AuthError::Forbidden => json_error(
-            StatusCode::FORBIDDEN,
-            "Only an Admin can manage access tokens.",
-        ),
-        AuthError::Unauthenticated => {
-            json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first.")
-        }
-        _ => json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't update access tokens. Try again.",
-        ),
-    }
+const LOAD_FAILED: &str = "Luna could not load your access tokens. Try again.";
+const SAVE_FAILED: &str = "Luna could not save the access token change. Try again.";
+const NOT_FOUND: &str = "Luna can't find that access token.";
+
+/// A database failure, reported with the action that failed.
+fn failed<E>(msg: &'static str) -> impl FnOnce(E) -> (StatusCode, Json<Value>) {
+    move |_| json_error(StatusCode::INTERNAL_SERVER_ERROR, msg)
 }
 
 async fn list(
     State(state): State<AppState>,
     Extension(user): Extension<auth::CurrentUser>,
 ) -> Result<Json<Vec<Value>>, (StatusCode, Json<Value>)> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| AuthError::Unauthenticated)
-        .map_err(map_err)?;
-    let tokens = crate::db::list_device_tokens_for_user(&conn, &user.id)
-        .map_err(AuthError::Db)
-        .map_err(map_err)?;
+    let conn = state.db.lock().map_err(failed(LOAD_FAILED))?;
+    let tokens =
+        crate::db::list_device_tokens_for_user(&conn, &user.id).map_err(failed(LOAD_FAILED))?;
     Ok(Json(
         tokens
             .iter()
@@ -81,22 +69,16 @@ async fn create(
     Json(body): Json<CreateBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let name = body.name.trim();
-    if name.is_empty() || name.len() > 80 {
+    if name.is_empty() || name.chars().count() > 80 {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            "Give this device a name between 1 and 80 characters.",
+            "Give this access token a name between 1 and 80 characters.",
         ));
     }
 
     let mut raw = [0u8; 32];
     getrandom::getrandom(&mut raw)
-        .map_err(|_| AuthError::Unauthenticated)
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't generate a token. Try again.",
-            )
-        })?;
+        .map_err(failed("Luna could not make the access token. Try again."))?;
     let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw);
     let id = Uuid::new_v4().to_string();
     let expires_at = body.expires_in_days.map(|days| {
@@ -104,11 +86,7 @@ async fn create(
         crate::db::now_unix() + secs
     });
 
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| AuthError::Unauthenticated)
-        .map_err(map_err)?;
+    let conn = state.db.lock().map_err(failed(SAVE_FAILED))?;
     crate::db::insert_device_token(
         &conn,
         &id,
@@ -117,8 +95,7 @@ async fn create(
         &auth::hash_device_token(&token),
         expires_at,
     )
-    .map_err(AuthError::Db)
-    .map_err(map_err)?;
+    .map_err(failed(SAVE_FAILED))?;
     drop(conn);
 
     Ok(Json(json!({
@@ -137,22 +114,17 @@ async fn usage(
     Extension(user): Extension<auth::CurrentUser>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<Value>>, (StatusCode, Json<Value>)> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| AuthError::Unauthenticated)
-        .map_err(map_err)?;
+    let conn = state.db.lock().map_err(failed(LOAD_FAILED))?;
     let owned = crate::db::list_device_tokens_for_user(&conn, &user.id)
-        .map_err(AuthError::Db)
-        .map_err(map_err)?
+        .map_err(failed(LOAD_FAILED))?
         .into_iter()
         .any(|t| t.id == id);
     if !owned {
-        return Err(json_error(StatusCode::NOT_FOUND, "No such device token."));
+        return Err(json_error(StatusCode::NOT_FOUND, NOT_FOUND));
     }
-    let rows = crate::db::list_device_token_usage(&conn, &id, 50)
-        .map_err(AuthError::Db)
-        .map_err(map_err)?;
+    let rows = crate::db::list_device_token_usage(&conn, &id, 50).map_err(failed(
+        "Luna could not load what this access token was used for. Try again.",
+    ))?;
     Ok(Json(
         rows.into_iter()
             .map(|r| {
@@ -173,22 +145,15 @@ async fn remove(
     Extension(user): Extension<auth::CurrentUser>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| AuthError::Unauthenticated)
-        .map_err(map_err)?;
+    let conn = state.db.lock().map_err(failed(SAVE_FAILED))?;
     let owned = crate::db::list_device_tokens_for_user(&conn, &user.id)
-        .map_err(AuthError::Db)
-        .map_err(map_err)?
+        .map_err(failed(SAVE_FAILED))?
         .into_iter()
         .any(|t| t.id == id);
     if !owned {
-        return Err(json_error(StatusCode::NOT_FOUND, "No such device token."));
+        return Err(json_error(StatusCode::NOT_FOUND, NOT_FOUND));
     }
-    crate::db::revoke_device_token(&conn, &id)
-        .map_err(AuthError::Db)
-        .map_err(map_err)?;
+    crate::db::revoke_device_token(&conn, &id).map_err(failed(SAVE_FAILED))?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -347,7 +312,7 @@ mod tests {
             assert_eq!(status, StatusCode::BAD_REQUEST, "{name:?}");
             assert_eq!(
                 body["error"],
-                "Give this device a name between 1 and 80 characters."
+                "Give this access token a name between 1 and 80 characters."
             );
         }
     }

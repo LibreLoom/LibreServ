@@ -128,7 +128,7 @@ pub fn limits_from(available_bytes: u64, total_bytes: u64) -> Limits {
     }
 }
 
-/// Blocking HEIF slot (gallery runs on `spawn_blocking`).
+/// Blocking HEIF slot (photos runs on `spawn_blocking`).
 pub fn acquire_heif_slot_blocking() -> HeifPermit {
     static BLOCKING: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
     // Serialize HEIF child processes. On a 2 GiB box two heif-dec peaks can OOM.

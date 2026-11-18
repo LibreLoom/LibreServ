@@ -12,6 +12,7 @@ const PHRASE = entropyToPhrase(newEntropy(12));
 
 /** The restore form asks for one word per box now. */
 async function typePhrase(user) {
+  await screen.findByLabelText("Word 1");
   const words = PHRASE.split(" ");
   for (let i = 0; i < words.length; i += 1) {
     await user.type(screen.getByLabelText(`Word ${i + 1}`), words[i]);
@@ -83,6 +84,16 @@ afterEach(() => {
 });
 
 describe("CloudRestoreCard", () => {
+  it("keeps recovery visible when its status check fails and lets the Admin retry", async () => {
+    getRestoreStatusMock.mockRejectedValueOnce(new Error("Unavailable"));
+    const user = userEvent.setup();
+    renderCard();
+    expect(await screen.findByText("Luna couldn't check whether your cloud backups need restoring.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByLabelText("Word 1")).toBeInTheDocument();
+    expect(getRestoreStatusMock).toHaveBeenCalledTimes(2);
+  });
+
   it("renders nothing for a member", async () => {
     mockUser = { id: "7", role: "member" };
     const { container } = renderCard();
@@ -206,7 +217,7 @@ describe("CloudRestoreCard", () => {
     renderCard();
     await typePhrase(user);
     await user.click(screen.getByRole("button", { name: "Find my backups" }));
-    expect(await screen.findByText("Restoring backup 2 of 5")).toBeInTheDocument();
+    expect(await screen.findByText("Restoring backup version 2 of 5")).toBeInTheDocument();
     expect(screen.getByLabelText("Cloud backup restore progress")).toHaveAttribute("value", "2");
     expect(screen.getByText("1 restored · 1 already on Luna · Luna couldn't open 2 backup versions")).toBeInTheDocument();
     finish({ snapshots: 1, alreadyIndexed: 1, skipped: 0 });

@@ -122,13 +122,13 @@ function BackupRow({ backup, onOpen, onRun, running, member = false }) {
 function PrivateItemsRow({ owner, isYours, isAdmin, onRemove }) {
   const title = owner.deleted ? "Private items · deleted user" : "Private items";
   let line = null;
-  if (isYours) line = "Yours. Open a private folder's shield to see each one.";
-  else if (!owner.deleted) line = `Only ${owner.name} can see these.`;
-  const needing = owner.needsLook;
+  if (isYours) line = "Yours. To see each backup, open the private folder and select Back up.";
+  else if (!owner.deleted) line = `Only ${owner.name} can open these items.`;
+  // The summary says only whether any of these backups needs a look, not how many.
   const status =
-    needing === 0
-      ? { label: "All backed up", variant: "success" }
-      : { label: needing === 1 ? "1 needs a look" : `${needing} need a look`, variant: "warning" };
+    owner.needsLook > 0
+      ? { label: "Needs a look", variant: "warning" }
+      : { label: "All backed up", variant: "success" };
   return (
     <li>
       <div className="surface-primary rounded-large-element p-4 space-y-3">
@@ -213,7 +213,12 @@ export default function AllBackupsModal({ open, onClose, backups = [] }) {
     onSuccess: (res, { backup }) => {
       const what = backup.kind === "cloud" ? "Cloud backup" : "Backup";
       if (res?.problem) {
-        toast.addToast({ type: "error", message: `${what} did not run`, description: res.problem });
+        // The problem can come before the copy starts (busy, drive not connected) or partway.
+        toast.addToast({
+          type: "error",
+          message: backup.kind === "cloud" ? "Luna could not make the Cloud backup" : "Luna could not make the backup",
+          description: res.problem,
+        });
         return;
       }
       toast.addToast({
@@ -269,7 +274,7 @@ export default function AllBackupsModal({ open, onClose, backups = [] }) {
                 surface="primary"
                 icon={Shield}
                 title="No backups yet"
-                description="Click the shield icon beside a drive or folder to back it up."
+                description="To back up a drive or folder, open its menu and select Back up."
               />
             ) : (
               <EmptyState

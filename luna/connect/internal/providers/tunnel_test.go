@@ -82,3 +82,24 @@ func TestCreateTunnelMockMode(t *testing.T) {
 		t.Fatalf("unexpected mock creds: %+v", creds)
 	}
 }
+
+func TestDeleteTunnelClearsConnectorsAndTreatsMissingAsDeleted(t *testing.T) {
+	t.Parallel()
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		if r.Method == http.MethodDelete && strings.HasSuffix(r.URL.Path, "/tun-1") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+	}))
+	defer srv.Close()
+	c := &TunnelClient{HTTP: srv.Client(), BaseURL: srv.URL}
+	if err := c.DeleteTunnel("acct", "tok", "tun-1"); err != nil {
+		t.Fatalf("a tunnel that is already gone should count as deleted: %v", err)
+	}
+	if len(calls) != 2 || !strings.HasSuffix(calls[0], "/tun-1/connections") {
+		t.Fatalf("connectors must be cleared before the delete, got %v", calls)
+	}
+}

@@ -38,7 +38,7 @@ describe("RestoreForm", () => {
         <RestoreForm words="" onWords={() => {}} onSubmit={() => {}} submitLabel="Find" error="Nope" />
       </div>,
     );
-    expect(screen.getByLabelText("Recovery phrase")).toBeInTheDocument();
+    expect(screen.getByLabelText("Word 1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Find" })).toBeDisabled();
     expect(screen.getByText("Nope")).toBeInTheDocument();
   });

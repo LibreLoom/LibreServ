@@ -69,7 +69,7 @@ describe("BackupsPage", () => {
     expect(screen.getByTestId("backups-files")).toBeTruthy();
     expect(screen.getByText(/\$8 \/ terabyte \/ month/i)).toBeTruthy();
     expect(screen.getByText(/\$3 once you store something/i)).toBeTruthy();
-    expect(screen.getByText(/Free up to 3× stored amount/i)).toBeTruthy();
+    expect(screen.getByText(/Free up to 3× what you store/i)).toBeTruthy();
     expect(screen.queryByText(/average storage/i)).toBeNull();
     expect(screen.getByRole("button", { name: /Add a payment card/i })).toBeTruthy();
     expect(screen.getByTestId("backup-empty-state")).toBeTruthy();
@@ -111,6 +111,22 @@ describe("BackupsPage", () => {
     expect(screen.getByRole("button", { name: /Keep payment on/i })).toBeTruthy();
   });
 
+  it("says turning payment off charges the month and deletes stored copies", () => {
+    renderTab({ me: { has_card: true, estimated_month: 4.2, stored_bytes: 5_000_000_000 } });
+    fireEvent.click(screen.getByRole("button", { name: /Turn off payment/i }));
+    expect(screen.getByText(/delete your cloud copies\?/i)).toBeTruthy();
+    expect(screen.getByText(/about \$4\.20/)).toBeTruthy();
+    expect(screen.getByText(/can't be undone/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Charge and delete copies" })).toBeTruthy();
+  });
+
+  it("charges and deletes nothing when nothing is stored", () => {
+    renderTab({ me: { has_card: true, estimated_month: 0, stored_bytes: 0 } });
+    fireEvent.click(screen.getByRole("button", { name: /Turn off payment/i }));
+    expect(screen.getByText("Nothing is stored, so nothing is charged or deleted.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Charge and delete copies" })).toBeNull();
+  });
+
   it("shows remaining days and add-card when a purge clock is running", () => {
     const later = Math.floor(Date.now() / 1000) + 10 * 86400;
     renderTab({
@@ -126,17 +142,69 @@ describe("BackupsPage", () => {
     expect(screen.getByRole("button", { name: /Add a payment card/i })).toBeTruthy();
   });
 
-  it("says when a no longer linked Luna's files will be deleted", () => {
+  it("sends a failed payment to link.com instead of a second card", () => {
+    const later = Math.floor(Date.now() / 1000) + 10 * 86400;
+    renderTab({ me: { has_card: false, billing_status: "past_due", backup_purge_after: later } });
+    expect(screen.getByText("Payment didn't go through")).toBeTruthy();
+    const link = screen.getByTestId("backup-update-card");
+    expect(link.getAttribute("href")).toBe("https://app.link.com");
+    expect(screen.getByText(/Pay the bill to keep them/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Add a payment card/i })).toBeNull();
+  });
+
+  it("links the unpaid bill's own page when Stripe has one", () => {
+    const later = Math.floor(Date.now() / 1000) + 10 * 86400;
+    renderTab({
+      me: { has_card: false, billing_status: "past_due", backup_purge_after: later, payment_fix_url: "https://invoice.stripe.com/i/abc" },
+    });
+    const link = screen.getByTestId("backup-update-card");
+    expect(link.getAttribute("href")).toBe("https://invoice.stripe.com/i/abc");
+    expect(link.textContent).toBe("Pay the bill");
+    expect(screen.getByText(/confirm the payment with your bank or use a different card/i)).toBeTruthy();
+  });
+
+  it("says payment is being turned off even while copies are being deleted", () => {
+    // Seen in the browser: right after "Charge and delete copies" the page
+    // refreshed mid-delete and said "Payment didn't go through".
+    const now = Math.floor(Date.now() / 1000);
+    renderTab({ me: { has_card: false, billing_status: "canceling", backup_purge_after: now } });
+    expect(screen.getByTestId("backups-canceling")).toBeTruthy();
+    expect(screen.queryByText("Payment didn't go through")).toBeNull();
+  });
+
+  it("calls a countdown after a cancel elsewhere 'Payment is off', not a failed payment", () => {
+    const later = Math.floor(Date.now() / 1000) + 5 * 86400;
+    renderTab({ me: { has_card: false, billing_status: "canceled", backup_purge_after: later } });
+    expect(screen.getByText("Payment is off")).toBeTruthy();
+    expect(screen.queryByText("Payment didn't go through")).toBeNull();
+  });
+
+  it("says payment is being turned off while the final bill is pending", () => {
+    renderTab({ me: { has_card: false, billing_status: "canceling" } });
+    expect(screen.getByTestId("backups-canceling")).toBeTruthy();
+    expect(screen.getByText(/within about an hour/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Add a payment card/i })).toBeNull();
+  });
+
+  it("says prices and charges are before tax", () => {
+    renderTab({ me: { has_card: true, estimated_month: 4.2, stored_bytes: 5_000_000_000 } });
+    expect(screen.getByTestId("backup-pricing-tax")).toBeTruthy();
+    expect(screen.getByText(/so far, before tax/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Turn off payment/i }));
+    expect(screen.getByText(/within about an hour: about \$4\.20 plus tax/)).toBeTruthy();
+  });
+
+  it("keeps unlinked copies while payment is on even with a former deadline", () => {
     renderTab({ lunas: [{ ...HOME, linked: false, purge_after: 1800000000 }], paired: false });
     expect(
-      screen.getByText(/These files are from a Luna that is no longer linked\. They are deleted on .+ unless you link it again\. Download anything you need before then\./),
+      screen.getByText(/Your cloud copies stay while payment is on/),
     ).toBeTruthy();
     expect(screen.queryByText(/monthly bill stays/i)).toBeNull();
   });
 
   it("keeps the bill sentence for a no longer linked Luna with no delete date", () => {
     renderTab({ lunas: [{ ...HOME, linked: false, purge_after: 0 }], paired: false });
-    expect(screen.getByText(/The monthly bill stays until you turn payment off/)).toBeTruthy();
+    expect(screen.getByText(/Your cloud copies stay while payment is on/)).toBeTruthy();
     expect(screen.queryByText(/They are deleted on/)).toBeNull();
   });
 

@@ -34,7 +34,7 @@ pub(super) async fn subject_state(
     )?;
     let mine = my_caps(&conn, &user, &subj);
     if mine == 0 {
-        return Err(refuse(&subj, mine, "You don't have access to share this."));
+        return Err(refuse(&subj, mine, "You don't have access to this."));
     }
     // Who-has-what is share-management detail: a member without the share
     // capability sees that sharing exists (counts), never the roster or link
@@ -261,7 +261,7 @@ pub(super) async fn add_member(
     if !subject_owner && !caps_strictly_cover(mine, caps) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "You can only share access narrower than your own.",
+            "You can only give less access than you have.",
         ));
     }
     if subject_owner && !caps_cover(mine, caps) {
@@ -278,7 +278,7 @@ pub(super) async fn add_member(
     if target.role == "admin" && !subj.private {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            "Admins can already open everything.",
+            "Admins can already open this.",
         ));
     }
 
@@ -630,7 +630,7 @@ pub(super) async fn update_link(
         if !allowed {
             return Err(json_error(
                 StatusCode::FORBIDDEN,
-                "You can't widen a link past your own access.",
+                "You can't give a link more access than you have.",
             ));
         }
         link.caps = caps;

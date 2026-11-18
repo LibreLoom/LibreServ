@@ -18,13 +18,60 @@ const DEFAULT_CONNECT_URL: &str = "https://connect.luna.libreloom.org";
 
 /// Steady-state Connect status pull (boot + every 5 minutes after setup).
 pub const STEADY_POLL_SECS: u64 = 300;
+
+/// Cuts the Connect poll loop's wait short (link came up, device token
+/// saved). The loop blocks on it instead of waking every second.
+#[derive(Default)]
+pub struct PollWake {
+    woken: Mutex<bool>,
+    cv: std::sync::Condvar,
+}
+
+impl PollWake {
+    /// Make the next pull happen now.
+    pub fn wake(&self) {
+        *self.woken.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        self.cv.notify_all();
+    }
+
+    /// True when a wake is waiting to be taken.
+    pub fn is_set(&self) -> bool {
+        *self.woken.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Wait with no time limit until woken, and take the wake.
+    pub fn wait_forever(&self) {
+        let guard = self.woken.lock().unwrap_or_else(|e| e.into_inner());
+        let mut woken = self
+            .cv
+            .wait_while(guard, |w| !*w)
+            .unwrap_or_else(|e| e.into_inner());
+        *woken = false;
+    }
+
+    /// Wait up to `timeout`. True (and the wake is taken) when woken.
+    pub fn wait(&self, timeout: Duration) -> bool {
+        let guard = self.woken.lock().unwrap_or_else(|e| e.into_inner());
+        let (mut woken, _) = self
+            .cv
+            .wait_timeout_while(guard, timeout, |w| !*w)
+            .unwrap_or_else(|e| e.into_inner());
+        std::mem::take(&mut *woken)
+    }
+}
 /// Fast pull while setup is open and the tunnel is not running yet.
 pub const AGGRESSIVE_POLL_SECS: u64 = 10;
 
 /// End-to-end Connect HTTP budget. ureq 3 defaults to *no* timeout — without this,
 /// wedged DNS/TCP during late network bring-up can freeze the Connect poll thread
 /// until reboot (sticky "Luna will keep trying").
+#[cfg(not(test))]
 const CONNECT_HTTP_TIMEOUT: Duration = Duration::from_secs(20);
+/// Tests talk to local servers that answer in milliseconds; the hanging-peer
+/// test waits out the whole budget, so a short one keeps it from setting the
+/// floor for the whole suite.
+#[cfg(test)]
+const CONNECT_HTTP_TIMEOUT: Duration = Duration::from_secs(4);
 /// TCP/TLS connect budget inside the global timeout.
 const CONNECT_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Cap on Connect reply bodies — status JSON is small, and a hostile or
@@ -36,13 +83,15 @@ const MAX_REPLY_BYTES: u64 = 4 * 1024 * 1024;
 pub const DEVICE_TOKEN_FILE: &str = "device-token";
 
 /// Connect rejected the on-disk token (HTTP 401 / revoked / unknown).
-pub const DEVICE_TOKEN_REJECTED_MSG: &str = "Luna Connect did not accept this device token. It may be mistyped, revoked, or meant for a different Luna. Open Luna on a phone or computer, then go to Settings → About → Advanced and paste a new device token.";
+pub const DEVICE_TOKEN_REJECTED_MSG: &str = "Luna Connect did not accept this device token. It may be mistyped, revoked, or for a different Luna. On a phone or computer, open Luna and paste a new device token in Settings → About → Advanced.";
 /// On-disk token file is present but not a valid Crockford device token.
-pub const DEVICE_TOKEN_MALFORMED_MSG: &str = "This Luna's device token is not valid. It should look like ****-****-****-****-****. Open Luna on a phone or computer, then go to Settings → About → Advanced and paste a new device token.";
-/// Connect was unreachable on the last status pull (sticky while token is present).
-pub const CONNECT_UNREACHABLE_MSG: &str = "Luna Connect could not be reached. Check this Luna's internet connection. Luna will keep trying.";
+pub const DEVICE_TOKEN_MALFORMED_MSG: &str = "This Luna's device token is not valid. On a phone or computer, open Luna and paste a new device token in Settings → About → Advanced.";
+/// Connect was unreachable, or answered with an error, on the last status
+/// pull (sticky while token is present).
+pub const CONNECT_UNREACHABLE_MSG: &str = "Luna can't reach Luna Connect, or Luna Connect has a problem. Check this Luna's internet connection. Luna will keep trying.";
 /// Connect replied with a Cloudflare (or similar) browser challenge instead of JSON.
-pub const CONNECT_CHALLENGED_MSG: &str = "Luna Connect blocked a connection check. Remote access may not work until this is fixed on the Connect side. Luna will keep trying.";
+pub const CONNECT_CHALLENGED_MSG: &str =
+    "Luna Connect blocked a request from this Luna. Luna will keep trying.";
 /// cloudflared is missing and Luna could not download it.
 pub const TUNNEL_HELPER_MISSING_MSG: &str = "Luna could not download the remote access helper. Check this Luna's internet connection. Luna will keep trying.";
 /// cloudflared was found (or installed) but would not stay running.
@@ -52,7 +101,7 @@ pub const TUNNEL_START_FAILED_MSG: &str =
 pub const TUNNEL_TOKEN_MISSING_MSG: &str = "A remote address is set, but Luna does not have a connection key from Luna Connect yet. Luna will keep trying.";
 /// Hostname/token exist but lunad does not see a live connector yet.
 pub const TUNNEL_NOT_RUNNING_MSG: &str =
-    "Remote access is set up, but the secure tunnel is not running yet. Luna will keep trying.";
+    "Remote access is set up, but it is not running yet. Luna will keep trying.";
 
 pub(crate) const LEGACY_DEVICE_TOKEN_FILE: &str = "setup-token";
 
@@ -60,7 +109,10 @@ pub(crate) const LEGACY_DEVICE_TOKEN_FILE: &str = "setup-token";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectError {
-    #[error("Connect couldn't be reached. Check your internet connection and try again.")]
+    /// No answer, or an answer that was not a success (5xx, non-JSON 403).
+    #[error(
+        "Luna couldn't reach Luna Connect, or Luna Connect had a problem. Check your internet connection, then try again."
+    )]
     Unreachable,
     /// HTML/gateway challenge (e.g. Cloudflare managed challenge) — not an authentic unbind.
     #[error("{msg}", msg = CONNECT_CHALLENGED_MSG)]
@@ -86,6 +138,10 @@ enum TokenCheck {
     Unknown,
 }
 
+pub const CLOUD_BACKUP_NOT_LINKED: &str = "not_linked";
+pub const CLOUD_BACKUP_NO_PAYMENT: &str = "no_payment";
+pub const CLOUD_BACKUP_READY: &str = "ready";
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ConnectStatus {
     /// True when `{data_dir}/device-token` exists and holds a valid device token.
@@ -97,6 +153,9 @@ pub struct ConnectStatus {
     pub subdomain: Option<String>,
     pub tunnel_active: bool,
     pub backup_unlocked: bool,
+    /// Whether cloud backup can store anything: `not_linked` (no working device token),
+    /// `no_payment` (linked, but Luna Connect has no active payment card), or `ready`.
+    pub cloud_backup: &'static str,
     pub paired: bool,
     pub unclaimed: bool,
     pub device_code: Option<String>,
@@ -130,7 +189,12 @@ pub struct ConnectService {
     tunnel_error: Mutex<Option<String>>,
     cached_wan_ip: Mutex<Option<std::net::IpAddr>>,
     /// Set to cut the poll loop's sleep short (link came up, device token saved).
-    poll_wake: Arc<std::sync::atomic::AtomicBool>,
+    poll_wake: Arc<PollWake>,
+    /// Watch number of the cloudflared child a thread is waiting on, 0 when
+    /// none is (see [`watch_child_exit`]).
+    tunnel_watch: Arc<std::sync::atomic::AtomicU64>,
+    /// Set by the watch when the managed cloudflared exits on its own.
+    tunnel_exited: Arc<std::sync::atomic::AtomicBool>,
     local_port: u16,
 }
 
@@ -166,7 +230,9 @@ impl ConnectService {
             connect_unreachable: Mutex::new(None),
             tunnel_error: Mutex::new(None),
             cached_wan_ip: Mutex::new(cached_wan_ip),
-            poll_wake: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            poll_wake: Arc::new(PollWake::default()),
+            tunnel_watch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            tunnel_exited: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             local_port: 8090,
         }
     }
@@ -209,6 +275,13 @@ impl ConnectService {
         {
             tunnel_err = Some(TUNNEL_NOT_RUNNING_MSG.to_string());
         }
+        status.cloud_backup = if !status.connect_active || token_error.is_some() {
+            CLOUD_BACKUP_NOT_LINKED
+        } else if !status.backup_unlocked {
+            CLOUD_BACKUP_NO_PAYMENT
+        } else {
+            CLOUD_BACKUP_READY
+        };
         status.device_token_error = token_error;
         status.connect_unreachable = unreachable;
         status.tunnel_error = tunnel_err;
@@ -219,8 +292,21 @@ impl ConnectService {
         status
     }
 
-    /// Flag the poll loop checks every second; setting it makes the next pull happen now.
-    pub fn poll_wake(&self) -> Arc<std::sync::atomic::AtomicBool> {
+    /// True while a thread waits on the managed cloudflared child and will
+    /// wake the poll loop the moment it exits, so the loop need not look.
+    pub fn tunnel_watched(&self) -> bool {
+        self.tunnel_watch.load(std::sync::atomic::Ordering::Acquire) != 0
+    }
+
+    /// True once after the watched cloudflared exited on its own (not
+    /// stopped or replaced by Luna): the poll loop's wake was for that.
+    pub fn take_tunnel_exit(&self) -> bool {
+        self.tunnel_exited
+            .swap(false, std::sync::atomic::Ordering::AcqRel)
+    }
+
+    /// Wakes the poll loop; waking it makes the next pull happen now.
+    pub fn poll_wake(&self) -> Arc<PollWake> {
         self.poll_wake.clone()
     }
 
@@ -245,11 +331,19 @@ impl ConnectService {
     }
 
     /// During setup: peel from LUNAASSETS when the on-disk token is missing or invalid.
+    /// A token it saves wakes the poll loop, which sleeps while there is none.
     pub fn ensure_device_code_from_mag(&self) -> crate::system::factory_mag::MagFetchOutcome {
-        crate::system::factory_mag::fetch_device_token_from_mag(
+        let outcome = crate::system::factory_mag::fetch_device_token_from_mag(
             &self.token_path,
             &crate::system::factory_mag::MagFetchOptions::default(),
-        )
+        );
+        if matches!(
+            outcome,
+            crate::system::factory_mag::MagFetchOutcome::Fetched { .. }
+        ) {
+            self.poll_wake.wake();
+        }
+        outcome
     }
 
     fn inactive_status(&self) -> ConnectStatus {
@@ -262,6 +356,7 @@ impl ConnectService {
             subdomain: None,
             tunnel_active: false,
             backup_unlocked: false,
+            cloud_backup: CLOUD_BACKUP_NOT_LINKED,
             paired: false,
             unclaimed: true,
             device_code: None,
@@ -316,6 +411,7 @@ impl ConnectService {
                 .get("backup_unlocked")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false),
+            cloud_backup: CLOUD_BACKUP_NOT_LINKED,
             paired: enabled,
             unclaimed: !enabled,
             // Permanent device token stays available after claim so HDMI (and
@@ -355,7 +451,7 @@ impl ConnectService {
         let norm = normalize_device_code(code);
         if !is_device_token_format(&norm) {
             return Err(ConnectError::Other(
-                "That device token should look like ****-****-****-****-**** from connect.luna.libreloom.org or the card that came with Luna.".into(),
+                "That is not a valid device token. Copy it from connect.luna.libreloom.org or from the card that came with Luna.".into(),
             ));
         }
         match self.check_device_token(&group_device_token(&norm)) {
@@ -384,7 +480,7 @@ impl ConnectService {
         let norm = normalize_device_code(code);
         if !is_device_token_format(&norm) {
             return Err(ConnectError::Other(
-                "That device token should look like ****-****-****-****-**** from connect.luna.libreloom.org or the card that came with Luna.".into(),
+                "That is not a valid device token. Copy it from connect.luna.libreloom.org or from the card that came with Luna.".into(),
             ));
         }
         let grouped = group_device_token(&norm);
@@ -401,8 +497,7 @@ impl ConnectService {
         self.set_rejected_token(false);
         self.clear_connect_unreachable();
         self.clear_tunnel_error();
-        self.poll_wake
-            .store(true, std::sync::atomic::Ordering::Relaxed);
+        self.poll_wake.wake();
         Ok(())
     }
 
@@ -506,6 +601,10 @@ impl ConnectService {
     /// or while the last pull reported Connect unreachable/challenged.
     /// Steady 5 minutes once cloudflared is running (or Connect is inactive).
     pub fn poll_interval_secs(&self, setup_wizard_open: bool) -> u64 {
+        // No device token: a pull does nothing, and saving one wakes the loop.
+        if !self.has_valid_device_code() {
+            return STEADY_POLL_SECS;
+        }
         if self.tunnel_ready() && self.connect_unreachable_msg().is_none() {
             return STEADY_POLL_SECS;
         }
@@ -517,6 +616,12 @@ impl ConnectService {
         } else {
             STEADY_POLL_SECS
         }
+    }
+
+    /// True when Connect has bound this Luna and we should be running
+    /// cloudflared, so the poll loop keeps checking it is still alive.
+    pub fn expects_tunnel(&self) -> bool {
+        self.expects_tunnel_connector()
     }
 
     /// True when Connect has bound this Luna and we should be running cloudflared.
@@ -975,6 +1080,19 @@ impl ConnectService {
             .unwrap_or(false)
     }
 
+    /// Record that Luna Connect refused to store a cloud copy for a missing payment card, so
+    /// the UI says so before the next status pull confirms it.
+    pub fn mark_backup_locked(&self) {
+        let mut state = self.load();
+        if state.get("backup_unlocked").and_then(|v| v.as_bool()) == Some(false) {
+            return;
+        }
+        state["backup_unlocked"] = json!(false);
+        if let Err(err) = self.save(&state) {
+            tracing::warn!(error = ?err, "could not record that cloud backup needs a payment card");
+        }
+    }
+
     fn ensure_tunnel(&self) -> Result<(), ConnectError> {
         let _guard = self.tunnel_mu.lock().unwrap_or_else(|e| e.into_inner());
         let state = self.load();
@@ -1080,6 +1198,37 @@ impl ConnectService {
 
         self.clear_tunnel_error();
         *self.active_tunnel_token.lock().unwrap() = Some(token);
+        // Wake the poll loop when this child exits, so it restarts the tunnel
+        // without polling the child every few seconds.
+        static WATCHES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let id = WATCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let (watch, exited, wake) = (
+            self.tunnel_watch.clone(),
+            self.tunnel_exited.clone(),
+            self.poll_wake.clone(),
+        );
+        self.tunnel_watch
+            .store(id, std::sync::atomic::Ordering::Release);
+        let watched = watch_child_exit(child.id(), move || {
+            // Still the current child: it died by itself. A child Luna
+            // stopped or replaced has a cleared or newer watch number.
+            let current = watch
+                .compare_exchange(
+                    id,
+                    0,
+                    std::sync::atomic::Ordering::AcqRel,
+                    std::sync::atomic::Ordering::Acquire,
+                )
+                .is_ok();
+            if current {
+                exited.store(true, std::sync::atomic::Ordering::Release);
+                wake.wake();
+            }
+        });
+        if !watched {
+            self.tunnel_watch
+                .store(0, std::sync::atomic::Ordering::Release);
+        }
         if let Some(mut old) = self.child.lock().unwrap().replace(child) {
             let _ = old.kill();
             let _ = old.wait();
@@ -1087,7 +1236,12 @@ impl ConnectService {
         Ok(())
     }
 
-    /// Resolve a runnable cloudflared, installing into `{data_dir}/bin` when needed.
+    /// Resolve a runnable cloudflared.
+    ///
+    /// On a Luna OS box it is baked into the image at /usr/local/bin, so the
+    /// lookup always finds it. The download fallback exists for dev runs on a
+    /// normal machine; on the appliance it is refused, because nothing
+    /// executable belongs on the data partition.
     fn resolve_or_install_cloudflared(&self) -> Result<PathBuf, ConnectError> {
         let data_dir = self
             .state_path
@@ -1096,9 +1250,17 @@ impl ConnectService {
             .unwrap_or_else(|| PathBuf::from("."));
         let local = data_dir.join("bin").join("cloudflared");
         for candidate in cloudflared_candidate_paths(&local) {
+            if on_luna_os() && candidate == local {
+                continue;
+            }
             if cloudflared_looks_runnable(&candidate) {
                 return Ok(candidate);
             }
+        }
+        if on_luna_os() {
+            tracing::error!("no cloudflared in the OS image: this Luna cannot start a tunnel");
+            self.set_tunnel_error(TUNNEL_HELPER_MISSING_MSG);
+            return Err(ConnectError::Other(TUNNEL_HELPER_MISSING_MSG.into()));
         }
         if let Err(e) = install_cloudflared_to(&local) {
             tracing::error!(error = %e, path = %local.display(), "cloudflared install failed");
@@ -1140,6 +1302,8 @@ impl ConnectService {
 
     fn stop_tunnel_unlocked(&self) {
         *self.active_tunnel_token.lock().unwrap() = None;
+        self.tunnel_watch
+            .store(0, std::sync::atomic::Ordering::Release);
         if let Some(mut child) = self.child.lock().unwrap().take() {
             let _ = child.kill();
             let _ = child.wait();
@@ -1359,10 +1523,12 @@ impl ConnectService {
             let _ = std::fs::create_dir_all(parent);
         }
         // Plain JSON, readable only by lunad (0600) — same as `device-token`.
-        let json = serde_json::to_vec(state)
-            .map_err(|_| ConnectError::Other("Luna couldn't save that. Try again.".into()))?;
-        std::fs::write(&self.state_path, json)
-            .map_err(|_| ConnectError::Other("Luna couldn't save that. Try again.".into()))?;
+        let json = serde_json::to_vec(state).map_err(|_| {
+            ConnectError::Other("Luna couldn't save its Luna Connect settings. Try again.".into())
+        })?;
+        std::fs::write(&self.state_path, json).map_err(|_| {
+            ConnectError::Other("Luna couldn't save its Luna Connect settings. Try again.".into())
+        })?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -1380,10 +1546,53 @@ pub struct ConnectLunaId {
     pub has_signing_key: bool,
 }
 
+/// Call `on_exit` from a new thread once process `pid` (a child not yet
+/// reaped) exits. The thread sleeps in `poll` on a pidfd: no timer, and
+/// reaping by `Child::wait` elsewhere is unaffected. False when the kernel
+/// has no pidfd (before Linux 5.3); callers then keep polling.
+pub(crate) fn watch_child_exit(pid: u32, on_exit: impl FnOnce() + Send + 'static) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+        // SAFETY: pidfd_open takes a pid and flags and returns a new fd or -1.
+        let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) };
+        if fd < 0 {
+            return false;
+        }
+        // SAFETY: a fresh fd we own.
+        let fd = unsafe { OwnedFd::from_raw_fd(fd as i32) };
+        std::thread::Builder::new()
+            .name("luna-tunnel-watch".into())
+            .spawn(move || {
+                let mut pfd = libc::pollfd {
+                    fd: fd.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                loop {
+                    // SAFETY: one valid pollfd that outlives the call.
+                    let n = unsafe { libc::poll(&mut pfd, 1, -1) };
+                    if n >= 0
+                        || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+                    {
+                        break;
+                    }
+                }
+                drop(fd);
+                on_exit();
+            })
+            .is_ok()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (pid, on_exit);
+        false
+    }
+}
+
 fn luna_ids_unreadable() -> ConnectError {
     ConnectError::Other(
-        "Luna Connect answered, but Luna could not read its list of Luna ids. Luna will try again."
-            .into(),
+        "Luna Connect answered, but Luna could not use the reply. Luna will try again.".into(),
     )
 }
 
@@ -1468,6 +1677,15 @@ fn encode_object_key(rel: &str) -> String {
         }
     }
     out
+}
+
+/// True when this process booted from a Luna OS A/B slot. The image ships
+/// cloudflared, so the appliance never downloads one.
+fn on_luna_os() -> bool {
+    crate::packs::on_luna_os()
+        || std::fs::read_to_string("/proc/cmdline")
+            .map(|c| c.split_whitespace().any(|t| t.starts_with("luna.slot=")))
+            .unwrap_or(false)
 }
 
 fn cloudflared_candidate_paths(data_bin: &Path) -> Vec<PathBuf> {
@@ -1766,6 +1984,61 @@ pub fn detect_public_ip_fallback() -> Option<std::net::IpAddr> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_watched_child_reports_its_exit_without_polling() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("0.2")
+            .spawn()
+            .unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        assert!(super::watch_child_exit(child.id(), move || {
+            let _ = tx.send(());
+        }));
+        assert!(
+            rx.recv_timeout(std::time::Duration::from_secs(10)).is_ok(),
+            "the exit is reported"
+        );
+        // The watch does not reap: the owner's wait still gets the status.
+        assert!(child.wait().unwrap().success());
+    }
+
+    #[test]
+    fn poll_wake_cuts_the_wait_short_once() {
+        let wake = std::sync::Arc::new(super::PollWake::default());
+        let short = std::time::Duration::from_millis(20);
+        assert!(!wake.wait(short), "nothing woke it");
+        wake.wake();
+        assert!(wake.is_set());
+        assert!(wake.wait(std::time::Duration::from_secs(5)));
+        assert!(!wake.is_set(), "the wake is taken");
+        let waker = wake.clone();
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            waker.wake();
+        });
+        let started = std::time::Instant::now();
+        assert!(wake.wait(std::time::Duration::from_secs(30)));
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        t.join().unwrap();
+    }
+
+    #[test]
+    fn poll_wake_without_a_time_limit_takes_the_wake() {
+        let wake = std::sync::Arc::new(super::PollWake::default());
+        wake.wake();
+        wake.wait_forever();
+        assert!(!wake.is_set(), "a wake that came first is taken at once");
+        let waker = wake.clone();
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            waker.wake();
+        });
+        wake.wait_forever();
+        assert!(!wake.is_set());
+        t.join().unwrap();
+    }
+
     #[test]
     fn stat_start_time_survives_awkward_command_names() {
         let stat = "4242 (cloud (flared) x) S 1 4242 4242 0 -1 4194560 100 0 0 0 5 3 0 0 20 0 9 0 \
@@ -2166,6 +2439,13 @@ mod tests {
             STEADY_POLL_SECS,
             "unbound device with setup closed can use steady interval"
         );
+    }
+
+    #[test]
+    fn poll_interval_steady_without_a_device_token_even_during_setup() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        assert_eq!(service.poll_interval_secs(true), STEADY_POLL_SECS);
     }
 
     #[test]

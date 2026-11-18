@@ -53,13 +53,13 @@ func (h DeviceHandler) Bind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !allowGuess(h.DB, clientKeyAccount(acct.ID), 20, 3600) {
-		JSONError(w, http.StatusTooManyRequests, "Too many tries on this account. Wait a bit, then try again.")
+		JSONError(w, http.StatusTooManyRequests, "Too many tries on this account. Wait an hour, then try again.")
 		return
 	}
 	var n int
 	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM devices WHERE account_id = ?`, acct.ID).Scan(&n)
 	if n >= MaxDevicesPerAccount {
-		JSONError(w, http.StatusConflict, "This account already has a Luna. Unbind it first if you want to connect a different one.")
+		JSONError(w, http.StatusConflict, "This account already has a Luna. Unbind it first to link a different Luna.")
 		return
 	}
 	hash := security.HashToken(norm)
@@ -125,16 +125,7 @@ func (h DeviceHandler) Unbind(w http.ResponseWriter, r *http.Request) {
 
 func unbindDevice(deps Deps, d Device, accountID string) {
 	providers.RefreshCloudflare()
-	if deps.Tunnel != nil && d.TunnelID != "" {
-		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, d.TunnelID)
-	}
-	if deps.DNS != nil && d.Subdomain != "" {
-		_ = deps.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, domainname.Hostname(d.Subdomain, config.C.Server.PublicZone))
-	}
-	now := time.Now().Unix()
-	// Unlinking starts the 30-day purge of every Luna this device stores for; linking again cancels it.
-	_, _ = deps.DB.Exec(`UPDATE luna_ids SET purge_after = ? WHERE account_id = ? AND device_id = ? AND purge_after = 0`,
-		now+int64(backupRetentionDays)*86400, accountID, d.ID)
+	teardownDeviceRemote(deps, d.Subdomain, d.TunnelID)
 	_, _ = deps.DB.Exec(`UPDATE devices SET account_id = NULL, subdomain = NULL, tunnel_id = NULL, tunnel_token = NULL, name = NULL WHERE id = ?`, d.ID)
 }
 
@@ -332,13 +323,15 @@ func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
 		_ = h.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, oldHost)
 	}
 	if err := h.Tunnel.ConfigureIngress(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tunnelID, newHost, "http://127.0.0.1:"+itoa(port)); err != nil {
+		slog.Error("domain: move ingress failed", "device", dev.ID, "subdomain", sub, "err", err)
 		releaseClaim()
-		JSONError(w, http.StatusBadGateway, "Could not move the address. Try again.")
+		JSONError(w, providerFailureStatus, "Could not move the address. Try again.")
 		return
 	}
 	if err := h.DNS.UpsertCNAME(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, newHost, tunnelID+".cfargotunnel.com"); err != nil {
+		slog.Error("domain: move DNS record failed", "device", dev.ID, "subdomain", sub, "err", err)
 		releaseClaim()
-		JSONError(w, http.StatusBadGateway, "Could not publish the new address. Try again.")
+		JSONError(w, providerFailureStatus, "Could not publish the new address. Try again.")
 		return
 	}
 	_, _ = h.DB.Exec(`UPDATE devices SET name = ? WHERE id = ?`, sub, dev.ID)

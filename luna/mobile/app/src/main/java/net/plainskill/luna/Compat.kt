@@ -34,8 +34,8 @@ object Compatibility {
     fun message(compat: Compat): String? = when (compat) {
         Compat.OK -> null
         Compat.LUNA_TOO_OLD ->
-            "This Luna is too old for this app. Update Luna in Settings → About → System updates."
+            "This Luna is too old for this app. An Admin can update Luna in Settings → About → System updates."
         Compat.APP_TOO_OLD ->
-            "This app is too old for your Luna. Update Luna Android from F-Droid, or download the latest APK."
+            "This app is too old for your Luna. Update this app where you got it, for example F-Droid."
     }
 }

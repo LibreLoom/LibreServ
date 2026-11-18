@@ -2,11 +2,8 @@ package handlers
 
 import (
 	"encoding/json"
-	"errors"
-	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
@@ -16,146 +13,16 @@ type OnboardingHandler struct {
 	Deps
 }
 
+// Backups skips the optional cloud backup step. Turning backup on goes
+// through StartCheckout (kind "backup"), which finishes onboarding once paid.
 func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 	acct, ok := AccountFrom(r.Context())
 	if !ok {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
-	var req struct {
-		Enable          bool   `json:"enable"`
-		PaymentMethod   string `json:"payment_method"`
-		PaymentMethodID string `json:"payment_method_id"`
-		SetupIntentID   string `json:"setup_intent_id"`
-		DeviceID        string `json:"device_id"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
-	if !req.Enable {
-		_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = 'done' WHERE id = ?`, acct.ID)
-		JSON(w, http.StatusOK, map[string]any{"ok": true, "enabled": false})
-		return
-	}
-	price := PriceCopy()
-	if billing.DevBypass() {
-		price = "Cloud backup costs $8 per terabyte each month. Luna will turn cloud backup on when it is next quiet."
-	}
-	// Already subscribed (either the common path or a race loser): never call
-	// billing.Subscribe twice — that would bill the customer twice.
-	if acct.StripeSub != "" {
-		_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = 'done' WHERE id = ?`, acct.ID)
-		JSON(w, http.StatusOK, map[string]any{"ok": true, "enabled": true, "already_active": true, "price_copy": price})
-		return
-	}
-	pm := strings.TrimSpace(req.PaymentMethod)
-	if pm == "" {
-		pm = strings.TrimSpace(req.PaymentMethodID)
-	}
-	cust, err := billing.EnsureCustomer(acct.Email, acct.StripeCustomer)
-	if err != nil {
-		writeBillingErr(w, err, "Could not start cloud backup. Check the card and try again.")
-		return
-	}
-	if cust != acct.StripeCustomer {
-		_, _ = h.DB.Exec(`UPDATE accounts SET stripe_customer_id = ? WHERE id = ?`, cust, acct.ID)
-		acct.StripeCustomer = cust
-	}
-	if !verifyCardForBilling(w, cust, pm, strings.TrimSpace(req.SetupIntentID), "Could not check the card. Try again.") {
-		return
-	}
-	sub, item, err := billing.Subscribe(cust, pm)
-	if err != nil {
-		writeBillingErr(w, err, "Could not start cloud backup. Check the card and try again.")
-		return
-	}
-	status := "active"
-	if billing.DevBypass() {
-		status = "dev"
-	}
-	// Race-safe claim: only the first request may write a subscription id;
-	// the loser cancels the subscription it just created.
-	res, err := h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ?, stripe_subscription_item_id = ?, backup_purge_after = NULL, purge_mail_day = NULL, onboarding_step = 'done' WHERE id = ? AND (stripe_subscription_id IS NULL OR stripe_subscription_id = '')`,
-		status, sub, item, acct.ID)
-	if err != nil {
-		if cerr := billing.CancelSubscription(sub); cerr != nil {
-			slog.Error("onboarding: failed to cancel orphaned subscription; customer may be billed twice", "account", acct.ID, "subscription", sub, "err", cerr)
-		}
-		JSONError(w, http.StatusInternalServerError, "Could not start cloud backup. Try again.")
-		return
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		if cerr := billing.CancelSubscription(sub); cerr != nil {
-			slog.Error("onboarding: failed to cancel orphaned subscription; customer may be billed twice", "account", acct.ID, "subscription", sub, "err", cerr)
-		}
-		JSON(w, http.StatusOK, map[string]any{"ok": true, "enabled": true, "already_active": true, "price_copy": price})
-		return
-	}
-	JSON(w, http.StatusOK, map[string]any{
-		"ok": true, "enabled": true,
-		"price_copy": price,
-	})
-}
-
-func (h OnboardingHandler) VerifyHuman(w http.ResponseWriter, r *http.Request) {
-	acct, ok := AccountFrom(r.Context())
-	if !ok {
-		JSONError(w, http.StatusUnauthorized, "Create a Luna Connect account first.")
-		return
-	}
-	okMsg := "A one-time $1 charge checks that your card works. It counts toward cloud backup if you turn that on."
-	var existing string
-	err := h.DB.QueryRow(`SELECT payment_intent_id FROM oss_payments WHERE account_id = ? AND status = 'succeeded'`, acct.ID).Scan(&existing)
-	if err == nil && existing != "" {
-		JSON(w, http.StatusOK, map[string]any{"ok": true, "message": okMsg})
-		return
-	}
-	var req struct {
-		PaymentMethod   string `json:"payment_method"`
-		PaymentMethodID string `json:"payment_method_id"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
-	pm := strings.TrimSpace(req.PaymentMethod)
-	if pm == "" {
-		pm = strings.TrimSpace(req.PaymentMethodID)
-	}
-	cust, err := billing.EnsureCustomer(acct.Email, acct.StripeCustomer)
-	if err != nil {
-		if errors.Is(err, billing.ErrNotConfigured) {
-			JSONError(w, http.StatusServiceUnavailable, "Card checks are not available right now. Try again later, or contact support to resolve this issue.")
-			return
-		}
-		JSONError(w, http.StatusBadRequest, "Could not set up card billing for this account. Try again in a few minutes.")
-		return
-	}
-	if cust != acct.StripeCustomer {
-		_, _ = h.DB.Exec(`UPDATE accounts SET stripe_customer_id = ? WHERE id = ?`, cust, acct.ID)
-		acct.StripeCustomer = cust
-	}
-	pi, err := billing.ChargeOneDollar(cust, pm)
-	if err != nil {
-		if errors.Is(err, billing.ErrPaymentMethodRequired) {
-			JSONError(w, http.StatusBadRequest, "Add a card on this page first, then try again.")
-			return
-		}
-		if errors.Is(err, billing.ErrNotConfigured) {
-			JSONError(w, http.StatusServiceUnavailable, "Card checks are not available right now. Try again later, or contact support to resolve this issue.")
-			return
-		}
-		JSONError(w, http.StatusBadRequest, "The $1 card check failed. Check the card and try again.")
-		return
-	}
-	_, _ = h.DB.Exec(`INSERT INTO oss_payments (account_id, payment_intent_id, status, created_at) VALUES (?, ?, 'succeeded', ?)
-ON CONFLICT(account_id) DO UPDATE SET payment_intent_id=excluded.payment_intent_id, status='succeeded'`,
-		acct.ID, pi, time.Now().Unix())
-	// The copy promises this dollar counts toward cloud backup, so make it
-	// true: hold it as credit that the next invoice spends. Best-effort — the
-	// card check itself succeeded and must not fail over a ledger write.
-	if err := billing.AddCredit(h.DB, acct.ID, 100, "card check", pi, ""); err != nil {
-		slog.Error("could not credit the $1 card check", "account", acct.ID, "error", err)
-	}
-	JSON(w, http.StatusOK, map[string]any{
-		"ok":      true,
-		"message": okMsg,
-	})
+	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = 'done' WHERE id = ?`, acct.ID)
+	JSON(w, http.StatusOK, map[string]any{"ok": true, "enabled": false})
 }
 
 // MintDIY creates a permanent unbound DIY device token after the $1 human check.
@@ -185,7 +52,7 @@ func (h OnboardingHandler) MintDIY(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusCreated, map[string]any{
 		"device_id": id,
 		"code":      code,
-		"message":   "Put this full code on Luna during install (paste when the installer asks after the disk is written), or later in Settings → About → Advanced → Device token. The first eight characters unlock setup from your phone.",
+		"message":   "Paste this device token when the Luna installer asks for it. You can also add it later in Settings → About → Advanced on Luna.",
 	})
 }
 
@@ -217,7 +84,7 @@ func (h OnboardingHandler) AdminMint(w http.ResponseWriter, r *http.Request) {
 	if len(out) == 1 {
 		JSON(w, http.StatusCreated, map[string]any{
 			"id": out[0].ID, "code": out[0].Code,
-			"message": "Print this on the quick-start card. First eight characters unlock phone setup; full code binds Connect.",
+			"message": "Print this device token on the quick-start card. The full token links Luna to Luna Connect.",
 		})
 		return
 	}
@@ -234,7 +101,7 @@ func (h OnboardingHandler) AdminMintBulk(w http.ResponseWriter, r *http.Request)
 		req.Count = 1
 	}
 	if req.Count > 500 {
-		JSONError(w, http.StatusBadRequest, "Ask for at most 500 codes at a time.")
+		JSONError(w, http.StatusBadRequest, "Ask for 500 device tokens or fewer at a time.")
 		return
 	}
 	var lines []string
@@ -250,7 +117,7 @@ func (h OnboardingHandler) AdminMintBulk(w http.ResponseWriter, r *http.Request)
 		"filename": "TOKENS",
 		"tokens":   lines,
 		"count":    len(lines),
-		"message":  "One device token per line. First eight characters unlock phone setup; full token links Luna Connect.",
+		"message":  "One device token per line. Each full token links one Luna to Luna Connect.",
 	})
 }
 

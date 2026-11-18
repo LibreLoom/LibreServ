@@ -65,7 +65,7 @@ func CSRF(next http.Handler) http.Handler {
 		// (same defense as Sol Connect PortalOriginCheck). originAllowed
 		// was already unit-tested but never wired into the request path.
 		if !originAllowed(r) {
-			JSONError(w, http.StatusForbidden, "This page expired. Refresh and try again.")
+			JSONError(w, http.StatusForbidden, "This request did not come from the Luna Connect website. Open the website and try again.")
 			return
 		}
 		c, err := r.Cookie(csrfCookieName)

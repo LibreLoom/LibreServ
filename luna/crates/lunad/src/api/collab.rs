@@ -48,13 +48,13 @@ async fn upgrade(
             "Choose a file to edit together.",
         ));
     }
-    ensure_file(&state, &query.drive_id, &path)?;
     if !user_can(&state, &user, &query.drive_id, &path, false)? {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "You don't have permission to view this file.",
         ));
     }
+    ensure_file(&state, &query.drive_id, &path)?;
     let can_write = user_can(&state, &user, &query.drive_id, &path, true).unwrap_or(false);
 
     let drive_id = query.drive_id;
@@ -86,7 +86,7 @@ async fn session(
         Err(err) => {
             let message = match err {
                 JoinError::TooManyRooms => {
-                    "Too many people are editing files right now. Try again in a minute."
+                    "Too many files are open for editing right now. Try again later."
                 }
                 JoinError::RoomFull => "This file already has too many people editing it.",
             };
@@ -378,7 +378,7 @@ fn ensure_file(
     if !meta.is_file() {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            "Luna can only open files for editing together — not folders.",
+            "Luna can open only files for editing together, not folders.",
         ));
     }
     Ok(())

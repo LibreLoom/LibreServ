@@ -102,7 +102,7 @@ function AccessTokenItem({ token, nowUnix, usageFor, usageRows, usagePending, re
                 usageRows.map((row, i) => {
                   const label = row.action === "auth" && row.detail === "api"
                     ? "API access"
-                    : `${row.action}${row.detail ? ` — ${row.detail}` : ""}`;
+                    : `${row.action}${row.detail ? `: ${row.detail}` : ""}`;
 
                   return (
                     <li key={`${row.used_at}-${i}`} className="flex flex-col gap-0.5">
@@ -254,7 +254,7 @@ function ProfileCard() {
       // unchecked and says so — the person should hear it, not guess it.
       addToast({
         type: data?.warning ? "info" : "success",
-        message: "Password changed. Sign in again with your new password.",
+        message: "Password changed. Every browser and app is now signed out.",
         description: data?.warning || undefined,
         duration: data?.warning ? 10000 : undefined,
       });
@@ -290,8 +290,8 @@ function ProfileCard() {
               label={isAdmin ? "What Admin means" : "What Member means"}
               content={
                 isAdmin
-                  ? "An Admin can add users, change settings, and manage everything on this Luna, except other people's private items."
-                  : "A Member can use what's shared with them but cannot manage users or change this Luna's settings."
+                  ? "An Admin can add users, change settings, manage drives, and open everything on this Luna except other people's private items."
+                  : "A Member can use what is shared with them, plus their own albums and private folders. They cannot manage users, drives, or Luna settings."
               }
             />
           </span>
@@ -342,8 +342,8 @@ function ProfileCard() {
       <div className="mt-3 rounded-large-element surface-primary p-4">
         <p className="font-mono text-sm">Password</p>
         <p className="text-sm mt-1">
-          Changing your password signs your account out in every browser and
-          app — including this one — so sign in again afterward.
+          Changing your password signs you out in every browser and app,
+          including this one. Each app then needs a new access token.
         </p>
         <div className="mt-2 sm:grid sm:grid-cols-2 sm:gap-x-3">
           <FormInput
@@ -423,7 +423,7 @@ export default function AccessCategory() {
       // Sign-in replaces this page in place, so the URL stays on Settings.
       endSession?.();
     },
-    onError: (err) => setError(apiErrorMessage(err)),
+    onError: (err) => setError(apiErrorMessage(err, "Couldn't sign out of every browser. Try again.")),
   });
 
   const signOutApps = useMutation({
@@ -433,7 +433,7 @@ export default function AccessCategory() {
       queryClient.invalidateQueries({ queryKey: ["device-tokens"] });
       setUsageFor(null);
     },
-    onError: (err) => setError(apiErrorMessage(err)),
+    onError: (err) => setError(apiErrorMessage(err, "Couldn't sign out of every app. Try again.")),
   });
 
   const createToken = useMutation({
@@ -452,7 +452,7 @@ export default function AccessCategory() {
     },
     onError: (err) => {
       // The create modal is open — it owns this error; don't strand it.
-      setTokenError(apiErrorMessage(err));
+      setTokenError(apiErrorMessage(err, "Couldn't create the access token. Try again."));
     },
   });
 
@@ -463,7 +463,7 @@ export default function AccessCategory() {
       queryClient.invalidateQueries({ queryKey: ["device-tokens"] });
       setUsageFor(null);
     },
-    onError: (err) => setError(apiErrorMessage(err)),
+    onError: (err) => setError(apiErrorMessage(err, "Couldn't revoke the access token. Try again.")),
   });
 
   const [revokeTarget, setRevokeTarget] = useState(null);
@@ -480,7 +480,7 @@ export default function AccessCategory() {
       <SettingsCard icon={Globe2} title="Browsers" padding={false} index={0}>
         <SettingsRow
           label="Sign out of Luna in every browser"
-          description="Signs your account out in every browser — including this one. Apps and access tokens below keep working."
+          description="Signs you out in every browser, including this one. Apps that use an access token keep working."
           stack
         >
           <Button
@@ -517,7 +517,7 @@ export default function AccessCategory() {
           <div className="mt-4 rounded-large-element surface-primary p-4 space-y-3">
             <p className="font-mono text-sm">Token ready</p>
             <p className="text-sm">
-              Copy this now — Luna won&apos;t show it again. Paste it into
+              Copy this token now. Luna does not show it again. Paste it into
               Luna Desktop or the phone app, or show it as a QR code.
             </p>
             <CopyableValue

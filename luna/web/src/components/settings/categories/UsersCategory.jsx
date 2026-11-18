@@ -293,8 +293,9 @@ export default function UsersCategory() {
                       </p>
                       <p className="text-xs text-primary mt-0.5">
                         {orphanDriveLine(o)}
-                        {" — nobody can open "}
+                        {". Nobody can open "}
                         {o.total === 1 ? "it" : "them"}
+                        {"."}
                       </p>
                     </div>
                     <Button
@@ -410,7 +411,7 @@ export default function UsersCategory() {
                             </Pill>
                             <InfoHint
                               label="What Member means"
-                              content="A Member can use folders and albums shared with them. They cannot manage users, drives, or Luna settings."
+                              content="A Member can use what is shared with them, plus their own albums and private folders. They cannot manage users, drives, or Luna settings."
                             />
                           </span>
                         ),
@@ -517,11 +518,11 @@ export default function UsersCategory() {
         open={!!userToDelete}
         title="Remove user"
         disabledConfirm={privateCountQuery.isPending || privateCountQuery.isError}
-        message={`Remove "${userToDelete?.name}" from this Luna? They will lose access to shared drives.${
+        message={`Remove "${userToDelete?.name}" from this Luna? They can no longer sign in, and their share links stop working.${
           privateCountQuery.isError ? " Luna couldn't check for their private folders, so removing is paused. Close this and try again." : ""
         }${
           privateCount > 0
-            ? ` Their ${privateCount === 1 ? "1 private folder stays" : `${privateCount} private folders stay`} on the drives, hidden from everyone — you can delete them under "Private folders left behind" on this page.`
+            ? ` Their ${privateCount === 1 ? "1 private folder stays" : `${privateCount} private folders stay`} on the drives, hidden from everyone. You can delete them under "Private folders left behind" on this page.`
             : ""
         }`}
         confirmLabel="Remove"
@@ -563,11 +564,11 @@ export default function UsersCategory() {
             ) : (
               <>
                 <p className="text-primary text-sm">
-                  {orphanDriveLine(giveTarget.owner)} — nobody can open{" "}
-                  {giveTarget.owner.total === 1 ? "it" : "them"} right now.
+                  {orphanDriveLine(giveTarget.owner)}. Nobody can open{" "}
+                  {giveTarget.owner.total === 1 ? "it" : "them"} now.
                 </p>
                 <p className="text-primary text-sm">
-                  Giving them to someone makes them that person&apos;s private folders. Their files stay where they are. Items in Trash stay behind for deletion.
+                  Giving them to someone makes them that person&apos;s private folders, and the files do not move. Items in Trash are not given, but you can delete them below.
                 </p>
               </>
             )}
@@ -614,7 +615,7 @@ export default function UsersCategory() {
             {giveTarget.kind === "orphan" && (
               <div className="space-y-2 border-t border-primary/10 pt-4">
                 <p className="text-primary text-sm">
-                  Deleting removes these folders and the files deleted from them for good. Read-only and disconnected drives are skipped.
+                  Deleting permanently removes these folders and the files deleted from them. Read-only and disconnected drives are skipped.
                 </p>
                 <Button
                   variant="danger"
@@ -646,7 +647,7 @@ export default function UsersCategory() {
       >
         <p className="text-primary text-sm">
           {orphanToClean?.display_name || orphanToClean?.username}&apos;s{" "}
-          private folders and files deleted from them will be deleted permanently — Luna cannot get them back. Read-only and disconnected drives are skipped.
+          private folders, and the files deleted from them, are deleted permanently. Luna cannot get them back. Read-only and disconnected drives are skipped.
         </p>
       </ConfirmModal>
     </>

@@ -86,7 +86,7 @@ pub async fn dispatch(
         }
         t => t,
     };
-    let dir = state.data_dir.join("eurooffice");
+    let dir = crate::packs::dir(&state.data_dir, "eurooffice");
     if let Ok(uri) = format!("/{tail}").parse::<axum::http::Uri>() {
         *req.uri_mut() = uri;
     }
@@ -103,7 +103,7 @@ pub async fn sdkjs_dispatch(
     Path(tail): Path<String>,
     mut req: axum::extract::Request,
 ) -> Response {
-    let dir = state.data_dir.join("eurooffice").join("sdkjs");
+    let dir = crate::packs::dir(&state.data_dir, "eurooffice").join("sdkjs");
     if let Ok(uri) = format!("/{tail}").parse::<axum::http::Uri>() {
         *req.uri_mut() = uri;
     }
@@ -125,7 +125,7 @@ pub async fn fonts_dispatch(
     Path(tail): Path<String>,
     mut req: axum::extract::Request,
 ) -> Response {
-    let dir = state.data_dir.join("eurooffice").join("fonts");
+    let dir = crate::packs::dir(&state.data_dir, "eurooffice").join("fonts");
     let orig_path = req.uri().path().to_string();
     if let Ok(uri) = format!("/{tail}").parse::<axum::http::Uri>() {
         *req.uri_mut() = uri;

@@ -7,8 +7,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::AppState;
-use crate::api::files::parse_range;
-use crate::api::response::json_error;
+use crate::api::files::{blocking, parse_range};
+use crate::api::response::{json_error, json_error_code};
 use crate::files::uploads::{self, UploadError};
 use crate::files::{self, FilesError};
 
@@ -96,7 +96,7 @@ async fn create(
     {
         return Err(json_error(
             StatusCode::INSUFFICIENT_STORAGE,
-            "This drive is full. Free up some space and try again.",
+            "This file is larger than the free space on this drive. Free up some space and try again.",
         ));
     }
     let upload = crate::db::with_db(
@@ -129,7 +129,12 @@ async fn write_chunk(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    check_upload_access(&state, &user, &id)?;
+    // Session lookups and the chunk write are disk and lock work: keep them
+    // off the two async workers so one upload never stalls other requests.
+    let id = {
+        let state = state.clone();
+        blocking(move || check_upload_access(&state, &user, &id).map(|()| id)).await?
+    };
     let spec = headers
         .get(header::CONTENT_RANGE)
         .and_then(|v| v.to_str().ok())
@@ -159,11 +164,15 @@ async fn write_chunk(
     if body.len() > chunk_max {
         return Err(json_error(
             StatusCode::PAYLOAD_TOO_LARGE,
-            "That upload chunk is too large for the free memory on this Luna. Try a smaller piece, or free some space and try again.",
+            "Luna doesn't have enough free memory for this upload right now. Try again later.",
         ));
     }
 
-    let received = uploads::write_chunk(&state.db, &id, start, &body).map_err(map_upload_err)?;
+    let received = {
+        let (db, id) = (state.db.clone(), id.clone());
+        blocking(move || uploads::write_chunk(&db, &id, start, &body).map_err(map_upload_err))
+            .await?
+    };
     Ok(Json(json!({ "upload_id": id, "received": received })))
 }
 
@@ -172,6 +181,16 @@ async fn complete(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
     Query(query): Query<CompleteQuery>,
+) -> Result<Json<crate::files::FileEntry>, (StatusCode, Json<Value>)> {
+    // Completion fsyncs (and may hash) the whole file: never on an async worker.
+    blocking(move || complete_sync(state, user, id, query)).await
+}
+
+fn complete_sync(
+    state: AppState,
+    user: crate::auth::CurrentUser,
+    id: String,
+    query: CompleteQuery,
 ) -> Result<Json<crate::files::FileEntry>, (StatusCode, Json<Value>)> {
     check_upload_access(&state, &user, &id)?;
     let overwrite = query.overwrite.as_deref() == Some("1");
@@ -185,7 +204,7 @@ async fn complete(
             )
         })?;
         let row = uploads::get_row(&conn, &id).map_err(map_upload_err)?;
-        let rel = crate::gallery::gallery_indexer::join_rel(&row.path, &row.name);
+        let rel = crate::photos::photos_indexer::join_rel(&row.path, &row.name);
         let dir = crate::files::dest_dir(&conn, &row.drive_id, &row.path).ok();
         let exists = dir
             .as_ref()
@@ -227,7 +246,7 @@ async fn complete(
         entry.caps =
             crate::access::caps_to_str(crate::auth::caps_on_path(&user, &conn, &drive_id, &rel));
     }
-    state.gallery.upsert(&drive_id, &rel);
+    state.photos.upsert(&drive_id, &rel);
     crate::api::files::invalidate_parent_listing(&state, &drive_id, &rel);
     state.touch_io_activity();
     Ok(Json(entry))
@@ -306,10 +325,11 @@ fn check_upload_access(
 /// The `409` for a name that is already taken. `existing_kind` says whether
 /// a `"file"` or a `"dir"` holds it, when that is known.
 pub(crate) fn name_clash(existing_kind: Option<&str>) -> (StatusCode, Json<Value>) {
-    let message = if existing_kind == Some("dir") {
-        "A folder with this name is already here. Choose another name."
-    } else {
-        "A file with this name is already here. Rename it or choose another."
+    // `None`: the name is taken, but Luna didn't look at what holds it.
+    let message = match existing_kind {
+        Some("dir") => "A folder with this name is already here. Choose another name.",
+        Some(_) => "A file with this name is already here. Rename it or choose another.",
+        None => "A file or folder with this name is already here. Choose another name.",
     };
     let mut body = json!({ "error": message, "code": "exists" });
     if let Some(kind) = existing_kind {
@@ -328,9 +348,10 @@ pub(crate) fn is_name_clash(err: &UploadError) -> bool {
 
 fn map_upload_err(err: UploadError) -> (StatusCode, Json<Value>) {
     match err {
-        UploadError::NotFound => {
-            json_error(StatusCode::NOT_FOUND, "Luna doesn't know this upload.")
-        }
+        UploadError::NotFound => json_error(
+            StatusCode::NOT_FOUND,
+            "Luna can't find this upload. Upload the file again.",
+        ),
         UploadError::NotActive => json_error(
             StatusCode::CONFLICT,
             "This upload is already finished or cancelled.",
@@ -341,7 +362,17 @@ fn map_upload_err(err: UploadError) -> (StatusCode, Json<Value>) {
         ),
         UploadError::Files(crate::files::FilesError::UnknownDrive) => json_error(
             StatusCode::NOT_FOUND,
-            "Luna can't find this drive. Make sure it's plugged in — if it already is, try unplugging it and plugging it back in.",
+            "Luna can't find this drive. Make sure it is plugged in, or unplug it and plug it in again.",
+        ),
+        UploadError::Files(crate::files::FilesError::Locked) => json_error_code(
+            StatusCode::LOCKED,
+            "drive_locked",
+            crate::files::DRIVE_LOCKED_MSG,
+        ),
+        UploadError::Files(crate::files::FilesError::Erasing) => json_error_code(
+            StatusCode::CONFLICT,
+            "drive_erasing",
+            crate::files::DRIVE_ERASING_MSG,
         ),
         UploadError::Files(crate::files::FilesError::MissingDriveDb) => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -364,7 +395,7 @@ fn map_upload_err(err: UploadError) -> (StatusCode, Json<Value>) {
         // Access was pulled (or never held) between session open and install.
         UploadError::Denied => json_error(
             StatusCode::FORBIDDEN,
-            "You don't have permission to upload here.",
+            "You don't have permission to save here.",
         ),
         // Bytes arrived but don't match the checksum the browser sent.
         UploadError::Io(e) if e.kind() == std::io::ErrorKind::InvalidData => json_error(

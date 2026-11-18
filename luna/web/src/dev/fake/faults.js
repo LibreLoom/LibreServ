@@ -3,7 +3,7 @@
 //   "GET /api/v1/drives"            exactly that path (trailing slash ignored)
 //   "/api/v1/drives"                same path, any method
 //   "GET /api/v1/drives/*/files"    * is a wildcard: any characters, slashes included
-//   "GET /api/v1/gallery?kind=video" the request must also carry these query pairs
+//   "GET /api/v1/photos?kind=video" the request must also carry these query pairs
 //
 // Nothing is a substring match: "GET /api/v1/drives" never catches /drives/d1/files.
 

@@ -430,15 +430,10 @@ func (r *Runner) runHostTest(ctx context.Context, t *tests.Test) *tests.TestResu
 		r.outputChan <- OutputLine{TestID: t.ID, Type: OutputStatus, Line: warning}
 	}
 
-	out, err := cmd.CombinedOutput()
-	output := string(out)
-	for _, line := range strings.Split(strings.TrimRight(output, "\n"), "\n") {
-		if line != "" {
-			r.streamManager.AddLine(t.ID, line)
-			r.outputChan <- OutputLine{TestID: t.ID, Type: OutputStdout, Line: line}
-		}
-	}
-
+	output, err := streamHostCommand(cmd, func(line string) {
+		r.streamManager.AddLine(t.ID, line)
+		r.outputChan <- OutputLine{TestID: t.ID, Type: OutputStdout, Line: line}
+	})
 	result.Output = output
 	result.EndTime = time.Now()
 	result.Duration = result.EndTime.Sub(result.StartTime)
@@ -530,6 +525,9 @@ func (r *Runner) runTest(ctx context.Context, t *tests.Test, fuzzDuration time.D
 		result.EndTime = time.Now()
 		result.Duration = result.EndTime.Sub(result.StartTime)
 		return result
+	}
+	if r.nice > 0 {
+		setContainerIdleClass(ctx, r.cli, containerID)
 	}
 
 	outputDone := make(chan struct{})
@@ -821,11 +819,14 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 	// (populated by warmCaches before the workers start), so every test that
 	// touches the same project skips a full cold install.
 	if isNpmTest(t) {
-		shared := filepath.Join(cacheDir, "npm", npmWorkDirSlug(t.WorkDir))
-		os.MkdirAll(filepath.Join(shared, "node_modules"), 0755)
-		os.MkdirAll(filepath.Join(shared, "npm-cache"), 0755)
-		binds = append(binds, filepath.Join(shared, "node_modules")+":"+t.WorkDir+"/node_modules:z")
-		env = append(env, "NPM_CONFIG_CACHE="+filepath.Join(shared, "npm-cache"))
+		for _, workDir := range npmWorkDirs(t.WorkDir) {
+			shared := filepath.Join(cacheDir, "npm", npmCacheSlug(t.Container, workDir))
+			os.MkdirAll(filepath.Join(shared, "node_modules"), 0755)
+			binds = append(binds, filepath.Join(shared, "node_modules")+":"+workDir+"/node_modules:z")
+		}
+		primary := filepath.Join("npm", npmCacheSlug(t.Container, t.WorkDir), "npm-cache")
+		os.MkdirAll(filepath.Join(cacheDir, primary), 0755)
+		env = append(env, "NPM_CONFIG_CACHE=/cache/"+filepath.ToSlash(primary))
 		// Node sizes its heap from the cgroup, which is far too small for a
 		// vite build under a bounded job; give it half the job's share.
 		if m := r.jobMemoryLimit(); m > 0 {
@@ -856,6 +857,7 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 
 	hostConfig := &container.HostConfig{
 		Binds: binds,
+		Tmpfs: t.Tmpfs,
 	}
 
 	// A repo-built image runs as the invoking user, not root. Two reasons:
@@ -891,6 +893,42 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 	}
 
 	return resp.ID, nil
+}
+
+// setContainerIdleClass puts a started container's processes in the idle
+// scheduling class, so they run only when the desktop isn't using the CPU.
+// The CPU quota still caps them; this decides who wins when both want the same
+// core. A few sweeps catch the command the wrapper starts just after the
+// container does; later children inherit the class from their parent. Best
+// effort: no chrt, cgroup v1, or a process that exits mid-sweep is ignored.
+func setContainerIdleClass(ctx context.Context, cli client.APIClient, containerID string) {
+	insp, err := cli.ContainerInspect(ctx, containerID)
+	if err != nil || insp.State == nil || insp.State.Pid <= 0 {
+		return
+	}
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", insp.State.Pid))
+	if err != nil {
+		return
+	}
+	path, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "0::")
+	if !ok || path == "" {
+		return
+	}
+	procs := filepath.Join("/sys/fs/cgroup", path, "cgroup.procs")
+	for range 4 {
+		pids, err := os.ReadFile(procs)
+		if err != nil {
+			return
+		}
+		for _, pid := range strings.Fields(string(pids)) {
+			_ = exec.Command("chrt", "-i", "-p", "0", pid).Run()
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(150 * time.Millisecond):
+		}
+	}
 }
 
 func (r *Runner) streamOutput(ctx context.Context, containerID, testID string, done chan struct{}) {
@@ -1267,8 +1305,8 @@ func (r *Runner) warmGoTasks(testList []*tests.Test) []warmTask {
 	return tasks
 }
 
-// warmNodeTasks returns one npm install per node test workdir. It populates
-// the shared per-workdir node_modules and npm caches (see createContainer), so
+// warmNodeTasks installs npm dependencies once per workdir and runtime. It
+// populates the shared node_modules and npm caches (see createContainer), so
 // the tests' own installs turn into cheap no-op verifications instead of one
 // cold install per test — or, for workdirs that had no cache at all, a full
 // download every run.
@@ -1279,24 +1317,27 @@ func (r *Runner) warmNodeTasks(testList []*tests.Test) []warmTask {
 		if !isNpmTest(t) {
 			continue
 		}
-		if seen[t.WorkDir] {
-			continue
+		for _, workDir := range npmWorkDirs(t.WorkDir) {
+			slug := npmCacheSlug(t.Container, workDir)
+			if seen[slug] {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(r.hostWorkDir(workDir), "package.json")); err != nil {
+				continue
+			}
+			seen[slug] = true
+			tasks = append(tasks, warmTask{
+				ID:   "_warm-npm-" + slug,
+				Name: "npm " + workDir,
+				Test: &tests.Test{
+					Container:   t.Container,
+					Command:     "npm install --no-audit --no-fund --no-save",
+					WorkDir:     workDir,
+					Timeout:     15 * time.Minute,
+					Description: "Pre-install npm dependencies for " + workDir,
+				},
+			})
 		}
-		seen[t.WorkDir] = true
-		if _, err := os.Stat(filepath.Join(r.hostWorkDir(t.WorkDir), "package.json")); err != nil {
-			continue
-		}
-		tasks = append(tasks, warmTask{
-			ID:   "_warm-npm-" + npmWorkDirSlug(t.WorkDir),
-			Name: "npm " + t.WorkDir,
-			Test: &tests.Test{
-				Container:   t.Container,
-				Command:     "npm install --no-audit --no-fund",
-				WorkDir:     t.WorkDir,
-				Timeout:     15 * time.Minute,
-				Description: "Pre-install npm dependencies for " + t.WorkDir,
-			},
-		})
 	}
 	return tasks
 }
@@ -1308,10 +1349,23 @@ func isNpmTest(t *tests.Test) bool {
 	return strings.Contains(t.Command, "npm")
 }
 
-// npmWorkDirSlug turns a container workdir like /repo/sol/server/frontend into
-// a stable host-dir slug (sol-server-frontend) for the shared npm caches.
-func npmWorkDirSlug(workDir string) string {
-	return strings.ReplaceAll(strings.Trim(strings.TrimPrefix(workDir, "/repo"), "/"), "/", "-")
+// npmWorkDirs includes the linked package whose source imports its own
+// dependencies. npm installs the link without the linked project's dev tools.
+func npmWorkDirs(workDir string) []string {
+	if workDir == "/repo/luna/web" {
+		return []string{workDir, "/repo/shared/ui"}
+	}
+	return []string{workDir}
+}
+
+// Playwright is glibc-based, so native npm modules need a separate install
+// from the Alpine node images even when they share the same package lock.
+func npmCacheSlug(container, workDir string) string {
+	slug := strings.ReplaceAll(strings.Trim(strings.TrimPrefix(workDir, "/repo"), "/"), "/", "-")
+	if strings.HasPrefix(container, "mcr.microsoft.com/playwright:") {
+		return slug + "-glibc"
+	}
+	return slug
 }
 
 // hostWorkDir maps an in-container workdir under /repo to the host path.

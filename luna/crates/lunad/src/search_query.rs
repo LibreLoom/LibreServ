@@ -1,4 +1,4 @@
-//! Query parsing for the gallery `q` parameter.
+//! Query parsing for the Photos `q` parameter.
 //!
 //! The free-text box doubles as a natural-language query: tokens that look
 //! like dates ("september", "september 19", "9/19/2024", "last week",
@@ -13,7 +13,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::gallery::places;
+use crate::photos::places;
 
 const MAX_TEXT_TERMS: usize = 8;
 

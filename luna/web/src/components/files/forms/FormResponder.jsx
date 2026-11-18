@@ -35,7 +35,7 @@ const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // a year
  * A response this browser kept for later editing. Only the fields the
  * responder reads and writes — `answers` is keyed by question id. `at` is
  * optional because a record stored by an older Luna may not carry one;
- * `formatSentAt` already falls back to "Sent earlier".
+ * `formatSentAt` already falls back to "earlier" (shown as "Sent earlier").
  * @typedef {{ id: string, edit_token?: string, at?: number, answers: Record<string, unknown> }} StoredResponse
  */
 
@@ -117,7 +117,7 @@ function formatSentAt(at) {
   const when = new Date(at);
   return at && !Number.isNaN(when.getTime())
     ? when.toLocaleString()
-    : "Sent earlier";
+    : "earlier";
 }
 
 /**
@@ -241,7 +241,10 @@ function Responder({
         const data = await res.json().catch(() => null);
         if (!res.ok) {
           throw new Error(
-            (data && data.error) || "We couldn't find answers for that edit link.",
+            (data && data.error) ||
+              (res.status === 404
+                ? "Luna can't find answers for that edit link."
+                : "Luna couldn't open the answers for that edit link."),
           );
         }
         if (cancelled) return;
@@ -254,7 +257,7 @@ function Responder({
       })
       .catch((err) => {
         if (cancelled) return;
-        setEditNotice(apiErrorMessage(err, "We couldn't find answers for that edit link. You can fill the form in fresh."));
+        setEditNotice(apiErrorMessage(err, "Luna couldn't open the answers for that edit link. You can send a new response instead."));
         setStage("form");
       })
       .finally(() => {
@@ -380,7 +383,7 @@ function Responder({
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         throw new Error(
-          (data && data.error) || "Luna couldn't send your answers. Check your connection and send again.",
+          (data && data.error) || "Luna couldn't save your answers. Send them again.",
         );
       }
       const id = typeof data?.id === "string" ? data.id : responseId;
@@ -401,7 +404,7 @@ function Responder({
       haptic("success");
     } catch (err) {
       haptic("error");
-      setSubmitError(apiErrorMessage(err, "Luna couldn't send your answers. Check your connection and send again."));
+      setSubmitError(apiErrorMessage(err, "Luna couldn't save your answers. Send them again."));
     } finally {
       setSubmitting(false);
     }
@@ -495,7 +498,7 @@ function Responder({
 
               {shown.length === 0 ? (
                 <p className="text-sm text-secondary">
-                  This form doesn&apos;t have any questions yet — check back later.
+                  This form has no questions yet. Check back later.
                 </p>
               ) : (
                 <AnimatePresence initial={false}>
@@ -619,7 +622,7 @@ function DoneScreen({ title, editLink, canEdit, editCount, canRespondAgain, limi
         {editLink && (
           <div className="space-y-2">
             <p className="text-sm text-secondary">
-              Want to change your answers later, or from another device? Keep this link — it&apos;s only for you.
+              Keep this link to change your answers later, on any device. Anyone with this link can change your answers.
             </p>
             <CopyableValue value={editLink} surface="primary" />
           </div>

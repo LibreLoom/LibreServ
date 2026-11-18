@@ -14,14 +14,15 @@ import { describeDriveHealth } from "../../lib/driveHealth.js";
  * @param {{
  *   health: import("../../lib/driveHealth.js").DriveHealthReport | null | undefined,
  *   defaultOpen?: boolean,
+ *   surface?: "primary" | "secondary",
  * }} props
  */
-export default function DriveHealthDetails({ health, defaultOpen = false }) {
+export default function DriveHealthDetails({ health, defaultOpen = false, surface = "secondary" }) {
   const copy = health ? describeDriveHealth(health) : null;
   if (!copy || copy.verdict === "checking") return null;
 
   return (
-    <CollapsibleSection title="Drive health" size="sm" mono pill defaultOpen={defaultOpen}>
+    <CollapsibleSection title="Drive health" size="sm" mono pill defaultOpen={defaultOpen} surface={surface}>
       <div className="flex flex-col gap-3" data-slot="drive-health-details">
         <div>
           <Pill variant={copy.pill.variant}>{copy.pill.label}</Pill>
@@ -31,7 +32,8 @@ export default function DriveHealthDetails({ health, defaultOpen = false }) {
             {copy.rows.map((row) => (
               <ValueDisplay
                 key={row.key}
-                label={<TermHint content={row.hint}>{row.label}</TermHint>}
+                surface={surface}
+                label={<TermHint content={row.hint} surface={surface}>{row.label}</TermHint>}
                 value={row.value}
               />
             ))}
@@ -40,7 +42,7 @@ export default function DriveHealthDetails({ health, defaultOpen = false }) {
         {copy.steps.length > 0 && (
           <div>
             <h4 className="font-mono text-sm mb-1">What to do</h4>
-            <ol className="list-decimal pl-5 text-sm text-primary space-y-1">
+            <ol className="list-decimal pl-5 text-sm space-y-1">
               {copy.steps.map((step) => (
                 <li key={step}>{step}</li>
               ))}
@@ -55,4 +57,5 @@ export default function DriveHealthDetails({ health, defaultOpen = false }) {
 DriveHealthDetails.propTypes = {
   health: PropTypes.object,
   defaultOpen: PropTypes.bool,
+  surface: PropTypes.oneOf(["primary", "secondary"]),
 };

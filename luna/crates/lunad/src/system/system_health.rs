@@ -163,6 +163,40 @@ pub struct Probes {
     pub whiteboard_editor: bool,
     /// Excalidraw fonts made it into the embedded web build.
     pub whiteboard_fonts: bool,
+    /// Finding documents by meaning (Model2Vec).
+    pub meaning_search: SmartSearch,
+    /// Finding photos by what they show (TinyCLIP).
+    pub photo_search: SmartSearch,
+}
+
+/// Whether one of search's model-based parts is on, and if not, why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SmartSearch {
+    On,
+    /// The model or its worker isn't in this image.
+    NotInstalled,
+    /// Off by design: the box has too little memory.
+    LowMemory,
+    /// Paused after repeated failures; the last error is for diagnostics.
+    Resting(Option<String>),
+}
+
+impl SmartSearch {
+    fn meaning() -> Self {
+        match crate::files::content::meaning::off_reason() {
+            None => Self::On,
+            Some(_) => Self::NotInstalled,
+        }
+    }
+
+    fn photos() -> Self {
+        match crate::files::content::clip::off_reason() {
+            None => Self::On,
+            Some("low_memory") => Self::LowMemory,
+            Some("failing") => Self::Resting(crate::files::content::clip::last_error()),
+            Some(_) => Self::NotInstalled,
+        }
+    }
 }
 
 impl Probes {
@@ -190,6 +224,8 @@ impl Probes {
             kernel_ntfs: kernel_has_ntfs(),
             whiteboard_editor: crate::system::staticweb::has_asset_named("excalidraw-", ".js"),
             whiteboard_fonts: crate::system::staticweb::has_files_under("excalidraw/fonts"),
+            meaning_search: SmartSearch::meaning(),
+            photo_search: SmartSearch::photos(),
         }
     }
 
@@ -256,7 +292,7 @@ impl Checks {
 /// Checks that decide whether Luna can safely keep files: its database,
 /// data and log folders, system disk space, and the clock. Cheap enough for
 /// the HDMI console's 2-second loop (`thorough: false` skips the full
-/// database scan).
+/// database scan and the flush to disk in the write tests).
 pub fn run_core(
     data_dir: &Path,
     conn: &Connection,
@@ -301,22 +337,22 @@ fn add_core_checks(
                 "database",
                 "system",
                 FAILED,
-                "Signing in and sharing may not work.",
+                "Luna can't read its accounts, sharing, and settings.",
                 None,
             )
-            .more("Luna can't read its record of accounts, sharing, and settings. Try restarting Luna, and if this keeps happening, contact support."),
+            .more("Signing in and sharing may not work. Restart Luna, and if this keeps happening, contact support."),
         DatabaseState::Damaged => checks
             .add(
                 "database",
                 "system",
                 FAILED,
-                "Signing in and sharing may not work.",
+                "Luna's record of accounts, sharing, and settings is damaged.",
                 None,
             )
-            .more("Luna's record of accounts, sharing, and settings is damaged. The files on your drives aren't affected; contact support."),
+            .more("Signing in and sharing may not work, but the files on your drives aren't affected. Contact support."),
     }
 
-    if path_writable(data_dir) {
+    if path_writable(data_dir, thorough) {
         checks.add(
             "data_path_writable",
             "storage",
@@ -336,7 +372,7 @@ fn add_core_checks(
             .more("Luna can't write to its data folder, which can mean its system disk is full or failing. Contact support.");
     }
 
-    if path_writable(&data_dir.join("logs")) {
+    if path_writable(&data_dir.join("logs"), thorough) {
         checks.add(
             "logs_path_writable",
             "storage",
@@ -373,10 +409,10 @@ fn add_core_checks(
                 "disk_space",
                 "system",
                 FAILED,
-                "Luna's own storage (its system disk) is almost full. Free some space on it, or Luna may stop working.",
+                "Luna's system disk is almost full, so Luna may stop working.",
                 details,
             )
-            .more("This is the disk where Luna keeps its accounts and settings; your files are on your drives."),
+            .more("This disk holds Luna's accounts and settings, not your files. To clear temporary files, select Free up space in Settings → About → System checks."),
         None => checks
             .add(
                 "disk_space",
@@ -427,7 +463,7 @@ fn add_clock_check(checks: &mut Checks, clock: ClockReading, build_unix: i64) {
                 format!("The clock is wrong: it says {}.", ymd(clock.now_unix)),
                 None,
             )
-            .more("That's before this version of Luna was made, so new and changed files would get wrong dates, and updates and Luna Connect will likely fail. Luna sets its clock over the internet: check that your router or modem is online, then check again in a minute.");
+            .more("That date is before this version of Luna was made, so new and changed files get wrong dates, and updates and Luna Connect may fail. Luna sets its clock over the internet, so make sure your router or modem is online.");
         return;
     }
     match clock.synced {
@@ -490,7 +526,7 @@ fn add_update_checks(checks: &mut Checks, probes: &Probes) {
             "Luna checks updates with a different signing key than the built-in one.",
             None,
         )
-        .more("An Admin pointed updates at another project page in Settings → About → Advanced → Update source. Updates are only checked against the keys saved there — if that wasn't on purpose, choose Use defaults there, then Save changes.");
+        .more("An Admin changed Settings → About → Advanced → Update source, so Luna checks updates only with the keys saved there. If this was not on purpose, choose Use defaults there, then Save changes.");
     }
 
     if probes.on_luna_os {
@@ -573,11 +609,11 @@ fn add_network_checks(checks: &mut Checks, probes: &Probes) {
                 "connect",
                 "network",
                 WARNING,
-                "Cloud backups can't upload right now.",
+                "Luna Connect isn't working for this Luna right now.",
                 None,
             )
             .more(format!(
-                "{err} Changes made in Luna Connect won't reach this Luna until then."
+                "{err} Until then, cloud backups may not upload, and changes made in Luna Connect don't reach this Luna."
             ));
     } else {
         checks.add(
@@ -637,7 +673,9 @@ const OFFICE_EDITORS: &[(&str, &str, &str)] = &[
 const FILES_KEPT: &str = "Your files are still on your drives and can be downloaded.";
 
 fn add_feature_checks(checks: &mut Checks, data_dir: &Path, probes: &Probes) {
-    let office = data_dir.join("eurooffice");
+    // Appliance packs come from the active image; development runs can use
+    // data-directory copies. Ask `packs` for the appropriate location.
+    let office = crate::packs::dir(data_dir, "eurooffice");
     let all_nouns: Vec<&str> = OFFICE_EDITORS.iter().map(|(_, noun, _)| *noun).collect();
     let mut missing: Vec<&str> = OFFICE_SHARED
         .iter()
@@ -702,7 +740,7 @@ fn add_feature_checks(checks: &mut Checks, data_dir: &Path, probes: &Probes) {
             ));
     }
 
-    let drawio = data_dir.join("drawio");
+    let drawio = crate::packs::dir(data_dir, "drawio");
     let marker_ok = std::fs::read_to_string(drawio.join("pack.json"))
         .ok()
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
@@ -815,6 +853,124 @@ fn add_feature_checks(checks: &mut Checks, data_dir: &Path, probes: &Probes) {
             )
             .more("iPhones save photos as HEIC (.heic files), and the tool Luna uses to show them is missing. The photos are still on your drives and can be downloaded.");
     }
+
+    add_search_checks(checks, probes);
+}
+
+/// Searching inside files, by meaning, and by what photos show. Names are
+/// always searchable; these rows say what else search can do here.
+fn add_search_checks(checks: &mut Checks, probes: &Probes) {
+    let pdf = probes.has_program("pdftotext");
+    let ocr = probes.has_program("tesseract");
+    let scans = ocr && probes.has_program("pdftoppm");
+    let missing = probes.missing(&["pdftotext", "pdftoppm", "tesseract"]);
+    match (pdf, ocr, scans) {
+        (true, true, true) => {
+            checks.add(
+                "search_inside",
+                "features",
+                PASSED,
+                "Search finds words inside documents, scans, and screenshots.",
+                None,
+            );
+        }
+        (true, _, _) => checks
+            .add(
+                "search_inside",
+                "features",
+                WARNING,
+                "Search can't read text in scans, screenshots, or photos.",
+                Some(json!({ "missing": missing })),
+            )
+            .more("The tool Luna uses to read printed text in pictures (OCR) is missing. Search still finds words inside documents, and every file by its name."),
+        (false, true, _) => checks
+            .add(
+                "search_inside",
+                "features",
+                WARNING,
+                "Search can't look inside PDFs.",
+                Some(json!({ "missing": missing })),
+            )
+            .more("The tool Luna uses to read PDFs is missing. Search still finds PDFs by name, and words inside other documents."),
+        (false, false, _) => checks
+            .add(
+                "search_inside",
+                "features",
+                WARNING,
+                "Search can't look inside PDFs, scans, or screenshots.",
+                Some(json!({ "missing": missing })),
+            )
+            .more("The tools Luna uses to read PDFs and printed text in pictures are missing. Search still finds words inside other documents, and every file by its name."),
+    }
+
+    match &probes.meaning_search {
+        SmartSearch::On => {
+            checks.add(
+                "meaning_search",
+                "features",
+                PASSED,
+                "Search also finds documents about what you type, in other words.",
+                None,
+            );
+        }
+        _ => checks
+            .add(
+                "meaning_search",
+                "features",
+                WARNING,
+                "Search finds only the exact words you type.",
+                None,
+            )
+            .more("The language model that matches documents by meaning isn't installed on this Luna. Searching by name and by the words inside files still works."),
+    }
+
+    const PHOTOS_STILL: &str = "Photos are still found by name, date, place, and any text in them.";
+    match &probes.photo_search {
+        SmartSearch::On => {
+            checks.add(
+                "photo_search",
+                "features",
+                PASSED,
+                "Search finds photos by what they show.",
+                None,
+            );
+        }
+        SmartSearch::LowMemory => {
+            checks
+                .add(
+                    "photo_search",
+                    "features",
+                    PASSED,
+                    "Photo search is off, so this Luna stays fast.",
+                    None,
+                )
+                .more(format!(
+                    "Finding photos by what they show needs at least 1.5 GB of memory, and this Luna has less. {PHOTOS_STILL}"
+                ));
+        }
+        SmartSearch::NotInstalled => checks
+            .add(
+                "photo_search",
+                "features",
+                WARNING,
+                "Search can't find photos by what they show.",
+                None,
+            )
+            .more(format!(
+                "The photo model isn't installed on this Luna. {PHOTOS_STILL}"
+            )),
+        SmartSearch::Resting(error) => checks
+            .add(
+                "photo_search",
+                "features",
+                WARNING,
+                "Photo search is paused after errors.",
+                error.as_ref().map(|e| json!({ "last_error": e })),
+            )
+            .more(format!(
+                "It failed several times in a row, so Luna paused it for half an hour and will try again. {PHOTOS_STILL}"
+            )),
+    }
 }
 
 fn add_drive_tool_checks(checks: &mut Checks, probes: &Probes) {
@@ -878,30 +1034,6 @@ fn add_drive_tool_checks(checks: &mut Checks, probes: &Probes) {
                 Some(json!({ "missing": ["ntfs3"] })),
             )
             .more("NTFS is the format Windows uses for its own drives and often for external hard drives. Drives in other formats, like exFAT or FAT32, still work.");
-    }
-
-    let mut missing = probes.missing(&["wipefs", "sfdisk"]);
-    if !probes.has_program("mkfs.exfat") && !probes.has_program("mkfs.vfat") {
-        missing.push("mkfs.exfat");
-    }
-    if missing.is_empty() {
-        checks.add(
-            "erase_tools",
-            "drives",
-            PASSED,
-            "Luna can erase a drive while adding it.",
-            None,
-        );
-    } else {
-        checks
-            .add(
-                "erase_tools",
-                "drives",
-                WARNING,
-                "Luna can't erase drives.",
-                Some(json!({ "missing": missing })),
-            )
-            .more("Erasing clears a drive and formats it for Luna when you add it, and a tool for that is missing. Drives you add without erasing still work.");
     }
 
     if probes.has_program("smartctl") {
@@ -1261,6 +1393,7 @@ pub fn finish_comprehensive(
         let rw_name = format!("drive_{}_read_write", drive.id);
         let smart_name = format!("drive_{}_smart", drive.id);
         let drive_details = json!({ "drive_id": drive.id, "drive_label": label });
+        let repair_details = drive_details.clone();
 
         if drive.state == "readonly" {
             checks
@@ -1271,7 +1404,19 @@ pub fn finish_comprehensive(
                     format!("Luna can't save new files to {label}."),
                     Some(drive_details),
                 )
-                .more("The drive is read-only.");
+                .more("Luna tried to save a test file there and couldn't. If the drive has a write-lock switch, turn it off.");
+        } else if drive.locked {
+            // Locked on purpose: nothing to open, and a test file must not be
+            // written into the empty folder. Backups wait for the password.
+            checks
+                .add(
+                    &rw_name,
+                    "drives",
+                    WARNING,
+                    format!("{label} is locked."),
+                    Some(drive_details),
+                )
+                .more("Enter its password in Files to open it and carry on with its backups.");
         } else if drive.mount_point.is_empty() {
             // No live Luna mount (the drive was pulled out or never opened).
             checks
@@ -1301,6 +1446,18 @@ pub fn finish_comprehensive(
                     Some(drive_details),
                 )
                 .more("Luna tried to save a test file there and couldn't.");
+        }
+
+        if let Some(n) = crate::drives::fsck::notice_for(Path::new(&drive.mount_point), &label) {
+            checks
+                .add(
+                    &format!("drive_{}_repair", drive.id),
+                    "drives",
+                    if n.repaired { WARNING } else { FAILED },
+                    n.message,
+                    Some(repair_details),
+                )
+                .more(n.more);
         }
 
         if smart::applicable(&drive.device) {
@@ -1419,9 +1576,23 @@ pub(crate) fn smart_check(
     }
 }
 
-fn path_writable(path: &Path) -> bool {
+/// `durable: false` skips the flush to disk: a read-only, full or locked
+/// folder still fails at create or write, without two blocking `fsync`s and
+/// an eMMC write on every HDMI console look (D3).
+fn path_writable(path: &Path, durable: bool) -> bool {
     let _ = std::fs::create_dir_all(path);
-    crate::drives::probe_writable(path).is_ok()
+    if durable {
+        return crate::drives::probe_writable(path).is_ok();
+    }
+    let probe = path.join(format!(".luna-write-test.{}.quick", std::process::id()));
+    let wrote = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&probe)
+        .and_then(|mut f| std::io::Write::write_all(&mut f, b"luna"));
+    let _ = std::fs::remove_file(&probe);
+    wrote.is_ok()
 }
 
 fn is_executable(path: &Path) -> bool {
@@ -1550,13 +1721,13 @@ mod tests {
         "blkid",
         "mount",
         "umount",
-        "wipefs",
-        "sfdisk",
-        "mkfs.exfat",
         "smartctl",
         "fstrim",
         "grub-editenv",
         "findfs",
+        "pdftotext",
+        "pdftoppm",
+        "tesseract",
     ];
 
     fn fake_bin(dir: &Path, names: &[&str]) -> PathBuf {
@@ -1610,6 +1781,8 @@ mod tests {
             kernel_ntfs: true,
             whiteboard_editor: true,
             whiteboard_fonts: true,
+            meaning_search: SmartSearch::On,
+            photo_search: SmartSearch::On,
         }
     }
 
@@ -1643,6 +1816,8 @@ mod tests {
         let mut probes = healthy_probes(fake_bin(dir.path(), &[]));
         probes.whiteboard_fonts = false;
         probes.kernel_ntfs = false;
+        probes.meaning_search = SmartSearch::NotInstalled;
+        probes.photo_search = SmartSearch::NotInstalled;
         let resp = run_preflight(dir.path(), &conn, &probes);
         assert!(resp.healthy, "warnings must not block setup");
         for name in [
@@ -1653,10 +1828,12 @@ mod tests {
             "heic_tools",
             "drive_tools",
             "ntfs_support",
-            "erase_tools",
             "smart_tool",
             "trim_tool",
             "os_update_tools",
+            "search_inside",
+            "meaning_search",
+            "photo_search",
         ] {
             assert_eq!(resp.checks[name].status, WARNING, "{name}");
         }
@@ -1664,6 +1841,26 @@ mod tests {
             resp.checks["office_pack"].message,
             "Luna can't open or edit documents, spreadsheets, or presentations."
         );
+    }
+
+    #[test]
+    fn search_rows_say_what_still_works() {
+        let (dir, conn) = setup();
+        install_packs(dir.path());
+        let mut probes = healthy_probes(fake_bin(dir.path(), &["pdftotext", "pdftoppm"]));
+        probes.photo_search = SmartSearch::LowMemory;
+        let resp = run_preflight(dir.path(), &conn, &probes);
+        let inside = &resp.checks["search_inside"];
+        assert_eq!(inside.status, WARNING);
+        assert_eq!(
+            inside.message,
+            "Search can't read text in scans, screenshots, or photos."
+        );
+        // Too little memory is a choice, not a fault: it doesn't nag.
+        let photos = &resp.checks["photo_search"];
+        assert_eq!(photos.status, PASSED);
+        assert!(photos.more.as_deref().unwrap().contains("1.5 GB"));
+        assert_eq!(resp.checks["meaning_search"].status, PASSED);
     }
 
     #[test]
@@ -1856,6 +2053,20 @@ mod tests {
     }
 
     #[test]
+    fn quick_write_test_fails_on_a_read_only_folder_and_leaves_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        assert!(path_writable(dir.path(), false));
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        // Root ignores folder permissions; the check is only meaningful as a user.
+        if unsafe { libc::geteuid() } != 0 {
+            assert!(!path_writable(dir.path(), false));
+        }
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    #[test]
     fn ymd_formats_known_dates() {
         assert_eq!(ymd(0), "1970-01-01");
         assert_eq!(ymd(951_782_400), "2000-02-29");
@@ -1925,7 +2136,12 @@ mod tests {
         let check = &resp.checks["drive_d1_read_write"];
         assert_eq!(check.status, FAILED);
         assert_eq!(check.message, "Luna can't save new files to Photos.");
-        assert_eq!(check.more.as_deref(), Some("The drive is read-only."));
+        assert_eq!(
+            check.more.as_deref(),
+            Some(
+                "Luna tried to save a test file there and couldn't. If the drive has a write-lock switch, turn it off."
+            )
+        );
     }
 
     #[test]

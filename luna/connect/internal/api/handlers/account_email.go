@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -17,6 +18,12 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
+
+// errMailNotConfigured means this site has no email provider or API key, so a retry cannot help.
+var errMailNotConfigured = errors.New("email provider not configured")
+
+// mailNotSetUpMessage answers a send that failed because this site has no email provider.
+const mailNotSetUpMessage = "Email is not set up on this Luna Connect site. Contact support."
 
 // emailRateLimitOK enforces max 3 verification email sends per account per 60s.
 // Stored in guess_attempts so blue/green instances share the budget and a
@@ -43,7 +50,7 @@ func (h AccountHandler) RequireVerifiedEmail(next http.Handler) http.Handler {
 		}
 		if !acct.EmailVerified {
 			JSONError(w, http.StatusForbidden,
-				"Please verify your email address first. Check your inbox for the verification link, or resend it.")
+				"Verify your email address first. Open the link in the verification email, or send a new one.")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -80,7 +87,7 @@ func (h AccountHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		`DELETE FROM email_verification_tokens WHERE token_hash = ?`, tokenHash)
 
 	JSON(w, http.StatusOK, map[string]any{
-		"message": "Your email has been verified. You can now use all Luna Connect features.",
+		"message": "Your email is verified.",
 	})
 }
 
@@ -117,11 +124,15 @@ func (h AccountHandler) ResendVerification(w http.ResponseWriter, r *http.Reques
 	}
 	if err := h.sendVerificationEmailSync(acct.Email, token, req.Source); err != nil {
 		slog.Error("failed to send verification email", "error", err, "account", acct.ID)
-		JSONError(w, http.StatusInternalServerError, "We couldn't send the verification email. Please try again.")
+		if errors.Is(err, errMailNotConfigured) {
+			JSONError(w, http.StatusServiceUnavailable, mailNotSetUpMessage)
+			return
+		}
+		JSONError(w, http.StatusInternalServerError, "Could not send the verification email. Try again in a few minutes.")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]any{
-		"message": "Verification email sent. Check your inbox (and spam folder).",
+		"message": "Verification email sent. Check your inbox and spam folder.",
 	})
 }
 
@@ -136,7 +147,7 @@ func (h AccountHandler) GetVerificationStatus(w http.ResponseWriter, r *http.Req
 	err := h.DB.QueryRowContext(r.Context(),
 		`SELECT email_verified FROM accounts WHERE id = ?`, acct.ID).Scan(&verified)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not load your account. Sign in again.")
+		JSONError(w, http.StatusInternalServerError, "Could not load your account. Try again.")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]any{"email_verified": verified == 1})
@@ -155,7 +166,7 @@ func (h AccountHandler) UpdateEmail(w http.ResponseWriter, r *http.Request) {
 	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 	addr, err := mail.ParseAddress(req.Email)
 	if err != nil || !strings.EqualFold(addr.Address, req.Email) {
-		JSONError(w, http.StatusBadRequest, "That email address doesn't look right. Check it for typos and try again.")
+		JSONError(w, http.StatusBadRequest, "Enter a valid email address.")
 		return
 	}
 
@@ -171,15 +182,15 @@ func (h AccountHandler) UpdateEmail(w http.ResponseWriter, r *http.Request) {
 		`SELECT email, email_verified FROM accounts WHERE id = ?`, acct.ID).
 		Scan(&currentEmail, &verified)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not load your account. Sign in again.")
+		JSONError(w, http.StatusInternalServerError, "Could not load your account. Try again.")
 		return
 	}
 	if verified == 1 {
-		JSONError(w, http.StatusBadRequest, "Your email is already verified — sign in with it instead.")
+		JSONError(w, http.StatusBadRequest, "Your email is already verified. Luna Connect cannot change a verified email.")
 		return
 	}
 	if strings.EqualFold(currentEmail, req.Email) {
-		JSONError(w, http.StatusBadRequest, "That's already the address on your account. Check your inbox (and spam folder), or resend the email below.")
+		JSONError(w, http.StatusBadRequest, "That is already the email on your account. Check your inbox and spam folder, or send the email again.")
 		return
 	}
 	if !emailRateLimitOK(h.DB, acct.ID) {
@@ -192,7 +203,7 @@ func (h AccountHandler) UpdateEmail(w http.ResponseWriter, r *http.Request) {
 		`SELECT id FROM accounts WHERE lower(email) = lower(?) AND id != ?`,
 		req.Email, acct.ID).Scan(&otherID)
 	if err == nil {
-		JSONError(w, http.StatusConflict, "An account with this email already exists. Try signing in instead.")
+		JSONError(w, http.StatusConflict, "That email already has an account. Sign in with it instead.")
 		return
 	} else if err != sql.ErrNoRows {
 		JSONError(w, http.StatusInternalServerError, "Could not update your email address. Try again.")
@@ -212,7 +223,11 @@ func (h AccountHandler) UpdateEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.sendVerificationEmailSync(req.Email, token, req.Source); err != nil {
 		slog.Error("failed to send verification email", "error", err, "account", acct.ID)
-		JSONError(w, http.StatusInternalServerError, "We saved your new email but couldn't send the verification link. Use \"resend the email\" below in a moment.")
+		if errors.Is(err, errMailNotConfigured) {
+			JSONError(w, http.StatusServiceUnavailable, "Your new email is saved, but email is not set up on this Luna Connect site. Contact support.")
+			return
+		}
+		JSONError(w, http.StatusInternalServerError, "Your new email is saved, but the verification email did not send. Send it again in a few minutes.")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]any{
@@ -259,8 +274,7 @@ func (h AccountHandler) sendVerificationEmailSync(email, token, source string) e
 <body style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 20px;">
   <h2 style="color: #333;">Verify your email address</h2>
   <p style="color: #555; line-height: 1.6;">
-    Welcome to Luna Connect! Click the button below to verify your email address.
-    This confirms that you own this email and unlocks Luna Connect.
+    Welcome to Luna Connect. Click the button to verify your email address.
   </p>
   <p style="text-align: center; margin: 30px 0;">
     <a href="%s" style="background: #000; color: #fff; padding: 12px 32px; border-radius: 9999px; text-decoration: none; font-family: monospace;">
@@ -268,28 +282,28 @@ func (h AccountHandler) sendVerificationEmailSync(email, token, source string) e
     </a>
   </p>
   <p style="color: #888; font-size: 13px;">
-    If the button doesn't work, copy and paste this link into your browser:<br>
+    If the button does not work, copy this link into your browser:<br>
     <a href="%s" style="color: #666;">%s</a>
   </p>
   <p style="color: #888; font-size: 13px;">
-    This link expires in 24 hours. If you didn't create an account, you can safely ignore this email.
+    This link expires in 24 hours. If you did not make a Luna Connect account, ignore this email.
   </p>
 </body>
 </html>`, verifyURL, verifyURL, verifyURL)
 
 	prov, err := providers.NewService(h.DB).FindEnabled("smtp")
 	if err != nil || prov == nil {
-		return fmt.Errorf("no email provider configured. Add Resend in Admin → Connections")
+		return fmt.Errorf("%w: no email provider configured. Add Resend in Admin → Connections", errMailNotConfigured)
 	}
 	apiKey := prov.Credential("api_key", "")
 	if apiKey == "" {
-		return fmt.Errorf("resend API key not configured")
+		return fmt.Errorf("%w: resend API key not configured", errMailNotConfigured)
 	}
 	from := strings.TrimSpace(prov.Setting("from_email", ""))
 	if from == "" {
 		from = defaultVerificationFrom(baseURL)
 	}
-	return h.resendClient().SendEmail(apiKey, from, email, "Verify your email — Luna Connect", htmlBody, "")
+	return h.resendClient().SendEmail(apiKey, from, email, "Verify your email for Luna Connect", htmlBody, "")
 }
 
 func defaultVerificationFrom(baseURL string) string {

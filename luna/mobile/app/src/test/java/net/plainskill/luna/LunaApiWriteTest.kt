@@ -68,7 +68,7 @@ class LunaApiWriteTest {
                         if (n < 0) break
                         got += n
                     }
-                    val path = target.substringBefore('?')
+                    val path = target
                     seen += Seen(method, path, headers["authorization"], headers["content-range"], body)
                     val (code, text) = replies["$method $path"] ?: (404 to "{}")
                     val out = text.toByteArray()
@@ -137,12 +137,12 @@ class LunaApiWriteTest {
         val data = ByteArray(size) { (it % 251).toByte() }
         replies["POST /api/v1/uploads"] = 200 to "{\"upload_id\":\"u1\"}"
         replies["PUT /api/v1/uploads/u1"] = 200 to "{}"
-        replies["POST /api/v1/uploads/u1/complete"] = 200 to "{}"
+        replies["POST /api/v1/uploads/u1/complete?overwrite=1"] = 200 to "{}"
 
         LunaApi.uploadStream(base, "tok", "d1", "Photos/2026/10", "a.jpg", size.toLong(), ByteArrayInputStream(data))
 
         assertEquals(
-            listOf("POST /api/v1/uploads", "PUT /api/v1/uploads/u1", "PUT /api/v1/uploads/u1", "POST /api/v1/uploads/u1/complete"),
+            listOf("POST /api/v1/uploads", "PUT /api/v1/uploads/u1", "PUT /api/v1/uploads/u1", "POST /api/v1/uploads/u1/complete?overwrite=1"),
             seen.map { "${it.method} ${it.path}" },
         )
         val create = String(seen[0].body)
@@ -171,7 +171,7 @@ class LunaApiWriteTest {
         replies["POST /api/v1/uploads"] = 200 to "{}"
         val e = apiError { LunaApi.createUpload(base, "tok", "d1", "", "a.jpg", 1) }
         assertEquals(500, e.code)
-        assertTrue(e.message!!.contains("didn't return a session"))
+        assertTrue(e.message!!.contains("sent an incomplete answer"))
     }
 
     @Test
@@ -179,7 +179,7 @@ class LunaApiWriteTest {
         replies["POST /api/v1/uploads"] = 401 to "{}"
         assertEquals(401, apiError { LunaApi.createUpload(base, "tok", "d1", "", "a.jpg", 1) }.code)
         replies["POST /api/v1/uploads"] = 403 to "{}"
-        assertTrue(apiError { LunaApi.createUpload(base, "tok", "d1", "", "a.jpg", 1) }.message!!.contains("allow Write on this drive"))
+        assertTrue(apiError { LunaApi.createUpload(base, "tok", "d1", "", "a.jpg", 1) }.message!!.contains("Ask an Admin for Write on this folder"))
         // Other failures keep the server's own plain message.
         replies["POST /api/v1/uploads"] = 507 to "{\"error\":\"The drive is full.\"}"
         assertEquals("The drive is full.", apiError { LunaApi.createUpload(base, "tok", "d1", "", "a.jpg", 1) }.message)
@@ -204,7 +204,7 @@ class LunaApiWriteTest {
         replies["POST /api/v1/uploads"] = 403 to "{}"
         val e = apiError { LunaApi.probeWrite(base, "tok", "d1", "") }
         assertEquals(403, e.code)
-        assertTrue(e.message!!.contains("can see the folder but cannot save files there"))
+        assertTrue(e.message!!.contains("can open this folder but can't save files in it"))
         // An empty destination means "drive root": no mkdir is attempted.
         assertTrue(seen.none { it.path.endsWith("/mkdir") })
     }

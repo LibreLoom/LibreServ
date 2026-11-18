@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Cloud, HardDrive, Shield } from "lucide-react";
+import PathTrail from "@libreloom/ui/components/common/PathTrail.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -12,6 +13,7 @@ import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import IconCircle from "@libreloom/ui/components/ui/IconCircle.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { InfoHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import PausedByLockNote from "../protect/PausedByLockNote.jsx";
 import { deleteJson, getDrives, getJson, postJson, apiErrorMessage } from "../../lib/api";
 import { getPhraseStatus, PHRASE_QUERY_KEY } from "../../lib/cloudPhrase";
 import { formatRecentAgo } from "../../lib/recentItems.js";
@@ -191,14 +193,20 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const tooFewDrives = driveList.length < 2;
   const hasBackups = matchingBackups.length > 0 || driveCovers.length > 0;
   const cloudConnected = Boolean(connect.data?.connect_active);
-  // Missing from older status replies: treat as on file, so only a clear false blocks backups.
-  const cardOnFile = connect.data?.card_on_file !== false;
+  // Linked is not enough: Luna Connect stores nothing until the account has an active payment card.
+  const needsPayment = cloudConnected && connect.data?.cloud_backup === "no_payment";
+  const cloudReady = connect.data?.cloud_backup === "ready";
   // Why a cloud backup can't run right now, in plain words; null when nothing stops it.
   const cloudPausedReason = connect.isPending
     ? null
     : !cloudConnected
-    ? "Paused because this Luna isn't linked to Luna Connect. An Admin can add the device token in Settings → About."
-    : !cardOnFile
+    ? (
+        <>
+          Paused because this Luna isn't linked to Luna Connect. An Admin can add the device token in{" "}
+          <PathTrail steps={["Settings", "About", "Advanced"]} />.
+        </>
+      )
+    : needsPayment
       ? "Paused because Luna Connect has no payment card on file."
       : null;
   const cloudBackup = (cloudQuery.data || []).find(
@@ -350,7 +358,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const removeOldCopies = useMutation({
     mutationFn: () => deleteJson("/api/v1/private-backups/old-copies"),
     onSuccess: () => {
-      addToast({ type: "success", message: "Older versions will be removed" });
+      addToast({ type: "success", message: "Luna will remove the older versions." });
       setConfirmingOldCopies(false);
       setError(null);
       queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
@@ -372,7 +380,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
         title={
           <span className="inline-flex items-center gap-2">
             Back up
-            <InfoHint content="Keeps copies on other drives plugged into Luna, and in the cloud through Luna Connect. Each file on a drive keeps its latest version plus up to 3 older ones from the past month, and deleted files are kept for 30 days." />
+            <InfoHint content="On other drives, Luna keeps the latest version of each file and up to 3 older ones from the past month. It keeps deleted files for 30 days." />
           </span>
         }
         onClose={onClose}
@@ -432,12 +440,16 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                       </>
                     ) : b.status === "active" ? (
                       <>
-                        <LayeredPill actionLabel={b.target_drive_name}>{backupHeadline(b)}</LayeredPill>
+                        <LayeredPill actionLabel={b.target_drive_name}>{b.paused === "locked" ? "Paused" : backupHeadline(b)}</LayeredPill>
+                        {b.paused === "locked" ? (
+                          <PausedByLockNote backup={b} />
+                        ) : (
                         <BackupStatusNotice
                           state={b.state}
                           lastError={b.last_error}
                           lastOkAt={b.last_ok_at}
                                                   />
+                        )}
                       </>
                     ) : (
                       <>
@@ -544,7 +556,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                   <InfoHint
                     surface="primary"
                     label="What cloud backup means"
-                    content="An off-site copy of your latest files, kept with Luna Connect. It keeps the latest copy, plus about one older copy from each of the last day, week and month. Cloud backup costs $8 per terabyte each month."
+                    content="Luna Connect keeps the latest copy and about one older copy from each of the last day, week, and month. Cloud backup costs $8 per terabyte each month."
                   />
                 }
               >
@@ -559,7 +571,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                         ? `Luna copies this ${thingLabel} to the cloud every 6 hours.`
                         : `Copy the latest files from this ${thingLabel} off-site. Luna copies them every 6 hours.`}
                     </p>
-                    {!cardOnFile && (
+                    {needsPayment && (
                       <p className="text-sm">
                         Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>.{" "}
                         {cloudBackup ? "Backups stay paused until then." : "Cloud backup can start after that."}
@@ -675,7 +687,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                   surface="primary"
                   fullWidth
                   loading={createCloud.isPending}
-                  disabled={createCloud.isPending}
+                  disabled={createCloud.isPending || !cloudReady}
                   onClick={() => (noPhrase ? setSettingUpPhrase(true) : createCloud.mutate())}
                 >
                   Back up to the cloud
