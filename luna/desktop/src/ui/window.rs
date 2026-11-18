@@ -131,15 +131,27 @@ impl ShellView {
         let content_stack = gtk::Stack::new();
         content_stack.set_transition_type(gtk::StackTransitionType::Crossfade);
 
-        let backup = BackupPage::new(state.clone(), toast.clone());
-        let sync = SyncPage::new(state.clone(), toast.clone());
-        let status = StatusPage::new(state.clone());
-        let settings = SettingsPage::new(toast.clone());
-
-        content_stack.add_named(backup.root(), Some("backup"));
-        content_stack.add_named(sync.root(), Some("sync"));
-        content_stack.add_named(status.root(), Some("status"));
-        content_stack.add_named(settings.root(), Some("settings"));
+        // Pages are built the first time they are opened: most windows only
+        // ever show the first one, and an unopened page holds no widgets.
+        let ensure_page: Rc<dyn Fn(&str)> = Rc::new({
+            let content_stack = content_stack.clone();
+            let state = state.clone();
+            let toast = toast.clone();
+            move |name: &str| {
+                if content_stack.child_by_name(name).is_some() {
+                    return;
+                }
+                let root = match name {
+                    "backup" => BackupPage::new(state.clone(), toast.clone()).root().clone(),
+                    "sync" => SyncPage::new(state.clone(), toast.clone()).root().clone(),
+                    "status" => StatusPage::new(state.clone()).root().clone(),
+                    "settings" => SettingsPage::new(toast.clone()).root().clone(),
+                    _ => return,
+                };
+                content_stack.add_named(&root, Some(name));
+            }
+        });
+        ensure_page("backup");
         content_stack.set_visible_child_name("backup");
 
         let content_header = adw::HeaderBar::new();
@@ -190,6 +202,7 @@ impl ShellView {
         let page_state = Rc::new(RefCell::new(Page::Backup));
         list.connect_row_activated({
             let content_stack = content_stack.clone();
+            let ensure_page = ensure_page.clone();
             let window_title = window_title.clone();
             let page_state = page_state.clone();
             let row_backup = row_backup.clone();
@@ -210,6 +223,7 @@ impl ShellView {
                     return;
                 };
                 *page_state.borrow_mut() = page;
+                ensure_page(name);
                 content_stack.set_visible_child_name(name);
                 window_title.set_title(label);
                 if split.is_collapsed() {

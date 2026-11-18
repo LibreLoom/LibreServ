@@ -13,6 +13,7 @@ use luna_desktop::backup::BackupJob;
 use super::adaptive::{configure_form_dialog, make_page_toolbar, touch_icon_button};
 use super::folder_browser::FolderBrowser;
 use super::spawn_blocking;
+use super::tick_while_mapped;
 use super::toast_error;
 
 /// The drive check asks Luna over HTTP, so it runs at most this often.
@@ -79,20 +80,7 @@ impl BackupPage {
         do_refresh();
 
         // Hidden pages skip their ticks. Mapping the page again refreshes it at once.
-        glib::timeout_add_local(Duration::from_secs(2), {
-            let do_refresh = do_refresh.clone();
-            let outer = outer.clone();
-            move || {
-                if outer.is_mapped() {
-                    do_refresh();
-                }
-                glib::ControlFlow::Continue
-            }
-        });
-        outer.connect_map({
-            let do_refresh = do_refresh.clone();
-            move |_| do_refresh()
-        });
+        tick_while_mapped(&outer, Duration::from_secs(2), do_refresh.clone());
 
         new_btn.connect_clicked({
             let state = state.clone();

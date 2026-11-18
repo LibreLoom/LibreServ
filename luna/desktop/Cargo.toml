@@ -54,3 +54,10 @@ semver = "1"
 
 [dev-dependencies]
 tempfile = "3"
+
+# Same as the luna workspace: LTO and one codegen unit roughly halve the code,
+# and with it the code pages the app keeps resident while it idles in the tray.
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

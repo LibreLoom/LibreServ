@@ -33,7 +33,8 @@ struct Ready {
 pub struct Notices {
     root: gtk::Box,
     state: Arc<AppState>,
-    toast: Rc<adw::ToastOverlay>,
+    /// The window's toasts; empty until the window is first opened.
+    toast: glib::WeakRef<adw::ToastOverlay>,
     compat_banner: adw::Banner,
     update_banner: adw::Banner,
     ready: RefCell<Option<Ready>>,
@@ -43,7 +44,9 @@ pub struct Notices {
 }
 
 impl Notices {
-    pub fn new(state: Arc<AppState>, toast: Rc<adw::ToastOverlay>) -> Rc<Self> {
+    /// One per process, made at start-up: the update check and the Luna
+    /// recheck run even when the app starts in the background with no window.
+    pub fn new(state: Arc<AppState>) -> Rc<Self> {
         let compat_banner = adw::Banner::new("");
         let update_banner = adw::Banner::new("");
         update_banner.set_button_label(Some("Install"));
@@ -54,7 +57,7 @@ impl Notices {
         let this = Rc::new(Self {
             root,
             state,
-            toast,
+            toast: glib::WeakRef::new(),
             compat_banner,
             update_banner,
             ready: RefCell::new(None),
@@ -71,7 +74,12 @@ impl Notices {
         &self.root
     }
 
-    /// Start the timers. Call once, after the window exists.
+    /// Put the banners into the window, built when it is first opened.
+    pub fn attach(&self, toast: &adw::ToastOverlay) {
+        self.toast.set(Some(toast));
+    }
+
+    /// Start the timers. Call once.
     pub fn start(self: &Rc<Self>) {
         // Show or hide the mismatch banner from the shared state.
         glib::timeout_add_seconds_local(2, {
@@ -216,7 +224,9 @@ impl Notices {
                 }
             }
             Err(e) => {
-                toast_error(&self.toast, &e);
+                if let Some(toast) = self.toast.upgrade() {
+                    toast_error(&toast, &e);
+                }
                 // Backup and sync were paused for the install; bring them back.
                 let state = self.state.clone();
                 spawn_blocking(move || luna_desktop::start_all_jobs(&state), |_| {});

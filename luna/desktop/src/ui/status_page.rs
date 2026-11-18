@@ -6,11 +6,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use adw::prelude::*;
-use gtk::glib;
 
 use luna_desktop::AppState;
 
 use super::spawn_blocking;
+use super::tick_while_mapped;
 
 /// The drive check asks Luna over HTTP, so it runs at most this often.
 const DRIVE_CHECK_EVERY: Duration = Duration::from_secs(30);
@@ -267,20 +267,7 @@ impl StatusPage {
         do_refresh();
 
         // Hidden pages skip their ticks. Mapping the page again refreshes it at once.
-        glib::timeout_add_local(Duration::from_secs(1), {
-            let do_refresh = do_refresh.clone();
-            let outer = outer.clone();
-            move || {
-                if outer.is_mapped() {
-                    do_refresh();
-                }
-                glib::ControlFlow::Continue
-            }
-        });
-        outer.connect_map({
-            let do_refresh = do_refresh.clone();
-            move |_| do_refresh()
-        });
+        tick_while_mapped(&outer, Duration::from_secs(1), do_refresh.clone());
 
         Self {
             root: outer.upcast(),

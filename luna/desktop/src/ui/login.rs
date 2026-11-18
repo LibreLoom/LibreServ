@@ -202,7 +202,8 @@ impl LoginView {
         });
 
         // Dev loop: skip the form when a token was injected.
-        if auto_login_enabled() && !default_token.is_empty() {
+        let signed_in = state.session.lock().map(|s| s.is_some()).unwrap_or(false);
+        if auto_login_enabled() && !default_token.is_empty() && !signed_in {
             do_sign_in();
         }
 
