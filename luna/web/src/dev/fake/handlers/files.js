@@ -12,6 +12,7 @@ import {
   pathExists, recordMove, resolveMove, trashEntry, uniqueName, under,
 } from "../fsmodel.js";
 import { broadensAccess, cancelJob, enqueueJob, findJob, jobJson, tickJobs, visibleJobs } from "../jobs.js";
+import { extOf } from "../mimetypes.js";
 import { nextId } from "../world.js";
 
 // Scenario seeds build trees with these.
@@ -301,14 +302,32 @@ del("/api/v1/me/recents", ({ world, user, query }) => {
 });
 
 // ── File contents ───────────────────────────────────────────────────────────
-// A 1×1 PNG, a one-page PDF, and filler for everything the browser can't really play.
+// A 1×1 PNG, a 1×1 JPEG, a one-page PDF, and filler for everything the browser
+// can't really play. The bytes match the type they are handed over as: a name
+// that says `.jpg` gets JPEG bytes, because an `<img>` would otherwise be left
+// to guess and a download would save a PNG called `.jpg`.
 const PNG = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+const JPEG = Uint8Array.from(atob("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwCKiiigD//Z"), (c) => c.charCodeAt(0));
+/** The extensions lunad treats as HEIF, so a photo of one of these is a HEIC. */
+const HeicExts = ["heic", "heif", "hif"];
 const PDF = "%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n4 0 obj<</Length 44>>stream\nBT /F1 18 Tf 40 100 Td (Luna sample PDF) Tj ET\nendstream\nendobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF";
 
-export function bytesFor(node) {
+/**
+ * The bytes for a file, in the kind its name says. lunad hands over the file
+ * itself and takes the type from the name with `mime_guess`, so a seeded
+ * stand-in has to agree with the name it is served under: a `.jpg` gets JPEG
+ * bytes, never a PNG wearing an `image/jpeg` label.
+ *
+ * @param {{ text?: string, sample?: string, size?: number }} node
+ * @param {string} [name] the file's name, where the caller knows it
+ * @returns {any[]} bytes and content type
+ */
+export function bytesFor(node, name = "") {
+  const ext = extOf(name);
   if (node.text != null) return [node.text, "text/plain; charset=utf-8"];
-  if (node.sample === "png") return [PNG, "image/png"];
-  if (node.sample === "pdf") return [PDF, "application/pdf"];
+  if (ext === "jpg" || ext === "jpeg") return [JPEG, "image/jpeg"];
+  if (ext === "png" || node.sample === "png") return [PNG, "image/png"];
+  if (ext === "pdf" || node.sample === "pdf") return [PDF, "application/pdf"];
   return [new Uint8Array(Math.min(node.size || 64, 4096)), "application/octet-stream"];
 }
 
@@ -334,14 +353,16 @@ get("/api/v1/drives/:id/files/content", ({ world, user, params, query }) => {
     const photo = (world.photos || []).find((ph) => ph.drive_id === driveId && ph.path === rel);
     if (photo) {
       const ext = (photo.path.split(".").pop() || "").toLowerCase();
-      // The seeds carry no pixels for a photo; a 1x1 PNG stands in for an image
-      // so the download is real bytes, and filler for video.
-      const [data, type] = ext === "jpg" || ext === "jpeg" ? [PNG, "image/jpeg"]
-        : ext === "png" ? [PNG, "image/png"]
-        : ext === "heic" ? [PNG, "image/heic"]
-        : [new Uint8Array(2048), "video/mp4"];
-      return raw(data, type, 200,
-        query.download === "1" ? { "Content-Disposition": `attachment; filename="${base(rel)}"` } : {});
+      // The seeds carry no pixels for a photo, so a stand-in stands in: a JPEG
+      // for every still, filler for video. A HEIC photo has no encoder here, so
+      // it is shown and saved as the JPEG preview under a `.jpg` name rather
+      // than handed over as bytes labelled with a type they aren't.
+      const heic = HeicExts.includes(ext);
+      const still = ["jpg", "jpeg", "png", "gif", "webp", ...HeicExts].includes(ext);
+      const data = still ? JPEG : new Uint8Array(2048);
+      const type = still ? "image/jpeg" : "video/mp4";
+      const name = heic ? `${base(rel).replace(/\.[^.]+$/, "")}.jpg` : base(rel);
+      return raw(data, type, 200, query.download === "1" ? { "Content-Disposition": `attachment; filename="${name}"` } : {});
     }
   }
   if (!node) throw gone();
@@ -349,7 +370,7 @@ get("/api/v1/drives/:id/files/content", ({ world, user, params, query }) => {
     if (query.download !== "1") throw fail(400, "That's a folder. Use Download to save it as a zip file.");
     return raw(new Uint8Array(22), "application/zip", 200, { "Content-Disposition": `attachment; filename="${base(rel) || "drive"}.zip"` });
   }
-  const [data, type] = bytesFor(node);
+  const [data, type] = bytesFor(node, rel);
   return raw(data, type, 200, query.download === "1" ? { "Content-Disposition": `attachment; filename="${base(rel)}"` } : {});
 });
 

@@ -385,7 +385,7 @@ get("/api/v1/drives/:id/backups/:bid/download", ({ world, user, params, query })
     if (!rel) throw fail(400, "Choose a file to download a version of.");
     const version = versionAt(world, row, rel, at);
     if (!version) throw fail(404, "Luna couldn't find that version of this file.");
-    const [data, type] = bytesFor(version.node);
+    const [data, type] = bytesFor(version.node, rel);
     return raw(data, type, 200, { "Content-Disposition": `attachment; filename="${base(rel)}"` });
   }
   const file = backedUpFile(world, row, rel);
@@ -394,7 +394,7 @@ get("/api/v1/drives/:id/backups/:bid/download", ({ world, user, params, query })
     if (dir?.kind === "dir") return raw(new Uint8Array(22), "application/zip", 200, { "Content-Disposition": `attachment; filename="${base(rel)}.zip"` });
     throw fail(404, "Luna couldn't find that in this backup.");
   }
-  const [data, type] = bytesFor(file.node);
+  const [data, type] = bytesFor(file.node, rel);
   return raw(data, type, 200, { "Content-Disposition": `attachment; filename="${base(rel)}"` });
 });
 

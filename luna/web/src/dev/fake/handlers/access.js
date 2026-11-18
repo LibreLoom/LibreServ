@@ -22,6 +22,7 @@ import { photoKey } from "../photos.js";
 import { bytesFor, needDrive } from "./files.js";
 import { privateBoundary, pathContains } from "../policy.js";
 import { driveRow, driveUsable, fsOf } from "../fsmodel.js";
+import { extOf, mimeFromName } from "../mimetypes.js";
 
 const sharing = (w) => {
   if (!w.sharing) w.sharing = { subjects: [], withMe: [] };
@@ -340,17 +341,21 @@ del("/api/v1/forms/responses", ({ world, user, query }) => {
 });
 get("/api/v1/forms/file", () => json({}));
 post("/api/v1/forms/picture", ({ world, user, query, body }) => {
-  const m = managedForm(world, user, body.drive_id ?? query.drive_id, body.path ?? query.path);
+  // `MemberPictureCopy` carries the drive in the body, and lunad reads it from
+  // there for the form, the permission and the file alike; the query is only a
+  // fallback for a caller that sent no body field at all.
+  const driveId = body.drive_id ?? query.drive_id ?? "d1";
+  const m = managedForm(world, user, driveId, body.path ?? query.path);
   if (m.err) return m.err;
   const source = String(body.source ?? "").replace(/^\/+|\/+$/g, "");
   // The editor has to be able to see the picture; copying is what keeps it on
   // the form when the drive changes.
-  if (!hasCap(world, user, body.drive_id ?? query.drive_id ?? "d1", source, CAP_VIEW))
+  if (!hasCap(world, user, driveId, source, CAP_VIEW))
     return fail(403, "You can't open that picture, so it can't go on the form.");
   const leaf = pathName(source);
   let node = null;
   try {
-    node = fsOf(world, query.drive_id || "d1").nodes?.[source] || null;
+    node = fsOf(world, driveId).nodes?.[source] || null;
   } catch {
     node = null;
   }
@@ -670,8 +675,8 @@ function treeOf(w, token, s) {
  */
 function syntheticBytes(name) {
   const lower = String(name || "").toLowerCase();
-  if (/\.(png|jpe?g|gif|webp|avif|bmp|ico)$/.test(lower)) return bytesFor({ sample: "png" });
-  if (/\.pdf$/.test(lower)) return bytesFor({ sample: "pdf" });
+  if (/\.(png|jpe?g|gif|webp|avif|bmp|ico)$/.test(lower)) return bytesFor({ sample: "png" }, name);
+  if (/\.pdf$/.test(lower)) return bytesFor({ sample: "pdf" }, name);
   return [new TextEncoder().encode(`This is ${name}.\n`), "text/plain; charset=utf-8"];
 }
 
@@ -865,16 +870,18 @@ function formSetting(l, key) {
   return formOf(l).settings?.[key];
 }
 
-/** `form_allows_edits`: a missing flag means changes are allowed. */
+/** `form_allows_edits`: `as_bool()` alone, so only a real boolean counts and
+ * anything else falls back to the default, which is allowed. */
 function formAllowsEdits(l) {
   const set = formSetting(l, "allowEdits");
-  return set === undefined ? true : Boolean(set);
+  return typeof set === "boolean" ? set : true;
 }
 
-/** `form_max_responses`: missing, zero or junk means no cap. */
+/** `form_max_responses`: `as_u64()`, so a string, a fraction or anything that
+ * isn't a whole number is no setting at all, and zero means no cap. */
 function formMaxResponses(l) {
-  const n = Number(formSetting(l, "maxResponses"));
-  return Number.isFinite(n) && n > 0 ? n : null;
+  const n = formSetting(l, "maxResponses");
+  return typeof n === "number" && Number.isInteger(n) && n > 0 ? n : null;
 }
 
 /** Today in the daemon's `YYYY-MM-DD` form, in local time. */
@@ -1732,7 +1739,7 @@ function serveSharedFile(world, r, rel, name, download = false) {
       node = null;
     }
   }
-  const [data, type] = node ? bytesFor(node) : syntheticBytes(name);
+  const [data, type] = node ? bytesFor(node, name) : syntheticBytes(name);
   // `serve_file` always names the file, and picks `inline` for the kinds a
   // browser can safely show (not SVG, which can carry script).
   return raw(data, type, 200, {
@@ -1741,77 +1748,6 @@ function serveSharedFile(world, r, rel, name, download = false) {
 }
 
 
-/**
- * `Path::extension`: a leading dot is part of the name, not an extension, and a
- * name that ends in a dot has none either.
- *
- * @param {unknown} name
- */
-function extOf(name) {
-  const text = String(name ?? "");
-  const dot = text.lastIndexOf(".");
-  if (dot <= 0 || dot === text.length - 1) return "";
-  return text.slice(dot + 1).toLowerCase();
-}
-
-/**
- * `mime_guess::from_path(..).first_or_octet_stream()`: the type a browser knows
- * from the name alone, and the octet-stream answer when it knows none.
- *
- * @param {unknown} name
- */
-function mimeFromName(name) {
-  const ext = extOf(name);
-  /** @type {Record<string, string>} */
-  const known = {
-    txt: "text/plain",
-    text: "text/plain",
-    log: "text/plain",
-    csv: "text/csv",
-    md: "text/markdown",
-    json: "application/json",
-    html: "text/html",
-    htm: "text/html",
-    css: "text/css",
-    js: "text/javascript",
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    gif: "image/gif",
-    webp: "image/webp",
-    avif: "image/avif",
-    bmp: "image/bmp",
-    ico: "image/x-icon",
-    tif: "image/tiff",
-    tiff: "image/tiff",
-    heic: "image/heic",
-    heif: "image/heif",
-    epub: "application/epub+zip",
-    svg: "image/svg+xml",
-    pdf: "application/pdf",
-    mp4: "video/mp4",
-    m4v: "video/x-m4v",
-    webm: "video/webm",
-    mov: "video/quicktime",
-    mkv: "video/x-matroska",
-    mp3: "audio/mpeg",
-    wav: "audio/wav",
-    flac: "audio/flac",
-    ogg: "audio/ogg",
-    opus: "audio/ogg",
-    m4a: "audio/m4a",
-    zip: "application/zip",
-    gz: "application/gzip",
-    tar: "application/x-tar",
-    odt: "application/vnd.oasis.opendocument.text",
-    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  };
-  return known[ext] || "application/octet-stream";
-}
-
-/** `files::inline_safe`: mimes a browser may render in place. */
 /** `files::inline_safe`: mimes a browser may render in place. */
 function inlineSafe(type) {
   // Rust compares the bare mime, so a charset parameter must not defeat it.
@@ -2078,17 +2014,17 @@ function mutableSegments(world, r, raw, { forCreate = false } = {}) {
   const trash = trashProbe(r.s, segments);
   if (trash) return { err: trash };
   // A link to one file has nothing beneath it, and either way the walk meets a
-  // file rather than a missing name — an `ENOTDIR` the daemon answers with its
-  // catch-all, before the missing-name allowance can apply.
-  if (r.s.is_file) return { err: guestBroke() };
+  // file rather than a missing name — an `ENOTDIR` that `confined_write` words
+  // as a destination that isn't a folder, before the missing-name allowance can
+  // apply.
+  if (r.s.is_file) return { err: guestNotAFolder() };
   // `confined_write` resolves the child first and asks about the wall after,
   // so a path that isn't there is "not there", not "not in this link".
   const tree = treeOf(world, r.l.token, r.s);
-  // A path with a file partway along it is `ENOTDIR` out of the walk, and the
-  // daemon maps that as its catch-all rather than "not there".
+  // A path with a file partway along it is the same `ENOTDIR` out of the walk.
   for (let i = 1; i < segments.length; i += 1) {
     const midway = nodeAt(tree, segments.slice(0, i));
-    if (midway && !isFolderNode(midway)) return { err: guestBroke() };
+    if (midway && !isFolderNode(midway)) return { err: guestNotAFolder() };
   }
   const exists = Boolean(nodeAt(tree, segments));
   if (!exists && !forCreate)
@@ -2101,8 +2037,8 @@ function mutableSegments(world, r, raw, { forCreate = false } = {}) {
 /** A node the tree can walk into. */
 const isFolderNode = (node) => node.kind === "dir" || node.kind === "folder";
 
-/** The daemon's catch-all for a write it couldn't finish. */
-const guestBroke = () => fail(500, "Luna couldn't do that. Check the drive and try again.");
+/** `FilesError::Io(NotADirectory)` out of a resolve, worded as lunad words it. */
+const guestNotAFolder = () => fail(400, "That destination isn't a folder.");
 
 /** A name a drive would take, or the refusal the daemon makes. */
 const guestName = (name) =>
@@ -2243,12 +2179,12 @@ post("/s/:token/move", ({ world, params, headers, body }) => {
   const trashDest = trashProbe(r.s, destSegments);
   if (trashDest) return trashDest;
   // The destination is resolved the way a source is, so a path that walks
-  // through a file ends the whole request at the daemon's catch-all — and on a
-  // link to one file the walk starts under that file.
-  if (r.s.is_file && destSegments.length) return guestBroke();
+  // through a file is `ENOTDIR` out of `resolve_child_nofollow`, which
+  // `map_guest_files_err` words as a bad destination.
+  if (r.s.is_file && destSegments.length) return guestNotAFolder();
   for (let i = 1; i < destSegments.length; i += 1) {
     const midway = nodeAt(tree, destSegments.slice(0, i));
-    if (midway && !isFolderNode(midway)) return guestBroke();
+    if (midway && !isFolderNode(midway)) return guestNotAFolder();
   }
   const destRelBase = destSegments.join("/");
   const destIsDir = destSegments.length === 0 || Boolean(treeFolder(tree, destSegments));
@@ -2290,14 +2226,15 @@ post("/s/:token/move", ({ world, params, headers, body }) => {
       });
       continue;
     }
-    // A destination that is a file meets `ENOTDIR` inside the walk, which the
-    // daemon answers with its catch-all rather than a wording of its own.
+    // A destination that is a file resolves fine and then fails inside
+    // `move_rel`, where the parent of the target isn't a directory: that is a
+    // `NotFound`, so the guest is told the thing is gone rather than broken.
     if (!destIsDir) {
       results.push({
         path: rawPath,
         ok: false,
-        status: 500,
-        error: "Luna couldn't do that. Check the drive and try again.",
+        status: 404,
+        error: "Luna can't find that anymore. Refresh and try again.",
       });
       continue;
     }
@@ -2467,7 +2404,7 @@ publicGet("/s/:token/file", ({ world, params, query, headers }) => {
   // image previews and a shared PDF is a PDF rather than text wearing its name.
   // `serve_shared_file` reads the type off the name, never off the bytes, so a
   // shared `Movie.mp4` is a video and a `notes` with no extension is not text.
-  const [data] = node ? bytesFor(node) : syntheticBytes(entry.name);
+  const [data] = node ? bytesFor(node, entry.name) : syntheticBytes(entry.name);
   const type = mimeFromName(entry.name);
   // `serve_file` always names the file: `inline` for the kinds a browser can
   // safely show, `attachment` when the guest asked to download or cannot.

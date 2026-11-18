@@ -831,9 +831,15 @@ kinds:
   private wall, and the move destination before the wall that covers it.
 - **Resolution.** `mutable_child` trims slashes off both ends, so `/Holiday` is
   `Holiday`; a bare `/` is the shared item. A source that isn't there fails the
-  whole move, because every source is resolved before anything moves, while a
-  destination that exists but is a file fails each item the way a walk that
-  meets a file always does — the daemon's catch-all, not a wording of its own.
+  whole move, because every source is resolved before anything moves. A
+  destination that exists but is a file resolves cleanly and then fails inside
+  `move_rel`, where the parent it was handed isn't a directory: that is a
+  `NotFound`, so the item comes back 404 and the guest is told it is gone rather
+  than broken. A destination whose *path* runs through a file is refused for the
+  whole request before anything moves, because `resolve_child_nofollow` stops at
+  the file with `ENOTDIR` and `map_guest_files_err` words that as "That
+  destination isn't a folder." (a 400, not the catch-all this file claimed in an
+  earlier round; see round 7).
   A move that would land where it started, or inside itself, is one refused
   item. The trash alias is refused only as a drive-relative first segment, so a
   link rooted inside a folder may hold a folder called `.luna-trash`.
@@ -1010,3 +1016,63 @@ opacity 0 is not painted, so there is nothing to read; v12 skips it, and still
 judges any text at a low but real opacity, because that text *is* on the screen.
 Before trusting the change, v12 was shown to fail: a planted white-on-white
 paragraph was flagged, while the same paragraph at opacity 0 was not.
+
+### Round 7: the reviewer's four findings
+
+A reviewer read the branch (Forgejo PR 247, review 269) and returned four inline
+comments. All four were real, and three of them were parity bugs the twelve
+rounds above had missed. Each was checked against the daemon before it was
+touched, and each fix was then probed live on the dev server, not reasoned about.
+
+**The picture a form copies came off the wrong drive.** `MemberPictureCopy`
+carries the drive in the body, and lunad reads it from there three times: the
+form it manages, the permission it asks for, and the file it resolves. The fake
+read the body for the first two and the query for the third, so a form and its
+picture on a second drive looked for the picture on the first one and answered
+"Luna can't find that picture." Now one `driveId` feeds all three. Probed: form
+and picture both on `d2` answers 200 with a copy name; the picture left on `d1`
+answers 404, because the drive that holds the form is the drive that has to hold
+the picture.
+
+**The form settings were read with JavaScript's idea of truth, not serde's.**
+`form_allows_edits` is `as_bool().unwrap_or(true)`, so only a JSON boolean
+decides anything and every other value leaves changes allowed; the fake ran
+`Boolean(set)`, which turned the number `0` into "changes refused". And
+`form_max_responses` is `as_u64()?` with zero meaning no cap, so a string, a
+fraction or a boolean is no setting at all; the fake ran `Number(...)`, which
+accepted `"5"`, `5.5` and `true`. Both readers now take the type serde takes.
+Probed: `allowEdits: 0` still serves the edit lookup, `allowEdits: false` still
+refuses it, `maxResponses: "1"` and `5.5` and `true` all leave the form
+uncapped, and a whole `2` caps it at two while `0` does not.
+
+**A move into a file was told the drive was broken.** A destination that exists
+and is a file resolves fine, then fails in `move_rel` because the parent it was
+handed is not a directory. lunad maps that to `NotFound`, and the guest reads
+"Luna can't find that anymore. Refresh and try again." The fake answered 500.
+Probed: moving a file onto `Holiday/Day1.jpg` now comes back 207 with that item
+404 and that sentence.
+
+**Every walk that meets a file was given the catch-all, and it isn't one.**
+`resolve_child_nofollow` walks component by component with `symlink_metadata`,
+and a file partway along a path stops it with `ENOTDIR`, which
+`map_guest_files_err` words as "That destination isn't a folder." (400) rather
+than a 500. This corrects the rule an earlier round wrote into this file: a
+walk through a file is a named refusal on the write routes, not the catch-all.
+Probed across four routes on a folder link with full access: moving to
+`Holiday/Day1.jpg/inner` answers 400, deleting `Holiday/Day1.jpg/inner` answers
+400, renaming `Holiday/notes.txt/x` answers 400, and making a folder at
+`Holiday/notes.txt/inner` answers 400, while the same paths without the extra
+segment still succeed.
+
+**A photo was handed over as the wrong kind of file.** Photo seeds carry no
+pixels, so the fake stood a 1x1 PNG in for every image and labelled it
+`image/jpeg`, and a `.jpg` in the tree (`sample: "png"`) went out as PNG bytes
+under its own name. Both were a type that did not match the bytes. There is now
+a real 1x1 JPEG next to the PNG, `bytesFor` takes the file's name so
+`Path::extension` decides which stand-in is used, and `extOf` plus
+`mimeFromName` moved into `dev/fake/mimetypes.js` so the file routes and the
+share routes cannot drift apart again. A HEIC photo, which no encoder here can
+produce, is served as the JPEG preview under a `.jpg` name rather than as bytes
+labelled `image/heic`. Probed: `beach.jpg` answers `image/jpeg` and starts
+`ff d8 ff`, `photo.png` answers `image/png` and starts `89 PNG`, and a `.pdf`
+still starts `%PDF`.
