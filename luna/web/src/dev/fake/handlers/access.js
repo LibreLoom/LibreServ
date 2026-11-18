@@ -1606,10 +1606,10 @@ post("/s/:token/upload", ({ world, params, headers, body }) => {
   // `["a", 5]` is a body serde accepts.
   let shape = body;
   if (Array.isArray(body)) {
-    if (body.length > 3)
-      return dataErr(
-        `invalid length ${body.length}, expected struct PublicUploadCreate with 3 elements`,
-      );
+    // A derived struct reads only its own fields from a sequence; anything left
+    // over is trailing characters, which is its own refusal rather than a
+    // length. The fake cannot state serde's column, so it stops at the words.
+    if (body.length > 3) return dataErr("trailing characters");
     if (body.length < 2)
       return dataErr(
         `invalid length ${body.length}, expected struct PublicUploadCreate with 3 elements`,
@@ -1626,6 +1626,10 @@ post("/s/:token/upload", ({ world, params, headers, body }) => {
   // integer is left to the size ceiling rather than judged here.
   if (typeof shape.size !== "number" || !Number.isInteger(shape.size) || shape.size < 0)
     return dataErr(`size: invalid type: ${shapeHint(shape.size)}, expected u64`);
+  // An integer literal past `u64::MAX` is read as a float by the JSON parser,
+  // so it is refused as a type rather than measured against the ceiling.
+  if (shape.size >= 2 ** 64)
+    return dataErr(`size: invalid type: floating point \`${shape.size}\`, expected u64`);
   if (shape.path !== undefined && shape.path !== null && typeof shape.path !== "string")
     return dataErr(`path: invalid type: ${shapeHint(shape.path)}, expected a string`);
   body = shape;
