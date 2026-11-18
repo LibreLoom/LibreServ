@@ -2400,6 +2400,7 @@ post("/s/:token/upload", ({ world, params, headers, body }) => {
   world.uploads ||= {};
   world.uploads[id] = {
     linkId: r.l.id,
+    spot: sessionSpot(world, r, landIn, finalName),
     name: finalName,
     size,
     dest: landIn,
@@ -2416,13 +2417,46 @@ post("/s/:token/upload", ({ world, params, headers, body }) => {
 // cancelled, so a second request about that id is one it never made (404).
 // A session that errored is only refused once the request itself has been read:
 // `NotActive` comes from `write_chunk`, after the chunk is validated.
+/**
+ * `upload_in_link_scope`: the place a session lands, spelled drive-relative.
+ * It is worked out again on every later request, so a share that moved under
+ * a running upload stops being a place that upload may write to.
+ *
+ * @param {any} world
+ * @param {any} r
+ * @param {string} dest
+ * @param {string} name
+ * @returns {string}
+ */
+function sessionSpot(world, r, dest, name) {
+  const clean = (v) => String(v ?? "").replace(/^\/+|\/+$/g, "");
+  const base = clean(r.s.path);
+  if (r.s.kind === "album") {
+    const a = albumFor(world, r.s);
+    return [a.err ? "" : clean(a.album?.contrib_path), clean(name)].filter(Boolean).join("/");
+  }
+  if (r.s.is_file) return base;
+  return [base, clean(dest), clean(name)].filter(Boolean).join("/");
+}
+
 function uploadFor(world, r, id) {
   const up = world.uploads?.[id];
   if (!up) return { err: fail(404, "Luna doesn't know this upload.") };
   if (up.linkId !== r.l.id) return { err: fail(403, "That upload isn't part of this link.") };
+  if (sessionSpot(world, r, up.dest, up.name) !== up.spot)
+    return { err: fail(403, "That upload isn't part of this link.") };
   return { err: null, up };
 }
-put("/s/:token/upload/:id", ({ world, params, headers, raw }) => {
+put("/s/:token/upload/:id", ({ world, params, headers, raw: piece }) => {
+  // `DefaultBodyLimit::max(chunk_max)` sits on the route itself, so an
+  // oversized piece never reaches the link gate, the session lookup or the
+  // Content-Range check — it is the extractor that refuses it, in plain text.
+  if (piece && (piece.size ?? piece.byteLength ?? 0) > 16 * 1024 * 1024)
+    return raw(
+      new TextEncoder().encode("Failed to buffer the request body: length limit exceeded"),
+      "text/plain",
+      413,
+    );
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
   const denied = uploadGate(r);
@@ -2467,17 +2501,12 @@ put("/s/:token/upload/:id", ({ world, params, headers, raw }) => {
   if (start > end || start >= ceiling) return fail(400, "That chunk range isn't valid.");
   if (end > ceiling - 1n) end = ceiling - 1n;
   const expected = end - start + 1n;
-  const got = raw ? raw.size ?? raw.byteLength ?? raw.length ?? 0 : 0;
+  const got = piece ? piece.size ?? piece.byteLength ?? piece.length ?? 0 : 0;
   // Every byte is counted once: a short body would leave a hole that is written
   // out as zeroes, so it is refused instead of accepted.
   if (BigInt(got) !== expected) return fail(400, "The chunk size doesn't match its range.");
-  // `upload_chunk_bytes` is the memory budget for one piece; a bigger body is
-  // refused with its own status before the bytes are ever written.
-  if (got > 16 * 1024 * 1024)
-    return fail(
-      413,
-      "That upload chunk is too large for the free memory on this Luna. Try a smaller piece, or free some space and try again.",
-    );
+  // `upload_chunk_bytes` is the memory budget for one piece, and it is spent
+  // by the route's body limit above — a body that gets this far is small.
   // `write_chunk` is where a session that already errored is refused, so the
   // chunk above is validated first and this 409 comes after it.
   if (found.up.state === "error")
@@ -2557,6 +2586,8 @@ del("/s/:token/upload/:id", ({ world, params, headers }) => {
   const session = world.uploads?.[params.id];
   if (!session) return fail(404, "Luna doesn't know this upload.");
   if (session.linkId !== r.l.id) return fail(403, "That upload isn't part of this link.");
+  if (sessionSpot(world, r, session.dest, session.name) !== session.spot)
+    return fail(403, "That upload isn't part of this link.");
   // Cancelling drops the session, so the id is unknown afterwards, exactly as
   // it is after a finished upload.
   delete world.uploads[params.id];
