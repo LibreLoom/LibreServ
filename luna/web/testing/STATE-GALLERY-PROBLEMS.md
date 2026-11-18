@@ -989,3 +989,19 @@ Two things the harness cannot say, and both are recorded rather than faked: the
 daemon sniffs a HEIF photo's bytes where the fake reads its extension (so a photo
 mislabelled on disk shows the preview here and not there), and the per-client
 address that a limiter bucket is keyed on has no stand-in with one browser.
+
+### The gate: two clean full-gallery passes
+
+Two consecutive full sweeps at `0e6ca0746`, 316 scenarios each, zero findings:
+pass A and pass B both 316/316, nothing missing, nothing blank that settled
+later, and the checker's own self-test still seeing all four planted defects.
+
+The first pass with checker v11 found 5 438 problems across 278 scenarios — and
+every one was the checker's own mistake. v11 folded the opacity chain into a
+string's colour and then asked whether that colour matched the surface behind
+it, so fully transparent text failed the comparison: the dashboard heading's
+opacity-0 measuring clone, and the items inside the closed user menu. Text at
+opacity 0 is not painted, so there is nothing to read; v12 skips it, and still
+judges any text at a low but real opacity, because that text *is* on the screen.
+Before trusting the change, v12 was shown to fail: a planted white-on-white
+paragraph was flagged, while the same paragraph at opacity 0 was not.
