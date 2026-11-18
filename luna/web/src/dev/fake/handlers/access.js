@@ -740,11 +740,17 @@ function linkReaches(world, link, rel, driveId, subjectPath) {
  * @returns {string}
  */
 function dispositionName(name) {
-  const cleaned = String(name ?? "")
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u001f\u007f"\\/:]/g, "")
+  // Rust's `is_control()` covers C0, DEL and C1, and `take(180)` counts
+  // characters rather than UTF-16 units, so an emoji is one of the 180.
+  const chars = Array.from(String(name ?? ""))
+    .filter((c) => {
+      const code = c.codePointAt(0) || 0;
+      return !(code <= 0x1f || code === 0x7f || (code >= 0x80 && code <= 0x9f));
+    })
+    .filter((c) => !'"\\/:'.includes(c))
     .slice(0, 180)
-    .trim();
+    .join("");
+  const cleaned = chars.trim();
   return !cleaned || cleaned === "." || cleaned === ".." ? "download" : cleaned;
 }
 
