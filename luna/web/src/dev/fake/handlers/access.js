@@ -1583,6 +1583,22 @@ function uploadGate(r) {
 }
 
 post("/s/:token/upload", ({ world, params, headers, body }) => {
+  // Axum deserializes the body before the handler runs, so a body that is not
+  // the shape the route declares is refused before the limiter counts it and
+  // before the link is resolved — no session, no slot used.
+  const bodyErr = (field, what) =>
+    fail(
+      400,
+      `Failed to deserialize the JSON body into the target type: ${what} \`${field}\``,
+    );
+  if (!body || typeof body !== "object" || Array.isArray(body))
+    return fail(400, "Failed to deserialize the JSON body into the target type.");
+  if (typeof body.name !== "string") return bodyErr("name", "missing field");
+  if (body.size === undefined || body.size === null) return bodyErr("size", "missing field");
+  if (typeof body.size !== "number" || !Number.isSafeInteger(body.size) || body.size < 0)
+    return bodyErr("size", "invalid type: expected u64, found a value for");
+  if (body.path !== undefined && body.path !== null && typeof body.path !== "string")
+    return bodyErr("path", "invalid type: expected a string, found a value for");
   // The daemon's share limiter turns away a client that starts too many
   // sessions (5 a minute), before it even resolves the link.
   // A fixed window, not a sliding one: the count resets when the minute that
@@ -1606,7 +1622,7 @@ post("/s/:token/upload", ({ world, params, headers, body }) => {
   const denied = uploadGate(r);
   if (denied) return denied;
   if (sharing(world).failUpload) return fail(500, "Luna couldn't save that file.");
-  const size = Number(body.size) || 0;
+  const size = body.size;
   // `public_upload_create` refuses before it opens a session: a size past the
   // 1 TB ceiling, or a name the drive would not take.
   if (size > 1024 ** 4) return fail(400, "Luna can't accept files larger than 1 TB.");
