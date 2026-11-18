@@ -1511,11 +1511,13 @@ function treeFolder(tree, segments) {
  * @returns {{ segments?: string[], tree?: any[], err?: any }}
  */
 function mutableSegments(world, r, raw, { forCreate = false } = {}) {
-  // `mutable_child` trims slashes before it looks at the path, so a bare `/` is
-  // the shared item rather than a path outside the share.
-  if (/^\/+$/.test(String(raw ?? "").trim()))
+  // `mutable_child` trims whitespace and then slashes off both ends before it
+  // reads the path, so `/Holiday` is `Holiday` and a bare `/` is the shared item
+  // rather than a path outside the share.
+  const trimmedRaw = String(raw ?? "").trim().replace(/^\/+|\/+$/g, "");
+  if (!trimmedRaw)
     return { err: fail(400, "The shared item itself can't be changed through this link.") };
-  const segments = linkSegments(raw);
+  const segments = linkSegments(trimmedRaw);
   if (!segments) return { err: fail(400, "That path isn't inside this share.") };
   if (!segments.length)
     return { err: fail(400, "The shared item itself can't be changed through this link.") };
@@ -1690,9 +1692,11 @@ post("/s/:token/move", ({ world, params, headers, body }) => {
       continue;
     }
     // `files::move_rel` refuses a folder moved into itself or below itself.
-    const destRel2 = destSegments.join("/");
+    // `move_rel` refuses when the item would land where it already is, or
+    // inside itself — the destination with the leaf, not the folder alone.
+    const toRel = [...destSegments, name].join("/");
     const fromRel = segments.join("/");
-    if (destRel2 === fromRel || destRel2.startsWith(`${fromRel}/`)) {
+    if (toRel === fromRel || toRel.startsWith(`${fromRel}/`)) {
       results.push({
         path: rawPath,
         ok: false,
