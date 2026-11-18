@@ -1509,6 +1509,10 @@ function treeFolder(tree, segments) {
  * @returns {{ segments?: string[], err?: any }}
  */
 function mutableSegments(world, r, raw) {
+  // `mutable_child` trims slashes before it looks at the path, so a bare `/` is
+  // the shared item rather than a path outside the share.
+  if (/^\/+$/.test(String(raw ?? "").trim()))
+    return { err: fail(400, "The shared item itself can't be changed through this link.") };
   const segments = linkSegments(raw);
   if (!segments) return { err: fail(400, "That path isn't inside this share.") };
   if (!segments.length)
@@ -1546,13 +1550,23 @@ const guestNew = (kind) => ({ world, params, headers, body }) => {
   const named = mutableSegments(world, r, body.path);
   if (named.err) return named.err;
   const { segments } = named;
+  const name = segments[segments.length - 1];
+  if (kind === "dir") {
+    // `files::mkdir_as` holds the whole path to the temp-name bar and refuses
+    // the trash alias as its first segment — it never calls `safe_name`, so a
+    // leaf called `.luna-trash` below an existing folder is just a folder, and
+    // a name past what a filesystem takes fails as an ordinary write error.
+    if (isInternalName(segments.join("/")) || segments[0] === ".luna-trash")
+      return fail(400, "That name isn't allowed here.");
+    if (new TextEncoder().encode(name).length > 255)
+      return fail(500, "Luna couldn't do that. Check the drive and try again.");
+  } else if (!safeName(name) || isInternalName(name)) {
+    // `files::create` holds the leaf to `safe_name` and the temp-name bar; a
+    // padded name still passes, because only the check trims, not the path.
+    return fail(400, "That name isn't allowed here.");
+  }
   const level = treeFolder(guestTree(world, params.token, r.s), segments.slice(0, -1));
   if (!level) return fail(404, "Luna can't find that anymore. Refresh and try again.");
-  const name = segments[segments.length - 1];
-  // `files::create` holds the leaf to `safe_name` and the temp-name bar; a
-  // padded name still passes, because only the check trims, not the path.
-  if (!safeName(name) || isInternalName(name))
-    return fail(400, "That name isn't allowed here.");
   if (level.some((e) => e.name === name))
     return fail(409, "An item with this name is already here. Choose another name.");
   level.push({
@@ -1563,7 +1577,10 @@ const guestNew = (kind) => ({ world, params, headers, body }) => {
     hidden: name.startsWith("."),
     ...(kind === "file" ? { text: "" } : {}),
   });
-  return { ok: true, path: segments.join("/") };
+  // The answer names the item where the daemon would: drive-relative, so a link
+  // rooted below the drive root carries that prefix.
+  const subjectRel = String(r.s.path || "").replace(/^\/+|\/+$/g, "");
+  return { ok: true, path: [subjectRel, segments.join("/")].filter(Boolean).join("/") };
 };
 post("/s/:token/mkdir", guestNew("dir"));
 post("/s/:token/create", guestNew("file"));
@@ -1578,15 +1595,15 @@ post("/s/:token/rename", ({ world, params, headers, body }) => {
   if (r.s.kind !== "path") return fail(410, "This link has expired or been removed.");
   const named = mutableSegments(world, r, body.path);
   if (named.err) return named.err;
-  const bad = guestName(body.new_name);
-  if (bad) return bad;
   const { segments } = named;
   const level = treeFolder(guestTree(world, params.token, r.s), segments.slice(0, -1));
   const old = segments[segments.length - 1];
   const node = level?.find((e) => e.name === old);
   if (!node) return fail(404, "Luna can't find that anymore. Refresh and try again.");
-  // `safe_name` trims, so `" b"` renames to `b`.
-  const newName = safeName(body.new_name);
+  // `safe_name` trims before the temp-name bar, so `".x.part "` is `.x.part`.
+  const bad = guestName(String(body.new_name).trim());
+  if (bad) return bad;
+  const newName = safeName(String(body.new_name).trim());
   // No same-name shortcut: a no-replace rename onto itself is a clash.
   if (level.some((e) => e.name === newName))
     return fail(409, "An item with this name is already here. Choose another name.");
@@ -1657,10 +1674,17 @@ post("/s/:token/move", ({ world, params, headers, body }) => {
       continue;
     }
     // `files::move_rel` refuses a folder moved into itself or below itself.
-    const destRel = destSegments.join("/");
+    const destRel2 = destSegments.join("/");
     const fromRel = segments.join("/");
-    if (destRel === fromRel || destRel.startsWith(`${fromRel}/`))
-      return fail(400, "That name isn't allowed here.");
+    if (destRel2 === fromRel || destRel2.startsWith(`${fromRel}/`)) {
+      results.push({
+        path: rawPath,
+        ok: false,
+        status: 400,
+        error: "That name isn't allowed here.",
+      });
+      continue;
+    }
     if (destLevel.some((e) => e.name === name)) {
       results.push({
         path: rawPath,
