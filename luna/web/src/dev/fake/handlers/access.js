@@ -787,6 +787,51 @@ function uploadNameOk(name) {
   );
 }
 
+/** A responder's burst allowance: `form_respond_limiter`, 12 a minute. */
+function respondAllowed(world, kind) {
+  const windows = (world.respondWindows ||= {});
+  const bucket = (windows[kind] ||= { count: 0, start: 0 });
+  const now = nowSec();
+  if (bucket.count === 0 || now - bucket.start >= 60) {
+    bucket.count = 1;
+    bucket.start = now;
+  } else if (bucket.count >= 12) {
+    return fail(429, "Too many tries from this network just now. Wait a minute and try again.");
+  } else {
+    bucket.count += 1;
+  }
+  return null;
+}
+
+/**
+ * `question_skipped`: a question carries `logic`, so it is only asked when the
+ * question it watches sits above it, is itself asked, and holds the value the
+ * logic expects.
+ *
+ * @param {any} l
+ * @param {any} question
+ * @param {Record<string, any>} answers
+ * @returns {boolean}
+ */
+function questionSkipped(l, question, answers) {
+  const logic = question?.logic;
+  if (!logic || typeof logic !== "object" || Array.isArray(logic)) return false;
+  const triggerId = typeof logic.questionId === "string" ? logic.questionId : "";
+  if (!triggerId) return false;
+  const questions = (formOf(l).questions || []).filter((q) => typeof q?.id === "string");
+  const idx = questions.findIndex((q) => q.id === question.id);
+  const triggerIdx = questions.findIndex((q) => q.id === triggerId);
+  if (idx < 0 || triggerIdx < 0 || triggerIdx >= idx) return false;
+  if (questionSkipped(l, questions[triggerIdx], answers)) return false;
+  const expect = typeof logic.equals === "string" ? logic.equals : "";
+  const got = answers[triggerId];
+  if (Array.isArray(got)) return got.some((v) => v === expect);
+  if (typeof got === "string") return got === expect;
+  if (got === undefined || got === null) return expect === "";
+  // Anything else is compared with a string and can never equal one.
+  return false;
+}
+
 /**
  * `keep_known_answers` then `validate_answers`: a question removed while
  * somebody was answering must not cost them the rest, and an answer that is not
@@ -796,7 +841,7 @@ function uploadNameOk(name) {
  * @param {Record<string, any>} answers
  * @returns {import("../router.js").Res | null}
  */
-function checkAnswers(l, answers) {
+function checkAnswers(l, answers, canAttach) {
   // A question with no id at all is not judged; one whose id is `""` is still
   // judged (it can be required), but no answer can be filed under it.
   const questions = (formOf(l).questions || []).filter((q) => typeof q?.id === "string");
@@ -808,7 +853,9 @@ function checkAnswers(l, answers) {
       (typeof question.label === "string" && question.label.trim()) || "A question";
     const value = answers[question.id];
     const answered = isAnswered(value);
-    if (question.required === true && !answered)
+    // A hidden question is not required; a value sent for it anyway still has
+    // to be a real answer, because skipping does not turn off the checks.
+    if (question.required === true && !answered && !questionSkipped(l, question, answers))
       return fail(400, `"${label}" still needs an answer.`);
     if (!answered) continue;
     const options = questionOptions(question);
@@ -838,7 +885,12 @@ function checkAnswers(l, answers) {
         ok = typeof value === "number" && numberInRange(question, value);
         break;
       case "file":
-        ok = typeof value === "string" && uploadNameOk(value);
+        // A file answer may only name an attachment this respondent has, or one
+        // already on the answer being edited.
+        ok =
+          typeof value === "string" &&
+          uploadNameOk(value) &&
+          (canAttach == null || canAttach(value));
         break;
       // A type from a newer Luna stores any flat value it was sent.
       default:
@@ -2076,6 +2128,10 @@ post("/s/:token/upload", ({ world, params, headers, body }) => {
   if (size > 1024 ** 4) return fail(400, "Luna can't accept files larger than 1 TB.");
   const name = safeName(body.name);
   if (!name) return fail(400, "That file name can't be used. Try renaming it.");
+  // A session name is held to the create-path bar as well: a `.part`-style or
+  // Luna-namespace leaf would mint a file no listing can ever show.
+  if (guestInternal([name]))
+    return fail(500, "Luna couldn't finish that upload. Check the drive and try again.");
   // The daemon passes the path through untouched — only a trailing slash is
   // harmless — and a leading one is read as "outside this link".
   const dest = String(body.path ?? "").trim();
@@ -2325,6 +2381,8 @@ get("/s/:token/respond", ({ world, params, query, headers }) => {
   // Only a path subject carrying the answering capability opens a form.
   const gate = respondGate(r.s, r.l.caps);
   if (gate) return gate;
+  const busyLookup = respondAllowed(world, "lookup");
+  if (busyLookup) return busyLookup;
   const editToken = String(query.edit_token ?? "");
   if (!editToken)
     return fail(400, "That edit link is incomplete. Ask for the full link and try again.");
@@ -2342,6 +2400,8 @@ post("/s/:token/respond", ({ world, params, headers, body }) => {
   if (r.err) return r.err;
   const gate = respondGate(r.s, r.l.caps);
   if (gate) return gate;
+  const busy = respondAllowed(world, "submit");
+  if (busy) return busy;
   // A closed form refuses the answer itself, not with a conflict.
   const shut = hardClosed(r.l);
   if (shut) return fail(403, shut);
@@ -2359,8 +2419,6 @@ post("/s/:token/respond", ({ world, params, headers, body }) => {
     !Object.values(body.answers).every(answerValueOk)
   )
     return fail(400, "Some answers are in a shape Luna can't store. Try again.");
-  const shaped = checkAnswers(r.l, body.answers);
-  if (shaped) return shaped;
   const list = (r.l.responses ||= []);
   // A presented secret only ever identifies an answer to amend; a target id on
   // its own is an attempt with a missing half of the pair.
@@ -2374,6 +2432,16 @@ post("/s/:token/respond", ({ world, params, headers, body }) => {
     return fail(403, "This edit link doesn't match a saved answer on this form.");
   if (!presented && targetId)
     return fail(403, "This edit link doesn't match a saved answer on this form.");
+  // Files the answer may name: this respondent's own waiting uploads, or — when
+  // editing — files already on this answer.
+  const previous = new Set(
+    ((entry && formOf(r.l).questions) || [])
+      .filter((q) => q?.type === "file" && typeof entry.answers?.[q.id] === "string")
+      .map((q) => entry.answers[q.id]),
+  );
+  const canAttach = (name) => Boolean(world.formPending?.[name]) || previous.has(name);
+  const shaped = checkAnswers(r.l, body.answers, canAttach);
+  if (shaped) return shaped;
   let token = presented;
   if (!entry) {
     const max = formMaxResponses(r.l);
@@ -2411,6 +2479,8 @@ post("/s/:token/respond-file", ({ world, params, headers, raw }) => {
   if (r.err) return r.err;
   const gate = respondGate(r.s, r.l.caps);
   if (gate) return gate;
+  const busyFile = respondAllowed(world, "upload");
+  if (busyFile) return busyFile;
   // An upload on a closed form says only that it is closed — the daemon does
   // not repeat which date passed here.
   if (hardClosed(r.l)) return fail(403, "This form isn't collecting answers anymore.");
