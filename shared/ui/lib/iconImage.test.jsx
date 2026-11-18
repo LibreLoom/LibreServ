@@ -34,7 +34,7 @@ describe("iconImageUrl", () => {
 describe("IconImage", () => {
   it("is a hidden image span with a color, and the normal svg without one", () => {
     const { container, rerender } = render(<IconImage icon={Copy} size={14} color="#ffffff" />);
-    const span = container.querySelector("[data-icon-image]");
+    const span = /** @type {HTMLElement} */ (container.querySelector("[data-icon-image]"));
     expect(span).toHaveAttribute("aria-hidden", "true");
     expect(span.style.width).toBe("14px");
     expect(container.querySelector("svg")).toBeNull();
@@ -54,11 +54,11 @@ describe("IconActions icons", () => {
     );
     const button = screen.getByRole("button", { name: "Copy a.txt" });
     // Ghost on a card: text-primary, so the icon is drawn in --primary.
-    expect(button.querySelector("[data-icon-image]").style.backgroundImage).toContain(encodeURIComponent("#ffffff"));
+    expect(/** @type {HTMLElement} */ (button.querySelector("[data-icon-image]")).style.backgroundImage).toContain(encodeURIComponent("#ffffff"));
     await act(async () => {
       document.documentElement.style.setProperty("--primary", "#000000");
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(button.querySelector("[data-icon-image]").style.backgroundImage).toContain(encodeURIComponent("#000000"));
+    expect(/** @type {HTMLElement} */ (button.querySelector("[data-icon-image]")).style.backgroundImage).toContain(encodeURIComponent("#000000"));
   });
 });
