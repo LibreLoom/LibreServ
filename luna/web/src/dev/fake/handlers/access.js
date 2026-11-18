@@ -1525,11 +1525,7 @@ function mutableSegments(world, r, raw) {
 }
 
 /** A name a drive would take, or the refusal the daemon makes. */
-const guestName = (name) => {
-  const safe = safeName(name);
-  if (!safe || safe !== String(name)) return fail(400, "That name isn't allowed here.");
-  return null;
-};
+const guestName = (name) => (safeName(name) && !isInternalName(name) ? null : fail(400, "That name isn't allowed here."));
 
 const guestNew = (kind) => ({ world, params, headers, body }) => {
   const shape = writeShape(body, { path: "string" });
@@ -1553,6 +1549,10 @@ const guestNew = (kind) => ({ world, params, headers, body }) => {
   const level = treeFolder(guestTree(world, params.token, r.s), segments.slice(0, -1));
   if (!level) return fail(404, "Luna can't find that anymore. Refresh and try again.");
   const name = segments[segments.length - 1];
+  // `files::create` holds the leaf to `safe_name` and the temp-name bar; a
+  // padded name still passes, because only the check trims, not the path.
+  if (!safeName(name) || isInternalName(name))
+    return fail(400, "That name isn't allowed here.");
   if (level.some((e) => e.name === name))
     return fail(409, "An item with this name is already here. Choose another name.");
   level.push({
@@ -1576,17 +1576,18 @@ post("/s/:token/rename", ({ world, params, headers, body }) => {
   if (!capSet(r.l.caps).has("edit"))
     return fail(403, "This link doesn't allow changes. Ask for a link that allows editing.");
   if (r.s.kind !== "path") return fail(410, "This link has expired or been removed.");
-  const bad = guestName(body.new_name);
-  if (bad) return bad;
   const named = mutableSegments(world, r, body.path);
   if (named.err) return named.err;
+  const bad = guestName(body.new_name);
+  if (bad) return bad;
   const { segments } = named;
   const level = treeFolder(guestTree(world, params.token, r.s), segments.slice(0, -1));
   const old = segments[segments.length - 1];
   const node = level?.find((e) => e.name === old);
   if (!node) return fail(404, "Luna can't find that anymore. Refresh and try again.");
-  const newName = String(body.new_name).trim();
-  if (newName === old) return { ok: true };
+  // `safe_name` trims, so `" b"` renames to `b`.
+  const newName = safeName(body.new_name);
+  // No same-name shortcut: a no-replace rename onto itself is a clash.
   if (level.some((e) => e.name === newName))
     return fail(409, "An item with this name is already here. Choose another name.");
   node.name = newName;
@@ -1639,15 +1640,9 @@ post("/s/:token/move", ({ world, params, headers, body }) => {
   const results = [];
   for (const rawPath of body.paths) {
     const named = mutableSegments(world, r, rawPath);
-    if (named.err) {
-      results.push({
-        path: rawPath,
-        ok: false,
-        status: named.err.status,
-        error: named.err.body?.error,
-      });
-      continue;
-    }
+    // A path outside the share fails the request itself, not just this item:
+    // the daemon resolves every source before it moves anything.
+    if (named.err) return named.err;
     const { segments } = named;
     const level = treeFolder(tree, segments.slice(0, -1));
     const name = segments[segments.length - 1];
@@ -1661,6 +1656,11 @@ post("/s/:token/move", ({ world, params, headers, body }) => {
       });
       continue;
     }
+    // `files::move_rel` refuses a folder moved into itself or below itself.
+    const destRel = destSegments.join("/");
+    const fromRel = segments.join("/");
+    if (destRel === fromRel || destRel.startsWith(`${fromRel}/`))
+      return fail(400, "That name isn't allowed here.");
     if (destLevel.some((e) => e.name === name)) {
       results.push({
         path: rawPath,
