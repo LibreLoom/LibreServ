@@ -424,6 +424,18 @@ function isTrashApi(rel) {
  * `is_trash_rel`: a top-level entry named `{marker prefix}-trash`, the trash
  * root's real on-disk name. `marker::extract_prefix` only accepts a real UUID.
  */
+/**
+ * The trash is a folder with a minted name, so a guest asking a trash link
+ * about its root is answered with that name and not with the page's word.
+ *
+ * @param {any} world
+ * @returns {string}
+ */
+function trashRealName(world) {
+  world.trashReal ||= `.luna-${mintHex(8)}-${mintHex(4)}-${mintHex(4)}-${mintHex(12)}-trash`;
+  return world.trashReal;
+}
+
 function isTrashRel(rel) {
   const first = rel.split("/")[0] || "";
   return /^\.luna-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}-trash$/.test(
@@ -1194,6 +1206,7 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
     // The one entry is `files::stat`'s own answer, serialized as-is: a file
     // carries no `children` or `totals` key at all, because both are skipped
     // when empty rather than printed as null.
+    const subjectRel = String(r.s.path || "").replace(/^\/+|\/+$/g, "");
     return listing([
       {
         name: r.s.name,
@@ -1202,6 +1215,9 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
         modified: nowSec() - 86400,
         created: nowSec() - 86400 * 30,
         hidden: false,
+        // `files::stat` marks an item that sits inside a private share, and the
+        // listing passes that stamp through.
+        private: Boolean(privateBoundary(world, r.s.drive_id, subjectRel)),
         writable: false,
       },
     ]);
@@ -1430,7 +1446,7 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
 publicGet("/s/:token/stat", ({ world, params, query, headers }) => {
   // `public_stat` takes the same query struct as `/list`, so axum rejects a
   // non-numeric `download` before the handler runs.
-  const badDownload = queryInt(query, "download", "u8");
+  const badDownload = queryInt(query, "download", "u8").error;
   if (badDownload) return badDownload;
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
@@ -1464,7 +1480,12 @@ publicGet("/s/:token/stat", ({ world, params, query, headers }) => {
       ? nodeAt(treeOf(world, params.token, r.s), segments)
       : // Asking a folder link about its own root asks about the folder itself,
         // so it answers with the folder's name rather than an empty one.
-        { name: statRel === ".luna-trash" ? "Trash" : statRel.split("/").pop(), kind: "dir", size: 0 };
+        // A link that sits on the trash asks about a real folder with a
+        // minted name, not about the word a page prints for it, and that
+        // folder is hidden the way every `.luna-` marker is.
+        statRel === ".luna-trash"
+          ? { name: trashRealName(world), kind: "dir", size: 0, hidden: true }
+          : { name: statRel.split("/").pop(), kind: "dir", size: 0 };
   // `confined_read` words a missing target for the guest rather than saying
   // the path was never there, and a boundary hit is `not_in_share`.
   if (!entry) return fail(404, "Luna can't find that anymore. Refresh and try again.");
@@ -1482,7 +1503,7 @@ publicGet("/s/:token/stat", ({ world, params, query, headers }) => {
     size: entry.size ?? (entry.kind === "dir" ? 0 : 120_000),
     modified: nowSec() - 86400,
     created: nowSec() - 86400 * 30,
-    hidden: false,
+    hidden: Boolean(entry.hidden),
     // `CAP_ALL` ("full") includes `CAP_EDIT`, and the share's own root is
     // never writable whatever the capability says: the daemon compares the
     // resolved drive path against the link's own path.
