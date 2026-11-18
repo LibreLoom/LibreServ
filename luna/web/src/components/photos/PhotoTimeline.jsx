@@ -163,7 +163,7 @@ const DaySection = memo(/** @param {any} props */ function DaySection({
           isCollapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
         }`}
       >
-        <div className="photo-day-grid min-h-0 overflow-hidden p-1 -m-1">
+        <div data-thumb-group className="photo-day-grid min-h-0 overflow-hidden p-1 -m-1">
           <div className={`grid gap-1 ${gridClass}`}>
             {group.items.map(({ photo, index }) => {
               const key = photoSelectionKey(photo);

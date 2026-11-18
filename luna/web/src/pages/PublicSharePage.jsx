@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Image as ImageIcon, Lock } from "lucide-react";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
@@ -10,7 +10,8 @@ import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import { getJson } from "../lib/api";
 import { CAP, hasCap } from "../lib/access.js";
-import { FileSourceProvider, shareSource } from "../lib/fileSource.jsx";
+import { FileSourceProvider, fileListKey, shareSource } from "../lib/fileSource.jsx";
+import { takeEarlyShareList, takeEarlyShareMeta } from "../lib/shareEarly.js";
 import { parentPath, pathBasename } from "../lib/paths.js";
 import { perfSinceNavigation } from "../lib/perf.js";
 import DriveFileExplorer from "../components/files/DriveFileExplorer.jsx";
@@ -41,6 +42,7 @@ export default function PublicSharePage() {
 
 function PublicShareSession() {
   const { token } = useParams();
+  const queryClient = useQueryClient();
   const fileOps = useFileOps();
   const [password, setPassword] = useState("");
   const [needPassword, setNeedPassword] = useState(false);
@@ -150,10 +152,12 @@ function PublicShareSession() {
         // Meta describes the link, not the folder you're standing in — fetch
         // it once so navigating never remounts the explorer (that remount is
         // what killed the browser's transition animation).
+        // The first open may already have its answer (lib/shareEarly.js).
+        const early = submittedPassword ? null : takeEarlyShareMeta(token || "");
         const params = new URLSearchParams({ meta: "1" });
-        const res = await fetch(`/s/${token}?${params}`, {
+        const res = await (early || fetch(`/s/${token}?${params}`, {
           headers: { Accept: "application/json", ...authHeaders() },
-        });
+        }));
         const type = res.headers.get("content-type") || "";
         if (res.status === 401) {
           if (alive) {
@@ -189,6 +193,17 @@ function PublicShareSession() {
         if (data.kind === "form") {
           setFormDoc(data);
           return;
+        }
+        // Hand the early listing to the folder view before it mounts, so it
+        // doesn't ask again. A listing that failed is asked for as usual.
+        const startPath = new URLSearchParams(window.location.search).get("path") || "";
+        const earlyList = early && data.kind === "folder" ? takeEarlyShareList(token || "", startPath) : null;
+        if (earlyList) {
+          const src = shareSource({ token: token || "", password: "", kind: data.kind, fileName: data.name || "", caps: data.caps || "" });
+          queryClient.prefetchQuery({
+            queryKey: fileListKey(src, token || "", startPath),
+            queryFn: async () => (await earlyList) ?? src.listDir(token || "", startPath),
+          });
         }
         setMeta(data);
       } catch {

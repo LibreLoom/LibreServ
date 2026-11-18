@@ -2181,4 +2181,65 @@ describe("FileBrowser long folders", () => {
     expect(rows[0]).toHaveAttribute("aria-setsize", "600");
     offsetHeight.mockRestore();
   });
+
+  /** Scroll the window to `rows` rows down and let the list window follow. */
+  async function scrollToRow(rows) {
+    await act(async () => {
+      window.scrollY = rows * 45;
+      window.dispatchEvent(new Event("scroll"));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+  }
+
+  it("reuses row elements for the rows that scroll in", async () => {
+    /** @this {HTMLElement} */
+    function rowHeight() {
+      return this.hasAttribute("data-index") ? 45 : 0;
+    }
+    const offsetHeight = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get")
+      .mockImplementation(rowHeight);
+    stubListing({ "": names.map((name) => ({ name, kind: "file", size: 1 })) });
+    renderBrowser();
+    await screen.findByText("file-0000.txt");
+    // Away from the top, so the window holds its full headroom on both sides.
+    await scrollToRow(100);
+    await screen.findByText("file-0100.txt");
+    const before = new Set(document.querySelectorAll("li[data-file-path]"));
+    await scrollToRow(300);
+    await screen.findByText("file-0300.txt");
+    expect(screen.queryByText("file-0100.txt")).not.toBeInTheDocument();
+    const after = [...document.querySelectorAll("li[data-file-path]")];
+    expect(after.length).toBe(before.size);
+    expect(after.every((li) => before.has(li))).toBe(true);
+    // Each element now names its own row.
+    const row = screen.getByText("file-0300.txt").closest("li");
+    expect(row).toHaveAttribute("data-file-path", "file-0300.txt");
+    expect(row).toHaveAttribute("aria-posinset", "301");
+    window.scrollY = 0;
+    offsetHeight.mockRestore();
+  });
+
+  it("drops focus when the focused row's element goes to another row", async () => {
+    /** @this {HTMLElement} */
+    function rowHeight() {
+      return this.hasAttribute("data-index") ? 45 : 0;
+    }
+    const offsetHeight = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get")
+      .mockImplementation(rowHeight);
+    stubListing({ "": names.map((name) => ({ name, kind: "file", size: 1 })) });
+    renderBrowser({ onCopy: vi.fn() });
+    await screen.findByText("file-0000.txt");
+    await scrollToRow(100);
+    await screen.findByText("file-0100.txt");
+    const copy = screen.getByRole("button", { name: "Copy file-0100.txt" });
+    act(() => copy.focus());
+    expect(document.activeElement).toBe(copy);
+    await scrollToRow(300);
+    await screen.findByText("file-0300.txt");
+    // Enter must not act on a file the person never picked.
+    expect(copy.getAttribute("aria-label")).not.toBe("Copy file-0100.txt");
+    expect(document.activeElement).not.toBe(copy);
+    window.scrollY = 0;
+    offsetHeight.mockRestore();
+  });
 });

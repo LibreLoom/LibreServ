@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import PhotoThumb from "./PhotoThumb.jsx";
 
 const photo = { name: "print.jpg", kind: "image" };
@@ -63,5 +63,44 @@ describe("PhotoThumb loading", () => {
     const view = render(<PhotoThumb photo={{ ...photo, thumb: "data:image/png;base64,AA" }} sizes="17vw" />);
     const img = view.container.querySelector("img");
     expect(img.hasAttribute("srcset")).toBe(false);
+  });
+});
+
+describe("PhotoThumb waits until it nears the screen", () => {
+  const thumb = "/api/v1/photos/thumb?drive_id=d1&path=a.jpg";
+
+  it("asks for the thumbnail only once the cell is near the screen", async () => {
+    /** @type {((entries: any[]) => void) | null} */
+    let notify = null;
+    const observe = vi.fn();
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(cb, opts) {
+          // The near tier (a px margin), not the ahead one.
+          if (opts?.rootMargin?.endsWith("px 0px")) notify = cb;
+        }
+        observe = observe;
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    vi.resetModules();
+    try {
+      const { default: FreshThumb } = await import("./PhotoThumb.jsx");
+      const view = render(<FreshThumb photo={{ ...photo, thumb }} sizes="17vw" />);
+      const img = view.container.querySelector("img");
+      expect(img.hasAttribute("src")).toBe(false);
+      expect(img.hasAttribute("data-thumb-pending")).toBe(true);
+      expect(observe).toHaveBeenCalledWith(img);
+
+      act(() => notify?.([{ target: img, isIntersecting: true }]));
+      expect(img.getAttribute("src")).toBe(thumb);
+      expect(img.getAttribute("srcset")).toBe(`${thumb}&size=s 270w, ${thumb} 480w`);
+      expect(img.hasAttribute("data-thumb-pending")).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
   });
 });

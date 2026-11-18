@@ -9,9 +9,6 @@ const RETRY_WHILE_UP: Duration = Duration::from_secs(10);
 /// How often the link watcher looks while some cable has a link but no
 /// address yet, or when the kernel can't tell it about changes.
 const LOOK_EVERY: Duration = Duration::from_secs(2);
-/// With change events from the kernel and nothing waiting, a slow look anyway
-/// in case an event was missed.
-const SETTLED_LOOK_EVERY: Duration = Duration::from_secs(5 * 60);
 
 /// Network interface mutations (`ip link set ... up`) and DHCP client daemons
 /// require root privileges (`CAP_NET_ADMIN`). In local development or
@@ -208,11 +205,12 @@ pub fn watch_link_up(
         last_had_addr.retain(|k, _| seen.contains(k));
         last_attempt.retain(|k, _| seen.contains(k));
         // Look again soon while an address is awaited; otherwise sleep until
-        // the kernel reports a link or address change.
+        // the kernel reports a link or address change. A new or downed
+        // interface sends one too, and dropped events (ENOBUFS) count as one,
+        // so no timer backs this up (D3: an idle Luna stays asleep). At
+        // shutdown the thread is left asleep; the process exit ends it.
         match &events {
-            Some(events) if !waiting_for_addr => {
-                events.wait(SETTLED_LOOK_EVERY);
-            }
+            Some(events) if !waiting_for_addr => events.wait_forever(),
             _ => std::thread::sleep(LOOK_EVERY),
         }
     }
@@ -259,11 +257,6 @@ impl LinkEvents {
             )
         };
         (bound == 0).then_some(Self { fd })
-    }
-
-    /// Wait up to `timeout` for a change, then drain what arrived.
-    fn wait(&self, timeout: Duration) {
-        self.wait_ms(timeout.as_millis().min(i32::MAX as u128) as i32);
     }
 
     /// Wait for a change with no timeout, then drain what arrived. A failed

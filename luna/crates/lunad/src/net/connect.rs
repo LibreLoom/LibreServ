@@ -39,6 +39,16 @@ impl PollWake {
         *self.woken.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// Wait with no time limit until woken, and take the wake.
+    pub fn wait_forever(&self) {
+        let guard = self.woken.lock().unwrap_or_else(|e| e.into_inner());
+        let mut woken = self
+            .cv
+            .wait_while(guard, |w| !*w)
+            .unwrap_or_else(|e| e.into_inner());
+        *woken = false;
+    }
+
     /// Wait up to `timeout`. True (and the wake is taken) when woken.
     pub fn wait(&self, timeout: Duration) -> bool {
         let guard = self.woken.lock().unwrap_or_else(|e| e.into_inner());
@@ -321,11 +331,19 @@ impl ConnectService {
     }
 
     /// During setup: peel from LUNAASSETS when the on-disk token is missing or invalid.
+    /// A token it saves wakes the poll loop, which sleeps while there is none.
     pub fn ensure_device_code_from_mag(&self) -> crate::system::factory_mag::MagFetchOutcome {
-        crate::system::factory_mag::fetch_device_token_from_mag(
+        let outcome = crate::system::factory_mag::fetch_device_token_from_mag(
             &self.token_path,
             &crate::system::factory_mag::MagFetchOptions::default(),
-        )
+        );
+        if matches!(
+            outcome,
+            crate::system::factory_mag::MagFetchOutcome::Fetched { .. }
+        ) {
+            self.poll_wake.wake();
+        }
+        outcome
     }
 
     fn inactive_status(&self) -> ConnectStatus {
@@ -2002,6 +2020,22 @@ mod tests {
         let started = std::time::Instant::now();
         assert!(wake.wait(std::time::Duration::from_secs(30)));
         assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        t.join().unwrap();
+    }
+
+    #[test]
+    fn poll_wake_without_a_time_limit_takes_the_wake() {
+        let wake = std::sync::Arc::new(super::PollWake::default());
+        wake.wake();
+        wake.wait_forever();
+        assert!(!wake.is_set(), "a wake that came first is taken at once");
+        let waker = wake.clone();
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            waker.wake();
+        });
+        wake.wait_forever();
+        assert!(!wake.is_set());
         t.join().unwrap();
     }
 

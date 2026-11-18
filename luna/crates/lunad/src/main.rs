@@ -236,12 +236,26 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
                 // What the HDMI console shows of Connect; a change asks it to look again.
                 let mut shown = lunad::system::console::ConnectShown::default();
 
+                // Connect turning on (a device token saved) wakes this loop;
+                // the cloud backup key mover sleeps until then.
+                let mut was_active = false;
                 while !stop.load(Ordering::Relaxed) {
                     let _ = connect.poll_status();
+                    let active = connect.is_connect_active();
+                    if active && !was_active {
+                        lunad::backup::cloud::rewrap::nudge();
+                    }
+                    was_active = active;
                     // Supervisor: if Connect poll failed/flapped but local tunnel credentials exist,
                     // keep (re)starting cloudflared so DNS does not stick on Error 1033.
                     connect.ensure_tunnel_if_needed();
                     shown.note(&connect.status());
+                    // No device token: nothing to pull or watch until one is
+                    // saved, and saving one wakes this loop (D3: no timer).
+                    if !active {
+                        wake.wait_forever();
+                        continue;
+                    }
                     let setup_open = db
                         .lock()
                         .map(|conn| lunad::auth::setup_wizard_open_conn(&conn))
@@ -297,21 +311,33 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
             .ok();
     }
 
-    // Catch changes made behind Luna's back (a drive plugged into another
-    // computer): folders whose timestamp hasn't moved cost one stat each.
+    // Catch changes made behind Luna's back: folders whose timestamp hasn't
+    // moved cost one stat each. A drive with an armed change watch already
+    // tells search about each change (photos_indexer), so it is re-read only
+    // every 6 hours in case the kernel dropped events unnoticed; a drive
+    // without one (watch limit reached) every 15 minutes (D3).
     let rescan_state = state.clone();
     bg_tasks.push(tokio::spawn(async move {
+        const WATCHED_EVERY: u32 = 24;
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(15 * 60));
         ticker.tick().await;
+        let mut ticks = 0u32;
         loop {
             ticker.tick().await;
-            let drives = rescan_state.db.lock().ok().map(|conn| {
-                lunad::files::search::indexable_drives(&conn, true)
-                    .into_iter()
-                    .map(|d| (d.id, d.mount))
-                    .collect::<Vec<_>>()
-            });
-            if let Some(drives) = drives {
+            ticks = ticks.wrapping_add(1);
+            let all = ticks.is_multiple_of(WATCHED_EVERY);
+            let drives = rescan_state
+                .db
+                .lock()
+                .ok()
+                .map(|conn| lunad::files::search::indexable_drives(&conn, true))
+                .unwrap_or_default();
+            let drives: Vec<_> = drives
+                .into_iter()
+                .filter(|d| all || !rescan_state.photos.is_watching(&d.id))
+                .map(|d| (d.id, d.mount))
+                .collect();
+            if !drives.is_empty() {
                 rescan_state.search_index.rescan(drives, false);
             }
         }
@@ -374,7 +400,7 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
         }
     );
     bg_tasks.push(tokio::spawn(async move {
-        use lunad::drives::ram_cache::{IDLE_EXPIRY, pressure_wait, psi_watching};
+        use lunad::drives::ram_cache::{IDLE_EXPIRY, pressure_wait, psi_watching, reclaim_on_wake};
         let cache = &pressure_state.ram_cache;
         loop {
             cache.wait_until_filled().await;
@@ -383,13 +409,21 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
                 psi_watching(),
                 cache.idle_left(IDLE_EXPIRY),
             );
-            tokio::select! {
-                _ = tokio::time::sleep(wait) => {}
-                _ = stalled.notified() => {}
-            }
+            let stall = tokio::select! {
+                _ = tokio::time::sleep(wait) => false,
+                _ = stalled.notified() => true,
+            };
             // Expiry is a quick in-memory clear; an emptied cache has nothing
             // to reclaim, so no blocking thread is started for it.
             if cache.expire_idle(IDLE_EXPIRY) {
+                continue;
+            }
+            // Woken for an expiry that later use moved on: sleep again.
+            if !reclaim_on_wake(
+                stall,
+                psi_watching(),
+                lunad::budget::meminfo().available_bytes,
+            ) {
                 continue;
             }
             let state = pressure_state.clone();
@@ -553,20 +587,24 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
     let move_db = state.db.clone();
     let move_connect = state.connect.clone();
     // With nothing to move (the usual case) the wait doubles up to 30 minutes,
-    // and a new key version (see console::watch_db) cuts it short.
+    // and a new key version (see console::watch_db) cuts it short. Without
+    // Connect there is nothing to move, so it sleeps with no timer until a
+    // nudge: a new key version, or Connect turning on (the Connect status loop).
     bg_tasks.push(tokio::spawn(async move {
         const STEP_GAP: std::time::Duration = std::time::Duration::from_secs(60);
         const IDLE_MAX: std::time::Duration = std::time::Duration::from_secs(30 * 60);
         let mut wait = STEP_GAP;
         loop {
-            tokio::select! {
-                _ = tokio::time::sleep(wait) => {}
-                _ = lunad::backup::cloud::rewrap::nudged() => wait = STEP_GAP,
+            if move_connect.is_connect_active() {
+                tokio::select! {
+                    _ = tokio::time::sleep(wait) => {}
+                    _ = lunad::backup::cloud::rewrap::nudged() => wait = STEP_GAP,
+                }
+            } else {
+                lunad::backup::cloud::rewrap::nudged().await;
+                wait = STEP_GAP;
             }
-            // Without Connect there is nothing to move: skip the blocking
-            // thread (a new one each minute, past the pool's keep-alive).
             if !move_connect.is_connect_active() {
-                wait = (wait * 2).min(IDLE_MAX);
                 continue;
             }
             let db = move_db.clone();

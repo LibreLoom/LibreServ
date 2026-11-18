@@ -96,6 +96,7 @@ import {
 } from "../../lib/dnd.js";
 import FileRow from "./FileRow.jsx";
 import { perfSinceNavigation } from "../../lib/perf.js";
+import { whenIdleAndStill } from "../../lib/whenStill.js";
 import usePerfJourney from "../../hooks/usePerfJourney.js";
 import { warmTextEditor } from "./editorWarm.js";
 import { canOpenRow, displayNameOf } from "./fileRowUtils.js";
@@ -296,7 +297,7 @@ function compareEntries(a, b, sortKey) {
  *   dragIndexRef: import("react").MutableRefObject<number>,
  *   virtualizerRef: import("react").MutableRefObject<any>,
  *   topSpacerRef: import("react").RefObject<HTMLLIElement | null>,
- *   renderRow: (index: number, measureRef: (el: Element | null) => void) => import("react").ReactNode,
+ *   renderRow: (index: number, measureRef: (el: Element | null) => void, slotKey: string) => import("react").ReactNode,
  * }} props
  */
 function VirtualRowWindow({
@@ -349,6 +350,19 @@ function VirtualRowWindow({
   }, [virtualizer, virtualizerRef]);
 
   const items = virtualizer.getVirtualItems();
+  const slots = useRowSlots();
+  const keys = slots.assign(items);
+  // A recycled row can be the one holding keyboard focus. Its element now
+  // shows another file, so drop the focus, as the old unmount did: Enter
+  // must never act on a row the person did not pick.
+  useLayoutEffect(() => {
+    const active = /** @type {HTMLElement | null} */ (document.activeElement);
+    const row = active?.closest?.("li[data-file-path]");
+    const focused = slots.focusedPath;
+    if (!row || focused == null) return;
+    if (/** @type {HTMLElement} */ (row).dataset.filePath !== focused) active.blur();
+  });
+  useEffect(() => slots.trackFocus(), [slots]);
   const topPad = items.length ? Math.max(0, items[0].start - scrollMargin) : 0;
   const bottomPad = items.length
     ? Math.max(0, virtualizer.getTotalSize() - (items[items.length - 1].end - scrollMargin))
@@ -356,10 +370,96 @@ function VirtualRowWindow({
   return (
     <>
       <li ref={topSpacerRef} aria-hidden="true" style={{ height: topPad }} />
-      {items.map((item) => renderRow(item.index, virtualizer.measureElement))}
+      {items.map((item, i) => renderRow(item.index, virtualizer.measureElement, keys[i]))}
       <li aria-hidden="true" style={{ height: bottomPad }} />
     </>
   );
+}
+
+/**
+ * Recycled row elements for VirtualRowWindow. Each mounted row holds a slot;
+ * a row that leaves the window gives its slot, and with it its elements, to
+ * the next row that comes in. Scrolling then rewrites a few names and links
+ * instead of building and throwing away ~30 elements per row, whose garbage
+ * paused long scrolls for 50–80 ms at a time (W6). A row keeps its slot for
+ * as long as it stays in the window, so rows in view never change elements.
+ */
+function useRowSlots() {
+  const ref = useRef(/** @type {ReturnType<typeof createRowSlots> | null} */ (null));
+  if (!ref.current) ref.current = createRowSlots();
+  return ref.current;
+}
+
+function createRowSlots() {
+  /** @type {Map<unknown, number>} row key → slot, this render */
+  let byKey = new Map();
+  /** @type {Map<unknown, number>} the same, last render (reused) */
+  let spare = new Map();
+  /** @type {number[]} each slot's last row index parity, so stripes rarely flip */
+  const parity = [];
+  /** @type {string[]} */
+  const names = [];
+  /** @type {number[]} */
+  const takenAt = [];
+  let round = 0;
+  const slots = {
+    /** @type {string | null} the file path of the row that last took focus */
+    focusedPath: /** @type {string | null} */ (null),
+    /**
+     * Slot keys for this render's rows, in order. Rows already holding a
+     * slot keep it; a new row takes a free slot, one of its own parity first.
+     * @param {Array<{ key: unknown, index: number }>} items
+     */
+    assign(items) {
+      round += 1;
+      const prev = byKey;
+      const next = spare;
+      next.clear();
+      for (const item of items) {
+        const slot = prev.get(item.key);
+        if (slot !== undefined && takenAt[slot] !== round) {
+          next.set(item.key, slot);
+          takenAt[slot] = round;
+        }
+      }
+      const keys = new Array(items.length);
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const want = item.index & 1;
+        let slot = next.get(item.key);
+        if (slot === undefined) {
+          let any = -1;
+          for (let s = 0; s < parity.length; s++) {
+            if (takenAt[s] === round) continue;
+            if (parity[s] === want) {
+              slot = s;
+              break;
+            }
+            if (any < 0) any = s;
+          }
+          if (slot === undefined) slot = any >= 0 ? any : parity.length;
+          next.set(item.key, slot);
+          takenAt[slot] = round;
+        }
+        parity[slot] = want;
+        keys[i] = names[slot] ?? (names[slot] = `slot-${slot}`);
+      }
+      byKey = next;
+      spare = prev;
+      return keys;
+    },
+    /** Follow which row takes focus (see the blur in VirtualRowWindow). */
+    trackFocus() {
+      const onFocus = (/** @type {FocusEvent} */ event) => {
+        const target = /** @type {Element | null} */ (event.target);
+        const row = target?.closest?.("li[data-file-path]");
+        slots.focusedPath = row ? /** @type {HTMLElement} */ (row).dataset.filePath ?? null : null;
+      };
+      document.addEventListener("focusin", onFocus);
+      return () => document.removeEventListener("focusin", onFocus);
+    },
+  };
+  return slots;
 }
 
 /**
@@ -574,16 +674,15 @@ export default function FileBrowser({
   // common file to open, and its chunk landing mid-click is what made the
   // opening animation stutter the first time. Wait for an idle moment so the
   // chunk's download and parse don't compete with the listing and thumbnails;
-  // hover and focus on a text file still warm it at once. Skipped on Data Saver.
+  // hover and focus on a text file still warm it at once. Not while the list
+  // scrolls, nor the moment it shows (people scroll right away): its ~100 ms
+  // parse would freeze the scroll. Skipped on Data Saver.
   useEffect(() => {
-    if (/** @type {any} */ (navigator).connection?.saveData) return undefined;
-    if (window.requestIdleCallback) {
-      const handle = window.requestIdleCallback(() => warmTextEditor(), { timeout: 3000 });
-      return () => window.cancelIdleCallback(handle);
-    }
-    const handle = window.setTimeout(() => warmTextEditor(), 1500);
-    return () => window.clearTimeout(handle);
-  }, []);
+    if (!listingShown || /** @type {any} */ (navigator).connection?.saveData) return undefined;
+    return whenIdleAndStill(() => {
+      warmTextEditor();
+    });
+  }, [listingShown]);
 
   // A file path answers `list` with a one-entry "folder" containing the
   // file itself — member file grants are virtual roots whose ancestors are
@@ -1330,20 +1429,23 @@ export default function FileBrowser({
     };
   }, []);
   // Whether a folder row accepts drops — same gate folderDropProps applies.
-  const rowDropEnabled = (rowPath) => Object.keys(folderDropProps(rowPath, rowPath)).length > 0;
+  // (The same test without building the handlers: rows mount while scrolling.)
+  const rowDropEnabled = (rowPath) => !isPicker && Boolean(onInternalMove || onUploadFiles)
+    && (!floored || pathContains(floor, rowPath));
 
   /**
    * One listing row. Long folders call it from VirtualRowWindow with the
    * virtualizer's measure ref; short ones render every row directly.
    * @param {number} rowIndex
    * @param {((el: Element | null) => void) | undefined} [measureRef]
+   * @param {string} [slotKey] the recycled slot VirtualRowWindow gives the row
    */
-  const renderRow = (rowIndex, measureRef = undefined) => {
+  const renderRow = (rowIndex, measureRef = undefined, slotKey = undefined) => {
     const entry = visibleEntries[rowIndex];
     const rowPath = fileRoot ? path : joinPath(path, entry.name);
     return (
       <FileRow
-        key={entry.name}
+        key={slotKey ?? entry.name}
         entry={entry}
         path={path}
         fileRoot={fileRoot}

@@ -719,7 +719,9 @@ export default function DriveFileExplorer({
   }, [access.data, driveId, guest, guestCaps, source, isAdmin, showProtect, canView, inBackups]);
 
   const renderRowActions = useCallback((ctx) => {
-    if (inBackups) return <BackupRowActions driveId={driveId} ctx={ctx} onVersions={openVersions} />;
+    // Keyed by file: long folders recycle row elements, and a restore error
+    // must not carry over to the next file that takes the row.
+    if (inBackups) return <BackupRowActions key={ctx.fullPath} driveId={driveId} ctx={ctx} onVersions={openVersions} />;
     const actions = rowActionsFor(ctx);
     if (!actions) return null;
     // One shared tooltip and plain buttons: every row carries these (W4/W6).

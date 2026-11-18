@@ -4,9 +4,9 @@
 //! not just the ones someone happened to open. This worker reads whole drives
 //! in the background (shallow folders first, so results appear early), keeps
 //! counts for the "still reading" notice, and re-reads single folders when
-//! Luna writes into them ([`nudge_dir`]) or someone plugs the drive into
-//! another computer (the periodic rescan, which skips folders whose mtime
-//! hasn't moved).
+//! Luna writes into them or the drive's change watch sees a change
+//! ([`nudge_dir`]), and on the periodic rescan, which skips folders whose
+//! mtime hasn't moved.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -81,6 +81,17 @@ pub fn nudge_dir(drive_id: &str, rel: &str) {
         let _ = tx.send(Job::Dirty {
             drive_id: drive_id.to_string(),
             rel: rel.to_string(),
+        });
+    }
+}
+
+/// Re-read a whole drive the indexer already knows (its change watch missed
+/// events). Folders whose timestamp hasn't moved cost one stat each.
+pub fn nudge_drive(drive_id: &str) {
+    if let Some(tx) = NUDGE.lock().unwrap().as_ref() {
+        let _ = tx.send(Job::Scan {
+            drive_id: drive_id.to_string(),
+            force: false,
         });
     }
 }

@@ -1,9 +1,10 @@
-import { memo, useRef, useState } from "react";
+import { memo, useLayoutEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Check, Play } from "lucide-react";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import PrivateBadge from "../private/PrivateBadge.jsx";
 import { gridThumbSrcSet, isLunadThumb } from "./thumbSrc.js";
+import { canWatchNearViewport, whenNearViewport } from "./nearViewport.js";
 
 const LONG_PRESS_MS = 450;
 /** Cells that fade in one after another when a grid first appears. */
@@ -78,6 +79,28 @@ function PhotoThumb({
 }) {
   const [loaded, setLoaded] = useState(false);
   const srcSet = sizes && isLunadThumb(photo.thumb) ? gridThumbSrcSet(photo.thumb) : undefined;
+  // The image is asked for once the cell nears the screen (nearViewport.js),
+  // so a jump loads what is in view first. Its src is set on the element,
+  // not through a render; `data-thumb-pending` marks it until then (W7/W8).
+  const [gated] = useState(canWatchNearViewport);
+  const imgRef = useRef(/** @type {HTMLImageElement|null} */ (null));
+  const started = useRef(false);
+  useLayoutEffect(() => {
+    const img = imgRef.current;
+    if (!gated || !img || !photo.thumb) return undefined;
+    const show = () => {
+      started.current = true;
+      if (srcSet) img.srcset = srcSet;
+      else img.removeAttribute("srcset");
+      img.src = photo.thumb || "";
+      img.removeAttribute("data-thumb-pending");
+    };
+    if (started.current) {
+      show();
+      return undefined;
+    }
+    return whenNearViewport(img, show);
+  }, [gated, photo.thumb, srcSet]);
   const longTimer = useRef(/** @type {ReturnType<typeof setTimeout>|null} */ (null));
   const longFired = useRef(false);
   const toggledOnPointerDown = useRef(false);
@@ -167,16 +190,20 @@ function PhotoThumb({
     >
       {photo.thumb ? (
         <img
-          src={photo.thumb}
-          srcSet={srcSet}
+          ref={(img) => {
+            imgRef.current = img;
+            if (img?.complete && img.currentSrc) setLoaded(true);
+          }}
+          src={gated ? undefined : photo.thumb}
+          srcSet={gated ? undefined : srcSet}
           sizes={srcSet ? sizes : undefined}
+          data-thumb-pending={gated ? "" : undefined}
           alt=""
-          loading="lazy"
+          // Not "lazy" once gated: the browser would hold the src set above
+          // for its own check at the next frame, behind any long render.
+          loading={gated ? undefined : "lazy"}
           decoding="async"
           onLoad={() => setLoaded(true)}
-          ref={(img) => {
-            if (img?.complete) setLoaded(true);
-          }}
           className={`h-full w-full object-cover motion-safe:transition-[opacity,scale] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized-decelerate)] group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:opacity-100 ${
             loaded ? "opacity-100" : "opacity-0"
           }`}

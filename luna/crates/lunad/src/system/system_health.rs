@@ -292,7 +292,7 @@ impl Checks {
 /// Checks that decide whether Luna can safely keep files: its database,
 /// data and log folders, system disk space, and the clock. Cheap enough for
 /// the HDMI console's 2-second loop (`thorough: false` skips the full
-/// database scan).
+/// database scan and the flush to disk in the write tests).
 pub fn run_core(
     data_dir: &Path,
     conn: &Connection,
@@ -352,7 +352,7 @@ fn add_core_checks(
             .more("Signing in and sharing may not work, but the files on your drives aren't affected. Contact support."),
     }
 
-    if path_writable(data_dir) {
+    if path_writable(data_dir, thorough) {
         checks.add(
             "data_path_writable",
             "storage",
@@ -372,7 +372,7 @@ fn add_core_checks(
             .more("Luna can't write to its data folder, which can mean its system disk is full or failing. Contact support.");
     }
 
-    if path_writable(&data_dir.join("logs")) {
+    if path_writable(&data_dir.join("logs"), thorough) {
         checks.add(
             "logs_path_writable",
             "storage",
@@ -1576,9 +1576,23 @@ pub(crate) fn smart_check(
     }
 }
 
-fn path_writable(path: &Path) -> bool {
+/// `durable: false` skips the flush to disk: a read-only, full or locked
+/// folder still fails at create or write, without two blocking `fsync`s and
+/// an eMMC write on every HDMI console look (D3).
+fn path_writable(path: &Path, durable: bool) -> bool {
     let _ = std::fs::create_dir_all(path);
-    crate::drives::probe_writable(path).is_ok()
+    if durable {
+        return crate::drives::probe_writable(path).is_ok();
+    }
+    let probe = path.join(format!(".luna-write-test.{}.quick", std::process::id()));
+    let wrote = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&probe)
+        .and_then(|mut f| std::io::Write::write_all(&mut f, b"luna"));
+    let _ = std::fs::remove_file(&probe);
+    wrote.is_ok()
 }
 
 fn is_executable(path: &Path) -> bool {
@@ -2036,6 +2050,20 @@ mod tests {
         let resp = run_core(dir.path(), &conn, ClockReading::live(), false);
         assert!(!resp.healthy);
         assert_eq!(resp.checks["database"].status, FAILED);
+    }
+
+    #[test]
+    fn quick_write_test_fails_on_a_read_only_folder_and_leaves_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        assert!(path_writable(dir.path(), false));
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        // Root ignores folder permissions; the check is only meaningful as a user.
+        if unsafe { libc::geteuid() } != 0 {
+            assert!(!path_writable(dir.path(), false));
+        }
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
     }
 
     #[test]

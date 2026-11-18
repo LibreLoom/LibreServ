@@ -263,7 +263,11 @@ export function perfWhenImagesShown(id, selector) {
     const vh = window.innerHeight;
     const shown = [...document.querySelectorAll(selector)].filter((el) => inViewport(el, vw, vh));
     if (shown.length === 0) return;
-    if (shown.every((el) => !(el instanceof HTMLImageElement) || el.complete)) {
+    // An image marked `data-thumb-pending` hasn't been asked for yet (an
+    // image with no src counts as complete).
+    const ready = (/** @type {Element} */ el) =>
+      !(el instanceof HTMLImageElement) || (el.complete && !el.hasAttribute("data-thumb-pending"));
+    if (shown.every(ready)) {
       stop();
       perfEndAfterPaint(id);
     }

@@ -196,6 +196,9 @@ function FileRow({
     if (!isSmUp && !isPicker) {
       return (
         <RowActionMenu
+          // Long folders recycle row elements (VirtualRowWindow): a sheet left
+          // open must not carry over to the next file that takes this row.
+          key={fullPath}
           label={displayName}
           actions={actions}
           renderSheet={renderRowSheetActions ? (close) => renderRowSheetActions(ctx, close) : undefined}

@@ -259,8 +259,14 @@ impl PhotosIndexer {
         let indexer = Arc::clone(self);
         let watcher = RecommendedWatcher::new(
             move |res: notify::Result<notify::Event>| {
-                let Ok(event) = res else {
-                    return;
+                // A failed watch (say, on a new folder past the kernel's
+                // watch limit) may miss changes: have search re-read the drive.
+                let event = match res {
+                    Ok(event) => event,
+                    Err(_) => {
+                        crate::files::search_indexer::nudge_drive(&drive_id_owned);
+                        return;
+                    }
                 };
                 handle_watch_event(&indexer, &drive_id_owned, &root, event);
             },
@@ -285,6 +291,11 @@ impl PhotosIndexer {
 }
 
 fn handle_watch_event(indexer: &PhotosIndexer, drive_id: &str, root: &Path, event: notify::Event) {
+    // The kernel dropped events: have search re-read the drive (folders whose
+    // timestamp hasn't moved cost one stat each).
+    if event.need_rescan() {
+        crate::files::search_indexer::nudge_drive(drive_id);
+    }
     let remove_like = matches!(event.kind, EventKind::Remove(_) | EventKind::Any);
     let rename = matches!(
         event.kind,
@@ -297,6 +308,12 @@ fn handle_watch_event(indexer: &PhotosIndexer, drive_id: &str, root: &Path, even
         let Some(rel) = rel.to_str() else {
             continue;
         };
+        // Search reads folders by their on-disk names: re-read the folder
+        // that changed, so a change made outside Luna (a computer on the
+        // network share, a script) shows up without a timed rescan (D3).
+        if let Some(folder) = search_folder_to_reread(&event.kind, rel) {
+            crate::files::search_indexer::nudge_dir(drive_id, &folder);
+        }
         // Private items sit on disk under `.luna-` names; index them by real path.
         let rel = normalize_rel(&crate::private::logical_rel(root, &normalize_rel(rel)));
         // Luna's own files (drive DB, thumbnails, content index) never hold
@@ -324,6 +341,32 @@ fn handle_watch_event(indexer: &PhotosIndexer, drive_id: &str, root: &Path, even
             indexer.rescan(drive_id);
         }
     }
+}
+
+/// The on-disk folder search should re-read after a watch event on `rel`,
+/// if any: only events that change what a folder lists (names, sizes,
+/// times), never each write while a file is still being written (an upload
+/// would wake search per chunk), and never Luna's own bookkeeping files.
+fn search_folder_to_reread(kind: &EventKind, rel: &str) -> Option<String> {
+    use notify::event::{AccessKind, AccessMode, ModifyKind};
+    let listing_changed = matches!(
+        kind,
+        EventKind::Create(_)
+            | EventKind::Remove(_)
+            | EventKind::Modify(ModifyKind::Name(_))
+            | EventKind::Access(AccessKind::Close(AccessMode::Write))
+    );
+    let rel = normalize_rel(rel);
+    if !listing_changed
+        || rel.is_empty()
+        || is_internal_rel(&rel)
+        || crate::files::is_internal_temp(&rel)
+        // The drive health probe's write test (drives::probe_writable).
+        || rel.rsplit('/').next().is_some_and(|b| b.starts_with(".luna-write-test."))
+    {
+        return None;
+    }
+    Some(rel.rsplit_once('/').map_or("", |(dir, _)| dir).to_string())
 }
 
 fn worker_loop(
@@ -665,6 +708,47 @@ pub fn should_index_rel(rel: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn search_rereads_the_folder_a_finished_change_landed_in() {
+        use notify::event::{
+            AccessKind, AccessMode, CreateKind, DataChange, ModifyKind, RemoveKind, RenameMode,
+        };
+        let created = EventKind::Create(CreateKind::File);
+        assert_eq!(
+            search_folder_to_reread(&created, "Docs/a.txt").as_deref(),
+            Some("Docs")
+        );
+        assert_eq!(
+            search_folder_to_reread(&created, "a.txt").as_deref(),
+            Some("")
+        );
+        let closed = EventKind::Access(AccessKind::Close(AccessMode::Write));
+        assert_eq!(
+            search_folder_to_reread(&closed, "/Docs/sub/b.pdf").as_deref(),
+            Some("Docs/sub")
+        );
+        let renamed = EventKind::Modify(ModifyKind::Name(RenameMode::Both));
+        assert!(search_folder_to_reread(&renamed, "Docs/c").is_some());
+        assert!(search_folder_to_reread(&EventKind::Remove(RemoveKind::Any), "x/y").is_some());
+        // Each chunk of a file being written: wait for the close instead.
+        let write = EventKind::Modify(ModifyKind::Data(DataChange::Any));
+        assert_eq!(search_folder_to_reread(&write, "Docs/a.txt"), None);
+        // Luna's own bookkeeping and partial uploads.
+        assert_eq!(
+            search_folder_to_reread(
+                &created,
+                ".luna-0b5c1d7e-2f4a-4c3b-9d8e-1a2b3c4d5e6f/thumbs/a.jpg"
+            ),
+            None
+        );
+        assert_eq!(search_folder_to_reread(&created, "Docs/.a.txt.part"), None);
+        assert_eq!(search_folder_to_reread(&created, ""), None);
+        assert_eq!(
+            search_folder_to_reread(&closed, ".luna-write-test.1.1794963158000"),
+            None
+        );
+    }
     use std::fs;
     use std::io::Write;
 

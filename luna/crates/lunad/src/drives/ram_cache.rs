@@ -200,6 +200,16 @@ pub fn pressure_wait(available_bytes: u64, psi: bool, idle_left: Option<Duration
     }
 }
 
+/// Whether a wake of the RAM-pressure loop that did not empty the cache
+/// should start a reclaim (on a blocking thread). With stall reports and free
+/// memory far from the line, a timer wake is only the expiry look, and use
+/// after the sleep began moves the expiry on: nothing to reclaim, so it just
+/// sleeps again (D3). A stall, the timer near the line, or no stall reports
+/// still reclaim as before.
+pub fn reclaim_on_wake(stalled: bool, psi: bool, available_bytes: u64) -> bool {
+    stalled || !psi || available_bytes < 512 * MIB
+}
+
 static PSI_WATCHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// True while the memory-stall watcher from [`watch_memory_pressure`] runs.
@@ -1151,6 +1161,16 @@ mod tests {
             pressure_wait(1500 * MIB, true, Some(Duration::ZERO)),
             Duration::from_secs(1)
         );
+    }
+
+    #[test]
+    fn an_early_expiry_look_far_from_the_line_reclaims_nothing() {
+        // Stall reports, plenty free: a timer wake only looks at the expiry.
+        assert!(!reclaim_on_wake(false, true, 1500 * MIB));
+        // A stall, no stall reports, or near the line: reclaim.
+        assert!(reclaim_on_wake(true, true, 1500 * MIB));
+        assert!(reclaim_on_wake(false, false, 1500 * MIB));
+        assert!(reclaim_on_wake(false, true, 300 * MIB));
     }
 
     #[test]

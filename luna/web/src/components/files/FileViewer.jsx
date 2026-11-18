@@ -16,6 +16,7 @@ import { officeConversionFor } from "../../lib/officeConvert.js";
 import { useFileSource } from "../../lib/fileSource.jsx";
 import { joinPath, parentPath, pathBasename } from "../../lib/paths.js";
 import { perfStart } from "../../lib/perf.js";
+import { whenIdleAndStill } from "../../lib/whenStill.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -46,11 +47,10 @@ const loadEditorFor = (kind) =>
           : loadTextFileEditor;
 
 // Text and Markdown are the commonest files to open. Fetch their editor while
-// the browser is idle so the first open doesn't wait on the download.
+// the browser is idle so the first open doesn't wait on the download, but not
+// mid-scroll: its ~100 ms parse froze a long folder's scroll (W6).
 if (typeof window !== "undefined") {
-  const warm = () => void loadTextFileEditor().catch(() => {});
-  if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(warm, { timeout: 4000 });
-  else setTimeout(warm, 2000);
+  whenIdleAndStill(() => void loadTextFileEditor().catch(() => {}), { timeout: 4000 });
 }
 
 function ViewerFallback() {
