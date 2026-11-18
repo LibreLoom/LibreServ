@@ -1589,26 +1589,46 @@ post("/s/:token/upload", ({ world, params, headers, body }) => {
   // A body that is the wrong shape is a data error, which axum answers with
   // 422 — a body that is not JSON at all would be a 400, but it never reaches
   // here because the fake's engine already parsed it.
+  // Serde renders what it found the way it reads it: `integer \`5\``, `string
+  // "x"`, `floating point \`1.5\``, `boolean \`true\``, `sequence`, `map`.
   const shapeHint = (value) => {
     if (value === null) return "null";
     if (Array.isArray(value)) return "sequence";
-    if (typeof value === "number") return `integer \`${value}\``;
-    if (typeof value === "string") return "a string";
-    if (typeof value === "boolean") return "a boolean";
-    return "a map";
+    if (typeof value === "number")
+      return Number.isInteger(value) ? `integer \`${value}\`` : `floating point \`${value}\``;
+    if (typeof value === "string") return `string ${JSON.stringify(value)}`;
+    if (typeof value === "boolean") return `boolean \`${value}\``;
+    return "map";
   };
   const dataErr = (detail) =>
     fail(422, `Failed to deserialize the JSON body into the target type: ${detail}`);
-  if (!body || typeof body !== "object" || Array.isArray(body))
-    return dataErr(`invalid type: ${shapeHint(body)}, expected struct PublicUploadCreate`);
-  if (body.name === undefined) return dataErr("missing field `name`");
-  if (typeof body.name !== "string")
-    return dataErr(`name: invalid type: ${shapeHint(body.name)}, expected a string`);
-  if (body.size === undefined) return dataErr("missing field `size`");
-  if (typeof body.size !== "number" || !Number.isSafeInteger(body.size) || body.size < 0)
-    return dataErr(`size: invalid type: ${shapeHint(body.size)}, expected u64`);
-  if (body.path !== undefined && body.path !== null && typeof body.path !== "string")
-    return dataErr(`path: invalid type: ${shapeHint(body.path)}, expected a string`);
+  // A derived struct also reads a sequence positionally, in field order, so
+  // `["a", 5]` is a body serde accepts.
+  let shape = body;
+  if (Array.isArray(body)) {
+    if (body.length > 3)
+      return dataErr(
+        `invalid length ${body.length}, expected struct PublicUploadCreate with 3 elements`,
+      );
+    if (body.length < 2)
+      return dataErr(
+        `invalid length ${body.length}, expected struct PublicUploadCreate with 3 elements`,
+      );
+    shape = { name: body[0], size: body[1], path: body[2] };
+  }
+  if (!shape || typeof shape !== "object")
+    return dataErr(`invalid type: ${shapeHint(shape)}, expected struct PublicUploadCreate`);
+  if (shape.name === undefined) return dataErr("missing field `name`");
+  if (typeof shape.name !== "string")
+    return dataErr(`name: invalid type: ${shapeHint(shape.name)}, expected a string`);
+  if (shape.size === undefined) return dataErr("missing field `size`");
+  // A `u64` is a whole number: a float such as `5.0` is refused, and a large
+  // integer is left to the size ceiling rather than judged here.
+  if (typeof shape.size !== "number" || !Number.isInteger(shape.size) || shape.size < 0)
+    return dataErr(`size: invalid type: ${shapeHint(shape.size)}, expected u64`);
+  if (shape.path !== undefined && shape.path !== null && typeof shape.path !== "string")
+    return dataErr(`path: invalid type: ${shapeHint(shape.path)}, expected a string`);
+  body = shape;
   // The daemon's share limiter turns away a client that starts too many
   // sessions (5 a minute), before it even resolves the link.
   // A fixed window, not a sliding one: the count resets when the minute that
@@ -1638,10 +1658,9 @@ post("/s/:token/upload", ({ world, params, headers, body }) => {
   if (size > 1024 ** 4) return fail(400, "Luna can't accept files larger than 1 TB.");
   const name = safeName(body.name);
   if (!name) return fail(400, "That file name can't be used. Try renaming it.");
-  // The daemon passes the path through untouched, and a leading slash is read
-  // as "outside this link" rather than trimmed away.
-  const dest = String(body.path ?? "").trim().replace(/\/+$/g, "");
-  if (dest.startsWith("/")) return fail(400, "That folder isn't part of this shared link.");
+  // The daemon passes the path through untouched — only a trailing slash is
+  // harmless — and a leading one is read as "outside this link".
+  const dest = String(body.path ?? "").trim();
   const caps = capSet(r.l.caps);
   // `upload_dest` resolves the destination before a session exists, so a dead
   // drive, a folder outside the link or a file where a folder was named all
@@ -1669,7 +1688,11 @@ post("/s/:token/upload", ({ world, params, headers, body }) => {
       // Drop boxes always land at the share root — letting a blind uploader
       // name a subfolder would let them probe which folders exist, so the path
       // is dropped rather than refused.
+      // Only a folder link with view reads the path at all; an album, a drop
+      // box and a link to one file ignore it, so a leading slash there is not
+      // refused — there is nothing it could point outside of.
       const asked = caps.has("view") ? dest : "";
+      if (asked.startsWith("/")) return fail(400, "That folder isn't part of this shared link.");
       const segments = linkSegments(asked);
       if (!segments) return fail(400, "That folder isn't part of this shared link.");
       const tree = treeOf(world, params.token, r.s);
