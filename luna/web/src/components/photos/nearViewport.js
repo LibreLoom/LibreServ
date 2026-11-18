@@ -106,6 +106,7 @@ function track(/** @type {Element} */ el, /** @type {Set<Element>} */ set) {
     el.removeEventListener("load", done);
     el.removeEventListener("error", done);
     queuePump();
+    if (set === nearLoading) wakeNearIdle();
   };
   el.addEventListener("load", done);
   el.addEventListener("error", done);
@@ -179,17 +180,38 @@ function observers() {
   );
 }
 
-/** One layout read for every cell mounted in this commit. */
+/**
+ * One layout read for every cell mounted in this commit. A cell's group is
+ * read first, and a cell in a group off screen is not read at all: asking
+ * where a cell in a grid that skips layout (`content-visibility: auto`) is
+ * lays that grid out on its own, one style and layout pass per day. On a
+ * page appended below a jump that was ~45 ms at 4× CPU slowdown, before the
+ * cells on screen could start (W8 in luna/perf).
+ */
 function checkFresh() {
   checkQueued = false;
   const list = fresh;
   fresh = [];
   const top = -NEAR_MARGIN_PX;
   const bottom = window.innerHeight + NEAR_MARGIN_PX;
-  const near = list.filter((el) => {
-    if (!waiting.has(el) || !el.isConnected) return false;
+  const onScreen = (/** @type {Element} */ el) => {
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.bottom > top && r.top < bottom;
+  };
+  /** @type {Map<Element, boolean>} */
+  const groupOnScreen = new Map();
+  const near = list.filter((el) => {
+    if (!waiting.has(el) || !el.isConnected) return false;
+    const group = groupOf.get(el);
+    if (group && group !== el) {
+      let shown = groupOnScreen.get(group);
+      if (shown === undefined) {
+        shown = onScreen(group);
+        groupOnScreen.set(group, shown);
+      }
+      if (!shown) return false;
+    }
+    return onScreen(el);
   });
   near.forEach((el) => start(el, nearLoading));
 }
@@ -221,5 +243,32 @@ export function whenNearViewport(el, onNear) {
     if (!waiting.delete(el)) return;
     leave(el);
     nearObserver?.unobserve(el);
+  };
+}
+
+/** @type {Set<() => void>} */
+const nearIdleWaiters = new Set();
+
+function wakeNearIdle() {
+  if (nearIdleWaiters.size === 0) return;
+  for (const el of nearLoading) if (settled(el)) nearLoading.delete(el);
+  if (nearLoading.size > 0) return;
+  const list = [...nearIdleWaiters];
+  nearIdleWaiters.clear();
+  list.forEach((cb) => cb());
+}
+
+/**
+ * Call `cb` once no thumbnail on screen is loading: now, if none is (checked
+ * after the cells mounted in this commit started theirs), or when the last
+ * one loads. Work that can wait, like drawing photos below the screen, then
+ * doesn't hold back the ones in view. Returns the function that cancels it.
+ * @param {() => void} cb
+ */
+export function whenNearIdle(cb) {
+  nearIdleWaiters.add(cb);
+  queueMicrotask(wakeNearIdle);
+  return () => {
+    nearIdleWaiters.delete(cb);
   };
 }

@@ -890,20 +890,26 @@ export default function PhotosPage() {
   // Newest/oldest loaded day keys (YYYY-MM-DD). Pages load contiguously from
   // the top (taken_at DESC, undated last), so once `oldest` reaches the jump
   // target every closer day is already on the page.
+  // Compared as timestamps, then turned into day keys once: a later moment is
+  // never an earlier day.
   const loadedDaySpan = useMemo(() => {
     let newest = null;
     let oldest = null;
     let undated = false;
     for (const p of photos) {
-      const key = dayKey(p.taken_at);
-      if (key === "undated") {
+      const ts = p.taken_at;
+      if (!ts) {
         undated = true;
         continue;
       }
-      if (newest == null || key > newest) newest = key;
-      if (oldest == null || key < oldest) oldest = key;
+      if (newest == null || ts > newest) newest = ts;
+      if (oldest == null || ts < oldest) oldest = ts;
     }
-    return { newest, oldest, undated };
+    return {
+      newest: newest == null ? null : dayKey(newest),
+      oldest: oldest == null ? null : dayKey(oldest),
+      undated,
+    };
   }, [photos]);
 
   // Keep multi-select items in sync with visible photos.
@@ -1462,11 +1468,15 @@ export default function PhotosPage() {
     const reduced =
       typeof window.matchMedia === "function"
       && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    requestAnimationFrame(() => {
-      document
-        .getElementById(`day-${nearest}`)
-        ?.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
-    });
+    // The timeline can draw the end of a page a little later (its first
+    // days come first), so wait up to 2 s for the day to appear.
+    const giveUp = performance.now() + 2000;
+    const scrollToDay = () => {
+      const el = document.getElementById(`day-${nearest}`);
+      if (el) el.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
+      else if (performance.now() < giveUp) requestAnimationFrame(scrollToDay);
+    };
+    requestAnimationFrame(scrollToDay);
   }, [jumpTarget, photos, loadedDaySpan, photoQuery]);
 
   useEffect(() => {

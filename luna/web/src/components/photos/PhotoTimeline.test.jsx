@@ -1,7 +1,7 @@
-import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import PhotoThumb from "./PhotoThumb.jsx";
-import PhotoTimeline from "./PhotoTimeline.jsx";
+import PhotoTimeline, { groupByDay } from "./PhotoTimeline.jsx";
 
 describe("PhotoThumb cascading animation", () => {
   it("renders with cascade animation and reduced-motion accessibility classes", () => {
@@ -137,6 +137,117 @@ describe("PhotoTimeline cascading stagger", () => {
     expect(screen.queryByRole("button", { name: "p1.jpg" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Expand/i }));
     expect(screen.getByRole("button", { name: "p1.jpg" })).toBeInTheDocument();
+  });
+});
+
+const DAY = 86_400;
+/** @param {number} n @param {number} [from] */
+function photoList(n, from = 0) {
+  return Array.from({ length: n }, (_, i) => ({
+    name: `p${from + i}.jpg`,
+    path: `p${from + i}.jpg`,
+    drive_id: "d1",
+    // Five photos a day, newest first.
+    taken_at: 1_700_000_000 - Math.floor((from + i) / 5) * DAY,
+  }));
+}
+
+describe("groupByDay", () => {
+  it("keeps the earlier days when a page is added to the end", () => {
+    const first = photoList(12);
+    const a = groupByDay(first);
+    const b = groupByDay([...first, ...photoList(8, 12)], a);
+    expect(a.groups).toHaveLength(3);
+    expect(b.groups).toHaveLength(4);
+    // Days the new page doesn't touch are the same objects; the day it continues is new.
+    expect(b.groups[0]).toBe(a.groups[0]);
+    expect(b.groups[1]).toBe(a.groups[1]);
+    expect(b.groups[2]).not.toBe(a.groups[2]);
+    expect(a.groups[2].items).toHaveLength(2);
+    expect(b.groups[2].items.map((i) => i.index)).toEqual([10, 11, 12, 13, 14]);
+    expect(b.groups[3].items.map((i) => i.index)).toEqual([15, 16, 17, 18, 19]);
+    expect(b).toEqual(groupByDay([...first, ...photoList(8, 12)]));
+  });
+
+  it("groups the whole list again when earlier photos changed", () => {
+    const a = groupByDay(photoList(12));
+    const changed = photoList(14);
+    const b = groupByDay(changed, a);
+    expect(b.groups[0]).not.toBe(a.groups[0]);
+    expect(b.groups[0].items[0].photo).toBe(changed[0]);
+    expect(b).toEqual(groupByDay(changed));
+  });
+
+  it("puts a later photo of an earlier day into that day", () => {
+    const first = photoList(5);
+    const a = groupByDay(first);
+    const late = { ...photoList(1)[0], name: "late.jpg", path: "late.jpg" };
+    const b = groupByDay([...first, late], a);
+    expect(b.groups).toHaveLength(1);
+    expect(b.groups[0].items.at(-1)).toEqual({ photo: late, index: 5 });
+  });
+});
+
+describe("PhotoTimeline next page", () => {
+  afterEach(() => {
+    // Unmount while the stubs are still there: the timeline's effects use them.
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  function stubObservers() {
+    /** @type {((entries: any[]) => void)[]} */
+    const callbacks = [];
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(/** @type {any} */ cb) {
+          callbacks.push(cb);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    vi.stubGlobal("requestAnimationFrame", (/** @type {() => void} */ cb) => {
+      cb();
+      return 1;
+    });
+    return callbacks;
+  }
+
+  it("draws an asked-for page's first photos at once and the rest after", async () => {
+    const callbacks = stubObservers();
+    const onLoadMore = vi.fn();
+    const first = photoList(20);
+    const { rerender } = render(<PhotoTimeline photos={first} hasMore onLoadMore={onLoadMore} />);
+    act(() => callbacks.forEach((cb) => cb([{ isIntersecting: true, target: null }])));
+    expect(onLoadMore).toHaveBeenCalledTimes(1);
+    rerender(<PhotoTimeline photos={[...first, ...photoList(80, 20)]} hasMore onLoadMore={onLoadMore} />);
+    // Up to the 36th new photo (p55), and the rest of its day (p56–p59).
+    expect(screen.getByRole("button", { name: "p59.jpg" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "p60.jpg" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "p99.jpg" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^p\d+\.jpg$/ })).toHaveLength(100);
+  });
+
+  it("selects a whole day while the rest of the page is still to come", () => {
+    // The rest waits for an idle moment that never comes here.
+    const callbacks = stubObservers();
+    vi.stubGlobal("requestIdleCallback", () => 1);
+    vi.stubGlobal("cancelIdleCallback", () => {});
+    const onSelectDay = vi.fn();
+    const first = photoList(20);
+    const props = { hasMore: true, onLoadMore: vi.fn(), selectMode: true, selectedKeys: new Set(), onSelectDay };
+    const { rerender } = render(<PhotoTimeline photos={first} {...props} />);
+    act(() => callbacks.forEach((cb) => cb([{ isIntersecting: true, target: null }])));
+    rerender(<PhotoTimeline photos={[...first, ...photoList(80, 20)]} {...props} />);
+    expect(screen.queryByRole("button", { name: "p60.jpg" })).not.toBeInTheDocument();
+    const day = screen.getByRole("button", { name: "p59.jpg" }).closest("section");
+    fireEvent.click(within(/** @type {HTMLElement} */ (day)).getByRole("button", { name: /Select day/i }));
+    expect(onSelectDay.mock.calls[0][0].map((/** @type {any} */ p) => p.name)).toEqual([
+      "p55.jpg", "p56.jpg", "p57.jpg", "p58.jpg", "p59.jpg",
+    ]);
   });
 });
 

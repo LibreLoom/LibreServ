@@ -5,6 +5,7 @@ import { Check, ChevronDown } from "lucide-react";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import PhotoThumb from "./PhotoThumb.jsx";
+import { whenNearIdle } from "./nearViewport.js";
 import { photoSelectionKey } from "../../hooks/useMultiSelect.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
@@ -230,11 +231,77 @@ function daySectionEqual(prev, next) {
   return true;
 }
 
+/**
+ * @typedef {{ key: string, label: string, items: { photo: PhotosPhoto, index: number }[] }} DayGroup
+ * @typedef {{ photos: PhotosPhoto[], groups: DayGroup[], at: Map<string, number> }} DayGrouping
+ */
+
+/**
+ * Photos grouped by day, each day where its first photo is. Given the last
+ * grouping (`prev`) and a list that only adds photos to its end, the days
+ * before the new photos keep their objects, so the timeline re-renders only
+ * the day the new page continues and the days it adds, and only the new
+ * photos are grouped. Any other change groups the whole list again.
+ * @param {PhotosPhoto[]} photos
+ * @param {DayGrouping | null} [prev]
+ * @returns {DayGrouping}
+ */
+export function groupByDay(photos, prev = null) {
+  let from = 0;
+  if (prev && prev.photos.length > 0 && prev.photos.length <= photos.length) {
+    const old = prev.photos;
+    let same = true;
+    for (let i = 0; i < old.length; i++) {
+      if (old[i] !== photos[i]) {
+        same = false;
+        break;
+      }
+    }
+    if (same) {
+      if (old.length === photos.length) return { ...prev, photos };
+      from = old.length;
+    }
+  }
+  const groups = from ? prev.groups.slice() : [];
+  const at = from ? new Map(prev.at) : new Map();
+  /** @type {Map<number, DayGroup["items"]>} days given new photos, by position */
+  const grown = new Map();
+  for (let index = from; index < photos.length; index++) {
+    const photo = photos[index];
+    const key = dayKey(photo.taken_at);
+    let pos = at.get(key);
+    if (pos === undefined) {
+      pos = groups.length;
+      at.set(key, pos);
+      groups.push({ key, label: dayLabel(photo.taken_at), items: [] });
+      grown.set(pos, groups[pos].items);
+    }
+    let items = grown.get(pos);
+    if (!items) {
+      items = groups[pos].items.slice();
+      grown.set(pos, items);
+    }
+    items.push({ photo, index });
+  }
+  for (const [pos, items] of grown) {
+    if (groups[pos].items !== items) groups[pos] = { ...groups[pos], items };
+  }
+  return { photos, groups, at };
+}
+
 // Photos drawn in the first frame a timeline mounts; the rest follow in a
 // background render React can pause. A page sliding in (SlidePages) can then
 // start moving at once instead of waiting for every thumbnail, and the rest
-// lands below the fold a moment later.
+// lands below the fold a moment later. A page the timeline asked for while
+// scrolling is drawn the same way, in whole days: its first photos, the ones
+// that can be on screen at the bottom of the timeline, start their thumbnails
+// without waiting for the whole page to render (W8 in luna/perf).
 const FIRST_PAINT_PHOTOS = 36;
+// The rest of such a page waits for the thumbnails on screen to load, so
+// building it doesn't hold back their paint; at most this long (ms).
+const REST_WAIT_MAX_MS = 400;
+/** And then for the browser to be idle, at most this long (ms). */
+const REST_IDLE_MAX_MS = 300;
 
 /**
  * Date-grouped infinite photo grid.
@@ -275,32 +342,84 @@ export default function PhotoTimeline({
   const dragSelecting = useRef(false);
   const [collapsed, setCollapsed] = useState(/** @type {Set<string>} */ (new Set()));
 
-  const groups = useMemo(() => {
-    const map = new Map();
-    let index = 0;
-    for (const photo of photos) {
-      const key = dayKey(photo.taken_at);
-      if (!map.has(key)) map.set(key, { key, label: dayLabel(photo.taken_at), items: [] });
-      map.get(key).items.push({ photo, index: index++ });
-    }
-    return [...map.values()];
-  }, [photos]);
+  // The last grouping, so a new page groups only its own photos. Always a
+  // complete grouping of some list; groupByDay checks it still applies.
+  const lastGrouping = useRef(/** @type {DayGrouping | null} */ (null));
+  const grouping = useMemo(() => groupByDay(photos, lastGrouping.current), [photos]);
+  lastGrouping.current = grouping;
+  const groups = grouping.groups;
 
-  const [drawAll, setDrawAll] = useState(photos.length <= FIRST_PAINT_PHOTOS);
+  // How many photos are drawn, in list order (Infinity: all of them).
+  const [drawn, setDrawn] = useState(photos.length <= FIRST_PAINT_PHOTOS ? Infinity : FIRST_PAINT_PHOTOS);
+  // The photo count when the timeline last asked for a page, until it lands.
+  const [askedAt, setAskedAt] = useState(-1);
+  // True while the rest of an asked-for page waits for the screen's thumbnails.
+  const [restWaits, setRestWaits] = useState(false);
+  if (askedAt >= 0 && photos.length !== askedAt) {
+    setAskedAt(-1);
+    // Whole days only: a day drawn in part would show a short photo count
+    // and select only part of itself.
+    let upTo = 0;
+    for (const group of groups) {
+      upTo += group.items.length;
+      if (upTo >= askedAt + FIRST_PAINT_PHOTOS) break;
+    }
+    if (drawn >= askedAt && upTo < photos.length) {
+      setDrawn(upTo);
+      setRestWaits(true);
+    }
+  }
+  const drawAll = drawn >= photos.length;
   useEffect(() => {
-    if (!drawAll) startTransition(() => setDrawAll(true));
-  }, [drawAll]);
+    if (drawAll) return undefined;
+    const drawRest = () => {
+      startTransition(() => {
+        setDrawn(Infinity);
+        setRestWaits(false);
+      });
+    };
+    if (!restWaits || typeof requestAnimationFrame !== "function") {
+      drawRest();
+      return undefined;
+    }
+    let idle = 0;
+    let frame = 0;
+    let started = false;
+    const go = () => {
+      if (started) return;
+      started = true;
+      // Once the browser is idle, so the thumbnails that just loaded are
+      // decoded and painted first.
+      if (typeof requestIdleCallback === "function") {
+        idle = requestIdleCallback(drawRest, { timeout: REST_IDLE_MAX_MS });
+      } else {
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          idle = window.setTimeout(drawRest, 0);
+        });
+      }
+    };
+    const cancel = whenNearIdle(go);
+    const timer = setTimeout(go, REST_WAIT_MAX_MS);
+    return () => {
+      cancel();
+      clearTimeout(timer);
+      if (frame) cancelAnimationFrame(frame);
+      if (idle && typeof cancelIdleCallback === "function") cancelIdleCallback(idle);
+      else if (idle) clearTimeout(idle);
+    };
+  }, [drawAll, restWaits]);
   const shownGroups = useMemo(() => {
-    if (drawAll) return groups;
+    if (drawn >= photos.length) return groups;
     const out = [];
-    let left = FIRST_PAINT_PHOTOS;
+    let left = drawn;
     for (const group of groups) {
       if (left <= 0) break;
       out.push(group.items.length <= left ? group : { ...group, items: group.items.slice(0, left) });
       left -= group.items.length;
     }
     return out;
-  }, [drawAll, groups]);
+  }, [drawn, groups, photos.length]);
 
   useEffect(() => {
     const el = sentinel.current;
@@ -311,16 +430,21 @@ export default function PhotoTimeline({
     // next frame and ask for their thumbnails then. Drawing the next page
     // first held those requests back behind its long render (W8).
     let frame = 0;
+    const count = photos.length;
+    const loadMore = () => {
+      setAskedAt(count);
+      onLoadMore?.();
+    };
     const io = new IntersectionObserver(
       (entries) => {
         if (!entries.some((e) => e.isIntersecting)) return;
         if (typeof requestAnimationFrame !== "function") {
-          onLoadMore?.();
+          loadMore();
           return;
         }
         cancelAnimationFrame(frame);
         frame = requestAnimationFrame(() => {
-          frame = requestAnimationFrame(() => onLoadMore?.());
+          frame = requestAnimationFrame(loadMore);
         });
       },
       { rootMargin: "1400px" },
