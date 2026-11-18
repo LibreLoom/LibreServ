@@ -85,6 +85,6 @@ impl Layout {
     /// *any* drive's Luna namespace? Generic on the UUID — the exact prefix
     /// is never needed to hide or reject Luna's own files.
     pub fn is_luna_name(name: &str) -> bool {
-        luna_core::marker::extract_prefix(name).is_some()
+        luna_core::marker::is_namespace_name(name)
     }
 }

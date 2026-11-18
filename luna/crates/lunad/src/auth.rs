@@ -207,7 +207,7 @@ impl AuthService {
     }
 
     pub fn login(&self, username: &str, password: &str) -> Result<(UserRow, String), AuthError> {
-        let username = username.trim().to_lowercase();
+        let username = username_lookup_key(username);
         let conn = self
             .db
             .lock()
@@ -507,7 +507,7 @@ impl AuthService {
             ));
         }
         let hash = hash_password_unchecked(password)?;
-        let username = username.trim().to_lowercase();
+        let username = username_lookup_key(username);
         let conn = self
             .db
             .lock()
@@ -1799,8 +1799,12 @@ pub(crate) fn verify_password_hash(
         .map_err(|_| AuthError::BadLogin)
 }
 
+pub(crate) fn username_lookup_key(username: &str) -> String {
+    username.trim().to_lowercase()
+}
+
 pub(crate) fn normalize_username(username: &str) -> Result<String, AuthError> {
-    let username = username.trim().to_lowercase();
+    let username = username_lookup_key(username);
     let valid = !username.is_empty()
         && username.len() <= 32
         && username.len() >= 3

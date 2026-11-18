@@ -61,9 +61,25 @@ pub enum MarkerError {
 /// `.luna-<uuid>-trash`, `.luna-<uuid>-upload.1.part`, …).
 pub fn extract_prefix(name: &str) -> Option<String> {
     let rest = name.strip_prefix(MARKER_PREFIX)?;
+    let uuid_part = namespace_uuid(rest)?;
+    Some(format!("{MARKER_PREFIX}{uuid_part}"))
+}
+
+/// Whether the name belongs to Luna's reserved namespace, including aliases
+/// on case-insensitive filesystems.
+pub fn is_namespace_name(name: &str) -> bool {
+    name.get(..MARKER_PREFIX.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(MARKER_PREFIX))
+        && name
+            .get(MARKER_PREFIX.len()..)
+            .and_then(namespace_uuid)
+            .is_some()
+}
+
+fn namespace_uuid(rest: &str) -> Option<&str> {
     let uuid_part = rest.get(..36)?;
     uuid::Uuid::parse_str(uuid_part).ok()?;
-    Some(format!("{MARKER_PREFIX}{uuid_part}"))
+    Some(uuid_part)
 }
 
 /// Marker file name for a prefix: `.luna-<uuid>.sqlite3`.

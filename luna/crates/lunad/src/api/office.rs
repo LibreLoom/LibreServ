@@ -87,13 +87,13 @@ async fn create_session(
         ));
     }
 
-    ensure_file(&state, &drive_id, &path)?;
     if !user_can(&state, &user, &drive_id, &path, false)? {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "You don't have permission to open this file.",
         ));
     }
+    ensure_file(&state, &drive_id, &path)?;
     let can_write = user_can(&state, &user, &drive_id, &path, true).unwrap_or(false);
 
     prepare_session(

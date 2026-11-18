@@ -267,7 +267,7 @@ fn is_disk_id(id: &str) -> bool {
     id.len() == 26
         && id
             .bytes()
-            .all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b))
+            .all(|b| b.is_ascii_alphabetic() || (b'2'..=b'7').contains(&b))
 }
 
 /// The nearest private item at or above a path, for the access rule.
@@ -296,7 +296,11 @@ fn boundary_in(r: &Rows, rel: &str) -> Option<Boundary> {
     for seg in rel.split('/').filter(|s| !s.is_empty() && *s != ".") {
         // A path that names the disk entry itself is not how anyone reaches
         // a private item: it belongs to nobody.
-        if seg.strip_prefix(&lead).is_some_and(is_disk_id) {
+        if seg
+            .get(..lead.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(&lead))
+            && seg.get(lead.len()..).is_some_and(is_disk_id)
+        {
             return Some(Boundary {
                 path: join(&logical, seg),
                 owner: SEALED.to_string(),

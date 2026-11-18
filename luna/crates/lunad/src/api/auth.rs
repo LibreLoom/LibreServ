@@ -495,9 +495,7 @@ fn is_lan_request(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
 pub(crate) fn login_user_key(username: &str) -> String {
     format!(
         "login-user:{}",
-        username
-            .trim()
-            .to_ascii_lowercase()
+        auth::username_lookup_key(username)
             .chars()
             .take(40)
             .collect::<String>()
