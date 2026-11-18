@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import LoginPage from "./LoginPage";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
@@ -40,8 +41,13 @@ function stubFetch({ setupCompleted = true, loginOk = true } = {}) {
   }));
 }
 
-function renderLogin() {
+function newQueryClient() {
+  return new QueryClient({ defaultOptions: { queries: { retry: false } } });
+}
+
+function renderLogin(queryClient = newQueryClient()) {
   return render(
+    <QueryClientProvider client={queryClient}>
     <ToastProvider>
     <MemoryRouter initialEntries={["/login"]}>
       <AuthProvider>
@@ -52,6 +58,7 @@ function renderLogin() {
       </AuthProvider>
     </MemoryRouter>
     </ToastProvider>
+    </QueryClientProvider>
   );
 }
 
@@ -82,6 +89,23 @@ describe("LoginPage", () => {
     expect(await screen.findByText(/LUNA HOME/i)).toBeInTheDocument();
   });
 
+  it("asks for the Dashboard's drives and recents as soon as sign-in succeeds", async () => {
+    stubFetch();
+    const queryClient = newQueryClient();
+    renderLogin(queryClient);
+    fireEvent.change(screen.getByLabelText("Username", { selector: "input" }), { target: { value: "max" } });
+    fireEvent.change(screen.getByLabelText("Password", { selector: "input" }), { target: { value: "hunter22hunter" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByText(/LUNA HOME/i)).toBeInTheDocument();
+    const asked = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
+    expect(asked.some((u) => u.endsWith("/api/v1/drives"))).toBe(true);
+    expect(asked.some((u) => u.endsWith("/api/v1/me/recents"))).toBe(true);
+    // Admins have no shares list to wait for.
+    expect(asked.some((u) => u.endsWith("/api/v1/me/access"))).toBe(false);
+    expect(queryClient.getQueryState(["drives"])).toBeDefined();
+    expect(queryClient.getQueryState(["recents", "max"])).toBeDefined();
+  });
+
   it("signs in on the page you were on when rendered in place", async () => {
     stubFetch();
     // Stands in for RequireAuth: no user means the sign-in form in place of
@@ -91,6 +115,7 @@ describe("LoginPage", () => {
       return user ? <div>DRIVES PAGE</div> : <LoginPage />;
     }
     render(
+      <QueryClientProvider client={newQueryClient()}>
       <ToastProvider>
         <MemoryRouter initialEntries={["/files/d1"]}>
           <AuthProvider>
@@ -101,6 +126,7 @@ describe("LoginPage", () => {
           </AuthProvider>
         </MemoryRouter>
       </ToastProvider>
+      </QueryClientProvider>
     );
     fireEvent.change(screen.getByLabelText("Username", { selector: "input" }), { target: { value: "max" } });
     fireEvent.change(screen.getByLabelText("Password", { selector: "input" }), { target: { value: "hunter22hunter" } });
@@ -108,6 +134,9 @@ describe("LoginPage", () => {
     // Back on the page you were on — not bounced to home.
     expect(await screen.findByText("DRIVES PAGE")).toBeInTheDocument();
     expect(screen.queryByText("LUNA HOME")).not.toBeInTheDocument();
+    // Not headed for the Dashboard, so none of its data is asked for.
+    const asked = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
+    expect(asked.some((u) => u.endsWith("/api/v1/me/recents"))).toBe(false);
   });
 
   it("names each empty field and clears its message when corrected", async () => {

@@ -136,23 +136,28 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const { outerRef: cloudOuterRef, innerRef: cloudInnerRef } = useAnimatedHeight();
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
+  // Folder pages keep this sheet mounted while it is closed: it asks Luna
+  // nothing (and polls nothing) until it opens.
   const backups = useQuery({
     queryKey: ["backups", driveId, objectPath],
     queryFn: () =>
       getJson(
         `/api/v1/backups?drive=${encodeURIComponent(driveId)}&path=${encodeURIComponent(objectPath)}`,
       ),
+    enabled: open,
     // A long "Back up now" keeps copying after it answers; its row updates here.
-    refetchInterval: 30_000,
+    refetchInterval: open ? 30_000 : false,
   });
   const connect = useQuery({
     queryKey: ["connect-status"],
     queryFn: () => getJson("/api/v1/connect/status"),
+    enabled: open,
   });
   const cloudQuery = useQuery({
     queryKey: ["cloud-backups"],
     queryFn: () => getJson("/api/v1/cloud/backups"),
-    refetchInterval: 30_000,
+    enabled: open,
+    refetchInterval: open ? 30_000 : false,
   });
   // A cloud backup is sealed to the caller's phrase, so "Back up to the cloud" asks for one
   // first when there isn't one yet. Only a clear "not set" opens the dialog: while the status
@@ -161,6 +166,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     queryKey: PHRASE_QUERY_KEY,
     queryFn: getPhraseStatus,
     retry: false,
+    enabled: open,
   });
   const noPhrase = phraseQuery.data?.set === false;
 
@@ -170,6 +176,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
       getJson(
         `/api/v1/private-backups/item?drive=${encodeURIComponent(driveId)}&path=${encodeURIComponent(objectPath)}`,
       ),
+    enabled: open,
   });
   const privateItem = privateItemQuery.data;
   // Bigger folders whose backup already holds this one, per backup drive or the cloud.
@@ -179,6 +186,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
       getJson(
         `/api/v1/backups/covered?drive=${encodeURIComponent(driveId)}&path=${encodeURIComponent(objectPath)}`,
       ),
+    enabled: open,
   });
   const matchingBackups = backups.data || [];
   const driveList = drives.data || [];

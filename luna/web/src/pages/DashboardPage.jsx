@@ -14,12 +14,12 @@ import { dashboard as greetingMessages } from "../lib/greetings.jsx";
 import SystemHealthPill from "../components/common/SystemHealthPill.jsx";
 import SoftwareUpdatePill from "../components/common/SoftwareUpdatePill.jsx";
 import TipPill from "../components/common/TipPill.jsx";
-import { getDrives, getJson, getRecents } from "../lib/api.js";
 import { KIND_ALBUM } from "../lib/access.js";
 import { memberAccessRoots } from "../lib/shareTree.js";
 import { checkPhraseWords, PHRASE_CHECKED_TOAST, PHRASE_QUERY_KEY } from "../lib/cloudPhrase.js";
 import { readRecentItems } from "../lib/recentItems.js";
 import { perfAppReady } from "../lib/perf.js";
+import { drivesQuery, myAccessQuery, recentsQuery } from "../lib/dashboardData.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 import useNeedsYou from "../hooks/useNeedsYou.js";
 import { detectedDrivesQueryOptions } from "../hooks/detectedDrives.js";
@@ -76,13 +76,9 @@ export default function DashboardPage() {
   const updates = useSoftwareUpdates();
   const systemHealth = useSystemHealthCheck();
   const { rows, phrase } = useBackupRows();
-  const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
+  const drives = useQuery(drivesQuery);
   const detected = useQuery(detectedDrivesQueryOptions(isAdmin));
-  const access = useQuery({
-    queryKey: ["my-access"],
-    queryFn: () => getJson("/api/v1/me/access"),
-    enabled: !isAdmin,
-  });
+  const access = useQuery(myAccessQuery(!isAdmin));
 
   // Backup row that opened its protect sheet, and whether the recovery phrase check is open.
   const [sheet, setSheet] = useState(null);
@@ -131,12 +127,8 @@ export default function DashboardPage() {
   // Dev mock injects a review fixture when lunad reports nothing new.
   const pluggedIn = withDevMockDetected(detected.data);
   // Server-backed recents list: validates existence, follows renames, and omits dead links.
-  const recentsQuery = useQuery({
-    queryKey: ["recents", user?.username],
-    queryFn: getRecents,
-    enabled: Boolean(user?.username),
-  });
-  const recentItems = recentsQuery.data ?? (recentsQuery.isError ? readRecentItems(user?.username) : []);
+  const recents = useQuery(recentsQuery(user?.username));
+  const recentItems = recents.data ?? (recents.isError ? readRecentItems(user?.username) : []);
   const myShares = useMemo(
     () => memberAccessRoots(Array.isArray(access.data) ? access.data : []),
     [access.data],
@@ -153,7 +145,7 @@ export default function DashboardPage() {
   const memberSharesLoading = !isAdmin && access.isLoading;
   // W1/W2/W3 (luna/perf): the Dashboard is usable once its drives, files and
   // recents have answered (or failed).
-  const dashboardSettled = !drives.isLoading && !recentsQuery.isLoading && !memberSharesLoading;
+  const dashboardSettled = !drives.isLoading && !recents.isLoading && !memberSharesLoading;
   useEffect(() => {
     if (dashboardSettled) perfAppReady();
   }, [dashboardSettled]);

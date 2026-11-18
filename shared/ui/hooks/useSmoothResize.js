@@ -3,15 +3,13 @@ import { useRef, useLayoutEffect, useEffect } from "react";
 // A page that mounts hundreds of buttons at once (a long form, a big table of
 // actions) used to measure each one on its own: write, read, write — and every
 // read forces a layout of the whole page, so the cost grew with the square of
-// the count (a 300-question form spent tens of seconds in layout). The first
-// few measurements of a burst still run on the spot; the rest are queued and
-// measured together in four passes, which costs two layouts however many
-// there are. A first measurement only pins the width the element already has,
-// so deferring it by a microtask is invisible.
-const INLINE_FIRST_PROBES = 8;
-let probeBurst = 0;
-/** @type {Array<{ read: () => void, hide: () => void, measure: () => void, apply: () => void }>} */
-let deferredProbes = [];
+// the count (a 300-question form spent tens of seconds in layout). First
+// measurements are queued and done together in four passes, which costs two
+// layouts however many buttons mount. Even a page switch mounts a handful,
+// and measuring those one by one cost two layouts each (W3, W16). A first
+// measurement only pins the width the element already has, so deferring it by
+// a microtask (still before the frame paints) is invisible.
+let deferredProbes = /** @type {Array<{ read: () => void, hide: () => void, measure: () => void, apply: () => void }>} */ ([]);
 
 function flushDeferredProbes() {
   const batch = deferredProbes;
@@ -23,12 +21,8 @@ function flushDeferredProbes() {
 }
 
 function deferFirstProbe(probe) {
-  if (probeBurst === 0) queueMicrotask(() => { probeBurst = 0; });
-  probeBurst += 1;
-  if (probeBurst <= INLINE_FIRST_PROBES) return false;
   if (deferredProbes.length === 0) queueMicrotask(flushDeferredProbes);
   deferredProbes.push(probe);
-  return true;
 }
 
 /**
@@ -95,7 +89,7 @@ export function useSmoothResize(ref, options = {}) {
       let savedH0 = "";
       let nextW0 = 0;
       let nextH0 = 0;
-      const deferred = deferFirstProbe({
+      deferFirstProbe({
         read: () => {
           renderedW = el.offsetWidth;
           savedW0 = el.style.width;
@@ -119,6 +113,9 @@ export function useSmoothResize(ref, options = {}) {
             return;
           }
           baselineTransition.current = el.style.transition;
+          // A fresh element has no inline width yet, so a rendered width wider
+          // than its natural max-content width means the layout stretches it
+          // (grid cells, flex-grow): leave width to the layout, don't animate x.
           layoutControlled.current = animateX && renderedW !== nextW0;
           prevW.current = nextW0;
           prevH.current = nextH0;
@@ -126,13 +123,13 @@ export function useSmoothResize(ref, options = {}) {
           if (animateY) el.style.height = `${nextH0}px`;
         },
       });
-      if (deferred) {
-        init.current = true;
-        return;
-      }
+      init.current = true;
+      return;
     }
+    // Content changed again before the queued first measurement ran: that
+    // measurement reads the element as it is then, so there is nothing to add.
+    if (prevW.current == null) return;
 
-    const renderedW = el.offsetWidth; // width as laid out right now
     const savedW = el.style.width;
     const savedH = el.style.height;
 
@@ -148,21 +145,6 @@ export function useSmoothResize(ref, options = {}) {
     // breakpoint): there is no natural width to capture, and pinning 0px
     // would collapse it permanently when it later becomes visible.
     if (nextW === 0 && nextH === 0) return;
-
-    if (!init.current) {
-      init.current = true;
-      // First measurement is on a fresh element (no inline width yet), so a
-      // rendered width wider than the natural max-content width means the
-      // layout is stretching it — grid cells, flex-grow, etc. Leave width to
-      // the layout and don't animate x on this element.
-      baselineTransition.current = el.style.transition;
-      layoutControlled.current = animateX && renderedW !== nextW;
-      prevW.current = nextW;
-      prevH.current = nextH;
-      if (animateX && !layoutControlled.current) el.style.width = `${nextW}px`;
-      if (animateY) el.style.height = `${nextH}px`;
-      return;
-    }
 
     const wChanged = animateX && !layoutControlled.current && prevW.current !== nextW;
     const hChanged = animateY && prevH.current !== nextH;

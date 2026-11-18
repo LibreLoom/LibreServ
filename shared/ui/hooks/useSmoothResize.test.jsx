@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { useRef } from "react";
 import { useSmoothResize } from "./useSmoothResize.js";
 
@@ -13,8 +13,11 @@ function TestButton({ label }) {
   );
 }
 
+/** First measurements run together in a microtask after the commit. */
+const flushProbes = () => act(async () => {});
+
 describe("useSmoothResize", () => {
-  it("assigns a pixel width to a content-sized element", () => {
+  it("assigns a pixel width to a content-sized element", async () => {
     // jsdom has no layout engine (offsetWidth is always 0), which the hook
     // treats as "element hidden" and skips pinning. Mock a real size.
     const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
@@ -26,6 +29,7 @@ describe("useSmoothResize", () => {
     });
     try {
       const { container } = render(<TestButton label="User" />);
+      await flushProbes();
       const btn = container.querySelector("button");
       expect(btn.style.width).toMatch(/^\d+px$/);
     } finally {
@@ -33,7 +37,7 @@ describe("useSmoothResize", () => {
     }
   });
 
-  it("does not pin width when the layout stretches the element (grid/flex)", () => {
+  it("does not pin width when the layout stretches the element (grid/flex)", async () => {
     // jsdom has no layout engine (offsetWidth is always 0), so simulate the
     // rendered width being wider than the natural max-content width — the
     // signal for a grid/flex-stretched element. The hook must leave width
@@ -49,6 +53,7 @@ describe("useSmoothResize", () => {
     });
     try {
       const { container } = render(<TestButton label="Go Back" />);
+      await flushProbes();
       const btn = container.querySelector("button");
       expect(btn.style.width).toBe("");
     } finally {
@@ -56,7 +61,7 @@ describe("useSmoothResize", () => {
     }
   });
 
-  it("does not re-measure when the element's content is unchanged", () => {
+  it("does not re-measure when the element's content is unchanged", async () => {
     // A re-render for unrelated reasons (parent state churn, a reload) must
     // not re-probe the element: probing swaps width to max-content and back,
     // which cancels an in-flight width transition and snaps the element to
@@ -73,7 +78,9 @@ describe("useSmoothResize", () => {
     });
     try {
       const { rerender } = render(<TestButton label="User" />);
+      await flushProbes();
       const readsAfterMount = reads;
+      expect(readsAfterMount).toBeGreaterThan(0);
       rerender(<TestButton label="User" />);
       expect(reads).toBe(readsAfterMount);
     } finally {
@@ -81,7 +88,7 @@ describe("useSmoothResize", () => {
     }
   });
 
-  it("re-measures when the element's content changes", () => {
+  it("re-measures when the element's content changes", async () => {
     let reads = 0;
     const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
     Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
@@ -93,7 +100,9 @@ describe("useSmoothResize", () => {
     });
     try {
       const { rerender } = render(<TestButton label="User" />);
+      await flushProbes();
       const readsAfterMount = reads;
+      expect(readsAfterMount).toBeGreaterThan(0);
       rerender(<TestButton label="A much longer label" />);
       expect(reads).toBeGreaterThan(readsAfterMount);
     } finally {
@@ -101,7 +110,7 @@ describe("useSmoothResize", () => {
     }
   });
 
-  it("restores the class transition after rapid successive content changes", () => {
+  it("restores the class transition after rapid successive content changes", async () => {
     // Regression: two content changes within the 260ms restore window used to
     // leave the element permanently stuck on the inline `transition: width …`
     // (the second probe captured the FIRST probe's inline transition as the
@@ -119,6 +128,7 @@ describe("useSmoothResize", () => {
     });
     try {
       const { container, rerender } = render(<TestButton label="User" />);
+      await flushProbes();
       const btn = container.querySelector("button");
       expect(btn.style.transition).toBe("");
 
@@ -134,6 +144,36 @@ describe("useSmoothResize", () => {
     } finally {
       if (desc) Object.defineProperty(HTMLElement.prototype, "offsetWidth", desc);
       vi.useRealTimers();
+    }
+  });
+
+  it("measures every button of a page switch together, not one by one", async () => {
+    // Each first measurement reads, writes max-content, reads, then writes
+    // back. Done one by one, every read after a write forces a layout. All
+    // first measurements of a commit read first, then write, so reads and
+    // writes no longer alternate per button.
+    const log = [];
+    const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+      configurable: true,
+      get() {
+        log.push(this.style.width === "max-content" ? "measure" : "read");
+        return 60;
+      },
+    });
+    try {
+      render(
+        <>
+          <TestButton label="One" />
+          <TestButton label="Two" />
+          <TestButton label="Three" />
+        </>,
+      );
+      expect(log).toEqual([]);
+      await flushProbes();
+      expect(log).toEqual(["read", "read", "read", "measure", "measure", "measure"]);
+    } finally {
+      if (desc) Object.defineProperty(HTMLElement.prototype, "offsetWidth", desc);
     }
   });
 });

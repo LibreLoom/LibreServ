@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { login as loginQuips } from "../lib/greetings.jsx";
 import { perfCancel, perfStart } from "../lib/perf.js";
+import { prefetchDashboard } from "../lib/dashboardData.js";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import StepTransition from "@libreloom/ui/components/common/StepTransition.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -27,6 +29,7 @@ export default function LoginPage() {
   const { addToast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -123,7 +126,9 @@ export default function LoginPage() {
     // W3 (luna/perf): ends when the Dashboard is usable.
     perfStart("W3", { fromInput: true });
     try {
-      await login(username.trim(), password);
+      const me = await login(username.trim(), password);
+      // Headed for the Dashboard: ask for its data now, while its page renders.
+      if ((inPlace ? location.pathname : returnTo) === "/") prefetchDashboard(queryClient, me);
       addToast({ type: "success", message: "Signed in." });
       if (!inPlace) navigate(returnTo, { replace: true });
     } catch (err) {
