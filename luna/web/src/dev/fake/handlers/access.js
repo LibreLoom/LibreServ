@@ -1511,7 +1511,10 @@ publicGet("/s/:token/media", ({ world, params, query, headers }) => {
   if (!url.startsWith("data:") || comma < 0) return missingVariant("photo");
   const meta = url.slice(5, comma);
   const body = url.slice(comma + 1);
-  const type = meta.split(";")[0];
+  // `serve_media_path` and `resolve_browser_safe_file` both read the type off
+  // the name, so a photo's stand-in payload never decides what it is. A thumb
+  // is always the JPEG the daemon built.
+  const type = variant === "thumb" ? "image/jpeg" : mimeFromName(photo.name || "photo.jpg");
   const bytes = /;base64/i.test(meta)
     ? Uint8Array.from(atob(body), (ch) => ch.charCodeAt(0))
     : new TextEncoder().encode(decodeURIComponent(body));
@@ -1760,10 +1763,12 @@ function mimeFromName(name) {
     tif: "image/tiff",
     tiff: "image/tiff",
     heic: "image/heic",
+    heif: "image/heif",
+    epub: "application/epub+zip",
     svg: "image/svg+xml",
     pdf: "application/pdf",
     mp4: "video/mp4",
-    m4v: "video/mp4",
+    m4v: "video/x-m4v",
     webm: "video/webm",
     mov: "video/quicktime",
     mkv: "video/x-matroska",
@@ -1771,8 +1776,8 @@ function mimeFromName(name) {
     wav: "audio/wav",
     flac: "audio/flac",
     ogg: "audio/ogg",
-    opus: "audio/opus",
-    m4a: "audio/mp4",
+    opus: "audio/ogg",
+    m4a: "audio/m4a",
     zip: "application/zip",
     gz: "application/gzip",
     tar: "application/x-tar",
