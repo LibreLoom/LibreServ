@@ -2182,14 +2182,24 @@ describe("FileBrowser long folders", () => {
     offsetHeight.mockRestore();
   });
 
-  /** Scroll the window to `rows` rows down and let the list window follow. */
+  /**
+   * Scroll the window to `rows` rows down and let the list window follow,
+   * until the scroll counts as over (150 ms): while it lasts fewer rows stay
+   * behind it, so a loaded machine read the window mid-scroll one time and
+   * settled the next.
+   */
   async function scrollToRow(rows) {
     await act(async () => {
       window.scrollY = rows * 45;
       window.dispatchEvent(new Event("scroll"));
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 250));
     });
   }
+
+  afterEach(() => {
+    window.scrollY = 0;
+    vi.restoreAllMocks();
+  });
 
   it("reuses row elements for the rows that scroll in", async () => {
     /** @this {HTMLElement} */
