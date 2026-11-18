@@ -1469,14 +1469,15 @@ publicGet("/s/:token/media", ({ world, params, query, headers }) => {
   const canView = sees(caps);
   if (r.s.kind !== "album" || !canView) return fail(410, "This link has expired or been removed.");
   const path = String(query.path || "");
-  // `album_for_link` resolves the album's own drive before the photo is looked
-  // up: unknown, unplugged, unreadable and deleted each say their own thing.
-  const albumDrive = r.s.drive_id || "d1";
+  // `album_for_link` resolves the album itself before the photo is looked up:
+  // unknown, unplugged, unreadable and deleted each say their own thing.
   const albumFound = albumFor(world, r.s);
   if (albumFound.err) return albumFound.err;
   // `album_item_allowed` tests the drive and path pair the request named, not
   // the path alone: the same path on another drive is not this album's photo.
-  const driveId = String(query.drive_id || albumDrive);
+  // `album_item_allowed` compares the field as it arrived, so an empty one
+  // matches no photo rather than falling back to the album's own drive.
+  const driveId = String(query.drive_id);
   const photo = (world.photos || []).find(
     (p) =>
       p.path === path &&
@@ -1515,13 +1516,18 @@ publicGet("/s/:token/media", ({ world, params, query, headers }) => {
     ? Uint8Array.from(atob(body), (ch) => ch.charCodeAt(0))
     : new TextEncoder().encode(decodeURIComponent(body));
   // A download is an attachment, a photo to show is inline, and a thumb is
-  // streamed as an image with no name at all.
+  // streamed as an image with no name at all. `serve_media_path` turns the
+  // inline case into a download whenever the type could run as a document, so
+  // a crafted row cannot render markup on this origin.
+  const name = dispositionName(photo.name || "photo");
   const disposition =
     variant === "download"
-      ? { "Content-Disposition": `attachment; filename="${dispositionName(photo.name || "photo")}"` }
+      ? { "Content-Disposition": `attachment; filename="${name}"` }
       : variant === "thumb"
         ? {}
-        : { "Content-Disposition": `inline; filename="${dispositionName(photo.name || "photo")}"` };
+        : {
+            "Content-Disposition": `${inlineSafe(type) ? "inline" : "attachment"}; filename="${name}"`,
+          };
   return raw(bytes, type, 200, disposition);
 });
 
@@ -1720,6 +1726,63 @@ function serveSharedFile(world, r, rel, name, download = false) {
   });
 }
 
+
+/**
+ * `mime_guess::from_path(..).first_or_octet_stream()`: the type a browser knows
+ * from the name alone, and the octet-stream answer when it knows none.
+ *
+ * @param {unknown} name
+ */
+function mimeFromName(name) {
+  const text = String(name || "");
+  const dot = text.lastIndexOf(".");
+  const ext = (dot < 0 ? "" : text.slice(dot + 1)).toLowerCase();
+  /** @type {Record<string, string>} */
+  const known = {
+    txt: "text/plain",
+    text: "text/plain",
+    log: "text/plain",
+    csv: "text/csv",
+    md: "text/markdown",
+    json: "application/json",
+    html: "text/html",
+    htm: "text/html",
+    css: "text/css",
+    js: "text/javascript",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    webp: "image/webp",
+    avif: "image/avif",
+    bmp: "image/bmp",
+    ico: "image/x-icon",
+    tif: "image/tiff",
+    tiff: "image/tiff",
+    heic: "image/heic",
+    svg: "image/svg+xml",
+    pdf: "application/pdf",
+    mp4: "video/mp4",
+    m4v: "video/mp4",
+    webm: "video/webm",
+    mov: "video/quicktime",
+    mkv: "video/x-matroska",
+    mp3: "audio/mpeg",
+    wav: "audio/wav",
+    flac: "audio/flac",
+    ogg: "audio/ogg",
+    opus: "audio/opus",
+    m4a: "audio/mp4",
+    zip: "application/zip",
+    gz: "application/gzip",
+    tar: "application/x-tar",
+    odt: "application/vnd.oasis.opendocument.text",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  };
+  return known[ext] || "application/octet-stream";
+}
 
 /** `files::inline_safe`: mimes a browser may render in place. */
 /** `files::inline_safe`: mimes a browser may render in place. */
@@ -2375,7 +2438,10 @@ publicGet("/s/:token/file", ({ world, params, query, headers }) => {
   // No drive node behind the name (the built-in folder tree is just names):
   // still answer with something the browser can show for that kind, so a shared
   // image previews and a shared PDF is a PDF rather than text wearing its name.
-  const [data, type] = node ? bytesFor(node) : syntheticBytes(entry.name);
+  // `serve_shared_file` reads the type off the name, never off the bytes, so a
+  // shared `Movie.mp4` is a video and a `notes` with no extension is not text.
+  const [data] = node ? bytesFor(node) : syntheticBytes(entry.name);
+  const type = mimeFromName(entry.name);
   // `serve_file` always names the file: `inline` for the kinds a browser can
   // safely show, `attachment` when the guest asked to download or cannot.
   const download = Number(query.download ?? 0) !== 0;
