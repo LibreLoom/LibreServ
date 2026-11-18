@@ -897,7 +897,9 @@ function safeName(name) {
   // A path separator or an embedded NUL is not a name a drive can hold.
   if (raw.includes("/") || raw.includes("\\") || raw.includes(String.fromCharCode(0))) return null;
   const trimmed = raw.trim();
-  if (!trimmed || trimmed === "." || trimmed === ".." || trimmed.length > 255) return null;
+  // `safe_name` measures the name in bytes, not characters.
+  if (!trimmed || trimmed === "." || trimmed === ".." || new TextEncoder().encode(trimmed).length > 255)
+    return null;
   // Luna's own `.luna-<uuid>` namespace and the trash alias are its bookkeeping,
   // so a guest naming one would create something the UI can never show.
   const reserved =
@@ -1506,9 +1508,9 @@ function treeFolder(tree, segments) {
  * subject and anything outside the share are refused here, and a private wall
  * above the target closes it.
  *
- * @returns {{ segments?: string[], err?: any }}
+ * @returns {{ segments?: string[], tree?: any[], err?: any }}
  */
-function mutableSegments(world, r, raw) {
+function mutableSegments(world, r, raw, { forCreate = false } = {}) {
   // `mutable_child` trims slashes before it looks at the path, so a bare `/` is
   // the shared item rather than a path outside the share.
   if (/^\/+$/.test(String(raw ?? "").trim()))
@@ -1523,9 +1525,15 @@ function mutableSegments(world, r, raw) {
     return { err: fail(400, "The shared item itself can't be changed through this link.") };
   const trash = trashProbe(r.s, segments);
   if (trash) return { err: trash };
+  // `confined_write` resolves the child first and asks about the wall after,
+  // so a path that isn't there is "not there", not "not in this link".
+  const tree = treeOf(world, r.l.token, r.s);
+  const exists = Boolean(nodeAt(tree, segments));
+  if (!exists && !forCreate)
+    return { err: fail(404, "Luna can't find that anymore. Refresh and try again.") };
   if (!linkReaches(world, r.l, rel, r.s.drive_id, r.s.path))
     return { err: fail(404, "That item isn't part of this shared link.") };
-  return { segments };
+  return { segments, tree };
 }
 
 /** A name a drive would take, or the refusal the daemon makes. */
@@ -1547,7 +1555,7 @@ const guestNew = (kind) => ({ world, params, headers, body }) => {
   // blind uploader probe which folders exist.
   if (!capSet(r.l.caps).has("view") && trimmed.includes("/"))
     return fail(400, "This link only accepts items at the top level.");
-  const named = mutableSegments(world, r, body.path);
+  const named = mutableSegments(world, r, body.path, { forCreate: true });
   if (named.err) return named.err;
   const { segments } = named;
   const name = segments[segments.length - 1];
@@ -1651,9 +1659,15 @@ post("/s/:token/move", ({ world, params, headers, body }) => {
   const destSegments = linkSegments(body.dest ?? "");
   if (!destSegments) return fail(400, "That path isn't inside this share.");
   const tree = guestTree(world, params.token, r.s);
-  // The destination has to be a real folder inside the share.
-  const destLevel = treeFolder(tree, destSegments);
-  if (!destLevel) return fail(404, "Luna can't find that anymore. Refresh and try again.");
+  const trashDest = trashProbe(r.s, destSegments);
+  if (trashDest) return trashDest;
+  const destRelBase = destSegments.join("/");
+  if (destRelBase && !linkReaches(world, r.l, destRelBase, r.s.drive_id, r.s.path))
+    return fail(404, "That item isn't part of this shared link.");
+  const destIsDir = destSegments.length === 0 || Boolean(treeFolder(tree, destSegments));
+  const destExists = destSegments.length === 0 || Boolean(nodeAt(tree, destSegments));
+  if (!destExists) return fail(404, "Luna can't find that anymore. Refresh and try again.");
+  const destLevel = destSegments.length === 0 ? tree : treeFolder(tree, destSegments);
   const results = [];
   for (const rawPath of body.paths) {
     const named = mutableSegments(world, r, rawPath);
@@ -1664,7 +1678,7 @@ post("/s/:token/move", ({ world, params, headers, body }) => {
     const level = treeFolder(tree, segments.slice(0, -1));
     const name = segments[segments.length - 1];
     const at = level ? level.findIndex((e) => e.name === name) : -1;
-    if (at < 0) {
+    if (at < 0 || !destIsDir) {
       results.push({
         path: rawPath,
         ok: false,
