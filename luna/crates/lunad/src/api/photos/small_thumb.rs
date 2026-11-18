@@ -3,11 +3,16 @@
 //! The regular thumbnail is 640 px on the long edge (~65 KB), sized for 2x
 //! screens. A timeline cell on a 1x laptop is ~200 px, so over a remote link
 //! most of those bytes are wasted: a screen of 20 cells took ~1.8 s at
-//! 20 Mbit/s. The web asks for this variant (~20 KB) through `srcset` only
-//! where the cell is small enough.
+//! 20 Mbit/s. The web asks for this variant (~7 KB for a typical photo)
+//! through `srcset` only where the cell is small enough.
+//!
+//! It is lossy WebP, not JPEG: at the same look it is ~40–60% smaller than
+//! the JPEG it replaced (4:4:4, fixed Huffman tables), which is most of
+//! what a scrub over a remote link waits for. Every browser decodes it, and
+//! only the web asks for this size; other clients keep the 640 px JPEG.
 //!
 //! It is made from the 640 px thumbnail (a cheap decode, not the original
-//! photo), stored next to it as `{hash}.s.v{gen}.jpg` (kept by the scan's
+//! photo), stored next to it as `{hash}.s.v{gen}.webp` (kept by the scan's
 //! old-recipe sweep), and counts as missing whenever the 640 px file is
 //! newer, so a replaced thumbnail never leaves a stale small one behind.
 //! A missing one is never built inside the request: on a 3040 a screen of
@@ -32,7 +37,9 @@ use crate::api::response::json_error;
 /// Long-edge cap. 4:3 photos keep a 270 px short edge, which the web's
 /// `srcset` declares, so a square cover crop is never upscaled.
 const SMALL_MAX: u32 = 360;
-const SMALL_JPEG_QUALITY: u8 = 78;
+/// libwebp's quality scale; 75 looks like the old JPEG at 78 in the grid.
+const SMALL_WEBP_QUALITY: f32 = 75.0;
+pub(super) const SMALL_CONTENT_TYPE: &str = "image/webp";
 /// Our own 640 px thumbnails are well under this; anything bigger is not one.
 const SOURCE_MAX_BYTES: u64 = 4 * 1024 * 1024;
 /// Builds waiting for the worker. A scrub through a large library asks for
@@ -40,11 +47,12 @@ const SOURCE_MAX_BYTES: u64 = 4 * 1024 * 1024;
 /// next visit.
 const QUEUE_MAX: usize = 512;
 
-/// `{hash}.v2.jpg` → `{hash}.s.v2.jpg`, in the same directory.
+/// `{hash}.v2.jpg` → `{hash}.s.v2.webp`, in the same directory.
 pub(super) fn small_path(big: &Path) -> Option<PathBuf> {
     let name = big.file_name()?.to_str()?;
     let (hash, rest) = name.split_once('.')?;
-    Some(big.with_file_name(format!("{hash}.s.{rest}")))
+    let recipe = rest.strip_suffix(".jpg")?;
+    Some(big.with_file_name(format!("{hash}.s.{recipe}.webp")))
 }
 
 fn modified(meta: &std::fs::Metadata) -> Option<std::time::SystemTime> {
@@ -52,7 +60,7 @@ fn modified(meta: &std::fs::Metadata) -> Option<std::time::SystemTime> {
 }
 
 /// Build `small` from the 640 px thumbnail `big`. Written to a temp file and
-/// renamed, so a concurrent request never reads half a JPEG.
+/// renamed, so a concurrent request never reads half a file.
 pub(super) fn build_small(big: &Path, small: &Path) -> anyhow::Result<()> {
     use fast_image_resize::{FilterType, ResizeAlg, ResizeOptions, Resizer};
     let mut file = super::open_checked(big)?;
@@ -80,22 +88,14 @@ pub(super) fn build_small(big: &Path, small: &Path) -> anyhow::Result<()> {
         Resizer::new().resize(&img, &mut dst, &options)?;
         dst
     };
-    let tmp = small.with_extension("jpg.tmp");
-    {
-        let mut w = std::io::BufWriter::new(std::fs::File::create(&tmp)?);
-        let encoded = out.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(
-            &mut w,
-            SMALL_JPEG_QUALITY,
-        ));
-        let flushed = encoded.map_err(anyhow::Error::from).and_then(|()| {
-            std::io::Write::flush(&mut w)?;
-            Ok(())
-        });
-        if let Err(e) = flushed {
-            drop(w);
-            let _ = std::fs::remove_file(&tmp);
-            return Err(e);
-        }
+    let rgb = out.into_rgb8();
+    let encoded = webp::Encoder::from_rgb(rgb.as_raw(), rgb.width(), rgb.height())
+        .encode_simple(false, SMALL_WEBP_QUALITY)
+        .map_err(|e| anyhow::anyhow!("WebP encode failed: {e:?}"))?;
+    let tmp = small.with_extension("webp.tmp");
+    if let Err(e) = std::fs::write(&tmp, &*encoded) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.into());
     }
     std::fs::rename(&tmp, small)?;
     Ok(())
@@ -253,6 +253,7 @@ pub(super) async fn serve_if_built(
             etag,
         }) => super::serve_thumb_bytes(
             std::sync::Arc::from(bytes.into_boxed_slice()),
+            SMALL_CONTENT_TYPE,
             mtime_secs,
             etag,
             headers,
@@ -277,8 +278,8 @@ mod tests {
     #[test]
     fn small_name_keeps_the_recipe_suffix() {
         let p = small_path(Path::new("/t/abc123.v2.jpg")).unwrap();
-        assert_eq!(p, Path::new("/t/abc123.s.v2.jpg"));
-        assert!(p.to_str().unwrap().ends_with(".v2.jpg"));
+        assert_eq!(p, Path::new("/t/abc123.s.v2.webp"));
+        assert!(p.to_str().unwrap().ends_with(".v2.webp"));
     }
 
     #[test]
@@ -288,9 +289,15 @@ mod tests {
         write_jpeg(&big, 640, 480);
         let small = small_path(&big).unwrap();
         build_small(&big, &small).unwrap();
-        let img = image::open(&small).unwrap();
-        assert_eq!((img.width(), img.height()), (360, 270));
-        assert!(std::fs::metadata(&small).unwrap().len() < std::fs::metadata(&big).unwrap().len());
+        let bytes = std::fs::read(&small).unwrap();
+        assert_eq!((&bytes[..4], &bytes[8..12]), (&b"RIFF"[..], &b"WEBP"[..]));
+        assert_eq!(webp_size(&bytes), (360, 270));
+        assert!(bytes.len() < std::fs::metadata(&big).unwrap().len() as usize);
+    }
+
+    fn webp_size(bytes: &[u8]) -> (u32, u32) {
+        let img = webp::Decoder::new(bytes).decode().expect("a WebP image");
+        (img.width(), img.height())
     }
 
     fn bytes(fetch: Option<super::super::ThumbFetch>) -> Vec<u8> {
@@ -308,8 +315,7 @@ mod tests {
         assert!(read_small(&big, None).is_none(), "nothing built yet");
         let small = small_path(&big).unwrap();
         build_small(&big, &small).unwrap();
-        let portrait = image::load_from_memory(&bytes(read_small(&big, None))).unwrap();
-        assert_eq!((portrait.width(), portrait.height()), (270, 360));
+        assert_eq!(webp_size(&bytes(read_small(&big, None))), (270, 360));
         // The 640 px thumbnail is replaced (say, a full-quality one after a
         // quick preview): the old small one must not be served.
         let old = std::fs::File::options().write(true).open(&small).unwrap();
@@ -318,8 +324,7 @@ mod tests {
         write_jpeg(&big, 640, 480);
         assert!(read_small(&big, None).is_none(), "older than the big one");
         build_small(&big, &small).unwrap();
-        let landscape = image::load_from_memory(&bytes(read_small(&big, None))).unwrap();
-        assert_eq!((landscape.width(), landscape.height()), (360, 270));
+        assert_eq!(webp_size(&bytes(read_small(&big, None))), (360, 270));
     }
 
     #[test]
@@ -341,8 +346,14 @@ mod tests {
     #[tokio::test]
     async fn stand_in_is_not_kept_for_an_hour() {
         let bytes: std::sync::Arc<[u8]> = std::sync::Arc::from(&b"jpeg"[..]);
-        let mut resp =
-            super::super::serve_thumb_bytes(bytes, 0, "\"e\"".into(), &HeaderMap::new()).unwrap();
+        let mut resp = super::super::serve_thumb_bytes(
+            bytes,
+            "image/jpeg",
+            0,
+            "\"e\"".into(),
+            &HeaderMap::new(),
+        )
+        .unwrap();
         assert!(
             resp.headers()[header::CACHE_CONTROL]
                 .to_str()

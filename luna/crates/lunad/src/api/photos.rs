@@ -942,7 +942,13 @@ async fn thumb(
     }
     let small = query.size.as_deref() == Some("s");
     if !small && let Some(cached) = state.ram_cache.get_thumb(&query.drive_id, &query.path) {
-        return serve_thumb_bytes(cached.bytes, cached.mtime_secs, cached.etag, &headers);
+        return serve_thumb_bytes(
+            cached.bytes,
+            "image/jpeg",
+            cached.mtime_secs,
+            cached.etag,
+            &headers,
+        );
     }
     let root = resolve_mount(&state, &query.drive_id)?;
     let Some(thumb_path) = photos::thumb_path(&root, &query.drive_id, &query.path) else {
@@ -1069,7 +1075,7 @@ async fn serve_thumb_file(
     state
         .ram_cache
         .put_thumb_arc(drive_id, rel, arc.clone(), mtime_secs);
-    serve_thumb_bytes(arc, mtime_secs, etag, headers)
+    serve_thumb_bytes(arc, "image/jpeg", mtime_secs, etag, headers)
 }
 
 /// What the blocking read produced: the bytes to serve, or just the
@@ -1115,6 +1121,7 @@ async fn thumb_build_slot() -> tokio::sync::OwnedSemaphorePermit {
 
 fn serve_thumb_bytes(
     bytes: std::sync::Arc<[u8]>,
+    content_type: &'static str,
     _mtime_secs: u64,
     etag: String,
     headers: &axum::http::HeaderMap,
@@ -1128,7 +1135,7 @@ fn serve_thumb_bytes(
     }
     Ok(Response::builder()
         .status(StatusCode::OK)
-        .header(axum::http::header::CONTENT_TYPE, "image/jpeg")
+        .header(axum::http::header::CONTENT_TYPE, content_type)
         .header(axum::http::header::CONTENT_LENGTH, bytes.len().to_string())
         .header(axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(axum::http::header::CACHE_CONTROL, THUMB_CACHE_CONTROL)

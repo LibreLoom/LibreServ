@@ -402,15 +402,22 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
         .ok_or_else(|| anyhow::anyhow!("drive is not adopted — no .luna-<uuid> marker"))?;
     std::fs::create_dir_all(&thumb_dir)?;
     // Filenames carry THUMB_GEN — sweep thumbs from older recipes so a
-    // quality change doesn't leak disk or keep serving the old encode.
+    // quality change doesn't leak disk or keep serving the old encode. The
+    // grid-sized ones are `.s.v{gen}.webp`; `.s.` JPEGs are an old format.
     let gen_suffix = format!(".v{THUMB_GEN}.jpg");
+    let small_suffix = format!(".s.v{THUMB_GEN}.webp");
     if let Ok(entries) = std::fs::read_dir(&thumb_dir) {
         for entry in entries.flatten() {
             let name = entry.file_name();
             let Some(name) = name.to_str() else {
                 continue;
             };
-            if name.ends_with(".jpg") && !name.ends_with(&gen_suffix) {
+            let stale = if name.ends_with(".jpg") {
+                !name.ends_with(&gen_suffix) || name.contains(".s.")
+            } else {
+                name.ends_with(".webp") && !name.ends_with(&small_suffix)
+            };
+            if stale {
                 let _ = std::fs::remove_file(entry.path());
             }
         }

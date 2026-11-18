@@ -33,6 +33,32 @@ fn thumbnails_png_and_reuses_cached() {
 }
 
 #[test]
+fn scan_sweeps_thumbnails_from_old_recipes() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    adopt(root, "d1");
+    let thumbs = thumbs_dir(root).unwrap();
+    std::fs::create_dir_all(&thumbs).unwrap();
+    let g = THUMB_GEN;
+    let keep = [format!("a.v{g}.jpg"), format!("a.s.v{g}.webp")];
+    let gone = [
+        format!("a.v{}.jpg", g - 1),
+        format!("a.s.v{g}.jpg"),
+        format!("a.s.v{}.webp", g - 1),
+    ];
+    for name in keep.iter().chain(&gone) {
+        std::fs::write(thumbs.join(name), b"x").unwrap();
+    }
+    scan_drive("d1", root).unwrap();
+    for name in &keep {
+        assert!(thumbs.join(name).exists(), "{name} is the current recipe");
+    }
+    for name in &gone {
+        assert!(!thumbs.join(name).exists(), "{name} is an old recipe");
+    }
+}
+
+#[test]
 fn image_and_video_extension_detection() {
     assert!(is_image(Path::new("photo.JPG")));
     assert!(is_image(Path::new("a/b/photo.png")));
