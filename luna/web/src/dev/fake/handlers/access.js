@@ -740,8 +740,10 @@ function linkReaches(world, link, rel, driveId, subjectPath) {
  * @returns {string}
  */
 /** Rust's `str::trim`: the White_Space property, which leaves a BOM alone. */
-const WS_CHARS = "\t\n\u000b\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000";
+const WS_CHARS = "\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000";
 const WS_ENDS = new RegExp(`^[${WS_CHARS}]+|[${WS_CHARS}]+$`, "g");
+/** `contains(char::is_whitespace)`, which a JavaScript `\s` gets wrong at U+FEFF. */
+const HAS_WS = new RegExp(`[${WS_CHARS}]`);
 function rustTrim(value) {
   return String(value ?? "").replace(WS_ENDS, "");
 }
@@ -994,7 +996,7 @@ function emailOk(value) {
     domain.includes(".") &&
     !domain.startsWith(".") &&
     !domain.endsWith(".") &&
-    !/\s/.test(text)
+    !HAS_WS.test(text)
   );
 }
 
@@ -2726,10 +2728,13 @@ post("/s/:token/respond", ({ world, params, headers, body }) => {
   if (shut) return fail(403, shut);
   const allowEdits = formAllowsEdits(r.l);
   const presented = rustTrim(body.edit_token);
-  const targetId = rustTrim(body.response_id);
+  // Only the emptiness test trims: the lookup below asks by the id as sent, so a
+  // padded id is refused rather than quietly matched.
+  const targetId = String(body.response_id ?? "");
+  const hasTarget = Boolean(rustTrim(body.response_id));
   // With changes refused, anything shaped like an edit is refused before it
   // can reach the answers.
-  if (!allowEdits && (presented || targetId))
+  if (!allowEdits && (presented || hasTarget))
     return fail(403, "This form doesn't let you change answers after you send them.");
   if (!body.answers || typeof body.answers !== "object" || Array.isArray(body.answers))
     return fail(400, "Those answers didn't come through whole. Try sending them again.");
@@ -2745,11 +2750,11 @@ post("/s/:token/respond", ({ world, params, headers, body }) => {
   if (presented)
     entry =
       list.find(
-        (x) => x.edit_token === presented && (!targetId || x.id === targetId),
+        (x) => x.edit_token === presented && (!hasTarget || x.id === targetId),
       ) || null;
   if (presented && !entry)
     return fail(403, "This edit link doesn't match a saved answer on this form.");
-  if (!presented && targetId)
+  if (!presented && hasTarget)
     return fail(403, "This edit link doesn't match a saved answer on this form.");
   // Files the answer may name: this respondent's own waiting uploads, or — when
   // editing — files already on this answer.
