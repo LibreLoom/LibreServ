@@ -1253,6 +1253,36 @@ function listing(entries) {
   return { entries: entries.map(({ children: _children, ...rest }) => rest) };
 }
 
+/**
+ * `luna_core::scan::is_hidden_name`: a name a person never meant to see.
+ * A dotfile is hidden, and so is `lost+found`, the folder every ext4 drive
+ * carries — a listing keeps neither from a guest.
+ *
+ * @param {unknown} name
+ */
+function isHiddenName(name) {
+  const text = String(name ?? "");
+  return text.startsWith(".") || text === "lost+found";
+}
+
+/**
+ * `files::original_name_from_trash`: the name an item had before it went to the
+ * trash, read back off the `{nonce}-` name it has on disk.
+ *
+ * @param {unknown} trashName
+ */
+function originalNameFromTrash(trashName) {
+  const name = String(trashName ?? "");
+  const cut = name.indexOf("-");
+  if (cut < 0) return name;
+  // `''.chars().all(…)` is true in Rust, so a leading dash still counts as a nonce.
+  if (!/^[0-9]*$/.test(name.slice(0, cut))) return name;
+  const rest = name.slice(cut + 1);
+  const next = rest.indexOf("-");
+  if (next > 0 && /^[0-9]+$/.test(rest.slice(0, next))) return rest.slice(next + 1);
+  return rest;
+}
+
 /** The entry at `segments`, directories included, or null when nothing is there. */
 function nodeAt(tree, segments) {
   if (!segments.length) return { kind: "dir", name: "" };
@@ -1564,10 +1594,12 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
       entries = [];
     }
     const hit = entries.find((t) => t.key === name);
-    if (!hit) return {};
-    return { original_name: String(hit.original_path || "").split("/").pop() || "" };
+    const fromRow = hit ? String(hit.original_path || "").split("/").pop() || "" : "";
+    // `public_list` sets the key on *every* entry of the trash root, falling
+    // back to the name on disk when no row explains it.
+    return { original_name: fromRow || originalNameFromTrash(name) };
   };
-  const shown = (e) => ({ ...e, hidden: String(e.name || "").startsWith("."), ...trashOrigin(e.name) });
+  const shown = (e) => ({ ...e, hidden: isHiddenName(e.name), ...trashOrigin(e.name) });
   // `public_list` drops hidden entries and Luna's own marker folders before it
   // answers, so a dotfile or a `.luna-` marker is never listed to a guest.
   const visible = (e) => !e.hidden && !isInternalName(e.name);
