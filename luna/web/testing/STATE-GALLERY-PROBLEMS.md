@@ -835,9 +835,10 @@ kinds:
 - **Bodies.** A required field that is absent is a missing field; present but
   null is a type error; a wrong type names the type.
 
-That sequence is still open at the head it stopped on: rounds three and four of
-the read routes answered `NO FINDINGS`, and each later fix reopened the file, so
-the count starts again from the last one.
+The arc closed at the head it had reached: the ninth round of the guest changes,
+read end to end after the last fix, answered `NO FINDINGS` — the first clean
+result the file had held since the read routes, because every fix before it
+reopened the code underneath.
 
 Also recorded, not fixed: a guest's delete answers with a `trash_path` the fake
 invents, because the fake has no filesystem to move an entry into and no trash
