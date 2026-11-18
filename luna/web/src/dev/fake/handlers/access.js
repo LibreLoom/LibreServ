@@ -306,13 +306,13 @@ function sweepPending(waiting) {
 
 /** The waiting file's size, or 0 when it has expired or is not there. */
 const waitingSize = (held) => (held && typeof held === "object" ? Number(held.size) || 0 : 0);
+/** `wants_count`: only `1` and `true` ask for the length. */
+const wantsCount = (raw) => raw === "1" || raw === "true";
 get("/api/v1/forms/responses", ({ world, query }) => {
   const list = formsOf(world)[formKey(query)] || [];
-  if (query.count) return { count: list.length };
-  if (query.id) {
-    const r = list.find((x) => x.id === query.id);
-    return r ? r : fail(404, "That answer is gone.");
-  }
+  // `id` is the DELETE's field; a GET always answers the whole list or its
+  // length.
+  if (wantsCount(query.count)) return { count: list.length };
   return { responses: list };
 });
 del("/api/v1/forms/responses", ({ world, query }) => {
