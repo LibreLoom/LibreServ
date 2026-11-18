@@ -1516,7 +1516,9 @@ publicGet("/s/:token/media", ({ world, params, query, headers }) => {
   // is always the JPEG the daemon built, and a HEIC photo is shown as the JPEG
   // preview the daemon makes for it, under a `.jpg` name.
   const photoName = String(photo.name || "photo");
-  const heic = /\.(heic|heif)$/i.test(photoName);
+  const photoExt = extOf(photoName);
+  // `is_heic_image` is `is_image` plus a HEIF extension, and `.hif` counts.
+  const heic = ["heic", "heif", "hif"].includes(photoExt);
   // A download hands over the file itself, so only the shown preview is a JPEG.
   const preview = heic && variant !== "download";
   const type = variant === "thumb" || preview ? "image/jpeg" : mimeFromName(photoName);
@@ -1528,7 +1530,9 @@ publicGet("/s/:token/media", ({ world, params, query, headers }) => {
   // inline case into a download whenever the type could run as a document, so
   // a crafted row cannot render markup on this origin.
   const name = dispositionName(
-    preview ? `${photoName.replace(/\.[^./]*$/, "") || "photo"}.jpg` : photoName,
+    preview
+      ? `${photoExt ? photoName.slice(0, photoName.length - photoExt.length - 1) : photoName}.jpg`
+      : photoName,
   );
   const disposition =
     variant === "download"
@@ -1738,15 +1742,26 @@ function serveSharedFile(world, r, rel, name, download = false) {
 
 
 /**
+ * `Path::extension`: a leading dot is part of the name, not an extension, and a
+ * name that ends in a dot has none either.
+ *
+ * @param {unknown} name
+ */
+function extOf(name) {
+  const text = String(name ?? "");
+  const dot = text.lastIndexOf(".");
+  if (dot <= 0 || dot === text.length - 1) return "";
+  return text.slice(dot + 1).toLowerCase();
+}
+
+/**
  * `mime_guess::from_path(..).first_or_octet_stream()`: the type a browser knows
  * from the name alone, and the octet-stream answer when it knows none.
  *
  * @param {unknown} name
  */
 function mimeFromName(name) {
-  const text = String(name || "");
-  const dot = text.lastIndexOf(".");
-  const ext = (dot < 0 ? "" : text.slice(dot + 1)).toLowerCase();
+  const ext = extOf(name);
   /** @type {Record<string, string>} */
   const known = {
     txt: "text/plain",
