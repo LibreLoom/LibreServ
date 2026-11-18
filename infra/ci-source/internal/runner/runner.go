@@ -819,11 +819,14 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 	// (populated by warmCaches before the workers start), so every test that
 	// touches the same project skips a full cold install.
 	if isNpmTest(t) {
-		shared := filepath.Join(cacheDir, "npm", npmWorkDirSlug(t.WorkDir))
-		os.MkdirAll(filepath.Join(shared, "node_modules"), 0755)
-		os.MkdirAll(filepath.Join(shared, "npm-cache"), 0755)
-		binds = append(binds, filepath.Join(shared, "node_modules")+":"+t.WorkDir+"/node_modules:z")
-		env = append(env, "NPM_CONFIG_CACHE="+filepath.Join(shared, "npm-cache"))
+		for _, workDir := range npmWorkDirs(t.WorkDir) {
+			shared := filepath.Join(cacheDir, "npm", npmCacheSlug(t.Container, workDir))
+			os.MkdirAll(filepath.Join(shared, "node_modules"), 0755)
+			binds = append(binds, filepath.Join(shared, "node_modules")+":"+workDir+"/node_modules:z")
+		}
+		primary := filepath.Join("npm", npmCacheSlug(t.Container, t.WorkDir), "npm-cache")
+		os.MkdirAll(filepath.Join(cacheDir, primary), 0755)
+		env = append(env, "NPM_CONFIG_CACHE=/cache/"+filepath.ToSlash(primary))
 		// Node sizes its heap from the cgroup, which is far too small for a
 		// vite build under a bounded job; give it half the job's share.
 		if m := r.jobMemoryLimit(); m > 0 {
@@ -1302,8 +1305,8 @@ func (r *Runner) warmGoTasks(testList []*tests.Test) []warmTask {
 	return tasks
 }
 
-// warmNodeTasks returns one npm install per node test workdir. It populates
-// the shared per-workdir node_modules and npm caches (see createContainer), so
+// warmNodeTasks installs npm dependencies once per workdir and runtime. It
+// populates the shared node_modules and npm caches (see createContainer), so
 // the tests' own installs turn into cheap no-op verifications instead of one
 // cold install per test — or, for workdirs that had no cache at all, a full
 // download every run.
@@ -1314,24 +1317,27 @@ func (r *Runner) warmNodeTasks(testList []*tests.Test) []warmTask {
 		if !isNpmTest(t) {
 			continue
 		}
-		if seen[t.WorkDir] {
-			continue
+		for _, workDir := range npmWorkDirs(t.WorkDir) {
+			slug := npmCacheSlug(t.Container, workDir)
+			if seen[slug] {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(r.hostWorkDir(workDir), "package.json")); err != nil {
+				continue
+			}
+			seen[slug] = true
+			tasks = append(tasks, warmTask{
+				ID:   "_warm-npm-" + slug,
+				Name: "npm " + workDir,
+				Test: &tests.Test{
+					Container:   t.Container,
+					Command:     "npm install --no-audit --no-fund --no-save",
+					WorkDir:     workDir,
+					Timeout:     15 * time.Minute,
+					Description: "Pre-install npm dependencies for " + workDir,
+				},
+			})
 		}
-		seen[t.WorkDir] = true
-		if _, err := os.Stat(filepath.Join(r.hostWorkDir(t.WorkDir), "package.json")); err != nil {
-			continue
-		}
-		tasks = append(tasks, warmTask{
-			ID:   "_warm-npm-" + npmWorkDirSlug(t.WorkDir),
-			Name: "npm " + t.WorkDir,
-			Test: &tests.Test{
-				Container:   t.Container,
-				Command:     "npm install --no-audit --no-fund",
-				WorkDir:     t.WorkDir,
-				Timeout:     15 * time.Minute,
-				Description: "Pre-install npm dependencies for " + t.WorkDir,
-			},
-		})
 	}
 	return tasks
 }
@@ -1343,10 +1349,23 @@ func isNpmTest(t *tests.Test) bool {
 	return strings.Contains(t.Command, "npm")
 }
 
-// npmWorkDirSlug turns a container workdir like /repo/sol/server/frontend into
-// a stable host-dir slug (sol-server-frontend) for the shared npm caches.
-func npmWorkDirSlug(workDir string) string {
-	return strings.ReplaceAll(strings.Trim(strings.TrimPrefix(workDir, "/repo"), "/"), "/", "-")
+// npmWorkDirs includes the linked package whose source imports its own
+// dependencies. npm installs the link without the linked project's dev tools.
+func npmWorkDirs(workDir string) []string {
+	if workDir == "/repo/luna/web" {
+		return []string{workDir, "/repo/shared/ui"}
+	}
+	return []string{workDir}
+}
+
+// Playwright is glibc-based, so native npm modules need a separate install
+// from the Alpine node images even when they share the same package lock.
+func npmCacheSlug(container, workDir string) string {
+	slug := strings.ReplaceAll(strings.Trim(strings.TrimPrefix(workDir, "/repo"), "/"), "/", "-")
+	if strings.HasPrefix(container, "mcr.microsoft.com/playwright:") {
+		return slug + "-glibc"
+	}
+	return slug
 }
 
 // hostWorkDir maps an in-container workdir under /repo to the host path.
