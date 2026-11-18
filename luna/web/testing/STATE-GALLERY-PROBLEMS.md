@@ -16,6 +16,11 @@ Two passes:
 Status values: **open** (found, not fixed yet) · **fixed** (code changed, needs retest)
 · **not a bug** (looked wrong, then verified as working as designed).
 
+**Where this stands now.** Everything below is the record of how the audit got
+here; the gate is at the end of this file. The gallery has held 316 scenarios
+since the two fake-only ones were removed, and the final two clean sweeps ran on
+all 316 (see “The gate: two clean full-gallery passes”).
+
 ---
 
 ## Progress
