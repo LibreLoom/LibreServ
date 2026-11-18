@@ -334,12 +334,23 @@ del("/api/v1/forms/responses", ({ world, query }) => {
   return { ok: true };
 });
 get("/api/v1/forms/file", () => json({}));
-post("/api/v1/forms/picture", ({ body }) => {
-  const leaf = pathName(String(body.source ?? ""));
-  const ext = PICTURE_EXTS[leaf.split(".").pop()?.toLowerCase()] || null;
+post("/api/v1/forms/picture", ({ world, query, body }) => {
+  const source = String(body.source ?? "").replace(/^\/+|\/+$/g, "");
+  const leaf = pathName(source);
+  let node = null;
+  try {
+    node = fsOf(world, query.drive_id || "d1").nodes?.[source] || null;
+  } catch {
+    node = null;
+  }
+  // The picture is copied off the drive, so the drive has to have it.
+  if (!node) return fail(404, "Luna can't find that picture.");
+  const ext = node.kind === "file" ? PICTURE_EXTS[leaf.split(".").pop()?.toLowerCase()] || null : null;
   // A source that isn't a photo of a kind Luna stores is refused before
   // anything is written.
   if (!ext) return fail(400, PICTURE_KIND_MESSAGE);
+  if (Number(node.size) > 20 * 1024 * 1024)
+    return fail(413, "That picture is over 20 MB. Choose a smaller one.");
   return { ok: true, name: `${mintHex(16)}.${ext}` };
 });
 post("/api/v1/forms/picture-upload", async ({ world, query, body }) => {
@@ -895,6 +906,13 @@ const PICTURE_EXTS = { jpg: "jpg", jpeg: "jpeg", png: "png", gif: "gif", webp: "
 const PICTURE_KIND_MESSAGE = "Choose a photo: JPG, PNG, GIF, or WebP.";
 
 /** `content_matches`: the bytes really are the kind the extension says. */
+function contentMatches(ext, bytes) {
+  const starts = (...want) => want.every((b, i) => bytes[i] === b);
+  if (ext === "pdf") return starts(0x25, 0x50, 0x44, 0x46, 0x2d);
+  return pictureBytes(ext, bytes);
+}
+
+/** The photo kinds `content_matches` knows. */
 function pictureBytes(ext, bytes) {
   const starts = (...want) => want.every((b, i) => bytes[i] === b);
   if (ext === "jpg" || ext === "jpeg") return starts(0xff, 0xd8, 0xff);
@@ -2630,7 +2648,7 @@ post("/s/:token/respond", ({ world, params, headers, body }) => {
 }, { public: true });
 // `POST /s/:token/respond-file` — a picture or PDF waiting to be named by an
 // answer. It is not storage: only a form with a file question takes one.
-post("/s/:token/respond-file", ({ world, params, headers, raw }) => {
+post("/s/:token/respond-file", async ({ world, params, headers, raw }) => {
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
   const gate = respondGate(r.s, r.l.caps);
@@ -2643,11 +2661,12 @@ post("/s/:token/respond-file", ({ world, params, headers, raw }) => {
   const questions = formOf(r.l).questions || [];
   if (!questions.some((q) => q && q.type === "file"))
     return fail(400, "This form doesn't ask for files.");
-  const file = raw && typeof raw.get === "function" ? raw.get("file") : null;
   // A body with no `file` part is not a file of the wrong kind — it is nothing
   // to attach — but a `file` part with no name has a kind Luna can't read.
-  if (!file) return fail(400, "Choose a file to attach.");
-  const filename = typeof file === "string" ? "" : typeof file.name === "string" ? file.name : "";
+  const hasPart = Boolean(raw && typeof raw.has === "function" && raw.has("file"));
+  const file = hasPart && typeof raw.get === "function" ? raw.get("file") : null;
+  if (!hasPart) return fail(400, "Choose a file to attach.");
+  const filename = typeof file === "string" ? "" : typeof file?.name === "string" ? file.name : "";
   const ext = ATTACH_EXTS[filename.split(".").pop()?.toLowerCase()] || null;
   if (!ext) return fail(400, ATTACH_KIND_MESSAGE);
   const size = Number(file.size) || 0;
@@ -2656,6 +2675,8 @@ post("/s/:token/respond-file", ({ world, params, headers, raw }) => {
   // An empty part is its own refusal: there is nothing to keep.
   if (size === 0)
     return fail(400, "That file was empty. Choose another one and try again.");
+  const bytes = new Uint8Array(await (file?.arrayBuffer ? file.arrayBuffer() : []));
+  if (!contentMatches(ext, bytes)) return fail(400, ATTACH_KIND_MESSAGE);
   // Two ceilings, two folders: the waiting queue of unsent attachments has its
   // own limit, and the form's whole attachment folder (sent and unsent) has a
   // bigger one. A form can therefore be full of sent files and still take an
