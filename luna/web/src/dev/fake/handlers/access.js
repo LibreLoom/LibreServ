@@ -1699,7 +1699,7 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
     const albumBase = dispositionName(albumRes.album.name || "album");
     const albumZipName = albumBase === "download" ? "album" : albumBase;
     return raw(new TextEncoder().encode(`PK\x05\x06${"\0".repeat(18)}`), "application/zip", 200, {
-      "Content-Disposition": `attachment; filename="${albumZipName}.zip"`,
+      "Content-Disposition": `attachment; filename="${dispositionName(`${albumZipName}.zip`)}"`,
     });
   }
   if (r.s.kind !== "path") return fail(410, "This link has expired or been removed.");
@@ -1778,8 +1778,10 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
   const inTrash = isTrashApi(fullRel) || isTrashRel(fullRel);
   const trashed = inTrash ? trashOriginLeaf(world, r.s.drive_id || "d1", fullRel) : "";
   const zipBase = trashed || zipArchiveBase(fullRel);
+  // `stream_zip_response` cleans the finished `name.zip`, not the name before
+  // the suffix, so a long leaf is truncated once rather than twice.
   return raw(new TextEncoder().encode(`PK\x05\x06${"\0".repeat(18)}`), "application/zip", 200, {
-    "Content-Disposition": `attachment; filename="${dispositionName(zipBase)}.zip"`,
+    "Content-Disposition": `attachment; filename="${dispositionName(`${zipBase}.zip`)}"`,
   });
 });
 
