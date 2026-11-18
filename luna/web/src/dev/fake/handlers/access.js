@@ -316,25 +316,59 @@ get("/api/v1/forms/responses", ({ world, query }) => {
   return { responses: list };
 });
 del("/api/v1/forms/responses", ({ world, query }) => {
+  const id = String(query.id ?? "").trim();
+  // An id is what says which answer to remove, so its absence is the request's
+  // own fault, not a missing record.
+  if (!id)
+    return fail(400, "Luna didn't get which response to delete. Reload the page and try again.");
   const k = formKey(query);
   const list = formsOf(world)[k] || [];
-  const gone = list.find((x) => x.id === query.id);
+  const gone = list.find((x) => x.id === id);
+  if (!gone)
+    return fail(404, "That response is already gone. Reload the page to see the latest answers.");
   // The answer's attachments go with it, freeing the room they held.
   const sent = sentFor(world, k);
-  for (const value of Object.values(gone?.answers || {}))
+  for (const value of Object.values(gone.answers || {}))
     if (typeof value === "string" && value in sent) delete sent[value];
-  formsOf(world)[k] = list.filter((x) => x.id !== query.id);
+  formsOf(world)[k] = list.filter((x) => x.id !== id);
   return {};
 });
 get("/api/v1/forms/file", () => json({}));
 post("/api/v1/forms/picture", ({ body }) => ({ name: pathName(body.source) || "picture.png" }));
-post("/api/v1/forms/picture-upload", ({ world, query, body }) => {
-  const name = body.file?.name || "picture.png";
-  // A picture sits in the form's own folder, so it counts against the room an
-  // attachment would need.
-  const held = picturesFor(world, formKey(query));
-  held[name] = Number(body.file?.size) || 0;
-  return { name };
+post("/api/v1/forms/picture-upload", async ({ world, query, body }) => {
+  const file = body.file && typeof body.file === "object" ? body.file : null;
+  if (!file) return fail(400, "That file didn't come through whole. Try choosing it again.");
+  const filename = typeof file.name === "string" ? file.name : "";
+  // A question picture is a photo and nothing else — a PDF is an attachment.
+  const ext = PICTURE_EXTS[filename.split(".").pop()?.toLowerCase()] || null;
+  if (!ext) return fail(400, PICTURE_KIND_MESSAGE);
+  const size = Number(file.size) || 0;
+  if (size > 20 * 1024 * 1024)
+    return fail(413, "That file is over 20 MB. Choose a smaller one.");
+  if (size === 0) return fail(400, "That file was empty. Choose another one and try again.");
+  // The name is minted from the bytes, so a renamed page or script must not
+  // pass as a photo.
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (!pictureBytes(ext, bytes)) return fail(400, PICTURE_KIND_MESSAGE);
+  // A picture sits in the form's own folder, so it needs the same room an
+  // attachment would.
+  const key = formKey(query);
+  const sent = sentFor(world, key);
+  const held = picturesFor(world, key);
+  const waiting = pendingFor(world, key);
+  sweepPending(waiting);
+  const used =
+    Object.values(sent).reduce((a, b) => a + b, 0) +
+    Object.values(held).reduce((a, b) => a + b, 0) +
+    Object.values(waiting).reduce((a, b) => a + waitingSize(b), 0);
+  if (used + size > 2 * 1024 ** 3)
+    return fail(
+      507,
+      "This form has no room for more files. Ask the person who shared it to clear some out.",
+    );
+  const name = `${mintHex(16)}.${ext}`;
+  held[name] = size;
+  return { ok: true, name };
 });
 put("/api/v1/forms/picture", () => ({}));
 
@@ -843,6 +877,30 @@ function emailOk(value) {
     !domain.endsWith(".") &&
     !/\s/.test(text)
   );
+}
+
+/** The extensions a question picture may have — everything but a PDF. */
+const PICTURE_EXTS = { jpg: "jpg", jpeg: "jpeg", png: "png", gif: "gif", webp: "webp" };
+
+/** The message a wrong kind of picture gets. */
+const PICTURE_KIND_MESSAGE = "Choose a photo: JPG, PNG, GIF, or WebP.";
+
+/** `content_matches`: the bytes really are the kind the extension says. */
+function pictureBytes(ext, bytes) {
+  const starts = (...want) => want.every((b, i) => bytes[i] === b);
+  if (ext === "jpg" || ext === "jpeg") return starts(0xff, 0xd8, 0xff);
+  if (ext === "png") return starts(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);
+  if (ext === "gif")
+    return (
+      starts(0x47, 0x49, 0x46, 0x38, 0x37, 0x61) || starts(0x47, 0x49, 0x46, 0x38, 0x39, 0x61)
+    );
+  if (ext === "webp")
+    return (
+      bytes.length >= 12 &&
+      starts(0x52, 0x49, 0x46, 0x46) &&
+      bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+    );
+  return false;
 }
 
 /** `upload_name_ok`: a server-minted name — 16 lowercase hex and an extension. */
