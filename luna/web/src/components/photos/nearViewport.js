@@ -4,7 +4,7 @@
 // ones in view waited behind them: over a remote link ~40 thumbnails
 // (~0.9 MB) where ~12 were visible (W7/W8 in luna/perf).
 //
-// - Near: cells on screen or within about a row start at once. Cells already
+// - Near: cells on screen start at once. Cells already
 //   there when they mount start in the same frame, from one batched read of
 //   their positions; the rest start from an IntersectionObserver callback.
 //   Neither waits for a React render.
@@ -19,8 +19,12 @@
 //   as the browser's lazy loading did; a jump on a LAN then lands on
 //   thumbnails already fetched.
 
-/** How far beyond the screen's top and bottom a cell starts at once: about a row. */
-export const NEAR_MARGIN_PX = 240;
+/**
+ * How far beyond the screen's top and bottom a cell starts at once. None: on
+ * a slow link the row past the edge took a third of the bandwidth from the
+ * cells on screen after a jump (W8); it loads next, as an ahead load.
+ */
+export const NEAR_MARGIN_PX = 0;
 /** How far ahead cells load while nothing near is loading (a share of the screen height). */
 export const AHEAD_MARGIN = "300%";
 /** Ahead thumbnails in flight at once. */

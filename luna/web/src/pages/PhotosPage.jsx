@@ -53,6 +53,7 @@ import DayJumpModal, {
   nearestDayKey,
 } from "../components/photos/DayJumpModal.jsx";
 import PhotoThumb from "../components/photos/PhotoThumb.jsx";
+import { fetchListingAhead, takeListingPage } from "../components/photos/listingAhead.js";
 import SlidePages from "../components/common/SlidePages.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
@@ -851,12 +852,21 @@ export default function PhotosPage() {
     queryKey: listKey,
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
-      getJson(
-        photosUrl({ ...listOpts, offset: pageParam }),
-      ),
+      takeListingPage(photosUrl({ ...listOpts, offset: pageParam }), getJson, { first: !pageParam }),
     getNextPageParam: (last) => (last?.has_more ? last.next_offset : undefined),
     enabled: !placesMapOverview && !duplicatesView,
   });
+
+  // Fetch the page after the last one shown as soon as that one lands, so a
+  // jump to the end of the timeline finds it already here (listingAhead.js).
+  const lastListPage = photoQuery.data?.pages?.at(-1);
+  const nextListUrl =
+    !placesMapOverview && !duplicatesView && lastListPage?.has_more
+      ? photosUrl({ ...listOpts, offset: lastListPage.next_offset })
+      : "";
+  useEffect(() => {
+    if (nextListUrl) fetchListingAhead(nextListUrl, (url) => getJson(url, { priority: "low" }));
+  }, [nextListUrl]);
 
   const duplicates = useQuery({
     queryKey: ["photos-duplicates"],

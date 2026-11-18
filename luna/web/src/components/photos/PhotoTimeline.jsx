@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- timeline exports grouping helpers used by PhotosPage and tests */
-import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Check, ChevronDown } from "lucide-react";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
@@ -37,6 +37,15 @@ const COL_CLASS = {
   4: "grid-cols-3 sm:grid-cols-4",
   5: "grid-cols-3 sm:grid-cols-4 md:grid-cols-5",
   6: "grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6",
+};
+
+// The column count each COL_CLASS shows at this screen width, as
+// `--photo-cols` for the day grids' estimated height (index.css).
+const COL_VARS = {
+  3: "[--photo-cols:3]",
+  4: "[--photo-cols:3] sm:[--photo-cols:4]",
+  5: "[--photo-cols:3] sm:[--photo-cols:4] md:[--photo-cols:5]",
+  6: "[--photo-cols:3] sm:[--photo-cols:4] md:[--photo-cols:5] lg:[--photo-cols:6]",
 };
 
 // A cell's width for each COL_CLASS, as `sizes` for the thumbnails' srcset:
@@ -163,7 +172,11 @@ const DaySection = memo(/** @param {any} props */ function DaySection({
           isCollapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
         }`}
       >
-        <div data-thumb-group className="photo-day-grid min-h-0 overflow-hidden p-1 -m-1">
+        <div
+          data-thumb-group
+          className="photo-day-grid min-h-0 overflow-hidden p-1 -m-1"
+          style={/** @type {any} */ ({ "--day-photos": group.items.length })}
+        >
           <div className={`grid gap-1 ${gridClass}`}>
             {group.items.map(({ photo, index }) => {
               const key = photoSelectionKey(photo);
@@ -258,6 +271,7 @@ export default function PhotoTimeline({
   columns = 6,
 }) {
   const sentinel = useRef(null);
+  const root = useRef(/** @type {HTMLDivElement | null} */ (null));
   const dragSelecting = useRef(false);
   const [collapsed, setCollapsed] = useState(/** @type {Set<string>} */ (new Set()));
 
@@ -293,14 +307,29 @@ export default function PhotoTimeline({
     // Not before every photo is drawn: the short first frame would show the
     // sentinel and fetch a page nobody scrolled to.
     if (!el || !hasMore || !drawAll) return undefined;
+    // Two frames later: after a jump, the days now on screen draw in the
+    // next frame and ask for their thumbnails then. Drawing the next page
+    // first held those requests back behind its long render (W8).
+    let frame = 0;
     const io = new IntersectionObserver(
       (entries) => {
-        if (entries.some((e) => e.isIntersecting)) onLoadMore?.();
+        if (!entries.some((e) => e.isIntersecting)) return;
+        if (typeof requestAnimationFrame !== "function") {
+          onLoadMore?.();
+          return;
+        }
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(() => {
+          frame = requestAnimationFrame(() => onLoadMore?.());
+        });
       },
       { rootMargin: "1400px" },
     );
     io.observe(el);
-    return () => io.disconnect();
+    return () => {
+      io.disconnect();
+      if (frame) cancelAnimationFrame(frame);
+    };
   }, [hasMore, onLoadMore, photos.length, drawAll]);
 
   useEffect(() => {
@@ -344,8 +373,25 @@ export default function PhotoTimeline({
 
   const gridClass = COL_CLASS[columns] || COL_CLASS[6];
 
+  // A day grid off screen skips layout and stands in at an estimated height
+  // (index.css), worked out from its photo count, the column count and this
+  // width. A good guess keeps a jump where it landed: a wrong one moved the
+  // page as days came into view, and the thumbnails asked for at the first
+  // spot were not the ones left on screen (W8 in luna/perf). Set on the
+  // element, not through a render.
+  useLayoutEffect(() => {
+    const el = root.current;
+    if (!el) return undefined;
+    const set = () => el.style.setProperty("--timeline-w", `${el.clientWidth}px`);
+    set();
+    if (typeof ResizeObserver !== "function") return undefined;
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   return (
-    <div className="relative space-y-8" data-slot="photo-timeline">
+    <div ref={root} className={`relative space-y-8 ${COL_VARS[columns] || COL_VARS[6]}`} data-slot="photo-timeline">
       {shownGroups.map((group) => (
         <DaySection
           key={group.key}

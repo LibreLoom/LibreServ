@@ -1287,6 +1287,20 @@ textarea::placeholder {
     contain-intrinsic-size: auto 400px;
 }
 
+/* A timeline day not yet seen: its real height, from its photo count
+   (--day-photos), the column count (--photo-cols) and the timeline's width
+   (--timeline-w), all set by PhotoTimeline. Square cells, 0.25rem apart:
+   rows × (width + gap) / columns − gap. */
+@supports (height: round(up, 1.5px, 1px)) {
+    [data-slot="photo-timeline"] .photo-day-grid {
+        contain-intrinsic-size: auto
+            calc(
+                round(up, var(--day-photos, 6) / var(--photo-cols, 6), 1) *
+                    (var(--timeline-w, 1200px) + 0.25rem) / var(--photo-cols, 6) - 0.25rem
+            );
+    }
+}
+
 
 @media (prefers-reduced-motion: reduce) {
     .animate-page-enter {
