@@ -334,8 +334,12 @@ del("/api/v1/forms/responses", ({ world, query }) => {
   return { ok: true };
 });
 get("/api/v1/forms/file", () => json({}));
-post("/api/v1/forms/picture", ({ world, query, body }) => {
+post("/api/v1/forms/picture", ({ world, user, query, body }) => {
   const source = String(body.source ?? "").replace(/^\/+|\/+$/g, "");
+  // The editor has to be able to see the picture; copying is what keeps it on
+  // the form when the drive changes.
+  if (!memberSees(world, user, query.drive_id || "d1", source))
+    return fail(403, "You can't open that picture, so it can't go on the form.");
   const leaf = pathName(source);
   let node = null;
   try {
@@ -351,7 +355,25 @@ post("/api/v1/forms/picture", ({ world, query, body }) => {
   if (!ext) return fail(400, PICTURE_KIND_MESSAGE);
   if (Number(node.size) > 20 * 1024 * 1024)
     return fail(413, "That picture is over 20 MB. Choose a smaller one.");
-  return { ok: true, name: `${mintHex(16)}.${ext}` };
+  // The copy is written into the form's folder, so it needs the same room.
+  const key = formKey(query);
+  const sent = sentFor(world, key);
+  const held = picturesFor(world, key);
+  const waiting = pendingFor(world, key);
+  sweepPending(waiting);
+  const used =
+    Object.values(sent).reduce((a, b) => a + b, 0) +
+    Object.values(held).reduce((a, b) => a + b, 0) +
+    Object.values(waiting).reduce((a, b) => a + waitingSize(b), 0);
+  const size = Number(node.size) || 0;
+  if (used + size > 2 * 1024 ** 3)
+    return fail(
+      507,
+      "This form has no room for more files. Ask the person who shared it to clear some out.",
+    );
+  const name = `${mintHex(16)}.${ext}`;
+  held[name] = size;
+  return { ok: true, name };
 });
 post("/api/v1/forms/picture-upload", async ({ world, query, body }) => {
   // Absent part: nothing to attach. Present but unnamed: a kind Luna can't
@@ -687,6 +709,33 @@ function dispositionName(name) {
     .slice(0, 180)
     .trim();
   return !cleaned || cleaned === "." || cleaned === ".." ? "download" : cleaned;
+}
+
+/**
+ * `has_cap(CAP_VIEW)` for a member: an admin sees the whole drive, and anybody
+ * else sees what a share has given them.
+ *
+ * @param {any} world
+ * @param {any} user
+ * @param {string} drive
+ * @param {string} path
+ * @returns {boolean}
+ */
+function memberSees(world, user, drive, path) {
+  if (!user) return false;
+  if (user.role === "admin") return true;
+  const want = String(path || "").replace(/^\/+|\/+$/g, "");
+  for (const s of sharing(world).subjects) {
+    if ((s.drive_id || "d1") !== (drive || "d1")) continue;
+    const held =
+      (s.members || []).find((m) => m.user_id === user.id)?.caps ||
+      (s.inherited_members || []).find((m) => m.user_id === user.id)?.caps ||
+      "";
+    if (!sees(held)) continue;
+    const root = String(s.path || "").replace(/^\/+|\/+$/g, "");
+    if (!root || want === root || want.startsWith(`${root}/`)) return true;
+  }
+  return false;
 }
 
 /**
