@@ -248,6 +248,28 @@ get("/api/v1/me/access", ({ world, user }) => [
 // ── Forms (signed-in side) ──────────────────────────────────────────────────
 const formsOf = (w) => (w.forms ||= {});
 const formKey = (q) => `${q.drive_id}\0${q.path}`;
+
+/**
+ * The form a link answers, as the key its attachments are filed under. Rust
+ * keeps each form's waiting uploads in that form's own folder, so one form can
+ * never name another's file.
+ *
+ * @param {any} s
+ * @returns {string}
+ */
+const linkFormKey = (s) => formKey({ drive_id: s.drive_id, path: s.path });
+
+/**
+ * `PENDING_DIR` contents for one form, created on first use.
+ *
+ * @param {any} world
+ * @param {string} key
+ * @returns {Record<string, number>}
+ */
+function pendingFor(world, key) {
+  const all = (world.formPending ||= {});
+  return (all[key] ||= {});
+}
 get("/api/v1/forms/responses", ({ world, query }) => {
   const list = formsOf(world)[formKey(query)] || [];
   if (query.count) return { count: list.length };
@@ -2128,10 +2150,6 @@ post("/s/:token/upload", ({ world, params, headers, body }) => {
   if (size > 1024 ** 4) return fail(400, "Luna can't accept files larger than 1 TB.");
   const name = safeName(body.name);
   if (!name) return fail(400, "That file name can't be used. Try renaming it.");
-  // A session name is held to the create-path bar as well: a `.part`-style or
-  // Luna-namespace leaf would mint a file no listing can ever show.
-  if (guestInternal([name]))
-    return fail(500, "Luna couldn't finish that upload. Check the drive and try again.");
   // The daemon passes the path through untouched — only a trailing slash is
   // harmless — and a leading one is read as "outside this link".
   const dest = String(body.path ?? "").trim();
@@ -2178,6 +2196,11 @@ post("/s/:token/upload", ({ world, params, headers, body }) => {
       landIn = segments.join("/");
     }
   }
+  // A session name is held to the create-path bar as well, and that bar is the
+  // filesystem's — it runs after the destination is resolved, so a folder that
+  // isn't there answers about the folder rather than about the name.
+  if (guestInternal([name]))
+    return fail(500, "Luna couldn't finish that upload. Check the drive and try again.");
   const id = nextId("up");
   // A session outlives the request that made it, and the daemon tells one it
   // never made (404) from one another link owns (403), so the bookkeeping lives
@@ -2439,14 +2462,21 @@ post("/s/:token/respond", ({ world, params, headers, body }) => {
       .filter((q) => q?.type === "file" && typeof entry.answers?.[q.id] === "string")
       .map((q) => entry.answers[q.id]),
   );
-  const canAttach = (name) => Boolean(world.formPending?.[name]) || previous.has(name);
-  const shaped = checkAnswers(r.l, body.answers, canAttach);
-  if (shaped) return shaped;
   let token = presented;
   if (!entry) {
+    // The cap is judged before the answers, so a full form says it is full
+    // rather than pointing at an answer it will never take.
     const max = formMaxResponses(r.l);
     if (max !== null && list.length >= max)
       return fail(403, "This form has all the answers it can take.");
+  }
+  // Files the answer may name: this respondent's own waiting uploads for this
+  // form, or — when editing — files already on this answer.
+  const waiting = pendingFor(world, linkFormKey(r.s));
+  const canAttach = (name) => Boolean(waiting[name]) || previous.has(name);
+  const shaped = checkAnswers(r.l, body.answers, canAttach);
+  if (shaped) return shaped;
+  if (!entry) {
     // A new answer always gets a secret the server minted, never one the client
     // offered, so a copied edit link can't be guessed or shared by accident.
     token = nextId("et");
@@ -2460,10 +2490,10 @@ post("/s/:token/respond", ({ world, params, headers, body }) => {
   for (const question of formOf(r.l).questions || []) {
     if (question?.type !== "file") continue;
     const name = entry.answers?.[question.id];
-    if (typeof name !== "string" || !world.formPending?.[name]) continue;
+    if (typeof name !== "string" || !waiting[name]) continue;
     (world.formSentBytes ||= 0);
-    world.formSentBytes += world.formPending[name];
-    delete world.formPending[name];
+    world.formSentBytes += waiting[name];
+    delete waiting[name];
   }
   // The form's owner sees the same answers on the Files side.
   const fk = r.s.drive_id ? formKey({ drive_id: r.s.drive_id, path: r.s.path }) : null;
@@ -2505,7 +2535,8 @@ post("/s/:token/respond-file", ({ world, params, headers, raw }) => {
   // own limit, and the form's whole attachment folder (sent and unsent) has a
   // bigger one. A form can therefore be full of sent files and still take an
   // upload, which one shared counter could not say.
-  const pending = Object.values((world.formPending ||= {})).reduce((a, b) => a + b, 0);
+  const waiting = pendingFor(world, linkFormKey(r.s));
+  const pending = Object.values(waiting).reduce((a, b) => a + b, 0);
   if (pending + size > 256 * 1024 * 1024)
     return fail(
       503,
@@ -2517,7 +2548,7 @@ post("/s/:token/respond-file", ({ world, params, headers, raw }) => {
       "This form has no room for more files. Ask the person who shared it to clear some out.",
     );
   const name = `${mintHex(16)}.${ext}`;
-  world.formPending[name] = size;
+  waiting[name] = size;
   return { ok: true, name };
 }, { public: true });
 get("/s/:token/form-image", () => json({}), { public: true });
