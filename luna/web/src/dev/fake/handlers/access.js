@@ -1592,14 +1592,10 @@ function mutableSegments(world, r, raw, { forCreate = false } = {}) {
     return { err: fail(400, "The shared item itself can't be changed through this link.") };
   const trash = trashProbe(r.s, segments);
   if (trash) return { err: trash };
-  // A link to one file has nothing beneath it. A write that would create
-  // something under it resolves the path and then finds it isn't inside the
-  // link; a write that has to reach the item itself walks into a file, which
-  // the daemon answers with its catch-all.
-  if (r.s.is_file) {
-    if (forCreate) return { err: fail(404, "That item isn't part of this shared link.") };
-    return { err: guestBroke() };
-  }
+  // A link to one file has nothing beneath it, and either way the walk meets a
+  // file rather than a missing name — an `ENOTDIR` the daemon answers with its
+  // catch-all, before the missing-name allowance can apply.
+  if (r.s.is_file) return { err: guestBroke() };
   // `confined_write` resolves the child first and asks about the wall after,
   // so a path that isn't there is "not there", not "not in this link".
   const tree = treeOf(world, r.l.token, r.s);
@@ -1661,6 +1657,9 @@ const guestNew = (kind) => ({ world, params, headers, body }) => {
     const driveFirst = [...subjectSegments, ...segments][0];
     if (guestInternal(segments) || driveFirst === ".luna-trash")
       return fail(400, "That name isn't allowed here.");
+    // `mkdir_as` never holds the name to `safe_name`, but the folder still has
+    // to be made, and a name with a NUL in it is one the filesystem refuses.
+    if (name.includes("\0")) return fail(400, "That name isn't allowed here.");
   } else if (!safeName(name) || guestInternal(segments)) {
     // `files::create` holds the leaf to `safe_name` and the temp-name bar; a
     // padded name still passes, because only the check trims, not the path.
@@ -1759,7 +1758,9 @@ post("/s/:token/move", ({ world, params, headers, body }) => {
   const trashDest = trashProbe(r.s, destSegments);
   if (trashDest) return trashDest;
   // The destination is resolved the way a source is, so a path that walks
-  // through a file ends the whole request at the daemon's catch-all.
+  // through a file ends the whole request at the daemon's catch-all — and on a
+  // link to one file the walk starts under that file.
+  if (r.s.is_file && destSegments.length) return guestBroke();
   for (let i = 1; i < destSegments.length; i += 1) {
     const midway = nodeAt(tree, destSegments.slice(0, i));
     if (midway && !isFolderNode(midway)) return guestBroke();
