@@ -1447,6 +1447,237 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
   });
 });
 
+// ── Guest changes ───────────────────────────────────────────────────────────
+// A link that allows uploads may add; only a link that allows editing may
+// change or remove what is already there. Neither may touch the shared item
+// itself — the thing the link points at is fixed by whoever made the link.
+// What a guest changes lives in the tree the guest pages read, so a new folder
+// shows up in the next listing rather than vanishing on the way.
+
+/** A body the route declares as JSON, with the fields it requires. */
+function writeShape(body, fields) {
+  const dataErr = (detail) =>
+    fail(422, `Failed to deserialize the JSON body into the target type: ${detail}`);
+  if (!body || typeof body !== "object" || Array.isArray(body))
+    return dataErr("invalid type: expected a map");
+  for (const [field, kind] of Object.entries(fields)) {
+    if (body[field] === undefined || body[field] === null) {
+      if (kind === "optional") continue;
+      return dataErr(`missing field \`${field}\``);
+    }
+    if (kind === "optional") continue;
+    if (kind === "strings") {
+      if (!Array.isArray(body[field]) || body[field].some((v) => typeof v !== "string"))
+        return dataErr(`invalid type: expected a sequence of strings for \`${field}\``);
+    } else if (typeof body[field] !== "string") {
+      return dataErr(`invalid type: expected a string for \`${field}\``);
+    }
+  }
+  return null;
+}
+
+/**
+ * The tree a guest's page reads, kept on the sharing world so a change made by
+ * one request is there for the next listing.
+ */
+function guestTree(world, token, s) {
+  const sh = sharing(world);
+  if (!sh.tree || !sh.tree[token]) {
+    sh.tree ||= {};
+    sh.tree[token] = treeOf(world, token, s);
+  }
+  return sh.tree[token];
+}
+
+/** The children a folder's segments name, or null when the folder is missing. */
+function treeFolder(tree, segments) {
+  let level = tree;
+  for (const seg of segments) {
+    const node = level.find((e) => e.name === seg && e.kind === "dir");
+    if (!node) return null;
+    node.children ||= [];
+    level = node.children;
+  }
+  return level;
+}
+
+/**
+ * The path a guest named, or the refusal `mutable_child` makes: a link's own
+ * subject and anything outside the share are refused here, and a private wall
+ * above the target closes it.
+ *
+ * @returns {{ segments?: string[], err?: any }}
+ */
+function mutableSegments(world, r, raw) {
+  const segments = linkSegments(raw);
+  if (!segments) return { err: fail(400, "That path isn't inside this share.") };
+  if (!segments.length)
+    return { err: fail(400, "The shared item itself can't be changed through this link.") };
+  const subjectRel = String(r.s.path || "").replace(/^\/+|\/+$/g, "");
+  const rel = segments.join("/");
+  if ([subjectRel, rel].filter(Boolean).join("/") === subjectRel)
+    return { err: fail(400, "The shared item itself can't be changed through this link.") };
+  const trash = trashProbe(r.s, segments);
+  if (trash) return { err: trash };
+  if (!linkReaches(world, r.l, rel, r.s.drive_id, r.s.path))
+    return { err: fail(404, "That item isn't part of this shared link.") };
+  return { segments };
+}
+
+/** A name a drive would take, or the refusal the daemon makes. */
+const guestName = (name) => {
+  const safe = safeName(name);
+  if (!safe || safe !== String(name)) return fail(400, "That name isn't allowed here.");
+  return null;
+};
+
+const guestNew = (kind) => ({ world, params, headers, body }) => {
+  const shape = writeShape(body, { path: "string" });
+  if (shape) return shape;
+  const r = open(world, params.token, headers);
+  if (r.err) return r.err;
+  if (!capSet(r.l.caps).has("upload"))
+    return fail(
+      403,
+      "This link is view-only, so it can't receive files. Ask for a link that allows uploads.",
+    );
+  if (r.s.kind !== "path") return fail(410, "This link has expired or been removed.");
+  const trimmed = String(body.path).trim().replace(/^\/+|\/+$/g, "");
+  // A drop box takes one level and nothing else, so a nested name would let a
+  // blind uploader probe which folders exist.
+  if (!capSet(r.l.caps).has("view") && trimmed.includes("/"))
+    return fail(400, "This link only accepts items at the top level.");
+  const named = mutableSegments(world, r, body.path);
+  if (named.err) return named.err;
+  const { segments } = named;
+  const level = treeFolder(guestTree(world, params.token, r.s), segments.slice(0, -1));
+  if (!level) return fail(404, "Luna can't find that anymore. Refresh and try again.");
+  const name = segments[segments.length - 1];
+  if (level.some((e) => e.name === name))
+    return fail(409, "An item with this name is already here. Choose another name.");
+  level.push({
+    name,
+    kind,
+    size: 0,
+    modified: nowSec(),
+    hidden: name.startsWith("."),
+    ...(kind === "file" ? { text: "" } : {}),
+  });
+  return { ok: true, path: segments.join("/") };
+};
+post("/s/:token/mkdir", guestNew("dir"));
+post("/s/:token/create", guestNew("file"));
+
+post("/s/:token/rename", ({ world, params, headers, body }) => {
+  const shape = writeShape(body, { path: "string", new_name: "string" });
+  if (shape) return shape;
+  const r = open(world, params.token, headers);
+  if (r.err) return r.err;
+  if (!capSet(r.l.caps).has("edit"))
+    return fail(403, "This link doesn't allow changes. Ask for a link that allows editing.");
+  if (r.s.kind !== "path") return fail(410, "This link has expired or been removed.");
+  const bad = guestName(body.new_name);
+  if (bad) return bad;
+  const named = mutableSegments(world, r, body.path);
+  if (named.err) return named.err;
+  const { segments } = named;
+  const level = treeFolder(guestTree(world, params.token, r.s), segments.slice(0, -1));
+  const old = segments[segments.length - 1];
+  const node = level?.find((e) => e.name === old);
+  if (!node) return fail(404, "Luna can't find that anymore. Refresh and try again.");
+  const newName = String(body.new_name).trim();
+  if (newName === old) return { ok: true };
+  if (level.some((e) => e.name === newName))
+    return fail(409, "An item with this name is already here. Choose another name.");
+  node.name = newName;
+  node.hidden = newName.startsWith(".");
+  return { ok: true };
+});
+
+del("/s/:token/file", ({ world, params, query, headers }) => {
+  const badQuery = queryInt(query, "download", "u8").error;
+  if (badQuery) return badQuery;
+  const r = open(world, params.token, headers);
+  if (r.err) return r.err;
+  if (!capSet(r.l.caps).has("edit"))
+    return fail(403, "This link doesn't allow changes. Ask for a link that allows editing.");
+  if (r.s.kind !== "path") return fail(410, "This link has expired or been removed.");
+  const named = mutableSegments(world, r, query.path);
+  if (named.err) return named.err;
+  const { segments } = named;
+  const tree = guestTree(world, params.token, r.s);
+  const level = treeFolder(tree, segments.slice(0, -1));
+  const name = segments[segments.length - 1];
+  const at = level ? level.findIndex((e) => e.name === name) : -1;
+  if (at < 0) return fail(404, "Luna can't find that anymore. Refresh and try again.");
+  const [gone] = level.splice(at, 1);
+  // A guest's page has no trash, so the row only has to leave the listing; the
+  // answer still names where it went, because the daemon does.
+  return {
+    ok: true,
+    trash_path: `.luna-trash/${nowSec()}-${gone.name}`,
+  };
+});
+
+post("/s/:token/move", ({ world, params, headers, body }) => {
+  const shape = writeShape(body, { paths: "strings", dest: "optional" });
+  if (shape) return shape;
+  if (body.dest !== undefined && body.dest !== null && typeof body.dest !== "string")
+    return writeShape({ dest: 5 }, { dest: "string" });
+  const r = open(world, params.token, headers);
+  if (r.err) return r.err;
+  if (!capSet(r.l.caps).has("edit"))
+    return fail(403, "This link doesn't allow changes. Ask for a link that allows editing.");
+  if (r.s.kind !== "path") return fail(410, "This link has expired or been removed.");
+  if (!body.paths.length) return fail(400, "Nothing to move.");
+  const destSegments = linkSegments(body.dest ?? "");
+  if (!destSegments) return fail(400, "That path isn't inside this share.");
+  const tree = guestTree(world, params.token, r.s);
+  // The destination has to be a real folder inside the share.
+  const destLevel = treeFolder(tree, destSegments);
+  if (!destLevel) return fail(404, "Luna can't find that anymore. Refresh and try again.");
+  const results = [];
+  for (const rawPath of body.paths) {
+    const named = mutableSegments(world, r, rawPath);
+    if (named.err) {
+      results.push({
+        path: rawPath,
+        ok: false,
+        status: named.err.status,
+        error: named.err.body?.error,
+      });
+      continue;
+    }
+    const { segments } = named;
+    const level = treeFolder(tree, segments.slice(0, -1));
+    const name = segments[segments.length - 1];
+    const at = level ? level.findIndex((e) => e.name === name) : -1;
+    if (at < 0) {
+      results.push({
+        path: rawPath,
+        ok: false,
+        status: 404,
+        error: "Luna can't find that anymore. Refresh and try again.",
+      });
+      continue;
+    }
+    if (destLevel.some((e) => e.name === name)) {
+      results.push({
+        path: rawPath,
+        ok: false,
+        status: 409,
+        error: "An item with this name is already here. Choose another name.",
+      });
+      continue;
+    }
+    const [node] = level.splice(at, 1);
+    destLevel.push(node);
+    results.push({ path: rawPath, ok: true });
+  }
+  const allOk = results.every((x) => x.ok);
+  return allOk ? { results } : json({ results }, 207);
+});
+
 // `public_stat` gates like every other path route before it answers a size:
 // no view is a 403 that names the drop-box link, a non-path subject has closed,
 // and the target has to resolve inside the share.
