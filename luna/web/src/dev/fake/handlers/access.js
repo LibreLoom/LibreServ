@@ -331,14 +331,23 @@ del("/api/v1/forms/responses", ({ world, query }) => {
   for (const value of Object.values(gone.answers || {}))
     if (typeof value === "string" && value in sent) delete sent[value];
   formsOf(world)[k] = list.filter((x) => x.id !== id);
-  return {};
+  return { ok: true };
 });
 get("/api/v1/forms/file", () => json({}));
-post("/api/v1/forms/picture", ({ body }) => ({ name: pathName(body.source) || "picture.png" }));
+post("/api/v1/forms/picture", ({ body }) => {
+  const leaf = pathName(String(body.source ?? ""));
+  const ext = PICTURE_EXTS[leaf.split(".").pop()?.toLowerCase()] || null;
+  // A source that isn't a photo of a kind Luna stores is refused before
+  // anything is written.
+  if (!ext) return fail(400, PICTURE_KIND_MESSAGE);
+  return { ok: true, name: `${mintHex(16)}.${ext}` };
+});
 post("/api/v1/forms/picture-upload", async ({ world, query, body }) => {
+  // Absent part: nothing to attach. Present but unnamed: a kind Luna can't
+  // read, which is the message `read_multipart_file` gives it.
+  if (!("file" in body)) return fail(400, "Choose a file to attach.");
   const file = body.file && typeof body.file === "object" ? body.file : null;
-  if (!file) return fail(400, "That file didn't come through whole. Try choosing it again.");
-  const filename = typeof file.name === "string" ? file.name : "";
+  const filename = file && typeof file.name === "string" ? file.name : "";
   // A question picture is a photo and nothing else — a PDF is an attachment.
   const ext = PICTURE_EXTS[filename.split(".").pop()?.toLowerCase()] || null;
   if (!ext) return fail(400, PICTURE_KIND_MESSAGE);
@@ -2636,10 +2645,9 @@ post("/s/:token/respond-file", ({ world, params, headers, raw }) => {
     return fail(400, "This form doesn't ask for files.");
   const file = raw && typeof raw.get === "function" ? raw.get("file") : null;
   // A body with no `file` part is not a file of the wrong kind — it is nothing
-  // to attach, and the daemon says so before it reads a name.
-  if (!file || typeof file === "string")
-    return fail(400, "Choose a file to attach.");
-  const filename = typeof file.name === "string" ? file.name : "";
+  // to attach — but a `file` part with no name has a kind Luna can't read.
+  if (!file) return fail(400, "Choose a file to attach.");
+  const filename = typeof file === "string" ? "" : typeof file.name === "string" ? file.name : "";
   const ext = ATTACH_EXTS[filename.split(".").pop()?.toLowerCase()] || null;
   if (!ext) return fail(400, ATTACH_KIND_MESSAGE);
   const size = Number(file.size) || 0;
