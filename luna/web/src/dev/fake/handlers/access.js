@@ -599,6 +599,34 @@ function isTrashRel(rel) {
   );
 }
 
+/**
+ * `trash_api_leaf` on a folder inside the trash: the leaf of the path the item
+ * had before it was deleted.
+ *
+ * @param {any} world
+ * @param {string} drive
+ * @param {string} rel
+ * @returns {string}
+ */
+function trashOriginLeaf(world, drive, rel) {
+  const parts = String(rel || "").split("/").filter(Boolean);
+  let entries = [];
+  try {
+    entries = fsOf(world, drive).trash || [];
+  } catch {
+    entries = [];
+  }
+  for (const [i, seg] of parts.entries()) {
+    const hit = entries.find((t) => t.key === seg);
+    if (!hit) continue;
+    // The origin row keeps the path the item had before it was deleted, and a
+    // path below a trashed folder hangs off that same original.
+    const origin = [hit.original_path, ...parts.slice(i + 1)].filter(Boolean).join("/");
+    return origin.split("/").pop() || "";
+  }
+  return "";
+}
+
 /** `zip_archive_basename`: the resolved path names the archive, or "drive". */
 function zipArchiveBase(fullRel) {
   const trimmed = String(fullRel || "").replace(/^\/+|\/+$/g, "");
@@ -1723,14 +1751,19 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
   // it writes each file, so a folder of exactly fifty thousand still zips and
   // only the next one refuses the whole download.
   let files = 0;
-  const countUnder = (list) => {
+  // The walk skips what the link cannot reach and what the daemon keeps out of
+  // every listing, so the count and the archive cover the same entries.
+  const countUnder = (list, rel) => {
     for (const e of list || []) {
-      if (e.kind === "dir") countUnder(e.children);
+      const child = [rel, e.name].filter(Boolean).join("/");
+      if (isInternalName(e.name)) continue;
+      if (!linkReaches(world, r.l, child, r.s.drive_id, r.s.path)) continue;
+      if (e.kind === "dir") countUnder(e.children, child);
       else files += 1;
       if (files > 50000) return;
     }
   };
-  countUnder(zipRoot ? zipRoot.children : tree);
+  countUnder(zipRoot ? zipRoot.children : tree, segments.join("/"));
   if (files > 50000)
     return fail(
       400,
@@ -1738,7 +1771,13 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
     );
   // `zip_archive_basename` names the archive from the resolved path, so a
   // whole-drive link zips as `drive.zip` rather than wearing the drive label.
-  const zipBase = zipArchiveBase([r.s.path, segments.join("/")].filter(Boolean).join("/"));
+  // A folder sitting in the trash is named after the file it used to be, taken
+  // raw from the origin row — the on-disk name still carries its `{secs}-`
+  // prefix, and this one name never gets the "download" → "folder" rename.
+  const fullRel = [r.s.path, segments.join("/")].filter(Boolean).join("/");
+  const inTrash = isTrashApi(fullRel) || isTrashRel(fullRel);
+  const trashed = inTrash ? trashOriginLeaf(world, r.s.drive_id || "d1", fullRel) : "";
+  const zipBase = trashed || zipArchiveBase(fullRel);
   return raw(new TextEncoder().encode(`PK\x05\x06${"\0".repeat(18)}`), "application/zip", 200, {
     "Content-Disposition": `attachment; filename="${dispositionName(zipBase)}.zip"`,
   });
