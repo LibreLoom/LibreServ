@@ -790,3 +790,52 @@ two structural gaps the ninth review recorded — the blake3 `hash` check and
 `/respond-file`'s `.lunaform` resolution — are still recorded rather than fixed,
 because neither can be expressed without a hasher or a form file this fake does
 not have.
+
+## Eleventh review: what a guest is allowed to change
+
+The read routes settled first. Guest `stat` and `list` were answered by a
+handler that never ran, because the query parser hands back an object whether or
+not a number was given and the branch tested the object instead of its error; a
+trash root was listed under a name no UUID can parse, so the marker reader could
+not recognise it; a single shared file kept the private stamp of the boundary
+above it instead of the one the file itself carries; and a stat entry withheld
+both stamps when neither applied, where the daemon prints neither key at all.
+Two rounds later the same routes were clean.
+
+Then the larger thing, which was not a wording slip: a link's page offers New
+folder, New file, Rename, Move and Delete when the link allows it, and
+`shareSource` calls `/s/:token/mkdir`, `/create`, `/rename`, `/move` and
+`DELETE /file` for them. The fake answered none of the five, so every one of
+those buttons could only fail. They are annotated answers now, and what they
+change lives in the tree the guest's pages read, so a new folder survives into
+the next listing.
+
+Answering them exposed thirty-nine differences across nine rounds, in four
+kinds:
+
+- **Names.** A folder and a file hold their leaf to different bars — `mkdir_as`
+  never calls `safe_name`, so a leaf called `.luna-trash` below an existing
+  folder is just a folder, and a name past what a filesystem takes fails as an
+  ordinary write error — while a file's leaf meets `safe_name`, which trims,
+  counts bytes rather than characters, and refuses the trash alias. Luna's own
+  marker is read off the *start* of a name only, so a marker in the middle is
+  part of somebody's filename, but a marker on any segment of a path marks the
+  whole path as Luna's.
+- **Order.** A capability is asked for before the subject kind, the path before
+  the name, the parent before an over-long folder name, existence before a
+  private wall, and the move destination before the wall that covers it.
+- **Resolution.** `mutable_child` trims slashes off both ends, so `/Holiday` is
+  `Holiday`; a bare `/` is the shared item. A source that isn't there fails the
+  whole move, because every source is resolved before anything moves, while a
+  destination that exists but is a file fails each item as "not a folder". A
+  move that would land where it started, or inside itself, is one refused item.
+- **Bodies.** A required field that is absent is a missing field; present but
+  null is a type error; a wrong type names the type.
+
+That sequence is still open at the head it stopped on: rounds three and four of
+the read routes answered `NO FINDINGS`, and each later fix reopened the file, so
+the count starts again from the last one.
+
+Also recorded, not fixed: a guest's delete answers with a `trash_path` the fake
+invents, because the fake has no filesystem to move an entry into and no trash
+tree a guest can see.
