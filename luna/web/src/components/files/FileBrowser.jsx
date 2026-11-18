@@ -161,6 +161,13 @@ const SORT_VALUES = new Set(SORT_OPTIONS.map((option) => option.value));
 const VIRTUALIZE_AFTER = 80;
 /** Rows mounted past each edge of the viewport while scrolling. */
 const ROW_OVERSCAN = 12;
+/**
+ * Rows kept behind the viewport while a scroll is moving away from them:
+ * enough for one frame of a turn back. Every mounted row costs each scroll
+ * frame layout and paint time, so the far side keeps few (W6). The full
+ * overscan comes back once the scroll comes to rest.
+ */
+const ROW_OVERSCAN_BEHIND = 3;
 /** The same on a folder's first frame (see fullOverscan). */
 const FIRST_FRAME_OVERSCAN = 2;
 /** A row's height before any row is measured; the first measured row replaces it. */
@@ -320,6 +327,7 @@ function VirtualRowWindow({
     if (!rowHeightRef.current && size > 0) rowHeightRef.current = size;
     return size;
   }, []);
+  const instanceRef = useRef(/** @type {any} */ (null));
   const virtualizer = useWindowVirtualizer({
     count,
     estimateSize: () => rowHeightRef.current || (dense ? DENSE_ROW_HEIGHT_GUESS : ROW_HEIGHT_GUESS),
@@ -330,10 +338,21 @@ function VirtualRowWindow({
     scrollMargin,
     getItemKey: rowKey,
     initialRect: { width: 1024, height: typeof window === "undefined" ? 800 : window.innerHeight },
-    // The row being dragged stays mounted: a source node removed mid-drag
-    // never fires dragend.
+    // A scroll under way keeps few rows behind it (ROW_OVERSCAN_BEHIND).
     rangeExtractor: (range) => {
-      const base = defaultRangeExtractor(range);
+      const instance = instanceRef.current;
+      const direction = instance?.isScrolling ? instance.scrollDirection : null;
+      const behind = Math.min(range.overscan, ROW_OVERSCAN_BEHIND);
+      const before = direction === "forward" ? behind : range.overscan;
+      const after = direction === "backward" ? behind : range.overscan;
+      const base = defaultRangeExtractor({
+        ...range,
+        startIndex: Math.max(0, range.startIndex - before),
+        endIndex: Math.min(range.count - 1, range.endIndex + after),
+        overscan: 0,
+      });
+      // The row being dragged stays mounted: a source node removed mid-drag
+      // never fires dragend.
       const held = dragIndexRef.current;
       if (held >= 0 && held < range.count && !base.includes(held)) {
         base.push(held);
@@ -349,9 +368,11 @@ function VirtualRowWindow({
     };
   }, [virtualizer, virtualizerRef]);
 
+  instanceRef.current = virtualizer;
   const items = virtualizer.getVirtualItems();
   const slots = useRowSlots();
   const keys = slots.assign(items);
+  const rows = slots.elements(items, keys, renderRow, virtualizer.measureElement);
   // A recycled row can be the one holding keyboard focus. Its element now
   // shows another file, so drop the focus, as the old unmount did: Enter
   // must never act on a row the person did not pick.
@@ -370,7 +391,7 @@ function VirtualRowWindow({
   return (
     <>
       <li ref={topSpacerRef} aria-hidden="true" style={{ height: topPad }} />
-      {items.map((item, i) => renderRow(item.index, virtualizer.measureElement, keys[i]))}
+      {rows}
       <li aria-hidden="true" style={{ height: bottomPad }} />
     </>
   );
@@ -402,6 +423,12 @@ function createRowSlots() {
   /** @type {number[]} */
   const takenAt = [];
   let round = 0;
+  /** @type {Map<string, { index: number, element: import("react").ReactNode }>} slot key → its last row element */
+  const made = new Map();
+  /** @type {unknown} */
+  let madeBy = null;
+  /** @type {unknown} */
+  let madeWith = null;
   const slots = {
     /** @type {string | null} the file path of the row that last took focus */
     focusedPath: /** @type {string | null} */ (null),
@@ -447,6 +474,36 @@ function createRowSlots() {
       byKey = next;
       spare = prev;
       return keys;
+    },
+    /**
+     * The row elements for this render. A row still in the slot it had last
+     * scroll step gets the very same element back, so React skips it without
+     * comparing its ~40 props; only rows that came into the window render.
+     * Any render of the browser makes a new `renderRow`, which drops them all.
+     * @param {Array<{ index: number }>} items
+     * @param {string[]} keys
+     * @param {(index: number, measureRef: (el: Element | null) => void, slotKey: string) => import("react").ReactNode} renderRow
+     * @param {(el: Element | null) => void} measureRef
+     */
+    elements(items, keys, renderRow, measureRef) {
+      if (renderRow !== madeBy || measureRef !== madeWith) {
+        made.clear();
+        madeBy = renderRow;
+        madeWith = measureRef;
+      }
+      const out = new Array(items.length);
+      for (let i = 0; i < items.length; i++) {
+        const index = items[i].index;
+        const held = made.get(keys[i]);
+        if (held && held.index === index) {
+          out[i] = held.element;
+        } else {
+          const element = renderRow(index, measureRef, keys[i]);
+          made.set(keys[i], { index, element });
+          out[i] = element;
+        }
+      }
+      return out;
     },
     /** Follow which row takes focus (see the blur in VirtualRowWindow). */
     trackFocus() {
