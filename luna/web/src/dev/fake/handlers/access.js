@@ -1466,27 +1466,75 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
 // What a guest changes lives in the tree the guest pages read, so a new folder
 // shows up in the next listing rather than vanishing on the way.
 
-/** A body the route declares as JSON, with the fields it requires. */
-function writeShape(body, fields) {
+/** How serde names a value in a refusal: `integer \`5\``, `sequence`, `null`. */
+function serdeHint(value) {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "sequence";
+  if (typeof value === "number")
+    return Number.isInteger(value) ? `integer \`${value}\`` : `floating point \`${value}\``;
+  if (typeof value === "string") return `string ${JSON.stringify(value)}`;
+  if (typeof value === "boolean") return `boolean \`${value}\``;
+  return "map";
+}
+
+/**
+ * A body the route declares as JSON, refused the way serde refuses one: a
+ * missing field, a wrong type, a value in a place a body can't be, or a
+ * sequence that reads positionally and is too short or too long.
+ *
+ * @param {any} body
+ * @param {Array<[string, "string" | "strings" | "optional"]>} fields in declaration order
+ * @param {string} structName
+ */
+function writeShape(body, fields, structName) {
   const dataErr = (detail) =>
     fail(422, `Failed to deserialize the JSON body into the target type: ${detail}`);
-  if (!body || typeof body !== "object" || Array.isArray(body))
-    return dataErr("invalid type: expected a map");
-  for (const [field, kind] of Object.entries(fields)) {
-    if (body[field] === undefined) {
-      if (kind === "optional") continue;
-      return dataErr(`missing field \`${field}\``);
-    }
-    if (kind === "optional") continue;
-    if (body[field] === null) return dataErr(`invalid type: null, expected a string`);
+  const one = (kind, value) => {
     if (kind === "strings") {
-      if (!Array.isArray(body[field]) || body[field].some((v) => typeof v !== "string"))
-        return dataErr(`invalid type: expected a sequence of strings for \`${field}\``);
-    } else if (typeof body[field] !== "string") {
-      return dataErr(`invalid type: expected a string for \`${field}\``);
+      if (!Array.isArray(value)) return `invalid type: ${serdeHint(value)}, expected a sequence`;
+      for (const v of value) {
+        if (typeof v !== "string") return `invalid type: ${serdeHint(v)}, expected a string`;
+      }
+      return null;
     }
+    if (value === null || typeof value !== "string")
+      return `invalid type: ${serdeHint(value)}, expected a string`;
+    return null;
+  };
+  if (Array.isArray(body)) {
+    // A derived struct reads a sequence positionally, in declaration order.
+    if (body.length > fields.length) return { err: dataErr("trailing characters") };
+    if (body.length < fields.length && fields[body.length][1] !== "optional")
+      return {
+        err: dataErr(
+          `invalid length ${body.length}, expected struct ${structName} with ${fields.length} elements`,
+        ),
+      };
+    const values = {};
+    for (let i = 0; i < body.length; i += 1) {
+      const [name, kind] = fields[i];
+      if (kind === "optional" && body[i] === null) continue;
+      const bad = one(kind, body[i]);
+      if (bad) return { err: dataErr(bad) };
+      values[name] = body[i];
+    }
+    return { values };
   }
-  return null;
+  if (!body || typeof body !== "object") {
+    return { err: dataErr(`invalid type: ${serdeHint(body)}, expected struct ${structName}`) };
+  }
+  const values = {};
+  for (const [name, kind] of fields) {
+    if (body[name] === undefined) {
+      if (kind === "optional") continue;
+      return { err: dataErr(`missing field \`${name}\``) };
+    }
+    if (kind === "optional" && body[name] === null) continue;
+    const bad = one(kind, body[name]);
+    if (bad) return { err: dataErr(bad) };
+    values[name] = body[name];
+  }
+  return { values };
 }
 
 /**
@@ -1554,8 +1602,9 @@ const guestName = (name) =>
   safeName(name) && !guestInternal([name]) ? null : fail(400, "That name isn't allowed here.");
 
 const guestNew = (kind) => ({ world, params, headers, body }) => {
-  const shape = writeShape(body, { path: "string" });
-  if (shape) return shape;
+  const shape = writeShape(body, [["path", "string"]], "PublicWriteBody");
+  if (shape.err) return shape.err;
+  const fields = shape.values;
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
   if (!capSet(r.l.caps).has("upload"))
@@ -1564,12 +1613,12 @@ const guestNew = (kind) => ({ world, params, headers, body }) => {
       "This link is view-only, so it can't receive files. Ask for a link that allows uploads.",
     );
   if (r.s.kind !== "path") return fail(410, "This link has expired or been removed.");
-  const trimmed = String(body.path).trim().replace(/^\/+|\/+$/g, "");
+  const trimmed = String(fields.path).trim().replace(/^\/+|\/+$/g, "");
   // A drop box takes one level and nothing else, so a nested name would let a
   // blind uploader probe which folders exist.
   if (!capSet(r.l.caps).has("view") && trimmed.includes("/"))
     return fail(400, "This link only accepts items at the top level.");
-  const named = mutableSegments(world, r, body.path, { forCreate: true });
+  const named = mutableSegments(world, r, fields.path, { forCreate: true });
   if (named.err) return named.err;
   const { segments } = named;
   const name = segments[segments.length - 1];
@@ -1610,14 +1659,15 @@ post("/s/:token/mkdir", guestNew("dir"));
 post("/s/:token/create", guestNew("file"));
 
 post("/s/:token/rename", ({ world, params, headers, body }) => {
-  const shape = writeShape(body, { path: "string", new_name: "string" });
-  if (shape) return shape;
+  const shape = writeShape(body, [["path", "string"], ["new_name", "string"]], "PublicRenameBody");
+  if (shape.err) return shape.err;
+  const fields = shape.values;
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
   if (!capSet(r.l.caps).has("edit"))
     return fail(403, "This link doesn't allow changes. Ask for a link that allows editing.");
   if (r.s.kind !== "path") return fail(410, "This link has expired or been removed.");
-  const named = mutableSegments(world, r, body.path);
+  const named = mutableSegments(world, r, fields.path);
   if (named.err) return named.err;
   const { segments } = named;
   const level = treeFolder(guestTree(world, params.token, r.s), segments.slice(0, -1));
@@ -1625,9 +1675,9 @@ post("/s/:token/rename", ({ world, params, headers, body }) => {
   const node = level?.find((e) => e.name === old);
   if (!node) return fail(404, "Luna can't find that anymore. Refresh and try again.");
   // `safe_name` trims before the temp-name bar, so `".x.part "` is `.x.part`.
-  const bad = guestName(String(body.new_name).trim());
+  const bad = guestName(String(fields.new_name).trim());
   if (bad) return bad;
-  const newName = safeName(String(body.new_name).trim());
+  const newName = safeName(String(fields.new_name).trim());
   // No same-name shortcut: a no-replace rename onto itself is a clash.
   if (level.some((e) => e.name === newName))
     return fail(409, "An item with this name is already here. Choose another name.");
@@ -1662,17 +1712,16 @@ del("/s/:token/file", ({ world, params, query, headers }) => {
 });
 
 post("/s/:token/move", ({ world, params, headers, body }) => {
-  const shape = writeShape(body, { paths: "strings", dest: "optional" });
-  if (shape) return shape;
-  if (body.dest !== undefined && body.dest !== null && typeof body.dest !== "string")
-    return writeShape({ dest: 5 }, { dest: "string" });
+  const shape = writeShape(body, [["paths", "strings"], ["dest", "optional"]], "PublicMoveBody");
+  if (shape.err) return shape.err;
+  const fields = shape.values;
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
   if (!capSet(r.l.caps).has("edit"))
     return fail(403, "This link doesn't allow changes. Ask for a link that allows editing.");
   if (r.s.kind !== "path") return fail(410, "This link has expired or been removed.");
-  if (!body.paths.length) return fail(400, "Nothing to move.");
-  const destSegments = linkSegments(body.dest ?? "");
+  if (!fields.paths.length) return fail(400, "Nothing to move.");
+  const destSegments = linkSegments(fields.dest ?? "");
   if (!destSegments) return fail(400, "That path isn't inside this share.");
   const tree = guestTree(world, params.token, r.s);
   const trashDest = trashProbe(r.s, destSegments);
@@ -1685,7 +1734,7 @@ post("/s/:token/move", ({ world, params, headers, body }) => {
     return fail(404, "That item isn't part of this shared link.");
   const destLevel = destSegments.length === 0 ? tree : treeFolder(tree, destSegments);
   const results = [];
-  for (const rawPath of body.paths) {
+  for (const rawPath of fields.paths) {
     const named = mutableSegments(world, r, rawPath);
     // A path outside the share fails the request itself, not just this item:
     // the daemon resolves every source before it moves anything.
