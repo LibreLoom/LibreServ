@@ -43,6 +43,24 @@ function iconShapes(Icon) {
 /** @param {unknown} value */
 const attr = (value) => String(value).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
+/**
+ * The icon's shapes as SVG markup, `currentColor` replaced by `color`.
+ * @param {{ size: number, node: Array<[string, Record<string, any>]> }} shapes
+ * @param {string} color
+ */
+function shapesSvg(shapes, color) {
+  return shapes.node
+    .map(([tag, attrs]) => {
+      const parts = Object.entries(attrs || {})
+        .filter(([name]) => name !== "key" && /^[a-zA-Z-:]+$/.test(name))
+        // An image has no currentColor of its own: a shape filled with it
+        // takes the stroke color.
+        .map(([name, value]) => `${name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}="${attr(value === "currentColor" ? color : value)}"`);
+      return /^[a-z]+$/i.test(tag) ? `<${tag} ${parts.join(" ")}/>` : "";
+    })
+    .join("");
+}
+
 /** @type {WeakMap<object, Map<string, string | null>>} */
 const urlCache = new WeakMap();
 
@@ -63,22 +81,73 @@ export function iconImageUrl(Icon, color) {
   }
   let url = byColor.get(color);
   if (url === undefined) {
-    const body = shapes.node
-      .map(([tag, attrs]) => {
-        const parts = Object.entries(attrs || {})
-          .filter(([name]) => name !== "key" && /^[a-zA-Z-:]+$/.test(name))
-          // An image has no currentColor of its own: a shape filled with it
-          // takes the stroke color.
-          .map(([name, value]) => `${name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}="${attr(value === "currentColor" ? color : value)}"`);
-        return /^[a-z]+$/i.test(tag) ? `<${tag} ${parts.join(" ")}/>` : "";
-      })
-      .join("");
+    const body = shapesSvg(shapes, color);
     const s = shapes.size;
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" fill="none" stroke="${attr(color)}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
     url = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
     byColor.set(color, url);
   }
   return url;
+}
+
+/** @type {WeakMap<object, number>} */
+const iconIds = new WeakMap();
+let nextIconId = 0;
+/** @type {Map<string, import("react").CSSProperties | null>} */
+const stripCache = new Map();
+
+/**
+ * A row of icon buttons drawn as one element: the same icons at the same
+ * places as `IconActions` (`iconSm` ghost buttons, `pad` px around each
+ * icon, `gap` px apart), as the style of a single aria-hidden span. It is one
+ * image, so a page pays for drawing it once, not once per icon. Long lists
+ * paint this on their first frame and mount the real buttons right after
+ * (search results, W10). Null when an icon or the color can't be drawn as an
+ * image (callers then mount the buttons).
+ * @param {any[]} icons
+ * @param {string | null | undefined} color
+ * @param {{ iconSize?: number, pad?: number, gap?: number }} [geometry]
+ * @returns {import("react").CSSProperties | null}
+ */
+export function iconStripStyle(icons, color, { iconSize = 14, pad = 6, gap = 2 } = {}) {
+  if (!icons.length || !color || !SAFE_COLOR.test(color)) return null;
+  const ids = [];
+  for (const icon of icons) {
+    if (!icon || (typeof icon !== "object" && typeof icon !== "function")) return null;
+    let id = iconIds.get(icon);
+    if (id === undefined) {
+      id = nextIconId++;
+      iconIds.set(icon, id);
+    }
+    ids.push(id);
+  }
+  const key = `${color}|${iconSize}|${pad}|${gap}|${ids.join(",")}`;
+  if (stripCache.has(key)) return stripCache.get(key) ?? null;
+  const box = iconSize + pad * 2;
+  const width = icons.length * box + (icons.length - 1) * gap;
+  /** @type {string | null} */
+  let body = "";
+  /** @type {import("react").CSSProperties | null} */
+  let style = null;
+  for (let i = 0; i < icons.length; i += 1) {
+    const shapes = iconShapes(icons[i]);
+    if (!shapes) {
+      body = null;
+      break;
+    }
+    body += `<g transform="translate(${i * (box + gap) + pad} ${pad}) scale(${iconSize / shapes.size})">${shapesSvg(shapes, color)}</g>`;
+  }
+  if (body !== null) {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${box}" viewBox="0 0 ${width} ${box}" fill="none" stroke="${attr(color)}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+    style = {
+      width,
+      height: box,
+      backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(svg)}")`,
+      backgroundRepeat: "no-repeat",
+    };
+  }
+  stripCache.set(key, style);
+  return style;
 }
 
 // One observer for the whole app: the theme writes --primary/--secondary on

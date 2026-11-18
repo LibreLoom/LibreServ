@@ -792,6 +792,25 @@ describe("FileSearch", () => {
     expect(document.querySelector("[data-slot=file-search-truncated]")).toHaveTextContent(/more matches/i);
   });
 
+  it("mounts every row's action buttons once a long answer has painted", async () => {
+    // A theme color lets the first rows draw their icons as a picture.
+    document.documentElement.style.setProperty("--secondary", "#123456");
+    try {
+      const hits = Array.from({ length: 30 }, (_, i) => ({
+        drive_id: "d1", path: `report-${i}.txt`, parent: "", name: `report-${i}.txt`, kind: "file", size: 1, modified: 1,
+      }));
+      renderSearch(hits);
+      await openSearchOverlay();
+      fireEvent.change(screen.getByRole("textbox", { name: "Search for a file" }), { target: { value: "report" } });
+      await screen.findByRole("link", { name: /^Open report-0.txt$/i });
+      await waitFor(() => expect(document.querySelectorAll("[data-slot=file-search-actions]")).toHaveLength(30));
+      expect(document.querySelector("[data-slot=file-search-actions-picture]")).toBeNull();
+      expect(screen.getByRole("button", { name: "Sharing for report-0.txt" })).toBeInTheDocument();
+    } finally {
+      document.documentElement.style.removeProperty("--secondary");
+    }
+  });
+
   it("warns when a drive could not be read", async () => {
     renderSearch([], { scan: { scanning: false, drives_total: 2, drives_done: 1, drives_failed: 1, dirs_indexed: 0 } });
     await openSearchOverlay();

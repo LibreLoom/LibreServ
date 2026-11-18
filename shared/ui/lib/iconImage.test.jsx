@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { Copy, Download } from "lucide-react";
 import IconImage from "../components/ui/IconImage.jsx";
 import IconActions from "../components/ui/IconActions.jsx";
-import { iconImageUrl } from "./iconImage.js";
+import { iconImageUrl, iconStripStyle } from "./iconImage.js";
 
 afterEach(() => {
   document.documentElement.style.removeProperty("--primary");
@@ -28,6 +28,27 @@ describe("iconImageUrl", () => {
 
   it("refuses components that are not lucide icons", () => {
     expect(iconImageUrl(() => null, "#000000")).toBeNull();
+  });
+});
+
+describe("iconStripStyle", () => {
+  it("draws every icon in one image, where each button's icon sits", () => {
+    const style = iconStripStyle([Download, Copy], "#123abc", { iconSize: 14, pad: 6, gap: 4 });
+    // Two 26 px buttons, 4 px apart.
+    expect(style).toMatchObject({ width: 56, height: 26, backgroundRepeat: "no-repeat" });
+    const svg = decodeURIComponent(String(style?.backgroundImage).slice('url("data:image/svg+xml,'.length, -2));
+    expect(svg).toContain('width="56" height="26"');
+    expect(svg).toContain('stroke="#123abc"');
+    expect(svg).toContain('<g transform="translate(6 6) scale(0.5833333333333334)"><path d="M12 15V3"/>');
+    expect(svg).toContain('translate(36 6)');
+    expect(iconStripStyle([Download, Copy], "#123abc", { iconSize: 14, pad: 6, gap: 4 })).toBe(style);
+  });
+
+  it("gives up, so the caller mounts the buttons, without a usable icon or color", () => {
+    expect(iconStripStyle([Download], null)).toBeNull();
+    expect(iconStripStyle([Download], 'red" onload="x')).toBeNull();
+    expect(iconStripStyle([Download, () => null], "#000000")).toBeNull();
+    expect(iconStripStyle([], "#000000")).toBeNull();
   });
 });
 

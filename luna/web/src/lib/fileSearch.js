@@ -62,31 +62,45 @@ export function parseSearchResponse(data) {
  * @returns {{ text: string, hit: boolean }[]}
  */
 export function highlightParts(name, query) {
-  const words = [...new Set(query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 2))];
+  const words = queryWords(query);
   if (!words.length) return [{ text: name, hit: false }];
   const lower = name.toLowerCase();
   // Same length as `name` only when lowercasing didn't change any letter's
   // width; otherwise skip highlighting rather than underline the wrong letters.
   if (lower.length !== name.length) return [{ text: name, hit: false }];
-  /** @type {boolean[]} */
-  const marked = new Array(name.length).fill(false);
+  /** @type {Uint8Array} */
+  const marked = new Uint8Array(name.length);
   for (const word of words) {
     let from = 0;
     for (;;) {
       const at = lower.indexOf(word, from);
       if (at < 0) break;
-      for (let i = at; i < at + word.length; i += 1) marked[i] = true;
+      marked.fill(1, at, at + word.length);
       from = at + word.length;
     }
   }
   /** @type {{ text: string, hit: boolean }[]} */
   const parts = [];
-  for (let i = 0; i < name.length; i += 1) {
-    const last = parts[parts.length - 1];
-    if (last && last.hit === marked[i]) last.text += name[i];
-    else parts.push({ text: name[i], hit: marked[i] });
+  let start = 0;
+  for (let i = 1; i <= name.length; i += 1) {
+    if (i < name.length && marked[i] === marked[start]) continue;
+    parts.push({ text: name.slice(start, i), hit: marked[start] === 1 });
+    start = i;
   }
   return parts;
+}
+
+// Every result row of one answer splits its name by the same query.
+let lastQuery = "";
+/** @type {string[]} */
+let lastWords = [];
+/** @param {string} query */
+function queryWords(query) {
+  if (query !== lastQuery) {
+    lastQuery = query;
+    lastWords = [...new Set(query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 2))];
+  }
+  return lastWords;
 }
 
 const KINDS = ["all", "dir", "file"];

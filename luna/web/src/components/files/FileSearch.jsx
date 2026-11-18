@@ -14,6 +14,8 @@ import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Typewriter from "@libreloom/ui/components/ui/Typewriter.jsx";
 import FileSearchRow from "./FileSearchRow.jsx";
+import { useIsSmUp } from "./fileRowUtils.js";
+import { useToneColor } from "@libreloom/ui/lib/iconImage.js";
 import FileSearchStatus from "./FileSearchStatus.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
@@ -53,6 +55,17 @@ const MATCH_DIVIDERS = {
  * on Luna's slowest hardware.
  */
 const FIRST_ROWS = 12;
+
+/** @type {boolean | null} */
+let usualTextSizeSeen = null;
+/** Is the page's root text size 16 px (the browser's text size unchanged)? Read once, when first needed. */
+function usualTextSize() {
+  if (usualTextSizeSeen === null) {
+    const px = typeof window === "undefined" ? 16 : Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize);
+    usualTextSizeSeen = !px || px === 16;
+  }
+  return usualTextSizeSeen;
+}
 
 /** Match ModalCard exit + FLIP morph duration. */
 const OVERLAY_EXIT_MS = 320;
@@ -236,6 +249,16 @@ export default function FileSearch() {
     })
     .filter((group) => group.hits.length > 0);
   const allRowsShown = rowLimit === Infinity;
+  // Read once for every row: the phone/wide split and the color their
+  // action icons' first-paint picture uses. The picture is laid out in px for
+  // the usual 16 px text size; any other size mounts the buttons right away.
+  const isSmUp = useIsSmUp();
+  const toneColor = useToneColor("secondary");
+  // Read while the panel opens, not inside the render that paints results.
+  useEffect(() => {
+    if (present) usualTextSize();
+  }, [present]);
+  const rowIconColor = search.hits.length > 0 && usualTextSize() ? toneColor : null;
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives, enabled: present });
   const labels = Object.fromEntries((drives.data || []).map((d) => [d.id, d.label]));
@@ -699,6 +722,12 @@ export default function FileSearch() {
                               isAdmin={user?.role === "admin"}
                               memberAccess={memberAccess.data}
                               index={index}
+                              isSmUp={isSmUp}
+                              iconColor={rowIconColor}
+                              // A fresh long answer paints its first rows with
+                              // pictures of their action icons; the buttons
+                              // mount with the rest of the rows.
+                              actionsLive={allRowsShown}
                               onNavigate={beginClose}
                               onShare={shareHit}
                               onCopy={copyHit}
