@@ -842,3 +842,47 @@ the count starts again from the last one.
 Also recorded, not fixed: a guest's delete answers with a `trash_path` the fake
 invents, because the fake has no filesystem to move an entry into and no trash
 tree a guest can see.
+
+## Twelfth review: what a form keeps, and what it will not
+
+The upload routes were the last place nothing had been read closely, and a form
+turned out to be three folders wearing one name. An answer's attachment waits in
+`pending`; sending it moves the file into the form's own folder; a question
+picture lands straight in that folder; and both ceilings read those two folders
+and nothing else. Five rounds, seventeen findings, each one a shared counter
+where the daemon keeps a per-form one:
+
+| Round | Routes | Findings | What happened |
+|---|---|---|---|
+| 5a | `/respond`, `/respond-file`, `/upload` | 5 | all 5 confirmed and fixed |
+| 5b | the answer judgement and the attachment ceilings | 3 | all 3 confirmed and fixed |
+| 5c | the room, the claim, the reserved name | 3 | all 3 confirmed and fixed |
+| 5d | the room again, expiry, the owner's pictures | 3 | all 3 confirmed and fixed |
+| 5e | the owner's picture upload, deleting an answer | 3 | all 3 confirmed and fixed |
+
+What a form refuses is judged in an order, and the order is the finding. A
+submit meets the limiter, then the gate, then a closed form, then a form that
+will not take edits, then the shape of the answers, then `answer_value_ok` and
+the five-hundred-key ceiling, then the edit secret, then the response cap, and
+only then do the answers themselves have to make sense. So a wrong secret on a
+form that is already full is refused for the secret, and a full form is refused
+for being full rather than for the malformed answer beside it.
+
+A waiting upload is a file with an hour to live and no owner. It stops being
+attachable and stops counting when it expires, swept before an answer or an
+upload is judged. Claiming it moves its bytes out of the queue and into the
+form's folder, and an edit that swaps or removes an attachment gives the room
+back — as does deleting the answer, which takes every version's files.
+
+The two ceilings are 256 MB of waiting uploads and 2 GB for one form's whole
+folder, pictures included, and the second is counted before a picture is written
+rather than after. A picture is only a picture: the extension is read first, the
+20 MB ceiling next, the bytes last, and the name the answer will carry is minted
+from the bytes — so a page renamed to `.png` is refused, and a file link's own
+leaf is the name an upload actually gets.
+
+Not fixed, and recorded: the fake keeps one answer per response where lunad keeps
+a line per version, so a delete cannot reach a file named by an earlier edit;
+`/responses` history, `/form-file`, `/form-picture`, `/form-picture-upload`,
+`/office/session` and `/collab/ws` are still unanswered; and the guest's
+`trash_path` remains an invented name.
