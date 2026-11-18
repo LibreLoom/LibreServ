@@ -937,3 +937,21 @@ What stays unfixed, and why: the limiter is one bucket where the daemon keeps on
 per client address, because the harness has a single browser and no sockets; and
 a form's pictures and attachments live in maps rather than on disk, so a room is
 counted the same way but the bytes behind it are not the same bytes.
+
+### Addendum: the zip, and the one thing the fake cannot say
+
+The archive rounds found the daemon stating one rule in two places and the fake
+stating it in a third. A folder zip counts what the link can reach — `include_rel`,
+so a private subfolder is neither counted nor zipped — and it stops at fifty
+thousand files *written*, which means exactly fifty thousand still zip. Its name
+comes from the resolved path, except in the trash, where it comes from the origin
+row so the `{secs}-` prefix never shows and a deleted `download` stays a
+`download.zip`. And the `Content-Disposition` cleans the finished `name.zip`
+rather than the name before it, so a long leaf truncates with the suffix counted
+and a leaf made only of stripped characters lands on `.zip`.
+
+One gap has no stand-in: a download name the daemon would pass to the header
+builder must be Latin-1 or the builder refuses it, and the fake's `Response` will
+not carry that value at all — so an emoji-named folder is a 500 behind a native
+`TypeError` in the harness and a panic in the daemon, and the two are not the same
+shape of failure.
