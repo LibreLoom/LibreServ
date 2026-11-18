@@ -891,6 +891,18 @@ function isInternalName(name) {
   return luna.test(base) || (base.startsWith(".") && base.endsWith(".part"));
 }
 
+/** `Layout::is_luna_name`: the name opens with a `.luna-<uuid>` marker. */
+const lunaMarker = (name) =>
+  /^\.luna-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/.test(
+    String(name ?? ""),
+  );
+
+/** `files::is_internal_temp`: a marker segment anywhere, or a `.part` leaf. */
+const guestInternal = (segments) => {
+  const leaf = segments[segments.length - 1] || "";
+  return segments.some(lunaMarker) || (leaf.startsWith(".") && leaf.endsWith(".part"));
+};
+
 /** `files::safe_name`: a bare, non-empty basename a drive can hold. */
 function safeName(name) {
   const raw = String(name ?? "");
@@ -902,11 +914,9 @@ function safeName(name) {
     return null;
   // Luna's own `.luna-<uuid>` namespace and the trash alias are its bookkeeping,
   // so a guest naming one would create something the UI can never show.
-  const reserved =
-    /^\.luna-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/.test(
-      trimmed,
-    );
-  if (reserved || trimmed === ".luna-trash") return null;
+  // `is_luna_name` reads a marker prefix off the *start* of the name, so a
+  // `.luna-<uuid>` in the middle is just part of somebody's filename.
+  if (lunaMarker(trimmed) || trimmed === ".luna-trash") return null;
   return trimmed;
 }
 
@@ -1463,11 +1473,12 @@ function writeShape(body, fields) {
   if (!body || typeof body !== "object" || Array.isArray(body))
     return dataErr("invalid type: expected a map");
   for (const [field, kind] of Object.entries(fields)) {
-    if (body[field] === undefined || body[field] === null) {
+    if (body[field] === undefined) {
       if (kind === "optional") continue;
       return dataErr(`missing field \`${field}\``);
     }
     if (kind === "optional") continue;
+    if (body[field] === null) return dataErr(`invalid type: null, expected a string`);
     if (kind === "strings") {
       if (!Array.isArray(body[field]) || body[field].some((v) => typeof v !== "string"))
         return dataErr(`invalid type: expected a sequence of strings for \`${field}\``);
@@ -1539,7 +1550,8 @@ function mutableSegments(world, r, raw, { forCreate = false } = {}) {
 }
 
 /** A name a drive would take, or the refusal the daemon makes. */
-const guestName = (name) => (safeName(name) && !isInternalName(name) ? null : fail(400, "That name isn't allowed here."));
+const guestName = (name) =>
+  safeName(name) && !guestInternal([name]) ? null : fail(400, "That name isn't allowed here.");
 
 const guestNew = (kind) => ({ world, params, headers, body }) => {
   const shape = writeShape(body, { path: "string" });
@@ -1566,9 +1578,9 @@ const guestNew = (kind) => ({ world, params, headers, body }) => {
     // the trash alias as its first segment — it never calls `safe_name`, so a
     // leaf called `.luna-trash` below an existing folder is just a folder, and
     // a name past what a filesystem takes fails as an ordinary write error.
-    if (isInternalName(segments.join("/")) || segments[0] === ".luna-trash")
+    if (guestInternal(segments) || segments[0] === ".luna-trash")
       return fail(400, "That name isn't allowed here.");
-  } else if (!safeName(name) || isInternalName(name)) {
+  } else if (!safeName(name) || guestInternal(segments)) {
     // `files::create` holds the leaf to `safe_name` and the temp-name bar; a
     // padded name still passes, because only the check trims, not the path.
     return fail(400, "That name isn't allowed here.");
@@ -1682,7 +1694,16 @@ post("/s/:token/move", ({ world, params, headers, body }) => {
     const level = treeFolder(tree, segments.slice(0, -1));
     const name = segments[segments.length - 1];
     const at = level ? level.findIndex((e) => e.name === name) : -1;
-    if (at < 0 || !destIsDir) {
+    if (at >= 0 && !destIsDir) {
+      results.push({
+        path: rawPath,
+        ok: false,
+        status: 400,
+        error: "That destination isn't a folder.",
+      });
+      continue;
+    }
+    if (at < 0) {
       results.push({
         path: rawPath,
         ok: false,
