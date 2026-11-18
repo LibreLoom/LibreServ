@@ -900,7 +900,7 @@ function emailOk(value) {
 }
 
 /** The extensions a question picture may have — everything but a PDF. */
-const PICTURE_EXTS = { jpg: "jpg", jpeg: "jpeg", png: "png", gif: "gif", webp: "webp" };
+const PICTURE_EXTS = { jpg: "jpg", jpeg: "jpg", png: "png", gif: "gif", webp: "webp" };
 
 /** The message a wrong kind of picture gets. */
 const PICTURE_KIND_MESSAGE = "Choose a photo: JPG, PNG, GIF, or WebP.";
