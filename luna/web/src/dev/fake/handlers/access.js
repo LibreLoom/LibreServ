@@ -260,6 +260,18 @@ const formKey = (q) => `${q.drive_id}\0${q.path}`;
 const linkFormKey = (s) => formKey({ drive_id: s.drive_id, path: s.path });
 
 /**
+ * Bytes already claimed into a form's attachment folder, per form and name.
+ *
+ * @param {any} world
+ * @param {string} key
+ * @returns {Record<string, number>}
+ */
+function sentFor(world, key) {
+  const all = (world.formSentBytes ||= {});
+  return (all[key] ||= {});
+}
+
+/**
  * `PENDING_DIR` contents for one form, created on first use.
  *
  * @param {any} world
@@ -2199,7 +2211,7 @@ post("/s/:token/upload", ({ world, params, headers, body }) => {
   // A session name is held to the create-path bar as well, and that bar is the
   // filesystem's — it runs after the destination is resolved, so a folder that
   // isn't there answers about the folder rather than about the name.
-  if (guestInternal([name]))
+  if (guestInternal([finalName]))
     return fail(500, "Luna couldn't finish that upload. Check the drive and try again.");
   const id = nextId("up");
   // A session outlives the request that made it, and the daemon tells one it
@@ -2472,7 +2484,8 @@ post("/s/:token/respond", ({ world, params, headers, body }) => {
   }
   // Files the answer may name: this respondent's own waiting uploads for this
   // form, or — when editing — files already on this answer.
-  const waiting = pendingFor(world, linkFormKey(r.s));
+  const formId = linkFormKey(r.s);
+  const waiting = pendingFor(world, formId);
   const canAttach = (name) => Boolean(waiting[name]) || previous.has(name);
   const shaped = checkAnswers(r.l, body.answers, canAttach);
   if (shaped) return shaped;
@@ -2487,13 +2500,21 @@ post("/s/:token/respond", ({ world, params, headers, body }) => {
   entry.at = nowSec();
   // An answer that names an attachment claims it: the bytes move out of the
   // waiting queue and count against the form's own folder from then on.
+  const sent = sentFor(world, formId);
+  const kept = new Set();
   for (const question of formOf(r.l).questions || []) {
     if (question?.type !== "file") continue;
     const name = entry.answers?.[question.id];
-    if (typeof name !== "string" || !waiting[name]) continue;
-    (world.formSentBytes ||= 0);
-    world.formSentBytes += waiting[name];
+    if (typeof name !== "string") continue;
+    kept.add(name);
+    if (!waiting[name]) continue;
+    sent[name] = waiting[name];
     delete waiting[name];
+  }
+  // An edit that swapped or removed a file drops the old one and frees room.
+  for (const name of previous) {
+    if (kept.has(name)) continue;
+    delete sent[name];
   }
   // The form's owner sees the same answers on the Files side.
   const fk = r.s.drive_id ? formKey({ drive_id: r.s.drive_id, path: r.s.path }) : null;
@@ -2535,14 +2556,17 @@ post("/s/:token/respond-file", ({ world, params, headers, raw }) => {
   // own limit, and the form's whole attachment folder (sent and unsent) has a
   // bigger one. A form can therefore be full of sent files and still take an
   // upload, which one shared counter could not say.
-  const waiting = pendingFor(world, linkFormKey(r.s));
+  const formId = linkFormKey(r.s);
+  const waiting = pendingFor(world, formId);
+  const sent = sentFor(world, formId);
   const pending = Object.values(waiting).reduce((a, b) => a + b, 0);
   if (pending + size > 256 * 1024 * 1024)
     return fail(
       503,
       "Lots of files are arriving on this form right now. Wait a few minutes and attach it again.",
     );
-  if (pending + (world.formSentBytes || 0) + size > 2 * 1024 ** 3)
+  const used = pending + Object.values(sent).reduce((a, b) => a + b, 0);
+  if (used + size > 2 * 1024 ** 3)
     return fail(
       507,
       "This form has no room for more files. Ask the person who shared it to clear some out.",
