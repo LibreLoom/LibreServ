@@ -135,9 +135,18 @@ function pump() {
   if (free <= 0) return;
   const vh = window.innerHeight;
   const reach = fast ? FAST_AHEAD_SCREENS * vh : Infinity;
+  // One layout read per day group, not one per photo in it.
+  /** @type {Map<Element, number>} */
+  const measured = new Map();
   const distance = (/** @type {Element} */ el) => {
-    const r = (groupOf.get(el) || el).getBoundingClientRect();
-    return r.bottom < 0 ? -r.bottom : Math.max(0, r.top - vh);
+    const box = groupOf.get(el) || el;
+    let d = measured.get(box);
+    if (d === undefined) {
+      const r = box.getBoundingClientRect();
+      d = r.bottom < 0 ? -r.bottom : Math.max(0, r.top - vh);
+      measured.set(box, d);
+    }
+    return d;
   };
   [...pool]
     .filter((el) => el.isConnected)
