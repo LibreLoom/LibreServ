@@ -208,3 +208,38 @@ lunad LAN p95: W10 65 ms, W11 51, W13 929, W14 295. D1 start-up 2.5 s.
 W6 now holds ~60 fps but has 3–5 frames over 50 ms per run; W15 remote's
 over-budget sample is the first open through a new tunnel (the other four
 are ~1.1 s).
+
+## Round 7 (in 9fee6c16 "checkpoint") and passes at 3553b70d (2026-11-18)
+
+Round 7, interleaved A/B (n=9–20 per side): W6 LAN frames over 50 ms
+336 → 0, worst frame 83–200 → 33–50 ms; W8 remote p95 878 → 587 ms;
+W15 remote p95 1662 → 1273 ms; D3 after use 4.7–7.9 → 1.0–3.2
+switches/min. How: only visible rows re-render while scrolling; photo
+thumbnails load nearest-first instead of `loading="lazy"`; a share link
+fetches its listing while the page code loads; Connect, DHCP, console
+help and the backup key mover wait on events; search rescans a watched
+drive every 6 h (changes arrive through the drive watch in between).
+W15's slow first remote sample is the tunnel warming up (lunad answers
+in < 3 ms).
+
+Two whole-suite passes at HEAD; the host is shared and was not quiet:
+
+| Journey | final-6 LAN (load ≤ 2) | final-7 LAN (load 2–3.8) | final-7 remote (load ≤ 5) | Budget LAN / remote |
+|---|---|---|---|---|
+| W1 | 748 | 880 | 1184 | 1500 / 3000 |
+| W3 | 472 | 579 | 456 | 500 / 1000 |
+| W4 | 193 | 250 | 259 | 250 / 600 |
+| W6 min fps, max frame | 59.8, 33 ms | 55, 50 ms | 46, 133 ms | 60, 50 ms |
+| W7 | 754 | 844 | 1409 | 1000 / 2000 |
+| W8 | 68 | 112 | 836 (p50 491) | 300 / — |
+| W10 | 139 | 168 | 331 | 150 / 400 |
+| W15 | 616 | 661 | 1378 | 1500 / 2500 |
+| W16 | 125 | 168 | 223 | 150 / — |
+
+On a quiet host every LAN journey is within budget (final-6). Under load
+from other work on the host, W3, W6, W10 and W16 slip just past. The one
+journey over on every remote pass is W8: thumbnails after a scrub through
+the tunnel (p50 ~400–500 ms); it has no remote budget, and the 300 ms LAN
+one is about two tunnel round trips. Luna CI passed at 3553b70d (one
+PublicSharePage test failed under load in the first run, passed on the
+re-run and 3/3 alone).
