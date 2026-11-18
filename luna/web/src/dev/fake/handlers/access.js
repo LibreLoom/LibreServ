@@ -1719,18 +1719,19 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
     if (found.kind !== "dir") return serveSharedFile(world, r, segments.join("/"), found.name, true);
     zipRoot = found;
   }
-  // `ZIP_MAX_FILES` is what the writer will take: past it the daemon refuses
-  // the whole download rather than sending a cut-off archive.
+  // `ZIP_MAX_FILES` is what the writer will take, and the daemon asks before
+  // it writes each file, so a folder of exactly fifty thousand still zips and
+  // only the next one refuses the whole download.
   let files = 0;
   const countUnder = (list) => {
     for (const e of list || []) {
       if (e.kind === "dir") countUnder(e.children);
       else files += 1;
-      if (files >= 50000) return;
+      if (files > 50000) return;
     }
   };
   countUnder(zipRoot ? zipRoot.children : tree);
-  if (files >= 50000)
+  if (files > 50000)
     return fail(
       400,
       "That folder has too many files to download as one zip. Download smaller folders instead.",
