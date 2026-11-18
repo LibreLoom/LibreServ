@@ -272,16 +272,40 @@ function sentFor(world, key) {
 }
 
 /**
- * `PENDING_DIR` contents for one form, created on first use.
+ * Question pictures the owner uploaded, per form and name. They live in the
+ * same folder as sent attachments, so they count against the same room.
  *
  * @param {any} world
  * @param {string} key
  * @returns {Record<string, number>}
  */
+function picturesFor(world, key) {
+  const all = (world.formPictures ||= {});
+  return (all[key] ||= {});
+}
+
+/**
+ * `PENDING_DIR` contents for one form, created on first use.
+ *
+ * @param {any} world
+ * @param {string} key
+ * @returns {Record<string, { size: number, at: number }>}
+ */
 function pendingFor(world, key) {
   const all = (world.formPending ||= {});
   return (all[key] ||= {});
 }
+
+/** `sweep_pending`: an upload nobody sent an answer for is gone after an hour. */
+function sweepPending(waiting) {
+  const now = nowSec();
+  for (const [name, held] of Object.entries(waiting)) {
+    if (now - (held?.at ?? now) > 60 * 60) delete waiting[name];
+  }
+}
+
+/** The waiting file's size, or 0 when it has expired or is not there. */
+const waitingSize = (held) => (held && typeof held === "object" ? Number(held.size) || 0 : 0);
 get("/api/v1/forms/responses", ({ world, query }) => {
   const list = formsOf(world)[formKey(query)] || [];
   if (query.count) return { count: list.length };
@@ -293,12 +317,25 @@ get("/api/v1/forms/responses", ({ world, query }) => {
 });
 del("/api/v1/forms/responses", ({ world, query }) => {
   const k = formKey(query);
-  formsOf(world)[k] = (formsOf(world)[k] || []).filter((x) => x.id !== query.id);
+  const list = formsOf(world)[k] || [];
+  const gone = list.find((x) => x.id === query.id);
+  // The answer's attachments go with it, freeing the room they held.
+  const sent = sentFor(world, k);
+  for (const value of Object.values(gone?.answers || {}))
+    if (typeof value === "string" && value in sent) delete sent[value];
+  formsOf(world)[k] = list.filter((x) => x.id !== query.id);
   return {};
 });
 get("/api/v1/forms/file", () => json({}));
 post("/api/v1/forms/picture", ({ body }) => ({ name: pathName(body.source) || "picture.png" }));
-post("/api/v1/forms/picture-upload", ({ body }) => ({ name: body.file?.name || "picture.png" }));
+post("/api/v1/forms/picture-upload", ({ world, query, body }) => {
+  const name = body.file?.name || "picture.png";
+  // A picture sits in the form's own folder, so it counts against the room an
+  // attachment would need.
+  const held = picturesFor(world, formKey(query));
+  held[name] = Number(body.file?.size) || 0;
+  return { name };
+});
 put("/api/v1/forms/picture", () => ({}));
 
 // ── Public /s/:token ────────────────────────────────────────────────────────
@@ -2486,6 +2523,7 @@ post("/s/:token/respond", ({ world, params, headers, body }) => {
   // form, or — when editing — files already on this answer.
   const formId = linkFormKey(r.s);
   const waiting = pendingFor(world, formId);
+  sweepPending(waiting);
   const canAttach = (name) => Boolean(waiting[name]) || previous.has(name);
   const shaped = checkAnswers(r.l, body.answers, canAttach);
   if (shaped) return shaped;
@@ -2508,7 +2546,7 @@ post("/s/:token/respond", ({ world, params, headers, body }) => {
     if (typeof name !== "string") continue;
     kept.add(name);
     if (!waiting[name]) continue;
-    sent[name] = waiting[name];
+    sent[name] = waitingSize(waiting[name]);
     delete waiting[name];
   }
   // An edit that swapped or removed a file drops the old one and frees room.
@@ -2559,20 +2597,25 @@ post("/s/:token/respond-file", ({ world, params, headers, raw }) => {
   const formId = linkFormKey(r.s);
   const waiting = pendingFor(world, formId);
   const sent = sentFor(world, formId);
-  const pending = Object.values(waiting).reduce((a, b) => a + b, 0);
+  sweepPending(waiting);
+  const pending = Object.values(waiting).reduce((a, b) => a + waitingSize(b), 0);
   if (pending + size > 256 * 1024 * 1024)
     return fail(
       503,
       "Lots of files are arriving on this form right now. Wait a few minutes and attach it again.",
     );
-  const used = pending + Object.values(sent).reduce((a, b) => a + b, 0);
+  const pictures = picturesFor(world, formId);
+  const used =
+    pending +
+    Object.values(sent).reduce((a, b) => a + b, 0) +
+    Object.values(pictures).reduce((a, b) => a + b, 0);
   if (used + size > 2 * 1024 ** 3)
     return fail(
       507,
       "This form has no room for more files. Ask the person who shared it to clear some out.",
     );
   const name = `${mintHex(16)}.${ext}`;
-  waiting[name] = size;
+  waiting[name] = { size, at: nowSec() };
   return { ok: true, name };
 }, { public: true });
 get("/s/:token/form-image", () => json({}), { public: true });
