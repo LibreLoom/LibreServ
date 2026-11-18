@@ -12,10 +12,16 @@ import { configure } from "@testing-library/react";
  */
 export const ASYNC_TIMEOUT_MS = 10_000;
 
-export function installAsyncDefaults() {
-  configure({ asyncUtilTimeout: ASYNC_TIMEOUT_MS });
-  const waitFor = vi.waitFor.bind(vi);
-  vi.waitFor = (fn, options) =>
+/**
+ * An app's test setup must pass its OWN `configure` and `vi`: an app with its
+ * own node_modules loads its own copies of @testing-library/react and vitest,
+ * and setting this module's copies leaves the app on the 1s default.
+ * @param {{ configure?: typeof configure, vi?: typeof vi }} [libs]
+ */
+export function installAsyncDefaults({ configure: configureLib = configure, vi: viLib = vi } = {}) {
+  configureLib({ asyncUtilTimeout: ASYNC_TIMEOUT_MS });
+  const waitFor = viLib.waitFor.bind(viLib);
+  viLib.waitFor = (fn, options) =>
     waitFor(
       fn,
       typeof options === "number"

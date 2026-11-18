@@ -1,11 +1,14 @@
 import "@testing-library/jest-dom/vitest";
+import { configure } from "@testing-library/react";
+import { vi } from "vitest";
 import { installAsyncDefaults } from "@libreloom/ui/test/waitFor.js";
 import { installContrastCheck } from "@libreloom/ui/test/contrast.js";
 
 // How long async assertions may wait (testing-library and vi.waitFor): see
 // shared/ui/test/waitFor.js. This used to cap them at 4s, and vi.waitFor kept
-// its own 1s default, so heavy pages flaked on a loaded machine.
-installAsyncDefaults();
+// its own 1s default, so heavy pages flaked on a loaded machine. Pass this
+// app's own copies: shared/ui's would leave these tests on the 1s default.
+installAsyncDefaults({ configure, vi });
 
 // Fail any test that leaves text in the same color as the surface behind it.
 installContrastCheck();
