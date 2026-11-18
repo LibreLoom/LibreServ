@@ -827,8 +827,11 @@ kinds:
 - **Resolution.** `mutable_child` trims slashes off both ends, so `/Holiday` is
   `Holiday`; a bare `/` is the shared item. A source that isn't there fails the
   whole move, because every source is resolved before anything moves, while a
-  destination that exists but is a file fails each item as "not a folder". A
-  move that would land where it started, or inside itself, is one refused item.
+  destination that exists but is a file fails each item the way a walk that
+  meets a file always does — the daemon's catch-all, not a wording of its own.
+  A move that would land where it started, or inside itself, is one refused
+  item. The trash alias is refused only as a drive-relative first segment, so a
+  link rooted inside a folder may hold a folder called `.luna-trash`.
 - **Bodies.** A required field that is absent is a missing field; present but
   null is a type error; a wrong type names the type.
 
