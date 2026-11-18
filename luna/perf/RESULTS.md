@@ -272,3 +272,37 @@ Round 10 compared the web at 3553b70d and HEAD side by side (host load
 on both. So W6 and W10 meet budget on a quiet host (final-6: 59.8 fps /
 33 ms, 139 ms) and miss it slightly once the host is busy; nothing since
 regressed them. Luna CI passed at 55c370ab.
+
+## Rounds 11–13 and pass at 7f27d07c (2026-11-18)
+
+- W6: rows behind a moving scroll stay few, rows in place are reused
+  (fa96729e). W10: lighter search rows (7f27d07c), interleaved p95 247 →
+  177 ms at load 2.4–3.8. W8: a requested timeline page draws its
+  on-screen photos first (f190a6ea), remote p95 507 → 328 ms.
+- Fixes found by CI on the way: ModalCard dropped a close that landed
+  before its open effect (55c370ab); the lightbox locked page scroll a
+  frame late (4c1e19b2); Luna web tests ran with testing-library's 1 s
+  wait instead of the intended 10 s, because the shared setup configured
+  shared/ui's own copy (17d5d652) — the source of most "flaky under load"
+  tests. Luna CI passes at 17d5d652.
+
+Clean pass at 7f27d07c (`results/final-9/`, host load ≤ 3.5):
+
+| Journey | LAN p95 | Budget | Remote p95 (budget) |
+|---|---|---|---|
+| W1 | 635 | 1500 ✅ | 1135 (3000) ✅ |
+| W3 | 395 | 500 ✅ | 400 (1000) ✅ |
+| W4 | 237 | 250 ✅ | 310 (600) ✅ |
+| W6 | 59.6 fps, 33–50 ms | 60 fps, 50 ms ✅ | 59.6 fps, 50.1 ms ≈ |
+| W7 | 828 | 1000 ✅ | 910 (2000) ✅ |
+| W8 | 76 | 300 ✅ | 372, p50 334 (—) ⚠ |
+| W9 | 146 | 300 ✅ | 166 (2000) ✅ |
+| W10 | 118 | 150 ✅ | 301 (400) ✅ |
+| W15 | 661 | 1500 ✅ | 1666 (2500) ✅ |
+| W16 | 150.4 | 150 ≈ | 123 (—) |
+
+W8 remote is the one journey still above 300 ms. Through the quick
+tunnel one request takes ~100–150 ms (W9 remote p50 117–150 ms) and the
+screen's thumbnails are ~270 KB, so 300 ms is about two round trips plus
+the transfer; W8 has no remote budget, and the other remote budgets are
+roughly twice the LAN one.
