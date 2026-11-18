@@ -1589,6 +1589,12 @@ function mutableSegments(world, r, raw, { forCreate = false } = {}) {
   // `confined_write` resolves the child first and asks about the wall after,
   // so a path that isn't there is "not there", not "not in this link".
   const tree = treeOf(world, r.l.token, r.s);
+  // A path with a file partway along it is `ENOTDIR` out of the walk, and the
+  // daemon maps that as its catch-all rather than "not there".
+  for (let i = 1; i < segments.length; i += 1) {
+    const midway = nodeAt(tree, segments.slice(0, i));
+    if (midway && !isFolderNode(midway)) return { err: guestBroke() };
+  }
   const exists = Boolean(nodeAt(tree, segments));
   if (!exists && !forCreate)
     return { err: fail(404, "Luna can't find that anymore. Refresh and try again.") };
@@ -1596,6 +1602,12 @@ function mutableSegments(world, r, raw, { forCreate = false } = {}) {
     return { err: fail(404, "That item isn't part of this shared link.") };
   return { segments, tree };
 }
+
+/** A node the tree can walk into. */
+const isFolderNode = (node) => node.kind === "dir" || node.kind === "folder";
+
+/** The daemon's catch-all for a write it couldn't finish. */
+const guestBroke = () => fail(500, "Luna couldn't do that. Check the drive and try again.");
 
 /** A name a drive would take, or the refusal the daemon makes. */
 const guestName = (name) =>
@@ -1627,7 +1639,13 @@ const guestNew = (kind) => ({ world, params, headers, body }) => {
     // the trash alias as its first segment — it never calls `safe_name`, so a
     // leaf called `.luna-trash` below an existing folder is just a folder, and
     // a name past what a filesystem takes fails as an ordinary write error.
-    if (guestInternal(segments) || segments[0] === ".luna-trash")
+    // `mkdir_as` reads the *drive-relative* first segment, so a link rooted at
+    // `Holiday` may hold a folder called `.luna-trash`.
+    const subjectSegments = String(r.s.path || "")
+      .split("/")
+      .filter(Boolean);
+    const driveFirst = [...subjectSegments, ...segments][0];
+    if (guestInternal(segments) || driveFirst === ".luna-trash")
       return fail(400, "That name isn't allowed here.");
   } else if (!safeName(name) || guestInternal(segments)) {
     // `files::create` holds the leaf to `safe_name` and the temp-name bar; a
@@ -1744,11 +1762,11 @@ post("/s/:token/move", ({ world, params, headers, body }) => {
     const name = segments[segments.length - 1];
     const at = level ? level.findIndex((e) => e.name === name) : -1;
     if (at >= 0 && !destIsDir) {
-      results.push({
+        results.push({
         path: rawPath,
         ok: false,
-        status: 400,
-        error: "That destination isn't a folder.",
+        status: 500,
+        error: "Luna couldn't do that. Check the drive and try again.",
       });
       continue;
     }
@@ -1761,7 +1779,6 @@ post("/s/:token/move", ({ world, params, headers, body }) => {
       });
       continue;
     }
-    // `files::move_rel` refuses a folder moved into itself or below itself.
     // `move_rel` refuses when the item would land where it already is, or
     // inside itself — the destination with the leaf, not the folder alone.
     const toRel = [...destSegments, name].join("/");
