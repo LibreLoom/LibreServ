@@ -1544,7 +1544,7 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
         size: 120_000,
         modified: nowSec() - 86400,
         created: nowSec() - 86400 * 30,
-        hidden: false,
+        hidden: String(r.s.name || "").startsWith("."),
         ...stamp,
         writable: false,
       },
@@ -1552,12 +1552,32 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
   }
   // A guest who opens a folder sees that folder's entries, not the root again.
   const tree = treeOf(world, params.token, r.s);
+  // `public_list` stamps `original_name` on a trash listing, so the page shows
+  // the name the item had rather than the `{nonce}-` name on disk.
+  const inTrashRoot = isTrashApi(String(r.s.path || "").replace(/^\/+|\/+$/g, ""));
+  const trashOrigin = (name) => {
+    if (!inTrashRoot) return {};
+    let entries = [];
+    try {
+      entries = fsOf(world, r.s.drive_id || "d1").trash || [];
+    } catch {
+      entries = [];
+    }
+    const hit = entries.find((t) => t.key === name);
+    if (!hit) return {};
+    return { original_name: String(hit.original_path || "").split("/").pop() || "" };
+  };
+  const shown = (e) => ({ ...e, hidden: String(e.name || "").startsWith("."), ...trashOrigin(e.name) });
   // `public_list` drops hidden entries and Luna's own marker folders before it
   // answers, so a dotfile or a `.luna-` marker is never listed to a guest.
   const visible = (e) => !e.hidden && !isInternalName(e.name);
   if (!segments.length)
+    // The daemon drops a hidden name before it answers, whatever the entry's
+    // own flag said, so the name decides on this side too.
     return listing(
-      tree.filter((e) => visible(e) && linkReaches(world, r.l, e.name, r.s.drive_id, r.s.path)),
+      tree
+        .map(shown)
+        .filter((e) => visible(e) && linkReaches(world, r.l, e.name, r.s.drive_id, r.s.path)),
     );
   let level = tree;
   for (const [i, seg] of segments.entries()) {
@@ -1583,11 +1603,13 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
     level = found.children || [];
   }
   return listing(
-    level.filter(
-      (e) =>
-        visible(e) &&
-        linkReaches(world, r.l, [...segments, e.name].join("/"), r.s.drive_id, r.s.path),
-    ),
+    level
+      .map(shown)
+      .filter(
+        (e) =>
+          visible(e) &&
+          linkReaches(world, r.l, [...segments, e.name].join("/"), r.s.drive_id, r.s.path),
+      ),
   );
 });
 // `GET /s/:token/zip`: an album link zips the album, a folder link zips that
@@ -2237,7 +2259,9 @@ publicGet("/s/:token/stat", ({ world, params, query, headers }) => {
     size: entry.size ?? (entry.kind === "dir" ? 0 : 120_000),
     modified: nowSec() - 86400,
     created: nowSec() - 86400 * 30,
-    hidden: Boolean(entry.hidden),
+    // `files::stat` reads `hidden` off the name, so a dot-named item is hidden
+    // whatever the tree says about it.
+    hidden: String(entry.name || "").startsWith("."),
     // `CAP_ALL` ("full") includes `CAP_EDIT`, and the share's own root is
     // never writable whatever the capability says: the daemon compares the
     // resolved drive path against the link's own path.
