@@ -432,7 +432,7 @@ function isTrashApi(rel) {
  * @returns {string}
  */
 function trashRealName(world) {
-  world.trashReal ||= `.luna-${mintHex(8)}-${mintHex(4)}-${mintHex(4)}-${mintHex(12)}-trash`;
+  world.trashReal ||= `.luna-${mintHex(8)}-${mintHex(4)}-${mintHex(4)}-${mintHex(4)}-${mintHex(12)}-trash`;
   return world.trashReal;
 }
 
@@ -1207,6 +1207,15 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
     // carries no `children` or `totals` key at all, because both are skipped
     // when empty rather than printed as null.
     const subjectRel = String(r.s.path || "").replace(/^\/+|\/+$/g, "");
+    // `files::stat` stamps `private` on the item that *is* a private share and
+    // `in_private` on one protected by a boundary above it, and prints neither
+    // when there is none — an ordinary file carries no such keys at all.
+    const boundary = privateBoundary(world, r.s.drive_id, subjectRel);
+    const stamp = boundary
+      ? boundary.path === subjectRel
+        ? { private: true }
+        : { in_private: true }
+      : {};
     return listing([
       {
         name: r.s.name,
@@ -1215,9 +1224,7 @@ publicGet("/s/:token/list", ({ world, params, query, headers }) => {
         modified: nowSec() - 86400,
         created: nowSec() - 86400 * 30,
         hidden: false,
-        // `files::stat` marks an item that sits inside a private share, and the
-        // listing passes that stamp through.
-        private: Boolean(privateBoundary(world, r.s.drive_id, subjectRel)),
+        ...stamp,
         writable: false,
       },
     ]);
