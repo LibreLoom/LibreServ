@@ -173,14 +173,8 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
     // drive's space until the next restart.
     {
         let db = state.db.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(std::time::Duration::from_secs(60 * 60)).await;
-                let db = db.clone();
-                let _ =
-                    tokio::task::spawn_blocking(move || lunad::files::uploads::sweep_orphans(&db))
-                        .await;
-            }
+        lunad::clock::every(std::time::Duration::from_secs(60 * 60), false, move || {
+            lunad::files::uploads::sweep_orphans(&db)
         });
     }
 
@@ -306,7 +300,8 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
         std::thread::Builder::new()
             .name("luna-console-help".into())
             // Rebuilds the screen on network, database and Connect changes,
-            // with a 5-minute heartbeat for luna-console's liveness check.
+            // with a 30-minute look for text that changes with time; holds the
+            // lock luna-console reads to tell that lunad is running.
             .spawn(move || lunad::system::console::run(&data_dir, &db, &connect, stop))
             .ok();
     }
@@ -317,13 +312,10 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
     // every 6 hours in case the kernel dropped events unnoticed; a drive
     // without one (watch limit reached) every 15 minutes (D3).
     let rescan_state = state.clone();
-    bg_tasks.push(tokio::spawn(async move {
+    {
         const WATCHED_EVERY: u32 = 24;
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(15 * 60));
-        ticker.tick().await;
         let mut ticks = 0u32;
-        loop {
-            ticker.tick().await;
+        lunad::clock::every(std::time::Duration::from_secs(15 * 60), false, move || {
             ticks = ticks.wrapping_add(1);
             let all = ticks.is_multiple_of(WATCHED_EVERY);
             let drives = rescan_state
@@ -340,27 +332,35 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
             if !drives.is_empty() {
                 rescan_state.search_index.rescan(drives, false);
             }
-        }
-    }));
+        });
+    }
 
+    // Drive health: has a drive gone read-only? The clock thread only reads
+    // the drive list and mount flags; a probe that writes (only when the drive
+    // was written since, or hourly: DriveManager::health_probe, so an idle disk
+    // can spin down) runs on its own thread, without the database lock, since
+    // it can wait seconds on a USB disk spinning up. One probe at a time.
     let health_db = state.db.clone();
     let health_drives = state.drive_manager.clone();
-    bg_tasks.push(tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(15 * 60));
-        loop {
-            ticker.tick().await;
-            // Probe writes can wait seconds on a USB disk spinning up: do them
-            // on a blocking thread and without the database lock.
-            let (db, drives) = (health_db.clone(), health_drives.clone());
-            let _ = tokio::task::spawn_blocking(move || {
-                let Some(rows) = db.lock().ok().and_then(|c| lunad::db::list_drives(&c).ok())
-                else {
-                    return;
-                };
+    let probing = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    lunad::clock::every(std::time::Duration::from_secs(15 * 60), true, move || {
+        use std::sync::atomic::Ordering;
+        let Some(rows) = health_db
+            .lock()
+            .ok()
+            .and_then(|c| lunad::db::list_drives(&c).ok())
+        else {
+            return;
+        };
+        if !health_drives.health_probe_due(&rows) || probing.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let (db, drives, busy) = (health_db.clone(), health_drives.clone(), probing.clone());
+        let spawned = std::thread::Builder::new()
+            .name("luna-drive-probe".into())
+            .spawn(move || {
                 let changes = drives.health_probe(&rows);
-                if changes.is_empty() {
-                    return;
-                }
+                busy.store(false, Ordering::Release);
                 let Ok(conn) = db.lock() else { return };
                 for (id, was, state) in changes {
                     // Skip a drive whose state moved on while it was probed
@@ -373,10 +373,11 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
                         let _ = lunad::db::set_drive_state(&conn, &id, state);
                     }
                 }
-            })
-            .await;
+            });
+        if spawned.is_err() {
+            probing.store(false, Ordering::Release);
         }
-    }));
+    });
 
     // Reclaimable RAM caches: shrink thumbs/listings under MemAvailable pressure;
     // flush dirty writes early rather than dropping them.
@@ -410,7 +411,7 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
                 cache.idle_left(IDLE_EXPIRY),
             );
             let stall = tokio::select! {
-                _ = tokio::time::sleep(wait) => false,
+                _ = lunad::clock::sleep(wait) => false,
                 _ = stalled.notified() => true,
             };
             // Expiry is a quick in-memory clear; an emptied cache has nothing
@@ -460,7 +461,7 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
             Default::default();
         loop {
             tokio::select! {
-                _ = tokio::time::sleep(wait) => {}
+                _ = lunad::clock::sleep(wait) => {}
                 _ = lunad::drives::ram_cache::drive_written() => {
                     // Let a burst of writes finish, then write them out together.
                     tokio::time::sleep(TICK).await;
@@ -542,7 +543,7 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
 
     let updates_bg = state.updates.clone();
     bg_tasks.push(tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
+        let mut ticker = lunad::clock::interval(std::time::Duration::from_secs(3600));
         ticker.tick().await;
         loop {
             let svc = updates_bg.clone();
@@ -562,7 +563,7 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
     let cloud_connect = state.connect.clone();
     let cloud_health = state.health_cache.clone();
     bg_tasks.push(tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(6 * 60 * 60));
+        let mut ticker = lunad::clock::interval(std::time::Duration::from_secs(6 * 60 * 60));
         loop {
             ticker.tick().await;
             let db = cloud_db.clone();
@@ -597,7 +598,7 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
         loop {
             if move_connect.is_connect_active() {
                 tokio::select! {
-                    _ = tokio::time::sleep(wait) => {}
+                    _ = lunad::clock::sleep(wait) => {}
                     _ = lunad::backup::cloud::rewrap::nudged() => wait = STEP_GAP,
                 }
             } else {
@@ -630,7 +631,7 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
     let check_connect = state.connect.clone();
     let check_health = state.health_cache.clone();
     bg_tasks.push(tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
+        let mut ticker = lunad::clock::interval(std::time::Duration::from_secs(24 * 60 * 60));
         loop {
             ticker.tick().await;
             let db = check_db.clone();
@@ -661,9 +662,18 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
         if rebuilt > 0 {
             backups_health.invalidate();
         }
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
+        let mut ticker = lunad::clock::interval(std::time::Duration::from_secs(30 * 60));
         loop {
             ticker.tick().await;
+            // No drive backup at all (the usual idle case): no blocking thread.
+            let any = backups_db
+                .lock()
+                .ok()
+                .and_then(|c| lunad::db::list_protections(&c).ok())
+                .is_none_or(|rows| rows.iter().any(|r| r.kind == lunad::db::PROTECTION_DRIVE));
+            if !any {
+                continue;
+            }
             let db = backups_db.clone();
             let changed = tokio::task::spawn_blocking(move || {
                 lunad::backup::drive_backup::run_all(&db, lunad::db::now_unix())
@@ -681,7 +691,7 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
     let scrub_state = state.clone();
     bg_tasks.push(tokio::spawn(async move {
         loop {
-            tokio::time::sleep(lunad::drives::scrub::next_night_look(
+            lunad::clock::sleep(lunad::drives::scrub::next_night_look(
                 std::time::Duration::from_secs(10 * 60),
             ))
             .await;
@@ -746,7 +756,7 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
     let trim_state = state.clone();
     bg_tasks.push(tokio::spawn(async move {
         loop {
-            tokio::time::sleep(lunad::drives::scrub::next_night_look(
+            lunad::clock::sleep(lunad::drives::scrub::next_night_look(
                 std::time::Duration::from_secs(30 * 60),
             ))
             .await;

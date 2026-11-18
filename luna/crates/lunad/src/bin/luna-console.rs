@@ -1,9 +1,10 @@
 //! Live HDMI status screen + getty-shaped login for Luna OS tty1.
 //!
-//! lunad rewrites `{LUNA_DATA_DIR}/issue` when its status changes and touches
-//! its mtime at least every few minutes (`console::HEARTBEAT_SECS`) even when
-//! nothing changed. This binary redraws when the painted screen changes, then
-//! hands a username to `/bin/login`.
+//! lunad rewrites `{LUNA_DATA_DIR}/issue` when its status changes, touches
+//! its mtime at least every `console::HEARTBEAT_SECS` even when nothing
+//! changed, and holds `console::ALIVE_LOCK_FILE` next to it while it runs.
+//! This binary redraws when the painted screen changes, then hands a username
+//! to `/bin/login`.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
@@ -15,7 +16,7 @@ use std::process::Command;
 use std::thread;
 use std::time::{Duration, SystemTime};
 
-use lunad::system::console::{STALE_NOTE_LINE1, STALE_NOTE_LINE2, is_issue_stale};
+use lunad::system::console::{STALE_NOTE_LINE1, STALE_NOTE_LINE2, issue_stale};
 
 const DEFAULT_TTY: &str = "/dev/tty1";
 const DEFAULT_ISSUE: &str = "/var/lib/luna/issue";
@@ -50,10 +51,10 @@ fn run() -> io::Result<()> {
 
     loop {
         let (body, mtime) = read_issue(&issue_path);
-        let screen = compose_screen(&body, is_issue_stale(mtime), &username);
+        let screen = compose_screen(&body, issue_stale(&issue_path, mtime), &username);
 
         // Repaint only when the visible screen changes. lunad heartbeats the
-        // issue file mtime every few minutes; that must not flicker the VT.
+        // issue file mtime now and then; that must not flicker the VT.
         if screen != last_paint {
             paint(&screen)?;
             last_paint = screen;
@@ -66,7 +67,7 @@ fn run() -> io::Result<()> {
                     username.push(c);
                     // Echo grows on the same line; full repaint keeps layout stable.
                     let (body, mtime) = read_issue(&issue_path);
-                    let screen = compose_screen(&body, is_issue_stale(mtime), &username);
+                    let screen = compose_screen(&body, issue_stale(&issue_path, mtime), &username);
                     paint(&screen)?;
                     last_paint = screen;
                 }
@@ -74,7 +75,7 @@ fn run() -> io::Result<()> {
             Some(Key::Backspace) => {
                 username.pop();
                 let (body, mtime) = read_issue(&issue_path);
-                let screen = compose_screen(&body, is_issue_stale(mtime), &username);
+                let screen = compose_screen(&body, issue_stale(&issue_path, mtime), &username);
                 paint(&screen)?;
                 last_paint = screen;
             }
@@ -93,7 +94,7 @@ fn run() -> io::Result<()> {
             Some(Key::CtrlC) | Some(Key::CtrlD) => {
                 username.clear();
                 let (body, mtime) = read_issue(&issue_path);
-                let screen = compose_screen(&body, is_issue_stale(mtime), &username);
+                let screen = compose_screen(&body, issue_stale(&issue_path, mtime), &username);
                 paint(&screen)?;
                 last_paint = screen;
             }
@@ -251,7 +252,7 @@ fn exec_login(login_bin: &str, username: &str, orig: &libc::termios) -> io::Resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lunad::system::console::STALE_SECS;
+    use lunad::system::console::{STALE_SECS, is_issue_stale};
 
     #[test]
     fn compose_omits_stale_note_when_fresh() {

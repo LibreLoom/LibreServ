@@ -160,7 +160,16 @@ pub struct DriveManager {
     /// would pin the old partition table and could even resurrect the old
     /// filesystem.
     formatting_devices: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    /// Per drive, its write generation ([`crate::drives::ram_cache::drive_write_gen`])
+    /// and the time of the last write probe that passed. See [`Self::health_probe`].
+    write_probes:
+        Arc<std::sync::Mutex<std::collections::HashMap<String, (u64, std::time::Instant)>>>,
 }
+
+/// With nothing written to a drive, its health check writes a probe file only
+/// this often; in between it reads the mount's read-only flag, so an idle USB
+/// disk is not spun up (and lunad not woken for the write) every 15 minutes.
+pub const WRITE_PROBE_EVERY: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 
 /// Keeps a disk out of background probing until dropped. See
 /// [`DriveManager::begin_formatting_device`].
@@ -217,6 +226,7 @@ impl DriveManager {
             closing: Arc::default(),
             marker_memo: Arc::default(),
             formatting_devices: Arc::default(),
+            write_probes: Arc::default(),
         }
     }
 
@@ -1008,21 +1018,25 @@ impl DriveManager {
     /// never holds the database lock while a USB disk spins up.
     pub fn health_probe(&self, rows: &[db::DriveRow]) -> Vec<(String, String, &'static str)> {
         let mut changes = Vec::new();
-        for drive in rows {
-            if drive.mount_point.is_empty() {
-                continue;
-            }
-            if drive.state != "as_is" && drive.state != "readonly" {
-                continue;
-            }
-            if self.is_closing(&drive.id) {
-                continue;
-            }
+        for drive in self.health_targets(rows) {
             let root = std::path::Path::new(&drive.mount_point);
-            if !self.mounter.is_mounted(root) {
-                continue;
-            }
-            let writable = self.ensure_writable_mount(root);
+            let written = crate::drives::ram_cache::drive_write_gen(&drive.id);
+            let writable = if self.write_probe_due(&drive.id, &drive.state, written) {
+                let ok = self.ensure_writable_mount(root);
+                if let Ok(mut g) = self.write_probes.lock() {
+                    if ok {
+                        g.insert(drive.id.clone(), (written, std::time::Instant::now()));
+                    } else {
+                        g.remove(&drive.id);
+                    }
+                }
+                ok
+            } else if mount_is_read_only(root) {
+                // The kernel flipped it read-only (errors=remount-ro).
+                self.ensure_writable_mount(root)
+            } else {
+                true
+            };
             let next = match (drive.state.as_str(), writable) {
                 ("as_is", false) => "readonly",
                 ("readonly", true) => "as_is",
@@ -1031,6 +1045,49 @@ impl DriveManager {
             changes.push((drive.id.clone(), drive.state.clone(), next));
         }
         changes
+    }
+
+    /// The drives [`Self::health_probe`] looks at: mounted, not closing, and
+    /// either in normal use or marked read-only.
+    fn health_targets<'a>(
+        &'a self,
+        rows: &'a [db::DriveRow],
+    ) -> impl Iterator<Item = &'a db::DriveRow> + 'a {
+        rows.iter().filter(|d| {
+            !d.mount_point.is_empty()
+                && (d.state == "as_is" || d.state == "readonly")
+                && !self.is_closing(&d.id)
+                && self
+                    .mounter
+                    .is_mounted(std::path::Path::new(&d.mount_point))
+        })
+    }
+
+    /// Whether [`Self::health_probe`] would touch any drive's disk now (a
+    /// write probe, or a remount of one the kernel made read-only). False
+    /// means it would change nothing; telling costs no disk I/O, so a caller
+    /// can skip starting a thread for the probe.
+    pub fn health_probe_due(&self, rows: &[db::DriveRow]) -> bool {
+        self.health_targets(rows).any(|d| {
+            let written = crate::drives::ram_cache::drive_write_gen(&d.id);
+            self.write_probe_due(&d.id, &d.state, written)
+                || mount_is_read_only(std::path::Path::new(&d.mount_point))
+        })
+    }
+
+    /// Whether [`Self::health_probe`] writes a probe file to this drive now:
+    /// it is marked read-only (to see it recover), was never probed, was
+    /// written since the last probe (so it is awake anyway), or its last
+    /// probe is [`WRITE_PROBE_EVERY`] old.
+    fn write_probe_due(&self, id: &str, state: &str, written: u64) -> bool {
+        if state == "readonly" {
+            return true;
+        }
+        let Ok(g) = self.write_probes.lock() else {
+            return true;
+        };
+        g.get(id)
+            .is_none_or(|&(gen_at, at)| gen_at != written || at.elapsed() >= WRITE_PROBE_EVERY)
     }
 
     /// Probe writes; if that fails, remount RW once and probe again.
@@ -1582,6 +1639,21 @@ fn is_erofs(err: &impl std::fmt::Display) -> bool {
         || text.contains("erofs")
         || text.contains("os error 30")
         || text.contains("read-only filesystem")
+}
+
+/// True when the filesystem holding `root` is mounted read-only right now.
+/// Only reads the kernel's mount flags: no disk I/O.
+fn mount_is_read_only(root: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(path) = std::ffi::CString::new(root.as_os_str().as_bytes()) else {
+        return false;
+    };
+    let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: `path` is NUL-terminated and `st` is a valid out-pointer.
+    if unsafe { libc::statvfs(path.as_ptr(), &mut st) } != 0 {
+        return false;
+    }
+    st.f_flag & libc::ST_RDONLY != 0
 }
 
 /// Safe create/write/sync/delete probe — shared by adoption and health checks.
@@ -2471,6 +2543,38 @@ mod tests {
             perms.set_mode(0o755);
             std::fs::set_permissions(&row.mount_point, perms).unwrap();
         }
+    }
+
+    #[test]
+    fn health_check_writes_a_probe_only_after_writes_or_hourly() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter, dir);
+        let row = mgr
+            .adopt(&conn, &detected("sdz", None), "Probe Drive")
+            .unwrap();
+        let written = || crate::drives::ram_cache::drive_write_gen(&row.id);
+        assert!(mgr.write_probe_due(&row.id, "as_is", written()));
+        let rows = db::list_drives(&conn).unwrap();
+        assert!(mgr.health_probe_due(&rows));
+        mgr.health_check(&conn).unwrap();
+        assert!(!mgr.write_probe_due(&row.id, "as_is", written()));
+        assert!(!mgr.health_probe_due(&rows));
+        // A read-only drive is always probed, to see it recover.
+        assert!(mgr.write_probe_due(&row.id, "readonly", written()));
+        crate::drives::ram_cache::note_drive_write(&row.id);
+        assert!(mgr.write_probe_due(&row.id, "as_is", written()));
+        mgr.health_check(&conn).unwrap();
+        assert!(!mgr.write_probe_due(&row.id, "as_is", written()));
+        let old = std::time::Instant::now() - WRITE_PROBE_EVERY;
+        mgr.write_probes
+            .lock()
+            .unwrap()
+            .insert(row.id.clone(), (written(), old));
+        assert!(mgr.write_probe_due(&row.id, "as_is", written()));
+        assert!(!mount_is_read_only(Path::new(&row.mount_point)));
     }
 
     #[test]

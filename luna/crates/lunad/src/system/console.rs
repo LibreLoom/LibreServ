@@ -7,9 +7,10 @@
 //! The text is rebuilt when something it shows changes: a link, address or
 //! route change (rtnetlink), a row in the tables it reads (SQLite update
 //! hook), or a Connect status change ([`ConnectShown`]). Anything that only
-//! changes with time (disk space, the clock, "not backed up in a day") is
-//! caught by the [`HEARTBEAT_SECS`] look, which also keeps the file's mtime
-//! fresh for luna-console's liveness check.
+//! changes with time (disk space, "not backed up in a day") is
+//! caught by the [`HEARTBEAT_SECS`] look. luna-console tells whether lunad
+//! is running from the lock lunad holds ([`ALIVE_LOCK_FILE`]); the file's
+//! mtime only backs that up for a lunad that runs but stopped looking.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -23,17 +24,24 @@ pub const BANNER_PROBLEMS: &str = "Luna needs attention. Check the notes below."
 pub const ISSUE_FILE: &str = "issue";
 
 /// The slowest lunad looks again with nothing reported: it rebuilds the text
-/// and, when nothing changed, only touches the file's mtime.
-pub const HEARTBEAT_SECS: u64 = 5 * 60;
+/// and, when nothing changed, only touches the file's mtime. Liveness comes
+/// from [`ALIVE_LOCK_FILE`], so this only bounds how late text that changes
+/// with time alone (disk space, "not backed up in a day") can be (D3).
+pub const HEARTBEAT_SECS: u64 = 30 * 60;
 
 /// How long after the last issue write before luna-console warns that lunad
-/// may not be updating the screen.
+/// may not be updating the screen, even though lunad still holds its lock (a
+/// lunad that hangs). A lunad that is not running shows the note at once.
 ///
 /// lunad rewrites (or touches) `{data_dir}/issue` on every look, at least every
-/// [`HEARTBEAT_SECS`], even when the text is unchanged, so this stays a true
-/// liveness check. Two missed heartbeats plus slack, so one slow look on a
-/// busy box doesn't show the note.
+/// [`HEARTBEAT_SECS`], even when the text is unchanged. Two missed heartbeats
+/// plus slack, so one slow look on a busy box doesn't show the note.
 pub const STALE_SECS: u64 = 2 * HEARTBEAT_SECS + 120;
+
+/// lunad holds an exclusive `flock` on this file, next to the issue file, for
+/// as long as it runs; the kernel drops the lock when lunad exits for any
+/// reason. luna-console tests it instead of waiting for the mtime to age.
+pub const ALIVE_LOCK_FILE: &str = "lunad.lock";
 const _: () = assert!(STALE_SECS > 2 * HEARTBEAT_SECS);
 
 /// Without kernel network events (no netlink), look this often instead.
@@ -60,6 +68,56 @@ pub fn is_issue_stale(mtime: Option<SystemTime>) -> bool {
         // Clock skew (mtime in the future): treat as fresh.
         Err(_) => false,
     }
+}
+
+/// The liveness lock that goes with the issue file at `issue`.
+pub fn alive_lock_path(issue: &Path) -> PathBuf {
+    issue.with_file_name(ALIVE_LOCK_FILE)
+}
+
+/// Take lunad's liveness lock. Keep the returned file open while lunad runs.
+/// `None` when it can't be taken (luna-console then goes by the mtime alone).
+pub fn hold_alive_lock(data_dir: &Path) -> Option<std::fs::File> {
+    use std::os::fd::AsRawFd;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(data_dir.join(ALIVE_LOCK_FILE))
+        .ok()?;
+    // luna-console takes a shared lock for an instant each time it looks
+    // (every 250 ms), so try for a second before giving up.
+    for _ in 0..40 {
+        // SAFETY: flock on a file descriptor this function owns.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            return Some(file);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    None
+}
+
+/// Whether a lunad holds the lock at `lock`. `None` when that can't be told:
+/// no lock file (a lunad from before the lock), or it can't be opened.
+pub fn lunad_running(lock: &Path) -> Option<bool> {
+    use std::os::fd::AsRawFd;
+    let file = std::fs::File::open(lock).ok()?;
+    // SAFETY: flock on a file descriptor this function owns; closing the
+    // file below releases a lock taken here.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } == 0 {
+        return Some(false);
+    }
+    (std::io::Error::last_os_error().raw_os_error() == Some(libc::EWOULDBLOCK)).then_some(true)
+}
+
+/// What luna-console shows: the issue file at `issue` (last written at
+/// `mtime`) is out of date because lunad is not running, or because it has
+/// not looked for [`STALE_SECS`]. A missing file is not stale.
+pub fn issue_stale(issue: &Path, mtime: Option<SystemTime>) -> bool {
+    if mtime.is_none() {
+        return false;
+    }
+    lunad_running(&alive_lock_path(issue)) == Some(false) || is_issue_stale(mtime)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -314,6 +372,8 @@ pub fn run(
     connect: &crate::net::connect::ConnectService,
     stop: Arc<AtomicBool>,
 ) {
+    // Held until this loop ends, i.e. for lunad's lifetime.
+    let _alive = hold_alive_lock(data_dir);
     let backstop = if spawn_net_watch() {
         Duration::from_secs(HEARTBEAT_SECS)
     } else {
@@ -547,6 +607,46 @@ mod tests {
             ..Default::default()
         });
         assert!(text.contains("has an address but can't reach the internet"));
+    }
+
+    #[test]
+    fn lock_tells_luna_console_whether_lunad_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let issue = issue_path(dir.path());
+        let lock = alive_lock_path(&issue);
+        assert_eq!(lunad_running(&lock), None);
+        let fresh = Some(SystemTime::now());
+        let held = hold_alive_lock(dir.path()).expect("lock taken");
+        assert_eq!(lunad_running(&lock), Some(true));
+        assert!(!issue_stale(&issue, fresh));
+        // Only one lunad holds it.
+        assert!(hold_alive_lock(dir.path()).is_none());
+        drop(held);
+        assert_eq!(lunad_running(&lock), Some(false));
+        assert!(issue_stale(&issue, fresh));
+        // No issue file yet: luna-console shows its own "starting" text.
+        assert!(!issue_stale(&issue, None));
+    }
+
+    #[test]
+    fn lunad_takes_the_lock_past_a_look_from_luna_console() {
+        use std::os::fd::AsRawFd;
+        let dir = tempfile::tempdir().unwrap();
+        let lock = dir.path().join(ALIVE_LOCK_FILE);
+        std::fs::write(&lock, b"").unwrap();
+        // luna-console's shared lock, held a little longer than a real look.
+        let look = std::fs::File::open(&lock).unwrap();
+        // SAFETY: flock on a file descriptor this test owns.
+        assert_eq!(
+            unsafe { libc::flock(look.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) },
+            0
+        );
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            drop(look);
+        });
+        assert!(hold_alive_lock(dir.path()).is_some());
+        release.join().unwrap();
     }
 
     #[test]

@@ -50,6 +50,7 @@ pub mod api;
 pub mod auth;
 pub mod backup;
 pub mod budget;
+pub mod clock;
 pub mod config;
 pub mod datadir;
 pub mod db;
