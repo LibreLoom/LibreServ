@@ -1513,8 +1513,13 @@ publicGet("/s/:token/media", ({ world, params, query, headers }) => {
   const body = url.slice(comma + 1);
   // `serve_media_path` and `resolve_browser_safe_file` both read the type off
   // the name, so a photo's stand-in payload never decides what it is. A thumb
-  // is always the JPEG the daemon built.
-  const type = variant === "thumb" ? "image/jpeg" : mimeFromName(photo.name || "photo.jpg");
+  // is always the JPEG the daemon built, and a HEIC photo is shown as the JPEG
+  // preview the daemon makes for it, under a `.jpg` name.
+  const photoName = String(photo.name || "photo");
+  const heic = /\.(heic|heif)$/i.test(photoName);
+  // A download hands over the file itself, so only the shown preview is a JPEG.
+  const preview = heic && variant !== "download";
+  const type = variant === "thumb" || preview ? "image/jpeg" : mimeFromName(photoName);
   const bytes = /;base64/i.test(meta)
     ? Uint8Array.from(atob(body), (ch) => ch.charCodeAt(0))
     : new TextEncoder().encode(decodeURIComponent(body));
@@ -1522,7 +1527,9 @@ publicGet("/s/:token/media", ({ world, params, query, headers }) => {
   // streamed as an image with no name at all. `serve_media_path` turns the
   // inline case into a download whenever the type could run as a document, so
   // a crafted row cannot render markup on this origin.
-  const name = dispositionName(photo.name || "photo");
+  const name = dispositionName(
+    preview ? `${photoName.replace(/\.[^./]*$/, "") || "photo"}.jpg` : photoName,
+  );
   const disposition =
     variant === "download"
       ? { "Content-Disposition": `attachment; filename="${name}"` }
