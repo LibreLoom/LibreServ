@@ -321,7 +321,7 @@ get("/api/v1/forms/responses", ({ world, user, query }) => {
 del("/api/v1/forms/responses", ({ world, user, query }) => {
   const m = managedForm(world, user, query.drive_id, query.path);
   if (m.err) return m.err;
-  const id = String(query.id ?? "").trim();
+  const id = rustTrim(query.id);
   // An id is what says which answer to remove, so its absence is the request's
   // own fault, not a missing record.
   if (!id)
@@ -519,7 +519,7 @@ function open(w, token, headers) {
  * @returns {string[] | null} segments, or null when the path is refused
  */
 function linkSegments(raw) {
-  const extra = String(raw ?? "").trim();
+  const extra = rustTrim(raw);
   if (extra.startsWith("/") || extra.includes("\\")) return null;
   if (!extra) return [];
   // Rust's path components drop an interior `.` (`a/./b` reads as `a/b`) but
@@ -739,6 +739,13 @@ function linkReaches(world, link, rel, driveId, subjectPath) {
  * @param {string} name
  * @returns {string}
  */
+/** Rust's `str::trim`: the White_Space property, which leaves a BOM alone. */
+const WS_CHARS = "\t\n\u000b\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000";
+const WS_ENDS = new RegExp(`^[${WS_CHARS}]+|[${WS_CHARS}]+$`, "g");
+function rustTrim(value) {
+  return String(value ?? "").replace(WS_ENDS, "");
+}
+
 function dispositionName(name) {
   // Rust's `is_control()` covers C0, DEL and C1, and `take(180)` counts
   // characters rather than UTF-16 units, so an emoji is one of the 180.
@@ -750,7 +757,7 @@ function dispositionName(name) {
     .filter((c) => !'"\\/:'.includes(c))
     .slice(0, 180)
     .join("");
-  const cleaned = chars.trim();
+  const cleaned = rustTrim(chars);
   return !cleaned || cleaned === "." || cleaned === ".." ? "download" : cleaned;
 }
 
@@ -793,7 +800,7 @@ function managedForm(world, user, drive, path) {
  */
 function capSet(caps) {
   const parts = (Array.isArray(caps) ? caps : String(caps || "").split("+"))
-    .map((part) => String(part).trim().toLowerCase())
+    .map((part) => rustTrim(part).toLowerCase())
     .filter(Boolean);
   if (parts.includes("full") || parts.includes("edit"))
     return new Set(["view", "upload", "edit"]);
@@ -948,7 +955,7 @@ function answerValueOk(value) {
 /** `is_answered`: a non-empty string, a non-empty list, or any scalar. */
 function isAnswered(value) {
   if (value === undefined || value === null) return false;
-  if (typeof value === "string") return value.trim() !== "";
+  if (typeof value === "string") return rustTrim(value) !== "";
   if (Array.isArray(value)) return value.length > 0;
   return true;
 }
@@ -957,7 +964,7 @@ function isAnswered(value) {
 function questionOptions(question) {
   const list = question?.config?.options;
   if (!Array.isArray(list)) return [];
-  return list.filter((o) => typeof o === "string" && o.trim() !== "");
+  return list.filter((o) => typeof o === "string" && rustTrim(o) !== "");
 }
 
 /** `allows_other`: a choice that also takes a typed answer. */
@@ -978,7 +985,7 @@ function numberInRange(question, n) {
 
 /** `email_ok`: trimmed, one `@`, a dotted domain that does not start or end there. */
 function emailOk(value) {
-  const text = String(value).trim();
+  const text = rustTrim(value);
   const parts = text.split("@");
   if (parts.length !== 2) return false;
   const [local, domain] = parts;
@@ -1098,7 +1105,7 @@ function checkAnswers(l, answers, canAttach) {
   for (const question of questions) {
     // The label names the question in a refusal only when it is real text.
     const label =
-      (typeof question.label === "string" && question.label.trim()) || "A question";
+      (typeof question.label === "string" && rustTrim(question.label)) || "A question";
     const value = answers[question.id];
     const answered = isAnswered(value);
     // A hidden question is not required; a value sent for it anyway still has
@@ -1208,7 +1215,7 @@ function safeName(name) {
   const raw = String(name ?? "");
   // A path separator or an embedded NUL is not a name a drive can hold.
   if (raw.includes("/") || raw.includes("\\") || raw.includes(String.fromCharCode(0))) return null;
-  const trimmed = raw.trim();
+  const trimmed = rustTrim(raw);
   // `safe_name` measures the name in bytes, not characters.
   if (!trimmed || trimmed === "." || trimmed === ".." || new TextEncoder().encode(trimmed).length > 255)
     return null;
@@ -1295,7 +1302,7 @@ publicGet("/s/:token", ({ world, params, query, headers }) => {
   const caps = String(l.caps || "").split("+").filter(Boolean);
   const canView = sees(caps);
   if (s.kind !== "album" && !canView) {
-    if (String(query.path ?? "").trim()) return fail(400, "That folder isn't part of this shared link.");
+    if (rustTrim(query.path)) return fail(400, "That folder isn't part of this shared link.");
     return { kind: "dropbox", caps: l.caps };
   }
   // `public_root_inner` resolves the album before it answers: a gone drive or a
@@ -1662,7 +1669,7 @@ function serveSharedFile(world, r, rel, name, download = false) {
 /** `files::inline_safe`: mimes a browser may render in place. */
 function inlineSafe(type) {
   // Rust compares the bare mime, so a charset parameter must not defeat it.
-  const t = String(type || "").split(";")[0].trim().toLowerCase();
+  const t = rustTrim(String(type || "").split(";")[0]).toLowerCase();
   return (
     (t.startsWith("image/") && t !== "image/svg+xml") ||
     t.startsWith("video/") ||
@@ -1911,7 +1918,7 @@ function mutableSegments(world, r, raw, { forCreate = false } = {}) {
   // `mutable_child` trims whitespace and then slashes off both ends before it
   // reads the path, so `/Holiday` is `Holiday` and a bare `/` is the shared item
   // rather than a path outside the share.
-  const trimmedRaw = String(raw ?? "").trim().replace(/^\/+|\/+$/g, "");
+  const trimmedRaw = rustTrim(raw).replace(/^\/+|\/+$/g, "");
   if (!trimmedRaw)
     return { err: fail(400, "The shared item itself can't be changed through this link.") };
   const segments = linkSegments(trimmedRaw);
@@ -1967,7 +1974,7 @@ const guestNew = (kind) => ({ world, params, headers, body }) => {
       "This link is view-only, so it can't receive files. Ask for a link that allows uploads.",
     );
   if (r.s.kind !== "path") return fail(410, "This link has expired or been removed.");
-  const trimmed = String(fields.path).trim().replace(/^\/+|\/+$/g, "");
+  const trimmed = rustTrim(fields.path).replace(/^\/+|\/+$/g, "");
   // A drop box takes one level and nothing else, so a nested name would let a
   // blind uploader probe which folders exist.
   if (!capSet(r.l.caps).has("view") && trimmed.includes("/"))
@@ -2038,9 +2045,9 @@ post("/s/:token/rename", ({ world, params, headers, body }) => {
   const node = level?.find((e) => e.name === old);
   if (!node) return fail(404, "Luna can't find that anymore. Refresh and try again.");
   // `safe_name` trims before the temp-name bar, so `".x.part "` is `.x.part`.
-  const bad = guestName(String(fields.new_name).trim());
+  const bad = guestName(rustTrim(fields.new_name));
   if (bad) return bad;
-  const newName = safeName(String(fields.new_name).trim());
+  const newName = safeName(rustTrim(fields.new_name));
   // No same-name shortcut: a no-replace rename onto itself is a clash.
   if (level.some((e) => e.name === newName))
     return fail(409, "An item with this name is already here. Choose another name.");
@@ -2410,7 +2417,7 @@ post("/s/:token/upload", ({ world, params, headers, body }) => {
   if (!name) return fail(400, "That file name can't be used. Try renaming it.");
   // The daemon passes the path through untouched — only a trailing slash is
   // harmless — and a leading one is read as "outside this link".
-  const dest = String(body.path ?? "").trim();
+  const dest = rustTrim(body.path);
   const caps = capSet(r.l.caps);
   // `upload_dest` resolves the destination before a session exists, so a dead
   // drive, a folder outside the link or a file where a folder was named all
@@ -2718,8 +2725,8 @@ post("/s/:token/respond", ({ world, params, headers, body }) => {
   const shut = hardClosed(r.l);
   if (shut) return fail(403, shut);
   const allowEdits = formAllowsEdits(r.l);
-  const presented = String(body.edit_token ?? "").trim();
-  const targetId = String(body.response_id ?? "").trim();
+  const presented = rustTrim(body.edit_token);
+  const targetId = rustTrim(body.response_id);
   // With changes refused, anything shaped like an edit is refused before it
   // can reach the answers.
   if (!allowEdits && (presented || targetId))
