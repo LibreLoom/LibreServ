@@ -1592,6 +1592,14 @@ function mutableSegments(world, r, raw, { forCreate = false } = {}) {
     return { err: fail(400, "The shared item itself can't be changed through this link.") };
   const trash = trashProbe(r.s, segments);
   if (trash) return { err: trash };
+  // A link to one file has nothing beneath it. A write that would create
+  // something under it resolves the path and then finds it isn't inside the
+  // link; a write that has to reach the item itself walks into a file, which
+  // the daemon answers with its catch-all.
+  if (r.s.is_file) {
+    if (forCreate) return { err: fail(404, "That item isn't part of this shared link.") };
+    return { err: guestBroke() };
+  }
   // `confined_write` resolves the child first and asks about the wall after,
   // so a path that isn't there is "not there", not "not in this link".
   const tree = treeOf(world, r.l.token, r.s);
@@ -1750,6 +1758,12 @@ post("/s/:token/move", ({ world, params, headers, body }) => {
   const tree = guestTree(world, params.token, r.s);
   const trashDest = trashProbe(r.s, destSegments);
   if (trashDest) return trashDest;
+  // The destination is resolved the way a source is, so a path that walks
+  // through a file ends the whole request at the daemon's catch-all.
+  for (let i = 1; i < destSegments.length; i += 1) {
+    const midway = nodeAt(tree, destSegments.slice(0, i));
+    if (midway && !isFolderNode(midway)) return guestBroke();
+  }
   const destRelBase = destSegments.join("/");
   const destIsDir = destSegments.length === 0 || Boolean(treeFolder(tree, destSegments));
   const destExists = destSegments.length === 0 || Boolean(nodeAt(tree, destSegments));
