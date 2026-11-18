@@ -1668,7 +1668,7 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
     // `album_zip_response` names the archive after the album row, not after the
     // cached name on the link's subject, and falls back to `album.zip` when
     // that name sanitises away to nothing.
-    const albumBase = dispositionName(albumRes.album.name || r.s.name || "album");
+    const albumBase = dispositionName(albumRes.album.name || "album");
     const albumZipName = albumBase === "download" ? "album" : albumBase;
     return raw(new TextEncoder().encode(`PK\x05\x06${"\0".repeat(18)}`), "application/zip", 200, {
       "Content-Disposition": `attachment; filename="${albumZipName}.zip"`,
@@ -1693,6 +1693,7 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
     return serveSharedFile(world, r, "", r.s.name || "download", true);
   }
   const tree = treeOf(world, params.token, r.s);
+  let zipRoot = null;
   // A folder is the normal thing to zip, so walk the tree for any entry rather
   // than `inTree`, which deliberately returns null for a directory.
   if (segments.length) {
@@ -1716,7 +1717,24 @@ publicGet("/s/:token/zip", ({ world, params, query, headers }) => {
     // anything else is the file itself. Without this, `?path=Holiday/notes.txt`
     // answers with an empty zip wearing the name `notes.txt.zip`.
     if (found.kind !== "dir") return serveSharedFile(world, r, segments.join("/"), found.name, true);
+    zipRoot = found;
   }
+  // `ZIP_MAX_FILES` is what the writer will take: past it the daemon refuses
+  // the whole download rather than sending a cut-off archive.
+  let files = 0;
+  const countUnder = (list) => {
+    for (const e of list || []) {
+      if (e.kind === "dir") countUnder(e.children);
+      else files += 1;
+      if (files >= 50000) return;
+    }
+  };
+  countUnder(zipRoot ? zipRoot.children : tree);
+  if (files >= 50000)
+    return fail(
+      400,
+      "That folder has too many files to download as one zip. Download smaller folders instead.",
+    );
   // `zip_archive_basename` names the archive from the resolved path, so a
   // whole-drive link zips as `drive.zip` rather than wearing the drive label.
   const zipBase = zipArchiveBase([r.s.path, segments.join("/")].filter(Boolean).join("/"));
