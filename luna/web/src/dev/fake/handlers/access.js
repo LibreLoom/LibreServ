@@ -17,6 +17,7 @@
 //            downloads, form, kind }
 import { del, fail, get, json, patch, post, put, raw } from "../engine.js";
 import { nextId } from "../world.js";
+import { CAP_EDIT, CAP_VIEW, hasCap } from "../policy.js";
 import { photoKey } from "../photos.js";
 import { bytesFor, needDrive } from "./files.js";
 import { privateBoundary, pathContains } from "../policy.js";
@@ -308,20 +309,24 @@ function sweepPending(waiting) {
 const waitingSize = (held) => (held && typeof held === "object" ? Number(held.size) || 0 : 0);
 /** `wants_count`: only `1` and `true` ask for the length. */
 const wantsCount = (raw) => raw === "1" || raw === "true";
-get("/api/v1/forms/responses", ({ world, query }) => {
-  const list = formsOf(world)[formKey(query)] || [];
+get("/api/v1/forms/responses", ({ world, user, query }) => {
+  const m = managedForm(world, user, query.drive_id, query.path);
+  if (m.err) return m.err;
+  const list = formsOf(world)[m.key] || [];
   // `id` is the DELETE's field; a GET always answers the whole list or its
   // length.
   if (wantsCount(query.count)) return { count: list.length };
   return { responses: list };
 });
-del("/api/v1/forms/responses", ({ world, query }) => {
+del("/api/v1/forms/responses", ({ world, user, query }) => {
+  const m = managedForm(world, user, query.drive_id, query.path);
+  if (m.err) return m.err;
   const id = String(query.id ?? "").trim();
   // An id is what says which answer to remove, so its absence is the request's
   // own fault, not a missing record.
   if (!id)
     return fail(400, "Luna didn't get which response to delete. Reload the page and try again.");
-  const k = formKey(query);
+  const k = m.key;
   const list = formsOf(world)[k] || [];
   const gone = list.find((x) => x.id === id);
   if (!gone)
@@ -335,10 +340,12 @@ del("/api/v1/forms/responses", ({ world, query }) => {
 });
 get("/api/v1/forms/file", () => json({}));
 post("/api/v1/forms/picture", ({ world, user, query, body }) => {
+  const m = managedForm(world, user, body.drive_id ?? query.drive_id, body.path ?? query.path);
+  if (m.err) return m.err;
   const source = String(body.source ?? "").replace(/^\/+|\/+$/g, "");
   // The editor has to be able to see the picture; copying is what keeps it on
   // the form when the drive changes.
-  if (!memberSees(world, user, query.drive_id || "d1", source))
+  if (!hasCap(world, user, body.drive_id ?? query.drive_id ?? "d1", source, CAP_VIEW))
     return fail(403, "You can't open that picture, so it can't go on the form.");
   const leaf = pathName(source);
   let node = null;
@@ -356,7 +363,7 @@ post("/api/v1/forms/picture", ({ world, user, query, body }) => {
   if (Number(node.size) > 20 * 1024 * 1024)
     return fail(413, "That picture is over 20 MB. Choose a smaller one.");
   // The copy is written into the form's folder, so it needs the same room.
-  const key = formKey(query);
+  const key = m.key;
   const sent = sentFor(world, key);
   const held = picturesFor(world, key);
   const waiting = pendingFor(world, key);
@@ -375,7 +382,9 @@ post("/api/v1/forms/picture", ({ world, user, query, body }) => {
   held[name] = size;
   return { ok: true, name };
 });
-post("/api/v1/forms/picture-upload", async ({ world, query, body }) => {
+post("/api/v1/forms/picture-upload", async ({ world, user, query, body }) => {
+  const m = managedForm(world, user, query.drive_id, query.path);
+  if (m.err) return m.err;
   // Absent part: nothing to attach. Present but unnamed: a kind Luna can't
   // read, which is the message `read_multipart_file` gives it.
   if (!("file" in body)) return fail(400, "Choose a file to attach.");
@@ -394,7 +403,7 @@ post("/api/v1/forms/picture-upload", async ({ world, query, body }) => {
   if (!pictureBytes(ext, bytes)) return fail(400, PICTURE_KIND_MESSAGE);
   // A picture sits in the form's own folder, so it needs the same room an
   // attachment would.
-  const key = formKey(query);
+  const key = m.key;
   const sent = sentFor(world, key);
   const held = picturesFor(world, key);
   const waiting = pendingFor(world, key);
@@ -712,30 +721,30 @@ function dispositionName(name) {
 }
 
 /**
- * `has_cap(CAP_VIEW)` for a member: an admin sees the whole drive, and anybody
- * else sees what a share has given them.
+ * `member_managed_form`: managing a form means edit on the form's own path, and
+ * the path has to be a form file that is really there.
  *
  * @param {any} world
  * @param {any} user
  * @param {string} drive
  * @param {string} path
- * @returns {boolean}
+ * @returns {{ key: string, err: null } | { key: "", err: any }}
  */
-function memberSees(world, user, drive, path) {
-  if (!user) return false;
-  if (user.role === "admin") return true;
-  const want = String(path || "").replace(/^\/+|\/+$/g, "");
-  for (const s of sharing(world).subjects) {
-    if ((s.drive_id || "d1") !== (drive || "d1")) continue;
-    const held =
-      (s.members || []).find((m) => m.user_id === user.id)?.caps ||
-      (s.inherited_members || []).find((m) => m.user_id === user.id)?.caps ||
-      "";
-    if (!sees(held)) continue;
-    const root = String(s.path || "").replace(/^\/+|\/+$/g, "");
-    if (!root || want === root || want.startsWith(`${root}/`)) return true;
+function managedForm(world, user, drive, path) {
+  if (!hasCap(world, user, drive || "d1", path, CAP_EDIT))
+    return { key: "", err: fail(403, "You need edit access to this form to manage its answers.") };
+  const p = String(path ?? "").replace(/^\/+|\/+$/g, "");
+  let node = null;
+  if (/\.lunaform$/i.test(p)) {
+    try {
+      node = fsOf(world, drive || "d1").nodes?.[p] || null;
+    } catch {
+      node = null;
+    }
   }
-  return false;
+  if (!node || node.kind !== "file")
+    return { key: "", err: fail(404, "This form isn't available right now.") };
+  return { key: formKey({ drive_id: drive || "d1", path: p }), err: null };
 }
 
 /**
