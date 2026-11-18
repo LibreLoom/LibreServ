@@ -955,3 +955,37 @@ builder must be Latin-1 or the builder refuses it, and the fake's `Response` wil
 not carry that value at all — so an emoji-named folder is a 500 behind a native
 `TypeError` in the harness and a panic in the daemon, and the two are not the same
 shape of failure.
+
+### Addendum: the last edges of the fake (rounds 5p–6e)
+
+Sixteen more narrow rounds closed the fake's remaining surface, and thirteen of
+them found something; three came back clean (`5w`, `5z`, `6e`), which is what
+finally let the whole chain settle. Twenty-six findings, all fixed:
+
+| Round | Findings | What was wrong |
+|---|---|---|
+| 5p | 1 | the zip ceiling counts files *written*, so exactly 50 000 still zip |
+| 5q | 2 | the count applies `include_rel` per child; a trashed folder's zip is named from the origin row |
+| 5r | 1 | the header cleans the finished `name.zip`, not the base |
+| 5s | 2 | C1 controls are stripped, and the cap counts characters, never half a surrogate pair |
+| 5t | 1 | Rust `str::trim` is not JS `trim()`: a BOM is not whitespace |
+| 5u | 3 | U+0085 is whitespace; an answer is looked up by the id as sent; `\s` wrongly counts a BOM |
+| 5v | 1 | a padded id is refused, not quietly matched |
+| 5x | 2 | a blank id was still an id that was sent; `hidden` comes off the name |
+| 5y | 2 | `lost+found` is hidden; every trashed item keeps a name |
+| 6a | 3 | the drive a request names, the type a name gives, and markup that must not render |
+| 6b | 5 | three mimes guessed wrong; `.epub` and `.heif` missing; a photo's type is its name's |
+| 6c | 1 | a HEIC photo is shown as the JPEG preview the daemon makes for it |
+| 6d | 2 | `.hif` is HEIF, and a leading dot is part of the name |
+
+The rules this stretch named, now written into the fake: **an id is matched as it
+was sent** — trimming decides only whether an id is *there*, never what it equals;
+**a name decides what a file is** — its type, whether it is hidden, whether it is
+`lost+found`, and whether it is a HEIC photo, all off `Path::extension`, where a
+leading dot is part of the name; and **a listing is filtered by `is_hidden_name`,
+which is not the same set as `stat`'s dot rule**.
+
+Two things the harness cannot say, and both are recorded rather than faked: the
+daemon sniffs a HEIF photo's bytes where the fake reads its extension (so a photo
+mislabelled on disk shows the preview here and not there), and the per-client
+address that a limiter bucket is keyed on has no stand-in with one browser.
