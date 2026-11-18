@@ -243,3 +243,32 @@ the tunnel (p50 ~400–500 ms); it has no remote budget, and the 300 ms LAN
 one is about two tunnel round trips. Luna CI passed at 3553b70d (one
 PublicSharePage test failed under load in the first run, passed on the
 re-run and 3/3 alone).
+
+## Rounds 8–10 (f4bc4cca … 55c370ab, 2026-11-18)
+
+Interleaved A/B on the stand-ins (HEAD before vs after):
+
+| Journey | Before | After | Budget |
+|---|---|---|---|
+| D3 idle after use, switches/min | 1.9–2.1 | 0.6 | ~1 ✅ |
+| K2 desktop idle RSS, window open | 66.7 MB | 55.1 MB | 60 ✅ |
+| K2 desktop, started in background | 46 MB | 40 MB | 60 ✅ |
+| A1 Android cold start, release build (n=12) | — | p50 555, p95 719 ms | 1500 ✅ |
+| W8 remote scrub, p50 / p95 | 436 / 602 | 289 / 339 | 300 (LAN) ⚠ p95 |
+| W3 / W10 / W16 under load 8–10, p95 | 1451 / 543 / 591 | 1111 / 466 / 364 | — |
+
+A1's earlier 1.6–1.9 s came from the debug build only. How: one clock
+thread for lunad's slow timers and a write-free health check; the HDMI
+console checks a lunad lock file with a 30-min heartbeat (a hung, still
+running lunad shows "not updating" after ~62 min); desktop draws with the
+CPU renderer so the GPU driver never loads, and builds pages on first
+open; Dashboard data starts at sign-in; the timeline reads its next page
+ahead; small grid thumbnails are WebP (16.5 → 7 KB on a 12 MP photo).
+ModalCard no longer drops a close that lands before its open effect
+(the PublicSharePage CI flake).
+
+Round 10 compared the web at 3553b70d and HEAD side by side (host load
+1.8–3.1): W6 57–58 fps with a 50 ms worst frame on both, W10 p95 ~190 ms
+on both. So W6 and W10 meet budget on a quiet host (final-6: 59.8 fps /
+33 ms, 139 ms) and miss it slightly once the host is busy; nothing since
+regressed them. Luna CI passed at 55c370ab.
