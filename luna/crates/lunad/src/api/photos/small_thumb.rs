@@ -3,7 +3,7 @@
 //! The regular thumbnail is 640 px on the long edge (~65 KB), sized for 2x
 //! screens. A timeline cell on a 1x laptop is ~200 px, so over a remote link
 //! most of those bytes are wasted: a screen of 20 cells took ~1.8 s at
-//! 20 Mbit/s. The web asks for this variant (~7 KB for a typical photo)
+//! 20 Mbit/s. The web asks for this variant (a few KB for a typical photo)
 //! through `srcset` only where the cell is small enough.
 //!
 //! It is lossy WebP, not JPEG: at the same look it is ~40–60% smaller than
@@ -37,8 +37,13 @@ use crate::api::response::json_error;
 /// Long-edge cap. 4:3 photos keep a 270 px short edge, which the web's
 /// `srcset` declares, so a square cover crop is never upscaled.
 const SMALL_MAX: u32 = 360;
-/// libwebp's quality scale; 75 looks like the old JPEG at 78 in the grid.
-const SMALL_WEBP_QUALITY: f32 = 75.0;
+/// libwebp's quality scale. At a ~200 px grid cell 60 looks the same as 75,
+/// and with the slowest method (6) real photos come out ~20% smaller than at
+/// 75 with the default method: the bytes are most of what a scrub over a
+/// remote link waits for (W8). Method 6 takes ~3× the encode time, spent
+/// once per photo on the idle-priority builder thread.
+const SMALL_WEBP_QUALITY: f32 = 60.0;
+const SMALL_WEBP_METHOD: i32 = 6;
 pub(super) const SMALL_CONTENT_TYPE: &str = "image/webp";
 /// Our own 640 px thumbnails are well under this; anything bigger is not one.
 const SOURCE_MAX_BYTES: u64 = 4 * 1024 * 1024;
@@ -89,8 +94,13 @@ pub(super) fn build_small(big: &Path, small: &Path) -> anyhow::Result<()> {
         dst
     };
     let rgb = out.into_rgb8();
+    let mut config = webp::WebPConfig::new().map_err(|()| anyhow::anyhow!("WebP config failed"))?;
+    config.lossless = 0;
+    config.alpha_compression = 1;
+    config.quality = SMALL_WEBP_QUALITY;
+    config.method = SMALL_WEBP_METHOD;
     let encoded = webp::Encoder::from_rgb(rgb.as_raw(), rgb.width(), rgb.height())
-        .encode_simple(false, SMALL_WEBP_QUALITY)
+        .encode_advanced(&config)
         .map_err(|e| anyhow::anyhow!("WebP encode failed: {e:?}"))?;
     let tmp = small.with_extension("webp.tmp");
     if let Err(e) = std::fs::write(&tmp, &*encoded) {
