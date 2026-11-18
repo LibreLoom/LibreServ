@@ -887,3 +887,53 @@ a line per version, so a delete cannot reach a file named by an earlier edit;
 `/responses` history, `/form-file`, `/form-picture`, `/form-picture-upload`,
 `/office/session` and `/collab/ws` are still unanswered; and the guest's
 `trash_path` remains an invented name.
+
+## Thirteenth review: the gate in front of a member's form, and a share that moves
+
+The twelfth review closed one door and left another ajar: the guest's side of a
+form was faithful down to the wording, but the member's side had no gate at all,
+and the routes that hand a share a whole folder's worth of bytes had never been
+read in order. Ten more rounds, twenty-four findings, all confirmed against
+`luna/crates/lunad/src` and fixed:
+
+| Round | Surface | Findings | What happened |
+|---|---|---|---|
+| 5f | reading and deleting an answer | 2 | both confirmed and fixed |
+| 5g | what a delete and a copied picture answer with | 4 | all 4 confirmed and fixed |
+| 5h | what counts as a picture, and where one is copied from | 3 | all 3 confirmed and fixed |
+| 5i | one extension, two spellings | 1 | confirmed and fixed |
+| 5j | a copied picture's room and its owner's eyes | 2 | both confirmed and fixed |
+| 5k | the member gate on the form routes | 2 | both confirmed and fixed |
+| 5l | that gate, read again | 0 | clean |
+| 5m | an upload's whole life | 3 | all 3 confirmed and fixed |
+| 5n | the upload fixes, read again | 0 | clean |
+| 5o | a shared folder as a zip | 2 | both confirmed and fixed |
+
+Three of these are worth naming because each is a rule the daemon states in one
+place and the fake had restated somewhere else.
+
+**Managing a form is a capability, not a session.** Every member route —
+listing answers, deleting one, copying a picture onto a question, uploading
+one — begins at `member_managed_form`: edit on the form's own path, or the 403;
+then the path has to be a `.lunaform` file that is really there, or the 404 that
+says the form isn't available. The fake had none of it, so a member who could
+only read a form could still rewrite its questions' pictures. And the copy's own
+check — the editor must be able to open the picture it copies — cannot be a
+share lookup written by hand: it is `has_cap`, which asks about the private
+boundary before it asks whether you are an admin, so a private item refuses even
+the owner of the drive above it.
+
+**A session belongs to a place, not just to a link.** A chunk, a completion and
+a cancel each prove the session's principal *and* that the session still lands
+inside the share as it is now. Move the share under a running upload and its
+chunks stop being accepted, with the same 403 that refuses another link's
+session.
+
+**An oversized piece never reaches the handler.** `DefaultBodyLimit` sits on the
+route, so the refusal is the extractor's own: 413, plain text, before the link
+is even opened — not the memory-budget wording the handler never gets to say.
+
+What stays unfixed, and why: the limiter is one bucket where the daemon keeps one
+per client address, because the harness has a single browser and no sockets; and
+a form's pictures and attachments live in maps rather than on disk, so a room is
+counted the same way but the bytes behind it are not the same bytes.
