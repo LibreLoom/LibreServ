@@ -2729,12 +2729,14 @@ post("/s/:token/respond", ({ world, params, headers, body }) => {
   const allowEdits = formAllowsEdits(r.l);
   const presented = rustTrim(body.edit_token);
   // Only the emptiness test trims: the lookup below asks by the id as sent, so a
-  // padded id is refused rather than quietly matched.
-  const targetId = String(body.response_id ?? "");
-  const hasTarget = Boolean(rustTrim(body.response_id));
+  // padded or blank id is refused rather than quietly matched. A blank id is
+  // still an id that was sent, and sending it without a secret is a new answer.
+  const hasTarget = typeof body.response_id === "string";
+  const targetId = hasTarget ? body.response_id : "";
+  const targetFilled = hasTarget && rustTrim(targetId) !== "";
   // With changes refused, anything shaped like an edit is refused before it
   // can reach the answers.
-  if (!allowEdits && (presented || hasTarget))
+  if (!allowEdits && (presented || targetFilled))
     return fail(403, "This form doesn't let you change answers after you send them.");
   if (!body.answers || typeof body.answers !== "object" || Array.isArray(body.answers))
     return fail(400, "Those answers didn't come through whole. Try sending them again.");
@@ -2754,7 +2756,7 @@ post("/s/:token/respond", ({ world, params, headers, body }) => {
       ) || null;
   if (presented && !entry)
     return fail(403, "This edit link doesn't match a saved answer on this form.");
-  if (!presented && hasTarget)
+  if (!presented && targetFilled)
     return fail(403, "This edit link doesn't match a saved answer on this form.");
   // Files the answer may name: this respondent's own waiting uploads, or — when
   // editing — files already on this answer.
