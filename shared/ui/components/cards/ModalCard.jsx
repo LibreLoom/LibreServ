@@ -108,6 +108,10 @@ export default function ModalCard({
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const isClosingRef = useRef(false);
+  // A close the person started (X, footer, Escape) while `open` is still
+  // true. The dialog is in the page from its first render, before the open
+  // effect below runs; a click in that gap must not be undone by it.
+  const userClosingRef = useRef(false);
   const exitTimerRef = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
 
   const setRefs = useCallback((node) => {
@@ -127,6 +131,7 @@ export default function ModalCard({
     setPresent(false);
     setIsClosing(false);
     isClosingRef.current = false;
+    userClosingRef.current = false;
     if (notify) onCloseRef.current?.();
   }, [clearExitTimer]);
 
@@ -135,6 +140,7 @@ export default function ModalCard({
     if (isClosingRef.current) return;
     haptic("light");
     isClosingRef.current = true;
+    userClosingRef.current = notify;
     setIsClosing(true);
     setScrollReady(false);
     exitTimerRef.current = setTimeout(() => {
@@ -152,8 +158,12 @@ export default function ModalCard({
       if (!prevOpenRef.current && openHaptic) {
         haptic(openHaptic);
       }
+      const wasOpen = prevOpenRef.current;
       prevOpenRef.current = true;
+      // Still open and the person already asked to close: let that finish.
+      if (!wasOpen && userClosingRef.current) return;
       clearExitTimer();
+      userClosingRef.current = false;
       isClosingRef.current = false;
       // eslint-disable-next-line react-hooks/set-state-in-effect -- props/open seed draft UI state
       setIsClosing(false);
