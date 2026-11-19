@@ -1123,3 +1123,17 @@ produced the crossfade finding came back clean in both themes.
 Two consecutive sweeps at `f13e173cb` with v13, one page per scenario: 359 of
 359 each, zero findings, nothing missing, nothing that needed a resettle, and
 the checker's own self-test still seeing all four planted defects in both runs.
+
+The reviewer's second pass approved the branch and left two nits, both recorded
+here rather than fixed, because neither buys a behaviour anyone can reach:
+
+- A JSON `5.0` is an f64 to `serde_json`, so `as_u64()` says no, while
+  `JSON.parse` hands back `5` and the fake reads it as a whole number. The
+  difference cannot be expressed through `fetch` and a JSON body at all, so the
+  fake cannot mirror it, and the app only ever sends whole numbers.
+- `/s/:token` decides "this link opens a form" by comparing the capability
+  string exactly, where lunad tests `caps & CAP_RESPOND` and this fake's own
+  `respondGate` goes through `capSet`. `caps_from_str` mints `respond` alone
+  today, so only a hand-seeded scenario could tell the two apart. Changing it
+  would be one line, and it would void a gate that two clean sweeps had just
+  earned, for a difference the API cannot produce.
