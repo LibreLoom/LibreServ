@@ -42,7 +42,8 @@ func SweepOrphanTunnels(deps Deps) {
 		return
 	}
 	providers.RefreshCloudflare()
-	if !config.C.Cloudflare.Ready() {
+	cf := config.Cloudflare()
+	if !cf.Ready() {
 		return
 	}
 	rows, err := deps.DB.Query(`SELECT COALESCE(tunnel_id, '') FROM devices`)
@@ -64,7 +65,7 @@ func SweepOrphanTunnels(deps Deps) {
 	}
 	rows.Close()
 
-	all, err := deps.Tunnel.ListTunnels(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken)
+	all, err := deps.Tunnel.ListTunnels(cf.AccountID, cf.APIToken)
 	if err != nil {
 		slog.Error("tunnel sweep: could not list tunnels", "err", err)
 		return
@@ -75,7 +76,7 @@ func SweepOrphanTunnels(deps Deps) {
 		orphans = orphans[:maxSweepDeletes]
 	}
 	for _, t := range orphans {
-		if err := deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, t.ID); err != nil {
+		if err := deps.Tunnel.DeleteTunnel(cf.AccountID, cf.APIToken, t.ID); err != nil {
 			slog.Error("tunnel sweep: delete failed", "tunnel", t.Name, "id", t.ID, "err", err)
 			continue
 		}

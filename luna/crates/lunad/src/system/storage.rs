@@ -136,23 +136,32 @@ pub struct CleanupResult {
     pub freed_bytes: u64,
     /// Ids of the parts that were cleared, so the page can say what it did.
     pub cleared: Vec<String>,
+    /// Plain-language reasons some working copies were left alone, so the
+    /// page can tell the person why the number is smaller than expected.
+    pub skipped: Vec<String>,
 }
 
 /// Clear what Luna can safely make again: temporary copies of documents that
 /// no editor has open, and update downloads from installs that never finished.
 ///
-/// `live_keys` are the document keys with an editor still attached — their
-/// copies are in use and stay.
-pub fn cleanup(data_dir: &Path, live_keys: &[String]) -> CleanupResult {
+/// `in_use` is asked for each document's working copy just before it would be
+/// removed — not once when the page loaded — so a document someone opens
+/// while the clear runs keeps its copy.
+pub fn cleanup(data_dir: &Path, in_use: &dyn Fn(&str) -> bool) -> CleanupResult {
     let mut freed = 0u64;
     let mut cleared = Vec::new();
+    let mut skipped = Vec::new();
 
     let bundles = data_dir.join("office_bundles");
     let mut removed_bundles = 0u64;
     if let Ok(entries) = std::fs::read_dir(&bundles) {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
-            if live_keys.iter().any(|k| k == &name) {
+            if in_use(&name) {
+                let reason = "A document is open in the editor, so its working copy was kept.";
+                if !skipped.iter().any(|s: &String| s == reason) {
+                    skipped.push(reason.to_string());
+                }
                 continue;
             }
             let path = entry.path();
@@ -213,6 +222,7 @@ pub fn cleanup(data_dir: &Path, live_keys: &[String]) -> CleanupResult {
     CleanupResult {
         freed_bytes: freed,
         cleared,
+        skipped,
     }
 }
 
@@ -316,7 +326,7 @@ mod tests {
         std::fs::create_dir_all(bundles.join("old-key")).unwrap();
         std::fs::write(bundles.join("old-key/Editor.bin"), vec![1u8; 4096]).unwrap();
 
-        let result = cleanup(d.path(), &["open-key".to_string()]);
+        let result = cleanup(d.path(), &|key| key == "open-key");
         assert!(result.freed_bytes >= 4096);
         assert_eq!(result.cleared, vec!["temporary".to_string()]);
         assert!(
@@ -324,6 +334,31 @@ mod tests {
             "a live editor keeps its copy"
         );
         assert!(!bundles.join("old-key").exists());
+        assert_eq!(
+            result.skipped,
+            vec!["A document is open in the editor, so its working copy was kept.".to_string()]
+        );
+    }
+
+    #[test]
+    fn cleanup_asks_again_before_removing_a_copy() {
+        // A document opened after "Free up space" was clicked must keep its
+        // copy: the check runs for each folder as it is about to go, not once
+        // from an old snapshot.
+        let d = dir();
+        let bundles = d.path().join("office_bundles");
+        std::fs::create_dir_all(bundles.join("just-opened")).unwrap();
+        std::fs::write(bundles.join("just-opened/Editor.bin"), vec![2u8; 4096]).unwrap();
+        let asked = std::cell::Cell::new(0usize);
+        let result = cleanup(d.path(), &|key| {
+            asked.set(asked.get() + 1);
+            key == "just-opened"
+        });
+        assert_eq!(asked.get(), 1);
+        assert_eq!(result.freed_bytes, 0);
+        assert!(result.cleared.is_empty());
+        assert_eq!(result.skipped.len(), 1);
+        assert!(bundles.join("just-opened/Editor.bin").exists());
     }
 
     #[test]
@@ -333,7 +368,7 @@ mod tests {
         std::fs::create_dir_all(&updates).unwrap();
         std::fs::write(updates.join("luna-update-fresh-os"), vec![0u8; 4096]).unwrap();
 
-        let result = cleanup(d.path(), &[]);
+        let result = cleanup(d.path(), &|_| false);
         assert_eq!(result.freed_bytes, 0);
         assert!(result.cleared.is_empty());
         assert!(updates.join("luna-update-fresh-os").exists());
@@ -342,7 +377,7 @@ mod tests {
     #[test]
     fn cleanup_is_quiet_when_there_is_nothing_to_clear() {
         let d = dir();
-        let result = cleanup(d.path(), &[]);
+        let result = cleanup(d.path(), &|_| false);
         assert_eq!(result.freed_bytes, 0);
         assert!(result.cleared.is_empty());
     }

@@ -165,8 +165,16 @@ async fn remove(
             "Only an Admin or the person who made this backup can delete it.",
         ));
     }
+    delete_cloud(&state, &id).await
+}
+
+/// Deletes one cloud backup and every copy it keeps in Luna Connect, then its row.
+/// The copies go first: if Luna Connect can't be reached, nothing local is removed and
+/// the person can try again. Also used by the general backups route, so a cloud row can
+/// never be deleted as if it were a drive backup.
+pub(crate) async fn delete_cloud(state: &AppState, id: &str) -> ApiResult {
     // A copy in progress would write into the backup while it is removed.
-    if drive_backup::is_running(&state.db, &id) {
+    if drive_backup::is_running(&state.db, id) {
         return Err(json_error(
             StatusCode::CONFLICT,
             "This backup is busy right now. Try again in a minute.",
@@ -174,6 +182,7 @@ async fn remove(
     }
     let connect = state.connect.clone();
     let db = state.db.clone();
+    let id = id.to_string();
     let job = tokio::task::spawn_blocking(move || {
         let store = connect_store(&connect, &db)?;
         Some(ops::delete(&db, &id, &store, db::now_unix()))

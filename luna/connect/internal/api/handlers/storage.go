@@ -85,7 +85,16 @@ func storageScope(d Deps, w http.ResponseWriter, r *http.Request) (accountID, lu
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not check this Luna. Try again.")
 		return "", "", nil, false
 	}
-	if err := database.LockStorageAccountWrite(tx, accountID); err != nil {
+	// A PUT checks the account's storage cap and then records the bytes in the
+	// same transaction. Take the account row exclusively for it: a shared lock
+	// lets two uploads read the same "bytes used" and both pass, putting the
+	// account over its cap. Deletes and listings keep the shared lock so they
+	// still run together.
+	lockAccount := database.LockStorageAccountWrite
+	if r.Method == http.MethodPut {
+		lockAccount = database.LockStorageAccount
+	}
+	if err := lockAccount(tx, accountID); err != nil {
 		_ = tx.Rollback()
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not check this Luna. Try again.")
 		return "", "", nil, false

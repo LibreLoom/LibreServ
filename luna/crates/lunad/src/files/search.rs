@@ -138,8 +138,8 @@ pub fn search_all_with(
             .iter()
             .map(|drive| {
                 scope.spawn(move || {
-                    let conn = pool::open(&drive.mount)?;
-                    set_deadline(&conn, Some(deadline));
+                    let mut conn = pool::open(&drive.mount)?;
+                    set_deadline(&mut conn, Some(deadline));
                     let found = exact_pass(&conn, &drive.id, query, kind, ROW_BUDGET)?;
                     Ok::<_, anyhow::Error>((drive, conn, found))
                 })
@@ -165,7 +165,7 @@ pub fn search_all_with(
         .collect();
     sort_candidates(&mut names);
     if names_suffice(&names) {
-        for (_, conn, found) in &searched {
+        for (_, conn, found) in &mut searched {
             set_deadline(conn, None);
             incomplete |= found.incomplete;
         }
@@ -197,9 +197,9 @@ pub fn search_all_with(
     std::thread::scope(|scope| {
         let handles: Vec<_> = searched
             .into_iter()
-            .map(|(drive, conn, mut found)| {
+            .map(|(drive, mut conn, mut found)| {
                 scope.spawn(move || {
-                    set_deadline(&conn, Some(deadline));
+                    set_deadline(&mut conn, Some(deadline));
                     // Close names before the text: a file found both ways
                     // keeps its (better) close-name match.
                     if let Err(error) =
@@ -209,7 +209,7 @@ pub fn search_all_with(
                         found.incomplete = true;
                     }
                     later_passes(&conn, &drive.id, query, kind, neural, &mut found);
-                    set_deadline(&conn, None);
+                    set_deadline(&mut conn, None);
                     if let Some(q) = photo_q {
                         photo_pass(&conn, &drive.id, q, kind, &mut found);
                     }
@@ -241,12 +241,15 @@ const SEARCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 /// Interrupt this connection's queries once `deadline` passes (`None`
 /// clears it). SQLite can spend work inside MATCH before yielding a row, so
 /// bounding rows alone isn't enough.
-fn set_deadline(conn: &Connection, deadline: Option<std::time::Instant>) {
-    match deadline {
+fn set_deadline(conn: &mut Connection, deadline: Option<std::time::Instant>) {
+    let result = match deadline {
         Some(deadline) => {
             conn.progress_handler(1000, Some(move || std::time::Instant::now() >= deadline))
         }
         None => conn.progress_handler(0, None::<fn() -> bool>),
+    };
+    if let Err(error) = result {
+        tracing::warn!(%error, "could not set the search time limit");
     }
 }
 
@@ -349,7 +352,7 @@ fn sort_candidates(all: &mut Vec<Candidate>) {
 /// Search one drive's index. Hidden entries are never returned.
 #[cfg(test)]
 fn search_drive(
-    conn: &Connection,
+    conn: &mut Connection,
     drive_id: &str,
     query: &Query,
     kind: KindFilter,
@@ -360,7 +363,7 @@ fn search_drive(
 /// Every pass on one drive, under the usual row budget and time limit.
 #[cfg(test)]
 fn search_drive_bounded(
-    conn: &Connection,
+    conn: &mut Connection,
     drive_id: &str,
     query: &Query,
     kind: KindFilter,
@@ -379,7 +382,7 @@ fn search_drive_bounded(
 
 #[cfg(test)]
 fn search_drive_with_limits(
-    conn: &Connection,
+    conn: &mut Connection,
     drive_id: &str,
     query: &Query,
     kind: KindFilter,
@@ -725,12 +728,20 @@ mod pool {
         }
     }
 
+    impl std::ops::DerefMut for Pooled {
+        fn deref_mut(&mut self) -> &mut Connection {
+            self.conn
+                .as_mut()
+                .expect("connection is present until drop")
+        }
+    }
+
     impl Drop for Pooled {
         fn drop(&mut self) {
-            let (Some(conn), Some(key)) = (self.conn.take(), self.key.take()) else {
+            let (Some(mut conn), Some(key)) = (self.conn.take(), self.key.take()) else {
                 return;
             };
-            super::set_deadline(&conn, None);
+            super::set_deadline(&mut conn, None);
             // A connection left inside a transaction is not reused.
             if !conn.is_autocommit() {
                 return;
@@ -849,7 +860,7 @@ mod tests {
             .unwrap()
     }
 
-    fn names(conn: &Connection, q: &str, kind: KindFilter) -> Vec<String> {
+    fn names(conn: &mut Connection, q: &str, kind: KindFilter) -> Vec<String> {
         search_drive(conn, "d1", &Query::new(q), kind)
             .unwrap()
             .into_iter()
@@ -860,7 +871,7 @@ mod tests {
     #[test]
     fn finds_files_and_folders_by_their_own_name_only() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = drive_conn(dir.path());
+        let mut conn = drive_conn(dir.path());
         replace_dir(
             &conn,
             "d1",
@@ -882,11 +893,11 @@ mod tests {
         .unwrap();
 
         // A folder's name finds the folder, not everything inside it.
-        assert_eq!(names(&conn, "taxes", KindFilter::All), ["Taxes"]);
-        assert_eq!(names(&conn, "taxes", KindFilter::Folders), ["Taxes"]);
-        assert!(names(&conn, "taxes", KindFilter::Files).is_empty());
+        assert_eq!(names(&mut conn, "taxes", KindFilter::All), ["Taxes"]);
+        assert_eq!(names(&mut conn, "taxes", KindFilter::Folders), ["Taxes"]);
+        assert!(names(&mut conn, "taxes", KindFilter::Files).is_empty());
         assert_eq!(
-            names(&conn, "return 2024", KindFilter::All),
+            names(&mut conn, "return 2024", KindFilter::All),
             ["return 2024.pdf"]
         );
     }
@@ -895,7 +906,7 @@ mod tests {
     fn a_name_matching_only_some_words_does_not_hide_the_files_text() {
         use crate::files::content::store::{self, State};
         let dir = tempfile::tempdir().unwrap();
-        let conn = drive_conn(dir.path());
+        let mut conn = drive_conn(dir.path());
         replace_dir(
             &conn,
             "d1",
@@ -920,7 +931,7 @@ mod tests {
         // name pass returns the file but it isn't a name match, so the text
         // search must still get to report it.
         assert_eq!(
-            names(&conn, "plumbing invoice", KindFilter::All),
+            names(&mut conn, "plumbing invoice", KindFilter::All),
             ["invoice-4417.txt"]
         );
     }
@@ -1017,7 +1028,7 @@ mod tests {
     #[test]
     fn folders_show_up_and_rank_ahead_of_same_tier_files() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = drive_conn(dir.path());
+        let mut conn = drive_conn(dir.path());
         replace_dir(
             &conn,
             "d1",
@@ -1029,7 +1040,7 @@ mod tests {
             ],
         )
         .unwrap();
-        let got = search_drive(&conn, "d1", &Query::new("holiday"), KindFilter::All).unwrap();
+        let got = search_drive(&mut conn, "d1", &Query::new("holiday"), KindFilter::All).unwrap();
         assert_eq!(got[0].hit.name, "holiday photos");
         assert_eq!(got[0].hit.kind, "dir");
         assert_eq!(got[0].rank.tier, Tier::Prefix);
@@ -1038,24 +1049,24 @@ mod tests {
     #[test]
     fn hidden_entries_are_never_found() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = drive_conn(dir.path());
+        let mut conn = drive_conn(dir.path());
         replace_dir(&conn, "d1", "", 1, &[entry(".secret-notes", "file", true)]).unwrap();
-        assert!(names(&conn, "secret", KindFilter::All).is_empty());
+        assert!(names(&mut conn, "secret", KindFilter::All).is_empty());
     }
 
     #[test]
     fn kind_words_do_not_match_everything() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = drive_conn(dir.path());
+        let mut conn = drive_conn(dir.path());
         replace_dir(&conn, "d1", "", 1, &[entry("beach.jpg", "file", false)]).unwrap();
-        assert!(names(&conn, "file", KindFilter::All).is_empty());
-        assert!(names(&conn, "dir", KindFilter::All).is_empty());
+        assert!(names(&mut conn, "file", KindFilter::All).is_empty());
+        assert!(names(&mut conn, "dir", KindFilter::All).is_empty());
     }
 
     #[test]
     fn typos_find_close_names_but_rank_below_real_matches() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = drive_conn(dir.path());
+        let mut conn = drive_conn(dir.path());
         replace_dir(
             &conn,
             "d1",
@@ -1068,7 +1079,7 @@ mod tests {
             ],
         )
         .unwrap();
-        let got = search_drive(&conn, "d1", &Query::new("pasport"), KindFilter::All).unwrap();
+        let got = search_drive(&mut conn, "d1", &Query::new("pasport"), KindFilter::All).unwrap();
         let order: Vec<&str> = got.iter().map(|c| c.hit.name.as_str()).collect();
         assert_eq!(order, ["my pasport scan.pdf", "passport.pdf"]);
         assert_eq!(got[1].rank.tier, Tier::Close);
@@ -1077,7 +1088,7 @@ mod tests {
     #[test]
     fn short_queries_match_name_starts() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = drive_conn(dir.path());
+        let mut conn = drive_conn(dir.path());
         replace_dir(
             &conn,
             "d1",
@@ -1089,13 +1100,13 @@ mod tests {
             ],
         )
         .unwrap();
-        assert_eq!(names(&conn, "ab", KindFilter::All), ["ab notes"]);
+        assert_eq!(names(&mut conn, "ab", KindFilter::All), ["ab notes"]);
     }
 
     #[test]
     fn separators_and_accents_are_ignored() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = drive_conn(dir.path());
+        let mut conn = drive_conn(dir.path());
         replace_dir(
             &conn,
             "d1",
@@ -1107,14 +1118,17 @@ mod tests {
             ],
         )
         .unwrap();
-        assert_eq!(names(&conn, "img 0019", KindFilter::All), ["IMG_0019.jpg"]);
-        assert_eq!(names(&conn, "cafe", KindFilter::All), ["Café menu.pdf"]);
+        assert_eq!(
+            names(&mut conn, "img 0019", KindFilter::All),
+            ["IMG_0019.jpg"]
+        );
+        assert_eq!(names(&mut conn, "cafe", KindFilter::All), ["Café menu.pdf"]);
     }
 
     #[test]
     fn the_search_table_follows_replaced_and_forgotten_rows() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = drive_conn(dir.path());
+        let mut conn = drive_conn(dir.path());
         replace_dir(
             &conn,
             "d1",
@@ -1123,7 +1137,10 @@ mod tests {
             &[entry("old name.txt", "file", false)],
         )
         .unwrap();
-        assert_eq!(names(&conn, "old name", KindFilter::All), ["old name.txt"]);
+        assert_eq!(
+            names(&mut conn, "old name", KindFilter::All),
+            ["old name.txt"]
+        );
 
         replace_dir(
             &conn,
@@ -1133,8 +1150,11 @@ mod tests {
             &[entry("new name.txt", "file", false)],
         )
         .unwrap();
-        assert!(names(&conn, "old name", KindFilter::All).is_empty());
-        assert_eq!(names(&conn, "new name", KindFilter::All), ["new name.txt"]);
+        assert!(names(&mut conn, "old name", KindFilter::All).is_empty());
+        assert_eq!(
+            names(&mut conn, "new name", KindFilter::All),
+            ["new name.txt"]
+        );
 
         // Re-listing the same name updates in place rather than duplicating it.
         replace_dir(
@@ -1145,10 +1165,10 @@ mod tests {
             &[entry("new name.txt", "file", false)],
         )
         .unwrap();
-        assert_eq!(names(&conn, "new name", KindFilter::All).len(), 1);
+        assert_eq!(names(&mut conn, "new name", KindFilter::All).len(), 1);
 
         forget_dir_tree(&conn, "d1", "docs").unwrap();
-        assert!(names(&conn, "new name", KindFilter::All).is_empty());
+        assert!(names(&mut conn, "new name", KindFilter::All).is_empty());
     }
 
     #[test]
@@ -1197,13 +1217,13 @@ mod tests {
     #[test]
     fn the_close_pass_does_not_reread_exact_matches() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = drive_conn(dir.path());
+        let mut conn = drive_conn(dir.path());
         insert_names(&conn, (0..20).map(|i| format!("report {i:02}.pdf")));
         insert_names(&conn, ["reprot.pdf".to_string()]);
         // The exact pass reads exactly its budget; the close pass only has
         // the typo left to read, so nothing was cut short.
         let (got, incomplete) = search_drive_with_limits(
-            &conn,
+            &mut conn,
             "d1",
             &Query::new("repor"),
             KindFilter::All,
@@ -1221,7 +1241,7 @@ mod tests {
     #[test]
     fn a_long_phrase_finds_its_close_name_past_names_sharing_pieces() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = drive_conn(dir.path());
+        let mut conn = drive_conn(dir.path());
         // Plenty of names share pieces with the phrase without being close
         // to every word of it.
         insert_names(
@@ -1230,7 +1250,7 @@ mod tests {
         );
         insert_names(&conn, ["Receipts from the sumer holiday.pdf".to_string()]);
         let (got, incomplete) = search_drive_with_limits(
-            &conn,
+            &mut conn,
             "d1",
             &Query::new("receipts from the summer holiday"),
             KindFilter::All,
@@ -1248,31 +1268,38 @@ mod tests {
     #[test]
     fn work_budget_reports_incomplete_even_when_matches_are_omitted() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = drive_conn(dir.path());
+        let mut conn = drive_conn(dir.path());
         for i in 0..=ROW_BUDGET {
             conn.execute("INSERT INTO index_entries (drive_id,parent,name,kind,size,modified,hidden) VALUES ('d1','',?1,'file',1,1,0)", params![format!("budget {i:05}.txt")]).unwrap();
         }
-        let (_, incomplete) =
-            search_drive_bounded(&conn, "d1", &Query::new("budget"), KindFilter::All, true)
-                .unwrap();
+        let (_, incomplete) = search_drive_bounded(
+            &mut conn,
+            "d1",
+            &Query::new("budget"),
+            KindFilter::All,
+            true,
+        )
+        .unwrap();
         assert!(incomplete);
     }
 
     #[test]
     fn row_budget_distinguishes_exact_limit_from_an_omitted_match() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = drive_conn(dir.path());
+        let mut conn = drive_conn(dir.path());
         for i in 0..3 {
             conn.execute("INSERT INTO index_entries (drive_id,parent,name,kind,size,modified,hidden) VALUES ('d1','',?1,'file',1,1,0)", params![format!("budget {i}.txt")]).unwrap();
         }
         let query = Query::new("budget");
         let (exact, incomplete) =
-            search_drive_with_limits(&conn, "d1", &query, KindFilter::All, 3, None, true).unwrap();
+            search_drive_with_limits(&mut conn, "d1", &query, KindFilter::All, 3, None, true)
+                .unwrap();
         assert_eq!(exact.len(), 3);
         assert!(!incomplete);
         conn.execute("INSERT INTO index_entries (drive_id,parent,name,kind,size,modified,hidden) VALUES ('d1','',?1,'file',1,1,0)", params!["budget visible.txt"]).unwrap();
         let (limited, incomplete) =
-            search_drive_with_limits(&conn, "d1", &query, KindFilter::All, 3, None, true).unwrap();
+            search_drive_with_limits(&mut conn, "d1", &query, KindFilter::All, 3, None, true)
+                .unwrap();
         assert_eq!(limited.len(), 3);
         assert!(
             limited
@@ -1447,7 +1474,7 @@ mod tests {
     #[ignore = "benchmark; run with cargo test --release -- --ignored search_benchmark --nocapture"]
     fn search_benchmark_300k_entries() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = drive_conn(dir.path());
+        let mut conn = drive_conn(dir.path());
         let words = [
             "report", "invoice", "holiday", "photos", "budget", "passport", "resume", "lease",
             "taxes", "backup", "project", "notes", "draft", "final", "scan", "receipt",
@@ -1492,7 +1519,7 @@ mod tests {
             "taxes final 77",
         ] {
             let start = std::time::Instant::now();
-            let got = search_drive(&conn, "d1", &Query::new(q), KindFilter::All).unwrap();
+            let got = search_drive(&mut conn, "d1", &Query::new(q), KindFilter::All).unwrap();
             println!("{q:>16}: {:>4} hits in {:?}", got.len(), start.elapsed());
         }
     }

@@ -54,10 +54,7 @@ const QUEUE_MAX: usize = 512;
 
 /// `{hash}.v2.jpg` → `{hash}.s.v2.webp`, in the same directory.
 pub(super) fn small_path(big: &Path) -> Option<PathBuf> {
-    let name = big.file_name()?.to_str()?;
-    let (hash, rest) = name.split_once('.')?;
-    let recipe = rest.strip_suffix(".jpg")?;
-    Some(big.with_file_name(format!("{hash}.s.{recipe}.webp")))
+    crate::photos::small_thumb_path(big)
 }
 
 fn modified(meta: &std::fs::Metadata) -> Option<std::time::SystemTime> {

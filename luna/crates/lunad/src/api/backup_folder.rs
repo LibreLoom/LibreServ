@@ -26,6 +26,7 @@ use crate::access::{self, CAP_EDIT};
 use crate::api::photos::stream_zip_response;
 use crate::api::response::json_error;
 use crate::auth::{self, CurrentUser};
+use crate::backup::access_list;
 use crate::backup::drive_backup;
 use crate::backup::drive_store::{self, Manifest, Store};
 use crate::backup::status::BackupState;
@@ -145,6 +146,13 @@ fn clean_rel(raw: &str) -> Result<String, ApiError> {
         }
     }
     Ok(parts.join("/"))
+}
+
+/// The same path as one `/`-joined string, with the same rules, for a name
+/// inside a download or a copy.
+fn manifest_rel(key: &str) -> Option<String> {
+    let segs = drive_store::rel_segments(key).ok()?;
+    Some(segs.join("/"))
 }
 
 fn join_rel(a: &str, b: &str) -> String {
@@ -381,10 +389,14 @@ async fn list_backups(
 
 /// The newest copy of a deleted file, as (size, mtime) from its versions.
 fn last_copy(store: &Store, key: &str) -> Option<(u64, i64)> {
+    let segs = drive_store::rel_segments(key).ok()?;
     let mut times = store.version_times().ok()?;
     times.sort_unstable_by(|a, b| b.cmp(a));
     times.into_iter().find_map(|t| {
-        let md = plain_meta(&store.versions_dir().join(t.to_string()).join(key))?;
+        let dir = store.versions_dir().join(t.to_string());
+        let path = drive_store::join_rel(&dir, &segs);
+        inside(&dir, &path)?;
+        let md = plain_meta(&path)?;
         md.is_file().then(|| (md.len(), mtime_of(&md)))
     })
 }
@@ -464,6 +476,11 @@ async fn list_folder(
     };
     let mut deleted_dirs: BTreeMap<String, i64> = BTreeMap::new();
     for (key, at) in &manifest.deleted {
+        // A key that is not a plain relative path names nothing this backup
+        // can show; the copy it would point at is refused too.
+        if drive_store::rel_segments(key).is_err() {
+            continue;
+        }
         let Some(rest) = key.strip_prefix(&prefix) else {
             continue;
         };
@@ -589,17 +606,23 @@ async fn file_response(path: &Path, name: &str) -> Result<Response, ApiError> {
 /// Whether `rel` is a folder with deleted files under it.
 fn deleted_under_folder(manifest: &Manifest, rel: &str) -> bool {
     let prefix = format!("{rel}/");
-    manifest.deleted.keys().any(|key| key.starts_with(&prefix))
+    manifest
+        .deleted
+        .keys()
+        .any(|key| key.starts_with(&prefix) && drive_store::rel_segments(key).is_ok())
 }
 
 /// The newest copy of a deleted file, from the newest version that has it.
 fn newest_copy_path(store: &Store, key: &str) -> Option<PathBuf> {
+    // A key comes from the drive's manifest, so it gets the same path rules
+    // as the rest of the backup: never joined straight onto a folder.
+    let segs = drive_store::rel_segments(key).ok()?;
     let mut times = store.version_times().ok()?;
     times.sort_unstable_by(|a, b| b.cmp(a));
     times.into_iter().find_map(|t| {
-        let path = store.versions_dir().join(t.to_string()).join(key);
-        plain_meta(&path)
-            .is_some_and(|m| m.is_file())
+        let dir = store.versions_dir().join(t.to_string());
+        let path = drive_store::join_rel(&dir, &segs);
+        (inside(&dir, &path).is_some() && plain_meta(&path).is_some_and(|m| m.is_file()))
             .then_some(path)
     })
 }
@@ -621,7 +644,10 @@ fn deleted_copies(
         .keys()
         .filter_map(|key| {
             let inner = key.strip_prefix(&prefix)?;
-            Some((inner.to_string(), newest_copy_path(store, key)?))
+            // The key is drive content: its suffix becomes a path inside the
+            // folder being restored, so it has to be a plain relative path.
+            let inner = manifest_rel(inner)?;
+            Some((inner, newest_copy_path(store, key)?))
         })
         .collect();
     (!entries.is_empty()).then_some((true, entries))
@@ -783,7 +809,9 @@ fn copy_entries(entries: &[(String, PathBuf)], dest: &Path) -> io::Result<()> {
         let to = if inner.is_empty() {
             dest.to_path_buf()
         } else {
-            dest.join(inner)
+            // Names come from the drive's manifest. Join them a segment at a
+            // time so an absolute path or a step out can never replace `dest`.
+            drive_store::join_rel(dest, &drive_store::rel_segments(inner)?)
         };
         if let Some(parent) = to.parent() {
             fs::create_dir_all(parent)?;
@@ -824,35 +852,29 @@ fn missing_folder(label: &str) -> ApiError {
     )
 }
 
-/// Recreate a private item the owner's backup is restoring into, when the item
-/// itself has gone missing: a new row under the same path, then its folder.
-fn recreate_private_item(mount: &Path, item_path: &str, owner: &str) -> Result<(), ApiError> {
-    let failed = || {
+/// Put a private item's own folder back when its disk entry went missing (a
+/// drive that lost files). The item's row is the record of which name it
+/// belongs under, so no new item is made up for a path the drive does not
+/// already record.
+fn recreate_private_folder(mount: &Path, item_path: &str, label: &str) -> Result<(), ApiError> {
+    let disk = mount.join(private::disk_rel(mount, item_path));
+    if plain_meta(&disk).is_some_and(|m| m.is_dir()) {
+        return Ok(());
+    }
+    // The item's folder is recreated only inside a folder that still exists,
+    // the same rule as a plain restore.
+    if let Some((parent, _)) = item_path.rsplit_once('/') {
+        let parent_disk = mount.join(private::disk_rel(mount, parent));
+        if !plain_meta(&parent_disk).is_some_and(|m| m.is_dir()) {
+            return Err(missing_folder(label));
+        }
+    }
+    fs::create_dir(&disk).map_err(|_| {
         fail(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't recreate the private item. Try again.",
         )
-    };
-    if plain_meta(&mount.join(item_path)).is_some() {
-        return Err(fail(
-            StatusCode::CONFLICT,
-            "Something else now has this private item's name. Rename it, then try again.",
-        ));
-    }
-    private::create(mount, item_path, owner).map_err(|_| failed())?;
-    let disk = mount.join(private::disk_rel(mount, item_path));
-    if let Err(err) = fs::create_dir(&disk) {
-        let _ = private::remove(mount, item_path);
-        return Err(if err.kind() == io::ErrorKind::AlreadyExists {
-            fail(
-                StatusCode::CONFLICT,
-                "Something else now has this private item's name. Rename it, then try again.",
-            )
-        } else {
-            failed()
-        });
-    }
-    Ok(())
+    })
 }
 
 async fn restore(
@@ -973,22 +995,43 @@ async fn restore(
             }
             dest_dir
         } else {
+            // A private item's backup is restored only by its owner.
             if user.id() != owner {
                 return Err(fail(
                     StatusCode::FORBIDDEN,
                     "Only the owner of this private item can restore it.",
                 ));
             }
-            if private::item_at(&mount, &source_sub).is_none() {
-                // The item's folder is recreated only inside a folder that still
-                // exists, the same rule as a plain restore.
-                if let Some((parent, _)) = source_sub.rsplit_once('/') {
-                    let parent_disk = mount.join(private::disk_rel(&mount, parent));
-                    if !plain_meta(&parent_disk).is_some_and(|m| m.is_dir()) {
-                        return Err(missing_folder(&label));
-                    }
+            // And only into an item the drive itself records as theirs. A
+            // manifest can name any owner for any folder, so its claim never
+            // replaces the drive's record or the caller's own access.
+            let item_owner = match access_list::private_source(&conn, &source_id, &source_sub) {
+                access_list::PrivateSource::OwnItem { owner }
+                | access_list::PrivateSource::Inside { owner, .. } => Some(owner),
+                access_list::PrivateSource::Shared | access_list::PrivateSource::PrivateTrash => {
+                    None
                 }
-                recreate_private_item(&mount, &source_sub, &owner)?;
+            };
+            let Some(item_owner) = item_owner else {
+                return Err(fail(
+                    StatusCode::CONFLICT,
+                    "This private item is no longer on this drive. Create it again, then restore the backup.",
+                ));
+            };
+            if item_owner != owner {
+                return Err(fail(
+                    StatusCode::FORBIDDEN,
+                    "Only the owner of this private item can restore it.",
+                ));
+            }
+            if !auth::has_cap(&user, &conn, &source_id, &source_sub, CAP_EDIT) {
+                return Err(fail(
+                    StatusCode::FORBIDDEN,
+                    "You need Write access to that folder to restore into it.",
+                ));
+            }
+            if private::item_at(&mount, &source_sub).is_some() {
+                recreate_private_folder(&mount, &source_sub, &label)?;
             }
             let dest_dir = mount.join(private::disk_rel(
                 &mount,
@@ -1448,39 +1491,70 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn gone_private_item_is_recreated_as_private() {
+    async fn a_manifest_cannot_claim_a_private_item() {
         let f = fixture();
         let access = AccessList {
             users: vec![f.member_id.clone()],
             admins: false,
         };
+        // The manifest names the member as the private owner, but the drive
+        // has no private item called "Docs" (it is an ordinary folder).
         let store = make_private_store(
             &f,
-            "p-priv-gone-private-item-is-recreated-as-privat",
+            "p-priv-a-manifest-cannot-claim-a-private-item",
             &f.member_id,
             access,
         );
         fs::write(store.current_dir().join("a.txt"), "hello").unwrap();
-        fs::remove_dir_all(f.src_root.join("Docs")).unwrap();
+
+        let (status, bytes) = send(
+            &f,
+            "POST",
+            "/api/v1/drives/drive-tgt/backups/p-priv-a-manifest-cannot-claim-a-private-item/restore",
+            &f.member_token,
+            Some(json!({ "path": "a.txt" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            body["error"],
+            "This private item is no longer on this drive. Create it again, then restore the backup."
+        );
+        assert!(private::item_at(&f.src_root, "Docs").is_none());
+        assert!(!f.src_root.join("Docs/a.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn a_private_item_whose_folder_went_missing_is_put_back() {
+        let f = fixture();
+        let access = AccessList {
+            users: vec![f.member_id.clone()],
+            admins: false,
+        };
+        let store = make_private_store(&f, "p-priv-folder-went-missing", &f.member_id, access);
+        fs::write(store.current_dir().join("a.txt"), "hello").unwrap();
+        private::privatize(&f.src_root, "Docs", &f.member_id).unwrap();
+        // The item's folder is gone (a drive that lost files); its row stays.
+        fs::remove_dir_all(f.src_root.join(private::disk_rel(&f.src_root, "Docs"))).unwrap();
 
         let (status, _) = send(
             &f,
             "POST",
-            "/api/v1/drives/drive-tgt/backups/p-priv-gone-private-item-is-recreated-as-privat/restore",
+            "/api/v1/drives/drive-tgt/backups/p-priv-folder-went-missing/restore",
             &f.member_token,
             Some(json!({ "path": "a.txt" })),
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        let item = private::item_at(&f.src_root, "Docs").expect("item recreated");
+        let item = private::item_at(&f.src_root, "Docs").expect("item still recorded");
         assert_eq!(item.owner, f.member_id);
         let disk = f.src_root.join(private::disk_rel(&f.src_root, "Docs"));
         assert_eq!(fs::read_to_string(disk.join("a.txt")).unwrap(), "hello");
-        assert!(!f.src_root.join("Docs").exists());
     }
 
     #[tokio::test]
-    async fn gone_private_item_under_a_missing_folder_is_409() {
+    async fn a_private_item_under_a_missing_folder_is_409() {
         let f = fixture();
         let access = AccessList {
             users: vec![f.member_id.clone()],
@@ -1488,18 +1562,23 @@ mod tests {
         };
         let store = make_private_store(
             &f,
-            "p-priv-gone-private-item-under-a-missing-folder",
+            "p-priv-item-under-a-missing-folder",
             &f.member_id,
             access,
         );
         set_manifest(&store, |m| m.source_path = "Work/Docs".into());
         fs::write(store.current_dir().join("a.txt"), "hello").unwrap();
-        // Neither the private item nor its parent folder "Work" exists.
+        fs::create_dir(f.src_root.join("Work")).unwrap();
+        let docs = f.src_root.join("Work/Docs");
+        fs::create_dir(&docs).unwrap();
+        private::privatize(&f.src_root, "Work/Docs", &f.member_id).unwrap();
+        // Both the item's folder and the folder it lived in are gone.
+        fs::remove_dir_all(f.src_root.join("Work")).unwrap();
 
         let (status, bytes) = send(
             &f,
             "POST",
-            "/api/v1/drives/drive-tgt/backups/p-priv-gone-private-item-under-a-missing-folder/restore",
+            "/api/v1/drives/drive-tgt/backups/p-priv-item-under-a-missing-folder/restore",
             &f.member_token,
             Some(json!({ "path": "a.txt" })),
         )
@@ -1510,40 +1589,7 @@ mod tests {
             body["error"],
             "The original folder is missing on Photos. Put it back, then try again."
         );
-        assert!(private::item_at(&f.src_root, "Work/Docs").is_none());
         assert!(!f.src_root.join("Work").exists());
-    }
-
-    #[tokio::test]
-    async fn gone_private_item_is_recreated_under_its_parent_folder() {
-        let f = fixture();
-        let access = AccessList {
-            users: vec![f.member_id.clone()],
-            admins: false,
-        };
-        let store = make_private_store(
-            &f,
-            "p-priv-gone-private-item-is-recreated-under-its",
-            &f.member_id,
-            access,
-        );
-        set_manifest(&store, |m| m.source_path = "Work/Docs".into());
-        fs::write(store.current_dir().join("a.txt"), "hello").unwrap();
-        fs::create_dir(f.src_root.join("Work")).unwrap();
-
-        let (status, _) = send(
-            &f,
-            "POST",
-            "/api/v1/drives/drive-tgt/backups/p-priv-gone-private-item-is-recreated-under-its/restore",
-            &f.member_token,
-            Some(json!({ "path": "a.txt" })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        let item = private::item_at(&f.src_root, "Work/Docs").expect("item recreated");
-        assert_eq!(item.owner, f.member_id);
-        let disk = f.src_root.join(private::disk_rel(&f.src_root, "Work/Docs"));
-        assert_eq!(fs::read_to_string(disk.join("a.txt")).unwrap(), "hello");
     }
 
     #[tokio::test]
@@ -1619,6 +1665,91 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::CONFLICT);
         assert_eq!(fs::read_dir(outside.join("Deep")).unwrap().count(), 0);
+    }
+
+    #[tokio::test]
+    async fn manifest_keys_cannot_escape_the_restore_destination() {
+        let f = fixture();
+        let outside = f._dir.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        let shared = AccessList {
+            users: vec![],
+            admins: true,
+        };
+        for (id, key) in [
+            // An empty segment leaves an absolute path after `Old/`.
+            ("p-escape-empty", "Old//etc/cron.d/luna".to_string()),
+            // A step out of the destination folder.
+            ("p-escape-parent", "Old/../../canary".to_string()),
+            // An absolute path, written out in full.
+            (
+                "p-escape-absolute",
+                format!("Old/{}", outside.join("canary").display()),
+            ),
+        ] {
+            let store = make_store(&f, id, "drive-src", shared.clone());
+            set_manifest(&store, |m| {
+                m.deleted.insert(key.clone(), 150);
+            });
+            // The drive's own copy sits where the manifest says the key is.
+            let copy = store
+                .versions_dir()
+                .join("100")
+                .join(key.trim_start_matches('/'));
+            fs::create_dir_all(copy.parent().unwrap()).unwrap();
+            fs::write(&copy, "planted").unwrap();
+
+            let (status, _) = send(
+                &f,
+                "POST",
+                &format!("/api/v1/drives/drive-tgt/backups/{id}/restore"),
+                &f.admin_token,
+                Some(json!({ "path": "Old" })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{id}");
+        }
+        assert!(!outside.join("canary").exists());
+    }
+
+    #[tokio::test]
+    async fn a_manifest_key_with_a_plain_path_still_restores() {
+        let f = fixture();
+        let store = make_store(
+            &f,
+            "p-deleted-nested",
+            "drive-src",
+            AccessList {
+                users: vec![],
+                admins: true,
+            },
+        );
+        set_manifest(&store, |m| {
+            m.deleted.insert("Old/Photos/a.jpg".into(), 150);
+        });
+        let copy = store.versions_dir().join("100").join("Old/Photos");
+        fs::create_dir_all(&copy).unwrap();
+        fs::write(copy.join("a.jpg"), "photo").unwrap();
+        fs::create_dir_all(f.src_root.join("Docs")).unwrap();
+
+        let (status, bytes) = send(
+            &f,
+            "POST",
+            "/api/v1/drives/drive-tgt/backups/p-deleted-nested/restore",
+            &f.admin_token,
+            Some(json!({ "path": "Old" })),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "{}",
+            String::from_utf8_lossy(&bytes)
+        );
+        assert_eq!(
+            fs::read_to_string(f.src_root.join("Docs/Old/Photos/a.jpg")).unwrap(),
+            "photo"
+        );
     }
 
     #[tokio::test]

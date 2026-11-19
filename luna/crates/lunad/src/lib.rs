@@ -146,6 +146,9 @@ pub struct AppState {
     pub public_upload_limiter: Arc<crate::rate_limit::RateLimiter>,
     /// Unauthenticated form answers (`POST /s/{token}/respond`).
     pub form_respond_limiter: Arc<crate::rate_limit::RateLimiter>,
+    /// One form's answers, from every address together — a flood cannot spend
+    /// the form's `maxResponses` budget and close it for real respondents.
+    pub form_submit_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub share_auth: Arc<crate::rate_limit::ShareAuthGuard>,
     pub data_dir: std::path::PathBuf,
     pub updates: std::sync::Arc<crate::system::updates::UpdateService>,
@@ -225,6 +228,14 @@ impl AppState {
                 db.clone(),
                 std::time::Duration::from_secs(60),
                 12,
+            )),
+            // A whole form's answer budget per minute, from every address
+            // together. A real classroom stays far below it; a rotating-IP
+            // flood cannot outrun it. See `api::forms::FORM_SUBMIT_PER_MINUTE`.
+            form_submit_limiter: Arc::new(crate::rate_limit::RateLimiter::new(
+                db.clone(),
+                std::time::Duration::from_secs(60),
+                crate::api::forms::FORM_SUBMIT_PER_MINUTE,
             )),
             share_auth: Arc::new(crate::rate_limit::ShareAuthGuard::new(db)),
             data_dir: data_dir.to_path_buf(),

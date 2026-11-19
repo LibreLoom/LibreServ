@@ -143,9 +143,19 @@ func (h DeviceHandler) SetDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	var account sql.NullString
-	err := h.DB.QueryRow(`SELECT account_id FROM devices WHERE id = ?`, id).Scan(&account)
+	var current string
+	err := h.DB.QueryRow(`SELECT account_id, COALESCE(subdomain, '') FROM devices WHERE id = ?`, id).Scan(&account, &current)
 	if err != nil || !account.Valid || account.String != acct.ID {
 		JSONError(w, http.StatusNotFound, "That Luna is not on this account.")
+		return
+	}
+	// Moving a Luna that already has an address drives the shared Cloudflare
+	// token, so one account cannot loop it. Choosing the first address is setup.
+	// A name that fails the local check never reaches Cloudflare, so it is not
+	// counted against the allowance.
+	normalized := domainname.Normalize(req.Subdomain)
+	if current != "" && current != normalized && domainname.Validate(normalized) == "" && !allowDomainChange(h.DB, acct.ID) {
+		JSONError(w, http.StatusTooManyRequests, domainChangeMsg)
 		return
 	}
 	out, status, msg := applyDeviceDomain(h.Deps, id, req.Subdomain, req.LocalPort)
@@ -295,6 +305,12 @@ func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
 		JSON(w, http.StatusOK, out)
 		return
 	}
+	// Moving an address drives the shared Cloudflare token, so one account
+	// cannot loop it. Choosing the first address is setup and is not counted.
+	if dev.Subdomain != "" && !allowDomainChange(h.DB, dev.AccountID.String) {
+		JSONError(w, http.StatusTooManyRequests, domainChangeMsg)
+		return
+	}
 	var tunnelID, sealed string
 	var port int
 	_ = h.DB.QueryRow(`SELECT COALESCE(tunnel_id,''), COALESCE(tunnel_token,''), local_port FROM devices WHERE id = ?`, dev.ID).Scan(&tunnelID, &sealed, &port)
@@ -319,16 +335,17 @@ func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
 	}
 	oldHost := domainname.Hostname(dev.Subdomain, config.C.Server.PublicZone)
 	newHost := domainname.Hostname(sub, config.C.Server.PublicZone)
+	cf := config.Cloudflare()
 	if dev.Subdomain != "" && dev.Subdomain != sub {
-		_ = h.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, oldHost)
+		_ = h.DNS.DeleteRecord(cf.APIToken, cf.ZoneID, oldHost)
 	}
-	if err := h.Tunnel.ConfigureIngress(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tunnelID, newHost, "http://127.0.0.1:"+itoa(port)); err != nil {
+	if err := h.Tunnel.ConfigureIngress(cf.AccountID, cf.APIToken, tunnelID, newHost, "http://127.0.0.1:"+itoa(port)); err != nil {
 		slog.Error("domain: move ingress failed", "device", dev.ID, "subdomain", sub, "err", err)
 		releaseClaim()
 		JSONError(w, providerFailureStatus, "Could not move the address. Try again.")
 		return
 	}
-	if err := h.DNS.UpsertCNAME(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, newHost, tunnelID+".cfargotunnel.com"); err != nil {
+	if err := h.DNS.UpsertCNAME(cf.APIToken, cf.ZoneID, newHost, tunnelID+".cfargotunnel.com"); err != nil {
 		slog.Error("domain: move DNS record failed", "device", dev.ID, "subdomain", sub, "err", err)
 		releaseClaim()
 		JSONError(w, providerFailureStatus, "Could not publish the new address. Try again.")

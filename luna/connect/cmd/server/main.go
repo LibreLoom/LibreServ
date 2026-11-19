@@ -98,7 +98,7 @@ func main() {
 	if err := providers.ApplyCloudflareFromDB(db); err != nil {
 		slog.Warn("cloudflare provider overlay", "error", err)
 	}
-	if !config.C.Cloudflare.Ready() {
+	if !config.Cloudflare().Ready() {
 		if config.DevMode() {
 			slog.Warn("cloudflare not configured — tunnels and DNS use mock mode (dev only)")
 		} else {

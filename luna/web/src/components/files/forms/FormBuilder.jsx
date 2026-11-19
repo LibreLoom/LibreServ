@@ -211,13 +211,15 @@ function BuilderSession({
 
   const responsesQuery = useQuery({
     queryKey: responsesKey,
-    queryFn: () => source.formResponses(driveId, path),
+    queryFn: () => source.formAnswers(driveId, path),
     staleTime: 15_000,
     refetchInterval: 15_000,
   });
+  const answers = responsesQuery.data;
   const responses = latestResponses(
-    Array.isArray(responsesQuery.data) ? responsesQuery.data : [],
+    Array.isArray(answers?.responses) ? answers.responses : [],
   );
+  const answersNotice = typeof answers?.notice === "string" ? answers.notice : "";
   /** Question ids that already have answers — editing those warns first. */
   const answeredIds = new Set(
     responses.flatMap((r) => (r && typeof r.answers === "object" && r.answers ? Object.keys(r.answers) : [])),
@@ -566,6 +568,7 @@ function BuilderSession({
                   formPath={path}
                   questions={questions}
                   responses={responses}
+                  notice={answersNotice}
                   loading={responsesQuery.isLoading}
                   error={responsesQuery.isError
                     ? apiErrorMessage(responsesQuery.error, "Luna couldn't load the answers. Try again.")

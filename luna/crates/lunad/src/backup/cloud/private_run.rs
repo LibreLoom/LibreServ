@@ -13,8 +13,9 @@ use super::format::{BackupMeta, SnapshotRecord, Tree};
 use super::identity;
 use super::private::{self, PRIVATE_SNAPSHOT_DOMAIN, PSNAPSHOTS_KIND};
 use super::run::{
-    CHECK_FAILED, CloudOutcome, RunContext, RunSlot, SOURCE_MISSING, Sealer, busy_outcome,
-    copy_and_commit, lock, most_files_missing, problem_outcome, random_id, source_root,
+    CHECK_FAILED, CloudOutcome, RunContext, RunSlot, SOURCE_MISSING, SOURCE_OUTSIDE, Sealer,
+    busy_outcome, copy_and_commit, lock, most_files_missing, problem_outcome, random_id,
+    source_root,
 };
 use super::store::CloudStore;
 use crate::db;
@@ -42,7 +43,9 @@ pub fn run_once(
         }
         let drive = files::drive_root(&conn, &row.source_drive)?;
         let drive_root = PathBuf::from(&drive.mount_point);
-        let root = source_root(&drive_root, &row.source_path);
+        let Some(root) = source_root(&drive_root, &row.source_path) else {
+            return Ok(problem_outcome(SOURCE_OUTSIDE));
+        };
         (drive_root, root)
     };
     // An unplugged drive has no Luna marker, so its folder is never read as empty.

@@ -15,6 +15,12 @@ pub(super) async fn public_file(
         if link.subject_kind != KIND_PATH || link.caps & CAP_VIEW == 0 {
             return Err(gone());
         }
+        if names_hidden(query.path.as_deref().unwrap_or("")) {
+            return Err(json_error(
+                StatusCode::NOT_FOUND,
+                "The shared file isn't available right now.",
+            ));
+        }
         let rel = scoped_child(
             &link,
             query.path.as_deref().unwrap_or(""),
@@ -282,6 +288,9 @@ pub(super) async fn public_zip(
         if link.subject_kind == KIND_ALBUM {
             return album_zip_response(&state, &link).await;
         }
+        if names_hidden(query.path.as_deref().unwrap_or("")) {
+            return Err(not_in_share());
+        }
         let rel = scoped_child(
             &link,
             query.path.as_deref().unwrap_or(""),
@@ -314,12 +323,33 @@ pub(super) async fn public_zip(
     .await
 }
 
+/// The one error shape for a folder zip that could not be prepared (plan or
+/// walk), with "too many files" named in plain language.
+fn folder_zip_error(e: files::FilesError) -> ApiError {
+    let msg = e.to_string();
+    if msg.contains("folder too large") {
+        json_error(
+            StatusCode::BAD_REQUEST,
+            "That folder has too many files to download as one zip. Download smaller folders instead.",
+        )
+    } else {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't prepare that folder download. Try again.",
+        )
+    }
+}
+
 pub(super) async fn folder_zip_response(
     state: &AppState,
     link: &AccessLinkRow,
     rel: &str,
 ) -> Result<Response, ApiError> {
-    let zip_name = {
+    // Everything the walk needs from the database is gathered here, under the
+    // lock: the plan (folder, trash names) and the archive name. The walk and
+    // compression below run outside it, taking it for one reachability check
+    // per entry — a guest's big download must not stall the rest of Luna.
+    let (zip_name, plan) = {
         let conn = state.db.lock().map_err(|_| busy())?;
         let base = if rel == files::TRASH_API_ALIAS {
             "trash".to_string()
@@ -329,12 +359,14 @@ pub(super) async fn folder_zip_response(
                 .flatten()
                 .unwrap_or_else(|| files::zip_archive_basename(rel))
         };
-        format!("{base}.zip")
+        let plan = files::zip_plan(&conn, &link.drive_id, rel, true)
+            .map_err(folder_zip_error)?
+            // Hide exactly what this guest's folder listing hides.
+            .hiding_hidden();
+        (format!("{base}.zip"), plan)
     };
-    let drive_id = link.drive_id.clone();
     let scope = link.path.clone();
     let link = link.clone();
-    let rel_owned = rel.to_string();
     let state = state.clone();
     crate::api::photos::stream_zip_response(&zip_name, move |tmp_path| {
         let mut file = std::fs::OpenOptions::new()
@@ -347,25 +379,16 @@ pub(super) async fn folder_zip_response(
                     "Luna couldn't prepare that folder download. Try again.",
                 )
             })?;
-        let conn = state.db.lock().map_err(|_| busy())?;
-        files::write_folder_zip_including_trash(&conn, &drive_id, &rel_owned, &mut file, |child| {
-            path_contains(&scope, child) && link_reaches(&conn, &link, child)
+        files::write_zip_from_plan(plan, &mut file, |child| {
+            path_contains(&scope, child)
+                && state
+                    .db
+                    .lock()
+                    .map(|conn| link_reaches(&conn, &link, child))
+                    .unwrap_or(false)
         })
         .map(|_| ())
-        .map_err(|e| {
-            let msg = e.to_string();
-            if msg.contains("folder too large") {
-                json_error(
-                    StatusCode::BAD_REQUEST,
-                    "That folder has too many files to download as one zip. Download smaller folders instead.",
-                )
-            } else {
-                json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna couldn't prepare that folder download. Try again.",
-                )
-            }
-        })
+        .map_err(folder_zip_error)
     })
     .await
 }

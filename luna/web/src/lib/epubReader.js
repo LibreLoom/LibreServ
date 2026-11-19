@@ -3,9 +3,10 @@
  *
  * foliate-js paginates by measuring a sandboxed iframe's document, which
  * requires `allow-same-origin` — book markup loaded from blob: URLs then runs
- * in Luna's origin. So every markup resource is scrubbed of scripted content
- * (and given a `script-src 'none'` CSP) before it becomes a blob URL. See
- * sanitizeBookHtml / attachSanitizer.
+ * in Luna's origin. So every markup resource is stripped of scripted content
+ * and given a CSP meta (script, objects, <base> and forms all blocked) before
+ * it becomes a blob URL — including SVG pages and documents with no <head>.
+ * See sanitizeBookHtml / attachSanitizer.
  *
  * The pure helpers in this file (metadata, TOC flattening, position storage)
  * are covered by epubReader.test.js.
@@ -65,14 +66,154 @@ export async function openEpub(bytes) {
   return book;
 }
 
-const SCRIPT_URI = /^\s*(javascript|vbscript)\s*:/i;
 const MARKUP_TYPE = /xhtml|html|svg/i;
 
+const XHTML_NS = "http://www.w3.org/1999/xhtml";
+const SVG_NS = "http://www.w3.org/2000/svg";
+const XLINK_NS = "http://www.w3.org/1999/xlink";
+
+const BOOK_CSP =
+  "script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+
+/** Elements that run script, load another document, or rewrite URLs. */
+const DROPPED_ELEMENTS = new Set([
+  "script",
+  "iframe",
+  "frame",
+  "frameset",
+  "object",
+  "embed",
+  "applet",
+  "base",
+  // SVG: an HTML island can host a frame, and SMIL can add attributes
+  // (including URLs) after this pass has run.
+  "foreignobject",
+  "animate",
+  "animatemotion",
+  "animatetransform",
+  "set",
+  "discard",
+]);
+
+/** Attributes whose value the browser resolves as a URL. */
+const URL_ATTRIBUTES = new Set([
+  "href",
+  "xlink:href",
+  "src",
+  "action",
+  "formaction",
+  "poster",
+  "background",
+  "data",
+]);
+
+const SCRIPT_URL = /^(?:javascript|vbscript):/i;
+const DATA_URL = /^data:/i;
+const IMAGE_DATA_URL = /^data:image\//i;
+
+/** @param {Element} el */
+function elementName(el) {
+  return (el.localName || el.tagName).toLowerCase();
+}
+
 /**
- * Remove anything that could run script from a book document: <script>
- * elements, on* event-handler attributes, and javascript:/vbscript: URLs.
- * HTML documents also get a `script-src 'none'` CSP meta injected at the top
- * of <head> as a second layer (it must precede any content to take effect).
+ * Namespaced attributes keep their prefix in `name`, so `xlink:href` is
+ * matched for any prefix bound to the XLink namespace.
+ * @param {Attr} attr
+ */
+function attributeName(attr) {
+  const local = (attr.localName || attr.name).toLowerCase();
+  return attr.namespaceURI === XLINK_NS ? `xlink:${local}` : local;
+}
+
+/**
+ * Browsers delete ASCII control characters and whitespace from a URL before
+ * reading its scheme, so `java&#9;script:` is still `javascript:`. Entities
+ * are already decoded by the parser; normalize the decoded value the same way
+ * before deciding whether the attribute is safe.
+ * @param {string} value
+ */
+function urlForCheck(value) {
+  return [...value].filter((ch) => ch.codePointAt(0) > 0x20).join("");
+}
+
+/**
+ * A `data:` URL is only safe where the payload is drawn as an image; a
+ * `data:text/html` link, frame or object would be a document instead.
+ * @param {Element} el
+ * @param {string} name
+ * @param {string} url
+ */
+function dataUrlAllowed(el, name, url) {
+  if (!IMAGE_DATA_URL.test(url)) return false;
+  if (name === "poster") return elementName(el) === "video";
+  if (name !== "href" && name !== "xlink:href" && name !== "src") return false;
+  const tag = elementName(el);
+  return tag === "img" || tag === "image" || tag === "source";
+}
+
+/**
+ * Put the policy in an HTML <meta> as the first child of <head> (creating the
+ * head for XML documents that omit it). An SVG spine page has no <head>, so
+ * the same meta goes at the top of its root there — inert, but harmless; the
+ * element and attribute removal above is the control for SVG.
+ * @param {Document} doc
+ * @param {"application/xhtml+xml"|"text/html"|"image/svg+xml"} type
+ */
+function ensureCspMeta(doc, type) {
+  const meta = doc.createElementNS(XHTML_NS, "meta");
+  meta.setAttribute("http-equiv", "Content-Security-Policy");
+  meta.setAttribute("content", BOOK_CSP);
+  if (type === "image/svg+xml") {
+    doc.documentElement.insertBefore(meta, doc.documentElement.firstChild);
+    return;
+  }
+  const root = doc.documentElement;
+  // Only a head directly under <html> is a real head; a nested one would not
+  // apply the policy.
+  let head = elementName(root) === "html"
+    ? [...root.children].find((el) => elementName(el) === "head")
+    : null;
+  if (!head) {
+    head = doc.createElementNS(XHTML_NS, "head");
+    if (elementName(root) === "html") {
+      root.insertBefore(head, root.firstChild);
+    } else {
+      // A fragment like <div>…</div>: wrap it so the meta has a real head.
+      const html = doc.createElementNS(XHTML_NS, "html");
+      const body = doc.createElementNS(XHTML_NS, "body");
+      doc.removeChild(root);
+      doc.appendChild(html);
+      html.appendChild(head);
+      html.appendChild(body);
+      body.appendChild(root);
+    }
+  }
+  head.insertBefore(meta, head.firstChild);
+}
+
+/**
+ * A page that cannot be parsed gets a blank, scriptless document rather than
+ * its original source: the parser is what decodes entities, so handing
+ * unparsed markup to the browser would bypass every rule in the pass.
+ * @param {"application/xhtml+xml"|"text/html"|"image/svg+xml"} type
+ */
+function emptyBookDocument(type) {
+  const meta =
+    `<meta http-equiv="Content-Security-Policy" content="${BOOK_CSP}"/>`;
+  if (type === "image/svg+xml") {
+    return `<svg xmlns="${SVG_NS}"><meta xmlns="${XHTML_NS}" ` +
+      `http-equiv="Content-Security-Policy" content="${BOOK_CSP}"/></svg>`;
+  }
+  const doctype = type === "text/html" ? "<!DOCTYPE html>\n" : "";
+  return `${doctype}<html xmlns="${XHTML_NS}"><head>${meta}</head><body></body></html>`;
+}
+
+/**
+ * Remove anything that could run script or load another document from a book
+ * page: script/navigation elements, on* event handlers, `srcdoc`, and unsafe
+ * URLs. Every page also gets a CSP meta (first child of <head>) blocking
+ * script, objects, <base> and form submission as a second layer.
  * @param {string} source
  * @param {string} [mediaType]
  */
@@ -89,27 +230,32 @@ export function sanitizeBookHtml(source, mediaType = "application/xhtml+xml") {
   try {
     doc = new DOMParser().parseFromString(source, type);
   } catch {
-    return source;
+    return emptyBookDocument(type);
   }
-  if (doc.querySelector("parsererror")) return source;
+  const isXml = type !== "text/html";
+  if (!doc?.documentElement || (isXml && doc.querySelector("parsererror"))) {
+    return emptyBookDocument(type);
+  }
 
-  for (const el of doc.querySelectorAll("script")) el.remove();
-  for (const el of doc.querySelectorAll("*")) {
+  for (const el of [...doc.querySelectorAll("*")]) {
+    if (DROPPED_ELEMENTS.has(elementName(el))) {
+      el.remove();
+      continue;
+    }
     for (const attr of [...el.attributes]) {
-      if (attr.name.toLowerCase().startsWith("on") || SCRIPT_URI.test(attr.value)) {
-        el.removeAttribute(attr.name);
+      const name = attributeName(attr);
+      if (name === "srcdoc" || name.startsWith("on")) {
+        el.removeAttributeNode(attr);
+        continue;
+      }
+      if (!URL_ATTRIBUTES.has(name)) continue;
+      const url = urlForCheck(attr.value);
+      if (SCRIPT_URL.test(url) || (DATA_URL.test(url) && !dataUrlAllowed(el, name, url))) {
+        el.removeAttributeNode(attr);
       }
     }
   }
-  if (type !== "image/svg+xml") {
-    const head = doc.getElementsByTagName("head")[0];
-    if (head) {
-      const meta = doc.createElement("meta");
-      meta.setAttribute("http-equiv", "Content-Security-Policy");
-      meta.setAttribute("content", "script-src 'none'");
-      head.insertBefore(meta, head.firstChild);
-    }
-  }
+  ensureCspMeta(doc, type);
   return type === "text/html"
     ? `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`
     : new XMLSerializer().serializeToString(doc);

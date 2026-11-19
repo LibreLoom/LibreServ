@@ -3,12 +3,50 @@ package config
 import (
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/spf13/viper"
 )
 
 // C is the loaded configuration.
 var C Config
+
+// settingsMu guards the two settings objects that Admin → Connections rewrites
+// while requests are already reading them (Stripe on every webhook and
+// checkout, Cloudflare on every tunnel and DNS call). C is written at load
+// time only; after that these two are replaced through SetStripe and
+// SetCloudflare and read through Stripe and Cloudflare.
+var settingsMu sync.RWMutex
+
+// Stripe returns the current Stripe settings. Each caller gets its own copy,
+// so an Admin → Connections update can never show half of the old value and
+// half of the new one.
+func Stripe() StripeConfig {
+	settingsMu.RLock()
+	defer settingsMu.RUnlock()
+	return C.Stripe
+}
+
+// SetStripe replaces the Stripe settings in one step.
+func SetStripe(c StripeConfig) {
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
+	C.Stripe = c
+}
+
+// Cloudflare returns the current Cloudflare settings as a complete copy.
+func Cloudflare() CloudflareConfig {
+	settingsMu.RLock()
+	defer settingsMu.RUnlock()
+	return C.Cloudflare
+}
+
+// SetCloudflare replaces the Cloudflare settings in one step.
+func SetCloudflare(c CloudflareConfig) {
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
+	C.Cloudflare = c
+}
 
 type Config struct {
 	Server     ServerConfig     `mapstructure:"server"`
@@ -19,6 +57,11 @@ type Config struct {
 	Stripe     StripeConfig     `mapstructure:"stripe"`
 	Backup     BackupConfig     `mapstructure:"backup"`
 	Mail       MailConfig       `mapstructure:"mail"`
+	// TrustedProxies is a comma-separated list of proxy IPs/CIDRs whose
+	// forwarding headers (CF-Connecting-IP, X-Real-IP, X-Forwarded-For) may be
+	// believed. Loopback is always trusted, so the shipped Caddy on 127.0.0.1
+	// needs no entry. LUNACONNECT_TRUSTED_PROXIES.
+	TrustedProxies string `mapstructure:"trusted_proxies"`
 }
 
 type ServerConfig struct {
@@ -106,6 +149,7 @@ func setDefaults() {
 	viper.SetDefault("database.driver", "sqlite")
 	viper.SetDefault("database.path", "dev/luna-connect.db")
 	viper.SetDefault("data_dir", "dev/data")
+	viper.SetDefault("trusted_proxies", "")
 	viper.SetDefault("backup.driver", "auto")
 	viper.SetDefault("server.web_dir", "web/dist")
 	viper.SetDefault("auth.session_ttl_hours", 168)

@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -906,5 +907,52 @@ func TestStoragePackBodyStreamsOutsideWriteFence(t *testing.T) {
 	}
 	if !strings.Contains(rec.Header().Get("Server-Timing"), "spool;dur=") {
 		t.Fatalf("Server-Timing missing: %q", rec.Header().Get("Server-Timing"))
+	}
+}
+
+// Two uploads of 8 bytes with a 10-byte cap must not both read "nothing used"
+// and both pass: the quota check and the row insert are one operation under the
+// account's write lock, so exactly one of them fits.
+func TestConcurrentPackUploadsCannotBothPassTheCap(t *testing.T) {
+	h, d, tok := storageFixture(t, "caprace", 10)
+	bodies := [][]byte{[]byte("aaaaaaaa"), []byte("bbbbbbbb")}
+	ids := make([]string, len(bodies))
+	for i, body := range bodies {
+		sum := sha256.Sum256(body)
+		ids[i] = hex.EncodeToString(sum[:])
+	}
+	recs := make([]*httptest.ResponseRecorder, len(bodies))
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range bodies {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			recs[i] = storageDo(t, h, http.MethodPut, "/packs/"+ids[i], tok, "luna1", bodies[i], nil)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	var created, full int
+	for i, rec := range recs {
+		switch rec.Code {
+		case http.StatusOK:
+			created++
+		case http.StatusInsufficientStorage:
+			full++
+			if !strings.Contains(rec.Body.String(), "Your cloud storage is full.") {
+				t.Fatalf("upload %d: plain sentence missing: %s", i, rec.Body.String())
+			}
+		default:
+			t.Fatalf("upload %d: %d %s", i, rec.Code, rec.Body.String())
+		}
+	}
+	if created != 1 || full != 1 {
+		t.Fatalf("created=%d full=%d, want 1 and 1", created, full)
+	}
+	if used := storageUsed(d.DB, fixtureAccountID(t, d, "caprace")); used != 8 {
+		t.Fatalf("stored bytes = %d, want 8 (the cap is 10)", used)
 	}
 }

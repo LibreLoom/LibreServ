@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/mail"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
@@ -81,12 +82,13 @@ type Deps struct {
 func ClientIP(r *http.Request) string {
 	remote := remoteHost(r.RemoteAddr)
 	if trustedProxy(remote) {
-		// Cloudflare sets this to the real client; Caddy on loopback passes it
-		// through. Header trust is only safe because deploy/Caddyfile.conf
-		// aborts every request that did not come from a Cloudflare edge IP —
-		// direct-origin requests could otherwise forge CF-Connecting-IP and
-		// defeat per-IP rate limits. Keep that matcher in place.
-		// Prefer it over XFF so we do not bucket everyone on the edge/proxy IP.
+		// Cloudflare sets CF-Connecting-IP; the local Caddy passes it through.
+		// Only a proxy may set these headers: trusting them from any other peer
+		// would let that peer pick a new client address per request and reset
+		// the per-IP limits. Peers allowed to speak for a client are loopback
+		// (the shipped Caddy) and whatever trusted_proxies lists.
+		// Prefer CF-Connecting-IP over XFF so we do not bucket everyone on the
+		// edge/proxy IP.
 		if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cf != "" {
 			return stripPort(cf)
 		}
@@ -121,8 +123,51 @@ func stripPort(addr string) string {
 	return strings.Trim(addr, "[]")
 }
 
+// trustedProxy reports whether a peer may set the client-IP headers. Loopback
+// is always trusted: the shipped deploy runs Caddy on 127.0.0.1 in front of
+// two Connect instances, so it keeps working with no configuration. Any other
+// proxy address must be listed in LUNACONNECT_TRUSTED_PROXIES — being on a
+// private network is not enough, because the Connect port may be reachable
+// from the whole LAN or container network.
 func trustedProxy(ip string) bool {
 	parsed := net.ParseIP(strings.Trim(ip, "[]"))
-	// Loopback (Caddy on the same host) or private (docker/LAN proxy hop).
-	return parsed != nil && (parsed.IsLoopback() || parsed.IsPrivate())
+	if parsed == nil {
+		return false
+	}
+	if parsed.IsLoopback() {
+		return true
+	}
+	for _, network := range trustedProxyNetworks() {
+		if network.Contains(parsed) {
+			return true
+		}
+	}
+	return false
+}
+
+// trustedProxyNetworks parses trusted_proxies. Malformed entries are ignored,
+// which fails closed: only loopback (and any valid entries) stays trusted.
+func trustedProxyNetworks() []*net.IPNet {
+	var networks []*net.IPNet
+	for _, entry := range strings.Split(config.C.TrustedProxies, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		if strings.Contains(entry, "/") {
+			if _, network, err := net.ParseCIDR(entry); err == nil {
+				networks = append(networks, network)
+			}
+			continue
+		}
+		addr := net.ParseIP(entry)
+		if addr == nil {
+			continue
+		}
+		if v4 := addr.To4(); v4 != nil {
+			addr = v4
+		}
+		networks = append(networks, &net.IPNet{IP: addr, Mask: net.CIDRMask(8*len(addr), 8*len(addr))})
+	}
+	return networks
 }

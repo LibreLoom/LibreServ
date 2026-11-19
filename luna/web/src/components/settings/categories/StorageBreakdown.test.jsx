@@ -83,6 +83,18 @@ describe("StorageBreakdown", () => {
     expect(await screen.findByText("Freed 1.2 GB.")).toBeInTheDocument();
   });
 
+  it("says why an open document's copy was kept", async () => {
+    const reason = "A document is open in the editor, so its working copy was kept.";
+    renderBreakdown(
+      stubFetch({
+        cleanup: { freed_bytes: 1_200_000_000, cleared: ["temporary"], skipped: [reason] },
+      }),
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Free up space" }));
+    expect(await screen.findByText("Freed 1.2 GB.")).toBeInTheDocument();
+    expect(await screen.findByText(reason)).toBeInTheDocument();
+  });
+
   it("says so when there was nothing to clear", async () => {
     renderBreakdown(stubFetch({ cleanup: { freed_bytes: 0, cleared: [] } }));
     await userEvent.click(await screen.findByRole("button", { name: "Free up space" }));

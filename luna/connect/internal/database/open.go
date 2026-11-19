@@ -35,9 +35,28 @@ func OpenFromConfig(driver, path, url string) (*DB, error) {
 }
 
 func openSQLite(path string) (*DB, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil && filepath.Dir(path) != "." {
+	dir := filepath.Dir(path)
+	if dir != "." {
+		// The database holds customer emails, password hashes and session
+		// hashes. Keep its directory private to the service user.
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, err
+		}
+	}
+	// sql.Open creates the database lazily with the process umask (0644 on the
+	// shipped unit), so create it ourselves owner-only and tighten a file that
+	// an older install already left readable.
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
 		return nil, err
 	}
+	if err := f.Close(); err != nil {
+		return nil, err
+	}
+	tightenSQLiteFile(path)
+	tightenSQLiteFile(path + "-wal")
+	tightenSQLiteFile(path + "-shm")
+
 	// WAL + busy timeout so two ZDU instances can share one file.
 	inner, err := sql.Open("sqlite", path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
@@ -46,6 +65,13 @@ func openSQLite(path string) (*DB, error) {
 	inner.SetMaxOpenConns(8)
 	inner.SetMaxIdleConns(4)
 	return &DB{DB: inner, driver: DriverSQLite}, nil
+}
+
+// tightenSQLiteFile makes a database file owner-only. Best effort: an existing
+// deployment whose files belong to another user still opens, with its mode left
+// as it was.
+func tightenSQLiteFile(path string) {
+	_ = os.Chmod(path, 0o600)
 }
 
 func openPostgres(url string) (*DB, error) {

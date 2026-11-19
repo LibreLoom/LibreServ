@@ -428,6 +428,14 @@ fn run_inner(
         return Ok(problem_outcome(reason));
     }
 
+    // Step 5b: the person this backup belongs to must still be allowed to read
+    // the folder. Checked on every run, because a row rebuilt from a drive's
+    // manifest never went through `create`.
+    if let Some(message) = with_conn(db, |c| unreadable_source(c, &row, &folder, &source.label)) {
+        // Hard: retrying changes nothing until someone gives the folder back.
+        return fail(db, id, &message, true, now);
+    }
+
     // Step 6: read the folder. Walking it is the first step that can fail
     // because of the source, so a failure here also freezes the clock.
     let walked = match scope::walk(&abs) {
@@ -1131,6 +1139,52 @@ fn folder_name(source_path: &str, drive_label: &str) -> String {
         .unwrap_or_else(|| drive_label.to_string())
 }
 
+/// Why the person a backup belongs to may not read the folder it copies any
+/// more, in plain words. A row rebuilt from a drive's manifest is not checked
+/// against the access rules when it comes back, so a crafted manifest could
+/// name any folder on any drive and have Luna copy it every 30 minutes. The
+/// same rule as `create` applies here: Read on the folder, and a private
+/// folder belongs to its owner alone.
+fn unreadable_source(
+    conn: &Connection,
+    row: &ProtectionRow,
+    folder: &str,
+    drive_label: &str,
+) -> Option<String> {
+    let user = match db::get_user(conn, &row.created_by) {
+        Ok(Some(user)) => crate::auth::CurrentUser {
+            id: user.id,
+            username: user.username,
+            role: user.role,
+        },
+        _ => {
+            return Some(format!(
+                "Luna can't copy {folder} on {drive_label} because the person who set up this backup is no longer here."
+            ));
+        }
+    };
+    // A private item's backup belongs to its owner (see `create`).
+    if !row.private_owner.is_empty() && row.private_owner != user.id {
+        return Some(format!(
+            "Only {} can back up {folder} on {drive_label}.",
+            owner_name(conn, &row.private_owner)
+        ));
+    }
+    let norm = crate::access::normalize_subject_path(&row.source_path);
+    if !crate::auth::has_cap(
+        &user,
+        conn,
+        &row.source_drive,
+        &norm,
+        crate::access::CAP_VIEW,
+    ) {
+        return Some(format!(
+            "Luna can't copy {folder} on {drive_label} because the person who set up this backup no longer has Read access to it."
+        ));
+    }
+    None
+}
+
 /// The backup of a parent folder that has taken over `row`, and a plain sentence saying so.
 /// None when nothing covers it.
 pub fn covered_by(conn: &Connection, row: &ProtectionRow) -> Option<(ProtectionRow, String)> {
@@ -1448,6 +1502,105 @@ mod tests {
         let conn = s.db.lock().unwrap();
         let err = create(&conn, &member, &s.src, "Docs", &s.tgt).unwrap_err();
         assert_eq!(err.0, "You need Read access to this folder to back it up.");
+    }
+
+    #[test]
+    fn a_row_its_person_cannot_read_is_not_copied() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        // The row a crafted drive's manifest creates at boot: the member's
+        // name, but the member has no grant on "Docs".
+        {
+            let conn = s.db.lock().unwrap();
+            db::insert_user(&conn, "member", "member", "Member", "", "member").unwrap();
+            db::insert_protection(
+                &conn,
+                &db::NewProtection {
+                    id: "forged",
+                    kind: db::PROTECTION_DRIVE,
+                    source_drive: &s.src,
+                    source_path: "Docs",
+                    target_drive: &s.tgt,
+                    private_owner: "",
+                    created_by: "member",
+                    created_at: 1,
+                },
+            )
+            .unwrap();
+            let access = access_list::AccessList {
+                users: vec!["member".into()],
+                admins: false,
+            };
+            db::set_protection_access(&conn, "forged", &serde_json::to_string(&access).unwrap())
+                .unwrap();
+        }
+
+        let outcome = run(&s.db, "forged", NOW).unwrap();
+        let problem = outcome.problem.expect("the run must refuse");
+        assert!(problem.contains("Read access"), "got: {problem}");
+        assert!(row(&s, "forged").hard);
+        assert!(
+            drive_store::Store::existing(
+                &s.tgt_root,
+                &Layout::detect(&s.tgt_root).unwrap(),
+                "forged"
+            )
+            .is_none(),
+            "nothing may be written to the backup drive"
+        );
+
+        // A real grant on the folder lets it run, as a normal backup would.
+        {
+            let conn = s.db.lock().unwrap();
+            db::insert_access_member(
+                &conn,
+                &db::AccessMemberRow {
+                    id: "grant-docs".into(),
+                    subject_kind: crate::access::KIND_PATH.into(),
+                    drive_id: s.src.clone(),
+                    path: "Docs".into(),
+                    album_id: String::new(),
+                    user_id: "member".into(),
+                    caps: crate::access::CAP_VIEW,
+                    created_by: "admin".into(),
+                },
+            )
+            .unwrap();
+        }
+        let outcome = run(&s.db, "forged", NOW + 60).unwrap();
+        assert_eq!(outcome.problem, None);
+        assert_eq!(outcome.copied, 1);
+    }
+
+    #[test]
+    fn a_row_for_someone_elses_private_item_is_not_copied() {
+        let s = setup();
+        let disk = make_private_docs(&s, "admin");
+        write(&disk.join("a.txt"), "one");
+        // A crafted manifest names the member as the one who made the backup
+        // of the Admin's private item.
+        {
+            let conn = s.db.lock().unwrap();
+            db::insert_user(&conn, "member", "member", "Member", "", "member").unwrap();
+            db::insert_protection(
+                &conn,
+                &db::NewProtection {
+                    id: "forged-private",
+                    kind: db::PROTECTION_DRIVE,
+                    source_drive: &s.src,
+                    source_path: "Docs",
+                    target_drive: &s.tgt,
+                    private_owner: "admin",
+                    created_by: "member",
+                    created_at: 1,
+                },
+            )
+            .unwrap();
+        }
+
+        let outcome = run(&s.db, "forged-private", NOW).unwrap();
+        let problem = outcome.problem.expect("the run must refuse");
+        assert!(problem.contains("Only Admin"), "got: {problem}");
     }
 
     #[test]

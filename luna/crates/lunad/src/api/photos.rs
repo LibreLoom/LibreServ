@@ -1915,6 +1915,18 @@ async fn patch_album(
             ));
         }
     };
+    // A cover is a photo the album shows to its viewers — it must be one the
+    // person setting it can see. Album membership is not enough: without
+    // this, naming any path would pull a private picture from another
+    // person's folder (or another drive) into the album.
+    if let Some((drive, path)) = &cover
+        && !can_view_photos_path(&state, &user, drive, path)?
+    {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You can only use a photo you can see as this album's cover.",
+        ));
+    }
     photos::update_album(
         &root,
         &id,
@@ -2235,6 +2247,15 @@ async fn cover(
     } else {
         album.cover_drive_id.clone()
     };
+    // The cover is only a cover for someone who may see that photo. A cover
+    // set before this check existed (or one whose grants or file changed)
+    // must not disclose it: the album simply shows no cover to this caller.
+    if !can_view_photos_path(&state, &user, &cover_drive, &album.cover_path)? {
+        return Err(json_error(
+            StatusCode::NOT_FOUND,
+            "This album has no cover photo.",
+        ));
+    }
     let mount = if cover_drive == home {
         root.clone()
     } else {

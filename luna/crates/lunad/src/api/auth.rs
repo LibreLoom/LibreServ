@@ -73,6 +73,16 @@ async fn update_me(
     // allowed unchecked. The person is told about it in the response.
     let mut breach_check_unavailable = false;
     if let Some(new_password) = body.new_password.clone() {
+        // The current-password proof is the same credential check login
+        // performs, so it spends the same per-account bucket. Without this,
+        // a stolen session or device token could guess the password at
+        // Argon2 speed and then set a new one.
+        if !state.login_limiter.allow(&login_user_key(&user.username)) {
+            return Err(json_error(
+                StatusCode::TOO_MANY_REQUESTS,
+                "Too many tries. Wait a few minutes and try again.",
+            ));
+        }
         let current_password = body.current_password.clone().unwrap_or_default();
         let stored_hash = {
             let conn = state.db.lock().map_err(|_| {
@@ -218,12 +228,23 @@ async fn register(
                 "Only an Admin can add users.",
             ));
         }
-    } else if !is_lan_request(&addr, &headers) {
-        // Setup is open on the LAN. Off it, the first login can only be
-        // created by someone holding the full device token — the flow
-        // Connect's onboarding finishes with.
-        if let Err(msg) = first_user_device_token(&state, &body).await {
-            return Err(json_error(StatusCode::FORBIDDEN, msg));
+    } else {
+        // Anonymous first-account creation: a DNS-rebinding page makes its
+        // Origin and Host agree on its own name, so only the Host allow-list
+        // can tell Luna's own address from the attacker's.
+        if !auth::setup_origin_allowed(&state, &headers) {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "Open Luna at its own address to create the first account.",
+            ));
+        }
+        if !is_lan_request(&addr, &headers) {
+            // Setup is open on the LAN. Off it, the first login can only be
+            // created by someone holding the full device token — the flow
+            // Connect's onboarding finishes with.
+            if let Err(msg) = first_user_device_token(&state, &body).await {
+                return Err(json_error(StatusCode::FORBIDDEN, msg));
+            }
         }
     }
     // Argon2 and the breach check's network call are blocking — off the
@@ -726,6 +747,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn first_user_registration_rejects_a_rebinding_host() {
+        let (_dir, state) = state();
+        // A DNS-rebinding page makes Host and Origin agree on its own name;
+        // only this allow-list can tell it from Luna's own address.
+        assert_eq!(
+            register_status(
+                &state,
+                addr("192.168.1.30"),
+                &[("host", "evil.example:8090")],
+                FIRST_USER
+            )
+            .await,
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[tokio::test]
+    async fn first_user_registration_rejects_a_cross_site_browser_request() {
+        let (_dir, state) = state();
+        assert_eq!(
+            register_status(
+                &state,
+                addr("192.168.1.30"),
+                &[
+                    ("host", "luna.local:8090"),
+                    ("sec-fetch-site", "cross-site"),
+                ],
+                FIRST_USER
+            )
+            .await,
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[tokio::test]
+    async fn first_user_registration_accepts_luna_addresses() {
+        for host in ["luna.local:8090", "127.0.0.1:8090", "[::1]:8090"] {
+            let (_dir, state) = state();
+            assert_eq!(
+                register_status(
+                    &state,
+                    addr("192.168.1.30"),
+                    &[("host", host), ("sec-fetch-site", "same-origin")],
+                    FIRST_USER
+                )
+                .await,
+                StatusCode::OK,
+                "{host}"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn first_user_from_internet_needs_the_device_token() {
         let (_dir, state) = state();
         // No Connect set up at all → nothing off-LAN can open setup.
@@ -846,6 +920,54 @@ mod tests {
             .unwrap();
         }
         assert_eq!(me(router).await["phrase_set"], json!(true));
+    }
+
+    /// The current-password proof spends the same per-account bucket as
+    /// login: guesses stop at ten, not at Argon2 speed.
+    #[tokio::test]
+    async fn password_guesses_share_the_login_lockout() {
+        let (_dir, state) = state();
+        let user = state
+            .auth
+            .register("max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        let router = axum::Router::new()
+            .merge(super::router())
+            .with_state(state.clone());
+        let patch = |body: &'static str| {
+            let router = router.clone();
+            let u = user.clone();
+            async move {
+                let mut http = axum::http::Request::builder()
+                    .method(axum::http::Method::PATCH)
+                    .uri("/api/v1/auth/me")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap();
+                http.extensions_mut().insert(CurrentUser {
+                    id: u.id,
+                    username: u.username,
+                    role: u.role,
+                });
+                router.oneshot(http).await.unwrap()
+            }
+        };
+        for _ in 0..10 {
+            let res =
+                patch(r#"{"current_password":"nope-not-it1","new_password":"hunter22hunter2"}"#)
+                    .await;
+            assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        }
+        let res =
+            patch(r#"{"current_password":"nope-not-it1","new_password":"hunter22hunter2"}"#).await;
+        assert_eq!(res.status(), StatusCode::TOO_MANY_REQUESTS);
+        // The right password does not get a free pass through the lockout,
+        // and the change never lands.
+        let res =
+            patch(r#"{"current_password":"hunter22hunter1","new_password":"hunter22hunter2"}"#)
+                .await;
+        assert_eq!(res.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(state.auth.login("max", "hunter22hunter1").is_ok());
     }
 
     #[tokio::test]

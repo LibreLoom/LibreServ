@@ -316,6 +316,18 @@ describe("ShareSheet", () => {
     });
   });
 
+  it("names who created each link, including a creator who is gone", async () => {
+    stubApi((path) => subjectBody(path, {
+      links: [
+        { id: "l1", caps: "view", url: "/s/tok1", can_manage: true, created_by: "u2" },
+        { id: "l2", caps: "view", url: "/s/tok2", can_manage: true, created_by: "u9" },
+      ],
+    }));
+    renderSheet();
+    expect(await screen.findByText("Created by Sam")).toBeInTheDocument();
+    expect(screen.getByText("Created by someone who is no longer here")).toBeInTheDocument();
+  });
+
   it("names the parent but shows no button when it can't be inspected", async () => {
     stubApi((path) => subjectBody(path, {
       my_caps: "view",

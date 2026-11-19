@@ -16,9 +16,10 @@ func LockStorageAccount(tx *Tx, accountID string) error {
 	return lockStorageAccountSQLite(tx, accountID)
 }
 
-// LockStorageAccountWrite lets normal writes proceed together in PostgreSQL but
-// keeps them out of an account purge. SQLite's single-writer lock provides the
-// same exclusion for both helpers.
+// LockStorageAccountWrite keeps a write out of an account purge while other
+// readers and deletes proceed together in PostgreSQL. Uploads that check the
+// storage cap take LockStorageAccount instead: two shared locks would let both
+// uploads read the same bytes-used total and both pass.
 func LockStorageAccountWrite(tx *Tx, accountID string) error {
 	if tx.Driver() == DriverPostgres {
 		var id string

@@ -98,16 +98,17 @@ class LoginActivity : AppCompatActivity() {
                 URLEncoder.encode(extraToken, StandardCharsets.UTF_8.name())
         }
         val pairing = data?.let { PairingQr.decode(it) } ?: return
-        // A luna://pair link can be sent by anything — while signed in it must
-        // not silently re-point this phone (and its photo backups) at another
-        // Luna. Same Luna → nothing to do; different Luna → ask first.
-        if (BackupPrefs.signedIn(this)) {
-            val current = BackupPrefs.baseUrl(this)
-            if (current != null && current.equals(pairing.url, ignoreCase = true)) {
+        // A luna://pair link can be sent by anything — it must never fill this
+        // phone's sign-in fields without the person saying yes, and while signed
+        // in it must not silently re-point this phone (and its photo backups) at
+        // another Luna. Same Luna → nothing to do; different Luna → ask about
+        // switching; signed out → ask before filling, naming the new address.
+        val current = BackupPrefs.baseUrl(this)
+        when (PairingDecision.choose(BackupPrefs.signedIn(this), current, pairing)) {
+            PairingChoice.ALREADY_CONNECTED ->
                 status.text = "This phone is already connected to that Luna."
-                return
-            }
-            AlertDialog.Builder(this)
+
+            PairingChoice.CONFIRM_SWITCH -> AlertDialog.Builder(this)
                 .setTitle("Connect to a different Luna?")
                 .setMessage(
                     "This phone is connected to ${urlLabel(current)}. " +
@@ -117,9 +118,18 @@ class LoginActivity : AppCompatActivity() {
                 .setPositiveButton("Switch") { _, _ -> fillPairing(pairing) }
                 .setNegativeButton("Cancel", null)
                 .show()
-            return
+
+            PairingChoice.CONFIRM_FILL -> AlertDialog.Builder(this)
+                .setTitle("Connect to this Luna?")
+                .setMessage(
+                    "This link fills in the Luna address ${urlLabel(pairing.url)} " +
+                        "and its access token. " +
+                        "Only connect if you trust where the link came from."
+                )
+                .setPositiveButton("Connect") { _, _ -> fillPairing(pairing) }
+                .setNegativeButton("Cancel", null)
+                .show()
         }
-        fillPairing(pairing)
     }
 
     /** The address as a person sees it: host, plus port when non-default. */

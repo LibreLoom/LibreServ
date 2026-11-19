@@ -439,7 +439,7 @@ post("/api/v1/system/storage/cleanup", ({ world, user }) => {
   world.storage.items = world.storage.items.filter((item) => !removable.includes(item));
   world.storage.free_bytes += freed;
   world.storage.used_bytes = Math.max(0, world.storage.used_bytes - freed);
-  return json({ freed_bytes: freed, cleared: removable.map((item) => item.id) }, 200);
+  return json({ freed_bytes: freed, cleared: removable.map((item) => item.id), skipped: [] }, 200);
 });
 
 const bootTime = Date.now();

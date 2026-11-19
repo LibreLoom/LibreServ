@@ -83,6 +83,7 @@ export async function requireOk(res, fallback) {
  *   cancelUpload: (driveId: string, uploadId: string) => Promise<unknown>,
  *   cancelUploadUrl?: (uploadId: string) => { url: string, headers: Record<string, string> },
  *   officeSession: (driveId: string, path: string) => Promise<any>,
+ *   formAnswers: (driveId: string, path: string) => Promise<{ responses: object[], notice: string }>,
  *   formResponses: (driveId: string, path: string) => Promise<object[]>,
  *   formResponseCount: (driveId: string, path: string) => Promise<number>,
  *   deleteFormResponse: (driveId: string, path: string, id: string) => Promise<unknown>,
@@ -126,6 +127,18 @@ function isNameClash(err) {
 /** @param {unknown} err @param {string} uploadId */
 function keepSessionError(err, uploadId) {
   return Object.assign(/** @type {object} */ (err), { uploadId, completeOnly: true });
+}
+
+/**
+ * The answers payload both form routes return: the records plus a plain
+ * sentence when the server had to skip an older answers segment.
+ * @param {any} data
+ */
+function answersPayload(data) {
+  return {
+    responses: Array.isArray(data?.responses) ? data.responses : [],
+    notice: typeof data?.notice === "string" ? data.notice : "",
+  };
 }
 
 /** Same-origin ws(s) base — mirrors the member collab socket. */
@@ -273,12 +286,14 @@ export const driveSource = {
   cancelUpload: (_driveId, uploadId) => deleteJson(`/api/v1/uploads/${uploadId}`),
   officeSession: (driveId, path) =>
     postJson("/api/v1/office/session", { drive_id: driveId, path }),
-  formResponses: async (driveId, path) => {
-    const data = await getJson(
-      `/api/v1/forms/responses?drive_id=${encodeURIComponent(driveId)}&path=${encodeURIComponent(path)}`,
-    );
-    return Array.isArray(data?.responses) ? data.responses : [];
-  },
+  formAnswers: async (driveId, path) =>
+    answersPayload(
+      await getJson(
+        `/api/v1/forms/responses?drive_id=${encodeURIComponent(driveId)}&path=${encodeURIComponent(path)}`,
+      ),
+    ),
+  formResponses: async (driveId, path) =>
+    (await driveSource.formAnswers(driveId, path)).responses,
   formResponseCount: async (driveId, path) => {
     const data = await getJson(
       `/api/v1/forms/responses?drive_id=${encodeURIComponent(driveId)}&path=${encodeURIComponent(path)}&count=1`,
@@ -424,6 +439,20 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
       onRetry,
     });
 
+  /**
+   * @param {string} _driveId
+   * @param {string} path
+   */
+  async function fetchAnswers(_driveId, path) {
+    const params = new URLSearchParams();
+    const p = rel(path);
+    if (p) params.set("path", p);
+    const q = params.toString();
+    return answersPayload(
+      await getJson(`/s/${token}/responses${q ? `?${q}` : ""}`, { headers: headers() }),
+    );
+  }
+
   return {
     kind: "share",
     guest: true,
@@ -510,14 +539,8 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
     cancelUploadUrl: (uploadId) => ({ url: `/s/${token}/upload/${uploadId}`, headers: headers() }),
     officeSession: (_driveId, path) =>
       postJson(`/s/${token}/office/session`, { path: rel(path) }, { headers: headers() }),
-    formResponses: async (_driveId, path) => {
-      const params = new URLSearchParams();
-      const p = rel(path);
-      if (p) params.set("path", p);
-      const q = params.toString();
-      const data = await getJson(`/s/${token}/responses${q ? `?${q}` : ""}`, { headers: headers() });
-      return Array.isArray(data?.responses) ? data.responses : [];
-    },
+    formAnswers: fetchAnswers,
+    formResponses: async (driveId, path) => (await fetchAnswers(driveId, path)).responses,
     formResponseCount: async (_driveId, path) => {
       const params = new URLSearchParams();
       const p = rel(path);

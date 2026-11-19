@@ -11,6 +11,8 @@ Wants=network-online.target
 Type=simple
 User=luna-connect
 Group=luna-connect
+# Files the service creates (the SQLite database and its WAL) are owner-only.
+UMask=0077
 WorkingDirectory=/opt/luna/connect
 Environment=LUNACONNECT_CONFIG=/etc/luna/connect/luna-connect-{INSTANCE}.yaml
 Environment=LUNACONNECT_DRAIN_FILE=/var/lib/luna/connect/drain-{INSTANCE}

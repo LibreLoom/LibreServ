@@ -161,6 +161,8 @@ assert_file_lacks "$BUILD" 'for u in root luna pwreset' \
 	"build must not empty passwords for root/luna/pwreset in one loop"
 assert_file_lacks "$BUILD" 'openssh|dropbear' \
 	"rootfs must not package SSH (console accounts are local only)"
+assert_file_has "$BUILD" 'rm -f "$ROOTFS"/etc/avahi/services' \
+	"rootfs must drop Alpine's ssh/sftp mDNS advertisements (no SSH server exists)"
 
 # Rootless build: no podman, sudo, or privileged container inside the rootfs
 # frags (they run inside a container), and no tarball output.

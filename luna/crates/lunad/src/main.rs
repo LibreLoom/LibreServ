@@ -100,9 +100,9 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
         tracing::warn!(data_dir = %cfg.data_dir.display(), fallback = %fallback.display(), "data dir unusable, using scratch dir");
         cfg.data_dir = fallback;
     }
-    let conn = db::open(&cfg.db_path())?;
+    let mut conn = db::open(&cfg.db_path())?;
     // Row changes the HDMI console shows ask it to look again (no polling).
-    lunad::system::console::watch_db(&conn);
+    lunad::system::console::watch_db(&mut conn);
     // Nothing is uploading yet, so any cloud backup run left open by a crash or restart is over.
     let ended_runs = db::recover_interrupted_runs(&conn, db::now_unix())?;
     if ended_runs > 0 {

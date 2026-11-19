@@ -74,14 +74,15 @@ FROM devices WHERE id = ?`, deviceID).Scan(&account, &sub, &tunnelID, &name)
 
 func teardownDeviceRemote(deps Deps, subdomain, tunnelID string) {
 	providers.RefreshCloudflare()
+	cf := config.Cloudflare()
 	if deps.Tunnel != nil && tunnelID != "" {
-		if err := deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tunnelID); err != nil {
+		if err := deps.Tunnel.DeleteTunnel(cf.AccountID, cf.APIToken, tunnelID); err != nil {
 			slog.Error("tunnel delete failed; the orphan sweep will retry", "tunnel_id", tunnelID, "err", err)
 		}
 	}
 	if deps.DNS != nil && subdomain != "" {
 		host := domainname.Hostname(subdomain, config.C.Server.PublicZone)
-		if err := deps.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, host); err != nil {
+		if err := deps.DNS.DeleteRecord(cf.APIToken, cf.ZoneID, host); err != nil {
 			slog.Error("dns record delete failed", "host", host, "err", err)
 		}
 	}

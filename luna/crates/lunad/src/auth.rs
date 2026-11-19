@@ -60,6 +60,12 @@ pub struct OfficeClaims {
     /// the password invalidates every outstanding guest office token.
     #[serde(default)]
     pub link_revision: Option<String>,
+    /// The user's `token_version` at mint time. "Sign out everywhere", a
+    /// password change and the Admin reset all bump it; a token minted
+    /// before that must not renew itself. Guest tokens keep using
+    /// `link_revision`.
+    #[serde(default)]
+    pub tv: i64,
 }
 
 /// Proof that a guest supplied a password-protected link's password.
@@ -257,14 +263,16 @@ impl AuthService {
         &self,
         headers: &HeaderMap,
     ) -> Result<Option<(CurrentUser, Option<DeviceTokenContext>)>, AuthError> {
-        let Some(raw) = token_from_headers(headers) else {
-            return Ok(None);
-        };
-        if let Ok(user) = self.verify(&raw) {
-            return Ok(Some((user, None)));
-        }
-        if let Ok(Some((user, dt_ctx))) = self.verify_device_token_ctx(&raw) {
-            return Ok(Some((user, Some(dt_ctx))));
+        // A browser can hold two same-name cookies from different domains
+        // and sends the older one first, so a planted parent-domain cookie
+        // must not mask the real host-only one: try each in turn.
+        for raw in tokens_from_headers(headers) {
+            if let Ok(user) = self.verify(&raw) {
+                return Ok(Some((user, None)));
+            }
+            if let Ok(Some((user, dt_ctx))) = self.verify_device_token_ctx(&raw) {
+                return Ok(Some((user, Some(dt_ctx))));
+            }
         }
         Ok(None)
     }
@@ -643,12 +651,27 @@ pub fn csrf_cookie(token: &str, secure: bool) -> String {
         "{CSRF_COOKIE}={token}; Path=/; SameSite=Strict; Max-Age={SESSION_TTL_SECONDS}{secure_flag}"
     )
 }
+/// All `luna_csrf` cookie values, in send order. The cookie jar is not
+/// trusted to be unambiguous: a parent-domain cookie can sit ahead of the
+/// host's own, so every candidate must be considered.
+fn csrf_cookies(headers: &HeaderMap) -> Vec<String> {
+    let Some(cookie) = headers
+        .get(axum::http::header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+    else {
+        return Vec::new();
+    };
+    cookie
+        .split(';')
+        .filter_map(|part| {
+            let (name, value) = part.trim().split_once('=')?;
+            (name == CSRF_COOKIE).then(|| value.to_string())
+        })
+        .collect()
+}
+
 fn csrf_from_cookie(headers: &HeaderMap) -> Option<String> {
-    let cookie = headers.get(axum::http::header::COOKIE)?.to_str().ok()?;
-    cookie.split(';').find_map(|part| {
-        let (name, value) = part.trim().split_once('=')?;
-        (name == CSRF_COOKIE).then(|| value.to_string())
-    })
+    csrf_cookies(headers).into_iter().next()
 }
 fn csrf_from_request(headers: &HeaderMap) -> Option<String> {
     headers
@@ -657,19 +680,18 @@ fn csrf_from_request(headers: &HeaderMap) -> Option<String> {
         .map(str::to_string)
         .filter(|s| !s.is_empty())
 }
+/// Double-submit: any cookie value the browser sent may be the real one, so
+/// one matching header value is enough. Constant-time compare.
 fn csrf_valid(headers: &HeaderMap) -> bool {
-    let Some(cookie) = csrf_from_cookie(headers) else {
-        return false;
-    };
     let Some(got) = csrf_from_request(headers) else {
         return false;
     };
-    cookie.len() == got.len()
-        && cookie
-            .bytes()
-            .zip(got.bytes())
-            .fold(0u8, |a, (x, y)| a | (x ^ y))
-            == 0
+    csrf_cookies(headers)
+        .iter()
+        .any(|cookie| constant_time_eq(cookie.as_bytes(), got.as_bytes()))
+}
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 fn uses_session_cookie(headers: &HeaderMap) -> bool {
     // Only an absent Authorization header means cookie auth — Bearer AND
@@ -727,37 +749,58 @@ fn origin_matches_host(origin: &str, host_header: Option<&str>) -> bool {
 }
 
 pub fn token_from_headers(headers: &HeaderMap) -> Option<String> {
+    tokens_from_headers(headers).into_iter().next()
+}
+
+/// Every credential the request carries, in the order the browser sent them.
+/// `Authorization` is one credential (a browser cannot set it); the cookie
+/// header may repeat `luna_session`, and each repeat is a candidate.
+fn tokens_from_headers(headers: &HeaderMap) -> Vec<String> {
     if let Some(auth) = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
     {
         if let Some(token) = auth.strip_prefix("Bearer ") {
-            return Some(token.to_string());
+            return vec![token.to_string()];
         }
         // WebDAV clients (Finder, Explorer, davfs2, gio) use HTTP Basic.
         // Password is a session JWT or device token — never the household
         // password. If the password is empty, the username may be the token.
         if let Some(encoded) = auth.strip_prefix("Basic ") {
-            let decoded = base64::engine::general_purpose::STANDARD
+            let Some(decoded) = base64::engine::general_purpose::STANDARD
                 .decode(encoded.trim())
-                .ok()?;
-            let text = std::str::from_utf8(&decoded).ok()?;
-            let (user, password) = text.split_once(':')?;
+                .ok()
+            else {
+                return Vec::new();
+            };
+            let Some(text) = std::str::from_utf8(&decoded).ok() else {
+                return Vec::new();
+            };
+            let Some((user, password)) = text.split_once(':') else {
+                return Vec::new();
+            };
             if !password.is_empty() {
-                return Some(password.to_string());
+                return vec![password.to_string()];
             }
             if !user.is_empty() {
-                return Some(user.to_string());
+                return vec![user.to_string()];
             }
-            return None;
         }
-        return None;
+        return Vec::new();
     }
-    let cookie = headers.get(axum::http::header::COOKIE)?.to_str().ok()?;
-    cookie.split(';').find_map(|part| {
-        let (name, value) = part.trim().split_once('=')?;
-        (name == SESSION_COOKIE).then(|| value.to_string())
-    })
+    let Some(cookie) = headers
+        .get(axum::http::header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+    else {
+        return Vec::new();
+    };
+    cookie
+        .split(';')
+        .filter_map(|part| {
+            let (name, value) = part.trim().split_once('=')?;
+            (name == SESSION_COOKIE).then(|| value.to_string())
+        })
+        .collect()
 }
 
 /// True while the first-run setup wizard is still open (`setup_completed` is
@@ -793,8 +836,10 @@ pub(crate) fn setup_wizard_open(state: &AppState) -> bool {
 /// context (after finishing setup, and after every login).
 /// Forwarding headers a client can invent. Trusted only from a loopback
 /// peer — the Connect tunnel or an on-box proxy — same rule `client_ip`
-/// applies. The guard strips them for every other peer so downstream code
-/// (`client_ip`, `request_is_https`, origin labels) can't be fooled.
+/// applies. Every surface that reads one must strip them for any other peer,
+/// so downstream code (`client_ip`, `request_is_https`, origin labels) can't
+/// be fooled. The API guard does it for `/api`; WebDAV is mounted outside
+/// that guard and calls this directly.
 const FORWARDING_HEADERS: &[&str] = &[
     "cf-connecting-ip",
     "x-real-ip",
@@ -803,6 +848,27 @@ const FORWARDING_HEADERS: &[&str] = &[
     "forwarded",
 ];
 
+/// Drop forwarding headers when the TCP peer is not loopback. Callers keep
+/// treating a loopback peer (the Connect tunnel, an on-box proxy) as trusted.
+pub fn strip_untrusted_forwarding_headers(headers: &mut HeaderMap, peer_is_loopback: bool) {
+    if peer_is_loopback {
+        return;
+    }
+    for name in FORWARDING_HEADERS {
+        headers.remove(*name);
+    }
+}
+
+/// Global auth guard: health, auth, setup, and the SPA shell stay public;
+/// every `/api/` data endpoint requires a valid session. The first-run setup
+/// wizard must reach the network endpoints before setup is finished, so they
+/// stay public while the user table is empty or setup is still incomplete.
+///
+/// A valid session (cookie, Bearer, or device token) is resolved and attached
+/// to the request even on public paths. Without that, `/api/v1/auth/me` can
+/// never report an existing session — it always reads an empty extension —
+/// and the web UI loses the sign-in state on every refresh of the auth
+/// context (after finishing setup, and after every login).
 pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let path = req.uri().path().to_string();
     let method = req.method().clone();
@@ -811,12 +877,7 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
         .extensions()
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
         .is_some_and(|c| c.0.ip().is_loopback());
-    if !trusted_peer {
-        let h = req.headers_mut();
-        for name in FORWARDING_HEADERS {
-            h.remove(*name);
-        }
-    }
+    strip_untrusted_forwarding_headers(req.headers_mut(), trusted_peer);
     let headers = req.headers().clone();
     let secure = request_is_https(&headers);
     let issue_csrf = matches!(method, axum::http::Method::GET | axum::http::Method::HEAD)
@@ -1156,11 +1217,16 @@ pub fn caps_on_path(
         // private) or its trash_meta provenance does (it was an ordinary
         // child deleted from inside a private folder, whose boundary may
         // since have moved or vanished).
-        if let Some(b) = private_boundary(mount.as_deref(), path) {
-            let rows = db::list_access_members_for_user(conn, &user.id).unwrap_or_default();
-            return private_caps(user, &rows, drive_id, path, &b, &|o| {
-                crate::private::owner_state(conn, o)
-            });
+        match private_wall(mount.as_deref(), path) {
+            PrivateWall::At(b) => {
+                let rows = db::list_access_members_for_user(conn, &user.id).unwrap_or_default();
+                return private_caps(user, &rows, drive_id, path, &b, &|o| {
+                    crate::private::owner_state(conn, o)
+                });
+            }
+            // The drive's private registry cannot be read: fail closed.
+            PrivateWall::Unknown => return 0,
+            PrivateWall::Clear => {}
         }
         if let Ok(Some(meta)) = crate::files::trash_private_meta(conn, drive_id, path) {
             let rows = db::list_access_members_for_user(conn, &user.id).unwrap_or_default();
@@ -1182,11 +1248,18 @@ pub fn caps_on_path(
     } else {
         path
     };
-    if let Some(b) = private_boundary(mount.as_deref(), path) {
-        let rows = db::list_access_members_for_user(conn, &user.id).unwrap_or_default();
-        return private_caps(user, &rows, drive_id, path, &b, &|o| {
-            crate::private::owner_state(conn, o)
-        });
+    match private_wall(mount.as_deref(), path) {
+        PrivateWall::At(b) => {
+            let rows = db::list_access_members_for_user(conn, &user.id).unwrap_or_default();
+            return private_caps(user, &rows, drive_id, path, &b, &|o| {
+                crate::private::owner_state(conn, o)
+            });
+        }
+        // The drive's private registry cannot be read: nothing on it can be
+        // shown to sit outside a private item, so fail closed instead of
+        // falling back to the Admin role or ancestor grants.
+        PrivateWall::Unknown => return 0,
+        PrivateWall::Clear => {}
     }
     if user.role == "admin" {
         return crate::access::CAP_MANAGE;
@@ -1194,12 +1267,28 @@ pub fn caps_on_path(
     member_row_caps(user, conn, drive_id, path, mount.as_deref())
 }
 
-/// The nearest private item at or above `path`, if the drive has any.
-fn private_boundary(mount: Option<&str>, path: &str) -> Option<crate::private::Boundary> {
-    let root = std::path::Path::new(mount?);
+/// What the drive's private registry says about a path, including the two
+/// ways it can be unavailable: no mount point at all (a locked encrypted
+/// drive has `mount_point = ''`) or a mount whose marker/registry cannot be
+/// read (unplugged, unreadable). Both are `Unknown`, never "not private".
+enum PrivateWall {
+    Clear,
+    At(crate::private::Boundary),
+    Unknown,
+}
+
+fn private_wall(mount: Option<&str>, path: &str) -> PrivateWall {
+    let Some(mount) = mount.filter(|m| !m.is_empty()) else {
+        return PrivateWall::Unknown;
+    };
+    let root = std::path::Path::new(mount);
     let norm = crate::access::normalize_subject_path(path);
     let real = crate::files::real_rel(root, &norm);
-    crate::private::boundary_for(root, &real)
+    match crate::private::wall_for(root, &real) {
+        crate::private::Wall::Clear => PrivateWall::Clear,
+        crate::private::Wall::At(b) => PrivateWall::At(b),
+        crate::private::Wall::Unknown => PrivateWall::Unknown,
+    }
 }
 
 /// Access inside a private item: the owner holds everything; anyone else
@@ -1244,13 +1333,17 @@ pub fn holds_unreachable_private(
     drive_id: &str,
     path: &str,
 ) -> bool {
-    let Some(mount) = db::get_drive(conn, drive_id)
+    let mount = db::get_drive(conn, drive_id)
         .ok()
         .flatten()
-        .filter(|d| !d.mount_point.is_empty())
-        .map(|d| d.mount_point)
-    else {
-        return false;
+        .map(|d| d.mount_point);
+    // A registry we cannot read cannot clear the folder: refuse the
+    // destructive action rather than guess.
+    if matches!(private_wall(mount.as_deref(), path), PrivateWall::Unknown) {
+        return true;
+    }
+    let Some(mount) = mount.filter(|m| !m.is_empty()) else {
+        return true;
     };
     let root = std::path::Path::new(&mount);
     let norm = crate::access::normalize_subject_path(path);
@@ -1268,8 +1361,12 @@ fn walls_off_admin(conn: &Connection, drive_id: &str, norm: &str) -> bool {
         .flatten()
         .filter(|d| !d.mount_point.is_empty())
         .map(|d| d.mount_point);
-    private_boundary(mount.as_deref(), norm)
-        .is_some_and(|b| crate::private::owner_known(conn, &b.owner))
+    match private_wall(mount.as_deref(), norm) {
+        PrivateWall::Clear => false,
+        // An unreadable registry could hide one. Treat it as a wall.
+        PrivateWall::Unknown => true,
+        PrivateWall::At(b) => crate::private::owner_known(conn, &b.owner),
+    }
 }
 
 /// Is `norm` a private item, or inside one? For trash paths, recorded
@@ -1281,8 +1378,9 @@ pub fn inside_private(conn: &Connection, drive_id: &str, norm: &str) -> bool {
         .flatten()
         .filter(|d| !d.mount_point.is_empty())
         .map(|d| d.mount_point);
-    if private_boundary(mount.as_deref(), norm).is_some() {
-        return true;
+    match private_wall(mount.as_deref(), norm) {
+        PrivateWall::Clear => {}
+        PrivateWall::At(_) | PrivateWall::Unknown => return true,
     }
     crate::files::is_trash_api(norm)
         && crate::files::trash_private_meta(conn, drive_id, norm)
@@ -1314,10 +1412,14 @@ pub(crate) fn caps_on_path_rows_at(
     rows: &[db::AccessMemberRow],
     mount: Option<&str>,
 ) -> crate::access::Caps {
-    if let Some(b) = private_boundary(mount, path) {
-        return private_caps(user, rows, drive_id, path, &b, &|o| {
-            crate::private::owner_state(conn, o)
-        });
+    match private_wall(mount, path) {
+        PrivateWall::At(b) => {
+            return private_caps(user, rows, drive_id, path, &b, &|o| {
+                crate::private::owner_state(conn, o)
+            });
+        }
+        PrivateWall::Unknown => return 0,
+        PrivateWall::Clear => {}
     }
     if user.role == "admin" {
         return crate::access::CAP_MANAGE;
@@ -1362,13 +1464,16 @@ fn member_row_caps_rows(
         if !crate::access::path_contains(&row.path, path) {
             continue;
         }
-        let covers = match mount {
+        let covers = match mount.filter(|m| !m.is_empty()) {
             Some(root) => grant_covers_canonical(
                 root,
                 &crate::access::normalize_subject_path(&row.path),
                 &crate::access::normalize_subject_path(path),
             ),
-            None => true,
+            // A drive with no readable mount cannot say that a grant's
+            // folder is really above the request. Never let every ancestor
+            // row cover a path just because the mount is away.
+            None => false,
         };
         if covers {
             caps |= row.caps;
@@ -1513,19 +1618,29 @@ pub fn has_write_on_drive(user: &CurrentUser, conn: &Connection, drive_id: &str)
 /// still use capability checks.
 pub fn can_browse_path(user: &CurrentUser, conn: &Connection, drive_id: &str, path: &str) -> bool {
     let norm = crate::access::normalize_subject_path(path);
-    if can_access(user, conn, drive_id, &norm, false) {
-        return true;
-    }
-    if user.role == "admin" && !walls_off_admin(conn, drive_id, &norm) {
-        return true;
-    }
     let mount = db::get_drive(conn, drive_id)
         .ok()
         .flatten()
         .map(|d| d.mount_point);
-    if private_boundary(mount.as_deref(), &norm).is_some_and(|b| {
-        crate::private::owner_state(conn, &b.owner) == crate::private::OwnerState::Deleted
-    }) {
+    let wall = private_wall(mount.as_deref(), &norm);
+    if matches!(wall, PrivateWall::Unknown) {
+        return false;
+    }
+    if can_access(user, conn, drive_id, &norm, false) {
+        return true;
+    }
+    if user.role == "admin"
+        && !match &wall {
+            PrivateWall::Clear => false,
+            PrivateWall::Unknown => true,
+            PrivateWall::At(b) => crate::private::owner_known(conn, &b.owner),
+        }
+    {
+        return true;
+    }
+    if let PrivateWall::At(b) = &wall
+        && crate::private::owner_state(conn, &b.owner) == crate::private::OwnerState::Deleted
+    {
         return false;
     }
     // The way down to a private item you own stays open.
@@ -1582,8 +1697,10 @@ pub fn caps_on_path_preloaded(
     mount: Option<&str>,
     owner_known: &dyn Fn(&str) -> crate::private::OwnerState,
 ) -> crate::access::Caps {
-    if let Some(b) = private_boundary(mount, path) {
-        return private_caps(user, rows, drive_id, path, &b, owner_known);
+    match private_wall(mount, path) {
+        PrivateWall::At(b) => return private_caps(user, rows, drive_id, path, &b, owner_known),
+        PrivateWall::Unknown => return 0,
+        PrivateWall::Clear => {}
     }
     if user.role == "admin" {
         return crate::access::CAP_MANAGE;
@@ -1606,18 +1723,17 @@ pub fn can_browse_path_preloaded(
     owner_known: &dyn Fn(&str) -> crate::private::OwnerState,
 ) -> bool {
     let norm = crate::access::normalize_subject_path(path);
+    let wall = private_wall(mount, &norm);
+    if matches!(wall, PrivateWall::Unknown) {
+        return false;
+    }
     if caps & crate::access::CAP_VIEW == crate::access::CAP_VIEW {
         return true;
     }
-    if user.role == "admin"
-        && !private_boundary(mount, &norm)
-            .is_some_and(|b| owner_known(&b.owner) != crate::private::OwnerState::Foreign)
-    {
+    if user.role == "admin" && !private_wall_is_known(&wall, owner_known) {
         return true;
     }
-    if private_boundary(mount, &norm)
-        .is_some_and(|b| owner_known(&b.owner) == crate::private::OwnerState::Deleted)
-    {
+    if private_wall_is_deleted(&wall, owner_known) {
         return false;
     }
     // The way down to a private item you own stays open.
@@ -1625,6 +1741,27 @@ pub fn can_browse_path_preloaded(
         return true;
     }
     browse_rows_walk(drive_id, &norm, rows)
+}
+
+fn private_wall_is_known(
+    wall: &PrivateWall,
+    owner_known: &dyn Fn(&str) -> crate::private::OwnerState,
+) -> bool {
+    match wall {
+        PrivateWall::Clear => false,
+        PrivateWall::Unknown => true,
+        PrivateWall::At(b) => owner_known(&b.owner) != crate::private::OwnerState::Foreign,
+    }
+}
+
+fn private_wall_is_deleted(
+    wall: &PrivateWall,
+    owner_known: &dyn Fn(&str) -> crate::private::OwnerState,
+) -> bool {
+    match wall {
+        PrivateWall::Clear | PrivateWall::Unknown => false,
+        PrivateWall::At(b) => owner_known(&b.owner) == crate::private::OwnerState::Deleted,
+    }
 }
 
 /// Stricter than [`can_browse_path`], for the member HTTP files API: true
@@ -1702,9 +1839,12 @@ pub fn can_inspect_path_in(
     if caps & crate::access::CAP_VIEW == crate::access::CAP_VIEW {
         return true;
     }
+    let wall = private_wall(live_mount, &norm);
+    if matches!(wall, PrivateWall::Unknown) {
+        return false;
+    }
     if user.role == "admin"
-        && !private_boundary(live_mount, &norm)
-            .is_some_and(|b| crate::private::owner_known(conn, &b.owner))
+        && !matches!(&wall, PrivateWall::At(b) if crate::private::owner_known(conn, &b.owner))
     {
         return true;
     }
@@ -1728,10 +1868,16 @@ fn inspect_by_grant(
     mount: Option<&str>,
     rows: Option<&[db::AccessMemberRow]>,
 ) -> bool {
-    if private_boundary(mount, norm).is_some_and(|b| {
-        crate::private::owner_state(conn, &b.owner) == crate::private::OwnerState::Deleted
-    }) {
-        return false;
+    match private_wall(mount, norm) {
+        // A registry we cannot read proves nothing: no grant opens it.
+        PrivateWall::Unknown => return false,
+        PrivateWall::At(b)
+            if crate::private::owner_state(conn, &b.owner)
+                == crate::private::OwnerState::Deleted =>
+        {
+            return false;
+        }
+        PrivateWall::At(_) | PrivateWall::Clear => {}
     }
     let Some(rows) = rows else {
         return false;
@@ -1783,6 +1929,105 @@ pub fn require_admin(req: &axum::extract::Request) -> Result<&CurrentUser, AuthE
         return Err(AuthError::Forbidden);
     }
     Ok(user)
+}
+
+/// True when `Sec-Fetch-Site: cross-site` says a browser made this request
+/// from another site. Absent (curl, older browsers, tests) is not cross-site.
+pub fn cross_site_request(headers: &HeaderMap) -> bool {
+    headers
+        .get("sec-fetch-site")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.eq_ignore_ascii_case("cross-site"))
+}
+
+/// True when `Host` (or `:authority`) names Luna itself: `localhost`, an IP
+/// literal, a `.local` name, or the Connect hostname this box is bound to.
+/// Any other DNS name is one a rebinding page can point at Luna, so the
+/// anonymous setup surface refuses it.
+///
+/// A request with no Host at all is allowed: browsers always send one (or
+/// `:authority`), and non-browser clients (curl, tests) are not the target.
+pub fn host_is_luna(host_header: Option<&str>, connect_host: Option<&str>) -> bool {
+    let Some(raw) = host_header else {
+        return true;
+    };
+    let Some(host) = host_without_port(raw) else {
+        return false;
+    };
+    let bare = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(&host);
+    if bare.parse::<std::net::IpAddr>().is_ok() {
+        return true;
+    }
+    let lower = bare.to_ascii_lowercase();
+    if lower == "localhost" || lower.ends_with(".local") {
+        return true;
+    }
+    connect_host
+        .and_then(host_without_port)
+        .map(|c| {
+            c.strip_prefix('[')
+                .and_then(|h| h.strip_suffix(']'))
+                .unwrap_or(&c)
+                .to_ascii_lowercase()
+        })
+        .is_some_and(|c| c == lower)
+}
+
+/// The host part of a `Host` header, rejecting anything that is not a host
+/// and optional numeric port (no userinfo, no path).
+fn host_without_port(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    if let Some(rest) = raw.strip_prefix('[') {
+        let (host, tail) = rest.split_once(']')?;
+        if host.parse::<std::net::Ipv6Addr>().is_err() {
+            return None;
+        }
+        if !tail.is_empty() && !(tail.starts_with(':') && numeric_port(&tail[1..])) {
+            return None;
+        }
+        return Some(format!("[{host}]"));
+    }
+    if let Ok(ip) = raw.parse::<std::net::Ipv4Addr>() {
+        return Some(ip.to_string());
+    }
+    // A bare IPv6 literal has several colons and parses as an address; a
+    // host:port pair has exactly one.
+    if raw.parse::<std::net::Ipv6Addr>().is_ok() {
+        return Some(raw.to_string());
+    }
+    let (host, port) = match raw.rsplit_once(':') {
+        Some((host, port)) => (host, Some(port)),
+        None => (raw, None),
+    };
+    if port.is_some_and(|p| !numeric_port(p)) {
+        return None;
+    }
+    if host.is_empty() || host.contains(':') || host.contains('/') || host.contains('@') {
+        return None;
+    }
+    Some(host.to_string())
+}
+
+fn numeric_port(port: &str) -> bool {
+    !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// Host allow-list plus `Sec-Fetch-Site` for the anonymous setup surface:
+/// first-account registration and the wizard before an Admin signs in.
+pub fn setup_origin_allowed(state: &AppState, headers: &HeaderMap) -> bool {
+    if cross_site_request(headers) {
+        return false;
+    }
+    let host = headers
+        .get(axum::http::header::HOST)
+        .and_then(|v| v.to_str().ok());
+    host_is_luna(host, state.connect.public_hostname().as_deref())
 }
 
 /// Canned Argon2 hash (of the throwaway password "luna-timing-dummy")

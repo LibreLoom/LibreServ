@@ -120,17 +120,29 @@ impl Store {
                 "The drive is not connected.",
             ));
         }
-        let root = layout.backups_dir(target_root).join(protection_id);
-        fs::create_dir_all(root.join("current"))?;
-        fs::create_dir_all(root.join("versions"))?;
+        // A backup drive's contents are not trusted. The store's folders can
+        // have been replaced by links to anywhere on the Luna while the drive
+        // was away, and `create_dir_all` would follow them. Build each folder
+        // in turn and refuse a link instead of writing through it.
+        let backups = layout.backups_name();
+        let root = ensure_dir(target_root, &[backups.as_str(), protection_id])?;
+        ensure_dir(&root, &["current"])?;
+        ensure_dir(&root, &["versions"])?;
         Ok(Store { root })
     }
 
     /// The store if it already exists; never creates anything.
     pub fn existing(target_root: &Path, layout: &Layout, protection_id: &str) -> Option<Store> {
         check_protection_id(protection_id).ok()?;
-        let root = layout.backups_dir(target_root).join(protection_id);
-        root.is_dir().then_some(Store { root })
+        let backups = layout.backups_dir(target_root);
+        let root = backups.join(protection_id);
+        (is_real_dir(&backups) && is_real_dir(&root)).then_some(Store { root })
+    }
+
+    /// The two folders every write goes through. A store read from a drive can
+    /// have had either swapped for a link since it was opened.
+    fn check_dirs(&self) -> io::Result<()> {
+        check_real_dirs(&self.root, &["current", "versions"])
     }
 
     pub fn root(&self) -> &Path {
@@ -157,6 +169,11 @@ impl Store {
 
     /// Write the manifest atomically (temp file, then rename).
     pub fn write_manifest(&self, manifest: &Manifest) -> std::io::Result<()> {
+        // The store folder itself is drive content too: a link there would
+        // put the manifest in a folder of the drive author's choosing.
+        if !is_real_dir(&self.root) {
+            return Err(not_a_folder());
+        }
         let bytes = serde_json::to_vec_pretty(manifest)
             .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
         let mut tmp = tempfile::Builder::new()
@@ -183,6 +200,7 @@ impl Store {
         now: i64,
     ) -> std::io::Result<Put> {
         let segs = rel_segments(rel)?;
+        self.check_dirs()?;
         let dst = join_rel(&self.current_dir(), &segs);
         // Check for an unchanged copy first: most files on a repeat run are
         // unchanged, and they should not pay a stat walk up the parent chain.
@@ -200,31 +218,29 @@ impl Store {
                 ));
             }
             // A missing parent folder (or a file where one should be) is left
-            // to create_dir_all below, which reports it as before.
+            // to ensure_dir below, which reports it as before.
             Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => false,
             Err(e) => return Err(e),
         };
-        if let Some(parent) = dst.parent() {
-            fs::create_dir_all(parent)?;
-        }
+        ensure_dir(&self.current_dir(), &segs[..segs.len() - 1])?;
 
         // Copy first: until the new copy is complete, the old one stays put.
         let staged = stage_copy(src, src_meta, &dst)?;
         let mut moved_old = None;
         if existing {
-            let old = self.version_path(now, rel)?;
-            if let Some(parent) = old.parent() {
-                fs::create_dir_all(parent)?;
-            }
+            let (old, parents) = self.version_paths(now, rel)?;
+            let parents: Vec<&str> = parents.iter().map(String::as_str).collect();
+            check_real_dirs(&self.versions_dir(), &parents)?;
             fs::rename(&dst, &old)?;
             moved_old = Some(old);
         }
+        check_real_dirs(&self.current_dir(), &segs[..segs.len() - 1])?;
         if let Err(e) = staged.persist(&dst) {
             // Dropping the failed temp file removes it. Put the old copy back.
             if let Some(old) = moved_old {
                 let _ = fs::rename(&old, &dst);
             }
-            return Err(e.error);
+            return Err(e);
         }
         Ok(if existing { Put::Updated } else { Put::Added })
     }
@@ -233,6 +249,7 @@ impl Store {
     /// `versions/<now>/<rel>`. Returns whether there was a copy to move.
     pub fn remove(&self, rel: &str, now: i64) -> std::io::Result<bool> {
         let segs = rel_segments(rel)?;
+        self.check_dirs()?;
         let src = join_rel(&self.current_dir(), &segs);
         match fs::symlink_metadata(&src) {
             Ok(meta) if meta.is_file() => {}
@@ -245,10 +262,9 @@ impl Store {
             Err(e) if e.kind() == ErrorKind::NotFound => return Ok(false),
             Err(e) => return Err(e),
         }
-        let old = self.version_path(now, rel)?;
-        if let Some(parent) = old.parent() {
-            fs::create_dir_all(parent)?;
-        }
+        let (old, parents) = self.version_paths(now, rel)?;
+        let parents: Vec<&str> = parents.iter().map(String::as_str).collect();
+        check_real_dirs(&self.versions_dir(), &parents)?;
         fs::rename(&src, &old)?;
         prune_empty_parents(&src, &self.current_dir());
         Ok(true)
@@ -422,11 +438,29 @@ impl Store {
             &rel_segments(rel)?,
         ))
     }
+
+    /// `versions/<t>/<rel>`, making the folders it needs without following a
+    /// link, and returning the folders a rename must re-check just before it.
+    fn version_paths(&self, t: i64, rel: &str) -> io::Result<(PathBuf, Vec<String>)> {
+        let segs = rel_segments(rel)?;
+        let stamp = t.to_string();
+        let mut parents = vec![stamp.clone()];
+        parents.extend(segs[..segs.len() - 1].iter().map(|seg| seg.to_string()));
+        let refs: Vec<&str> = parents.iter().map(String::as_str).collect();
+        ensure_dir(&self.versions_dir(), &refs)?;
+        Ok((join_rel(&self.versions_dir().join(&stamp), &segs), parents))
+    }
 }
 
 /// Every backup store on the drive mounted at `target_root`.
 pub fn list_stores(target_root: &Path, layout: &Layout) -> Vec<Store> {
-    let Ok(entries) = fs::read_dir(layout.backups_dir(target_root)) else {
+    let backups = layout.backups_dir(target_root);
+    // A link in place of the backups folder would list another folder's
+    // contents as backups, and removing one would rename that folder away.
+    if !is_real_dir(&backups) {
+        return Vec::new();
+    }
+    let Ok(entries) = fs::read_dir(&backups) else {
         return Vec::new();
     };
     let mut stores: Vec<Store> = entries
@@ -556,7 +590,7 @@ fn check_protection_id(id: &str) -> io::Result<()> {
 
 /// Split a `/`-joined relative path into its segments. Rejects absolute
 /// paths, empty segments, `.`, `..` and NUL.
-fn rel_segments(rel: &str) -> io::Result<Vec<&str>> {
+pub(crate) fn rel_segments(rel: &str) -> io::Result<Vec<&str>> {
     if rel.is_empty() {
         return Err(invalid_rel(rel));
     }
@@ -576,9 +610,72 @@ fn invalid_rel(rel: &str) -> io::Error {
     )
 }
 
-fn join_rel(base: &Path, segs: &[&str]) -> PathBuf {
+pub(crate) fn join_rel(base: &Path, segs: &[&str]) -> PathBuf {
     segs.iter()
         .fold(base.to_path_buf(), |path, seg| path.join(seg))
+}
+
+/// True for a real folder, never a link: `symlink_metadata` does not follow
+/// the last component.
+fn is_real_dir(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir())
+}
+
+/// The store's folder, or one of its folders, was swapped for a link or a
+/// plain file. Nothing may be written through it.
+fn not_a_folder() -> io::Error {
+    io::Error::new(
+        ErrorKind::InvalidData,
+        "The backup's folder on this drive was replaced with something else, so Luna won't write to it.",
+    )
+}
+
+/// Make every folder named by `segs` under `base`, refusing a link or a file
+/// where a folder belongs. A drive's contents are untrusted media:
+/// `create_dir_all` follows a `current` link to any folder on the Luna, and
+/// every later write lands there as root.
+fn ensure_dir(base: &Path, segs: &[&str]) -> io::Result<PathBuf> {
+    let mut dir = base.to_path_buf();
+    for seg in segs {
+        if seg.is_empty() || *seg == "." || *seg == ".." || seg.contains('/') || seg.contains('\0')
+        {
+            return Err(io::Error::new(
+                ErrorKind::InvalidInput,
+                "The backup folder's name is not valid.",
+            ));
+        }
+        dir.push(seg);
+        match fs::symlink_metadata(&dir) {
+            Ok(meta) if !meta.is_dir() => return Err(not_a_folder()),
+            Ok(_) => {}
+            Err(e) if e.kind() == ErrorKind::NotFound => match fs::create_dir(&dir) {
+                Ok(()) => {}
+                // Another run made it first; it still has to be a real folder.
+                Err(e) if e.kind() == ErrorKind::AlreadyExists && is_real_dir(&dir) => {}
+                Err(e) => return Err(e),
+            },
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(dir)
+}
+
+/// Refuse a link or a non-folder in `base` or in the folders `segs` names
+/// under it. Checked again right before a temp file or an old copy is renamed
+/// into place, so a folder swapped after [`ensure_dir`] cannot redirect the
+/// write.
+fn check_real_dirs(base: &Path, segs: &[&str]) -> io::Result<()> {
+    if !is_real_dir(base) {
+        return Err(not_a_folder());
+    }
+    let mut dir = base.to_path_buf();
+    for seg in segs {
+        dir.push(seg);
+        if !is_real_dir(&dir) {
+            return Err(not_a_folder());
+        }
+    }
+    Ok(())
 }
 
 /// A temp file name for `copy_atomic`: never a name the store would keep.
@@ -655,15 +752,53 @@ fn remove_file_if_exists(path: &Path) -> io::Result<bool> {
     }
 }
 
+/// A copy staged under a temp name in the destination's folder. Nothing is
+/// visible at the destination until [`Staged::persist`]; dropping it removes
+/// the temp file.
+struct Staged {
+    path: PathBuf,
+    file: Option<fs::File>,
+}
+
+impl Staged {
+    fn file(&mut self) -> &mut fs::File {
+        self.file.as_mut().expect("the staged file is open")
+    }
+
+    fn persist(mut self, dst: &Path) -> io::Result<()> {
+        drop(self.file.take());
+        fs::rename(&self.path, dst)?;
+        // The temp name is gone; its drop must not touch the destination.
+        std::mem::forget(self);
+        Ok(())
+    }
+}
+
+impl Drop for Staged {
+    fn drop(&mut self) {
+        drop(self.file.take());
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+/// Create `path` only if nothing has that name, and never through a link.
+fn create_new_file(path: &Path) -> io::Result<fs::File> {
+    let mut opts = fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW);
+    }
+    opts.open(path)
+}
+
 /// Copy `src` into a temp file in `dst`'s directory, keeping the source
 /// mtime. Nothing is visible at `dst` until the caller persists the temp
-/// file; dropping it removes it. A source that no longer exists comes back
-/// as `NotFound`, so the caller can skip the file.
-fn stage_copy(
-    src: &Path,
-    src_meta: &fs::Metadata,
-    dst: &Path,
-) -> io::Result<tempfile::NamedTempFile> {
+/// file; dropping it removes the temp file. A source that no longer exists
+/// comes back as `NotFound`, so the caller can skip the file. The temp file is
+/// created with `create_new` (which never follows a link) and `O_NOFOLLOW`.
+fn stage_copy(src: &Path, src_meta: &fs::Metadata, dst: &Path) -> io::Result<Staged> {
     let mut src_file = fs::File::open(src).map_err(|e| {
         if e.kind() == ErrorKind::NotFound {
             io::Error::new(ErrorKind::NotFound, "The file is no longer in the source.")
@@ -677,14 +812,31 @@ fn stage_copy(
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
     let prefix = format!(".{name}.tmp-");
-    let mut tmp = tempfile::Builder::new()
-        .prefix(&prefix)
-        .rand_bytes(8)
-        .tempfile_in(dir)?;
-    io::copy(&mut src_file, tmp.as_file_mut())?;
-    tmp.as_file().set_modified(src_meta.modified()?)?;
-    tmp.as_file().sync_all()?;
-    Ok(tmp)
+    let mut staged = None;
+    for _ in 0..16 {
+        let path = dir.join(format!("{prefix}{}", uuid::Uuid::new_v4().simple()));
+        match create_new_file(&path) {
+            Ok(file) => {
+                staged = Some(Staged {
+                    path,
+                    file: Some(file),
+                });
+                break;
+            }
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    let Some(mut staged) = staged else {
+        return Err(io::Error::new(
+            ErrorKind::AlreadyExists,
+            "Luna couldn't find a free name for a copy on this drive.",
+        ));
+    };
+    io::copy(&mut src_file, staged.file())?;
+    staged.file().set_modified(src_meta.modified()?)?;
+    staged.file().sync_all()?;
+    Ok(staged)
 }
 
 /// Modification time in whole seconds since the Unix epoch.
@@ -961,6 +1113,41 @@ mod tests {
                 "remove {rel:?}"
             );
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_in_place_of_current_or_versions_is_refused() {
+        use std::os::unix::fs::symlink;
+
+        let target = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let lay = layout();
+        let root = lay.backups_dir(target.path()).join(ID);
+        fs::create_dir_all(&root).unwrap();
+        // The drive was taken away and `current` replaced by a link to
+        // somewhere else on the Luna.
+        symlink(outside.path(), root.join("current")).unwrap();
+        fs::create_dir_all(root.join("versions")).unwrap();
+
+        assert!(Store::open(target.path(), &lay, ID).is_err());
+        assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+
+        // Even a store that did not come through `open` refuses to write.
+        let store = Store { root: root.clone() };
+        let src_dir = tempfile::tempdir().unwrap();
+        let s = source(src_dir.path(), "a.txt", b"x", 1_700_000_000);
+        assert!(store.put("a.txt", &s, &meta(&s), NOW).is_err());
+        assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+
+        // The same for `versions`.
+        fs::remove_file(root.join("current")).unwrap();
+        fs::create_dir_all(root.join("current")).unwrap();
+        fs::remove_dir(root.join("versions")).unwrap();
+        symlink(outside.path(), root.join("versions")).unwrap();
+        assert!(Store::open(target.path(), &lay, ID).is_err());
+        assert!(store.put("a.txt", &s, &meta(&s), NOW).is_err());
+        assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
     }
 
     #[test]

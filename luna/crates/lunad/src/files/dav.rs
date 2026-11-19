@@ -13,7 +13,7 @@
 
 use axum::Router;
 use axum::extract::{Path, Request, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, Method, StatusCode, header};
 use axum::response::IntoResponse;
 use axum::routing::any;
 use dav_server::fakels::FakeLs;
@@ -67,6 +67,8 @@ async fn handle_dav_inner(state: AppState, id: String, req: Request) -> axum::re
     // reads the request body off the socket (and answers `Expect:
     // 100-continue`); if it blocks itself here, any upload bigger than the
     // first read waits forever for bytes nobody is reading.
+    let method = req.method().clone();
+    let leaf = uri_leaf(req.uri().path());
     let rt = tokio::runtime::Handle::current();
     let joined = tokio::spawn(async move {
         tokio::task::block_in_place(move || rt.block_on(handler.handle(req)))
@@ -79,8 +81,81 @@ async fn handle_dav_inner(state: AppState, id: String, req: Request) -> axum::re
         )
         .into_response();
     };
-    let (parts, body) = resp.into_parts();
+    let (mut parts, body) = resp.into_parts();
+    harden_dav_download(&method, &leaf, &mut parts.headers);
     axum::response::Response::from_parts(parts, axum::body::Body::new(body))
+}
+
+/// Last path segment of a DAV request, used as the download's suggested name.
+fn uri_leaf(path: &str) -> String {
+    path.rsplit('/')
+        .find(|part| !part.is_empty())
+        .unwrap_or("download")
+        .to_string()
+}
+
+/// A browser must never render a WebDAV GET inline on Luna's own origin: an
+/// uploaded `notes.html` or `notes.svg` would run as Luna and could act as the
+/// person who opened it. WebDAV clients only care about the bytes, so any
+/// response a browser treats as an active document is forced to a download,
+/// with type sniffing off and a sandboxed page as a second barrier. Other
+/// methods (PROPFIND, PUT, DELETE, …) are untouched, and an attachment a
+/// client or dav-server already set is kept.
+fn harden_dav_download(method: &Method, leaf: &str, headers: &mut HeaderMap) {
+    if method != Method::GET && method != Method::HEAD {
+        return;
+    }
+    let Some(content_type) = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+    else {
+        return;
+    };
+    if !browser_active_type(content_type) {
+        return;
+    }
+    let already_attachment = headers
+        .get(header::CONTENT_DISPOSITION)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| {
+            v.trim_start()
+                .get(.."attachment".len())
+                .is_some_and(|head| head.eq_ignore_ascii_case("attachment"))
+        });
+    if !already_attachment {
+        headers.insert(
+            header::CONTENT_DISPOSITION,
+            format!(
+                "attachment; filename=\"{}\"",
+                crate::files::content_disposition_filename(leaf)
+            )
+            .parse()
+            .unwrap_or_else(|_| "attachment".parse().expect("static header value")),
+        );
+    }
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        "nosniff".parse().expect("static"),
+    );
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        "sandbox".parse().expect("static"),
+    );
+}
+
+/// Content types a browser renders as an active document: HTML, XHTML, SVG,
+/// and every `text/*` dav-server derives from a file extension.
+fn browser_active_type(content_type: &str) -> bool {
+    let essence = content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    essence == "text/html"
+        || essence == "application/xhtml+xml"
+        || essence == "image/svg+xml"
+        || essence.starts_with("text/")
 }
 
 fn require_dav_user(
@@ -90,16 +165,20 @@ fn require_dav_user(
     if let Ok(Some((user, device_token_ctx))) = state.auth.resolve_auth_from_headers(req.headers())
     {
         if let Some(token_ctx) = device_token_ctx {
-            let client = crate::auth::client_app_name(req.headers());
             let addr = req
                 .extensions()
                 .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
                 .map(|ci| ci.0);
-            let origin = crate::auth::client_origin_label(
-                addr.as_ref(),
-                req.headers(),
-                state.connect.wan_ip(),
-            );
+            // `/dav` is mounted outside the API guard, so the forwarding
+            // headers it strips are still here. Strip the same set for the
+            // same reason: a LAN caller must not choose the address its
+            // token use is recorded under.
+            let mut headers = req.headers().clone();
+            let peer_is_loopback = addr.is_some_and(|a| a.ip().is_loopback());
+            crate::auth::strip_untrusted_forwarding_headers(&mut headers, peer_is_loopback);
+            let client = crate::auth::client_app_name(&headers);
+            let origin =
+                crate::auth::client_origin_label(addr.as_ref(), &headers, state.connect.wan_ip());
             let detail = match *req.method() {
                 axum::http::Method::PUT | axum::http::Method::DELETE | axum::http::Method::POST => {
                     "Modified files"
@@ -696,6 +775,179 @@ mod tests {
         )
         .await;
         assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    /// An uploaded page served over WebDAV must not render as Luna: browsers
+    /// get a download, no type sniffing and a sandboxed document; plain bytes
+    /// keep dav-server's own headers so normal downloads and DAV clients are
+    /// untouched.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn dav_get_forces_active_documents_to_download() {
+        let mount = tempfile::tempdir().unwrap();
+        std::fs::write(
+            mount.path().join("notes.html"),
+            b"<script>alert(1)</script>",
+        )
+        .unwrap();
+        std::fs::write(
+            mount.path().join("drawing.svg"),
+            b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+        )
+        .unwrap();
+        std::fs::write(mount.path().join("photo.png"), b"png").unwrap();
+        let (_dir, app, _state) = test_app(mount.path());
+        let token = setup_admin_and_token(&app).await;
+
+        for file in ["notes.html", "drawing.svg"] {
+            let res = call(
+                &app,
+                req(
+                    Method::GET,
+                    &format!("/dav/photos/{file}"),
+                    Some(&basic("max", &token)),
+                ),
+            )
+            .await;
+            assert_eq!(res.status(), StatusCode::OK, "{file}");
+            let headers = res.headers();
+            let disposition = headers
+                .get("content-disposition")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            assert!(
+                disposition.starts_with("attachment;") && disposition.contains(file),
+                "{file}: {disposition}"
+            );
+            assert_eq!(
+                headers
+                    .get("x-content-type-options")
+                    .and_then(|v| v.to_str().ok()),
+                Some("nosniff"),
+                "{file}"
+            );
+            assert_eq!(
+                headers
+                    .get("content-security-policy")
+                    .and_then(|v| v.to_str().ok()),
+                Some("sandbox"),
+                "{file}"
+            );
+        }
+
+        // An image is not an active document: no disposition is added.
+        let res = call(
+            &app,
+            req(
+                Method::GET,
+                "/dav/photos/photo.png",
+                Some(&basic("max", &token)),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(res.headers().get("content-disposition").is_none());
+    }
+
+    #[test]
+    fn dav_download_hardening_only_touches_get_and_head() {
+        let mut get = HeaderMap::new();
+        get.insert(
+            header::CONTENT_TYPE,
+            "text/html; charset=utf-8".parse().unwrap(),
+        );
+        harden_dav_download(&Method::GET, "notes.html", &mut get);
+        assert_eq!(
+            get.get(header::CONTENT_DISPOSITION)
+                .and_then(|v| v.to_str().ok()),
+            Some("attachment; filename=\"notes.html\"")
+        );
+
+        // A HEAD gets the same headers for its headers-only answer.
+        let mut head = HeaderMap::new();
+        head.insert(header::CONTENT_TYPE, "image/svg+xml".parse().unwrap());
+        harden_dav_download(&Method::HEAD, "drawing.svg", &mut head);
+        assert_eq!(
+            head.get(header::CONTENT_DISPOSITION)
+                .and_then(|v| v.to_str().ok()),
+            Some("attachment; filename=\"drawing.svg\"")
+        );
+
+        // PROPFIND (application/xml) and plain bytes are left alone.
+        let mut propfind = HeaderMap::new();
+        propfind.insert(
+            header::CONTENT_TYPE,
+            "application/xml; charset=utf-8".parse().unwrap(),
+        );
+        harden_dav_download(&Method::from_bytes(b"PROPFIND").unwrap(), "", &mut propfind);
+        assert!(propfind.get(header::CONTENT_DISPOSITION).is_none());
+        assert!(propfind.get("content-security-policy").is_none());
+
+        // An attachment a client or dav-server already set is kept.
+        let mut kept = HeaderMap::new();
+        kept.insert(header::CONTENT_TYPE, "text/plain".parse().unwrap());
+        kept.insert(
+            header::CONTENT_DISPOSITION,
+            "attachment; filename=\"keep.txt\"".parse().unwrap(),
+        );
+        harden_dav_download(&Method::GET, "keep.txt", &mut kept);
+        assert_eq!(
+            kept.get(header::CONTENT_DISPOSITION)
+                .and_then(|v| v.to_str().ok()),
+            Some("attachment; filename=\"keep.txt\"")
+        );
+        assert_eq!(
+            kept.get("content-security-policy")
+                .and_then(|v| v.to_str().ok()),
+            Some("sandbox")
+        );
+    }
+
+    /// The WebDAV surface is mounted outside the API guard, which is where
+    /// forwarding headers are normally dropped. A LAN caller must not be able
+    /// to choose the place its token use is recorded under.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn dav_origin_label_ignores_forwarded_headers_from_lan_peer() {
+        let mount = tempfile::tempdir().unwrap();
+        let (_dir, app, state) = test_app(mount.path());
+        let token = setup_admin_and_token(&app).await;
+
+        let lan = std::net::SocketAddr::new(
+            std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 50)),
+            55000,
+        );
+        let mut http = HttpReq::builder()
+            .method(Method::from_bytes(b"PROPFIND").unwrap())
+            .uri("/dav/photos/")
+            .header("authorization", basic("max", &token))
+            .header("cf-connecting-ip", "198.51.100.7")
+            .header("x-real-ip", "198.51.100.7")
+            .header("x-forwarded-for", "198.51.100.7")
+            .header("forwarded", "for=198.51.100.7")
+            .body(Body::empty())
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(lan));
+        let user = match require_dav_user(&state, &http) {
+            Ok(user) => user,
+            Err(_) => panic!("a device token must authenticate over WebDAV"),
+        };
+        assert_eq!(user.role, "admin");
+
+        let conn = state.db.lock().unwrap();
+        let origin: String = conn
+            .query_row(
+                "SELECT origin FROM device_token_usage ORDER BY id DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            origin.contains("Home network"),
+            "a LAN peer's label comes from its address, not its header: {origin}"
+        );
+        assert!(
+            !origin.contains("Connect"),
+            "a written header must not claim the tunnel: {origin}"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

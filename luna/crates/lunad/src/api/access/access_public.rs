@@ -270,8 +270,9 @@ pub(super) async fn public_root(
     if prefers_html(&headers) && query.download.unwrap_or(0) == 0 && query.meta.unwrap_or(0) == 0 {
         return crate::system::staticweb::handle("");
     }
+    let ip = crate::api::auth::client_ip(&addr, &headers).to_string();
     run_public(&state, &addr, &token, &headers, async |state, link| {
-        public_root_inner(&state, &link, &query, &headers).await
+        public_root_inner(&state, &link, &query, &headers, &ip).await
     })
     .await
 }
@@ -281,9 +282,10 @@ pub(super) async fn public_root_inner(
     link: &AccessLinkRow,
     query: &PublicRootQuery,
     headers: &HeaderMap,
+    ip: &str,
 ) -> Result<Response, ApiError> {
     if link.caps & CAP_RESPOND != 0 {
-        return crate::api::forms::public_form_document(state, &link.drive_id, &link.path);
+        return crate::api::forms::public_form_document(state, ip, &link.drive_id, &link.path);
     }
     if link.subject_kind == KIND_ALBUM {
         let conn = state.db.lock().map_err(|_| busy())?;
@@ -312,6 +314,9 @@ pub(super) async fn public_root_inner(
         .into_response());
     }
     let (meta, rel, name) = {
+        if names_hidden(query.path.as_deref().unwrap_or("")) {
+            return Err(not_in_share());
+        }
         let conn = state.db.lock().map_err(|_| busy())?;
         let rel = scoped_child(
             link,
@@ -384,6 +389,72 @@ pub(super) struct PublicListQuery {
     pub(super) download: Option<u8>,
 }
 
+/// Hidden names (dotfiles, `lost+found`) are an access rule on the public
+/// surface, not only a listing filter: the share page hides them, so a guest
+/// may not open one by spelling it out. Only the part the guest asked for is
+/// checked — the link's own subject is the owner's choice and may itself be a
+/// hidden name (a trashed folder).
+pub(super) fn names_hidden(rel: &str) -> bool {
+    match files::canonical_rel(rel) {
+        // `canonical_rel` drops empty and `.` segments, so every part left is
+        // a real name in the path.
+        Ok(rel) => rel.split('/').any(luna_core::scan::is_hidden_name),
+        // `child_under_link` refuses these spellings anyway; denying here
+        // keeps every route fail-closed on its own.
+        Err(_) => true,
+    }
+}
+
+/// The folder listing a guest actually sees: private items the link cannot
+/// reach and hidden names are dropped, and trash entries carry their clean
+/// names. The listing, the zip and `stat`'s child counts share it, so a count
+/// can never include a row the listing hides.
+pub(super) fn guest_entries(
+    conn: &rusqlite::Connection,
+    link: &AccessLinkRow,
+    rel: &str,
+) -> Result<Vec<files::FileEntry>, ApiError> {
+    let mut entries = if files::is_trash_api(rel) {
+        files::list_trash_dir(conn, &link.drive_id, rel)
+    } else {
+        files::list_dir(conn, &link.drive_id, rel)
+    }
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't open this folder.",
+        )
+    })?;
+    retain_reachable(conn, link, rel, &mut entries);
+    // Guests never see where a symlink points — it can be an absolute host
+    // path — and have no use for the private flag.
+    for entry in &mut entries {
+        entry.link_target = None;
+        entry.private = false;
+    }
+    if rel == files::TRASH_API_ALIAS {
+        // Same clean names members get — the on-disk `{nonce}-` prefix is
+        // storage noise, never a label.
+        let root = files::drive_root(conn, &link.drive_id)
+            .map(|d| std::path::PathBuf::from(d.mount_point))
+            .unwrap_or_default();
+        let meta_map = files::trash_meta_map(&root);
+        for entry in &mut entries {
+            entry.original_name = Some(match meta_map.get(&entry.name) {
+                Some(meta) => meta
+                    .original_path
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&meta.original_path)
+                    .to_string(),
+                None => files::original_name_from_trash(&entry.name),
+            });
+        }
+    }
+    entries.retain(|e| !e.hidden && !files::is_internal_temp(&e.name));
+    Ok(entries)
+}
+
 /// `GET /s/{token}/list?path=` — entries of a folder inside a viewable link.
 pub(super) async fn public_list(
     State(state): State<AppState>,
@@ -395,6 +466,9 @@ pub(super) async fn public_list(
     run_public(&state, &addr, &token, &headers, async |state, link| {
         if link.subject_kind != KIND_PATH || link.caps & CAP_VIEW == 0 {
             return Err(gone());
+        }
+        if names_hidden(query.path.as_deref().unwrap_or("")) {
+            return Err(not_in_share());
         }
         let conn = state.db.lock().map_err(|_| busy())?;
         let rel = scoped_child(
@@ -432,54 +506,8 @@ pub(super) async fn public_list(
             }
             return Err(json_error(StatusCode::BAD_REQUEST, "That isn't a folder."));
         }
-        let mut entries = if files::is_trash_api(&rel) {
-            files::list_trash_dir(&conn, &link.drive_id, &rel).map_err(|_| {
-                json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna couldn't open this folder.",
-                )
-            })?
-        } else {
-            files::list_dir(&conn, &link.drive_id, &rel).map_err(|_| {
-                json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Luna couldn't open this folder.",
-                )
-            })?
-        };
-        retain_reachable(&conn, &link, &rel, &mut entries);
-        // Guests never see where a symlink points — it can be an absolute
-        // host path — and have no use for the private flag.
-        for entry in &mut entries {
-            entry.link_target = None;
-            entry.private = false;
-        }
-        if rel == files::TRASH_API_ALIAS {
-            // Same clean names members get — the on-disk `{nonce}-` prefix
-            // is storage noise, never a label.
-            let root = files::drive_root(&conn, &link.drive_id)
-                .map(|d| std::path::PathBuf::from(d.mount_point))
-                .unwrap_or_default();
-            let meta_map = files::trash_meta_map(&root);
-            for entry in &mut entries {
-                entry.original_name = Some(match meta_map.get(&entry.name) {
-                    Some(meta) => meta
-                        .original_path
-                        .rsplit('/')
-                        .next()
-                        .unwrap_or(&meta.original_path)
-                        .to_string(),
-                    None => files::original_name_from_trash(&entry.name),
-                });
-            }
-        }
-        Ok(Json(json!({
-            "entries": entries
-                .into_iter()
-                .filter(|e| !e.hidden && !files::is_internal_temp(&e.name))
-                .collect::<Vec<_>>(),
-        }))
-        .into_response())
+        let entries = guest_entries(&conn, &link, &rel)?;
+        Ok(Json(json!({ "entries": entries })).into_response())
     })
     .await
 }
@@ -1210,6 +1238,9 @@ pub(super) async fn public_stat(
         if link.subject_kind != KIND_PATH {
             return Err(gone());
         }
+        if names_hidden(query.path.as_deref().unwrap_or("")) {
+            return Err(not_in_share());
+        }
         let rel = readable_child(&link, query.path.as_deref().unwrap_or(""))?;
         let stat = {
             let conn = state.db.lock().map_err(|_| busy())?;
@@ -1222,7 +1253,28 @@ pub(super) async fn public_stat(
                     "Luna can't find that anymore. Refresh and try again.",
                 ),
             )?;
-            files::stat(&conn, &link.drive_id, &rel).map_err(map_guest_files_err)?
+            let mut stat = files::stat(&conn, &link.drive_id, &rel).map_err(map_guest_files_err)?;
+            if stat.kind == "dir" {
+                // Count only what the guest's own listing shows. The
+                // filesystem count includes private items and hidden names
+                // the listing hides, which would tell the guest how many
+                // things it cannot see are in there.
+                let entries = guest_entries(&conn, &link, &rel)?;
+                let mut counts = files::ChildCounts {
+                    dirs: 0,
+                    files: 0,
+                    other: 0,
+                };
+                for entry in &entries {
+                    match entry.kind.as_str() {
+                        "dir" => counts.dirs += 1,
+                        "file" => counts.files += 1,
+                        _ => counts.other += 1,
+                    }
+                }
+                stat.children = Some(counts);
+            }
+            stat
         };
         Ok(Json(json!({
             "name": stat.name,

@@ -49,7 +49,7 @@ What `make mobile-dev` does:
 
 1. Checks `adb` for an emulator or phone
 2. Mints (or reuses) an access token for user `desktop`, signing in with the random per-workspace password in `luna/dev/dev-password`
-3. `installDebug`, then opens `luna://pair` so DEBUG builds **auto-sign in**
+3. `installDebug`, then opens `luna://pair`; tap **Connect** in the confirmation and a DEBUG build **auto-signs in**
 4. Watches `app/src` — save a file to rebuild, reinstall, and relaunch
 
 Useful env vars:

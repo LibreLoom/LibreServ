@@ -125,12 +125,13 @@ func (h *ProvidersHandler) configStatus() map[string]any {
 			"has_webhook_secret": strings.HasPrefix(strings.TrimSpace(stripeDB.Credential("webhook_secret", "")), "whsec_"),
 		}
 	} else {
+		st := config.Stripe()
 		status["stripe"] = map[string]any{
-			"configured":         config.C.Stripe.Ready() || strings.TrimSpace(config.C.Stripe.SecretKey) != "",
+			"configured":         st.Ready() || strings.TrimSpace(st.SecretKey) != "",
 			"source":             "config",
-			"enabled":            config.C.Stripe.Enabled,
-			"webhook_ready":      config.C.Stripe.WebhookReady(),
-			"has_webhook_secret": strings.HasPrefix(strings.TrimSpace(config.C.Stripe.WebhookSecret), "whsec_"),
+			"enabled":            st.Enabled,
+			"webhook_ready":      st.WebhookReady(),
+			"has_webhook_secret": strings.HasPrefix(strings.TrimSpace(st.WebhookSecret), "whsec_"),
 		}
 	}
 
@@ -161,7 +162,7 @@ func (h *ProvidersHandler) configStatus() map[string]any {
 			"public_zone": strings.TrimSpace(config.C.Server.PublicZone),
 		}
 	} else {
-		cf := config.C.Cloudflare
+		cf := config.Cloudflare()
 		status["cloudflare"] = map[string]any{
 			"configured":  cf.Ready(),
 			"source":      "config",

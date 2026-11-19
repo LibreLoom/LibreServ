@@ -19,7 +19,6 @@ use crate::backup::access_list;
 use crate::db;
 
 const RECOVERED_RUN: &str = "recovered";
-const STOPPED_REASON: &str = "This folder is no longer a private item.";
 
 /// The plain details of one private backup, decrypted by the browser.
 #[derive(Debug, Clone, PartialEq)]
@@ -410,29 +409,50 @@ pub fn write_private_index(
             continue;
         }
 
-        if db::get_protection(&tx, &snap.protection_id)?.is_none() {
-            let owned =
-                access_list::private_source(&tx, &snap.meta.source_drive, &snap.meta.source_path)
-                    .owner()
-                    == Some(caller);
-            db::insert_protection(
-                &tx,
-                &db::NewProtection {
-                    id: &snap.protection_id,
-                    kind: db::PROTECTION_CLOUD,
-                    source_drive: &snap.meta.source_drive,
-                    source_path: &snap.meta.source_path,
-                    target_drive: "",
-                    private_owner: caller,
-                    created_by: caller,
-                    created_at: record.created_at,
-                },
-            )?;
-            let access = serde_json::json!({ "users": [caller], "admins": false }).to_string();
-            db::set_protection_access(&tx, &snap.protection_id, &access)?;
-            if !owned {
-                db::set_protection_state(&tx, &snap.protection_id, "stopped", STOPPED_REASON)?;
+        match db::get_protection(&tx, &snap.protection_id)? {
+            None => {
+                // The folder the browser names is only a claim: the signed record seals it, so
+                // Luna cannot read it, and a body can claim anything. A recovered row may only
+                // point at a private item that is really on that drive and really this caller's.
+                if crate::private::climbs_out(&snap.meta.source_path) {
+                    bail!("This private backup's folder is not on its drive. It may be damaged.");
+                }
+                let owned = match access_list::private_source(
+                    &tx,
+                    &snap.meta.source_drive,
+                    &snap.meta.source_path,
+                ) {
+                    access_list::PrivateSource::OwnItem { owner }
+                    | access_list::PrivateSource::Inside { owner, .. } => owner == caller,
+                    access_list::PrivateSource::Shared
+                    | access_list::PrivateSource::PrivateTrash => false,
+                };
+                if !owned {
+                    bail!(
+                        "This private backup's folder isn't one of your private items on this Luna, so Luna can't restore it."
+                    );
+                }
+                db::insert_protection(
+                    &tx,
+                    &db::NewProtection {
+                        id: &snap.protection_id,
+                        kind: db::PROTECTION_CLOUD,
+                        source_drive: &snap.meta.source_drive,
+                        source_path: &snap.meta.source_path,
+                        target_drive: "",
+                        private_owner: caller,
+                        created_by: caller,
+                        created_at: record.created_at,
+                    },
+                )?;
+                let access = serde_json::json!({ "users": [caller], "admins": false }).to_string();
+                db::set_protection_access(&tx, &snap.protection_id, &access)?;
             }
+            // A private record must never index itself into someone else's backup.
+            Some(row) if row.private_owner != caller || row.kind != db::PROTECTION_CLOUD => {
+                bail!("A private backup's record names another item. It may be damaged.");
+            }
+            Some(_) => {}
         }
 
         let tree_pack_id = hex(&record.tree_pack_id);
@@ -566,6 +586,36 @@ mod tests {
         (dir, conn)
     }
 
+    /// The drive the fixture's sealed metadata names, with its folder as alice's private
+    /// item. A real drive holds the private rows itself, so this is what a restore after a
+    /// lost database finds.
+    fn mounted_diary(dir: &tempfile::TempDir, conn: &Connection) {
+        let root = dir.path().join("drive-fixture");
+        std::fs::create_dir_all(root.join("Diary")).unwrap();
+        std::fs::create_dir_all(root.join("Shared")).unwrap();
+        let prefix = luna_core::marker::pick_prefix(&root).unwrap();
+        crate::drives::drive_db::create(
+            &root,
+            &luna_core::marker::Marker::new("drive-fixture", "Photos"),
+            &prefix,
+        )
+        .unwrap();
+        db::upsert_drive(
+            conn,
+            "drive-fixture",
+            "Photos",
+            "as_is",
+            "ext4",
+            "sda",
+            root.to_str().unwrap(),
+        )
+        .unwrap();
+        db::set_drive_state(conn, "drive-fixture", "as_is").unwrap();
+        crate::private::privatize(&root, "Diary", "alice").unwrap();
+        std::fs::create_dir_all(root.join("BobDocs")).unwrap();
+        crate::private::privatize(&root, "BobDocs", "bob").unwrap();
+    }
+
     /// Everything the browser would decrypt for the fixture's private backup.
     struct Decrypted {
         luna_public: SigPublic,
@@ -661,7 +711,8 @@ mod tests {
     #[test]
     fn fixture_index_is_written_as_recovered() {
         let d = decrypt_fixture();
-        let (_dir, mut conn) = setup();
+        let (dir, mut conn) = setup();
+        mounted_diary(&dir, &conn);
         let written = write_private_index(
             &mut conn,
             &d.luna_public,
@@ -702,6 +753,7 @@ mod tests {
         assert_eq!(protection.kind, db::PROTECTION_CLOUD);
         assert_eq!(protection.private_owner, "alice");
         assert_eq!(protection.created_by, "alice");
+        assert_eq!(protection.state, db::PROTECTION_ACTIVE);
     }
 
     #[test]
@@ -778,7 +830,8 @@ mod tests {
     #[test]
     fn next_run_starts_a_fresh_scope() {
         let d = decrypt_fixture();
-        let (_dir, mut conn) = setup();
+        let (dir, mut conn) = setup();
+        mounted_diary(&dir, &conn);
         write_private_index(
             &mut conn,
             &d.luna_public,
@@ -795,28 +848,51 @@ mod tests {
         assert!(is_new);
     }
 
+    /// The browser supplies the folder name; the signed record only seals it. The folder must be
+    /// a private item that is really alice's, or the restore writes nothing.
     #[test]
-    fn stopped_protection_when_folder_is_not_private() {
+    fn a_forged_source_folder_is_refused() {
         let d = decrypt_fixture();
-        let (_dir, mut conn) = setup();
-        write_private_index(
-            &mut conn,
-            &d.luna_public,
-            "alice",
-            &d.alice.seal_public,
-            &d.scope,
-            &d.dedup,
-            std::slice::from_ref(&d.snapshot),
-            NOW,
-        )
-        .unwrap();
-        let protection = db::get_protection(&conn, &d.snapshot.protection_id)
-            .unwrap()
-            .unwrap();
-        assert_eq!(protection.state, "stopped");
-        assert_eq!(protection.stop_reason, STOPPED_REASON);
-        assert_eq!(protection.private_owner, "alice");
-        assert!(protection.access_json.contains("\"admins\":false"));
+        let (dir, mut conn) = setup();
+        mounted_diary(&dir, &conn);
+        for (drive, path) in [
+            // A shared folder is not a private item.
+            ("drive-fixture", "Shared"),
+            // Another person's private item.
+            ("drive-fixture", "BobDocs"),
+            // Climbing out of the drive.
+            ("drive-fixture", "../../../../var/lib/luna"),
+            // A drive this Luna does not have.
+            ("drive-missing", "Diary"),
+        ] {
+            let mut forged = d.snapshot.clone();
+            forged.meta.source_drive = drive.to_string();
+            forged.meta.source_path = path.to_string();
+            let err = write_private_index(
+                &mut conn,
+                &d.luna_public,
+                "alice",
+                &d.alice.seal_public,
+                &d.scope,
+                &d.dedup,
+                std::slice::from_ref(&forged),
+                NOW,
+            )
+            .unwrap_err();
+            assert!(
+                err.to_string().contains("can't restore it")
+                    || err.to_string().contains("not on its drive"),
+                "{path}: {err}"
+            );
+            assert_eq!(count(&conn, "cloud_snapshots"), 0, "{path}");
+            assert!(
+                db::get_protection(&conn, &forged.protection_id)
+                    .unwrap()
+                    .is_none(),
+                "{path}"
+            );
+            assert_eq!(count(&conn, "cloud_private_scopes"), 0, "{path}");
+        }
     }
 
     #[test]

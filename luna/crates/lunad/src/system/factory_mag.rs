@@ -119,7 +119,7 @@ fn peel_from_dir(assets_root: &Path) -> Option<String> {
 }
 
 fn tokens_first_line(path: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(path).ok()?;
+    let text = read_tokens(path).ok()?;
     for line in text.lines() {
         let trimmed = line.trim().trim_start_matches('\r');
         if trimmed.is_empty() || trimmed.starts_with('#') {
@@ -130,8 +130,54 @@ fn tokens_first_line(path: &Path) -> Option<String> {
     None
 }
 
+/// Read `TOKENS` as text. The stick decides what that name is, so the file is
+/// opened without following a link and must be a regular file: a symlink to a
+/// root-owned file must not be read either.
+fn read_tokens(path: &Path) -> std::io::Result<String> {
+    use std::io::Read;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut file = opts.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(not_a_file());
+    }
+    let mut text = String::new();
+    file.read_to_string(&mut text)?;
+    Ok(text)
+}
+
+/// Rewrite `TOKENS` in place, never through a link. `std::fs::write` would
+/// follow one, and the magazine's folder is the stick author's to fill.
+fn write_tokens(path: &Path, text: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut file = opts.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(not_a_file());
+    }
+    file.write_all(text.as_bytes())
+}
+
+fn not_a_file() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        "TOKENS is not a regular file",
+    )
+}
+
 fn tokens_drop_first(path: &Path) -> std::io::Result<()> {
-    let text = std::fs::read_to_string(path)?;
+    let text = read_tokens(path)?;
     let mut dropped = false;
     let mut kept = String::new();
     for line in text.lines() {
@@ -154,7 +200,7 @@ fn tokens_drop_first(path: &Path) -> std::io::Result<()> {
             "no token line to drop",
         ));
     }
-    std::fs::write(path, kept)
+    write_tokens(path, &kept)
 }
 
 struct AssetsMount {
@@ -277,6 +323,33 @@ mod tests {
             std::fs::read_to_string(assets.join("TOKENS")).unwrap(),
             "ZZZZ-YYYY-XXXX-WWWW-VVVV\n"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_tokens_file_is_not_read_or_written_through() {
+        let dir = tempfile::tempdir().unwrap();
+        let assets = dir.path().join("assets");
+        std::fs::create_dir_all(&assets).unwrap();
+        // The stick's TOKENS is a link to a file the Luna owns.
+        let canary = dir.path().join("canary.txt");
+        std::fs::write(&canary, "keep me\nABCD-EFGH-JKMN-PQRS-TVWX\n").unwrap();
+        std::os::unix::fs::symlink(&canary, assets.join("TOKENS")).unwrap();
+        let token = dir.path().join("device-token");
+        let out = fetch_device_token_from_mag(
+            &token,
+            &MagFetchOptions {
+                assets_root: Some(assets),
+                max_attempts: 1,
+                retry_delay: Duration::from_millis(1),
+            },
+        );
+        assert_eq!(out, MagFetchOutcome::NoMagazine);
+        assert_eq!(
+            std::fs::read_to_string(&canary).unwrap(),
+            "keep me\nABCD-EFGH-JKMN-PQRS-TVWX\n"
+        );
+        assert!(!token.exists());
     }
 
     #[test]

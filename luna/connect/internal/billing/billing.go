@@ -78,7 +78,7 @@ func UsageQuantityGB(bytes int64) int64 {
 // and Stripe turned off. stripe.enabled: false by itself does not unlock
 // production backups.
 func DevBypass() bool {
-	return config.DevMode() && !config.C.Stripe.Enabled
+	return config.DevMode() && !config.Stripe().Enabled
 }
 
 func BackupsUnlocked(hasCard bool, status string) bool {
@@ -100,7 +100,8 @@ func requireLiveStripe() error {
 	if DevBypass() {
 		return nil
 	}
-	if !config.C.Stripe.Ready() {
+	st := config.Stripe()
+	if !st.Ready() {
 		return ErrNotConfigured
 	}
 	return nil
@@ -113,7 +114,7 @@ func CreateCustomer(email string) (string, error) {
 	if err := requireLiveStripe(); err != nil {
 		return "", err
 	}
-	stripe.Key = config.C.Stripe.SecretKey
+	stripe.Key = config.Stripe().SecretKey
 	c, err := customer.New(&stripe.CustomerParams{Email: stripe.String(email)})
 	if err != nil {
 		return "", err
@@ -161,7 +162,7 @@ func ScheduleFinalCharge(subID string) (time.Time, error) {
 	if err := requireLiveStripe(); err != nil {
 		return time.Time{}, err
 	}
-	stripe.Key = config.C.Stripe.SecretKey
+	stripe.Key = config.Stripe().SecretKey
 	sub, err := subscription.Get(subID, nil)
 	if err != nil {
 		return time.Time{}, err
@@ -197,7 +198,7 @@ func SettleFinalInvoice(subID string) error {
 	if err := requireLiveStripe(); err != nil {
 		return err
 	}
-	stripe.Key = config.C.Stripe.SecretKey
+	stripe.Key = config.Stripe().SecretKey
 	params := &stripe.SubscriptionParams{}
 	params.AddExpand("latest_invoice")
 	sub, err := subscription.Get(subID, params)
@@ -228,7 +229,7 @@ func CancelSubscription(subID string) error {
 	if err := requireLiveStripe(); err != nil {
 		return err
 	}
-	stripe.Key = config.C.Stripe.SecretKey
+	stripe.Key = config.Stripe().SecretKey
 	_, err := subscription.Cancel(subID, nil)
 	return err
 }
@@ -242,7 +243,7 @@ func SubscriptionStatus(subID string) (string, error) {
 	if err := requireLiveStripe(); err != nil {
 		return "", err
 	}
-	stripe.Key = config.C.Stripe.SecretKey
+	stripe.Key = config.Stripe().SecretKey
 	s, err := subscription.Get(subID, nil)
 	if err != nil {
 		return "", err
@@ -261,7 +262,7 @@ func OpenInvoiceURL(subID string) (string, error) {
 	if err := requireLiveStripe(); err != nil {
 		return "", err
 	}
-	stripe.Key = config.C.Stripe.SecretKey
+	stripe.Key = config.Stripe().SecretKey
 	params := &stripe.SubscriptionParams{}
 	params.AddExpand("latest_invoice")
 	sub, err := subscription.Get(subID, params)

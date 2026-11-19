@@ -113,17 +113,60 @@ struct Subject {
     private: bool,
     /// Real path of the private item this sits in (or is), when private.
     wall: Option<String>,
+    /// The drive's private registry could not be read, so whether a private
+    /// item is here cannot be known. Treated like a private subject: fail
+    /// closed.
+    private_unknown: bool,
+}
+
+/// What the drive's private registry says about a path.
+enum PrivateAt {
+    /// No private item at or above the path, or one whose owner this Luna
+    /// does not know (a drive from elsewhere).
+    Clear,
+    At(crate::private::Boundary),
+    /// Registry unreadable (locked, unplugged, unreadable marker).
+    Unknown,
 }
 
 /// Is this path a private item, or inside one, that belongs to someone?
+/// An unreadable registry counts: privacy can be neither confirmed nor
+/// denied, so the fail-closed answer is yes.
 fn path_is_private(conn: &rusqlite::Connection, drive_id: &str, path: &str) -> bool {
-    private_owner(conn, drive_id, path).is_some()
+    !matches!(private_lookup(conn, drive_id, path), PrivateAt::Clear)
 }
 
 /// `Some(owner user id)` when the path is private to a person this Luna
 /// knows. Items whose owner is gone belong to nobody, so no wall stands.
 fn private_owner(conn: &rusqlite::Connection, drive_id: &str, path: &str) -> Option<String> {
-    private_wall(conn, drive_id, path).map(|b| b.owner)
+    match private_lookup(conn, drive_id, path) {
+        PrivateAt::At(b) => Some(b.owner),
+        PrivateAt::Clear | PrivateAt::Unknown => None,
+    }
+}
+
+fn private_lookup(conn: &rusqlite::Connection, drive_id: &str, path: &str) -> PrivateAt {
+    let Some(drive) = db::get_drive(conn, drive_id).ok().flatten() else {
+        return PrivateAt::Unknown;
+    };
+    if drive.mount_point.is_empty() {
+        return PrivateAt::Unknown;
+    }
+    let root = FsPath::new(&drive.mount_point);
+    let real = files::real_rel(root, &normalize_subject_path(path)).into_owned();
+    match crate::private::wall_for(root, &real) {
+        crate::private::Wall::Clear => PrivateAt::Clear,
+        crate::private::Wall::Unknown => PrivateAt::Unknown,
+        crate::private::Wall::At(b) => {
+            // A drive from elsewhere: its items belong to nobody here, and
+            // an Admin may adopt them. Not a wall for people on this Luna.
+            if crate::private::owner_known(conn, &b.owner) {
+                PrivateAt::At(b)
+            } else {
+                PrivateAt::Clear
+            }
+        }
+    }
 }
 
 /// The private boundary around a path, when its owner is a person here.
@@ -132,14 +175,10 @@ fn private_wall(
     drive_id: &str,
     path: &str,
 ) -> Option<crate::private::Boundary> {
-    let drive = db::get_drive(conn, drive_id).ok().flatten()?;
-    if drive.mount_point.is_empty() {
-        return None;
+    match private_lookup(conn, drive_id, path) {
+        PrivateAt::At(b) => Some(b),
+        PrivateAt::Clear | PrivateAt::Unknown => None,
     }
-    let root = FsPath::new(&drive.mount_point);
-    let real = files::real_rel(root, &normalize_subject_path(path)).into_owned();
-    crate::private::boundary_for(root, &real)
-        .filter(|b| crate::private::owner_known(conn, &b.owner))
 }
 
 /// The refusal for someone with no way in: a private item that isn't theirs
@@ -154,9 +193,9 @@ fn refuse(subj: &Subject, mine: Caps, msg: &'static str) -> ApiError {
 
 /// Does a share on `path` (an ancestor) still apply to this subject? Not
 /// when a private item stands between them: only shares at or below its
-/// boundary reach in.
+/// boundary reach in. While the boundary is unknown, nothing reaches in.
 fn reaches_in(subj: &Subject, path: &str) -> bool {
-    subj.wall.as_deref().is_none_or(|w| path_contains(w, path))
+    !subj.private_unknown && subj.wall.as_deref().is_none_or(|w| path_contains(w, path))
 }
 
 fn busy() -> ApiError {
@@ -226,6 +265,7 @@ fn resolve_subject(
                     item_count: album.item_count,
                     private: false,
                     wall: None,
+                    private_unknown: false,
                 }),
                 None => Ok(Subject {
                     kind,
@@ -239,6 +279,7 @@ fn resolve_subject(
                     item_count: 0,
                     private: false,
                     wall: None,
+                    private_unknown: false,
                 }),
             }
         }
@@ -275,10 +316,16 @@ fn resolve_subject(
             } else {
                 (false, false)
             };
-            let wall = private_wall(conn, &drive_id, &rel);
-            let private = wall.as_ref().map(|b| b.owner.clone());
+            let (wall, owner, private_unknown) = match private_lookup(conn, &drive_id, &rel) {
+                PrivateAt::At(b) => (Some(b.path), b.owner, false),
+                PrivateAt::Clear => (None, String::new(), false),
+                // The drive's private registry cannot be read: treat the
+                // subject as private so no ancestor row, Admin role or link
+                // management reaches in until it can be read again.
+                PrivateAt::Unknown => (None, String::new(), true),
+            };
             Ok(Subject {
-                wall: wall.map(|b| b.path),
+                wall,
                 kind,
                 drive_id,
                 path: rel,
@@ -286,9 +333,10 @@ fn resolve_subject(
                 is_file,
                 exists,
                 name,
-                private: private.is_some(),
-                owner: private.unwrap_or_default(),
+                private: private_unknown || !owner.is_empty(),
+                owner,
                 item_count: 0,
+                private_unknown,
             })
         }
     }

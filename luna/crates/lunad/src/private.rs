@@ -83,6 +83,13 @@ fn canonical(path: &str) -> String {
         .join("/")
 }
 
+/// Does `path` try to climb out of the folder it names? `canonical` keeps
+/// `..` so every lookup sees the same segments, and anything that turns a
+/// path into a disk path must refuse it first.
+pub fn climbs_out(path: &str) -> bool {
+    path.split('/').any(|s| s == "..")
+}
+
 /// Is `path` equal to `base` or inside it?
 fn within(path: &str, base: &str) -> bool {
     base.is_empty()
@@ -284,6 +291,59 @@ pub struct Boundary {
 pub fn boundary_for(root: &Path, rel: &str) -> Option<Boundary> {
     let rel = canonical(rel);
     read(root, |r| boundary_in(r, &rel)).flatten()
+}
+
+/// What a drive's private registry says about one path.
+///
+/// `Unknown` is the fail-closed answer for a drive whose registry cannot be
+/// read right now — locked, unplugged, no marker, or an unreadable file. A
+/// caller must not conclude "not private" from it: nothing on that drive can
+/// be shown to sit outside a private item.
+#[derive(Debug, Clone)]
+pub enum Wall {
+    /// Registry read: no private item at or above the path.
+    Clear,
+    /// Registry read: a private item sits at or above the path.
+    At(Boundary),
+    /// Registry unreadable: privacy cannot be decided.
+    Unknown,
+}
+
+/// [`boundary_for`] that keeps "no private item" apart from "cannot tell".
+///
+/// The drive's registry is the only thing that can say a path is *not*
+/// private, so an unreadable one fails closed. Two states count as
+/// unreadable: a drive root that is gone or empty (locked, unplugged, or
+/// ejected — a mounted Luna drive always carries its marker), and a marker
+/// that is there but whose microdb will not open. A non-empty root with no
+/// marker holds no private items: their on-disk names need that drive's
+/// prefix, which only the marker records.
+pub fn wall_for(root: &Path, rel: &str) -> Wall {
+    let rel = canonical(rel);
+    if let Some(shared) = shared(root) {
+        return match shared.read() {
+            Ok(rows) => match boundary_in(&rows, &rel) {
+                Some(b) => Wall::At(b),
+                None => Wall::Clear,
+            },
+            Err(_) => Wall::Unknown,
+        };
+    }
+    if crate::drives::drive_db::prefix_for(root).is_some() {
+        return Wall::Unknown;
+    }
+    if root_has_entries(root) {
+        Wall::Clear
+    } else {
+        Wall::Unknown
+    }
+}
+
+/// A directory that exists and holds at least one entry. A Luna drive root
+/// always holds its marker; an empty one is a mount point whose drive is
+/// away.
+fn root_has_entries(root: &Path) -> bool {
+    std::fs::read_dir(root).is_ok_and(|mut entries| entries.next().is_some())
 }
 
 fn boundary_in(r: &Rows, rel: &str) -> Option<Boundary> {

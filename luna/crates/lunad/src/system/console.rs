@@ -310,8 +310,8 @@ fn shown_table(table: &str) -> bool {
 /// a drive change wakes the FAT/exFAT write-out loop, and a new cloud backup
 /// key version starts moving data to it.
 /// SQLite allows one update hook per connection; this is it.
-pub fn watch_db(conn: &rusqlite::Connection) {
-    conn.update_hook(Some(
+pub fn watch_db(conn: &mut rusqlite::Connection) {
+    let result = conn.update_hook(Some(
         |_: rusqlite::hooks::Action, _: &str, table: &str, _: i64| {
             if table == "drives" {
                 crate::drives::flusher::note_drives_changed();
@@ -323,6 +323,9 @@ pub fn watch_db(conn: &rusqlite::Connection) {
             }
         },
     ));
+    if let Err(error) = result {
+        tracing::warn!(%error, "could not watch the database for console changes");
+    }
 }
 
 /// The Connect fields the screen shows. The Connect poll loop keeps the last

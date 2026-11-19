@@ -139,6 +139,13 @@ func (h AccountHandler) Login(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusTooManyRequests, "Too many tries from this network. Wait a few minutes, then try again.")
 		return
 	}
+	// Failures are also counted per account, so rotating client addresses does
+	// not reset the budget. A full bucket does not lock the owner out: the
+	// password is still checked, and a correct one is let through and clears
+	// the bucket. Wrong guesses get the same generic 429 either way, so the
+	// answer never says whether the account exists.
+	accountKey := signInAccountKey("customer", email)
+	accountCapped := guessBlocked(h.DB, accountKey, signInAccountAttemptMax, signInAccountAttemptWindow)
 	var id, hash string
 	var emailVerified int
 	err := h.DB.QueryRow(`SELECT id, password_hash, email_verified FROM accounts WHERE email = ?`, email).
@@ -147,11 +154,27 @@ func (h AccountHandler) Login(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "Could not sign in. Try again.")
 		return
 	}
+	if err != nil {
+		// No account for this address. Verify one password anyway, so the
+		// answer takes as long as a wrong password on a real account and the
+		// clock cannot be used to test whether an address is registered.
+		_ = auth.VerifyDummyPassword(req.Password)
+	}
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)) != nil {
-		_ = allowAuthAttempt(h.DB, ip, email, authAttemptMax, authAttemptWindow)
+		if !accountCapped {
+			_ = allowAuthAttempt(h.DB, ip, email, authAttemptMax, authAttemptWindow)
+			_ = allowGuess(h.DB, accountKey, signInAccountAttemptMax, signInAccountAttemptWindow)
+		}
+		if accountCapped {
+			JSONError(w, http.StatusTooManyRequests, "Too many tries from this network. Wait a few minutes, then try again.")
+			return
+		}
 		JSONError(w, http.StatusUnauthorized, "That email or password did not match.")
 		return
 	}
+	// Correct password while the bucket is full must still sign the owner in;
+	// the cap is not a lockout. Start the count over.
+	clearSignInAccountAttempts(h.DB, accountKey)
 	h.setSession(w, id)
 	JSON(w, http.StatusOK, map[string]any{"ok": true, "email_verified": emailVerified == 1, "email": email, "id": id})
 }
@@ -223,22 +246,24 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 		"onboarding_device_id":   status["device_id"],
 		"onboarding_hostname":    status["hostname"],
 		"stripe_publishable_key": stripePublishableKey(),
-		"stripe_enabled":         config.C.Stripe.Enabled,
+		"stripe_enabled":         config.Stripe().Enabled,
 	})
 }
 
 func stripePublishableKey() string {
 	providers.RefreshStripe()
-	if !config.C.Stripe.Enabled {
+	st := config.Stripe()
+	if !st.Enabled {
 		return ""
 	}
-	return strings.TrimSpace(config.C.Stripe.PublishableKey)
+	return strings.TrimSpace(st.PublishableKey)
 }
 
 func (h AccountHandler) PublicConfig(w http.ResponseWriter, r *http.Request) {
+	st := config.Stripe()
 	JSON(w, http.StatusOK, map[string]any{
 		"stripe_publishable_key": stripePublishableKey(),
-		"stripe_enabled":         config.C.Stripe.Enabled,
+		"stripe_enabled":         st.Enabled,
 	})
 }
 

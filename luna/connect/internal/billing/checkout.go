@@ -57,7 +57,7 @@ func StartCardCheck(customerID, accountID, from, successURL, cancelURL string) (
 	if IsPlaceholderCustomer(customerID) {
 		return "", fmt.Errorf("stripe customer missing")
 	}
-	stripe.Key = config.C.Stripe.SecretKey
+	stripe.Key = config.Stripe().SecretKey
 	meta := map[string]string{"luna_kind": CheckoutCardCheck, "account_id": accountID, "luna_from": from}
 	params := &stripe.CheckoutSessionParams{
 		Mode:              stripe.String(string(stripe.CheckoutSessionModePayment)),
@@ -104,9 +104,10 @@ func StartBackupCheckout(customerID, accountID, from, successURL, cancelURL stri
 	if IsPlaceholderCustomer(customerID) {
 		return "", fmt.Errorf("stripe customer missing")
 	}
-	stripe.Key = config.C.Stripe.SecretKey
-	items := []*stripe.CheckoutSessionLineItemParams{{Price: stripe.String(config.C.Stripe.PriceID)}}
-	if egress := strings.TrimSpace(config.C.Stripe.EgressPriceID); egress != "" {
+	st := config.Stripe()
+	stripe.Key = st.SecretKey
+	items := []*stripe.CheckoutSessionLineItemParams{{Price: stripe.String(st.PriceID)}}
+	if egress := strings.TrimSpace(st.EgressPriceID); egress != "" {
 		items = append(items, &stripe.CheckoutSessionLineItemParams{Price: stripe.String(egress)})
 	}
 	meta := map[string]string{"luna_kind": CheckoutBackup, "account_id": accountID, "luna_from": from}
@@ -141,7 +142,7 @@ func GetCheckout(sessionID string) (Checkout, error) {
 	if err := requireLiveStripe(); err != nil {
 		return Checkout{}, err
 	}
-	stripe.Key = config.C.Stripe.SecretKey
+	stripe.Key = config.Stripe().SecretKey
 	s, err := session.Get(sessionID, nil)
 	if err != nil {
 		return Checkout{}, err

@@ -291,8 +291,52 @@ pub fn shared_albums_dir(drive_root: &Path) -> Option<PathBuf> {
 }
 
 /// Thumbnail file for `rel`, inside the drive's `{prefix}-thumbs/` directory.
+/// `None` when that entry is not the drive's own real folder — a symlink
+/// planted there would send every thumbnail write and delete outside it.
 pub fn thumb_path(drive_root: &Path, drive_id: &str, rel: &str) -> Option<PathBuf> {
-    thumbs_dir(drive_root).map(|d| thumb_path_in(&d, drive_id, rel))
+    thumbs_dir(drive_root)
+        .filter(|dir| thumbs_dir_is_real(drive_root, dir))
+        .map(|d| thumb_path_in(&d, drive_id, rel))
+}
+
+/// `{prefix}-thumbs` is Luna's own cache only when it is a real directory
+/// whose resolved path stays inside the drive. A missing folder is fine (it
+/// is made on first use); a symlink or a plain file is tampering and is
+/// never followed.
+fn thumbs_dir_is_real(drive_root: &Path, dir: &Path) -> bool {
+    match std::fs::symlink_metadata(dir) {
+        Ok(meta) => {
+            if meta.file_type().is_symlink() || !meta.is_dir() {
+                return false;
+            }
+            let (Ok(real_dir), Ok(real_root)) = (dir.canonicalize(), drive_root.canonicalize())
+            else {
+                return false;
+            };
+            real_dir != real_root && real_dir.starts_with(&real_root)
+        }
+        Err(e) => e.kind() == std::io::ErrorKind::NotFound,
+    }
+}
+
+/// Make sure the drive's thumbnail folder exists and is safe to write into
+/// and sweep. Checked before a scan touches any `.jpg`: a symlinked
+/// `{prefix}-thumbs` must never turn the old-recipe sweep into a delete of
+/// files outside the drive, or the writes into root-owned files elsewhere.
+fn prepare_thumbs_dir(drive_root: &Path, dir: &Path) -> anyhow::Result<()> {
+    match std::fs::symlink_metadata(dir) {
+        Ok(meta) if meta.file_type().is_symlink() || !meta.is_dir() => {
+            anyhow::bail!("the drive's thumbnails folder is not a plain folder");
+        }
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
+    }
+    std::fs::create_dir_all(dir)?;
+    if !thumbs_dir_is_real(drive_root, dir) {
+        anyhow::bail!("the drive's thumbnails folder is outside the drive");
+    }
+    Ok(())
 }
 
 /// The thumbnail recipe version, part of photo search's index version.
@@ -302,6 +346,68 @@ fn thumb_path_in(thumb_dir: &Path, drive_id: &str, rel: &str) -> PathBuf {
     let key = format!("{drive_id}:{rel}");
     let hash = blake3::hash(key.as_bytes()).to_hex().to_string();
     thumb_dir.join(format!("{hash}.v{THUMB_GEN}.jpg"))
+}
+
+/// The grid-sized WebP variant kept beside a 640 px thumbnail:
+/// `{hash}.v3.jpg` → `{hash}.s.v3.webp`.
+pub(crate) fn small_thumb_path(big: &Path) -> Option<PathBuf> {
+    let name = big.file_name()?.to_str()?;
+    let (hash, rest) = name.split_once('.')?;
+    let recipe = rest.strip_suffix(".jpg")?;
+    Some(big.with_file_name(format!("{hash}.s.{recipe}.webp")))
+}
+
+/// Drop both cached previews for `rel`: the 640 px JPEG and its grid-sized
+/// WebP. The cache name derives from the path, so a preview left behind after
+/// the photo is gone keeps serving a deleted picture at its old URL.
+/// Best effort — a preview that is already gone is not an error, and a
+/// symlinked thumbs folder is never followed.
+pub fn remove_previews(drive_root: &Path, drive_id: &str, rel: &str) {
+    let Some(dir) = thumbs_dir(drive_root).filter(|dir| thumbs_dir_is_real(drive_root, dir)) else {
+        return;
+    };
+    remove_preview_in(&dir, drive_id, rel);
+}
+
+/// [`remove_previews`] for a deleted folder: the index still holds the paths
+/// the scan saw under it (the indexer prunes the rows later), so their
+/// previews go too.
+pub fn remove_previews_under(drive_root: &Path, drive_id: &str, rel: &str) {
+    let Some(dir) = thumbs_dir(drive_root).filter(|dir| thumbs_dir_is_real(drive_root, dir)) else {
+        return;
+    };
+    remove_preview_in(&dir, drive_id, rel);
+    let Ok(conn) = open_drive_db(drive_root) else {
+        return;
+    };
+    // A LIKE prefix needs the path escaped: file names may contain `%`, `_`
+    // or the escape character itself.
+    let mut pattern = String::with_capacity(rel.len() + 2);
+    for c in rel.chars() {
+        if matches!(c, '%' | '_' | '\\') {
+            pattern.push('\\');
+        }
+        pattern.push(c);
+    }
+    pattern.push_str("/%");
+    let Ok(mut stmt) = conn.prepare("SELECT path FROM photos WHERE path LIKE ?1 ESCAPE '\\'")
+    else {
+        return;
+    };
+    let Ok(rows) = stmt.query_map(params![pattern], |r| r.get::<_, String>(0)) else {
+        return;
+    };
+    for path in rows.flatten() {
+        remove_preview_in(&dir, drive_id, &path);
+    }
+}
+
+fn remove_preview_in(thumb_dir: &Path, drive_id: &str, rel: &str) {
+    let big = thumb_path_in(thumb_dir, drive_id, rel);
+    let _ = std::fs::remove_file(&big);
+    if let Some(small) = small_thumb_path(&big) {
+        let _ = std::fs::remove_file(small);
+    }
 }
 
 /// The thumbnail URL for a photo row, or "" without one. A preview's URL
@@ -400,7 +506,7 @@ fn valid_month_day(s: &str) -> bool {
 pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
     let thumb_dir = thumbs_dir(root)
         .ok_or_else(|| anyhow::anyhow!("drive is not adopted — no .luna-<uuid> marker"))?;
-    std::fs::create_dir_all(&thumb_dir)?;
+    prepare_thumbs_dir(root, &thumb_dir)?;
     // Filenames carry THUMB_GEN — sweep thumbs from older recipes so a
     // quality change doesn't leak disk or keep serving the old encode. The
     // grid-sized ones are `.s.v{gen}.webp`; `.s.` JPEGs are an old format.
@@ -568,6 +674,11 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
             report.pruned += 1;
         }
         tx.commit()?;
+        // The file is gone (deleted while Luna was off, or by another
+        // computer): its preview must not outlive it at the old URL.
+        for path in &stale {
+            remove_preview_in(&thumb_dir, drive_id, path);
+        }
     }
     Ok(report)
 }
@@ -1035,9 +1146,7 @@ pub fn remove_indexed_path(root: &Path, drive_id: &str, rel: &str) -> anyhow::Re
     drop(conn);
     // Refresh album covers when this path was a cover on this drive's albums.
     let _ = remove_album_items_for_path(root, drive_id, rel);
-    if let Some(thumb) = thumb_path(root, drive_id, rel) {
-        let _ = std::fs::remove_file(thumb);
-    }
+    remove_previews(root, drive_id, rel);
     Ok(())
 }
 
@@ -1243,6 +1352,7 @@ pub fn upgrade_thumbs(
     background: bool,
 ) -> anyhow::Result<usize> {
     let thumb_dir = thumbs_dir(root)
+        .filter(|dir| thumbs_dir_is_real(root, dir))
         .ok_or_else(|| anyhow::anyhow!("drive is not adopted — no .luna-<uuid> marker"))?;
     let next = std::sync::atomic::AtomicUsize::new(0);
     let (tx, rx) = std::sync::mpsc::channel::<(String, Option<(u32, u32)>)>();

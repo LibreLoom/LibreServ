@@ -1,9 +1,10 @@
 //! Luna Forms: `.lunaform` files shared through respond links (the
 //! link-only `CAP_RESPOND` capability in `crate::access`). A respond link
-//! lets anyone with the URL open the form and append one JSONL record to a
-//! sibling `.<name>.lunaform.responses` — never read other people's answers back
-//! (a respondent can only re-fetch their own record by presenting the edit
-//! secret they were issued at submit time).
+//! lets anyone with the URL open the form and append one JSONL record to the
+//! form's answers — a hidden `.<name>.lunaform.responses` (plus numbered
+//! `.1`, `.2`, … segments once a segment fills) — never read other people's
+//! answers back (a respondent can only re-fetch their own record by presenting
+//! the edit secret they were issued at submit time).
 //!
 //! All respond-permission logic lives here so it stays small and can ride
 //! whatever sharing rework lands: link resolution is self-contained, and
@@ -43,8 +44,11 @@ pub const PERMISSION_RESPOND: &str = "respond";
 /// Form documents are `<name>.lunaform` JSON envelopes.
 pub const FORM_FILE_SUFFIX: &str = ".lunaform";
 
-/// Answers live next to the form as a hidden `.<name>.lunaform.responses` — one JSON
-/// record per line.
+/// Answers live next to the form as a hidden `.<name>.lunaform.responses` —
+/// one JSON record per line. When the active file reaches
+/// [`RESPONSES_SEGMENT_BYTES`], the next records go to
+/// `.<name>.lunaform.responses.1`, then `.2`, and so on; every reader merges
+/// the files in order.
 pub const RESPONSES_SUFFIX: &str = ".lunaform.responses";
 
 /// Highest `.lunaform` envelope version this build understands.
@@ -52,17 +56,41 @@ const FORM_DOC_VERSION: i64 = 1;
 
 /// A form is a hand-editable JSON file — refuse absurdly large ones.
 const MAX_FORM_BYTES: u64 = 1024 * 1024;
-/// Scanning the JSONL for an edit-token match reads the whole file; cap that
-/// read so a huge responses file can't exhaust RAM in one request.
-const MAX_RESPONSES_READ_BYTES: u64 = 64 * 1024 * 1024;
+/// Answers are written to one segment until it reaches this size, then the
+/// next segment (`.1`, `.2`, …) is started. 8 MiB holds ~128 answers at the
+/// per-answer cap and keeps each read small enough for a Pi-class box.
+const RESPONSES_SEGMENT_BYTES: u64 = 8 * 1024 * 1024;
+/// One answers segment is never read past this. The unnumbered original can
+/// predate rotation, so it is allowed the size the old whole-file reader
+/// accepted; numbered segments rotate long before this.
+const MAX_RESPONSES_SEGMENT_BYTES: u64 = 32 * 1024 * 1024;
+/// All segments together are read up to this. Past it the reader returns the
+/// records that fit and says some answers couldn't be opened — never a silent
+/// "no answers". Twice the old single-file read cap, and still bounded.
+const MAX_RESPONSES_TOTAL_BYTES: u64 = 128 * 1024 * 1024;
+/// Numbered segments after the original. 15 × 8 MiB + the original is about
+/// the total read cap; past it new answers are refused rather than written
+/// where the owner's view can never show them.
+const MAX_RESPONSES_SEGMENTS: u32 = 15;
 /// Answer payloads are small — a long-text essay is still kilobytes.
 const RESPOND_BODY_BYTES: usize = 256 * 1024;
+/// One text answer, in bytes. Far past any real essay; a submission is not a
+/// file upload.
+const MAX_ANSWER_TEXT_BYTES: usize = 32 * 1024;
+/// Every answer on one submission, as JSON. Under [`RESPOND_BODY_BYTES`] so a
+/// request that parses can always be stored.
+const MAX_ANSWER_PAYLOAD_BYTES: usize = 128 * 1024;
 /// One photo or PDF attached to an answer.
 const MAX_UPLOAD_BYTES: usize = 10 * 1024 * 1024;
 /// A picture shown on a question, already on the drive.
 const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
 /// Sanity cap on distinct question ids in one submission.
 const MAX_ANSWER_KEYS: usize = 500;
+/// Submissions one form takes per minute from every address together. A class
+/// of 30 answering at once is normal; 60 leaves room for retries and edit
+/// re-sends while still stopping a rotating-IP flood from burning the whole
+/// `maxResponses` budget before real respondents arrive.
+pub const FORM_SUBMIT_PER_MINUTE: usize = 60;
 
 /// `true` when a share path names a form document (case-insensitive ext).
 pub fn is_form_path(path: &str) -> bool {
@@ -77,6 +105,16 @@ fn respond_key(kind: &str, ip: &str) -> String {
     format!("form_respond:{kind}:{ip}")
 }
 
+/// One form's answer budget, shared by every address. The path is hashed so a
+/// form's location never lands in the rate-limit table; the bucket is still
+/// per form, whatever address the submissions come from. A distributed flood
+/// therefore cannot spend a form's whole `maxResponses` budget before the
+/// people it was sent to arrive.
+fn form_key(drive_id: &str, path: &str) -> String {
+    let tag = blake3::hash(format!("{drive_id}\n{path}").as_bytes()).to_hex();
+    respond_key("form", tag.as_str())
+}
+
 /// The respondent's address for rate limiting. Behind Luna Connect every
 /// request arrives from loopback, so the forwarded client IP is what tells
 /// respondents apart (`client_ip` only trusts those headers from loopback).
@@ -88,6 +126,20 @@ fn too_many_tries() -> (StatusCode, Json<Value>) {
     json_error(
         StatusCode::TOO_MANY_REQUESTS,
         "Too many tries from this network just now. Wait a minute and try again.",
+    )
+}
+
+fn form_busy() -> (StatusCode, Json<Value>) {
+    json_error(
+        StatusCode::TOO_MANY_REQUESTS,
+        "This form is busy. Wait a moment and try again.",
+    )
+}
+
+fn answers_full() -> (StatusCode, Json<Value>) {
+    json_error(
+        StatusCode::INSUFFICIENT_STORAGE,
+        "This form has as many answers as Luna can keep. Ask the person who shared it to clear some out.",
     )
 }
 
@@ -168,6 +220,81 @@ fn responses_path_named(form_path: &FsPath, name: &str) -> Option<PathBuf> {
     }
     let sibling = format!(".{}{}", &name[..dot], RESPONSES_SUFFIX);
     Some(form_path.parent()?.join(sibling))
+}
+
+/// The answers file for segment `n`: `0` is the original unnumbered sibling,
+/// `1..` are `<original>.1`, `<original>.2`, … in the same folder.
+///
+/// The numbered names share the answers file's reserved family. No other form
+/// can mint them (a form's answers always end `.lunaform.responses`, and a
+/// form named after another's segment produces a different name), so only a
+/// file a person deliberately named the same way could collide — and anyone
+/// who can write that folder can already write the answers file itself, so
+/// numbering adds no new access.
+fn response_segment_path(base: &FsPath, n: u32) -> Option<PathBuf> {
+    if n == 0 {
+        return Some(base.to_path_buf());
+    }
+    let name = base.file_name()?.to_str()?;
+    Some(base.with_file_name(format!("{name}.{n}")))
+}
+
+/// Every answers file that exists for a form, oldest first. Reads the folder
+/// once; a number with a leading zero, or one past
+/// [`MAX_RESPONSES_SEGMENTS`], is not one of ours. The original (segment 0)
+/// is always returned so callers can tell "no file yet" from "an answers file
+/// is there".
+fn response_segment_paths(form_path: &FsPath) -> Vec<(u32, PathBuf)> {
+    let Some(base) = responses_path_for(form_path) else {
+        return Vec::new();
+    };
+    response_paths_from_base(&base)
+}
+
+fn response_paths_from_base(base: &FsPath) -> Vec<(u32, PathBuf)> {
+    let mut found = vec![(0u32, base.to_path_buf())];
+    let (Some(dir), Some(base_name)) = (base.parent(), base.file_name().and_then(|n| n.to_str()))
+    else {
+        return found;
+    };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return found;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let Some(rest) = name
+            .strip_prefix(base_name)
+            .and_then(|rest| rest.strip_prefix('.'))
+        else {
+            continue;
+        };
+        if rest.is_empty()
+            || rest.len() > 9
+            || rest.starts_with('0')
+            || !rest.bytes().all(|b| b.is_ascii_digit())
+        {
+            continue;
+        }
+        let Ok(n) = rest.parse::<u32>() else {
+            continue;
+        };
+        if n == 0 || n > MAX_RESPONSES_SEGMENTS {
+            continue;
+        }
+        found.push((n, entry.path()));
+    }
+    found.sort_by_key(|(n, _)| *n);
+    found.dedup_by_key(|(n, _)| *n);
+    found
+}
+
+/// The segment new answers go to: the highest-numbered one that exists, or
+/// the original when the form has never rotated.
+fn active_response_segment(form_path: &FsPath) -> Option<(u32, PathBuf)> {
+    response_segment_paths(form_path).pop()
 }
 
 /// Resolve a respond link on the same rails as every other `/s/` link —
@@ -325,12 +452,19 @@ pub fn repath_form_files_named(
         responses_file_named(from_root, from, from_name),
         responses_file_named(to_root, to, to_name),
     ) {
-        move_if_present(&a, &b);
+        // The original answers file and every rotation segment travel with
+        // the form; segment numbers stay the same on the other side.
+        for (n, path) in response_paths_from_base(&a) {
+            if let Some(target) = response_segment_path(&b, n) {
+                move_if_present(&path, &target);
+            }
+        }
     }
 }
 
-/// A form file is being deleted for good: remove its files folder and
-/// answers file so they don't keep using drive space. No-op for non-forms.
+/// A form file is being deleted for good: remove its files folder, answers
+/// file, and every numbered answers segment so they don't keep using drive
+/// space. No-op for non-forms.
 pub fn remove_form_files(root: &FsPath, form_path: &FsPath) {
     if !leaf_name(form_path).is_some_and(|n| is_form_path(&n)) {
         return;
@@ -339,7 +473,9 @@ pub fn remove_form_files(root: &FsPath, form_path: &FsPath) {
         let _ = std::fs::remove_dir_all(dir);
     }
     if let Some(file) = responses_file_for(root, form_path) {
-        let _ = std::fs::remove_file(file);
+        for (_, path) in response_paths_from_base(&file) {
+            let _ = std::fs::remove_file(path);
+        }
     }
 }
 
@@ -529,9 +665,15 @@ fn question_skipped(question: &Value, questions: &[&Value], answers: &Map<String
 /// once the link is known to carry `CAP_RESPOND`.
 pub fn public_form_document(
     state: &AppState,
+    ip: &str,
     drive_id: &str,
     path: &str,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
+    // Every open re-reads the answers to count them, so a page-refresh loop is
+    // bounded per address like the answer routes themselves.
+    if !state.form_respond_limiter.allow(&respond_key("page", ip)) {
+        return Err(too_many_tries());
+    }
     let form_path = {
         let conn = state.db.lock().map_err(|_| {
             json_error(
@@ -548,9 +690,7 @@ pub fn public_form_document(
             form.insert(key.to_string(), v.clone());
         }
     }
-    let count = read_response_records(&form_path)
-        .map(|records| latest_by_id(&records).len())
-        .unwrap_or(0);
+    let count = latest_by_id(&read_response_records(&form_path).records).len();
     let closed = hard_closed_message(&doc);
     let full = form_max_responses(&doc).is_some_and(|max| count >= max as usize);
     Ok(Json(json!({
@@ -682,12 +822,19 @@ async fn guest_form_responses(
     headers: HeaderMap,
     Query(q): Query<GuestResponsesQuery>,
 ) -> Response {
+    let ip = respondent_ip(&addr, &headers);
     crate::api::access::run_public(
         &state,
         &addr,
         &token,
         &headers,
         move |state, link| async move {
+            if !state
+                .form_respond_limiter
+                .allow(&respond_key("responses", &ip))
+            {
+                return Err(too_many_tries());
+            }
             let (_, form) = guest_managed_form(&state, &link, &q.path)?;
             responses_response(&form.path, wants_count(&q.count))
         },
@@ -703,12 +850,19 @@ async fn guest_delete_response(
     headers: HeaderMap,
     Query(q): Query<GuestResponsesQuery>,
 ) -> Response {
+    let ip = respondent_ip(&addr, &headers);
     crate::api::access::run_public(
         &state,
         &addr,
         &token,
         &headers,
         move |state, link| async move {
+            if !state
+                .form_respond_limiter
+                .allow(&respond_key("responses_delete", &ip))
+            {
+                return Err(too_many_tries());
+            }
             let (_, form) = guest_managed_form(&state, &link, &q.path)?;
             delete_response(&state, &link.drive_id, &form, q.id.as_deref())
                 .map(IntoResponse::into_response)
@@ -734,7 +888,7 @@ fn delete_response(
             )
         })?;
     let _guard = RESPONSES_WRITE.lock().unwrap_or_else(|p| p.into_inner());
-    let records = read_response_records_guarded(form_path)?;
+    let records = read_response_records_guarded(form_path)?.records;
     if !latest_by_id(&records).contains_key(id) {
         return Err(json_error(
             StatusCode::NOT_FOUND,
@@ -756,9 +910,11 @@ fn delete_response(
     Ok(Json(json!({ "ok": true })))
 }
 
-/// Append one JSONL line. The line and its newline go out in one
-/// `write_all` on an O_APPEND file, and callers hold `RESPONSES_WRITE`, so
-/// concurrent appends never interleave. A planted symlink is refused, and
+/// Append one JSONL line to the form's active answers segment, starting the
+/// next numbered segment when the active one is full. The line and its
+/// newline go out in one `write_all` on an O_APPEND file, and callers hold
+/// `RESPONSES_WRITE`, so concurrent appends never interleave and the rotation
+/// decision belongs to the same step. A planted symlink is refused, and
 /// O_NOFOLLOW closes the check→open race.
 fn append_record(
     state: &AppState,
@@ -772,28 +928,62 @@ fn append_record(
             "Luna couldn't save the answers file. Try again.",
         )
     };
-    let Some(responses_path) = responses_path_for(form_path) else {
+    let Some(base) = responses_path_for(form_path) else {
         return Err(json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't find where this form keeps its answers.",
         ));
     };
-    match std::fs::symlink_metadata(&responses_path) {
+    let mut line = serde_json::to_string(record).map_err(|_| save_err())?;
+    line.push('\n');
+
+    let (mut number, mut target) = active_response_segment(form_path).unwrap_or((0, base.clone()));
+    let active_len = match std::fs::symlink_metadata(&target) {
         Ok(meta) if meta.file_type().is_symlink() || !meta.is_file() => {
             return Err(json_error(
                 StatusCode::FORBIDDEN,
                 "This form's answers file isn't safe to write to.",
             ));
         }
-        Ok(_) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Ok(meta) => meta.len(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => 0,
         Err(_) => return Err(save_err()),
+    };
+    if active_len > 0 && active_len.saturating_add(line.len() as u64) > RESPONSES_SEGMENT_BYTES {
+        if number >= MAX_RESPONSES_SEGMENTS {
+            return Err(answers_full());
+        }
+        // Never write past what a reader will read: the total read cap is the
+        // form's storage budget too, so an accepted answer is one the owner can
+        // still see. Only rotation pays for this sum.
+        let used: u64 = response_segment_paths(form_path)
+            .iter()
+            .filter_map(|(_, path)| std::fs::symlink_metadata(path).ok())
+            .filter(|meta| meta.is_file())
+            .map(|meta| meta.len())
+            .sum();
+        if used.saturating_add(line.len() as u64) > MAX_RESPONSES_TOTAL_BYTES {
+            return Err(answers_full());
+        }
+        number += 1;
+        target = response_segment_path(&base, number).ok_or_else(save_err)?;
+        match std::fs::symlink_metadata(&target) {
+            Ok(meta) if meta.file_type().is_symlink() || !meta.is_file() => {
+                return Err(json_error(
+                    StatusCode::FORBIDDEN,
+                    "This form's answers file isn't safe to write to.",
+                ));
+            }
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err(save_err()),
+        }
     }
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .custom_flags(libc::O_NOFOLLOW)
-        .open(&responses_path)
+        .open(&target)
         .map_err(|e| {
             crate::files::note_write_failure(
                 &state.db.lock().unwrap_or_else(|p| p.into_inner()),
@@ -802,11 +992,27 @@ fn append_record(
             );
             save_err()
         })?;
-    let mut line = serde_json::to_string(record).map_err(|_| save_err())?;
-    line.push('\n');
     file.write_all(line.as_bytes()).map_err(|_| save_err())?;
     state.touch_io_activity();
     Ok(())
+}
+
+/// Answers read from every segment, plus whether anything was skipped.
+struct AnswersRead {
+    records: Vec<Value>,
+    /// A segment couldn't be read in full — too large, a symlink, unreadable,
+    /// or past the total read cap. Owner-facing readers say so instead of
+    /// implying the form has fewer answers.
+    incomplete: bool,
+}
+
+impl AnswersRead {
+    fn notice(&self) -> Option<String> {
+        self.incomplete.then(|| {
+            "Some older answers couldn't be opened, so this list may not show everything."
+                .to_string()
+        })
+    }
 }
 
 /// Collected answers, latest version of each live response, never the edit
@@ -816,12 +1022,18 @@ fn responses_response(
     form_path: &FsPath,
     count_only: bool,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
-    let records = read_response_records_guarded(form_path)?;
-    let body = if count_only {
-        json!({ "count": latest_by_id(&records).len() })
+    let read = read_response_records_guarded(form_path)?;
+    let notice = read.notice();
+    let mut body = if count_only {
+        json!({ "count": latest_by_id(&read.records).len() })
     } else {
-        json!({ "responses": latest_in_order(&records) })
+        json!({ "responses": latest_in_order(&read.records) })
     };
+    // The key appears only when something was skipped, so a normal read keeps
+    // the shape every existing client (and the recorded contract) expects.
+    if let Some(notice) = notice {
+        body["notice"] = Value::String(notice);
+    }
     let mut res = Json(body).into_response();
     let h = res.headers_mut();
     h.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
@@ -829,14 +1041,16 @@ fn responses_response(
     Ok(res)
 }
 
-/// Read the sibling responses file for an authorized viewer. Unlike the
-/// respond-path reader (which treats every anomaly as "no answers"), this
-/// one must report real problems: a planted symlink, a non-file sibling, an
-/// oversized file, or an I/O error all surface as errors — only a genuinely
-/// missing file means "no answers yet".
+/// Read every answers segment for an authorized viewer, oldest first. Unlike
+/// the respond-path reader (which treats every anomaly as a skipped segment),
+/// this one must report real problems with the *original* file: a planted
+/// symlink, a non-file sibling, or an I/O error surface as errors — only a
+/// genuinely missing file means "no answers yet". A numbered segment that
+/// can't be read is skipped and marks the read incomplete so the owner's view
+/// can say some answers are missing.
 fn read_response_records_guarded(
     form_path: &FsPath,
-) -> Result<Vec<Value>, (StatusCode, Json<Value>)> {
+) -> Result<AnswersRead, (StatusCode, Json<Value>)> {
     // resolve_any bound the form under the drive root; still refuse a leaf
     // swapped for a symlink between resolution and read.
     let form_meta = std::fs::symlink_metadata(form_path).map_err(|_| {
@@ -851,83 +1065,85 @@ fn read_response_records_guarded(
             "This form isn't safe to open.",
         ));
     }
-    let Some(path) = responses_path_for(form_path) else {
-        return Ok(Vec::new());
-    };
-    let meta = match std::fs::symlink_metadata(&path) {
-        Ok(m) => m,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(_) => return Err(answers_io_err()),
-    };
-    if meta.file_type().is_symlink() || !meta.is_file() {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "This form's answers file isn't safe to open.",
-        ));
-    }
-    if meta.len() > MAX_RESPONSES_READ_BYTES {
-        return Err(json_error(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "This form's answers file is too large to open.",
-        ));
-    }
-    // O_NOFOLLOW closes the symlink_metadata→open race.
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(&path)
-        .map_err(|_| answers_io_err())?;
-    let mut text = String::new();
-    file.take(MAX_RESPONSES_READ_BYTES + 1)
-        .read_to_string(&mut text)
-        .map_err(|_| answers_io_err())?;
-    if text.len() as u64 > MAX_RESPONSES_READ_BYTES {
-        return Err(json_error(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "This form's answers file is too large to open.",
-        ));
-    }
-    Ok(parse_response_records(&text))
+    read_response_segments(form_path, true)
 }
 
-/// Read the sibling responses JSONL (empty when nobody has answered yet).
-/// Respond-path readers stay lenient — every anomaly is "no answers" — but a
-/// symlink is never followed: a planted link could turn the append into a
-/// write to an attacker-chosen file.
-fn read_response_records(form_path: &FsPath) -> Result<Vec<Value>, (StatusCode, Json<Value>)> {
-    let Some(path) = responses_path_for(form_path) else {
-        return Ok(Vec::new());
-    };
-    let Ok(meta) = std::fs::symlink_metadata(&path) else {
-        return Ok(Vec::new());
-    };
-    if meta.file_type().is_symlink() || !meta.is_file() || meta.len() > MAX_RESPONSES_READ_BYTES {
-        return Ok(Vec::new());
+/// Read all answers segments (empty when nobody has answered yet).
+/// Respond-path readers stay lenient — an unreadable segment is skipped rather
+/// than failing the request — but a symlink is never followed: a planted link
+/// could turn the append into a write to an attacker-chosen file.
+fn read_response_records(form_path: &FsPath) -> AnswersRead {
+    match read_response_segments(form_path, false) {
+        Ok(read) => read,
+        Err(_) => AnswersRead {
+            records: Vec::new(),
+            incomplete: true,
+        },
     }
-    // O_NOFOLLOW closes the symlink_metadata→open race.
+}
+
+fn read_response_segments(
+    form_path: &FsPath,
+    strict: bool,
+) -> Result<AnswersRead, (StatusCode, Json<Value>)> {
+    let mut read = AnswersRead {
+        records: Vec::new(),
+        incomplete: false,
+    };
+    let mut total: u64 = 0;
+    for (n, path) in response_segment_paths(form_path) {
+        let original = n == 0;
+        let meta = match std::fs::symlink_metadata(&path) {
+            Ok(meta) => meta,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) if strict && original => return Err(answers_io_err()),
+            Err(_) => {
+                read.incomplete = true;
+                continue;
+            }
+        };
+        if meta.file_type().is_symlink() || !meta.is_file() {
+            if strict && original {
+                return Err(json_error(
+                    StatusCode::FORBIDDEN,
+                    "This form's answers file isn't safe to open.",
+                ));
+            }
+            read.incomplete = true;
+            continue;
+        }
+        if meta.len() > MAX_RESPONSES_SEGMENT_BYTES {
+            read.incomplete = true;
+            continue;
+        }
+        if total.saturating_add(meta.len()) > MAX_RESPONSES_TOTAL_BYTES {
+            read.incomplete = true;
+            break;
+        }
+        match read_segment(&path) {
+            Ok(text) if text.len() as u64 <= MAX_RESPONSES_SEGMENT_BYTES => {
+                total = total.saturating_add(text.len() as u64);
+                read.records.extend(parse_response_records(&text));
+            }
+            Ok(_) => read.incomplete = true,
+            Err(_) if strict && original => return Err(answers_io_err()),
+            Err(_) => read.incomplete = true,
+        }
+    }
+    Ok(read)
+}
+
+/// One capped segment read. O_NOFOLLOW closes the symlink_metadata→open race;
+/// callers still check the returned length against the segment cap.
+fn read_segment(path: &FsPath) -> std::io::Result<String> {
     let file = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW)
-        .open(&path)
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't read this form's answers. Try again.",
-            )
-        })?;
+        .open(path)?;
     let mut text = String::new();
-    file.take(MAX_RESPONSES_READ_BYTES + 1)
-        .read_to_string(&mut text)
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't read this form's answers. Try again.",
-            )
-        })?;
-    if text.len() as u64 > MAX_RESPONSES_READ_BYTES {
-        return Ok(Vec::new());
-    }
-    Ok(parse_response_records(&text))
+    file.take(MAX_RESPONSES_SEGMENT_BYTES + 1)
+        .read_to_string(&mut text)?;
+    Ok(text)
 }
 
 /// Parse JSONL, skipping lines that aren't objects with a string `id`.
@@ -1120,6 +1336,48 @@ fn keep_known_answers(doc: &Map<String, Value>, answers: &mut Map<String, Value>
     answers.retain(|key, _| known.contains(key.as_str()));
 }
 
+/// A question's own `config.maxLength`, when the form sets one. Only a
+/// smaller limit matters: [`MAX_ANSWER_TEXT_BYTES`] always applies.
+fn question_max_length(question: &Value) -> Option<usize> {
+    question
+        .get("config")
+        .and_then(|c| c.get("maxLength"))
+        .and_then(|v| v.as_u64())
+        .filter(|n| *n > 0)
+        .map(|n| n as usize)
+}
+
+/// Is this text too long for its question? The byte cap protects the drive;
+/// a form's smaller `maxLength` counts characters, the way the person typing
+/// sees it.
+fn answer_text_too_long(question: &Value, text: &str) -> bool {
+    text.len() > MAX_ANSWER_TEXT_BYTES
+        || question_max_length(question).is_some_and(|max| text.chars().count() > max)
+}
+
+/// Name the question that is too long, or say it generally when the form has
+/// no label for it. Never truncate an answer silently.
+fn too_long_answer(question: &Value) -> (StatusCode, Json<Value>) {
+    let label = question
+        .get("label")
+        .and_then(|l| l.as_str())
+        .map(str::trim)
+        .filter(|l| !l.is_empty());
+    let message = match label {
+        Some(label) => format!("\"{label}\" is too long to save. Shorten it and try again."),
+        None => "One answer is too long to save. Shorten it and try again.".to_string(),
+    };
+    json_error(StatusCode::BAD_REQUEST, message)
+}
+
+/// Every answer on one submission, serialized the way it is stored. A request
+/// body that parses must fit here or be refused, never cut.
+fn answers_payload_len(answers: &Map<String, Value>) -> usize {
+    serde_json::to_string(answers)
+        .map(|text| text.len())
+        .unwrap_or(usize::MAX)
+}
+
 /// `can_attach` decides whether this respondent may name a file in a file
 /// answer (their own pending upload, or one already on the answer they're
 /// editing). `None` skips that check — shape only.
@@ -1164,6 +1422,20 @@ fn validate_answers(
         let Some(value) = value.filter(|_| answered) else {
             continue;
         };
+        // Text is bounded before the shape checks so a multi-megabyte string
+        // is refused without comparing it against every option.
+        let too_long = value
+            .as_str()
+            .is_some_and(|text| answer_text_too_long(question, text))
+            || value.as_array().is_some_and(|items| {
+                items.iter().any(|item| {
+                    item.as_str()
+                        .is_some_and(|text| answer_text_too_long(question, text))
+                })
+            });
+        if too_long {
+            return Err(too_long_answer(question));
+        }
         let qtype = question.get("type").and_then(|t| t.as_str()).unwrap_or("");
         let options = question_options(question);
         let other = allows_other(question);
@@ -1275,6 +1547,14 @@ async fn respond_submit_inner(
     if !state.form_respond_limiter.allow(&respond_key("submit", ip)) {
         return Err(too_many_tries());
     }
+    // Per form, from every address together: one respondent must not be able
+    // to spend the form's whole answer budget and close it for everyone.
+    if !state
+        .form_submit_limiter
+        .allow(&form_key(&link.drive_id, &link.path))
+    {
+        return Err(form_busy());
+    }
     let form = {
         let conn = state.db.lock().map_err(|_| index_busy())?;
         resolve_form(&conn, &link.drive_id, &link.path)?
@@ -1319,6 +1599,12 @@ async fn respond_submit_inner(
         ));
     }
     keep_known_answers(&doc, &mut answers);
+    if answers_payload_len(&answers) > MAX_ANSWER_PAYLOAD_BYTES {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Those answers are too long to save. Shorten them and try again.",
+        ));
+    }
 
     // A presented secret only ever identifies an existing answer to amend —
     // a new submission always gets a fresh server-minted secret, so a client
@@ -1339,8 +1625,17 @@ async fn respond_submit_inner(
         // Edits need the existing records: match the secret before
         // validating — a wrong secret is refused before it can probe answer
         // shapes.
-        let records = read_response_records(&form_path)?;
-        let latest = latest_by_id(&records);
+        let read = read_response_records(&form_path);
+        // Counting live answers for `maxResponses` is only trustworthy when
+        // every segment was read; refuse new answers rather than let a
+        // truncated read open the cap.
+        if read.incomplete && form_max_responses(&doc).is_some() {
+            return Err(json_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Luna couldn't read all of this form's answers. Try again in a moment.",
+            ));
+        }
+        let latest = latest_by_id(&read.records);
         let editing_id = match presented_hash.as_deref() {
             Some(hash) => find_editable(&latest, body.response_id.as_deref(), hash)?,
             // A target id without its secret is an edit attempt too — refuse
@@ -1498,8 +1793,7 @@ fn respond_lookup_inner(
         ));
     }
     let edit_hash = hash_edit_token(&edit_token);
-    let records = read_response_records(&form_path)?;
-    let latest = latest_by_id(&records);
+    let latest = latest_by_id(&read_response_records(&form_path).records);
     let Some((id, record)) = latest
         .iter()
         .find(|(_, rec)| rec.get("edit").and_then(|e| e.as_str()) == Some(edit_hash.as_str()))

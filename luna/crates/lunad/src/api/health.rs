@@ -112,16 +112,18 @@ async fn storage_cleanup(
     Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_admin(&user)?;
-    let live = state.office_docs.live_keys().await;
+    let docs = state.office_docs.clone();
     let dir = state.data_dir.clone();
-    let result = tokio::task::spawn_blocking(move || crate::system::storage::cleanup(&dir, &live))
-        .await
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't clear space. Try again.",
-            )
-        })?;
+    let result = tokio::task::spawn_blocking(move || {
+        crate::system::storage::cleanup(&dir, &|key| docs.key_in_use(key))
+    })
+    .await
+    .map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't clear space. Try again.",
+        )
+    })?;
     // The disk-space check just changed, so the next read must not be cached.
     state.health_cache.invalidate();
     Ok(Json(serde_json::to_value(result).unwrap_or(json!({}))))
@@ -618,6 +620,83 @@ mod tests {
         assert!(v["freed_bytes"].as_u64().unwrap() >= 8192);
         assert_eq!(v["cleared"][0], "temporary");
         assert!(!dir.path().join("office_bundles/key-a").exists());
+    }
+
+    #[tokio::test]
+    async fn storage_cleanup_keeps_a_document_an_editor_is_using() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = AppState::new(conn, drive_manager, dir.path());
+        // A session registered for a document that is still loading: no
+        // socket has attached yet, so only the hub knows it is open.
+        state
+            .office_docs
+            .register_key("key-open", "d1", "Notes.docx")
+            .await
+            .unwrap();
+        for key in ["key-open", "key-cold"] {
+            std::fs::create_dir_all(dir.path().join("office_bundles").join(key)).unwrap();
+            std::fs::write(
+                dir.path()
+                    .join("office_bundles")
+                    .join(key)
+                    .join("Editor.bin"),
+                vec![3u8; 4096],
+            )
+            .unwrap();
+        }
+        // The cold room is an hour old and no editor has it open.
+        state
+            .office_docs
+            .register_key("key-cold", "d1", "Old.docx")
+            .await
+            .unwrap();
+        state
+            .office_docs
+            .age_session("key-cold", std::time::Duration::from_secs(3600))
+            .await;
+        let auth = state.auth.clone();
+        let user = auth
+            .register("Max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        let token = auth.issue(&user).unwrap();
+        let router = axum::Router::new()
+            .merge(super::router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state);
+        let response = router
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/system/storage/cleanup")
+                    .header("Authorization", format!("Bearer {token}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(
+            dir.path().join("office_bundles/key-open").exists(),
+            "a document being opened keeps its working copy"
+        );
+        assert!(!dir.path().join("office_bundles/key-cold").exists());
+        assert!(
+            v["skipped"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r.as_str().unwrap_or("").contains("open in the editor")),
+            "the result says why the copy stayed: {v}"
+        );
     }
 
     #[tokio::test]

@@ -878,10 +878,11 @@ async fn responses_route_denies_respond_traversal_expired_and_password() {
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
 }
 
-/// A missing sibling means "no answers yet" — but a symlinked sibling or
-/// an oversized one is a real error, never a silent empty list.
+/// A missing sibling means "no answers yet" — but a symlinked sibling is a
+/// real error, and an oversized one is skipped with a notice instead of
+/// pretending the form has no answers at all.
 #[tokio::test]
-async fn responses_missing_empty_symlink_and_oversize_denied() {
+async fn responses_missing_empty_symlink_and_oversize_notice() {
     let mount = tempfile::tempdir().unwrap();
     std::fs::write(mount.path().join("rsvp.lunaform"), FORM_DOC).unwrap();
     let (_dir, app, state) = test_app(mount.path());
@@ -901,10 +902,17 @@ async fn responses_missing_empty_symlink_and_oversize_denied() {
     std::fs::remove_file(&sibling).unwrap();
 
     let f = std::fs::File::create(&sibling).unwrap();
-    f.set_len(super::MAX_RESPONSES_READ_BYTES + 1).unwrap();
+    f.set_len(super::MAX_RESPONSES_SEGMENT_BYTES + 1).unwrap();
     drop(f);
     let res = call(&app, req(Method::GET, &format!("/s/{token}/responses"), "")).await;
-    assert_eq!(res.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(res.status(), StatusCode::OK);
+    let v = body_json(res).await;
+    assert_eq!(v["responses"].as_array().unwrap().len(), 0);
+    // The owner is told some answers couldn't be opened — not shown "none".
+    assert!(
+        v["notice"].as_str().is_some_and(|n| !n.is_empty()),
+        "oversized answers must carry a notice: {v}"
+    );
 }
 
 /// A member with a full file grant reads the form's answers — no parent
@@ -1025,4 +1033,223 @@ async fn member_full_grant_reads_responses_view_denied() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+/// A full answers file starts the next numbered segment; readers merge both
+/// in order and report no missing answers.
+#[tokio::test]
+async fn rotation_starts_the_next_segment_and_readers_merge_them() {
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::write(mount.path().join("rsvp.lunaform"), FORM_DOC).unwrap();
+    // The original file is already past the rotation point (a build without
+    // rotation could grow it there) and holds one live answer.
+    let base = mount.path().join(".rsvp.lunaform.responses");
+    std::fs::write(
+        &base,
+        "{\"v\":1,\"id\":\"r_old\",\"edit\":\"h\",\"at\":1,\"answers\":{\"q_1\":\"No\"}}\n",
+    )
+    .unwrap();
+    let f = std::fs::File::options().append(true).open(&base).unwrap();
+    f.set_len(super::RESPONSES_SEGMENT_BYTES + 1).unwrap();
+    drop(f);
+
+    let (_dir, app, state) = test_app(mount.path());
+    let token = insert_link(&state, "rsvp.lunaform", crate::access::CAP_RESPOND);
+    let res = call(
+        &app,
+        req(
+            Method::POST,
+            &format!("/s/{token}/respond"),
+            r#"{"answers":{"q_1":"Yes"}}"#,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let second = mount.path().join(".rsvp.lunaform.responses.1");
+    assert!(second.is_file(), "a full segment must rotate");
+    assert_eq!(std::fs::read_to_string(&second).unwrap().lines().count(), 1);
+    // The full original was left exactly as it was.
+    assert_eq!(
+        std::fs::metadata(&base).unwrap().len(),
+        super::RESPONSES_SEGMENT_BYTES + 1
+    );
+
+    // One merged list, oldest segment first.
+    let full = insert_link(&state, "rsvp.lunaform", crate::access::CAP_ALL);
+    let res = call(&app, req(Method::GET, &format!("/s/{full}/responses"), "")).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let v = body_json(res).await;
+    let responses = v["responses"].as_array().unwrap();
+    assert_eq!(responses.len(), 2, "{v}");
+    assert_eq!(responses[0]["id"], "r_old");
+    assert_eq!(responses[0]["answers"]["q_1"], "No");
+    assert!(responses[1]["id"].as_str().unwrap().starts_with("r_"));
+    assert!(
+        v.get("notice").is_none(),
+        "a complete read has no notice: {v}"
+    );
+
+    // The count-only badge sees the merged list too.
+    let res = call(
+        &app,
+        req(Method::GET, &format!("/s/{full}/responses?count=1"), ""),
+    )
+    .await;
+    assert_eq!(body_json(res).await["count"], 2);
+}
+
+/// `maxResponses` counts live answers wherever their segment is. Two answers
+/// spread over two files fill a cap of two.
+#[tokio::test]
+async fn max_responses_counts_live_answers_across_segments() {
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::write(
+        mount.path().join("rsvp.lunaform"),
+        r#"{
+    "version": 1,
+    "title": "Potluck",
+    "settings": { "collecting": true, "allowEdits": true, "maxResponses": 2 },
+    "questions": [
+        { "id": "q_1", "type": "short_text", "label": "Name", "required": true }
+    ]
+}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        mount.path().join(".rsvp.lunaform.responses"),
+        "{\"v\":1,\"id\":\"r_1\",\"edit\":\"h1\",\"at\":1,\"answers\":{\"q_1\":\"Ann\"}}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        mount.path().join(".rsvp.lunaform.responses.1"),
+        "{\"v\":1,\"id\":\"r_2\",\"edit\":\"h2\",\"at\":2,\"answers\":{\"q_1\":\"Bob\"}}\n",
+    )
+    .unwrap();
+    let (_dir, app, state) = test_app(mount.path());
+    let token = insert_link(&state, "rsvp.lunaform", crate::access::CAP_RESPOND);
+
+    let res = call(
+        &app,
+        req(
+            Method::POST,
+            &format!("/s/{token}/respond"),
+            r#"{"answers":{"q_1":"Cara"}}"#,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        body_json(res).await["error"],
+        "This form has all the answers it can take."
+    );
+
+    let full = insert_link(&state, "rsvp.lunaform", crate::access::CAP_ALL);
+    let res = call(
+        &app,
+        req(Method::GET, &format!("/s/{full}/responses?count=1"), ""),
+    )
+    .await;
+    assert_eq!(body_json(res).await["count"], 2);
+}
+
+/// One text answer is capped, a form's smaller `maxLength` is honoured, and
+/// the refusal names the question. A real essay still goes through.
+#[tokio::test]
+async fn oversized_answers_are_refused_with_the_question_named() {
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::write(
+        mount.path().join("rsvp.lunaform"),
+        r#"{
+    "version": 1,
+    "title": "Stories",
+    "settings": { "collecting": true, "allowEdits": true },
+    "questions": [
+        { "id": "q_story", "type": "long_text", "label": "Your story" },
+        { "id": "q_nick", "type": "short_text", "label": "Nickname",
+          "config": { "maxLength": 5 } }
+    ]
+}"#,
+    )
+    .unwrap();
+    let (_dir, app, state) = test_app(mount.path());
+    let token = insert_link(&state, "rsvp.lunaform", crate::access::CAP_RESPOND);
+
+    let huge = serde_json::json!({
+        "answers": { "q_story": "x".repeat(super::MAX_ANSWER_TEXT_BYTES + 1) }
+    })
+    .to_string();
+    let res = call(
+        &app,
+        req(Method::POST, &format!("/s/{token}/respond"), &huge),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let v = body_json(res).await;
+    assert!(
+        v["error"].as_str().unwrap().contains("Your story"),
+        "the refusal names the question: {v}"
+    );
+    assert!(!mount.path().join(".rsvp.lunaform.responses").exists());
+
+    // The form's own smaller limit wins and is named too.
+    let res = call(
+        &app,
+        req(
+            Method::POST,
+            &format!("/s/{token}/respond"),
+            r#"{"answers":{"q_nick":"abcdef"}}"#,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let v = body_json(res).await;
+    assert!(v["error"].as_str().unwrap().contains("Nickname"), "{v}");
+
+    // A real essay is well under the cap.
+    let essay = "It was a long day. ".repeat(500);
+    let body = serde_json::json!({ "answers": { "q_story": essay } }).to_string();
+    let res = call(
+        &app,
+        req(Method::POST, &format!("/s/{token}/respond"), &body),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let saved = std::fs::read_to_string(mount.path().join(".rsvp.lunaform.responses")).unwrap();
+    assert!(saved.contains("It was a long day."), "the essay was stored");
+
+    // Many answers that each pass still have to fit the payload cap.
+    let questions: Vec<Value> = (0..5)
+        .map(|i| {
+            serde_json::json!({
+                "id": format!("q_{i}"),
+                "type": "long_text",
+                "label": format!("Essay {i}")
+            })
+        })
+        .collect();
+    let doc = serde_json::json!({
+        "version": 1,
+        "title": "Essays",
+        "settings": { "collecting": true, "allowEdits": true },
+        "questions": questions
+    });
+    std::fs::write(mount.path().join("essays.lunaform"), doc.to_string()).unwrap();
+    let essays = insert_link(&state, "essays.lunaform", crate::access::CAP_RESPOND);
+    let mut answers = serde_json::Map::new();
+    for i in 0..5 {
+        answers.insert(format!("q_{i}"), Value::String("y".repeat(30 * 1024)));
+    }
+    let body = serde_json::json!({ "answers": answers }).to_string();
+    let res = call(
+        &app,
+        req(Method::POST, &format!("/s/{essays}/respond"), &body),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let v = body_json(res).await;
+    assert!(
+        v["error"].as_str().unwrap().contains("too long to save"),
+        "{v}"
+    );
 }

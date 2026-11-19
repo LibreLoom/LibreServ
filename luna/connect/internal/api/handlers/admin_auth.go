@@ -33,6 +33,12 @@ func (h AdminAuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusTooManyRequests, "Too many sign-in tries from this network. Wait a minute, then try again.")
 		return
 	}
+	// Count failed sign-ins per staff account too, so changing addresses cannot
+	// reset the budget. A full bucket still lets a correct password through
+	// (and then clears it): the cap slows guessing, it does not lock the owner
+	// out. Wrong guesses get the same generic 429 whether the account exists.
+	accountKey := signInAccountKey("admin", email)
+	accountCapped := guessBlocked(h.DB, accountKey, signInAccountAttemptMax, signInAccountAttemptWindow)
 
 	var id, hash string
 	var name sql.NullString
@@ -41,8 +47,21 @@ func (h AdminAuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	err := h.DB.QueryRow(
 		`SELECT id, password_hash, name, totp_secret, totp_enabled, is_active FROM admin_accounts WHERE email = ?`,
 		email).Scan(&id, &hash, &name, &totpSecret, &totpEnabled, &isActive)
+	if err == sql.ErrNoRows {
+		// No staff account for this address. Verify one password anyway, so the
+		// answer takes as long as a wrong password on a real account and the
+		// clock cannot be used to test whether a staff address exists.
+		_ = auth.VerifyDummyPassword(req.Password)
+	}
 	if err == sql.ErrNoRows || auth.VerifyPassword(hash, req.Password) != nil {
-		_ = allowGuess(h.DB, loginKey, 10, 60)
+		if !accountCapped {
+			_ = allowGuess(h.DB, loginKey, 10, 60)
+			_ = allowGuess(h.DB, accountKey, signInAccountAttemptMax, signInAccountAttemptWindow)
+		}
+		if accountCapped {
+			JSONError(w, http.StatusTooManyRequests, "Too many sign-in tries from this network. Wait a minute, then try again.")
+			return
+		}
 		JSONError(w, http.StatusUnauthorized, "That email or password did not match.")
 		return
 	}
@@ -50,6 +69,9 @@ func (h AdminAuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "Could not sign in. Try again.")
 		return
 	}
+	// Correct password while the bucket is full must still sign the admin in;
+	// the cap is not a lockout. Start the count over.
+	clearSignInAccountAttempts(h.DB, accountKey)
 	if isActive != 1 {
 		JSONError(w, http.StatusForbidden, "This admin account is disabled.")
 		return

@@ -288,10 +288,11 @@ func ReportUsage(db *database.DB) {
 	// Sampling feeds the month average and must run even when Stripe is off.
 	SampleStorage(db)
 	providers.RefreshStripe()
-	if !config.C.Stripe.Ready() {
+	st := config.Stripe()
+	if !st.Ready() {
 		return
 	}
-	storageMeter := strings.TrimSpace(config.C.Stripe.MeterEventName)
+	storageMeter := strings.TrimSpace(st.MeterEventName)
 	if storageMeter == "" {
 		slog.Warn("stripe meter events skipped: meter_event_name not set")
 		return
@@ -310,10 +311,11 @@ func ReportAccountUsage(db *database.DB, accountID string) (storageGB, overGB in
 		return 0, 0, false
 	}
 	providers.RefreshStripe()
-	if !config.C.Stripe.Ready() {
+	st := config.Stripe()
+	if !st.Ready() {
 		return 0, 0, false
 	}
-	storageMeter := strings.TrimSpace(config.C.Stripe.MeterEventName)
+	storageMeter := strings.TrimSpace(st.MeterEventName)
 	if storageMeter == "" {
 		slog.Warn("stripe meter events skipped: meter_event_name not set")
 		return 0, 0, false
@@ -333,8 +335,9 @@ func reportUsageFor(db *database.DB, accountID, storageMeter string) map[string]
 		slog.Warn("usage query failed", "error", err)
 		return sent
 	}
-	stripe.Key = config.C.Stripe.SecretKey
-	egressMeter := strings.TrimSpace(config.C.Stripe.EgressMeterEventName)
+	st := config.Stripe()
+	stripe.Key = st.SecretKey
+	egressMeter := strings.TrimSpace(st.EgressMeterEventName)
 	now := time.Now().Unix()
 	for _, u := range usages {
 		if accountID != "" && u.AccountID != accountID {

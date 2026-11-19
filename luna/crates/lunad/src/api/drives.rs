@@ -1072,6 +1072,18 @@ mod tests {
     fn app_with_drive_and_member() -> (tempfile::TempDir, crate::AppState, String, String, String) {
         let dir = tempfile::tempdir().unwrap();
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        // A real adopted drive root: a Luna marker beside the data. Caps are
+        // derived from the drive's private registry, so a made-up path with
+        // no marker reads as "drive away" and reports no access.
+        let mount = dir.path().join("mounts/d1");
+        std::fs::create_dir_all(&mount).unwrap();
+        let prefix = luna_core::marker::pick_prefix(&mount).unwrap();
+        crate::drives::drive_db::create(
+            &mount,
+            &luna_core::marker::Marker::new("d1", "Photos"),
+            &prefix,
+        )
+        .unwrap();
         let drive_manager = std::sync::Arc::new(crate::drives::DriveManager::new(
             crate::drives::mount::shared_mock(),
             dir.path(),
@@ -1079,7 +1091,16 @@ mod tests {
         let state = crate::AppState::new(conn, drive_manager, dir.path());
         {
             let conn = state.db.lock().unwrap();
-            db::upsert_drive(&conn, "d1", "Photos", "as_is", "ext4", "sdz", "/mnt/d1").unwrap();
+            db::upsert_drive(
+                &conn,
+                "d1",
+                "Photos",
+                "as_is",
+                "ext4",
+                "sdz",
+                mount.to_str().unwrap(),
+            )
+            .unwrap();
         }
         let admin = state
             .auth
@@ -1141,7 +1162,13 @@ mod tests {
         let (_dir, state, admin_token, member_token, _member_id) = app_with_drive_and_member();
         let admin_view = get_drives(&state, &admin_token).await;
         let member_view = get_drives(&state, &member_token).await;
-        assert_eq!(admin_view[0]["mount_point"], "/mnt/d1");
+        assert!(
+            !admin_view[0]["mount_point"]
+                .as_str()
+                .unwrap_or("")
+                .is_empty(),
+            "the Admin sees the OS mount path"
+        );
         assert_eq!(admin_view[0]["caps"], "full+share");
         // The member sees the drive (their grant) with only their own
         // access — the OS mount path and device node stay server plumbing.

@@ -65,11 +65,19 @@ pub fn router() -> Router<AppState> {
 
 async fn preflight(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    current: Option<Extension<crate::auth::CurrentUser>>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     if !crate::auth::setup_wizard_open(&state) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "Setup is already finished.",
+        ));
+    }
+    if current.is_none() && !crate::auth::setup_origin_allowed(&state, &headers) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Open Luna at its own address to continue setup.",
         ));
     }
     let state = state.clone();
@@ -98,11 +106,19 @@ async fn preflight(
 
 async fn fetch_mag(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    current: Option<Extension<crate::auth::CurrentUser>>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     if !crate::auth::setup_wizard_open(&state) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
             "Setup is already finished.",
+        ));
+    }
+    if current.is_none() && !crate::auth::setup_origin_allowed(&state, &headers) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Open Luna at its own address to continue setup.",
         ));
     }
     let connect = state.connect.clone();
@@ -134,8 +150,14 @@ fn mag_outcome_json(outcome: &crate::system::factory_mag::MagFetchOutcome) -> Va
     }
 }
 
+/// Only a Luna that nobody has set up yet reads the factory magazine. The
+/// setup page is public, so a configured Luna must never mount a stick that
+/// carries the magazine's label just because someone opened the page.
 fn maybe_fetch_mag(state: &AppState) {
     if state.connect.has_valid_device_code() {
+        return;
+    }
+    if state.auth.count_users().unwrap_or(1) > 0 || !crate::auth::setup_wizard_open(state) {
         return;
     }
     let _ = state.connect.ensure_device_code_from_mag();
@@ -203,6 +225,12 @@ async fn get_setup(
             "Sign in to Luna first.",
         ));
     }
+    if current.is_none() && !crate::auth::setup_origin_allowed(&state, &headers) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Open Luna at its own address to continue setup.",
+        ));
+    }
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -256,24 +284,36 @@ async fn save_setup(
                 "Only an Admin can change setup.",
             ));
         }
-    } else if !client_is_lan(&addr, &headers) {
-        // Before the first login exists, anyone may save wizard *progress*
-        // (step + draft data) so a refresh resumes. Finishing setup or
-        // naming Luna is LAN-only: a remote caller can never close the
-        // wizard for you. The remote flow does those as the signed-in Admin.
-        if body.setup_completed.is_some() || body.name.is_some() {
+    } else {
+        // The wizard is open and nobody is signed in yet. A DNS-rebinding
+        // page makes its Origin and Host agree on its own name, so only the
+        // Host allow-list can tell Luna's address from the attacker's.
+        if !crate::auth::setup_origin_allowed(&state, &headers) {
             return Err(json_error(
                 StatusCode::FORBIDDEN,
-                "Finish setup from the same network as Luna, or create your account and sign in first.",
+                "Open Luna at its own address to change setup.",
             ));
         }
-        if body.step_data.as_ref().is_some_and(|d| {
-            serde_json::to_string(d).map_or(true, |s| s.len() > MAX_ANON_STEP_DATA)
-        }) {
-            return Err(json_error(
-                StatusCode::BAD_REQUEST,
-                "Setup progress is too large to save.",
-            ));
+        if !client_is_lan(&addr, &headers) {
+            // Before the first login exists, anyone may save wizard
+            // *progress* (step + draft data) so a refresh resumes. Finishing
+            // setup or naming Luna is LAN-only: a remote caller can never
+            // close the wizard for you. The remote flow does those as the
+            // signed-in Admin.
+            if body.setup_completed.is_some() || body.name.is_some() {
+                return Err(json_error(
+                    StatusCode::FORBIDDEN,
+                    "Finish setup from the same network as Luna, or create your account and sign in first.",
+                ));
+            }
+            if body.step_data.as_ref().is_some_and(|d| {
+                serde_json::to_string(d).map_or(true, |s| s.len() > MAX_ANON_STEP_DATA)
+            }) {
+                return Err(json_error(
+                    StatusCode::BAD_REQUEST,
+                    "Setup progress is too large to save.",
+                ));
+            }
         }
     }
 
@@ -497,5 +537,56 @@ mod tests {
             send("192.168.1.40", None, None).await,
             StatusCode::UNAUTHORIZED
         );
+    }
+
+    #[tokio::test]
+    async fn a_configured_luna_does_not_read_the_factory_magazine() {
+        use axum::body::Body;
+        use axum::extract::ConnectInfo;
+        use axum::http::StatusCode;
+        use tower::ServiceExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(crate::drives::DriveManager::new(
+            crate::drives::mount::shared_mock(),
+            dir.path(),
+        ));
+        let connect = std::sync::Arc::new(crate::net::connect::ConnectService::new(
+            dir.path(),
+            Some("http://127.0.0.1:1".into()),
+        ));
+        let state = crate::AppState::new(conn, drive_manager, dir.path()).with_connect(connect);
+        let router = axum::Router::new()
+            .merge(super::router())
+            .with_state(state.clone());
+
+        // A malformed token file: reading the magazine deletes it before it
+        // even looks for a stick, so its survival shows none was read.
+        let token = dir.path().join("device-token");
+        std::fs::write(&token, "not-a-code\n").unwrap();
+        state
+            .auth
+            .register("max", "Max", "hunter22hunter1", "admin")
+            .unwrap();
+        {
+            let conn = state.db.lock().unwrap();
+            crate::db::set_meta(&conn, "setup", r#"{"setup_completed":true}"#).unwrap();
+        }
+
+        let req = axum::http::Request::builder()
+            .method("GET")
+            .uri("/api/v1/setup");
+        let mut http = req.body(Body::empty()).unwrap();
+        http.extensions_mut().insert(ConnectInfo(
+            "192.168.1.40:40000"
+                .parse::<std::net::SocketAddr>()
+                .unwrap(),
+        ));
+        let status = router.oneshot(http).await.unwrap().status();
+        // Signed out, the page refuses; the point is that it did not reach
+        // for the magazine first.
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(token.exists(), "the magazine was read on a configured Luna");
     }
 }

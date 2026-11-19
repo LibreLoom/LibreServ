@@ -6,6 +6,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
@@ -15,6 +16,11 @@ import (
 type Service struct {
 	db *database.DB
 }
+
+// providerWriteMu serializes the read-merge-write in Update. Two admins (or a
+// retried request) saving the same connection at once must not have one save
+// overwrite the credentials the other just merged in.
+var providerWriteMu sync.Mutex
 
 // NewService creates a providers service.
 func NewService(db *database.DB) *Service {
@@ -120,6 +126,8 @@ func (s *Service) Create(service, name string, credentials, settings map[string]
 
 // Update updates an existing provider. Empty credential values keep the previous secret.
 func (s *Service) Update(id, service, name string, credentials, settings map[string]string, enabled bool) error {
+	providerWriteMu.Lock()
+	defer providerWriteMu.Unlock()
 	existing, err := s.Get(id)
 	if err != nil {
 		return err
@@ -197,7 +205,9 @@ func (s *Service) openCredentials(id, blob string) map[string]string {
 		slog.Error("provider credentials: could not re-seal legacy plaintext", "provider", id, "err", err)
 		return creds
 	}
-	if _, err := s.db.Exec(`UPDATE service_providers SET credentials_json = ? WHERE id = ?`, sealed, id); err != nil {
+	// Only replace the exact plaintext that was read: a concurrent Update may
+	// already have written fresh credentials for this row.
+	if _, err := s.db.Exec(`UPDATE service_providers SET credentials_json = ? WHERE id = ? AND credentials_json = ?`, sealed, id, blob); err != nil {
 		slog.Warn("provider credentials: re-seal write failed", "provider", id, "err", err)
 	}
 	return creds

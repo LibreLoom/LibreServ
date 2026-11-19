@@ -47,6 +47,7 @@ const SUMMARY_ITEMS = 8;
  *   formPath: string,
  *   questions: FormQuestion[],
  *   responses: FormResponse[],
+ *   notice?: string,
  *   loading?: boolean,
  *   error?: string | null,
  *   canDelete?: boolean,
@@ -59,6 +60,7 @@ export default function FormResponses({
   formPath,
   questions,
   responses,
+  notice = "",
   loading = false,
   error = null,
   canDelete = false,
@@ -158,6 +160,7 @@ export default function FormResponses({
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4 p-4 sm:p-6">
       {error && <PageNotice variant="error">{error}</PageNotice>}
+      {notice && <PageNotice variant="warning">{notice}</PageNotice>}
 
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="font-mono text-lg text-secondary">
@@ -373,6 +376,7 @@ FormResponses.propTypes = {
   formPath: PropTypes.string.isRequired,
   questions: PropTypes.array.isRequired,
   responses: PropTypes.array.isRequired,
+  notice: PropTypes.string,
   loading: PropTypes.bool,
   error: PropTypes.string,
   canDelete: PropTypes.bool,

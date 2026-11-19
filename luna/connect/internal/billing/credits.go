@@ -59,7 +59,7 @@ func GrantCreditBy(customerID string, cents int64, category, reason, adminID, id
 	if IsPlaceholderCustomer(customerID) {
 		return ErrNoStripeCustomer
 	}
-	stripe.Key = config.C.Stripe.SecretKey
+	stripe.Key = config.Stripe().SecretKey
 	params := &stripe.BillingCreditGrantParams{
 		Customer: stripe.String(customerID),
 		Name:     stripe.String(reason),
@@ -94,7 +94,7 @@ func CreditBalanceCents(customerID string) (int64, error) {
 	if err := requireLiveStripe(); err != nil {
 		return 0, err
 	}
-	stripe.Key = config.C.Stripe.SecretKey
+	stripe.Key = config.Stripe().SecretKey
 	sum, err := creditbalancesummary.Get(&stripe.BillingCreditBalanceSummaryParams{
 		Customer: stripe.String(customerID),
 		Filter: &stripe.BillingCreditBalanceSummaryFilterParams{

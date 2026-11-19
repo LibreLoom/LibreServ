@@ -14,6 +14,11 @@ var (
 
 	cloudflareRuntimeMu sync.Mutex
 	cloudflareRuntimeDB *database.DB
+
+	// cloudflareApplyMu serializes overlay refreshes: each one reads the
+	// provider row and publishes the result, so an older refresh must not
+	// overwrite a newer one.
+	cloudflareApplyMu sync.Mutex
 )
 
 // CaptureCloudflareBase stores yaml/env Cloudflare settings so admin DB overlays
@@ -21,7 +26,7 @@ var (
 func CaptureCloudflareBase() {
 	cloudflareBaseMu.Lock()
 	defer cloudflareBaseMu.Unlock()
-	cp := config.C.Cloudflare
+	cp := config.Cloudflare()
 	cloudflareBase = &cp
 }
 
@@ -49,34 +54,44 @@ func RefreshCloudflare() {
 // ApplyCloudflareFromDB overlays an enabled Cloudflare provider from the database
 // onto the in-memory config. Starts from the captured yaml/env base when available.
 // Call after migrate and after admin Cloudflare mutations.
+//
+// The new settings are built as one value and published once, so a tunnel or DNS
+// call reading them at the same moment never sees a mixture of old and new keys.
 func ApplyCloudflareFromDB(db *database.DB) error {
+	cloudflareApplyMu.Lock()
+	defer cloudflareApplyMu.Unlock()
+	out := config.Cloudflare()
 	cloudflareBaseMu.Lock()
 	base := cloudflareBase
 	cloudflareBaseMu.Unlock()
 	if base != nil {
-		config.C.Cloudflare = *base
+		out = *base
 	}
 
 	if db == nil {
+		config.SetCloudflare(out)
 		return nil
 	}
 	svc := NewService(db)
 	p, err := svc.FindEnabled("cloudflare")
 	if err != nil {
+		config.SetCloudflare(out)
 		return err
 	}
 	if p == nil || !p.Enabled {
+		config.SetCloudflare(out)
 		return nil
 	}
 	if aid := strings.TrimSpace(p.Credential("account_id", "")); aid != "" {
-		config.C.Cloudflare.AccountID = aid
+		out.AccountID = aid
 	}
 	if tok := strings.TrimSpace(p.Credential("api_token", "")); tok != "" {
-		config.C.Cloudflare.APIToken = tok
+		out.APIToken = tok
 	}
 	if zid := strings.TrimSpace(p.Setting("zone_id", "")); zid != "" {
-		config.C.Cloudflare.ZoneID = zid
+		out.ZoneID = zid
 	}
+	config.SetCloudflare(out)
 	return nil
 }
 

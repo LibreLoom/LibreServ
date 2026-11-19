@@ -30,9 +30,11 @@ export default function StorageBreakdown({ enabled = true }) {
     mutationFn: () => postJson("/api/v1/system/storage/cleanup", {}),
     onSuccess: (data) => {
       const freed = Number(data?.freed_bytes) || 0;
+      const skipped = Array.isArray(data?.skipped) ? data.skipped.filter(Boolean) : [];
       addToast({
         type: "success",
         message: freed > 0 ? `Freed ${formatBytes(freed)}.` : "Nothing to clear right now.",
+        description: skipped[0],
       });
       queryClient.invalidateQueries({ queryKey: STORAGE_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ["system-health-check"] });

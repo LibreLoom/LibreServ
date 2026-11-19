@@ -196,21 +196,30 @@ async fn remove(
     Extension(user): Extension<CurrentUser>,
     Path(id): Path<String>,
 ) -> ApiResult {
-    let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
-    let row = find_backup(&conn, &id)?;
-    if !can_delete(&conn, &row, &user) {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "Only an Admin or the person who made this backup can delete it.",
-        ));
+    let row = {
+        let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+        let row = find_backup(&conn, &id)?;
+        if !can_delete(&conn, &row, &user) {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "Only an Admin or the person who made this backup can delete it.",
+            ));
+        }
+        row
+    };
+    // A cloud backup lives in Luna Connect: its records, key copies and packs have to go
+    // too, or the person would be told it is deleted while the ciphertext stays behind.
+    // The cloud route does that work; this one must not drop the row by itself.
+    if row.kind == db::PROTECTION_CLOUD {
+        return crate::api::cloud_backups::delete_cloud(&state, &id).await;
     }
-    // A copy in progress would write into the backup's files as they go.
     if drive_backup::is_running(&state.db, &id) {
         return Err(json_error(
             StatusCode::CONFLICT,
             "This backup is busy right now. Try again in a minute.",
         ));
     }
+    let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
     drive_backup::delete(&state.db, &conn, &row).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -520,6 +529,65 @@ mod tests {
             .iter()
             .map(|b| b["id"].as_str().unwrap().to_string())
             .collect()
+    }
+
+    /// Insert a cloud backup row. Its copies live in Luna Connect, not on a drive.
+    fn seed_cloud(state: &AppState, id: &str, access_json: &str, created_by: &str) {
+        let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+        db::insert_protection(
+            &conn,
+            &db::NewProtection {
+                id,
+                kind: db::PROTECTION_CLOUD,
+                source_drive: "",
+                source_path: "",
+                target_drive: "",
+                private_owner: "",
+                created_by,
+                created_at: 0,
+            },
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE protections SET access_json = ?1 WHERE id = ?2",
+            rusqlite::params![access_json, id],
+        )
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_cloud_backup_deleted_through_this_route_is_not_dropped_without_the_cloud() {
+        let f = fixture();
+        seed_cloud(
+            &f.state,
+            "cloud-one",
+            r#"{"users":[],"admins":true}"#,
+            &f.admin_id,
+        );
+
+        let (status, json) = send(
+            &f.router,
+            "DELETE",
+            "/api/v1/backups/cloud-one",
+            &f.admin_token,
+            None,
+        )
+        .await;
+
+        // Luna Connect is not set up here, so the copies cannot be removed. The person is
+        // told so, and the row stays: saying "deleted" while the copies remain is not allowed.
+        assert_eq!(status, axum::http::StatusCode::CONFLICT);
+        assert!(
+            json["error"].as_str().unwrap().contains("Luna Connect"),
+            "{json}"
+        );
+        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
+        assert!(db::get_protection(&conn, "cloud-one").unwrap().is_some());
+        assert!(
+            db::get_meta(&conn, "deleted_backup:cloud-one")
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[tokio::test]

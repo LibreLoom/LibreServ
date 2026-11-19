@@ -70,10 +70,18 @@ const excalidrawAssets = () => {
 // Testing-marathon results (dev only). The state gallery at /__states can't
 // write into the repo from the browser, so it posts here and this writes
 // testing/results.json, which is committed so collaborators share progress.
+// Only the local gallery writes: a POST from any other address is refused,
+// so an opted-in LAN dev server can still be read on a phone but not write.
 const statesResults = () => {
   const file = path.resolve(__dirname, "testing/results.json");
   const read = () => {
     try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return {}; }
+  };
+  const loopbackPeer = (req) => {
+    const addr = req.socket.remoteAddress || "";
+    // 127.0.0.0/8, ::1, and their IPv4-mapped forms on a dual-stack socket.
+    if (addr.startsWith("127.") || addr.startsWith("::ffff:127.")) return true;
+    return addr === "::1" || addr === "::ffff:7f00:1";
   };
   return {
     name: "luna-states-results",
@@ -83,6 +91,11 @@ const statesResults = () => {
         res.setHeader("content-type", "application/json");
         if (req.method === "GET") { res.end(JSON.stringify(read())); return; }
         if (req.method !== "POST") { res.statusCode = 405; res.end("{}"); return; }
+        if (!loopbackPeer(req)) {
+          res.statusCode = 403;
+          res.end(JSON.stringify({ error: "results are written from this machine only" }));
+          return;
+        }
         let raw = "";
         req.on("data", (c) => { raw += c; });
         req.on("end", () => {
@@ -104,6 +117,20 @@ const statesResults = () => {
     },
   };
 };
+
+// Loopback by default. The dev data directory (luna/dev) holds the daemon's
+// JWT signing key, the generated dev password and the developer database, and
+// Vite serves every file under fs.allow at /@fs/<path> — bound to every
+// interface, those three go to anyone on the same Wi-Fi. For phone testing,
+// opt in explicitly: VITE_DEV_HOST=0.0.0.0 binds all interfaces, or pass this
+// machine's LAN name/address so it is also accepted as a Host.
+const DEV_HOST = process.env.VITE_DEV_HOST || "127.0.0.1";
+// Vite always accepts IP literals as Host; names must be listed. Keep the
+// appliance name for testing against a real Luna, plus the opt-in host.
+const DEV_ALLOWED_HOSTS = ["localhost", "127.0.0.1", "[::1]", "luna.local"];
+if (!["127.0.0.1", "localhost", "0.0.0.0", "::", "::1", "[::]"].includes(DEV_HOST)) {
+  DEV_ALLOWED_HOSTS.push(DEV_HOST);
+}
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), excalidrawAssets(), sharedFonts(), statesResults(), bundleReportPlugin()],
@@ -149,16 +176,23 @@ export default defineConfig({
   server: {
     port: Number(process.env.VITE_DEV_PORT) || 3001,
     strictPort: true,
-    host: "0.0.0.0",
+    host: DEV_HOST,
     open: false,
-    allowedHosts: true,
+    allowedHosts: DEV_ALLOWED_HOSTS,
     // The state gallery's results file is data the dev server writes itself.
     // Watching it lets @tailwindcss/vite (which scans every non-ignored file
     // for class names) answer each save with a silent full-reload of every page.
     watch: { ignored: ["**/testing/results.json"] },
     fs: {
-      // Repo root: serves the symlinked @libreloom/ui package (shared/ui/)
-      allow: ["../.."],
+      // Only what the app itself needs: its source, the entry document, and
+      // @libreloom/ui — a symlink into <repo>/shared/ui, which Vite serves at
+      // its resolved path. The repo root must never be here: it would expose
+      // luna/dev (jwt_secret, dev-password, luna.db) through /@fs/.
+      allow: [
+        path.resolve(__dirname, "src"),
+        path.resolve(__dirname, "index.html"),
+        fs.realpathSync(path.resolve(__dirname, "../../shared/ui")),
+      ],
     },
     // Keep the browser Host header (changeOrigin: false). lunad's CSRF guard
     // compares Origin to Host; rewriting Host to :8090 makes every Vite-dev

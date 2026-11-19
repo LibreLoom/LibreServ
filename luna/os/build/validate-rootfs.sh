@@ -19,6 +19,12 @@ for f in boot/vmlinuz-lts boot/initramfs-lts \
     [ -s "$ROOTFS/$f" ] || fail "missing $f"
 done
 [ -d "$ROOTFS/usr/share/luna/eurooffice/fonts" ] || fail 'missing office fonts'
+# The image runs no SSH server, so nothing may be advertised over mDNS except
+# the box's own name. Alpine's avahi package ships ssh/sftp-ssh service files.
+for svc in "$ROOTFS"/etc/avahi/services/*.service; do
+    [ -e "$svc" ] || continue
+    fail "mDNS advertises $(basename "$svc"), a service the image does not run"
+done
 # Resolve commands inside the target tree. Host existence checks accept broken
 # absolute symlinks and cannot establish that dynamic libraries are installed.
 # Redirect outside chroot: the target /dev is populated only when it boots.

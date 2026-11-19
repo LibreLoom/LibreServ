@@ -612,6 +612,8 @@ struct AlbumFixture {
     router: axum::Router,
     admin_token: String,
     member_token: String,
+    admin_id: String,
+    member_id: String,
     album: photos::Album,
     mount: PathBuf,
 }
@@ -703,6 +705,8 @@ async fn album_fixture() -> AlbumFixture {
         router,
         admin_token: auth.issue(&admin).unwrap(),
         member_token: auth.issue(&member).unwrap(),
+        admin_id: admin.id.clone(),
+        member_id: member.id.clone(),
         album,
         mount,
     }
@@ -987,6 +991,144 @@ async fn member_view_gets_opaque_cover_url_and_item_ids() {
 }
 
 #[tokio::test]
+async fn album_cover_cannot_name_another_owners_private_photo() {
+    let f = album_fixture().await;
+    // A private folder owned by the admin, with a real photo inside.
+    std::fs::create_dir(f.mount.join("Vault")).unwrap();
+    let img = image::RgbImage::from_pixel(4, 4, image::Rgb([4, 5, 6]));
+    img.save(f.mount.join("Vault/secret.jpg")).unwrap();
+    crate::private::privatize(&f.mount, "Vault", &f.admin_id).unwrap();
+
+    // An album the member owns. Managing an album is not a right to name any
+    // path as its cover: the cover is served to every album viewer.
+    let mine = photos::create_album(&f.mount, "d-photos", &f.member_id, "Mine").unwrap();
+    let uri = format!("/api/v1/photos/albums/d-photos/{}", mine.id);
+    let (status, _) = call_json(
+        &f.router,
+        json_req(
+            "PATCH",
+            &uri,
+            &f.member_token,
+            r#"{"cover_drive_id":"d-photos","cover_path":"Vault/secret.jpg"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "another person's private photo is not a cover the member may set"
+    );
+    let stored = photos::get_album(&f.mount, "d-photos", &mine.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.cover_path, "", "a refused cover must not be stored");
+
+    // A photo the member can see still works.
+    let (status, _) = call_json(
+        &f.router,
+        json_req(
+            "PATCH",
+            &uri,
+            &f.member_token,
+            r#"{"cover_drive_id":"d-photos","cover_path":"pic.jpg"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn cover_route_404s_once_the_caller_loses_the_photo() {
+    let f = album_fixture().await;
+    std::fs::create_dir(f.mount.join("Shared")).unwrap();
+    let img = image::RgbImage::from_pixel(4, 4, image::Rgb([7, 8, 9]));
+    img.save(f.mount.join("Shared/cover.jpg")).unwrap();
+    let auth = f.state.auth.clone();
+    let viewer = auth
+        .register("Viewer", "Viewer", "hunter22hunter1", "user")
+        .unwrap();
+    let viewer_token = auth.issue(&viewer).unwrap();
+    {
+        let conn = f.state.db.lock().unwrap();
+        // The viewer can see the folder the cover lives in…
+        db::insert_access_member(
+            &conn,
+            &db::AccessMemberRow {
+                id: "v-shared".into(),
+                subject_kind: crate::access::KIND_PATH.into(),
+                drive_id: "d-photos".into(),
+                path: "Shared".into(),
+                album_id: String::new(),
+                user_id: viewer.id.clone(),
+                caps: crate::access::CAP_VIEW,
+                created_by: f.admin_id.clone(),
+            },
+        )
+        .unwrap();
+        // …and the album, whose cover is a photo that is not one of its items.
+        db::insert_access_member(
+            &conn,
+            &db::AccessMemberRow {
+                id: "v-album".into(),
+                subject_kind: crate::access::KIND_ALBUM.into(),
+                drive_id: "d-photos".into(),
+                path: String::new(),
+                album_id: f.album.id.clone(),
+                user_id: viewer.id.clone(),
+                caps: crate::access::CAP_VIEW,
+                created_by: f.admin_id.clone(),
+            },
+        )
+        .unwrap();
+    }
+    photos::update_album(
+        &f.mount,
+        &f.album.id,
+        None,
+        Some(("d-photos".into(), "Shared/cover.jpg".into())),
+    )
+    .unwrap();
+    let uri = format!("/api/v1/photos/albums/d-photos/{}/cover", f.album.id);
+    let res = call(&f.router, json_req("GET", &uri, &viewer_token, "")).await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // The folder grant is revoked. The album stays visible; its cover is a
+    // photo this person may no longer see, so it falls back to no cover —
+    // a 404, not an error.
+    {
+        let conn = f.state.db.lock().unwrap();
+        db::delete_access_member(&conn, "v-shared").unwrap();
+    }
+    let res = call(&f.router, json_req("GET", &uri, &viewer_token, "")).await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn cover_route_never_serves_a_private_photo_to_album_viewers() {
+    let f = album_fixture().await;
+    // A cover saved before the set-time check existed, naming another
+    // person's private picture.
+    std::fs::create_dir(f.mount.join("Vault")).unwrap();
+    let img = image::RgbImage::from_pixel(4, 4, image::Rgb([10, 11, 12]));
+    img.save(f.mount.join("Vault/secret.jpg")).unwrap();
+    crate::private::privatize(&f.mount, "Vault", &f.admin_id).unwrap();
+    photos::update_album(
+        &f.mount,
+        &f.album.id,
+        None,
+        Some(("d-photos".into(), "Vault/secret.jpg".into())),
+    )
+    .unwrap();
+
+    // The member holds a whole-drive view grant and album membership; the
+    // private wall still denies the path, so the cover route must not serve
+    // it (and must not turn that denial into a server error).
+    let uri = format!("/api/v1/photos/albums/d-photos/{}/cover", f.album.id);
+    let res = call(&f.router, json_req("GET", &uri, &f.member_token, "")).await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn list_items_drops_symlinked_rows() {
     let f = album_fixture().await;
     // Row pointing through a symlink — could never serve, so it must
@@ -1115,6 +1257,76 @@ async fn album_json_hides_layout_from_non_managers() {
     assert!(v["owner_user_id"].is_string());
     assert!(v["contrib_path"].is_string());
     assert_eq!(v["cover_path"], "pic.jpg");
+}
+
+#[tokio::test]
+async fn deleting_a_photo_removes_its_cached_previews() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = db::open(&dir.path().join("luna.db")).unwrap();
+    let mount = dir.path().join("photos-vol");
+    std::fs::create_dir_all(&mount).unwrap();
+    let img = image::RgbImage::from_pixel(8, 8, image::Rgb([20, 30, 40]));
+    img.save(mount.join("pic.jpg")).unwrap();
+    crate::drives::drive_db::create(
+        &mount,
+        &luna_core::marker::Marker::new("d-photos", "Family Photos"),
+        &luna_core::marker::pick_prefix(&mount).unwrap(),
+    )
+    .unwrap();
+    db::upsert_drive(
+        &conn,
+        "d-photos",
+        "Family Photos",
+        "as_is",
+        "ext4",
+        "sdz",
+        mount.to_str().unwrap(),
+    )
+    .unwrap();
+    let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+    let state = AppState::new(conn, drive_manager, dir.path());
+    let auth = state.auth.clone();
+    let admin = auth
+        .register("Admin", "Admin", "hunter22hunter1", "admin")
+        .unwrap();
+    let token = auth.issue(&admin).unwrap();
+    let router = axum::Router::new()
+        .merge(crate::api::router())
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::auth::guard,
+        ))
+        .with_state(state.clone());
+
+    let thumb_uri = "/api/v1/photos/thumb?drive_id=d-photos&path=pic.jpg";
+    let res = call(&router, json_req("GET", thumb_uri, &token, "")).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let big = photos::thumb_path(&mount, "d-photos", "pic.jpg").unwrap();
+    // Pretend the grid-sized variant was built too (a background build).
+    let small = photos::small_thumb_path(&big).unwrap();
+    std::fs::write(&small, b"webp").unwrap();
+    assert!(big.exists() && small.exists());
+
+    let (status, _) = call_json(
+        &router,
+        json_req(
+            "DELETE",
+            "/api/v1/drives/d-photos/files?path=pic.jpg",
+            &token,
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!big.exists(), "the preview must go with the photo");
+    assert!(!small.exists(), "the grid-sized preview too");
+
+    let res = call(&router, json_req("GET", thumb_uri, &token, "")).await;
+    assert_eq!(
+        res.status(),
+        StatusCode::NOT_FOUND,
+        "a deleted photo's old preview URL must not keep serving the picture"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

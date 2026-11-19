@@ -83,6 +83,12 @@ mkdir -p "$ROOTFS/proc" "$ROOTFS/sys" "$ROOTFS/dev"
 # goes. The kernel mounts devtmpfs over /dev at boot; drop the stray file.
 rm -f "$ROOTFS/dev/null"
 
+# Alpine's avahi package ships ssh.service and sftp-ssh.service, which would
+# publish _ssh._tcp and _sftp-ssh._tcp on port 22 at every boot. The image has
+# no SSH server, so those ads are false and make Luna look attackable. Avahi
+# itself stays: it is what answers luna.local.
+rm -f "$ROOTFS"/etc/avahi/services/*.service
+
 # Luna keeps its own clock in sync (chrony) so TLS certificate validation
 # and share expiry work even if the RTC drifts. It does not pull updates.
 rm -f "$ROOTFS/etc/apk/repositories"

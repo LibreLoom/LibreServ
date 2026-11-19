@@ -592,6 +592,10 @@ pub fn delete_drive_cascade(conn: &Connection, id: &str) -> anyhow::Result<()> {
 /// microdbs (index, hashes, photos, uploads, trash meta) are not part of
 /// `luna.db` and are left on the sticks.
 pub fn factory_reset(conn: &Connection) -> anyhow::Result<()> {
+    // One transaction: an interrupted reset must leave the box exactly as it
+    // was, never a half-wiped database with zero users (which the next LAN
+    // visitor could claim as the first Admin).
+    let tx = conn.unchecked_transaction()?;
     for table in [
         "users",
         "access_members",
@@ -614,9 +618,10 @@ pub fn factory_reset(conn: &Connection) -> anyhow::Result<()> {
         "cloud_private_kept",
         "cloud_private_trees",
     ] {
-        conn.execute(&format!("DELETE FROM {table}"), [])?;
+        tx.execute(&format!("DELETE FROM {table}"), [])?;
     }
-    conn.execute("DELETE FROM meta", [])?;
+    tx.execute("DELETE FROM meta", [])?;
+    tx.commit()?;
     Ok(())
 }
 
@@ -3382,6 +3387,31 @@ mod tests {
         let conn = open(&dir.path().join("luna.db")).unwrap();
         insert_protection(&conn, &new_protection("p1", "d1", "docs")).unwrap();
         factory_reset(&conn).unwrap();
+        assert!(list_protections(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn factory_reset_is_all_or_nothing() {
+        // A reset that fails part-way must not leave the box with zero
+        // users: the next device on the LAN would become the first Admin.
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        insert_user(&conn, "u1", "max", "Max", "hash", "admin").unwrap();
+        insert_protection(&conn, &new_protection("p1", "d1", "docs")).unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER block_reset BEFORE DELETE ON protections
+             BEGIN SELECT RAISE(ABORT, 'blocked'); END;",
+        )
+        .unwrap();
+        assert!(factory_reset(&conn).is_err());
+        assert_eq!(count_users(&conn).unwrap(), 1, "users must survive");
+        assert!(
+            get_protection(&conn, "p1").unwrap().is_some(),
+            "the whole wipe rolls back"
+        );
+        conn.execute_batch("DROP TRIGGER block_reset;").unwrap();
+        factory_reset(&conn).unwrap();
+        assert_eq!(count_users(&conn).unwrap(), 0);
         assert!(list_protections(&conn).unwrap().is_empty());
     }
 

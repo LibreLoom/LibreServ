@@ -250,3 +250,202 @@ fn scoped_upload_belongs_only_to_the_creating_link() {
     let err = scoped_upload(&conn, &link, &member_up.id).unwrap_err();
     assert_eq!(err.0, StatusCode::FORBIDDEN);
 }
+
+// ---------------------------------------------------------------------------
+// The private wall while its drive is away (locked or unplugged)
+// ---------------------------------------------------------------------------
+
+fn current_user(id: &str, role: &str) -> CurrentUser {
+    CurrentUser {
+        id: id.into(),
+        username: id.into(),
+        role: role.into(),
+    }
+}
+
+/// A drive with a marker, `Family`, and Alice's private `Family/Vault`.
+/// Bob holds Full on `Family` and Read on the Vault.
+fn private_window_conn() -> (tempfile::TempDir, rusqlite::Connection) {
+    let dir = tempfile::tempdir().unwrap();
+    let mount = dir.path().join("drive");
+    std::fs::create_dir_all(&mount).unwrap();
+    let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+    let prefix = luna_core::marker::pick_prefix(&mount).unwrap();
+    crate::drives::drive_db::create(
+        &mount,
+        &luna_core::marker::Marker::new("d1", "Drive"),
+        &prefix,
+    )
+    .unwrap();
+    crate::db::upsert_drive(
+        &conn,
+        "d1",
+        "Drive",
+        "as_is",
+        "ext4",
+        "sda",
+        mount.to_str().unwrap(),
+    )
+    .unwrap();
+    crate::db::insert_user(&conn, "alice", "alice", "Alice", "x", "user").unwrap();
+    crate::db::insert_user(&conn, "bob", "bob", "Bob", "x", "user").unwrap();
+    crate::db::insert_user(&conn, "admin", "admin", "Admin", "x", "admin").unwrap();
+    crate::files::mkdir(&conn, "d1", "Family").unwrap();
+    crate::files::mkdir_as(&conn, "d1", "Family/Vault", Some("alice")).unwrap();
+    let mut family = member_row("m-family", "bob", "Family");
+    family.caps = CAP_ALL;
+    crate::db::insert_access_member(&conn, &family).unwrap();
+    let mut vault = member_row("m-vault", "bob", "Family/Vault");
+    vault.caps = CAP_VIEW;
+    crate::db::insert_access_member(&conn, &vault).unwrap();
+    (dir, conn)
+}
+
+fn member_row(id: &str, user: &str, path: &str) -> crate::db::AccessMemberRow {
+    crate::db::AccessMemberRow {
+        id: id.into(),
+        subject_kind: KIND_PATH.into(),
+        drive_id: "d1".into(),
+        path: path.into(),
+        album_id: String::new(),
+        user_id: user.into(),
+        caps: CAP_VIEW,
+        created_by: "alice".into(),
+    }
+}
+
+#[test]
+fn a_locked_or_unplugged_drive_reports_no_caps_at_all() {
+    let (dir, conn) = private_window_conn();
+    let bob = current_user("bob", "user");
+    let admin = current_user("admin", "admin");
+    assert_eq!(
+        crate::auth::caps_on_path(&bob, &conn, "d1", "Family/Vault"),
+        CAP_VIEW,
+        "mounted: only his own Read row reaches into the private folder"
+    );
+
+    // Locked: mount_point is empty and the registry cannot be read.
+    crate::db::set_drive_locked(&conn, "d1", true).unwrap();
+    assert_eq!(
+        crate::auth::caps_on_path(&bob, &conn, "d1", "Family/Vault"),
+        0,
+        "the ancestor Full grant must not cover a private path"
+    );
+    assert_eq!(
+        crate::auth::caps_on_path(&bob, &conn, "d1", "Family"),
+        0,
+        "nothing on an unreadable drive is provably non-private"
+    );
+    assert_eq!(
+        crate::auth::caps_on_path(&admin, &conn, "d1", "Family/Vault"),
+        0,
+        "the Admin role is no shortcut either"
+    );
+
+    // Unplugged: the mount folder is left behind as an empty directory.
+    crate::db::set_drive_locked(&conn, "d1", false).unwrap();
+    let empty = dir.path().join("empty-mount");
+    std::fs::create_dir_all(&empty).unwrap();
+    crate::db::upsert_drive(
+        &conn,
+        "d1",
+        "Drive",
+        "as_is",
+        "ext4",
+        "sda",
+        empty.to_str().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        crate::auth::caps_on_path(&bob, &conn, "d1", "Family/Vault"),
+        0
+    );
+    assert_eq!(crate::auth::caps_on_path(&admin, &conn, "d1", "Family"), 0);
+
+    // Plugged back in: the private wall is back, not the ancestor grant.
+    crate::db::upsert_drive(
+        &conn,
+        "d1",
+        "Drive",
+        "as_is",
+        "ext4",
+        "sda",
+        dir.path().join("drive").to_str().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        crate::auth::caps_on_path(&bob, &conn, "d1", "Family/Vault"),
+        CAP_VIEW
+    );
+    assert_eq!(
+        crate::auth::caps_on_path(&bob, &conn, "d1", "Family"),
+        CAP_ALL
+    );
+}
+
+#[test]
+fn a_member_may_narrow_but_not_raise_their_own_row_on_a_private_subject() {
+    use super::access_admin::may_retune_own;
+    // Mounted private subject: his effective caps are the Read row.
+    assert!(!may_retune_own(CAP_VIEW, CAP_VIEW, CAP_ALL));
+    assert!(may_retune_own(CAP_VIEW, CAP_VIEW, 0));
+    // Locked/unplugged: the subject reports no inherited caps, so even the
+    // Read row is preserved only in the narrowing direction.
+    assert!(!may_retune_own(0, CAP_VIEW, CAP_ALL));
+    assert!(may_retune_own(0, CAP_VIEW, 0));
+    // An ordinary subject with Full still narrows and retunes freely.
+    assert!(may_retune_own(CAP_ALL, CAP_ALL, CAP_VIEW));
+}
+
+#[test]
+fn an_admin_cannot_reach_private_metadata_while_the_drive_is_away() {
+    use super::access_admin::may_manage_link;
+    let (dir, conn) = private_window_conn();
+    let admin = current_user("admin", "admin");
+    let row = AccessLinkRow {
+        id: "l1".into(),
+        token_hash: "tok".into(),
+        token: "t".into(),
+        subject_kind: KIND_PATH.into(),
+        drive_id: "d1".into(),
+        path: "Family/Vault".into(),
+        album_id: String::new(),
+        caps: CAP_VIEW,
+        password_hash: String::new(),
+        expires_at: None,
+        created_by: "alice".into(),
+        created_at: 0,
+    };
+    crate::db::insert_access_link(&conn, &row).unwrap();
+    // Mounted: the private wall keeps the Admin out of her link.
+    assert!(!may_manage_link(&conn, &admin, &row));
+
+    // Locked: privacy cannot be denied, so the same answer holds and the
+    // share inventory sees no way in.
+    crate::db::set_drive_locked(&conn, "d1", true).unwrap();
+    assert!(path_is_private(&conn, "d1", "Family/Vault"));
+    let subj = resolve_subject(&conn, KIND_PATH, "d1", "Family/Vault", "").unwrap();
+    assert!(subj.private && subj.private_unknown);
+    assert_eq!(my_caps(&conn, &admin, &subj), 0);
+    assert!(!may_manage_link(&conn, &admin, &row));
+
+    // Unplugged (empty mount folder): same.
+    crate::db::set_drive_locked(&conn, "d1", false).unwrap();
+    let empty = dir.path().join("empty-mount");
+    std::fs::create_dir_all(&empty).unwrap();
+    crate::db::upsert_drive(
+        &conn,
+        "d1",
+        "Drive",
+        "as_is",
+        "ext4",
+        "sda",
+        empty.to_str().unwrap(),
+    )
+    .unwrap();
+    assert!(path_is_private(&conn, "d1", "Family/Vault"));
+    let subj = resolve_subject(&conn, KIND_PATH, "d1", "Family/Vault", "").unwrap();
+    assert_eq!(my_caps(&conn, &admin, &subj), 0);
+    assert!(!may_manage_link(&conn, &admin, &row));
+}

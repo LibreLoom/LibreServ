@@ -1424,14 +1424,44 @@ async fn delete_entry(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let rel = request_path(&query.path.unwrap_or_default())?;
     check_access(&state, &user, &id, &rel, crate::access::CAP_EDIT)?;
-    check_no_foreign_private(&state, &user, &id, &rel)?;
-    let trash_path = {
-        let (id, rel) = (id.clone(), rel.clone());
-        changing(&state, &id.clone(), move |conn| {
-            files::delete_to_trash(conn, &id, &rel)
+    // The "someone else's private items" guard runs inside the same drive
+    // lock and DB lock as the delete itself: a private item created between
+    // a separate check and the unlink can no longer be destroyed unseen.
+    enum Deleted {
+        Trashed(String),
+        HoldsPrivate,
+    }
+    let outcome = {
+        let drive = id.clone();
+        let path = rel.clone();
+        let user = user.clone();
+        let guard = state.db.drive_lock(&drive).lock_owned().await;
+        let state = state.clone();
+        tokio::task::spawn_blocking(move || {
+            let _guard = guard;
+            crate::db::with_db(
+                &state.db,
+                || FilesError::UnknownDrive,
+                |conn| {
+                    if crate::auth::holds_unreachable_private(&user, conn, &drive, &path) {
+                        return Ok(Deleted::HoldsPrivate);
+                    }
+                    files::delete_to_trash(conn, &drive, &path).map(Deleted::Trashed)
+                },
+            )
         })
         .await
-        .map_err(map_files_err)?
+        .unwrap_or_else(|_| Err(FilesError::Io(std::io::Error::other("task failed"))))
+    };
+    let trash_path = match outcome {
+        Ok(Deleted::Trashed(path)) => path,
+        Ok(Deleted::HoldsPrivate) => {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "This folder holds private items that only their owners can delete.",
+            ));
+        }
+        Err(e) => return Err(map_files_err(e)),
     };
     state.photos.remove(&id, &rel);
     // Eagerly drop album refs so shared albums update without waiting on the indexer.

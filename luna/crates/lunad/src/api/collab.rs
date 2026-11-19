@@ -179,7 +179,7 @@ async fn session(
                         let _ = send_json(
                             &mut sink,
                             &ServerEvent::Error {
-                                message: "Your access to this file was removed. Close it and open it again if it is shared with you."
+                                message: "This file was moved, deleted, or is no longer shared with you. Close this tab and open it again from your files."
                                     .into(),
                             },
                         )
@@ -386,9 +386,9 @@ fn ensure_file(
 
 /// Re-derive a joined session's grant from the live DB, like
 /// `office::current_office_access` does for office tokens. `None` means
-/// the user or their view access is gone — drop the socket. `Some(w)` is
-/// the current write bit: `true` only while the member still holds
-/// `CAP_EDIT` on the file.
+/// the user or their view access is gone, or the document is no longer
+/// there — drop the socket. `Some(w)` is the current write bit: `true` only
+/// while the member still holds `CAP_EDIT` on the file.
 fn member_caps_now(state: &AppState, user_id: &str, drive_id: &str, path: &str) -> Option<bool> {
     let conn = state.db.lock().ok()?;
     // Guest sessions authenticate through the link, not a user row —
@@ -401,6 +401,21 @@ fn member_caps_now(state: &AppState, user_id: &str, drive_id: &str, path: &str) 
         if link.expires_at.is_some_and(|t| t <= crate::db::now_unix()) {
             return None;
         }
+        // The file must still exist at this path and still sit inside the
+        // link's own scope — a live room must not outlive the document.
+        let (target, target_meta) = files::file_path(&conn, &link.drive_id, path).ok()?;
+        if !target_meta.is_file() {
+            return None;
+        }
+        let (root, root_meta) = files::resolve_any(&conn, &link.drive_id, &link.path).ok()?;
+        let inside = if root_meta.is_dir() {
+            target.starts_with(&root)
+        } else {
+            target == root
+        };
+        if !inside {
+            return None;
+        }
         return Some(link.caps & crate::access::CAP_EDIT != 0);
     }
     let row = crate::db::get_user(&conn, user_id).ok()??;
@@ -410,6 +425,12 @@ fn member_caps_now(state: &AppState, user_id: &str, drive_id: &str, path: &str) 
         role: row.role,
     };
     if !crate::auth::has_cap(&user, &conn, drive_id, path, crate::access::CAP_VIEW) {
+        return None;
+    }
+    // A grant row outlives a deleted or moved file; the room must not. Only
+    // a live file at this exact path keeps the session.
+    let (_, meta) = files::file_path(&conn, drive_id, path).ok()?;
+    if !meta.is_file() {
         return None;
     }
     Some(crate::auth::has_cap(
@@ -453,12 +474,30 @@ mod tests {
     use crate::drives::DriveManager;
     use crate::drives::mount::shared_mock;
 
-    /// A real `AppState` on a scratch dir — `member_caps_now` reads the
-    /// live `users`/`access_members` tables, so the tests exercise the
-    /// whole path the socket's heartbeat takes.
+    /// A real `AppState` on a scratch dir with drive `d` mounted over
+    /// `drive-d/`. `member_caps_now` reads the live `users`/`access_members`
+    /// tables and the file at the path, so the tests exercise the whole
+    /// path the socket's heartbeat takes.
     fn test_state() -> (tempfile::TempDir, AppState) {
         let dir = tempfile::tempdir().unwrap();
         let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let mount = dir.path().join("drive-d");
+        std::fs::create_dir_all(&mount).unwrap();
+        std::fs::write(mount.join("a.docx"), b"x").unwrap();
+        std::fs::write(mount.join("a.drawio"), b"x").unwrap();
+        let prefix = luna_core::marker::pick_prefix(&mount).unwrap();
+        crate::drives::drive_db::create(&mount, &luna_core::marker::Marker::new("d", "D"), &prefix)
+            .unwrap();
+        crate::db::upsert_drive(
+            &conn,
+            "d",
+            "D",
+            "as_is",
+            "ext4",
+            "sda",
+            mount.to_str().unwrap(),
+        )
+        .unwrap();
         let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
         let state = AppState::new(conn, drive_manager, dir.path());
         (dir, state)
@@ -587,6 +626,64 @@ mod tests {
             crate::db::update_access_link(&conn, &row).unwrap();
             crate::db::delete_access_link(&conn, "l1").unwrap();
         }
+        assert_eq!(member_caps_now(&state, "guest:l1", "d", "a.drawio"), None);
+    }
+
+    /// A live room must not outlive its document: deleting the file or
+    /// moving it out of the share closes the session on the next heartbeat,
+    /// even though the grant row is still there.
+    #[test]
+    fn live_session_ends_when_the_document_is_deleted_or_moved_out() {
+        let (dir, state) = test_state();
+        {
+            let conn = state.db.lock().unwrap();
+            crate::db::insert_user(&conn, "u1", "ada", "Ada", "hash", "user").unwrap();
+            crate::db::insert_access_member(&conn, &member_row("m1", "u1", crate::access::CAP_ALL))
+                .unwrap();
+        }
+        assert_eq!(member_caps_now(&state, "u1", "d", "a.docx"), Some(true));
+
+        // Deleted: the grant row alone must not keep the room alive.
+        std::fs::remove_file(dir.path().join("drive-d/a.docx")).unwrap();
+        assert_eq!(member_caps_now(&state, "u1", "d", "a.docx"), None);
+
+        // Moved out of the share: its old path is gone.
+        std::fs::create_dir_all(dir.path().join("drive-d/shared")).unwrap();
+        std::fs::create_dir_all(dir.path().join("drive-d/elsewhere")).unwrap();
+        std::fs::write(dir.path().join("drive-d/shared/doc.txt"), b"x").unwrap();
+        {
+            let conn = state.db.lock().unwrap();
+            let mut row = member_row("m2", "u1", crate::access::CAP_ALL);
+            row.path = "shared".into();
+            crate::db::insert_access_member(&conn, &row).unwrap();
+        }
+        assert_eq!(
+            member_caps_now(&state, "u1", "d", "shared/doc.txt"),
+            Some(true)
+        );
+        std::fs::rename(
+            dir.path().join("drive-d/shared/doc.txt"),
+            dir.path().join("drive-d/elsewhere/doc.txt"),
+        )
+        .unwrap();
+        assert_eq!(member_caps_now(&state, "u1", "d", "shared/doc.txt"), None);
+    }
+
+    /// The guest branch has the same rule: a live link over a folder must
+    /// not keep serving a room for a file that is gone.
+    #[test]
+    fn guest_session_ends_when_the_shared_file_is_deleted() {
+        let (dir, state) = test_state();
+        {
+            let conn = state.db.lock().unwrap();
+            crate::db::insert_access_link(&conn, &link_row("l1", crate::access::CAP_VIEW, None))
+                .unwrap();
+        }
+        assert_eq!(
+            member_caps_now(&state, "guest:l1", "d", "a.drawio"),
+            Some(false)
+        );
+        std::fs::remove_file(dir.path().join("drive-d/a.drawio")).unwrap();
         assert_eq!(member_caps_now(&state, "guest:l1", "d", "a.drawio"), None);
     }
 

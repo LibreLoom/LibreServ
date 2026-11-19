@@ -250,3 +250,121 @@ fn content_must_match_the_extension() {
     assert_eq!(picture_ext("a.PDF"), None);
     assert_eq!(picture_ext("a.JPEG"), Some("jpg"));
 }
+
+#[test]
+fn answers_segments_are_numbered_canonical_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().join(".rsvp.lunaform.responses");
+    std::fs::write(&base, "").unwrap();
+    for name in [
+        ".rsvp.lunaform.responses.1",
+        ".rsvp.lunaform.responses.2",
+        // Not ours: a zero, a leading zero, letters, or a different family.
+        ".rsvp.lunaform.responses.0",
+        ".rsvp.lunaform.responses.01",
+        ".rsvp.lunaform.responses.x",
+        ".rsvp.lunaform.responses-old",
+        "rsvp.lunaform.responses.3",
+    ] {
+        std::fs::write(dir.path().join(name), "").unwrap();
+    }
+    let numbers: Vec<u32> = response_paths_from_base(&base)
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
+    assert_eq!(numbers, vec![0, 1, 2]);
+    assert_eq!(
+        response_segment_path(&base, 3).unwrap(),
+        dir.path().join(".rsvp.lunaform.responses.3")
+    );
+    assert_eq!(response_segment_path(&base, 0).unwrap(), base);
+}
+
+#[test]
+fn answer_text_limits_are_bytes_and_form_characters() {
+    let plain: Value = json!({ "label": "Essay" });
+    assert!(!answer_text_too_long(
+        &plain,
+        &"x".repeat(MAX_ANSWER_TEXT_BYTES)
+    ));
+    assert!(answer_text_too_long(
+        &plain,
+        &"x".repeat(MAX_ANSWER_TEXT_BYTES + 1)
+    ));
+    let short: Value = json!({ "label": "Nickname", "config": { "maxLength": 3 } });
+    assert!(!answer_text_too_long(&short, "abc"));
+    assert!(answer_text_too_long(&short, "abcd"));
+    // A form's limit counts characters, not bytes.
+    assert!(!answer_text_too_long(&short, "ééé"));
+    // A larger form limit cannot lift the server cap.
+    let loose: Value = json!({ "config": { "maxLength": 10_000_000 } });
+    assert!(answer_text_too_long(
+        &loose,
+        &"x".repeat(MAX_ANSWER_TEXT_BYTES + 1)
+    ));
+}
+
+#[test]
+fn too_long_answers_name_the_question_or_say_it_generally() {
+    let doc: Map<String, Value> = serde_json::from_value(json!({
+        "questions": [
+            { "id": "q_1", "type": "long_text", "label": "Your story" },
+            { "id": "q_2", "type": "long_text" }
+        ]
+    }))
+    .unwrap();
+    let answers: Map<String, Value> = serde_json::from_value(json!({
+        "q_1": "x".repeat(MAX_ANSWER_TEXT_BYTES + 1)
+    }))
+    .unwrap();
+    let err = validate_answers(&doc, &answers, None).unwrap_err();
+    assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    assert!(
+        err.1.0["error"].as_str().unwrap().contains("Your story"),
+        "{err:?}"
+    );
+    let answers: Map<String, Value> = serde_json::from_value(json!({
+        "q_2": "x".repeat(MAX_ANSWER_TEXT_BYTES + 1)
+    }))
+    .unwrap();
+    let err = validate_answers(&doc, &answers, None).unwrap_err();
+    assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        err.1.0["error"],
+        "One answer is too long to save. Shorten it and try again."
+    );
+}
+
+#[test]
+fn every_answer_together_must_fit_the_payload_cap() {
+    let mut answers = Map::new();
+    for i in 0..5 {
+        answers.insert(format!("q_{i}"), Value::String("y".repeat(30 * 1024)));
+    }
+    assert!(answers_payload_len(&answers) > MAX_ANSWER_PAYLOAD_BYTES);
+    let small: Map<String, Value> = serde_json::from_value(json!({ "q_1": "hello" })).unwrap();
+    assert!(answers_payload_len(&small) <= MAX_ANSWER_PAYLOAD_BYTES);
+}
+
+#[test]
+fn a_form_bucket_bounds_submissions_from_every_address() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = std::sync::Arc::new(crate::Db::new(
+        crate::db::open(&dir.path().join("luna.db")).unwrap(),
+    ));
+    let limiter = crate::rate_limit::RateLimiter::new(
+        db,
+        std::time::Duration::from_secs(60),
+        FORM_SUBMIT_PER_MINUTE,
+    );
+    let key = form_key("photos", "rsvp.lunaform");
+    for _ in 0..FORM_SUBMIT_PER_MINUTE {
+        assert!(limiter.allow(&key));
+    }
+    assert!(!limiter.allow(&key), "the form's budget is spent");
+    // Another form is untouched, and the key never carries the path.
+    assert!(limiter.allow(&form_key("photos", "potluck.lunaform")));
+    assert!(!key.contains("rsvp"), "{key}");
+    // The per-IP submit bucket is separate from the per-form one.
+    assert!(limiter.allow(&respond_key("submit", "203.0.113.7")));
+}

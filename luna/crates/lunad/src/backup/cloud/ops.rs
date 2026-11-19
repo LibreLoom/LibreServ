@@ -57,6 +57,57 @@ fn problem_outcome(message: &str) -> CloudOutcome {
     }
 }
 
+/// Why a stopped backup is not run, in the person's own words when it has them.
+fn stopped_message(row: &ProtectionRow) -> String {
+    let reason = row.stop_reason.trim();
+    if reason.is_empty() {
+        "This backup is stopped.".to_string()
+    } else {
+        reason.to_string()
+    }
+}
+
+/// Why a private cloud backup must not run now, if it must not. Its folder has to still be the
+/// owner's private item, and the owner has to still be allowed to change it: a restore writes
+/// this row from what a browser sent, so the row alone is not proof.
+fn private_source_problem(conn: &Connection, row: &ProtectionRow) -> Option<String> {
+    if row.private_owner.is_empty() {
+        return None;
+    }
+    if let Some(reason) = access_list::private_stop_reason(conn, row) {
+        return Some(reason.to_string());
+    }
+    // An unplugged drive gives no answer here; the run itself reports the missing source.
+    let mounted = db::get_drive(conn, &row.source_drive)
+        .ok()
+        .flatten()
+        .is_some_and(|d| !d.mount_point.is_empty());
+    if !mounted {
+        return None;
+    }
+    // A deleted owner is already said in words by the run itself.
+    let owner = db::get_user(conn, &row.private_owner).ok().flatten()?;
+    let owner = crate::auth::CurrentUser {
+        id: owner.id,
+        username: owner.username,
+        role: owner.role,
+    };
+    if crate::auth::has_cap(
+        &owner,
+        conn,
+        &row.source_drive,
+        &row.source_path,
+        crate::access::CAP_EDIT,
+    ) {
+        None
+    } else {
+        Some(
+            "This backup's folder is no longer yours to back up. Delete the backup and start it again."
+                .to_string(),
+        )
+    }
+}
+
 /// Start a cloud backup of `source_path` on `source_drive` for `user`. Same
 /// rules as a drive backup for who may start one (plan §2): Read on the
 /// source, Admin for a whole drive, and a private item or a folder inside one
@@ -261,6 +312,28 @@ fn run_untimed(
     let Some(_slot) = drive_backup::try_hold(db, id) else {
         return problem_outcome("This backup is busy right now. Try again in a minute.");
     };
+    // A stopped backup is final until someone starts it again, and a private backup's folder
+    // must still be the owner's own: a restore writes that row from what a browser sent, so the
+    // row on its own is not proof.
+    let (source_problem, private) = {
+        let conn = lock(db);
+        let Some(row) = db::get_protection(&conn, id).ok().flatten() else {
+            return problem_outcome("This backup no longer exists.");
+        };
+        if !matches!(
+            row.state.as_str(),
+            db::PROTECTION_ACTIVE | db::PROTECTION_SOURCE_GONE
+        ) {
+            return problem_outcome(&stopped_message(&row));
+        }
+        (
+            private_source_problem(&conn, &row),
+            !row.private_owner.is_empty(),
+        )
+    };
+    if let Some(problem) = source_problem {
+        return problem_outcome(&problem);
+    }
     // A backup of a parent folder already holds these files. Nothing is recorded, so this
     // backup starts again on its own if that parent backup stops or goes away.
     {
@@ -278,13 +351,6 @@ fn run_untimed(
             tracing::warn!(error = %err, id, "could not publish the cloud user list");
             Some(USER_LIST_FAILED)
         }
-    };
-    let private = {
-        let conn = lock(db);
-        db::get_protection(&conn, id)
-            .ok()
-            .flatten()
-            .is_some_and(|row| !row.private_owner.is_empty())
     };
     let ran = if private {
         // A private item's copy is sealed to its owner's keys, so it has its own run.
@@ -1837,6 +1903,66 @@ mod tests {
         assert!(store.list_records("snapshots").unwrap().is_empty());
         assert_eq!(store.list_records(PSNAPSHOTS_KIND).unwrap().len(), 1);
         assert_eq!(store.list_records(PSCOPES_KIND).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_stopped_backup_does_not_run() {
+        let s = private_setup();
+        private_item(&s, "Docs");
+        let id = private_backup(&s, "Docs");
+        let store = MemoryStore::new();
+        {
+            let conn = lock(&s.db);
+            db::set_protection_state(
+                &conn,
+                &id,
+                db::PROTECTION_STOPPED,
+                "You stopped this backup.",
+            )
+            .unwrap();
+        }
+
+        let out = run(&s.db, &id, &store, &s.connect, "owner", false, NOW);
+
+        assert_eq!(out.problem.as_deref(), Some("You stopped this backup."));
+        assert_eq!(out.snapshot_id, None);
+        assert!(store.list_records(PSNAPSHOTS_KIND).unwrap().is_empty());
+        assert!(store.list_records(PSCOPES_KIND).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_private_backup_whose_folder_is_not_the_owners_does_not_run() {
+        let s = private_setup();
+        fs::create_dir_all(s.root.join("Shared")).unwrap();
+        fs::write(s.root.join("Shared").join("a.txt"), "hello").unwrap();
+        private_item(&s, "Docs");
+        {
+            let conn = lock(&s.db);
+            db::insert_protection(
+                &conn,
+                &db::NewProtection {
+                    id: "forged",
+                    kind: db::PROTECTION_CLOUD,
+                    source_drive: "drive-src",
+                    source_path: "Shared",
+                    target_drive: "",
+                    private_owner: "owner",
+                    created_by: "owner",
+                    created_at: 1,
+                },
+            )
+            .unwrap();
+        }
+        let store = MemoryStore::new();
+
+        let out = run(&s.db, "forged", &store, &s.connect, "owner", false, NOW);
+
+        assert_eq!(
+            out.problem.as_deref(),
+            Some("This folder is no longer a private item.")
+        );
+        assert_eq!(out.snapshot_id, None);
+        assert!(store.list_records(PSNAPSHOTS_KIND).unwrap().is_empty());
     }
 
     #[test]

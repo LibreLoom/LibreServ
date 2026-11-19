@@ -34,9 +34,66 @@ const PONG_TIMEOUT: Duration = Duration::from_secs(20);
 /// Fresh token minted into each auth reply so reconnects stay verifiable;
 /// matches the session endpoint's all-day window.
 const OFFICE_TOKEN_TTL_SECS: i64 = 24 * 60 * 60;
-/// Matches the spike's maxHttpBufferSize; a single pasted image is the biggest
-/// legitimate frame we expect.
-const MAX_PAYLOAD: usize = 64 * 1024 * 1024;
+/// A pasted image is the biggest legitimate frame; 16 MiB is far above it.
+/// The stock pack asks for 64 MiB, but this socket is reachable without a
+/// session, so an unauthenticated client must not be able to make the daemon
+/// buffer that much per frame.
+const MAX_PAYLOAD: usize = 16 * 1024 * 1024;
+/// A socket that never sends a CONNECT with a valid token is closed after
+/// this. Real editors connect and authenticate immediately.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Unauthenticated sockets one address may hold at once.
+const MAX_PREAUTH_PER_IP: usize = 8;
+/// Unauthenticated sockets the daemon holds at once, across all addresses.
+const MAX_PREAUTH_TOTAL: usize = 64;
+/// Client-derived log lines one authenticated connection may write. Past
+/// this, unknown message types are dropped without a log line, so a flood
+/// cannot push real events out of the daemon's log.
+const CLIENT_LOG_BUDGET: u32 = 20;
+
+#[derive(Default)]
+struct PreauthBudget {
+    per_ip: std::collections::HashMap<std::net::IpAddr, usize>,
+    total: usize,
+}
+
+fn preauth_budget() -> &'static std::sync::Mutex<PreauthBudget> {
+    static BUDGET: std::sync::OnceLock<std::sync::Mutex<PreauthBudget>> =
+        std::sync::OnceLock::new();
+    BUDGET.get_or_init(Default::default)
+}
+
+/// One unauthenticated socket's budget slot, released on drop.
+struct PreauthSlot {
+    ip: std::net::IpAddr,
+}
+
+impl PreauthSlot {
+    fn take(ip: std::net::IpAddr) -> Option<Self> {
+        let mut budget = preauth_budget().lock().ok()?;
+        let used = budget.per_ip.get(&ip).copied().unwrap_or(0);
+        if used >= MAX_PREAUTH_PER_IP || budget.total >= MAX_PREAUTH_TOTAL {
+            return None;
+        }
+        budget.per_ip.insert(ip, used + 1);
+        budget.total += 1;
+        Some(Self { ip })
+    }
+}
+
+impl Drop for PreauthSlot {
+    fn drop(&mut self) {
+        if let Ok(mut budget) = preauth_budget().lock() {
+            if let Some(used) = budget.per_ip.get_mut(&self.ip) {
+                *used = used.saturating_sub(1);
+                if *used == 0 {
+                    budget.per_ip.remove(&self.ip);
+                }
+            }
+            budget.total = budget.total.saturating_sub(1);
+        }
+    }
+}
 
 /// Everything under `/eurooffice/` flows through one wildcard route: the
 /// pack's versioned URLs (`/eurooffice/{semver}-{hash}/…`) can't be normalized
@@ -64,8 +121,12 @@ pub async fn dispatch(
             return match WebSocketUpgrade::from_request_parts(&mut parts, &state).await {
                 Ok(ws) => {
                     let key = key.to_string();
+                    let peer = parts
+                        .extensions
+                        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+                        .map(|c| c.0.ip());
                     ws.max_message_size(MAX_PAYLOAD)
-                        .on_upgrade(move |socket| session(state, socket, key))
+                        .on_upgrade(move |socket| session(state, socket, key, peer))
                         .into_response()
                 }
                 Err(_) => (
@@ -161,8 +222,31 @@ fn is_version_segment(seg: &str) -> bool {
         && parts.next().is_none()
 }
 
-async fn session(state: AppState, socket: WebSocket, key: String) {
+/// A bounded printable-ASCII form of client-chosen text for a log field.
+/// Newlines and control characters are dropped so a forged value cannot
+/// start a line of its own, whatever the sink's escaping does.
+fn safe_log_text(text: &str) -> String {
+    text.chars()
+        .filter(|c| c.is_ascii_graphic())
+        .take(64)
+        .collect()
+}
+
+async fn session(state: AppState, socket: WebSocket, key: String, peer: Option<std::net::IpAddr>) {
+    // An unauthenticated socket holds one slot until its CONNECT verifies a
+    // token. Without this, anyone who can reach Luna can park sockets (and
+    // room buffers) for free.
+    let ip = peer.unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED));
+    let Some(slot) = PreauthSlot::take(ip) else {
+        tracing::info!("docstorage: unauthenticated socket cap reached");
+        return;
+    };
+    let mut preauth = Some(slot);
     let sock_id = OfficeDocHub::next_sock_id();
+    // The room key is a URL segment, so before a token verifies it is
+    // attacker-chosen text — a percent-encoded newline would forge a log
+    // line. Log only a short printable-ASCII form of it.
+    let key_for_log = safe_log_text(&key);
     let (mut sink, mut stream) = socket.split();
     let mut rx = state.office_docs.subscribe(&key).await;
 
@@ -189,6 +273,10 @@ async fn session(state: AppState, socket: WebSocket, key: String) {
     // First ping only after the interval; the handshake itself is activity.
     ping.reset();
     let mut ping_outstanding = false;
+    // A socket that never authenticates is not an editor; close it so it
+    // cannot sit on a room subscription or a pre-auth slot.
+    let handshake = tokio::time::sleep(HANDSHAKE_TIMEOUT);
+    tokio::pin!(handshake);
     // Every break path assigns the reason before exiting the loop.
     let close_reason: &str;
 
@@ -207,6 +295,11 @@ async fn session(state: AppState, socket: WebSocket, key: String) {
                         }
                         match handle_packet(&state, &key, sock_id, text, &mut client).await {
                             PacketOutcome::Frames(frames) => {
+                                // Verified by CONNECT: the socket no longer
+                                // counts against the pre-auth budget.
+                                if client.claims.is_some() {
+                                    drop(preauth.take());
+                                }
                                 let mut failed = false;
                                 for f in frames {
                                     if send_raw(&mut sink, &f).await.is_err() { failed = true; break; }
@@ -236,7 +329,7 @@ async fn session(state: AppState, socket: WebSocket, key: String) {
                     Some(Ok(Message::Close(_))) => { close_reason = "ws close frame"; break; }
                     None => { close_reason = "ws stream ended"; break; }
                     Some(Ok(_)) => { last_rx = Instant::now(); }
-                    Some(Err(e)) => { close_reason = "ws transport error"; tracing::info!(key = %key, sock = sock_id, error = %e, "docstorage socket error"); break; }
+                    Some(Err(e)) => { close_reason = "ws transport error"; tracing::info!(key = %key_for_log, sock = sock_id, error = %e, "docstorage socket error"); break; }
                 }
             }
             event = rx.recv() => {
@@ -259,9 +352,13 @@ async fn session(state: AppState, socket: WebSocket, key: String) {
                     // A lagged client missed relayed ops — it must resync:
                     // drop the socket and let the client's reconnect replay
                     // the op log from its syncChangesIndex.
-                    Err(broadcast::error::RecvError::Lagged(n)) => { close_reason = "bus lagged"; tracing::info!(key = %key, sock = sock_id, skipped = n, "docstorage client lagged, forcing resync"); break; }
+                    Err(broadcast::error::RecvError::Lagged(n)) => { close_reason = "bus lagged"; tracing::info!(key = %key_for_log, sock = sock_id, skipped = n, "docstorage client lagged, forcing resync"); break; }
                     Err(broadcast::error::RecvError::Closed) => { close_reason = "bus closed"; break; }
                 }
+            }
+            _ = &mut handshake, if client.claims.is_none() => {
+                close_reason = "handshake timeout";
+                break;
             }
             _ = ping.tick() => {
                 // An idle editor still drops the moment its grant dies.
@@ -278,7 +375,7 @@ async fn session(state: AppState, socket: WebSocket, key: String) {
         }
     }
 
-    tracing::info!(key = %key, sock = sock_id, reason = close_reason, "docstorage session ended");
+    tracing::info!(key = %key_for_log, sock = sock_id, reason = close_reason, "docstorage session ended");
     break_session(&state, &key, sock_id).await;
 }
 
@@ -316,7 +413,6 @@ enum PacketOutcome {
 }
 
 /// Per-socket mutable state carried through the packet loop.
-#[derive(Default)]
 struct ClientState {
     authed: bool,
     can_write: bool,
@@ -329,6 +425,33 @@ struct ClientState {
     participant: Option<Participant>,
     /// Socket.IO binary-event reassembly: (header_json, remaining count).
     pending_binary: Option<(Vec<u8>, usize)>,
+    /// Client-derived log lines this connection may still write.
+    log_budget: u32,
+}
+
+impl Default for ClientState {
+    fn default() -> Self {
+        Self {
+            authed: false,
+            can_write: false,
+            claims: None,
+            participant: None,
+            pending_binary: None,
+            log_budget: CLIENT_LOG_BUDGET,
+        }
+    }
+}
+
+impl ClientState {
+    /// Take one log slot. A client cannot flood the daemon log with its own
+    /// message types once this is spent.
+    fn may_log(&mut self) -> bool {
+        if self.log_budget == 0 {
+            return false;
+        }
+        self.log_budget -= 1;
+        true
+    }
 }
 
 /// One Engine.IO text packet from the client. Returns frames to send back.
@@ -387,8 +510,14 @@ async fn handle_packet(
                 }
                 _ => {
                     // No payload logging — the CONNECT frame carries the
-                    // office JWT, which must not land in the daemon log.
-                    tracing::info!(key = %key, sock = sock_id, docid = %docid, "docstorage: CONNECT unauthorized");
+                    // office JWT, which must not land in the daemon log. The
+                    // client-supplied docid is left out too: before auth it
+                    // is unauthenticated text, so logging it would let
+                    // anyone forge log lines. The room key is only echoed
+                    // through the printable-ASCII filter.
+                    if client.may_log() {
+                        tracing::info!(key = %safe_log_text(key), sock = sock_id, "docstorage: CONNECT unauthorized");
+                    }
                     return PacketOutcome::Frames(vec!["44{\"message\":\"unauthorized\"}".into()]);
                 }
             }
@@ -715,7 +844,17 @@ async fn handle_message(
         _ => {
             // Unknown types get dropped, not relayed — DS never fans them
             // out and a stray type reaching peers only confuses the room.
-            tracing::debug!(key = %key, sock = sock_id, mtype, "docstorage: unhandled message type");
+            // The type is client text, so only the first printable
+            // characters are logged, and only within this connection's
+            // budget.
+            if client.may_log() {
+                let mtype: String = mtype
+                    .chars()
+                    .filter(|c| c.is_ascii_graphic())
+                    .take(32)
+                    .collect();
+                tracing::debug!(key = %safe_log_text(key), sock = sock_id, mtype = %mtype, "docstorage: unhandled message type");
+            }
             PacketOutcome::Ignore
         }
     }
@@ -883,6 +1022,37 @@ mod tests {
         .unwrap();
     }
 
+    #[test]
+    fn unauthenticated_sockets_are_bounded_and_client_logs_are_budgeted() {
+        // The policy constants are the contract: a pasted image still fits,
+        // a 64 MiB frame does not, and a socket that never authenticates is
+        // closed within ten seconds.
+        let payload_cap = MAX_PAYLOAD;
+        assert!((4 * 1024 * 1024..=16 * 1024 * 1024).contains(&payload_cap));
+        assert!(HANDSHAKE_TIMEOUT <= Duration::from_secs(10));
+
+        let ip: std::net::IpAddr = "203.0.113.250".parse().unwrap();
+        let mut slots: Vec<PreauthSlot> = (0..MAX_PREAUTH_PER_IP)
+            .map(|_| PreauthSlot::take(ip).expect("within the per-IP cap"))
+            .collect();
+        assert!(
+            PreauthSlot::take(ip).is_none(),
+            "one address cannot hold more pre-auth sockets"
+        );
+        drop(slots.pop());
+        assert!(
+            PreauthSlot::take(ip).is_some(),
+            "closing one frees its slot"
+        );
+        drop(slots);
+
+        let mut client = ClientState::default();
+        for _ in 0..CLIENT_LOG_BUDGET {
+            assert!(client.may_log());
+        }
+        assert!(!client.may_log(), "a flood stops writing log lines");
+    }
+
     fn link_claims(link_id: &str, key: &str, path: &str, write: bool) -> OfficeClaims {
         OfficeClaims {
             typ: "luna_office".into(),
@@ -895,6 +1065,7 @@ mod tests {
             bundle_id: Some("b1".into()),
             link_id: Some(link_id.into()),
             link_revision: Some(blake3::hash("".as_bytes()).to_hex().to_string()),
+            tv: 0,
         }
     }
 
@@ -969,6 +1140,7 @@ mod tests {
             bundle_id: None,
             link_id: None,
             link_revision: None,
+            tv: 0,
         };
         assert_eq!(current_office_access(&state, &claims), Some(true));
         claims.exp = crate::db::now_unix() - 1;
@@ -979,6 +1151,59 @@ mod tests {
             crate::db::delete_user(&conn, "u1").unwrap();
         }
         assert_eq!(current_office_access(&state, &claims), None, "deleted user");
+    }
+
+    #[tokio::test]
+    async fn a_global_sign_out_kills_an_open_office_token_and_it_cannot_renew() {
+        let dir = tempfile::tempdir().unwrap();
+        mount_drive(&dir);
+        let state = test_state(&dir);
+        {
+            let conn = state.db.lock().unwrap();
+            crate::db::insert_user(&conn, "u1", "max", "Max", "x", "admin").unwrap();
+        }
+        let claims = OfficeClaims {
+            typ: "luna_office".into(),
+            sub: "u1".into(),
+            drive_id: "drive-a".into(),
+            path: "docs/Report.docx".into(),
+            write: true,
+            exp: crate::db::now_unix() + 60,
+            key: Some("key-a".into()),
+            bundle_id: Some("b1".into()),
+            link_id: None,
+            link_revision: None,
+            tv: 0,
+        };
+        let jwt = state
+            .auth
+            .issue_scoped_office_token(claims.clone(), 3600)
+            .unwrap();
+        assert!(
+            verify_token(&state, "key-a", &jwt).await.is_some(),
+            "fresh token works"
+        );
+
+        // "Sign out everywhere": the stamp moves on.
+        {
+            let conn = state.db.lock().unwrap();
+            crate::db::bump_user_token_version(&conn, "u1").unwrap();
+        }
+        assert!(
+            verify_token(&state, "key-a", &jwt).await.is_none(),
+            "a token minted before the sign-out is refused"
+        );
+        assert_eq!(current_office_access(&state, &claims), None);
+        // And the socket's renewal path re-signs the same stale claims, so
+        // it cannot mint itself a working token either.
+        let renewed = state
+            .auth
+            .issue_scoped_office_token(claims.clone(), 3600)
+            .unwrap();
+        assert!(
+            verify_token(&state, "key-a", &renewed).await.is_none(),
+            "renewal must not revive a stale stamp"
+        );
     }
 
     fn connect_packet(jwt: &str) -> String {

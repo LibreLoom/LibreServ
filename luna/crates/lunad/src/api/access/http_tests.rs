@@ -331,6 +331,135 @@ async fn folder_link_lists_entries() {
     assert_eq!(body["entries"][0]["name"], "note.txt");
 }
 
+/// A view link may not read names the share page hides: the form answers
+/// file beside a `.lunaform`, and any other dotfile.
+#[tokio::test]
+async fn view_link_cannot_read_hidden_files() {
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(mount.path().join("family")).unwrap();
+    std::fs::write(mount.path().join("family/note.txt"), "hi").unwrap();
+    std::fs::write(mount.path().join("family/.secret"), "hidden").unwrap();
+    std::fs::write(
+        mount.path().join("family/.rsvp.lunaform.responses"),
+        "{\"answers\":{}}\n",
+    )
+    .unwrap();
+    let (_dir, app) = test_app(mount.path());
+    let (cookie, csrf) = admin(&app).await;
+    let link = make_link(
+        &app,
+        &cookie,
+        &csrf,
+        r#"{"kind":"folder","drive_id":"photos","path":"family","caps":"view"}"#,
+    )
+    .await;
+    let token = link["token"].as_str().unwrap();
+
+    for name in [".secret", ".rsvp.lunaform.responses"] {
+        let (s, b) = public_get(&app, &format!("/s/{token}/file?path={name}")).await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "{name}: {b}");
+        // The link's own download spelling must refuse it too.
+        let (s, b) = public_get(&app, &format!("/s/{token}?path={name}&download=1")).await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "{name}: {b}");
+        let (s, b) = public_get(&app, &format!("/s/{token}/stat?path={name}")).await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "{name}: {b}");
+        let (s, b) = public_get(&app, &format!("/s/{token}/list?path={name}")).await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "{name}: {b}");
+    }
+
+    // The listing still shows only the visible file.
+    let (s, b) = public_get(&app, &format!("/s/{token}/list")).await;
+    assert_eq!(s, 200, "{b}");
+    assert_eq!(b["entries"].as_array().unwrap().len(), 1, "{b}");
+
+    // Members keep their dotfiles: only the public surface changed.
+    let res = call(
+        &app,
+        json_req(
+            Method::GET,
+            "/api/v1/drives/photos/files/content?path=family/.secret",
+            "",
+            Some(&cookie),
+            Some(&csrf),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+/// The guest's folder zip leaves out every hidden name — the answers file
+/// and dotfiles alike. A member's own download keeps them.
+#[tokio::test]
+async fn folder_zip_omits_hidden_names_for_guests() {
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(mount.path().join("family/.hidden")).unwrap();
+    std::fs::write(mount.path().join("family/note.txt"), "hi").unwrap();
+    std::fs::write(mount.path().join("family/.secret"), "hidden").unwrap();
+    std::fs::write(mount.path().join("family/.hidden/inside.txt"), "in").unwrap();
+    std::fs::write(mount.path().join("family/.rsvp.lunaform.responses"), "{}\n").unwrap();
+    let (_dir, app) = test_app(mount.path());
+    let (cookie, csrf) = admin(&app).await;
+    let link = make_link(
+        &app,
+        &cookie,
+        &csrf,
+        r#"{"kind":"folder","drive_id":"photos","path":"family","caps":"view"}"#,
+    )
+    .await;
+    let token = link["token"].as_str().unwrap();
+
+    async fn zip_names(res: axum::response::Response) -> Vec<String> {
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(body)).unwrap();
+        (0..archive.len())
+            .map(|i| {
+                archive
+                    .by_index(i)
+                    .unwrap()
+                    .name()
+                    .expect("ZIP entry name is valid UTF-8")
+                    .to_string()
+            })
+            .collect()
+    }
+
+    let res = call(
+        &app,
+        json_req(Method::GET, &format!("/s/{token}/zip"), "", None, None),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let names = zip_names(res).await;
+    assert!(names.iter().any(|n| n == "family/note.txt"), "{names:?}");
+    assert!(
+        !names
+            .iter()
+            .any(|n| n.contains(".secret") || n.contains("lunaform") || n.contains(".hidden")),
+        "hidden names never enter a guest zip: {names:?}"
+    );
+
+    // A member's own download still archives the dotfiles.
+    let res = call(
+        &app,
+        json_req(
+            Method::GET,
+            "/api/v1/drives/photos/files/content?path=family&download=1",
+            "",
+            Some(&cookie),
+            Some(&csrf),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let names = zip_names(res).await;
+    assert!(
+        names.iter().any(|n| n.ends_with("/.secret")),
+        "member zip keeps dotfiles: {names:?}"
+    );
+}
+
 async fn public_json(
     app: &axum::Router,
     method: Method,
@@ -370,6 +499,38 @@ async fn guest_stat_reports_in_scope_metadata() {
     let (status, body) = public_get(&app, &format!("/s/{token}/stat")).await;
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["writable"], false);
+}
+
+#[tokio::test]
+async fn guest_stat_counts_only_visible_children() {
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(mount.path().join("family/visible")).unwrap();
+    std::fs::create_dir_all(mount.path().join("family/private")).unwrap();
+    std::fs::write(mount.path().join("family/note.txt"), "hi").unwrap();
+    std::fs::write(mount.path().join("family/.secret"), "x").unwrap();
+    crate::private::privatize(mount.path(), "family/private", "someone-else").unwrap();
+    let (_dir, app) = test_app(mount.path());
+    let token = edit_link(&app, "view").await;
+
+    // The listing the guest sees: one visible folder and one visible file.
+    let (status, body) = public_get(&app, &format!("/s/{token}/list")).await;
+    assert_eq!(status, 200, "{body}");
+    let mut names: Vec<&str> = body["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["name"].as_str().unwrap())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["note.txt", "visible"], "{body}");
+
+    // The properties panel must report exactly that, not the private child
+    // or the dotfile the listing hides.
+    let (status, body) = public_get(&app, &format!("/s/{token}/stat")).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["children"]["dirs"], 1, "{body}");
+    assert_eq!(body["children"]["files"], 1, "{body}");
+    assert_eq!(body["children"]["other"], 0, "{body}");
 }
 
 #[tokio::test]

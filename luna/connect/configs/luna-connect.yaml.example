@@ -9,6 +9,15 @@ server:
   at_rest_key: ""
   web_dir: "web/dist"
 
+# Proxy addresses whose client-IP headers (CF-Connecting-IP, X-Real-IP,
+# X-Forwarded-For) Connect may believe. Comma-separated IPs or CIDRs.
+# Loopback is always trusted, so the shipped Caddy on 127.0.0.1 needs no entry.
+# Set this only when a proxy reaches Connect from another address — for example
+# a Caddy or load balancer on a Docker/LAN network ("172.17.0.1",
+# "10.0.0.0/8"). List only a proxy you control: it can choose the client
+# address Connect sees. Env: LUNACONNECT_TRUSTED_PROXIES. Empty = loopback only.
+trusted_proxies: ""
+
 auth:
   # Gates POST /admin/seed when set (send as X-Seed-Token). Empty = loopback only.
   admin_seed_token: ""

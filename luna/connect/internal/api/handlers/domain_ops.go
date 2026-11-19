@@ -66,8 +66,23 @@ func tunnelName(sub, deviceID string) string {
 // person would never see our message. 503 passes through untouched.
 const providerFailureStatus = http.StatusServiceUnavailable
 
+// Address changes per account per hour. Every change deletes and recreates the
+// Cloudflare tunnel and DNS records on the one credential pair every Luna
+// shares, so a loop from one account can make address setup fail for everyone.
+const (
+	domainChangeMax    = 5
+	domainChangeWindow = 3600
+	domainChangeMsg    = "Too many address changes. Wait an hour, then try again."
+)
+
+// allowDomainChange records one address change for this account and reports
+// whether it may go ahead. First-time setup is not a change and is not counted.
+func allowDomainChange(db *database.DB, accountID string) bool {
+	return allowGuess(db, "domain-change:"+accountID, domainChangeMax, domainChangeWindow)
+}
+
 func cloudflareDomainReady() (int, string) {
-	if !config.C.Cloudflare.Ready() && !config.DevMode() {
+	if !config.Cloudflare().Ready() && !config.DevMode() {
 		return 503, "Remote addresses are not set up on this Luna Connect site yet. Contact support."
 	}
 	if err := security.AtRestReady(); err != nil {
@@ -107,12 +122,13 @@ func syncDeviceLocalPort(deps Deps, deviceID string, port int) {
 	if curPort == port {
 		return
 	}
-	if tunnelID != "" && sub != "" && (config.C.Cloudflare.Ready() || config.DevMode()) {
+	if tunnelID != "" && sub != "" && (config.Cloudflare().Ready() || config.DevMode()) {
 		providers.RefreshCloudflare()
+		cf := config.Cloudflare()
 		host := domainname.Hostname(sub, config.C.Server.PublicZone)
 		if err := deps.Tunnel.ConfigureIngress(
-			config.C.Cloudflare.AccountID,
-			config.C.Cloudflare.APIToken,
+			cf.AccountID,
+			cf.APIToken,
 			tunnelID,
 			host,
 			"http://127.0.0.1:"+itoa(port),
@@ -170,36 +186,37 @@ func applyDeviceDomain(deps Deps, deviceID, sub string, port int) (map[string]an
 	}
 
 	host := domainname.Hostname(sub, config.C.Server.PublicZone)
+	cf := config.Cloudflare()
 	if d.TunnelID != "" {
-		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, d.TunnelID)
+		_ = deps.Tunnel.DeleteTunnel(cf.AccountID, cf.APIToken, d.TunnelID)
 	}
 	if d.Subdomain != "" && d.Subdomain != sub {
-		_ = deps.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, domainname.Hostname(d.Subdomain, config.C.Server.PublicZone))
+		_ = deps.DNS.DeleteRecord(cf.APIToken, cf.ZoneID, domainname.Hostname(d.Subdomain, config.C.Server.PublicZone))
 	}
 
-	creds, err := deps.Tunnel.CreateTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tunnelName(sub, deviceID))
+	creds, err := deps.Tunnel.CreateTunnel(cf.AccountID, cf.APIToken, tunnelName(sub, deviceID))
 	if err != nil {
 		slog.Error("domain: create tunnel failed", "device", deviceID, "subdomain", sub, "err", err)
 		releaseClaim()
 		return nil, providerFailureStatus, "Could not create the secure connection. Try again."
 	}
 	tid, ttoken := creds.TunnelID, creds.Token
-	if err := deps.Tunnel.ConfigureIngress(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid, host, "http://127.0.0.1:"+itoa(port)); err != nil {
+	if err := deps.Tunnel.ConfigureIngress(cf.AccountID, cf.APIToken, tid, host, "http://127.0.0.1:"+itoa(port)); err != nil {
 		slog.Error("domain: configure tunnel ingress failed", "device", deviceID, "subdomain", sub, "err", err)
-		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
+		_ = deps.Tunnel.DeleteTunnel(cf.AccountID, cf.APIToken, tid)
 		releaseClaim()
 		return nil, providerFailureStatus, "Could not set up the address. Try again."
 	}
-	if err := deps.DNS.UpsertCNAME(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, host, tid+".cfargotunnel.com"); err != nil {
+	if err := deps.DNS.UpsertCNAME(cf.APIToken, cf.ZoneID, host, tid+".cfargotunnel.com"); err != nil {
 		slog.Error("domain: publish DNS record failed", "device", deviceID, "subdomain", sub, "err", err)
-		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
+		_ = deps.Tunnel.DeleteTunnel(cf.AccountID, cf.APIToken, tid)
 		releaseClaim()
 		return nil, providerFailureStatus, "Could not publish the address. Try again."
 	}
 	sealedTok, err := security.SealString(ttoken)
 	if err != nil {
-		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
-		_ = deps.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, host)
+		_ = deps.Tunnel.DeleteTunnel(cf.AccountID, cf.APIToken, tid)
+		_ = deps.DNS.DeleteRecord(cf.APIToken, cf.ZoneID, host)
 		releaseClaim()
 		return nil, 500, "Could not set up the address. Try again."
 	}
@@ -208,8 +225,8 @@ func applyDeviceDomain(deps Deps, deviceID, sub string, port int) (map[string]an
 	_, err = deps.DB.Exec(`UPDATE devices SET tunnel_id = ?, tunnel_token = ?, local_port = ?, name = ? WHERE id = ?`,
 		tid, sealedTok, port, sub, deviceID)
 	if err != nil {
-		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
-		_ = deps.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, host)
+		_ = deps.Tunnel.DeleteTunnel(cf.AccountID, cf.APIToken, tid)
+		_ = deps.DNS.DeleteRecord(cf.APIToken, cf.ZoneID, host)
 		releaseClaim()
 		return nil, 500, "Could not save the address. Try again."
 	}
@@ -234,34 +251,35 @@ func regenerateDeviceTunnel(deps Deps, deviceID string) (map[string]any, int, st
 	}
 
 	host := domainname.Hostname(d.Subdomain, config.C.Server.PublicZone)
+	cf := config.Cloudflare()
 	if d.TunnelID != "" {
-		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, d.TunnelID)
+		_ = deps.Tunnel.DeleteTunnel(cf.AccountID, cf.APIToken, d.TunnelID)
 	}
 
-	creds, err := deps.Tunnel.CreateTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tunnelName(d.Subdomain, deviceID))
+	creds, err := deps.Tunnel.CreateTunnel(cf.AccountID, cf.APIToken, tunnelName(d.Subdomain, deviceID))
 	if err != nil {
 		slog.Error("domain: regenerate tunnel failed", "device", deviceID, "err", err)
 		return nil, providerFailureStatus, "Could not create the secure connection. Try again."
 	}
 	tid, ttoken := creds.TunnelID, creds.Token
-	if err := deps.Tunnel.ConfigureIngress(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid, host, "http://127.0.0.1:"+itoa(d.Port)); err != nil {
+	if err := deps.Tunnel.ConfigureIngress(cf.AccountID, cf.APIToken, tid, host, "http://127.0.0.1:"+itoa(d.Port)); err != nil {
 		slog.Error("domain: regenerate ingress failed", "device", deviceID, "err", err)
-		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
+		_ = deps.Tunnel.DeleteTunnel(cf.AccountID, cf.APIToken, tid)
 		return nil, providerFailureStatus, "Could not set up the secure connection. Try again."
 	}
-	if err := deps.DNS.UpsertCNAME(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, host, tid+".cfargotunnel.com"); err != nil {
+	if err := deps.DNS.UpsertCNAME(cf.APIToken, cf.ZoneID, host, tid+".cfargotunnel.com"); err != nil {
 		slog.Error("domain: regenerate DNS record failed", "device", deviceID, "err", err)
-		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
+		_ = deps.Tunnel.DeleteTunnel(cf.AccountID, cf.APIToken, tid)
 		return nil, providerFailureStatus, "Could not publish the address. Try again."
 	}
 	sealedTok, err := security.SealString(ttoken)
 	if err != nil {
-		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
+		_ = deps.Tunnel.DeleteTunnel(cf.AccountID, cf.APIToken, tid)
 		return nil, 500, "Could not set up the address. Try again."
 	}
 	_, err = deps.DB.Exec(`UPDATE devices SET tunnel_id = ?, tunnel_token = ? WHERE id = ?`, tid, sealedTok, deviceID)
 	if err != nil {
-		_ = deps.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tid)
+		_ = deps.Tunnel.DeleteTunnel(cf.AccountID, cf.APIToken, tid)
 		return nil, 500, "Could not save the secure connection. Try again."
 	}
 	return map[string]any{

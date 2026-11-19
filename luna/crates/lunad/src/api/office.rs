@@ -188,14 +188,28 @@ async fn prepare_session(
     link: Option<&AccessLinkRow>,
     guest_document_url: Option<String>,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
-    let (abs, meta) = {
+    let (abs, meta, token_version) = {
         let conn = state.db.lock().map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Luna couldn't open this document right now. Try again.",
             )
         })?;
-        files::file_path(&conn, &drive_id, &path).map_err(crate::api::files::map_files_err)?
+        let (abs, meta) =
+            files::file_path(&conn, &drive_id, &path).map_err(crate::api::files::map_files_err)?;
+        // A member token carries the user's current revocation stamp, so a
+        // later "sign out everywhere" invalidates it. Guest tokens have no
+        // user row and ride the link revision instead.
+        let tv = if link.is_none() {
+            db::get_user(&conn, &user_id)
+                .ok()
+                .flatten()
+                .map(|u| u.token_version)
+                .unwrap_or(-1)
+        } else {
+            0
+        };
+        (abs, meta, tv)
     };
     let modified = meta
         .modified()
@@ -280,6 +294,7 @@ async fn prepare_session(
                 .to_hex()
                 .to_string()
         }),
+        tv: token_version,
     };
     let token = state
         .auth
@@ -708,6 +723,12 @@ pub(crate) fn current_office_access(state: &AppState, claims: &OfficeClaims) -> 
     }
     let conn = state.db.lock().ok()?;
     let row = db::get_user(&conn, &claims.sub).ok()??;
+    // "Sign out everywhere" (and a password change) bumps `token_version`.
+    // A document token minted before that must stop, and must not renew
+    // itself on the socket.
+    if claims.tv != row.token_version {
+        return None;
+    }
     let user = CurrentUser {
         id: row.id,
         username: row.username,

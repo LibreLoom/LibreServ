@@ -96,9 +96,6 @@ async fn call(app: &axum::Router, r: HttpReq<Body>) -> axum::response::Response 
 }
 
 static LIST_QUERIES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-fn count_query(_: &str) {
-    LIST_QUERIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-}
 
 /// A member's listing must cost a bounded number of queries, not a few
 /// per entry: 600 files here would be thousands of statements if the
@@ -143,7 +140,13 @@ fn member_listing_issues_a_bounded_number_of_queries() {
         },
     )
     .unwrap();
-    conn.trace(Some(count_query));
+    conn.trace_v2(
+        rusqlite::trace::TraceEventCodes::SQLITE_TRACE_STMT,
+        Some(|_: rusqlite::trace::TraceEvent<'_>| {
+            LIST_QUERIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }),
+    )
+    .unwrap();
     let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
     let state = crate::AppState::new(conn, drive_manager, dir.path());
     let sam = crate::auth::CurrentUser {
@@ -495,6 +498,71 @@ async fn private_items_are_the_owners_not_the_admins() {
         .await
         .unwrap();
     assert!(!String::from_utf8_lossy(&bytes).contains("note.txt"));
+}
+
+/// The delete guard and the delete itself run under one lock: a member with
+/// Full on the folder is still refused while *someone else's* private item
+/// lives inside, and the item survives.
+#[tokio::test]
+async fn a_member_cannot_delete_a_folder_holding_another_persons_private_item() {
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(mount.path().join("family")).unwrap();
+    let (dir, app) = test_app(mount.path());
+    let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
+    let (admin_cookie, admin_csrf) = admin_login(&app).await;
+    {
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        crate::db::insert_access_member(
+            &conn,
+            &crate::db::AccessMemberRow {
+                id: "g1".into(),
+                subject_kind: crate::access::KIND_PATH.into(),
+                drive_id: "photos".into(),
+                path: "family".into(),
+                album_id: String::new(),
+                user_id: sam_id,
+                caps: crate::access::CAP_ALL,
+                created_by: "test".into(),
+            },
+        )
+        .unwrap();
+    }
+    // The Admin puts a private folder inside the one Sam may edit.
+    let res = call(
+        &app,
+        json_req(
+            Method::POST,
+            "/api/v1/drives/photos/files/mkdir",
+            r#"{"path":"family/Vault","private":true}"#,
+            Some(&admin_cookie),
+            Some(&admin_csrf),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), 200);
+
+    let mut del = HttpReq::builder()
+        .method(Method::DELETE)
+        .uri("/api/v1/drives/photos/files?path=family")
+        .header("cookie", &sam_cookie)
+        .header("x-csrf-token", &sam_csrf)
+        .body(Body::empty())
+        .unwrap();
+    del.extensions_mut().insert(ConnectInfo(CLIENT));
+    let res = call(&app, del).await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    let body = body_json(res).await;
+    assert_eq!(
+        body["error"],
+        "This folder holds private items that only their owners can delete."
+    );
+    assert!(
+        crate::private::item_at(mount.path(), "family/Vault").is_some(),
+        "the private item must survive the refused delete"
+    );
+
+    // Its owner can delete the folder around it.
+    delete_path(&app, &admin_cookie, &admin_csrf, "family").await;
 }
 
 /// An ordinary file deleted out of a private folder stays private in

@@ -25,6 +25,18 @@ func VerifyPassword(hash, password string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 }
 
+// dummyPasswordHash is a valid bcrypt hash (cost 10) of a random string that is
+// not a usable password. Sign-in verifies the supplied password against it when
+// no account matches the address, so an unknown address takes as long to answer
+// as a wrong password on a real one. It never authenticates anyone.
+const dummyPasswordHash = "$2a$10$b.Pi.Xi5e5F.XX.5RcgIa.c1r1uHpX.ZbZxpUyXIzYJfn6KM5vY0C"
+
+// VerifyDummyPassword spends the same bcrypt work a real password check does,
+// then throws the answer away. Call it only on the "no such account" path.
+func VerifyDummyPassword(password string) error {
+	return bcrypt.CompareHashAndPassword([]byte(dummyPasswordHash), []byte(password))
+}
+
 func GenerateTOTPSecret() (string, error) {
 	secret := make([]byte, 20)
 	if _, err := rand.Read(secret); err != nil {

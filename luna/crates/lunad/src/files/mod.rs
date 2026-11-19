@@ -1019,6 +1019,19 @@ pub struct ZipPlan {
     rel: String,
     archive_root: String,
     trash_names: std::collections::HashMap<String, String>,
+    /// Leave out names the public folder listing hides (dotfiles,
+    /// `lost+found`) — the guest's share page never shows them, so its zip
+    /// must not hand them over. Member downloads keep the default `false`.
+    skip_hidden: bool,
+}
+
+impl ZipPlan {
+    /// Hide what the public listing hides. Only the public share surface
+    /// sets this; a member's own download sees their dotfiles.
+    pub fn hiding_hidden(mut self) -> Self {
+        self.skip_hidden = true;
+        self
+    }
 }
 
 pub fn zip_plan(
@@ -1058,6 +1071,7 @@ pub fn zip_plan(
         rel,
         archive_root,
         trash_names,
+        skip_hidden: false,
     })
 }
 
@@ -1077,6 +1091,7 @@ pub fn write_zip_from_plan(
         rel,
         archive_root,
         trash_names,
+        skip_hidden,
     } = plan;
     let rel = rel.as_str();
     let mut zip = ZipWriter::new(writer);
@@ -1098,7 +1113,10 @@ pub fn write_zip_from_plan(
                 continue;
             };
             let item = private.get(disk);
-            if item.is_none() && is_internal_temp(disk) {
+            if item.is_none()
+                && (is_internal_temp(disk)
+                    || (skip_hidden && luna_core::scan::is_hidden_name(disk)))
+            {
                 continue;
             }
             let name = item.map_or(disk, |i| i.name());
@@ -1609,6 +1627,9 @@ pub fn delete_to_trash(
             "cannot trash the drive root",
         )));
     }
+    let was_dir = std::fs::symlink_metadata(&path)
+        .map(|m| m.is_dir())
+        .unwrap_or(false);
     let Some(name) = path.file_name().map(|s| s.to_string_lossy().into_owned()) else {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -1699,6 +1720,14 @@ pub fn delete_to_trash(
     // and restoring the file never brings them back.
     crate::access::drop_subjects_under(conn, drive_id, &trash_rel).map_err(FilesError::Db)?;
     note_write(conn, drive_id, &trash_rel);
+    // Photo previews are keyed by the path the item just left. Left behind,
+    // they keep serving a deleted picture (including one from a private
+    // folder that no longer exists) at its old URL.
+    if was_dir {
+        crate::photos::remove_previews_under(&root, drive_id, &trash_rel);
+    } else {
+        crate::photos::remove_previews(&root, drive_id, &trash_rel);
+    }
     // Return the API-alias path (`trash_meta` keeps the real entry name, which
     // is shared by both forms since the alias only swaps the dir prefix).
     Ok(format!("{TRASH_API_ALIAS}/{entry}"))
@@ -2281,6 +2310,13 @@ pub fn purge_trash_at(drive: &DriveRow, drive_id: &str, trash_rel: &str) -> Resu
     };
     let path = resolve_child(&root, trash_rel.as_ref())?;
     let meta = std::fs::symlink_metadata(&path).map_err(FilesError::Io)?;
+    // Where the item was before it was trashed — its preview cache is keyed
+    // by that path, not the trash path. Read before the entry's trash_meta
+    // row is removed below.
+    let origin = read_trash_meta(&root, entry_name).map(|meta| match rest {
+        Some(rest) => format!("{}/{rest}", meta.original_path),
+        None => meta.original_path,
+    });
     if meta.is_dir() {
         std::fs::remove_dir_all(&path).map_err(FilesError::Io)?;
     } else {
@@ -2296,6 +2332,13 @@ pub fn purge_trash_at(drive: &DriveRow, drive_id: &str, trash_rel: &str) -> Resu
         remove_trash_meta(&root, entry_name);
     }
     note_write_at(drive, drive_id, &trash_rel);
+    if let Some(origin) = origin.filter(|path| !path.is_empty()) {
+        if meta.is_dir() {
+            crate::photos::remove_previews_under(&root, drive_id, &origin);
+        } else {
+            crate::photos::remove_previews(&root, drive_id, &origin);
+        }
+    }
     Ok(())
 }
 

@@ -38,6 +38,10 @@ fi
 
 mkdir -p "$INSTALL_DIR/web" "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR"
 chown -R "$USER:$USER" "$INSTALL_DIR" "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR"
+# The database holds customer emails and password hashes. Older installs made it
+# world-readable, so tighten the data directory and any existing database files.
+chmod 700 "$DATA_DIR"
+chmod 600 "$DATA_DIR"/luna-connect.db* 2>/dev/null || true
 
 log_step "Creating instance configs"
 admin_token=""

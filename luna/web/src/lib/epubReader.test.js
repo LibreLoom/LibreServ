@@ -311,7 +311,152 @@ describe("sanitizeBookHtml", () => {
     expect(out).toContain("ok");
   });
 
-  it("leaves unparseable or non-markup input untouched", () => {
+  it("removes tab- and newline-split javascript: URLs from href", () => {
+    const out = sanitizeBookHtml(`<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>t</title></head>
+<body>
+  <a href="java&#9;script:alert(1)">tab</a>
+  <a href="java&#x0A;script:alert(1)">newline</a>
+  <a href=" JaVaScRiPt&#x0D;:alert(1)">mixed</a>
+  <a href="next.xhtml">next</a>
+</body>
+</html>`);
+    expect(out).not.toContain("javascript:");
+    expect(out).not.toContain("alert(1)");
+    expect(out).toContain('href="next.xhtml"');
+  });
+
+  it("removes frames, plugins, base and srcdoc, keeping the page text", () => {
+    const out = sanitizeBookHtml(`<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>t</title></head>
+<body>
+  <p>Before</p>
+  <iframe src="https://example.test/frame" srcdoc="&lt;script&gt;alert(1)&lt;/script&gt;"></iframe>
+  <object data="movie.swf"></object>
+  <embed src="movie.swf"/>
+  <applet code="Movie.class"></applet>
+  <base href="https://example.test/"/>
+  <p>After</p>
+</body>
+</html>`);
+    expect(out).not.toMatch(/<(iframe|object|embed|applet|base)[\s>/]/i);
+    expect(out).not.toContain("srcdoc");
+    expect(out).not.toContain("alert(1)");
+    expect(out).toContain("Before");
+    expect(out).toContain("After");
+  });
+
+  it("removes foreignObject and its iframe from an SVG spine page", () => {
+    const out = sanitizeBookHtml(`<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 800">
+  <text y="40">Continue reading</text>
+  <foreignObject width="600" height="200">
+    <iframe xmlns="http://www.w3.org/1999/xhtml" srcdoc="&lt;script&gt;alert(1)&lt;/script&gt;"></iframe>
+  </foreignObject>
+</svg>`, "image/svg+xml");
+    expect(out).not.toMatch(/foreignObject/i);
+    expect(out).not.toMatch(/<iframe/i);
+    expect(out).not.toContain("srcdoc");
+    expect(out).not.toContain("alert(1)");
+    expect(out).toContain("Continue reading");
+  });
+
+  it("removes SMIL animation that could add attributes after the pass", () => {
+    const out = sanitizeBookHtml(`<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 800">
+  <a>
+    <animate attributeName="href" values="javascript:alert(1)"/>
+    <set attributeName="href" to="javascript:alert(1)"/>
+    <text y="40">Go on</text>
+  </a>
+</svg>`, "image/svg+xml");
+    expect(out).not.toMatch(/<(animate|set)[\s>/]/i);
+    expect(out).not.toContain("javascript:");
+    expect(out).toContain("Go on");
+  });
+
+  it("adds the CSP meta to SVG spine pages as well", () => {
+    const out = sanitizeBookHtml(
+      `<svg xmlns="http://www.w3.org/2000/svg"><text y="10">Page</text></svg>`,
+      "image/svg+xml",
+    );
+    expect(out).toContain("Content-Security-Policy");
+    expect(out).toContain("script-src 'none'");
+    expect(out).toContain("object-src 'none'");
+  });
+
+  it("adds a CSP meta to an XHTML page that has no head", () => {
+    const out = sanitizeBookHtml(`<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Chapter</p></body></html>`);
+    const doc = new DOMParser().parseFromString(out, "application/xhtml+xml");
+    const head = doc.getElementsByTagName("head")[0];
+    const meta = head?.firstElementChild;
+    expect(meta?.getAttribute("http-equiv")).toBe("Content-Security-Policy");
+    expect(meta?.getAttribute("content")).toContain("base-uri 'none'");
+    expect(doc.getElementsByTagName("p")[0]?.textContent).toBe("Chapter");
+  });
+
+  it("puts the CSP meta in the document head, not a nested decoy", () => {
+    const out = sanitizeBookHtml(`<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<body><head><title>decoy</title></head><p>Text</p></body>
+</html>`);
+    const doc = new DOMParser().parseFromString(out, "application/xhtml+xml");
+    const head = [...doc.documentElement.children]
+      .find((el) => el.localName === "head");
+    expect(head?.firstElementChild?.getAttribute("http-equiv"))
+      .toBe("Content-Security-Policy");
+    expect(doc.getElementsByTagName("p")[0]?.textContent).toBe("Text");
+  });
+
+  it("keeps document data: URLs out and image data: URLs in", () => {
+    const out = sanitizeBookHtml(`<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>t</title></head>
+<body>
+  <a href="data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;">page</a>
+  <img src="data:image/png;base64,iVBORw0KGgo="/>
+</body>
+</html>`);
+    expect(out).not.toContain("data:text/html");
+    expect(out).toContain("data:image/png;base64,iVBORw0KGgo=");
+  });
+
+  it("keeps normal page content, links, images and inline SVG", () => {
+    const out = sanitizeBookHtml(`<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Chapter One</title><link rel="stylesheet" href="../style.css"/></head>
+<body>
+  <h1>Chapter One</h1>
+  <p>Read the <a href="chapter2.xhtml#part-2">next chapter</a>.</p>
+  <img src="../images/cover.png" alt="Cover"/>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">
+    <rect width="10" height="10"/>
+  </svg>
+  <p><a href="mailto:author@example.test">Write to the author</a></p>
+</body>
+</html>`);
+    expect(out).toContain("Chapter One");
+    expect(out).toContain('href="chapter2.xhtml#part-2"');
+    expect(out).toContain('src="../images/cover.png"');
+    expect(out).toContain('href="../style.css"');
+    expect(out).toContain("<rect");
+    expect(out).toContain("mailto:author@example.test");
+  });
+
+  it("replaces malformed markup with an empty safe document", () => {
+    const out = sanitizeBookHtml(
+      `<html xmlns="http://www.w3.org/1999/xhtml"><body><p>broken`,
+      "application/xhtml+xml",
+    );
+    expect(out).not.toContain("<p>broken");
+    expect(out).toContain("Content-Security-Policy");
+    expect(out).toContain("<body></body>");
+  });
+
+  it("leaves non-markup input untouched", () => {
     expect(sanitizeBookHtml("body { color: red }", "text/css"))
       .toBe("body { color: red }");
   });

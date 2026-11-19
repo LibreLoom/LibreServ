@@ -218,13 +218,72 @@ fn prune_removes_deleted_files() {
     png.save(&a).unwrap();
     png.save(&b).unwrap();
     scan("d1", &photos_dir).unwrap();
+    let b_thumb = thumb_path(&photos_dir, "d1", "b.png").unwrap();
+    assert!(b_thumb.exists());
     std::fs::remove_file(&b).unwrap();
     let report = scan("d1", &photos_dir).unwrap();
     assert_eq!(report.pruned, 1);
+    assert!(
+        !b_thumb.exists(),
+        "a photo deleted while Luna was off must not keep its preview"
+    );
     let mounts = vec![("d1".into(), photos_dir)];
     let page = list_photos(&mounts, None, &ListFilter::default(), 10, 0).unwrap();
     assert_eq!(page.items.len(), 1);
     assert_eq!(page.items[0].name, "a.png");
+}
+
+#[cfg(unix)]
+#[test]
+fn scan_refuses_a_symlinked_thumbs_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("photos");
+    std::fs::create_dir(&root).unwrap();
+    adopt(&root, "d1");
+    // A tampered drive: `{prefix}-thumbs` points at an unrelated directory.
+    // Following it would let a scan delete every `.jpg` there and write
+    // thumbnails into it as root.
+    let outside = dir.path().join("outside");
+    std::fs::create_dir(&outside).unwrap();
+    std::fs::write(outside.join("precious.jpg"), b"keep me").unwrap();
+    let thumbs = thumbs_dir(&root).unwrap();
+    std::os::unix::fs::symlink(&outside, &thumbs).unwrap();
+
+    assert!(
+        scan_drive("d1", &root).is_err(),
+        "a scan must refuse a thumbnails folder that is a symlink"
+    );
+    assert!(
+        outside.join("precious.jpg").exists(),
+        "a scan must never delete files outside the drive"
+    );
+    assert!(
+        thumb_path(&root, "d1", "a.jpg").is_none(),
+        "a symlinked thumbnails folder is never a cache location"
+    );
+}
+
+#[test]
+fn deleting_a_folder_drops_the_previews_under_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let photos_dir = dir.path().join("photos");
+    std::fs::create_dir(&photos_dir).unwrap();
+    std::fs::create_dir(photos_dir.join("Trip")).unwrap();
+    let png = image::RgbaImage::from_pixel(4, 4, image::Rgba([3, 3, 3, 255]));
+    png.save(photos_dir.join("Trip/a.png")).unwrap();
+    png.save(photos_dir.join("Trip/b.png")).unwrap();
+    png.save(photos_dir.join("keep.png")).unwrap();
+    scan("d1", &photos_dir).unwrap();
+    let inside: Vec<_> = ["Trip/a.png", "Trip/b.png"]
+        .iter()
+        .map(|rel| thumb_path(&photos_dir, "d1", rel).unwrap())
+        .collect();
+    let keep = thumb_path(&photos_dir, "d1", "keep.png").unwrap();
+    assert!(inside.iter().all(|p| p.exists()) && keep.exists());
+
+    remove_previews_under(&photos_dir, "d1", "Trip");
+    assert!(inside.iter().all(|p| !p.exists()));
+    assert!(keep.exists(), "another folder's previews are untouched");
 }
 
 #[test]

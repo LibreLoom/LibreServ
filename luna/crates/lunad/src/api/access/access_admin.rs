@@ -338,6 +338,17 @@ pub(super) struct UpdateMemberBody {
     pub(super) caps: String,
 }
 
+/// May a member retune their *own* row from `row_caps` to `new_caps`?
+///
+/// Narrowing (a subset of the row's own caps) is always safe and always
+/// allowed. Anything else needs the caller to hold what the row says and
+/// what they ask for. A private subject — or one whose drive cannot be read
+/// right now — reports no inherited caps, so this is exactly what stops a
+/// member raising their own grant while the private wall is unavailable.
+pub(super) fn may_retune_own(mine: Caps, row_caps: Caps, new_caps: Caps) -> bool {
+    caps_cover(row_caps, new_caps) || (caps_cover(mine, row_caps) && caps_cover(mine, new_caps))
+}
+
 pub(super) async fn update_member(
     State(state): State<AppState>,
     Extension(user): Extension<CurrentUser>,
@@ -365,8 +376,7 @@ pub(super) async fn update_member(
     }
     let mine = my_caps(&conn, &user, &subj);
     let allowed = if row.user_id == user.id {
-        // Your own row narrows only — never past what you currently hold.
-        caps_cover(mine, row.caps) && caps_cover(mine, caps)
+        may_retune_own(mine, row.caps, caps)
     } else {
         // Someone else's row needs the superior class or strict
         // superiority over both the old and the new level — equal-cap

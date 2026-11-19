@@ -167,6 +167,30 @@ func authBlocked(db *database.DB, ip, email string, max int, windowSec int64) bo
 	return count >= int64(max)
 }
 
+// signInAccountAttemptMax caps failed sign-ins per account (the normalized
+// email), regardless of client address. It is deliberately high: its job is to
+// slow password guessing that rotates addresses, not to become a way to lock
+// a real owner out. A correct password is still accepted while the bucket is
+// full, and that clears it (see Login).
+const signInAccountAttemptMax = 30
+
+// signInAccountAttemptWindow is the bucket window: 15 minutes.
+const signInAccountAttemptWindow = 15 * 60
+
+// signInAccountKey scopes the bucket by kind of sign-in (customer or admin) so
+// the two account sets never share a limit.
+func signInAccountKey(scope, email string) string {
+	return "signin-account:" + scope + ":" + strings.ToLower(strings.TrimSpace(email))
+}
+
+// clearSignInAccountAttempts starts the count over after a correct password.
+func clearSignInAccountAttempts(db *database.DB, key string) {
+	if db == nil || key == "" {
+		return
+	}
+	_, _ = db.Exec(`DELETE FROM guess_attempts WHERE key = ?`, key)
+}
+
 func clientKeyIP(r *http.Request) string {
 	return "ip:" + ClientIP(r)
 }

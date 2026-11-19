@@ -14,6 +14,11 @@ var (
 
 	stripeRuntimeMu sync.Mutex
 	stripeRuntimeDB *database.DB
+
+	// stripeApplyMu serializes overlay refreshes: each one reads the provider
+	// row and publishes the result, so an older refresh must not overwrite a
+	// newer one.
+	stripeApplyMu sync.Mutex
 )
 
 // CaptureStripeBase stores the yaml/env Stripe settings so admin DB overlays
@@ -21,7 +26,7 @@ var (
 func CaptureStripeBase() {
 	stripeBaseMu.Lock()
 	defer stripeBaseMu.Unlock()
-	cp := config.C.Stripe
+	cp := config.Stripe()
 	stripeBase = &cp
 }
 
@@ -49,55 +54,66 @@ func RefreshStripe() {
 // ApplyStripeFromDB overlays an enabled Stripe provider from the database onto
 // the in-memory config. Starts from the captured yaml/env base when available.
 // Call after migrate and after admin Stripe mutations.
+//
+// The new settings are built as one value and published once, so a request
+// reading them at the same moment sees either the whole old set or the whole
+// new set — never a mixture.
 func ApplyStripeFromDB(db *database.DB) error {
+	stripeApplyMu.Lock()
+	defer stripeApplyMu.Unlock()
+	out := config.Stripe()
 	stripeBaseMu.Lock()
 	base := stripeBase
 	stripeBaseMu.Unlock()
 	if base != nil {
-		config.C.Stripe = *base
+		out = *base
 	}
 
 	if db == nil {
+		config.SetStripe(out)
 		return nil
 	}
 	svc := NewService(db)
 	p, err := svc.FindEnabled("stripe")
 	if err != nil {
+		config.SetStripe(out)
 		return err
 	}
 	if p == nil {
+		config.SetStripe(out)
 		return nil
 	}
 	if sk := strings.TrimSpace(p.Credential("secret_key", "")); sk != "" {
 		// Reject misplaced Dashboard IDs (e.g. price_…) so we never send them as the API key.
 		if strings.HasPrefix(sk, "sk_") {
-			config.C.Stripe.SecretKey = sk
+			out.SecretKey = sk
 		}
 	}
 	if wh := strings.TrimSpace(p.Credential("webhook_secret", "")); wh != "" {
 		if strings.HasPrefix(wh, "whsec_") {
-			config.C.Stripe.WebhookSecret = wh
+			out.WebhookSecret = wh
 		}
 	}
 	if pk := strings.TrimSpace(p.Setting("publishable_key", "")); pk != "" {
 		if strings.HasPrefix(pk, "pk_") {
-			config.C.Stripe.PublishableKey = pk
+			out.PublishableKey = pk
 		}
 	}
 	if price := strings.TrimSpace(p.Setting("price_id", "")); price != "" {
 		if strings.HasPrefix(price, "price_") {
-			config.C.Stripe.PriceID = price
+			out.PriceID = price
 		}
 	}
 	if meter := strings.TrimSpace(p.Setting("meter_event_name", "")); meter != "" {
-		config.C.Stripe.MeterEventName = meter
+		out.MeterEventName = meter
 	}
 	if egressPrice := strings.TrimSpace(p.Setting("egress_price_id", "")); egressPrice != "" {
-		config.C.Stripe.EgressPriceID = egressPrice
+		out.EgressPriceID = egressPrice
 	}
 	if egressMeter := strings.TrimSpace(p.Setting("egress_meter_event_name", "")); egressMeter != "" {
-		config.C.Stripe.EgressMeterEventName = egressMeter
+		out.EgressMeterEventName = egressMeter
 	}
-	config.C.Stripe.Enabled = p.Enabled
+	out.Enabled = p.Enabled
+	config.SetStripe(out)
 	return nil
 }

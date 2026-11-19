@@ -92,7 +92,7 @@ pub fn record(
                ORDER BY accessed_at DESC
                LIMIT ?2
            )",
-        params![user_id, RECENTS_LIMIT_PER_USER],
+        params![user_id, RECENTS_LIMIT_PER_USER as i64],
     )?;
 
     Ok(())

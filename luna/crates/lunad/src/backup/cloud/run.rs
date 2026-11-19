@@ -55,6 +55,10 @@ pub(crate) const SOURCE_MISSING: &str = "Most files to back up are missing, or t
 /// Shown when a run is held because it could not be compared with the last copy.
 pub(crate) const CHECK_FAILED: &str = "Luna couldn't compare this folder with the last cloud copy, so it paused this backup. Try again, or choose Back up anyway if the folder looks right.";
 
+/// Shown when a backup's row names a folder that is not a plain path inside its drive.
+pub(crate) const SOURCE_OUTSIDE: &str =
+    "This backup's folder is not on its drive. Delete the backup and start it again.";
+
 /// What one run did. `problem` is set, and no snapshot is committed, when the run failed.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct CloudOutcome {
@@ -71,12 +75,14 @@ pub struct CloudOutcome {
     pub busy: bool,
 }
 
-/// The folder on disk for a backup's logical path. A private item's disk name differs from its path.
-pub(crate) fn source_root(drive_root: &Path, source_path: &str) -> PathBuf {
-    drive_root.join(crate::private::disk_rel(
-        drive_root,
-        source_path.trim_start_matches('/'),
-    ))
+/// The folder on disk for a backup's logical path, or `None` when the path climbs out of the
+/// drive. A private item's disk name differs from its path.
+pub(crate) fn source_root(drive_root: &Path, source_path: &str) -> Option<PathBuf> {
+    let rel = source_path.trim_start_matches('/');
+    if crate::private::climbs_out(rel) {
+        return None;
+    }
+    Some(drive_root.join(crate::private::disk_rel(drive_root, rel)))
 }
 
 /// Runs one backup for `protection_id` against `store` and returns what happened.
@@ -97,7 +103,9 @@ pub fn run_once(
             .ok_or_else(|| anyhow!("This backup no longer exists."))?;
         let drive = files::drive_root(&conn, &row.source_drive)?;
         let drive_root = PathBuf::from(&drive.mount_point);
-        let root = source_root(&drive_root, &row.source_path);
+        let Some(root) = source_root(&drive_root, &row.source_path) else {
+            return Ok(problem_outcome(SOURCE_OUTSIDE));
+        };
         (drive_root, root)
     };
     // An unplugged drive has no Luna marker, so its folder is never read as empty.
@@ -1537,11 +1545,13 @@ mod tests {
         std::fs::create_dir(root.join("Photos")).unwrap();
         crate::private::privatize(&root, "Diary", "owner").unwrap();
 
-        let private = source_root(&root, "Diary");
+        let private = source_root(&root, "Diary").unwrap();
         let name = private.file_name().unwrap().to_string_lossy().to_string();
         assert!(name.starts_with(".luna-"), "{name}");
         assert_eq!(private, root.join(crate::private::disk_rel(&root, "Diary")));
-        assert_eq!(source_root(&root, "/Photos"), root.join("Photos"));
+        assert_eq!(source_root(&root, "/Photos"), Some(root.join("Photos")));
+        assert_eq!(source_root(&root, "../Photos"), None);
+        assert_eq!(source_root(&root, "Photos/../../secret"), None);
     }
 
     #[test]

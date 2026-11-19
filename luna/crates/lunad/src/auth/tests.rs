@@ -691,6 +691,46 @@ fn basic_auth_reads_token_from_password_or_username() {
 }
 
 #[test]
+fn a_duplicate_session_cookie_cannot_mask_the_real_one() {
+    let (_dir, auth) = service();
+    let user = auth
+        .register("max", "Max", "hunter22hunter1", "admin")
+        .unwrap();
+    let token = auth.issue(&user).unwrap();
+    let mut h = HeaderMap::new();
+    h.insert(
+        axum::http::header::COOKIE,
+        format!("luna_session=attacker-junk; luna_session={token}")
+            .parse()
+            .unwrap(),
+    );
+    // The first candidate does not verify; the second one must.
+    assert_eq!(
+        token_from_headers(&h).as_deref(),
+        Some("attacker-junk"),
+        "presence checks still see the first cookie"
+    );
+    let resolved = auth.resolve_auth_from_headers(&h).unwrap();
+    assert_eq!(
+        resolved.map(|(u, _)| u.id),
+        Some(user.id),
+        "a planted parent-domain cookie must not mask the host-only one"
+    );
+
+    // The CSRF double-submit accepts the real value even when a duplicate
+    // cookie is sent first.
+    let mut h = HeaderMap::new();
+    h.insert(
+        axum::http::header::COOKIE,
+        "luna_csrf=attacker-junk; luna_csrf=real-token"
+            .parse()
+            .unwrap(),
+    );
+    h.insert("x-csrf-token", "real-token".parse().unwrap());
+    assert!(csrf_valid(&h));
+}
+
+#[test]
 fn username_is_normalized_and_unique() {
     let (_dir, auth) = service();
     auth.register("Max", "Max", "hunter22hunter1", "user")

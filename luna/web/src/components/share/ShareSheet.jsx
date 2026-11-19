@@ -141,6 +141,15 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
   const isPrivateFolder = subj?.private_folder === true;
   const inheritedMembers = data?.inherited_members || [];
   const inheritedLinks = data?.inherited_links || [];
+  // A link keeps working when the person who made it loses access, so the
+  // row names its creator. A deleted account has no directory entry; the
+  // fallback still tells the admin the link came from someone who is gone.
+  const nameById = new Map(
+    (directory.data || []).map((person) => [
+      person.id,
+      person.display_name || person.username,
+    ]),
+  );
   // Unique parents carrying grants this subject inherits — deduped across
   // the member and link lists so one parent gets one button.
   const parentByKey = new Map();
@@ -459,6 +468,13 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
                           </div>
                         )}
                       </div>
+                      {l.created_by && directory.isSuccess && (
+                        <p className="mt-1 text-secondary text-xs">
+                          {nameById.has(l.created_by)
+                            ? `Created by ${nameById.get(l.created_by)}`
+                            : "Created by someone who is no longer here"}
+                        </p>
+                      )}
                       {url && (
                         <CopyableValue
                           className="mt-2"

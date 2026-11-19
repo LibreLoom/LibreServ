@@ -303,6 +303,15 @@ impl OfficeDocHub {
         }
     }
 
+    #[cfg(test)]
+    pub async fn age_session(&self, key: &str, age: Duration) {
+        let mut hub = self.inner.lock().await;
+        if let Some(s) = hub.sessions.get_mut(key) {
+            s.binding.registered_at = Instant::now() - age;
+            s.last_event = Instant::now() - age;
+        }
+    }
+
     pub async fn subscribe(&self, key: &str) -> broadcast::Receiver<Value> {
         let mut bus = self.bus.lock().await;
         bus.entry(key.to_string())
@@ -1072,16 +1081,24 @@ impl OfficeDocHub {
         hub.sessions.get(key).map(locks_json).unwrap_or(json!({}))
     }
 
-    /// Doc keys with at least one editor attached right now. Their copies of
-    /// a document under `office_bundles` are in use, so clearing space has to
-    /// leave them alone.
-    pub async fn live_keys(&self) -> Vec<String> {
-        let hub = self.inner.lock().await;
-        hub.sessions
-            .iter()
-            .filter(|(_, s)| !s.participants.is_empty())
-            .map(|(k, _)| k.clone())
-            .collect()
+    /// Whether an editor has this document open (or is joining) right now.
+    /// "Free up space" asks this for each working copy just before removing
+    /// it, so a document opened after the page loaded is still kept. A hub
+    /// mid-change counts as open too: failing to take the lock must never
+    /// delete the copy a document is being opened into.
+    pub fn key_in_use(&self, key: &str) -> bool {
+        match self.inner.try_lock() {
+            Ok(hub) => hub.sessions.get(key).is_some_and(|s| {
+                !s.participants.is_empty()
+                    || s.pending_until.is_some_and(|until| until > Instant::now())
+                    // A room registered moments ago has not run its first
+                    // socket auth yet — the editor is still loading, and the
+                    // document is opening. Keep its copy for the same window
+                    // a joiner's claim keeps a room matchable.
+                    || s.binding.registered_at.elapsed() < CLAIM_TTL
+            }),
+            Err(_) => true,
+        }
     }
 
     /// Do not close storage underneath a document that is open or joining.
@@ -2051,5 +2068,45 @@ mod tests {
         // the live ops, so her free-election PUT leaves the log alone.
         hub.bundle_refreshed("k", "alice", None).await;
         assert_eq!(hub.op_count("k").await, 1);
+    }
+
+    #[tokio::test]
+    async fn a_joining_document_counts_as_in_use() {
+        let hub = OfficeDocHub::new();
+        // A room registered moments ago may not have run its first socket
+        // auth yet; that document is opening and its copy must stay.
+        hub.register_key("k", "drive-a", "docs/a.docx")
+            .await
+            .unwrap();
+        assert!(hub.key_in_use("k"));
+        assert!(!hub.key_in_use("elsewhere"));
+
+        // A room left over from long ago with no editor is not open: "Free up
+        // space" may clear its copy.
+        hub.age_session("k", Duration::from_secs(120)).await;
+        assert!(!hub.key_in_use("k"));
+
+        // A joiner claimed the room and its socket has not authenticated
+        // yet — that copy is in use and must stay.
+        hub.inner
+            .lock()
+            .await
+            .sessions
+            .get_mut("k")
+            .unwrap()
+            .pending_until = Some(Instant::now() + Duration::from_secs(30));
+        assert!(hub.key_in_use("k"));
+
+        // An attached editor counts too.
+        hub.auth("k", 1, &auth_msg("alice", None), true)
+            .await
+            .unwrap();
+        assert!(hub.key_in_use("k"));
+
+        // Once the room is cold again, the copy is clearable.
+        hub.disconnect("k", 1).await;
+        hub.expire_claim("k").await;
+        hub.age_session("k", Duration::from_secs(120)).await;
+        assert!(!hub.key_in_use("k"));
     }
 }
