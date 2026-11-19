@@ -21,6 +21,8 @@ keys/     release minisign PUBLIC keys
 
 ## Plain language (non-negotiable)
 
+The plain-language and length rules govern product UI copy and user-facing strings only. They never apply to your own replies, specs, plans, or technical writing: those are full prose for a developer, with complete sentences, connected reasoning, and no fragment style.
+
 Our users are **not technical**, and **nobody should ever need a terminal**: everything happens in the UI. Write for a smart person who doesn't work in our field. This covers everything a user reads — labels, buttons, hints, onboarding, settings, empty states, notices, errors. When these pull against each other, the earlier one wins:
 
 1. **Be true.** Copy must match what the product actually does. Don't overstate, soften, or guess. If you're not sure, find out, or say less.
