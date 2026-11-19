@@ -2,19 +2,19 @@
   "format": 1,
   "unit": "luna",
   "channel": "stable",
-  "version": "0.0.9",
-  "published": "2026-11-17T14:31:22Z",
-  "notes": "- checkpoint\n- docs(luna): round 4 results; clean final pass pending a quiet machine\n- fix(luna): keep image validator redirection outside the target root\n- fix(luna): persist update intent before committing boot selection\n- fix(luna): require complete images built from current application sources\n- chore(luna): Desktop and Connect perf harness, README notes\n- perf(luna): used-but-idle lunad sleeps; cloudflared exit is watched\n- perf(luna): photo grid fills from embedded previews, small grid thumbnails\n- perf(luna,ui): lighter file rows, scroll re-renders only the row window\n- docs(luna): W10 result after the first-rows change\n- perf(luna): search paints its first rows before the rest\n- docs(luna): optimization results, before and after on the 3040 stand-in\n- chore(luna): regenerate the lunad response contract\n- perf(luna): idle lunad sleeps on events instead of timers\n- perf(luna): name search skips the typo pass when exact names fill the answer\n- perf(luna): preloaded pages render at once, folders fetch and mount sooner\n- perf(luna): search answers names first, photos and meaning after a pause\n- test(luna): regenerate the lunad response contract\n- perf(luna): web polls less and loads less up front\n- perf(luna): lunad request paths and background jobs do less per call\n- fix(luna): photos catch-up scan no longer starved by Luna's own files\n- perf(luna): photo thumbnails resize with SIMD and scan on 3 workers\n",
+  "version": "0.0.10",
+  "published": "2026-11-19T02:57:16Z",
+  "notes": "- fix(luna): tighten document access and login lockout\n- chore(luna): checkpoint performance changes before release\n- docs(luna): round 6 and clean pass at 88e37540\n- perf(luna): RAM cache sleeps until expiry when stall reports watch\n- perf(luna,ui): icons as images, no search debounce, no Places prefetch\n- docs(luna): clean final pass at HEAD\n- docs(luna): round 5 results\n- fix(release): scope cut gates to each release unit\n",
   "parts": [
     {
       "name": "os",
       "os": "linux",
       "arch": "amd64",
       "file": "luna-os-x86_64.img.xz",
-      "size": 694145720,
-      "sha256": "33507352f92f918dd59b2b81fb10b4f2700ba1cbddee1d949db3030f4a2efc57",
+      "size": 694102980,
+      "sha256": "9ab9d24db3b4dd278fd593744b47eec990ce3290a07999ace1dcde6fa90a6dde",
       "urls": [
-        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.9/luna-os-x86_64.img.xz"
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.10/luna-os-x86_64.img.xz"
       ]
     },
     {
@@ -22,10 +22,10 @@
       "os": "linux",
       "arch": "amd64",
       "file": "luna-rapidinstall-x86_64.iso.xz",
-      "size": 944829712,
-      "sha256": "8629984e6adafa754b468f64ca9d9d4a2e134d23a66c2117a23627d256b71478",
+      "size": 944787224,
+      "sha256": "d3caacfa5d690ad283de76ba085501a0a2c06dd1fbf2600347087a279641d411",
       "urls": [
-        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.9/luna-rapidinstall-x86_64.iso.xz"
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.10/luna-rapidinstall-x86_64.iso.xz"
       ]
     }
   ],
