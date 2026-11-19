@@ -306,3 +306,29 @@ tunnel one request takes ~100–150 ms (W9 remote p50 117–150 ms) and the
 screen's thumbnails are ~270 KB, so 300 ms is about two round trips plus
 the transfer; W8 has no remote budget, and the other remote budgets are
 roughly twice the LAN one.
+
+## Round 14 (2b0a544a, 2026-11-18)
+
+- W16 at HEAD by a larger sample: p95 137 ms (n=160, LAN budget 150) ✅.
+  Final-9's 150.4 was n=40 with one cold first visit to Files (380 ms).
+- Small timeline thumbnails at WebP quality 60, method 6 (2b0a544a): same
+  look at grid size, ~20% smaller on real photos (synthetic library
+  14.3 → 10.3 KB average).
+- W8 remote, still over 300. HEAD through one quick tunnel, 10 rounds
+  of 10 at load 2–3.7: n=100, p50 287, p90 346, p95 360, 61% of scrubs
+  ≤ 300 ms. The same build served on both sides of an A/B differed by
+  26 ms p50 (W8) and 85 ms (W7), which is the tunnel's own noise.
+- Where a remote scrub's time goes (traced per thumbnail): the 13 cells
+  already drawn start at 35–60 ms; the next page's first day, drawn into
+  the strip under the old end, starts ~50 ms later; each request is the
+  emulated 80 ms plus the tunnel's own round trip, and a screen is
+  ~190 KB (~75 ms at 20 Mbit/s). Floor ≈ 200 ms before tunnel jitter.
+- Tried and dropped, each flat or worse in A/B or trace: high/low fetch
+  priority per tier; starting cells from the ahead observer; loading the
+  next page with no frame wait or one `setTimeout` (the page's render then
+  delays the on-screen cells, as the code comment says); holding back the
+  last, possibly partial day; React Query notifying in a microtask; a
+  smaller first paint (12) for a requested page.
+- Left to try for W8 remote: fewer bytes per screen (a ~200 px variant
+  for 1x screens, or one batched request per screen), or HTTP-level
+  priority so the strip's requests overtake the ahead tier.
