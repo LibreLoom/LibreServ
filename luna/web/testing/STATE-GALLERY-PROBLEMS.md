@@ -17,9 +17,9 @@ Status values: **open** (found, not fixed yet) · **fixed** (code changed, needs
 · **not a bug** (looked wrong, then verified as working as designed).
 
 **Where this stands now.** Everything below is the record of how the audit got
-here; the gate is at the end of this file. The gallery has held 316 scenarios
-since the two fake-only ones were removed, and the final two clean sweeps ran on
-all 316 (see “The gate: two clean full-gallery passes”).
+here; the gate is at the end of this file. It was closed twice: once on 316
+scenarios (see “The gate: two clean full-gallery passes”), and again after the
+branch met main, on all 359 (see “Round 7, second half”).
 
 ---
 
@@ -1076,3 +1076,50 @@ produce, is served as the JPEG preview under a `.jpg` name rather than as bytes
 labelled `image/heic`. Probed: `beach.jpg` answers `image/jpeg` and starts
 `ff d8 ff`, `photo.png` answers `image/png` and starts `89 PNG`, and a `.pdf`
 still starts `%PDF`.
+
+### Round 7, second half: the branch met main, and the checker stopped reading a crossfade
+
+The branch was 250 commits behind main, which made it unmergeable and made every
+line of the audit look older than it was. It was brought up with a merge rather
+than a rebase (`f13e173cb`), so the hundred-odd commits that produced this file
+keep their identity. Seven files conflicted, eleven hunks: where main had moved
+on (the recovery card's and wizard's copy, the read-only conversion hint, the
+markdown hint that now says what Read shows, three test lines asserting the new
+sentence) main won; where the audit's fix was the newer thing (the gallery error
+notice keeps its Try again button) it stayed and took main's new names, since
+main had renamed the page and its query. The share fake is ours wholesale, so
+that file kept our side; main had meanwhile corrected two refusals in the old
+fake, and both were ported into our version because they match the daemon:
+`access_admin.rs:37` says “You don't have access to this.”, and an unknown edit
+token gets “Luna can't find answers for that edit link.” (`forms.rs:1509`).
+
+Main also added scenarios while the audit was away, so the gallery is 359 now,
+not 316. A first pass over the merged tree flagged three things and two of them
+were the sweep's own fault:
+
+- **`format/erase-registered` and `format/with-password` read as blank.** Both
+  render correctly in their own page. The sweep put all 359 scenarios in iframes
+  of one long-lived page, and by the time it reached those two the frames came up
+  empty. Nothing in the app was involved: a probe that loads the same URL in an
+  iframe alone shows the erase window and its drive. The sweep now gives each
+  scenario its own page. Proof that this was the cause and not a fix that hides
+  something: with one page per scenario, not one scenario needed the resettle
+  pass that the iframe sweep ran for three of them.
+- **“All” was called unreadable on `files/session-dies-in-files`.** The finding
+  came from the dark-mode half of the check, which added `.dark` and sampled 120
+  ms later. The app crossfades a theme swap over 1500 ms on purpose
+  (`index.css`: `transition: --primary 1500ms, --secondary 1500ms, --accent
+  1500ms`), so a sample inside the fade reads two themes at once and calls the
+  halfway colour invisible. The checker is now v13: before flipping the theme it
+  switches the crossfade off with the hook the app's own stylesheet already
+  ships (`html[data-no-theme-transition]`, plus `data-theme-transitioning` for
+  the elements), so it judges the settled dark theme.
+
+v13 was proved able to fail before its result was trusted. A paragraph painted
+in the dark theme's own surface colour inside a frame was flagged as
+`invisible-text: dark on dark, planted on rgb(0,0,0)`, and the scenario that
+produced the crossfade finding came back clean in both themes.
+
+Two consecutive sweeps at `f13e173cb` with v13, one page per scenario: 359 of
+359 each, zero findings, nothing missing, nothing that needed a resettle, and
+the checker's own self-test still seeing all four planted defects in both runs.
