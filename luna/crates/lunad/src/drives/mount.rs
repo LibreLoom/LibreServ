@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
+use crate::sandbox::hardened_tool;
+
 /// How long `umount` gets before Luna gives up on it.
 ///
 /// A drive that has stopped answering can hold an unmount open indefinitely,
@@ -136,7 +138,7 @@ impl Mounter for CommandMounter {
         if !self.is_mounted(target) {
             return Ok(());
         }
-        let out = run_bounded(Command::new("umount").arg(target), UNMOUNT_TIMEOUT)
+        let out = run_bounded(hardened_tool("umount").arg(target), UNMOUNT_TIMEOUT)
             .map_err(|e| timeout_or(e, || anyhow::Error::new(DriveUnresponsive)))?;
         if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr);
@@ -156,7 +158,7 @@ impl Mounter for CommandMounter {
             return Ok(());
         }
         let out = run_bounded(
-            Command::new("umount").arg("-l").arg(target),
+            hardened_tool("umount").arg("-l").arg(target),
             UNMOUNT_TIMEOUT,
         )
         .map_err(|e| timeout_or(e, unresponsive))?;
@@ -175,7 +177,7 @@ impl Mounter for CommandMounter {
             anyhow::bail!("this drive could not be repaired and stays read-only");
         }
         let out = run_bounded(
-            Command::new("mount").args(remount_args(target, read_only)),
+            hardened_tool("mount").args(remount_args(target, read_only)),
             MOUNT_TIMEOUT,
         )
         .map_err(|e| timeout_or(e, unresponsive))?;
@@ -211,7 +213,7 @@ impl Mounter for CommandMounter {
             read_only = true;
         }
         let out = run_bounded(
-            Command::new("mount").args(mount_args(device, target, read_only, fs_type)),
+            hardened_tool("mount").args(mount_args(device, target, read_only, fs_type)),
             MOUNT_TIMEOUT,
         )
         .map_err(|e| timeout_or(e, unresponsive))?;

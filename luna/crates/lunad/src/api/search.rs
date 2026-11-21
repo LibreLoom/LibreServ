@@ -396,7 +396,14 @@ async fn factory_reset(
             "Luna couldn't finish the reset. Try again.",
         )
     })?;
+    // The reset dropped the stored update source with the rest of `meta`;
+    // stop following the previous owner's feed and keys right away, not at
+    // the next restart.
+    let source = crate::system::updates::effective_settings(&conn);
     drop(conn);
+    state
+        .updates
+        .reconfigure(source.feed_url, source.channel, source.keys);
     let new_secret = crate::secrets::rotate_jwt_secret(&state.data_dir).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -425,14 +432,21 @@ mod tests {
         54321,
     );
 
-    fn test_app(dir: &std::path::Path) -> axum::Router {
+    fn test_state(dir: &std::path::Path) -> crate::AppState {
         let conn = crate::db::open(&dir.join("luna.db")).unwrap();
         let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir));
         let connect = std::sync::Arc::new(crate::net::connect::ConnectService::new(
             dir,
             Some("http://127.0.0.1:1".into()),
         ));
-        let state = crate::AppState::new(conn, drive_manager, dir).with_connect(connect);
+        crate::AppState::new(conn, drive_manager, dir).with_connect(connect)
+    }
+
+    fn test_app(dir: &std::path::Path) -> axum::Router {
+        app_for(test_state(dir))
+    }
+
+    fn app_for(state: crate::AppState) -> axum::Router {
         api::router()
             .layer(axum::middleware::from_fn_with_state(
                 state.clone(),
@@ -840,5 +854,64 @@ mod tests {
             "ABCD-EFGH-JKMN-PQRS-TVWX",
             "device token must survive factory reset"
         );
+    }
+
+    #[tokio::test]
+    async fn factory_reset_puts_updates_back_on_the_built_in_source() {
+        use crate::system::updates::{UpdateSettings, default_settings, save_settings};
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_state(dir.path());
+        // The previous owner's own feed and signing key, stored and live.
+        let custom = UpdateSettings {
+            feed_url: "https://feeds.example.test/luna".into(),
+            channel: "beta".into(),
+            keys: vec![
+                minisign::KeyPair::generate_unencrypted_keypair()
+                    .unwrap()
+                    .pk
+                    .to_base64(),
+            ],
+        };
+        save_settings(&state.db.lock().unwrap(), &custom).unwrap();
+        state.updates.reconfigure(
+            custom.feed_url.clone(),
+            custom.channel.clone(),
+            custom.keys.clone(),
+        );
+        assert!(!state.updates.using_default_keys());
+        let app = app_for(state.clone());
+
+        let body = r#"{"username":"max","password":"hunter22hunter1"}"#;
+        let res = call(
+            &app,
+            req(Method::POST, "/api/v1/auth/register", body, None, None),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let res = call(
+            &app,
+            req(Method::POST, "/api/v1/auth/login", body, None, None),
+        )
+        .await;
+        let (session, csrf) = auth_cookies(&res);
+        let cookie = cookie_header(&session, &csrf);
+        let ok = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/system/factory-reset",
+                r#"{"confirm":true,"password":"hunter22hunter1"}"#,
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(ok.status(), 200, "reset failed");
+
+        let live = state.updates.settings();
+        let defaults = default_settings();
+        assert_eq!(live.feed_url, defaults.feed_url);
+        assert_eq!(live.channel, defaults.channel);
+        assert!(state.updates.using_default_keys());
     }
 }

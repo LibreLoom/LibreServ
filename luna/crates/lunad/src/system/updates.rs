@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use luna_feed::{self as feed, FeedError, Part};
 use minisign_verify::PublicKey;
@@ -43,6 +43,12 @@ const OS_FAILED_FILE: &str = "os-image.failed";
 const BOOT_OK_MARKER: &str = "/run/luna/boot-ok";
 /// Newest feed `published` seen per unit + channel (replay protection).
 const FEED_SEEN_FILE: &str = "update-feed-seen.json";
+/// 2026-11-01T00:00:00Z, before this build existed: a clock reading earlier
+/// is certainly wrong (an unset or drained RTC) and is not trusted to judge
+/// feed dates. See [`FeedDates`].
+const CLOCK_FLOOR_SECS: u64 = 1_793_491_200;
+/// How far past "now" a feed's `published` may be: room for a slow RTC.
+const FEED_CLOCK_SKEW_SECS: u64 = 24 * 3600;
 /// OS slot images are streamed to disk, never held in RAM. Cap (on the
 /// decompressed image) matches the 2048 MiB A/B slot plus a little headroom.
 const OS_IMAGE_MAX_BYTES: u64 = 2304 * 1024 * 1024;
@@ -90,6 +96,10 @@ pub enum UpdateError {
         "That update list is older than one Luna has already seen, so it was ignored. Nothing was installed."
     )]
     Replayed,
+    #[error(
+        "That update list is dated later than this Luna's clock, so it was ignored. Nothing was installed."
+    )]
+    FutureDated,
     #[error("That update has no software for this Luna. Nothing was installed.")]
     MissingPart,
     #[error("{0}")]
@@ -112,7 +122,7 @@ pub struct UpdateInfo {
     pub feed_is_newer: bool,
     /// The offer follows a change of update source: this build is what the
     /// source the Admin set publishes, not necessarily an upgrade. Stays set
-    /// until that build is installed.
+    /// while that source still offers the same build (until it's installed).
     #[serde(default)]
     pub from_new_source: bool,
 }
@@ -904,7 +914,9 @@ struct EspGuard {
 impl Drop for EspGuard {
     fn drop(&mut self) {
         if self.tmp {
-            let _ = Command::new("umount").arg(&self.path).status();
+            let _ = crate::sandbox::hardened_tool("umount")
+                .arg(&self.path)
+                .status();
             let _ = std::fs::remove_dir(&self.path);
         }
     }
@@ -956,7 +968,7 @@ fn find_esp_mount_or_temp() -> Result<EspGuard, UpdateError> {
     ensure_on_boot_disk(&dev)?;
     let tmp = std::env::temp_dir().join(format!("luna-esp-{}", std::process::id()));
     std::fs::create_dir_all(&tmp).map_err(|e| UpdateError::Other(e.to_string()))?;
-    let status = Command::new("mount")
+    let status = crate::sandbox::hardened_tool("mount")
         .arg("-o")
         .arg("rw,nosuid,nodev,noexec")
         .arg(&dev)
@@ -1143,16 +1155,121 @@ struct Resolved {
     os_needed: bool,
 }
 
+/// Taking on a feed address the admin just chose. A new address is a new
+/// lineage of releases, so its first feed isn't held to the old source's
+/// dates or versions. That leniency covers only the first feed's own image:
+/// once its date is on record the source meets every rule again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Adopt {
+    Off,
+    /// Just switched to `feed_url`; no feed from it is on record yet.
+    Pending {
+        feed_url: String,
+    },
+    /// The first feed from `feed_url` is on record. Its OS image (and only
+    /// that one) is still offered even when it isn't a newer version, until
+    /// the source publishes something else.
+    Adopted {
+        feed_url: String,
+        os_sha256: String,
+    },
+}
+
+/// Limits on a feed's `published` date, from the box's clock.
+///
+/// A correctly signed feed dated far ahead (`9999-12-31T...`) would otherwise
+/// become the newest date seen, and every genuine feed after it would be
+/// refused as a replay: updates frozen for good. So a feed dated more than
+/// [`FEED_CLOCK_SKEW_SECS`] past now is refused, and no date past that is
+/// ever recorded.
+///
+/// The clock itself can be wrong, though (an unset RTC boots at 1970), and a
+/// box must not freeze itself by refusing every genuine feed as "from the
+/// future". The refusal therefore applies only when the clock reads at or
+/// after [`CLOCK_FLOOR_SECS`]. On a clock before it, nothing is refused, and
+/// the recorded date is capped at the floor plus the skew instead. A capped
+/// record can only refuse a feed dated before that cap, and every feed
+/// published once this build exists is dated after it; so the cap never
+/// blocks a new genuine feed, it only means replay protection stops at the
+/// floor until the clock is set. A clock that is behind but past the floor
+/// refuses newer feeds until it is corrected, but records nothing for them,
+/// so that too passes once the time is right.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FeedDates {
+    /// Latest `published` Luna accepts or records.
+    ceiling: String,
+    /// The clock reads at or after the floor.
+    trusted: bool,
+}
+
+impl FeedDates {
+    fn at(now_secs: u64) -> Self {
+        let trusted = now_secs >= CLOCK_FLOOR_SECS;
+        let base = if trusted { now_secs } else { CLOCK_FLOOR_SECS };
+        Self {
+            ceiling: utc_stamp(base.saturating_add(FEED_CLOCK_SKEW_SECS)),
+            trusted,
+        }
+    }
+
+    /// The feed is dated too far ahead of a clock Luna trusts.
+    fn refuses(&self, published: &str) -> bool {
+        self.trusted && published > self.ceiling.as_str()
+    }
+
+    /// The date to record for an accepted feed: never past the ceiling.
+    fn mark(&self, published: &str) -> String {
+        if published > self.ceiling.as_str() {
+            self.ceiling.clone()
+        } else {
+            published.to_string()
+        }
+    }
+
+    /// The recorded date to hold the next feed to. On a trusted clock a date
+    /// past the ceiling can only have come from a future-dated feed recorded
+    /// before this rule existed; it is dropped so the next genuine feed
+    /// replaces it. (The no-downgrade rule still stands meanwhile.)
+    fn usable_seen(&self, seen: String) -> String {
+        if self.trusted && seen.as_str() > self.ceiling.as_str() {
+            tracing::warn!(seen = %seen, "ignoring an update list date that is in the future");
+            String::new()
+        } else {
+            seen
+        }
+    }
+}
+
+/// `YYYY-MM-DDTHH:MM:SSZ` (the feed's `published` shape) for Unix seconds.
+fn utc_stamp(secs: u64) -> String {
+    let days = (secs / 86_400) as i64;
+    let rem = secs % 86_400;
+    // Howard Hinnant's civil_from_days.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
+}
+
 pub struct UpdateService {
     http: Box<dyn HttpGet>,
     installer: Box<dyn Installer>,
     active: Mutex<ActiveSource>,
     cache: Mutex<Option<(Instant, UpdateInfo)>>,
-    /// Set when the admin points Luna at a different feed address: the next
-    /// check takes that source at its word instead of comparing it with what
-    /// the previous source published, and offers its build even when its
-    /// version is not newer. Cleared once that build is installed.
-    adopt_source: Mutex<bool>,
+    /// Where Luna is in taking on a feed address the admin just chose. See
+    /// [`Adopt`].
+    adopt_source: Mutex<Adopt>,
     /// True from the moment an install starts until it fails or Luna restarts,
     /// so a page opened (or refreshed) mid-install still shows it.
     applying: AtomicBool,
@@ -1212,7 +1329,7 @@ impl UpdateService {
             active: Mutex::new(active_from(feed_url, channel, keys)),
             cache: Mutex::new(None),
             applying: AtomicBool::new(false),
-            adopt_source: Mutex::new(false),
+            adopt_source: Mutex::new(Adopt::Off),
         }
     }
 
@@ -1287,7 +1404,9 @@ impl UpdateService {
         if moved {
             // A different feed address is a different lineage of releases, not
             // a replay of this one. Offer what it publishes straight away.
-            *self.adopt_source.lock().unwrap() = true;
+            *self.adopt_source.lock().unwrap() = Adopt::Pending {
+                feed_url: self.source().feed_url,
+            };
         }
     }
 
@@ -1330,15 +1449,33 @@ impl UpdateService {
         }
 
         let arch = feed_arch();
-        let seen = self
-            .installer
-            .read_feed_seen(UNIT, &src.channel)
-            .unwrap_or_default();
-        let adopt = *self.adopt_source.lock().unwrap();
-        // The admin pointed Luna at a different feed address: don't hold it to
-        // the newest publish date recorded for the old one, and offer its
-        // build even when the version isn't higher.
-        let newest_seen = if adopt { "" } else { seen.as_str() };
+        let dates = FeedDates::at(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+        );
+        let seen = dates.usable_seen(
+            self.installer
+                .read_feed_seen(UNIT, &src.channel)
+                .unwrap_or_default(),
+        );
+        let adopt_state = self.adopt_source.lock().unwrap().clone();
+        // A latch left by an earlier source (a check racing `reconfigure`)
+        // says nothing about this one.
+        let adopt_state = match &adopt_state {
+            Adopt::Pending { feed_url } | Adopt::Adopted { feed_url, .. }
+                if *feed_url != src.feed_url =>
+            {
+                Adopt::Off
+            }
+            _ => adopt_state,
+        };
+        let pending = matches!(adopt_state, Adopt::Pending { .. });
+        // The admin pointed Luna at a different feed address: don't hold its
+        // first feed to the newest publish date recorded for the old one.
+        // From then on that source is held to its own dates like any other.
+        let newest_seen = if pending { "" } else { seen.as_str() };
         let verified = feed::check(
             &body,
             &sig,
@@ -1354,13 +1491,51 @@ impl UpdateService {
             },
         )
         .map_err(map_feed_error)?;
+        if dates.refuses(&verified.feed.published) {
+            return Err(UpdateError::FutureDated);
+        }
 
-        if (adopt || verified.feed.published.as_str() > seen.as_str())
-            && let Err(e) =
-                self.installer
-                    .write_feed_seen(UNIT, &src.channel, &verified.feed.published)
-        {
-            tracing::warn!(error = %e, "couldn't remember the newest update list");
+        let mark = dates.mark(&verified.feed.published);
+        let marked = if pending || mark.as_str() > seen.as_str() {
+            match self.installer.write_feed_seen(UNIT, &src.channel, &mark) {
+                Ok(()) => true,
+                Err(e) => {
+                    tracing::warn!(error = %e, "couldn't remember the newest update list");
+                    false
+                }
+            }
+        } else {
+            false
+        };
+
+        // Offer the new source's build even when its version isn't higher —
+        // but only that one build: the exact image its first feed named. Any
+        // other feed from it meets the usual no-downgrade rule, so a signed
+        // older image can't ride in on the latch later.
+        let adopt = match &adopt_state {
+            Adopt::Off => false,
+            Adopt::Pending { .. } => true,
+            Adopt::Adopted { os_sha256, .. } => {
+                os_sha256.eq_ignore_ascii_case(&verified.part.sha256)
+            }
+        };
+        let next = match &adopt_state {
+            // The replay rule is back on only once the new source's date is
+            // on record; until then the next check (or the apply) would be
+            // judged against the old source's date.
+            Adopt::Pending { feed_url } if marked => Adopt::Adopted {
+                feed_url: feed_url.clone(),
+                os_sha256: verified.part.sha256.clone(),
+            },
+            Adopt::Adopted { .. } if !adopt => Adopt::Off,
+            _ => adopt_state.clone(),
+        };
+        if next != adopt_state {
+            let mut guard = self.adopt_source.lock().unwrap();
+            // Don't undo a `reconfigure` that landed while this check ran.
+            if *guard == adopt_state {
+                *guard = next;
+            }
         }
 
         let os = feed::select_part(&verified.feed.parts, "os", FEED_OS, arch).cloned();
@@ -2534,5 +2709,180 @@ mod tests {
             svc.check("0.3.0", false).unwrap().latest_version,
             "0.5.0-beta.1"
         );
+    }
+
+    /// Serves whatever the test puts in it, so a feed can change mid-test.
+    type Responses = HashMap<String, (u16, Vec<u8>)>;
+
+    #[derive(Clone, Default)]
+    struct SharedHttp(Arc<Mutex<Responses>>);
+
+    impl HttpGet for SharedHttp {
+        fn get(&self, url: &str) -> Result<(u16, Vec<u8>), UpdateError> {
+            self.0
+                .lock()
+                .unwrap()
+                .get(url)
+                .cloned()
+                .ok_or(UpdateError::Unreachable)
+        }
+    }
+
+    impl SharedHttp {
+        /// Publish `r` as `<base>/luna/stable.json`, signed with `sk`.
+        fn publish(&self, base: &str, r: &Release<'_>, sk: &minisign::SecretKey) {
+            let body = r.feed_json().into_bytes();
+            let sig = sign(&body, sk);
+            let mut map = self.0.lock().unwrap();
+            map.insert(format!("{base}/luna/stable.json"), (200, body));
+            map.insert(format!("{base}/luna/stable.json.minisig"), (200, sig));
+            map.insert("http://dl.test/os".into(), (200, r.os.to_vec()));
+        }
+    }
+
+    #[test]
+    fn utc_stamps_match_the_feed_format() {
+        assert_eq!(utc_stamp(0), "1970-01-01T00:00:00Z");
+        assert_eq!(utc_stamp(951_782_400), "2000-02-29T00:00:00Z");
+        assert_eq!(utc_stamp(1_795_000_000), "2026-11-18T11:06:40Z");
+        assert_eq!(utc_stamp(CLOCK_FLOOR_SECS), "2026-11-01T00:00:00Z");
+    }
+
+    #[test]
+    fn feed_dates_on_a_trusted_clock_refuse_the_far_future() {
+        // 2026-11-18T11:06:40Z
+        let d = FeedDates::at(1_795_000_000);
+        assert!(d.trusted);
+        assert_eq!(d.ceiling, "2026-11-19T11:06:40Z");
+        assert!(d.refuses("9999-12-31T23:59:59Z"));
+        assert!(d.refuses("2026-11-19T11:06:41Z"));
+        // A slow clock: a feed a few hours ahead is still fine.
+        assert!(!d.refuses("2026-11-18T20:00:00Z"));
+        assert_eq!(d.mark("2026-11-18T20:00:00Z"), "2026-11-18T20:00:00Z");
+        // A future date already on record is dropped, a real one kept.
+        assert_eq!(d.usable_seen("9999-12-31T23:59:59Z".into()), "");
+        assert_eq!(
+            d.usable_seen("2026-11-10T00:00:00Z".into()),
+            "2026-11-10T00:00:00Z"
+        );
+    }
+
+    #[test]
+    fn feed_dates_on_a_wrong_clock_never_freeze_updates() {
+        // An unset RTC: 1970. Nothing is refused for being "in the future"...
+        let d = FeedDates::at(0);
+        assert!(!d.trusted);
+        assert!(!d.refuses("2027-03-01T00:00:00Z"));
+        assert!(!d.refuses("9999-12-31T23:59:59Z"));
+        // ...but nothing past the floor plus a day is ever recorded, so a
+        // genuine feed after the floor always passes the replay rule.
+        assert_eq!(d.mark("9999-12-31T23:59:59Z"), "2026-11-02T00:00:00Z");
+        assert_eq!(d.mark("2026-10-12T14:03:00Z"), "2026-10-12T14:03:00Z");
+        assert!("2026-11-05T00:00:00Z" >= d.mark("9999-12-31T23:59:59Z").as_str());
+        // A real date on record is kept: the clock, not the record, is wrong.
+        assert_eq!(
+            d.usable_seen("2027-01-01T00:00:00Z".into()),
+            "2027-01-01T00:00:00Z"
+        );
+    }
+
+    #[test]
+    fn a_feed_dated_in_the_future_is_refused_and_not_remembered() {
+        let r = Release {
+            published: "9999-12-31T23:59:59Z",
+            ..Release::default()
+        };
+        let (svc, inst) = r.service();
+        assert_eq!(
+            svc.check("0.3.0", true).unwrap_err(),
+            UpdateError::FutureDated
+        );
+        assert_eq!(inst.read_feed_seen("luna", "stable"), None);
+    }
+
+    #[test]
+    fn a_future_date_already_on_record_does_not_block_genuine_feeds() {
+        // Recorded before the date limit existed.
+        let (svc, inst) = Release::default().service();
+        inst.write_feed_seen("luna", "stable", "9999-12-31T23:59:59Z")
+            .unwrap();
+        assert!(svc.check("0.3.0", true).unwrap().update_available);
+        assert_eq!(
+            inst.read_feed_seen("luna", "stable").as_deref(),
+            Some("2026-10-12T14:03:00Z")
+        );
+    }
+
+    #[test]
+    fn a_new_source_is_taken_as_is_once_then_held_to_the_rules() {
+        let KeyPair { pk, sk } = KeyPair::generate_unencrypted_keypair().unwrap();
+        let http = SharedHttp::default();
+        http.publish(FEED, &Release::default(), &sk);
+        const OTHER: &str = "http://other.test";
+        let older_build = Release {
+            version: "0.2.0",
+            published: "2026-09-01T00:00:00Z",
+            os: b"os-image-new-source",
+            ..Release::default()
+        };
+        http.publish(OTHER, &older_build, &sk);
+        let installer = Arc::new(RecInstaller::default());
+        *installer.os_hash.lock().unwrap() = Some("installed-image".into());
+        let svc = UpdateService::with_keys(
+            Box::new(http.clone()),
+            Box::new(installer.clone()),
+            FEED.into(),
+            "stable".into(),
+            vec![pk.to_base64()],
+        );
+        svc.check("0.3.0", true).unwrap();
+        assert_eq!(
+            installer.read_feed_seen("luna", "stable").as_deref(),
+            Some("2026-10-12T14:03:00Z")
+        );
+
+        // The admin picks another source. Its build is offered even though it
+        // is older, and its own date replaces the old source's.
+        svc.reconfigure(OTHER.into(), "stable".into(), vec![pk.to_base64()]);
+        let first = svc.check("0.3.0", true).unwrap();
+        assert!(first.update_available && first.from_new_source);
+        assert_eq!(
+            installer.read_feed_seen("luna", "stable").as_deref(),
+            Some("2026-09-01T00:00:00Z")
+        );
+        // Checking again (as the page does) and installing still work.
+        assert!(svc.check("0.3.0", true).unwrap().from_new_source);
+        svc.apply("0.3.0").unwrap();
+        assert_eq!(*installer.os.lock().unwrap(), b"os-image-new-source");
+
+        // An older signed feed from the new source is now a replay.
+        http.publish(
+            OTHER,
+            &Release {
+                version: "0.1.0",
+                published: "2026-08-01T00:00:00Z",
+                os: b"os-image-replayed",
+                ..Release::default()
+            },
+            &sk,
+        );
+        assert_eq!(svc.check("0.3.0", true).unwrap_err(), UpdateError::Replayed);
+
+        // A fresh feed with a different, lower build is not offered: the
+        // no-downgrade rule is back on.
+        http.publish(
+            OTHER,
+            &Release {
+                version: "0.1.5",
+                published: "2026-10-01T00:00:00Z",
+                os: b"os-image-downgrade",
+                ..Release::default()
+            },
+            &sk,
+        );
+        let later = svc.check("0.3.0", true).unwrap();
+        assert!(!later.update_available);
+        assert!(!later.from_new_source);
+        assert_eq!(*svc.adopt_source.lock().unwrap(), Adopt::Off);
     }
 }

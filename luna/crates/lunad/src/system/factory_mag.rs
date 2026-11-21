@@ -211,7 +211,9 @@ struct AssetsMount {
 impl Drop for AssetsMount {
     fn drop(&mut self) {
         if self.mounted {
-            let _ = Command::new("umount").arg(&self.path).status();
+            let _ = crate::sandbox::hardened_tool("umount")
+                .arg(&self.path)
+                .status();
             let _ = std::fs::remove_dir(&self.path);
         }
     }
@@ -244,7 +246,7 @@ fn mount_lunaassets() -> Result<AssetsMount, ()> {
 
     let tmp = std::env::temp_dir().join(format!("luna-assets-{}", std::process::id()));
     std::fs::create_dir_all(&tmp).map_err(|_| ())?;
-    let ok = Command::new("mount")
+    let ok = crate::sandbox::hardened_tool("mount")
         .args([
             "-t",
             "vfat",
@@ -256,7 +258,7 @@ fn mount_lunaassets() -> Result<AssetsMount, ()> {
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
-        || Command::new("mount")
+        || crate::sandbox::hardened_tool("mount")
             .args(["-o", "rw,noexec,nosuid,nodev"])
             .arg(&dev)
             .arg(&tmp)

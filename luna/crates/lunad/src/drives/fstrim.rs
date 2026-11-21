@@ -5,7 +5,6 @@
 //! without discard support are skipped.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use rusqlite::Connection;
 
@@ -103,7 +102,7 @@ pub fn fstrim_mount(mount: &Path) -> anyhow::Result<()> {
     // Trim can take minutes on a large drive, but it must not run forever: a
     // stick that has stopped answering would otherwise hold the weekly job
     // open with no way to move on to the next drive.
-    let mut cmd = Command::new("fstrim");
+    let mut cmd = crate::sandbox::hardened_tool("fstrim");
     cmd.arg(mount);
     let status = crate::sandbox::run_limited(&mut cmd, FSTRIM_TIMEOUT)?;
     if !status.success() {

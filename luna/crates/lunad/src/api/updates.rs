@@ -268,6 +268,7 @@ fn map_err(err: UpdateError, failed: &'static str) -> (StatusCode, Json<Value>) 
         | UpdateError::BadFeed
         | UpdateError::UnknownFormat
         | UpdateError::Replayed
+        | UpdateError::FutureDated
         | UpdateError::MissingPart => json_error(StatusCode::BAD_REQUEST, err.to_string()),
         UpdateError::Unreachable => json_error(StatusCode::BAD_GATEWAY, err.to_string()),
         UpdateError::NoFeed => json_error(StatusCode::NOT_FOUND, err.to_string()),

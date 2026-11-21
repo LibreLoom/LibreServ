@@ -227,6 +227,14 @@ pub fn hardened(program: &Path) -> Command {
     cmd
 }
 
+/// [`hardened`] for a root system tool named without a path (`mount`,
+/// `umount`, `fstrim`). It is resolved to an absolute path on the daemon's
+/// PATH, like the other root tools; one not found there is left to the
+/// child's fixed PATH, so spawning fails cleanly if it is missing.
+pub fn hardened_tool(name: &str) -> Command {
+    hardened(&which(name).unwrap_or_else(|| PathBuf::from(name)))
+}
+
 /// Spawn `cmd` sandboxed and wait for it, killing on `timeout`.
 /// Returns the exit status; callers decide what nonzero means.
 pub fn run(cmd: &mut Command, io: &SandboxIo, timeout: Duration) -> io::Result<ExitStatus> {
@@ -450,6 +458,24 @@ mod tests {
     fn which_finds_ls() {
         assert!(which("ls").is_some());
         assert!(which("definitely-not-a-luna-binary").is_none());
+    }
+
+    #[test]
+    fn root_tools_run_hardened_from_an_absolute_path() {
+        let cmd = hardened_tool("ls");
+        assert!(Path::new(cmd.get_program()).is_absolute());
+        assert_eq!(cmd.get_current_dir(), Some(Path::new("/")));
+        let envs: Vec<_> = cmd.get_envs().collect();
+        assert_eq!(
+            envs,
+            vec![(
+                std::ffi::OsStr::new("PATH"),
+                Some(std::ffi::OsStr::new(SAFE_PATH))
+            )]
+        );
+        // Not on the daemon's PATH: left to the child's fixed PATH.
+        let missing = hardened_tool("definitely-not-a-luna-binary");
+        assert_eq!(missing.get_program(), "definitely-not-a-luna-binary");
     }
 
     #[test]
