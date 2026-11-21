@@ -13,8 +13,8 @@ require (
 	github.com/charmbracelet/x/ansi v0.10.1
 	github.com/docker/docker v27.5.1+incompatible
 	github.com/muesli/termenv v0.16.0
-	golang.org/x/crypto v0.58.0
-	golang.org/x/term v0.47.0
+	golang.org/x/crypto v0.59.0
+	golang.org/x/term v0.48.0
 	software.sslmate.com/src/go-pkcs12 v0.7.3
 )
 
@@ -66,8 +66,8 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 )
