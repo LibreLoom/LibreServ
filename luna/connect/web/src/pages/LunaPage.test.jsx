@@ -85,12 +85,13 @@ describe("LunaPage one Luna", () => {
     expect(screen.getByRole("button", { name: /Unbind Luna/i })).toBeTruthy();
   });
 
-  it("reveals the device token and can unbind", async () => {
+  it("asks for the password before revealing the device token, and can unbind", async () => {
     api.mockImplementation(async (path, opts) => {
       if (path === "/api/v1/account/devices") {
         return { devices: [{ id: "dev_1", hostname: "photos.luna.servers.libreloom.org", online: false }] };
       }
-      if (path === "/api/v1/account/devices/dev_1/code") {
+      if (path === "/api/v1/account/devices/dev_1/code" && opts?.method === "POST") {
+        expect(JSON.parse(opts.body)).toEqual({ password: "correct horse 1" });
         return { code: "AAAA-BBBB-CCCC-DDDD-EEEE" };
       }
       if (path === "/api/v1/devices/dev_1" && opts?.method === "DELETE") {
@@ -99,14 +100,27 @@ describe("LunaPage one Luna", () => {
       return {};
     });
     mount();
-    fireEvent.click(await screen.findByRole("button", { name: /Show token/i }));
-    expect(await screen.findByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeTruthy();
+
+    async function revealWithPassword() {
+      fireEvent.click(within(await screen.findByTestId("luna-device-toolbar")).getByRole("button", { name: /Show token/i }));
+      const form = await screen.findByTestId("luna-reveal-token");
+      expect(screen.queryByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeNull();
+      const field = within(form).getByLabelText(/Your Luna Connect password/i);
+      expect(field.getAttribute("type")).toBe("password");
+      fireEvent.change(field, { target: { value: "correct horse 1" } });
+      fireEvent.click(within(form).getByRole("button", { name: /Show token/i }));
+      expect(await screen.findByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeTruthy();
+      expect(screen.queryByTestId("luna-reveal-token")).toBeNull();
+    }
+
+    await revealWithPassword();
 
     fireEvent.click(screen.getByRole("button", { name: /Hide token/i }));
     expect(screen.queryByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Show token/i }));
-    expect(await screen.findByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeTruthy();
+    // Showing it again asks for the password again.
+    await revealWithPassword();
+    expect(api.mock.calls.filter(([p]) => p === "/api/v1/account/devices/dev_1/code")).toHaveLength(2);
 
     fireEvent.click(screen.getByRole("button", { name: /Unbind Luna/i }));
     expect(screen.getByText(/The public address stops working/i)).toBeTruthy();
@@ -116,6 +130,31 @@ describe("LunaPage one Luna", () => {
       expect(api).toHaveBeenCalledWith("/api/v1/devices/dev_1", { method: "DELETE" });
     });
     expect(refreshMe).toHaveBeenCalled();
+  });
+
+  it("shows a wrong password inside the form and never the token", async () => {
+    api.mockImplementation(async (path, opts) => {
+      if (path === "/api/v1/account/devices") {
+        return { devices: [{ id: "dev_1", hostname: "photos.luna.servers.libreloom.org", online: true }] };
+      }
+      if (path === "/api/v1/account/devices/dev_1/code" && opts?.method === "POST") {
+        const err = /** @type {Error & { status?: number }} */ (
+          new Error("That password is wrong. The device token was not shown.")
+        );
+        err.status = 403;
+        throw err;
+      }
+      return {};
+    });
+    mount();
+    fireEvent.click(within(await screen.findByTestId("luna-device-toolbar")).getByRole("button", { name: /Show token/i }));
+    const form = await screen.findByTestId("luna-reveal-token");
+    fireEvent.change(within(form).getByLabelText(/Your Luna Connect password/i), { target: { value: "nope nope 1" } });
+    fireEvent.click(within(form).getByRole("button", { name: /Show token/i }));
+
+    const alert = await within(form).findByRole("alert");
+    expect(alert.textContent).toMatch(/That password is wrong/i);
+    expect(screen.queryByTestId("luna-device-token")).toBeNull();
   });
 
   it("changes the address from the Luna page", async () => {

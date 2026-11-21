@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -84,13 +85,52 @@ func (h DeviceHandler) Bind(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusConflict, "That Luna is already linked to another account. The owner must unbind it first.")
 		return
 	}
-	_, err = h.DB.Exec(`UPDATE devices SET account_id = ? WHERE id = ? AND (account_id IS NULL OR account_id = '')`, acct.ID, id)
+	claimed, err := claimDevice(h.DB, id, acct.ID)
+	if errors.Is(err, errDeviceTakenByOther) {
+		JSONError(w, http.StatusConflict, "That Luna is already linked to another account. The owner must unbind it first.")
+		return
+	}
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not link this Luna. Try again.")
 		return
 	}
+	if !claimed {
+		// A parallel request from this same account linked it first.
+		JSON(w, http.StatusOK, map[string]any{"device_id": id, "already_bound": true})
+		return
+	}
 	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = CASE WHEN onboarding_step IS NULL OR onboarding_step IN ('verify','bind','diy-code','code') THEN 'domain' ELSE onboarding_step END WHERE id = ?`, acct.ID)
 	JSON(w, http.StatusOK, map[string]any{"device_id": id, "already_bound": false})
+}
+
+// errDeviceTakenByOther means another account linked the device first.
+var errDeviceTakenByOther = errors.New("device is linked to another account")
+
+// claimDevice links an unlinked device to accountID. The UPDATE only lands on
+// a row that is still unlinked, so when two accounts race, exactly one wins.
+// It reports claimed=true when this call made the link, claimed=false when the
+// device was already this account's, and errDeviceTakenByOther when another
+// account holds it.
+func claimDevice(db *database.DB, deviceID, accountID string) (bool, error) {
+	res, err := db.Exec(`UPDATE devices SET account_id = ? WHERE id = ? AND (account_id IS NULL OR account_id = '')`, accountID, deviceID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if n == 1 {
+		return true, nil
+	}
+	var owner sql.NullString
+	if err := db.QueryRow(`SELECT account_id FROM devices WHERE id = ?`, deviceID).Scan(&owner); err != nil {
+		return false, err
+	}
+	if owner.Valid && owner.String == accountID {
+		return false, nil
+	}
+	return false, errDeviceTakenByOther
 }
 
 // Unbind clears the account link, frees the domain, archives backup bindings.

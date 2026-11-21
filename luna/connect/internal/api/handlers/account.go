@@ -417,25 +417,71 @@ func (h AccountHandler) Devices(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]any{"devices": out})
 }
 
-// RevealDeviceCode returns the plaintext device token once for Show Token (re-mint not possible;
-// we cannot reverse the hash). Support path stores only hash — reveal is not available for
-// hashed tokens. Instead we return the hint and instruct to use the quick-start card.
-// For DIY tokens shown at mint time only. Official: card / support remint.
+// revealWrongPassword is the answer when the step-up password does not match.
+const revealWrongPassword = "That password is wrong. The device token was not shown."
+
+// RevealDeviceCode returns the full device token of a Luna on this account.
+// The token unlocks the Luna's tunnel, so a session alone is not enough: the
+// request is a POST (so CSRF and Origin checks apply) and carries the
+// account's current password. Wrong passwords are charged to the same
+// per-address and per-account buckets as sign-in, so this route is never a
+// cheaper way to guess a password than /account/login.
 func (h AccountHandler) RevealDeviceCode(w http.ResponseWriter, r *http.Request) {
 	acct, ok := AccountFrom(r.Context())
 	if !ok {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
+	var req struct {
+		Password string `json:"password"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.Password == "" {
+		JSONError(w, http.StatusBadRequest, "Enter your password to see the device token.")
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(acct.Email))
+	ip := ClientIP(r)
+	if authBlocked(h.DB, ip, email, authAttemptMax, authAttemptWindow) {
+		JSONError(w, http.StatusTooManyRequests, "Too many tries from this network. Wait a few minutes, then try again.")
+		return
+	}
+	accountKey := signInAccountKey("customer", email)
+	accountCapped := guessBlocked(h.DB, accountKey, signInAccountAttemptMax, signInAccountAttemptWindow)
+	var hash string
+	err := h.DB.QueryRow(`SELECT password_hash FROM accounts WHERE id = ?`, acct.ID).Scan(&hash)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		JSONError(w, http.StatusInternalServerError, "Could not check your password. Try again.")
+		return
+	}
+	if err != nil {
+		// The session's account row is gone. Spend the same bcrypt time as a
+		// real check so the answer looks like a wrong password.
+		_ = auth.VerifyDummyPassword(req.Password)
+	}
+	if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)) != nil {
+		if accountCapped {
+			JSONError(w, http.StatusTooManyRequests, "Too many tries from this network. Wait a few minutes, then try again.")
+			return
+		}
+		_ = allowAuthAttempt(h.DB, ip, email, authAttemptMax, authAttemptWindow)
+		_ = allowGuess(h.DB, accountKey, signInAccountAttemptMax, signInAccountAttemptWindow)
+		// 403, not 401: 401 means "signed out" to the web app.
+		JSONError(w, http.StatusForbidden, revealWrongPassword)
+		return
+	}
+	clearSignInAccountAttempts(h.DB, accountKey)
+
 	id := chi.URLParam(r, "deviceID")
 	var hint, sealed string
 	var account sql.NullString
-	err := h.DB.QueryRow(`SELECT COALESCE(code_hint,''), COALESCE(code_sealed,''), account_id FROM devices WHERE id = ?`, id).Scan(&hint, &sealed, &account)
+	err = h.DB.QueryRow(`SELECT COALESCE(code_hint,''), COALESCE(code_sealed,''), account_id FROM devices WHERE id = ?`, id).Scan(&hint, &sealed, &account)
 	if err != nil || !account.Valid || account.String != acct.ID {
 		JSONError(w, http.StatusNotFound, "That Luna is not on this account.")
 		return
 	}
 	if sealed == "" {
+		// Older records keep only a hint; the full token is on the card.
 		JSON(w, http.StatusOK, map[string]any{
 			"code_hint": hint,
 			"message":   "The full device token is on your quick-start card. We only keep a short hint here for older records.",
@@ -447,6 +493,7 @@ func (h AccountHandler) RevealDeviceCode(w http.ResponseWriter, r *http.Request)
 		JSONError(w, http.StatusInternalServerError, "Could not read the device token. Contact support.")
 		return
 	}
+	slog.Info("device token revealed", "account_id", acct.ID, "device_id", id)
 	JSON(w, http.StatusOK, map[string]any{"code": code, "code_hint": hint})
 }
 

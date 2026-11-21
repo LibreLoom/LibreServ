@@ -119,7 +119,7 @@ func (s *Server) routes() {
 						r.Post("/billing/checkout/complete", acct.CompleteCheckout)
 						r.Post("/billing/cancel", acct.CancelBilling)
 						r.Get("/account/devices", acct.Devices)
-						r.Get("/account/devices/{deviceID}/code", acct.RevealDeviceCode)
+						r.Post("/account/devices/{deviceID}/code", acct.RevealDeviceCode)
 						r.Get("/account/devices/{deviceID}/setup-readiness", acct.DeviceSetupReadiness)
 						r.Get("/cloud/lunas", cloud.ListLunas)
 						r.Get("/cloud/lunas/{lunaID}/records/{kind}", cloud.ListRecords)

@@ -85,6 +85,70 @@ function ChangeAddressForm({ deviceId, hostname, onSaved, onCancel }) {
   );
 }
 
+function RevealTokenForm({ deviceId, onRevealed, onCancel }) {
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function reveal(e) {
+    e.preventDefault();
+    setError("");
+    setBusy(true);
+    try {
+      const res = await api(`/api/v1/account/devices/${encodeURIComponent(deviceId)}/code`, {
+        method: "POST",
+        body: JSON.stringify({ password }),
+      });
+      setPassword("");
+      onRevealed(res);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      className="rounded-large-element bg-muted border border-border px-4 py-4 space-y-3"
+      data-testid="luna-reveal-token"
+      onSubmit={reveal}
+    >
+      <label htmlFor="luna-reveal-password" className="block font-mono text-xs text-muted-foreground">
+        Your Luna Connect password
+      </label>
+      <ShakeTarget shake={error} loading={busy}>
+        <Input
+          id="luna-reveal-password"
+          type="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoFocus
+          aria-invalid={error ? "true" : undefined}
+          aria-describedby="luna-reveal-hint"
+        />
+      </ShakeTarget>
+      <p id="luna-reveal-hint" className="text-sm leading-relaxed text-muted-foreground">
+        Anyone with the device token can take over this Luna's public address, so we check your password first.
+      </p>
+      {error && (
+        <p className="text-sm text-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="flex flex-col sm:flex-row gap-2">
+        <Button type="submit" loading={busy} disabled={!password}>
+          Show token
+        </Button>
+        <Button type="button" variant="outline" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 function DeviceStatusRow({ online, codeHint }) {
   return (
     <div
@@ -184,6 +248,7 @@ export default function LunaPage() {
   const [changingAddress, setChangingAddress] = useState(false);
   const [addressNotice, setAddressNotice] = useState("");
   const [tokenNotice, setTokenNotice] = useState("");
+  const [revealing, setRevealing] = useState(false);
 
   const load = useCallback(() => {
     return api("/api/v1/account/devices")
@@ -204,18 +269,12 @@ export default function LunaPage() {
   const resumeStep = me?.onboarding_step;
   const needsResume = resumePath && resumeStep && resumeStep !== "done" && !luna?.hostname;
 
-  async function showCode() {
-    if (!luna) return;
-    setError("");
-    try {
-      const res = await api(`/api/v1/account/devices/${luna.id}/code`);
-      setShownCode(res.code || "");
-      setTokenNotice(
-        res.code ? "" : res.message || "The full device token is on the card that came with Luna.",
-      );
-    } catch (err) {
-      setError(err.message);
-    }
+  function onRevealed(res) {
+    setRevealing(false);
+    setShownCode(res.code || "");
+    setTokenNotice(
+      res.code ? "" : res.message || "The full device token is on the card that came with Luna.",
+    );
   }
 
   async function unbind() {
@@ -320,7 +379,8 @@ export default function LunaPage() {
                     setCopied(null);
                     return;
                   }
-                  showCode();
+                  setError("");
+                  setRevealing((open) => !open);
                 }}
                 onUnbindClick={() => setConfirmUnbind(true)}
                 onChangeAddress={() => {
@@ -328,6 +388,14 @@ export default function LunaPage() {
                   setChangingAddress(true);
                 }}
               />
+
+              {revealing && !shownCode && !tokenNotice && (
+                <RevealTokenForm
+                  deviceId={luna.id}
+                  onRevealed={onRevealed}
+                  onCancel={() => setRevealing(false)}
+                />
+              )}
 
               {addressNotice && !changingAddress && (
                 <p className="text-sm leading-relaxed" role="status">

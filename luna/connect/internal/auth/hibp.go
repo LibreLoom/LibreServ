@@ -20,6 +20,12 @@ const BreachedPasswordMessage = "That password is in known data breaches, so it 
 // 302 would send the password hash prefix to an unexpected host.
 var errHIBPRedirect = fmt.Errorf("hibp client does not follow redirects")
 
+// hibpMaxBody caps how much of a range response is read (1 MiB).
+const hibpMaxBody = 1 << 20
+
+// errHIBPBodyTooLarge refuses a range response over hibpMaxBody.
+var errHIBPBodyTooLarge = fmt.Errorf("hibp range response is larger than %d bytes", hibpMaxBody)
+
 var hibpHTTPClient = &http.Client{
 	Timeout: 5 * time.Second,
 	CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
@@ -74,9 +80,15 @@ func CheckBreachedPassword(pw string) (bool, error) {
 		return false, fmt.Errorf("hibp range api returned %s", resp.Status)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	// A real range response is tens of KB. Read one byte past the cap so an
+	// oversized body is refused (and the check fails open) instead of being
+	// buffered whole or matched on a truncated list.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, hibpMaxBody+1))
 	if err != nil {
 		return false, err
+	}
+	if len(body) > hibpMaxBody {
+		return false, errHIBPBodyTooLarge
 	}
 
 	for _, line := range strings.Split(string(body), "\n") {

@@ -490,6 +490,7 @@ func (h AdminConsoleHandler) RevealDeviceCode(w http.ResponseWriter, r *http.Req
 		JSONError(w, http.StatusInternalServerError, "Could not read the device token. Try again.")
 		return
 	}
+	slog.Info("device token revealed by support", "admin_id", AdminIDFrom(r.Context()), "device_id", id)
 	JSON(w, http.StatusOK, map[string]any{
 		"code":               code,
 		"code_hint":          hint,

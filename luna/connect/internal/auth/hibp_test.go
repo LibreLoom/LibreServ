@@ -69,3 +69,30 @@ func TestRejectBreachedPasswordMessage(t *testing.T) {
 		t.Fatalf("got %q", msg)
 	}
 }
+
+// An oversized range response is refused as "check unavailable" (fail open),
+// never buffered whole.
+func TestCheckBreachedPasswordRejectsOversizedBody(t *testing.T) {
+	sum := sha1.Sum([]byte("password123")) //nolint:gosec
+	full := strings.ToUpper(hex.EncodeToString(sum[:]))
+	suffix := full[5:]
+
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(suffix + ":1\n"))
+		_, _ = w.Write([]byte(strings.Repeat("A", hibpMaxBody)))
+	}))
+	t.Cleanup(stub.Close)
+	SetHIBPRangeURL(stub.URL + "/")
+	t.Cleanup(func() { SetHIBPRangeURL("https://api.pwnedpasswords.com/range/") })
+
+	breached, err := CheckBreachedPassword("password123")
+	if err == nil {
+		t.Fatal("oversized body must return an error")
+	}
+	if breached {
+		t.Fatal("oversized body must not report a breach")
+	}
+	if msg := RejectBreachedPassword("password123"); msg != "" {
+		t.Fatalf("oversized body must fail open, got %q", msg)
+	}
+}

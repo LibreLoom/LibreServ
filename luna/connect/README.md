@@ -34,6 +34,8 @@ in production. Reproduce locally with
  
 One permanent **device token** per Luna. The **full token** binds on this site and unlocks remote setup on the box — Luna's account-creation step asks for the full token (no 8-char prefix gate). Connect's onboarding links to `/setup?token=` with the full token to prefill it.
  
+The owner can see the full token again on the Devices page (`POST /api/v1/account/devices/{id}/code`). That needs the account's current password in the request body; wrong passwords count against the same per-network and per-account limits as sign-in, and each reveal writes a log line with the account id and device id (never the token).
+ 
 Connect is optional. Local-only / air-gap installs may skip the token at flash time; setup stays open on the LAN, and first registration over the public hostname still asks for the device token — remote first login never fail-opens.
  
 Unbind on the dashboard archives backups (`User → Backups → Luna*-uuid`), frees the name, and returns 403 on status until rebound. Factory reset keeps the on-disk device-token file so a still-bound account auto re-provisions on the next status pull.
@@ -77,7 +79,7 @@ Empty keys refuse paid routes (fail closed). `stripe.enabled: false` by itself d
 
 Staff mint official unbound device tokens (single or bulk). DIY mints a token after the $1 payment on `/diyonboarding`. Bulk export is a single-token `TOKENS` list (plus metadata), not a paired setup+device file.
 
-Support looks up by order ref or token hint and can reveal or replace the device token (audited). Quick-start print shows one token; that full token unlocks remote setup (paste it when the setup form asks) — not just the first eight characters.
+Support looks up by order ref or token hint and can reveal or replace the device token. Each support reveal writes a log line with the admin id and device id (never the token); there is no separate audit table, re-auth or confirmation on the support path yet. Quick-start print shows one token; that full token unlocks remote setup (paste it when the setup form asks) — not just the first eight characters.
 
 Staff admin: first account via `/admin/seed` (loopback, or `auth.admin_seed_token` + `X-Seed-Token`), then `/admin/login`. Console: Dashboard, Devices, Device tokens, Accounts, Connections, Security.
 
