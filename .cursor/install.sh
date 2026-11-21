@@ -10,7 +10,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GO_VERSION="1.27.1"
+GO_VERSION="1.27.4"
 RUST_VERSION="1.99.0"
 
 # Run a command with root privileges whether or not we already are root.

@@ -16,7 +16,7 @@
 set -uo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
-GO_VERSION=1.27.1
+GO_VERSION=1.27.4
 RUST_VERSION=1.99.0
 FJ_VERSION=0.6.0
 ANDROID_SDK=/usr/local/android-sdk
