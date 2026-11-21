@@ -12,7 +12,7 @@ Mirrors the app `src/` tree:
 
 - `components/ui|common|cards|setup/` — leaf components (Button, Tooltip, Card…)
 - `hooks/` — useAnimatedHeight, useTheme, useShakeOnError, useSmoothResize, useLabelErrorState
-- `lib/` — cn (utils.js), ui-tokens, passwordPolicy
+- `lib/` — cn (utils.js), ui-tokens, passwordPolicy, iconImage
 - `utils/` — haptics, shake, clipboard
 
 ## Rules
@@ -23,8 +23,9 @@ Mirrors the app `src/` tree:
   provide them via their own `index.css`. Never hardcode colors.
 - Everything ships as raw `.jsx` source; each app's Vite/Tailwind/tsc
   compiles and checks it. Vite realpaths the `file:` link into `shared/ui`, so
-  this package needs its peer imports installed (`npm ci` in `shared/ui/`
-  before an app build, as `luna/ci.sh` and `.cursor/install.sh` do).
+  this package needs its peer imports installed before an app build
+  (`npm ci` in `shared/ui/`, as `.cursor/install.sh` does; `luna/ci.sh` uses
+  `npm install`).
 - Tests live beside the component (`*.test.jsx`) and run in this package's
   own vitest suite: `cd shared/ui && npm test`. Typecheck: `npm run typecheck`.
 
