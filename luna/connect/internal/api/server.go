@@ -158,6 +158,7 @@ func (s *Server) routes() {
 
 		r.With(handlers.LimitJSONBody).Post("/admin/login", adm.Login)
 		r.With(handlers.LimitJSONBody).Post("/admin/seed", adm.Seed)
+		r.With(handlers.LimitJSONBody).Post("/admin/logout", adm.Logout)
 
 		r.Group(func(r chi.Router) {
 			// Browser navigation (Accept: text/html) to admin paths that match
@@ -167,7 +168,6 @@ func (s *Server) routes() {
 			r.Use(middleware.SPAFallback(s.serveSPA))
 			r.Use(handlers.AdminAuth(s.db))
 			r.Get("/admin/me", adm.Me)
-			r.Post("/admin/logout", adm.Logout)
 			r.With(handlers.LimitJSONBody).Post("/admin/2fa/setup", adm.Setup2FA)
 			r.With(handlers.LimitJSONBody).Post("/admin/2fa/verify", adm.Verify2FA)
 			r.With(handlers.LimitJSONBody).Post("/admin/password", adm.ChangePassword)

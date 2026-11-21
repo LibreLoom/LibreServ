@@ -58,12 +58,8 @@ VALUES ('acct_1', 'luna-t', '000000000000000000000000000000000000000000000000000
 	objects := map[string][]byte{}
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.URL.Path == "/b2api/v2/b2_authorize_account":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"accountId": "acc", "authorizationToken": "tok",
-				"apiUrl": "http://" + r.Host, "downloadUrl": "http://" + r.Host,
-				"s3ApiUrl": "https://s3.us-west-001.backblazeb2.com",
-			})
+		case r.URL.Path == "/b2api/v3/b2_authorize_account":
+			_ = json.NewEncoder(w).Encode(providers.B2AuthorizeBodyForTest("acc", "tok", "http://"+r.Host, "http://"+r.Host, "https://s3.us-west-001.backblazeb2.com"))
 		case strings.Contains(r.URL.Path, "b2_create_bucket"):
 			_ = json.NewEncoder(w).Encode(map[string]string{"bucketId": "buc1", "bucketName": "luna-backup-dev-autotest000001"})
 		case strings.Contains(r.URL.Path, "b2_create_key"):
@@ -106,7 +102,7 @@ VALUES ('acct_1', 'luna-t', '000000000000000000000000000000000000000000000000000
 	defer ts.Close()
 
 	client := providers.NewB2Client(ts.Client())
-	providers.SetAuthorizeURLForTest(client, ts.URL+"/b2api/v2/b2_authorize_account")
+	providers.SetAuthorizeURLForTest(client, ts.URL+"/b2api/v3/b2_authorize_account")
 	b2.Client = client
 	b2.Provisioner.B2 = client
 
@@ -202,7 +198,7 @@ VALUES ('dev_migrate0000001', 'acct_1', 'th', 'Luna', 'den', 8090, 1)`)
 		t.Fatal(err)
 	}
 	client := providers.NewB2Client(ts.Client())
-	providers.SetAuthorizeURLForTest(client, ts.URL+"/b2api/v2/b2_authorize_account")
+	providers.SetAuthorizeURLForTest(client, ts.URL+"/b2api/v3/b2_authorize_account")
 	b2.Client = client
 	b2.Provisioner.B2 = client
 
@@ -243,12 +239,8 @@ VALUES ('acct_1', 'luna-t', '000000000000000000000000000000000000000000000000000
 func b2TestHandler(objects map[string][]byte) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.URL.Path == "/b2api/v2/b2_authorize_account":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"accountId": "acc", "authorizationToken": "tok",
-				"apiUrl": "http://" + r.Host, "downloadUrl": "http://" + r.Host,
-				"s3ApiUrl": "https://s3.us-west-001.backblazeb2.com",
-			})
+		case r.URL.Path == "/b2api/v3/b2_authorize_account":
+			_ = json.NewEncoder(w).Encode(providers.B2AuthorizeBodyForTest("acc", "tok", "http://"+r.Host, "http://"+r.Host, "https://s3.us-west-001.backblazeb2.com"))
 		case strings.Contains(r.URL.Path, "b2_create_bucket"):
 			_ = json.NewEncoder(w).Encode(map[string]string{"bucketId": "buc1", "bucketName": "luna-backup-dev"})
 		case strings.Contains(r.URL.Path, "b2_create_key"):

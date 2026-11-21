@@ -37,9 +37,26 @@ func TestAdminSeedLoginAndMint(t *testing.T) {
 	}
 	var loginOut map[string]any
 	_ = json.Unmarshal(loginRec.Body.Bytes(), &loginOut)
-	token, _ := loginOut["token"].(string)
+	if _, leaked := loginOut["token"]; leaked {
+		t.Fatal("login must not return the session token to page scripts")
+	}
+	var token string
+	for _, c := range loginRec.Result().Cookies() {
+		if c.Name != AdminSessionCookie {
+			continue
+		}
+		token = c.Value
+		if !c.HttpOnly || c.Path != "/admin" || c.SameSite != http.SameSiteStrictMode {
+			t.Fatalf("admin cookie flags: httpOnly=%v path=%q sameSite=%v", c.HttpOnly, c.Path, c.SameSite)
+		}
+	}
 	if token == "" {
-		t.Fatal("expected session token")
+		t.Fatal("expected admin session cookie")
+	}
+	var stored int
+	_ = d.DB.QueryRow(`SELECT COUNT(*) FROM admin_sessions WHERE token_hash = ?`, security.HashToken(token)).Scan(&stored)
+	if stored != 1 {
+		t.Fatalf("session must be stored hashed, found %d rows", stored)
 	}
 	adminID, _ := loginOut["id"].(string)
 	if adminID != "" && (token == adminID || len(token) > len(adminID) && token[:len(adminID)+1] == adminID+"_") {
@@ -47,7 +64,7 @@ func TestAdminSeedLoginAndMint(t *testing.T) {
 	}
 
 	mintReq := httptest.NewRequest(http.MethodPost, "/admin/device-codes", bytes.NewBufferString(`{}`))
-	mintReq.Header.Set("Authorization", "Bearer "+token)
+	mintReq.AddCookie(&http.Cookie{Name: AdminSessionCookie, Value: token})
 	mintReq = mintReq.WithContext(WithAdminID(mintReq.Context(), loginOut["id"].(string)))
 	mintRec := httptest.NewRecorder()
 	onb.AdminMint(mintRec, mintReq)
@@ -56,7 +73,7 @@ func TestAdminSeedLoginAndMint(t *testing.T) {
 	}
 
 	bulkReq := httptest.NewRequest(http.MethodPost, "/admin/device-codes/bulk", bytes.NewBufferString(`{"count":5}`))
-	bulkReq.Header.Set("Authorization", "Bearer "+token)
+	bulkReq.AddCookie(&http.Cookie{Name: AdminSessionCookie, Value: token})
 	bulkReq = bulkReq.WithContext(WithAdminID(bulkReq.Context(), loginOut["id"].(string)))
 	bulkRec := httptest.NewRecorder()
 	onb.AdminMintBulk(bulkRec, bulkReq)

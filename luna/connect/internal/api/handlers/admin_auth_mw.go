@@ -17,10 +17,20 @@ type adminCtxKey struct{}
 const adminAuthFailMax = 10
 const adminAuthFailWindowSec = 60
 
-// AdminAuth accepts a staff session Bearer from /admin/login, or the static
-// server.admin_token (ops / tests). Failed attempts are limited via the
-// guess_attempts table so the budget is shared across both instances and
-// survives restarts (10 per minute per source IP).
+// AdminSessionCookie carries a staff session from /admin/login. It is HttpOnly
+// and scoped to /admin, so it never reaches the customer API and never collides
+// with the customer session cookie (luna_connect_session on /).
+const AdminSessionCookie = "luna_connect_admin_session"
+
+const adminCookiePath = "/admin"
+
+// AdminAuth accepts a staff session cookie from /admin/login, or the static
+// server.admin_token as a Bearer (scripts and the perf harness only; empty
+// disables it). A Bearer header is checked on its own and never falls back to
+// the cookie, because Bearer requests skip the CSRF check. Wrong or expired
+// credentials count against a per-IP budget in guess_attempts (shared across
+// both instances, 10 per minute); a request that sends no credential at all
+// does not, so the admin pages' own sign-in probe cannot lock staff out.
 func AdminAuth(db *database.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -33,39 +43,45 @@ func AdminAuth(db *database.DB) func(http.Handler) http.Handler {
 				JSONError(w, http.StatusTooManyRequests, "Too many failed admin sign-ins from this network. Wait a minute, then try again.")
 				return
 			}
-			token := security.BearerToken(r.Header.Get("Authorization"))
-			if token == "" {
+			if r.Header.Get("Authorization") != "" {
+				if security.AdminAuthorized(r.Header.Get("Authorization"), config.C.Server.AdminToken) {
+					next.ServeHTTP(w, r.WithContext(WithAdminID(r.Context(), "static-admin")))
+					return
+				}
 				fail()
 				JSONError(w, http.StatusUnauthorized, "Admin sign-in required.")
 				return
 			}
-			hash := security.HashToken(token)
+			c, err := r.Cookie(AdminSessionCookie)
+			if err != nil || c.Value == "" {
+				JSONError(w, http.StatusUnauthorized, "Admin sign-in required.")
+				return
+			}
 			var adminID string
 			var expiresAt int64
-			err := db.QueryRow(`SELECT admin_id, expires_at FROM admin_sessions WHERE token_hash = ?`, hash).
+			err = db.QueryRow(`SELECT admin_id, expires_at FROM admin_sessions WHERE token_hash = ?`, security.HashToken(c.Value)).
 				Scan(&adminID, &expiresAt)
-			if err == nil {
-				if time.Now().Unix() > expiresAt {
-					fail()
-					JSONError(w, http.StatusUnauthorized, "Admin session expired. Sign in again.")
-					return
-				}
-				var active int
-				_ = db.QueryRow(`SELECT is_active FROM admin_accounts WHERE id = ?`, adminID).Scan(&active)
-				if active != 1 {
-					fail()
-					JSONError(w, http.StatusForbidden, "This admin account is disabled.")
-					return
-				}
-				next.ServeHTTP(w, r.WithContext(WithAdminID(r.Context(), adminID)))
+			if err != nil {
+				fail()
+				clearAdminSessionCookie(w)
+				JSONError(w, http.StatusUnauthorized, "Admin sign-in required.")
 				return
 			}
-			if security.AdminAuthorized(r.Header.Get("Authorization"), config.C.Server.AdminToken) {
-				next.ServeHTTP(w, r.WithContext(WithAdminID(r.Context(), "static-admin")))
+			if time.Now().Unix() > expiresAt {
+				fail()
+				clearAdminSessionCookie(w)
+				JSONError(w, http.StatusUnauthorized, "Admin session expired. Sign in again.")
 				return
 			}
-			fail()
-			JSONError(w, http.StatusUnauthorized, "Admin sign-in required.")
+			var active int
+			_ = db.QueryRow(`SELECT is_active FROM admin_accounts WHERE id = ?`, adminID).Scan(&active)
+			if active != 1 {
+				fail()
+				clearAdminSessionCookie(w)
+				JSONError(w, http.StatusForbidden, "This admin account is disabled.")
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(WithAdminID(r.Context(), adminID)))
 		})
 	}
 }
@@ -79,14 +95,20 @@ func AdminIDFrom(ctx context.Context) string {
 	return id
 }
 
-func CreateAdminSession(db *database.DB, adminID string) (string, error) {
-	token := security.RandomHex(32)
+func adminSessionTTL() time.Duration {
 	ttl := config.C.Auth.SessionTTLHours
 	if ttl <= 0 {
 		ttl = 168
 	}
+	return time.Duration(ttl) * time.Hour
+}
+
+// CreateAdminSession stores a new staff session (only its hash is kept) and
+// returns the raw token for the session cookie.
+func CreateAdminSession(db *database.DB, adminID string) (string, error) {
+	token := security.RandomHex(32)
 	now := time.Now()
-	expires := now.Add(time.Duration(ttl) * time.Hour).Unix()
+	expires := now.Add(adminSessionTTL()).Unix()
 	_, err := db.Exec(
 		`INSERT INTO admin_sessions (id, admin_id, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`,
 		security.NewID("asess"), adminID, security.HashToken(token), now.Unix(), expires)
@@ -94,6 +116,39 @@ func CreateAdminSession(db *database.DB, adminID string) (string, error) {
 		return "", err
 	}
 	return token, nil
+}
+
+// adminSessionToken returns the raw staff session token from the request's cookie, or "".
+func adminSessionToken(r *http.Request) string {
+	c, err := r.Cookie(AdminSessionCookie)
+	if err != nil {
+		return ""
+	}
+	return c.Value
+}
+
+func setAdminSessionCookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     AdminSessionCookie,
+		Value:    token,
+		Path:     adminCookiePath,
+		HttpOnly: true,
+		Secure:   config.CookieSecure(),
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   int(adminSessionTTL().Seconds()),
+	})
+}
+
+func clearAdminSessionCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     AdminSessionCookie,
+		Value:    "",
+		Path:     adminCookiePath,
+		HttpOnly: true,
+		Secure:   config.CookieSecure(),
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   -1,
+	})
 }
 
 func IsLocalRequest(r *http.Request) bool {

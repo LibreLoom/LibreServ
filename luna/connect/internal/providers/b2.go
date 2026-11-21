@@ -57,38 +57,51 @@ func SetAuthorizeURLForTest(c *B2Client, u string) {
 	}
 }
 
-// b2AuthResponse is the body returned by b2_authorize_account.
-// Recent (v4) responses nest the storage API fields under apiInfo.storageApi;
-// older responses keep apiUrl/downloadUrl/s3ApiUrl at the top level.
+// b2APIPath is the B2 native API version Connect speaks. Every call goes through b2CallURL.
+const b2APIPath = "/b2api/v3/"
+
+// b2AuthorizeURL is the public sign-in endpoint; the answer names the account's own API host.
+const b2AuthorizeURL = "https://api.backblazeb2.com" + b2APIPath + "b2_authorize_account"
+
+// b2CallURL is the URL of one B2 native API call on the host from b2_authorize_account.
+func b2CallURL(apiURL, call string) string {
+	return strings.TrimRight(apiURL, "/") + b2APIPath + call
+}
+
+// b2AuthResponse is the v3 b2_authorize_account body. v3 groups the storage fields under
+// apiInfo.storageApi; APIURL, DownloadURL and S3APIURL are copied out of it by normalize.
 type b2AuthResponse struct {
 	AccountID          string    `json:"accountId"`
 	AuthorizationToken string    `json:"authorizationToken"`
-	APIURL             string    `json:"apiUrl"`
-	DownloadURL        string    `json:"downloadUrl"`
-	S3APIURL           string    `json:"s3ApiUrl"`
 	APIInfo            b2APIInfo `json:"apiInfo"`
+
+	APIURL      string `json:"-"`
+	DownloadURL string `json:"-"`
+	S3APIURL    string `json:"-"`
 }
 
 type b2APIInfo struct {
 	StorageAPI b2StorageAPI `json:"storageApi"`
 }
 
+// b2StorageAPI holds the v3 storage fields Connect uses. The key's bucket and capability limits
+// sit beside them (v3: bucketId, bucketName, capabilities, namePrefix) and are not read here.
 type b2StorageAPI struct {
-	APIURL      string `json:"apiUrl"`
-	DownloadURL string `json:"downloadUrl"`
-	S3APIURL    string `json:"s3ApiUrl"`
+	APIURL                  string `json:"apiUrl"`
+	DownloadURL             string `json:"downloadUrl"`
+	S3APIURL                string `json:"s3ApiUrl"`
+	RecommendedPartSize     int64  `json:"recommendedPartSize"`
+	AbsoluteMinimumPartSize int64  `json:"absoluteMinimumPartSize"`
 }
 
-func (r *b2AuthResponse) normalize() {
-	if r.APIURL == "" {
-		r.APIURL = r.APIInfo.StorageAPI.APIURL
+func (r *b2AuthResponse) normalize() error {
+	r.APIURL = r.APIInfo.StorageAPI.APIURL
+	r.DownloadURL = r.APIInfo.StorageAPI.DownloadURL
+	r.S3APIURL = r.APIInfo.StorageAPI.S3APIURL
+	if r.APIURL == "" || r.AuthorizationToken == "" {
+		return fmt.Errorf("the sign-in answer had no apiInfo.storageApi.apiUrl or authorization token")
 	}
-	if r.S3APIURL == "" {
-		r.S3APIURL = r.APIInfo.StorageAPI.S3APIURL
-	}
-	if r.DownloadURL == "" {
-		r.DownloadURL = r.APIInfo.StorageAPI.DownloadURL
-	}
+	return nil
 }
 
 type b2BucketResponse struct {
@@ -178,15 +191,17 @@ func (c *B2Client) authorizeFresh(accountID, applicationKey string) (*b2AuthResp
 	auth := base64.StdEncoding.EncodeToString([]byte(accountID + ":" + applicationKey))
 	url := c.authorizeURL
 	if url == "" {
-		url = "https://api.backblazeb2.com/b2api/v2/b2_authorize_account"
+		url = b2AuthorizeURL
 	}
 	var resp b2AuthResponse
-	if err := doJSON(c.httpClient, http.MethodPost, url, map[string]string{
+	if err := doJSON(c.httpClient, http.MethodGet, url, map[string]string{
 		"Authorization": "Basic " + auth,
-	}, map[string]string{}, &resp); err != nil {
+	}, nil, &resp); err != nil {
 		return nil, fmt.Errorf("could not authorize with Backblaze B2: %w", err)
 	}
-	resp.normalize()
+	if err := resp.normalize(); err != nil {
+		return nil, fmt.Errorf("could not authorize with Backblaze B2: %w", err)
+	}
 	return &resp, nil
 }
 
@@ -195,7 +210,7 @@ func (c *B2Client) CreateBucket(apiURL, authToken, accountID, name, bucketType s
 	if bucketType == "" {
 		bucketType = "allPrivate"
 	}
-	url := strings.TrimRight(apiURL, "/") + "/b2api/v2/b2_create_bucket"
+	url := b2CallURL(apiURL, "b2_create_bucket")
 	var resp b2BucketResponse
 	if err := doJSON(c.httpClient, http.MethodPost, url, map[string]string{
 		"Authorization": authToken,
@@ -222,7 +237,7 @@ func (c *B2Client) EnsureKeepLastVersion(apiURL, authToken, accountID string, bu
 	if hasKeepLastVersionRules(bucket.LifecycleRules) {
 		return nil
 	}
-	url := strings.TrimRight(apiURL, "/") + "/b2api/v2/b2_update_bucket"
+	url := b2CallURL(apiURL, "b2_update_bucket")
 	var resp b2BucketResponse
 	update := map[string]any{
 		"accountId":      accountID,
@@ -263,7 +278,7 @@ func (c *B2Client) EnsureKeepLastVersionByName(accountID, applicationKey, name s
 
 // ListBuckets returns all buckets on the account.
 func (c *B2Client) ListBuckets(apiURL, authToken, accountID string) ([]b2BucketResponse, error) {
-	url := strings.TrimRight(apiURL, "/") + "/b2api/v2/b2_list_buckets"
+	url := b2CallURL(apiURL, "b2_list_buckets")
 	var resp b2ListBucketsResponse
 	if err := doJSON(c.httpClient, http.MethodPost, url, map[string]string{
 		"Authorization": authToken,
@@ -280,7 +295,7 @@ func (c *B2Client) CreateKey(apiURL, authToken, accountID, name, bucketID string
 	if len(capabilities) == 0 {
 		capabilities = []string{"listBuckets", "listFiles", "readFiles", "writeFiles", "deleteFiles"}
 	}
-	url := strings.TrimRight(apiURL, "/") + "/b2api/v2/b2_create_key"
+	url := b2CallURL(apiURL, "b2_create_key")
 	var resp b2KeyResponse
 	if err := doJSON(c.httpClient, http.MethodPost, url, map[string]string{
 		"Authorization": authToken,
@@ -301,7 +316,7 @@ func (c *B2Client) DeleteKey(accountID, applicationKey, keyID string) error {
 	if err != nil {
 		return err
 	}
-	url := strings.TrimRight(auth.APIURL, "/") + "/b2api/v2/b2_delete_key"
+	url := b2CallURL(auth.APIURL, "b2_delete_key")
 	if err := doJSON(c.httpClient, http.MethodPost, url, map[string]string{
 		"Authorization": auth.AuthorizationToken,
 	}, map[string]string{"applicationKeyId": keyID}, nil); err != nil {
@@ -319,7 +334,7 @@ func (c *B2Client) DeleteBucket(accountID, applicationKey, bucketID string) erro
 	if err != nil {
 		return err
 	}
-	url := strings.TrimRight(auth.APIURL, "/") + "/b2api/v2/b2_delete_bucket"
+	url := b2CallURL(auth.APIURL, "b2_delete_bucket")
 	if err := doJSON(c.httpClient, http.MethodPost, url, map[string]string{
 		"Authorization": auth.AuthorizationToken,
 	}, map[string]string{"accountId": auth.AccountID, "bucketId": bucketID}, nil); err != nil {

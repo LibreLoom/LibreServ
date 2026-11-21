@@ -44,13 +44,8 @@ VALUES ('dev_abc12345abcdef', 'acct_1', 'th', 'Luna', 'kitchen', 8090, 1)`)
 
 	createBucketCalls := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/b2api/v2/b2_authorize_account" {
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"accountId":          "acc",
-				"authorizationToken": "tok",
-				"apiUrl":             "http://" + r.Host,
-				"s3ApiUrl":           "https://s3.us-west-001.backblazeb2.com",
-			})
+		if r.URL.Path == "/b2api/v3/b2_authorize_account" {
+			_ = json.NewEncoder(w).Encode(B2AuthorizeBodyForTest("acc", "tok", "http://"+r.Host, "", "https://s3.us-west-001.backblazeb2.com"))
 			return
 		}
 		if strings.Contains(r.URL.Path, "b2_create_bucket") {
@@ -80,7 +75,7 @@ VALUES ('dev_abc12345abcdef', 'acct_1', 'th', 'Luna', 'kitchen', 8090, 1)`)
 	}
 
 	client := NewB2Client(ts.Client())
-	client.authorizeURL = ts.URL + "/b2api/v2/b2_authorize_account"
+	client.authorizeURL = ts.URL + "/b2api/v3/b2_authorize_account"
 	p := &BucketProvisioner{DB: db, Providers: svc, B2: client}
 
 	first, err := p.EnsureDeviceBucket("dev_abc12345abcdef")
@@ -141,7 +136,7 @@ func TestB2AuthorizeIsCached(t *testing.T) {
 	calls := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
-		_ = json.NewEncoder(w).Encode(map[string]any{"accountId": "a", "authorizationToken": "t", "apiUrl": "http://x"})
+		_ = json.NewEncoder(w).Encode(B2AuthorizeBodyForTest("a", "t", "http://x", "", ""))
 	}))
 	defer ts.Close()
 	c := NewB2Client(ts.Client())
@@ -179,9 +174,8 @@ func TestEnsureDeviceBucketRevokesLostRaceKey(t *testing.T) {
 	var deletedBuckets []string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.URL.Path == "/b2api/v2/b2_authorize_account":
-			_ = json.NewEncoder(w).Encode(map[string]any{"accountId": "acc", "authorizationToken": "tok",
-				"apiUrl": "http://" + r.Host, "s3ApiUrl": "https://s3.example"})
+		case r.URL.Path == "/b2api/v3/b2_authorize_account":
+			_ = json.NewEncoder(w).Encode(B2AuthorizeBodyForTest("acc", "tok", "http://"+r.Host, "", "https://s3.example"))
 		case strings.Contains(r.URL.Path, "b2_create_bucket"):
 			// Another instance saves its own row while this one is still provisioning.
 			_, _ = db.Exec(`INSERT INTO device_backup_buckets (device_id, bucket_name, bucket_id, endpoint, key_id, application_key_sealed, provisioned_at)
@@ -209,7 +203,7 @@ VALUES (?, 'other', 'buc0', 'e', 'winner', '', 1)`, key)
 		t.Fatal(err)
 	}
 	client := NewB2Client(ts.Client())
-	client.authorizeURL = ts.URL + "/b2api/v2/b2_authorize_account"
+	client.authorizeURL = ts.URL + "/b2api/v3/b2_authorize_account"
 	p := &BucketProvisioner{DB: db, Providers: svc, B2: client}
 
 	// The row exists only after create_bucket runs, so the first look finds nothing.
@@ -278,11 +272,8 @@ VALUES ('acct_1:dev_old', 'luna-backup-old', 'buc-old', 's3.example', 'kid-old',
 	failUpdate := true
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.URL.Path == "/b2api/v2/b2_authorize_account":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"accountId": "acc", "authorizationToken": "tok",
-				"apiUrl": "http://" + r.Host, "s3ApiUrl": "https://s3.us-west-001.backblazeb2.com",
-			})
+		case r.URL.Path == "/b2api/v3/b2_authorize_account":
+			_ = json.NewEncoder(w).Encode(B2AuthorizeBodyForTest("acc", "tok", "http://"+r.Host, "", "https://s3.us-west-001.backblazeb2.com"))
 		case strings.Contains(r.URL.Path, "b2_list_buckets"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"buckets": []map[string]any{
 				{"bucketId": "buc-old", "bucketName": "luna-backup-old", "lifecycleRules": []any{}, "revision": 3},
@@ -313,7 +304,7 @@ VALUES ('acct_1:dev_old', 'luna-backup-old', 'buc-old', 's3.example', 'kid-old',
 		t.Fatal(err)
 	}
 	client := NewB2Client(ts.Client())
-	client.authorizeURL = ts.URL + "/b2api/v2/b2_authorize_account"
+	client.authorizeURL = ts.URL + "/b2api/v3/b2_authorize_account"
 	clock := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
 	p := &BucketProvisioner{DB: db, Providers: svc, B2: client, Now: func() time.Time { return clock }}
 
@@ -372,11 +363,8 @@ VALUES ('acct_1:dev_old', 'luna-backup-old', 'buc-old', 's3.example', 'kid-old',
 	}
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.URL.Path == "/b2api/v2/b2_authorize_account":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"accountId": "acc", "authorizationToken": "tok",
-				"apiUrl": "http://" + r.Host, "s3ApiUrl": "https://s3.us-west-001.backblazeb2.com",
-			})
+		case r.URL.Path == "/b2api/v3/b2_authorize_account":
+			_ = json.NewEncoder(w).Encode(B2AuthorizeBodyForTest("acc", "tok", "http://"+r.Host, "", "https://s3.us-west-001.backblazeb2.com"))
 		case strings.Contains(r.URL.Path, "b2_list_buckets"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"buckets": []map[string]any{
 				{"bucketId": "buc-old", "bucketName": "luna-backup-old", "lifecycleRules": []any{}, "revision": 3},
@@ -396,7 +384,7 @@ VALUES ('acct_1:dev_old', 'luna-backup-old', 'buc-old', 's3.example', 'kid-old',
 		t.Fatal(err)
 	}
 	client := NewB2Client(ts.Client())
-	client.authorizeURL = ts.URL + "/b2api/v2/b2_authorize_account"
+	client.authorizeURL = ts.URL + "/b2api/v3/b2_authorize_account"
 	return &BucketProvisioner{DB: db, Providers: svc, B2: client, Now: now}
 }
 

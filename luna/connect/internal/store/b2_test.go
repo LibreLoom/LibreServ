@@ -39,15 +39,12 @@ VALUES ('dev_storetest0001', 'acct_1', 'th', 'Luna', 'den', 8090, 1)`)
 
 	objects := map[string][]byte{}
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "b2_") && !strings.HasPrefix(r.URL.Path, "/b2api/v3/") {
+			t.Errorf("call %s is not on the v3 API", r.URL.Path)
+		}
 		switch {
-		case r.URL.Path == "/b2api/v2/b2_authorize_account":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"accountId":          "acc",
-				"authorizationToken": "tok",
-				"apiUrl":             "http://" + r.Host,
-				"downloadUrl":        "http://" + r.Host,
-				"s3ApiUrl":           "https://s3.us-west-001.backblazeb2.com",
-			})
+		case r.URL.Path == "/b2api/v3/b2_authorize_account":
+			_ = json.NewEncoder(w).Encode(providers.B2AuthorizeBodyForTest("acc", "tok", "http://"+r.Host, "http://"+r.Host, "https://s3.us-west-001.backblazeb2.com"))
 		case strings.Contains(r.URL.Path, "b2_create_bucket"):
 			_ = json.NewEncoder(w).Encode(map[string]string{"bucketId": "buc1", "bucketName": "luna-backup-dev-storetest0001"})
 		case strings.Contains(r.URL.Path, "b2_create_key"):
@@ -120,7 +117,7 @@ VALUES ('dev_storetest0001', 'acct_1', 'th', 'Luna', 'den', 8090, 1)`)
 	}
 	st.Client = client
 	st.Provisioner.B2 = client
-	providers.SetAuthorizeURLForTest(client, ts.URL+"/b2api/v2/b2_authorize_account")
+	providers.SetAuthorizeURLForTest(client, ts.URL+"/b2api/v3/b2_authorize_account")
 
 	n, be, err := st.Put("acct_1", "dev_storetest0001", "Photos/a.jpg", strings.NewReader("hello"))
 	if err != nil || n != 5 || be != BackendB2 {

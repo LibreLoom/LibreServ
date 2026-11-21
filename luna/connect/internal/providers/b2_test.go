@@ -12,19 +12,19 @@ import (
 func TestB2ProvisionBucket(t *testing.T) {
 	var authorizeCalled, createBucketCalled, createKeyCalled bool
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/b2api/v2/b2_authorize_account" {
+		if !strings.HasPrefix(r.URL.Path, "/b2api/v3/") {
+			t.Errorf("call %s is not on the v3 API", r.URL.Path)
+		}
+		if r.URL.Path == "/b2api/v3/b2_authorize_account" {
 			authorizeCalled = true
+			if r.Method != http.MethodGet {
+				t.Errorf("authorize method=%s, want GET", r.Method)
+			}
 			if auth := r.Header.Get("Authorization"); auth != "Basic YWNjMTIzOmtleTQ1Ng==" {
 				t.Fatalf("auth header=%s", auth)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"accountId":          "acc123",
-				"authorizationToken": "tok123",
-				"apiUrl":             "http://" + r.Host,
-				"downloadUrl":        "http://" + r.Host,
-				"s3ApiUrl":           "https://s3.us-west-001.backblazeb2.com",
-			})
+			_ = json.NewEncoder(w).Encode(B2AuthorizeBodyForTest("acc123", "tok123", "http://"+r.Host, "http://"+r.Host, "https://s3.us-west-001.backblazeb2.com"))
 			return
 		}
 		if strings.Contains(r.URL.Path, "b2_create_bucket") {
@@ -60,7 +60,7 @@ func TestB2ProvisionBucket(t *testing.T) {
 	defer ts.Close()
 
 	client := NewB2Client(ts.Client())
-	client.authorizeURL = ts.URL + "/b2api/v2/b2_authorize_account"
+	client.authorizeURL = ts.URL + "/b2api/v3/b2_authorize_account"
 	creds, err := client.ProvisionBucket("acc123", "key456", "luna-backup-dev-abc")
 	if err != nil {
 		t.Fatalf("provision bucket: %v", err)
@@ -81,14 +81,9 @@ func TestB2ProvisionBucket(t *testing.T) {
 
 func TestB2ProvisionBucketIdempotentWhenExists(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/b2api/v2/b2_authorize_account" {
+		if r.URL.Path == "/b2api/v3/b2_authorize_account" {
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"accountId":          "acc123",
-				"authorizationToken": "tok123",
-				"apiUrl":             "http://" + r.Host,
-				"s3ApiUrl":           "https://s3.us-west-001.backblazeb2.com",
-			})
+			_ = json.NewEncoder(w).Encode(B2AuthorizeBodyForTest("acc123", "tok123", "http://"+r.Host, "", "https://s3.us-west-001.backblazeb2.com"))
 			return
 		}
 		if strings.Contains(r.URL.Path, "b2_create_bucket") {
@@ -118,7 +113,7 @@ func TestB2ProvisionBucketIdempotentWhenExists(t *testing.T) {
 	defer ts.Close()
 
 	client := NewB2Client(ts.Client())
-	client.authorizeURL = ts.URL + "/b2api/v2/b2_authorize_account"
+	client.authorizeURL = ts.URL + "/b2api/v3/b2_authorize_account"
 	creds, err := client.ProvisionBucket("acc123", "key456", "luna-backup-dev-abc")
 	if err != nil {
 		t.Fatalf("provision: %v", err)
@@ -160,25 +155,83 @@ func TestB2S3Endpoint(t *testing.T) {
 	}
 }
 
-func TestAuthorizeV4NestedShape(t *testing.T) {
-	body := `{"accountId":"acc123","authorizationToken":"tok123","apiInfo":{"storageApi":{"apiUrl":"https://api004.backblazeb2.com","downloadUrl":"https://f004.backblazeb2.com","s3ApiUrl":"https://s3.us-west-004.backblazeb2.com"}}}`
+// A v3 b2_authorize_account answer, as Backblaze documents it: the storage fields live under
+// apiInfo.storageApi and nothing is at the top level.
+const b2V3AuthorizeBody = `{
+  "accountId": "acc123",
+  "authorizationToken": "tok123",
+  "applicationKeyExpirationTimestamp": null,
+  "apiInfo": {
+    "storageApi": {
+      "absoluteMinimumPartSize": 5000000,
+      "apiUrl": "https://api004.backblazeb2.com",
+      "bucketId": "buc123",
+      "bucketName": "luna-backup-dev-abc",
+      "capabilities": ["listBuckets", "listFiles", "readFiles", "writeFiles", "deleteFiles"],
+      "downloadUrl": "https://f004.backblazeb2.com",
+      "infoType": "storageApi",
+      "namePrefix": null,
+      "recommendedPartSize": 100000000,
+      "s3ApiUrl": "https://s3.us-west-004.backblazeb2.com"
+    }
+  }
+}`
+
+func TestAuthorizeV3StorageAPIShape(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/b2api/v3/b2_authorize_account" {
+			t.Errorf("authorize %s %s", r.Method, r.URL.Path)
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(body))
+		_, _ = w.Write([]byte(b2V3AuthorizeBody))
 	}))
 	defer ts.Close()
 
 	client := NewB2Client(ts.Client())
-	client.authorizeURL = ts.URL + "/b2api/v2/b2_authorize_account"
+	client.authorizeURL = ts.URL + "/b2api/v3/b2_authorize_account"
 	auth, err := client.Authorize("acc123", "key456")
 	if err != nil {
 		t.Fatalf("authorize: %v", err)
 	}
+	if auth.AccountID != "acc123" || auth.AuthorizationToken != "tok123" {
+		t.Fatalf("account=%s token=%s", auth.AccountID, auth.AuthorizationToken)
+	}
 	if auth.APIURL != "https://api004.backblazeb2.com" {
 		t.Fatalf("apiUrl=%s", auth.APIURL)
 	}
+	if auth.DownloadURL != "https://f004.backblazeb2.com" {
+		t.Fatalf("downloadUrl=%s", auth.DownloadURL)
+	}
 	if auth.S3APIURL != "https://s3.us-west-004.backblazeb2.com" {
 		t.Fatalf("s3ApiUrl=%s", auth.S3APIURL)
+	}
+	if auth.APIInfo.StorageAPI.RecommendedPartSize != 100000000 || auth.APIInfo.StorageAPI.AbsoluteMinimumPartSize != 5000000 {
+		t.Fatalf("part sizes %+v", auth.APIInfo.StorageAPI)
+	}
+}
+
+// The v2 shape (URLs at the top level) is not what v3 sends; reading it must fail loudly
+// instead of leaving an empty API host that later calls would hit.
+func TestAuthorizeRejectsTopLevelV2Shape(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"accountId":"acc123","authorizationToken":"tok123","apiUrl":"https://api004.backblazeb2.com","downloadUrl":"https://f004.backblazeb2.com"}`))
+	}))
+	defer ts.Close()
+
+	client := NewB2Client(ts.Client())
+	client.authorizeURL = ts.URL + "/b2api/v3/b2_authorize_account"
+	if _, err := client.Authorize("acc123", "key456"); err == nil {
+		t.Fatal("a v2-shaped answer should be refused")
+	}
+}
+
+func TestB2CallURLUsesV3(t *testing.T) {
+	if got := b2CallURL("https://api004.backblazeb2.com/", "b2_list_buckets"); got != "https://api004.backblazeb2.com/b2api/v3/b2_list_buckets" {
+		t.Fatalf("got %s", got)
+	}
+	if b2AuthorizeURL != "https://api.backblazeb2.com/b2api/v3/b2_authorize_account" {
+		t.Fatalf("authorize URL %s", b2AuthorizeURL)
 	}
 }
 
@@ -222,13 +275,8 @@ func existingBucketServer(t *testing.T, listRules any, updateStatus int, updates
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.URL.Path == "/b2api/v2/b2_authorize_account":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"accountId":          "acc123",
-				"authorizationToken": "tok123",
-				"apiUrl":             "http://" + r.Host,
-				"s3ApiUrl":           "https://s3.us-west-001.backblazeb2.com",
-			})
+		case r.URL.Path == "/b2api/v3/b2_authorize_account":
+			_ = json.NewEncoder(w).Encode(B2AuthorizeBodyForTest("acc123", "tok123", "http://"+r.Host, "", "https://s3.us-west-001.backblazeb2.com"))
 		case strings.Contains(r.URL.Path, "b2_create_bucket"):
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = w.Write([]byte(`{"code":"duplicate_bucket_name","message":"Bucket name is already in use"}`))
@@ -283,7 +331,7 @@ func TestB2ProvisionBucketSetsKeepLastVersionOnExistingBucket(t *testing.T) {
 	defer ts.Close()
 
 	client := NewB2Client(ts.Client())
-	client.authorizeURL = ts.URL + "/b2api/v2/b2_authorize_account"
+	client.authorizeURL = ts.URL + "/b2api/v3/b2_authorize_account"
 	creds, err := client.ProvisionBucket("acc123", "key456", "luna-backup-dev-abc")
 	if err != nil {
 		t.Fatalf("provision: %v", err)
@@ -303,7 +351,7 @@ func TestB2ProvisionBucketSkipsUpdateWhenRulePresent(t *testing.T) {
 	defer ts.Close()
 
 	client := NewB2Client(ts.Client())
-	client.authorizeURL = ts.URL + "/b2api/v2/b2_authorize_account"
+	client.authorizeURL = ts.URL + "/b2api/v3/b2_authorize_account"
 	if _, err := client.ProvisionBucket("acc123", "key456", "luna-backup-dev-abc"); err != nil {
 		t.Fatalf("provision: %v", err)
 	}
@@ -324,7 +372,7 @@ func TestB2ProvisionBucketUpdatesWhenRulesDiffer(t *testing.T) {
 	defer ts.Close()
 
 	client := NewB2Client(ts.Client())
-	client.authorizeURL = ts.URL + "/b2api/v2/b2_authorize_account"
+	client.authorizeURL = ts.URL + "/b2api/v3/b2_authorize_account"
 	if _, err := client.ProvisionBucket("acc123", "key456", "luna-backup-dev-abc"); err != nil {
 		t.Fatalf("provision: %v", err)
 	}
@@ -341,7 +389,7 @@ func TestB2ProvisionBucketSurvivesLifecycleUpdateError(t *testing.T) {
 	defer ts.Close()
 
 	client := NewB2Client(ts.Client())
-	client.authorizeURL = ts.URL + "/b2api/v2/b2_authorize_account"
+	client.authorizeURL = ts.URL + "/b2api/v3/b2_authorize_account"
 	creds, err := client.ProvisionBucket("acc123", "key456", "luna-backup-dev-abc")
 	if err != nil {
 		t.Fatalf("provision should still succeed: %v", err)

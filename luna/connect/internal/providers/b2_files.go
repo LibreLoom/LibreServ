@@ -61,7 +61,7 @@ func (c *B2Client) UploadFile(accountID, applicationKey, bucketID, fileName stri
 }
 
 func (c *B2Client) getUploadURL(apiURL, authToken, bucketID string) (*b2UploadURLResponse, error) {
-	endpoint := strings.TrimRight(apiURL, "/") + "/b2api/v2/b2_get_upload_url"
+	endpoint := b2CallURL(apiURL, "b2_get_upload_url")
 	var resp b2UploadURLResponse
 	if err := doJSON(c.httpClient, http.MethodPost, endpoint, map[string]string{
 		"Authorization": authToken,
@@ -127,7 +127,7 @@ func (c *B2Client) DeleteFile(accountID, applicationKey, bucketID, fileName stri
 }
 
 func (c *B2Client) listFileVersions(apiURL, authToken, bucketID, fileName string) ([]b2FileVersion, error) {
-	u := strings.TrimRight(apiURL, "/") + "/b2api/v2/b2_list_file_versions"
+	u := b2CallURL(apiURL, "b2_list_file_versions")
 	var resp b2ListFilesResponse
 	if err := doJSON(c.httpClient, http.MethodPost, u, map[string]string{
 		"Authorization": authToken,
@@ -149,7 +149,7 @@ func (c *B2Client) listFileVersions(apiURL, authToken, bucketID, fileName string
 }
 
 func (c *B2Client) deleteFileVersion(apiURL, authToken, fileID, fileName string) error {
-	u := strings.TrimRight(apiURL, "/") + "/b2api/v2/b2_delete_file_version"
+	u := b2CallURL(apiURL, "b2_delete_file_version")
 	if err := doJSON(c.httpClient, http.MethodPost, u, map[string]string{
 		"Authorization": authToken,
 	}, map[string]string{

@@ -92,17 +92,21 @@ func (h AdminAuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// A fresh session on every sign-in: drop the one this browser held before.
+	if prev := adminSessionToken(r); prev != "" {
+		_, _ = h.DB.Exec(`DELETE FROM admin_sessions WHERE token_hash = ?`, security.HashToken(prev))
+	}
 	token, err := CreateAdminSession(h.DB, id)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not start an admin session. Try again.")
 		return
 	}
+	setAdminSessionCookie(w, token)
 	displayName := ""
 	if name.Valid {
 		displayName = name.String
 	}
 	JSON(w, http.StatusOK, map[string]any{
-		"token":   token,
 		"id":      id,
 		"email":   email,
 		"name":    displayName,
@@ -210,11 +214,13 @@ func (h AdminAuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Logout ends the browser's staff session: the server row and the cookie. It
+// sits outside AdminAuth (inside CSRF) so an expired session still clears.
 func (h AdminAuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	token := security.BearerToken(r.Header.Get("Authorization"))
-	if token != "" {
+	if token := adminSessionToken(r); token != "" {
 		_, _ = h.DB.Exec(`DELETE FROM admin_sessions WHERE token_hash = ?`, security.HashToken(token))
 	}
+	clearAdminSessionCookie(w)
 	JSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -329,7 +335,7 @@ func (h AdminAuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request)
 		JSONError(w, http.StatusInternalServerError, "Could not update the password. Try again.")
 		return
 	}
-	current := security.BearerToken(r.Header.Get("Authorization"))
+	current := adminSessionToken(r)
 	if current != "" {
 		_, _ = h.DB.Exec(`DELETE FROM admin_sessions WHERE admin_id = ? AND token_hash != ?`, adminID, security.HashToken(current))
 	} else {

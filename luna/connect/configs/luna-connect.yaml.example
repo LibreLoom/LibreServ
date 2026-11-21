@@ -3,7 +3,8 @@ server:
   port: 8092
   base_url: "https://connect.luna.libreloom.org"
   public_zone: "luna.servers.libreloom.org"
-  # Optional static Bearer for ops/automation. Prefer admin login sessions.
+  # Optional static Bearer for scripts (perf harness, e2e). It skips staff
+  # sign-in and 2FA, so leave it empty in production. Staff use /admin/login.
   admin_token: ""
   # Shared between blue/green instances. openssl rand -hex 32
   at_rest_key: ""

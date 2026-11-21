@@ -120,7 +120,7 @@ Two instances run side by side so a deploy can update them one at a time. They s
 
 **Inbound must be Cloudflare-only.** Connect believes `CF-Connecting-IP`/`X-Real-IP`/`X-Forwarded-For` only from a loopback peer or an address listed in `trusted_proxies`, so `deploy/Caddyfile.conf` must keep aborting any request that did not arrive from a Cloudflare edge IP and the host firewall must stay restricted to the proxy's address ranges. The shipped Caddy is on loopback and needs no entry; a proxy on another address (a Docker/LAN hop) must be listed in `trusted_proxies` or every client is bucketed as that proxy for rate limits and admin gating. List only a proxy you control — it can choose the client address Connect sees.
 
-Fill Cloudflare (tunnel + DNS for the device domain) and Stripe in both instances' config files (same `admin_token` and `at_rest_key` on both), or set them in Admin → Connections (shared SQLite). Cloudflare and Stripe yaml values are the fallback when nothing is enabled in the database.
+Fill Cloudflare (tunnel + DNS for the device domain) and Stripe in both instances' config files (same `at_rest_key` on both; leave `admin_token` empty, staff sign in at `/admin/login`), or set them in Admin → Connections (shared SQLite). Cloudflare and Stripe yaml values are the fallback when nothing is enabled in the database.
 
 ## Tests
 

@@ -44,23 +44,16 @@ chmod 700 "$DATA_DIR"
 chmod 600 "$DATA_DIR"/luna-connect.db* 2>/dev/null || true
 
 log_step "Creating instance configs"
-admin_token=""
 at_rest_key=""
 for inst in "${INSTANCES[@]}"; do
     name="${inst%%:*}"
     existing="$CONFIG_DIR/luna-connect-${name}.yaml"
     if [ -f "$existing" ]; then
-        if [ -z "$admin_token" ]; then
-            admin_token=$(sed -n 's/^  admin_token: "\(.*\)"/\1/p' "$existing" | head -1)
-        fi
         if [ -z "$at_rest_key" ]; then
             at_rest_key=$(sed -n 's/^  at_rest_key: "\(.*\)"/\1/p' "$existing" | head -1)
         fi
     fi
 done
-if [ -z "$admin_token" ]; then
-    admin_token=$(openssl rand -hex 32)
-fi
 if [ -z "$at_rest_key" ]; then
     at_rest_key=$(openssl rand -hex 32)
 fi
@@ -78,7 +71,9 @@ server:
   port: ${port}
   base_url: "${BASE_URL}"
   public_zone: "luna.servers.libreloom.org"
-  admin_token: "${admin_token}"
+  # Staff sign in at /admin/login (cookie session, optional 2FA). A static
+  # Bearer here skips all of that; leave it empty unless a script needs it.
+  admin_token: ""
   at_rest_key: "${at_rest_key}"
   web_dir: "${INSTALL_DIR}/web"
 
