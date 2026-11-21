@@ -449,3 +449,38 @@ fn an_admin_cannot_reach_private_metadata_while_the_drive_is_away() {
     assert_eq!(my_caps(&conn, &admin, &subj), 0);
     assert!(!may_manage_link(&conn, &admin, &row));
 }
+
+#[test]
+fn private_links_stay_behind_the_wall() {
+    use super::access_admin::{may_manage_link, may_see_link};
+    let (_dir, conn) = private_window_conn();
+    // Carol holds Full on `Family`, but that grant stops at Alice's wall.
+    crate::db::insert_user(&conn, "carol", "carol", "Carol", "x", "user").unwrap();
+    let mut carol = member_row("m-carol", "carol", "Family");
+    carol.caps = CAP_ALL;
+    crate::db::insert_access_member(&conn, &carol).unwrap();
+    let mut row = link("Family/Vault", CAP_VIEW);
+    row.created_by = "alice".into();
+    crate::db::insert_access_link(&conn, &row).unwrap();
+
+    let alice = current_user("alice", "user");
+    let bob = current_user("bob", "user");
+    let carol = current_user("carol", "user");
+    let admin = current_user("admin", "admin");
+    // The owner sees and manages her own link.
+    assert!(may_see_link(&conn, &alice, &row));
+    assert!(may_manage_link(&conn, &alice, &row));
+    // Bob was added inside the wall with Read: he sees it, can't change it.
+    assert!(may_see_link(&conn, &bob, &row));
+    assert!(!may_manage_link(&conn, &bob, &row));
+    // Outside the wall, nobody learns the link exists — not even an Admin.
+    assert!(!may_see_link(&conn, &carol, &row));
+    assert!(!may_manage_link(&conn, &carol, &row));
+    assert!(!may_see_link(&conn, &admin, &row));
+
+    // While the drive is locked, privacy can't be ruled out, so the
+    // answer outside the wall stays no.
+    crate::db::set_drive_locked(&conn, "d1", true).unwrap();
+    assert!(!may_see_link(&conn, &admin, &row));
+    assert!(!may_see_link(&conn, &carol, &row));
+}

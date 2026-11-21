@@ -39,7 +39,7 @@ import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import ToastContext from "@libreloom/ui/context/ToastContext.jsx";
 import { fileListKey, fileSourceScope, useFileSource } from "../../lib/fileSource.jsx";
-import { CAP, capsBits } from "../../lib/access.js";
+import { canSeeLinks } from "../../lib/access.js";
 import { openFileSearch } from "../../lib/fileSearch.js";
 
 const UNPLUGGED_DRIVE_MESSAGE =
@@ -1117,7 +1117,7 @@ export default function FileBrowser({
   }, { label: "Move to trash", group: "Files", enabled: keysOn && Boolean(onDelete) });
   useShortcut("s", () => {
     const ctx = selectedEntry();
-    if (!ctx || !onShare || (capsBits(ctx.entry?.caps || "") & CAP.SHARE) === 0) return false;
+    if (!ctx || !onShare || !canSeeLinks(ctx.entry?.caps || "")) return false;
     onShare(ctx);
     return true;
   }, { label: "Share", group: "Files", enabled: keysOn && Boolean(onShare) });
@@ -1547,13 +1547,14 @@ export default function FileBrowser({
   const selectedCount = selectedPaths.length;
   const showSelectionToolbar = !isPicker && multiSelect && selectedCount > 0;
   // The single-item Sharing button: only when exactly one item is selected and
-  // it carries the share bit (same rule as the row action).
+  // the person can at least read it (same rule as the row action — Read shows
+  // the item's links, the sheet gates changes).
   const shareTarget = (() => {
     if (selectedCount !== 1 || !onShare) return null;
     const fullPath = selectedPaths[0];
     const name = fullPath.split("/").pop() || fullPath;
     const entry = entryByPath.get(fullPath) || { name, kind: "file" };
-    if ((capsBits(entry.caps || "") & CAP.SHARE) === 0) return null;
+    if (!canSeeLinks(entry.caps || "")) return null;
     return { entry, fullPath };
   })();
   // The browse controls (search pill, segmented control, dropdown) are taller

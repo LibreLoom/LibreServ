@@ -316,7 +316,7 @@ describe("ShareSheet", () => {
     });
   });
 
-  it("names who created each link, including a creator who is gone", async () => {
+  it("names who made each link, including a maker who is gone", async () => {
     stubApi((path) => subjectBody(path, {
       links: [
         { id: "l1", caps: "view", url: "/s/tok1", can_manage: true, created_by: "u2" },
@@ -324,8 +324,77 @@ describe("ShareSheet", () => {
       ],
     }));
     renderSheet();
-    expect(await screen.findByText("Created by Sam")).toBeInTheDocument();
-    expect(screen.getByText("Created by someone who is no longer here")).toBeInTheDocument();
+    await screen.findByText("Made by a removed person");
+    const makers = [...document.querySelectorAll("[data-slot=link-maker]")];
+    expect(makers.map((el) => el.textContent)).toEqual(["Made by Sam", "Made by a removed person"]);
+    // The name is a chip, not a bare font change.
+    expect(within(/** @type {HTMLElement} */ (makers[0])).getByText("Sam")).toHaveAttribute("data-slot", "inline-pill");
+  });
+
+  describe("a Read member", () => {
+    const readBody = (path) => subjectBody(path, {
+      my_caps: "view",
+      member_count: 2,
+      links: [
+        { id: "l1", caps: "view", url: null, has_password: false, can_manage: false, created_by: "u1" },
+        { id: "l2", caps: "full", url: null, has_password: true, can_manage: false, created_by: "u2" },
+      ],
+    });
+
+    it("sees every link and who made it, but no way to change one", async () => {
+      stubApi(readBody, [
+        { id: "u1", username: "max", display_name: "Max" },
+        { id: "u2", username: "sam", display_name: "Sam" },
+      ]);
+      renderSheet();
+      await waitFor(() => {
+        const makers = [...document.querySelectorAll("[data-slot=link-maker]")].map((el) => el.textContent);
+        expect(makers).toEqual(["Made by Max", "Made by Sam"]);
+      });
+      expect(screen.queryByRole("button", { name: "Link settings" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Remove this link" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "New link" })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Share link address")).not.toBeInTheDocument();
+      // One line says why, with Read explained one step in.
+      const note = /** @type {HTMLElement} */ (document.querySelector("[data-slot=links-read-note]"));
+      expect(note).toHaveTextContent("You have Read access, so you can see these links but not change them.");
+    });
+
+    it("says there are no links yet instead of an empty section", async () => {
+      stubApi((path) => subjectBody(path, { my_caps: "view", member_count: 0 }));
+      renderSheet();
+      expect(await screen.findByText("No links yet.")).toBeInTheDocument();
+      expect(screen.getByText("Nobody has been added here yet.")).toBeInTheDocument();
+      expect(document.querySelector("[data-slot=links-read-note]")).toBeNull();
+    });
+
+    it("gets the head count, not the roster or an Add button", async () => {
+      stubApi(readBody);
+      renderSheet();
+      expect(await screen.findByText("2 people added here.")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Add a person" })).not.toBeInTheDocument();
+      expect(screen.queryByText("Everyone already has access.")).not.toBeInTheDocument();
+    });
+  });
+
+  it("lets a Write member make links and manage the ones within their access", async () => {
+    stubApi((path) => subjectBody(path, {
+      my_caps: "view+upload",
+      member_count: 1,
+      links: [
+        { id: "l1", caps: "view", url: "/s/tok1", has_password: false, can_manage: true, created_by: "u2" },
+        { id: "l2", caps: "full", url: null, has_password: false, can_manage: false, created_by: "u2" },
+      ],
+    }));
+    renderSheet();
+    expect(await screen.findByRole("button", { name: "New link" })).toBeInTheDocument();
+    // Only the link inside their access gets controls and an address.
+    expect(screen.getAllByRole("button", { name: "Link settings" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Remove this link" })).toHaveLength(1);
+    expect(screen.getAllByLabelText("Share link address")).toHaveLength(1);
+    expect(document.querySelector("[data-slot=links-read-note]")).toBeNull();
+    // Still no roster: that needs the share bit.
+    expect(screen.queryByRole("button", { name: "Add a person" })).not.toBeInTheDocument();
   });
 
   it("names the parent but shows no button when it can't be inspected", async () => {

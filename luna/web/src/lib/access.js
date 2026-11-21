@@ -107,6 +107,28 @@ export function hasCap(caps, bit) {
 }
 
 /**
+ * Read on an item shows every link on it and who made each one. Mirrors
+ * `may_see_links` in lunad (`api/access/access_admin.rs`).
+ * @param {string|number} myCaps
+ */
+export function canSeeLinks(myCaps) {
+  return (capsBits(myCaps) & (CAP.VIEW | CAP.SHARE)) !== 0;
+}
+
+/**
+ * Write on an item (Read plus upload or edit), or the share bit, lets the
+ * person make links and change or remove any link on it within their own
+ * access. Mirrors `may_make_links` in lunad; each link's `can_manage` flag
+ * from lunad stays the word on a single link.
+ * @param {string|number} myCaps
+ */
+export function canMakeLinks(myCaps) {
+  const bits = capsBits(myCaps);
+  if ((bits & CAP.SHARE) !== 0) return true;
+  return (bits & CAP.VIEW) !== 0 && (bits & (CAP.UPLOAD | CAP.EDIT)) !== 0;
+}
+
+/**
  * A shareable subject. `kind` is "path" (file/folder/drive — the backend
  * resolves which) or "album". `isFile` comes back from `/access/subject`.
  * @typedef {{ kind: string, driveId: string, path?: string, albumId?: string, isFile?: boolean, name?: string }} ShareSubject

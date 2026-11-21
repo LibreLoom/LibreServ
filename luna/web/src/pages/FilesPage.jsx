@@ -43,7 +43,7 @@ import { isLocked, isUnopenable } from "../lib/drives.js";
 import useDriveHealth from "../hooks/useDriveHealth.js";
 import DriveHealthDetails from "../components/files/DriveHealthDetails.jsx";
 import { ROOT_TERM_HINT } from "../lib/rootTerm.js";
-import { CAP, KIND_ALBUM, capsHint, capsLabel, hasCap, sharedItemAction, sharedItemHref } from "../lib/access.js";
+import { KIND_ALBUM, canSeeLinks, capsHint, capsLabel, sharedItemAction, sharedItemHref } from "../lib/access.js";
 import { memberAccessRoots } from "../lib/shareTree.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
@@ -575,7 +575,7 @@ export default function FilesPage() {
                     <Link to={sharedItemHref(grant)}>{sharedItemAction(grant)}</Link>
                   </Button>
                   )}
-                  {!locked && hasCap(grant.caps, CAP.SHARE) && (
+                  {!locked && canSeeLinks(grant.caps) && (
                     <ShareButton
                       label={grant.path || grant.drive_label}
                       onClick={() => setSharingDrive({ id: grant.drive_id, path: grant.path || "" })}

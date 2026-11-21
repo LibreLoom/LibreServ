@@ -165,8 +165,39 @@ export default [
     area: "Sharing sheet",
     title: "Opening the sheet without the right to share",
     url: "/shared",
-    seed: (w) => { people(w, 2); subject(w, { owner_id: "p0", my_caps: "view", members: [member("p1", "view")] }); },
-    check: ["Sheet shows who has access but offers no change/remove/add", "Nothing says 'undefined'; the reason is plain"],
+    seed: (w) => {
+      people(w, 2);
+      subject(w, {
+        owner_id: "p0",
+        my_caps: "view",
+        members: [member("p1", "view")],
+        links: [link({ created_by: "p0" }), link({ caps: "full", password: "pw", created_by: "gone" })],
+      });
+    },
+    check: [
+      "People says how many were added (not who) and offers no add",
+      "Every link shows, each with 'Made by' and the maker's name (or 'a removed person')",
+      "One line explains Read; no link settings, remove, copy or New link",
+      "Nothing says 'undefined'; the reason is plain",
+    ],
+  },
+  {
+    id: "share/write-member-links",
+    area: "Sharing sheet",
+    title: "A Write member manages links someone else made",
+    url: "/shared",
+    seed: (w) => {
+      people(w, 2);
+      subject(w, {
+        owner_id: "p0",
+        my_caps: "view+upload",
+        links: [link({ created_by: "p0" }), link({ caps: "full", created_by: "p0" })],
+      });
+    },
+    check: [
+      "New link shows",
+      "The view link made by Sam has settings, remove and copy; the edit link wider than the caller's access has none",
+    ],
   },
   {
     id: "share/cannot-load",

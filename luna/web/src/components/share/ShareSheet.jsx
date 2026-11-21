@@ -11,7 +11,8 @@ import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
-import { Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
+import { TermHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import AddPersonModal from "./AddPersonModal.jsx";
 import CreateLinkModal from "./CreateLinkModal.jsx";
 import { useAuth } from "../../context/AuthContext";
@@ -20,6 +21,7 @@ import { deleteJson, getJson, patchJson, apiErrorMessage } from "../../lib/api";
 import {
   CAP,
   KIND_ALBUM,
+  canMakeLinks,
   capsLabel,
   capsOptions,
   hasCap,
@@ -122,9 +124,13 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
   const data = stateQuery.data;
   const subj = data?.subject || null;
   const myCaps = data?.my_caps || "";
-  // Managing the roster — adding people, minting links, retuning grants —
-  // needs the share bit, not just content rights.
+  // Managing the roster — adding people, retuning grants — needs the share
+  // bit, not just content rights.
   const iCanShare = hasCap(myCaps, CAP.SHARE);
+  // Links belong to the item: Read shows them all, Write (or the share
+  // bit) makes and changes them. Each row's `can_manage` stays the word on
+  // that link — a link wider than the caller's own access is out of reach.
+  const iCanMakeLinks = canMakeLinks(myCaps);
   const isAlbum = subj?.kind === KIND_ALBUM;
   const isFile = subj?.is_file === true || subject?.isFile === true;
   const isForm = isFile && isFormFile(subj?.path || "");
@@ -133,6 +139,7 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
     myCaps,
   );
   const members = data?.members || [];
+  const memberCount = typeof data?.member_count === "number" ? data.member_count : members.length;
   const links = data?.links || [];
   // A private item (or one inside a private folder) takes nothing from
   // folders above it; Luna only sends the shares that still reach in.
@@ -141,9 +148,9 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
   const isPrivateFolder = subj?.private_folder === true;
   const inheritedMembers = data?.inherited_members || [];
   const inheritedLinks = data?.inherited_links || [];
-  // A link keeps working when the person who made it loses access, so the
-  // row names its creator. A deleted account has no directory entry; the
-  // fallback still tells the admin the link came from someone who is gone.
+  // A link belongs to the item and keeps working when the person who made
+  // it loses access, so every row names its maker. A deleted account has no
+  // directory entry; the fallback still says the maker is gone.
   const nameById = new Map(
     (directory.data || []).map((person) => [
       person.id,
@@ -387,7 +394,17 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
                     </div>
                   );
                 })}
-                {noPeopleToAdd ? (
+                {!iCanShare ? (
+                  // Without the share bit lunad keeps the roster back; the
+                  // count still says whether anyone was added here.
+                  members.length === 0 && (
+                    <p className="text-primary text-xs" data-slot="people-count">
+                      {memberCount === 0
+                        ? "Nobody has been added here yet."
+                        : `${memberCount} ${memberCount === 1 ? "person" : "people"} added here.`}
+                    </p>
+                  )
+                ) : noPeopleToAdd ? (
                   <div className="space-y-3 rounded-large-element surface-primary p-3">
                     <p className="text-secondary text-sm">
                       {candidates.length > 0
@@ -422,6 +439,18 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
 
               <section className="space-y-2">
                 <h3 className="font-mono text-primary text-sm">Links</h3>
+                {links.length === 0 && !iCanMakeLinks && (
+                  <p className="text-primary text-xs" data-slot="links-empty">No links yet.</p>
+                )}
+                {links.length > 0 && !iCanMakeLinks && !links.some((l) => l.can_manage === true) && (
+                  <p className="text-primary text-xs" data-slot="links-read-note">
+                    You have{" "}
+                    <TermHint content="You can open this, but not change it. People with Write access can make and change links.">
+                      Read
+                    </TermHint>{" "}
+                    access, so you can see these links but not change them.
+                  </p>
+                )}
                 {links.map((l) => {
                   // Server-issued `can_manage` only — a URL's presence is
                   // already gated the same way, but the flag is the
@@ -469,10 +498,14 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
                         )}
                       </div>
                       {l.created_by && directory.isSuccess && (
-                        <p className="mt-1 text-secondary text-xs">
-                          {nameById.has(l.created_by)
-                            ? `Created by ${nameById.get(l.created_by)}`
-                            : "Created by someone who is no longer here"}
+                        <p className="mt-1 text-secondary text-xs" data-slot="link-maker">
+                          {nameById.has(l.created_by) ? (
+                            <>
+                              Made by <InlinePill>{nameById.get(l.created_by)}</InlinePill>
+                            </>
+                          ) : (
+                            "Made by a removed person"
+                          )}
                         </p>
                       )}
                       {url && (
@@ -487,7 +520,7 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
                     </div>
                   );
                 })}
-                {iCanShare && capsOptions({ kind: subj?.kind, isFile, isForm }, myCaps, { forLink: true }).length > 0 && (
+                {iCanMakeLinks && capsOptions({ kind: subj?.kind, isFile, isForm }, myCaps, { forLink: true }).length > 0 && (
                   <Button
                     size="sm"
                     variant="primary"

@@ -21,7 +21,7 @@ import IconImage from "@libreloom/ui/components/ui/IconImage.jsx";
 import { useToneColor } from "@libreloom/ui/lib/iconImage.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useFileSource } from "../../lib/fileSource.jsx";
-import { CAP, capsBits } from "../../lib/access.js";
+import { CAP, canSeeLinks } from "../../lib/access.js";
 import { openableKind, isFormFile } from "../../lib/fileKinds.js";
 import { joinPath } from "../../lib/paths.js";
 import FormResponseBadge from "./forms/FormResponseBadge.jsx";
@@ -114,11 +114,12 @@ function FileRow({
   // One action list for both sizes: icon buttons in the row on wide screens,
   // labeled rows in the phone sheet. `aria` is the icon's accessible name,
   // which is not always the sheet's label.
-  const canShareRow = hasShare && (capsBits(entry.caps || "") & CAP.SHARE) !== 0;
+  const canShareRow = hasShare && canSeeLinks(entry.caps || "");
   const canDownload = enableDownload && (entry.kind === "file" || isDir);
   const actions = [];
-  // The share bit is per-entry: a view-only member sees the row but never the
-  // Sharing button. Entries without stamped caps fail closed.
+  // Per-entry: anyone who can read the entry gets the Sharing button (it
+  // shows the item's links; the sheet gates every change). Entries without
+  // stamped caps fail closed.
   if (canShareRow) {
     actions.push({
       key: "share",

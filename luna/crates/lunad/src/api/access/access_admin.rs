@@ -36,9 +36,10 @@ pub(super) async fn subject_state(
     if mine == 0 {
         return Err(refuse(&subj, mine, "You don't have access to this."));
     }
-    // Who-has-what is share-management detail: a member without the share
-    // capability sees that sharing exists (counts), never the roster or link
-    // URLs — a plain member must not enumerate identities or minted tokens.
+    // The member roster is share-management detail: a member without the
+    // share capability sees that it exists (counts), never the names. Links
+    // are different — they belong to the item, so Read shows them (below),
+    // but their addresses only go to people who may manage them.
     let can_manage_roster = mine & CAP_SHARE != 0;
     let subject_owner = is_subject_owner(&user, &subj);
     let names = user_names(&conn);
@@ -106,7 +107,10 @@ pub(super) async fn subject_state(
         &subj.album_id,
     )
     .map_err(|_| busy())?;
-    let links = if can_manage_roster {
+    // Links belong to the item, not to whoever made them: anyone who can
+    // open it sees every link on it and who made each one. The address
+    // itself still only goes to people who may manage the link (link_json).
+    let links = if may_see_links(mine) {
         link_rows
             .iter()
             .map(|l| link_json(&conn, &user, l))
@@ -176,7 +180,9 @@ pub(super) async fn subject_state(
                 && l.drive_id == subj.drive_id
                 && l.path != subj.path
                 && path_contains(&l.path, &subj.path)
-                && may_manage_link(&conn, &user, l)
+                // Same bar as the parent's own sheet: Read on the folder
+                // the link lives on, never just on this child.
+                && may_see_link(&conn, &user, l)
         })
         .map(|l| {
             let mut v = link_json(&conn, &user, l);
@@ -479,15 +485,15 @@ pub(super) async fn create_link(
     let caps = caps_from_str(&body.caps)
         .ok_or_else(|| json_error(StatusCode::BAD_REQUEST, "That access level doesn't exist."))?;
     let mine = my_caps(&conn, &user, &subj);
-    // Minting a public link is a manage-level action — a member with
-    // content access but no share capability must not publish the subject
-    // to anonymous guests. Authorization runs before the existence check
-    // so a 404-vs-403 split can't probe which folders exist.
-    if mine & CAP_SHARE == 0 {
+    // Making a link needs Write on the item (or the share bit) — Read alone
+    // must not publish it to anonymous guests. Authorization runs before
+    // the existence check so a 404-vs-403 split can't probe which folders
+    // exist.
+    if !may_make_links(mine) {
         return Err(refuse(
             &subj,
             mine,
-            "You don't have permission to share this.",
+            "You can make links only for things you can change.",
         ));
     }
     if !subj.exists {
@@ -570,14 +576,45 @@ pub(super) struct UpdateLinkBody {
     pub(super) expires_in_days: Option<Option<u32>>,
 }
 
+/// Read on an item: see every link on it and who made each one.
+/// Share-managers (the share bit) always could, so they still do.
+pub(super) fn may_see_links(mine: Caps) -> bool {
+    mine & (CAP_VIEW | CAP_SHARE) != 0
+}
+
+/// Write on an item (Read plus upload or edit), or the share bit: make
+/// links on it and change or delete any of its links, whoever made them —
+/// always only up to the caller's own caps.
+pub(super) fn may_make_links(mine: Caps) -> bool {
+    mine & CAP_SHARE != 0 || (mine & CAP_VIEW != 0 && mine & (CAP_UPLOAD | CAP_EDIT) != 0)
+}
+
+/// Is the admin's role shortcut available for this link? Never on a
+/// private item — including one whose drive is away, which
+/// `path_is_private` reports as private.
+fn admin_reaches_link(
+    conn: &rusqlite::Connection,
+    user: &CurrentUser,
+    link: &AccessLinkRow,
+) -> bool {
+    user.role == "admin"
+        && !(link.subject_kind == KIND_PATH && path_is_private(conn, &link.drive_id, &link.path))
+}
+
+pub(super) fn may_see_link(
+    conn: &rusqlite::Connection,
+    user: &CurrentUser,
+    link: &AccessLinkRow,
+) -> bool {
+    admin_reaches_link(conn, user, link) || may_see_links(my_caps_on_link(conn, user, link))
+}
+
 pub(super) fn may_manage_link(
     conn: &rusqlite::Connection,
     user: &CurrentUser,
     link: &AccessLinkRow,
 ) -> bool {
-    if user.role == "admin"
-        && !(link.subject_kind == KIND_PATH && path_is_private(conn, &link.drive_id, &link.path))
-    {
+    if admin_reaches_link(conn, user, link) {
         return true;
     }
     let mine = my_caps_on_link(conn, user, link);
@@ -588,11 +625,11 @@ pub(super) fn may_manage_link(
     } else {
         caps_cover(mine, link.caps)
     };
-    // Creating the row is not a lifetime grant — creator or not, the caller
-    // must still hold share-management rights and cover the link's caps, or
-    // a revoked member could keep recovering the raw URL and mutating
-    // password/expiry on shares they minted.
-    mine & CAP_SHARE != 0 && covers
+    // Links belong to the item: who made one doesn't matter, only what the
+    // caller holds on the item now. A creator who lost Write loses the link
+    // (and its address) like anyone else; a Write member can manage a link
+    // someone else made, as long as it gives no more than they hold.
+    may_make_links(mine) && covers
 }
 
 pub(super) async fn update_link(
@@ -777,9 +814,10 @@ pub(super) async fn mine(
     let labels = drive_labels(&conn);
     let names = user_names(&conn);
 
-    // Group rows by subject key, keeping only groups the caller controls:
-    // admin sees all; members see subjects where they created a row or hold
-    // covering caps on at least one row.
+    // Group rows by subject key, keeping only groups the caller manages:
+    // admin sees all; a share-manager sees subjects where they cover at
+    // least one row; anyone sees subjects with a link they may manage.
+    // Who made a row never counts — only what the caller holds now.
     let mut order: Vec<(String, String, String, String)> = Vec::new();
     let mut group_members: std::collections::HashMap<
         (String, String, String, String),
@@ -816,22 +854,21 @@ pub(super) async fn mine(
     for k in order {
         let ms = group_members.get(&k).cloned().unwrap_or_default();
         let ls = group_links.get(&k).cloned().unwrap_or_default();
-        let controls = (is_admin && !(k.0 == KIND_PATH && path_is_private(&conn, &k.1, &k.2))) || {
-            let mine = match resolve_subject(&conn, &k.0, &k.1, &k.2, &k.3) {
-                Ok(subj) => my_caps(&conn, &user, &subj),
-                Err(_) => 0,
-            };
-            // The roster only surfaces to share-managers — content access
-            // alone (or a stale created_by) never reveals who else is here.
-            mine & CAP_SHARE != 0
-                && (ms
-                    .iter()
-                    .any(|m| m.created_by == user.id || caps_cover(mine, m.caps))
-                    || ls
-                        .iter()
-                        .any(|l| l.created_by == user.id || caps_cover(mine, l.caps)))
+        let admin_here = is_admin && !(k.0 == KIND_PATH && path_is_private(&conn, &k.1, &k.2));
+        let mine = match resolve_subject(&conn, &k.0, &k.1, &k.2, &k.3) {
+            Ok(subj) => my_caps(&conn, &user, &subj),
+            Err(_) => 0,
         };
-        if !controls {
+        // The roster only surfaces to share-managers — content access alone
+        // never reveals who else is here, even when the caller may manage
+        // the subject's links.
+        let sees_roster = admin_here || mine & CAP_SHARE != 0;
+        let manages_members = sees_roster
+            && (admin_here
+                || ms.iter().any(|m| caps_cover(mine, m.caps))
+                || ls.iter().any(|l| caps_cover(mine, l.caps)));
+        let manages_links = ls.iter().any(|l| may_manage_link(&conn, &user, l));
+        if !(manages_members || manages_links) {
             continue;
         }
         let subj = resolve_subject(&conn, &k.0, &k.1, &k.2, &k.3).ok();
@@ -865,8 +902,16 @@ pub(super) async fn mine(
             "is_file": is_file,
             "item_count": item_count,
             "my_caps": caps_to_str(mine_caps),
-            "members": ms.iter().map(|m| member_json(m, &names)).collect::<Vec<_>>(),
-            "links": ls.iter().map(|l| link_json(&conn, &user, l)).collect::<Vec<_>>(),
+            "members": if sees_roster {
+                ms.iter().map(|m| member_json(m, &names)).collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            },
+            "links": ls
+                .iter()
+                .filter(|l| may_see_link(&conn, &user, l))
+                .map(|l| link_json(&conn, &user, l))
+                .collect::<Vec<_>>(),
         }));
     }
 

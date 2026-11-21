@@ -2128,7 +2128,7 @@ describe("FileBrowser keyboard", () => {
     expect(onDelete).toHaveBeenCalledWith(["a.txt"]);
     press({ key: " " });
     expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ fullPath: "a.txt" }));
-    // Sharing needs the share permission on the row; this row has none.
+    // Sharing needs at least Read on the row; this row carries no caps.
     press({ key: "s" });
     expect(onShare).not.toHaveBeenCalled();
   });

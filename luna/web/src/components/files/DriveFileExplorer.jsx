@@ -44,7 +44,7 @@ import {
   memberFileHref,
   memberPathFloor,
 } from "../../lib/shareTree.js";
-import { CAP_MANAGE, capsBits } from "../../lib/access.js";
+import { CAP_MANAGE, canSeeLinks, capsBits } from "../../lib/access.js";
 import { isPresentDrive, isWritableDrive } from "../../lib/drives.js";
 import { useFileOps } from "../../context/FileOpsContext.jsx";
 import { parseCreateName } from "../../lib/createName.js";
@@ -220,7 +220,8 @@ export default function DriveFileExplorer({
   const trashVisible = !guest && (isAdmin || hasCapOnDrive(access.data, driveId, CAP.EDIT));
   const folderCanUpload = !inTrash && (myFolderCaps & CAP.UPLOAD) !== 0;
   const folderCanEdit = inTrash ? trashVisible : (myFolderCaps & CAP.EDIT) !== 0;
-  const folderCanShare = !inTrash && (myFolderCaps & CAP.SHARE) !== 0;
+  // Read opens the share sheet (it shows the item's links); the sheet gates changes.
+  const folderCanShare = !inTrash && canSeeLinks(myFolderCaps);
   const backupsHref = backupsAvailable && !inTrash && path === "" ? folderHref(driveId, BACKUPS_PATH) : null;
   // Upload-only links can write but never read — downloads stay hidden.
   const canView = inTrash ? trashVisible : (myFolderCaps & CAP.VIEW) !== 0;
@@ -613,7 +614,7 @@ export default function DriveFileExplorer({
     const rowCanEdit = guest
       ? (guestCaps & CAP.EDIT) !== 0 && !source.isFile
       : (rowCaps & CAP.EDIT) !== 0;
-    const rowCanShare = !guest && !trashChild && (rowCaps & CAP.SHARE) !== 0;
+    const rowCanShare = !guest && !trashChild && canSeeLinks(rowCaps);
 
     /**
      * `label` is the visible card text on the phone sheet; `aria` is the
@@ -936,7 +937,7 @@ export default function DriveFileExplorer({
         canWrite={!inTrash && (guest
           ? (guestCaps & CAP.EDIT) !== 0
           : isAdmin || (capsForPath(viewerPath || "") & CAP.EDIT) !== 0)}
-        onShare={!guest && !inTrash && viewerPath && (isAdmin || (capsForPath(viewerPath) & CAP.SHARE) !== 0)
+        onShare={!guest && !inTrash && viewerPath && (isAdmin || canSeeLinks(capsForPath(viewerPath)))
           ? () => setAccessTarget({ path: viewerPath })
           : undefined}
         onClose={() => setViewerPath(null)}

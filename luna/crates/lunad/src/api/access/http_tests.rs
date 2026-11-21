@@ -941,16 +941,18 @@ async fn inherited_from_flags_parents_the_caller_cannot_open() {
 }
 
 #[tokio::test]
-async fn inherited_links_only_surface_when_manageable() {
+async fn inherited_links_follow_read_on_the_parent() {
     let mount = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(mount.path().join("family/kids")).unwrap();
     let (_dir, app) = test_app(mount.path());
     let (cookie, csrf) = admin(&app).await;
     let (mcookie, _mcsrf, sam) = member(&app, &cookie, &csrf, "sam").await;
+    let (jcookie, _jcsrf, jules) = member(&app, &cookie, &csrf, "jules").await;
     add_member(&app, &cookie, &csrf, "family/kids", &sam, "view").await;
+    add_member(&app, &cookie, &csrf, "family", &jules, "view").await;
 
-    // A link wider than the member's own access must not hand them its
-    // address; a view link they cover is fine.
+    // Sam holds only the child: a link on the parent he can't open stays
+    // out of his sheet entirely.
     let wide = make_link(
         &app,
         &cookie,
@@ -963,6 +965,15 @@ async fn inherited_links_only_surface_when_manageable() {
     let (s, st) = subject(&app, &mcookie, "family/kids").await;
     assert_eq!(s, 200, "{st}");
     assert!(st["inherited_links"].as_array().unwrap().is_empty(), "{st}");
+
+    // Jules has Read on the parent: he sees the link reach in, but a Read
+    // member gets neither its address nor any way to change it.
+    let (s, st) = subject(&app, &jcookie, "family/kids").await;
+    assert_eq!(s, 200, "{st}");
+    let inh = st["inherited_links"].as_array().unwrap();
+    assert_eq!(inh.len(), 1, "{st}");
+    assert_eq!(inh[0]["can_manage"], false, "{st}");
+    assert!(inh[0]["url"].is_null(), "{st}");
 
     let (_, st) = subject(&app, &cookie, "family/kids").await;
     let inh = st["inherited_links"].as_array().unwrap();
@@ -1871,7 +1882,7 @@ async fn symlink_inside_a_share_cannot_escape_it() {
 }
 
 #[tokio::test]
-async fn revoked_creator_cannot_read_or_patch_their_link() {
+async fn removed_creator_loses_the_link_but_guests_keep_it() {
     let mount = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(mount.path().join("family")).unwrap();
     let (_dir, app) = test_app(mount.path());
@@ -1894,6 +1905,7 @@ async fn revoked_creator_cannot_read_or_patch_their_link() {
     assert_eq!(res.status(), 200);
     let link = body_json(res).await;
     let link_id = link["id"].as_str().unwrap().to_string();
+    let token = link["token"].as_str().unwrap().to_string();
     assert!(link["url"].as_str().unwrap().starts_with("/s/"));
 
     // The admin pulls Sam's access to the folder.
@@ -1920,7 +1932,22 @@ async fn revoked_creator_cannot_read_or_patch_their_link() {
     .await;
     assert_eq!(res.status(), 200);
 
-    // Having created the link no longer counts: the subject sheet is
+    // The link belongs to the folder, not to Sam: guests keep using it,
+    // and the admin still sees it, names Sam as its maker, and manages it.
+    let (status, body) = public_get(&app, &format!("/s/{token}?meta=1")).await;
+    assert_eq!(status, 200, "{body}");
+    let (_, st) = subject(&app, &cookie, "family").await;
+    let row = st["links"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|l| l["id"] == link_id.as_str())
+        .unwrap_or_else(|| panic!("{st}"))
+        .clone();
+    assert_eq!(row["created_by"], sam.as_str(), "{st}");
+    assert_eq!(row["can_manage"], true, "{st}");
+
+    // Having made the link no longer counts for Sam: the subject sheet is
     // shut, the inventory drops the row (no URL to recover), and the
     // password patch is refused.
     let (s, _) = subject(&app, &mcookie, "family").await;
@@ -1951,6 +1978,265 @@ async fn revoked_creator_cannot_read_or_patch_their_link() {
     )
     .await;
     assert_eq!(res.status(), 403);
+}
+
+/// A request as a signed-in member against one link id.
+async fn link_call(
+    app: &axum::Router,
+    method: Method,
+    id: &str,
+    body: &str,
+    cookie: &str,
+    csrf: &str,
+) -> StatusCode {
+    call(
+        app,
+        json_req(
+            method,
+            &format!("/api/v1/access/links/{id}"),
+            body,
+            Some(cookie),
+            Some(csrf),
+        ),
+    )
+    .await
+    .status()
+}
+
+#[tokio::test]
+async fn read_member_sees_every_link_but_cannot_change_one() {
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(mount.path().join("family")).unwrap();
+    let (_dir, app) = test_app(mount.path());
+    let (cookie, csrf) = admin(&app).await;
+    let (mcookie, mcsrf, sam) = member(&app, &cookie, &csrf, "sam").await;
+    let (jcookie, jcsrf, jules) = member(&app, &cookie, &csrf, "jules").await;
+    add_member(&app, &cookie, &csrf, "family", &sam, "view").await;
+    add_member(&app, &cookie, &csrf, "family", &jules, "view+upload").await;
+
+    // One link from the admin, one from Jules (a Write member).
+    let by_admin = make_link(
+        &app,
+        &cookie,
+        &csrf,
+        r#"{"kind":"folder","drive_id":"photos","path":"family","caps":"view"}"#,
+    )
+    .await;
+    let by_jules = make_link(
+        &app,
+        &jcookie,
+        &jcsrf,
+        r#"{"kind":"folder","drive_id":"photos","path":"family","caps":"view+upload"}"#,
+    )
+    .await;
+    let (_, admin_st) = subject(&app, &cookie, "family").await;
+    let admin_id = admin_st["links"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|l| l["id"] == by_admin["id"])
+        .unwrap()["created_by"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Sam sees both links and who made each, but no address, no manage
+    // flag, and still no member roster.
+    let (s, st) = subject(&app, &mcookie, "family").await;
+    assert_eq!(s, 200, "{st}");
+    let links = st["links"].as_array().unwrap();
+    assert_eq!(links.len(), 2, "{st}");
+    let made_by = |id: &serde_json::Value| {
+        links
+            .iter()
+            .find(|l| &l["id"] == id)
+            .unwrap_or_else(|| panic!("{st}"))
+    };
+    assert_eq!(made_by(&by_admin["id"])["created_by"], admin_id.as_str());
+    assert_eq!(made_by(&by_jules["id"])["created_by"], jules.as_str());
+    for l in links {
+        assert_eq!(l["can_manage"], false, "{st}");
+        assert!(l["url"].is_null(), "{st}");
+    }
+    assert_eq!(st["members"].as_array().unwrap().len(), 0, "{st}");
+
+    // Read can't change, delete, or make links.
+    for link in [&by_admin, &by_jules] {
+        let id = link["id"].as_str().unwrap();
+        assert_eq!(
+            link_call(
+                &app,
+                Method::PATCH,
+                id,
+                r#"{"password":"n3w-passw0rd"}"#,
+                &mcookie,
+                &mcsrf
+            )
+            .await,
+            403
+        );
+        assert_eq!(
+            link_call(&app, Method::DELETE, id, "", &mcookie, &mcsrf).await,
+            403
+        );
+    }
+    let res = call(
+        &app,
+        json_req(
+            Method::POST,
+            "/api/v1/access/links",
+            r#"{"kind":"folder","drive_id":"photos","path":"family","caps":"view"}"#,
+            Some(&mcookie),
+            Some(&mcsrf),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), 403);
+}
+
+#[tokio::test]
+async fn write_member_manages_any_link_up_to_their_own_caps() {
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(mount.path().join("family")).unwrap();
+    let (_dir, app) = test_app(mount.path());
+    let (cookie, csrf) = admin(&app).await;
+    let (mcookie, mcsrf, sam) = member(&app, &cookie, &csrf, "sam").await;
+    add_member(&app, &cookie, &csrf, "family", &sam, "view+upload").await;
+
+    let view = make_link(
+        &app,
+        &cookie,
+        &csrf,
+        r#"{"kind":"folder","drive_id":"photos","path":"family","caps":"view"}"#,
+    )
+    .await;
+    let full = make_link(
+        &app,
+        &cookie,
+        &csrf,
+        r#"{"kind":"folder","drive_id":"photos","path":"family","caps":"full"}"#,
+    )
+    .await;
+    let view_id = view["id"].as_str().unwrap();
+    let full_id = full["id"].as_str().unwrap();
+
+    // The sheet tells Sam which links are his to manage: the one within
+    // his caps comes with its address, the wider one without.
+    let (_, st) = subject(&app, &mcookie, "family").await;
+    let row = |id: &str| {
+        st["links"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|l| l["id"] == id)
+            .unwrap_or_else(|| panic!("{st}"))
+            .clone()
+    };
+    assert_eq!(row(view_id)["can_manage"], true, "{st}");
+    assert!(row(view_id)["url"].is_string(), "{st}");
+    assert_eq!(row(full_id)["can_manage"], false, "{st}");
+    assert!(row(full_id)["url"].is_null(), "{st}");
+
+    // Someone else's link within his caps: password, expiry, caps up to
+    // his own all work.
+    assert_eq!(
+        link_call(
+            &app,
+            Method::PATCH,
+            view_id,
+            r#"{"password":"n3w-passw0rd","expires_in_days":7}"#,
+            &mcookie,
+            &mcsrf,
+        )
+        .await,
+        200
+    );
+    assert_eq!(
+        link_call(
+            &app,
+            Method::PATCH,
+            view_id,
+            r#"{"caps":"view+upload"}"#,
+            &mcookie,
+            &mcsrf
+        )
+        .await,
+        200
+    );
+    // Never above them.
+    assert_eq!(
+        link_call(
+            &app,
+            Method::PATCH,
+            view_id,
+            r#"{"caps":"full"}"#,
+            &mcookie,
+            &mcsrf
+        )
+        .await,
+        403
+    );
+    // A link wider than his own caps is out of reach entirely.
+    assert_eq!(
+        link_call(
+            &app,
+            Method::PATCH,
+            full_id,
+            r#"{"caps":"view"}"#,
+            &mcookie,
+            &mcsrf
+        )
+        .await,
+        403
+    );
+    assert_eq!(
+        link_call(&app, Method::DELETE, full_id, "", &mcookie, &mcsrf).await,
+        403
+    );
+
+    // He can make his own link (Write, no share bit), but not a wider one.
+    let res = call(
+        &app,
+        json_req(
+            Method::POST,
+            "/api/v1/access/links",
+            r#"{"kind":"folder","drive_id":"photos","path":"family","caps":"full"}"#,
+            Some(&mcookie),
+            Some(&mcsrf),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), 403);
+    make_link(
+        &app,
+        &mcookie,
+        &mcsrf,
+        r#"{"kind":"folder","drive_id":"photos","path":"family","caps":"upload"}"#,
+    )
+    .await;
+
+    // And delete the admin's link.
+    assert_eq!(
+        link_call(&app, Method::DELETE, view_id, "", &mcookie, &mcsrf).await,
+        200
+    );
+
+    // Managing links puts the folder on his Manage sharing list, without
+    // the member roster he has no share bit for.
+    let res = call(
+        &app,
+        json_req(Method::GET, "/api/v1/access/mine", "", Some(&mcookie), None),
+    )
+    .await;
+    let mine = body_json(res).await;
+    let group = mine["sharing"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|g| g["path"] == "family")
+        .unwrap_or_else(|| panic!("{mine}"));
+    assert_eq!(group["members"].as_array().unwrap().len(), 0, "{mine}");
+    assert_eq!(group["links"].as_array().unwrap().len(), 2, "{mine}");
 }
 
 #[tokio::test]

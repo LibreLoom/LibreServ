@@ -14,7 +14,11 @@
 //     tree:     { [token]: entries for a folder link },
 //   }
 //   link = { id, token, caps, password, has_password, expires_at, disabled, download_limit,
-//            downloads, form, kind }
+//            downloads, form, kind, created_by }
+//
+// Links follow lunad's rule (api/access/access_admin.rs): they belong to the item. Read
+// (my_caps has view, or the share bit) sees them all; Write (view plus upload or edit, or the
+// share bit) makes them and manages any link within its own caps, whoever made it.
 import { del, fail, get, json, patch, post, put } from "../engine.js";
 import { nextId } from "../world.js";
 import { photoKey } from "../photos.js";
@@ -72,15 +76,37 @@ const memberRow = (w, s, m, me) => ({
   can_manage: s.my_caps.includes("share"),
   can_remove: s.my_caps.includes("share") || m.user_id === me.id,
 });
+// Caps as bits, enough for the link rule: view 1, upload 2, edit 4, respond 8, share 16.
+const capBits = (caps) => {
+  const c = String(caps || "");
+  if (c === "respond") return 8;
+  let bits = c.includes("share") ? 16 : 0;
+  const base = c.replace(/\+?share$/, "");
+  if (base === "full" || base === "edit") bits |= 7;
+  else for (const part of base.split("+")) bits |= { view: 1, read: 1, upload: 2 }[part] || 0;
+  return bits;
+};
+const seesLinks = (s) => (capBits(s.my_caps) & (1 | 16)) !== 0;
+const makesLinks = (s) => {
+  const mine = capBits(s.my_caps);
+  return (mine & 16) !== 0 || ((mine & 1) !== 0 && (mine & (2 | 4)) !== 0);
+};
+const managesLink = (s, l) => {
+  const mine = capBits(s.my_caps);
+  const want = capBits(l.caps);
+  const covers = want === 8 ? (mine & (2 | 4)) !== 0 : (mine & want) === want;
+  return makesLinks(s) && covers;
+};
 const linkRow = (s, l) => ({
   id: l.id,
   caps: l.caps,
   has_password: Boolean(l.password),
   created_at: l.created_at ?? 0,
-  created_by: s.owner_id,
+  created_by: l.created_by ?? s.owner_id,
   expires_at: l.expires_at ?? null,
-  url: `/s/${l.token}`,
-  can_manage: s.my_caps.includes("share"),
+  // The address only goes to people who may manage the link.
+  url: managesLink(s, l) ? `/s/${l.token}` : null,
+  can_manage: managesLink(s, l),
 });
 
 get("/api/v1/access/subject", ({ world, user, query }) => {
@@ -93,8 +119,9 @@ get("/api/v1/access/subject", ({ world, user, query }) => {
     private: s.private,
     link_count: s.links.length,
     member_count: s.members.length,
-    members: s.members.map((m) => memberRow(world, s, m, user)),
-    links: s.links.map((l) => linkRow(s, l)),
+    // Like lunad, the roster only goes to callers with the share bit.
+    members: s.my_caps.includes("share") ? s.members.map((m) => memberRow(world, s, m, user)) : [],
+    links: seesLinks(s) ? s.links.map((l) => linkRow(s, l)) : [],
     inherited_members: s.inherited_members || [],
     inherited_links: s.inherited_links || [],
   };
@@ -152,13 +179,14 @@ post("/api/v1/access/links", ({ world, user, body }) => {
   if (sh.failLink) return fail(500, "Luna couldn't make that link.");
   const s = subjectFor(world, user, body);
   if (!s) return fail(404, "That album no longer exists.");
-  if (!s.my_caps.includes("share")) return fail(403, "You can't share this.");
+  if (!makesLinks(s)) return fail(403, "You can make links only for things you can change.");
   const l = {
     id: nextId("ln"),
     token: `t${Math.random().toString(36).slice(2, 10)}${nextId("")}`,
     caps: body.caps,
     password: body.password || "",
     expires_at: body.expires_in_days ? nowSec() + body.expires_in_days * 86400 : null,
+    created_by: user.id,
   };
   s.links.push(l);
   delete s.pristine;
@@ -175,6 +203,10 @@ function findLink(w, id) {
 patch("/api/v1/access/links/:id", ({ world, params, body }) => {
   const hit = findLink(world, params.id);
   if (!hit) return fail(404, "That link no longer exists.");
+  if (!managesLink(hit.s, hit.l)) return fail(403, "You can't change this link.");
+  if (body.caps !== undefined && !managesLink(hit.s, { caps: body.caps })) {
+    return fail(403, "You can't give a link more access than you have.");
+  }
   if (body.caps !== undefined) hit.l.caps = body.caps;
   if (body.expires_in_days !== undefined) hit.l.expires_at = body.expires_in_days ? nowSec() + body.expires_in_days * 86400 : null;
   if (body.password !== undefined) hit.l.password = body.password || "";
@@ -183,6 +215,7 @@ patch("/api/v1/access/links/:id", ({ world, params, body }) => {
 del("/api/v1/access/links/:id", ({ world, params }) => {
   const hit = findLink(world, params.id);
   if (!hit) return fail(404, "That link is already gone.");
+  if (!managesLink(hit.s, hit.l)) return fail(403, "You can't remove this link.");
   hit.s.links = hit.s.links.filter((x) => x !== hit.l);
   (sharing(world).revoked ||= []).push(hit.l.token);
   return {};

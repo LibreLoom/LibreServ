@@ -18,7 +18,7 @@ import { highlightParts, locationParts, searchWhen } from "../../lib/fileSearch.
 import { canViewerOpen } from "../../lib/officeConvert.js";
 import { downloadHref, fileHref, fmtSize, parentPath, searchResultHref } from "../../lib/paths";
 import { capsOnPath, memberFileHref, memberSearchHref } from "../../lib/shareTree.js";
-import { CAP } from "../../lib/access.js";
+import { CAP, canSeeLinks } from "../../lib/access.js";
 
 // Worked out once, not per row: every result carries these.
 const ROW_CLASS = "file-search-row-enter min-w-0 group relative rounded-large-element surface-primary px-3 py-2 "
@@ -116,11 +116,12 @@ function FileSearchRow({
   });
   const href = memberAccess ? memberSearchHref(memberAccess, item) : searchResultHref(item);
   // Hits only prove VIEW. Everything else is gated on the member's real
-  // caps — share needs the share bit, move/trash need edit.
+  // caps — the share sheet opens on Read (links belong to the item), the
+  // sheet itself gates changes, and move/trash need edit.
   const itemCaps = isAdmin
     ? CAP.VIEW | CAP.UPLOAD | CAP.EDIT | CAP.SHARE
     : capsOnPath(memberAccess, item.drive_id, item.path);
-  const canShare = (itemCaps & CAP.SHARE) !== 0;
+  const canShare = canSeeLinks(itemCaps);
   const canEdit = (itemCaps & CAP.EDIT) !== 0;
   // Openable files open in the viewer on a plain click; the folder icon still
   // jumps to the file's folder.
