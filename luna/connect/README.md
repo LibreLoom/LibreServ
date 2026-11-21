@@ -116,7 +116,7 @@ Installed version and the newest feed time seen are remembered in `/var/lib/conn
 
 Two instances run side by side so a deploy can update them one at a time. They share a database: PostgreSQL in production (`database.driver` / `database.url` in each instance's config), SQLite for local dev. Instance names, ports and install paths are in `infra/connect-deploy/units/luna-connect.conf`.
 
-**Inbound must be Cloudflare-only.** The app trusts `CF-Connecting-IP`/`X-Forwarded-For` for client IPs (rate limits, admin gating) because `deploy/Caddyfile.conf` aborts any request that did not arrive from a Cloudflare edge IP. Do not remove that matcher, and keep the host firewall restricted to the proxy's address ranges as well — a direct-origin request could otherwise forge client IPs.
+**Inbound must be Cloudflare-only.** Connect believes `CF-Connecting-IP`/`X-Real-IP`/`X-Forwarded-For` only from a loopback peer or an address listed in `trusted_proxies`, so `deploy/Caddyfile.conf` must keep aborting any request that did not arrive from a Cloudflare edge IP and the host firewall must stay restricted to the proxy's address ranges. The shipped Caddy is on loopback and needs no entry; a proxy on another address (a Docker/LAN hop) must be listed in `trusted_proxies` or every client is bucketed as that proxy for rate limits and admin gating. List only a proxy you control — it can choose the client address Connect sees.
 
 Fill Cloudflare (tunnel + DNS for the device domain) and Stripe in both instances' config files (same `admin_token` and `at_rest_key` on both), or set them in Admin → Connections (shared SQLite). Cloudflare and Stripe yaml values are the fallback when nothing is enabled in the database.
 

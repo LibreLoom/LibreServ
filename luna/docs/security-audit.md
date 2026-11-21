@@ -115,20 +115,21 @@ still reference remote URLs, leaking reading activity and the reader's IP to
 publisher-controlled hosts and allowing content swap after distribution.
 Restricting subresource loads to `data:`/`blob:` would close it.
 
-**L5 — Connect admin login reveals valid admin emails by timing**
+**L5 — Connect admin login reveals valid admin emails by timing** — **fixed**
 
-`luna/connect/internal/api/handlers/admin_auth.go:44` —
-`err == sql.ErrNoRows || auth.VerifyPassword(hash, …)` short-circuits before
-bcrypt for unknown emails, so response timing distinguishes registered from
-unregistered admin addresses (rate-limited to 10 attempts/min/IP). Compare
-against a precomputed dummy hash, as lunad already does for its own login.
+`luna/connect/internal/api/handlers/admin_auth.go` used to short-circuit
+before bcrypt for unknown emails, so response timing distinguished registered
+from unregistered admin addresses. Unknown addresses now verify a dummy
+password, and failed sign-ins are also counted per admin account
+(`signInAccountKey`), so changing addresses does not reset the budget.
 
-**L6 — Built image advertises SSH over mDNS that does not exist**
+**L6 — Built image advertises SSH over mDNS that does not exist** — **fixed**
 
-`luna/os/work/rootfs/etc/avahi/services/ssh.service` (and `sftp-ssh.service`)
-are stock Debian avahi announcements for `_ssh._tcp`/port 22, but no SSH daemon
-ships in the image. Harmless but misleading to network scanners and inventory
-tools; remove the service files during the image build.
+The rootfs build used to keep Alpine's stock avahi announcements for
+`_ssh._tcp`/`_sftp-ssh._tcp` on port 22, though no SSH daemon ships in the
+image. `luna/os/lib/build-rootfs.d/00.frag` now removes
+`/etc/avahi/services/*.service`, and `validate-rootfs.sh` fails the build if
+any service file remains. Avahi itself stays because it answers `luna.local`.
 
 ### Backblaze B2 integration review — October 2026
 
@@ -231,9 +232,6 @@ in the repository — only test placeholders.
    password or at-rest encryption roadmap.
 4. **L2** — Move Connect admin auth off `localStorage` (HttpOnly session).
 5. **L1** — Consider hash-only share-link tokens with show-once UX.
-6. **L3/L5** — Cap the HIBP body; add a dummy-hash compare to admin login.
-   Both are one-line fixes.
-7. **L6** — Delete the stock `ssh.service`/`sftp-ssh.service` avahi files from
-   the image build.
-8. **Deps** — Bump `jsonwebtoken` ≥10.3.0 and `dav-server`'s `lru` when a fixed
+6. **L3** — Cap the HIBP body (`io.LimitReader`). One-line fix.
+7. **Deps** — Bump `jsonwebtoken` ≥10.3.0 and `dav-server`'s `lru` when a fixed
    release exists; keep excalidraw/mermaid current.
