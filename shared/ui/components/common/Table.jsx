@@ -19,7 +19,7 @@ const ALIGN = {
 };
 
 // color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
-const ROW_HOVER_BG = "hover:bg-[color-mix(in_oklab,var(--secondary)_85%,var(--primary))]";
+const ADD_ROW_HOVER_BG = "hover:bg-[color-mix(in_oklab,var(--secondary)_85%,var(--primary))]";
 const ROW_SLIDE =
   "cursor-pointer motion-safe:transition-[translate,background-color] duration-200 ease-[var(--motion-easing-standard)] hover:motion-safe:translate-x-0.5 active:motion-safe:translate-x-0";
 
@@ -52,8 +52,8 @@ function useIsMdUp() {
 }
 
 /**
- * One slim extra row after the data, in the data rows' surface and motion,
- * with a centered label followed by an icon (a plus by default), e.g. "Add user +".
+ * A slim action row that uses the data rows' surface and hover tint.
+ * The centered label is followed by an icon (a plus by default).
  * @typedef {{ label: string, onClick: () => void, icon?: import("react").ElementType, disabled?: boolean }} TableAddRow
  */
 
@@ -71,8 +71,9 @@ function AddRowButton({ addRow, className }) {
       className={cn(
         "w-full flex items-center justify-center rounded-large-element text-primary",
         CELL_BG,
-        ROW_SLIDE,
-        ROW_HOVER_BG,
+        // Keep the hover target fixed so it cannot slide out from under the pointer.
+        "cursor-pointer motion-safe:transition-[background-color] duration-200 ease-[var(--motion-easing-standard)]",
+        ADD_ROW_HOVER_BG,
         "disabled:opacity-50 disabled:cursor-not-allowed",
         className,
       )}
