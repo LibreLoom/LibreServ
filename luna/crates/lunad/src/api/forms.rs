@@ -10,6 +10,19 @@
 //! whatever sharing rework lands: link resolution is self-contained, and
 //! `shares.rs`' public GET only needs to hand `(drive_id, path)` over when a
 //! resolved link carries `CAP_RESPOND`.
+//!
+//! Access to answers is deliberately two-layered, and this is the decided
+//! model — not an oversight:
+//!
+//! - The forms API below (`GET /responses`, delete, edit-shaped submits)
+//!   requires `CAP_EDIT` on the form. Read-only members and view links can
+//!   open the form but cannot use the manager API.
+//! - The answers file itself is an ordinary hidden file on the drive. Anyone
+//!   with `CAP_VIEW` on its folder can open, download, or zip it, exactly as
+//!   they can the `.lunaform` file. Read means read the files; `CAP_EDIT`
+//!   gates changing answers and the manager API, not the bytes on disk.
+//! - Respond links are the exception: public routes never expose hidden
+//!   names, so a guest with only `CAP_RESPOND` never reads anyone's answers.
 
 use argon2::password_hash::rand_core::RngCore;
 use axum::extract::{ConnectInfo, DefaultBodyLimit, Multipart, Path, Query, State};
@@ -789,7 +802,8 @@ fn guest_managed_form(
 }
 
 /// `GET /api/v1/forms/responses` — collected answers for a member with
-/// edit access to the form.
+/// edit access to the form. This is the manager view: Read access reads the
+/// answers file itself, but only the managing API needs `CAP_EDIT`.
 async fn member_form_responses(
     State(state): State<AppState>,
     Extension(user): Extension<CurrentUser>,

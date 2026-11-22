@@ -928,9 +928,11 @@ async fn responses_missing_empty_symlink_and_oversize_notice() {
     );
 }
 
-/// A member with a full file grant reads the form's answers — no parent
-/// folder access required — while a view-only member and a stranger get
-/// nothing: collected answers are manager data.
+/// The manager API is `CAP_EDIT`-only: a full grant reads answers, a
+/// view-only member is denied *here*, and a stranger gets nothing. The
+/// answers file itself follows Read on its folder — a view-only member can
+/// open it through the files API (asserted below). That is the decided
+/// model: Read means read the files, `CAP_EDIT` gates the manager API.
 #[tokio::test]
 async fn member_full_grant_reads_responses_view_denied() {
     let mount = tempfile::tempdir().unwrap();
@@ -956,7 +958,8 @@ async fn member_full_grant_reads_responses_view_denied() {
             },
         )
         .unwrap();
-        // View-only member: can open the form, must not read answers.
+        // View-only member with Read on the folder: can open the form and
+        // read its answers file, but cannot use the manager API.
         crate::db::insert_user(&conn, "u-bob", "bob", "Bob", "unused", "member").unwrap();
         crate::db::insert_access_member(
             &conn,
@@ -964,7 +967,7 @@ async fn member_full_grant_reads_responses_view_denied() {
                 id: "m-bob".into(),
                 subject_kind: crate::access::KIND_PATH.into(),
                 drive_id: "photos".into(),
-                path: "rsvp.lunaform".into(),
+                path: String::new(),
                 album_id: String::new(),
                 user_id: "u-bob".into(),
                 caps: crate::access::CAP_VIEW,
@@ -989,7 +992,7 @@ async fn member_full_grant_reads_responses_view_denied() {
     let (ann_cookie, _ann_csrf) = login(&app, "ann", "ann-password").await;
     let (bob_cookie, _bob_csrf) = login(&app, "bob", "bob-password").await;
 
-    // View-only member: denied.
+    // View-only member: denied the manager API.
     let res = call(
         &app,
         authed_req(
@@ -1000,6 +1003,23 @@ async fn member_full_grant_reads_responses_view_denied() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    // The decided model: Read on the folder reads the answers file itself.
+    // `CAP_EDIT` gates the API above, not the bytes on disk.
+    let res = call(
+        &app,
+        authed_req(
+            Method::GET,
+            "/api/v1/drives/photos/files/content?path=.rsvp.lunaform.responses",
+            &bob_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(
+        res.status(),
+        StatusCode::OK,
+        "a Read member can read the answers file"
+    );
 
     let res = call(
         &app,
