@@ -11,6 +11,13 @@ describe("InlineError", () => {
     expect(screen.getByRole("alert").className).toContain("text-primary");
   });
 
+  it("uses the page text color when it sits on the page", () => {
+    render(
+      <InlineError surface="primary">The query didn't run.</InlineError>,
+    );
+    expect(screen.getByRole("alert").className).toContain("text-secondary");
+  });
+
   it("takes an id so a field can describe itself with it", () => {
     render(<InlineError id="field-problem">Try again.</InlineError>);
     expect(screen.getByRole("alert")).toHaveAttribute("id", "field-problem");

@@ -118,6 +118,9 @@ function useIsMdUp() {
  *     a real save, not on initial load.
  *   - `requestClose()` — the guarded close path (dirty → guard modal).
  *
+ * A child surface that handles Escape itself (an inline cell editor) marks
+ * the element with `data-escape-own`; the frame leaves Escape to it.
+ *
  * `sessionKey` should change when a different file/editor mounts inside
  * the same frame — the save chrome resets so one file's dirty flag can't
  * leak into the next.
@@ -246,6 +249,17 @@ export default function FullscreenEditorFrame({
         // capture listener and would otherwise eat the keypress before the
         // modal's document listener sees it.
         if (confirmCloseRef.current) return;
+        // A second fullscreen editor opened on top (a database editor from
+        // inside a form) owns Escape; only the topmost overlay closes.
+        const overlays = document.querySelectorAll(
+          '[data-slot="file-viewer-overlay"]',
+        );
+        if (
+          overlays.length > 1 &&
+          overlays[overlays.length - 1] !== overlayRef.current
+        ) {
+          return;
+        }
         // Any other open dialog owns Escape too — without this the frame
         // would close the editor out from under the modal, or stack the
         // unsaved-changes guard on top.
@@ -255,6 +269,15 @@ export default function FullscreenEditorFrame({
         if (
           event.target instanceof Element &&
           event.target.closest(".cm-panel, .cm-tooltip")
+        ) {
+          return;
+        }
+        // A surface with its own Escape handling (an inline cell editor)
+        // keeps the key: closing the whole editor mid-edit would lose the
+        // value before it commits.
+        if (
+          event.target instanceof Element &&
+          event.target.closest("[data-escape-own]")
         ) {
           return;
         }
@@ -285,9 +308,14 @@ export default function FullscreenEditorFrame({
   // global chrome (the Navbar's mobile menu FAB floats above this overlay)
   // can hide over the editor surface.
   useEffect(() => {
+    // Nested editors (a database editor opened from a form) restore the
+    // value the editor beneath them had, so the global chrome doesn't
+    // reappear when only the top one closes.
+    const previous = document.documentElement.dataset.lunaEditor;
     document.documentElement.dataset.lunaEditor = editorKind;
     return () => {
-      delete document.documentElement.dataset.lunaEditor;
+      if (previous) document.documentElement.dataset.lunaEditor = previous;
+      else delete document.documentElement.dataset.lunaEditor;
     };
   }, [editorKind]);
 
