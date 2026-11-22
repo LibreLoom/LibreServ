@@ -10,6 +10,17 @@ pub const SOFT_GRACE_SECS: i64 = 60 * 60;
 /// catches backups that never get a chance to run.
 pub const STALE_SECS: i64 = 24 * 60 * 60;
 
+/// Fewer files than this going missing never counts as "most of the source is gone".
+pub const MASS_DELETE_MIN: usize = 20;
+
+/// The one "most of the source is gone" rule, for drive and cloud backups alike: a run that
+/// would remove or mark as deleted at least [`MASS_DELETE_MIN`] files, and more than half of
+/// what the backup held before the run, is held until a person says to go on. `missing` is
+/// how many of those files the source no longer has, `total` how many the backup held.
+pub fn is_mass_delete(missing: usize, total: usize) -> bool {
+    missing >= MASS_DELETE_MIN && missing * 2 > total
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BackupState {
@@ -74,6 +85,15 @@ mod tests {
     use super::*;
 
     const NOW: i64 = 1_000_000;
+
+    #[test]
+    fn the_mass_delete_rule_needs_twenty_files_and_more_than_half() {
+        assert!(!is_mass_delete(19, 19), "19 files is below the floor");
+        assert!(is_mass_delete(20, 20));
+        assert!(!is_mass_delete(20, 40), "exactly half is not more than half");
+        assert!(is_mass_delete(21, 40));
+        assert!(!is_mass_delete(10, 10), "a small folder emptied is not held");
+    }
 
     fn rec(error: &str, hard: bool, last_ok_at: i64, failing_since: i64) -> Record<'_> {
         Record {

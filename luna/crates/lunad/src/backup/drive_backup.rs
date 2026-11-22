@@ -22,9 +22,6 @@ pub use ops::{
     visible_to,
 };
 
-/// Fewer deletions than this never trip the mass-delete guard.
-const MASS_DELETE_MIN: usize = 20;
-
 /// A test hook that runs once, against the database, at a fixed point in a run.
 #[cfg(test)]
 type BeforeHook = Box<dyn FnOnce(&crate::Db)>;
@@ -640,10 +637,7 @@ fn sync_target(
         .filter(|rel| !wanted_keys.contains(&name_key(rel, limits)))
         .cloned()
         .collect();
-    if !allow_mass_delete
-        && deletions.len() >= MASS_DELETE_MIN
-        && deletions.len() * 2 > current.len()
-    {
+    if !allow_mass_delete && status::is_mass_delete(deletions.len(), current.len()) {
         return Ok(None);
     }
 
