@@ -14,11 +14,10 @@ use crate::AppState;
 use crate::api::response::{json_error, json_error_code};
 use crate::auth::CurrentUser;
 use crate::backup::cloud::check::{CheckReport, Sample};
-use crate::backup::cloud::crypto::Signer;
 use crate::backup::cloud::identity;
 use crate::backup::cloud::ops::{self, NOT_SET_UP};
 use crate::backup::cloud::rewrap;
-use crate::backup::cloud::run::CloudOutcome;
+use crate::backup::cloud::run::{CloudOutcome, first_upload_in_progress};
 use crate::backup::cloud::store::HttpStore;
 use crate::backup::drive_backup::{self, Refused};
 use crate::db::{self, ProtectionRow};
@@ -327,9 +326,7 @@ pub fn connect_store(connect: &ConnectService, db: &crate::Db) -> Option<HttpSto
             return None;
         }
     };
-    // Every request is signed with this Luna's key, so Connect can tell this Luna from any other.
-    let signer = Signer::from_seed(identity.signer().seed());
-    Some(HttpStore::new(&base_url, &token, identity.luna_id()).signed_by(signer))
+    Some(HttpStore::new(&base_url, &token, identity.luna_id()))
 }
 
 fn check_json(report: &CheckReport) -> Value {

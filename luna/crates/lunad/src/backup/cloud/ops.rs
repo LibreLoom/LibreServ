@@ -360,8 +360,19 @@ fn run_untimed(
             return problem_outcome(&message);
         }
     }
+    // Confirm the signing key once before either kind of backup uploads anything.
+    let identity = match run_identity(db, connect, now) {
+        Ok(identity) => identity,
+        Err(err) => {
+            let outcome = problem_outcome(&err.to_string());
+            if let Err(err) = record(db, id, now, &outcome) {
+                tracing::warn!(error = %err, id, "could not record a cloud backup problem");
+            }
+            return outcome;
+        }
+    };
     // Send the current recovery keys first. A failure does not stop the copy; it is reported here.
-    let users_problem = match publish_users(db, store, connect, now) {
+    let users_problem = match publish_users_with_identity(db, store, &identity) {
         Ok(()) => None,
         Err(err) => {
             tracing::warn!(error = %err, id, "could not publish the cloud user list");
@@ -412,6 +423,21 @@ fn run_untimed(
     outcome
 }
 
+fn run_identity(
+    db: &crate::Db,
+    connect: &ConnectService,
+    now: i64,
+) -> anyhow::Result<identity::Identity> {
+    let identity = identity::load_or_create(&lock(db), now)?;
+    if connect.is_connect_active()
+        && let Err(err) = identity::acknowledge_registration(db, connect, &identity)
+    {
+        tracing::warn!(error = %err, "could not confirm this Luna's signing key with Luna Connect");
+        bail!("Luna Connect could not confirm this Luna's signing key. Try again.");
+    }
+    Ok(identity)
+}
+
 /// Send the signed user list and each user's self-sealed key copy to `store`, so Connect can
 /// hand them to a browser that needs to check them. Connect keeps the last copy, so a failure
 /// here only delays the update until the next run.
@@ -423,6 +449,14 @@ pub fn publish_users(
 ) -> anyhow::Result<()> {
     // Connect and the drives are reached with no DB lock held.
     let identity = identity::load_or_create_connected(db, connect, now)?;
+    publish_users_with_identity(db, store, &identity)
+}
+
+fn publish_users_with_identity(
+    db: &crate::Db,
+    store: &dyn CloudStore,
+    identity: &identity::Identity,
+) -> anyhow::Result<()> {
     let users = db::list_user_keys(&lock(db))?;
     let listed = users
         .iter()

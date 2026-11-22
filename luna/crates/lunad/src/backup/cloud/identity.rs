@@ -104,29 +104,28 @@ fn ensure_registered(db: &crate::Db, connect: &ConnectService, identity: &Identi
     if registered.as_deref() == Some(identity.luna_id.as_str()) {
         return;
     }
-    if register_public(connect, identity) {
-        let conn = lock(db);
-        if let Err(e) = db::set_meta(&conn, REGISTERED_KEY, &identity.luna_id) {
-            tracing::warn!(error = %e, "could not remember that this Luna's signing key is registered");
-        }
+    if let Err(e) = acknowledge_registration(db, connect, identity) {
+        tracing::warn!(error = %e, "could not register this Luna's signing key with Luna Connect");
     }
 }
 
-/// Send this Luna's signing public key to Luna Connect. Returns true when Connect accepted it.
-/// A failure is logged only, and the next load tries again.
-fn register_public(connect: &ConnectService, identity: &Identity) -> bool {
+/// Ask Connect to accept this Luna's existing key even if an earlier request succeeded.
+pub(super) fn acknowledge_registration(
+    db: &crate::Db,
+    connect: &ConnectService,
+    identity: &Identity,
+) -> Result<(), crate::net::connect::ConnectError> {
     let hex: String = identity
         .public()
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
-    match connect.register_signing_public(&identity.luna_id, &hex) {
-        Ok(()) => true,
-        Err(e) => {
-            tracing::warn!(error = %e, "could not register this Luna's signing key with Luna Connect");
-            false
-        }
+    connect.register_signing_public(&identity.luna_id, &hex)?;
+    let conn = lock(db);
+    if let Err(e) = db::set_meta(&conn, REGISTERED_KEY, &identity.luna_id) {
+        tracing::warn!(error = %e, "could not remember that this Luna's signing key is registered");
     }
+    Ok(())
 }
 
 /// `luna-` plus 26 lowercase base32 characters of 16 random bytes (128 bits).

@@ -2,10 +2,8 @@ package handlers
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"database/sql"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -32,10 +30,7 @@ const (
 	identityPublicName    = "public"
 	// maxLunasPerAccount caps the Luna IDs one account can claim. Each Luna that stores
 	// something gets its own Backblaze bucket, and the Backblaze account allows only so many.
-	maxLunasPerAccount = 25
-	// storageSigWindow is how far, in seconds, a move signature's timestamp may
-	// differ from the server clock.
-	storageSigWindow         = 300
+	maxLunasPerAccount       = 25
 	maxStorageRecordPageSize = 256
 )
 
@@ -101,7 +96,7 @@ func storageScope(d Deps, w http.ResponseWriter, r *http.Request) (accountID, lu
 	}
 	// Only a PUT may claim a Luna. Other calls find the Luna's existing owner and
 	// never create a row.
-	if !authorizeLuna(tx, w, r, accountID, lunaID, deviceIDFrom(r), r.Method == http.MethodPut) {
+	if !authorizeLuna(tx, w, accountID, lunaID, deviceIDFrom(r), r.Method == http.MethodPut) {
 		_ = tx.Rollback()
 		return "", "", nil, false
 	}
@@ -126,12 +121,11 @@ func validStorageName(s string) bool {
 	return storageNamePattern.MatchString(s) && s != "." && !strings.Contains(s, "..")
 }
 
-// bindLuna returns the device that owns a Luna's cloud storage and the Luna's
-// registered signing key (hex, empty until one is set). The first device to use
-// a Luna id claims it.
-func bindLuna(exec storageQueryExec, accountID, lunaID, deviceID string) (boundDevice, signingHex string, err error) {
-	const query = `SELECT device_id, signing_public FROM luna_ids WHERE account_id = ? AND luna_id = ?`
-	err = exec.QueryRow(query, accountID, lunaID).Scan(&boundDevice, &signingHex)
+// bindLuna returns the device that owns a Luna's cloud storage. The first device
+// to bind a Luna id claims it.
+func bindLuna(exec storageQueryExec, accountID, lunaID, deviceID string) (boundDevice string, err error) {
+	const query = `SELECT device_id FROM luna_ids WHERE account_id = ? AND luna_id = ?`
+	err = exec.QueryRow(query, accountID, lunaID).Scan(&boundDevice)
 	if errors.Is(err, sql.ErrNoRows) {
 		// One statement counts and inserts, so parallel claims cannot pass the cap together.
 		if _, err = exec.Exec(`INSERT INTO luna_ids (account_id, luna_id, device_id, signing_public, created_at)
@@ -139,14 +133,14 @@ SELECT ?, ?, ?, '', ?
 WHERE (SELECT COUNT(*) FROM luna_ids WHERE account_id = ?) < ?
 ON CONFLICT(account_id, luna_id) DO NOTHING`, accountID, lunaID, deviceID, time.Now().Unix(),
 			accountID, maxLunasPerAccount); err != nil {
-			return "", "", err
+			return "", err
 		}
-		err = exec.QueryRow(query, accountID, lunaID).Scan(&boundDevice, &signingHex)
+		err = exec.QueryRow(query, accountID, lunaID).Scan(&boundDevice)
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", "", errLunaLimit
+			return "", errLunaLimit
 		}
 	}
-	return boundDevice, signingHex, err
+	return boundDevice, err
 }
 
 // lookupLuna reads a Luna's owner and signing key without claiming or changing it.
@@ -172,68 +166,26 @@ func writeLunaBindError(w http.ResponseWriter, err error) {
 	JSONError(w, http.StatusInternalServerError, "Cloud storage could not check this Luna. Try again.")
 }
 
-// lunaSigValid reports whether the request carries a fresh signature, made with the
-// Luna's registered signing key, that moves this Luna to a new device. The signed
-// message is the domain prefix, the Luna id, a zero byte and X-Luna-Ts.
-func lunaSigValid(r *http.Request, signingHex, lunaID string, now time.Time) bool {
-	pub, err := hex.DecodeString(signingHex)
-	if err != nil || len(pub) != lunaSigPublicLen {
-		return false
-	}
-	sig, err := base64.StdEncoding.DecodeString(strings.TrimSpace(r.Header.Get("X-Luna-Sig")))
-	if err != nil || len(sig) != lunaSigLen {
-		return false
-	}
-	ts := strings.TrimSpace(r.Header.Get("X-Luna-Ts"))
-	sentAt, err := strconv.ParseInt(ts, 10, 64)
-	if err != nil {
-		return false
-	}
-	if skew := now.Unix() - sentAt; skew < -storageSigWindow || skew > storageSigWindow {
-		return false
-	}
-	return lunaVerify(pub, "move", []byte(lunaID+"\x00"+ts), sig)
-}
-
-// authorizeLuna lets the calling device use a Luna's storage. A PUT (write) claims an
-// unclaimed Luna for the calling device. Any other call only reads the owner, so an
-// unknown Luna simply has nothing stored. A device that is not the owner may take the
-// Luna over only with a fresh X-Luna-Sig from that Luna's signing key, and then it
-// becomes the owner.
-func authorizeLuna(exec storageQueryExec, w http.ResponseWriter, r *http.Request, accountID, lunaID, deviceID string, write bool) bool {
-	var bound, signing string
-	var found bool
+// authorizeLuna lets the owning device use a Luna's storage. A PUT claims an
+// unclaimed Luna. Other requests leave unknown Luna IDs unclaimed.
+func authorizeLuna(exec storageQueryExec, w http.ResponseWriter, accountID, lunaID, deviceID string, write bool) bool {
+	var bound string
 	var err error
 	if write {
-		bound, signing, err = bindLuna(exec, accountID, lunaID, deviceID)
-		found = err == nil
+		bound, err = bindLuna(exec, accountID, lunaID, deviceID)
 	} else {
-		err = exec.QueryRow(`SELECT device_id, signing_public FROM luna_ids WHERE account_id = ? AND luna_id = ?`,
-			accountID, lunaID).Scan(&bound, &signing)
+		err = exec.QueryRow(`SELECT device_id FROM luna_ids WHERE account_id = ? AND luna_id = ?`,
+			accountID, lunaID).Scan(&bound)
 		if errors.Is(err, sql.ErrNoRows) {
-			err = nil
-		} else {
-			found = err == nil
+			return true
 		}
 	}
 	if err != nil {
 		writeLunaBindError(w, err)
 		return false
 	}
-	if !found {
-		return true
-	}
-	if bound == deviceID {
-		keepLunaWith(exec, accountID, lunaID)
-		return true
-	}
-	if !lunaSigValid(r, signing, lunaID, requestArrival(r)) {
+	if bound != deviceID {
 		JSONError(w, http.StatusForbidden, "This Luna's cloud storage belongs to another device on your account.")
-		return false
-	}
-	if _, err := exec.Exec(`UPDATE luna_ids SET device_id = ? WHERE account_id = ? AND luna_id = ?`,
-		deviceID, accountID, lunaID); err != nil {
-		JSONError(w, http.StatusInternalServerError, "Cloud storage could not check this Luna. Try again.")
 		return false
 	}
 	keepLunaWith(exec, accountID, lunaID)
@@ -250,15 +202,14 @@ func keepLunaWith(exec storageQueryExec, accountID, lunaID string) {
 	_, _ = exec.Exec(`UPDATE luna_ids SET purge_after = 0 WHERE account_id = ? AND luna_id = ? AND (purge_after > 0 OR purge_after = -1)`, accountID, lunaID)
 }
 
-// setSigningPublic records the signing key a Luna uses to move its storage to a new
-// device. Once a key is set, only the device that owns the Luna can change the owner.
+// setSigningPublic pins the Luna's signing key and accepts retries by the owning device.
 func setSigningPublic(exec storageQueryExec, w http.ResponseWriter, accountID, lunaID, deviceID, keyHex string) bool {
 	keyHex = strings.ToLower(strings.TrimSpace(keyHex))
 	if pub, err := hex.DecodeString(keyHex); err != nil || len(pub) != lunaSigPublicLen {
 		JSONError(w, http.StatusBadRequest, "That signing key is not valid. Update Luna and try again.")
 		return false
 	}
-	bound, _, err := bindLuna(exec, accountID, lunaID, deviceID)
+	bound, err := bindLuna(exec, accountID, lunaID, deviceID)
 	if err != nil {
 		writeLunaBindError(w, err)
 		return false
@@ -267,9 +218,23 @@ func setSigningPublic(exec storageQueryExec, w http.ResponseWriter, accountID, l
 		JSONError(w, http.StatusForbidden, "This Luna's cloud storage belongs to another device on your account.")
 		return false
 	}
-	if _, err := exec.Exec(`UPDATE luna_ids SET signing_public = ?, device_id = ? WHERE account_id = ? AND luna_id = ?`,
-		keyHex, deviceID, accountID, lunaID); err != nil {
+	// Check the key and owner in the write itself so concurrent registrations
+	// cannot replace the first key that commits.
+	result, err := exec.Exec(`UPDATE luna_ids SET signing_public = COALESCE(NULLIF(signing_public, ''), ?)
+WHERE account_id = ? AND luna_id = ? AND device_id = ?
+  AND (signing_public = '' OR LOWER(signing_public) = ?)`,
+		keyHex, accountID, lunaID, deviceID, keyHex)
+	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not save that signing key. Try again.")
+		return false
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Cloud storage could not save that signing key. Try again.")
+		return false
+	}
+	if updated == 0 {
+		JSONError(w, http.StatusConflict, "Cloud storage already has a different signing key for this Luna.")
 		return false
 	}
 	return true
@@ -324,12 +289,12 @@ func (h StorageHandler) putPackPrecheck(w http.ResponseWriter, r *http.Request) 
 		JSONError(w, http.StatusBadRequest, "Luna did not say which Luna is asking. Update Luna and try again.")
 		return 0, false, false
 	}
-	bound, signing, found, err := lookupLuna(h.Deps, accountID, lunaID)
+	bound, _, found, err := lookupLuna(h.Deps, accountID, lunaID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not check this Luna. Try again.")
 		return 0, false, false
 	}
-	if found && bound != deviceIDFrom(r) && !lunaSigValid(r, signing, lunaID, requestArrival(r)) {
+	if found && bound != deviceIDFrom(r) {
 		JSONError(w, http.StatusForbidden, "This Luna's cloud storage belongs to another device on your account.")
 		return 0, false, false
 	}
@@ -404,20 +369,7 @@ func spoolPack(w http.ResponseWriter, r *http.Request, id string, remain int64) 
 	return spool, size, true
 }
 
-type requestArrivalKey struct{}
-
-// requestArrival is when the request reached Connect, if the handler recorded it.
-// A move signature is fresh relative to that moment, not to the end of a body
-// upload that may outlast the signature window.
-func requestArrival(r *http.Request) time.Time {
-	if t, ok := r.Context().Value(requestArrivalKey{}).(time.Time); ok {
-		return t
-	}
-	return time.Now()
-}
-
 func (h StorageHandler) PutPack(w http.ResponseWriter, r *http.Request) {
-	r = r.WithContext(context.WithValue(r.Context(), requestArrivalKey{}, time.Now()))
 	remain, existingBefore, ok := h.putPackPrecheck(w, r)
 	if !ok {
 		return
@@ -618,8 +570,7 @@ func (h StorageHandler) PutRecord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The identity public record carries the Luna's signing key, which later device
-	// moves are checked against.
+	// Register the identity record's public key for signed record verification.
 	if kind == identityKind && name == identityPublicName {
 		if !setSigningPublic(tx, w, accountID, lunaID, deviceIDFrom(r), string(data)) {
 			return
@@ -795,13 +746,12 @@ func (h StorageHandler) ListRecords(w http.ResponseWriter, r *http.Request) {
 		}
 		defer tx.Rollback()
 		// storageScope checks ownership in its own short transaction. Recheck under
-		// the same transaction as the page read so a signed device transfer cannot
-		// happen between authorization and returning names.
+		// the same transaction as the page read.
 		if err := database.LockStorageAccountWrite(tx, accountID); err != nil {
 			JSONError(w, http.StatusInternalServerError, "Cloud storage could not check this Luna. Try again.")
 			return
 		}
-		if !authorizeLuna(tx, w, r, accountID, lunaID, deviceIDFrom(r), false) {
+		if !authorizeLuna(tx, w, accountID, lunaID, deviceIDFrom(r), false) {
 			return
 		}
 		if err := database.LockStorageRecordInventory(tx, accountID, lunaID); err != nil {
@@ -981,33 +931,6 @@ func storageRecordVersion(tx *database.Tx, accountID, lunaID string) (uint64, er
 // storageNamePrefixEnd is the exclusive upper bound for all names beginning with prefix. The
 // page prefix is validated to end in '.', whose next byte '/' bounds every allowed suffix.
 func storageNamePrefixEnd(prefix string) string { return prefix[:len(prefix)-1] + "/" }
-
-// ListLunaIDs returns the Lunas on the calling account, and whether each has a signing key.
-func (h StorageHandler) ListLunaIDs(w http.ResponseWriter, r *http.Request) {
-	accountID, ok := storageAccount(w, r)
-	if !ok {
-		return
-	}
-	rows, err := h.DB.Query(`SELECT luna_id, signing_public, created_at FROM luna_ids WHERE account_id = ? ORDER BY luna_id`, accountID)
-	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Cloud storage could not list your Lunas. Try again.")
-		return
-	}
-	defer rows.Close()
-	lunas := []map[string]any{}
-	for rows.Next() {
-		var lunaID, signing string
-		var created int64
-		if err := rows.Scan(&lunaID, &signing, &created); err == nil {
-			lunas = append(lunas, map[string]any{
-				"luna_id":         lunaID,
-				"has_signing_key": signing != "",
-				"created_at":      created,
-			})
-		}
-	}
-	JSON(w, http.StatusOK, map[string]any{"luna_ids": lunas})
-}
 
 // SetSigningPublic registers a Luna's signing key from the request body (hex of its Ed25519 and ML-DSA public keys).
 func (h StorageHandler) SetSigningPublic(w http.ResponseWriter, r *http.Request) {
