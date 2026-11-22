@@ -4,7 +4,7 @@
 set -eu
 ROOTFS="${1:?rootfs directory required}"
 fail() { echo "incomplete Luna image: $*" >&2; exit 1; }
-for f in boot/vmlinuz-lts boot/initramfs-lts \
+for f in boot/vmlinuz-lts \
     usr/local/bin/lunad usr/local/bin/luna-console usr/local/bin/cloudflared usr/local/bin/luna-clip \
     usr/share/luna/eurooffice/web-apps/apps/api/documents/api.js \
     usr/share/luna/eurooffice/x2t/x2t.js usr/share/luna/eurooffice/x2t/x2t.wasm \
@@ -19,6 +19,13 @@ for f in boot/vmlinuz-lts boot/initramfs-lts \
     [ -s "$ROOTFS/$f" ] || fail "missing $f"
 done
 [ -d "$ROOTFS/usr/share/luna/eurooffice/fonts" ] || fail 'missing office fonts'
+# The kernel mounts the slot from the partition label and carries the storage
+# drivers built in. An initramfs in the image would only add a second full
+# device scan to every boot (and 15 MiB to every download), so it must not be
+# there.
+for _i in "$ROOTFS"/boot/initramfs-* "$ROOTFS"/boot/initrd*; do
+    [ -e "$_i" ] && fail "$(basename "$_i") is shipped but the kernel boots without one"
+done
 # The image runs no SSH server, so nothing may be advertised over mDNS except
 # the box's own name. Alpine's avahi package ships ssh/sftp-ssh service files.
 for svc in "$ROOTFS"/etc/avahi/services/*.service; do

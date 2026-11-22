@@ -174,12 +174,12 @@ assert_file_lacks "$ROOT/os/build/image.sh" '^[^#]*(podman|sudo|--privileged)' \
 	"image.sh runs inside the build container and must not call podman or sudo"
 assert_file_has "$ROOT/os/build/image.sh" 'mkfs.ext4 .* -d ' \
 	"image.sh must write the filesystem with mkfs.ext4 -d (no loop device, no mount)"
-assert_file_has "$ROOT/os/build/image.sh" 'xz -3' \
-	"image.sh must compress the slot image with xz"
+assert_file_has "$ROOT/os/build/image.sh" 'xz -9e' \
+	"image.sh must compress the slot image with xz -9e (64 MiB dictionary)"
 
 FLASH="$ROOT/os/lib/flash-disk.sh"
-assert_file_has "$FLASH" 'rootflags=ro,noatime' \
-	"installed kernel cmdline must mount OS slots read-only with noatime"
+assert_file_has "$FLASH" 'rootflags=ro panic=10 quiet' \
+	"installed kernel cmdline must mount OS slots read-only (ext4 rejects noatime there)"
 assert_file_has "$FLASH" 'LUNA_A' \
 	"flash must create OS slot A"
 assert_file_has "$FLASH" 'LUNA_B' \
@@ -204,6 +204,17 @@ if ! grep -q 'hwdrivers' "$BUILD"; then
 	echo "FAIL: hwdrivers must be enabled so cold-plugged keyboards bind at boot" >&2
 	exit 1
 fi
+
+# 06.frag trims the finished tree before the image is written: the built kernel
+# replaces the apk one, the module index is rewritten after unusable drivers are
+# gone, and the initramfs goes, because the kernel mounts its own root from the
+# partition label.
+assert_file_has "$BUILD" 'cp /kout/vmlinuz-lts "$ROOTFS/boot/vmlinuz-lts"' \
+	"rootfs must ship the kernel built with the boot storage path in it"
+assert_file_has "$BUILD" 'depmod -b "$ROOTFS" -a "$KV"' \
+	"rootfs must rewrite the module index after trimming drivers"
+assert_file_has "$BUILD" 'rm -f "$ROOTFS"/boot/initramfs-*' \
+	"rootfs must ship no initramfs: the kernel mounts its root from the partition label"
 
 # cloudflared must be checked against its pinned SHA-256, on download and on
 # every cache hit; a bad cache entry is deleted.

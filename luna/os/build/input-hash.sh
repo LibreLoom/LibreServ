@@ -41,7 +41,7 @@ export LC_ALL=C
 		sha256sum luna/Cargo.toml luna/Cargo.lock luna/VERSION keys/luna.minisign.pub
 	fi
 	cd "$OSDIR"
-	for f in build/Containerfile.os build/rootfs.sh build/image.sh build/validate-rootfs.sh clip/luna-clip.cpp lib/alpine-image.sh \
+	for f in build/Containerfile.os build/rootfs.sh build/image.sh build/validate-rootfs.sh build/kernel-build.sh clip/luna-clip.cpp lib/alpine-image.sh \
 		lib/cloudflared-bake.sh lib/disk.sh lib/build-rootfs.d/*.frag; do
 		printf 'file=%s %s\n' "$f" "$(sha256sum < "$f" | awk '{print $1}')"
 	done

@@ -2255,8 +2255,12 @@ def stage_update():
     # the box must fall back to the slot it came from.
     cur = slot_of(vm)
     rollback_case("badlunad", {"/usr/local/bin/lunad": (b"#!/bin/sh\nexit 1\n",)}, "0.0.8", "lunad cannot start", cur)
+    # The slot image carries no initramfs (the kernel mounts its own root), so
+    # the thing that can break a new system before it runs is the kernel file.
+    # GRUB runs its error out on a screen nobody is watching, so what is checked
+    # here is what matters: the box comes back and says the update did not start.
     cur = slot_of(vm)
-    rollback_case("badboot", {"/boot/initramfs-lts": b"this is not an initramfs\n" * 100}, "0.0.9", "kernel cannot find its root", cur, expect_panic=True)
+    rollback_case("badboot", {"/boot/vmlinuz-lts": b"this is not a kernel\n" * 100}, "0.0.9", "the kernel will not load", cur)
 
     # (a power cut during the write has its own stage, update-powercut, on a raw disk)
     rc, o = vm.sh("cat /var/lib/luna/os-image.sha256")

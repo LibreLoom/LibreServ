@@ -47,9 +47,12 @@ _write_grub_cfg "$_tmp/grub/grub.cfg" \
 	vmlinuz-lts initramfs-lts
 assert_has "$_tmp/grub/grub.cfg" 'menuentry "Luna"' "grub.cfg needs Luna menuentry"
 assert_has "$_tmp/grub/grub.cfg" 'search_fs_uuid' "grub.cfg must search by UUID"
-assert_has "$_tmp/grub/grub.cfg" 'root=UUID=11111111-2222-3333-4444-555555555555' "grub.cfg must pass slot A UUID"
-assert_has "$_tmp/grub/grub.cfg" 'root=UUID=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' "grub.cfg must pass slot B UUID"
-assert_has "$_tmp/grub/grub.cfg" 'rootflags=ro,noatime' "grub.cfg must mount OS slots read-only + noatime"
+assert_has "$_tmp/grub/grub.cfg" 'root=PARTLABEL=LUNA_A' "grub.cfg must start slot A by its partition label"
+assert_has "$_tmp/grub/grub.cfg" 'luna.fsuuid=11111111-2222-3333-4444-555555555555' "grub.cfg must record slot A's filesystem ID for the updater"
+assert_has "$_tmp/grub/grub.cfg" 'luna.fsuuid=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' "grub.cfg must record slot B's filesystem ID for the updater"
+assert_has "$_tmp/grub/grub.cfg" 'initrd /boot/initramfs-lts' "grub.cfg must pass an initramfs when the slot has one"
+assert_has "$_tmp/grub/grub.cfg" 'set timeout=0' "the box has no screen: the menu must not wait for a key"
+assert_has "$_tmp/grub/grub.cfg" 'rootflags=ro panic=10' "grub.cfg must mount OS slots read-only (ext4 rejects noatime there)"
 assert_has "$_tmp/grub/grub.cfg" 'luna_slot' "grub.cfg must implement A/B tryboot via luna_slot"
 assert_has "$_tmp/grub/grub.cfg" 'luna_boot_ok' "grub.cfg must track luna_boot_ok for rollback"
 
@@ -65,6 +68,15 @@ _write_grub_cfg "$_esptmp/grub/grub.cfg" \
 _write_efi_grub_cfg "$_esptmp"
 assert_has "$_esptmp/EFI/BOOT/grub.cfg" 'menuentry "Luna"' "after shared cfg exists, EFI/BOOT/grub.cfg must be the full menu (grub-install prefix)"
 assert_has "$_tmp/grub/grub.cfg" 'search --no-floppy --file --set=esp /grub/grubenv' "shared grub.cfg must find ESP by grubenv file"
+
+# A slot image without an initramfs boots straight from the partition label.
+rm -f "$_tmp/boot/initramfs-lts"
+_write_grub_cfg "$_tmp/grub/grub.cfg.nokern" \
+	'11111111-2222-3333-4444-555555555555' \
+	'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' \
+	vmlinuz-lts ''
+assert_false grep -q 'initrd ' "$_tmp/grub/grub.cfg.nokern"
+assert_has "$_tmp/grub/grub.cfg.nokern" 'root=PARTLABEL=LUNA_A' "a slot without an initramfs still starts by label"
 
 if [ -f /usr/lib/grub/x86_64-efi/ext2.mod ]; then
 	_install_grub_modules "$_tmp/grub" x86_64-efi

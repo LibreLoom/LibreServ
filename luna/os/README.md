@@ -28,6 +28,12 @@ make eurooffice-pack drawio-pack models-pack   # → os/dist/*-pack.tar.zst
 #    rebuild both steps. LUNA_OS_FORCE=1 rebuilds
 #    anyway — and a changed lunad always needs one, because the daemon is
 #    inside the image.
+#    build/Containerfile.os also builds the image's kernel
+#    (build/kernel-build.sh): Alpine's linux-lts config, with the storage path
+#    switched to built-in, so a slot mounts its own root and ships no
+#    initramfs. That stage is slow once and then cached with the image: it
+#    downloads the pinned 6.18.64 source and needs about 12 GB of scratch, so
+#    budget 20-40 minutes on four cores and keep the podman store clear.
 
 # 3. Rapidinstall ISO (`dd` to a USB stick), rootless, no live-build
 #    Debian live (mmdebstrap + squashfs + grub-mkrescue) boots the installer
@@ -112,7 +118,9 @@ OS slot A (`LUNA_A`), OS slot B (`LUNA_B`), and data (`LUNA_DATA` at
 `/var/lib/luna`). GRUB tryboot selects the slot; a failed boot rolls back.
 GRUB is installed for `i386-pc` and `x86_64-efi`.
 
-This kernel is Alpine 3.24 **x86_64** (x86-64-v2) on the **installed** system. The
+This kernel is Alpine 3.24 **x86_64** (x86-64-v2) on the **installed** system: built
+here from Alpine's linux-lts config, upstream source, with the storage path in the
+kernel so the slot boots without an initramfs. The
 rapidinstall USB boots a pinned **Debian 12 live** image for reliable hardware
 support, then flashes the Alpine OS slots above.
 

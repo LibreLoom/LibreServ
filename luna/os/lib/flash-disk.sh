@@ -30,6 +30,12 @@ _find_boot_images() {
 		echo "The Luna system image has no kernel in /boot. Refusing to write a bootloader that cannot start." >&2
 		return 1
 	fi
+	# The slot image carries no initramfs: the kernel finds its root from the
+	# partition label, because the storage drivers are built into it. An image
+	# that still ships one gets it passed on the way it always was.
+	if [ -z "$_i" ] || [ "$_i" = "." ] || [ ! -e "$_rootmnt/boot/$_i" ]; then
+		_i=""
+	fi
 	printf '%s\n' "$_k" "$_i"
 }
 
@@ -45,7 +51,9 @@ _write_grub_cfg() {
 
 	mkdir -p "$(dirname "$_cfgpath")"
 	{
-		echo 'set timeout=2'
+		# No waiting on the menu: the box has no screen and nobody to press a key,
+		# and a wrong slot rolls back on its own through fallback=1 and tryboot.
+		echo 'set timeout=0'
 		echo 'set default=0'
 		echo 'set fallback=1'
 		echo 'insmod part_gpt'
@@ -85,26 +93,29 @@ _write_grub_cfg() {
 		# Two entries: the slot GRUB picked, and the other one as a fallback. If the
 		# first cannot start at all (its filesystem is not found, or the kernel
 		# will not load), GRUB moves on by itself instead of waiting at an error
-		# for a key nobody is there to press.
+		# for a key nobody is there to press. rootflags= carries mount options for
+		# the filesystem itself: the kernel strips ro/rw and hands the rest to
+		# ext4, which rejects noatime ("Unknown parameter") and then cannot mount
+		# its root. A read-only root has no atimes to update, so ro is all it needs.
 		echo 'menuentry "Luna" {'
 		echo '    if [ "$luna_slot" = "B" ]; then'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_b}"
-		echo "      linux /boot/${_k} root=UUID=${_uuid_b} luna.slot=B modules=ext4 rootfstype=ext4 rootflags=ro,noatime panic=10 quiet"
+		echo "      linux /boot/${_k} root=PARTLABEL=LUNA_B luna.fsuuid=${_uuid_b} luna.slot=B rootfstype=ext4 rootflags=ro panic=10 quiet"
 		echo '    else'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_a}"
-		echo "      linux /boot/${_k} root=UUID=${_uuid_a} luna.slot=A modules=ext4 rootfstype=ext4 rootflags=ro,noatime panic=10 quiet"
+		echo "      linux /boot/${_k} root=PARTLABEL=LUNA_A luna.fsuuid=${_uuid_a} luna.slot=A rootfstype=ext4 rootflags=ro panic=10 quiet"
 		echo '    fi'
-		echo "    initrd /boot/${_i}"
+		[ -z "$_i" ] || echo "    initrd /boot/${_i}"
 		echo '}'
 		echo 'menuentry "Luna (other system)" {'
 		echo '    if [ "$luna_slot" = "B" ]; then'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_a}"
-		echo "      linux /boot/${_k} root=UUID=${_uuid_a} luna.slot=A modules=ext4 rootfstype=ext4 rootflags=ro,noatime panic=10 quiet"
+		echo "      linux /boot/${_k} root=PARTLABEL=LUNA_A luna.fsuuid=${_uuid_a} luna.slot=A rootfstype=ext4 rootflags=ro panic=10 quiet"
 		echo '    else'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_b}"
-		echo "      linux /boot/${_k} root=UUID=${_uuid_b} luna.slot=B modules=ext4 rootfstype=ext4 rootflags=ro,noatime panic=10 quiet"
+		echo "      linux /boot/${_k} root=PARTLABEL=LUNA_B luna.fsuuid=${_uuid_b} luna.slot=B rootfstype=ext4 rootflags=ro panic=10 quiet"
 		echo '    fi'
-		echo "    initrd /boot/${_i}"
+		[ -z "$_i" ] || echo "    initrd /boot/${_i}"
 		echo '}'
 	} >"$_cfgpath"
 }

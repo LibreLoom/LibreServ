@@ -34,7 +34,8 @@ find "$ROOTFS" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 # build host boots from and is useless here, so a trigger error is tolerated;
 # the check below still fails the build if any package did not install.
 # The linux-lts trigger builds /boot/initramfs-lts itself (no proc/sys mounts
-# needed), so there is no extra chroot mkinitfs pass.
+# needed). 06.frag removes it again: the kernel this image ships mounts its own
+# root, so the appliance boots without one.
 APK_CACHE=""
 if [ -d "${LUNA_CACHE_DIR:-/nonexistent}" ]; then
     mkdir -p "$LUNA_CACHE_DIR/apk"
@@ -73,10 +74,9 @@ for _b in acpid tune2fs e2label e2fsck grub-editenv mkfs.exfat wipefs sfdisk par
     done
     [ "$_have" = 1 ] || { echo "the OS image is missing the program $_b that Luna needs" >&2; exit 1; }
 done
-# A slot without kernel + initramfs cannot boot: fail here, not on the device.
-for _f in boot/vmlinuz-lts boot/initramfs-lts; do
-    [ -s "$ROOTFS/$_f" ] || { echo "missing $_f in the rootfs (kernel trigger did not run)" >&2; exit 1; }
-done
+# A slot without a kernel cannot boot: fail here, not on the device. The
+# kernel carries the storage drivers, so no initramfs is checked for.
+[ -s "$ROOTFS/boot/vmlinuz-lts" ] || { echo "missing boot/vmlinuz-lts in the rootfs (the linux-lts install did not finish)" >&2; exit 1; }
 
 mkdir -p "$ROOTFS/proc" "$ROOTFS/sys" "$ROOTFS/dev"
 # Rootless apk cannot mknod, so it leaves a plain empty file where /dev/null

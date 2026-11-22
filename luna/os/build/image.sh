@@ -47,11 +47,15 @@ mkfs.ext4 -q -F -L LUNA_A -E hash_seed=00000000-0000-4000-8000-000000000042 -d "
 # older and reject newer ext4 features.
 e2fsck -fn "$RAW" >/dev/null
 
-# -3 keeps the decoder dictionary at 4 MiB: the box streams this file through
-# a small decoder. It packs twice as fast as -6 (19 s vs 37 s on 8 cores) for a
-# 2.8% bigger file (277 vs 270 MB). -T and the memory cap are explicit because xz sizes its
-# defaults from the HOST's RAM, not this container's limit.
-xz -3 -T"$XZ_THREADS" --memlimit-compress="$XZ_MEM" -c "$RAW" > "$XZTMP"
+# -9e buys its size with the decoder's dictionary (64 MiB) and the encoder's
+# time: a 13% smaller file than -3 (497 vs 575 MB on the tree that shipped
+# 0.0.11, 473 MB once the kernel carries the storage path), several minutes
+# more here, and 64 MiB more RAM on the box while it streams the file through
+# the OTA decoder. xz caps the worker count to what --memlimit-compress allows
+# (two on the default 1536 MiB), so a big CI box packs no faster than a small
+# one. -T and the memory cap are explicit because xz sizes its defaults from the
+# HOST's RAM, not this container's limit.
+xz -9e -T"$XZ_THREADS" --memlimit-compress="$XZ_MEM" -c "$RAW" > "$XZTMP"
 xz -t "$XZTMP"
 rm -f "$RAW"
 

@@ -625,16 +625,22 @@ impl SlotOps for RealSlotOps {
     }
 }
 
-/// The `root=UUID=` the boot menu uses for `slot` (its `luna.slot=` line).
+/// The slot's filesystem ID, as the boot menu records it. The slot is started by
+/// partition label (`root=PARTLABEL=`), so the menu carries the filesystem ID
+/// beside the slot it belongs to, under `luna.fsuuid=`. A menu written by an
+/// older installer names it in `root=UUID=` instead; both are read.
 fn pinned_uuid_from_grub_cfg(cfg: &str, slot: char) -> Option<String> {
     let marker = format!("luna.slot={slot}");
-    cfg.lines().filter(|l| l.contains(&marker)).find_map(|l| {
-        let rest = l.split("root=UUID=").nth(1)?;
+    let id_after = |line: &str, key: &str| -> Option<String> {
+        let rest = line.split(key).nth(1)?;
         let id: String = rest
             .chars()
             .take_while(|c| c.is_ascii_hexdigit() || *c == '-')
             .collect();
         (id.len() == 36).then_some(id)
+    };
+    cfg.lines().filter(|l| l.contains(&marker)).find_map(|l| {
+        id_after(l, "luna.fsuuid=").or_else(|| id_after(l, "root=UUID="))
     })
 }
 
@@ -2304,10 +2310,10 @@ mod tests {
         let cfg = r#"menuentry "Luna" {
     if [ "$luna_slot" = "B" ]; then
       search --no-floppy --fs-uuid --set=root bbbbbbbb-2222-3333-4444-555555555555
-      linux /boot/vmlinuz-lts root=UUID=bbbbbbbb-2222-3333-4444-555555555555 luna.slot=B modules=ext4 quiet
+      linux /boot/vmlinuz-lts root=PARTLABEL=LUNA_B luna.fsuuid=bbbbbbbb-2222-3333-4444-555555555555 luna.slot=B quiet
     else
       search --no-floppy --fs-uuid --set=root aaaaaaaa-2222-3333-4444-555555555555
-      linux /boot/vmlinuz-lts root=UUID=aaaaaaaa-2222-3333-4444-555555555555 luna.slot=A modules=ext4 quiet
+      linux /boot/vmlinuz-lts root=PARTLABEL=LUNA_A luna.fsuuid=aaaaaaaa-2222-3333-4444-555555555555 luna.slot=A quiet
     fi
 }"#;
         assert_eq!(
@@ -2319,6 +2325,12 @@ mod tests {
             Some("aaaaaaaa-2222-3333-4444-555555555555")
         );
         assert_eq!(pinned_uuid_from_grub_cfg("nothing here", 'A'), None);
+        // A menu from before partition labels: the ID rode in root=UUID=.
+        let old = "      linux /boot/vmlinuz-lts root=UUID=cccccccc-2222-3333-4444-555555555555 luna.slot=A quiet";
+        assert_eq!(
+            pinned_uuid_from_grub_cfg(old, 'A').as_deref(),
+            Some("cccccccc-2222-3333-4444-555555555555")
+        );
     }
 
     #[test]
