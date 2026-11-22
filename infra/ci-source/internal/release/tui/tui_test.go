@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
+	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/app"
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/secrets"
 )
 
@@ -194,6 +197,25 @@ func TestCutHappyPathWithFix(t *testing.T) {
 	if len(h.be.cuts) != 1 || !strings.Contains(h.be.cuts[0].Notes, "faster uploads") || h.be.cuts[0].Bump != "patch" {
 		t.Fatalf("%+v", h.be.cuts)
 	}
+}
+
+func TestCutFailedPreflightHintWrapsAndScrolls(t *testing.T) {
+	h := newHarness(t)
+	h.m.Update(tea_size(40, 6))
+	s := newCut(h.m.sh, "luna", nil)
+	s.phase = cpPreflight
+	h.m.stack = append(h.m.stack, s)
+	h.m.Update(preflightMsg{rep: &app.PreflightReport{Checks: []app.Check{{
+		Name:   "release audit",
+		State:  app.CheckFail,
+		Detail: "Rejected " + secretValue + "\n" + strings.Repeat("x", 40) + " Check the audit log.",
+	}}}})
+
+	h.wantView("release audit", "Rejected ***", "PgUp/PgDn scroll")
+	h.m.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	h.wantView("Check the audit log.")
+	h.m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	h.wantView("release audit", "Rejected ***")
 }
 
 func TestCutAndroidShowsVersionCode(t *testing.T) {

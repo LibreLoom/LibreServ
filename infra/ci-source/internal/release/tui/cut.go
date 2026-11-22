@@ -62,6 +62,7 @@ type cutScreen struct {
 	rep     *app.PreflightReport
 	pfBusy  bool
 	pfCur   int
+	pfOff   int
 	fx      *fixer
 	fixNote string
 
@@ -157,7 +158,7 @@ func (s *cutScreen) update(msg tea.Msg) (screen, tea.Cmd) {
 		return s, s.preflight()
 	case preflightMsg:
 		s.rep, s.pfBusy = m.rep, false
-		s.pfCur = 0
+		s.pfCur, s.pfOff = 0, 0
 		s.moveCur(0)
 		return s, nil
 	case cutDoneMsg:
@@ -167,6 +168,7 @@ func (s *cutScreen) update(msg tea.Msg) (screen, tea.Cmd) {
 		if errors.As(m.err, &pe) {
 			// The cut's own check disagreed with ours: show it, fixable.
 			s.phase, s.rep, s.err = cpPreflight, pe.Report, nil
+			s.pfOff = 0
 			s.moveCur(0)
 			return s, nil
 		}
@@ -381,6 +383,10 @@ func (s *cutScreen) preflightKey(k tea.KeyMsg) (screen, tea.Cmd) {
 		s.moveCur(-1)
 	case "down", "j":
 		s.moveCur(1)
+	case "pgup":
+		s.pfOff = max(s.pfOff-max(s.sh.h-4, 1), 0)
+	case "pgdown":
+		s.pfOff += max(s.sh.h-4, 1)
 	case "r":
 		if !s.pfBusy {
 			s.fixNote = ""
@@ -626,6 +632,11 @@ func (s *cutScreen) preflightView(f frame, w, h int) frame {
 		lines = append(lines, "", "  "+okStyle.Render("✓ ")+"Everything is ready. Press enter to start.")
 	} else {
 		f.help = "e fix this · a add a file or folder · r check again · ↑↓ choose · esc back"
+		if len(lines) > h {
+			f.help = "PgUp/PgDn scroll · " + f.help
+		}
+		s.pfOff = min(s.pfOff, max(len(lines)-max(h, 1), 0))
+		lines = lines[s.pfOff:]
 	}
 	f.body = lines
 	return f
@@ -635,11 +646,25 @@ func (s *cutScreen) checkLines(w, cur int) []string {
 	var lines []string
 	for i, c := range s.rep.Checks {
 		g := map[string]string{app.CheckOK: okStyle.Render("✓"), app.CheckWarn: warnStyle.Render("!"), app.CheckFail: failStyle.Render("✗")}[c.State]
-		name := pad(c.Name, 28)
+		prefix := marker(i == cur) + g + " "
+		name := fit(c.Name, w-lw(prefix))
+		if c.State != app.CheckFail {
+			name = pad(c.Name, 28)
+		}
 		if i == cur {
 			name = selStyle.Render(name)
 		}
-		lines = append(lines, marker(i == cur)+g+" "+name+fit(s.sh.redact(c.Detail), w-34))
+		detail := s.sh.redact(c.Detail)
+		if c.State == app.CheckFail {
+			lines = append(lines, prefix+name)
+			for _, paragraph := range strings.Split(detail, "\n") {
+				for _, line := range wrapText(paragraph, w-4) {
+					lines = append(lines, "    "+line)
+				}
+			}
+			continue
+		}
+		lines = append(lines, prefix+name+fit(detail, w-34))
 	}
 	return lines
 }
