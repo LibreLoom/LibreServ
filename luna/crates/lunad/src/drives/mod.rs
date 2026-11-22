@@ -661,18 +661,6 @@ impl DriveManager {
             return Err(anyhow::anyhow!("Could not add this drive. {e}"));
         }
 
-        // Keep a copy of this Luna's cloud signing key on the drive, so a recovered
-        // Luna can find it. Best-effort: the drive is added either way.
-        if let Ok(Some(cloud)) = crate::backup::cloud::identity::load(conn)
-            && let Err(e) = crate::backup::cloud::identity::copy_to_drive_at(
-                &mount_point,
-                &cloud,
-                db::now_unix(),
-            )
-        {
-            tracing::warn!(error = %e, "could not copy the cloud signing key to the new drive");
-        }
-
         // Backups this drive holds (a drive from another Luna, or one whose Luna
         // was reset) come back now, paused, not at the next restart.
         let added = db::get_drive(conn, &id)?
@@ -1883,26 +1871,26 @@ mod tests {
     }
 
     #[test]
-    fn adopt_copies_the_cloud_signing_key_tagged_with_luna_id() {
+    fn adopt_does_not_copy_the_cloud_signing_key() {
         let mounter = shared_mock();
         let root = tempfile::tempdir().unwrap();
         let dir = root.path();
         let conn = db::open(&dir.join("luna.db")).unwrap();
-        let identity = crate::backup::cloud::identity::load_or_create(&conn, 1).unwrap();
+        crate::backup::cloud::identity::load_or_create(&conn, 1).unwrap();
         let mgr = DriveManager::new(mounter.clone(), dir);
         let dev = detected("sdz", None);
 
         let row = mgr.adopt(&conn, &dev, "Photos Drive").unwrap();
 
         let drive = drive_db::open(Path::new(&row.mount_point)).unwrap();
-        let copies: Vec<String> = drive
-            .prepare("SELECT luna_id FROM cloud_signing_keys")
-            .unwrap()
-            .query_map([], |r| r.get(0))
-            .unwrap()
-            .map(|r| r.unwrap())
-            .collect();
-        assert_eq!(copies, vec![identity.luna_id.clone()]);
+        let has_signing_keys: bool = drive
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE name = 'cloud_signing_keys')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(!has_signing_keys);
     }
 
     #[test]

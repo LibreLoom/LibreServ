@@ -468,15 +468,6 @@ fn commit(
                 "Luna couldn't verify this drive's name and identity after setting it up."
             );
         }
-        // The recovery files belong to the new content generation too. As on
-        // adopt, the drive works without them, so a failure here is logged.
-        if let Ok(Some(cloud)) = crate::backup::cloud::identity::load(
-            &state.db.lock().unwrap_or_else(|e| e.into_inner()),
-        ) && let Err(e) =
-            crate::backup::cloud::identity::copy_to_drive_at(target, &cloud, db::now_unix())
-        {
-            tracing::warn!(error = %e, "could not copy the cloud signing key to the new drive");
-        }
         crate::drives::sync_filesystem(target)
             .context("Luna couldn't finish writing to the new drive.")?;
         let conn = state
