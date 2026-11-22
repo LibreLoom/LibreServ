@@ -7,7 +7,6 @@ import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
-import Table from "@libreloom/ui/components/common/Table.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import Callout from "@libreloom/ui/components/common/Callout.jsx";
 import DriveStatusPill from "../components/common/DriveStatusPill.jsx";
@@ -242,23 +241,21 @@ function detectedFacts(peek) {
 }
 
 /**
- * Facts table for a drive, using the shared Table's description variant:
- * row headers, right-aligned values, and surface-aware rules.
+ * Facts for a drive, as the same label/value rows the Drive details use.
  */
-function DriveFactsTable({ rows, label }) {
+function DriveFacts({ rows }) {
   if (rows.length === 0) return null;
   return (
-    <Table
-      variant="description"
-      surface="primary"
-      ariaLabel={label}
-      columns={[
-        { key: "label", label: "Fact", align: "left" },
-        { key: "value", label: "Value", align: "right" },
-      ]}
-      data={rows}
-      rowKey="label"
-    />
+    <div className="flex flex-col gap-2" role="list" aria-label="Drive facts">
+      {rows.map((row) => (
+        <ValueDisplay
+          key={row.label}
+          surface="primary"
+          label={row.label}
+          value={row.value}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -303,8 +300,7 @@ function DetectedCard({ drive, onOpen, onShowProgress }) {
   return (
     <DriveCard icon={<HardDrive size={ICON_SIZE.lg} />} title={title} action={action}>
       <div className="flex flex-col gap-2">
-        <DriveFactsTable
-          label="Drive facts"
+        <DriveFacts
           rows={[
             { label: "Size", value: empty ? "Nothing inserted" : formatBytes(drive.size_bytes) },
             ...facts.rows,
