@@ -184,7 +184,7 @@ func (s *Server) routes() {
 			r.With(handlers.LimitJSONBody).Post("/admin/accounts/{accountID}/credits", console.AddAccountCredit)
 			r.Delete("/admin/accounts/{accountID}", console.DeleteAccount)
 			r.Get("/admin/device-codes", console.DeviceCodes)
-			r.Get("/admin/device-codes/{codeID}/reveal", console.RevealDeviceCode)
+			r.With(handlers.LimitJSONBody).Post("/admin/device-codes/{codeID}/reveal", console.RevealDeviceCode)
 			r.Post("/admin/device-codes", onb.AdminMint)
 			r.With(handlers.LimitJSONBody).Post("/admin/device-codes/bulk", onb.AdminMintBulk)
 			r.Delete("/admin/device-codes/{codeID}", console.RevokeDeviceCode)

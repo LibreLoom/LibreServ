@@ -116,10 +116,18 @@ describe("AdminTokensPage", () => {
     expect(await screen.findByText("…WXYZ")).toBeTruthy();
     expect(screen.queryByText("AAAA-BBBB-CCCC-DDDD-WXYZ")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Show full token/i }));
+    expect(adminApiMock.mock.calls.some(([path]) => path === "/admin/device-codes/dev_1/reveal")).toBe(false);
+    fireEvent.change(screen.getByLabelText("Staff password"), { target: { value: "staff-password" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Reveal token$/i }));
     expect(await screen.findByText("AAAA-BBBB-CCCC-DDDD-WXYZ")).toBeTruthy();
-    expect(adminApiMock).toHaveBeenCalledWith("/admin/device-codes/dev_1/reveal");
+    expect(adminApiMock).toHaveBeenCalledWith("/admin/device-codes/dev_1/reveal", {
+      method: "POST",
+      body: JSON.stringify({ password: "staff-password" }),
+    });
     fireEvent.click(screen.getByRole("button", { name: /Hide full token/i }));
     expect(screen.getByText("…WXYZ")).toBeTruthy();
     expect(screen.queryByText("AAAA-BBBB-CCCC-DDDD-WXYZ")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Show full token/i }));
+    expect(screen.getByLabelText("Staff password").value).toBe("");
   });
 });

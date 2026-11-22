@@ -17,6 +17,16 @@ type AdminAuthHandler struct {
 	Deps
 }
 
+const (
+	adminLoginAttemptMax    = 10
+	adminLoginAttemptWindow = 60
+	adminLoginThrottled     = "Too many sign-in tries from this network. Wait a minute, then try again."
+)
+
+func adminLoginNetworkKey(r *http.Request) string {
+	return "admin-login:" + ClientIP(r)
+}
+
 func (h AdminAuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email    string `json:"email"`
@@ -28,9 +38,9 @@ func (h AdminAuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(req.Email))
-	loginKey := "admin-login:" + ClientIP(r)
-	if guessBlocked(h.DB, loginKey, 10, 60) {
-		JSONError(w, http.StatusTooManyRequests, "Too many sign-in tries from this network. Wait a minute, then try again.")
+	loginKey := adminLoginNetworkKey(r)
+	if guessBlocked(h.DB, loginKey, adminLoginAttemptMax, adminLoginAttemptWindow) {
+		JSONError(w, http.StatusTooManyRequests, adminLoginThrottled)
 		return
 	}
 	// Count failed sign-ins per staff account too, so changing addresses cannot
@@ -55,11 +65,11 @@ func (h AdminAuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	if err == sql.ErrNoRows || auth.VerifyPassword(hash, req.Password) != nil {
 		if !accountCapped {
-			_ = allowGuess(h.DB, loginKey, 10, 60)
+			_ = allowGuess(h.DB, loginKey, adminLoginAttemptMax, adminLoginAttemptWindow)
 			_ = allowGuess(h.DB, accountKey, signInAccountAttemptMax, signInAccountAttemptWindow)
 		}
 		if accountCapped {
-			JSONError(w, http.StatusTooManyRequests, "Too many sign-in tries from this network. Wait a minute, then try again.")
+			JSONError(w, http.StatusTooManyRequests, adminLoginThrottled)
 			return
 		}
 		JSONError(w, http.StatusUnauthorized, "That email or password did not match.")
@@ -86,7 +96,7 @@ func (h AdminAuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 		secretPlain, err := openAdminTOTP(totpSecret.String)
 		if err != nil || !auth.VerifyTOTP(secretPlain, strings.TrimSpace(req.TOTPCode)) {
-			_ = allowGuess(h.DB, loginKey, 10, 60)
+			_ = allowGuess(h.DB, loginKey, adminLoginAttemptMax, adminLoginAttemptWindow)
 			JSONError(w, http.StatusUnauthorized, "That authenticator code did not match.")
 			return
 		}

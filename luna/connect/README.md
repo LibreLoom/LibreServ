@@ -79,7 +79,7 @@ Empty keys refuse paid routes (fail closed). `stripe.enabled: false` by itself d
 
 Staff mint official unbound device tokens (single or bulk). DIY mints a token after the $1 payment on `/diyonboarding`. Bulk export is a single-token `TOKENS` list (plus metadata), not a paired setup+device file.
 
-Support looks up by order ref or token hint and can reveal or replace the device token. Each support reveal writes a log line with the admin id and device id (never the token); there is no separate audit table, re-auth or confirmation on the support path yet. Quick-start print shows one token; that full token unlocks remote setup (paste it when the setup form asks) — not just the first eight characters.
+Support looks up by order ref or token hint and can reveal or replace the device token. Each support reveal requires the signed-in staff member’s current password and shares the staff sign-in rate limits. Static admin tokens cannot reveal device tokens. Successful reveals log the admin id and device id (never the token). Quick-start print shows one token; that full token unlocks remote setup (paste it when the setup form asks) — not just the first eight characters.
 
 Staff admin: first account via `/admin/seed` (loopback, or `auth.admin_seed_token` + `X-Seed-Token`), then `/admin/login`. Console: Dashboard, Devices, Device tokens, Accounts, Connections, Security.
 
