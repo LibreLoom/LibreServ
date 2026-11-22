@@ -101,7 +101,7 @@ The Backups card, "See all backups" and Needs you read these same records. Probl
    - **Download** a file, or a folder as a zip.
    - **Restore to original folder.** Never overwrites. If a name is taken, the copy is named `<name> (restored 16 Oct)`, then `… 2`. Names are also checked against hidden private items. Restore needs Write on the original folder, or on the nearest parent that still exists when the original folder was deleted; missing folders are recreated as plain folders. A private item's backup restores into that private item only, by its owner; if the item itself is gone, the owner makes it again first. A restore is disabled, with the reason, when the original drive is not connected.
    - **Gap:** restoring a deleted folder is refused today (REVIEW F-06).
-2. **Cloud backup, Luna Connect only.** An Admin signs in to the household account, types a recovery phrase, and downloads files or folders (a zip for folders) from any version. The phrase opens exactly what it has sealed copies for: the shared backups on that user's saved lists plus that user's private items. A Member gets files through a share backup link (section 3). **There is no restore from the cloud inside Luna.** The one exception is the one-time **Bring back files** copy onto a replacement Luna (section 9), which this document records as a designed carve-out that needs the owner's confirmation, because it would put cloud-to-Luna copying inside Luna.
+2. **Cloud backup, Luna Connect only.** An Admin signs in to the household account, types a recovery phrase, and downloads files or folders (a zip for folders) from any version. The phrase opens exactly what it has sealed copies for: the shared backups on that user's saved lists plus that user's private items. A Member gets files through a share backup link (section 3). **There is no restore from the cloud inside Luna, with no exceptions** (decided 2026-11-21).
 3. **Same name, same place.** Nothing a restore does ever overwrites a file.
 4. **From another computer.** A drive backup's `current/` and `versions/` are plain files. Anyone can plug the backup drive into another computer and copy them. Cloud copies cannot be read without a phrase.
 
@@ -125,7 +125,7 @@ The Backups card, "See all backups" and Needs you read these same records. Probl
 - **Factory reset.** Everything in Luna's database goes, including accounts, keys and the cloud identity. Files on drives stay. Drive backup copies stay on the backup drive and come back paused when that drive is added again (**gap**: REVIEW F-11). Cloud copies stay on Connect while payment is on. The reset flow asks whether to unbind Luna Connect, and says cloud backups can be downloaded on the Connect site with the phrase.
 - **Unbind from Luna Connect.** Cloud backups stop running and say why. Luna keeps its rows and identity; linking the same device again continues them. Linking a different device (a different Connect Luna entry) starts a new identity and leaves the old copies under their entry. Paid copies stay while payment is on.
 - **A drive moves to another Luna.** The drive carries its backups' manifests. User ids in them match nobody on the new Luna, so shared backups are Admin-only (the Admins entry) and private ones are ownerless until an Admin gives the private item to a person. They come back paused. **Gap:** a rebuilt backup can never resume today (REVIEW F-01, F-02).
-- **Luna replacement (multi-Luna plan).** Identities never move; data is copied. The replacement Luna is added to the same Connect account with its own subscription. It backs up again under its own identity. The old Luna's cloud backups remain downloadable on Connect until deleted. The replacement Luna can run **Bring back files** with the person's phrase to copy files from the old Luna's backups onto its drives (never overwriting), and offer to back those folders up again, paused until confirmed. Version history does not move. The old backup is offered for deletion once the new first backup has finished. Phase 0 (removing drive identity rebuild) is a prerequisite; Bring back files is Phase 4.
+- **Luna replacement or migration: out of scope for now** (decided 2026-11-21). The old Luna's cloud backups stay downloadable on Connect; a new Luna starts empty. The multi-Luna plan's replacement flow and Bring back files are deferred, not built. Removing drive identity rebuild (multi-Luna Phase 0) still stands.
 - **A target drive is full.** Drive: oldest versions go first, with a note. Cloud: uploads pause.
 - **Delete a backup.** Drive: the row goes at once; the copies are removed now or the next time the drive is connected (a leftover store is never mistaken for a live backup). Cloud: the copies and key records are removed from Connect first; if Connect cannot be reached, nothing is removed and the person retries. Packs follow the 24-hour wait. "Delete" says what goes: every saved copy and every earlier version; the original files stay.
 
@@ -135,7 +135,8 @@ Drive backups run every 30 minutes; cloud backups every 6 hours; cloud checks da
 
 ## 11. Not supported, by design
 
-- Restoring a cloud backup **inside Luna**. Cloud copies come back only on the Luna Connect website. (Only exception: the replacement-Luna Bring back files copy, section 9.)
+- Restoring a cloud backup **inside Luna**, in any form. Cloud copies come back only on the Luna Connect website.
+- Moving or replacing a Luna, including carrying cloud backups or their history to another Luna (deferred, section 9).
 - **Members signing in to Connect.** They get files from an Admin's share backup link.
 - **History beyond** the latest plus about one day, one week and one month of earlier versions, and deleted files beyond 30 days.
 - A private item **inheriting** a parent's backup, being inside a parent's backup, or showing a parent's backup status.
@@ -157,7 +158,7 @@ The user's fixed decisions are: private items never inherit and are never inside
 
 1. **Database-loss recovery.** Protect plan §5 ("Luna loses its database", signing key copies on drives, "binding again … reattaches the backups") against multi-Luna §3.3. **Multi-Luna wins.** Database loss gives a new identity; the restore cards are legacy.
 2. **Luna restore card** (Protect plan §6, STATUS phase 3) against "restore only on Connect". **The fixed decision wins**; the restore cards and APIs are legacy.
-3. **Bring back files** (multi-Luna §7) against "no restore from the cloud inside Luna". The plan is a replacement-Luna data copy, so it is kept as a recorded carve-out and flagged for the owner (section 7, point 2).
+3. **Bring back files** (multi-Luna §7) against "no restore from the cloud inside Luna". **Settled by the owner 2026-11-21: website only; replacement and migration are out of scope for now.**
 4. **Private restore when the item is gone.** Protect plan §4 recreates it with `private::create`; the code makes the owner recreate the item. **The code's stricter rule is adopted**: no private item is made up on a restore.
 5. **Admin deleting a private backup.** Protect plan §2 says an Admin can delete one; §7 and the code allow it only once the owner is gone. **The code is adopted.**
 6. **Source gone.** Protect plan says it stops running; the code retries each run and revives if the path comes back. **The code is adopted.**
@@ -172,3 +173,10 @@ The user's fixed decisions are: private items never inherit and are never inside
 15. **Cloud deleted files.** Protect plan §3 promises 30 days for both destinations; the code gives the cloud none. **The plan and the fixed decision win** (gap, section 5).
 16. **Cloud usage.** Protect plan §5 says Admins see total usage in Luna. **Connect shows it; Luna does not** (section 2).
 17. **Quota wording.** Protect plan says "free space or a bigger plan". There are no plans (metered), so the copy never offers one.
+
+## 13. Decisions recorded 2026-11-21 (owner)
+- Cloud restore: website only, no exceptions. Luna replacement and migration are out of scope for now.
+- **A folder that contains private items cannot be deleted** while they are inside. For anyone but an Admin, the refusal names nothing: "This folder can't be deleted because it holds items you can't see. An Admin can help." An Admin is told whose private items are inside, each owner in an `InlinePill`, and is still refused. This removes the "restore a private item whose parent folder was deleted" case.
+- **Cloud follows drive rules for deletions:** deleted files are kept 30 days, and the clock is frozen while the source is missing or gone. A vanished source becomes "Original is gone" for both destinations, with one name and one mechanism. "Back up anyway" never commits a near-empty snapshot over a vanished source.
+- Short version history stays. A per-backup setting is welcome only if it is done well; it is not required.
+- Share links survive the deletion of the account that made them.
