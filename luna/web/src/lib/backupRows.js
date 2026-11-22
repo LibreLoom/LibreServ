@@ -24,6 +24,7 @@ import { formatRecentAgo } from "./recentItems";
  *   paused?: "locked" | null,
  *   locked_drive_names?: string[],
  *   can_resume?: boolean,
+ *   notes?: string[],
  * }} BackupRow
  */
 
@@ -58,6 +59,37 @@ export const PAUSED_FROM_DRIVE_HINT =
   "Luna found this backup on a drive, not in its own records. Check it's one you want, then resume it.";
 
 /**
+ * The lists currently expose prerequisite failures as prose. Match the daemon's
+ * specific messages so unrelated copy errors still use their normal health state.
+ * @param {{ kind?: string, last_error?: string }} backup
+ */
+export function backupWaitingReason({ kind, last_error: error }) {
+  if (!error) return null;
+  if (kind === "drive") {
+    return error.startsWith("Waiting: ") ? error.slice("Waiting: ".length) : null;
+  }
+  if (kind !== "cloud") return null;
+  if (error === "Waiting for an Admin to set up the recovery phrase.") {
+    return "An Admin needs to set up the recovery phrase.";
+  }
+  if (error === "This drive is locked. Enter its password to open its files.") {
+    return "Unlock the original drive with its password.";
+  }
+  if (error === "Luna can't find this drive. Make sure it is plugged in, or unplug it and plug it in again.") {
+    return "Connect the original drive.";
+  }
+  if (error === "Your cloud storage is full.") {
+    return "Cloud storage is full. Delete a cloud backup you no longer need or ask Luna Connect support to raise the limit.";
+  }
+  if (
+    error === "Connect this Luna to Luna Connect in Settings → About → Advanced to use cloud backups." ||
+    error.startsWith("Add a payment card at connect.luna.libreloom.org") ||
+    error === "Add a payment card at Luna Connect (connect.luna.libreloom.org), then start the cloud backup."
+  ) return error;
+  return null;
+}
+
+/**
  * A paused backup (rebuilt from a drive) needs a look: it doesn't run until resumed.
  * Otherwise a backup needs a look when it is still running and its last copy failed
  * or went stale. A cloud backup also needs a look when its last check or
@@ -68,7 +100,7 @@ export function needsALook(b) {
   if (b.status === "paused") return true;
   if (b.status !== "active") return false;
   // Waiting for a drive's password is not a fault in the backup.
-  if (b.paused === "locked") return false;
+  if (b.covered_by || b.paused === "locked" || backupWaitingReason(b)) return false;
   if (b.state === "failing" || b.state === "stale") return true;
   return b.kind === "cloud" && (!!b.check_problem || !!b.source_missing);
 }
@@ -82,10 +114,12 @@ export function backupStatus(b, now = Date.now()) {
   if (b.status === "stopped") return { label: "Stopped", variant: "default" };
   if (b.status === "source_gone") return { label: "Original is gone", variant: "default" };
   if (b.status === "paused") return { label: "Paused", variant: "warning", hint: PAUSED_FROM_DRIVE_HINT };
-  if (b.kind === "cloud" && b.status === "active" && b.source_missing) {
-    return { label: "Original is missing", variant: "warning" };
-  }
+  if (b.covered_by) return { label: "Included in a bigger backup", variant: "default" };
   if (b.paused === "locked") return { label: "Paused", variant: "warning" };
+  if (backupWaitingReason(b)) return { label: "Waiting", variant: "warning" };
+  if (b.status === "active" && b.source_missing) {
+    return { label: "Backup paused", variant: "warning" };
+  }
   if (b.state === "failing") return { label: "Last copy failed", variant: "error" };
   if (b.state === "stale") return { label: lastBackedUpLine(b.last_ok_at, now), variant: "warning" };
   if (b.kind === "cloud" && b.check_problem) return { label: "Check failed", variant: "warning" };
@@ -149,13 +183,15 @@ export function backupHeadline(rows) {
   if (rows.length === 0) return "No backups yet";
   const count = rows.filter(needsALook).length;
   if (count === 0) {
-    const paused = rows.filter((b) => b.status === "active" && b.paused === "locked").length;
+    const paused = rows.filter((b) => b.status === "active" && !b.covered_by && b.paused === "locked").length;
     if (paused === 1) return "1 backup is paused";
     if (paused > 1) return `${paused} backups are paused`;
-    // A new backup is not stale for its first day, but it has nothing backed up yet.
-    const waiting = rows.filter((b) => b.status === "active" && b.paused !== "locked" && !b.last_ok_at).length;
-    if (waiting === 1) return "1 backup has no copy yet";
-    if (waiting > 1) return `${waiting} backups have no copy yet`;
+    const waiting = rows.filter((b) => b.status === "active" && !b.covered_by && backupWaitingReason(b)).length;
+    if (waiting === 1) return "1 backup is waiting";
+    if (waiting > 1) return `${waiting} backups are waiting`;
+    const noCopy = rows.filter((b) => b.status === "active" && !b.covered_by && !b.last_ok_at).length;
+    if (noCopy === 1) return "1 backup has no copy yet";
+    if (noCopy > 1) return `${noCopy} backups have no copy yet`;
     return "All backed up";
   }
   if (count === 1) return "1 backup needs a look";

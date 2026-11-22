@@ -245,10 +245,13 @@ post("/api/v1/cloud/backups/:id/check", ({ world, user, params }) => {
 post("/api/v1/cloud/backups/:id/run", ({ world, user, params, query }) => {
   const b = world.cloudBackups.find((x) => x.id === params.id);
   if (!b || !visibleTo(world, b, user)) throw noBackup();
-  if (b.source_missing && query.accept_missing !== "true") {
-    return { done: false, source_missing: true, problem: "The folder this backup copies is gone. Run it anyway to remove the cloud copy too, or stop the backup." };
+  if (b.status === "source_gone") {
+    return { done: false, source_missing: false, problem: b.stop_reason || "Original is gone." };
   }
-  Object.assign(b, { last_ok_at: nowS(), state: "ok", last_error: "", first_done: true });
+  if (b.source_missing && (query.accept_missing !== "true" || !canDelete(world, b, user))) {
+    return { done: false, source_missing: true, problem: "Most of the files in this folder are gone. Check the folder before running the backup again." };
+  }
+  Object.assign(b, { last_ok_at: nowS(), state: "ok", last_error: "", first_done: true, source_missing: false });
   return { done: true };
 });
 

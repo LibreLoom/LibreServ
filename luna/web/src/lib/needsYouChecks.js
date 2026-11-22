@@ -1,3 +1,4 @@
+import { backupWaitingReason } from "./backupRows.js";
 import { displayLabel } from "./healthChecks.js";
 
 /**
@@ -35,7 +36,7 @@ const DRIVE_READ_WRITE = /^drive_.+_read_write$/;
  * this to know whether the pill will draw anything, so the header never
  * reserves room for an empty one.
  *
- * @param {{ checks?: Record<string, { status: string, message?: string, category?: string }> } | null | undefined} systemChecks
+ * @param {{ checks?: Record<string, { status: string, message?: string, category?: string, more?: string }> } | null | undefined} systemChecks
  * @returns {Array<{ name: string, label: string, message?: string, status: string }>}
  */
 export function pillChecks(systemChecks) {
@@ -43,7 +44,12 @@ export function pillChecks(systemChecks) {
   if (!checks || typeof checks !== "object") return [];
   return Object.entries(checks)
     .filter(([name, result]) => {
-      if (result?.status === "warning") return true;
+      if (result?.status === "warning") {
+        const kind = /^(drive|cloud)_backup_/.exec(name)?.[1];
+        // The daemon appends the age of the last copy to the recorded reason.
+        const error = result.more?.replace(/ Last (?:good copy|full backup): [^.]*\.$/, "");
+        return !backupWaitingReason({ kind, last_error: error });
+      }
       return result?.status === "failed" && NO_ACTION_CHECKS.has(name);
     })
     .map(([name, result]) => ({
@@ -63,7 +69,7 @@ export function pillChecks(systemChecks) {
  * Everything else lunad reports is a warning at worst.
  *
  * @param {{
- *   systemChecks: { checks?: Record<string, { status: string, message?: string, category?: string, details?: { drive_label?: string, [k: string]: any } }> } | null | undefined,
+ *   systemChecks: { checks?: Record<string, { status: string, message?: string, category?: string, more?: string, details?: { drive_label?: string, [k: string]: any } }> } | null | undefined,
  *   coveredDriveLabels?: string[],
  *   noRouteShown?: boolean,
  * }} input

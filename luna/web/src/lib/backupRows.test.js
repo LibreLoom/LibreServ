@@ -110,11 +110,13 @@ describe("needsALook", () => {
 });
 
 describe("backupStatus", () => {
-  it("shows Original is missing for a cloud row that held for a missing source", () => {
-    expect(backupStatus(cloud({ source_missing: true }))).toEqual({
-      label: "Original is missing",
-      variant: "warning",
-    });
+  it("shows Backup paused when either destination holds a large deletion", () => {
+    for (const backup of [cloud, drive]) {
+      expect(backupStatus(backup({ source_missing: true }))).toEqual({
+        label: "Backup paused",
+        variant: "warning",
+      });
+    }
   });
 
   it("labels drive rows in plain words", () => {

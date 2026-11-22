@@ -3,9 +3,10 @@ import { Cloud, HardDrive, Lock } from "lucide-react";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import BackupNotes from "./BackupNotes.jsx";
 import PausedByLockNote from "./PausedByLockNote.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
-import { backupKindLabel, backupStatus, lastCopyLine } from "../../lib/backupRows.js";
+import { backupKindLabel, backupStatus, backupWaitingReason, lastCopyLine } from "../../lib/backupRows.js";
 
 /**
  * One backup as a layered row: kind eyebrow with its status pill, the name in mono, a pill for
@@ -23,6 +24,7 @@ import { backupKindLabel, backupStatus, lastCopyLine } from "../../lib/backupRow
  */
 export default function BackupItem({ backup, surface = "primary", note = null, children = null, className }) {
   const status = backupStatus(backup);
+  const waiting = status.label === "Waiting" ? backupWaitingReason(backup) : null;
   const DestIcon = backup.kind === "cloud" ? Cloud : HardDrive;
   const dot = surface === "primary" ? "surface-secondary" : "surface-primary";
   return (
@@ -62,7 +64,9 @@ export default function BackupItem({ backup, surface = "primary", note = null, c
         <span>{lastCopyLine(backup)}</span>
       </div>
 
-      <PausedByLockNote backup={backup} />
+      {backup.status === "active" && !backup.covered_by && <PausedByLockNote backup={backup} />}
+      {waiting && <p className="text-sm break-words">{waiting}</p>}
+      {backup.kind === "drive" && <BackupNotes notes={backup.notes} />}
       {note && <div className="text-sm space-y-1">{note}</div>}
       {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
     </div>

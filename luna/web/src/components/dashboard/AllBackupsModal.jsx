@@ -14,6 +14,7 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { apiErrorMessage, deleteJson, getJson, postJson } from "../../lib/api";
 import {
+  backupWaitingReason,
   groupByCreator,
   needsALook,
   privateGroups,
@@ -229,6 +230,7 @@ export default function AllBackupsModal({ open, onClose, backups = [] }) {
     onSuccess: (res, { backup }) => {
       const what = backup.kind === "cloud" ? "Cloud backup" : "Backup";
       if (res?.problem) {
+        if (backupWaitingReason({ kind: backup.kind, last_error: res.problem })) return;
         // The problem can come before the copy starts (busy, drive not connected) or partway.
         toast.addToast({
           type: "error",
@@ -241,6 +243,8 @@ export default function AllBackupsModal({ open, onClose, backups = [] }) {
         type: "success",
         message: res?.done ? `${what} is up to date.` : "Luna is still copying. The status updates when it finishes.",
       });
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["backups"] });
       queryClient.invalidateQueries({ queryKey: ["cloud-backups"] });
     },

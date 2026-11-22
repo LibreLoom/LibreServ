@@ -28,7 +28,15 @@ export function backupSource(driveId) {
     async listDir(_drive, path) {
       const inner = path === BACKUPS_PATH ? "" : path.slice(BACKUPS_PATH.length + 1);
       if (!inner) {
-        const list = await getJson(`/api/v1/drives/${driveId}/backups`);
+        const [list, records] = await Promise.all([
+          getJson(`/api/v1/drives/${driveId}/backups`),
+          getJson("/api/v1/backups").catch(() => []),
+        ]);
+        const byId = new Map(
+          (Array.isArray(records) ? records : [])
+            .filter((record) => record.target_drive === driveId)
+            .map((record) => [record.id, record]),
+        );
         return (Array.isArray(list) ? list : []).map((b) => ({
           name: b.id,
           original_name: b.source_name,
@@ -36,7 +44,8 @@ export function backupSource(driveId) {
           size: b.size_bytes,
           modified: b.last_ok_at,
           hidden: false,
-          backup: b,
+          backup: { ...byId.get(b.id), ...b },
+          backupRoot: true,
         }));
       }
       const { id, sub } = splitBackupPath(inner);

@@ -13,11 +13,12 @@ import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import IconCircle from "@libreloom/ui/components/ui/IconCircle.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import { InfoHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import BackupNotes from "../protect/BackupNotes.jsx";
 import PausedByLockNote from "../protect/PausedByLockNote.jsx";
 import { deleteJson, getDrives, getJson, postJson, apiErrorMessage } from "../../lib/api";
 import { getPhraseStatus, PHRASE_QUERY_KEY } from "../../lib/cloudPhrase";
 import { formatRecentAgo } from "../../lib/recentItems.js";
-import { PAUSED_FROM_DRIVE_HINT } from "../../lib/backupRows.js";
+import { backupWaitingReason, PAUSED_FROM_DRIVE_HINT } from "../../lib/backupRows.js";
 import { useAnimatedHeight } from "@libreloom/ui/hooks/useAnimatedHeight.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -94,9 +95,9 @@ export function ProtectButton({ label, onClick }) {
 /** Heading for one place copies can go: icon, name, whether it is on, and a one-line explanation. */
 /**
  * `paused` is for a destination that has a backup but can't run it right now: it must not read "On".
- * @param {{ icon: any, title: string, hint?: any, on: boolean, paused?: boolean, children?: any }} props
+ * @param {{ icon: any, title: string, hint?: any, on: boolean, paused?: boolean, waiting?: boolean, children?: any }} props
  */
-function DestinationHeader({ icon: Icon, title, hint = null, on, paused = false, children }) {
+function DestinationHeader({ icon: Icon, title, hint = null, on, paused = false, waiting = false, children }) {
   return (
     <div className="flex items-start gap-3">
       <IconCircle icon={Icon} size="sm" variant="secondary" className="shrink-0" />
@@ -106,8 +107,8 @@ function DestinationHeader({ icon: Icon, title, hint = null, on, paused = false,
             {title}
             {hint}
           </h3>
-          <Pill variant={paused ? "warning" : on ? "success" : "default"} className="shrink-0">
-            {paused ? "Paused" : on ? "On" : "Off"}
+          <Pill variant={paused || waiting ? "warning" : on ? "success" : "default"} className="shrink-0">
+            {paused ? "Paused" : waiting ? "Waiting" : on ? "On" : "Off"}
           </Pill>
         </div>
         {children}
@@ -206,20 +207,31 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const needsPayment = cloudConnected && connect.data?.cloud_backup === "no_payment";
   const cloudReady = connect.data?.cloud_backup === "ready";
   // Why a cloud backup can't run right now, in plain words; null when nothing stops it.
-  const cloudPausedReason = connect.isPending
+  const cloudPrerequisite = !connect.isSuccess
     ? null
     : !cloudConnected
     ? (
         <>
-          Paused because this Luna isn't linked to Luna Connect. An Admin can add the device token in{" "}
+          An Admin can link this Luna to Luna Connect by adding the device token in{" "}
           <PathTrail steps={["Settings", "About", "Advanced"]} />.
         </>
       )
     : needsPayment
-      ? "Paused because Luna Connect has no payment card on file."
+      ? "Luna Connect needs a payment card."
       : null;
   const cloudBackup = (cloudQuery.data || []).find(
     (b) => b.source_drive === driveId && trimSlashes(b.source_path) === trimSlashes(objectPath),
+  );
+  const cloudWaiting = cloudBackup?.status === "active" && !cloudBackup.covered_by
+    ? cloudPrerequisite || backupWaitingReason({ ...cloudBackup, kind: "cloud" })
+    : null;
+  const driveWaiting = (backup) => backupWaitingReason({ ...backup, kind: "drive" });
+  const activeDriveBackups = matchingBackups.filter((b) => b.status === "active" && !b.covered_by);
+  const drivesOn = driveCovers.length > 0 || matchingBackups.some((b) => b.status === "active" && b.covered_by)
+    || activeDriveBackups.some((b) => b.paused !== "locked" && !driveWaiting(b));
+  const drivesWaiting = !drivesOn && activeDriveBackups.some((b) => b.paused !== "locked" && driveWaiting(b));
+  const drivesPaused = !drivesOn && !drivesWaiting && matchingBackups.some(
+    (b) => b.status === "paused" || (b.status === "active" && b.paused === "locked"),
   );
   // Someone else's private item: only its owner can back it up, and its cloud copies are theirs alone.
   const isOthersPrivate = privateItem?.private === true && privateItem?.mine !== true;
@@ -260,6 +272,10 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     onSuccess: (res) => {
       // A problem stays on this sheet, next to the backup, not in a success toast.
       if (res?.problem) {
+        if (backupWaitingReason({ kind: "drive", last_error: res.problem })) {
+          setError(null);
+          return;
+        }
         haptic("error");
         setError(res.problem);
         return;
@@ -340,6 +356,10 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     onSuccess: (res, { id, acceptMissing = false }) => {
       // A problem stays on this sheet, next to the backup, not in a success toast.
       if (res?.problem) {
+        if (backupWaitingReason({ kind: "cloud", last_error: res.problem })) {
+          setError(null);
+          return;
+        }
         haptic("error");
         setError(res.problem);
         setMissingSourceId(res.source_missing === true && !acceptMissing ? id : null);
@@ -404,7 +424,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
         title={
           <span className="inline-flex items-center gap-2">
             Back up
-            <InfoHint content="On other drives, Luna keeps the latest version of each file and up to 3 older ones from the past month. It keeps deleted files for 30 days." />
+            <InfoHint content="Luna keeps deleted files for 30 days on backup drives and in the cloud. The countdown pauses when Luna can’t reach the original." />
           </span>
         }
         onClose={onClose}
@@ -444,11 +464,11 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
 
         <div className="space-y-3">
           <section className="rounded-large-element surface-primary p-4 space-y-3 motion-safe:transition-[box-shadow,transform] motion-safe:duration-200">
-            <DestinationHeader icon={HardDrive} title="On other drives" on={hasBackups}>
+            <DestinationHeader icon={HardDrive} title="On other drives" on={drivesOn} paused={drivesPaused} waiting={drivesWaiting}>
               <p className="text-sm">Copies this {thingLabel} onto other drives plugged into Luna.</p>
             </DestinationHeader>
 
-            {tooFewDrives && !blockedCreate ? (
+            {tooFewDrives && !blockedCreate && !hasBackups ? (
               <Pill variant="default" className="self-start">Needs another drive</Pill>
             ) : (
               <>
@@ -464,15 +484,17 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                       </>
                     ) : b.status === "active" ? (
                       <>
-                        <LayeredPill actionLabel={b.target_drive_name}>{b.paused === "locked" ? "Paused" : backupHeadline(b)}</LayeredPill>
+                        <LayeredPill actionLabel={b.target_drive_name}>{b.paused === "locked" ? "Paused" : driveWaiting(b) ? "Waiting" : backupHeadline(b)}</LayeredPill>
                         {b.paused === "locked" ? (
                           <PausedByLockNote backup={b} />
+                        ) : driveWaiting(b) ? (
+                          <p className="text-sm break-words">{driveWaiting(b)}</p>
                         ) : (
-                        <BackupStatusNotice
-                          state={b.state}
-                          lastError={b.last_error}
-                          lastOkAt={b.last_ok_at}
-                                                  />
+                          <BackupStatusNotice
+                            state={b.state}
+                            lastError={b.last_error}
+                            lastOkAt={b.last_ok_at}
+                          />
                         )}
                       </>
                     ) : b.status === "paused" ? (
@@ -490,6 +512,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                         </p>
                       </>
                     )}
+                    <BackupNotes notes={b.notes} />
                     <div className="flex flex-wrap gap-2">
                       {b.status === "paused" && b.can_resume && (
                         <Button
@@ -513,7 +536,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                           Back up now
                         </Button>
                       )}
-                      {b.hard && b.can_delete && b.last_error?.startsWith("Most of") && (
+                      {b.source_missing === true && b.can_delete && (
                         <span className="inline-flex items-center gap-1.5">
                           <Button
                             size="sm"
@@ -522,10 +545,10 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                             loading={isRunning(b.id, true)}
                             onClick={() => runBackup.mutate({ id: b.id, allowMassDelete: true })}
                           >
-                            Run anyway
+                            Back up anyway
                           </Button>
                           <InfoHint
-                            label="What Run anyway does"
+                            label="What Back up anyway does"
                             content="Applies the deletions and keeps the removed files for 30 days."
                           />
                         </span>
@@ -590,8 +613,8 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
               <DestinationHeader
                 icon={Cloud}
                 title="In the cloud"
-                on={(Boolean(cloudBackup) || Boolean(cloudCover)) && cloudPausedReason == null}
-                paused={Boolean(cloudBackup) && cloudPausedReason != null}
+                on={(cloudBackup?.status === "active" || Boolean(cloudCover)) && !cloudWaiting}
+                waiting={Boolean(cloudWaiting)}
                 hint={
                   <InfoHint
                     surface="primary"
@@ -614,7 +637,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                     {needsPayment && (
                       <p className="text-sm">
                         Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>.{" "}
-                        {cloudBackup ? "Backups stay paused until then." : "Cloud backup can start after that."}
+                        {cloudBackup ? "Backups wait until then." : "Cloud backup can start after that."}
                       </p>
                     )}
                   </>
@@ -630,19 +653,21 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                     </>
                   ) : cloudBackup.status === "active" ? (
                     <>
-                    <LayeredPill actionLabel="Luna Connect">
-                      {cloudPausedReason ? "Paused" : backupHeadline(cloudBackup)}
-                    </LayeredPill>
-                    {cloudPausedReason && <p className="text-primary text-sm">{cloudPausedReason}</p>}
-                    {cloudBackup.source_missing === true && (
-                      <p className="text-primary text-sm">The original folder or drive isn't available right now.</p>
-                    )}
-                    <BackupStatusNotice
-                      state={cloudBackup.state}
-                      lastError={cloudBackup.last_error}
-                      lastOkAt={cloudBackup.last_ok_at}
-                      staleText="Luna copies files to the cloud every 6 hours."
-                    />
+                      <LayeredPill actionLabel="Luna Connect">
+                        {cloudWaiting ? "Waiting" : cloudBackup.source_missing ? "Backup paused" : backupHeadline(cloudBackup)}
+                      </LayeredPill>
+                      {cloudWaiting && <p className="text-sm break-words">{cloudWaiting}</p>}
+                      {!cloudWaiting && cloudBackup.source_missing === true && (
+                        <p className="text-primary text-sm">Most files are missing from the original folder.</p>
+                      )}
+                      {!cloudWaiting && (
+                        <BackupStatusNotice
+                          state={cloudBackup.state}
+                          lastError={cloudBackup.last_error}
+                          lastOkAt={cloudBackup.last_ok_at}
+                          staleText="Luna copies files to the cloud every 6 hours."
+                        />
+                      )}
                     </>
                   ) : (
                     <>
@@ -666,7 +691,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                     </p>
                   )}
                   <div className="flex flex-wrap gap-2">
-                    {cloudBackup.status === "active" && !cloudBackup.covered_by && cloudPausedReason == null && (
+                    {cloudBackup.status === "active" && !cloudBackup.covered_by && cloudPrerequisite == null && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -678,7 +703,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                         Back up now
                       </Button>
                     )}
-                    {cloudBackup.status === "active" && cloudPausedReason == null && cloudBackup.can_delete && (missingSourceId === cloudBackup.id || cloudBackup.source_missing === true) && (
+                    {cloudBackup.status === "active" && cloudPrerequisite == null && cloudBackup.can_delete && (missingSourceId === cloudBackup.id || cloudBackup.source_missing === true) && (
                       <Button
                         size="sm"
                         variant="outline"

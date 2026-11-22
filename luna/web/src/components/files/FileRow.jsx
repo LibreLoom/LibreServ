@@ -26,6 +26,9 @@ import { openableKind, isFormFile } from "../../lib/fileKinds.js";
 import { joinPath } from "../../lib/paths.js";
 import FormResponseBadge from "./forms/FormResponseBadge.jsx";
 import PrivateBadge from "../private/PrivateBadge.jsx";
+import BackupNotes from "../protect/BackupNotes.jsx";
+import { backupStatus, backupWaitingReason } from "../../lib/backupRows.js";
+import PausedByLockNote from "../protect/PausedByLockNote.jsx";
 import { PropertiesButton } from "./PropertiesSheet.jsx";
 import { canOpenRow, displayNameOf, useIsSmUp } from "./fileRowUtils.js";
 import { warmTextEditor } from "./editorWarm.js";
@@ -255,6 +258,9 @@ function FileRow({
     );
   }
 
+  const backup = entry.backupRoot ? { ...entry.backup, kind: "drive" } : null;
+  const backupHealth = backup ? backupStatus(backup) : null;
+  const waiting = backupHealth?.label === "Waiting" ? backupWaitingReason(backup) : null;
   const Icon = isDir ? Folder : FileIcon;
   const label = (
     <>
@@ -374,7 +380,17 @@ function FileRow({
       ) : null}
 
       <div className="flex items-center gap-2 flex-1 min-w-0">
-        {name}
+        {backup ? (
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              {name}
+              <Pill variant={backupHealth.variant}>{backupHealth.label}</Pill>
+            </div>
+            {waiting && <p className="text-sm break-words">{waiting}</p>}
+            {backup.status === "active" && !backup.covered_by && <PausedByLockNote backup={backup} />}
+            <BackupNotes notes={backup.notes} />
+          </div>
+        ) : name}
         {entry.private || entry.in_private ? (
           <PrivateBadge
             className={fg}

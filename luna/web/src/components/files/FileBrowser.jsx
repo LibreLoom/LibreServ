@@ -263,6 +263,8 @@ function compareEntries(a, b, sortKey) {
  *   caps?: number|string,
  *   private?: boolean,
  *   in_private?: boolean,
+ *   backupRoot?: boolean,
+ *   backup?: object,
  * }} FileEntry
  * @typedef {{ entry: FileEntry, path: string, fullPath: string, displayName: string }} FileBrowserRowContext
  */
