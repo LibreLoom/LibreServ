@@ -45,7 +45,33 @@
     "ok": "boolean"
   },
   "GET /api/v1/access/mine": {
-    "sharing": [],
+    "sharing": [
+      {
+        "album_id": "string",
+        "drive_id": "string",
+        "drive_label": "string",
+        "exists": "boolean",
+        "is_file": "boolean",
+        "item_count": "number",
+        "kind": "string",
+        "links": [
+          {
+            "can_manage": "boolean",
+            "caps": "string",
+            "created_at": "number",
+            "created_by": "string",
+            "expires_at": "null",
+            "has_password": "boolean",
+            "id": "string",
+            "url": "null|string"
+          }
+        ],
+        "members": [],
+        "my_caps": "string",
+        "name": "string",
+        "path": "string"
+      }
+    ],
     "with_me": [
       {
         "album_id": "string",
@@ -80,7 +106,7 @@
           "name": "string",
           "path": "string"
         },
-        "url": "string"
+        "url": "null|string"
       }
     ],
     "inherited_members": [
@@ -110,7 +136,7 @@
         "expires_at": "null",
         "has_password": "boolean",
         "id": "string",
-        "url": "string"
+        "url": "null|string"
       }
     ],
     "member_count": "number",
@@ -862,6 +888,7 @@
   },
   "GET /s/{token}/responses": {
     "count?": "number",
+    "notice?": "string",
     "responses?": [
       {
         "answers": {
@@ -869,7 +896,8 @@
         },
         "at": "number",
         "id": "string",
-        "sent_at": "number"
+        "sent_at": "number",
+        "v?": "number"
       }
     ]
   },
@@ -902,6 +930,9 @@
     "has_password": "boolean",
     "id": "string",
     "url": "string"
+  },
+  "PATCH /api/v1/photos/albums/{home}/{id}": {
+    "ok": "boolean"
   },
   "PATCH /api/v1/users/{id}": {
     "display_name": "string",
@@ -1121,7 +1152,10 @@
     "cleared": [
       "string"
     ],
-    "freed_bytes": "number"
+    "freed_bytes": "number",
+    "skipped": [
+      "string"
+    ]
   },
   "POST /api/v1/system/updates/os-failed/clear": {
     "ok": "boolean"
