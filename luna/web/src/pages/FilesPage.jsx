@@ -276,8 +276,9 @@ function DetectedCard({ drive, onOpen, onShowProgress }) {
         ) : null}
         <CollapsibleSection title="Drive details" size="sm" mono pill surface="primary">
           <div className="flex flex-col gap-2" role="list" aria-label="Drive detail values">
-            <ValueDisplay label="Kind" value={kind} />
+            <ValueDisplay surface="primary" label="Kind" value={kind} />
             <ValueDisplay
+              surface="primary"
               label={(
                 <TermHint content="How files are arranged on this drive. Most USB sticks use exFAT so phones, Macs, and PCs can all open them." surface="primary">
                   File system

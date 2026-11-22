@@ -4,9 +4,8 @@ import { cn } from "../../lib/utils";
 /**
  * ValueDisplay — a label + value row, or a bare value pill.
  *
- * Renders subtle `bg-primary/5` tinted boxes. Per the theme contrast rule,
- * opacity tints keep the surrounding surface's text token, so the text color
- * must match the surface this sits on:
+ * The pill fills from its text color and uses the accent token for its outline.
+ * Its text color must match the surface this sits on:
  *   - surface="secondary" (default — inside a Card) → text-primary
  *   - surface="primary"   (on the page background)  → text-secondary
  *
@@ -27,10 +26,11 @@ export default function ValueDisplay({
   className = "",
 }) {
   const text = surface === "primary" ? "text-secondary" : "text-primary";
+  const pill = cn("rounded-chip border border-accent bg-current/10 px-2 py-0.5 text-sm", text, mono && "font-mono");
 
   if (!label) {
     return (
-      <span className={cn("inline-flex items-center px-2 py-0.5 rounded-chip bg-primary/10 text-sm", mono && "font-mono", text, className)} data-slot="value-pill">
+      <span className={cn("inline-flex items-center", pill, className)} data-slot="value-pill">
         {value ?? fallback}
       </span>
     );
@@ -39,7 +39,7 @@ export default function ValueDisplay({
   return (
     <div className={cn("flex items-center justify-between gap-3 py-2 px-3 border border-primary/10 rounded-large-element bg-primary/5", className)} data-slot="value-display">
       <span className={cn("text-sm shrink-0", text, "font-medium")}>{label}</span>
-      <span className={cn("text-sm min-w-0 text-right", text, "px-2 py-0.5 rounded-chip bg-primary/10", mono && "font-mono")}>
+      <span className={cn("min-w-0 text-right", pill)}>
         {value ?? fallback}
       </span>
     </div>
