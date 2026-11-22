@@ -508,9 +508,12 @@ async fn guest_stat_counts_only_visible_children() {
     std::fs::create_dir_all(mount.path().join("family/private")).unwrap();
     std::fs::write(mount.path().join("family/note.txt"), "hi").unwrap();
     std::fs::write(mount.path().join("family/.secret"), "x").unwrap();
-    crate::private::privatize(mount.path(), "family/private", "someone-else").unwrap();
-    let (_dir, app) = test_app(mount.path());
+    let (_dir, app, state) = test_app_state(mount.path());
     let token = edit_link(&app, "view").await;
+    let owner = crate::db::get_user_by_username(&state.db.lock().unwrap(), "max")
+        .unwrap()
+        .unwrap();
+    crate::private::privatize(mount.path(), "family/private", &owner.id).unwrap();
 
     // The listing the guest sees: one visible folder and one visible file.
     let (status, body) = public_get(&app, &format!("/s/{token}/list")).await;

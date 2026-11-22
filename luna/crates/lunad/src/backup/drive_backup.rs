@@ -87,6 +87,11 @@ pub fn create(
     if norm.is_empty() && user.role != "admin" {
         return Err(refuse("Only an Admin can back up a whole drive.".into()));
     }
+    for drive in [source_drive, target_drive] {
+        if drive_is_locked(conn, drive) && crate::auth::has_drive_access(user, conn, drive) {
+            return Err(refuse(not_ready(conn, drive)));
+        }
+    }
     if !crate::auth::has_cap(user, conn, source_drive, &norm, CAP_VIEW) {
         return Err(refuse(
             "You need Read access to this folder to back it up.".into(),

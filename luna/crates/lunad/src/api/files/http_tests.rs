@@ -2566,7 +2566,7 @@ async fn get_json(
 }
 
 #[tokio::test]
-async fn member_without_share_cap_cannot_redistribute() {
+async fn member_without_share_cap_can_make_links_but_cannot_add_people() {
     let mount = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(mount.path().join("docs")).unwrap();
     let (_dir, app) = test_app(mount.path());
@@ -2644,7 +2644,7 @@ async fn member_without_share_cap_cannot_redistribute() {
     .await;
     assert_eq!(res.status(), StatusCode::FORBIDDEN);
 
-    // A public link is manage-level too.
+    // Write access is enough to make a public link.
     let res = call(
         &app,
         json_req(
@@ -2656,10 +2656,9 @@ async fn member_without_share_cap_cannot_redistribute() {
         ),
     )
     .await;
-    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    assert_eq!(res.status(), StatusCode::OK);
 
-    // The roster is hidden from members without share rights — they see
-    // that sharing exists (counts), never who or which links.
+    // The people roster requires share rights, while links are visible.
     let (status, subj) = get_json(
         &app,
         &sam_cookie,
@@ -2670,9 +2669,9 @@ async fn member_without_share_cap_cannot_redistribute() {
     assert_eq!(status, 200);
     assert_eq!(subj["my_caps"], "full");
     assert!(subj["members"].as_array().unwrap().is_empty());
-    assert!(subj["links"].as_array().unwrap().is_empty());
+    assert_eq!(subj["links"].as_array().unwrap().len(), 1);
 
-    // With CAP_SHARE granted, both doors open.
+    // With CAP_SHARE granted, Sam can also add people.
     {
         let conn = crate::db::open(&_dir.path().join("luna.db")).unwrap();
         crate::db::update_access_member_caps(

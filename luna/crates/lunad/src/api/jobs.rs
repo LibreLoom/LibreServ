@@ -601,6 +601,7 @@ mod http_tests {
 
         let dir = tempfile::tempdir().unwrap();
         let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        crate::testutil::mount_drive(&conn, dir.path(), "photos");
         let owner = job_json(row(internal, "docs"), &who("sam", "member"), &conn);
         assert_eq!(
             owner["from_path"], internal,

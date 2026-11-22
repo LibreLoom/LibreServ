@@ -92,6 +92,10 @@ fn grants_scope_access_by_folder() {
         .register("sam", "Sam", "hunter22hunter1", "user")
         .unwrap();
     let conn = auth.db.lock().unwrap();
+    for id in ["drive-a", "drive-b"] {
+        let root = crate::testutil::mount_drive(&conn, dir.path(), id);
+        std::fs::create_dir_all(root.join("family/photos")).unwrap();
+    }
     member(
         &conn,
         "g1",
@@ -168,6 +172,9 @@ fn upload_only_grant_is_view_blind() {
         .register("sam", "Sam", "hunter22hunter1", "user")
         .unwrap();
     let conn = auth.db.lock().unwrap();
+    crate::testutil::mount_drive(&conn, dir.path(), "drive-c");
+    let root = crate::testutil::mount_drive(&conn, dir.path(), "drive-d");
+    std::fs::create_dir_all(root.join("drop/inbox")).unwrap();
     let sam_user = CurrentUser {
         id: sam.id.clone(),
         username: sam.username.clone(),
@@ -240,6 +247,9 @@ fn inspect_path_never_opens_grant_ancestors() {
         .register("sam", "Sam", "hunter22hunter1", "user")
         .unwrap();
     let conn = auth.db.lock().unwrap();
+    let root = crate::testutil::mount_drive(&conn, dir.path(), "drive-a");
+    std::fs::create_dir_all(root.join("docs/reports/2024")).unwrap();
+    std::fs::write(root.join("docs/reports/2024/file.pdf"), b"").unwrap();
     let sam_user = CurrentUser {
         id: sam.id.clone(),
         username: sam.username.clone(),
@@ -285,6 +295,8 @@ fn inspect_path_never_opens_grant_ancestors() {
     assert!(!can_inspect_path(&nobody, &conn, "drive-a", ""));
     // An upload-only member resolves exactly their grant path — the
     // landing folder must open so uploads can drop there.
+    let root = crate::testutil::mount_drive(&conn, dir.path(), "drive-b");
+    std::fs::create_dir_all(root.join("drop/inbox")).unwrap();
     member(
         &conn,
         "g2",

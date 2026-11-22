@@ -529,6 +529,10 @@ mod tests {
     ) {
         let dir = tempfile::tempdir().unwrap();
         let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let root = crate::testutil::mount_drive(&conn, dir.path(), "d1");
+        for folder in ["docs", "shared"] {
+            std::fs::create_dir(root.join(folder)).unwrap();
+        }
         let user = crate::auth::CurrentUser {
             id: "u1".into(),
             username: "sam".into(),
@@ -613,15 +617,8 @@ mod tests {
         use crate::files::search::{DriveRef, KindFilter, search_all};
         use crate::files::search_rank::Query;
         let (dir, conn, member) = member_setup();
-        let root = dir.path().join("drive");
-        std::fs::create_dir(&root).unwrap();
-        let prefix = luna_core::marker::pick_prefix(&root).unwrap();
-        let drive = crate::drives::drive_db::create(
-            &root,
-            &luna_core::marker::Marker::new("d1", "D"),
-            &prefix,
-        )
-        .unwrap();
+        let root = dir.path().join("d1");
+        let drive = crate::drives::drive_db::open(&root).unwrap();
         // Insert the inaccessible matches first, so the granted row crosses
         // both the old 300-candidate and 1500-row cutoffs.
         for i in 0..1601 {
@@ -659,21 +656,7 @@ mod tests {
     #[test]
     fn admin_sees_only_private_items_they_are_granted() {
         let (dir, conn, _) = member_setup();
-        let root = dir.path().join("drive");
-        std::fs::create_dir(&root).unwrap();
-        let prefix = luna_core::marker::pick_prefix(&root).unwrap();
-        crate::drives::drive_db::create(&root, &luna_core::marker::Marker::new("d1", "D"), &prefix)
-            .unwrap();
-        crate::db::upsert_drive(
-            &conn,
-            "d1",
-            "D",
-            "as_is",
-            "ext4",
-            "d1",
-            root.to_str().unwrap(),
-        )
-        .unwrap();
+        let root = dir.path().join("d1");
         crate::db::insert_user(&conn, "owner", "owner", "owner", "unused", "user").unwrap();
         crate::db::insert_user(&conn, "a", "admin", "admin", "unused", "admin").unwrap();
         std::fs::create_dir(root.join("Private")).unwrap();

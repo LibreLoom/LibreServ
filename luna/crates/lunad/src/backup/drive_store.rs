@@ -142,7 +142,8 @@ impl Store {
     /// The two folders every write goes through. A store read from a drive can
     /// have had either swapped for a link since it was opened.
     fn check_dirs(&self) -> io::Result<()> {
-        check_real_dirs(&self.root, &["current", "versions"])
+        check_real_dirs(&self.root, &["current"])?;
+        check_real_dirs(&self.root, &["versions"])
     }
 
     pub fn root(&self) -> &Path {

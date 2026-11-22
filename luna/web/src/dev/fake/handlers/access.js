@@ -30,6 +30,7 @@ const sharing = (w) => {
 const nowSec = () => Math.floor(Date.now() / 1000);
 const userName = (w, id) => w.users.find((u) => u.id === id)?.display_name || "Someone";
 const driveLabel = (w, id) => w.drives.find((d) => d.id === id)?.label || id;
+const itemCount = (w, s) => s.kind === "album" ? (w.albumItems?.[s.album_id] || []).length : Number(Boolean(s.is_file));
 
 const pathName = (p) => String(p || "").split("/").filter(Boolean).pop() || "";
 const sameSubject = (s, q) =>
@@ -114,7 +115,7 @@ get("/api/v1/access/subject", ({ world, user, query }) => {
   if (!s) return fail(404, "That album no longer exists.");
   if (s.hidden) return fail(403, "You don't have access to this.");
   return {
-    subject: { kind: s.kind, name: s.name, path: s.path, is_file: s.is_file, private: s.private, private_folder: Boolean(s.private_folder), album_id: s.album_id, drive_id: s.drive_id, exists: s.exists !== false, item_count: s.kind === "album" ? (world.albumItems?.[s.album_id] || []).length : (s.is_file ? 1 : 0), owner: s.owner_id },
+    subject: { kind: s.kind, name: s.name, path: s.path, is_file: s.is_file, private: s.private, private_folder: Boolean(s.private_folder), album_id: s.album_id, drive_id: s.drive_id, exists: s.exists !== false, item_count: itemCount(world, s), owner: s.owner_id },
     my_caps: s.my_caps,
     private: s.private,
     link_count: s.links.length,
@@ -254,8 +255,10 @@ get("/api/v1/access/mine", ({ world, user }) => {
     .map((s) => ({
       kind: s.kind, drive_id: s.drive_id, drive_label: s.drive_label, path: s.path, album_id: s.album_id,
       name: s.name, is_file: s.is_file, exists: s.exists !== false,
+      item_count: itemCount(world, s),
+      my_caps: s.my_caps,
       members: s.members.map((m) => ({ id: m.id, user_id: m.user_id, name: userName(world, m.user_id), caps: m.caps })),
-      links: s.links.map((l) => ({ id: l.id, caps: l.caps })),
+      links: seesLinks(s) ? s.links.map((l) => linkRow(s, l)) : [],
     }));
   return { sharing: sharingRows, with_me: myRows(world, user) };
 });
