@@ -10,7 +10,9 @@ describe("SlowLoadNotice", () => {
     render(<SlowLoadNotice name="Budget.xlsx" delayMs={1000} />);
     expect(screen.queryByRole("status")).toBeNull();
     act(() => vi.advanceTimersByTime(1000));
-    expect(screen.getByRole("status").textContent).toContain("opening a spreadsheet for the first time");
+    const card = screen.getByRole("status");
+    expect(card.textContent).toContain("opening a spreadsheet for the first time");
+    expect(card.className).toMatch(/\bpop-in\b/);
   });
 
   it("falls back to 'file' for non-office names", () => {
