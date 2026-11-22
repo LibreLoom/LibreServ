@@ -90,14 +90,15 @@ lookups correctly use `token_hash` (BLAKE3). Anyone who obtains `luna.db` or a
 backup of it gains all live share links. A show-once + hash-only design would
 remove the exposure at the cost of re-displaying URLs.
 
-**L2 — Connect admin bearer token lives in `localStorage`**
+**L2 — Connect admin bearer token lives in `localStorage`** — **fixed**
 
-`luna/connect/web/src/context/AdminAuthContext.jsx:9-19` — the static admin
-token is stored in `localStorage`, readable by any JavaScript on the origin.
-A single XSS in the admin app exfiltrates a credential with full admin scope
-and no expiry. Account sessions use `HttpOnly` cookies; moving admin auth to
-the same mechanism (or issuing short-lived admin session tokens instead of the
-static bearer) removes this asymmetry. No XSS was found, so this is hardening.
+Staff sessions used to keep the admin bearer in `localStorage`, readable by any
+JavaScript on the origin, so one XSS in the admin app could exfiltrate a
+credential with full admin scope and no expiry. `/admin/login` now sets an
+`HttpOnly`, `Secure`, `SameSite=Strict` session cookie scoped to `/admin`, and
+staff session tokens are refused as Bearer. Only the static `server.admin_token`
+stays as a script credential, and new installs leave it empty. Writes keep the
+existing CSRF and Origin checks (`admin_auth_mw.go`, `AdminAuthContext.jsx`).
 
 **L3 — HIBP response body unbounded in Connect**
 
@@ -153,7 +154,7 @@ device token; Connect holds the B2 credentials and writes to a private bucket pe
 - **B6 — A failed B2 delete left the bytes behind** — fixed: the same background job retries.
 - **B7 — A B2 sign-in per request** — fixed: sign-ins are reused for 20 minutes.
 - **B8 — Connect and B2 see sizes, counts, record names and timing** — accepted.
-- **B9 — Calls use the older `/b2api/v2/` endpoints** — open; switch after testing against B2.
+- **B9 — Calls use the older `/b2api/v2/` endpoints** — fixed in code: all B2 calls use `/b2api/v3/`, including a `GET` authorize parsed from `apiInfo.storageApi`. A staging check against a real bucket is still owed before deploy.
 
 ## Dependency advisories — assessed, not exploitable in current use
 
@@ -200,10 +201,11 @@ required in production; device hostname validation rejects unsafe labels and
 prevents off-zone construction; backup object paths reject `..`, `\`, and NUL
 with per-account/per-device ownership enforced in parameterized SQL; local and
 B2 stores both re-validate keys and confine to account/device namespaces; admin
-login is rate-limited, admin sessions are hashed, the static admin token is
-compared in constant time, and `/admin/seed` is loopback-only without an
-explicit seed token; outbound HTTP clients (Resend, HIBP, providers) refuse
-redirects so credentials can't leak to a redirect target.
+login is rate-limited, staff sessions are HttpOnly cookies (refused as Bearer)
+and hashed at rest, the static admin token is compared in constant time, and
+`/admin/seed` is loopback-only without an explicit seed token; outbound HTTP
+clients (Resend, HIBP, providers) refuse redirects so credentials can't leak to
+a redirect target.
 
 **Frontends.** No `dangerouslySetInnerHTML`/`innerHTML`/`eval` sinks in shipped
 code; the diagram iframe's `postMessage` handler validates both `origin` and
@@ -230,8 +232,7 @@ in the repository — only test placeholders.
 2. **M1** — Sandbox or drop privileges for ffmpeg/HEIF/smartctl workers.
 3. **M3** — Document the physical-access threat model; consider a console
    password or at-rest encryption roadmap.
-4. **L2** — Move Connect admin auth off `localStorage` (HttpOnly session).
-5. **L1** — Consider hash-only share-link tokens with show-once UX.
-6. **L3** — Cap the HIBP body (`io.LimitReader`). One-line fix.
-7. **Deps** — Bump `jsonwebtoken` ≥10.3.0 and `dav-server`'s `lru` when a fixed
+4. **L1** — Consider hash-only share-link tokens with show-once UX.
+5. **L3** — Cap the HIBP body (`io.LimitReader`). One-line fix.
+6. **Deps** — Bump `jsonwebtoken` ≥10.3.0 and `dav-server`'s `lru` when a fixed
    release exists; keep excalidraw/mermaid current.
