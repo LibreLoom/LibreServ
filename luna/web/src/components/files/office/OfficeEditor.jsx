@@ -55,7 +55,7 @@ export default function OfficeEditor({
         </p>
         <PageNotice variant="info" surface="secondary" className="mt-3">
           Technical details: Luna's <InlinePill>EuroOffice</InlinePill>{" "}
-          pack is missing or incomplete. Every Luna update includes this pack.
+          pack is missing or incomplete.
         </PageNotice>
       </OfficeIssueCard>
     );
