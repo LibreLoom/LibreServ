@@ -78,7 +78,7 @@ function useIsMdUp() {
 }
 
 /**
- * @param {{ columns: any, data: any, rowKey: any, scrollable?: any, maxHeight?: any, className?: string, headClassName?: string, onRowClick?: (row: any, rowIndex: number) => void, mobileCards?: boolean, renderMobileCard?: (row: any, columns: any, surface: "primary"|"secondary") => any, mobileCardSurface?: "primary"|"secondary", striped?: boolean }} _
+ * @param {{ columns: any, data: any, rowKey: any, scrollable?: any, maxHeight?: any, className?: string, headClassName?: string, onRowClick?: (row: any, rowIndex: number) => void, mobileCards?: boolean, renderMobileCard?: (row: any, columns: any, surface: "primary"|"secondary") => any, mobileCardSurface?: "primary"|"secondary", striped?: boolean, variant?: "data"|"description", surface?: "primary"|"secondary", ariaLabel?: string }} _
  */
 export default function Table({
   columns,
@@ -93,11 +93,17 @@ export default function Table({
   renderMobileCard,
   mobileCardSurface = "secondary",
   striped = false,
+  variant = "data",
+  surface = "secondary",
+  ariaLabel,
 }) {
   const isMdUp = useIsMdUp();
   const showCards = mobileCards && !isMdUp;
   const wrapperStyle = scrollable ? { maxHeight: maxHeight || "24rem" } : undefined;
   const chrome = CARD_CHROME[mobileCardSurface];
+  const isDescription = variant === "description";
+  const descriptionText = surface === "primary" ? "text-secondary" : "text-primary";
+  const descriptionRule = surface === "primary" ? "border-secondary/15" : "border-primary/15";
 
   if (showCards) {
     // Columns marked `hidden` are desktop-only (hidden + `{bp}:table-cell`).
@@ -107,7 +113,7 @@ export default function Table({
 
     return (
       <div className={cn(className)} data-slot="table">
-        <ul className="m-0 list-none space-y-3 p-0" aria-label="Rows">
+        <ul className="m-0 list-none space-y-3 p-0" aria-label={ariaLabel || "Rows"}>
           {data.map((row, rowIndex) => {
             const key = rowKey ? row[rowKey] : rowIndex;
             return (
@@ -197,29 +203,40 @@ export default function Table({
   }
 
   return (
-    <div className={cn("bg-primary/5 rounded-card p-3", className)} data-slot="table">
+    <div
+      className={cn(!isDescription && "bg-primary/5 rounded-card p-3", className)}
+      data-slot="table"
+    >
       <div className={scrollable ? "overflow-y-auto" : undefined} style={wrapperStyle}>
-        <table className="w-full text-sm border-separate border-spacing-y-2">
-          <thead>
-            <tr>
-              {columns.map((col) => (
-                <th
-                  key={col.key}
-                  scope="col"
-                  className={cn(
-                    // Column labels use the same eyebrow the dashboard stat
-                    // cards and MfaCard sections use: mono
-                    // out and quiet, so the row pills stay the loud element.
-                    `${ALIGN[col.align] || ALIGN.left} px-3 pt-0.5 pb-2.5 font-mono whitespace-nowrap text-[15px] font-normal ${headClassName}`,
-                    col.hidden ? `hidden ${col.hidden}:table-cell` : "",
-                    col.width || "",
-                  )}
-                >
-                  {col.srOnly ? <span className="sr-only">{col.label}</span> : col.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
+        <table
+          className={cn(
+            "w-full text-sm",
+            isDescription ? "border-collapse" : "border-separate border-spacing-y-2",
+          )}
+          aria-label={ariaLabel}
+        >
+          {!isDescription && (
+            <thead>
+              <tr>
+                {columns.map((col) => (
+                  <th
+                    key={col.key}
+                    scope="col"
+                    className={cn(
+                      // Column labels use the same eyebrow the dashboard stat
+                      // cards and MfaCard sections use: mono
+                      // out and quiet, so the row pills stay the loud element.
+                      `${ALIGN[col.align] || ALIGN.left} px-3 pt-0.5 pb-2.5 font-mono whitespace-nowrap text-[15px] font-normal ${headClassName}`,
+                      col.hidden ? `hidden ${col.hidden}:table-cell` : "",
+                      col.width || "",
+                    )}
+                  >
+                    {col.srOnly ? <span className="sr-only">{col.label}</span> : col.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+          )}
           <tbody>
             {data.map((row, rowIndex) => {
               const key = rowKey ? row[rowKey] : rowIndex;
@@ -228,6 +245,7 @@ export default function Table({
                   key={key}
                   className={cn(
                     "group",
+                    isDescription && cn("border-b last:border-0", descriptionRule),
                     // The whole row slides on hover. `will-change: transform`
                     // keeps the cells in one composited layer: without it,
                     // Chrome rasterises each cell's background on its own and
@@ -248,6 +266,30 @@ export default function Table({
                   }
                 >
                   {columns.map((col, colIndex) => {
+                    if (isDescription) {
+                      const content = col.render
+                        ? col.render(row, rowIndex)
+                        : row[col.key];
+                      const Cell = colIndex === 0 ? "th" : "td";
+                      return (
+                        <Cell
+                          key={col.key}
+                          {...(Cell === "th" ? { scope: "row" } : {})}
+                          className={cn(
+                            "py-2 align-top",
+                            colIndex === 0 ? "pr-4 text-left font-normal" : "pl-4",
+                            ALIGN[col.align] || ALIGN.left,
+                            descriptionText,
+                            col.hidden ? `hidden ${col.hidden}:table-cell` : "",
+                            col.width || "",
+                          )}
+                          onClick={col.noRowClick ? (e) => e.stopPropagation() : undefined}
+                        >
+                          {content}
+                        </Cell>
+                      );
+                    }
+
                     const isFirst = colIndex === 0;
                     const isLast = colIndex === columns.length - 1;
                     const cellClasses = [
@@ -314,4 +356,7 @@ Table.propTypes = {
   renderMobileCard: PropTypes.func,
   mobileCardSurface: PropTypes.oneOf(["primary", "secondary"]),
   striped: PropTypes.bool,
+  variant: PropTypes.oneOf(["data", "description"]),
+  surface: PropTypes.oneOf(["primary", "secondary"]),
+  ariaLabel: PropTypes.string,
 };
