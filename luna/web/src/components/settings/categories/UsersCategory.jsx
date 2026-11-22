@@ -518,7 +518,7 @@ export default function UsersCategory() {
         open={!!userToDelete}
         title="Remove user"
         disabledConfirm={privateCountQuery.isPending || privateCountQuery.isError}
-        message={`Remove "${userToDelete?.name}" from this Luna? They can no longer sign in, and their share links stop working.${
+        message={`Remove "${userToDelete?.name}" from this Luna? They can no longer sign in. Share links they made keep working.${
           privateCountQuery.isError ? " Luna couldn't check for their private folders, so removing is paused. Close this and try again." : ""
         }${
           privateCount > 0

@@ -812,18 +812,14 @@ pub fn count_users(conn: &Connection) -> anyhow::Result<i64> {
     Ok(conn.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))?)
 }
 
-/// Forget a user and everything that keeps working in their name: member
-/// rows, public links they minted, and the account itself. Links are
-/// `created_by`-keyed — an expelled member's shared URLs must die with the
-/// account, not live on anonymously. One transaction so a partial delete
-/// never leaves grants behind for a user who no longer exists.
+/// Forget a user: their member rows and the account itself. Share links they
+/// made stay: a link belongs to the file, and anyone with Write on it keeps
+/// managing it. `created_by` keeps the old id, which the sharing sheet shows
+/// as a deleted account. One transaction so a partial delete never leaves
+/// grants behind for a user who no longer exists.
 pub fn delete_user(conn: &Connection, id: &str) -> anyhow::Result<()> {
     let tx = conn.unchecked_transaction()?;
     tx.execute("DELETE FROM access_members WHERE user_id = ?1", params![id])?;
-    tx.execute(
-        "DELETE FROM access_links WHERE created_by = ?1",
-        params![id],
-    )?;
     // Remembered so private folders this person owned stay walled off
     // instead of reading as another Luna's — and so the Admin cleanup list
     // can still say whose they were.
@@ -1463,6 +1459,21 @@ pub fn set_protection_access(conn: &Connection, id: &str, access_json: &str) -> 
     conn.execute(
         "UPDATE protections SET access_json = ?2 WHERE id = ?1",
         params![id, access_json],
+    )?;
+    Ok(())
+}
+
+/// Change who a backup belongs to: the person who keeps it, and for a private
+/// item's backup its owner (an empty `private_owner` leaves a shared backup shared).
+pub fn set_protection_keeper(
+    conn: &Connection,
+    id: &str,
+    created_by: &str,
+    private_owner: &str,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE protections SET created_by = ?2, private_owner = ?3 WHERE id = ?1",
+        params![id, created_by, private_owner],
     )?;
     Ok(())
 }
@@ -2953,7 +2964,7 @@ mod tests {
     }
 
     #[test]
-    fn delete_user_takes_their_links_and_grants_down() {
+    fn delete_user_takes_their_grants_down_but_leaves_their_links() {
         let dir = tempfile::tempdir().unwrap();
         let conn = open(&dir.path().join("luna.db")).unwrap();
         insert_user(&conn, "u1", "jamie", "Jamie", "hash", "user").unwrap();
@@ -2997,9 +3008,15 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
-        // The expelled member's public link is gone — links they made
-        // must not keep working after the account is deleted.
-        assert!(get_access_link(&conn, "l-mine").unwrap().is_none());
+        // Links belong to the file: the one they made stays, still pointing
+        // at the account that is gone.
+        assert_eq!(
+            get_access_link(&conn, "l-mine")
+                .unwrap()
+                .unwrap()
+                .created_by,
+            "u1"
+        );
         // Other people's access is untouched.
         assert!(get_access_link(&conn, "l-theirs").unwrap().is_some());
         assert!(get_user(&conn, "u2").unwrap().is_some());
