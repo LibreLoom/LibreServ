@@ -1,7 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import BackupItem from "./BackupItem.jsx";
-import RestoreForm from "../cloud/RestoreForm.jsx";
 
 const drive = {
   kind: "drive",
@@ -40,18 +39,5 @@ describe("BackupItem paused", () => {
     );
     expect(screen.getByText("Paused")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Why this backup is paused" })).toBeInTheDocument();
-  });
-});
-
-describe("RestoreForm", () => {
-  it("renders the phrase box and disables submit while empty", () => {
-    render(
-      <div className="surface-secondary">
-        <RestoreForm words="" onWords={() => {}} onSubmit={() => {}} submitLabel="Find" error="Nope" />
-      </div>,
-    );
-    expect(screen.getByLabelText("Word 1")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Find" })).toBeDisabled();
-    expect(screen.getByText("Nope")).toBeInTheDocument();
   });
 });

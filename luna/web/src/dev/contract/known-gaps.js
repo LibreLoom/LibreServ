@@ -13,21 +13,6 @@ export const KNOWN_GAPS = [
     reason: "Same as search_inside.details: the recording container lacks the PDF and OCR tools the OS image ships.",
   },
   {
-    key: "GET /api/v1/cloud/restore-private/records/{}",
-    path: "*",
-    reason: "The recorder has no caller-owned signed Connect records for this route; private record authorization and pagination are covered by lunad API tests and disposable-provider browser fixtures.",
-  },
-  {
-    key: "GET /api/v1/cloud/restore-private/records/{}/names",
-    path: "*",
-    reason: "The recorder has no caller-owned signed Connect records for this route; private record authorization and pagination are covered by lunad API tests and disposable-provider browser fixtures.",
-  },
-  {
-    key: "GET /api/v1/cloud/restore-private/records/{}/{}",
-    path: "*",
-    reason: "The recorder has no caller-owned signed Connect records for this route; private record authorization and pagination are covered by lunad API tests and disposable-provider browser fixtures.",
-  },
-  {
     key: "GET /api/v1/backups",
     path: "$[].can_resume",
     reason: "lunad added can_resume (paused backups rebuilt from a drive) after lunad-responses.json was last recorded. Remove this once a full ./ci run -p luna rewrites the fixture.",

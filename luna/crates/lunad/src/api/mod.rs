@@ -4,8 +4,6 @@ pub mod backup_folder;
 pub mod backups;
 pub mod cloud_backups;
 pub mod cloud_phrase;
-pub mod cloud_restore;
-pub mod cloud_restore_private;
 pub mod connect;
 #[cfg(test)]
 pub(crate) mod contract;
@@ -43,8 +41,6 @@ pub fn router() -> Router<AppState> {
         .merge(backups::router())
         .merge(cloud_backups::router())
         .merge(cloud_phrase::router())
-        .merge(cloud_restore::router())
-        .merge(cloud_restore_private::router())
         .merge(backup_folder::router())
         .merge(private_backups::router())
         .merge(connect::router())
