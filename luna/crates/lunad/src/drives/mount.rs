@@ -5,9 +5,13 @@
 //! Tests inject a mock; production shells out to `mount` and `umount` with no
 //! shell interpretation.
 
+use std::io::{self, Read};
+use std::os::fd::AsRawFd;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crate::sandbox::hardened_tool;
 
@@ -16,11 +20,11 @@ use crate::sandbox::hardened_tool;
 /// A drive that has stopped answering can hold an unmount open indefinitely,
 /// and every wipe starts with an unmount — so without this bound a failing
 /// stick would leave the drive stuck mid-format with nothing to report.
-const UNMOUNT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+pub(crate) const UNMOUNT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// How long `mount` gets. Mounting a local filesystem is immediate; anything
 /// slower is a sick drive or a filesystem that needs checking.
-const MOUNT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+pub(crate) const MOUNT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// An unmount that failed only because something still has files open on
 /// the drive. Waiting and trying again can work; other failures won't.
@@ -227,19 +231,51 @@ impl Mounter for CommandMounter {
     }
 }
 
-/// Run a mount tool with a deadline, capturing both streams.
-///
-/// `Command::output` waits forever, which is the one thing a mount call must
-/// not do: a drive that has stopped answering would hold the caller open with
-/// no way to report it. Callers decide what a timeout means — see
-/// [`unresponsive`].
-fn run_bounded(
-    cmd: &mut Command,
-    timeout: std::time::Duration,
-) -> std::io::Result<std::process::Output> {
-    cmd.stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-    crate::sandbox::output_limited(cmd, timeout)
+/// Run a drive tool with a deadline, including when a mount helper keeps a
+/// pipe open or a device leaves the child in uninterruptible kernel I/O.
+pub(crate) fn run_bounded(cmd: &mut Command, timeout: Duration) -> io::Result<Output> {
+    let mut child = cmd
+        .process_group(0)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let start = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if start.elapsed() >= timeout {
+            // Signal any filesystem helpers while the leader is unreaped.
+            unsafe { libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL) };
+            drop(child.stdout.take());
+            drop(child.stderr.take());
+            std::thread::Builder::new().spawn(move || {
+                let _ = child.wait();
+            })?;
+            return Err(io::Error::new(io::ErrorKind::TimedOut, "tool timed out"));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    Ok(Output {
+        status,
+        stdout: read_tool_pipe(child.stdout.take().expect("stdout was piped"))?,
+        stderr: read_tool_pipe(child.stderr.take().expect("stderr was piped"))?,
+    })
+}
+
+fn read_tool_pipe(pipe: impl Read + AsRawFd) -> io::Result<Vec<u8>> {
+    let fd = pipe.as_raw_fd();
+    // A successful mount may leave a filesystem daemon running.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags == -1 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut bytes = Vec::new();
+    match pipe.take(64 * 1024).read_to_end(&mut bytes) {
+        Ok(_) => Ok(bytes),
+        Err(err) if err.kind() == io::ErrorKind::WouldBlock => Ok(bytes),
+        Err(err) => Err(err),
+    }
 }
 
 /// What a tool that ran out of time means: the drive stopped answering.

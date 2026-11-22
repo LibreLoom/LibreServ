@@ -19,6 +19,8 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crate::drives::mount::{MOUNT_TIMEOUT, UNMOUNT_TIMEOUT, run_bounded};
+
 use luna_feed::{self as feed, FeedError, Part};
 use minisign_verify::PublicKey;
 use rusqlite::Connection;
@@ -760,41 +762,55 @@ fn inactive_slot_device() -> Result<(PathBuf, char), UpdateError> {
 /// the mdev-based Luna OS.
 fn resolve_partlabel(partlabel: &str) -> Option<PathBuf> {
     let by = PathBuf::from(format!("/dev/disk/by-partlabel/{partlabel}"));
-    if by.exists() {
-        return Some(by);
-    }
     let key = format!("PARTLABEL={partlabel}");
-    let outs = [
-        Command::new("findfs").arg(&key).output(),
-        Command::new("blkid")
-            .args(["-t", &key, "-o", "device"])
-            .output(),
-    ];
-    for out in outs.into_iter().flatten() {
-        if out.status.success() {
-            let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !path.is_empty() {
-                return Some(PathBuf::from(path));
-            }
-        }
+    block_device(&by)
+        .or_else(|| lookup_device("findfs", &[&key]))
+        .or_else(|| lookup_device("blkid", &["-t", &key, "-o", "device"]))
+}
+
+pub(super) fn lookup_device(tool: &str, args: &[&str]) -> Option<PathBuf> {
+    block_device(Path::new(&probe_device(tool, args)?))
+}
+
+fn block_device(path: &Path) -> Option<PathBuf> {
+    use std::os::unix::fs::FileTypeExt;
+
+    if !path.starts_with("/dev") {
+        return None;
+    }
+    let path = path.canonicalize().ok()?;
+    if path.starts_with("/dev") && path.metadata().ok()?.file_type().is_block_device() {
+        return Some(path);
     }
     None
 }
 
+/// Run the system lookup with lunad's device access and a scrubbed environment.
+fn probe_device(tool: &str, args: &[&str]) -> Option<String> {
+    let mut command = crate::sandbox::hardened(Path::new(tool));
+    command.env("BLKID_FILE", "/dev/null");
+    let output = run_bounded(command.args(args), Duration::from_secs(10)).ok()?;
+    let value = std::str::from_utf8(&output.stdout).ok()?.trim();
+    if output.status.success() && !value.is_empty() && !value.chars().any(char::is_control) {
+        Some(value.to_owned())
+    } else {
+        None
+    }
+}
+
 /// True when `dev` is the GPT partition named `partlabel`.
 pub(crate) fn device_has_partlabel(dev: &str, partlabel: &str) -> bool {
+    let Some(dev) = block_device(Path::new(dev)) else {
+        return false;
+    };
     let by = PathBuf::from(format!("/dev/disk/by-partlabel/{partlabel}"));
-    if by.exists()
-        && let (Ok(a), Ok(b)) = (std::fs::canonicalize(&by), std::fs::canonicalize(dev))
-        && a == b
-    {
+    if block_device(&by).as_ref() == Some(&dev) {
         return true;
     }
-    Command::new("blkid")
-        .args(["-o", "value", "-s", "PARTLABEL", dev])
-        .output()
-        .map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == partlabel)
-        .unwrap_or(false)
+    dev.to_str().is_some_and(|dev| {
+        probe_device("blkid", &["-o", "value", "-s", "PARTLABEL", "--", dev]).as_deref()
+            == Some(partlabel)
+    })
 }
 
 /// The device backing `/`, canonicalized (mounts may name a by-uuid link).
@@ -914,9 +930,10 @@ struct EspGuard {
 impl Drop for EspGuard {
     fn drop(&mut self) {
         if self.tmp {
-            let _ = crate::sandbox::hardened_tool("umount")
-                .arg(&self.path)
-                .status();
+            let _ = run_bounded(
+                crate::sandbox::hardened_tool("umount").arg(&self.path),
+                UNMOUNT_TIMEOUT,
+            );
             let _ = std::fs::remove_dir(&self.path);
         }
     }
@@ -968,14 +985,14 @@ fn find_esp_mount_or_temp() -> Result<EspGuard, UpdateError> {
     ensure_on_boot_disk(&dev)?;
     let tmp = std::env::temp_dir().join(format!("luna-esp-{}", std::process::id()));
     std::fs::create_dir_all(&tmp).map_err(|e| UpdateError::Other(e.to_string()))?;
-    let status = crate::sandbox::hardened_tool("mount")
-        .arg("-o")
-        .arg("rw,nosuid,nodev,noexec")
-        .arg(&dev)
-        .arg(&tmp)
-        .status()
-        .map_err(|e| UpdateError::Other(e.to_string()))?;
-    if !status.success() {
+    let status = run_bounded(
+        crate::sandbox::hardened_tool("mount")
+            .args(["-o", "rw,nosuid,nodev,noexec"])
+            .arg(&dev)
+            .arg(&tmp),
+        MOUNT_TIMEOUT,
+    );
+    if !status.is_ok_and(|out| out.status.success()) {
         let _ = std::fs::remove_dir(&tmp);
         return Err(UpdateError::Other(
             "Luna couldn't open the boot partition for the update.".into(),
