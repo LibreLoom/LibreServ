@@ -19,8 +19,6 @@ import { useOptionalAuth } from "../../../context/AuthContext";
 import useConnectActive from "../../../hooks/useConnectActive";
 import BackupItem from "../../protect/BackupItem.jsx";
 import BackupStatusNotice from "../../common/BackupStatusNotice.jsx";
-import CloudRestoreCard from "../../cloud/CloudRestoreCard.jsx";
-import PrivateRestoreCard from "../../cloud/PrivateRestoreCard.jsx";
 import RecoveryPhraseCard from "../../cloud/RecoveryPhraseCard.jsx";
 
 function CloudBackupRow({ backup, needsPayment, onRun, onRunAnyway, missingSource, onCheck, onDelete, pending }) {
@@ -316,8 +314,6 @@ export default function CloudBackupCategory() {
           )}
         </SettingsCard>
 
-        {connected && <CloudRestoreCard />}
-        {connected && <PrivateRestoreCard />}
       </div>
 
       <ConfirmModal

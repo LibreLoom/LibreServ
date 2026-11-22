@@ -1,5 +1,7 @@
 # Multi-Luna accounts — plan for review (2026-11-21)
 
+**Scope decision (2026-11-21).** Cloud downloads stay on the Luna Connect website. The replacement, migration, and Bring back files flows below are deferred design notes. The next Multi-Luna implementation covers independent Lunas under one account. See the [backup spec](../backups/SPEC.md) for the current restore rules.
+
 Phase 0 is partly built as of 2026-11-22: `d4f33955` stopped writing drive key copies and ignores legacy ones, and `39956aad` retries key publication. The rest of this plan is not built; section 1 is the audit as written on 2026-11-21. This plan answers audit finding M-09 (adopting a drive copies Luna's cloud signing key onto it). It follows the user's direction of 2026-11-20: drop drive identity rebuild entirely. Instead, a Luna Connect account holds many Lunas, and each Luna has its own identity, address, storage and payment. Moving to a replacement Luna means copying data from one Luna to another, never handing one Luna's identity to another.
 
 Audit findings are referred to by ID only (M-09, Chain 1, Chain 4, H-01a, H-01c, H-06, M-22, M-23). The audit report itself stays private.
