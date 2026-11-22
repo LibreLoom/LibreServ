@@ -2,6 +2,8 @@
 
 Review only. Nothing was changed, run or tested. Every claim below was read in the code on this date. Paths are under `luna/` unless they start with `connect/`. "Lunad" is `crates/lunad/src`, "web" is `web/src`. Severity: **broken** (a flow cannot work or loses or exposes something), **misleading** (works, but the person is told something untrue or nothing), **dead code**, **cosmetic**.
 
+> **Status 2026-11-22:** fixed after this review: F-01 and F-13 (`e335611f`), F-02 (`adbd7079`), F-03 and F-17 (`ecd514bc`), F-04, F-05 and F-09 (`39956aad`), F-10 (`f96a2544`), F-11 (`adbd7079`; a re-added drive still gets a new id), F-14 (`de7dc8e4` plus the cloud caller in `39956aad`), and most of F-08 (waits now read as "Waiting" where the web recognises the message; the day rule is still missing). The findings and priorities below are the review as read at `646748f2`; `SPEC.md` is the current description.
+
 ## 1. Flow map
 
 Each row walks UI -> API -> engine -> storage -> status shown back. "OK" means it matches SPEC; otherwise the finding id.

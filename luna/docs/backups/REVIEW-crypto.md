@@ -2,6 +2,8 @@
 
 Review only. No code was changed and no tests were run. Everything below comes from reading the code paths, not the plans. Line numbers are against the tree at `646748f2`.
 
+> **Status 2026-11-22:** `39956aad` fixed C-03 (a key version is republished until Connect acknowledges it), and `d4f33955` fixed C-05 (Luna no longer reads or writes drive key copies). The rest is the review as read at `646748f2`.
+
 Assumed direction: `luna/docs/multi-luna/plan.md` (identities never move, data is copied, Phase 0 removes drive copies of the signing key and the recovery that depends on them).
 
 Files read:
@@ -15,13 +17,13 @@ Files read:
 
 **No. Derivation is not broken.** Here is what is actually true, and where the real problems are.
 
-- Luna's signing key is **not derived from the phrase at all.** It is a random 32-byte seed from `OsRng` (`crypto.rs:398-402`, `Signer::generate`), stored as a plain BLOB in `cloud_identity.signing_seed` in `luna.db` (`identity.rs:70-71`, `db.rs:1577-1589`), and today also copied to every drive (to be removed).
+- Luna's signing key is **not derived from the phrase at all.** It is a random 32-byte seed from `OsRng` (`crypto.rs:398-402`, `Signer::generate`), stored as a plain BLOB in `cloud_identity.signing_seed` in `luna.db` (`identity.rs:70-71`, `db.rs:1577-1589`). Legacy copies on old drives are ignored and no longer written (`d4f33955`).
 - The ML-DSA seed is `HKDF-SHA256(ikm = seed, salt = none, info = "luna-mldsa-v1")` (`crypto.rs:385-387`). `Signer::from_seed` (`crypto.rs:404-409`) is the only constructor besides `generate`, and `generate` calls it. Every load, recovery and per-run path goes through it: `identity.rs:59`, `:123`, `run.rs:442`, `cloud_backups.rs:331`. The auth key uses the same constructor (`crypto.rs:129-130`). There is no second derivation.
 - Rust, browser and Connect agree. JS: `backupCrypto.js:340-342` (`mldsaKeys`, `hkdf32(seed, undefined, "luna-mldsa-v1")`). Go test helper: `lunasig_test.go:25-38`. `vectors.json` pins `signer_seed -> signer_public -> signature` (the public key contains the ML-DSA half, so a wrong seed rule would show). The JS test reproduces the signature byte for byte (`backupCrypto.test.js:47-55`), and `lunasig_test.go:93-118` has Connect accept the Rust signature.
 - Signing is deterministic on all three sides: Ed25519 (`crypto.rs:427`), ML-DSA `sign_deterministic` with empty context (`crypto.rs:428-432`), JS `{ extraEntropy: false }` (`backupCrypto.js:363`).
 - Verification needs both halves everywhere: Rust `crypto.rs:439-466` (`ed_ok && mldsa_ok`, fixed-size arrays), JS `backupCrypto.js:376-388` (length check, then both), Go `private_open.go:69-82` (length check, then `edOK && mlOK`). A missing half cannot pass because the lengths are fixed.
 
-What is genuinely broken is the **plumbing around the key**: the request-signature encoding (C-01), registration and rebinding of the public key on Connect (C-02, C-04), the one-shot publish of key versions (C-03), and drive-copy adoption (C-05). Details follow.
+At `646748f2`, what was genuinely broken was the **plumbing around the key**: the request-signature encoding (C-01), registration and rebinding of the public key on Connect (C-02, C-04), the one-shot publish of key versions (C-03), and drive-copy adoption (C-05). C-03 and C-05 were fixed later on 2026-11-22; details follow.
 
 ## Findings
 
@@ -62,7 +64,9 @@ Severity: **broken** = fails or is unsafe today; **weak** = works but is fragile
 - The protect-rebuild plan's claims "binding again to the same account reattaches the backups" (§5, end) and "a Luna can move to a new device" (decisions of 2026-10-17) have therefore never been true when the device row changes (they hold only for the same token). The multi-Luna plan withdraws both, but its Phase 0 keeps "`luna_ids.device_id` must be the calling device" (§3.1, last row) and defers `last_device_id` to Phase 1. Shipping Phase 0 alone makes the lock official for anyone whose token is replaced.
 - Fix: in Phase 0, either let any device linked to the same account use that account's Luna ids, or have lunad treat the 403 as "identity retired" (mint a new one and clear phrase keys, see C-10); do not leave the lock silent.
 
-### C-03 A key version that fails to publish is never published again — broken
+### C-03 A key version that fails to publish is never published again — fixed in `39956aad`
+
+The review below is the code at `646748f2`. `39956aad` records whether each key version is published and republishes it until Connect acknowledges it.
 
 - `ensure_key` (`keys.rs:272-318`) commits the new version and its reader list to the database inside `prepare` (`run.rs:381-383`) **before** anything is sent. `publish` is only `Some` when `is_new` (`run.rs:432`), and `publish_and_copy` sends the sealed copies and the signed recipient list (`run.rs:458-468`, `keys.rs:407-444`, copies first, then the list).
 - If `publish_key` fails (network drop, 5xx, quota, process restart between the two steps, a crash after copy 1 of 2), the run returns an error. On the next run `ensure_key` finds `latest` with an identical saved reader list and no rotate mark and returns it (`keys.rs:286-291`), so `is_new` is false and nothing is published. Packs and snapshots then upload under a version whose sealed copies or recipient list are missing on Connect.
@@ -80,7 +84,9 @@ Severity: **broken** = fails or is unsafe today; **weak** = works but is fragile
 - A second write path exists: `PutRecord` with kind `identity`, name `public` also calls `setSigningPublic` (`storage.go:621-626`). Nothing in lunad writes that record (no `"identity"` kind in `lunad/src`), so it is dead code and only an extra way to overwrite the key.
 - Fix: make Connect write `signing_public` once and refuse changes, in Phase 0 (not Phase 1), and delete the `identity/public` branch. In lunad, re-register whenever Connect's copy is empty instead of trusting a per-id flag.
 
-### C-05 Drive-copy adoption makes one Luna become another — broken (security), in Phase 0's removal scope
+### C-05 Drive-copy adoption makes one Luna become another — fixed in `d4f33955`
+
+The review below is the code at `646748f2`. `d4f33955` removed the drive-copy functions and adoption; Luna ignores legacy copies and no longer writes its signing seed to a drive.
 
 - `known_luna_id` (`identity.rs:150-176`): with exactly **one** candidate id found on connected adopted drives it returns that id without asking Connect (`identity.rs:154`). `load_or_create_connected` (`identity.rs:84-143`) then copies that drive's seed into this Luna's database (`identity.rs:117-126`) instead of minting.
 - Consequence: a fresh Luna B that adopts a drive which carries Luna A's key copy (adopt copies only B's own identity if B has one: `drives/mod.rs:658-667`) takes A's id and A's signing seed. B can sign as A, B's users derive keys under A's id, and B registers A's public key on B's account. This is M-09 from the other side, and it is the identity-move the multi-Luna plan wants gone.
