@@ -1215,6 +1215,9 @@ pub(super) fn map_guest_files_err(err: files::FilesError) -> ApiError {
         files::FilesError::Io(ref e) if e.kind() == ErrorKind::InvalidInput => {
             json_error(StatusCode::BAD_REQUEST, "That name isn't allowed here.")
         }
+        files::FilesError::HoldsPrivate(_) => {
+            json_error(StatusCode::FORBIDDEN, files::HOLDS_PRIVATE_MSG)
+        }
         _ => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna had a problem with that shared item. Try again, or ask the person who shared it to check the drive.",

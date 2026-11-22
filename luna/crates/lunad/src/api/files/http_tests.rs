@@ -554,15 +554,85 @@ async fn a_member_cannot_delete_a_folder_holding_another_persons_private_item() 
     let body = body_json(res).await;
     assert_eq!(
         body["error"],
-        "This folder holds private items that only their owners can delete."
+        "This folder can't be deleted because it holds items you can't see. An Admin can help."
     );
+    assert_eq!(body["code"], "holds_private");
+    assert!(body.get("owners").is_none() && body.get("items").is_none());
     assert!(
         crate::private::item_at(mount.path(), "family/Vault").is_some(),
         "the private item must survive the refused delete"
     );
 
-    // Its owner can delete the folder around it.
-    delete_path(&app, &admin_cookie, &admin_csrf, "family").await;
+    // The Admin is refused too, but is told whose items are inside.
+    let mut del = HttpReq::builder()
+        .method(Method::DELETE)
+        .uri("/api/v1/drives/photos/files?path=family")
+        .header("cookie", &admin_cookie)
+        .header("x-csrf-token", &admin_csrf)
+        .body(Body::empty())
+        .unwrap();
+    del.extensions_mut().insert(ConnectInfo(CLIENT));
+    let res = call(&app, del).await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    let body = body_json(res).await;
+    assert_eq!(body["code"], "holds_private");
+    assert_eq!(body["owners"], serde_json::json!(["Max"]));
+    assert!(
+        crate::private::item_at(mount.path(), "family/Vault").is_some(),
+        "the private item must survive the Admin's refused delete"
+    );
+}
+
+/// The private items' own owner is told which items block the delete.
+#[tokio::test]
+async fn an_owner_is_told_which_of_their_items_block_a_folder_delete() {
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(mount.path().join("family")).unwrap();
+    let (dir, app) = test_app(mount.path());
+    let (sam_cookie, sam_csrf, sam_id) = admin_and_sam(&app).await;
+    {
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        crate::db::insert_access_member(
+            &conn,
+            &crate::db::AccessMemberRow {
+                id: "g1".into(),
+                subject_kind: crate::access::KIND_PATH.into(),
+                drive_id: "photos".into(),
+                path: "family".into(),
+                album_id: String::new(),
+                user_id: sam_id,
+                caps: crate::access::CAP_ALL,
+                created_by: "test".into(),
+            },
+        )
+        .unwrap();
+    }
+    let res = call(
+        &app,
+        json_req(
+            Method::POST,
+            "/api/v1/drives/photos/files/mkdir",
+            r#"{"path":"family/Diary","private":true}"#,
+            Some(&sam_cookie),
+            Some(&sam_csrf),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), 200);
+    let mut del = HttpReq::builder()
+        .method(Method::DELETE)
+        .uri("/api/v1/drives/photos/files?path=family")
+        .header("cookie", &sam_cookie)
+        .header("x-csrf-token", &sam_csrf)
+        .body(Body::empty())
+        .unwrap();
+    del.extensions_mut().insert(ConnectInfo(CLIENT));
+    let res = call(&app, del).await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    let body = body_json(res).await;
+    assert_eq!(body["code"], "holds_private");
+    assert_eq!(body["items"], serde_json::json!(["Diary"]));
+    assert!(crate::private::item_at(mount.path(), "family/Diary").is_some());
 }
 
 /// An ordinary file deleted out of a private folder stays private in

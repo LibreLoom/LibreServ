@@ -318,6 +318,15 @@ impl GrantFs {
         self.require_cap(rel, CAP_EDIT)?;
         {
             let conn = self.db.lock().map_err(|_| FsError::GeneralFailure)?;
+            if !crate::files::private_held(&conn, &self.drive_id, rel).is_empty() {
+                // dav-server removes a folder's children before the folder.
+                // The folder is refused, so nothing already buffered under
+                // it may be deleted either: the whole DELETE fails.
+                if let Ok(mut pending) = self.pending_removes.lock() {
+                    pending.retain(|r| !crate::access::path_contains(rel, r));
+                }
+                return Err(FsError::Forbidden);
+            }
             if crate::auth::holds_unreachable_private(&self.user, &conn, &self.drive_id, rel) {
                 return Err(FsError::Forbidden);
             }
@@ -626,7 +635,9 @@ fn files_to_fs(e: crate::files::FilesError) -> FsError {
         // A locked drive is unavailable, not missing. Forbidden makes a client
         // show the reason rather than an empty folder; `dav_handler_for`
         // refuses first with a 423 and a `code`, so this is the in-band fallback.
-        crate::files::FilesError::Locked | crate::files::FilesError::Erasing => FsError::Forbidden,
+        crate::files::FilesError::Locked
+        | crate::files::FilesError::Erasing
+        | crate::files::FilesError::HoldsPrivate(_) => FsError::Forbidden,
         crate::files::FilesError::MissingDriveDb | crate::files::FilesError::Db(_) => {
             FsError::GeneralFailure
         }

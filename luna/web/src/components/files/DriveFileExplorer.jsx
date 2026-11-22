@@ -24,6 +24,8 @@ import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import IconActions from "@libreloom/ui/components/ui/IconActions.jsx";
 import { InfoHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
+import HoldsPrivateNotice from "./HoldsPrivateNotice.jsx";
+import { holdsPrivateOf } from "../../lib/holdsPrivate.js";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
@@ -154,7 +156,13 @@ export default function DriveFileExplorer({
     onPathChange?.(next);
   }
 
-  const [actionError, setActionError] = useState(/** @type {string|null} */ (null));
+  const [actionError, setActionErrorText] = useState(/** @type {string|null} */ (null));
+  // A delete refused because private items sit inside has its own wording.
+  const [actionHold, setActionHold] = useState(/** @type {ReturnType<typeof holdsPrivateOf>} */ (null));
+  const setActionError = (/** @type {string|null} */ text) => {
+    setActionErrorText(text);
+    setActionHold(null);
+  };
   const [deletePaths, setDeletePaths] = useState(/** @type {string[]|null} */ (null));
   const [renameTarget, setRenameTarget] = useState(/** @type {{ fullPath: string, name: string, isDir: boolean }|null} */ (null));
   const [renameValue, setRenameValue] = useState("");
@@ -327,6 +335,7 @@ export default function DriveFileExplorer({
     onError: (err) => {
       haptic("error");
       setActionError(apiErrorMessage(err, "Couldn't move that to Trash. Try again."));
+      setActionHold(holdsPrivateOf(err));
     },
   });
 
@@ -1019,7 +1028,9 @@ export default function DriveFileExplorer({
               <InlinePill>{deleteLabel}</InlinePill> will move to
               Luna&apos;s trash on this drive. You can get it back later from Trash.
             </p>
-            <ModalErrorNotice error={actionError} />
+            {actionHold
+              ? <HoldsPrivateNotice hold={actionHold} />
+              : <ModalErrorNotice error={actionError} />}
             <div className="mt-4 flex gap-3">
               <Button
                 variant="danger"

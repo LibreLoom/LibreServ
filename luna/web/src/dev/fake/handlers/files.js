@@ -5,7 +5,7 @@
 import { del, fail, get, post, put, raw } from "../engine.js";
 import {
   CAP_EDIT, CAP_UPLOAD, CAP_VIEW, TRASH, canInspectPath, capsOnPath, capsToStr, checkAccess, checkInspect, hasCap, hasDriveAccess,
-  hasWriteOnDrive, holdsUnreachablePrivate, isAdmin, isTrashPath, privateBoundary,
+  hasWriteOnDrive, holdsPrivateFailure, holdsUnreachablePrivate, isAdmin, isTrashPath, privateBoundary, privateHeld,
 } from "../policy.js";
 import {
   base, clean, descendants, driveReady, driveUsable, driveRow, ensureDirs, fsOf, fsOpts, join, moveToTrash, nowS, parentOf,
@@ -98,8 +98,10 @@ function checkTrashItem(world, user, driveId, path) {
   const original = sub ? join(entry.original_path, sub) : entry.original_path;
   if (!original || !hasCap(world, user, driveId, original, CAP_EDIT)) throw hidden();
 }
-/** Refuse to delete a folder that holds private items only their owners can change. */
+/** Refuse to delete a folder that holds private items: worded for who asks, or by who may change them. */
 function checkNoForeignPrivate(world, user, driveId, path) {
+  const held = privateHeld(world, driveId, path);
+  if (held.length) throw holdsPrivateFailure(world, user, held);
   if (holdsUnreachablePrivate(world, user, driveId, path)) throw fail(403, "This folder holds private items that only their owners can delete.");
 }
 
@@ -465,11 +467,15 @@ post("/api/v1/drives/:id/files/purge", ({ world, user, params, body }) => {
     // Everyone empties only the entries they can see; someone else's private item stays.
     needDrive(world, driveId);
     checkTrashList(world, user, driveId);
+    let keptBack = null;
     for (const row of trashRows(world, user, driveId, TRASH)) {
       const rel = `${TRASH}/${row.name}`;
+      const held = privateHeld(world, driveId, rel);
+      if (held.length) { keptBack ??= held; continue; }
       if (holdsUnreachablePrivate(world, user, driveId, rel)) continue;
       fs().trash = fs().trash.filter((t) => t.key !== row.name);
     }
+    if (keptBack) throw holdsPrivateFailure(world, user, keptBack);
     return { ok: true };
   }
   checkTrashItem(world, user, driveId, path);

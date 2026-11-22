@@ -184,6 +184,46 @@ export function holdsUnreachablePrivate(world, user, driveId, path) {
   return privateUnder(world, driveId, path).some((i) => !hasCap(world, user, driveId, i.path, CAP_EDIT));
 }
 
+/** files::private_held: the private items that make deleting `path` refuse (none when `path` sits inside a private item). */
+export function privateHeld(world, driveId, path) {
+  const p = norm(path);
+  if (isTrashPath(p)) {
+    const fs = world.fs?.[driveId];
+    const rest = p.slice(TRASH.length + 1);
+    const key = rest.split("/")[0];
+    const entry = fs?.trash?.find((t) => t.key === key);
+    if (!entry || entry.private_boundary) return [];
+    const sub = rest.slice(key.length + 1);
+    // A private item anywhere at or above the path carries what is below it.
+    const parts = sub.split("/").filter(Boolean);
+    for (let i = 0; i <= parts.length; i += 1) {
+      if (entry.nodes[parts.slice(0, i).join("/")]?.private) return [];
+    }
+    return Object.entries(entry.nodes)
+      .filter(([rel, n]) => n.private && pathContains(sub, rel))
+      .map(([rel, n]) => ({ path: rel ? `${key}/${rel}` : key, owner: n.owner || "" }));
+  }
+  if (privateBoundary(world, driveId, p)) return [];
+  return privateUnder(world, driveId, p);
+}
+
+/** api/files.rs holds_private_body: the refusal for deleting a folder that holds private items, worded for who asks. */
+export function holdsPrivateFailure(world, user, items) {
+  const generic = "This folder can't be deleted because it holds items you can't see. An Admin can help.";
+  if (isAdmin(user)) {
+    const owners = [...new Set(items.map((i) => {
+      const u = world.users.find((x) => x.id === i.owner);
+      return u ? (u.display_name?.trim() || u.username) : "a deleted account";
+    }))].sort();
+    return fail(403, `This folder holds private items belonging to ${owners.join(", ")}. They have to move or delete them first.`, "holds_private", { owners });
+  }
+  if (items.length && items.every((i) => i.owner === user.id)) {
+    const names = [...new Set(items.map((i) => leaf(i.path)))].sort();
+    return fail(403, `This folder holds your private items ${names.join(", ")}. Move or delete them first.`, "holds_private", { items: names });
+  }
+  return fail(403, generic, "holds_private");
+}
+
 // ── Gates that answer with lunad's own words ───────────────────────────────
 /** Admin-only routes. `message` is that route's own refusal. */
 export function requireAdmin(user, message) {

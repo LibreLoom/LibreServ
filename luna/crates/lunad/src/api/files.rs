@@ -1443,6 +1443,10 @@ async fn delete_entry(
                 &state.db,
                 || FilesError::UnknownDrive,
                 |conn| {
+                    let held = files::private_held(conn, &drive, &path);
+                    if !held.is_empty() {
+                        return Err(FilesError::HoldsPrivate(held));
+                    }
                     if crate::auth::holds_unreachable_private(&user, conn, &drive, &path) {
                         return Ok(Deleted::HoldsPrivate);
                     }
@@ -1460,6 +1464,9 @@ async fn delete_entry(
                 StatusCode::FORBIDDEN,
                 "This folder holds private items that only their owners can delete.",
             ));
+        }
+        Err(FilesError::HoldsPrivate(items)) => {
+            return Err(holds_private_response(&state, &user, &items));
         }
         Err(e) => return Err(map_files_err(e)),
     };
@@ -1684,11 +1691,15 @@ async fn purge_entry(
         // own origins); admins see every entry.
         let Json(entries) = list_trash_view(&state, &user, &id, &path)?;
         let mut rels = Vec::new();
+        // The first folder kept back because private items sit inside it;
+        // everything else is still emptied, then the person is told.
+        let mut kept_back = None;
         for entry in entries {
             let rel = format!("{}/{}", files::TRASH_API_ALIAS, entry.name);
-            // Someone else's private item inside stays; only its owner can
-            // remove it for good.
-            if check_no_foreign_private(&state, &user, &id, &rel).is_err() {
+            // A folder with private items inside stays; they have to be
+            // moved or deleted by their owners first.
+            if let Err(refusal) = check_no_foreign_private(&state, &user, &id, &rel) {
+                kept_back.get_or_insert(refusal);
                 continue;
             }
             rels.push(rel);
@@ -1706,7 +1717,10 @@ async fn purge_entry(
                     Err(e) => return Err(map_files_err(e)),
                 }
             }
-            Ok(Json(json!({ "ok": true })))
+            match kept_back {
+                Some(refusal) => Err(refusal),
+                None => Ok(Json(json!({ "ok": true }))),
+            }
         })
         .await
     } else {
@@ -1717,6 +1731,7 @@ async fn purge_entry(
         blocking(move || {
             let _guard = guard;
             files::purge_trash_at(&drive, &id, &path).map_err(|e| match e {
+                FilesError::HoldsPrivate(items) => holds_private_response(&state, &user, &items),
                 FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::InvalidInput => {
                     json_error(
                         StatusCode::BAD_REQUEST,
@@ -2077,6 +2092,10 @@ fn check_no_foreign_private(
             "Luna's index is busy. Try again.",
         )
     })?;
+    let held = files::private_held(&conn, drive_id, path);
+    if !held.is_empty() {
+        return Err(holds_private_body(&conn, user, &held));
+    }
     if crate::auth::holds_unreachable_private(user, &conn, drive_id, path) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
@@ -2084,6 +2103,80 @@ fn check_no_foreign_private(
         ));
     }
     Ok(())
+}
+
+/// The refusal for deleting a folder that holds private items, worded for
+/// who is asking. An Admin is told whose items they are; the items' own
+/// owner is told which; anyone else learns nothing about what is inside.
+pub(crate) fn holds_private_response(
+    state: &AppState,
+    user: &crate::auth::CurrentUser,
+    items: &[crate::private::Item],
+) -> (StatusCode, Json<Value>) {
+    match state.db.lock() {
+        Ok(conn) => holds_private_body(&conn, user, items),
+        Err(_) => json_error_code(
+            StatusCode::FORBIDDEN,
+            "holds_private",
+            files::HOLDS_PRIVATE_MSG,
+        ),
+    }
+}
+
+fn holds_private_body(
+    conn: &rusqlite::Connection,
+    user: &crate::auth::CurrentUser,
+    items: &[crate::private::Item],
+) -> (StatusCode, Json<Value>) {
+    let generic = || {
+        json_error_code(
+            StatusCode::FORBIDDEN,
+            "holds_private",
+            files::HOLDS_PRIVATE_MSG,
+        )
+    };
+    if user.role == "admin" {
+        let mut owners: Vec<String> = Vec::new();
+        for item in items {
+            let name = match crate::db::get_user(conn, &item.owner) {
+                Ok(Some(u)) if !u.display_name.trim().is_empty() => u.display_name,
+                Ok(Some(u)) => u.username,
+                _ => "a deleted account".to_string(),
+            };
+            if !owners.contains(&name) {
+                owners.push(name);
+            }
+        }
+        owners.sort();
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": format!(
+                    "This folder holds private items belonging to {}. They have to move or delete them first.",
+                    owners.join(", ")
+                ),
+                "code": "holds_private",
+                "owners": owners,
+            })),
+        );
+    }
+    if !items.is_empty() && items.iter().all(|i| i.owner == user.id) {
+        let mut names: Vec<String> = items.iter().map(|i| i.name().to_string()).collect();
+        names.sort();
+        names.dedup();
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": format!(
+                    "This folder holds your private items {}. Move or delete them first.",
+                    names.join(", ")
+                ),
+                "code": "holds_private",
+                "items": names,
+            })),
+        );
+    }
+    generic()
 }
 
 fn check_trash_list(
@@ -2339,6 +2432,11 @@ pub(crate) fn map_files_err(err: FilesError) -> (StatusCode, Json<Value>) {
         FilesError::Io(e) if e.kind() == std::io::ErrorKind::ReadOnlyFilesystem => json_error(
             StatusCode::CONFLICT,
             "This drive is read-only right now, so Luna can't change it.",
+        ),
+        FilesError::HoldsPrivate(_) => json_error_code(
+            StatusCode::FORBIDDEN,
+            "holds_private",
+            files::HOLDS_PRIVATE_MSG,
         ),
         other => {
             // Without this the reason for the 500 is nowhere in the log.

@@ -726,6 +726,50 @@ fn rename_in_trash_retitles_the_origin() {
 }
 
 #[test]
+fn a_folder_holding_private_items_cannot_be_deleted_at_any_depth() {
+    let (_dir, conn, id) = drive_dir();
+    let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+        .to_path_buf();
+    mkdir(&conn, &id, "Shared").unwrap();
+    mkdir(&conn, &id, "Shared/Deep").unwrap();
+    mkdir_as(&conn, &id, "Shared/Deep/Vault", Some("alice")).unwrap();
+    create(&conn, &id, "Shared/Deep/Vault/a.txt").unwrap();
+
+    for rel in ["Shared", "Shared/Deep"] {
+        match delete_to_trash(&conn, &id, rel) {
+            Err(FilesError::HoldsPrivate(items)) => {
+                assert_eq!(items.len(), 1);
+                assert_eq!(items[0].owner, "alice");
+                assert_eq!(items[0].path, "Shared/Deep/Vault");
+            }
+            other => panic!("{rel} should be refused, got {other:?}"),
+        }
+    }
+    assert!(crate::private::item_at(&root, "Shared/Deep/Vault").is_some());
+    assert!(list_dir(&conn, &id, "Shared/Deep/Vault").is_ok());
+
+    // The private folder itself can still be deleted, and then its parents.
+    let trashed = delete_to_trash(&conn, &id, "Shared/Deep/Vault").unwrap();
+    delete_to_trash(&conn, &id, "Shared").unwrap();
+    // A trashed private item is not a reason to refuse purging its own entry.
+    purge_trash(&conn, &id, &trashed).unwrap();
+}
+
+#[test]
+fn private_held_names_what_blocks_a_delete_and_ignores_a_private_folders_own_tree() {
+    let (_dir, conn, id) = drive_dir();
+    mkdir(&conn, &id, "Old").unwrap();
+    mkdir_as(&conn, &id, "Old/Vault", Some("alice")).unwrap();
+    mkdir(&conn, &id, "Old/Vault/Inner").unwrap();
+    mkdir_as(&conn, &id, "Old/Vault/Inner/Deeper", Some("alice")).unwrap();
+    let held = private_held(&conn, &id, "Old");
+    assert_eq!(held.len(), 2);
+    // Inside a private folder, what lies below it travels with it.
+    assert!(private_held(&conn, &id, "Old/Vault/Inner").is_empty());
+    assert!(private_held(&conn, &id, "Old/Vault").is_empty());
+}
+
+#[test]
 fn rename_nested_path_inside_trash() {
     let (_dir, conn, id) = drive_dir();
     let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)

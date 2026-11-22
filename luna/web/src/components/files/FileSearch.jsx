@@ -7,6 +7,8 @@ import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
+import HoldsPrivateNotice from "./HoldsPrivateNotice.jsx";
+import { holdsPrivateOf } from "../../lib/holdsPrivate.js";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import LinearProgress from "@libreloom/ui/components/common/LinearProgress.jsx";
 import { showPageLevelError } from "../../lib/modalScopedError";
@@ -176,7 +178,13 @@ export default function FileSearch() {
   const fileOps = useFileOps();
   const [typed, setTyped] = useState("");
   const [kind, setKind] = useState(loadSearchKind);
-  const [actionError, setActionError] = useState(null);
+  const [actionError, setActionErrorText] = useState(null);
+  // A delete refused because private items sit inside has its own wording.
+  const [actionHold, setActionHold] = useState(null);
+  const setActionError = (text) => {
+    setActionErrorText(text);
+    setActionHold(null);
+  };
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [copyTarget, setCopyTarget] = useState(null);
   const [copyKind, setCopyKind] = useState(/** @type {"copy" | "move"} */ ("copy"));
@@ -285,7 +293,10 @@ export default function FileSearch() {
       // The row is gone; keep the keyboard in the list's search box.
       window.setTimeout(() => inputRef.current?.focus(), 0);
     },
-    onError: (err) => setActionError(apiErrorMessage(err, "Luna couldn't move that to trash. Try again.")),
+    onError: (err) => {
+      setActionError(apiErrorMessage(err, "Luna couldn't move that to trash. Try again."));
+      setActionHold(holdsPrivateOf(err));
+    },
   });
 
   /** Hand the copy or move to the file task card; it sends, tracks and reports it. */
@@ -785,7 +796,9 @@ export default function FileSearch() {
                 Luna&apos;s trash on its drive. You can get it back later from Trash.
               </p>
             </ShakeTarget>
-            <ModalErrorNotice error={actionError} />
+            {actionHold
+              ? <HoldsPrivateNotice hold={actionHold} />
+              : <ModalErrorNotice error={actionError} />}
             <div className="mt-4 flex gap-3">
               <Button
                 variant="danger"

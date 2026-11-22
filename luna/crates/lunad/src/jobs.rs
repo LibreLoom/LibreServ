@@ -66,7 +66,7 @@ pub enum JobError {
     Symlink,
     #[error("You no longer have permission to do this.")]
     Denied,
-    #[error("This folder holds private items that only their owners can move.")]
+    #[error("This folder holds private items, so it can't move to another drive.")]
     Blocked,
     /// The name is taken at the destination. `existing_dir` says whether a
     /// folder holds it, so the person knows which choices are possible.
@@ -359,6 +359,15 @@ fn prepare(
     // prefix is storage noise that must not leak into the destination.
     let src_root = PathBuf::from(files::drive_root(conn, from_drive)?.mount_point);
     let src_item = crate::private::item_at(&src_root, &from_real);
+    // A move to another drive deletes the original, and a folder that holds
+    // private items cannot be deleted. (Within one drive a move is a rename
+    // and the items keep their boundaries.)
+    if kind == "move"
+        && from_drive != to_drive
+        && !files::private_inside(&src_root, &from_real).is_empty()
+    {
+        return Err(JobError::Blocked);
+    }
     let mut name = files::trash_api_leaf(conn, from_drive, &from_path)?
         .or_else(|| src_item.as_ref().map(|i| i.name().to_string()))
         .or_else(|| src.file_name().map(|s| s.to_string_lossy().into_owned()))
@@ -1335,7 +1344,7 @@ fn plain_job_error(err: &JobError) -> String {
         }
         JobError::Denied => "You no longer have permission to do this.".into(),
         JobError::Blocked => {
-            "This folder holds private items that only their owners can move.".into()
+            "This folder holds private items, so it can't move to another drive.".into()
         }
         JobError::NameTaken { .. } => "A file or folder with this name is already there.".into(),
         JobError::KeepBothUnsupported => {
