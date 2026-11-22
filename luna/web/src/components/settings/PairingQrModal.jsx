@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
+import { useQuery } from "@tanstack/react-query";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
+import { getJson } from "../../lib/api.js";
 import { encodePairing } from "../../lib/pairing.js";
 
 /**
@@ -11,7 +13,21 @@ import { encodePairing } from "../../lib/pairing.js";
  */
 export default function PairingQrModal({ open, token, onClose }) {
   const canvasRef = useRef(null);
-  const url = typeof window !== "undefined" ? window.location.origin : "";
+  const connectStatus = useQuery({
+    queryKey: ["connect-status"],
+    queryFn: () => getJson("/api/v1/connect/status"),
+    retry: false,
+  });
+  // A phone cannot use the browser's LAN origin when LAN access is blocked.
+  // Encode the tunnel address instead so the scan works from anywhere.
+  const lanBlocked = Boolean(
+    connectStatus.data?.connect_active && !connectStatus.data?.lan_override,
+  );
+  const remoteHost = String(
+    connectStatus.data?.hostname || connectStatus.data?.domain || "",
+  ).trim();
+  const browserOrigin = typeof window !== "undefined" ? window.location.origin : "";
+  const url = lanBlocked && remoteHost ? `https://${remoteHost}` : browserOrigin;
   const stamp = `${open}:${token}:${url}`;
   const [failedFor, setFailedFor] = useState("");
   const failed = failedFor === stamp;

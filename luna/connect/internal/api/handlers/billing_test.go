@@ -13,7 +13,6 @@ import (
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
-	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
 func TestStripeWebhookLocksBackups(t *testing.T) {
@@ -232,18 +231,6 @@ func TestStripeWebhookLoadsSecretFromDB(t *testing.T) {
 	acct.StripeWebhook(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("webhook from db secret %d %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestAdminBearerConstantTime(t *testing.T) {
-	if security.AdminAuthorized("Bearer abc", "abc") != true {
-		t.Fatal("match")
-	}
-	if security.AdminAuthorized("Bearer abc", "abd") {
-		t.Fatal("mismatch")
-	}
-	if security.AdminAuthorized("Bearer abc", "") {
-		t.Fatal("empty want")
 	}
 }
 

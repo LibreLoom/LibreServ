@@ -24,13 +24,12 @@ const AdminSessionCookie = "luna_connect_admin_session"
 
 const adminCookiePath = "/admin"
 
-// AdminAuth accepts a staff session cookie from /admin/login, or the static
-// server.admin_token as a Bearer (scripts and the perf harness only; empty
-// disables it). A Bearer header is checked on its own and never falls back to
-// the cookie, because Bearer requests skip the CSRF check. Wrong or expired
-// credentials count against a per-IP budget in guess_attempts (shared across
-// both instances, 10 per minute); a request that sends no credential at all
-// does not, so the admin pages' own sign-in probe cannot lock staff out.
+// AdminAuth accepts only a staff session cookie from /admin/login. A static
+// Bearer token is not an admin credential: scripts must sign in as a real
+// admin, with two-factor authentication, the same as everyone else. Wrong or
+// expired cookies count against a per-IP budget in guess_attempts (shared
+// across both instances, 10 per minute); a request that sends no credential
+// at all does not, so the admin pages' own sign-in probe cannot lock staff out.
 func AdminAuth(db *database.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -41,15 +40,6 @@ func AdminAuth(db *database.DB) func(http.Handler) http.Handler {
 			}
 			if guessBlocked(db, key, adminAuthFailMax, adminAuthFailWindowSec) {
 				JSONError(w, http.StatusTooManyRequests, "Too many failed admin sign-ins from this network. Wait a minute, then try again.")
-				return
-			}
-			if r.Header.Get("Authorization") != "" {
-				if security.AdminAuthorized(r.Header.Get("Authorization"), config.C.Server.AdminToken) {
-					next.ServeHTTP(w, r.WithContext(WithAdminID(r.Context(), "static-admin")))
-					return
-				}
-				fail()
-				JSONError(w, http.StatusUnauthorized, "Admin sign-in required.")
 				return
 			}
 			c, err := r.Cookie(AdminSessionCookie)

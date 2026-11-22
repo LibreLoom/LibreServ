@@ -71,9 +71,6 @@ server:
   port: ${port}
   base_url: "${BASE_URL}"
   public_zone: "luna.servers.libreloom.org"
-  # Staff sign in at /admin/login (cookie session, optional 2FA). A static
-  # Bearer here skips all of that; leave it empty unless a script needs it.
-  admin_token: ""
   at_rest_key: "${at_rest_key}"
   web_dir: "${INSTALL_DIR}/web"
 

@@ -89,11 +89,10 @@ func seedAndLoginAdmin(t *testing.T, h http.Handler, csrf string) *http.Cookie {
 }
 
 func resetAdminConfig(t *testing.T) {
-	prevToken, prevSeed, prevTTL := config.C.Server.AdminToken, config.C.Auth.AdminSeedToken, config.C.Auth.SessionTTLHours
+	prevSeed, prevTTL := config.C.Auth.AdminSeedToken, config.C.Auth.SessionTTLHours
 	t.Cleanup(func() {
-		config.C.Server.AdminToken, config.C.Auth.AdminSeedToken, config.C.Auth.SessionTTLHours = prevToken, prevSeed, prevTTL
+		config.C.Auth.AdminSeedToken, config.C.Auth.SessionTTLHours = prevSeed, prevTTL
 	})
-	config.C.Server.AdminToken = ""
 	config.C.Auth.AdminSeedToken = ""
 	config.C.Auth.SessionTTLHours = 24
 }
@@ -184,23 +183,15 @@ func TestAdminWrongCookieIsThrottled(t *testing.T) {
 	}
 }
 
-func TestAdminStaticTokenIsBearerOnly(t *testing.T) {
+// A Bearer token is not an admin credential. Scripts sign in at /admin/login
+// like everyone else, and a session cookie only works as a cookie.
+func TestAdminBearerIsNotACredential(t *testing.T) {
 	resetAdminConfig(t)
-	config.C.Server.AdminToken = "ops-static-token"
 	h := testServer(t)
 
-	ok := adminReq(http.MethodGet, "/admin/stats", "", "", "")
-	ok.Header.Set("Authorization", "Bearer ops-static-token")
-	if rec := serve(h, ok); rec.Code != http.StatusOK {
-		t.Fatalf("static token %d %s", rec.Code, rec.Body.String())
-	}
-	asCookie := &http.Cookie{Name: handlers.AdminSessionCookie, Value: "ops-static-token"}
-	if rec := serve(h, adminReq(http.MethodGet, "/admin/stats", "", "", "", asCookie)); rec.Code != http.StatusUnauthorized {
-		t.Fatalf("static token as cookie %d %s", rec.Code, rec.Body.String())
-	}
-	wrong := adminReq(http.MethodGet, "/admin/stats", "", "", "")
-	wrong.Header.Set("Authorization", "Bearer nope")
-	if rec := serve(h, wrong); rec.Code != http.StatusUnauthorized {
-		t.Fatalf("wrong static token %d %s", rec.Code, rec.Body.String())
+	bearer := adminReq(http.MethodGet, "/admin/stats", "", "", "")
+	bearer.Header.Set("Authorization", "Bearer any-bearer-token")
+	if rec := serve(h, bearer); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("bearer on admin route %d %s", rec.Code, rec.Body.String())
 	}
 }

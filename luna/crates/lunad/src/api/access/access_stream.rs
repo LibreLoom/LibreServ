@@ -137,9 +137,13 @@ pub(super) async fn public_items(
                     "Luna couldn't load photos for this album.",
                 )
             })?;
+        let conn = state.db.lock().map_err(|_| busy())?;
         let items: Vec<Value> = page
             .items
             .into_iter()
+            // A private photo never reaches a public album, even when an
+            // Admin or the owner added it. Unknown registry fails closed.
+            .filter(|p| !crate::api::photos::album_item_is_private(&conn, &p.drive_id, &p.path))
             .map(|mut p| {
                 let (thumb, content, download) = album_media_urls(&token, &p.drive_id, &p.path);
                 p.thumb = thumb;
@@ -189,13 +193,18 @@ pub(super) async fn public_media(
             let conn = state.db.lock().map_err(|_| busy())?;
             album_for_link(&conn, &link)?
         };
+        let private = {
+            let conn = state.db.lock().map_err(|_| busy())?;
+            crate::api::photos::album_item_is_private(&conn, &query.drive_id, &query.path)
+        };
         if !crate::api::photos::album_item_allowed(
             &link.drive_id,
             &home_root,
             &album,
             &query.drive_id,
             &query.path,
-        ) {
+        ) || private
+        {
             return Err(json_error(
                 StatusCode::FORBIDDEN,
                 "That photo is not part of this shared album.",
@@ -425,6 +434,9 @@ pub(super) async fn album_zip_response(
     {
         let conn = state.db.lock().map_err(|_| busy())?;
         for (drive_id, path) in refs {
+            if crate::api::photos::album_item_is_private(&conn, &drive_id, &path) {
+                continue;
+            }
             if !crate::api::photos::album_item_allowed(
                 &link.drive_id,
                 &home_root,

@@ -83,9 +83,9 @@ impl ShareAuthGuard {
 
     fn locked(&self, key: &str) -> bool {
         let Ok(conn) = self.db.lock() else {
-            return false;
+            return true;
         };
-        db::share_auth_locked(&conn, key).unwrap_or(false)
+        db::share_auth_locked(&conn, key).unwrap_or(true)
     }
 
     pub fn is_locked(&self, share_id: &str, ip: &str) -> bool {

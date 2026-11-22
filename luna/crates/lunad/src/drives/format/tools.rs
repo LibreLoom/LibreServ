@@ -243,15 +243,29 @@ impl DiskTools for CommandTools {
 
     fn list_signatures(&self, device: &str) -> Result<Vec<String>, ToolError> {
         let bin = sandbox::which("wipefs").ok_or(ToolError::Missing("wipefs"))?;
-        let mut cmd = sandbox::hardened(&bin);
-        cmd.args(["--json", device])
+        // Signature parsing touches untrusted on-disk bytes. Parse it as an
+        // unprivileged child, the same way `blkid_export` probes a drive: the
+        // parent opens the device read-only and hands the child an inherited
+        // fd, so a parser flaw yields nobody, not root.
+        let cant_probe = || ToolError::Failed(format!("Luna couldn't look at this drive. {TRY_AGAIN}"));
+        let mut io = sandbox::SandboxIo::new().map_err(|e| {
+            tracing::warn!(error = %e, "could not prepare a sandboxed probe");
+            cant_probe()
+        })?;
+        let input = io.input_path(Path::new(device)).map_err(|e| {
+            tracing::warn!(error = %e, "could not open the drive for probing");
+            cant_probe()
+        })?;
+        let mut cmd = std::process::Command::new(bin);
+        cmd.args(["--json"])
+            .arg(&input)
             .stderr(std::process::Stdio::null());
-        let out = sandbox::output_limited(&mut cmd, LIST_TIMEOUT).map_err(|e| {
+        let out = sandbox::output(&mut cmd, &io, LIST_TIMEOUT).map_err(|e| {
             if e.kind() == std::io::ErrorKind::TimedOut {
                 ToolError::TimedOut("wipefs")
             } else {
                 tracing::warn!(error = %e, "wipefs could not run");
-                ToolError::Failed(format!("Luna couldn't look at this drive. {TRY_AGAIN}"))
+                cant_probe()
             }
         })?;
         if !out.status.success() {

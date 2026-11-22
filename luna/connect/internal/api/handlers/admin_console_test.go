@@ -92,7 +92,7 @@ VALUES ('admin_1', ?, ?, 1, ?, ?)`, email, hash, now, now); err != nil {
 		adminID, body string
 		status        int
 	}{
-		{"static-admin", `{"password":"staff-password-123"}`, http.StatusForbidden},
+		{"", `{"password":"staff-password-123"}`, http.StatusForbidden},
 		{"admin_1", `{}`, http.StatusBadRequest},
 		{"admin_1", `{"password":"incorrect"}`, http.StatusForbidden},
 	} {

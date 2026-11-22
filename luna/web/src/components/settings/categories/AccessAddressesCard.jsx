@@ -34,6 +34,9 @@ export default function AccessAddressesCard({ index = 2 }) {
 
   const publicUrl = asHttpsUrl(connect.data?.hostname || connect.data?.domain || "");
   const ipv4 = (netStatus.data?.ipv4 || []).filter(Boolean);
+  // With a device token set, these local addresses do not reach Luna unless
+  // root has enabled the override. Hide them rather than offer dead links.
+  const lanBlocked = Boolean(connect.data?.connect_active && !connect.data?.lan_override);
 
   return (
     <SettingsCard icon={MapPin} title="Where to open Luna" padding={false} index={index}>
@@ -49,22 +52,34 @@ export default function AccessAddressesCard({ index = 2 }) {
           </section>
         ) : null}
 
-        <section className="space-y-2" aria-labelledby="access-local-heading">
-          <h3 id="access-local-heading" className="font-mono text-sm text-primary">On your local network</h3>
-          <CopyableValue
-            value={asHttpUrl("luna.local")}
-            copyLabel="Copy"
-            ariaLabel="luna.local address"
-          />
-          {ipv4.map((ip) => (
+        {!lanBlocked ? (
+          <section className="space-y-2" aria-labelledby="access-local-heading">
+            <h3 id="access-local-heading" className="font-mono text-sm text-primary">On your local network</h3>
             <CopyableValue
-              key={ip}
-              value={asHttpUrl(ip)}
+              value={asHttpUrl("luna.local")}
               copyLabel="Copy"
-              ariaLabel={`Network address ${ip}`}
+              ariaLabel="luna.local address"
             />
-          ))}
-        </section>
+            {ipv4.map((ip) => (
+              <CopyableValue
+                key={ip}
+                value={asHttpUrl(ip)}
+                copyLabel="Copy"
+                ariaLabel={`Network address ${ip}`}
+              />
+            ))}
+          </section>
+        ) : null}
+        {lanBlocked ? (
+          <p className="text-sm text-secondary">
+            Local access is turned off while Luna Connect is on.
+          </p>
+        ) : null}
+        {lanBlocked && !publicUrl ? (
+          <p className="text-sm text-secondary">
+            No way to open Luna is ready right now. Wait a moment and try again.
+          </p>
+        ) : null}
       </div>
     </SettingsCard>
   );

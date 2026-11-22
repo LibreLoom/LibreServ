@@ -192,16 +192,6 @@ func (h AdminAuthHandler) Seed(w http.ResponseWriter, r *http.Request) {
 
 func (h AdminAuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	adminID := AdminIDFrom(r.Context())
-	if adminID == "" || adminID == "static-admin" {
-		JSON(w, http.StatusOK, map[string]any{
-			"id":      adminID,
-			"email":   "",
-			"name":    "",
-			"has_2fa": false,
-			"static":  adminID == "static-admin",
-		})
-		return
-	}
 	var email string
 	var name sql.NullString
 	var totpEnabled int
@@ -236,7 +226,7 @@ func (h AdminAuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 
 func (h AdminAuthHandler) Setup2FA(w http.ResponseWriter, r *http.Request) {
 	adminID := AdminIDFrom(r.Context())
-	if adminID == "" || adminID == "static-admin" {
+	if adminID == "" {
 		JSONError(w, http.StatusForbidden, "Sign in with an admin account to set up two-factor authentication.")
 		return
 	}
@@ -273,7 +263,7 @@ func (h AdminAuthHandler) Setup2FA(w http.ResponseWriter, r *http.Request) {
 
 func (h AdminAuthHandler) Verify2FA(w http.ResponseWriter, r *http.Request) {
 	adminID := AdminIDFrom(r.Context())
-	if adminID == "" || adminID == "static-admin" {
+	if adminID == "" {
 		JSONError(w, http.StatusForbidden, "Sign in with an admin account to enable two-factor authentication.")
 		return
 	}
@@ -305,7 +295,7 @@ func (h AdminAuthHandler) Verify2FA(w http.ResponseWriter, r *http.Request) {
 
 func (h AdminAuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	adminID := AdminIDFrom(r.Context())
-	if adminID == "" || adminID == "static-admin" {
+	if adminID == "" {
 		JSONError(w, http.StatusForbidden, "Sign in with an admin account to change your password.")
 		return
 	}
@@ -402,7 +392,7 @@ FROM admin_accounts ORDER BY created_at DESC`)
 
 func (h AdminAuthHandler) CreateAdmin(w http.ResponseWriter, r *http.Request) {
 	adminID := AdminIDFrom(r.Context())
-	if adminID == "" || adminID == "static-admin" {
+	if adminID == "" {
 		JSONError(w, http.StatusForbidden, "Sign in with an admin account to add staff.")
 		return
 	}
@@ -456,7 +446,7 @@ func (h AdminAuthHandler) DeleteAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	currentID := AdminIDFrom(r.Context())
-	if currentID == "" || currentID == "static-admin" {
+	if currentID == "" {
 		JSONError(w, http.StatusForbidden, "Sign in with an admin account to manage staff.")
 		return
 	}

@@ -465,7 +465,7 @@ WHERE 1=1`
 func (h AdminConsoleHandler) RevealDeviceCode(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	adminID := AdminIDFrom(r.Context())
-	if adminID == "" || adminID == "static-admin" {
+	if adminID == "" {
 		JSONError(w, http.StatusForbidden, "Sign in with a staff account to see the device token.")
 		return
 	}
