@@ -26,6 +26,40 @@ impl RateLimiter {
     }
 }
 
+/// The network a single client controls: IPv4 as written, IPv6 reduced to its
+/// /64 prefix so one host cannot mint a fresh bucket for every address it
+/// holds. An IPv4-mapped IPv6 address is the same client as its IPv4 form.
+/// Anything that is not an address is returned untouched (for example the
+/// `"unknown"` placeholder when a request has no peer address).
+pub fn ip_bucket(ip: &str) -> String {
+    match ip.trim().parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(v4)) => v4.to_string(),
+        Ok(std::net::IpAddr::V6(v6)) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return v4.to_string();
+            }
+            let mut network = [0u16; 8];
+            network[..4].copy_from_slice(&v6.segments()[..4]);
+            std::net::Ipv6Addr::from(network).to_string()
+        }
+        Err(_) => ip.to_string(),
+    }
+}
+
+/// A namespaced bucket key for one client address. The address is hashed so
+/// the rate-limit table never stores visitors' addresses. Callers still get
+/// separate buckets per namespace, and an IPv6 client is bucketed by /64.
+pub fn ip_key(namespace: &str, ip: &str) -> String {
+    let bucket = ip_bucket(ip);
+    format!("{namespace}:{}", blake3::hash(bucket.as_bytes()).to_hex())
+}
+
+/// A namespaced bucket key for a secret (a link token, a user id). The value
+/// is hashed so the raw secret never lands in SQLite.
+pub fn secret_key(namespace: &str, secret: &str) -> String {
+    format!("{namespace}:{}", blake3::hash(secret.as_bytes()).to_hex())
+}
+
 /// Exponential lockout for share password guessing (per share + IP), plus a
 /// link-wide bucket so an attacker rotating addresses cannot keep guessing —
 /// one shared tunnel IP must not be the only thing standing between a public
@@ -147,6 +181,32 @@ mod tests {
         Arc::new(crate::Db::new(
             db::open(&dir.path().join("luna.db")).unwrap(),
         ))
+    }
+
+    #[test]
+    fn ipv6_buckets_by_its_64_prefix() {
+        assert_eq!(ip_bucket("2001:db8:1:2::1"), "2001:db8:1:2::");
+        assert_eq!(ip_bucket("2001:db8:1:2:ffff::99"), "2001:db8:1:2::");
+        assert_ne!(ip_bucket("2001:db8:1:3::1"), "2001:db8:1:2::");
+    }
+
+    #[test]
+    fn ipv4_stays_whole_and_a_mapped_v4_is_the_same_client() {
+        assert_eq!(ip_bucket("203.0.113.9"), "203.0.113.9");
+        assert_eq!(ip_bucket("::ffff:203.0.113.9"), "203.0.113.9");
+        assert_eq!(ip_bucket("unknown"), "unknown");
+    }
+
+    #[test]
+    fn keys_hide_the_address_and_the_secret() {
+        let ip = ip_key("test_ip", "2001:db8:1:2::1");
+        assert!(ip.starts_with("test_ip:"), "{ip}");
+        assert!(!ip.contains("2001"), "{ip}");
+        let secret = secret_key("test_secret", "tok-abc");
+        assert!(secret.starts_with("test_secret:"), "{secret}");
+        assert!(!secret.contains("tok-abc"), "{secret}");
+        // Namespaces stay apart even for the same address.
+        assert_ne!(ip_key("a", "203.0.113.9"), ip_key("b", "203.0.113.9"));
     }
 
     #[test]

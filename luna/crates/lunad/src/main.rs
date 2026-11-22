@@ -178,6 +178,16 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
         });
     }
 
+    // Rate-limit buckets are keyed per client and only matter while their
+    // window or lock is live. A Luna left on for weeks must not grow the
+    // table forever, so drop the dead ones on the same hourly beat.
+    {
+        let db = state.db.clone();
+        lunad::clock::every(std::time::Duration::from_secs(60 * 60), false, move || {
+            lunad::api::form_limits::prune_rate_limits(&db);
+        });
+    }
+
     // Catch-up photos index for every adopted mount already on disk.
     {
         let mounts = {
@@ -826,7 +836,7 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
         ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
-            lunad::api::public_limits::limit_public_album_uploads,
+            lunad::api::public_limits::limit_public_requests,
         ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

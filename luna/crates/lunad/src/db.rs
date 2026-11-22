@@ -415,19 +415,26 @@ fn trim_housekeeping(conn: &Connection) -> rusqlite::Result<()> {
         params![now - JOBS_MAX_AGE_SECS, JOBS_KEPT_PER_USER],
     )?;
     // Rate-limit buckets only mean anything while their window or lock is
-    // live. Expired ones are dead weight keyed by raw IP.
-    conn.execute(
-        "DELETE FROM rate_limit_buckets
-         WHERE locked_until < ?1
-           AND window_start < ?2",
-        params![now, now - RATE_LIMIT_BUCKET_MAX_AGE_SECS],
-    )?;
+    // live. Expired ones are dead weight keyed per client.
+    trim_rate_limit_buckets(conn)?;
     Ok(())
 }
 
 /// How long a rate-limit bucket outlives its last use. Long enough that no
 /// live window can be dropped, short enough that the table stays small.
-const RATE_LIMIT_BUCKET_MAX_AGE_SECS: i64 = 24 * 60 * 60;
+pub const RATE_LIMIT_BUCKET_MAX_AGE_SECS: i64 = 24 * 60 * 60;
+
+/// Drop every rate-limit bucket whose window and lock have both expired.
+/// Returns how many rows went. Cheap enough to run hourly on a live Luna.
+pub fn trim_rate_limit_buckets(conn: &Connection) -> rusqlite::Result<usize> {
+    let now = now_unix();
+    conn.execute(
+        "DELETE FROM rate_limit_buckets
+         WHERE locked_until < ?1
+           AND window_start < ?2",
+        params![now, now - RATE_LIMIT_BUCKET_MAX_AGE_SECS],
+    )
+}
 
 fn ensure_column(conn: &Connection, table: &str, column: &str, decl: &str) -> anyhow::Result<()> {
     let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
