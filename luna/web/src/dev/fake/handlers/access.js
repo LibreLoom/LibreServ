@@ -321,6 +321,46 @@ get("/api/v1/me/access", ({ world, user }) => [
 // ── Forms (signed-in side) ──────────────────────────────────────────────────
 const formsOf = (w) => (w.forms ||= {});
 const formKey = (q) => `${q.drive_id}\0${q.path}`;
+function formPage(list, query) {
+  const offset = Math.max(0, Number(query.offset) || 0);
+  const limit = Math.min(500, Math.max(1, Number(query.limit) || 100));
+  const responses = list.slice(offset, offset + limit);
+  const next = offset + responses.length;
+  return {
+    responses,
+    total: list.length,
+    next_offset: next < list.length ? next : null,
+    revision: 0,
+  };
+}
+
+function formSummary(list) {
+  const byQuestion = new Map();
+  for (const rec of list) {
+    for (const [id, value] of Object.entries(rec.answers || {})) {
+      let entry = byQuestion.get(id);
+      if (!entry) {
+        entry = { id, answered: 0, values: new Map() };
+        byQuestion.set(id, entry);
+      }
+      entry.answered += 1;
+      const key = JSON.stringify(value ?? null);
+      entry.values.set(key, (entry.values.get(key) || 0) + 1);
+    }
+  }
+  return {
+    total: list.length,
+    questions: [...byQuestion.values()].map((entry) => ({
+      id: entry.id,
+      answered: entry.answered,
+      values: [...entry.values].map(([key, count]) => ({
+        value: JSON.parse(key),
+        count,
+      })),
+    })),
+  };
+}
+
 get("/api/v1/forms/responses", ({ world, query }) => {
   const list = formsOf(world)[formKey(query)] || [];
   if (query.count) return { count: list.length };
@@ -328,10 +368,19 @@ get("/api/v1/forms/responses", ({ world, query }) => {
     const r = list.find((x) => x.id === query.id);
     return r ? r : fail(404, "That answer is gone.");
   }
-  return { responses: list };
+  return formPage(list, query);
 });
+get("/api/v1/forms/summary", ({ world, query }) => {
+  const list = formsOf(world)[formKey(query)] || [];
+  return formSummary(list);
+});
+get("/api/v1/forms/usage", () => ({ used_bytes: 0, quota_bytes: 512 * 1024 * 1024, free_bytes: 0 }));
 del("/api/v1/forms/responses", ({ world, query }) => {
   const k = formKey(query);
+  if (query.clear) {
+    formsOf(world)[k] = [];
+    return {};
+  }
   formsOf(world)[k] = (formsOf(world)[k] || []).filter((x) => x.id !== query.id);
   return {};
 });

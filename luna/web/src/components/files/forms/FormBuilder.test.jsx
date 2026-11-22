@@ -250,7 +250,7 @@ describe("FormBuilder guest source", () => {
     expect(calls.some(([u, m]) => u === "/s/tok/upload" && m === "POST")).toBe(true);
     expect(calls.some(([u]) => u.includes("/api/v1/"))).toBe(false);
 
-    // Guests read the link-scoped routes — never the member API.
+    // A full link can read the answers through the link-scoped route.
     fireEvent.click(screen.getByRole("radio", { name: /Responses/ }));
     expect((await screen.findAllByText("Bob")).length).toBeGreaterThan(0);
     expect(calls.some(([u]) => u.startsWith("/s/tok/responses"))).toBe(true);
@@ -266,8 +266,8 @@ describe("FormBuilder guest source", () => {
     expect(reg.save).toBeNull();
     expect(calls.some(([u]) => u.includes("/s/tok/upload"))).toBe(false);
 
-    fireEvent.click(screen.getByRole("radio", { name: /Responses/ }));
-    expect((await screen.findAllByText("Bob")).length).toBeGreaterThan(0);
+    // A view link has no manager Responses route, so the tab is not offered.
+    expect(screen.queryByRole("radio", { name: /Responses/ })).toBeNull();
   });
 });
 
@@ -330,7 +330,7 @@ describe("FormBuilder responses paging", () => {
     expect(screen.getByText("200 · 80%")).toBeInTheDocument();
     expect(screen.getByText(/Answers are in the table below/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /Next page/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: /Next page/ })[0]);
     expect(await screen.findByText("second")).toBeInTheDocument();
     expect(screen.getByText("Showing 101–101 of 250")).toBeInTheDocument();
     expect(

@@ -37,7 +37,7 @@ describe("SqliteEditor size cap", () => {
     // point is that the size gate did not fire.
     mount(new Uint8Array(MAX_DATABASE_BYTES));
     expect(
-      await screen.findByText(/browser can't run the database editor|couldn't open this database/i),
+      await screen.findByText(/couldn't start the database editor|couldn't open this database/i),
     ).toBeInTheDocument();
     expect(screen.queryByText(/too large to edit here/i)).not.toBeInTheDocument();
   });

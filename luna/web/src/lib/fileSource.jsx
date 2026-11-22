@@ -111,10 +111,12 @@ export async function requireOk(res, fallback) {
  *   formResponses: (driveId: string, path: string) => Promise<object[]>,
  *   formResponseCount: (driveId: string, path: string) => Promise<number>,
  *   formSummary: (driveId: string, path: string) => Promise<FormSummary>,
+ *   formUsage?: (driveId: string, path: string) => Promise<{ used_bytes: number, quota_bytes: number, free_bytes: number }>,
  *   formExportUrl?: (driveId: string, path: string) => string,
  *   formSqlite?: (driveId: string, path: string) => Promise<{ bytes: Uint8Array, revision: number }>,
  *   saveFormSqlite?: (driveId: string, path: string, bytes: Uint8Array, revision: number) => Promise<{ revision: number }>,
  *   deleteFormResponse: (driveId: string, path: string, id: string) => Promise<unknown>,
+ *   clearFormResponses?: (driveId: string, path: string) => Promise<unknown>,
  *   copyFormPicture: (driveId: string, formPath: string, source: string) => Promise<string>,
  *   uploadFormPicture: (driveId: string, formPath: string, file: File) => Promise<string>,
  *   uploadBlob?: (path: string, name: string, blob: Blob, opts?: { overwrite?: boolean, keepBoth?: boolean, signal?: AbortSignal, headers?: object, onSession?: (uploadId: string) => void, onProgress?: (loaded: number, total: number) => void, onRetry?: (attempt: number) => void }) => Promise<any>,
@@ -373,6 +375,10 @@ export const driveSource = {
     ),
   // The server builds the whole CSV, so exporting ten thousand responses
   // never has to hold the rows in this tab.
+  formUsage: async (driveId, path) =>
+    getJson(
+      `/api/v1/forms/usage?drive_id=${encodeURIComponent(driveId)}&path=${encodeURIComponent(path)}`,
+    ),
   formExportUrl: (driveId, path) =>
     `/api/v1/forms/export?drive_id=${encodeURIComponent(driveId)}&path=${encodeURIComponent(path)}&format=csv`,
   formSqlite: async (driveId, path) => {
@@ -401,6 +407,10 @@ export const driveSource = {
   deleteFormResponse: (driveId, path, id) =>
     deleteJson(
       `/api/v1/forms/responses?drive_id=${encodeURIComponent(driveId)}&path=${encodeURIComponent(path)}&id=${encodeURIComponent(id)}`,
+    ),
+  clearFormResponses: (driveId, path) =>
+    deleteJson(
+      `/api/v1/forms/responses?drive_id=${encodeURIComponent(driveId)}&path=${encodeURIComponent(path)}&clear=1`,
     ),
   // Pictures are copied beside the form, so the answer link only ever
   // shows files that belong to it. Both return the stored picture's name.

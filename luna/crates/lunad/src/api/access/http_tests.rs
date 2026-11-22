@@ -340,7 +340,7 @@ async fn view_link_cannot_read_hidden_files() {
     std::fs::write(mount.path().join("family/note.txt"), "hi").unwrap();
     std::fs::write(mount.path().join("family/.secret"), "hidden").unwrap();
     std::fs::write(
-        mount.path().join("family/.rsvp.lunaform.responses"),
+        mount.path().join("family/.rsvp.lunaform.responses.sqlite"),
         "{\"answers\":{}}\n",
     )
     .unwrap();
@@ -355,7 +355,7 @@ async fn view_link_cannot_read_hidden_files() {
     .await;
     let token = link["token"].as_str().unwrap();
 
-    for name in [".secret", ".rsvp.lunaform.responses"] {
+    for name in [".secret", ".rsvp.lunaform.responses.sqlite"] {
         let (s, b) = public_get(&app, &format!("/s/{token}/file?path={name}")).await;
         assert_eq!(s, StatusCode::NOT_FOUND, "{name}: {b}");
         // The link's own download spelling must refuse it too.
@@ -387,7 +387,7 @@ async fn view_link_cannot_read_hidden_files() {
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-/// The guest's folder zip leaves out every hidden name — the answers file
+/// The guest's folder zip leaves out every hidden name — the answers database
 /// and dotfiles alike. A member's own download keeps them.
 #[tokio::test]
 async fn folder_zip_omits_hidden_names_for_guests() {
@@ -396,7 +396,11 @@ async fn folder_zip_omits_hidden_names_for_guests() {
     std::fs::write(mount.path().join("family/note.txt"), "hi").unwrap();
     std::fs::write(mount.path().join("family/.secret"), "hidden").unwrap();
     std::fs::write(mount.path().join("family/.hidden/inside.txt"), "in").unwrap();
-    std::fs::write(mount.path().join("family/.rsvp.lunaform.responses"), "{}\n").unwrap();
+    std::fs::write(
+        mount.path().join("family/.rsvp.lunaform.responses.sqlite"),
+        "{}\n",
+    )
+    .unwrap();
     let (_dir, app) = test_app(mount.path());
     let (cookie, csrf) = admin(&app).await;
     let link = make_link(

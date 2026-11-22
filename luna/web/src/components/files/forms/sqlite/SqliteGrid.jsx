@@ -132,6 +132,7 @@ GridValue.propTypes = {
  *   onRenameColumn: (column: any) => void,
  *   onDropColumn: (column: any) => void,
  *   onDeleteRow: (row: any[], rowIndex: number) => void,
+ *   onEditingChange?: (editing: boolean) => void,
  * }} props
  */
 export default function SqliteGrid({
@@ -149,6 +150,7 @@ export default function SqliteGrid({
   onRenameColumn,
   onDropColumn,
   onDeleteRow,
+  onEditingChange,
 }) {
   const [editing, setEditing] = useState(
     /** @type {{ rowIndex: number, colIndex: number } | null} */ (null),
@@ -158,6 +160,7 @@ export default function SqliteGrid({
   if (editScope !== scope) {
     setEditScope(scope);
     setEditing(null);
+    onEditingChange?.(false);
   }
 
   const canEditRows = Boolean(canWrite && table.primaryKey.length > 0);
@@ -178,12 +181,14 @@ export default function SqliteGrid({
     if (/BLOB/i.test(column.type || "")) return;
     haptic("selection");
     setEditing({ rowIndex, colIndex });
+    onEditingChange?.(true);
   }
 
   /** @param {string} raw */
   function commitEdit(raw) {
     const edit = editing;
     setEditing(null);
+    onEditingChange?.(false);
     if (!edit) return;
     const initial = formatEditableValue(rows[edit.rowIndex]?.[edit.colIndex]);
     if (raw === initial) return;
@@ -344,7 +349,10 @@ export default function SqliteGrid({
                             numeric={numeric}
                             label={`Edit ${column.name}, row ${absolute}`}
                             onCommit={commitEdit}
-                            onCancel={() => setEditing(null)}
+                            onCancel={() => {
+                              setEditing(null);
+                              onEditingChange?.(false);
+                            }}
                           />
                         ) : (
                           <GridValue value={row[colIndex]} numeric={numeric} />

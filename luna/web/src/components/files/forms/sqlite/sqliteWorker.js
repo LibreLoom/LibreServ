@@ -19,6 +19,9 @@
 import initSqlJs from "sql.js";
 import wasmUrl from "sql.js/dist/sql-wasm.wasm?url";
 import {
+  MAX_RESULT_BYTES,
+  MAX_RESULT_ROWS,
+  valueBytes,
   capResult,
   classifyStatement,
   splitStatements,
@@ -115,16 +118,41 @@ function runPrepared(db, sql, params) {
     try {
       statement.bind(params);
       const columns = statement.getColumnNames();
+      const mutates = statementMutates(sql);
       /** @type {any[][]} */
       const rows = [];
-      while (statement.step()) rows.push(statement.get());
-      const capped = capResult(columns, rows);
+      let bytes = columns.reduce((total, name) => total + String(name).length * 2, 0);
+      let truncated = false;
+      while (statement.step()) {
+        if (rows.length >= MAX_RESULT_ROWS) {
+          truncated = true;
+          if (!mutates) break;
+          continue;
+        }
+        const row = statement.get();
+        const rowBytes =
+          16 +
+          row.length * 8 +
+          row.reduce((total, value) => total + valueBytes(value), 0);
+        if (rows.length > 0 && bytes + rowBytes > MAX_RESULT_BYTES) {
+          truncated = true;
+          if (!mutates) break;
+          continue;
+        }
+        if (rows.length === 0 && rowBytes > MAX_RESULT_BYTES) {
+          truncated = true;
+          if (!mutates) break;
+          continue;
+        }
+        rows.push(row);
+        bytes += rowBytes;
+      }
       return {
         columns,
-        rows: capped.rows,
-        rowCount: capped.total,
-        changes: statementMutates(sql) ? db.getRowsModified() : 0,
-        truncated: capped.truncated,
+        rows,
+        rowCount: rows.length,
+        changes: mutates ? db.getRowsModified() : 0,
+        truncated,
       };
     } finally {
       statement.free();
@@ -152,6 +180,7 @@ function runScript(db, sql, params) {
   if (!statements.length) throw new Error("Write a query first.");
 
   let changes = 0;
+  let truncated = false;
   let columns = [];
   /** @type {any[][]} */
   let rows = [];
@@ -159,14 +188,15 @@ function runScript(db, sql, params) {
   statements.forEach((statement, index) => {
     try {
       if (classifyStatement(statement) === "read") {
-        const sets = db.exec(statement);
-        const withColumns = sets.filter((set) => set.columns.length > 0);
-        if (withColumns.length) {
-          const last = withColumns[withColumns.length - 1];
-          columns = last.columns;
-          rows = last.values;
+        // Prepare and step so the row/byte caps bound memory, not just the
+        // message that goes back to the page.
+        const result = runPrepared(db, statement, []);
+        if (result.columns.length) {
+          columns = result.columns;
+          rows = result.rows;
         }
-        if (statementMutates(statement)) changes += db.getRowsModified();
+        changes += result.changes;
+        if (result.truncated) truncated = true;
       } else {
         db.run(statement);
         changes += db.getRowsModified();
@@ -186,11 +216,11 @@ function runScript(db, sql, params) {
     rows: capped.rows,
     rowCount: capped.total,
     changes,
-    truncated: capped.truncated,
+    truncated: truncated || capped.truncated,
   };
 }
 
-/** @param {{ type: string, bytes?: any, sql?: string, params?: any[] }} message */
+/** @param {{ type: string, bytes?: any, sql?: string, params?: any[], readOnly?: boolean }} message */
 async function handle(message) {
   switch (message.type) {
     case "open": {
@@ -202,6 +232,13 @@ async function handle(message) {
       const bytes = toBytes(message.bytes);
       if (!bytes.byteLength) throw new Error("This database is empty.");
       database = new SQL.Database(bytes);
+      // The server opens every form database with foreign keys on; the
+      // browser must match, or deleting a response leaves its answers.
+      database.run("PRAGMA foreign_keys = ON");
+      // Read-only is enforced by SQLite, not just by the statement
+      // classifier. A classifier miss must never write to a Read member's
+      // copy.
+      if (message.readOnly) database.run("PRAGMA query_only = ON");
       const tables = readSchema(database);
       return { tables };
     }

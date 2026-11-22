@@ -9,63 +9,24 @@ fn form_path_match_is_case_insensitive() {
 }
 
 #[test]
-fn responses_path_swaps_the_extension() {
+fn answers_db_swaps_the_extension() {
+    let dir = tempfile::tempdir().unwrap();
+    let form = dir.path().join("rsvp.lunaform");
+    std::fs::write(&form, b"{}").unwrap();
     assert_eq!(
-        responses_path_for(FsPath::new("/d/forms/rsvp.lunaform")).unwrap(),
-        PathBuf::from("/d/forms/.rsvp.lunaform.responses")
+        store::db_path_for(&form).unwrap(),
+        dir.path().join(".rsvp.lunaform.responses.sqlite")
     );
+    // A private form keeps a Luna-owned sidecar name.
+    let private = dir
+        .path()
+        .join(".luna-123e4567-e89b-12d3-a456-426614174000-rsvp");
     assert_eq!(
-        responses_path_for(FsPath::new("/d/rsvp.LUNAFORM")).unwrap(),
-        PathBuf::from("/d/.rsvp.lunaform.responses")
+        store::db_path_for(&private).unwrap(),
+        dir.path()
+            .join(".luna-123e4567-e89b-12d3-a456-426614174000-rsvp.responses.sqlite")
     );
-    assert!(responses_path_for(FsPath::new("/d/rsvp.json")).is_none());
-}
-
-#[test]
-fn latest_record_per_id_wins() {
-    let records = parse_response_records(
-        r#"{"v":1,"id":"r_1","edit":"h1","at":1,"answers":{"q":"Yes"}}
-not json
-{"v":1,"id":"r_2","edit":"h2","at":2,"answers":{"q":"No"}}
-{"v":1,"id":"r_1","edit":"h1","at":3,"answers":{"q":"Maybe"}}
-{"noid":true}
-"#,
-    );
-    assert_eq!(records.len(), 3);
-    let latest = latest_by_id(&records);
-    assert_eq!(latest.len(), 2);
-    assert_eq!(latest["r_1"]["answers"]["q"], "Maybe");
-    assert_eq!(latest["r_2"]["answers"]["q"], "No");
-}
-
-#[test]
-fn editable_needs_the_secret_or_the_right_id() {
-    let records = parse_response_records(
-        r#"{"v":1,"id":"r_1","edit":"h1","at":1,"answers":{}}
-{"v":1,"id":"r_2","edit":"h2","at":2,"answers":{}}"#,
-    );
-    let latest = latest_by_id(&records);
-    // Known id + matching secret → same id back.
-    assert_eq!(
-        find_editable(&latest, Some("r_1"), "h1")
-            .unwrap()
-            .as_deref(),
-        Some("r_1")
-    );
-    // Known id + wrong secret and unknown id must fail identically —
-    // otherwise the endpoint is a response-id existence oracle.
-    let wrong_secret = find_editable(&latest, Some("r_1"), "h2").unwrap_err();
-    let unknown_id = find_editable(&latest, Some("r_9"), "h1").unwrap_err();
-    assert_eq!(wrong_secret.0, StatusCode::FORBIDDEN);
-    assert_eq!(unknown_id.0, wrong_secret.0);
-    assert_eq!(unknown_id.1.0, wrong_secret.1.0);
-    // No id: the secret alone picks the response (edit-link flow).
-    assert_eq!(
-        find_editable(&latest, None, "h2").unwrap().as_deref(),
-        Some("r_2")
-    );
-    // A fresh secret matches nothing → caller mints a new id.
-    assert_eq!(find_editable(&latest, None, "h9").unwrap(), None);
+    assert!(store::db_path_for(&dir.path().join("rsvp.json")).is_none());
 }
 
 #[test]
@@ -217,25 +178,6 @@ fn close_date_and_cap_are_separate_from_edits() {
         serde_json::from_value(json!({ "settings": { "maxResponses": 2 } })).unwrap();
     assert_eq!(form_max_responses(&capped), Some(2));
 }
-
-#[test]
-fn tombstones_remove_a_response_and_order_follows_first_send() {
-    let records = parse_response_records(
-        r#"{"v":1,"id":"r_b","edit":"h","at":1,"answers":{"q":"1"}}
-{"v":1,"id":"r_a","edit":"h","at":2,"answers":{"q":"2"}}
-{"v":1,"id":"r_b","edit":"h","at":5,"answers":{"q":"3"}}
-{"v":1,"id":"r_a","deleted":true,"at":6}"#,
-    );
-    let live = latest_in_order(&records);
-    assert_eq!(live.len(), 1);
-    assert_eq!(live[0]["id"], "r_b");
-    assert_eq!(live[0]["answers"]["q"], "3");
-    assert_eq!(live[0]["sent_at"], 1);
-    assert_eq!(live[0]["at"], 5);
-    assert!(live[0].get("edit").is_none());
-    assert_eq!(latest_by_id(&records).len(), 1);
-}
-
 #[test]
 fn content_must_match_the_extension() {
     assert!(content_matches("pdf", b"%PDF-1.7 ..."));
@@ -250,36 +192,6 @@ fn content_must_match_the_extension() {
     assert_eq!(picture_ext("a.PDF"), None);
     assert_eq!(picture_ext("a.JPEG"), Some("jpg"));
 }
-
-#[test]
-fn answers_segments_are_numbered_canonical_files() {
-    let dir = tempfile::tempdir().unwrap();
-    let base = dir.path().join(".rsvp.lunaform.responses");
-    std::fs::write(&base, "").unwrap();
-    for name in [
-        ".rsvp.lunaform.responses.1",
-        ".rsvp.lunaform.responses.2",
-        // Not ours: a zero, a leading zero, letters, or a different family.
-        ".rsvp.lunaform.responses.0",
-        ".rsvp.lunaform.responses.01",
-        ".rsvp.lunaform.responses.x",
-        ".rsvp.lunaform.responses-old",
-        "rsvp.lunaform.responses.3",
-    ] {
-        std::fs::write(dir.path().join(name), "").unwrap();
-    }
-    let numbers: Vec<u32> = response_paths_from_base(&base)
-        .into_iter()
-        .map(|(n, _)| n)
-        .collect();
-    assert_eq!(numbers, vec![0, 1, 2]);
-    assert_eq!(
-        response_segment_path(&base, 3).unwrap(),
-        dir.path().join(".rsvp.lunaform.responses.3")
-    );
-    assert_eq!(response_segment_path(&base, 0).unwrap(), base);
-}
-
 #[test]
 fn answer_text_limits_are_bytes_and_form_characters() {
     let plain: Value = json!({ "label": "Essay" });
@@ -352,13 +264,10 @@ fn a_form_bucket_bounds_submissions_from_every_address() {
     let db = std::sync::Arc::new(crate::Db::new(
         crate::db::open(&dir.path().join("luna.db")).unwrap(),
     ));
-    let limiter = crate::rate_limit::RateLimiter::new(
-        db,
-        std::time::Duration::from_secs(60),
-        FORM_SUBMIT_PER_MINUTE,
-    );
+    let max = crate::api::form_limits::submit_per_minute();
+    let limiter = crate::rate_limit::RateLimiter::new(db, std::time::Duration::from_secs(60), max);
     let key = form_key("photos", "rsvp.lunaform");
-    for _ in 0..FORM_SUBMIT_PER_MINUTE {
+    for _ in 0..max {
         assert!(limiter.allow(&key));
     }
     assert!(!limiter.allow(&key), "the form's budget is spent");

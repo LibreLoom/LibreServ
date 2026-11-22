@@ -93,11 +93,11 @@ export class SqliteClient {
   }
 
   /** @param {Uint8Array} bytes @returns {Promise<SchemaResult>} */
-  open(bytes) {
+  open(bytes, { readOnly = false } = {}) {
     // Copy before transferring: detaching the caller's array would be a
     // surprise to whoever passed it in.
     const copy = bytes.slice();
-    return this.request("open", { bytes: copy }, [copy.buffer]);
+    return this.request("open", { bytes: copy, readOnly }, [copy.buffer]);
   }
 
   /**

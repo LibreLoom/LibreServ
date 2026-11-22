@@ -18,6 +18,11 @@ export const KNOWN_GAPS = [
     reason: "lunad added can_resume (paused backups rebuilt from a drive) after lunad-responses.json was last recorded. Remove this once a full ./ci run -p luna rewrites the fixture.",
   },
   {
+    key: "GET /api/v1/forms/responses",
+    path: "*",
+    reason: "SQLite paging adds total, next_offset and revision, and each row carries v/sent_at. Remove this once a full ./ci run -p luna rewrites lunad-responses.json.",
+  },
+  {
     key: "GET /api/v1/connect/status",
     path: "$.device_token_error",
     reason: "lunad sends device_token_error only when the saved token is unusable (serde skips None), and no lunad API test records that state, so the fixture has no key for it. The fake emits it for the dashboard's Needs you row (lib/needsYou.js). Remove this once a lunad test GETs /connect/status with a rejected token.",

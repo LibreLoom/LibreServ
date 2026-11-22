@@ -326,7 +326,7 @@ export function analyzeScript(sql) {
  *
  * @param {unknown} value
  */
-function valueBytes(value) {
+export function valueBytes(value) {
   if (value == null) return 4;
   if (typeof value === "string") return value.length * 2;
   if (typeof value === "number") return 8;

@@ -68,9 +68,9 @@ describe("FormResponses", () => {
 
     expect(screen.getByText("250 responses")).toBeInTheDocument();
     expect(screen.getByText("Showing 1–1 of 250")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Previous page/ })).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: /Previous page/ })[0]).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: /Next page/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: /Next page/ })[0]);
     expect(onPageChange).toHaveBeenCalledWith(100);
 
     cleanup();
@@ -81,7 +81,7 @@ describe("FormResponses", () => {
       nextOffset: 200,
       onPageChange,
     });
-    fireEvent.click(screen.getByRole("button", { name: /Previous page/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: /Previous page/ })[0]);
     expect(onPageChange).toHaveBeenCalledWith(0);
   });
 

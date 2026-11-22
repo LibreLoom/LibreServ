@@ -64,8 +64,9 @@ describe("fileKinds", () => {
     expect(isFormFile("notes.txt")).toBe(false);
     expect(openableKind("rsvp.lunaform")).toBe("form");
     expect(isTextFile("rsvp.lunaform")).toBe(false);
-    // The sibling answers file stays a readable text file.
-    expect(openableKind("rsvp.lunaform.responses")).toBe("text");
+    // The answers database is binary; the form's SQL editor opens it.
+    expect(isTextFile("rsvp.lunaform.responses.sqlite")).toBe(false);
+    expect(openableKind("rsvp.lunaform.responses.sqlite")).toBeNull();
   });
 
   it("classifies drawio files — including the self-previewing variants — as diagrams", () => {

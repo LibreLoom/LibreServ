@@ -68,6 +68,26 @@ fn allow_public_upload(limiter: &RateLimiter, ip: &str, link_token: &str) -> boo
     limiter.allow(&public_upload_key(ip)) && limiter.allow(&public_upload_link_key(link_token))
 }
 
+/// Percent-decode a path segment so `%61bc` and `abc` share one bucket.
+fn decoded(segment: &str) -> String {
+    let bytes = segment.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok();
+            if let Some(value) = hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                out.push(value);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 fn too_many_requests(message: &str) -> Response {
     crate::api::response::json_error(StatusCode::TOO_MANY_REQUESTS, message).into_response()
 }
@@ -96,7 +116,7 @@ pub async fn limit_public_requests(
     }
     if !state
         .public_asset_link_limiter
-        .allow(&form_limits::public_link_key(link_token(path)))
+        .allow(&form_limits::public_link_key(&decoded(link_token(path))))
     {
         return too_many_requests(
             "This link is getting too many requests. Wait a minute, then try again.",
@@ -105,7 +125,11 @@ pub async fn limit_public_requests(
 
     let is_public_upload = req.method() == Method::POST && path.ends_with("/upload");
     if is_public_upload
-        && !allow_public_upload(&state.public_upload_limiter, &ip, upload_link_token(path))
+        && !allow_public_upload(
+            &state.public_upload_limiter,
+            &ip,
+            &decoded(upload_link_token(path)),
+        )
     {
         return too_many_requests(
             "Too many uploads through this link. Wait a minute, then try again.",

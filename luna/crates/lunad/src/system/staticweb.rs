@@ -6,9 +6,10 @@ static DIST: Dir = include_dir!("$CARGO_MANIFEST_DIR/web/dist");
 
 /// The embedded SPA's content policy. `'unsafe-inline'` script/style covers
 /// the favicon theme script in index.html and Vite's injected styles;
-/// `blob:` covers foliate reader iframes and the x2t office workers; OSM
-/// tiles are the only remote images.
-const CSP: &str = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https://*.tile.openstreetmap.org; media-src 'self' blob:; font-src 'self' data:; connect-src 'self' ws: wss:; worker-src 'self' blob:; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+/// `'wasm-unsafe-eval'` lets the forms SQLite editor compile its bundled
+/// sql.js wasm; `blob:` covers foliate reader iframes and the x2t office
+/// workers; OSM tiles are the only remote images.
+const CSP: &str = "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https://*.tile.openstreetmap.org; media-src 'self' blob:; font-src 'self' data:; connect-src 'self' ws: wss:; worker-src 'self' blob:; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
 
 /// True when the embedded web build holds at least one file under `dir`.
 pub fn has_files_under(dir: &str) -> bool {

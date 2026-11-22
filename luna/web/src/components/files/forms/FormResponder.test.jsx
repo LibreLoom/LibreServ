@@ -276,7 +276,7 @@ describe("FormResponder", () => {
     expect(storedResponses()).toHaveLength(2);
   });
 
-  it("hides Send another response when the form takes one answer per person", async () => {
+  it("hides Send another response when the form takes one answer per browser", async () => {
     const oneOnly = {
       ...FORM,
       settings: { ...FORM.settings, responseLimit: "one" },
@@ -294,7 +294,7 @@ describe("FormResponder", () => {
     renderResponder(oneOnly);
 
     expect(
-      await screen.findByText(/one response per person/i),
+      await screen.findByText(/one response per browser/i),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Send another response/i })).toBeNull();
     // Editing is still offered.

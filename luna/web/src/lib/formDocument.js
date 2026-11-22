@@ -1,5 +1,5 @@
 /**
- * `.lunaform` documents and their sibling `<name>.lunaform.responses` files.
+ * `.lunaform` documents and their sibling SQLite answers sidecars.
  *
  * The envelope is forward-compatible: `version` gates readers, unknown
  * fields are preserved on round-trip (the builder edits the parsed object
@@ -9,16 +9,18 @@
 
 export const FORM_DOC_VERSION = 1;
 export const FORM_FILE_SUFFIX = ".lunaform";
-export const RESPONSES_SUFFIX = ".lunaform.responses";
+export const RESPONSES_SUFFIX = ".lunaform.responses.sqlite";
 
-/** `rsvp.lunaform` → `rsvp.lunaform.responses` (same folder). */
+/** `forms/rsvp.lunaform` → `forms/.rsvp.lunaform.responses.sqlite`. */
 export function responsesSiblingPath(formPath) {
   const path = String(formPath || "");
-  const lower = path.toLowerCase();
-  if (lower.endsWith(FORM_FILE_SUFFIX)) {
-    return path.slice(0, path.length - FORM_FILE_SUFFIX.length) + RESPONSES_SUFFIX;
-  }
-  return path + RESPONSES_SUFFIX;
+  const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  const dir = path.slice(0, slash + 1);
+  const name = path.slice(slash + 1);
+  const stem = name.toLowerCase().endsWith(FORM_FILE_SUFFIX)
+    ? name.slice(0, name.length - FORM_FILE_SUFFIX.length)
+    : name;
+  return `${dir}.${stem}${RESPONSES_SUFFIX}`;
 }
 
 /** A fresh, valid v1 form document. */
@@ -196,32 +198,9 @@ export function newEditToken() {
 }
 
 /**
- * Parse a responses JSONL file. Bad lines are skipped — the file is
- * append-only and hand-inspectable, so a torn line shouldn't kill the rest.
- *
- * @param {string} text
- * @returns {FormResponse[]}
- */
-export function parseResponsesJsonl(text) {
-  return String(text || "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
-      }
-    })
-    .filter((rec) => isObject(rec) && typeof rec.id === "string" && rec.id);
-}
-
-/**
- * Latest live record per response id — edits append a new line with the
- * same id, so the last line wins, and a `deleted` tombstone removes the
- * response. Order follows first submission, not last edit. The server
- * already sends this shape; running it again is harmless.
+ * Latest live record per response id. The server already sends one row per
+ * response; this keeps a merged or older payload in first-sent order and
+ * drops a deleted record if one appears.
  *
  * @param {FormResponse[]} records
  * @returns {FormResponse[]}
@@ -251,11 +230,6 @@ export function latestResponses(records) {
 export function responseSentAt(rec) {
   const sent = Number(rec?.sent_at);
   return Number.isFinite(sent) && sent > 0 ? sent : Number(rec?.at) || 0;
-}
-
-/** Count of unique responses in a JSONL payload (edits don't inflate it). */
-export function countResponses(text) {
-  return latestResponses(parseResponsesJsonl(text)).length;
 }
 
 /**

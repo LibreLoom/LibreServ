@@ -272,7 +272,7 @@ mod tests {
     #[test]
     fn quota_is_a_tenth_with_a_floor_and_a_ceiling() {
         assert_eq!(form_quota_bytes(32 * 1024 * MIB), MAX_FORM_QUOTA_BYTES);
-        assert_eq!(form_quota_bytes(4 * 1024 * MIB), 409 * MIB);
+        assert_eq!(form_quota_bytes(4 * 1024 * MIB), 4 * 1024 * MIB / 10);
         assert_eq!(form_quota_bytes(256 * MIB), MIN_FORM_QUOTA_BYTES);
         assert_eq!(form_quota_bytes(0), 0);
         // A tiny drive keeps half its space for everything that is not a form.

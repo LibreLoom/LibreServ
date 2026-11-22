@@ -2298,14 +2298,16 @@ pub fn restore_from_trash(
     for rel in &made {
         note_write(conn, drive_id, rel);
     }
-    crate::api::forms::repath_form_files_named(
-        &root,
-        &src,
-        trash_entry_name(&trash_rel).unwrap_or(&dest_name),
-        &root,
-        &dest,
-        &dest_name,
-    );
+    // A private item's disk name carries no extension, so use the restored
+    // name to decide whether this is a form and to name its files folder.
+    let from_name = if private_leaf.is_some() {
+        dest_name.to_string()
+    } else {
+        trash_entry_name(&trash_rel)
+            .unwrap_or(&dest_name)
+            .to_string()
+    };
+    crate::api::forms::repath_form_files_named(&root, &src, &from_name, &root, &dest, &dest_name);
     if let Some(parent) = dest.parent()
         && let Ok(dir) = std::fs::File::open(parent)
     {
@@ -2368,7 +2370,7 @@ pub fn purge_trash_at(drive: &DriveRow, drive_id: &str, trash_rel: &str) -> Resu
         std::fs::remove_dir_all(&path).map_err(FilesError::Io)?;
     } else {
         std::fs::remove_file(&path).map_err(FilesError::Io)?;
-        // A form's files folder and answers file go with it.
+        // A form's files folder and answers database go with it.
         crate::api::forms::remove_form_files(&root, &path);
     }
     crate::private::remove_under(&root, &trash_rel).map_err(FilesError::Db)?;

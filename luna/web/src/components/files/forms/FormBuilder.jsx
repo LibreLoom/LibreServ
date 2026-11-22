@@ -25,6 +25,7 @@ import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.j
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import ShareSheet from "../../share/ShareSheet.jsx";
 import EditorLoadingScreen from "../EditorLoadingScreen.jsx";
@@ -45,6 +46,7 @@ import {
   DEFAULT_THANK_YOU,
 } from "./questionTypes.js";
 import { apiErrorMessage } from "../../../lib/api.js";
+import { CAP } from "../../../lib/access.js";
 import {
   latestResponses,
   newQuestionId,
@@ -165,6 +167,8 @@ function BuilderSession({
   const responsesKey = ["form-responses", scope, path];
   const summaryKey = ["form-response-summary", scope, path];
   const solo = source.collab === false;
+  const canReadAnswers =
+    !source.guest || ((source.capsBits ?? 0) & CAP.EDIT) === CAP.EDIT;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(/** @type {string | null} */ (null));
   const [doc, setDoc] = useState(/** @type {any} */ (null));
@@ -217,36 +221,50 @@ function BuilderSession({
         // the Responses tab closed there is nothing to refresh — the first
         // open fetches the current page and summary.
         onFormResponse: () => {
+          // The aggregate stays fresh even on the Questions tab: it drives
+          // the "people have answered this" guard. The page itself is only
+          // refreshed while someone is looking at it.
+          queryClient.invalidateQueries({ queryKey: summaryKey });
+          queryClient.invalidateQueries({ queryKey: ["form-usage", scope, path] });
           const view = responsesViewRef.current;
           if (!view.open) return;
           queryClient.invalidateQueries({
             queryKey: [...responsesKey, view.offset],
           });
-          queryClient.invalidateQueries({ queryKey: summaryKey });
         },
       }),
   );
   syncRef.current = sync;
-  responsesViewRef.current = { open: tab === "responses", offset: pageOffset };
+  responsesViewRef.current = {
+    open: canReadAnswers && tab === "responses",
+    offset: pageOffset,
+  };
 
   const responsesQuery = useQuery({
     queryKey: [...responsesKey, pageOffset],
     queryFn: () =>
       source.formAnswers(driveId, path, { offset: pageOffset, limit: RESPONSES_PAGE_SIZE }),
-    enabled: tab === "responses",
-    // Keep the old page on screen while the next one loads, so the table and
-    // the page controls don't blink between offsets.
-    placeholderData: (previous) => previous,
+    enabled: tab === "responses" && canReadAnswers,
     staleTime: 15_000,
     refetchInterval: tab === "responses" ? 15_000 : false,
   });
   const summaryQuery = useQuery({
     queryKey: summaryKey,
     queryFn: () => source.formSummary(driveId, path),
-    enabled: tab === "responses" && typeof source.formSummary === "function",
+    // The aggregate is cheap and also powers the "people have answered
+    // this" guard while the Questions tab is open. The full page list stays
+    // lazy; only the summary is fetched outside Responses.
+    enabled: canReadAnswers && typeof source.formSummary === "function",
     staleTime: 15_000,
     refetchInterval: tab === "responses" ? 15_000 : false,
   });
+  const usageQuery = useQuery({
+    queryKey: ["form-usage", scope, path],
+    queryFn: () => source.formUsage(driveId, path),
+    enabled: typeof source.formUsage === "function",
+    staleTime: 30_000,
+  });
+  const usage = usageQuery.data;
   async function openDatabase() {
     if (!source.formSqlite || dbOpening) return;
     setDbOpening(true);
@@ -561,11 +579,19 @@ function BuilderSession({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-secondary/15 px-3">
         <SegmentedControl
-          options={[
-            { value: "questions", label: "Questions", icon: Pencil },
-            { value: "responses", label: `Responses${totalResponses ? ` (${totalResponses})` : ""}`, icon: ListChecks },
-          ]}
-          value={tab}
+          options={
+            canReadAnswers
+              ? [
+                  { value: "questions", label: "Questions", icon: Pencil },
+                  {
+                    value: "responses",
+                    label: `Responses${totalResponses ? ` (${totalResponses})` : ""}`,
+                    icon: ListChecks,
+                  },
+                ]
+              : [{ value: "questions", label: "Questions", icon: Pencil }]
+          }
+          value={canReadAnswers ? tab : "questions"}
           onChange={(v) => {
             setTab(v === "responses" ? "responses" : "questions");
           }}
@@ -592,6 +618,7 @@ function BuilderSession({
               ))}
             </span>
           )}
+          {!canWrite ? <Pill variant="muted">Read only</Pill> : null}
           {!source.guest && (
             <Button
               variant="ghost"
@@ -626,7 +653,7 @@ function BuilderSession({
             className="min-h-full"
             innerClassName="min-h-full"
           >
-              {tab === "responses" ? (
+              {canReadAnswers && tab === "responses" ? (
                 <FormResponses
                   driveId={driveId}
                   formPath={path}
@@ -638,6 +665,11 @@ function BuilderSession({
                   nextOffset={nextOffset}
                   summary={summary}
                   summaryLoading={summaryQuery.isLoading && !summary}
+                  summaryError={
+                    summaryQuery.isError
+                      ? apiErrorMessage(summaryQuery.error, "Luna couldn't load the totals.")
+                      : ""
+                  }
                   notice={answersNotice}
                   loading={responsesQuery.isLoading}
                   paging={responsesQuery.isFetching && !responsesQuery.isLoading}
@@ -658,11 +690,26 @@ function BuilderSession({
                   onDeleteResponse={async (id) => {
                     await source.deleteFormResponse(driveId, path, id);
                     queryClient.invalidateQueries({ queryKey: ["form-response-count", scope, path] });
+                    queryClient.invalidateQueries({ queryKey: ["form-usage", scope, path] });
                     await Promise.all([
                       queryClient.invalidateQueries({ queryKey: responsesKey }),
                       queryClient.invalidateQueries({ queryKey: summaryKey }),
                     ]);
                   }}
+                  onClearResponses={
+                    source.clearFormResponses
+                      ? async () => {
+                          await source.clearFormResponses(driveId, path);
+                          setPageOffset(0);
+                          queryClient.invalidateQueries({ queryKey: ["form-response-count", scope, path] });
+                          queryClient.invalidateQueries({ queryKey: ["form-usage", scope, path] });
+                          await Promise.all([
+                            queryClient.invalidateQueries({ queryKey: responsesKey }),
+                            queryClient.invalidateQueries({ queryKey: summaryKey }),
+                          ]);
+                        }
+                      : null
+                  }
                 />
               ) : (
                 <div className="mx-auto w-full max-w-2xl space-y-4 p-4 sm:p-6">
@@ -670,7 +717,7 @@ function BuilderSession({
                       this reads like the responder's first screen. */}
                   <div className="rounded-large-element surface-secondary p-5 space-y-3">
                     <input
-                      className="w-full bg-transparent font-mono text-xl font-normal text-primary outline-none no-focus-outline"
+                      className="w-full bg-transparent font-mono text-xl font-normal text-primary outline-none no-focus-outline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                       value={doc?.title || ""}
                       onChange={(e) => edit((ydoc) => setFormTitle(ydoc, e.target.value))}
                       placeholder="Form title"
@@ -678,7 +725,7 @@ function BuilderSession({
                       disabled={!canWrite}
                     />
                     <AutoGrowTextarea
-                      className="w-full resize-none bg-transparent text-sm text-primary outline-none no-focus-outline"
+                      className="w-full resize-none bg-transparent text-sm text-primary outline-none no-focus-outline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                       value={doc?.description || ""}
                       onChange={(value) => edit((ydoc) => setFormDescription(ydoc, value))}
                       placeholder="Say what this form is for (optional)"
@@ -795,7 +842,7 @@ function BuilderSession({
                       className="px-2 pt-1 font-mono text-base font-normal text-primary"
                     >Settings</h3>
 
-                    {!source.guest && (
+                    {!source.guest && canWrite && (
                       <SettingsGroup title="Collect responses">
                         <SettingRow
                           title="Share this form"
@@ -842,7 +889,7 @@ function BuilderSession({
                       <SettingRow
                         htmlFor="form-max-responses"
                         title="Stop after this many answers"
-                        description="Leave it empty for no limit. Changing an answer doesn't count as a new one."
+                        description="Leave it empty for no count limit; the form still stops when it fills its storage."
                       >
                         <FormInput
                           name="form-max-responses"
@@ -855,17 +902,31 @@ function BuilderSession({
                           value={settings.maxResponses ?? ""}
                           onChange={(e) => {
                             const raw = e.target.value;
-                            setSetting("maxResponses", raw === "" ? null : Number(raw));
+                            if (raw === "") {
+                              setSetting("maxResponses", null);
+                              return;
+                            }
+                            const n = Number(raw);
+                            // The field takes whole numbers of one or more.
+                            // Ignore a half-typed decimal or a zero instead of
+                            // clearing what the person already entered.
+                            if (!Number.isFinite(n) || n < 1) return;
+                            setSetting("maxResponses", Math.floor(n));
                           }}
                           disabled={!canWrite}
                           className="mb-0 w-36"
                         />
                       </SettingRow>
                     </SettingsGroup>
+                    {usage ? (
+                      <p className="px-2 text-xs tabular-nums text-primary">
+                        Storage used · {formatStorage(usage.used_bytes)} of {formatStorage(usage.quota_bytes)}
+                      </p>
+                    ) : null}
 
                     <SettingsGroup title="People answering">
                       <SettingRow
-                        title="Answers per person"
+                        title="Answers per browser"
                         description="Luna remembers each person in their browser. Someone can still answer again from another browser or device."
                       >
                         <SegmentedControl
@@ -876,7 +937,7 @@ function BuilderSession({
                           value={settings.responseLimit === "one" ? "one" : "unlimited"}
                           onChange={(v) => setSetting("responseLimit", v === "one" ? "one" : "unlimited")}
                           surface="primary"
-                          aria-label="Answers per person"
+                          aria-label="Answers per browser"
                         />
                       </SettingRow>
                       <Toggle
@@ -927,6 +988,7 @@ function BuilderSession({
               current ? { ...current, revision: next.revision } : current,
             );
             queryClient.invalidateQueries({ queryKey: ["form-response-count", scope, path] });
+            queryClient.invalidateQueries({ queryKey: ["form-usage", scope, path] });
             queryClient.invalidateQueries({ queryKey: responsesKey });
             queryClient.invalidateQueries({ queryKey: summaryKey });
             return next;
@@ -1334,7 +1396,7 @@ function QuestionCard({
 
       <input
         ref={labelRef}
-        className="w-full bg-transparent text-base text-primary outline-none no-focus-outline"
+        className="w-full bg-transparent text-base text-primary outline-none no-focus-outline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         value={question.label || ""}
         onChange={(e) => onPatch({ label: e.target.value })}
         placeholder="Type the question"
@@ -1345,7 +1407,7 @@ function QuestionCard({
       {/* The hint edits in place, where people will read it. */}
       {canWrite || question.help ? (
         <input
-          className="-mt-1 w-full bg-transparent text-sm text-primary outline-none no-focus-outline"
+          className="-mt-1 w-full bg-transparent text-sm text-primary outline-none no-focus-outline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           value={question.help || ""}
           onChange={(e) => onPatch({ help: e.target.value })}
           placeholder="Add a hint under the question (optional)"
@@ -2035,6 +2097,16 @@ PicturePicker.propTypes = {
   onPicked: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
 };
+
+/** A short storage figure for the form's quota line. */
+function formatStorage(bytes) {
+  const n = Number(bytes) || 0;
+  if (n === 0) return "0 KB";
+  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
+  const mb = n / (1024 * 1024);
+  if (mb < 1024) return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+  return `${(mb / 1024).toFixed(1)} GB`;
+}
 
 /** "+ Add a question" — the shared dropdown menu with an accent trigger. */
 function AddQuestionButton({ onAdd }) {

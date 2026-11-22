@@ -140,7 +140,7 @@ function responsePreview(entry, questions) {
  * title, description, every question that applies, then send. Skip rules
  * hide questions as answers change. There is no separate review step.
  *
- * "One answer per person" is a reminder stored in this browser, not a lock.
+ * "One answer per browser" is a reminder stored in this browser, not a lock.
  *
  * @param {{
  *   token: string,
@@ -206,6 +206,7 @@ function Responder({
   const [editNotice, setEditNotice] = useState("");
   const [errors, setErrors] = useState(/** @type {Record<string, string>} */ ({}));
   const [submitting, setSubmitting] = useState(false);
+  const [uploadsInFlight, setUploadsInFlight] = useState(0);
   const [submitError, setSubmitError] = useState("");
   /** "form" while filling in; "done" for the sent / answered-before screen. */
   const [stage, setStage] = useState(
@@ -349,6 +350,10 @@ function Responder({
 
   async function submit() {
     if (submitting) return;
+    if (uploadsInFlight > 0) {
+      setSubmitError("Wait for the file to finish attaching, then send.");
+      return;
+    }
     const found = validate();
     if (Object.keys(found).length) {
       setErrors(found);
@@ -356,6 +361,8 @@ function Responder({
       if (first) {
         const el = document.getElementById(`q-${first.id}`);
         el?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+        const field = el?.querySelector?.("input, textarea, select, button");
+        if (field instanceof HTMLElement) field.focus();
         // shakeElement fires the error haptic with the shake.
         shakeElement(el);
       }
@@ -544,6 +551,9 @@ function Responder({
                           token={token}
                           sharePassword={sharePassword}
                           onAnswer={(value) => setAnswer(question.id, value)}
+                          onUploadBusy={(busy) =>
+                            setUploadsInFlight((n) => Math.max(0, n + (busy ? 1 : -1)))
+                          }
                         />
                       </div>
                     </Motion.section>
@@ -555,8 +565,19 @@ function Responder({
 
               {shown.length > 0 && (
                 <Motion.div layout="position" transition={SPRING} className="flex justify-end">
-                  <Button variant="secondary" surface="primary" type="submit" disabled={submitting}>
-                    {submitting ? "Sending…" : isEdit ? "Save changes" : "Send answers"}
+                  <Button
+                    variant="secondary"
+                    surface="primary"
+                    type="submit"
+                    disabled={submitting || uploadsInFlight > 0}
+                  >
+                    {uploadsInFlight > 0
+                      ? "Attaching…"
+                      : submitting
+                        ? "Sending…"
+                        : isEdit
+                          ? "Save changes"
+                          : "Send answers"}
                     <Send size={ICON_SIZE.sm} aria-hidden="true" />
                   </Button>
                 </Motion.div>
@@ -641,7 +662,7 @@ function DoneScreen({ title, editLink, canEdit, editCount, canRespondAgain, limi
         </div>
         {limitOne && (
           <p className="text-xs text-secondary">
-            This form takes one response per person.
+            This form takes one response per browser.
           </p>
         )}
       </div>
@@ -827,9 +848,18 @@ ChoicePill.propTypes = {
  *   token: string,
  *   sharePassword?: string,
  *   onAnswer: (value: unknown) => void,
+ *   onUploadBusy?: (busy: boolean) => void,
  * }} props
  */
-function QuestionField({ question, value, error, token, sharePassword, onAnswer }) {
+function QuestionField({
+  question,
+  value,
+  error,
+  token,
+  sharePassword,
+  onAnswer,
+  onUploadBusy,
+}) {
   const options = answerOptions(question);
   const allowOther = question?.config?.allowOther === true;
   const picked = Array.isArray(value) ? value.map(String) : value != null && value !== "" ? [String(value)] : [];
@@ -862,6 +892,7 @@ function QuestionField({ question, value, error, token, sharePassword, onAnswer 
       return;
     }
     setUploading(true);
+    onUploadBusy?.(true);
     setUploadError("");
     try {
       const body = new FormData();
@@ -885,6 +916,7 @@ function QuestionField({ question, value, error, token, sharePassword, onAnswer 
       setUploadError(apiErrorMessage(err, "Luna couldn't attach that file. Try again."));
     } finally {
       setUploading(false);
+      onUploadBusy?.(false);
     }
   }
 
@@ -1147,4 +1179,5 @@ QuestionField.propTypes = {
   token: PropTypes.string.isRequired,
   sharePassword: PropTypes.string,
   onAnswer: PropTypes.func.isRequired,
+  onUploadBusy: PropTypes.func,
 };

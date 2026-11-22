@@ -132,6 +132,8 @@ export const CASES = {
   "GET /api/v1/access/mine": plain("/api/v1/access/mine"),
   "GET /api/v1/me/access": plain("/api/v1/me/access"),
   "GET /api/v1/forms/responses": onDrive((w, d) => `/api/v1/forms/responses?drive_id=${q(d)}&path=${q("Documents/form.lform")}`),
+  "GET /api/v1/forms/summary": { skip: "New route; the contract fixture is rewritten by a full luna run." },
+  "GET /api/v1/forms/usage": { skip: "New route; the contract fixture is rewritten by a full luna run." },
   "GET /api/v1/forms/file": { skip: "file bytes in lunad, not JSON" },
   "GET /s/:token": { url: (w) => { const l = openLink(w); return l ? `/s/${q(l.token)}` : null; } },
   "GET /s/:token/items": { url: (w) => { const l = openLink(w); return l ? `/s/${q(l.token)}/items` : null; } },

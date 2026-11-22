@@ -339,6 +339,9 @@ export default function FullscreenEditorFrame({
     } else {
       setHasUnsaved(false);
       setSaveError("");
+      // A conflict reload or a save can clear the dirty flag while the
+      // save-and-close guard is open; do not leave a stale modal behind.
+      setConfirmClose(false);
     }
   }, []);
 

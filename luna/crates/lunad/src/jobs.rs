@@ -528,10 +528,14 @@ fn prepare(
 /// Bytes in a form's own files folder (question pictures, attachments) —
 /// copied along with the form, unlike other Luna-owned names.
 fn form_files_total(root: &Path, form: &Path) -> u64 {
-    crate::api::forms::files_dir_for(root, form)
+    let attachments = crate::api::forms::files_dir_for(root, form)
         .filter(|dir| std::fs::symlink_metadata(dir).is_ok_and(|m| m.is_dir()))
         .map(|dir| walk_total_lossy(&dir))
-        .unwrap_or(0)
+        .unwrap_or(0);
+    let answers = crate::api::forms::responses_db_for(root, form)
+        .map(|db| crate::api::forms::store::db_bytes(&db))
+        .unwrap_or(0);
+    attachments.saturating_add(answers)
 }
 
 fn walk_total_lossy(dir: &Path) -> u64 {
@@ -712,7 +716,7 @@ fn run_job(
         match files::try_rename_move(&prepared.src, &prepared.dest) {
             Ok(true) => {
                 if let Ok(conn) = db.lock() {
-                    // A form's files folder and answers file follow it.
+                    // A form's files folder and answers database follow it.
                     if let (Ok(from), Ok(to)) = (
                         files::drive_root(&conn, &prepared.row.from_drive),
                         files::drive_root(&conn, &prepared.row.to_drive),
@@ -1225,12 +1229,6 @@ fn copy_form_files(
     if !crate::api::forms::is_form_file(dest) {
         return Ok(());
     }
-    let Some(from_dir) = crate::api::forms::files_dir_for(&ctx.src_root, src) else {
-        return Ok(());
-    };
-    if !std::fs::symlink_metadata(&from_dir).is_ok_and(|m| m.is_dir()) {
-        return Ok(());
-    }
     let to_root = {
         let conn = ctx
             .db
@@ -1238,12 +1236,35 @@ fn copy_form_files(
             .map_err(|_| JobError::Db(anyhow::anyhow!("db busy")))?;
         PathBuf::from(files::drive_root(&conn, &ctx.row.to_drive)?.mount_point)
     };
+    // The answers database is not inside the files folder, so a lone-form
+    // copy would otherwise lose it. Snapshot it first, even when the form
+    // has no attachments at all; a folder copy may already have copied the
+    // raw file, and this replaces that with a consistent snapshot.
+    if let (Some(from_db), Some(to_db)) = (
+        crate::api::forms::responses_db_for(&ctx.src_root, src),
+        crate::api::forms::responses_db_for(&to_root, dest),
+    ) && from_db.is_file()
+        && let Err(e) = crate::api::forms::store::snapshot_db(&from_db, &to_db)
+    {
+        return Err(JobError::Io(std::io::Error::other(e)));
+    }
+    let Some(from_dir) = crate::api::forms::files_dir_for(&ctx.src_root, src) else {
+        return Ok(());
+    };
+    if !std::fs::symlink_metadata(&from_dir).is_ok_and(|m| m.is_dir()) {
+        return Ok(());
+    }
     let Some(to_dir) = crate::api::forms::files_dir_for(&to_root, dest) else {
         return Ok(());
     };
     let result = copy_plain_tree(&from_dir, &to_dir, st, count_bytes);
     if result.is_err() {
         let _ = std::fs::remove_dir_all(&to_dir);
+        // The DB snapshot was written first; a failed copy must not leave
+        // answers behind for a form that never arrived.
+        if let Some(db) = crate::api::forms::responses_db_for(&to_root, dest) {
+            crate::api::forms::store::remove_db_files(&db);
+        }
     }
     result
 }

@@ -234,11 +234,13 @@ impl AppState {
                 std::time::Duration::from_secs(60),
                 20,
             )),
-            // Form answers arrive one submit at a time; a burst per IP is spam.
+            // Per-address form work. This is deliberately looser than the
+            // per-form budget: one school or office NAT must be able to send
+            // a class's answers, while the form bucket still bounds a flood.
             form_respond_limiter: Arc::new(crate::rate_limit::RateLimiter::new(
                 db.clone(),
                 std::time::Duration::from_secs(60),
-                12,
+                crate::api::form_limits::submit_per_minute().saturating_mul(2),
             )),
             // A whole form's answer budget per minute, from every address
             // together. A real classroom stays far below it; a rotating-IP

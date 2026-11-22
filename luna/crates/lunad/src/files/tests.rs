@@ -252,14 +252,17 @@ fn a_forms_answers_stay_inside_the_private_folder() {
     create(&conn, &id, "Mine/rsvp.lunaform").unwrap();
     let form = root.join(crate::private::disk_rel(&root, "Mine/rsvp.lunaform"));
     let answers = crate::api::forms::responses_file_for(&root, &form).unwrap();
-    std::fs::write(&answers, b"{}").unwrap();
-    // Ordinary form inside a private folder: the answers sibling keeps the
-    // ordinary name and sits inside the same private disk directory.
-    assert_eq!(answers, form.with_file_name(".rsvp.lunaform.responses"));
+    crate::api::forms::store::FormStore::open(&answers).unwrap();
+    // Ordinary form inside a private folder: the answers sidecar keeps the
+    // ordinary hidden name and sits inside the same private disk directory.
+    assert_eq!(
+        answers,
+        form.with_file_name(".rsvp.lunaform.responses.sqlite")
+    );
     assert!(
         files_in(&root.join(crate::private::disk_rel(&root, "Mine")))
             .iter()
-            .any(|n| n == ".rsvp.lunaform.responses")
+            .any(|n| n == ".rsvp.lunaform.responses.sqlite")
     );
 }
 
@@ -584,7 +587,10 @@ fn make_form(root: &std::path::Path, dir: &str, name: &str) {
     std::fs::create_dir_all(&files).unwrap();
     std::fs::write(files.join("pic.png"), b"png").unwrap();
     let responses = crate::api::forms::responses_file_for(root, &form).unwrap();
-    std::fs::write(responses, b"{}\n").unwrap();
+    let mut store = crate::api::forms::store::FormStore::open(&responses).unwrap();
+    let mut answers = serde_json::Map::new();
+    answers.insert("q_1".into(), serde_json::Value::String("Yes".into()));
+    store.insert("r_1", "h", 1, &answers).unwrap();
 }
 
 fn form_parts_exist(root: &std::path::Path, form: &std::path::Path) -> (bool, bool) {

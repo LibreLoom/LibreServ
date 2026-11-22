@@ -531,7 +531,7 @@ pub(super) async fn create_link(
         ));
     }
     if caps == CAP_RESPOND {
-        // A respond link lets strangers append to the responses file — the
+        // A respond link lets strangers add answers to the form database — the
         // creator needs upload or edit access to allow that.
         if mine & (CAP_UPLOAD | CAP_EDIT) == 0 {
             return Err(json_error(

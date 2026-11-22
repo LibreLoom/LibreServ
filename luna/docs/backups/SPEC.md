@@ -50,7 +50,7 @@ A drive backup lives entirely on the backup drive: if the drive moves to another
 ## 4. What is included
 
 - Everything under the source except Luna's own names (`luna_core::marker::extract_prefix` matches the segment, for any drive's UUID: trash, thumbnails, upload parts, other backups, markers, the drive database file) and **private items at any depth**. A user's own `.luna-notes` is included.
-- Each form's attachments folder and answers file travel with the form. Albums are exported as data. Favorites are not backed up.
+- Each form's attachments folder and SQLite answers sidecar travel with the form. A live answers database is copied through a SQLite snapshot, never as a raw open file; its `-journal`/`-wal`/`-shm` files are skipped. Albums are exported as data. Favorites are not backed up.
 - Files only. Empty folders are not kept. Symlinks and names that are not valid text are not followed (**gap**: they are skipped without a word; REVIEW F-21).
 - Adopted from the code, not from the plans: only folders and whole drives can be backed up, and an encrypted drive's files only go to an encrypted backup drive, checked at creation and on every run.
 - A file moved **into** a private item stays in the shared backup's earlier versions until normal retention removes them; from the move on only the private item's own backup covers it. A file moved **out** joins the shared backup on the next run.

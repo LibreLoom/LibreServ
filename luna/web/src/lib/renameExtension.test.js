@@ -45,7 +45,7 @@ describe("renameExtensionWarning", () => {
   it("uses the form message when a form loses .lunaform", () => {
     const w = renameExtensionWarning("Survey.lunaform", "Survey.txt");
     expect(w?.kind).toBe("form");
-    expect(w?.message).toBe("Its answers will stay in Survey.lunaform.responses.");
+    expect(w?.message).toBe("Its answers will stay in .Survey.lunaform.responses.sqlite.");
     expect(renameExtensionWarning("Survey.LunaForm", "Survey")?.kind).toBe("form");
   });
   it("does not warn when a form keeps .lunaform", () => {

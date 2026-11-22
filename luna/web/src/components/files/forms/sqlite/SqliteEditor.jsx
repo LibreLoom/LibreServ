@@ -79,6 +79,30 @@ function keyValuesFor(table, row) {
   });
 }
 
+/**
+ * Why this row cannot be changed safely from the grid, or "" when it can.
+ * A NULL key matches nothing and a 64-bit key beyond 2^53 has already been
+ * rounded by sql.js, so either one could update a different row.
+ *
+ * @param {any} table
+ * @param {any[]} row
+ */
+function keyProblem(table, row) {
+  const values = keyValuesFor(table, row);
+  if (!values.length) {
+    return "This table has no primary key, so its rows can't be changed.";
+  }
+  for (const value of values) {
+    if (value == null) {
+      return "This row's key is empty, so it can't be changed here. Use SQL.";
+    }
+    if (typeof value === "number" && !Number.isSafeInteger(value)) {
+      return "This row's key is too large to edit safely. Use SQL to change it.";
+    }
+  }
+  return "";
+}
+
 /** What the run shortcut is called on this machine. */
 const RUN_SHORTCUT =
   typeof navigator !== "undefined" &&
@@ -215,6 +239,7 @@ function SqliteEditorSession({
   const mountedRef = useRef(true);
   const revisionRef = useRef(revision);
   const dirtyRef = useRef(false);
+  const mutationVersionRef = useRef(0);
   const savingRef = useRef(false);
   const workingRef = useRef(false);
   const runningRef = useRef(false);
@@ -247,6 +272,9 @@ function SqliteEditorSession({
   const busy = saving || working || running;
 
   const markDirty = useCallback(() => {
+    // Count every mutation, even while already dirty: a save that started
+    // before this change must not report the newer state as saved.
+    mutationVersionRef.current += 1;
     if (dirtyRef.current) return;
     dirtyRef.current = true;
     setDirty(true);
@@ -262,6 +290,9 @@ function SqliteEditorSession({
   const loadTable = useCallback(
     async (table, page, client = clientRef.current) => {
       if (!client || !table) return;
+      if (selectedTableRef.current && selectedTableRef.current !== table.name) {
+        return;
+      }
       const token = (gridTokenRef.current += 1);
       setGrid((current) => ({ ...current, loading: true, error: "" }));
       const started = performance.now();
@@ -290,11 +321,15 @@ function SqliteEditorSession({
         });
       } catch (error) {
         if (token !== gridTokenRef.current) return;
+        const message = apiErrorMessage(error, "Luna couldn't load this table.");
         setGrid((current) => ({
           ...current,
+          rows: [],
+          total: 0,
           loading: false,
-          error: apiErrorMessage(error, "Luna couldn't load this table."),
+          error: message,
         }));
+        setGridError(message);
       }
     },
     [],
@@ -367,7 +402,7 @@ function SqliteEditorSession({
     (async () => {
       try {
         created = createSqliteClient();
-        const opened = await created.open(sourceBytes);
+        const opened = await created.open(sourceBytes, { readOnly: !canWrite });
         if (cancelled) {
           created.dispose();
           return;
@@ -385,9 +420,13 @@ function SqliteEditorSession({
         console.error("SQLite editor failed to open the database", error);
         if (!cancelled) {
           const raw = apiErrorMessage(error, "");
+          const browserProblem =
+            /browser can't run|webassembly|wasm|worker|content security|compile/i.test(
+              raw,
+            );
           setLoadError(
-            /browser can't run/i.test(raw)
-              ? raw
+            browserProblem
+              ? "This browser couldn't start the database editor. Try a newer browser or turn off strict site blocking."
               : "Luna couldn't open this database. The file may be damaged.",
           );
           setLoading(false);
@@ -401,16 +440,25 @@ function SqliteEditorSession({
       clientRef.current = null;
       client?.dispose();
     };
-  }, [tooLarge, sourceBytes, loadTable]);
+  }, [tooLarge, sourceBytes, loadTable, canWrite]);
 
   const save = useCallback(async () => {
     const client = clientRef.current;
     if (!client || savingRef.current) return false;
     savingRef.current = true;
     setSaving(true);
+    const version = mutationVersionRef.current;
     try {
       const bytes = await client.exportBytes();
+      if (bytes.byteLength > MAX_DATABASE_BYTES) {
+        throw new Error(
+          `This database grew past ${formatBytes(MAX_DATABASE_BYTES)}. Remove data and run VACUUM before saving.`,
+        );
+      }
       const result = await onSave(bytes, revisionRef.current);
+      if (mutationVersionRef.current !== version) {
+        throw new Error("A change was made while saving. Save again.");
+      }
       if (result && result.revision !== undefined) {
         revisionRef.current = result.revision;
       }
@@ -420,6 +468,12 @@ function SqliteEditorSession({
       if (isConflictError(error)) {
         setConflictError("");
         setConflict(true);
+      }
+      const raw = String(error?.message || "");
+      if (/SQLite is busy or locked|active write transaction/i.test(raw)) {
+        throw new Error(
+          "Finish the open transaction with COMMIT, or undo it with ROLLBACK, before saving.",
+        );
       }
       throw error;
     } finally {
@@ -433,6 +487,15 @@ function SqliteEditorSession({
     onRegisterSave(save);
     return () => onRegisterSave(null);
   }, [canWrite, ready, save, onRegisterSave]);
+
+  // An open cell editor is unsaved work even before its value reaches the
+  // worker. Closing the frame must ask instead of discarding what was typed.
+  const handleCellEditing = useCallback(
+    (active) => {
+      onSaveStateChange(active ? true : dirtyRef.current);
+    },
+    [onSaveStateChange],
+  );
 
   const runSql = useCallback(async () => {
     const client = clientRef.current;
@@ -519,6 +582,7 @@ function SqliteEditorSession({
 
   const updateCell = useCallback(
     async (rowIndex, column, raw) => {
+      workingRef.current = true;
       setWorking(true);
       setGridError("");
       try {
@@ -533,11 +597,8 @@ function SqliteEditorSession({
             "That row is no longer on this page. Reload the table.",
           );
         }
-        if (!table.primaryKey.length) {
-          throw new Error(
-            "This table has no primary key, so its rows can't be changed.",
-          );
-        }
+        const keyIssue = keyProblem(table, row);
+        if (keyIssue) throw new Error(keyIssue);
         const columnIndex = table.columns.findIndex(
           (entry) => entry.name === column.name,
         );
@@ -568,6 +629,7 @@ function SqliteEditorSession({
         );
         throw error;
       } finally {
+        workingRef.current = false;
         setWorking(false);
       }
     },
@@ -581,6 +643,7 @@ function SqliteEditorSession({
         (entry) => entry.name === selectedTableRef.current,
       ) || null;
     if (!client || !table || busy) return;
+    workingRef.current = true;
     setWorking(true);
     setGridError("");
     const built = buildInsertRowSql(table.name);
@@ -588,6 +651,7 @@ function SqliteEditorSession({
       await client.exec(built.sql);
     } catch (error) {
       setGridError(apiErrorMessage(error, "Luna couldn't add a row."));
+      workingRef.current = false;
       setWorking(false);
       return;
     }
@@ -602,7 +666,8 @@ function SqliteEditorSession({
         apiErrorMessage(error, "The row was added, but the table didn't reload. Use Reload table."),
       );
     } finally {
-      setWorking(false);
+      workingRef.current = false;
+        setWorking(false);
     }
   }, [addToast, busy, markDirty, reloadTable]);
 
@@ -614,6 +679,8 @@ function SqliteEditorSession({
     setDeleteBusy(true);
     setDeleteError("");
     try {
+      const keyIssue = keyProblem(table, row);
+      if (keyIssue) throw new Error(keyIssue);
       const built = buildDeleteRowSql({
         table: table.name,
         primaryKey: table.primaryKey,
@@ -672,10 +739,12 @@ function SqliteEditorSession({
               newName: columnName,
             });
 
+      workingRef.current = true;
       setWorking(true);
       try {
         await client.exec(built.sql);
       } catch (error) {
+        workingRef.current = false;
         setWorking(false);
         throw new Error(
           apiErrorMessage(error, "Luna couldn't change that column."),
@@ -698,6 +767,7 @@ function SqliteEditorSession({
           ),
         );
       } finally {
+        workingRef.current = false;
         setWorking(false);
       }
     },
@@ -808,15 +878,13 @@ function SqliteEditorSession({
   const statusText = running
     ? "Running query…"
     : panel === "query" && query
-      ? `${formatCount(query.rowCount)} ${
-          query.rowCount === 1 ? "row" : "rows"
-        }${
-          query.truncated
-            ? query.rows.length
-              ? ` · first ${formatCount(query.rows.length)} shown`
-              : " · too large to show"
-            : ""
-        } · ${query.ms} ms`
+      ? query.truncated
+        ? query.rows.length
+          ? `${formatCount(query.rows.length)} rows shown · more not shown · ${query.ms} ms`
+          : `Result too large to show · ${query.ms} ms`
+        : `${formatCount(query.rowCount)} ${
+            query.rowCount === 1 ? "row" : "rows"
+          } · ${query.ms} ms`
       : selected
         ? `${formatCount(grid.total)} ${
             grid.total === 1 ? "row" : "rows"
@@ -910,6 +978,7 @@ function SqliteEditorSession({
                         setSelectedTable(table.name);
                         setPanel("table");
                         setGridError("");
+                        setGrid({ ...EMPTY_GRID, loading: true });
                         void loadTable(table, 1);
                       }}
                     >
@@ -936,7 +1005,11 @@ function SqliteEditorSession({
                 {!canWrite ? <Pill variant="accent">Read-only</Pill> : null}
                 <InfoHint
                   surface="primary"
-                  content="Changes stay in this browser until you save. Reloading the form without saving discards them."
+                  content={
+                    canWrite
+                      ? "Changes stay in this browser until you save. Reloading the form without saving discards them."
+                      : "This database is open read-only, so changes cannot be saved."
+                  }
                   label="About saving"
                 />
                 <span className="min-w-0 flex-1" />
@@ -1106,6 +1179,7 @@ function SqliteEditorSession({
                       </div>
                     ) : (
                       <SqliteGrid
+                  truncated={grid.truncated}
                         table={selected}
                         rows={grid.rows}
                         total={grid.total}
@@ -1124,6 +1198,7 @@ function SqliteEditorSession({
                         onDeleteRow={(row) =>
                           setDeleteTarget({ table: selected, row })
                         }
+                        onEditingChange={handleCellEditing}
                       />
                     )}
                   </div>

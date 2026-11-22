@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import { motion as Motion } from "motion/react";
-import { ChevronLeft, ChevronRight, Database, Download, Inbox, RefreshCw, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Database, Download, Eye, Inbox, RefreshCw, Trash2 } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
@@ -53,6 +53,7 @@ import { cn } from "@libreloom/ui/lib/utils.js";
  *   nextOffset?: number | null,
  *   summary?: FormSummary | null,
  *   summaryLoading?: boolean,
+ *   summaryError?: string,
  *   notice?: string,
  *   loading?: boolean,
  *   paging?: boolean,
@@ -64,6 +65,7 @@ import { cn } from "@libreloom/ui/lib/utils.js";
  *   onPageChange?: (offset: number) => void,
  *   onRefresh?: () => void,
  *   onDeleteResponse?: (id: string) => Promise<unknown>,
+ *   onClearResponses?: (() => Promise<unknown>) | null,
  * }} props
  */
 export default function FormResponses({
@@ -77,6 +79,7 @@ export default function FormResponses({
   nextOffset = null,
   summary = null,
   summaryLoading = false,
+  summaryError = "",
   notice = "",
   loading = false,
   paging = false,
@@ -88,6 +91,7 @@ export default function FormResponses({
   onPageChange,
   onRefresh,
   onDeleteResponse,
+  onClearResponses,
 }) {
   const source = useFileSource();
   const { addToast } = useToast();
@@ -95,6 +99,9 @@ export default function FormResponses({
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState("");
 
   function fileHref(name) {
     if (!driveId || typeof name !== "string" || !isAllowedUploadName(name)) return "";
@@ -188,6 +195,23 @@ export default function FormResponses({
     }
   }
 
+  async function clearAll() {
+    if (!onClearResponses) return;
+    setClearing(true);
+    setClearError("");
+    try {
+      await onClearResponses();
+      setConfirmClear(false);
+      addToast({ type: "success", message: "All answers deleted" });
+    } catch (err) {
+      setClearError(
+        apiErrorMessage(err, "Luna couldn't delete the answers. Try again."),
+      );
+    } finally {
+      setClearing(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex h-full min-h-64 items-center justify-center" role="status" aria-label="Loading answers">
@@ -209,6 +233,7 @@ export default function FormResponses({
     <div className="mx-auto w-full max-w-3xl space-y-4 p-4 sm:p-6">
       {error && <PageNotice variant="error">{error}</PageNotice>}
       {notice && <PageNotice variant="warning">{notice}</PageNotice>}
+      {summaryError && <PageNotice variant="warning">{summaryError}</PageNotice>}
 
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="font-mono text-lg text-secondary">
@@ -236,7 +261,8 @@ export default function FormResponses({
             variant="outline"
             surface="primary"
             size="sm"
-            disabled={openingDatabase}
+            disabled={openingDatabase || total === 0}
+            tooltip={total === 0 ? "No answers to open yet" : undefined}
             onClick={onOpenDatabase}
           >
             <Database size={ICON_SIZE.sm} aria-hidden="true" />
@@ -268,7 +294,11 @@ export default function FormResponses({
           <EmptyState
             icon={Inbox}
             title="No responses yet"
-            description="Share a link to the form. Responses show here when people send them."
+            description={
+              canDelete
+                ? "Share a link to the form. Responses show here when people send them."
+                : "Responses show here when people send them."
+            }
           />
         )
       ) : (
@@ -380,9 +410,59 @@ export default function FormResponses({
                     </span>
                   ),
                 })),
+                {
+                  key: "open",
+                  label: "Open",
+                  srOnly: true,
+                  render: (rec) => (
+                    <Button
+                      variant="ghost"
+                      surface="secondary"
+                      size="iconSm"
+                      aria-label={`View response sent ${formatSent(rec)}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setDeleteError("");
+                        setOpenId(rec.id);
+                      }}
+                    >
+                      <Eye size={ICON_SIZE.sm} aria-hidden="true" />
+                    </Button>
+                  ),
+                },
               ]}
             />
           </div>
+
+          {/* The top pager is far away once a phone has scrolled a page of
+              cards. A second one sits after the rows for the same reason. */}
+          <nav
+            aria-label="Response pages"
+            className="flex items-center justify-end gap-2"
+          >
+            <Button
+              variant="outline"
+              surface="primary"
+              size="sm"
+              disabled={offset === 0 || paging}
+              onClick={() => onPageChange?.(Math.max(0, offset - pageSize))}
+            >
+              <ChevronLeft size={ICON_SIZE.sm} aria-hidden="true" />
+              Previous page
+            </Button>
+            <Button
+              variant="outline"
+              surface="primary"
+              size="sm"
+              disabled={!hasNext || paging}
+              onClick={() => {
+                if (typeof nextPage === "number") onPageChange?.(nextPage);
+              }}
+            >
+              Next page
+              <ChevronRight size={ICON_SIZE.sm} aria-hidden="true" />
+            </Button>
+          </nav>
         </>
       )}
 
@@ -452,6 +532,37 @@ export default function FormResponses({
         onClose={() => !deleting && setConfirmDelete(false)}
         onConfirm={deleteOpen}
       />
+
+      {canDelete && onClearResponses && total > 0 ? (
+        <div className="flex justify-end border-t border-secondary/15 pt-4">
+          <Button
+            variant="danger"
+            surface="primary"
+            size="sm"
+            haptic={false}
+            onClick={() => {
+              setClearError("");
+              setConfirmClear(true);
+            }}
+          >
+            <Trash2 size={ICON_SIZE.sm} aria-hidden="true" />
+            Clear all answers
+          </Button>
+        </div>
+      ) : null}
+
+      <ConfirmModal
+        open={confirmClear}
+        variant="danger"
+        title="Clear all answers?"
+        message="Luna deletes every answer and every respondent attachment. Pictures on the questions stay. You can't undo this."
+        confirmLabel="Clear all"
+        loading={clearing}
+        error={clearError || null}
+        overlayClassName={NESTED_OVERLAY_CLASS}
+        onClose={() => !clearing && setConfirmClear(false)}
+        onConfirm={clearAll}
+      />
     </div>
   );
 }
@@ -467,6 +578,7 @@ FormResponses.propTypes = {
   nextOffset: PropTypes.number,
   summary: PropTypes.object,
   summaryLoading: PropTypes.bool,
+  summaryError: PropTypes.string,
   notice: PropTypes.string,
   loading: PropTypes.bool,
   paging: PropTypes.bool,
@@ -478,6 +590,7 @@ FormResponses.propTypes = {
   onOpenDatabase: PropTypes.func,
   onRefresh: PropTypes.func,
   onDeleteResponse: PropTypes.func,
+  onClearResponses: PropTypes.func,
 };
 
 /**
@@ -536,9 +649,9 @@ function BarSummary({ question, entry }) {
         return (
           <div key={label} className="flex items-center gap-2 text-sm">
             <span className="w-32 shrink-0 truncate text-primary" title={label}>{label}</span>
-            <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-pill surface-primary p-px">
+            <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-pill bg-primary/10 p-px">
               <Motion.div
-                className="h-full rounded-pill surface-secondary"
+                className="h-full rounded-pill surface-primary"
                 initial={{ width: 0 }}
                 animate={{ width: `${Math.round(share * 100)}%` }}
                 transition={{ type: "spring", stiffness: 180, damping: 26 }}

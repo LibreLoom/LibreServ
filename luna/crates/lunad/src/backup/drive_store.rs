@@ -200,6 +200,39 @@ impl Store {
         src_meta: &std::fs::Metadata,
         now: i64,
     ) -> std::io::Result<Put> {
+        // A live answers database is copied through SQLite's own snapshot,
+        // never as a raw file: a hot journal or an in-flight write would
+        // otherwise leave a torn backup.
+        if rel.ends_with(".lunaform.responses.sqlite") {
+            self.check_dirs()?;
+            let tmp = self.current_dir().join(format!(
+                ".luna-{}-form-snapshot.sqlite",
+                uuid::Uuid::new_v4().simple()
+            ));
+            if let Err(e) = crate::api::forms::store::snapshot_db(src, &tmp) {
+                let _ = fs::remove_file(&tmp);
+                tracing::warn!(
+                    path = %src.display(),
+                    error = %e,
+                    "could not snapshot a form database; copying the file as-is"
+                );
+                return self.put_inner(rel, src, src_meta, now);
+            }
+            let meta = fs::metadata(&tmp)?;
+            let result = self.put_inner(rel, &tmp, &meta, now);
+            let _ = fs::remove_file(&tmp);
+            return result;
+        }
+        self.put_inner(rel, src, src_meta, now)
+    }
+
+    fn put_inner(
+        &self,
+        rel: &str,
+        src: &Path,
+        src_meta: &std::fs::Metadata,
+        now: i64,
+    ) -> std::io::Result<Put> {
         let segs = rel_segments(rel)?;
         self.check_dirs()?;
         let dst = join_rel(&self.current_dir(), &segs);

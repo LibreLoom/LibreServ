@@ -829,7 +829,7 @@ describe("FilePage", () => {
       renderFiles();
       await startRename("Survey.lunaform", "Survey.txt");
       expect(await screen.findByText("Stop treating this as a form?")).toBeInTheDocument();
-      expect(screen.getByText("Its answers will stay in Survey.lunaform.responses.")).toBeInTheDocument();
+      expect(screen.getByText("Its answers will stay in .Survey.lunaform.responses.sqlite.")).toBeInTheDocument();
       expect(screen.queryByText(/Change \.lunaform/)).not.toBeInTheDocument();
       expect(renameCall(fetchMock)).toBeUndefined();
     });
