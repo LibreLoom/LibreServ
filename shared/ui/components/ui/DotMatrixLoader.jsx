@@ -4,40 +4,43 @@ import PropTypes from "prop-types";
 import { cn } from "../../lib/utils";
 
 const DOT_PITCH = 18; // 18px grid: a fine field of dots across the whole viewport
-const REST_DOT_RADIUS = 1.35; // a delicate 2.7px resting dot
-const CREST_DOT_RADIUS = 2.2; // crest dots swell to ~4.4px
-const WAVE_PERIOD_MS = 4200; // crests pass a fixed point every 4.2s
-const WAVE_LENGTH = 560; // crest-to-crest distance along the sweep
-const WAVE_STEP = WAVE_LENGTH / Math.SQRT2; // diagonal translation per cycle
-const SWELL_SHARE = 0.78; // fraction of the period lit by one swell
-const RESTING_ALPHA = 0.1; // the field between crests
-const CREST_ALPHA = 0.72; // the field under a crest
-const REDUCED_ALPHA = 0.16; // static field when motion is reduced
+const DOT_RADIUS = 1.5; // the original delicate 3px dots
+const WAVE_PERIOD_MS = 5400; // one slow swell every 5.4s
+const RESTING_ALPHA = 0.08; // the field at rest
+const CREST_ALPHA = 0.7; // under the crest of the swell
+const REDUCED_ALPHA = 0.2; // static field when motion is reduced
+
+// The wave is measured in (container width + height), which is exactly how
+// wide the old 300%-band's bright swell appeared on screen. The swell is
+// ~1.3x the field's diagonal, so only one broad crest is ever in view; the
+// short, fully transparent gap after it means the field never goes dark and
+// the repeating pattern can loop without a jump.
+const SWELL_SHARE = 0.933;
+const GAP_SHARE = 0.3;
+const PERIOD_SHARE = SWELL_SHARE + GAP_SHARE;
+const TRAVEL_SHARE = PERIOD_SHARE / Math.SQRT2;
+const WAVE_UNIT = "100cqw + 100cqh"; // resolved against the field below
+const waveLength = (share) => `calc((${WAVE_UNIT}) * ${share})`;
 
 const useIsomorphicLayoutEffect =
   typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
-function dotMask(radius, feather) {
-  const dot = `radial-gradient(circle at center, currentColor ${radius}px, transparent ${
-    radius + feather
-  }px)`;
-  return {
-    WebkitMaskImage: dot,
-    maskImage: dot,
-    WebkitMaskSize: `${DOT_PITCH}px ${DOT_PITCH}px`,
-    maskSize: `${DOT_PITCH}px ${DOT_PITCH}px`,
-    WebkitMaskPosition: "center",
-    maskPosition: "center",
-  };
-}
-
-const REST_MASK = dotMask(REST_DOT_RADIUS, 0.55);
-const CREST_MASK = dotMask(CREST_DOT_RADIUS, 0.9);
+const DOT = `radial-gradient(circle at center, currentColor ${DOT_RADIUS}px, transparent ${
+  DOT_RADIUS + 0.6
+}px)`;
+const dotMaskStyle = {
+  WebkitMaskImage: DOT,
+  maskImage: DOT,
+  WebkitMaskSize: `${DOT_PITCH}px ${DOT_PITCH}px`,
+  maskSize: `${DOT_PITCH}px ${DOT_PITCH}px`,
+  WebkitMaskPosition: "center",
+  maskPosition: "center",
+};
 
 /**
- * One swell of the wave, repeated every WAVE_LENGTH px along the 135deg sweep
- * axis. A raised cosine gives a smooth rise and fall (no visible edges), and
- * the gap after it keeps the swell a distinct crest rather than a wash.
+ * One swell of the wave, repeated every PERIOD_SHARE units along the 135deg
+ * sweep axis. A raised cosine gives a smooth rise and fall, and the gap after
+ * it keeps the swell a distinct crest rather than a wash.
  */
 const CREST_GRADIENT = (() => {
   const steps = 12;
@@ -50,15 +53,18 @@ const CREST_GRADIENT = (() => {
       alpha === 0
         ? "transparent"
         : `color-mix(in srgb, currentColor ${alpha}%, transparent)`;
-    stops.push(`${color} ${(t * SWELL_SHARE * WAVE_LENGTH).toFixed(1)}px`);
+    stops.push(
+      `${color} ${waveLength((t * SWELL_SHARE).toFixed(4))}`,
+    );
   }
-  stops.push(`transparent ${WAVE_LENGTH}px`);
+  stops.push(`transparent ${waveLength(PERIOD_SHARE)}`);
   return `repeating-linear-gradient(135deg, ${stops.join(", ")})`;
 })();
 
 // The band must stay bigger than the field for the whole cycle. It is shifted
-// by WAVE_STEP, so that much overhang on every side is enough.
-const BAND_OVERSCAN = Math.ceil(WAVE_STEP) + 2;
+// by TRAVEL_SHARE units, so that much overhang on every side is enough.
+const BAND_OFFSET = `calc(${waveLength(-TRAVEL_SHARE)} - 2px)`;
+const BAND_SIZE = `calc(100% + ${waveLength(2 * TRAVEL_SHARE)} + 4px)`;
 
 function usePrefersReducedMotion() {
   const [reduced, setReduced] = useState(
@@ -80,11 +86,11 @@ function usePrefersReducedMotion() {
 }
 
 /**
- * DotMatrixLoader: a viewport-filling field of dots with a swell rolling
- * diagonally across it.
+ * DotMatrixLoader: a viewport-filling field of dots with one broad swell
+ * rolling diagonally across it.
  *
- * The dots are CSS masks over two plain layers, so the field and the crest stay
- * crisp at any size. The crest layer holds a repeating gradient that an
+ * The dots are a CSS mask over two plain layers, so the field and the crest
+ * stay crisp at any size. The crest layer holds a repeating gradient that an
  * infinite transform slides by exactly one period per cycle: the loop point is
  * visually identical to the frame before it, so the wave never jumps or
  * disappears. Both properties are compositor-friendly, so nothing runs on the
@@ -118,7 +124,11 @@ export default function DotMatrixLoader({
     const anim = band.animate(
       [
         { transform: "translate3d(0, 0, 0)" },
-        { transform: `translate3d(${WAVE_STEP}px, ${WAVE_STEP}px, 0)` },
+        {
+          transform: `translate3d(${waveLength(TRAVEL_SHARE)}, ${waveLength(
+            TRAVEL_SHARE,
+          )}, 0)`,
+        },
       ],
       { duration: wavePeriodMs, iterations: Infinity, easing: "linear" },
     );
@@ -130,22 +140,23 @@ export default function DotMatrixLoader({
       aria-hidden="true"
       data-slot="matrix-canvas"
       className="absolute inset-0 block h-full w-full overflow-hidden pointer-events-none"
+      style={{ containerType: "size" }}
     >
       <div
         className="absolute inset-0 bg-current"
-        style={{ ...REST_MASK, opacity: reduced ? REDUCED_ALPHA : RESTING_ALPHA }}
+        style={{ ...dotMaskStyle, opacity: reduced ? REDUCED_ALPHA : RESTING_ALPHA }}
       />
       {reduced ? null : (
-        <div className="absolute inset-0 overflow-hidden" style={CREST_MASK}>
+        <div className="absolute inset-0 overflow-hidden" style={dotMaskStyle}>
           <div
             ref={bandRef}
             data-slot="matrix-wave"
             className="absolute"
             style={{
-              left: -BAND_OVERSCAN,
-              top: -BAND_OVERSCAN,
-              width: `calc(100% + ${2 * BAND_OVERSCAN}px)`,
-              height: `calc(100% + ${2 * BAND_OVERSCAN}px)`,
+              left: BAND_OFFSET,
+              top: BAND_OFFSET,
+              width: BAND_SIZE,
+              height: BAND_SIZE,
               backgroundImage: CREST_GRADIENT,
               opacity: CREST_ALPHA,
               willChange: "transform",
