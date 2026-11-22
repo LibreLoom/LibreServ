@@ -25,7 +25,13 @@ export default function ValueDisplay({
   surface = "secondary",
   className = "",
 }) {
-  const text = surface === "primary" ? "text-secondary" : "text-primary";
+  const onPage = surface === "primary";
+  const text = onPage ? "text-secondary" : "text-primary";
+  // The row's tint is the text color at low alpha, so it has to invert with
+  // the surface too. A primary tint on a primary panel is invisible.
+  const rowTint = onPage
+    ? "border-secondary/10 bg-secondary/5"
+    : "border-primary/10 bg-primary/5";
   const pill = cn("rounded-chip border border-accent bg-current/10 px-2 py-0.5 text-sm", text, mono && "font-mono");
 
   if (!label) {
@@ -37,7 +43,7 @@ export default function ValueDisplay({
   }
 
   return (
-    <div className={cn("flex items-center justify-between gap-3 py-2 px-3 border border-primary/10 rounded-large-element bg-primary/5", className)} data-slot="value-display">
+    <div className={cn("flex items-center justify-between gap-3 py-2 px-3 border rounded-large-element", rowTint, className)} data-slot="value-display">
       <span className={cn("text-sm shrink-0", text, "font-medium")}>{label}</span>
       <span className={cn("min-w-0 text-right", pill)}>
         {value ?? fallback}
