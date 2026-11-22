@@ -7,6 +7,7 @@ import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import Table from "@libreloom/ui/components/common/Table.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import Callout from "@libreloom/ui/components/common/Callout.jsx";
 import DriveStatusPill from "../components/common/DriveStatusPill.jsx";
@@ -241,25 +242,23 @@ function detectedFacts(peek) {
 }
 
 /**
- * Flat label/value table for a drive's facts. It sits on the card's primary
- * panel, so the rules use the secondary text color to stay visible in both
- * themes.
+ * Facts table for a drive, using the shared Table's description variant:
+ * row headers, right-aligned values, and surface-aware rules.
  */
 function DriveFactsTable({ rows, label }) {
   if (rows.length === 0) return null;
   return (
-    <table className="w-full border-collapse text-sm" aria-label={label}>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={row.label} className="border-b border-secondary/15 last:border-0">
-            <th scope="row" className="py-2 pr-4 text-left align-top font-normal text-secondary">
-              {row.label}
-            </th>
-            <td className="py-2 text-right align-top text-secondary">{row.value}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <Table
+      variant="description"
+      surface="primary"
+      ariaLabel={label}
+      columns={[
+        { key: "label", label: "Fact", align: "left" },
+        { key: "value", label: "Value", align: "right" },
+      ]}
+      data={rows}
+      rowKey="label"
+    />
   );
 }
 
