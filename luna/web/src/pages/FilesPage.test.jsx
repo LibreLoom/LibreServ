@@ -371,8 +371,12 @@ describe("FilesPage", () => {
     });
     renderPage();
     expect(await screen.findByText("8.0 GB")).toBeInTheDocument();
-    expect(screen.getByText("USB drive")).toBeInTheDocument();
-    expect(screen.getByText("FAT")).toBeInTheDocument();
+    const details = screen.getByRole("button", { name: "Drive details" });
+    fireEvent.click(details);
+    const values = within(screen.getByRole("list", { name: "Drive detail values" }));
+    expect(values.getByText("Kind")).toBeInTheDocument();
+    expect(values.getByText("USB drive")).toBeInTheDocument();
+    expect(values.getByText("FAT")).toBeInTheDocument();
     expect(screen.queryByText("sdb")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Add drive$/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Ignore for now/i })).not.toBeInTheDocument();
