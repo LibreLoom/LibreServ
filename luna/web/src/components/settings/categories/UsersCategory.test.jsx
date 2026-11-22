@@ -162,6 +162,14 @@ describe("UsersCategory", () => {
     expect(within(articles[1]).getByText("Member")).toBeTruthy();
     expect(within(articles[1]).getByLabelText(/What Member means/i)).toBeTruthy();
     expect(within(articles[1]).getByRole("button", { name: /Remove Alex/i })).toBeTruthy();
+
+    // The list lives on a secondary settings card, so the phone cards invert
+    // to the primary surface — and their chrome follows the card they're on.
+    expect(articles[0].className).toMatch(/surface-primary/);
+    expect(within(articles[1]).getByRole("button", { name: /Remove Alex/i })).toHaveAttribute(
+      "data-surface",
+      "primary",
+    );
   });
 
   it("keeps Admin InfoHint plain-language copy", async () => {
@@ -405,7 +413,9 @@ describe("UsersCategory", () => {
     await within(list).findByText("Demo");
     await within(list).findByRole("button", { name: /^Add user$/i });
     const items = within(list).getAllByRole("listitem");
-    expect(within(items[items.length - 1]).getByRole("button", { name: /^Add user$/i })).toBeInTheDocument();
+    const add = within(items[items.length - 1]).getByRole("button", { name: /^Add user$/i });
+    expect(add).toBeInTheDocument();
+    expect(add.className).toMatch(/surface-primary/);
   });
 
   it("opens Edit as a modal for others and links yourself to Settings", async () => {
