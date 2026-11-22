@@ -563,6 +563,9 @@ pub fn delete_drive(conn: &Connection, id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Why a drive backup says "Original is gone" after its source drive was removed from Luna.
+pub const DRIVE_FORGOTTEN_REASON: &str = "The drive this backup copies was removed from Luna.";
+
 /// Forget a drive and every row that points at it (access rows, index, …).
 /// Does not touch files on the drive itself. All deletes run in one transaction
 /// so a mid-cascade failure cannot leave related rows gone while the drive remains.
@@ -580,6 +583,13 @@ pub fn delete_drive_cascade(conn: &Connection, id: &str) -> anyhow::Result<()> {
             Err(e) => return Err(e.into()),
         }
     }
+    // Backups of this drive's folders stay, with their copies: the original is gone.
+    // (Cloud backups are marked by the cloud engine.)
+    tx.execute(
+        "UPDATE protections SET state = 'source_gone', stop_reason = ?2
+         WHERE kind = 'drive' AND source_drive = ?1 AND state = 'active'",
+        params![id, DRIVE_FORGOTTEN_REASON],
+    )?;
     // Upload sessions and file index/hashes live in the drive `.luna` microdb.
     tx.execute("DELETE FROM drives WHERE id = ?1", params![id])?;
     tx.commit()?;
@@ -3394,12 +3404,14 @@ mod tests {
     }
 
     #[test]
-    fn delete_drive_cascade_leaves_protections_intact() {
+    fn delete_drive_cascade_keeps_protections_and_marks_their_original_gone() {
         let dir = tempfile::tempdir().unwrap();
         let conn = open(&dir.path().join("luna.db")).unwrap();
         insert_protection(&conn, &new_protection("p1", "d1", "docs")).unwrap();
         delete_drive_cascade(&conn, "d1").unwrap();
-        assert!(get_protection(&conn, "p1").unwrap().is_some());
+        let kept = get_protection(&conn, "p1").unwrap().unwrap();
+        assert_eq!(kept.state, PROTECTION_SOURCE_GONE);
+        assert_eq!(kept.stop_reason, DRIVE_FORGOTTEN_REASON);
     }
 
     #[test]

@@ -391,6 +391,12 @@ fn run_inner(
         return fail(db, id, &waiting, false, now);
     };
 
+    // Step 3a: a source drive Luna has forgotten (removed from Luna, or one that
+    // only ever existed on another Luna) will not come back: the original is gone,
+    // not waiting. The copies stay.
+    if with_conn(db, |c| db::get_drive(c, &row.source_drive))?.is_none() {
+        return source_gone(db, &row, &target, now, db::DRIVE_FORGOTTEN_REASON);
+    }
     // Step 3: the source drive must be connected. Its folder can't be read,
     // so the deleted-files clock freezes until it is back.
     let Some(source) = with_conn(db, |c| connected(c, &row.source_drive)) else {
@@ -405,7 +411,9 @@ fn run_inner(
         files::resolve_any(c, &row.source_drive, &row.source_path)
     }) {
         Ok((abs, _)) => abs,
-        Err(e) if is_not_found(&e) => return source_gone(db, &row, &target, now),
+        Err(e) if is_not_found(&e) => {
+            return source_gone(db, &row, &target, now, FOLDER_GONE_REASON);
+        }
         Err(_) => {
             pause_clock(&target, id, now);
             return fail(
@@ -446,7 +454,7 @@ fn run_inner(
     let walked = match scope::walk(&abs) {
         Ok(entries) => entries,
         Err(e) if e.kind() == ErrorKind::NotFound => {
-            return source_gone(db, &row, &target, now);
+            return source_gone(db, &row, &target, now, FOLDER_GONE_REASON);
         }
         Err(_) => {
             pause_clock(&target, id, now);
@@ -1242,14 +1250,16 @@ fn source_gone(
     row: &ProtectionRow,
     target: &Target,
     now: i64,
+    reason: &str,
 ) -> anyhow::Result<RunOutcome> {
     pause_clock(target, &row.id, now);
-    let reason = "The folder was deleted or moved somewhere Luna can't follow.";
     with_conn(db, |c| {
         db::set_protection_state(c, &row.id, db::PROTECTION_SOURCE_GONE, reason)
     })?;
     Ok(problem_outcome(reason))
 }
+
+const FOLDER_GONE_REASON: &str = "The folder was deleted or moved somewhere Luna can't follow.";
 
 /// Only a folder that is really missing counts as gone. Anything else (no
 /// permission, a disk error) is a passing problem.
@@ -1937,6 +1947,23 @@ mod tests {
         assert_eq!(r.last_error, "Waiting: Photos isn't connected.");
         assert!(!r.hard);
         assert_eq!(manifest(&s, &id).paused_since, NOW + 100);
+    }
+
+    #[test]
+    fn forgotten_source_drive_keeps_copies_and_pauses_clock() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        let id = make_backup(&s);
+        run(&s.db, &id, NOW).unwrap();
+
+        with_conn(&s.db, |c| db::delete_drive_cascade(c, &s.src)).unwrap();
+        run_all(&s.db, NOW + 60);
+
+        let backup = row(&s, &id);
+        assert_eq!(backup.state, db::PROTECTION_SOURCE_GONE);
+        assert_eq!(backup.stop_reason, db::DRIVE_FORGOTTEN_REASON);
+        assert_eq!(manifest(&s, &id).paused_since, NOW + 60);
+        assert_eq!(store(&s, &id).current_files().unwrap().len(), 1);
     }
 
     #[test]
