@@ -164,11 +164,23 @@ fn run_tool(
 /// act on become words; anything else is logged and the caller says to try again.
 pub fn plain_tool_error(said: &str) -> Option<&'static str> {
     let lower = said.to_ascii_lowercase();
-    if lower.contains("is busy") || lower.contains("in use") {
+    if lower.contains("is busy")
+        || lower.contains("in use")
+        || lower.contains("device or resource busy")
+    {
         return Some("Something is still using this drive.");
     }
     if lower.contains("cannot allocate memory") || lower.contains("out of memory") {
         return Some("This Luna ran out of memory.");
+    }
+    // A partition node from the old table can disappear between the preview
+    // and a tool call. All three phrasings mean the same thing to a person:
+    // the path Luna is holding is no longer a device on this box.
+    if lower.contains("no such file or directory")
+        || lower.contains("does not exist or access denied")
+        || lower.contains("cannot get info about device")
+    {
+        return Some("This drive is no longer connected.");
     }
     None
 }
@@ -197,14 +209,22 @@ pub(crate) fn wait_for_partition(
     let start = Instant::now();
     loop {
         let names = partition_names(sys_block, disk);
-        if names.len() == 1 && dev_dir.join(&names[0]).exists() {
-            return Ok(names[0].clone());
-        }
         if names.len() > 1 {
             return Err(ToolError::Failed(
                 "Luna made one partition but the drive shows several. Unplug it, plug it back in, and try again."
                     .into(),
             ));
+        }
+        if names.len() == 1 && dev_dir.join(&names[0]).exists() {
+            // A node from the *old* table can still be visible here. The kernel
+            // drops it a moment later, and on Alpine's mdev the replacement may
+            // not be back yet. Only hand over a node that survives a short
+            // settle, so the tools below never use one that is about to vanish.
+            std::thread::sleep(Duration::from_millis(500));
+            if partition_names(sys_block, disk) == names && dev_dir.join(&names[0]).exists() {
+                return Ok(names[0].clone());
+            }
+            continue;
         }
         if start.elapsed() > timeout {
             return Err(ToolError::Failed(
@@ -266,6 +286,18 @@ impl DiskTools for CommandTools {
             sfdisk_script(kind).as_bytes(),
             PARTITION_TIMEOUT,
             "Luna couldn't set up the new partition.",
+        )?;
+        // sfdisk exits 0 even when the kernel refuses its partition-table
+        // re-read - it only prints "Re-reading the partition table failed:
+        // Invalid argument". Ask for the re-read ourselves and fail here if it
+        // does not take, so the node below belongs to the new table instead of
+        // being a stale one the kernel is about to remove.
+        run_tool(
+            "blockdev",
+            &["--rereadpt".into(), format!("/dev/{disk}")],
+            b"",
+            PARTITION_TIMEOUT,
+            "Luna couldn't refresh this drive's partition.",
         )?;
         wait_for_partition(
             Path::new("/sys/block"),
@@ -441,6 +473,25 @@ mod tests {
         );
         assert_eq!(plain_tool_error("wipefs: ioctl failed at 0x1fe"), None);
         assert_eq!(plain_tool_error(""), None);
+        // The real prod failures: a stale/missing node and a busy device.
+        assert_eq!(
+            plain_tool_error(
+                "wipefs: error: /dev/sda1: probing initialization failed: No such file or directory"
+            ),
+            Some("This drive is no longer connected.")
+        );
+        assert_eq!(
+            plain_tool_error("Device /dev/sda1 does not exist or access denied."),
+            Some("This drive is no longer connected.")
+        );
+        assert_eq!(
+            plain_tool_error("Cannot get info about device /dev/sda1."),
+            Some("This drive is no longer connected.")
+        );
+        assert_eq!(
+            plain_tool_error("wipefs: probing initialization failed: Device or resource busy"),
+            Some("Something is still using this drive.")
+        );
         assert_eq!(
             first_line("\n\nwipefs: bad thing\nmore"),
             "wipefs: bad thing"
@@ -460,6 +511,25 @@ mod tests {
         std::fs::write(dev.join("nvme0n1p1"), b"").unwrap();
         let name = wait_for_partition(&sys, &dev, "nvme0n1", Duration::from_secs(2)).unwrap();
         assert_eq!(name, "nvme0n1p1");
+    }
+
+    #[test]
+    fn a_node_that_vanishes_just_after_it_appears_is_not_handed_over() {
+        let root = tempfile::tempdir().unwrap();
+        let sys = root.path().join("sys");
+        let dev = root.path().join("dev");
+        std::fs::create_dir_all(sys.join("sdb/sdb1")).unwrap();
+        std::fs::create_dir_all(&dev).unwrap();
+        let node = dev.join("sdb1");
+        std::fs::write(&node, b"").unwrap();
+        // The old table's node is briefly visible, then the kernel drops it.
+        let gone = node.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            let _ = std::fs::remove_file(gone);
+        });
+        let err = wait_for_partition(&sys, &dev, "sdb", Duration::from_secs(2));
+        assert!(err.is_err(), "a node that vanishes must not be accepted");
     }
 
     #[test]
