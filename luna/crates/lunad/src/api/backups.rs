@@ -306,7 +306,17 @@ async fn resume(
             "Only an Admin or the person this backup belongs to can resume it.",
         ));
     }
-    let row = drive_backup::resume(&conn, &id)
+    // An Admin can't resume a private backup nobody owns: it would stop at once
+    // as belonging to someone else. Giving the item away comes first.
+    if !row.private_owner.is_empty()
+        && private::owner_state(&conn, &row.private_owner) != OwnerState::Active
+    {
+        return Err(json_error(
+            StatusCode::CONFLICT,
+            "This private item has no owner here yet. Give it to someone in Settings → Users, then resume its backup.",
+        ));
+    }
+    let row = drive_backup::resume(&conn, &id, &user.id)
         .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -392,7 +402,10 @@ fn backup_json(
         "first_done": row.first_done,
         "created_by": row.created_by,
         "can_delete": can_delete(conn, row, user),
-        "can_resume": row.state == db::PROTECTION_PAUSED && can_resume(conn, row, user),
+        "can_resume": row.state == db::PROTECTION_PAUSED
+            && can_resume(conn, row, user)
+            && (row.private_owner.is_empty()
+                || private::owner_state(conn, &row.private_owner) == OwnerState::Active),
         "private": !row.private_owner.is_empty(),
         "running": drive_backup::is_running(db, &row.id),
         "notes": row.notes.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>(),

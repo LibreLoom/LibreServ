@@ -18,8 +18,8 @@ use crate::files;
 
 mod ops;
 pub use ops::{
-    PAUSED_REASON, delete, on_grants_changed, on_moved, rebuild_from_manifests, resume, state,
-    visible_to,
+    PAUSED_REASON, delete, on_grants_changed, on_moved, on_private_owner_changed,
+    rebuild_for_drive, rebuild_from_manifests, resume, state, visible_to,
 };
 
 /// A test hook that runs once, against the database, at a fixed point in a run.
@@ -660,6 +660,10 @@ fn sync_target(
             paused_since: 0,
         },
     };
+    // Who keeps the backup can change (a Resume, an Admin giving a private item
+    // away) while its drive is unplugged; the manifest catches up on a good run.
+    manifest.created_by = row.created_by.clone();
+    manifest.private_owner = owner_of(row);
     // The source is readable again, so the deleted-files clock runs; stamp
     // this run's deletions on that clock.
     // If nobody could look at this backup for a long stretch (both drives
@@ -1159,9 +1163,14 @@ fn unreadable_source(
             username: user.username,
             role: user.role,
         },
+        // A shared backup carries on when the Member who started it is deleted: it
+        // never depended on their account. Its Read check was made when it started
+        // (or by whoever resumed it), and a row rebuilt from a drive stays paused
+        // until someone resumes it and becomes its keeper.
+        _ if row.private_owner.is_empty() => return None,
         _ => {
             return Some(format!(
-                "Luna can't copy {folder} on {drive_label} because the person who set up this backup is no longer here."
+                "Luna can't copy {folder} on {drive_label} because the person this private item belongs to is no longer here."
             ));
         }
     };
@@ -2000,9 +2009,13 @@ mod tests {
         write(&docs(&s).join("a.txt"), "one");
         let id = make_backup(&s);
         run(&s.db, &id, NOW).unwrap();
-        // The database is lost; the drive still holds the backup's manifest.
+        // The database is lost: the backup row and every account are gone and
+        // a new Admin is set up. The drive still holds the backup's manifest,
+        // naming a creator this Luna has never heard of.
         with_conn(&s.db, |c| {
-            c.execute("DELETE FROM protections WHERE id = ?1", [&id])
+            c.execute("DELETE FROM protections WHERE id = ?1", [&id])?;
+            c.execute("DELETE FROM users", [])?;
+            crate::db::insert_user(c, "new-admin", "newadmin", "New Admin", "", "admin")
         })
         .unwrap();
         assert_eq!(with_conn(&s.db, rebuild_from_manifests), 1);
@@ -2017,12 +2030,120 @@ mod tests {
         assert_eq!(row(&s, &id).state, db::PROTECTION_PAUSED);
 
         // Resumed once, it runs as before.
-        let resumed = with_conn(&s.db, |c| resume(c, &id)).unwrap().unwrap();
+        let resumed = with_conn(&s.db, |c| resume(c, &id, "new-admin"))
+            .unwrap()
+            .unwrap();
         assert_eq!(resumed.state, db::PROTECTION_ACTIVE);
         assert!(resumed.stop_reason.is_empty());
+        assert_eq!(resumed.created_by, "new-admin", "the resumer keeps it now");
         let after = run(&s.db, &id, NOW + 180).unwrap();
         assert_eq!(after.problem, None);
         assert_eq!(after.copied + after.unchanged, 2);
+        // The drive's own record names the new keeper too.
+        let store = drive_store::Store::existing(&s.tgt_root, &layout_of(&s), &id).unwrap();
+        assert_eq!(
+            store.read_manifest().unwrap().unwrap().created_by,
+            "new-admin"
+        );
+    }
+
+    fn layout_of(s: &Setup) -> Layout {
+        Layout::detect(&s.tgt_root).unwrap()
+    }
+
+    #[test]
+    fn a_shared_backup_keeps_running_after_the_member_who_started_it_is_deleted() {
+        let s = setup();
+        with_conn(&s.db, |c| {
+            crate::db::insert_user(c, "sam", "sam", "Sam", "", "member")
+        })
+        .unwrap();
+        let sam = CurrentUser {
+            id: "sam".into(),
+            username: "sam".into(),
+            role: "member".into(),
+        };
+        write(&docs(&s).join("a.txt"), "one");
+        let id = with_conn(&s.db, |c| {
+            // Sam may read the folder and write to the backup drive.
+            for (n, (drive, path, caps)) in [
+                (&s.src, "Docs", crate::access::CAP_VIEW),
+                (&s.tgt, "", crate::access::CAP_ALL),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                db::insert_access_member(
+                    c,
+                    &db::AccessMemberRow {
+                        id: format!("grant-{n}"),
+                        subject_kind: crate::access::KIND_PATH.into(),
+                        drive_id: drive.clone(),
+                        path: path.into(),
+                        album_id: String::new(),
+                        user_id: "sam".into(),
+                        caps,
+                        created_by: "admin".into(),
+                    },
+                )
+                .unwrap();
+            }
+            create(c, &sam, &s.src, "Docs", &s.tgt).map(|r| r.id)
+        })
+        .unwrap();
+        assert_eq!(run(&s.db, &id, NOW).unwrap().problem, None);
+
+        with_conn(&s.db, |c| crate::db::delete_user(c, "sam")).unwrap();
+        write(&docs(&s).join("b.txt"), "two");
+        let after = run(&s.db, &id, NOW + 60).unwrap();
+        assert_eq!(
+            after.problem, None,
+            "the backup does not depend on Sam's account"
+        );
+        assert_eq!(row(&s, &id).last_error, "");
+    }
+
+    #[test]
+    fn a_private_backup_waits_while_its_owner_is_not_a_person_here() {
+        let s = setup();
+        make_private_docs(&s, "stranger");
+        with_conn(&s.db, |c| {
+            db::insert_protection(
+                c,
+                &db::NewProtection {
+                    id: "p1",
+                    kind: db::PROTECTION_DRIVE,
+                    source_drive: &s.src,
+                    source_path: "Docs",
+                    target_drive: &s.tgt,
+                    private_owner: "stranger",
+                    created_by: "stranger",
+                    created_at: NOW,
+                },
+            )
+            .unwrap();
+            db::set_protection_state(c, "p1", db::PROTECTION_PAUSED, PAUSED_REASON).unwrap();
+        });
+        let still = with_conn(&s.db, |c| resume(c, "p1", "admin"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(still.state, db::PROTECTION_PAUSED);
+        assert_eq!(still.private_owner, "stranger");
+
+        // The Admin gives the private item to a person: its backup goes with it,
+        // the new owner can see it, and resuming it works.
+        with_conn(&s.db, |c| {
+            on_private_owner_changed(c, &s.src, "Docs", "stranger", "admin")
+        });
+        let given = row(&s, "p1");
+        assert_eq!(given.private_owner, "admin");
+        assert_eq!(given.created_by, "admin");
+        assert!(visible_to(&given, &s.admin), "the new owner sees it");
+        crate::private::set_owner(&s.src_root, "Docs", "admin").unwrap();
+        let resumed = with_conn(&s.db, |c| resume(c, "p1", "admin"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(resumed.state, db::PROTECTION_ACTIVE);
     }
 
     #[test]

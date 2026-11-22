@@ -90,9 +90,15 @@ mod tests {
     fn the_mass_delete_rule_needs_twenty_files_and_more_than_half() {
         assert!(!is_mass_delete(19, 19), "19 files is below the floor");
         assert!(is_mass_delete(20, 20));
-        assert!(!is_mass_delete(20, 40), "exactly half is not more than half");
+        assert!(
+            !is_mass_delete(20, 40),
+            "exactly half is not more than half"
+        );
         assert!(is_mass_delete(21, 40));
-        assert!(!is_mass_delete(10, 10), "a small folder emptied is not held");
+        assert!(
+            !is_mass_delete(10, 10),
+            "a small folder emptied is not held"
+        );
     }
 
     fn rec(error: &str, hard: bool, last_ok_at: i64, failing_since: i64) -> Record<'_> {

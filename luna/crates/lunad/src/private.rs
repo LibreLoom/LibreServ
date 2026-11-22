@@ -741,16 +741,43 @@ pub fn adopt_ownerless_folder(
     }
     let mut moved = false;
     for item in candidates {
-        moved |= set_owner(&root, &item.path, user_id).unwrap_or(false);
+        if set_owner(&root, &item.path, user_id).unwrap_or(false) {
+            moved = true;
+            crate::backup::drive_backup::on_private_owner_changed(
+                conn,
+                drive_id,
+                &item.path,
+                &item.owner,
+                user_id,
+            );
+        }
     }
     moved
 }
 
 /// Give every ownerless private item to `user_id`. Returns how many moved.
 pub fn adopt_ownerless(conn: &rusqlite::Connection, user_id: &str) -> usize {
+    let drives = crate::db::list_drives(conn).unwrap_or_default();
     ownerless(conn)
         .into_iter()
-        .filter(|(root, item)| set_owner(root, &item.path, user_id).unwrap_or(false))
+        .filter(|(root, item)| {
+            if !set_owner(root, &item.path, user_id).unwrap_or(false) {
+                return false;
+            }
+            if let Some(drive) = drives
+                .iter()
+                .find(|d| Path::new(&d.mount_point) == root.as_path())
+            {
+                crate::backup::drive_backup::on_private_owner_changed(
+                    conn,
+                    &drive.id,
+                    &item.path,
+                    &item.owner,
+                    user_id,
+                );
+            }
+            true
+        })
         .count()
 }
 
@@ -893,7 +920,16 @@ pub fn give_orphan(
             .filter(|item| item.owner == owner)
         {
             match set_owner(root, &item.path, target) {
-                Ok(true) => report.moved += 1,
+                Ok(true) => {
+                    report.moved += 1;
+                    crate::backup::drive_backup::on_private_owner_changed(
+                        conn,
+                        &drive.id,
+                        &item.path,
+                        &item.owner,
+                        target,
+                    );
+                }
                 Ok(false) => {}
                 Err(_) => failed = true,
             }
