@@ -5,33 +5,38 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 )
 
 func TestB2ProvisionBucket(t *testing.T) {
 	var authorizeCalled, createBucketCalled, createKeyCalled bool
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/b2api/v2/b2_authorize_account" {
+		if r.URL.Path == "/b2api/v3/b2_authorize_account" {
 			authorizeCalled = true
 			if auth := r.Header.Get("Authorization"); auth != "Basic YWNjMTIzOmtleTQ1Ng==" {
 				t.Fatalf("auth header=%s", auth)
 			}
+			if r.Method != http.MethodGet {
+				t.Errorf("authorize method=%s, want GET", r.Method)
+			}
 			body, _ := io.ReadAll(r.Body)
-			if string(body) != "{}" {
-				t.Fatalf("authorize body=%q, want {}", body)
+			if len(body) != 0 {
+				t.Errorf("authorize body=%q, want empty", body)
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"accountId":          "acc123",
 				"authorizationToken": "tok123",
-				"apiUrl":             "http://" + r.Host,
-				"downloadUrl":        "http://" + r.Host,
-				"s3ApiUrl":           "https://s3.us-west-001.backblazeb2.com",
+				"apiInfo": map[string]any{
+					"storageApi": map[string]string{
+						"apiUrl":   "http://" + r.Host + "/",
+						"s3ApiUrl": "https://s3.us-west-001.backblazeb2.com",
+					},
+				},
 			})
 			return
 		}
-		if strings.Contains(r.URL.Path, "b2_create_bucket") {
+		if r.Method == http.MethodPost && r.URL.Path == "/b2api/v3/b2_create_bucket" {
 			createBucketCalled = true
 			if auth := r.Header.Get("Authorization"); auth != "tok123" {
 				t.Fatalf("bucket auth=%s", auth)
@@ -57,7 +62,7 @@ func TestB2ProvisionBucket(t *testing.T) {
 			})
 			return
 		}
-		if strings.Contains(r.URL.Path, "b2_create_key") {
+		if r.Method == http.MethodPost && r.URL.Path == "/b2api/v3/b2_create_key" {
 			createKeyCalled = true
 			if auth := r.Header.Get("Authorization"); auth != "tok123" {
 				t.Fatalf("key auth=%s", auth)
@@ -69,6 +74,9 @@ func TestB2ProvisionBucket(t *testing.T) {
 			}
 			if req["accountId"] != "acc123" {
 				t.Fatalf("key accountId=%v", req["accountId"])
+			}
+			if req["bucketId"] != "buc123" {
+				t.Errorf("key bucketId=%v, want buc123", req["bucketId"])
 			}
 			if req["keyName"] != "sol-backup-abc123-key" {
 				t.Fatalf("keyName=%v", req["keyName"])
@@ -85,7 +93,7 @@ func TestB2ProvisionBucket(t *testing.T) {
 	defer ts.Close()
 
 	client := NewB2Client(ts.Client())
-	client.authorizeURL = ts.URL + "/b2api/v2/b2_authorize_account"
+	client.authorizeURL = ts.URL + "/b2api/v3/b2_authorize_account"
 	creds, err := client.ProvisionBucket("acc123", "key456", "sol-backup-abc123")
 	if err != nil {
 		t.Fatalf("provision bucket: %v", err)
@@ -146,7 +154,7 @@ func TestB2S3Endpoint(t *testing.T) {
 
 func TestS3EndpointFor(t *testing.T) {
 	// The authoritative s3ApiUrl wins over the apiUrl derivation (trailing slash trimmed).
-	auth := &b2AuthResponse{
+	auth := b2StorageAPI{
 		APIURL:   "https://api004.backblazeb2.com",
 		S3APIURL: "https://s3.us-west-004.backblazeb2.com/",
 	}
@@ -159,7 +167,7 @@ func TestS3EndpointFor(t *testing.T) {
 	}
 
 	// Without s3ApiUrl, the legacy apiNNN derivation is used.
-	auth = &b2AuthResponse{APIURL: "https://api001.backblazeb2.com"}
+	auth = b2StorageAPI{APIURL: "https://api001.backblazeb2.com"}
 	got, err = s3EndpointFor(auth)
 	if err != nil {
 		t.Fatalf("s3EndpointFor: %v", err)
@@ -169,14 +177,14 @@ func TestS3EndpointFor(t *testing.T) {
 	}
 
 	// Neither present: error, never a fabricated hostname.
-	auth = &b2AuthResponse{APIURL: "https://api.example.com"}
+	auth = b2StorageAPI{APIURL: "https://api.example.com"}
 	if _, err := s3EndpointFor(auth); err == nil {
 		t.Fatal("s3EndpointFor expected error for non-B2 apiUrl without s3ApiUrl")
 	}
 }
 
-func TestAuthorizeV4NestedShape(t *testing.T) {
-	// v4 authorize responses nest the storage API fields under apiInfo.storageApi.
+func TestAuthorizeV3NestedShape(t *testing.T) {
+	// v3 authorize responses nest the storage API fields under apiInfo.storageApi.
 	body := `{"accountId":"acc123","authorizationToken":"tok123","apiInfo":{"storageApi":{"apiUrl":"https://api004.backblazeb2.com","downloadUrl":"https://f004.backblazeb2.com","s3ApiUrl":"https://s3.us-west-004.backblazeb2.com"}}}`
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -185,7 +193,7 @@ func TestAuthorizeV4NestedShape(t *testing.T) {
 	defer ts.Close()
 
 	client := NewB2Client(ts.Client())
-	client.authorizeURL = ts.URL + "/b2api/v2/b2_authorize_account"
+	client.authorizeURL = ts.URL + "/b2api/v3/b2_authorize_account"
 	auth, err := client.Authorize("acc123", "key456")
 	if err != nil {
 		t.Fatalf("authorize: %v", err)
@@ -193,10 +201,10 @@ func TestAuthorizeV4NestedShape(t *testing.T) {
 	if auth.AccountID != "acc123" {
 		t.Fatalf("accountId=%s", auth.AccountID)
 	}
-	if auth.APIURL != "https://api004.backblazeb2.com" {
-		t.Fatalf("apiUrl=%s", auth.APIURL)
+	if auth.APIInfo.StorageAPI.APIURL != "https://api004.backblazeb2.com" {
+		t.Fatalf("apiUrl=%s", auth.APIInfo.StorageAPI.APIURL)
 	}
-	if auth.S3APIURL != "https://s3.us-west-004.backblazeb2.com" {
-		t.Fatalf("s3ApiUrl=%s", auth.S3APIURL)
+	if auth.APIInfo.StorageAPI.S3APIURL != "https://s3.us-west-004.backblazeb2.com" {
+		t.Fatalf("s3ApiUrl=%s", auth.APIInfo.StorageAPI.S3APIURL)
 	}
 }

@@ -30,42 +30,25 @@ func NewB2Client(httpClient *http.Client) *B2Client {
 	return &B2Client{httpClient: httpClient}
 }
 
-// b2AuthResponse is the body returned by b2_authorize_account.
-// Recent (v4) responses nest the storage API fields under apiInfo.storageApi;
-// older responses keep apiUrl/downloadUrl/s3ApiUrl at the top level.
+const b2APIPath = "/b2api/v3/"
+const b2AuthorizeURL = "https://api.backblazeb2.com" + b2APIPath + "b2_authorize_account"
+
+func b2CallURL(apiURL, call string) string {
+	return strings.TrimRight(apiURL, "/") + b2APIPath + call
+}
+
+// b2AuthResponse is the v3 account authorization response.
 type b2AuthResponse struct {
-	AccountID          string    `json:"accountId"`
-	AuthorizationToken string    `json:"authorizationToken"`
-	APIURL             string    `json:"apiUrl"`
-	DownloadURL        string    `json:"downloadUrl"`
-	S3APIURL           string    `json:"s3ApiUrl"`
-	APIInfo            b2APIInfo `json:"apiInfo"`
+	AccountID          string `json:"accountId"`
+	AuthorizationToken string `json:"authorizationToken"`
+	APIInfo            struct {
+		StorageAPI b2StorageAPI `json:"storageApi"`
+	} `json:"apiInfo"`
 }
 
-// b2APIInfo is the v4 response container for per-API information.
-type b2APIInfo struct {
-	StorageAPI b2StorageAPI `json:"storageApi"`
-}
-
-// b2StorageAPI carries the storage API endpoints in the v4 response shape.
 type b2StorageAPI struct {
-	APIURL      string `json:"apiUrl"`
-	DownloadURL string `json:"downloadUrl"`
-	S3APIURL    string `json:"s3ApiUrl"`
-}
-
-// normalize promotes the v4 nested shape into the flat fields so callers can
-// rely on APIURL/S3APIURL regardless of the response version.
-func (r *b2AuthResponse) normalize() {
-	if r.APIURL == "" {
-		r.APIURL = r.APIInfo.StorageAPI.APIURL
-	}
-	if r.S3APIURL == "" {
-		r.S3APIURL = r.APIInfo.StorageAPI.S3APIURL
-	}
-	if r.DownloadURL == "" {
-		r.DownloadURL = r.APIInfo.StorageAPI.DownloadURL
-	}
+	APIURL   string `json:"apiUrl"`
+	S3APIURL string `json:"s3ApiUrl"`
 }
 
 // b2BucketResponse is the body returned by b2_create_bucket.
@@ -84,15 +67,17 @@ func (c *B2Client) Authorize(accountID, applicationKey string) (*b2AuthResponse,
 	auth := base64.StdEncoding.EncodeToString([]byte(accountID + ":" + applicationKey))
 	url := c.authorizeURL
 	if url == "" {
-		url = "https://api.backblazeb2.com/b2api/v2/b2_authorize_account"
+		url = b2AuthorizeURL
 	}
 	var resp b2AuthResponse
-	if _, err := doJSON(c.httpClient, http.MethodPost, url, map[string]string{
+	if _, err := doJSON(c.httpClient, http.MethodGet, url, map[string]string{
 		"Authorization": "Basic " + auth,
-	}, map[string]string{}, &resp); err != nil {
+	}, nil, &resp); err != nil {
 		return nil, fmt.Errorf("could not authorize with Backblaze B2: %w", err)
 	}
-	resp.normalize()
+	if resp.AccountID == "" || resp.AuthorizationToken == "" || resp.APIInfo.StorageAPI.APIURL == "" {
+		return nil, fmt.Errorf("could not authorize with Backblaze B2: response is missing account ID, authorization token, or storage API URL")
+	}
 	return &resp, nil
 }
 
@@ -100,7 +85,7 @@ func (c *B2Client) CreateBucket(apiURL, authToken, accountID, name, bucketType s
 	if bucketType == "" {
 		bucketType = "allPrivate"
 	}
-	url := strings.TrimRight(apiURL, "/") + "/b2api/v2/b2_create_bucket"
+	url := b2CallURL(apiURL, "b2_create_bucket")
 	var resp b2BucketResponse
 	if _, err := doJSON(c.httpClient, http.MethodPost, url, map[string]string{
 		"Authorization": authToken,
@@ -117,10 +102,13 @@ func (c *B2Client) CreateBucket(apiURL, authToken, accountID, name, bucketType s
 
 // CreateKey creates an application key limited to a bucket and capabilities.
 func (c *B2Client) CreateKey(apiURL, authToken, accountID, name, bucketID string, capabilities []string) (*b2KeyResponse, error) {
+	if strings.TrimSpace(bucketID) == "" {
+		return nil, fmt.Errorf("could not create Backblaze B2 application key: missing bucket ID")
+	}
 	if len(capabilities) == 0 {
 		capabilities = []string{"listBuckets", "listFiles", "readFiles", "writeFiles", "deleteFiles"}
 	}
-	url := strings.TrimRight(apiURL, "/") + "/b2api/v2/b2_create_key"
+	url := b2CallURL(apiURL, "b2_create_key")
 	var resp b2KeyResponse
 	if _, err := doJSON(c.httpClient, http.MethodPost, url, map[string]string{
 		"Authorization": authToken,
@@ -143,17 +131,17 @@ func (c *B2Client) ProvisionBucket(accountID, applicationKey, bucketName string)
 
 	// Resolve the S3 endpoint before creating anything on the account, so a
 	// malformed response fails without leaving a half-provisioned bucket/key.
-	endpoint, err := s3EndpointFor(auth)
+	endpoint, err := s3EndpointFor(auth.APIInfo.StorageAPI)
 	if err != nil {
 		return nil, fmt.Errorf("could not determine B2 S3 endpoint: %w", err)
 	}
 
-	bucket, err := c.CreateBucket(auth.APIURL, auth.AuthorizationToken, auth.AccountID, bucketName, "allPrivate")
+	bucket, err := c.CreateBucket(auth.APIInfo.StorageAPI.APIURL, auth.AuthorizationToken, auth.AccountID, bucketName, "allPrivate")
 	if err != nil {
 		return nil, err
 	}
 
-	key, err := c.CreateKey(auth.APIURL, auth.AuthorizationToken, auth.AccountID, bucketName+"-key", bucket.BucketID, nil)
+	key, err := c.CreateKey(auth.APIInfo.StorageAPI.APIURL, auth.AuthorizationToken, auth.AccountID, bucketName+"-key", bucket.BucketID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -171,11 +159,11 @@ var b2RegionRegex = regexp.MustCompile(`^[0-9]{3}$`)
 // s3EndpointFor picks the S3-compatible endpoint for a bucket. The authoritative
 // s3ApiUrl returned by b2_authorize_account wins when present; otherwise the
 // legacy apiNNN derivation is used as a fallback.
-func s3EndpointFor(auth *b2AuthResponse) (string, error) {
-	if ep := strings.TrimSuffix(auth.S3APIURL, "/"); ep != "" {
+func s3EndpointFor(storage b2StorageAPI) (string, error) {
+	if ep := strings.TrimSuffix(storage.S3APIURL, "/"); ep != "" {
 		return ep, nil
 	}
-	return b2S3Endpoint(auth.APIURL)
+	return b2S3Endpoint(storage.APIURL)
 }
 
 // b2S3Endpoint derives a legacy S3-compatible endpoint from a B2 API URL of the
