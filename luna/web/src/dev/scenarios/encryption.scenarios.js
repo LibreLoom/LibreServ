@@ -126,12 +126,12 @@ export default [
   {
     id: "encryption/add-blank-protect", area: A, title: "Blank drive: protect it while adding", url: "/files",
     seed: (w) => { w.detected = [{ name: "sdb", model: "Blank USB stick", size_bytes: 32 * GB, fs_type: null, readable: false, needs_setup: true, entries: [] }]; },
-    check: ["Add drive offers Erase and set up and Protect with a password", "Protect with a password asks for the password twice, with the no-recovery warning, inside the window", "Continue closes it and opens the one erase window with the password (no wait: the drive is blank)", "Done: the drive is Ready and Encryption says Protected · Unlocked. Nothing was erased twice"],
+    check: ["Add drive offers Erase and Erase & Encrypt, each with an info hint", "Erase & Encrypt asks for the password twice, with the no-recovery warning, inside the window", "Continue closes it and opens the one erase window with the password (no wait: the drive is blank)", "Done: the drive is Ready and Encryption says Protected · Unlocked. Nothing was erased twice"],
   },
   {
     id: "encryption/add-readable-no-protect", area: A, title: "A readable drive is added as it is", url: "/files",
     seed: (w) => { w.detected = [{ name: "sdb", model: "SanDisk USB stick", size_bytes: 32 * GB, fs_type: "exfat", readable: true, entries: [{ kind: "folder", name: "Photos" }] }]; },
-    check: ["Add drive offers Add this drive only: no Erase, no Protect, because adding changes nothing on it", "Afterwards the card's Encryption offers Protect with a password"],
+    check: ["Add drive offers Add this drive only: no Erase or Erase & Encrypt, because adding changes nothing on it", "Afterwards the card's Encryption offers Protect with a password"],
   },
   // ── Dashboard and backups ─────────────────────────────────────────────────
   {

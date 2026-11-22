@@ -675,7 +675,7 @@ describe("FilesPage", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
     expect(await screen.findByText(/It has to be erased first/, { selector: "p" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Erase and set up" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Erase" })).toBeInTheDocument();
     expect(screen.getByText("EFI")).toBeInTheDocument();
     expect(screen.getByText("boot")).toBeInTheDocument();
     expect(screen.getByText("luna.iso")).toBeInTheDocument();

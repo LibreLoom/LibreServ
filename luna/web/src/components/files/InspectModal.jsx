@@ -75,9 +75,14 @@ export default function InspectModal({
         </> : result.needs_setup || !result.readable ? <>
           <p className="text-sm">Luna can't use this drive as it is. It has to be erased first, which removes everything on it.</p>
           {onErase && <div className="flex flex-wrap gap-3">
-            <Button variant="accent" onClick={() => Promise.resolve(onErase(drive)).catch(() => {})}>Erase and set up</Button>
-            {/* Protect with a password asks for the password first, so the one erase also sets it. */}
-            {onProtect && result.can_protect !== false && <Button variant="outline" onClick={() => setView("protect")}>Protect with a password</Button>}
+            <div className="inline-flex items-center gap-1">
+              <Button variant="accent" onClick={() => Promise.resolve(onErase(drive)).catch(() => {})}>Erase</Button>
+              <InfoHint label="What Erase does" content="Review and confirm before Luna erases everything and sets up the drive without a password." />
+            </div>
+            {onProtect && result.can_protect !== false && <div className="inline-flex items-center gap-1">
+              <Button variant="outline" onClick={() => setView("protect")}>Erase &amp; Encrypt</Button>
+              <InfoHint label="What Erase & Encrypt does" content="Choose the password you'll use to unlock the drive after setup. Luna will ask you to confirm before erasing and encrypting it." />
+            </div>}
           </div>}
           {onErase && onProtect && result.can_protect === false && result.cant_protect_reason && <p className="text-sm">{result.cant_protect_reason}</p>}
         </> : result.writable ? <>

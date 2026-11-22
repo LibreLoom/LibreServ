@@ -125,7 +125,7 @@ export default [
     title: "Plugged-in drive Luna can't use yet (blank or installer)",
     url: "/files",
     seed: (w) => { demo(w); w.detected = [{ name: "sdb", model: "Blank USB stick", size_bytes: 16_000_000_000, fs_type: null, readable: false, needs_setup: true }]; },
-    check: ["The Unrecognized drives card says Blank, or a format Luna can't read", "It says using the drive with Luna erases what's on it", "Add drive opens the Add-drive window, whose Erase and set up opens the erase window (see the Drive erase scenarios for the rest)"],
+    check: ["The Unrecognized drives card says Blank, or a format Luna can't read", "It says using the drive with Luna erases what's on it", "Add drive opens the Add-drive window, whose Erase opens the erase window (see the Drive erase scenarios for the rest)"],
   },
   {
     id: "files/drive-encrypted",

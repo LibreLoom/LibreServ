@@ -819,7 +819,7 @@ export default function FilesPage() {
           setErasePassword(undefined);
           setEraseDevice({ name: d.name, model: d.model, label: d.model || "", format_id: d.format_id });
         }}
-        // "Protect with a password": the password was just chosen, and this one erase sets it.
+        // "Erase & Encrypt" collects the password before opening the erase window.
         onProtect={isMockUnknownDrive(inspectFor?.name) ? undefined : async (d, password) => {
           await releaseInspectedDrive(d);
           setInspectFor(null);

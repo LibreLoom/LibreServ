@@ -35,10 +35,13 @@ it("lets a forgotten password lead to erasing the drive and starting over", asyn
   await waitFor(() => expect(onErase).toHaveBeenCalledWith(drive));
 });
 
-it("collects the password for Protect with a password, then hands both over", async () => {
+it("explains Erase & Encrypt and collects a password before handing the drive over", async () => {
   const onProtect = vi.fn(async () => {});
   render(wrap(<InspectModal open drive={drive} result={{ needs_setup: true, readable: true, writable: false, entries: [], folders: 0, files: 0 }} error={null} adoptError={null} adopting={false} onClose={() => {}} onAdopt={() => {}} onErase={() => {}} onProtect={onProtect} />));
-  fireEvent.click(screen.getByRole("button", { name: "Protect with a password" }));
+  fireEvent.click(screen.getByRole("button", { name: "What Erase & Encrypt does" }));
+  expect(screen.getByRole("tooltip")).toHaveTextContent(/confirm before erasing and encrypting/i);
+  expect(screen.queryByLabelText("Password")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Erase & Encrypt" }));
   expect(screen.getByText(/no way to get this password back/)).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "brand-new-pass-2" } });
   fireEvent.change(screen.getByLabelText("Password, once more"), { target: { value: "brand-new-pass-2" } });
@@ -49,9 +52,10 @@ it("collects the password for Protect with a password, then hands both over", as
 it("doesn't offer Protect when Luna can't protect this drive, and says why", () => {
   const reason = "This is a test drive made from a folder. A folder can't be protected with a password.";
   render(wrap(<InspectModal open drive={drive} result={{ needs_setup: true, readable: true, writable: false, entries: [], folders: 0, files: 0, can_protect: false, cant_protect_reason: reason }} error={null} adoptError={null} adopting={false} onClose={() => {}} onAdopt={() => {}} onErase={() => {}} onProtect={() => {}} />));
-  expect(screen.queryByRole("button", { name: "Protect with a password" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Erase & Encrypt" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "What Erase & Encrypt does" })).toBeNull();
   expect(screen.getByText(reason)).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Erase and set up" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Erase" })).toBeInTheDocument();
 });
 
 it("offers to erase a drive that needs setting up, and never adds it as it is", async () => {
@@ -59,8 +63,11 @@ it("offers to erase a drive that needs setting up, and never adds it as it is", 
   render(wrap(<InspectModal open drive={drive} result={{ needs_setup: true, readable: true, writable: false, entries: [], folders: 0, files: 0 }} error={null} adoptError={null} adopting={false} onClose={() => {}} onAdopt={() => {}} onErase={onErase} />));
   expect(screen.getByText(/It has to be erased first/)).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Add this drive" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Protect with a password" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Erase and set up" }));
+  expect(screen.queryByRole("button", { name: "Erase & Encrypt" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "What Erase does" }));
+  expect(screen.getByRole("tooltip")).toHaveTextContent(/sets up the drive without a password/i);
+  expect(onErase).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Erase" }));
   await waitFor(() => expect(onErase).toHaveBeenCalledWith(drive));
 });
 

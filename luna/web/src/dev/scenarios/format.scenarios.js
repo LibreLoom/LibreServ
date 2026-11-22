@@ -21,7 +21,7 @@ export default [
   {
     id: "format/empty-drive", area: A, title: "Blank USB stick: no wait", url: "/files",
     seed: (w) => { w.detected = [stick({ model: "Blank USB stick", fs_type: null, readable: false, needs_setup: true, entries: [] })]; },
-    check: ["The card says the drive is blank and that using it erases what's on it", "Add drive → Erase and set up opens the erase window: This drive is blank", "The Erase drive button is enabled at once, with no countdown", "Erase → steps → Drive is ready → Open drive", "The Unrecognized drives card is gone and the drive is on the Files page"],
+    check: ["The card says the drive is blank and that using it erases what's on it", "Add drive → Erase opens the erase window: This drive is blank", "The Erase drive button is enabled at once, with no countdown", "Erase → steps → Drive is ready → Open drive", "The Unrecognized drives card is gone and the drive is on the Files page"],
   },
   {
     id: "format/drive-with-files", area: A, title: "USB stick with files: 30 second wait", url: `${FLOW}?device=sdb`,
