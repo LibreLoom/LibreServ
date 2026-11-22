@@ -2,19 +2,19 @@
   "format": 1,
   "unit": "luna",
   "channel": "stable",
-  "version": "0.0.10",
-  "published": "2026-11-19T02:57:16Z",
-  "notes": "- fix(luna): tighten document access and login lockout\n- chore(luna): checkpoint performance changes before release\n- docs(luna): round 6 and clean pass at 88e37540\n- perf(luna): RAM cache sleeps until expiry when stall reports watch\n- perf(luna,ui): icons as images, no search debounce, no Places prefetch\n- docs(luna): clean final pass at HEAD\n- docs(luna): round 5 results\n- fix(release): scope cut gates to each release unit\n",
+  "version": "0.0.11",
+  "published": "2026-11-22T02:14:46Z",
+  "notes": "",
   "parts": [
     {
       "name": "os",
       "os": "linux",
       "arch": "amd64",
       "file": "luna-os-x86_64.img.xz",
-      "size": 694102980,
-      "sha256": "9ab9d24db3b4dd278fd593744b47eec990ce3290a07999ace1dcde6fa90a6dde",
+      "size": 694644788,
+      "sha256": "0269294ebaef98b508948afe38f737d38e027f6101c9b8db04c94b226f1d08a4",
       "urls": [
-        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.10/luna-os-x86_64.img.xz"
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.11/luna-os-x86_64.img.xz"
       ]
     },
     {
@@ -22,10 +22,10 @@
       "os": "linux",
       "arch": "amd64",
       "file": "luna-rapidinstall-x86_64.iso.xz",
-      "size": 944787224,
-      "sha256": "d3caacfa5d690ad283de76ba085501a0a2c06dd1fbf2600347087a279641d411",
+      "size": 945329176,
+      "sha256": "406dd3d55424412e06237c72ff976719d05b82d7ccab85062f4d3bfcb3dbc369",
       "urls": [
-        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.10/luna-rapidinstall-x86_64.iso.xz"
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.11/luna-rapidinstall-x86_64.iso.xz"
       ]
     }
   ],

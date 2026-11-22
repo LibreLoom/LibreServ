@@ -2,19 +2,19 @@
   "format": 1,
   "unit": "luna",
   "channel": "beta",
-  "version": "0.0.11-beta.1",
-  "published": "2026-11-22T01:05:58Z",
-  "notes": "- test(luna): record current lunad response shapes\n- fix(luna): restore drive backups and align release tests\n- feat(luna): share links belong to the file, not their creator\n- fix(luna): close update-feed, reset and root-tool sandbox audit gaps\n- fix(luna,connect): close the first security audit batch\n- docs(luna): round 14 — W16 by a larger sample, W8 remote breakdown\n- perf(luna): small timeline thumbnails at WebP quality 60, method 6\n- perf(luna): thumbnail scheduler reads each day's position once per pass\n- test(luna): long-folder FileBrowser tests wait for the scroll to settle\n- docs(luna): rounds 11-13 and pass at 7f27d07c\n- fix(ui,luna): Luna web tests really get the 10 s async wait\n- fix(luna): the photo lightbox locks page scroll before its first paint\n- perf(luna,ui): lighter search result rows\n- perf(luna): timeline draws a new page's on-screen photos first\n- perf(luna): scrolling a long folder keeps fewer rows behind, reuses rows\n- docs(luna): rounds 8-10 results\n- chore(luna): regenerate lunad response contract\n- perf(luna): small grid thumbnails as WebP\n- perf(luna): timeline reads the next listing page ahead, steadier jumps\n- perf(luna,ui): Dashboard data starts at sign-in, fewer wasted requests\n- perf(luna): one clock thread for slow timers, cheaper health probe\n- docs(luna): round 7 and passes at 3553b70d\n",
+  "version": "0.0.11",
+  "published": "2026-11-22T02:14:46Z",
+  "notes": "",
   "parts": [
     {
       "name": "os",
       "os": "linux",
       "arch": "amd64",
       "file": "luna-os-x86_64.img.xz",
-      "size": 694647344,
-      "sha256": "0314ddc1bf67845c5619e9f083171fcc959dd9e65bcb7ed6dc59aed4a4761182",
+      "size": 694644788,
+      "sha256": "0269294ebaef98b508948afe38f737d38e027f6101c9b8db04c94b226f1d08a4",
       "urls": [
-        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.11-beta.1/luna-os-x86_64.img.xz"
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.11/luna-os-x86_64.img.xz"
       ]
     },
     {
@@ -22,10 +22,10 @@
       "os": "linux",
       "arch": "amd64",
       "file": "luna-rapidinstall-x86_64.iso.xz",
-      "size": 945331720,
-      "sha256": "4fa4e3ba0132662ebb65e3d269981ed512089ab0e049ddff92ffe73ed92c9943",
+      "size": 945329176,
+      "sha256": "406dd3d55424412e06237c72ff976719d05b82d7ccab85062f4d3bfcb3dbc369",
       "urls": [
-        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.11-beta.1/luna-rapidinstall-x86_64.iso.xz"
+        "https://gt.plainskill.net/api/packages/LibreLoom/generic/luna/0.0.11/luna-rapidinstall-x86_64.iso.xz"
       ]
     }
   ],
