@@ -206,6 +206,10 @@ export default function UsersCategory() {
   const loading = users.isLoading;
   const showList = !loading && !users.isError && list.length > 0;
   const showEmpty = !loading && !users.isError && list.length === 0;
+  const openCreateUser = () => {
+    setError(null);
+    setCreating(true);
+  };
 
   return (
     <>
@@ -339,10 +343,7 @@ export default function UsersCategory() {
               <Button
                 size="sm"
                 variant="primary"
-                onClick={() => {
-                  setError(null);
-                  setCreating(true);
-                }}
+                onClick={openCreateUser}
               >
                 <UserPlus size={14} aria-hidden="true" />
                 Add user
@@ -484,13 +485,6 @@ export default function UsersCategory() {
                   onRowClick={(row) => (
                     row.id === user?.id ? navigate(SELF_SECURITY) : setEditing(row)
                   )}
-                  addRow={{
-                    label: "Add user",
-                    onClick: () => {
-                      setError(null);
-                      setCreating(true);
-                    },
-                  }}
                   mobileCards
                   mobileCardSurface="primary"
                   renderMobileCard={(row, columns, surface) => {
@@ -510,6 +504,12 @@ export default function UsersCategory() {
                   }}
                 />
               </div>
+            )}
+            {showList && (
+              <Button variant="primary" fullWidth className="mt-3" onClick={openCreateUser}>
+                <UserPlus size={16} aria-hidden="true" />
+                Add user
+              </Button>
             )}
           </SettingsCard>
         </section>
