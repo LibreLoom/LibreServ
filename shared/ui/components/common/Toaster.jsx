@@ -2,6 +2,7 @@ import { CheckCircle2, XCircle, Info, X, ChevronDown } from "lucide-react";
 import PropTypes from "prop-types";
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { useToast, useToastList } from "../../context/ToastContext";
+import { useDocumentVisible } from "../../hooks/useDocumentVisible.js";
 import { cn } from "../../lib/utils.js";
 import { ICON_SIZE } from "../../lib/ui-tokens.js";
 import { haptic } from "../../utils/haptics.js";
@@ -16,6 +17,16 @@ const TYPE_CONFIG = {
 const RING_CIRC = 2 * Math.PI * 12;
 // Collapsed message clip — ~1 line of text-sm / leading-snug.
 const COLLAPSED_H = "1.3rem";
+// Overflow threshold in the same units as scrollHeight (px).
+const TRUNCATION_THRESHOLD_PX = 30;
+
+// Drag gesture. A press must move a few px before it counts as a drag, and a
+// release dismisses past the distance threshold or on a quick flick.
+const DRAG_START_PX = 6;
+const DISMISS_DISTANCE_PX = 88;
+const FLICK_DISTANCE_PX = 24;
+const FLICK_VELOCITY_PX_PER_MS = 0.5;
+const SNAP_BACK_MS = 220;
 
 /**
  * `.animate-toast-enter` is a keyframe whose 0% frame is `opacity: 0` with
@@ -36,15 +47,25 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
   const config = TYPE_CONFIG[toast.type] || TYPE_CONFIG.info;
   const Icon = config.icon;
   const hasTimer = (toast.duration ?? 0) > 0;
+  const visible = useDocumentVisible();
 
-  const [hovering, setHovering] = useState(false);
+  const rootRef = useRef(null);
+  const dragRef = useRef(null);
+  const snapTimerRef = useRef(null);
+  const suppressClickRef = useRef(false);
+
+  const [entering, setEntering] = useState(!toast.exiting);
+  const [mouseHovering, setMouseHovering] = useState(false);
+  const [touchHeld, setTouchHeld] = useState(false);
+  const [focusWithin, setFocusWithin] = useState(false);
   const [clickedOpen, setClickedOpen] = useState(false);
   const [isTruncated, setIsTruncated] = useState(false);
   const [fullHeight, setFullHeight] = useState(0);
-  // The entrance animation is applied for its own run only — see ENTER_MS.
-  // Dropping it hands visibility back to the element's resting styles, so a
-  // stalled timeline can no longer leave the toast invisible.
-  const [entering, setEntering] = useState(!toast.exiting);
+  // `drag` is null at rest. While set it holds the live pointer offset; on
+  // release it becomes either {x:0,y:0} (snap back) or a flung-out offset.
+  const [drag, setDrag] = useState(null);
+  const [snapping, setSnapping] = useState(false);
+  const [swipedOut, setSwipedOut] = useState(false);
   const msgRef = useRef(null);
 
   useEffect(() => {
@@ -53,16 +74,57 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
     return () => clearTimeout(timer);
   }, [entering]);
 
+  useEffect(
+    () => () => {
+      clearTimeout(snapTimerRef.current);
+    },
+    []
+  );
+
   // Compact by default; springs open on hover/click when the message overflows.
-  const expanded = clickedOpen || (hovering && isTruncated);
-  // Hovering or expanded freezes both the dismiss timer and the time-ring.
-  const paused = hovering || clickedOpen || !!toast.exiting;
+  const expanded = clickedOpen || (mouseHovering && isTruncated);
+  // Hover is a desktop affordance; touch users pause by holding the toast, and
+  // keyboard users by focusing anything inside it. A hidden tab pauses too.
+  const paused =
+    !!toast.exiting ||
+    !visible ||
+    mouseHovering ||
+    touchHeld ||
+    focusWithin ||
+    clickedOpen;
 
   useEffect(() => {
     if (!hasTimer) return;
     if (paused) onPause(toast.id);
     else onResume(toast.id);
   }, [paused, hasTimer, toast.id, onPause, onResume]);
+
+  // Touching or clicking anything outside this toast ends its pause sources.
+  // Without this, a tap's synthetic mouse events (or an expanded message)
+  // could leave a toast paused indefinitely after the person moved on.
+  useEffect(() => {
+    if (!touchHeld && !clickedOpen) return undefined;
+    const onOutsideDown = (event) => {
+      if (rootRef.current && !rootRef.current.contains(event.target)) {
+        setTouchHeld(false);
+        setClickedOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onOutsideDown, true);
+    return () => document.removeEventListener("pointerdown", onOutsideDown, true);
+  }, [touchHeld, clickedOpen]);
+
+  // A finger can be released outside the toast; that must still unpause it.
+  useEffect(() => {
+    if (!touchHeld) return undefined;
+    const end = () => setTouchHeld(false);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    return () => {
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+    };
+  }, [touchHeld]);
 
   // Measure the full (unclipped) message height so max-height animates between
   // two real values — no dead zone, smooth in both directions.
@@ -72,30 +134,154 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
     if (!el) return;
     const full = el.scrollHeight;
     setFullHeight(full);
-    setIsTruncated(full > 30);
+    setIsTruncated(full > TRUNCATION_THRESHOLD_PX);
   }, [toast.message, isTruncated]);
+
+  const onPointerDown = (event) => {
+    // Buttons own their own taps; don't turn them into a drag.
+    if (event.target instanceof Element && event.target.closest("button")) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+
+    if (event.pointerType !== "mouse") setTouchHeld(true);
+    // Hand transform back from the entrance keyframes to the drag style.
+    setEntering(false);
+    dragRef.current = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      time: performance.now(),
+      started: false,
+    };
+    try {
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    } catch {
+      /* capture is a nicety; pointer-up on window covers the rest */
+    }
+  };
+
+  const onPointerMove = (event) => {
+    const start = dragRef.current;
+    if (!start || start.id !== event.pointerId) return;
+
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    if (!start.started && Math.hypot(dx, dy) < DRAG_START_PX) return;
+    if (!start.started) {
+      start.started = true;
+      haptic("rigid");
+    }
+
+    // `touch-none` on the root already stops the page scrolling under a
+    // drag; calling preventDefault here could suppress the matching click.
+    setSnapping(false);
+    setDrag({ x: dx, y: dy });
+  };
+
+  const finishDrag = (event) => {
+    const start = dragRef.current;
+    if (!start || start.id !== event.pointerId) return;
+    dragRef.current = null;
+    try {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    } catch {
+      /* see setPointerCapture above */
+    }
+    if (!start.started) return;
+
+    // A real drag must not also count as a tap-to-expand on the same gesture.
+    suppressClickRef.current = true;
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    const distance = Math.hypot(dx, dy);
+    const velocity = distance / Math.max(1, performance.now() - start.time);
+    const shouldDismiss =
+      distance > DISMISS_DISTANCE_PX ||
+      (distance > FLICK_DISTANCE_PX && velocity > FLICK_VELOCITY_PX_PER_MS);
+
+    setSnapping(true);
+    if (shouldDismiss) {
+      haptic("light");
+      setSwipedOut(true);
+      setDrag({ x: dx * 1.35, y: dy * 1.35 });
+      onDismiss(toast.id);
+    } else {
+      setDrag({ x: 0, y: 0 });
+      clearTimeout(snapTimerRef.current);
+      snapTimerRef.current = setTimeout(() => {
+        setDrag(null);
+        setSnapping(false);
+      }, SNAP_BACK_MS);
+    }
+  };
+
+  const toggleExpanded = (event) => {
+    event?.stopPropagation();
+    haptic("light");
+    setClickedOpen((value) => !value);
+  };
+
+  const dragDistance = drag ? Math.hypot(drag.x, drag.y) : 0;
+  const dragStyle = {
+    transform: `translate3d(${drag?.x ?? 0}px, ${drag?.y ?? 0}px, 0)`,
+    ...(drag
+      ? { opacity: swipedOut ? 0 : Math.max(0.35, 1 - dragDistance / 260) }
+      : {}),
+    transition: snapping
+      ? `transform ${SNAP_BACK_MS}ms cubic-bezier(0.2,0,0,1), opacity ${SNAP_BACK_MS}ms ease-out`
+      : "none",
+  };
 
   return (
     <div
+      ref={rootRef}
       role={toast.type === "error" ? "alert" : "status"}
       data-slot="toast"
       data-tone={toast.type}
+      data-dragging={drag && !snapping ? "true" : undefined}
+      style={dragStyle}
       className={cn(
-        "pointer-events-auto relative flex items-start gap-3 overflow-hidden",
+        "pointer-events-auto relative flex items-start gap-3 overflow-hidden touch-none",
         "min-w-[220px] max-w-[380px]",
         "surface-secondary",
         "rounded-large-element border border-primary/10 shadow-lg",
         "pl-3 pr-2 py-2.5 origin-top-right",
-        toast.exiting ? "animate-toast-exit" : entering && "animate-toast-enter",
+        toast.exiting ? !swipedOut && "animate-toast-exit" : entering && "animate-toast-enter",
         isTruncated && "cursor-pointer",
       )}
       // The entrance ends here too, so a stalled timeline still drops the class.
       onAnimationEnd={(event) => {
         if (event.target === event.currentTarget && entering) setEntering(false);
       }}
-      onClick={() => isTruncated && setClickedOpen((v) => !v)}
-      onMouseEnter={() => setHovering(true)}
-      onMouseLeave={() => setHovering(false)}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={finishDrag}
+      onPointerCancel={finishDrag}
+      onClick={(event) => {
+        if (suppressClickRef.current) {
+          suppressClickRef.current = false;
+          return;
+        }
+        if (isTruncated) toggleExpanded(event);
+      }}
+      // Only a real mouse hovers. Touch fires synthetic mouseenter/mouseleave
+      // that would otherwise pause the toast until the next unrelated tap.
+      onPointerEnter={(event) => {
+        if (event.pointerType === "mouse") setMouseHovering(true);
+      }}
+      onPointerLeave={(event) => {
+        if (event.pointerType === "mouse") setMouseHovering(false);
+      }}
+      onFocusCapture={() => setFocusWithin(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setFocusWithin(false);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          haptic("light");
+          onDismiss(toast.id);
+        }
+      }}
     >
       {/* Status icon wrapped in a depleting time-ring */}
       <div className="relative flex-shrink-0 flex items-center justify-center w-7 h-7">
@@ -135,14 +321,25 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
             </p>
           </div>
           {isTruncated && (
-            <ChevronDown
-              size={ICON_SIZE.sm}
+            <button
+              type="button"
+              aria-label={expanded ? "Show less" : "Show more"}
+              aria-expanded={expanded}
+              onClick={toggleExpanded}
               className={cn(
-                "flex-shrink-0 mt-0.5 motion-safe:transition-transform motion-safe:duration-200",
-                expanded && "rotate-180",
+                "flex-shrink-0 flex items-center justify-center min-w-8 min-h-11 -my-2.5 -mr-1",
+                "rounded-pill focus-visible:ring-2 focus-visible:ring-accent no-focus-outline",
               )}
-              aria-hidden="true"
-            />
+            >
+              <ChevronDown
+                size={ICON_SIZE.sm}
+                className={cn(
+                  "motion-safe:transition-transform motion-safe:duration-200",
+                  expanded && "rotate-180",
+                )}
+                aria-hidden="true"
+              />
+            </button>
           )}
         </div>
         {toast.description && (
@@ -160,7 +357,7 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
             onDismiss(toast.id);
           }}
           className={cn(
-            "flex-shrink-0 self-center rounded-pill surface-primary px-3 py-1 text-xs font-mono",
+            "flex-shrink-0 self-center min-h-11 -my-2.5 rounded-pill surface-primary px-3 text-xs font-mono",
             "hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary",
             "motion-safe:transition-all active:motion-safe:scale-95",
             "focus-visible:ring-2 focus-visible:ring-accent no-focus-outline",
@@ -174,10 +371,11 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
         type="button"
         onClick={(e) => {
           e.stopPropagation();
+          haptic("light");
           onDismiss(toast.id);
         }}
         className={cn(
-          "flex-shrink-0 p-1 rounded-pill",
+          "flex-shrink-0 flex items-center justify-center min-w-11 min-h-11 -my-2.5 -mr-2 rounded-pill",
           "hover:text-primary hover:bg-primary/10",
           "motion-safe:transition-colors",
           "focus-visible:ring-2 focus-visible:ring-accent no-focus-outline",
@@ -216,7 +414,7 @@ export default function Toaster() {
 
   return (
     <div
-      className="fixed top-4 right-6 z-[9999] flex flex-col items-end pointer-events-none"
+      className="fixed top-[max(1rem,env(safe-area-inset-top,0px))] right-[max(1.5rem,env(safe-area-inset-right,0px))] z-[9999] flex flex-col items-end pointer-events-none"
       data-slot="toaster"
       role="region"
       aria-label="Notifications"
