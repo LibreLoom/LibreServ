@@ -1301,24 +1301,22 @@ function QuestionCard({
         )}
         {question.type === "number" && (
           <div className="flex flex-wrap items-center gap-2">
-            <label className="text-sm text-primary" htmlFor={`min-${question.id}`}>Smallest</label>
+            <label className="text-sm text-primary" htmlFor={`min-${question.id}`}>Minimum</label>
             <input
               id={`min-${question.id}`}
               type="number"
               className={cn(fieldClass, "w-32")}
               value={question.config?.min ?? ""}
               onChange={(e) => setBound("min", e.target.value)}
-              placeholder="No minimum"
               disabled={!canWrite}
             />
-            <label className="text-sm text-primary" htmlFor={`max-${question.id}`}>Largest</label>
+            <label className="text-sm text-primary" htmlFor={`max-${question.id}`}>Maximum</label>
             <input
               id={`max-${question.id}`}
               type="number"
               className={cn(fieldClass, "w-32")}
               value={question.config?.max ?? ""}
               onChange={(e) => setBound("max", e.target.value)}
-              placeholder="No maximum"
               disabled={!canWrite}
             />
           </div>
