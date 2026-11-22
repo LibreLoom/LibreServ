@@ -848,6 +848,77 @@ const FORWARDING_HEADERS: &[&str] = &[
     "forwarded",
 ];
 
+/// True while Luna has no account at all: a new box, or one just reset.
+/// Nobody can be signed in then, so every request is anonymous. A database
+/// error counts as "no account" so the lockdown below fails closed.
+pub fn luna_unprovisioned(state: &AppState) -> bool {
+    state.auth.count_users().map_or(true, |n| n == 0)
+}
+
+/// Before the first account exists, only what the setup wizard and the Luna
+/// Connect landing (`/setup?token=`) call answers anonymously:
+///
+/// - the web app and its assets (any path outside `/api/`, `/s/`, `/dav/`
+///   and the office and diagram editors), plus `GET /health` and
+///   `GET /api/v1/health`;
+/// - `GET`/`POST /api/v1/setup`, `GET /api/v1/setup/preflight`,
+///   `POST /api/v1/setup/fetch-mag`;
+/// - `POST /api/v1/auth/register`, `POST /api/v1/auth/login`,
+///   `POST /api/v1/auth/logout`, `GET /api/v1/auth/status`,
+///   `GET /api/v1/auth/me`;
+/// - `GET /api/v1/network/status`, `GET /api/v1/connect/status` and
+///   `POST /api/v1/connect/device-token` (which itself also needs Luna's own
+///   address and a client on Luna's network).
+///
+/// Everything else that would answer without a session (share links and
+/// forms under `/s/`, WebDAV, the office and diagram editors and their
+/// sockets, the sign-out-everywhere routes) is refused until then. Routes
+/// that need a session keep answering 401 as before.
+pub fn pre_setup_route_allowed(method: &axum::http::Method, path: &str) -> bool {
+    use axum::http::Method;
+    let get = method == Method::GET || method == Method::HEAD;
+    let post = method == Method::POST;
+    match path {
+        "/health" | "/api/v1/health" => get,
+        "/api/v1/setup" => get || post,
+        "/api/v1/setup/preflight" => get,
+        "/api/v1/setup/fetch-mag" => post,
+        "/api/v1/auth/register" | "/api/v1/auth/login" | "/api/v1/auth/logout" => post,
+        "/api/v1/auth/status" | "/api/v1/auth/me" => get,
+        "/api/v1/network/status" | "/api/v1/connect/status" => get,
+        "/api/v1/connect/device-token" => post,
+        _ => ![
+            "/api/",
+            "/s/",
+            "/dav/",
+            "/eurooffice/",
+            "/sdkjs/",
+            "/drawio/",
+        ]
+        .iter()
+        .any(|prefix| path.starts_with(prefix)),
+    }
+}
+
+/// The refusal for a route that stays closed until setup is done.
+fn pre_setup_refusal() -> Response {
+    json_error(
+        StatusCode::FORBIDDEN,
+        "Luna isn't set up yet. Finish setup first.",
+    )
+    .into_response()
+}
+
+/// Middleware for the routes mounted outside [`guard`] (WebDAV, the office
+/// and diagram editors): closed while Luna has no account. See
+/// [`pre_setup_route_allowed`].
+pub async fn pre_setup_gate(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    if !pre_setup_route_allowed(req.method(), req.uri().path()) && luna_unprovisioned(&state) {
+        return pre_setup_refusal();
+    }
+    next.run(req).await
+}
+
 /// Drop forwarding headers when the TCP peer is not loopback. Callers keep
 /// treating a loopback peer (the Connect tunnel, an on-box proxy) as trusted.
 pub fn strip_untrusted_forwarding_headers(headers: &mut HeaderMap, peer_is_loopback: bool) {
@@ -931,7 +1002,6 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
         || path == "/api/v1/health"
         || path.starts_with("/api/v1/auth/")
         || path.starts_with("/api/v1/setup")
-        || path.starts_with("/api/v1/public/")
         || path.starts_with("/s/")
         || !path.starts_with("/api/");
     if !is_public && path.starts_with("/api/v1/network/") {
@@ -941,6 +1011,11 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
     if !is_public && (path == "/api/v1/connect/status" || path == "/api/v1/connect/device-token") {
         let wizard_open = state.auth.count_users().unwrap_or(1) == 0 || setup_wizard_open(&state);
         is_public = wizard_open;
+    }
+    // Before the first account exists, the public surface shrinks to what
+    // setup needs (see `pre_setup_route_allowed`).
+    if is_public && !pre_setup_route_allowed(&method, &path) && luna_unprovisioned(&state) {
+        return pre_setup_refusal();
     }
 
     // Prefer the session JWT; fall back to a device token so the mobile and

@@ -56,9 +56,21 @@ fn test_app(mount: &std::path::Path) -> (tempfile::TempDir, axum::Router, crate:
 
 /// Insert an access link row directly — tests shouldn't depend on the
 /// link-management endpoint's shape while sharing is reworked.
+/// The account the test links belong to. Luna answers share links only once
+/// it has an account, and a real link always has one behind it.
+fn ensure_link_creator(conn: &rusqlite::Connection) {
+    conn.execute(
+        "INSERT OR IGNORE INTO users (id, username, display_name, password_hash, role, created_at, updated_at)
+         VALUES ('test', 'test', 'Test', 'unused', 'admin', 0, 0)",
+        [],
+    )
+    .unwrap();
+}
+
 fn insert_link(state: &crate::AppState, path: &str, caps: i64) -> String {
     let token = Uuid::new_v4().simple().to_string();
     let conn = state.db.lock().unwrap();
+    ensure_link_creator(&conn);
     crate::db::insert_access_link(
         &conn,
         &crate::db::AccessLinkRow {
@@ -629,6 +641,7 @@ fn insert_link_full(
 ) -> String {
     let token = Uuid::new_v4().simple().to_string();
     let conn = state.db.lock().unwrap();
+    ensure_link_creator(&conn);
     crate::db::insert_access_link(
         &conn,
         &crate::db::AccessLinkRow {

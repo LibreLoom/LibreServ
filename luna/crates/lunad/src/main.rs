@@ -838,10 +838,16 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
         // WebDAV sits outside protected_api (it authenticates itself) but is
         // file traffic all the same.
         .merge(
-            lunad::files::dav::router().layer(axum::middleware::from_fn_with_state(
-                state.clone(),
-                touch_io_activity,
-            )),
+            lunad::files::dav::router()
+                .layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    touch_io_activity,
+                ))
+                // Closed until Luna has its first account.
+                .layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    lunad::auth::pre_setup_gate,
+                )),
         );
     if eurooffice_dir.is_dir() {
         tracing::info!(dir = %eurooffice_dir.display(), "serving EuroOffice assets");
@@ -874,6 +880,12 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
                 )
                 .layer(axum::middleware::from_fn(
                     lunad::api::office::pack_security_headers,
+                ))
+                // The editor and its socket stay closed until Luna has its
+                // first account; `/fonts/` stays open (the web app uses it).
+                .layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    lunad::auth::pre_setup_gate,
                 )),
         );
     }
@@ -888,6 +900,10 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
                 .route("/drawio/{*tail}", axum::routing::any(drawio_dispatch))
                 .layer(axum::middleware::from_fn(
                     lunad::api::office::pack_security_headers,
+                ))
+                .layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    lunad::auth::pre_setup_gate,
                 )),
         );
     }

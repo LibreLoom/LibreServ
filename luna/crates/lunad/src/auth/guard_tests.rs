@@ -853,3 +853,161 @@ fn categorizes_api_requests() {
     let (action, _) = categorize_api_request(&Method::GET, "/api/v1/search");
     assert_eq!(action, "Search");
 }
+
+/// The refusal every closed route gives before Luna has its first account.
+const NOT_SET_UP: &str = "Luna isn't set up yet. Finish setup first.";
+
+fn test_app_with_state() -> (tempfile::TempDir, axum::Router, crate::AppState) {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+    let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+    let connect = std::sync::Arc::new(crate::net::connect::ConnectService::new(
+        dir.path(),
+        Some("http://127.0.0.1:1".into()),
+    ));
+    let state = crate::AppState::new(conn, drive_manager, dir.path()).with_connect(connect);
+    let app = api::router()
+        .layer(axum::middleware::from_fn_with_state(state.clone(), guard))
+        .with_state(state.clone());
+    (dir, app, state)
+}
+
+#[test]
+fn pre_setup_surface_lists_only_what_setup_calls() {
+    let allowed = [
+        (Method::GET, "/"),
+        (Method::GET, "/setup"),
+        (Method::GET, "/assets/index-abc.js"),
+        (Method::GET, "/fonts/FreeMono.ttf"),
+        (Method::GET, "/health"),
+        (Method::GET, "/api/v1/health"),
+        (Method::GET, "/api/v1/setup"),
+        (Method::POST, "/api/v1/setup"),
+        (Method::GET, "/api/v1/setup/preflight"),
+        (Method::POST, "/api/v1/setup/fetch-mag"),
+        (Method::POST, "/api/v1/auth/register"),
+        (Method::POST, "/api/v1/auth/login"),
+        (Method::POST, "/api/v1/auth/logout"),
+        (Method::GET, "/api/v1/auth/status"),
+        (Method::GET, "/api/v1/auth/me"),
+        (Method::GET, "/api/v1/network/status"),
+        (Method::GET, "/api/v1/connect/status"),
+        (Method::POST, "/api/v1/connect/device-token"),
+    ];
+    for (method, path) in allowed {
+        assert!(pre_setup_route_allowed(&method, path), "{method} {path}");
+    }
+    let refused = [
+        (Method::GET, "/s/abc"),
+        (Method::GET, "/s/abc/list"),
+        (Method::POST, "/s/abc/respond"),
+        (Method::POST, "/s/abc/upload"),
+        (Method::GET, "/s/abc/collab/ws"),
+        (Method::GET, "/s/office-bundle/k/b/Editor.bin"),
+        (Method::GET, "/dav/photos/"),
+        (Method::GET, "/eurooffice/doc/key/c/"),
+        (Method::GET, "/sdkjs/word/sdk-all.js"),
+        (Method::GET, "/drawio/index.html"),
+        (Method::POST, "/api/v1/auth/revoke-sessions"),
+        (Method::POST, "/api/v1/auth/revoke-devices"),
+        (Method::PATCH, "/api/v1/auth/me"),
+        (Method::DELETE, "/api/v1/connect/device-token"),
+        (Method::GET, "/api/v1/public/anything"),
+        (Method::GET, "/api/v1/users"),
+        (Method::POST, "/api/v1/system/factory-reset"),
+    ];
+    for (method, path) in refused {
+        assert!(!pre_setup_route_allowed(&method, path), "{method} {path}");
+    }
+}
+
+#[tokio::test]
+async fn before_the_first_account_setup_routes_still_answer() {
+    let (_dir, app) = test_app();
+    for (method, path) in [
+        (Method::GET, "/api/v1/health"),
+        (Method::GET, "/api/v1/setup"),
+        (Method::GET, "/api/v1/setup/preflight"),
+        (Method::GET, "/api/v1/auth/status"),
+        (Method::GET, "/api/v1/auth/me"),
+        (Method::GET, "/api/v1/network/status"),
+        (Method::GET, "/api/v1/connect/status"),
+    ] {
+        let res = call(&app, req(method.clone(), path, None, None)).await;
+        let status = res.status();
+        let body = text(res).await;
+        assert_ne!(status, 401, "{method} {path}: {body}");
+        assert!(!body.contains(NOT_SET_UP), "{method} {path}: {body}");
+    }
+}
+
+#[tokio::test]
+async fn before_the_first_account_other_anonymous_routes_are_closed() {
+    let (_dir, app) = test_app();
+    for (method, path) in [
+        (Method::GET, "/s/some-link-token"),
+        (Method::GET, "/s/some-link-token/list"),
+        (Method::POST, "/s/some-link-token/respond"),
+        (Method::POST, "/api/v1/auth/revoke-sessions"),
+        (Method::DELETE, "/api/v1/connect/device-token"),
+    ] {
+        let body = if method == Method::GET {
+            None
+        } else {
+            Some("{}")
+        };
+        let res = call(&app, req(method.clone(), path, body, None)).await;
+        let status = res.status();
+        let body = text(res).await;
+        assert_eq!(status, 403, "{method} {path}: {body}");
+        assert!(body.contains(NOT_SET_UP), "{method} {path}: {body}");
+    }
+    // Data routes keep asking for a session, as before.
+    let res = call(&app, req(Method::GET, "/api/v1/users", None, None)).await;
+    assert_eq!(res.status(), 401);
+}
+
+#[tokio::test]
+async fn share_links_answer_again_once_an_account_exists() {
+    let (_dir, app) = test_app();
+    let res = call(&app, req(Method::GET, "/s/some-link-token", None, None)).await;
+    assert_eq!(res.status(), 403);
+
+    let _ = sign_in_first_admin(&app).await;
+    let res = call(&app, req(Method::GET, "/s/some-link-token", None, None)).await;
+    let status = res.status();
+    let body = text(res).await;
+    assert_ne!(status, 403, "{body}");
+    assert!(!body.contains(NOT_SET_UP), "{body}");
+}
+
+#[tokio::test]
+async fn webdav_is_closed_before_the_first_account_and_asks_for_a_sign_in_after() {
+    let (_dir, app, state) = test_app_with_state();
+    let dav = crate::files::dav::router()
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            pre_setup_gate,
+        ))
+        .with_state(state.clone());
+    let propfind = || {
+        let mut r = HttpReq::builder()
+            .method(Method::from_bytes(b"PROPFIND").unwrap())
+            .uri("/dav/photos/")
+            .body(Body::empty())
+            .unwrap();
+        r.extensions_mut().insert(ConnectInfo(CLIENT));
+        r
+    };
+    let res = call(&dav, propfind()).await;
+    assert_eq!(res.status(), 403);
+    assert!(text(res).await.contains(NOT_SET_UP));
+
+    let _ = sign_in_first_admin(&app).await;
+    let res = call(&dav, propfind()).await;
+    assert_eq!(
+        res.status(),
+        401,
+        "after setup WebDAV answers with its own sign-in"
+    );
+}
