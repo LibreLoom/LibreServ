@@ -74,9 +74,11 @@ export default function InspectModal({
           </div>}
         </> : result.needs_setup || !result.readable ? <>
           <p className="text-sm">Luna can't use this drive as it is. It has to be erased first, which removes everything on it.</p>
-          {onErase && <Button variant="accent" onClick={() => Promise.resolve(onErase(drive)).catch(() => {})}>Erase and set up</Button>}
-          {/* Protect with a password asks for the password first, so the one erase also sets it. */}
-          {onErase && onProtect && result.can_protect !== false && <Button variant="outline" onClick={() => setView("protect")}>Protect with a password</Button>}
+          {onErase && <div className="flex flex-wrap gap-3">
+            <Button variant="accent" onClick={() => Promise.resolve(onErase(drive)).catch(() => {})}>Erase and set up</Button>
+            {/* Protect with a password asks for the password first, so the one erase also sets it. */}
+            {onProtect && result.can_protect !== false && <Button variant="outline" onClick={() => setView("protect")}>Protect with a password</Button>}
+          </div>}
           {onErase && onProtect && result.can_protect === false && result.cant_protect_reason && <p className="text-sm">{result.cant_protect_reason}</p>}
         </> : result.writable ? <>
           <div className="flex items-center gap-3">
