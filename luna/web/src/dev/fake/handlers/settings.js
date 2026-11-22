@@ -58,6 +58,18 @@ del("/api/v1/connect/device-token", ({ world, user }) => {
   return {};
 });
 
+// The reset flow's unbind step (api/connect.rs unbind). `world.unbindFails`
+// makes Connect not answer, for the Retry / Skip state.
+post("/api/v1/connect/unbind", ({ world, user, body }) => {
+  requireAdmin(user, "Only an Admin can unbind Luna Connect.");
+  if (!String(body.password ?? "").trim()) return fail(400, "Type your current password to unbind Luna Connect.");
+  if (body.password === "wrong") return fail(401, "That password is wrong. Luna Connect was not unbound.");
+  if (!world.connect.device_code && !world.connect.enabled) return fail(400, "This Luna has no device token, so it isn't linked to Luna Connect.");
+  if (world.unbindFails) return fail(504, "Luna Connect didn't answer, or had a problem. Check this Luna's internet connection, then try again.");
+  world.connect = { ...world.connect, paired: false, hostname: null, domain: null, subdomain: null, tunnel_active: false };
+  return { ok: true };
+});
+
 // ── Cloud identity, recovery phrase, restore ────────────────────────────────
 post("/api/v1/cloud/identity", ({ world }) => {
   world.phrase.luna_id ||= "luna-1";

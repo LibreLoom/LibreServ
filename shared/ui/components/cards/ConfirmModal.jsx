@@ -40,6 +40,9 @@ const BANNER_TONE = {
  * @property {string|null} [error]
  * @property {import('react').RefObject} [initialFocusRef]
  * @property {string} [overlayClassName] Passed to ModalCard (e.g. stack above lightbox).
+ * @property {(args: {close: () => void}) => import('react').ReactNode} [actions]
+ *   Replaces the Cancel / confirm buttons, for a step that offers other
+ *   choices (Retry / Skip). Lets one dialog walk through several steps.
  */
 
 /** @param {ConfirmModalProps} props */
@@ -59,6 +62,7 @@ export default function ConfirmModal({
   error = null,
   initialFocusRef,
   overlayClassName,
+  actions,
 }) {
   // Freeze copy while exiting so parents can clear the subject (userToDelete, etc.)
   // without blanking the modal mid-animation.
@@ -71,6 +75,7 @@ export default function ConfirmModal({
     confirmLabel,
     ConfirmIcon,
     error,
+    actions,
   });
   if (open) {
     snapRef.current = {
@@ -82,6 +87,7 @@ export default function ConfirmModal({
       confirmLabel,
       ConfirmIcon,
       error,
+      actions,
     };
   }
   const snap = snapRef.current;
@@ -146,29 +152,33 @@ export default function ConfirmModal({
 
           <ModalErrorNotice error={snap.error} className="mt-4" />
 
-          <div className="flex gap-3 mt-6">
-            <Button
-              variant="outline"
-              surface="secondary"
-              onClick={close}
-              disabled={loading}
-              className="flex-1"
-            >
-              Cancel
-            </Button>
-            <Button
-              variant={confirmVariant}
-              onClick={handleConfirm}
-              loading={loading}
-              disabled={disabledConfirm}
-              className={snap.variant === "warning" ? "flex-1 bg-warning text-secondary" : "flex-1"}
-            >
-              {!loading && SnapConfirmIcon ? (
-                <SnapConfirmIcon size={ICON_SIZE.md} aria-hidden="true" />
-              ) : null}
-              {loading ? "Processing..." : snap.confirmLabel}
-            </Button>
-          </div>
+          {snap.actions ? (
+            <div className="flex flex-wrap gap-3 mt-6">{snap.actions({ close })}</div>
+          ) : (
+            <div className="flex gap-3 mt-6">
+              <Button
+                variant="outline"
+                surface="secondary"
+                onClick={close}
+                disabled={loading}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant={confirmVariant}
+                onClick={handleConfirm}
+                loading={loading}
+                disabled={disabledConfirm}
+                className={snap.variant === "warning" ? "flex-1 bg-warning text-secondary" : "flex-1"}
+              >
+                {!loading && SnapConfirmIcon ? (
+                  <SnapConfirmIcon size={ICON_SIZE.md} aria-hidden="true" />
+                ) : null}
+                {loading ? "Processing..." : snap.confirmLabel}
+              </Button>
+            </div>
+          )}
         </>
       )}
     </ModalCard>
@@ -191,4 +201,5 @@ ConfirmModal.propTypes = {
   error: PropTypes.string,
   initialFocusRef: PropTypes.object,
   overlayClassName: PropTypes.string,
+  actions: PropTypes.func,
 };

@@ -105,6 +105,21 @@ pub const TUNNEL_NOT_RUNNING_MSG: &str =
 
 pub(crate) const LEGACY_DEVICE_TOKEN_FILE: &str = "setup-token";
 
+/// Present while an unbind from Luna Connect is still owed: an Admin chose to
+/// unbind during a reset, but Connect could not be reached and they went on
+/// without it. Holds a fingerprint of the device token it is for. It lives
+/// outside `connect.json` and the database, so the reset never clears it.
+/// Until an unbind succeeds Luna retries it, starts no tunnel, and does not
+/// take the device token as proof for creating the first account remotely.
+pub const UNBIND_PENDING_FILE: &str = "connect-unbind-pending";
+
+/// How long an Admin waits for Luna Connect's answer to an unbind.
+#[cfg(not(test))]
+pub const UNBIND_TIMEOUT: Duration = Duration::from_secs(15);
+/// Tests wait out the whole budget against a peer that never answers.
+#[cfg(test)]
+pub const UNBIND_TIMEOUT: Duration = Duration::from_secs(2);
+
 /// TODO: We need to add remote access options for non-connect users.
 
 #[derive(Debug, thiserror::Error)]
@@ -174,6 +189,7 @@ pub struct ConnectStatus {
 pub struct ConnectService {
     state_path: PathBuf,
     token_path: PathBuf,
+    unbind_pending_path: PathBuf,
     legacy_token_path: PathBuf,
     base_url: String,
     child: Arc<Mutex<Option<Child>>>,
@@ -218,6 +234,7 @@ impl ConnectService {
         Self {
             state_path,
             token_path: data_dir.join(DEVICE_TOKEN_FILE),
+            unbind_pending_path: data_dir.join(UNBIND_PENDING_FILE),
             legacy_token_path: data_dir.join(LEGACY_DEVICE_TOKEN_FILE),
             base_url: base_url
                 .filter(|u| !u.is_empty())
@@ -678,6 +695,16 @@ impl ConnectService {
         if !self.has_valid_device_code() {
             return false;
         }
+        // An unbind is still owed: retry it before anything else, and never
+        // adopt an address or tunnel from Connect until it succeeds.
+        if self.unbind_pending() {
+            if let Err(err) = self.unbind_now() {
+                tracing::info!(error = %err, "Luna Connect unbind still pending; will retry");
+                self.stop_tunnel();
+                return false;
+            }
+            tracing::info!("owed Luna Connect unbind went through");
+        }
         let Ok(code) = self.device_code() else {
             return false;
         };
@@ -784,6 +811,72 @@ impl ConnectService {
         self.clear_claim_keep_code();
         if let Some(token) = token {
             let _ = self.call_json("POST", "/api/v1/unregister", Some(&token), None);
+        }
+    }
+
+    /// Forget what Connect last said (address, tunnel) and stop the tunnel,
+    /// without telling Connect anything. The device token stays.
+    pub fn forget_claim(&self) {
+        self.clear_claim_keep_code();
+    }
+
+    /// Ask Luna Connect to unbind this Luna from its account, and wait up to
+    /// [`UNBIND_TIMEOUT`] for the answer. On success the tunnel stops, the
+    /// local claim clears and any owed unbind is settled. The device token
+    /// stays: it is this Luna's identity, not the account's.
+    pub fn unbind_now(&self) -> Result<(), ConnectError> {
+        let token = self.device_code()?;
+        self.call_json_status_within(
+            "POST",
+            "/api/v1/unregister",
+            Some(&token),
+            None,
+            UNBIND_TIMEOUT,
+        )?;
+        let _ = std::fs::remove_file(&self.unbind_pending_path);
+        self.clear_claim_keep_code();
+        Ok(())
+    }
+
+    /// Remember that an unbind is still owed for the current device token
+    /// (see [`UNBIND_PENDING_FILE`]) and stop the tunnel now.
+    pub fn mark_unbind_pending(&self) -> Result<(), ConnectError> {
+        let token = self.device_code()?;
+        let saved = || {
+            ConnectError::Other(
+                "Luna couldn't save that Luna Connect still needs unbinding. Try again.".into(),
+            )
+        };
+        std::fs::write(
+            &self.unbind_pending_path,
+            format!("{}\n", token_fingerprint(&token)),
+        )
+        .map_err(|_| saved())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(
+                &self.unbind_pending_path,
+                std::fs::Permissions::from_mode(0o600),
+            );
+        }
+        self.stop_tunnel();
+        Ok(())
+    }
+
+    /// True while an unbind is owed for this Luna's device token. A marker
+    /// left for a different token than the one on disk now is stale and is
+    /// dropped: a new token belongs to whoever entered it.
+    pub fn unbind_pending(&self) -> bool {
+        let Some(want) = read_trimmed_token_file(&self.unbind_pending_path) else {
+            return false;
+        };
+        match self.read_device_token() {
+            Some(token) if token_fingerprint(&token) != want => {
+                let _ = std::fs::remove_file(&self.unbind_pending_path);
+                false
+            }
+            _ => true,
         }
     }
 
@@ -1094,6 +1187,14 @@ impl ConnectService {
     }
 
     fn ensure_tunnel(&self) -> Result<(), ConnectError> {
+        // No tunnel while an unbind is owed: the old account's address must
+        // not come back.
+        if self.unbind_pending() {
+            self.stop_tunnel();
+            return Err(ConnectError::Other(
+                "Luna is still unbinding from Luna Connect.".into(),
+            ));
+        }
         let _guard = self.tunnel_mu.lock().unwrap_or_else(|e| e.into_inner());
         let state = self.load();
         let token = state
@@ -1425,6 +1526,19 @@ impl ConnectService {
         key: Option<&str>,
         body: Option<Value>,
     ) -> Result<Value, ConnectError> {
+        self.call_json_status_within(method, path, key, body, CONNECT_HTTP_TIMEOUT)
+    }
+
+    /// [`Self::call_json_status`] with its own end-to-end time budget.
+    fn call_json_status_within(
+        &self,
+        method: &str,
+        path: &str,
+        key: Option<&str>,
+        body: Option<Value>,
+        timeout: Duration,
+    ) -> Result<Value, ConnectError> {
+        let connect_timeout = timeout.min(CONNECT_HTTP_CONNECT_TIMEOUT);
         let url = format!("{}{}", self.base_url.trim_end_matches('/'), path);
         let auth = key.map(|k| format!("Bearer {k}"));
         // Allow reading non-2xx bodies (CF challenge HTML vs Connect JSON).
@@ -1433,8 +1547,8 @@ impl ConnectService {
                 let mut req = ureq::get(&url)
                     .config()
                     .http_status_as_error(false)
-                    .timeout_global(Some(CONNECT_HTTP_TIMEOUT))
-                    .timeout_connect(Some(CONNECT_HTTP_CONNECT_TIMEOUT))
+                    .timeout_global(Some(timeout))
+                    .timeout_connect(Some(connect_timeout))
                     .build();
                 if let Some(a) = auth {
                     req = req.header("Authorization", a);
@@ -1445,8 +1559,8 @@ impl ConnectService {
                 let mut req = ureq::post(&url)
                     .config()
                     .http_status_as_error(false)
-                    .timeout_global(Some(CONNECT_HTTP_TIMEOUT))
-                    .timeout_connect(Some(CONNECT_HTTP_CONNECT_TIMEOUT))
+                    .timeout_global(Some(timeout))
+                    .timeout_connect(Some(connect_timeout))
                     .build();
                 if let Some(a) = auth {
                     req = req.header("Authorization", a);
@@ -1457,8 +1571,8 @@ impl ConnectService {
                 let mut req = ureq::post(&url)
                     .config()
                     .http_status_as_error(false)
-                    .timeout_global(Some(CONNECT_HTTP_TIMEOUT))
-                    .timeout_connect(Some(CONNECT_HTTP_CONNECT_TIMEOUT))
+                    .timeout_global(Some(timeout))
+                    .timeout_connect(Some(connect_timeout))
                     .build();
                 if let Some(a) = auth {
                     req = req.header("Authorization", a);
@@ -1910,6 +2024,14 @@ fn looks_like_cf_challenge(
 
 /// Crockford base32 without I, L, O, U (same alphabet as Luna Connect).
 const CROCKFORD: &[u8] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/// What [`UNBIND_PENDING_FILE`] stores: a hash of the normalized device
+/// token, so the marker names its token without holding a copy of it.
+fn token_fingerprint(token: &str) -> String {
+    blake3::hash(normalize_device_code(token).as_bytes())
+        .to_hex()
+        .to_string()
+}
 
 fn read_trimmed_token_file(path: &Path) -> Option<String> {
     std::fs::read_to_string(path)
@@ -2533,6 +2655,118 @@ mod tests {
             service.status().connect_unreachable.as_deref(),
             Some(CONNECT_UNREACHABLE_MSG)
         );
+    }
+
+    #[test]
+    fn unbind_now_settles_an_owed_unbind_and_keeps_the_token() {
+        let url = serve_once(200, r#"{"ok":true}"#);
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some(url));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        service
+            .save(&json!({
+                "hostname": "photos.luna.servers.libreloom.org",
+                "tunnel_token": "mock-token",
+            }))
+            .unwrap();
+        service.mark_unbind_pending().unwrap();
+        assert!(service.unbind_pending());
+        assert!(dir.path().join(UNBIND_PENDING_FILE).exists());
+
+        service.unbind_now().unwrap();
+        assert!(!service.unbind_pending());
+        assert!(!dir.path().join(UNBIND_PENDING_FILE).exists());
+        assert!(
+            !dir.path().join("connect.json").exists(),
+            "the claim clears"
+        );
+        assert_eq!(
+            service.device_code().unwrap(),
+            "ABCD-EFGH-JKMN-PQRS-TVWX",
+            "the device token is this Luna's identity and stays"
+        );
+    }
+
+    #[test]
+    fn unbind_now_gives_up_within_its_own_budget() {
+        use std::time::Instant;
+        // Accepts the connection, never answers.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let _keeper = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(60));
+            drop(listener);
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some(format!("http://{addr}")));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        service.mark_unbind_pending().unwrap();
+        let started = Instant::now();
+        let err = service.unbind_now().unwrap_err();
+        let elapsed = started.elapsed();
+        assert!(matches!(err, ConnectError::Unreachable), "{err:?}");
+        assert!(
+            elapsed < UNBIND_TIMEOUT + Duration::from_secs(3),
+            "unbind must stop waiting at its budget, took {elapsed:?}"
+        );
+        assert!(service.unbind_pending(), "a failed unbind is still owed");
+    }
+
+    #[test]
+    fn an_owed_unbind_keeps_the_old_address_and_tunnel_away() {
+        // Connect has a problem: the retried unregister fails.
+        let url = serve_once(500, r#"{"error":"down"}"#);
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some(url));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        service.mark_unbind_pending().unwrap();
+        assert!(!service.poll_status());
+        assert!(
+            service.public_hostname().is_none(),
+            "no address is adopted while the unbind is owed"
+        );
+        assert!(service.unbind_pending());
+
+        // Even credentials already on disk don't bring the tunnel back.
+        service
+            .save(&json!({
+                "hostname": "photos.luna.servers.libreloom.org",
+                "tunnel_token": "tok",
+            }))
+            .unwrap();
+        assert!(service.ensure_tunnel().is_err());
+        assert!(service.child.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn the_poll_loop_retries_an_owed_unbind_and_clears_it() {
+        // First the retried unregister, then the status pull after it.
+        let url = serve_sequence(vec![
+            r#"{"ok":true}"#.into(),
+            r#"{"paired":false,"wan_ip":"203.0.113.1"}"#.into(),
+        ]);
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some(url));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        service.mark_unbind_pending().unwrap();
+        let _ = service.poll_status();
+        assert!(!service.unbind_pending());
+        assert!(!dir.path().join(UNBIND_PENDING_FILE).exists());
+    }
+
+    #[test]
+    fn an_owed_unbind_for_another_token_is_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        service.mark_unbind_pending().unwrap();
+        // Lowercase and without dashes is the same token.
+        std::fs::write(dir.path().join(DEVICE_TOKEN_FILE), "abcdefghjkmnpqrstvwx\n").unwrap();
+        assert!(service.unbind_pending());
+        // A new token belongs to whoever entered it.
+        service.set_oss_code("1234-5678-9ABC-DEFG-HJKM").unwrap();
+        assert!(!service.unbind_pending());
+        assert!(!dir.path().join(UNBIND_PENDING_FILE).exists());
     }
 
     fn serve_once(status: u16, body: &str) -> String {

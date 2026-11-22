@@ -499,9 +499,14 @@ put("/api/v1/system/updates/source", ({ world, user, body }) => {
 });
 post("/api/v1/system/factory-reset", ({ world, user, body }) => {
   requireAdmin(user, "Only an Admin can reset this Luna.");
-  if (!body.confirm) return fail(400, "Confirm that you want to reset this Luna. Everyone is signed out, backups stop, and Luna Connect turns off. Files on your drives are not deleted.");
+  if (!body.confirm) return fail(400, "Confirm that you want to reset this Luna. Everyone is signed out and backups stop. Files on your drives are not deleted.");
   if (!String(body.password ?? "").trim()) return fail(400, "Type your current password to confirm this reset.");
   if (body.password === "wrong") return fail(401, "That password is wrong. Reset was not started.");
+  // The reset's unbind step settled Luna Connect (api/search.rs ConnectChoice);
+  // the device token always stays. "keep" leaves the link alone.
+  if (body.connect === "unbound" || body.connect === "pending") {
+    world.connect = { ...world.connect, paired: false, hostname: null, domain: null, subdomain: null, tunnel_active: false };
+  }
   world.sessionUserId = null;
   world.users = [];
   world.hasAdmin = false;

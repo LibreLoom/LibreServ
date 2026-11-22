@@ -33,6 +33,30 @@ struct FactoryResetBody {
     confirm: bool,
     #[serde(default)]
     password: String,
+    /// What the reset's unbind step settled for Luna Connect.
+    #[serde(default)]
+    connect: ConnectChoice,
+}
+
+/// The reset flow asks first whether to unbind Luna Connect.
+#[derive(Deserialize, Default, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "snake_case")]
+enum ConnectChoice {
+    /// Not linked, or they chose to stay linked: Connect is left alone.
+    #[default]
+    Keep,
+    /// `POST /api/v1/connect/unbind` went through.
+    Unbound,
+    /// They chose to unbind, Connect didn't answer, and they skipped: Luna
+    /// owes the unbind (`net::connect::UNBIND_PENDING_FILE`).
+    Pending,
+}
+
+fn reset_failed() -> (StatusCode, Json<Value>) {
+    json_error(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Luna couldn't finish the reset. Try again.",
+    )
 }
 
 pub fn router() -> Router<AppState> {
@@ -317,8 +341,8 @@ fn match_label(tier: Tier) -> &'static str {
 }
 
 /// Wipe all accounts, shares, and settings and return the box to first-run,
-/// leaving the actual files on the drives untouched. Also turns off Luna
-/// Connect and stops cloud backup so a reset box is not still paired.
+/// leaving the actual files on the drives untouched. Luna Connect is handled
+/// by the choice the reset flow's unbind step made (`connect` in the body).
 async fn factory_reset(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
@@ -333,7 +357,7 @@ async fn factory_reset(
     if !body.confirm {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
-            "Confirm that you want to reset this Luna. Everyone is signed out, backups stop, and Luna Connect turns off. Files on your drives are not deleted.",
+            "Confirm that you want to reset this Luna. Everyone is signed out and backups stop. Files on your drives are not deleted.",
         ));
     }
     if body.password.trim().is_empty() {
@@ -342,35 +366,36 @@ async fn factory_reset(
             "Type your current password to confirm this reset.",
         ));
     }
-    // Same per-account tries as signing in, so a signed-in session can't be used to guess the password.
-    if !state
-        .login_limiter
-        .allow(&crate::api::auth::login_user_key(&user.username))
-    {
-        return Err(json_error(
-            StatusCode::TOO_MANY_REQUESTS,
-            "Too many tries. Wait a few minutes and try again.",
-        ));
+    crate::api::auth::confirm_password(
+        &state,
+        &user,
+        &body.password,
+        "That password is wrong. Reset was not started.",
+    )
+    .await?;
+    // What happens to Luna Connect was chosen in the reset's unbind step
+    // (`POST /api/v1/connect/unbind` already ran if they unbound). The
+    // device token always stays: it is this Luna's identity.
+    match body.connect {
+        ConnectChoice::Keep => {}
+        ConnectChoice::Unbound => state.connect.forget_claim(),
+        ConnectChoice::Pending => {
+            // They chose to unbind, but Connect didn't answer and they went on.
+            // Owe the unbind before anything else is wiped, so a failure here
+            // leaves Luna as it was.
+            let connect = state.connect.clone();
+            tokio::task::spawn_blocking(move || {
+                if connect.has_valid_device_code() {
+                    connect.mark_unbind_pending()?;
+                }
+                connect.forget_claim();
+                Ok::<(), crate::net::connect::ConnectError>(())
+            })
+            .await
+            .map_err(|_| reset_failed())?
+            .map_err(|_| reset_failed())?;
+        }
     }
-    // Argon2 verification is CPU-bound — off the async worker.
-    let auth = state.auth.clone();
-    let (user_id, password) = (user.id.clone(), body.password.clone());
-    tokio::task::spawn_blocking(move || auth.verify_password_for_user(&user_id, &password))
-        .await
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't check your password. Try again.",
-            )
-        })?
-        .map_err(|_| {
-            json_error(
-                StatusCode::UNAUTHORIZED,
-                "That password is wrong. Reset was not started.",
-            )
-        })?;
-    let connect = state.connect.clone();
-    let _ = tokio::task::spawn_blocking(move || connect.deactivate()).await;
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -759,7 +784,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn factory_reset_requires_confirm_and_tears_down_connect() {
+    async fn factory_reset_requires_confirm_and_keeps_the_device_token() {
         let dir = tempfile::tempdir().unwrap();
         let connect =
             crate::net::connect::ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
@@ -819,7 +844,7 @@ mod tests {
             req(
                 Method::POST,
                 "/api/v1/system/factory-reset",
-                r#"{"confirm":true,"password":"hunter22hunter1"}"#,
+                r#"{"confirm":true,"password":"hunter22hunter1","connect":"unbound"}"#,
                 Some(&cookie),
                 Some(&csrf),
             ),
@@ -828,7 +853,7 @@ mod tests {
         assert_eq!(ok.status(), 200, "reset failed");
         assert!(
             !dir.path().join("connect.json").exists(),
-            "Connect state must be removed on factory reset"
+            "after an unbind the old address is forgotten"
         );
         assert_eq!(
             std::fs::read_to_string(dir.path().join("device-token"))
@@ -896,5 +921,136 @@ mod tests {
         assert_eq!(live.feed_url, defaults.feed_url);
         assert_eq!(live.channel, defaults.channel);
         assert!(state.updates.using_default_keys());
+    }
+
+    /// Registers and signs in the first Admin; returns the cookie header and CSRF token.
+    async fn sign_in(app: &axum::Router) -> (String, String) {
+        let body = r#"{"username":"max","password":"hunter22hunter1"}"#;
+        let res = call(
+            app,
+            req(Method::POST, "/api/v1/auth/register", body, None, None),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let res = call(
+            app,
+            req(Method::POST, "/api/v1/auth/login", body, None, None),
+        )
+        .await;
+        let (session, csrf) = auth_cookies(&res);
+        (cookie_header(&session, &csrf), csrf)
+    }
+
+    fn linked(dir: &std::path::Path) {
+        let connect =
+            crate::net::connect::ConnectService::new(dir, Some("http://127.0.0.1:1".into()));
+        connect.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
+        connect
+            .save(&serde_json::json!({
+                "hostname": "photos.luna.servers.libreloom.org",
+                "paired": true,
+            }))
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn factory_reset_that_stays_linked_leaves_connect_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        linked(dir.path());
+        let app = test_app(dir.path());
+        let (cookie, csrf) = sign_in(&app).await;
+        let ok = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/system/factory-reset",
+                r#"{"confirm":true,"password":"hunter22hunter1","connect":"keep"}"#,
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(ok.status(), 200, "reset failed");
+        assert!(dir.path().join("connect.json").exists(), "the link stays");
+        assert!(
+            !dir.path()
+                .join(crate::net::connect::UNBIND_PENDING_FILE)
+                .exists()
+        );
+    }
+
+    #[tokio::test]
+    async fn factory_reset_with_a_skipped_unbind_owes_it_across_the_reset() {
+        let dir = tempfile::tempdir().unwrap();
+        linked(dir.path());
+        let state = test_state(dir.path());
+        let app = app_for(state.clone());
+        let (cookie, csrf) = sign_in(&app).await;
+        let ok = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/system/factory-reset",
+                r#"{"confirm":true,"password":"hunter22hunter1","connect":"pending"}"#,
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(ok.status(), 200, "reset failed");
+        assert!(state.connect.unbind_pending(), "the unbind is owed");
+        assert!(
+            dir.path()
+                .join(crate::net::connect::UNBIND_PENDING_FILE)
+                .exists()
+        );
+        assert!(!dir.path().join("connect.json").exists());
+        assert_eq!(
+            state.connect.device_code().unwrap(),
+            "ABCD-EFGH-JKMN-PQRS-TVWX"
+        );
+
+        // Off Luna's network, the token no longer creates the first account.
+        let mut remote = req(
+            Method::POST,
+            "/api/v1/auth/register",
+            r#"{"username":"eve","password":"hunter22hunter1","setup_secret":"ABCD-EFGH-JKMN-PQRS-TVWX"}"#,
+            None,
+            None,
+        );
+        remote
+            .extensions_mut()
+            .insert(ConnectInfo(std::net::SocketAddr::new(
+                std::net::IpAddr::V4(std::net::Ipv4Addr::new(203, 0, 113, 7)),
+                40000,
+            )));
+        let res = call(&app, remote).await;
+        assert_eq!(res.status(), 403);
+    }
+
+    #[tokio::test]
+    async fn factory_reset_with_a_wrong_password_leaves_connect_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        linked(dir.path());
+        let app = test_app(dir.path());
+        let (cookie, csrf) = sign_in(&app).await;
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/system/factory-reset",
+                r#"{"confirm":true,"password":"wrong-password-1","connect":"pending"}"#,
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 401);
+        assert!(dir.path().join("connect.json").exists());
+        assert!(
+            !dir.path()
+                .join(crate::net::connect::UNBIND_PENDING_FILE)
+                .exists()
+        );
     }
 }

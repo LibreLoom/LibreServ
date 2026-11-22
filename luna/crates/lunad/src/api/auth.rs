@@ -507,8 +507,38 @@ fn ip_is_lan(ip: std::net::IpAddr) -> bool {
 /// `*.local`) must not win LAN trust. Every genuine LAN path — direct
 /// connection, or a local proxy/tunnel forwarding the real address —
 /// already resolves to a LAN client.
-fn is_lan_request(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
+pub(crate) fn is_lan_request(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
     ip_is_lan(client_ip(addr, headers))
+}
+
+/// Re-checks the signed-in person's password before a step that can't be
+/// undone (a reset, unbinding Luna Connect). Uses the same per-account tries
+/// as signing in, so a signed-in session can't be used to guess it. `wrong`
+/// is the refusal for a wrong password.
+pub(crate) async fn confirm_password(
+    state: &AppState,
+    user: &CurrentUser,
+    password: &str,
+    wrong: &str,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    if !state.login_limiter.allow(&login_user_key(&user.username)) {
+        return Err(json_error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many tries. Wait a few minutes and try again.",
+        ));
+    }
+    // Argon2 verification is CPU-bound — off the async worker.
+    let auth = state.auth.clone();
+    let (user_id, password) = (user.id.clone(), password.to_string());
+    tokio::task::spawn_blocking(move || auth.verify_password_for_user(&user_id, &password))
+        .await
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't check your password. Try again.",
+            )
+        })?
+        .map_err(|_| json_error(StatusCode::UNAUTHORIZED, wrong.to_string()))
 }
 
 /// Per-account lockout bucket for `login` — namespaced so it never shares a
@@ -528,6 +558,15 @@ pub(crate) fn login_user_key(username: &str) -> String {
 /// onboarding or the permanent token on this Luna. Empty secret → a plain
 /// refusal that says where to set up instead.
 async fn first_user_device_token(state: &AppState, body: &RegisterBody) -> Result<(), String> {
+    // A reset chose to unbind Luna Connect but couldn't reach it. Until the
+    // unbind goes through, the old account may still know this token, so it
+    // proves nothing about who is setting Luna up.
+    if state.connect.unbind_pending() {
+        return Err(
+            "Luna is still unbinding from Luna Connect. Create the first account from the same network as Luna."
+                .into(),
+        );
+    }
     // Connect is opt-in: with no device token on this Luna, no pasted token
     // can ever match, and Connect never polls to hand one out.
     let has_token = state
@@ -851,6 +890,30 @@ mod tests {
         let body = r#"{"username":"max","password":"hunter22hunter1","setup_secret":"AAAA-BBBB-CCCC-DDDD-EEEE"}"#;
         assert_eq!(
             register_status(&state, remote, &fwd, body).await,
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn an_owed_connect_unbind_stops_the_device_token_proving_anything() {
+        let (_dir, state) = state();
+        state
+            .connect
+            .set_oss_code("AAAA-BBBB-CCCC-DDDD-EEEE")
+            .unwrap();
+        // A reset chose to unbind, Connect didn't answer, the Admin skipped.
+        state.connect.mark_unbind_pending().unwrap();
+        let remote = addr("127.0.0.1");
+        let fwd = [("x-forwarded-for", "203.0.113.7")];
+        let body = r#"{"username":"max","password":"hunter22hunter1","setup_secret":"AAAA-BBBB-CCCC-DDDD-EEEE"}"#;
+        assert_eq!(
+            register_status(&state, remote, &fwd, body).await,
+            StatusCode::FORBIDDEN,
+            "the old account may still know this token"
+        );
+        // On the LAN, setup still works.
+        assert_eq!(
+            register_status(&state, addr("192.168.1.30"), &[], FIRST_USER).await,
             StatusCode::OK
         );
     }

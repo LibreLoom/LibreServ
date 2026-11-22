@@ -28,6 +28,76 @@ pub fn router() -> Router<AppState> {
             "/api/v1/connect/device-token",
             post(save_device_token).delete(remove_device_token),
         )
+        .route("/api/v1/connect/unbind", post(unbind))
+}
+
+#[derive(Deserialize)]
+struct UnbindBody {
+    #[serde(default)]
+    password: String,
+}
+
+/// The reset flow's "Unbinding Luna Connect" step: ask Connect to unbind this
+/// Luna from its account and wait (at most `UNBIND_TIMEOUT`) for the real
+/// answer, so the person can retry or skip. Admin only, behind the same
+/// password the reset asks for, so a mistyped password never unbinds Luna
+/// and then fails the reset.
+async fn unbind(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Json(body): Json<UnbindBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if user.role != "admin" {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an Admin can unbind Luna Connect.",
+        ));
+    }
+    if body.password.trim().is_empty() {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Type your current password to unbind Luna Connect.",
+        ));
+    }
+    crate::api::auth::confirm_password(
+        &state,
+        &user,
+        &body.password,
+        "That password is wrong. Luna Connect was not unbound.",
+    )
+    .await?;
+    if !state.connect.has_valid_device_code() {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "This Luna has no device token, so it isn't linked to Luna Connect.",
+        ));
+    }
+    let connect = state.connect.clone();
+    tokio::task::spawn_blocking(move || connect.unbind_now())
+        .await
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't unbind Luna Connect. Try again.",
+            )
+        })?
+        .map_err(map_unbind_err)?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+fn map_unbind_err(err: ConnectError) -> (StatusCode, Json<Value>) {
+    match err {
+        // A timeout, a dead connection or a Connect error all land here.
+        ConnectError::Unreachable => json_error(
+            StatusCode::GATEWAY_TIMEOUT,
+            "Luna Connect didn't answer, or had a problem. Check this Luna's internet connection, then try again.",
+        ),
+        ConnectError::InvalidToken => json_error(
+            StatusCode::BAD_GATEWAY,
+            "Luna Connect didn't accept this Luna's device token, so it couldn't unbind it.",
+        ),
+        other => map_connect_err(other),
+    }
 }
 
 async fn status(
@@ -70,12 +140,28 @@ async fn save_device_token(
     let admin = current.as_ref().is_some_and(|u| u.role == "admin");
     let token = body.value().to_string();
     if !admin {
-        // No accounts yet — this stays anonymously reachable because Connect
-        // onboarding lands on /setup?token=. That also makes it the one place
-        // a stranger could hand Luna a credential, so it is rate-limited like
-        // login and can only ever set the first token: once Luna holds a
-        // valid device token, rotating it is an Admin's job. An anonymous
-        // repeat of the same token is a retry, not a change — let it through.
+        // No accounts yet. A device token decides whose Luna Connect account
+        // this Luna joins (its address, its tunnel, and remote first-Admin
+        // registration), so an anonymous save is held to the same bar as
+        // creating the first account on the LAN: Luna's own address (a
+        // DNS-rebinding page can't pass the Host allow-list) and a client on
+        // Luna's own network (never through the tunnel). It is also
+        // rate-limited like login and can only ever set the first token:
+        // once Luna holds a valid device token, rotating it is an Admin's
+        // job. An anonymous repeat of the same token is a retry, not a
+        // change — let it through.
+        if !crate::auth::setup_origin_allowed(&state, &headers) {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "Open Luna at its own address to enter a device token.",
+            ));
+        }
+        if !crate::api::auth::is_lan_request(&addr, &headers) {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "Enter the device token from the same network as Luna, or sign in as an Admin first.",
+            ));
+        }
         if !state.login_limiter.allow(&format!(
             "device-token:{}",
             crate::api::auth::client_ip(&addr, &headers)
@@ -502,6 +588,235 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert!(h.state.connect.is_connect_active());
+    }
+
+    /// `send`, from a chosen peer and with extra headers.
+    async fn send_from(
+        h: &Harness,
+        peer: &str,
+        headers: &[(&str, &str)],
+        body: Value,
+    ) -> (StatusCode, Value) {
+        let mut req = Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/connect/device-token")
+            .header("content-type", "application/json");
+        for (name, value) in headers {
+            req = req.header(*name, *value);
+        }
+        let mut http = req.body(Body::from(body.to_string())).unwrap();
+        http.extensions_mut()
+            .insert(ConnectInfo(peer.parse::<std::net::SocketAddr>().unwrap()));
+        let res = h.router.clone().oneshot(http).await.unwrap();
+        let status = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
+    }
+
+    #[tokio::test]
+    async fn anonymous_save_from_a_foreign_address_is_refused() {
+        // A DNS-rebinding page: a LAN browser, but Host and Origin name the
+        // attacker's own domain. Connect would vouch for the token, so only
+        // the Host allow-list stands between it and the disk.
+        let url = serve_connect(200, "{\"paired\": true}");
+        let h = harness_at(false, &url);
+        let (status, body) = send_from(
+            &h,
+            "192.168.1.20:40000",
+            &[
+                ("host", "evil.example:8090"),
+                ("origin", "http://evil.example:8090"),
+            ],
+            json!({ "token": TOKEN }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert!(!h.state.connect.is_connect_active());
+        assert!(!h.data_dir.join("device-token").exists());
+
+        // A cross-site fetch is refused even when it names Luna's address.
+        let (status, _) = send_from(
+            &h,
+            "192.168.1.20:40000",
+            &[
+                ("host", "192.168.1.5:8090"),
+                ("sec-fetch-site", "cross-site"),
+            ],
+            json!({ "token": TOKEN }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(!h.data_dir.join("device-token").exists());
+    }
+
+    #[tokio::test]
+    async fn anonymous_save_from_off_the_network_is_refused() {
+        let url = serve_connect(200, "{\"paired\": true}");
+        let h = harness_at(false, &url);
+        // A public peer, even one claiming a LAN address in a forwarding header.
+        let (status, body) = send_from(
+            &h,
+            "203.0.113.7:40000",
+            &[("x-forwarded-for", "192.168.1.20")],
+            json!({ "token": TOKEN }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert!(!h.data_dir.join("device-token").exists());
+
+        // Through the Connect tunnel: the peer is loopback, the real client
+        // is on the internet.
+        let (status, body) = send_from(
+            &h,
+            "127.0.0.1:40000",
+            &[("cf-connecting-ip", "203.0.113.7")],
+            json!({ "token": TOKEN }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert!(!h.state.connect.is_connect_active());
+        assert!(!h.data_dir.join("device-token").exists());
+
+        // The same request from a LAN client at Luna's own address goes through.
+        let (status, body) = send_from(
+            &h,
+            "192.168.1.20:40000",
+            &[("host", "luna.local:8090")],
+            json!({ "token": TOKEN }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(h.state.connect.is_connect_active());
+    }
+
+    const PASSWORD: &str = "hunter22hunter1";
+
+    #[tokio::test]
+    async fn unbind_is_for_an_admin_with_their_password() {
+        let url = serve_connect(200, "{\"ok\": true}");
+        let h = harness_at(true, &url);
+        h.state.connect.set_oss_code(TOKEN).unwrap();
+        let (status, _) = send(
+            &h,
+            Method::POST,
+            "/api/v1/connect/unbind",
+            h.member.as_deref(),
+            Some(json!({ "password": PASSWORD })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let (status, _) = send(
+            &h,
+            Method::POST,
+            "/api/v1/connect/unbind",
+            None,
+            Some(json!({ "password": PASSWORD })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let (status, body) = send(
+            &h,
+            Method::POST,
+            "/api/v1/connect/unbind",
+            h.admin.as_deref(),
+            Some(json!({ "password": "not-my-password" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+        assert_eq!(
+            body["error"],
+            "That password is wrong. Luna Connect was not unbound."
+        );
+    }
+
+    #[tokio::test]
+    async fn unbind_waits_for_connect_and_settles_an_owed_unbind() {
+        let url = serve_connect(200, "{\"ok\": true}");
+        let h = harness_at(true, &url);
+        h.state.connect.set_oss_code(TOKEN).unwrap();
+        h.state
+            .connect
+            .save(&json!({ "hostname": "photos.luna.servers.libreloom.org" }))
+            .unwrap();
+        h.state.connect.mark_unbind_pending().unwrap();
+        let (status, body) = send(
+            &h,
+            Method::POST,
+            "/api/v1/connect/unbind",
+            h.admin.as_deref(),
+            Some(json!({ "password": PASSWORD })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["ok"], true);
+        assert!(!h.state.connect.unbind_pending());
+        assert!(h.state.connect.public_hostname().is_none());
+        assert_eq!(h.state.connect.device_code().unwrap(), TOKEN);
+    }
+
+    #[tokio::test]
+    async fn unbind_reports_a_connect_error() {
+        let url = serve_connect(500, "{\"error\": \"down\"}");
+        let h = harness_at(true, &url);
+        h.state.connect.set_oss_code(TOKEN).unwrap();
+        let (status, body) = send(
+            &h,
+            Method::POST,
+            "/api/v1/connect/unbind",
+            h.admin.as_deref(),
+            Some(json!({ "password": PASSWORD })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{body}");
+        assert!(body["error"].as_str().unwrap().contains("Luna Connect"));
+    }
+
+    #[tokio::test]
+    async fn unbind_stops_waiting_when_connect_does_not_answer() {
+        // Accepts the connection, never answers.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let _keeper = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(60));
+            drop(listener);
+        });
+        let h = harness_at(true, &format!("http://{addr}"));
+        h.state.connect.set_oss_code(TOKEN).unwrap();
+        let started = std::time::Instant::now();
+        let (status, _) = send(
+            &h,
+            Method::POST,
+            "/api/v1/connect/unbind",
+            h.admin.as_deref(),
+            Some(json!({ "password": PASSWORD })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::GATEWAY_TIMEOUT);
+        assert!(
+            started.elapsed()
+                < crate::net::connect::UNBIND_TIMEOUT + std::time::Duration::from_secs(5),
+            "took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[tokio::test]
+    async fn unbind_without_a_device_token_says_so() {
+        let h = harness(true);
+        let (status, body) = send(
+            &h,
+            Method::POST,
+            "/api/v1/connect/unbind",
+            h.admin.as_deref(),
+            Some(json!({ "password": PASSWORD })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     }
 
     #[tokio::test]
