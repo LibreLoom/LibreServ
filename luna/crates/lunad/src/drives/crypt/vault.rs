@@ -368,6 +368,10 @@ pub fn record_unlocked(conn: &Connection, drive_id: &str, mount_point: &str) -> 
          updated_at = ?3 WHERE id = ?1",
         rusqlite::params![drive_id, mount_point, db::now_unix()],
     )?;
+    // An unlocked backup drive may hold backups Luna has no record of.
+    if let Some(drive) = db::get_drive(conn, drive_id)? {
+        crate::backup::drive_backup::rebuild_for_drive(conn, &drive);
+    }
     Ok(())
 }
 
