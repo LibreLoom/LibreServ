@@ -14,7 +14,13 @@ DATA_DIR="${LUNA_DATA_DIR:-$ROOT/dev}"
 # `skopeo inspect docker://ghcr.io/euro-office/documentserver:<tag>` → .Digest.
 IMAGE="${EUROOFFICE_IMAGE:-ghcr.io/euro-office/documentserver@sha256:889e681923d2dcc8bdfb92fe128d10e185fcff880d302b6a0c0c7bf339499290}"
 DEST="$DATA_DIR/eurooffice"
+# The converter is pinned by version AND by its sha512, kept here in the repo.
+# The .sha512 file next to the zip on GitHub comes from the same release, so it
+# only proves the download wasn't truncated; the pin below is what proves it is
+# the reviewed file. Bump both together (and check the new value against the
+# release's published .sha512). Overriding X2T_VERSION needs X2T_SHA512 too.
 X2T_VERSION="${X2T_VERSION:-v9.3.0+0}"
+X2T_SHA512="${X2T_SHA512:-e82fbf21fcdcff2cbaca5b9a49c3a3d6bc5f5f02ba9b704a7384ceb91e17e979bf7659aaf59f677edf319fde91dd847b419e018f58f38eb1df6ab433a6cd207c}"
 X2T_URL="https://github.com/cryptpad/onlyoffice-x2t-wasm/releases/download/${X2T_VERSION}/x2t.zip"
 RUNTIME="${OCI_RUNTIME:-podman}"
 IN_IMAGE="${EUROOFFICE_IN_IMAGE:-}"
@@ -156,10 +162,14 @@ tmp_zip="$(mktemp)"; tmp_sum="$(mktemp)"
 trap 'rm -f "$tmp_zip" "$tmp_sum"; cleanup' EXIT
 curl -fsSL --proto '=https' --tlsv1.2 "$X2T_URL" -o "$tmp_zip"
 curl -fsSL --proto '=https' --tlsv1.2 "$X2T_URL.sha512" -o "$tmp_sum"
-expected="$(awk "{print \$1}" "$tmp_sum")"
+published="$(awk "{print \$1}" "$tmp_sum")"
 actual="$(sha512sum "$tmp_zip" | awk "{print \$1}")"
-if [[ "$expected" != "$actual" ]]; then
-  echo "ERROR: x2t.zip sha512 mismatch (expected $expected, got $actual)" >&2
+if [[ "$actual" != "$X2T_SHA512" ]]; then
+  echo "ERROR: x2t.zip sha512 is not the pinned one (pinned $X2T_SHA512, got $actual)" >&2
+  exit 1
+fi
+if [[ "$published" != "$X2T_SHA512" ]]; then
+  echo "ERROR: the release's x2t.zip.sha512 ($published) disagrees with the pinned sha512" >&2
   exit 1
 fi
 mkdir -p "$DEST/x2t"

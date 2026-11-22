@@ -46,8 +46,8 @@ The OOXML ↔ `Editor.bin` converter Luna serves at `/eurooffice/x2t/` is
 `x2t.wasm`, built by the CryptPad project from ONLYOFFICE core — AGPL-3.0.
 
 - Source: https://github.com/cryptpad/onlyoffice-x2t-wasm
-- Prebuilt artifact: GitHub release `x2t.zip` (sha512-verified by
-  `scripts/install-eurooffice-assets.sh`; pin via `X2T_VERSION`)
+- Prebuilt artifact: GitHub release `x2t.zip` (checked against the sha512 pinned in
+  `scripts/install-eurooffice-assets.sh`; pin via `X2T_VERSION` + `X2T_SHA512`)
 
 If you redistribute the pack, the same AGPL-3.0 obligations above apply to
 x2t.wasm: keep notices, offer the corresponding source (the linked repo +

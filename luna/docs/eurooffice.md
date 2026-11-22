@@ -65,7 +65,8 @@ make eurooffice        # extract assets + generate fonts + fetch x2t.wasm
 
 `eurooffice` wraps `scripts/install-eurooffice-assets.sh`; `LUNA_DATA_DIR`
 defaults to `luna/dev`, `EUROOFFICE_IMAGE` overrides the source image,
-`X2T_VERSION` pins the converter release (sha512-verified).
+`X2T_VERSION` and `X2T_SHA512` pin the converter release (the zip must match
+the sha512 kept in the script, and the release's own `.sha512` must agree).
 
 What the script produces under `{data_dir}/eurooffice`:
 

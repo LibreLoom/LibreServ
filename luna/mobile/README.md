@@ -86,19 +86,23 @@ backup. Whoever holds this key controls the app identity — a lost key means
 installed copies can never update, a leaked key means anyone can ship updates
 as Luna.
 
-`assembleRelease` signs when these env vars are set (see
-`app/build.gradle.kts`); without them it produces an unsigned APK:
+`assembleRelease` always produces an **unsigned** APK; the build never sees a
+keystore or a password. `./release` signs it afterwards in a separate step:
+`zipalign` and `apksigner` run in a container with no network and no Gradle,
+with the keystore mounted read-only and the passwords on the container's
+standard input. The store and key password are the release passphrase that
+`./release` asks for in the terminal when a cut is about to sign; they are
+never read from environment variables or saved. It then runs
+`apksigner verify` and checks the certificate against
+`keys/luna-android.cert.sha256`.
 
-| Variable | Meaning |
-|----------|---------|
-| `LUNA_ANDROID_KEYSTORE` | Path to the `.jks` file |
-| `LUNA_ANDROID_KEYSTORE_B64` | Alternative for CI: `base64 -w0 luna-release.jks` output; `./release` decodes it to a temp file |
-| `LUNA_ANDROID_STORE_PASSWORD` | Keystore password |
-| `LUNA_ANDROID_KEY_ALIAS` | Key alias (default `luna`) |
-| `LUNA_ANDROID_KEY_PASSWORD` | Key password |
+Gradle checks every plugin and dependency against
+`gradle/verification-metadata.xml` (sha256). After changing a dependency or
+plugin version, regenerate it and review the diff:
 
-`./release` picks this up automatically and runs `apksigner verify` on the
-result.
+```sh
+./gradlew --write-verification-metadata sha256 assembleRelease assembleDebug compileDebugUnitTestSources
+```
 
 ## Distribution (F-Droid + direct APK)
 
