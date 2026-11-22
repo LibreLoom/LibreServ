@@ -76,6 +76,33 @@ describe("shareSource", () => {
     vi.unstubAllGlobals();
   });
 
+  it("pages and summarizes form answers for a guest", async () => {
+    const calls = /** @type {any[]} */ ([]);
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      calls.push(String(url));
+      if (String(url).startsWith("/s/abc/summary")) {
+        return json({ total: 4, questions: [{ id: "q1", answered: 4, values: [] }] });
+      }
+      return json({ responses: [{ id: "r3" }], total: 4, next_offset: 3 });
+    }));
+    const source = shareSource({ token: "abc", kind: "folder", caps: "full" });
+    const page = await source.formAnswers("ignored", "docs/rsvp.lunaform", { offset: 2, limit: 1 });
+    expect(page.total).toBe(4);
+    expect(page.next_offset).toBe(3);
+    expect(calls[0]).toBe("/s/abc/responses?path=docs%2Frsvp.lunaform&offset=2&limit=1");
+    const summary = await source.formSummary("ignored", "docs/rsvp.lunaform");
+    expect(summary.questions[0].answered).toBe(4);
+    expect(calls[1]).toBe("/s/abc/summary?path=docs%2Frsvp.lunaform");
+    // The manager link exports from the server too, never in browser memory.
+    expect(source.formExportUrl("ignored", "docs/rsvp.lunaform")).toBe(
+      "/s/abc/export?path=docs%2Frsvp.lunaform&format=csv",
+    );
+    // A file link drops the path: the link is the form.
+    const fileLink = shareSource({ token: "xyz", kind: "file", fileName: "rsvp.lunaform", caps: "full" });
+    expect(fileLink.formExportUrl("ignored", "rsvp.lunaform")).toBe("/s/xyz/export?format=csv");
+    vi.unstubAllGlobals();
+  });
+
   it("drops the responses path for file links — the link is the form", async () => {
     const calls = /** @type {any[]} */ ([]);
     vi.stubGlobal("fetch", vi.fn(async (url) => {
@@ -101,6 +128,68 @@ describe("driveSource", () => {
       "/api/v1/forms/responses?drive_id=d1&path=a%2Fb.lunaform",
     );
     vi.unstubAllGlobals();
+  });
+
+  it("asks for one page of answers and keeps the server's totals", async () => {
+    const calls = /** @type {any[]} */ ([]);
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      calls.push(String(url));
+      return json({
+        responses: [{ id: "r101" }],
+        total: 250,
+        next_offset: 101,
+        notice: "",
+        revision: 9,
+      });
+    }));
+    const page = await driveSource.formAnswers("d1", "a/b.lunaform", { offset: 100, limit: 1 });
+    expect(page.responses).toEqual([{ id: "r101" }]);
+    expect(page.total).toBe(250);
+    expect(page.next_offset).toBe(101);
+    expect(page.revision).toBe(9);
+    expect(calls[0]).toBe(
+      "/api/v1/forms/responses?drive_id=d1&path=a%2Fb.lunaform&offset=100&limit=1",
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it("falls back to the page length when an older Luna sends no total", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ responses: [{ id: "r1" }, { id: "r2" }] })));
+    const page = await driveSource.formAnswers("d1", "a/b.lunaform", { offset: 0, limit: 100 });
+    expect(page.total).toBe(2);
+    expect(page.next_offset).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it("reads form summaries from the member route", async () => {
+    const calls = /** @type {any[]} */ ([]);
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      calls.push(String(url));
+      return json({
+        total: 42,
+        questions: [
+          { id: "q1", answered: 40, values: [{ value: "Yes", count: 31 }, { value: "No", count: 9 }] },
+          { id: "q2", answered: 42 },
+        ],
+      });
+    }));
+    const summary = await driveSource.formSummary("d1", "a/b.lunaform");
+    expect(summary.total).toBe(42);
+    expect(summary.questions[0].values).toEqual([
+      { value: "Yes", count: 31 },
+      { value: "No", count: 9 },
+    ]);
+    expect(summary.questions[1].values).toEqual([]);
+    expect(calls[0]).toBe(
+      "/api/v1/forms/summary?drive_id=d1&path=a%2Fb.lunaform",
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it("points CSV export at the server route", () => {
+    expect(driveSource.formExportUrl("d1", "a/b.lunaform")).toBe(
+      "/api/v1/forms/export?drive_id=d1&path=a%2Fb.lunaform&format=csv",
+    );
   });
 
   it("fetches text content for a file", async () => {

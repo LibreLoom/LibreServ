@@ -56,6 +56,30 @@ export async function requireOk(res, fallback) {
 }
 
 /**
+ * One page of form answers. `total` counts live responses (edits don't add
+ * one); `next_offset` is null on the last page. `revision` identifies the
+ * answers file snapshot the page came from, when Luna sends one.
+ *
+ * @typedef {{
+ *   responses: object[],
+ *   total: number,
+ *   next_offset: number | null,
+ *   notice: string,
+ *   revision: string | number | null,
+ * }} FormAnswersPage
+ */
+
+/**
+ * Per-question totals for the Responses tab. `values` holds one stored answer
+ * value with how many responses carry it; text-ish questions only need
+ * `answered`, so their values may be empty.
+ *
+ * @typedef {{ value: unknown, count: number }} FormSummaryValue
+ * @typedef {{ id: string, answered: number, values: FormSummaryValue[] }} FormSummaryQuestion
+ * @typedef {{ total: number, questions: FormSummaryQuestion[] }} FormSummary
+ */
+
+/**
  * @typedef {{
  *   kind: "drive" | "share",
  *   guest: boolean,
@@ -83,9 +107,13 @@ export async function requireOk(res, fallback) {
  *   cancelUpload: (driveId: string, uploadId: string) => Promise<unknown>,
  *   cancelUploadUrl?: (uploadId: string) => { url: string, headers: Record<string, string> },
  *   officeSession: (driveId: string, path: string) => Promise<any>,
- *   formAnswers: (driveId: string, path: string) => Promise<{ responses: object[], notice: string }>,
+ *   formAnswers: (driveId: string, path: string, opts?: { offset?: number, limit?: number }) => Promise<FormAnswersPage>,
  *   formResponses: (driveId: string, path: string) => Promise<object[]>,
  *   formResponseCount: (driveId: string, path: string) => Promise<number>,
+ *   formSummary: (driveId: string, path: string) => Promise<FormSummary>,
+ *   formExportUrl?: (driveId: string, path: string) => string,
+ *   formSqlite?: (driveId: string, path: string) => Promise<{ bytes: Uint8Array, revision: number }>,
+ *   saveFormSqlite?: (driveId: string, path: string, bytes: Uint8Array, revision: number) => Promise<{ revision: number }>,
  *   deleteFormResponse: (driveId: string, path: string, id: string) => Promise<unknown>,
  *   copyFormPicture: (driveId: string, formPath: string, source: string) => Promise<string>,
  *   uploadFormPicture: (driveId: string, formPath: string, file: File) => Promise<string>,
@@ -130,14 +158,49 @@ function keepSessionError(err, uploadId) {
 }
 
 /**
- * The answers payload both form routes return: the records plus a plain
- * sentence when the server had to skip an older answers segment.
+ * The answers payload both form routes return: one page of records plus the
+ * total, the next page's offset, and a plain sentence when the server had to
+ * skip an older answers segment.
  * @param {any} data
+ * @returns {FormAnswersPage}
  */
 function answersPayload(data) {
+  const responses = Array.isArray(data?.responses) ? data.responses : [];
+  const total = Number(data?.total);
+  const next = data?.next_offset;
+  const nextOffset = next == null || next === "" ? null : Number(next);
   return {
-    responses: Array.isArray(data?.responses) ? data.responses : [],
+    responses,
+    // An older Luna doesn't send totals yet; one page is all it returns.
+    total: Number.isFinite(total) && total >= 0 ? total : responses.length,
+    next_offset: Number.isFinite(nextOffset) ? nextOffset : null,
     notice: typeof data?.notice === "string" ? data.notice : "",
+    revision: data?.revision ?? null,
+  };
+}
+
+/**
+ * Narrow a summary payload to the shape the Responses tab reads. A newer Luna
+ * may add fields; they are ignored rather than trusted.
+ * @param {any} data
+ * @returns {FormSummary}
+ */
+function summaryPayload(data) {
+  return {
+    total: Number(data?.total) || 0,
+    questions: Array.isArray(data?.questions)
+      ? data.questions
+          .filter((q) => q && typeof q.id === "string" && q.id)
+          .map((q) => ({
+            id: q.id,
+            answered: Number(q.answered) || 0,
+            values: Array.isArray(q.values)
+              ? q.values
+                  .filter((v) => v && typeof v === "object" && "value" in v)
+                  .map((v) => ({ value: v.value, count: Number(v.count) || 0 }))
+              : [],
+          }))
+      : [],
   };
 }
 
@@ -286,12 +349,14 @@ export const driveSource = {
   cancelUpload: (_driveId, uploadId) => deleteJson(`/api/v1/uploads/${uploadId}`),
   officeSession: (driveId, path) =>
     postJson("/api/v1/office/session", { drive_id: driveId, path }),
-  formAnswers: async (driveId, path) =>
-    answersPayload(
-      await getJson(
-        `/api/v1/forms/responses?drive_id=${encodeURIComponent(driveId)}&path=${encodeURIComponent(path)}`,
-      ),
-    ),
+  formAnswers: async (driveId, path, { offset = null, limit = null } = {}) => {
+    const params = new URLSearchParams({ drive_id: driveId, path });
+    if (Number.isFinite(offset)) params.set("offset", String(Math.max(0, Math.trunc(offset))));
+    if (Number.isFinite(limit)) params.set("limit", String(Math.max(1, Math.trunc(limit))));
+    return answersPayload(
+      await getJson(`/api/v1/forms/responses?${params.toString()}`),
+    );
+  },
   formResponses: async (driveId, path) =>
     (await driveSource.formAnswers(driveId, path)).responses,
   formResponseCount: async (driveId, path) => {
@@ -299,6 +364,39 @@ export const driveSource = {
       `/api/v1/forms/responses?drive_id=${encodeURIComponent(driveId)}&path=${encodeURIComponent(path)}&count=1`,
     );
     return Number(data?.count) || 0;
+  },
+  formSummary: async (driveId, path) =>
+    summaryPayload(
+      await getJson(
+        `/api/v1/forms/summary?drive_id=${encodeURIComponent(driveId)}&path=${encodeURIComponent(path)}`,
+      ),
+    ),
+  // The server builds the whole CSV, so exporting ten thousand responses
+  // never has to hold the rows in this tab.
+  formExportUrl: (driveId, path) =>
+    `/api/v1/forms/export?drive_id=${encodeURIComponent(driveId)}&path=${encodeURIComponent(path)}&format=csv`,
+  formSqlite: async (driveId, path) => {
+    const params = new URLSearchParams({ drive_id: driveId, path });
+    const res = await apiFetch(`/api/v1/forms/sqlite?${params.toString()}`);
+    await requireOk(res, "Luna couldn't open this form's answers.");
+    return {
+      bytes: new Uint8Array(await res.arrayBuffer()),
+      revision: Number(res.headers.get("x-form-revision")) || 0,
+    };
+  },
+  saveFormSqlite: async (driveId, path, bytes, revision) => {
+    const params = new URLSearchParams({
+      drive_id: driveId,
+      path,
+      revision: String(revision),
+    });
+    const res = await apiFetch(`/api/v1/forms/sqlite?${params.toString()}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/vnd.sqlite3" },
+      body: bytes,
+    });
+    await requireOk(res, "Luna couldn't save this form's answers.");
+    return await res.json();
   },
   deleteFormResponse: (driveId, path, id) =>
     deleteJson(
@@ -442,14 +540,33 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
   /**
    * @param {string} _driveId
    * @param {string} path
+   * @param {{ offset?: number, limit?: number }} [opts]
    */
-  async function fetchAnswers(_driveId, path) {
+  async function fetchAnswers(_driveId, path, { offset = null, limit = null } = {}) {
+    const params = new URLSearchParams();
+    const p = rel(path);
+    if (p) params.set("path", p);
+    if (Number.isFinite(offset)) params.set("offset", String(Math.max(0, Math.trunc(offset))));
+    if (Number.isFinite(limit)) params.set("limit", String(Math.max(1, Math.trunc(limit))));
+    const q = params.toString();
+    return answersPayload(
+      await getJson(`/s/${token}/responses${q ? `?${q}` : ""}`, { headers: headers() }),
+    );
+  }
+
+  /**
+   * Totals for a guest who can manage this form. The member route is
+   * `/api/v1/forms/summary`; the link-scoped twin carries the same data.
+   * @param {string} _driveId
+   * @param {string} path
+   */
+  async function fetchSummary(_driveId, path) {
     const params = new URLSearchParams();
     const p = rel(path);
     if (p) params.set("path", p);
     const q = params.toString();
-    return answersPayload(
-      await getJson(`/s/${token}/responses${q ? `?${q}` : ""}`, { headers: headers() }),
+    return summaryPayload(
+      await getJson(`/s/${token}/summary${q ? `?${q}` : ""}`, { headers: headers() }),
     );
   }
 
@@ -541,6 +658,14 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
       postJson(`/s/${token}/office/session`, { path: rel(path) }, { headers: headers() }),
     formAnswers: fetchAnswers,
     formResponses: async (driveId, path) => (await fetchAnswers(driveId, path)).responses,
+    formSummary: fetchSummary,
+    formExportUrl: (_driveId, path) => {
+      const params = new URLSearchParams();
+      const p = rel(path);
+      if (p) params.set("path", p);
+      params.set("format", "csv");
+      return `/s/${token}/export?${params.toString()}`;
+    },
     formResponseCount: async (_driveId, path) => {
       const params = new URLSearchParams();
       const p = rel(path);

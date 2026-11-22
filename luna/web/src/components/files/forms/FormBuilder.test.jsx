@@ -1,5 +1,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 
+const socketState = vi.hoisted(() => ({ instances: [] }));
+
 // Drive editing opens the collab hub. This stand-in welcomes a single peer
 // so the form seeds from the file without a real WebSocket.
 vi.mock("../office/collabSocket.js", () => ({
@@ -9,6 +11,7 @@ vi.mock("../office/collabSocket.js", () => ({
       this.onStatus = null;
       this._closed = false;
       this._attempts = 0;
+      socketState.instances.push(this);
     }
     connect() {
       this.onStatus?.("open");
@@ -96,14 +99,21 @@ function stubFetch(handler) {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  socketState.instances.length = 0;
 });
 
 describe("FormBuilder drive source", () => {
   it("loads through the member APIs and saves through the upload route", async () => {
     const calls = stubFetch((u, m) => {
       if (u.includes("/files/content")) return new Response(FORM_DOC, { status: 200 });
+      if (u.includes("/api/v1/forms/summary")) {
+        return json({
+          total: 1,
+          questions: [{ id: "q_1", answered: 1, values: [] }],
+        });
+      }
       if (u.includes("/api/v1/forms/responses")) {
-        return json({ responses: [{ id: "r1", answers: { q_1: "Ann" } }] });
+        return json({ responses: [{ id: "r1", answers: { q_1: "Ann" } }], total: 1, next_offset: null });
       }
       if (u.includes("/files/upload") && m === "POST") return json({ name: "rsvp.lunaform" });
       return json({}, 404);
@@ -112,9 +122,8 @@ describe("FormBuilder drive source", () => {
 
     const title = await screen.findByLabelText("Form title");
     expect(title).toHaveValue("Family reunion RSVP");
-    expect(
-      calls.some(([u]) => u.includes("/api/v1/forms/responses?drive_id=d1&path=rsvp.lunaform")),
-    ).toBe(true);
+    // The Questions tab never pulls the answers file.
+    expect(calls.some(([u]) => u.includes("/api/v1/forms/responses"))).toBe(false);
     // Members still get the share affordance.
     expect(screen.getByRole("button", { name: "Share this form" })).toBeInTheDocument();
 
@@ -126,13 +135,23 @@ describe("FormBuilder drive source", () => {
     expect(
       calls.some(([u, m]) => u.includes("/api/v1/drives/d1/files/upload") && m === "POST"),
     ).toBe(true);
+
+    fireEvent.click(screen.getByRole("radio", { name: /Responses/ }));
+    expect((await screen.findAllByText("Ann")).length).toBeGreaterThan(0);
+    // Only the first page is requested.
+    expect(
+      calls.some(([u]) => u.includes("/api/v1/forms/responses?drive_id=d1&path=rsvp.lunaform&offset=0&limit=100")),
+    ).toBe(true);
   });
 
   it("view-only members see questions and answers but never a save", async () => {
     const calls = stubFetch((u) => {
       if (u.includes("/files/content")) return new Response(FORM_DOC, { status: 200 });
+      if (u.includes("/api/v1/forms/summary")) {
+        return json({ total: 1, questions: [{ id: "q_1", answered: 1, values: [] }] });
+      }
       if (u.includes("/api/v1/forms/responses")) {
-        return json({ responses: [{ id: "r1", answers: { q_1: "Ann" } }] });
+        return json({ responses: [{ id: "r1", answers: { q_1: "Ann" } }], total: 1, next_offset: null });
       }
       return json({}, 404);
     });
@@ -161,19 +180,26 @@ describe("FormBuilder attachments", () => {
   it("links attachments through the form's own file route, never the drive files API", async () => {
     stubFetch((u) => {
       if (u.includes("/files/content")) return new Response(FILE_DOC, { status: 200 });
+      if (u.includes("/api/v1/forms/summary")) {
+        return json({ total: 1, questions: [{ id: "q_f", answered: 1, values: [] }] });
+      }
       if (u.includes("/api/v1/forms/responses")) {
-        return json({ responses: [{ id: "r1", answers: { q_f: "0123456789abcdef.pdf" } }] });
+        return json({
+          responses: [{ id: "r1", answers: { q_f: "0123456789abcdef.pdf" } }],
+          total: 1,
+          next_offset: null,
+        });
       }
       return json({}, 404);
     });
     mountBuilder();
     fireEvent.click(await screen.findByRole("radio", { name: /Responses/ }));
-    const links = await screen.findAllByRole("link", { name: /0123456789abcdef\.pdf/ });
-    for (const link of links) {
-      expect(link.getAttribute("href")).toBe(
-        "/api/v1/forms/file?drive_id=d1&path=rsvp.lunaform&name=0123456789abcdef.pdf",
-      );
-    }
+    // The summary stays a count; the attachment opens from its response.
+    fireEvent.click(await screen.findByText("0123456789abcdef.pdf"));
+    const link = await screen.findByRole("link", { name: "Open the attached file" });
+    expect(link.getAttribute("href")).toBe(
+      "/api/v1/forms/file?drive_id=d1&path=rsvp.lunaform&name=0123456789abcdef.pdf",
+    );
   });
 
   it("builds the guest route from the link, with no path for a file link", () => {
@@ -193,8 +219,11 @@ describe("FormBuilder guest source", () => {
   function guestFetch() {
     return stubFetch((u, m) => {
       if (u === "/s/tok/file") return new Response(FORM_DOC, { status: 200 });
+      if (u.startsWith("/s/tok/summary")) {
+        return json({ total: 1, questions: [{ id: "q_1", answered: 1, values: [] }] });
+      }
       if (u.startsWith("/s/tok/responses")) {
-        return json({ responses: [{ id: "r1", answers: { q_1: "Bob" } }] });
+        return json({ responses: [{ id: "r1", answers: { q_1: "Bob" } }], total: 1, next_offset: null });
       }
       if (u === "/s/tok/upload" && m === "POST") return json({ upload_id: "u9" });
       if (u.includes("/s/tok/upload/u9/complete")) return json({ ok: true });
@@ -208,8 +237,8 @@ describe("FormBuilder guest source", () => {
 
     const title = await screen.findByLabelText("Form title");
     expect(title).toHaveValue("Family reunion RSVP");
-    // Guests read the link-scoped responses route — never the member API.
-    expect(calls.some(([u]) => u === "/s/tok/responses")).toBe(true);
+    // Guests do not pull answers until the Responses tab opens.
+    expect(calls.some(([u]) => u.startsWith("/s/tok/responses"))).toBe(false);
     // Guests can fill the form in but cannot manage sharing.
     expect(screen.queryByRole("button", { name: "Share this form" })).not.toBeInTheDocument();
 
@@ -220,6 +249,11 @@ describe("FormBuilder guest source", () => {
     });
     expect(calls.some(([u, m]) => u === "/s/tok/upload" && m === "POST")).toBe(true);
     expect(calls.some(([u]) => u.includes("/api/v1/"))).toBe(false);
+
+    // Guests read the link-scoped routes — never the member API.
+    fireEvent.click(screen.getByRole("radio", { name: /Responses/ }));
+    expect((await screen.findAllByText("Bob")).length).toBeGreaterThan(0);
+    expect(calls.some(([u]) => u.startsWith("/s/tok/responses"))).toBe(true);
   });
 
   it("a view link guest reads everything but cannot save", async () => {
@@ -237,6 +271,104 @@ describe("FormBuilder guest source", () => {
   });
 });
 
+describe("FormBuilder responses paging", () => {
+  const MANY = JSON.stringify({
+    version: 1,
+    title: "Potluck",
+    settings: {},
+    questions: [
+      { v: 1, id: "q_c", type: "choice", label: "Coming?", config: { options: ["Yes", "No"] } },
+      { v: 1, id: "q_t", type: "short_text", label: "Name", config: {} },
+    ],
+  });
+
+  function stubPages() {
+    return stubFetch((u) => {
+      if (u.includes("/files/content")) return new Response(MANY, { status: 200 });
+      if (u.includes("/api/v1/forms/summary")) {
+        return json({
+          total: 250,
+          questions: [
+            {
+              id: "q_c",
+              answered: 250,
+              values: [{ value: "Yes", count: 200 }, { value: "No", count: 50 }],
+            },
+            { id: "q_t", answered: 240, values: [] },
+          ],
+        });
+      }
+      if (u.includes("/api/v1/forms/responses")) {
+        const offset = Number(new URL(u, "http://luna").searchParams.get("offset")) || 0;
+        if (offset === 0) {
+          return json({
+            responses: [{ id: "r1", answers: { q_c: "Yes", q_t: "first" } }],
+            total: 250,
+            next_offset: 100,
+          });
+        }
+        return json({
+          responses: [{ id: "r101", answers: { q_c: "No", q_t: "second" } }],
+          total: 250,
+          next_offset: 200,
+        });
+      }
+      return json({}, 404);
+    });
+  }
+
+  it("shows one page and the summary for the whole answers file", async () => {
+    const calls = stubPages();
+    mountBuilder();
+    await screen.findByLabelText("Form title");
+    fireEvent.click(screen.getByRole("radio", { name: /Responses/ }));
+
+    expect(await screen.findByText("first")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1–1 of 250")).toBeInTheDocument();
+    // Summary answers cover every page, not just the row on screen.
+    expect(screen.getAllByText("250 answered").length).toBeGreaterThan(0);
+    expect(screen.getByText("200 · 80%")).toBeInTheDocument();
+    expect(screen.getByText(/Answers are in the table below/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Next page/ }));
+    expect(await screen.findByText("second")).toBeInTheDocument();
+    expect(screen.getByText("Showing 101–101 of 250")).toBeInTheDocument();
+    expect(
+      calls.some(([u]) => u.includes("offset=100&limit=100")),
+    ).toBe(true);
+  });
+
+  it("refreshes the page and summary only while Responses is open", async () => {
+    const calls = stubPages();
+    mountBuilder();
+    await screen.findByLabelText("Form title");
+    const socket = socketState.instances[socketState.instances.length - 1];
+    expect(socket).toBeTruthy();
+
+    // Questions tab: the event is ignored.
+    await act(async () => {
+      socket.onMessage({ type: "form_response", count: 1 });
+    });
+    expect(calls.some(([u]) => u.includes("/api/v1/forms/responses"))).toBe(false);
+
+    fireEvent.click(screen.getByRole("radio", { name: /Responses/ }));
+    await screen.findByText("first");
+    await screen.findByText("250 answered");
+    const before = calls.filter(([u]) => u.includes("/api/v1/forms/responses")).length;
+    const summaries = calls.filter(([u]) => u.includes("/api/v1/forms/summary")).length;
+
+    await act(async () => {
+      socket.onMessage({ type: "form_response", count: 2 });
+    });
+    await waitFor(() =>
+      expect(
+        calls.filter(([u]) => u.includes("/api/v1/forms/responses")).length,
+      ).toBe(before + 1),
+    );
+    expect(calls.filter(([u]) => u.includes("/api/v1/forms/summary")).length).toBe(summaries + 1);
+  });
+});
+
 describe("FormBuilder editing", () => {
   const TWO = JSON.stringify({
     version: 1,
@@ -251,7 +383,8 @@ describe("FormBuilder editing", () => {
   function stubForm() {
     return stubFetch((u) => {
       if (u.includes("/files/content")) return new Response(TWO, { status: 200 });
-      if (u.includes("/api/v1/forms/responses")) return json({ responses: [] });
+      if (u.includes("/api/v1/forms/summary")) return json({ total: 0, questions: [] });
+      if (u.includes("/api/v1/forms/responses")) return json({ responses: [], total: 0, next_offset: null });
       return json({}, 404);
     });
   }

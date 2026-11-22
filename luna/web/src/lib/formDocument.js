@@ -228,6 +228,9 @@ export function parseResponsesJsonl(text) {
  */
 export function latestResponses(records) {
   const order = [];
+  // `seen` keeps the first-send order lookup O(1); an id that is deleted and
+  // later sent again keeps its original slot, exactly as before.
+  const seen = new Set();
   const byId = new Map();
   for (const rec of records) {
     if (!rec || typeof rec.id !== "string") continue;
@@ -235,7 +238,10 @@ export function latestResponses(records) {
       byId.delete(rec.id);
       continue;
     }
-    if (!order.includes(rec.id)) order.push(rec.id);
+    if (!seen.has(rec.id)) {
+      seen.add(rec.id);
+      order.push(rec.id);
+    }
     byId.set(rec.id, rec);
   }
   return order.filter((id) => byId.has(id)).map((id) => byId.get(id));

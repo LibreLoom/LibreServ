@@ -140,4 +140,20 @@ describe("formDocument", () => {
     expect(responseSentAt({ id: "x", at: 9, sent_at: 4 })).toBe(4);
     expect(responseSentAt({ id: "x", at: 9 })).toBe(9);
   });
+
+  it("keeps one slot per id across edits, deletes, and a later resend", () => {
+    const live = latestResponses([
+      { id: "a", at: 1, answers: { q: "first" } },
+      { id: "b", at: 2, answers: {} },
+      { id: "a", deleted: true, at: 3 },
+      { id: "c", at: 4, answers: {} },
+      { id: "a", at: 5, answers: { q: "again" } },
+      { id: "b", at: 6, answers: {} },
+    ]);
+    expect(live.map((r) => r.id)).toEqual(["a", "b", "c"]);
+    expect(live[0].answers.q).toBe("again");
+    expect(live[1].at).toBe(6);
+    // A tombstone with no earlier live record never creates a response.
+    expect(latestResponses([{ id: "x", deleted: true }])).toEqual([]);
+  });
 });
