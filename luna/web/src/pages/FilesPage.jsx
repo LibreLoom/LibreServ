@@ -213,22 +213,53 @@ export function describePeek(peek) {
   };
 }
 
-/** Card rows for what's on a drive that hasn't been added yet. */
-function DetectedContents({ peek }) {
+/**
+ * Facts for a drive that hasn't been added yet, as table rows.
+ * `note` only appears when there's something to do about it.
+ * @param {{ isPending: boolean, isError: boolean, data?: any }} peek
+ * @returns {{ rows: { label: string, value: string }[], note: string }}
+ */
+function detectedFacts(peek) {
   if (peek.isPending) {
-    return <ValueDisplay surface="primary" label="On the drive" value="Looking inside…" mono={false} />;
+    return {
+      rows: [{ label: "On the drive", value: "Looking inside…" }],
+      note: "",
+    };
   }
   // A failed look says nothing about the drive itself (Add drive can still
   // open it), so show nothing rather than guess; the query retries below.
-  if (peek.isError || !peek.data) return null;
+  if (peek.isError || !peek.data) return { rows: [], note: "" };
   const info = describePeek(peek.data);
+  return {
+    rows: [
+      { label: "On the drive", value: info.value },
+      ...(info.includes ? [{ label: "Includes", value: info.includes }] : []),
+      ...(info.history ? [{ label: "History", value: info.history }] : []),
+    ],
+    note: info.note,
+  };
+}
+
+/**
+ * Flat label/value table for a drive's facts. It sits on the card's primary
+ * panel, so the rules use the secondary text color to stay visible in both
+ * themes.
+ */
+function DriveFactsTable({ rows, label }) {
+  if (rows.length === 0) return null;
   return (
-    <>
-      <ValueDisplay surface="primary" label="On the drive" value={info.value} mono={false} />
-      {info.includes ? <ValueDisplay surface="primary" label="Includes" value={info.includes} mono={false} /> : null}
-      {info.history ? <ValueDisplay surface="primary" label="History" value={info.history} mono={false} /> : null}
-      {info.note ? <Callout tone="warning" surface="primary">{info.note}</Callout> : null}
-    </>
+    <table className="w-full border-collapse text-sm" aria-label={label}>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.label} className="border-b border-secondary/15 last:border-0">
+            <th scope="row" className="py-2 pr-4 text-left align-top font-normal text-secondary">
+              {row.label}
+            </th>
+            <td className="py-2 text-right align-top text-secondary">{row.value}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -266,11 +297,24 @@ function DetectedCard({ drive, onOpen, onShowProgress }) {
       : null
     : { label: "Add drive", onClick: () => onOpen(drive), disabled: empty };
 
+  const facts = empty || drive.formatting
+    ? { rows: [], note: "" }
+    : detectedFacts(peek);
+
   return (
     <DriveCard icon={<HardDrive size={ICON_SIZE.lg} />} title={title} action={action}>
       <div className="flex flex-col gap-2">
-        <ValueDisplay surface="primary" label="Size" value={empty ? "Nothing inserted" : formatBytes(drive.size_bytes)} />
-        {empty ? null : drive.formatting ? <p className="text-sm">Being erased and set up. This drive is unavailable until that finishes.</p> : <DetectedContents peek={peek} />}
+        <DriveFactsTable
+          label="Drive facts"
+          rows={[
+            { label: "Size", value: empty ? "Nothing inserted" : formatBytes(drive.size_bytes) },
+            ...facts.rows,
+          ]}
+        />
+        {drive.formatting ? (
+          <p className="text-sm">Being erased and set up. This drive is unavailable until that finishes.</p>
+        ) : null}
+        {facts.note ? <Callout tone="warning" surface="primary">{facts.note}</Callout> : null}
         {drive.read_only ? (
           <Callout tone="warning" surface="primary">Read-only: Luna can&apos;t save files to this drive.</Callout>
         ) : null}
