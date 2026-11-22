@@ -233,7 +233,6 @@ function detectedFacts(peek) {
   return {
     rows: [
       { label: "On the drive", value: info.value },
-      ...(info.includes ? [{ label: "Includes", value: info.includes }] : []),
       ...(info.history ? [{ label: "History", value: info.history }] : []),
     ],
     note: info.note,

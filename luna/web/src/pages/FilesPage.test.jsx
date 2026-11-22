@@ -409,7 +409,8 @@ describe("FilesPage", () => {
     });
     renderPage();
     expect(await screen.findByText("2 folders, 10 files")).toBeInTheDocument();
-    expect(screen.getByText("Holiday, Taxes, notes.txt and 9 more")).toBeInTheDocument();
+    expect(screen.queryByText("Includes")).not.toBeInTheDocument();
+    expect(screen.queryByText("Holiday, Taxes, notes.txt and 9 more")).not.toBeInTheDocument();
     expect(await screen.findByText("Empty")).toBeInTheDocument();
     expect(await screen.findByText("Can't read it")).toBeInTheDocument();
     expect(screen.getByText(/may be blank or damaged/i)).toBeInTheDocument();
