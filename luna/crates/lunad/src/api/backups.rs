@@ -275,7 +275,11 @@ async fn run(
     let answer = match tokio::time::timeout(RUN_WAIT, job).await {
         Ok(Ok(Ok(outcome))) => match outcome.problem {
             None => json!({ "done": true }),
-            Some(problem) => json!({ "done": false, "problem": problem }),
+            Some(problem) => json!({
+                "done": false,
+                "source_missing": problem.starts_with("Most of the files in "),
+                "problem": problem,
+            }),
         },
         Ok(Ok(Err(_))) => {
             json!({ "done": false, "problem": "Luna could not finish this backup. Try again." })
@@ -399,6 +403,7 @@ fn backup_json(
         "last_ok_at": row.last_ok_at,
         "last_error": row.last_error,
         "hard": row.hard,
+        "source_missing": row.hard && row.last_error.starts_with("Most of the files in "),
         "first_done": row.first_done,
         "created_by": row.created_by,
         "can_delete": can_delete(conn, row, user),

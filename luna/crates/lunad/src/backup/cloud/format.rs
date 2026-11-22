@@ -42,8 +42,9 @@ const SNAPSHOT_DOMAIN: &str = "snapshot";
 pub fn chunks(data: &mut impl Read, mut f: impl FnMut(&[u8]) -> Result<()>) -> Result<()> {
     let chunker = fastcdc::v2020::StreamCDC::new(data, CHUNK_MIN, CHUNK_AVG, CHUNK_MAX);
     for chunk in chunker {
-        let chunk =
-            chunk.map_err(|e| anyhow!("Could not split a file into pieces for backup: {e}"))?;
+        let chunk = chunk.map_err(|e| {
+            anyhow::Error::new(e).context("Could not split a file into pieces for backup")
+        })?;
         f(&chunk.data)?;
     }
     Ok(())

@@ -1259,7 +1259,8 @@ fn source_gone(
     Ok(problem_outcome(reason))
 }
 
-const FOLDER_GONE_REASON: &str = "The folder was deleted or moved somewhere Luna can't follow.";
+pub(crate) const FOLDER_GONE_REASON: &str =
+    "The folder was deleted or moved somewhere Luna can't follow.";
 
 /// Only a folder that is really missing counts as gone. Anything else (no
 /// permission, a disk error) is a passing problem.

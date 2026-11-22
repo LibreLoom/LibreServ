@@ -213,6 +213,10 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             record BLOB NOT NULL
         );
         CREATE INDEX IF NOT EXISTS cloud_snapshots_protection ON cloud_snapshots (protection_id);
+        CREATE TABLE IF NOT EXISTS cloud_deleted_file_snapshots (
+            snapshot_id TEXT PRIMARY KEY,
+            keep_until INTEGER NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS cloud_snapshot_packs (
             snapshot_id TEXT NOT NULL,
             pack_id TEXT NOT NULL,
@@ -1877,7 +1881,7 @@ pub fn list_cloud_snapshots(
 ) -> anyhow::Result<Vec<SnapshotInsert>> {
     let mut stmt = conn.prepare(
         "SELECT id, protection_id, created_at, key_version, tree_pack_id, record
-         FROM cloud_snapshots WHERE protection_id = ?1 ORDER BY created_at DESC",
+         FROM cloud_snapshots WHERE protection_id = ?1 ORDER BY created_at DESC, rowid DESC",
     )?;
     let rows = stmt
         .query_map(params![protection_id], snapshot_from_row)?
@@ -1891,6 +1895,10 @@ pub fn delete_cloud_snapshot(conn: &Connection, id: &str) -> anyhow::Result<()> 
     let tx = conn.unchecked_transaction()?;
     tx.execute(
         "DELETE FROM cloud_snapshot_packs WHERE snapshot_id = ?1",
+        params![id],
+    )?;
+    tx.execute(
+        "DELETE FROM cloud_deleted_file_snapshots WHERE snapshot_id = ?1",
         params![id],
     )?;
     tx.execute("DELETE FROM cloud_snapshots WHERE id = ?1", params![id])?;
@@ -1949,7 +1957,7 @@ pub fn commit_snapshot_tx(
 }
 
 /// The body of `commit_snapshot_tx`, inside a transaction the caller owns.
-fn commit_snapshot_in(
+pub(crate) fn commit_snapshot_in(
     tx: &rusqlite::Transaction,
     snap: &SnapshotInsert,
     pack_ids: &[String],
@@ -2336,12 +2344,23 @@ pub fn commit_private_snapshot_tx(
     tree_json: &[u8],
 ) -> anyhow::Result<()> {
     let tx = conn.transaction()?;
-    commit_snapshot_in(&tx, snap, pack_ids)?;
+    commit_private_snapshot_in(&tx, snap, pack_ids, scope, tree_json)?;
+    tx.commit()?;
+    Ok(())
+}
+
+pub(crate) fn commit_private_snapshot_in(
+    tx: &rusqlite::Transaction,
+    snap: &SnapshotInsert,
+    pack_ids: &[String],
+    scope: &str,
+    tree_json: &[u8],
+) -> anyhow::Result<()> {
+    commit_snapshot_in(tx, snap, pack_ids)?;
     tx.execute(
         "INSERT INTO cloud_private_trees (snapshot_id, scope, tree) VALUES (?1, ?2, ?3)",
         params![snap.id, scope, tree_json],
     )?;
-    tx.commit()?;
     Ok(())
 }
 

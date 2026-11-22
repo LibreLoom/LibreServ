@@ -16,4 +16,5 @@ pub mod recover;
 pub mod retention;
 pub mod rewrap;
 pub mod run;
+mod source;
 pub mod store;

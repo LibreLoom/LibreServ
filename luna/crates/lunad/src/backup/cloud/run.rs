@@ -6,6 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
+#[cfg(test)]
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex, MutexGuard};
 
@@ -17,11 +18,11 @@ use super::crypto::{self, Signer};
 use super::format::{self, BackupMeta, ChunkRef, PackBuilder, SnapshotRecord, Tree, TreeEntry};
 use super::identity;
 use super::keys::{self, Recipients};
+use super::retention;
+use super::source::{self, CHECK_FAILED, Folder, MASS_DELETE, Walk};
 use super::store::CloudStore;
-use crate::backup::{access_list, scope};
+use crate::backup::access_list;
 use crate::db::{self, BackupKey};
-use crate::drives::layout::Layout;
-use crate::files;
 
 /// Wraps each pack's random key under the backup key.
 pub(super) const PACK_KEY_WRAP_AAD: &[u8] = b"luna-pack-key-wrap-v1";
@@ -50,15 +51,6 @@ fn pack_flush_bytes() -> usize {
 
 /// Shown when a run is held because its source drive or folder is gone.
 const NO_ADMIN_PHRASE: &str = "Waiting for an Admin to set up the recovery phrase.";
-pub(crate) const SOURCE_MISSING: &str = "Most files to back up are missing, or the drive is unplugged. Check the drive and folder, then try again.";
-
-/// Shown when a run is held because it could not be compared with the last copy.
-pub(crate) const CHECK_FAILED: &str = "Luna couldn't compare this folder with the last cloud copy, so it paused this backup. Try again, or choose Back up anyway if the folder looks right.";
-
-/// Shown when a backup's row names a folder that is not a plain path inside its drive.
-pub(crate) const SOURCE_OUTSIDE: &str =
-    "This backup's folder is not on its drive. Delete the backup and start it again.";
-
 /// What one run did. `problem` is set, and no snapshot is committed, when the run failed.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct CloudOutcome {
@@ -75,47 +67,24 @@ pub struct CloudOutcome {
     pub busy: bool,
 }
 
-/// The folder on disk for a backup's logical path, or `None` when the path climbs out of the
-/// drive. A private item's disk name differs from its path.
-pub(crate) fn source_root(drive_root: &Path, source_path: &str) -> Option<PathBuf> {
-    let rel = source_path.trim_start_matches('/');
-    if crate::private::climbs_out(rel) {
-        return None;
-    }
-    Some(drive_root.join(crate::private::disk_rel(drive_root, rel)))
-}
-
-/// Runs one backup for `protection_id` against `store` and returns what happened.
-/// `started_by` is the user who asked for it, or empty for a scheduled run.
-/// `accept_missing` lets the run go ahead when most of the source is gone, once a person has
-/// checked the drive. Without it, such a run is held.
-pub fn run_once(
+#[cfg(test)]
+pub(crate) fn run_with_root(
     db: &crate::Db,
     protection_id: &str,
+    root: &Path,
     store: &dyn CloudStore,
     started_by: &str,
     accept_missing: bool,
     now: i64,
 ) -> Result<CloudOutcome> {
-    let (drive_root, root) = {
-        let conn = lock(db);
-        let row = db::get_protection(&conn, protection_id)?
-            .ok_or_else(|| anyhow!("This backup no longer exists."))?;
-        let drive = files::drive_root(&conn, &row.source_drive)?;
-        let drive_root = PathBuf::from(&drive.mount_point);
-        let Some(root) = source_root(&drive_root, &row.source_path) else {
-            return Ok(problem_outcome(SOURCE_OUTSIDE));
-        };
-        (drive_root, root)
+    let folder = match Folder::at(root) {
+        Ok(folder) => folder,
+        Err(unavailable) => return unavailable.record(db, protection_id, now),
     };
-    // An unplugged drive has no Luna marker, so its folder is never read as empty.
-    if Layout::detect(&drive_root).is_none() {
-        return Ok(problem_outcome(SOURCE_MISSING));
-    }
-    run_with_root(
+    run_from_folder(
         db,
         protection_id,
-        &root,
+        folder,
         store,
         started_by,
         accept_missing,
@@ -123,11 +92,10 @@ pub fn run_once(
     )
 }
 
-/// The run itself, reading from `root` instead of resolving the drive. Tests use this.
-pub(crate) fn run_with_root(
+pub(super) fn run_from_folder(
     db: &crate::Db,
     protection_id: &str,
-    root: &Path,
+    folder: Folder,
     store: &dyn CloudStore,
     started_by: &str,
     accept_missing: bool,
@@ -153,28 +121,22 @@ pub(crate) fn run_with_root(
         }
     }
 
-    // Held before any run row is opened, so nothing is committed and nothing needs closing.
-    // If the last copy cannot be read, the run is held too: a check that cannot run must not pass.
-    // The last copy's file list, already read for the check, also lets unchanged files skip
-    // being read again. A run that skips the check reads every file.
-    let mut prev = None;
-    if !accept_missing {
-        match source_looks_missing(db, protection_id, root, store) {
-            Ok((true, _)) => {
-                return Ok(CloudOutcome {
-                    source_missing: true,
-                    ..problem_outcome(SOURCE_MISSING)
-                });
-            }
-            Ok((false, last)) => prev = last,
-            Err(err) => {
-                tracing::warn!(error = %err, protection_id, "could not check the source against the last copy; holding the run");
-                return Ok(CloudOutcome {
-                    source_missing: true,
-                    ..problem_outcome(CHECK_FAILED)
-                });
-            }
+    let mut walk = match folder.walk() {
+        Ok(walk) => walk,
+        Err(unavailable) => return unavailable.record(db, protection_id, now),
+    };
+    source::revive(db, protection_id)?;
+    let prev = match previous_tree(db, protection_id, store) {
+        Ok(prev) => prev,
+        Err(err) => {
+            tracing::warn!(error = %err, protection_id, "could not check the source against the last copy");
+            return source::hold(db, protection_id, now, CHECK_FAILED, false);
         }
+    };
+    if let Some(prev) = &prev
+        && !walk.compare(&prev.snapshot_id, &prev.tree, accept_missing)
+    {
+        return source::hold(db, protection_id, now, MASS_DELETE, true);
     }
 
     // Failing here means no run row was opened, so there is nothing to close.
@@ -183,7 +145,7 @@ pub(crate) fn run_with_root(
         Err(e) => return Ok(problem_outcome(&e.to_string())),
     };
 
-    let result = publish_and_copy(db, &ctx, publish, root, store, now, prev.as_ref());
+    let result = publish_and_copy(db, &ctx, publish, walk, store, now, prev.as_ref());
     // The run is over whether or not it committed, so always close it.
     if let Err(e) = db::end_run(&lock(db), &ctx.run_id, now) {
         return Ok(problem_outcome(&e.to_string()));
@@ -199,28 +161,26 @@ pub(crate) fn run_with_root(
 /// changed instead of reading them again.
 pub(crate) struct PrevTree {
     pub(crate) tree: Tree,
+    snapshot_id: String,
     /// When the previous run started. A file modified at or after this may have changed during
     /// that run without its size or whole-second mtime changing, so it is always read again.
     pub(crate) created_at: i64,
     pub(crate) key_version: u32,
 }
 
-/// True when most files in the previous snapshot are gone from `root`, plus that snapshot's
-/// file list. The list is read back from the cloud. A protection with no earlier snapshot is
-/// never held.
-fn source_looks_missing(
+/// Load the latest snapshot using the key version named in its record.
+fn previous_tree(
     db: &crate::Db,
     protection_id: &str,
-    root: &Path,
     store: &dyn CloudStore,
-) -> Result<(bool, Option<PrevTree>)> {
+) -> Result<Option<PrevTree>> {
     let (record, tree_key) = {
         let conn = lock(db);
         let Some(last) = db::list_cloud_snapshots(&conn, protection_id)?
             .into_iter()
             .next()
         else {
-            return Ok((false, None));
+            return Ok(None);
         };
         let Some(identity) = identity::load(&conn)? else {
             return Err(anyhow!("Luna's cloud identity is missing."));
@@ -241,25 +201,12 @@ fn source_looks_missing(
         (record, tree_key)
     };
     let tree = read_tree(store, &record, &tree_key)?;
-    let missing = most_files_missing(&tree, root);
-    Ok((
-        missing,
-        Some(PrevTree {
-            tree,
-            created_at: record.created_at,
-            key_version: record.key_version,
-        }),
-    ))
-}
-
-/// True when most files of the last tree are gone from `root`. An empty tree is never missing.
-pub(crate) fn most_files_missing(tree: &Tree, root: &Path) -> bool {
-    let missing = tree
-        .entries
-        .iter()
-        .filter(|e| !root.join(&e.path).is_file())
-        .count();
-    !tree.entries.is_empty() && missing * 2 > tree.entries.len()
+    Ok(Some(PrevTree {
+        tree,
+        snapshot_id: record.snapshot_id,
+        created_at: record.created_at,
+        key_version: record.key_version,
+    }))
 }
 
 /// How one kind of backup seals what a run writes. Shared backups use the backup key;
@@ -278,7 +225,7 @@ pub(crate) trait Sealer: Send + Sync {
     /// Commit the snapshot locally, in one transaction.
     fn commit(
         &self,
-        conn: &mut Connection,
+        tx: &rusqlite::Transaction,
         snap: &db::SnapshotInsert,
         pack_ids: &[String],
         tree: &Tree,
@@ -310,17 +257,21 @@ impl Sealer for SharedSealer {
 
     fn commit(
         &self,
-        conn: &mut Connection,
+        tx: &rusqlite::Transaction,
         snap: &db::SnapshotInsert,
         pack_ids: &[String],
         _tree: &Tree,
     ) -> Result<()> {
-        db::commit_snapshot_tx(conn, snap, pack_ids)
+        db::commit_snapshot_in(tx, snap, pack_ids)
     }
 }
 
-/// Recipients and their keys, plus the key version to publish, kept for a key version that is new.
-type Publish = (Recipients, HashMap<String, crypto::SealPublic>, BackupKey);
+/// Versions awaiting acknowledgement and the sealing keys used to publish them.
+struct Publish {
+    current: Option<(BackupKey, Recipients)>,
+    older: Vec<(BackupKey, Recipients)>,
+    user_pub: HashMap<String, crypto::SealPublic>,
+}
 
 /// Everything a run needs that does not change while it copies.
 pub(crate) struct RunContext {
@@ -343,7 +294,7 @@ fn prepare(
     protection_id: &str,
     _started_by: &str,
     now: i64,
-) -> Result<(RunContext, Option<Publish>)> {
+) -> Result<(RunContext, Publish)> {
     let conn = lock(db);
     let row = db::get_protection(&conn, protection_id)?
         .ok_or_else(|| anyhow!("This backup no longer exists."))?;
@@ -378,9 +329,13 @@ fn prepare(
         return Err(anyhow!(NO_ADMIN_PHRASE));
     }
     let recipients = Recipients::new(ids);
-    let before = db::latest_backup_key(&conn, protection_id)?.map(|k| k.version);
     let key = keys::ensure_key(&conn, protection_id, &recipients, now)?;
-    let is_new = before != Some(key.version);
+    let needs_publish = !keys::is_published(&conn, &key, &identity.luna_id)?;
+    let older = pending_older_versions(&conn, &key, &recipients, &identity.luna_id)
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, protection_id, "could not plan repair of older cloud backup keys");
+            Vec::new()
+        });
 
     let key_bytes: [u8; 32] = key
         .key
@@ -395,7 +350,6 @@ fn prepare(
     let scope_id = crypto::chunk_id(&dedup_key, SCOPE_DOMAIN);
     let scope = hex(&scope_id[..16]);
     let run_id = random_id();
-    db::start_run(&conn, &run_id, protection_id, &scope, now)?;
 
     // The name is the last folder of the source. Protections have no name column, so this is the choice.
     let name = row
@@ -429,7 +383,12 @@ fn prepare(
     );
 
     let key_version = key.version as u32;
-    let publish = is_new.then_some((recipients, user_pub, key));
+    db::start_run(&conn, &run_id, protection_id, &scope, now)?;
+    let publish = Publish {
+        current: needs_publish.then_some((key, recipients)),
+        older,
+        user_pub,
+    };
     let ctx = RunContext {
         run_id,
         meta,
@@ -445,28 +404,58 @@ fn prepare(
     Ok((ctx, publish))
 }
 
-/// Publishes a new key version outside the lock, then copies and commits.
+fn pending_older_versions(
+    conn: &Connection,
+    current: &BackupKey,
+    eligible: &Recipients,
+    luna_id: &str,
+) -> Result<Vec<(BackupKey, Recipients)>> {
+    let mut older = Vec::new();
+    for key in db::list_backup_keys(conn, &current.protection_id)? {
+        if key.version < current.version
+            && !keys::is_published(conn, &key, luna_id)?
+            && let Some(recipients) = keys::recoverable_readers(conn, &key, eligible)?
+        {
+            older.push((key, recipients));
+        }
+    }
+    Ok(older)
+}
+
+/// Publishes and acknowledges the current version before copying. Historical repairs are
+/// best effort so a problem with an old key cannot block a new snapshot.
 fn publish_and_copy(
     db: &crate::Db,
     ctx: &RunContext,
-    publish: Option<Publish>,
-    root: &Path,
+    publish: Publish,
+    walk: Walk,
     store: &dyn CloudStore,
     now: i64,
     prev: Option<&PrevTree>,
 ) -> Result<CloudOutcome> {
-    if let Some((recipients, user_pub, key)) = publish {
+    let publish_version = |key: &BackupKey, recipients: &Recipients| -> Result<()> {
         keys::publish_key(
             store,
             &ctx.signer,
             &ctx.luna_id,
             &ctx.protection_id,
-            &key,
-            &recipients,
-            |user| user_pub.get(user).copied(),
+            key,
+            recipients,
+            |user| publish.user_pub.get(user).copied(),
         )?;
+        keys::acknowledge_publication(&lock(db), key, &ctx.luna_id)
+    };
+    if let Some((key, recipients)) = &publish.current {
+        publish_version(key, recipients)?;
     }
-    copy_and_commit(db, ctx, root, store, now, prev)
+    let outcome = copy_and_commit(db, ctx, walk, store, now, prev);
+    for (key, recipients) in &publish.older {
+        if let Err(error) = publish_version(key, recipients) {
+            tracing::warn!(%error, protection_id = %ctx.protection_id, version = key.version,
+                "could not repair an older cloud backup key");
+        }
+    }
+    outcome
 }
 
 /// Mutable state for walking the source and filling packs.
@@ -613,7 +602,7 @@ enum Draft {
 pub(crate) fn copy_and_commit(
     db: &crate::Db,
     ctx: &RunContext,
-    root: &Path,
+    walk: Walk,
     store: &dyn CloudStore,
     now: i64,
     prev: Option<&PrevTree>,
@@ -651,9 +640,8 @@ pub(crate) fn copy_and_commit(
 
     // Chunk ids per file; they become `ChunkRef`s once the last pack is flushed.
     let mut drafts = Vec::new();
-    let files =
-        scope::walk(root).map_err(|e| anyhow!("Could not read the folder being backed up: {e}"))?;
-    for entry in &files {
+    let files = &walk.files;
+    for entry in files {
         if let Some(old) = unchanged.get(entry.rel.as_str())
             && old.size == entry.size
             && old.mtime == entry.mtime
@@ -668,14 +656,26 @@ pub(crate) fn copy_and_commit(
             ));
             continue;
         }
-        let mut file =
-            File::open(&entry.abs).map_err(|e| anyhow!("Could not open {}: {e}", entry.rel))?;
+        let mut file = match File::open(&entry.abs) {
+            Ok(file) => file,
+            Err(err) => {
+                tracing::warn!(error = %err, path = %entry.rel, "could not open a cloud backup source file");
+                return walk.read_error(db, &ctx.protection_id, now);
+            }
+        };
         let mut chunk_ids = Vec::new();
-        format::chunks(&mut file, |plain| {
+        let read = format::chunks(&mut file, |plain| {
             bytes_read += plain.len() as u64;
             chunk_ids.push(copy.chunk(plain)?);
             Ok(())
-        })?;
+        });
+        if let Err(err) = read {
+            if err.is::<fastcdc::v2020::Error>() {
+                tracing::warn!(error = %err, path = %entry.rel, "could not read a cloud backup source file");
+                return walk.read_error(db, &ctx.protection_id, now);
+            }
+            return Err(err);
+        }
         drafts.push((
             entry.rel.clone(),
             entry.size,
@@ -753,14 +753,18 @@ pub(crate) fn copy_and_commit(
         meta: ctx.meta.clone(),
     };
     let (kind, name, signed_bytes) = ctx.sealer.finish_record(record, &ctx.signer);
+    if let Err(unavailable) = walk.verify() {
+        return unavailable.record(db, &ctx.protection_id, now);
+    }
     store
         .put_record(kind, &name, &signed_bytes)
         .map_err(|e| anyhow!("{e}"))?;
 
     {
         let mut conn = lock(db);
+        let tx = conn.transaction()?;
         ctx.sealer.commit(
-            &mut conn,
+            &tx,
             &db::SnapshotInsert {
                 id: snapshot_id.clone(),
                 protection_id: ctx.protection_id.clone(),
@@ -772,6 +776,8 @@ pub(crate) fn copy_and_commit(
             &copy.pack_ids,
             &tree,
         )?;
+        retention::commit_run(&tx, &ctx.protection_id, now, walk.pin.as_deref())?;
+        tx.commit()?;
     }
 
     Ok(CloudOutcome {
@@ -968,6 +974,62 @@ mod tests {
     }
 
     #[test]
+    fn retries_shared_key_publication_after_only_the_sealed_copy_was_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let root = dir.path().join("src");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("file"), "backup data").unwrap();
+
+        // Measure one sealed copy so the quota allows the first put but rejects the signed list.
+        let sample = MemoryStore::new();
+        let result = run_with_root(&db, "p2", &root, &sample, "owner", false, 100).unwrap();
+        assert_eq!(result.problem, None);
+        let sample_name = keys::key_record_name("p2", 1, "owner");
+        let copy_size = sample
+            .get_record("keys", &sample_name)
+            .unwrap()
+            .unwrap()
+            .len();
+        let constrained = MemoryStore::with_quota(copy_size as u64);
+        let failed = run_with_root(&db, "p1", &root, &constrained, "owner", false, 100).unwrap();
+        assert!(failed.problem.is_some());
+        assert!(failed.snapshot_id.is_none());
+        let key = db::latest_backup_key(&lock(&db), "p1").unwrap().unwrap();
+        let identity = identity::load(&lock(&db)).unwrap().unwrap();
+        assert!(!keys::is_published(&lock(&db), &key, identity.luna_id()).unwrap());
+        let copy_name = keys::key_record_name("p1", key.version, "owner");
+        let list_name = keys::recipients_record_name("p1", key.version);
+        let copy = constrained.get_record("keys", &copy_name).unwrap().unwrap();
+        assert_eq!(
+            constrained.get_record("recipients", &list_name).unwrap(),
+            None
+        );
+
+        // Reopen the local database and carry over the partial remote state with quota restored.
+        drop(db);
+        let db = crate::Db::new(db::open(&dir.path().join("luna.db")).unwrap());
+        let recovered = MemoryStore::new();
+        recovered.put_record("keys", &copy_name, &copy).unwrap();
+        let result = run_with_root(&db, "p1", &root, &recovered, "owner", false, 200).unwrap();
+        assert_eq!(result.problem, None);
+        assert!(result.snapshot_id.is_some());
+        let conn = lock(&db);
+        assert_eq!(
+            db::latest_backup_key(&conn, "p1").unwrap(),
+            Some(key.clone())
+        );
+        let identity = identity::load(&conn).unwrap().unwrap();
+        assert!(keys::is_published(&conn, &key, identity.luna_id()).unwrap());
+        assert!(
+            recovered
+                .get_record("recipients", &list_name)
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[test]
     fn a_marked_backup_starts_the_next_version_and_its_packs_still_open() {
         use crate::backup::cloud::check::{self, Sample};
 
@@ -1070,13 +1132,19 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
+        for i in 0..18 {
+            std::fs::write(src.join(format!("extra-{i}")), b"x").unwrap();
+        }
         let first = run_with_root(&db, "p6", &src, &store, "user-1", false, 100).unwrap();
         assert_eq!(first.problem, None);
 
         std::fs::remove_file(src.join("a.bin")).unwrap();
         std::fs::remove_file(src.join("b.bin")).unwrap();
+        for i in 0..18 {
+            std::fs::remove_file(src.join(format!("extra-{i}"))).unwrap();
+        }
         let held = run_with_root(&db, "p6", &src, &store, "user-1", false, 200).unwrap();
-        assert_eq!(held.problem.as_deref(), Some(SOURCE_MISSING));
+        assert_eq!(held.problem.as_deref(), Some(MASS_DELETE));
         assert!(held.source_missing);
         assert_eq!(held.snapshot_id, None);
         assert_eq!(store.list_records("snapshots").unwrap().len(), 1);
@@ -1088,23 +1156,63 @@ mod tests {
             )
             .unwrap();
         assert_eq!(open_runs, 0);
+
+        let accepted = run_with_root(&db, "p6", &src, &store, "user-1", true, 300).unwrap();
+        assert!(accepted.snapshot_id.is_some());
+        assert_eq!(store.list_records("snapshots").unwrap().len(), 2);
     }
 
     #[test]
-    fn accept_missing_lets_a_held_run_through() {
+    fn deletion_pin_survives_wall_time_while_the_folder_is_gone() {
         let dir = tempfile::tempdir().unwrap();
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        run_with_root(&db, "p8", &src, &store, "user-1", false, 100).unwrap();
+        let first = run_with_root(&db, "p8", &src, &store, "user-1", false, 100).unwrap();
+        let first = first.snapshot_id.unwrap();
 
         std::fs::remove_file(src.join("a.bin")).unwrap();
         std::fs::remove_file(src.join("b.bin")).unwrap();
-        let out = run_with_root(&db, "p8", &src, &store, "user-1", true, 200).unwrap();
-        assert_eq!(out.problem, None);
-        assert!(!out.source_missing);
-        assert!(out.snapshot_id.is_some());
+        let out = run_with_root(&db, "p8", &src, &store, "user-1", false, 200).unwrap();
+        assert!(
+            out.snapshot_id.is_some(),
+            "two files are below the shared hold threshold"
+        );
+
+        let missing = src.with_extension("missing");
+        std::fs::rename(&src, &missing).unwrap();
+        let held = run_with_root(&db, "p8", &src, &store, "user-1", true, 300).unwrap();
+        assert!(!held.source_missing);
+        assert_eq!(held.snapshot_id, None);
+        assert_eq!(
+            db::get_protection(&lock(&db), "p8").unwrap().unwrap().state,
+            db::PROTECTION_SOURCE_GONE
+        );
+
+        let scope: String = lock(&db)
+            .query_row(
+                "SELECT scope FROM cloud_runs WHERE protection_id = 'p8' LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let later = 300 + 60 * 86_400;
+        retention::thin(&db, "p8", &scope, &store, later).unwrap();
         assert_eq!(store.list_records("snapshots").unwrap().len(), 2);
+
+        std::fs::rename(&missing, &src).unwrap();
+        let resumed = run_with_root(&db, "p8", &src, &store, "user-1", false, later).unwrap();
+        assert!(resumed.snapshot_id.is_some());
+        assert_eq!(
+            db::get_protection(&lock(&db), "p8").unwrap().unwrap().state,
+            db::PROTECTION_ACTIVE
+        );
+        let last_day = later + crate::backup::drive_store::DELETED_KEEP_SECS - 100;
+        retention::thin(&db, "p8", &scope, &store, last_day).unwrap();
+        assert!(store.get_record("snapshots", &first).unwrap().is_some());
+        assert!(!committed_tree(&db, &store, "p8", &first).entries.is_empty());
+        retention::thin(&db, "p8", &scope, &store, last_day + 1).unwrap();
+        assert!(store.get_record("snapshots", &first).unwrap().is_none());
     }
 
     #[test]
@@ -1123,12 +1231,12 @@ mod tests {
             .unwrap();
         let held = run_with_root(&db, "p7", &src, &store, "user-1", false, 200).unwrap();
         assert_eq!(held.problem.as_deref(), Some(CHECK_FAILED));
-        assert!(held.source_missing, "the person may choose Back up anyway");
+        assert!(!held.source_missing);
         assert_eq!(held.snapshot_id, None);
 
         let forced = run_with_root(&db, "p7", &src, &store, "user-1", true, 300).unwrap();
-        assert_eq!(forced.problem, None);
-        assert!(forced.snapshot_id.is_some());
+        assert_eq!(forced.problem.as_deref(), Some(CHECK_FAILED));
+        assert_eq!(forced.snapshot_id, None);
     }
 
     #[test]
@@ -1137,6 +1245,9 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
+        for i in 0..18 {
+            std::fs::write(src.join(format!("extra-{i}")), b"x").unwrap();
+        }
         run_with_root(&db, "p9", &src, &store, "user-1", false, 100).unwrap();
 
         // Someone's access changed, so the newest key is a later version than the last copy's.
@@ -1154,8 +1265,11 @@ mod tests {
 
         std::fs::remove_file(src.join("a.bin")).unwrap();
         std::fs::remove_file(src.join("b.bin")).unwrap();
+        for i in 0..18 {
+            std::fs::remove_file(src.join(format!("extra-{i}"))).unwrap();
+        }
         let held = run_with_root(&db, "p9", &src, &store, "user-1", false, 200).unwrap();
-        assert_eq!(held.problem.as_deref(), Some(SOURCE_MISSING));
+        assert_eq!(held.problem.as_deref(), Some(MASS_DELETE));
         assert!(held.source_missing);
     }
 
@@ -1530,28 +1644,6 @@ mod tests {
                 assert!(!pack.windows(32).any(|w| w == chunk_id));
             }
         }
-    }
-
-    #[test]
-    fn source_root_maps_a_private_item_to_its_disk_name() {
-        crate::private::install();
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("d");
-        std::fs::create_dir(&root).unwrap();
-        let prefix = luna_core::marker::pick_prefix(&root).unwrap();
-        crate::drives::drive_db::create(&root, &luna_core::marker::Marker::new("d", "d"), &prefix)
-            .unwrap();
-        std::fs::create_dir(root.join("Diary")).unwrap();
-        std::fs::create_dir(root.join("Photos")).unwrap();
-        crate::private::privatize(&root, "Diary", "owner").unwrap();
-
-        let private = source_root(&root, "Diary").unwrap();
-        let name = private.file_name().unwrap().to_string_lossy().to_string();
-        assert!(name.starts_with(".luna-"), "{name}");
-        assert_eq!(private, root.join(crate::private::disk_rel(&root, "Diary")));
-        assert_eq!(source_root(&root, "/Photos"), Some(root.join("Photos")));
-        assert_eq!(source_root(&root, "../Photos"), None);
-        assert_eq!(source_root(&root, "Photos/../../secret"), None);
     }
 
     #[test]

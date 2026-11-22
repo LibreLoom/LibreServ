@@ -9,7 +9,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::backup::cloud::private::{PSCOPES_KIND, snapshot_record_ref};
 use crate::backup::cloud::store::{CloudStore, StoreError};
-use crate::backup::drive_store::keep_versions;
+use crate::backup::drive_store::{DELETED_KEEP_SECS, keep_versions};
 use crate::db;
 
 /// Seconds a pack stays `marked` before it may be deleted. Matches `db::deletable_packs`.
@@ -22,6 +22,60 @@ pub struct Thinned {
     pub packs_marked: u32,
     pub packs_deleted: u32,
     pub bytes_freed: u64,
+}
+
+#[derive(Default, serde::Deserialize, serde::Serialize)]
+struct Clock {
+    paused_at: Option<i64>,
+    paused_secs: i64,
+}
+
+fn clock_key(id: &str) -> String {
+    format!("cloud_retention_clock:{id}")
+}
+
+fn clock(conn: &Connection, id: &str) -> anyhow::Result<Clock> {
+    Ok(match db::get_meta(conn, &clock_key(id))? {
+        Some(json) => serde_json::from_str(&json)?,
+        None => Clock::default(),
+    })
+}
+
+pub(super) fn pause(conn: &Connection, id: &str, now: i64) -> anyhow::Result<()> {
+    let mut clock = clock(conn, id)?;
+    if clock.paused_at.is_none() {
+        clock.paused_at = Some(now);
+        db::set_meta(conn, &clock_key(id), &serde_json::to_string(&clock)?)?;
+    }
+    Ok(())
+}
+
+pub(super) fn forget(conn: &Connection, id: &str) -> anyhow::Result<()> {
+    conn.execute("DELETE FROM meta WHERE key = ?1", [clock_key(id)])?;
+    Ok(())
+}
+
+/// Every file first found missing in this run was present in the previous
+/// snapshot. Keeping that one snapshot also keeps all of their packs.
+pub(super) fn commit_run(
+    conn: &Connection,
+    id: &str,
+    now: i64,
+    previous_with_deletions: Option<&str>,
+) -> anyhow::Result<()> {
+    let mut clock = clock(conn, id)?;
+    if let Some(paused_at) = clock.paused_at.take() {
+        clock.paused_secs += (now - paused_at).max(0);
+        db::set_meta(conn, &clock_key(id), &serde_json::to_string(&clock)?)?;
+    }
+    if let Some(snapshot) = previous_with_deletions {
+        conn.execute(
+            "INSERT INTO cloud_deleted_file_snapshots (snapshot_id, keep_until) VALUES (?1, ?2)
+             ON CONFLICT(snapshot_id) DO UPDATE SET keep_until = MAX(keep_until, excluded.keep_until)",
+            params![snapshot, now - clock.paused_secs + DELETED_KEEP_SECS],
+        )?;
+    }
+    Ok(())
 }
 
 /// Drop the snapshots the retention buckets no longer keep, then mark and delete
@@ -37,9 +91,26 @@ pub fn thin(
     let mut out = Thinned::default();
 
     // Snapshots, newest first. The latest one is always kept.
-    let snapshots = {
+    let (snapshots, pinned) = {
         let conn = lock(db)?;
-        db::list_cloud_snapshots(&conn, protection_id)?
+        let clock = clock(&conn, protection_id)?;
+        let gone = db::get_protection(&conn, protection_id)?
+            .is_some_and(|row| row.state == db::PROTECTION_SOURCE_GONE);
+        if clock.paused_at.is_some() || gone {
+            (Vec::new(), HashSet::new())
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT pin.snapshot_id FROM cloud_deleted_file_snapshots pin
+                 JOIN cloud_snapshots snap ON snap.id = pin.snapshot_id
+                 WHERE snap.protection_id = ?1 AND pin.keep_until >= ?2",
+            )?;
+            let pinned = stmt
+                .query_map(params![protection_id, now - clock.paused_secs], |row| {
+                    row.get(0)
+                })?
+                .collect::<rusqlite::Result<HashSet<String>>>()?;
+            (db::list_cloud_snapshots(&conn, protection_id)?, pinned)
+        }
     };
     let times: Vec<i64> = snapshots.iter().map(|s| s.created_at).collect();
     let keep_times: HashSet<i64> = keep_versions(&times, now).into_iter().collect();
@@ -47,7 +118,9 @@ pub fn thin(
     for (index, snap) in snapshots.iter().enumerate() {
         // keep_versions works on times, so keep only the first snapshot at each kept time.
         let first_at_time = seen_times.insert(snap.created_at);
-        let keep = index == 0 || (first_at_time && keep_times.contains(&snap.created_at));
+        let keep = index == 0
+            || pinned.contains(&snap.id)
+            || (first_at_time && keep_times.contains(&snap.created_at));
         if keep {
             continue;
         }

@@ -209,7 +209,8 @@ pub fn on_grants_changed(conn: &Connection, drive_id: &str) {
         }
     };
     for row in rows.iter().filter(|r| {
-        (r.state == db::PROTECTION_ACTIVE || r.state == db::PROTECTION_PAUSED)
+        r.kind == db::PROTECTION_DRIVE
+            && (r.state == db::PROTECTION_ACTIVE || r.state == db::PROTECTION_PAUSED)
             && r.source_drive == drive_id
     }) {
         if let Err(err) = refresh_access(conn, row) {

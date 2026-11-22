@@ -317,7 +317,7 @@ pub(super) async fn add_member(
         }
         db::update_access_member_caps(&conn, &row.id, caps).map_err(|_| busy())?;
         if subj.kind == KIND_PATH {
-            crate::backup::drive_backup::on_grants_changed(&conn, &subj.drive_id);
+            refresh_backup_access(&state, &conn, &subj.drive_id);
         }
         return Ok(Json(member_json(&AccessMemberRow { caps, ..row }, &names)));
     }
@@ -334,9 +334,30 @@ pub(super) async fn add_member(
     };
     access::create_member(&conn, &row).map_err(|_| busy())?;
     if subj.kind == KIND_PATH {
-        crate::backup::drive_backup::on_grants_changed(&conn, &subj.drive_id);
+        refresh_backup_access(&state, &conn, &subj.drive_id);
     }
     Ok(Json(member_json(&row, &names)))
+}
+
+fn refresh_backup_access(state: &AppState, conn: &rusqlite::Connection, drive_id: &str) {
+    use crate::backup::cloud::ops;
+
+    let changed = ops::on_grants_changed(conn, drive_id);
+    crate::backup::drive_backup::on_grants_changed(conn, drive_id);
+    if changed.is_empty() {
+        return;
+    }
+
+    state.health_cache.invalidate();
+    let connect = state.connect.clone();
+    let db = state.db.clone();
+    let health = state.health_cache.clone();
+    drop(tokio::task::spawn_blocking(move || {
+        if let Some(store) = crate::api::cloud_backups::connect_store(&connect, &db) {
+            ops::run_marked(&db, &store, &connect, &changed, db::now_unix());
+            health.invalidate();
+        }
+    }));
 }
 
 #[derive(Deserialize)]
@@ -400,7 +421,7 @@ pub(super) async fn update_member(
     }
     db::update_access_member_caps(&conn, &id, caps).map_err(|_| busy())?;
     if row.subject_kind == KIND_PATH {
-        crate::backup::drive_backup::on_grants_changed(&conn, &row.drive_id);
+        refresh_backup_access(&state, &conn, &row.drive_id);
     }
     let names = user_names(&conn);
     Ok(Json(member_json(&AccessMemberRow { caps, ..row }, &names)))
@@ -434,7 +455,7 @@ pub(super) async fn remove_member(
     }
     db::delete_access_member(&conn, &id).map_err(|_| busy())?;
     if row.subject_kind == KIND_PATH {
-        crate::backup::drive_backup::on_grants_changed(&conn, &row.drive_id);
+        refresh_backup_access(&state, &conn, &row.drive_id);
     }
     Ok(Json(json!({ "ok": true })))
 }

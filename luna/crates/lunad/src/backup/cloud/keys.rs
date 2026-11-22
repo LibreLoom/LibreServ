@@ -91,6 +91,25 @@ fn recipients_meta_key(protection_id: &str, version: i64) -> String {
     format!("{META_PREFIX}:{protection_id}:{version}")
 }
 
+fn publication_meta_key(key: &BackupKey) -> String {
+    format!(
+        "cloud_key_publication:{}:{}",
+        key.protection_id, key.version
+    )
+}
+
+pub(super) fn is_published(conn: &Connection, key: &BackupKey, luna_id: &str) -> Result<bool> {
+    Ok(db::get_meta(conn, &publication_meta_key(key))?.as_deref() == Some(luna_id))
+}
+
+pub(super) fn acknowledge_publication(
+    conn: &Connection,
+    key: &BackupKey,
+    luna_id: &str,
+) -> Result<()> {
+    db::set_meta(conn, &publication_meta_key(key), luna_id)
+}
+
 fn rotate_meta_key(protection_id: &str) -> String {
     format!("{ROTATE_META_PREFIX}:{protection_id}")
 }
@@ -215,6 +234,29 @@ fn reader_ids(readers: &serde_json::Value) -> Vec<String> {
         .collect()
 }
 
+/// Recover a historical reader list only while all its readers remain eligible and their
+/// current sealing keys match the saved ones.
+pub(super) fn recoverable_readers(
+    conn: &Connection,
+    key: &BackupKey,
+    eligible: &Recipients,
+) -> Result<Option<Recipients>> {
+    let Some(saved) = saved_readers(conn, &key.protection_id, key.version)? else {
+        return Ok(None);
+    };
+    let recipients = Recipients::new(reader_ids(&saved));
+    if recipients.users.is_empty()
+        || recipients
+            .users
+            .iter()
+            .any(|id| !eligible.users.contains(id))
+        || saved != readers_json(conn, &recipients)?
+    {
+        return Ok(None);
+    }
+    Ok(Some(recipients))
+}
+
 /// Every `(backup id, version)` whose saved reader list names `user_id`, sorted.
 /// A version the user was removed from is not listed, because its reader list does not name them.
 fn reader_versions(conn: &Connection, user_id: &str) -> Result<Vec<(String, i64)>> {
@@ -307,6 +349,7 @@ pub fn ensure_key(
     };
     savepoint(conn, || {
         db::insert_backup_key(conn, &key)?;
+        delete_meta(conn, &publication_meta_key(&key))?;
         db::set_meta(
             conn,
             &recipients_meta_key(protection_id, version),
