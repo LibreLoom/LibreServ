@@ -60,7 +60,9 @@ pub struct RecordPage {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum StoreError {
-    #[error("Your cloud storage is full.")]
+    #[error(
+        "Cloud storage is full. Delete a cloud backup you no longer need or ask Luna Connect support to raise the limit."
+    )]
     Full,
     #[error("That item is not in your cloud storage.")]
     NotFound,

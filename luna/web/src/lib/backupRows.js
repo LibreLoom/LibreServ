@@ -81,6 +81,7 @@ export function backupWaitingReason({ kind, last_error: error }) {
   if (error === "Your cloud storage is full.") {
     return "Cloud storage is full. Delete a cloud backup you no longer need or ask Luna Connect support to raise the limit.";
   }
+  if (error.startsWith("Cloud storage is full.")) return error;
   if (
     error === "Connect this Luna to Luna Connect in Settings → About → Advanced to use cloud backups." ||
     error.startsWith("Add a payment card at connect.luna.libreloom.org") ||

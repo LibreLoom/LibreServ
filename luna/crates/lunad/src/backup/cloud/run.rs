@@ -1482,7 +1482,12 @@ mod tests {
         let store = MemoryStore::with_quota(1024);
 
         let out = run_with_root(&db, "p7", &src, &store, "user-1", false, 100).unwrap();
-        assert_eq!(out.problem.as_deref(), Some("Your cloud storage is full."));
+        assert_eq!(
+            out.problem.as_deref(),
+            Some(
+                "Cloud storage is full. Delete a cloud backup you no longer need or ask Luna Connect support to raise the limit."
+            )
+        );
         assert_eq!(out.snapshot_id, None);
         assert!(store.list_records("snapshots").unwrap().is_empty());
     }

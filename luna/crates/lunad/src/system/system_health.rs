@@ -1112,7 +1112,9 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
             continue;
         }
         // A larger folder's backup holds these files, so this one is meant to stand still.
-        if crate::backup::drive_backup::covered_by(conn, &row).is_some() {
+        if row.state != crate::db::PROTECTION_PAUSED
+            && crate::backup::drive_backup::covered_by(conn, &row).is_some()
+        {
             continue;
         }
         let folder = folder_name(&row, &drive_label(&row.source_drive));
@@ -1124,6 +1126,23 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
         });
         let name = format!("drive_backup_{}", row.id);
         let last_copy = format!("Last good copy: {}.", last(row.last_ok_at));
+        if row.state == crate::db::PROTECTION_PAUSED {
+            let reason = if row.stop_reason.trim().is_empty() {
+                "Resume this backup to start backing up again."
+            } else {
+                &row.stop_reason
+            };
+            checks
+                .add(
+                    &name,
+                    "backups",
+                    WARNING,
+                    format!("{folder}'s backup is paused."),
+                    Some(details),
+                )
+                .more(reason);
+            continue;
+        }
         if row.state == "stopped" || row.state == "source_gone" {
             // Final, not a failure: a person chose it or the folder is gone.
             let reason = if row.stop_reason.trim().is_empty() {
@@ -1352,8 +1371,8 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
 }
 
 /// Whether a backup row needs someone's attention. Mirrors the warnings the drive and cloud
-/// loops raise: a stopped or gone row is final, and a drive or cloud row that is failing or
-/// out of date needs a look. Only private rows reach this, and a private folder is never held
+/// loops raise: a stopped or gone row is final, and a paused, failing, or
+/// out-of-date backup needs a look. Only private rows reach this, and a private folder is never held
 /// by a bigger backup, so it always answers for itself.
 fn row_needs_look(conn: &Connection, row: &crate::db::ProtectionRow, now: i64) -> bool {
     use crate::backup::drive_backup::state as drive_state;
@@ -1362,7 +1381,8 @@ fn row_needs_look(conn: &Connection, row: &crate::db::ProtectionRow, now: i64) -
         return false;
     }
     if row.kind == crate::db::PROTECTION_DRIVE {
-        return !matches!(drive_state(row, now), BackupState::Ok);
+        return row.state == crate::db::PROTECTION_PAUSED
+            || !matches!(drive_state(row, now), BackupState::Ok);
     }
     (!row.last_error.is_empty()
         && matches!(
