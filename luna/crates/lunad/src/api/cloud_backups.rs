@@ -387,6 +387,24 @@ fn backup_json(
     };
     let covered_by = drive_backup::covered_by(conn, row)
         .map(|(parent, _)| json!({ "path": parent.source_path, "name": folder_name(&parent.source_path, &source_label) }));
+    let locked = db::get_drive(conn, &row.source_drive)
+        .ok()
+        .flatten()
+        .is_some_and(|drive| drive.locked);
+    let locked_error = locked.then_some(crate::files::DRIVE_LOCKED_MSG);
+    let uploading = !locked && first_upload_in_progress(db, row);
+    let (waiting_reason, waiting_since) = if uploading {
+        (None, None)
+    } else {
+        crate::backup::status::waiting(row, locked_error)
+    };
+    let state = if uploading {
+        json!("in_progress")
+    } else if waiting_reason.is_some() {
+        json!("waiting")
+    } else {
+        json!(ops::state(row, now))
+    };
     json!({
         "covered_by": covered_by,
         "id": row.id,
@@ -395,14 +413,18 @@ fn backup_json(
         "source_drive_name": source_label,
         "source_path": row.source_path,
         "source_name": folder_name(&row.source_path, &source_label),
-        "state": ops::state(row, now),
+        "state": state,
+        "waiting_reason": waiting_reason,
+        "waiting_since": waiting_since,
+        "paused": locked.then_some("locked"),
+        "locked_drive_names": if locked { vec![&source_label] } else { Vec::new() },
         "status": row.state,
         "stop_reason": row.stop_reason,
         "last_ok_at": row.last_ok_at,
         "last_error": row.last_error,
         "last_checked_at": row.last_checked_at,
         "check_problem": ops::last_check_problem(conn, &row.id),
-        "source_missing": ops::last_run_source_missing(conn, &row.id),
+        "source_missing": !uploading && ops::last_run_source_missing(conn, &row.id),
         "next_check": next_check,
         "size": ops::size(conn, &row.id),
         "first_done": row.first_done,

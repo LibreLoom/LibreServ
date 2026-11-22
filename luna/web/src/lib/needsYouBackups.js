@@ -1,4 +1,4 @@
-import { PAUSED_FROM_DRIVE_HINT, lastBackedUpLine, needsALook } from "./backupRows.js";
+import { PAUSED_FROM_DRIVE_HINT, backupWaitingReason, lastBackedUpLine, needsALook } from "./backupRows.js";
 
 /**
  * @typedef {{
@@ -46,9 +46,10 @@ export function visibleBackupRows(backupRows, viewer = {}) {
  */
 function backupTitle(row) {
   if (row.status === "paused") return [{ name: row.source_name }, " backup is paused"];
+  if (backupWaitingReason(row)) return [{ name: row.source_name }, " backup is waiting"];
   if (row.state === "failing") return [{ name: row.source_name }, " backup didn't finish"];
   if (row.state === "stale") return [{ name: row.source_name }, " backup is out of date"];
-  if (row.kind === "cloud" && row.source_missing) {
+  if (row.kind === "cloud" && row.state !== "in_progress" && row.source_missing) {
     return [{ name: row.source_name }, " backup can't find its original"];
   }
   return [{ name: row.source_name }, " backup needs a look"];
@@ -69,6 +70,9 @@ function plainError(error) {
  */
 function backupDetail(row, now) {
   if (row.status === "paused") return PAUSED_FROM_DRIVE_HINT;
+  const waiting = backupWaitingReason(row);
+  if (waiting) return waiting;
+  if (row.state === "in_progress") return row.check_problem;
   const error = row.last_error ? plainError(row.last_error) : "";
   const driveName = row.kind === "drive" ? row.destination : "";
   if (row.state === "failing" && driveName) {
@@ -113,16 +117,13 @@ function byId(a, b) {
 }
 
 /**
- * One Needs you item per visible backup that needs a look, sorted by id. The clock is
- * read only when a stale row's detail needs it and `now` was not given.
+ * One Needs you item per visible backup that needs a look, sorted by id.
  * @param {{ backupRows?: BackupRow[] | null, isAdmin?: boolean, userId?: string, now?: number }} [input]
  * @returns {NeedsYouItem[]}
  */
 export function buildBackupItems({ backupRows, isAdmin, userId, now } = {}) {
   return visibleBackupRows(backupRows, { isAdmin, userId })
-    // A backup waiting on a locked drive is explained by the locked-drive row, not repeated here.
-    .filter((row) => row.paused !== "locked")
-    .filter(needsALook)
+    .filter((row) => (row.paused !== "locked" || backupWaitingReason(row)) && needsALook(row, now))
     .map((row) => backupItem(row, now))
     .sort(byId);
 }

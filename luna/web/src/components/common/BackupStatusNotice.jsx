@@ -7,7 +7,7 @@ import { lastCopyLine } from "../../lib/backupRows.js";
  * shows in the dashboard's system health pill.
  *
  * @param {{
- *   state?: "ok" | "failing" | "stale",
+ *   state?: "ok" | "failing" | "stale" | "in_progress",
  *   lastError?: string,
  *   lastOkAt?: number,
  *   staleText?: string,
@@ -15,7 +15,7 @@ import { lastCopyLine } from "../../lib/backupRows.js";
  * }} props
  */
 export default function BackupStatusNotice({ state, lastError, lastOkAt, staleText, surface }) {
-  if (!state || state === "ok") return null;
+  if (state !== "failing" && state !== "stale") return null;
   return (
     <PageNotice variant="warning" surface={surface}>
       {(lastError || staleText) && <p>{lastError || staleText}</p>}

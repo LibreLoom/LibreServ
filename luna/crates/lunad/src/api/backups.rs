@@ -375,7 +375,7 @@ fn backup_json(
     // A backup whose source or backup drive is locked is paused until it is
     // unlocked; the dashboard's "drives are locked, so backups are paused"
     // notice counts these.
-    let locked_drives: Vec<String> = [&row.source_drive, &row.target_drive]
+    let locked_drives: Vec<_> = [&row.source_drive, &row.target_drive]
         .into_iter()
         .filter(|id| {
             db::get_drive(conn, id)
@@ -383,11 +383,18 @@ fn backup_json(
                 .flatten()
                 .is_some_and(|d| d.locked)
         })
-        .map(|id| drive_label(conn, id))
         .collect();
+    // When both are locked, a run encounters the target first.
+    let locked_error = locked_drives
+        .last()
+        .map(|id| drive_backup::waiting_for(conn, id));
+    let (waiting_reason, waiting_since) =
+        crate::backup::status::waiting(row, locked_error.as_deref());
     json!({
         "paused": if locked_drives.is_empty() { Value::Null } else { json!("locked") },
-        "locked_drive_names": locked_drives,
+        "locked_drive_names": locked_drives.iter().map(|id| drive_label(conn, id)).collect::<Vec<_>>(),
+        "waiting_reason": waiting_reason,
+        "waiting_since": waiting_since,
         "covered_by": covered_by,
         "id": row.id,
         "kind": row.kind,
@@ -397,7 +404,7 @@ fn backup_json(
         "source_name": folder_name(&row.source_path, &source_label),
         "target_drive": row.target_drive,
         "target_drive_name": target_label,
-        "state": drive_backup::state(row, now),
+        "state": if waiting_reason.is_some() { json!("waiting") } else { json!(drive_backup::state(row, now)) },
         "status": row.state,
         "stop_reason": row.stop_reason,
         "last_ok_at": row.last_ok_at,

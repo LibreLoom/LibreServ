@@ -35,7 +35,7 @@ const FILTERS = [
 ];
 
 function filterBackups(list, filter) {
-  if (filter === "needs") return list.filter(needsALook);
+  if (filter === "needs") return list.filter((row) => needsALook(row));
   if (filter === "cloud") return list.filter((b) => b.kind === "cloud");
   if (filter === "drives") return list.filter((b) => b.kind === "drive");
   return list;

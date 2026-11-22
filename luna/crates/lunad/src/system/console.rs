@@ -456,11 +456,12 @@ pub fn snapshot(
         }
 
         // Same rows and wording as the web's system checks.
-        let mut backup_problems: Vec<_> = health::backup_checks(&conn, crate::db::now_unix())
-            .into_values()
-            .filter(|c| c.status == health::WARNING)
-            .map(|c| c.message)
-            .collect();
+        let mut backup_problems: Vec<_> =
+            health::backup_checks(&conn, crate::db::now_unix(), Some(db))
+                .into_values()
+                .filter(|c| c.status == health::WARNING)
+                .map(|c| c.message)
+                .collect();
         backup_problems.sort();
         problems.extend(backup_problems);
     }

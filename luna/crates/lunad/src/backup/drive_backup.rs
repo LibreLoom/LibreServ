@@ -1092,7 +1092,7 @@ fn drive_is_locked(conn: &Connection, drive_id: &str) -> bool {
 }
 
 /// Why a backup is waiting on this drive, in plain words.
-fn waiting_for(conn: &Connection, drive_id: &str) -> String {
+pub(crate) fn waiting_for(conn: &Connection, drive_id: &str) -> String {
     let name = drive_label(conn, drive_id);
     if drive_is_locked(conn, drive_id) {
         format!("Waiting: {name} is locked. Unlock it to continue the backups.")

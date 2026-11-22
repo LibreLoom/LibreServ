@@ -64,7 +64,7 @@ export default function BackupItem({ backup, surface = "primary", note = null, c
         <span>{lastCopyLine(backup)}</span>
       </div>
 
-      {backup.status === "active" && !backup.covered_by && <PausedByLockNote backup={backup} />}
+      {!waiting && backup.status === "active" && !backup.covered_by && <PausedByLockNote backup={backup} />}
       {waiting && <p className="text-sm break-words">{waiting}</p>}
       {backup.kind === "drive" && <BackupNotes notes={backup.notes} />}
       {note && <div className="text-sm space-y-1">{note}</div>}

@@ -1092,7 +1092,16 @@ fn folder_name(row: &crate::db::ProtectionRow, fallback: &str) -> String {
 /// row for each person on a cloud backup's access list who has no recovery
 /// phrase. Warnings only — a backup problem never blocks setup or marks Luna
 /// unhealthy, but it must never go unseen.
-pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheckResult> {
+pub fn backup_checks(
+    conn: &Connection,
+    now: i64,
+    db: Option<&crate::Db>,
+) -> HashMap<String, HealthCheckResult> {
+    let first_upload = |row: &crate::db::ProtectionRow| {
+        db.is_some_and(|db| {
+            crate::backup::cloud::run::unlocked_first_upload_in_progress(db, conn, row)
+        })
+    };
     use crate::backup::drive_backup::state as drive_state;
     use crate::backup::status::{BackupState, ago};
     let mut checks = Checks::default();
@@ -1214,6 +1223,7 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
         }
         let folder = folder_name(&row, &drive_label(&row.source_drive));
         let name = format!("cloud_backup_{}", row.id);
+        let uploading = first_upload(&row);
         let details = json!({ "folder": folder, "last_ok_at": row.last_ok_at });
         let last_copy = format!("Last full backup: {}.", last(row.last_ok_at));
         if row.state == "stopped" || row.state == "source_gone" {
@@ -1229,7 +1239,8 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
                 format!("{folder}'s cloud backup is stopped: {reason}"),
                 Some(details),
             );
-        } else if !row.last_error.is_empty()
+        } else if !uploading
+            && !row.last_error.is_empty()
             && matches!(
                 crate::backup::cloud::ops::state(&row, now),
                 BackupState::Failing
@@ -1244,7 +1255,7 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
                     Some(details),
                 )
                 .more(format!("{} {last_copy}", row.last_error));
-        } else if now - row.last_ok_at.max(row.created_at) >= 2 * 86_400 {
+        } else if !uploading && now - row.last_ok_at.max(row.created_at) >= 2 * 86_400 {
             checks
                 .add(
                     &name,
@@ -1265,7 +1276,9 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
                 )
                 .more(problem);
         } else {
-            let message = if row.last_ok_at > 0 {
+            let message = if uploading {
+                format!("Luna is backing up {folder} to the cloud for the first time.")
+            } else if row.last_ok_at > 0 {
                 format!(
                     "{folder} was backed up to the cloud {}.",
                     ago(row.last_ok_at, now)
@@ -1309,7 +1322,7 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
     }
 
     // Private items: one check per owner, counted but never named.
-    let mut tallies: std::collections::BTreeMap<String, (usize, usize)> =
+    let mut tallies: std::collections::BTreeMap<String, (usize, usize, bool)> =
         std::collections::BTreeMap::new();
     for row in crate::db::list_protections(conn).unwrap_or_default() {
         if row.private_owner.is_empty() {
@@ -1317,11 +1330,13 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
         }
         let tally = tallies.entry(row.private_owner.clone()).or_default();
         tally.0 += 1;
-        if row_needs_look(conn, &row, now) {
+        let uploading = first_upload(&row);
+        tally.2 |= uploading;
+        if row_needs_look(conn, &row, now, uploading) {
             tally.1 += 1;
         }
     }
-    for (owner, (total, needs_look)) in tallies {
+    for (owner, (total, needs_look, uploading)) in tallies {
         let active_name =
             if crate::private::owner_state(conn, &owner) == crate::private::OwnerState::Active {
                 crate::db::get_user(conn, &owner).ok().flatten().map(|u| {
@@ -1344,13 +1359,12 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
         let id = format!("private_backups_{owner}");
         let details = json!({ "backups": total, "needs_look": needs_look });
         if needs_look == 0 {
-            checks.add(
-                &id,
-                "backups",
-                PASSED,
-                format!("{start}'s private items are backed up."),
-                Some(details),
-            );
+            let message = if uploading {
+                format!("Luna is backing up private items for {name}.")
+            } else {
+                format!("{start}'s private items are backed up.")
+            };
+            checks.add(&id, "backups", PASSED, message, Some(details));
             continue;
         }
         let message = if needs_look == 1 {
@@ -1374,7 +1388,12 @@ pub fn backup_checks(conn: &Connection, now: i64) -> HashMap<String, HealthCheck
 /// loops raise: a stopped or gone row is final, and a paused, failing, or
 /// out-of-date backup needs a look. Only private rows reach this, and a private folder is never held
 /// by a bigger backup, so it always answers for itself.
-fn row_needs_look(conn: &Connection, row: &crate::db::ProtectionRow, now: i64) -> bool {
+fn row_needs_look(
+    conn: &Connection,
+    row: &crate::db::ProtectionRow,
+    now: i64,
+    uploading: bool,
+) -> bool {
     use crate::backup::drive_backup::state as drive_state;
     use crate::backup::status::BackupState;
     if row.state == "stopped" || row.state == "source_gone" {
@@ -1384,12 +1403,13 @@ fn row_needs_look(conn: &Connection, row: &crate::db::ProtectionRow, now: i64) -
         return row.state == crate::db::PROTECTION_PAUSED
             || !matches!(drive_state(row, now), BackupState::Ok);
     }
-    (!row.last_error.is_empty()
-        && matches!(
-            crate::backup::cloud::ops::state(row, now),
-            BackupState::Failing
-        ))
-        || now - row.last_ok_at.max(row.created_at) >= 2 * 86_400
+    (!uploading
+        && ((!row.last_error.is_empty()
+            && matches!(
+                crate::backup::cloud::ops::state(row, now),
+                BackupState::Failing
+            ))
+            || now - row.last_ok_at.max(row.created_at) >= 2 * 86_400))
         || crate::backup::cloud::ops::last_check_problem(conn, &row.id).is_some()
 }
 
@@ -2316,7 +2336,7 @@ mod tests {
         )
         .unwrap();
 
-        let checks = backup_checks(&conn, now);
+        let checks = backup_checks(&conn, now, None);
         let failing = &checks["drive_backup_p1"];
         assert_eq!(failing.status, WARNING);
         assert_eq!(failing.category, "backups");
@@ -2430,7 +2450,7 @@ mod tests {
         )
         .unwrap();
 
-        let checks = backup_checks(&conn, now);
+        let checks = backup_checks(&conn, now, None);
         assert!(!checks.contains_key("drive_backup_p1"));
         assert!(!checks.contains_key("cloud_backup_c1"));
         assert!(!checks.keys().any(|k| k.starts_with("cloud_phrase_")));
@@ -2488,7 +2508,7 @@ mod tests {
         )
         .unwrap();
 
-        let checks = backup_checks(&conn, now);
+        let checks = backup_checks(&conn, now, None);
         let owner = &checks["private_backups_u1"];
         assert_eq!(owner.status, WARNING);
         assert_eq!(owner.category, "backups");
@@ -2521,7 +2541,7 @@ mod tests {
         )
         .unwrap();
         let key = "cloud_backup_c1";
-        let fresh = &backup_checks(&conn, now)[key];
+        let fresh = &backup_checks(&conn, now, None)[key];
         assert_eq!(fresh.status, PASSED, "nothing run yet is not a failure");
         assert_eq!(fresh.message, "Luna will back up family to the cloud soon.");
 
@@ -2530,7 +2550,7 @@ mod tests {
             [now - 3 * 86_400],
         )
         .unwrap();
-        let stale = &backup_checks(&conn, now)[key];
+        let stale = &backup_checks(&conn, now, None)[key];
         assert_eq!(stale.status, WARNING);
         assert_eq!(
             stale.message,
@@ -2543,7 +2563,7 @@ mod tests {
             [],
         )
         .unwrap();
-        let stopped = &backup_checks(&conn, now)[key];
+        let stopped = &backup_checks(&conn, now, None)[key];
         assert_eq!(stopped.status, PASSED);
         assert_eq!(
             stopped.message,

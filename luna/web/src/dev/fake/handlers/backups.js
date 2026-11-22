@@ -11,6 +11,7 @@ import { backup as makeBackup, cloudBackup as makeCloudBackup } from "../world.j
 import { base, clean, descendants, driveRow, driveUsable, fsOf, fsOpts, join, nowS, parentOf } from "../fsmodel.js";
 import { bytesFor } from "./files.js";
 import { raw } from "../router.js";
+import { backupWaitingReason } from "../../../lib/backupRows.js";
 
 const GRACE = 60 * 60;
 const STALE = 24 * 60 * 60;
@@ -62,13 +63,30 @@ function backupJson(world, row, user) {
   const srcLabel = label(world, row.source_drive);
   const parent = coveringBackup(world, row);
   const { private_owner: owner, access: _access, created_at: _c, failing_since: _f, hard: _hard, ...rest } = row;
+  const locks = pausedBy(world, row);
+  const lockedError = locks.paused && (row.kind === "cloud"
+    ? "This drive is locked. Enter its password to open its files."
+    : `Waiting: ${locks.locked_drive_names.at(-1)} is locked. Unlock it to continue the backups.`);
+  const active = (row.status ?? "active") === "active";
+  const uploading = active && !lockedError && row.kind === "cloud" && row.state === "in_progress";
+  const error = lockedError || row.last_error;
+  const waiting = active && !uploading
+    ? backupWaitingReason({ kind: row.kind, last_error: error })
+    : null;
+  const health = row.state === "in_progress" ? healthOf(row, now) : row.state ?? healthOf(row, now);
   return {
     ...rest,
+    ...locks,
+    waiting_reason: waiting,
+    waiting_since: waiting && error === row.last_error && row.failing_since > 0
+      ? Math.max(row.failing_since, row.created_at || 0)
+      : null,
     covered_by: parent ? { path: parent.source_path, name: folderName(parent.source_path, srcLabel) } : null,
     source_drive_name: row.source_drive_name ?? srcLabel,
     source_name: row.source_name ?? folderName(row.source_path, srcLabel),
-    ...(row.kind === "cloud" ? { next_check: (row.last_checked_at ? row.last_checked_at + 14 * 86400 : now), size: row.size ?? 0, old_phrase_copies: row.old_phrase_copies ?? null, moving: row.moving ?? null } : { hard: row.hard ?? false, target_drive_name: row.target_drive_name ?? label(world, row.target_drive), ...pausedBy(world, row), can_resume: row.status === "paused" && canDelete(world, row, user) }),
-    state: row.state ?? healthOf(row, now),
+    ...(row.kind === "cloud" ? { next_check: (row.last_checked_at ? row.last_checked_at + 14 * 86400 : now), size: row.size ?? 0, old_phrase_copies: row.old_phrase_copies ?? null, moving: row.moving ?? null } : { hard: row.hard ?? false, target_drive_name: row.target_drive_name ?? label(world, row.target_drive), can_resume: row.status === "paused" && canDelete(world, row, user) }),
+    state: waiting ? "waiting" : uploading ? "in_progress" : health,
+    ...(uploading ? { source_missing: false } : {}),
     can_delete: canDelete(world, row, user),
     private: Boolean(owner),
     running: Boolean(row.running),
@@ -527,7 +545,14 @@ get("/api/v1/private-backups/summary", ({ world, user }) => {
       const deleted = ownerState(world, owner) !== "active";
       return {
         owner_id: owner, name: deleted ? "" : displayName(world, owner), deleted, backups: list.length,
-        needs_look: list.some((r) => (r.status || "active") !== "active" || (!coveringBackup(world, r) && ((r.state ?? healthOf(r, now)) !== "ok" || (r.kind === "cloud" && r.check_problem)))),
+        needs_look: list.some((r) => {
+          if ((r.status || "active") !== "active") return true;
+          const checkProblem = r.kind === "cloud" && r.check_problem;
+          const health = r.state === "in_progress"
+            ? (driveRow(world, r.source_drive)?.locked ? healthOf(r, now) : "ok")
+            : r.state ?? healthOf(r, now);
+          return !coveringBackup(world, r) && (health !== "ok" || checkProblem);
+        }),
       };
     }),
   };

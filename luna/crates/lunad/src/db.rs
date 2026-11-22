@@ -1449,7 +1449,8 @@ pub fn record_protection_ok(
 }
 
 /// A backup run failed. `failing_since` keeps the time of the first failure
-/// in a row, so repeated failures do not move it.
+/// in a row. A prerequisite wait starts its own clock, separate from other
+/// waits and ordinary failures.
 pub fn record_protection_error(
     conn: &Connection,
     id: &str,
@@ -1457,11 +1458,17 @@ pub fn record_protection_error(
     hard: bool,
     now: i64,
 ) -> anyhow::Result<()> {
+    use crate::backup::status::waiting_reason;
+
+    let reset_clock = get_protection(conn, id)?.is_some_and(|row| {
+        row.last_error != message
+            && (waiting_reason(&row.last_error).is_some() || waiting_reason(message).is_some())
+    });
     conn.execute(
         "UPDATE protections SET last_error = ?2, hard = ?3,
-             failing_since = CASE WHEN failing_since = 0 THEN ?4 ELSE failing_since END
+             failing_since = CASE WHEN failing_since = 0 OR ?5 THEN ?4 ELSE failing_since END
          WHERE id = ?1",
-        params![id, message, hard as i64, now],
+        params![id, message, hard as i64, now, reset_clock],
     )?;
     Ok(())
 }
@@ -3313,6 +3320,25 @@ mod tests {
         let conn = open(&dir.path().join("luna.db")).unwrap();
         insert_protection(&conn, &new_protection("p1", "d1", "docs")).unwrap();
         assert!(insert_protection(&conn, &new_protection("p2", "d1", "docs")).is_err());
+    }
+
+    #[test]
+    fn protection_wait_clock_tracks_the_current_prerequisite() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        insert_protection(&conn, &new_protection("p1", "d1", "docs")).unwrap();
+
+        for (message, now, expected_since) in [
+            ("Read failed.", 100, 100),
+            ("Waiting: Connect the original drive.", 200, 200),
+            ("Waiting: Connect the original drive.", 300, 200),
+            ("Waiting: Unlock the original drive.", 400, 400),
+            ("Read failed again.", 500, 500),
+        ] {
+            record_protection_error(&conn, "p1", message, false, now).unwrap();
+            let row = get_protection(&conn, "p1").unwrap().unwrap();
+            assert_eq!(row.failing_since, expected_since);
+        }
     }
 
     #[test]

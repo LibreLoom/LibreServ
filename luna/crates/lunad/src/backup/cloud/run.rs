@@ -607,6 +607,7 @@ pub(crate) fn copy_and_commit(
     now: i64,
     prev: Option<&PrevTree>,
 ) -> Result<CloudOutcome> {
+    let _copying = CopyPhase::begin(db, &ctx.protection_id);
     let mut copy = CopyState {
         db,
         ctx,
@@ -864,13 +865,23 @@ pub(crate) struct RunSlot(String);
 /// Keyed by the database's address as well as the protection id, so two databases
 /// (for example two tests) that share an id never block each other. The address is
 /// stable while a run holds its slot because the run borrows the `Db`.
-static RUNNING: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+// The value tracks the copy phase while the slot is held.
+static RUNNING: LazyLock<Mutex<HashMap<String, bool>>> = LazyLock::new(Default::default);
+
+fn run_slot_key(db: &crate::Db, id: &str) -> String {
+    format!("{:x}:{id}", std::ptr::from_ref(db) as usize)
+}
 
 impl RunSlot {
     pub(crate) fn take(db: &crate::Db, id: &str) -> Option<Self> {
-        let key = format!("{:x}:{id}", std::ptr::from_ref(db) as usize);
+        let key = run_slot_key(db, id);
         let mut running = RUNNING.lock().unwrap_or_else(|p| p.into_inner());
-        running.insert(key.clone()).then(|| Self(key))
+        if let std::collections::hash_map::Entry::Vacant(entry) = running.entry(key.clone()) {
+            entry.insert(false);
+            Some(Self(key))
+        } else {
+            None
+        }
     }
 }
 
@@ -880,6 +891,58 @@ impl Drop for RunSlot {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .remove(&self.0);
+    }
+}
+
+/// Whether this active backup's first upload is copying or committing a snapshot.
+pub(crate) fn first_upload_in_progress(db: &crate::Db, row: &db::ProtectionRow) -> bool {
+    row.kind == db::PROTECTION_CLOUD
+        && row.state == db::PROTECTION_ACTIVE
+        && !row.first_done
+        && row.last_ok_at == 0
+        && RUNNING
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(&run_slot_key(db, &row.id))
+            == Some(&true)
+}
+
+/// Status readers without a current drive-lock result must check it before overriding a warning.
+pub(crate) fn unlocked_first_upload_in_progress(
+    db: &crate::Db,
+    conn: &Connection,
+    row: &db::ProtectionRow,
+) -> bool {
+    first_upload_in_progress(db, row)
+        && !db::get_drive(conn, &row.source_drive)
+            .ok()
+            .flatten()
+            .is_some_and(|drive| drive.locked)
+}
+
+struct CopyPhase(String);
+
+impl CopyPhase {
+    fn begin(db: &crate::Db, id: &str) -> Self {
+        let phase = Self(run_slot_key(db, id));
+        phase.set(true);
+        phase
+    }
+
+    fn set(&self, copying: bool) {
+        if let Some(value) = RUNNING
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get_mut(&self.0)
+        {
+            *value = copying;
+        }
+    }
+}
+
+impl Drop for CopyPhase {
+    fn drop(&mut self) {
+        self.set(false);
     }
 }
 

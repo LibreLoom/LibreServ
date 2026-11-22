@@ -36,15 +36,16 @@ function trimSlashes(value) {
 }
 
 /** Headline for a backup that is working: when it last finished, or that it hasn't yet. */
-function backupHeadline(backup) {
+function backupHeadline(backup, cloud = false) {
   // A late or failed backup says so here; the notice under it gives the age ("Last backed up 2 days ago.").
+  if (backup.state === "in_progress") return "First backup in progress";
   if (backup.state === "stale") return "Out of date";
   if (backup.state === "failing") return "Last backup failed";
   if (backup.last_ok_at) {
     const ago = formatRecentAgo(backup.last_ok_at * 1000);
     return `Backed up ${ago === "Just now" ? "just now" : ago}`;
   }
-  if (!backup.first_done && !backup.last_error) return "First backup in progress";
+  if (!cloud && !backup.first_done && !backup.last_error) return "First backup in progress";
   return "Not backed up yet";
 }
 
@@ -229,7 +230,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const activeDriveBackups = matchingBackups.filter((b) => b.status === "active" && !b.covered_by);
   const drivesOn = driveCovers.length > 0 || matchingBackups.some((b) => b.status === "active" && b.covered_by)
     || activeDriveBackups.some((b) => b.paused !== "locked" && !driveWaiting(b));
-  const drivesWaiting = !drivesOn && activeDriveBackups.some((b) => b.paused !== "locked" && driveWaiting(b));
+  const drivesWaiting = !drivesOn && activeDriveBackups.some((b) => driveWaiting(b));
   const drivesPaused = !drivesOn && !drivesWaiting && matchingBackups.some(
     (b) => b.status === "paused" || (b.status === "active" && b.paused === "locked"),
   );
@@ -484,11 +485,11 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                       </>
                     ) : b.status === "active" ? (
                       <>
-                        <LayeredPill actionLabel={b.target_drive_name}>{b.paused === "locked" ? "Paused" : driveWaiting(b) ? "Waiting" : backupHeadline(b)}</LayeredPill>
-                        {b.paused === "locked" ? (
-                          <PausedByLockNote backup={b} />
-                        ) : driveWaiting(b) ? (
+                        <LayeredPill actionLabel={b.target_drive_name}>{driveWaiting(b) ? "Waiting" : b.paused === "locked" ? "Paused" : backupHeadline(b)}</LayeredPill>
+                        {driveWaiting(b) ? (
                           <p className="text-sm break-words">{driveWaiting(b)}</p>
+                        ) : b.paused === "locked" ? (
+                          <PausedByLockNote backup={b} />
                         ) : (
                           <BackupStatusNotice
                             state={b.state}
@@ -654,7 +655,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                   ) : cloudBackup.status === "active" ? (
                     <>
                       <LayeredPill actionLabel="Luna Connect">
-                        {cloudWaiting ? "Waiting" : cloudBackup.source_missing ? "Backup paused" : backupHeadline(cloudBackup)}
+                        {cloudWaiting ? "Waiting" : cloudBackup.source_missing ? "Backup paused" : backupHeadline(cloudBackup, true)}
                       </LayeredPill>
                       {cloudWaiting && <p className="text-sm break-words">{cloudWaiting}</p>}
                       {!cloudWaiting && cloudBackup.source_missing === true && (
@@ -703,7 +704,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                         Back up now
                       </Button>
                     )}
-                    {cloudBackup.status === "active" && cloudPrerequisite == null && cloudBackup.can_delete && (missingSourceId === cloudBackup.id || cloudBackup.source_missing === true) && (
+                    {cloudBackup.status === "active" && cloudPrerequisite == null && cloudBackup.can_delete && cloudBackup.state !== "in_progress" && (missingSourceId === cloudBackup.id || cloudBackup.source_missing === true) && (
                       <Button
                         size="sm"
                         variant="outline"

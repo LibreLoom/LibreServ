@@ -150,7 +150,7 @@ async fn summary(
                 "name": if deleted { String::new() } else { display_name(&conn, owner) },
                 "deleted": deleted,
                 "backups": list.len(),
-                "needs_look": list.iter().any(|r| needs_look(&conn, r, now)),
+                "needs_look": list.iter().any(|r| needs_look(&state.db, &conn, r, now)),
             })
         })
         .collect();
@@ -298,12 +298,14 @@ fn display_name(conn: &Connection, id: &str) -> String {
 /// Whether a backup needs someone to look at it: not active, failing, or
 /// (cloud) its last check found a problem. A private folder is never held by a
 /// bigger backup, so it always answers for itself.
-fn needs_look(conn: &Connection, row: &ProtectionRow, now: i64) -> bool {
+fn needs_look(db: &crate::Db, conn: &Connection, row: &ProtectionRow, now: i64) -> bool {
     if row.state != db::PROTECTION_ACTIVE {
         return true;
     }
     if row.kind == db::PROTECTION_CLOUD {
-        ops::state(row, now) != BackupState::Ok || ops::last_check_problem(conn, &row.id).is_some()
+        ops::last_check_problem(conn, &row.id).is_some()
+            || (ops::state(row, now) != BackupState::Ok
+                && !crate::backup::cloud::run::unlocked_first_upload_in_progress(db, conn, row))
     } else {
         drive_backup::state(row, now) != BackupState::Ok
     }
