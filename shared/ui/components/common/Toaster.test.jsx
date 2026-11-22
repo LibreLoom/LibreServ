@@ -58,7 +58,7 @@ describe("Toaster", () => {
 
   it("pauses while focus is inside the toast", () => {
     setup({ duration: 1000, action: { label: "Undo", onClick: () => {} } });
-    screen.getByRole("button", { name: "Undo" }).focus();
+    act(() => screen.getByRole("button", { name: "Undo" }).focus());
 
     act(() => vi.advanceTimersByTime(2000));
     expect(toast()).toBeInTheDocument();
@@ -101,7 +101,7 @@ describe("Toaster", () => {
   it("dismisses on Escape when a control inside the toast has focus", () => {
     setup({ duration: 0, action: { label: "Undo", onClick: () => {} } });
     const undo = screen.getByRole("button", { name: "Undo" });
-    undo.focus();
+    act(() => undo.focus());
     fireEvent.keyDown(undo, { key: "Escape" });
 
     act(() => vi.advanceTimersByTime(500));
