@@ -68,6 +68,9 @@ func IsPassRef(s string) bool {
 // is not a pass:// reference (a pasted password must never be saved here).
 func (c ProtonConfig) validate() error {
 	for slot, ref := range c.Refs {
+		if IsOldPasswordSlot(slot) || slot == ReleasePassphraseSlot {
+			return fmt.Errorf("proton pass: %w", ErrPasswordNotSaved)
+		}
 		if !validSlot(slot) {
 			return fmt.Errorf("proton pass: %q is not a value this tool can look up", slot)
 		}

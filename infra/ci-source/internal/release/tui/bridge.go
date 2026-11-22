@@ -30,6 +30,7 @@ type Bridge struct {
 	pending bool
 	send    func(tea.Msg)
 	allow   int // open AllowAsk requests
+	pass    int // open AllowPassphrase requests
 }
 
 // NewBridge makes a bridge that does not ask anything until a screen allows it.
@@ -85,10 +86,28 @@ func (b *Bridge) AllowAsk() (done func()) {
 	}
 }
 
-func (b *Bridge) asking() (bool, func(tea.Msg)) {
+// AllowPassphrase lets only the release passphrase questions through until
+// the returned function is called: a running cut asks for it as it is about to
+// sign, and for nothing else.
+func (b *Bridge) AllowPassphrase() (done func()) {
+	b.mu.Lock()
+	b.pass++
+	b.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			b.mu.Lock()
+			b.pass--
+			b.mu.Unlock()
+		})
+	}
+}
+
+func (b *Bridge) asking(q secrets.Question) (bool, func(tea.Msg)) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.allow > 0 && b.send != nil, b.send
+	open := b.allow > 0 || (b.pass > 0 && q.Slot == secrets.ReleasePassphraseSlot)
+	return open && b.send != nil, b.send
 }
 
 // Ask is secrets.Prompter: the question shows inline in the TUI and this
@@ -97,7 +116,7 @@ func (b *Bridge) Ask(ctx context.Context, q secrets.Question) (secrets.Answer, e
 	if q.Slot == app.KeyringPassphraseSlot {
 		return secrets.Answer{}, errors.New("the vault is locked")
 	}
-	ok, send := b.asking()
+	ok, send := b.asking(q)
 	if !ok {
 		return secrets.Answer{Skip: true}, nil
 	}

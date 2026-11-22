@@ -328,7 +328,8 @@ type askState struct {
 func newAsk(sh *shared, m askMsg) *askState {
 	a := &askState{sh: sh, q: m.q, reply: m.reply}
 	a.f = newField("", m.q.Secret)
-	if sh.snap.have && sh.snap.unlocked {
+	// Signing passphrases are never stored, so they get no Remember box.
+	if sh.snap.have && sh.snap.unlocked && secrets.CanRemember(m.q.Slot) {
 		a.canStore = true
 		a.remember = true
 	}
@@ -340,6 +341,10 @@ func (a *askState) key(k tea.KeyMsg) (done bool) {
 	case tea.KeyEnter:
 		if a.f.empty() {
 			return false
+		}
+		if a.q.Slot == secrets.ReleasePassphraseSlot {
+			a.reply <- secrets.Answer{Bytes: a.f.takeBytes()}
+			return true
 		}
 		a.reply <- secrets.Answer{Value: a.f.text(), Remember: a.canStore && a.remember}
 		return true

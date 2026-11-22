@@ -42,7 +42,7 @@ laptop.
 
 Bots merge to `main` daily, and only the mirror may move commits to Forgejo:
 
-1. Preflight: secrets proven, clean tree, on `main`, tag free.
+1. Preflight: secrets proven, clean tree, release audit (the `/release-audit` marker must name HEAD), on `main`, tag free. The audit rows block a cut like any failing check; the launcher does not gate, so the tool always opens.
    Then `./ci run --profile cut-<unit> --session`: one scoped gate for the
    selected release unit, with inexpensive CI/release tool unit tests included.
    `--session` removes resource limits. A failure stops the cut before any push.

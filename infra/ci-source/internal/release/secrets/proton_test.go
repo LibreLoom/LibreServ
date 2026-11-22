@@ -58,6 +58,13 @@ func TestSetProtonRejectsBadSettings(t *testing.T) {
 			t.Fatalf("%s: error echoes the value: %v", name, err)
 		}
 	}
+	// Signing-key passwords are never looked up anywhere, Proton Pass included.
+	for _, slot := range append([]string{ReleasePassphraseSlot}, oldPasswordSlots...) {
+		err := m.SetProton(ProtonConfig{Enabled: true, Refs: map[string]string{slot: goodRef}})
+		if !errors.Is(err, ErrPasswordNotSaved) {
+			t.Errorf("%s: err %v, want ErrPasswordNotSaved", slot, err)
+		}
+	}
 	if _, err := os.Stat(filepath.Join(e.home, "cfg", "secrets.json")); err == nil {
 		t.Fatal("a rejected setting was saved")
 	}
@@ -198,7 +205,7 @@ func TestProtonReadsInParallel(t *testing.T) {
 		inFlight.Add(-1)
 		return []byte("pw"), nil
 	}
-	p := NewProton(ProtonConfig{Enabled: true, Refs: map[string]string{SlotForgejoToken: goodRef, SlotAndroidAlias: goodRef, SlotAndroidKeyPW: goodRef}}, run)
+	p := NewProton(ProtonConfig{Enabled: true, Refs: map[string]string{SlotForgejoToken: goodRef, SlotAndroidAlias: goodRef, SlotAndroidKeystore: goodRef}}, run)
 	if _, err := p.Lookup(context.Background(), SlotForgejoToken); err != nil {
 		t.Fatal(err)
 	}
@@ -226,9 +233,9 @@ func TestProtonReadsAttachment(t *testing.T) {
 		return nil, errors.New("unexpected " + strings.Join(args, " "))
 	}
 	p := NewProton(ProtonConfig{Enabled: true, Refs: map[string]string{
-		SlotAndroidKeystore:      "pass://V/I/file:k.key",
-		SlotKey(SolSigning):      "pass://V/I/file:k.key",
-		SlotPassword(SolSigning): "pass://V/I/file:missing",
+		SlotAndroidKeystore:  "pass://V/I/file:k.key",
+		SlotKey(SolSigning):  "pass://V/I/file:k.key",
+		SlotKey(LunaSigning): "pass://V/I/file:missing",
 	}}, run)
 	vals, err := p.Lookup(context.Background(), SlotAndroidKeystore)
 	if err != nil || len(vals) != 1 || vals[0] != "AAEC+g==" {
@@ -238,7 +245,7 @@ func TestProtonReadsAttachment(t *testing.T) {
 	if err != nil || len(vals) != 1 || vals[0] != "\x00\x01\x02\xfa" {
 		t.Fatalf("key = %q, %v", vals, err)
 	}
-	if _, err := p.Lookup(context.Background(), SlotPassword(SolSigning)); err == nil || !strings.Contains(err.Error(), "no attached file") {
+	if _, err := p.Lookup(context.Background(), SlotKey(LunaSigning)); err == nil || !strings.Contains(err.Error(), "no attached file") {
 		t.Fatalf("missing file err = %v", err)
 	}
 	if downloads != 2 {

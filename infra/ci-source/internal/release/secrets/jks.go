@@ -155,7 +155,7 @@ func jksCheckKeyPassword(protected []byte, keyPassword string) error {
 	h.Write(pw)
 	h.Write(plain)
 	if !bytes.Equal(h.Sum(nil), check) {
-		return errors.New("wrong key password")
+		return errJKSKeyPassword
 	}
 	return nil
 }

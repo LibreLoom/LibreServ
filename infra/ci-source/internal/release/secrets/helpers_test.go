@@ -48,12 +48,43 @@ func (f *fakeRedactor) has(s string) bool { f.mu.Lock(); defer f.mu.Unlock(); re
 
 type fakePrompter struct {
 	answers map[string]Answer // by slot
-	asked   []Question
+	// passes answer passphrase questions (ReleasePassphraseSlot) in order, as
+	// Bytes like the terminal prompter; when they run out, the user skips.
+	passes [][]byte
+	asked  []Question
 }
 
 func (p *fakePrompter) Ask(_ context.Context, q Question) (Answer, error) {
 	p.asked = append(p.asked, q)
+	if q.Slot == ReleasePassphraseSlot {
+		if len(p.passes) == 0 {
+			return Answer{Skip: true}, nil
+		}
+		b := p.passes[0]
+		p.passes = p.passes[1:]
+		return Answer{Bytes: b}, nil
+	}
 	return p.answers[q.Slot], nil
+}
+
+// passphrases is a fakePrompter that types these passphrases, in order.
+func passphrases(pws ...string) *fakePrompter {
+	p := &fakePrompter{}
+	for _, pw := range pws {
+		p.passes = append(p.passes, []byte(pw))
+	}
+	return p
+}
+
+// passQuestions are the passphrase questions asked so far.
+func (p *fakePrompter) passQuestions() []Question {
+	var out []Question
+	for _, q := range p.asked {
+		if q.Slot == ReleasePassphraseSlot {
+			out = append(out, q)
+		}
+	}
+	return out
 }
 
 func newTestEnv(t *testing.T) *testEnv {

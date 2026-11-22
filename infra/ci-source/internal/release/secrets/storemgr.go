@@ -507,6 +507,12 @@ func (s *StoreManager) SwitchTo(to StoreMode, vaultPass string) (int, error) {
 	var copied []string
 	if src != nil {
 		for _, slot := range allKnownSlots(src) {
+			if IsOldPasswordSlot(slot) {
+				// A password an earlier version remembered: never carried
+				// into the new store, only removed from the old one.
+				copied = append(copied, slot)
+				continue
+			}
 			v, err := src.Get(slot)
 			if errors.Is(err, ErrNotFound) {
 				continue

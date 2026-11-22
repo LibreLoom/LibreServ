@@ -67,9 +67,9 @@ func (x *fixer) menu() []fixItem {
 	var it []fixItem
 	switch x.st.ID {
 	case secrets.SolSigning, secrets.LunaSigning:
+		// No password item: key passwords are never saved; the release
+		// passphrase is asked in the terminal when a cut is about to sign.
 		it = append(it,
-			fixItem{label: "Enter the key's password", kind: "password", slot: secrets.SlotPassword(x.st.ID),
-				hint: "The password you chose when you created this signing key."},
 			fixItem{label: "Paste the secret key", kind: "key", slot: secrets.SlotKey(x.st.ID),
 				hint: "Paste the whole key file, or just its long line that starts with RW."},
 			fixItem{label: "Add a file or folder to search", kind: "addpath"})
@@ -80,10 +80,6 @@ func (x *fixer) menu() []fixItem {
 		it = append(it,
 			fixItem{label: "Paste the keystore (base64)", kind: "keystore", slot: secrets.SlotAndroidKeystore,
 				hint: "The keystore file encoded as base64, on one line or several."},
-			fixItem{label: "Enter the store password", kind: "value", slot: secrets.SlotAndroidStorePW,
-				hint: "The store password you chose when you created the keystore."},
-			fixItem{label: "Enter the key password", kind: "value", slot: secrets.SlotAndroidKeyPW,
-				hint: "The key password (often the same as the store password)."},
 			fixItem{label: "Enter the key alias", kind: "alias", slot: secrets.SlotAndroidAlias,
 				hint: "The name of the key inside the keystore (luna unless you chose another)."},
 			fixItem{label: "Add a file or folder to search", kind: "addpath"})
@@ -108,13 +104,11 @@ func slotsFor(id secrets.ID) map[string]bool {
 	m := map[string]bool{}
 	switch id {
 	case secrets.SolSigning, secrets.LunaSigning:
-		m[secrets.SlotKey(id)], m[secrets.SlotPassword(id)], m[secrets.SlotMinisignPassword] = true, true, true
+		m[secrets.SlotKey(id)] = true
 	case secrets.ForgejoToken:
 		m[secrets.SlotForgejoToken] = true
 	case secrets.AndroidKeystore:
-		for _, s := range []string{secrets.SlotAndroidKeystore, secrets.SlotAndroidStorePW, secrets.SlotAndroidKeyPW, secrets.SlotAndroidAlias} {
-			m[s] = true
-		}
+		m[secrets.SlotAndroidKeystore], m[secrets.SlotAndroidAlias] = true, true
 	}
 	return m
 }
@@ -123,7 +117,11 @@ func (x *fixer) rememberedSlots() []secrets.SlotInfo {
 	mine := slotsFor(x.st.ID)
 	var out []secrets.SlotInfo
 	for _, s := range x.sh.slots {
-		if s.Set && mine[s.Slot] {
+		// Passwords an earlier version saved show here so they can be
+		// forgotten (the shared minisign one under both signing keys).
+		old := s.Old && (secrets.OldPasswordOwner(s.Slot) == x.st.ID ||
+			(secrets.OldPasswordOwner(s.Slot) == "" && (x.st.ID == secrets.SolSigning || x.st.ID == secrets.LunaSigning)))
+		if s.Set && (mine[s.Slot] || old) {
 			out = append(out, s)
 		}
 	}

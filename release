@@ -32,6 +32,15 @@ esac
 
 BIN="$BIN_DIR/release-linux-$GOARCH"
 
+# No release-audit gate here on purpose. The audit and clean-tree checks are
+# ordinary rows in the tool's preflight (app.CheckReleaseAudit), so they block
+# a cut or publish like any failing check yet leave the tool openable to browse
+# status. A launcher gate would add little: the launcher lives in the same
+# checkout as the tool, so whoever can tamper with one can tamper with the
+# other. The real defence is the audit itself (/release-audit in Claude Code),
+# which reviews this launcher and the tool's source before it writes the
+# marker the preflight reads.
+
 needs_build() {
   [ ! -f "$BIN" ] && return 0
   [ -n "$(find "$SOURCE_DIR" \( -name bin -o -name node_modules \) -prune -o \

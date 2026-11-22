@@ -18,6 +18,7 @@ import (
 
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/engine"
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/publish"
+	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/secrets"
 )
 
 // PartNames lists a unit's parts, in the order the unit defines them.
@@ -172,6 +173,12 @@ func (a *App) Build(ctx context.Context, req BuildRequest) (*BuildResult, error)
 	}
 	res := &BuildResult{Commit: sha}
 	if req.AndroidRelease {
+		// Signing a release APK asks for the release passphrase; it and the
+		// opened keystore are wiped when the build is done.
+		defer a.sec.Wipe()
+		if err := a.sec.Unlock(ctx, secrets.AndroidKeystore); err != nil {
+			return res, fmt.Errorf("the Android keystore is not available: %w", err)
+		}
 		for i := range plans {
 			if plans[i].unit != "luna-android" {
 				continue
@@ -209,8 +216,8 @@ func (a *App) Build(ctx context.Context, req BuildRequest) (*BuildResult, error)
 	return res, nil
 }
 
-// androidSigning proves the release keystore and puts it in a private (0700)
-// temp folder for the gradle job; cleanup removes it.
+// androidSigning takes the unlocked release keystore and puts it in a private
+// (0700) temp folder for the APK signing step; cleanup removes it.
 func (a *App) androidSigning(ctx context.Context) (*engine.AndroidSigning, func(), error) {
 	ks, st := a.sec.Android(ctx)
 	if ks == nil {

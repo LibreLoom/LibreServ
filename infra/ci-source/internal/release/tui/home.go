@@ -235,7 +235,7 @@ func (h *home) secretsLine(w int) string {
 	ok := 0
 	var bad []string
 	for _, s := range h.secrets {
-		if s.State == secrets.Proven {
+		if s.State == secrets.Proven || s.State == secrets.Locked {
 			ok++
 		} else {
 			bad = append(bad, strings.TrimSuffix(s.Label, " key"))

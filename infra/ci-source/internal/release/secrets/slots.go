@@ -11,32 +11,71 @@ import (
 )
 
 // Slot names for remembered values (keyring / encrypted file / Proton Pass).
+//
+// Signing-key passwords have no slot on purpose: they are never remembered or
+// read from anywhere. The release tool asks for one release passphrase in the
+// terminal when a cut is about to sign (see Manager.Unlock).
 const (
-	SlotForgejoToken     = "forgejo-token"
-	SlotMinisignPassword = "minisign-password" // tried against every key file
-	SlotAndroidKeystore  = "android-keystore"  // base64 of the keystore file
-	SlotAndroidStorePW   = "android-store-password"
-	SlotAndroidKeyPW     = "android-key-password"
-	SlotAndroidAlias     = "android-key-alias"
+	SlotForgejoToken    = "forgejo-token"
+	SlotAndroidKeystore = "android-keystore" // base64 of the keystore file
+	SlotAndroidAlias    = "android-key-alias"
 )
 
+// ReleasePassphraseSlot is the Question.Slot of the release passphrase
+// prompt. It is not a slot: prompters must never offer to remember it.
+const ReleasePassphraseSlot = "release-passphrase"
+
 // SlotKey is the slot for a pasted secret key (text) of a signing product.
+// The key stays encrypted with its passphrase.
 func SlotKey(id ID) string { return "minisign-key:" + string(id) }
 
-// SlotPassword is the slot for a signing key's password.
-func SlotPassword(id ID) string { return "minisign-password:" + string(id) }
+// oldPasswordSlots are where earlier versions remembered signing-key
+// passwords. Nothing reads them any more; they can only be forgotten.
+var oldPasswordSlots = []string{
+	"minisign-password",
+	"minisign-password:" + string(SolSigning),
+	"minisign-password:" + string(LunaSigning),
+	"android-store-password",
+	"android-key-password",
+}
+
+// ErrPasswordNotSaved is the refusal to remember a signing-key password.
+var ErrPasswordNotSaved = errors.New("signing-key passwords are never saved; ./release asks for the release passphrase in the terminal when a cut is about to sign")
+
+// IsOldPasswordSlot reports a slot where an earlier version kept a signing-key
+// password.
+func IsOldPasswordSlot(slot string) bool {
+	for _, s := range oldPasswordSlots {
+		if s == slot {
+			return true
+		}
+	}
+	return false
+}
+
+// OldPasswordOwner is the secret an old password slot belonged to.
+func OldPasswordOwner(slot string) ID {
+	switch slot {
+	case "android-store-password", "android-key-password":
+		return AndroidKeystore
+	case "minisign-password:" + string(SolSigning):
+		return SolSigning
+	case "minisign-password:" + string(LunaSigning):
+		return LunaSigning
+	}
+	return "" // the shared one: any signing key
+}
+
+// CanRemember reports whether a prompt's answer may be stored (the slot is a
+// remember-able value, never a password or passphrase).
+func CanRemember(slot string) bool { return validSlot(slot) }
 
 func allSlots() []SlotInfo {
 	return []SlotInfo{
 		{Slot: SlotForgejoToken, Label: "Forgejo token"},
-		{Slot: SlotKey(SolSigning), Label: "Sol signing key (pasted text)"},
-		{Slot: SlotPassword(SolSigning), Label: "Sol signing key password"},
-		{Slot: SlotKey(LunaSigning), Label: "Luna signing key (pasted text)"},
-		{Slot: SlotPassword(LunaSigning), Label: "Luna signing key password"},
-		{Slot: SlotMinisignPassword, Label: "Signing key password (any key)"},
+		{Slot: SlotKey(SolSigning), Label: "Sol signing key (pasted text, encrypted)"},
+		{Slot: SlotKey(LunaSigning), Label: "Luna signing key (pasted text, encrypted)"},
 		{Slot: SlotAndroidKeystore, Label: "Android keystore (base64)"},
-		{Slot: SlotAndroidStorePW, Label: "Android keystore password"},
-		{Slot: SlotAndroidKeyPW, Label: "Android key password"},
 		{Slot: SlotAndroidAlias, Label: "Android key alias"},
 	}
 }
@@ -111,6 +150,9 @@ func normFingerprint(s string) string {
 // SetValueOpt is SetValue with a choice: remember=false keeps the value in
 // memory for this run only (nothing is written anywhere).
 func (m *Manager) SetValueOpt(slot, value string, remember bool) error {
+	if IsOldPasswordSlot(slot) || slot == ReleasePassphraseSlot {
+		return ErrPasswordNotSaved
+	}
 	if remember {
 		return m.SetValue(slot, value)
 	}

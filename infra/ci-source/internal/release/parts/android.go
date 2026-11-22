@@ -1,6 +1,7 @@
 package parts
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -13,8 +14,9 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/release/version"
 )
 
-// AndroidAPK is luna-android/apk. It signs with BuildContext.AndroidSigning;
-// without one the APK is debug-signed (dev builds).
+// AndroidAPK is luna-android/apk. With BuildContext.AndroidSigning it builds
+// an unsigned release APK and signs it in a separate step; without one the
+// APK is debug-signed (dev builds).
 var AndroidAPK = &APK{}
 
 func init() {
@@ -25,6 +27,9 @@ func init() {
 const (
 	APKFile = "luna-android.apk"
 	APKJob  = "luna-android/apk"
+	// apkUnsigned is the gradle step's output in a release build, before
+	// signing. It never stays in the part's output dir.
+	apkUnsigned = "unsigned.apk"
 )
 
 // APK builds the Android app with gradle.
@@ -43,17 +48,26 @@ func (a *APK) Jobs(b *engine.BuildContext) ([]engine.Job, error) {
 			if err != nil {
 				return err
 			}
-			if s := b.AndroidSigning; s != nil {
-				// Never let a password reach a log line.
-				j.Engine.Redactor.Add(s.StorePassword)
-				j.Engine.Redactor.Add(s.KeyPassword)
-			} else {
+			if b.AndroidSigning == nil {
 				j.Log("no release keystore: building a debug-signed APK")
+				return j.Container(ctx, spec)
 			}
-			return j.Container(ctx, spec)
+			// Gradle runs plugins and dependencies from the network, so it
+			// builds an unsigned APK and never sees the keystore.
+			if err := j.Container(ctx, spec); err != nil {
+				return err
+			}
+			sign, err := a.signSpec(b)
+			if err != nil {
+				return err
+			}
+			defer wipe(sign.Stdin)
+			j.Log("signing the APK with apksigner (no network, keystore read-only)")
+			return j.Container(ctx, sign)
 		}}}, nil
 }
 
+// spec is the gradle step: no keystore and no password, ever.
 func (a *APK) spec(b *engine.BuildContext) (engine.RunSpec, error) {
 	out := b.PartOutDir("apk")
 	if err := os.MkdirAll(out, 0o755); err != nil {
@@ -84,22 +98,55 @@ func (a *APK) spec(b *engine.BuildContext) (engine.RunSpec, error) {
 	}
 	spec.Env["EXPECT_VERSION_NAME"] = name
 	spec.Env["EXPECT_VERSION_CODE"] = strconv.Itoa(code)
-	if s := b.AndroidSigning; s != nil {
-		if s.Path == "" {
-			return engine.RunSpec{}, fmt.Errorf("android signing: no keystore file")
-		}
-		spec.Mounts = append(spec.Mounts, engine.Mount{Host: s.Path, Target: "/keys/release.keystore", ReadOnly: true})
-		spec.Env["LUNA_ANDROID_KEYSTORE"] = "/keys/release.keystore"
-		spec.Env["LUNA_ANDROID_STORE_PASSWORD"] = s.StorePassword
-		spec.Env["LUNA_ANDROID_KEY_PASSWORD"] = s.KeyPassword
-		if s.Alias != "" {
-			spec.Env["LUNA_ANDROID_KEY_ALIAS"] = s.Alias
-		}
-		if s.CertSHA256 != "" {
-			spec.Env["EXPECT_CERT_SHA256"] = strings.ToLower(s.CertSHA256)
-		}
+	if b.AndroidSigning != nil {
+		spec.Env["LUNA_ANDROID_RELEASE"] = "1"
 	}
 	return lunaShell(spec, "bash", "android.sh"), nil
+}
+
+// signSpec is the signing step: the android image's own zipalign and
+// apksigner, no network, no source tree and no gradle caches; only the
+// part's output dir and the keystore (read-only). The store and key password
+// arrive on standard input, one line each.
+func (a *APK) signSpec(b *engine.BuildContext) (engine.RunSpec, error) {
+	s := b.AndroidSigning
+	if s == nil || s.Path == "" {
+		return engine.RunSpec{}, fmt.Errorf("android signing: no keystore file")
+	}
+	if len(s.StorePassword) == 0 || len(s.KeyPassword) == 0 {
+		return engine.RunSpec{}, fmt.Errorf("android signing: the keystore is not unlocked")
+	}
+	for _, pw := range [][]byte{s.StorePassword, s.KeyPassword} {
+		if bytes.ContainsAny(pw, "\r\n") {
+			return engine.RunSpec{}, fmt.Errorf("android signing: a password with a line break cannot be passed to apksigner")
+		}
+	}
+	stdin := make([]byte, 0, len(s.StorePassword)+len(s.KeyPassword)+2)
+	stdin = append(append(append(append(stdin, s.StorePassword...), '\n'), s.KeyPassword...), '\n')
+	alias := s.Alias
+	if alias == "" {
+		alias = "luna"
+	}
+	spec := engine.RunSpec{
+		Name:    "apk-sign",
+		Image:   "android",
+		Network: "none",
+		Out:     b.PartOutDir("apk"),
+		Mounts:  []engine.Mount{{Host: s.Path, Target: "/keys/release.keystore", ReadOnly: true}},
+		Env:     map[string]string{"KEY_ALIAS": alias},
+		Stdin:   stdin,
+	}
+	if s.CertSHA256 != "" {
+		spec.Env["EXPECT_CERT_SHA256"] = strings.ToLower(s.CertSHA256)
+	}
+	return lunaShell(spec, "bash", "android-sign.sh"), nil
+}
+
+// wipe zeroes b.
+func wipe(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
 }
 
 var (

@@ -58,10 +58,9 @@ func DefaultConfigDir() string {
 
 // CacheEntry is a non-secret fact about a key file we already worked out.
 type CacheEntry struct {
-	Path     string `json:"path"`
-	SHA256   string `json:"sha256"`
-	KeyID    string `json:"key_id"`
-	Password string `json:"password_source,omitempty"` // where the working password came from
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	KeyID  string `json:"key_id"`
 }
 
 type cacheFile struct {

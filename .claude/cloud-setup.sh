@@ -16,9 +16,19 @@
 set -uo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
+# Every download is pinned by sha256; bump a version and its sum together.
 GO_VERSION=1.27.4
+# go.dev/dl publishes this sum (go.dev/dl/?mode=json).
+GO_SHA256=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
 RUST_VERSION=1.99.0
 FJ_VERSION=0.6.0
+# Codeberg publishes no sums for forgejo-cli; computed from the v0.6.0 release
+# tarball on 2026-11-21.
+FJ_SHA256=ea559da5449b6dd7e0dd9f7ea51c906b575696f782edd606b52adcf773602742
+# Google publishes this sum on developer.android.com/studio (command line tools);
+# the same pin as infra/release/images/android and the luna-ci image.
+ANDROID_TOOLS_ZIP=commandlinetools-linux-11076708_latest.zip
+ANDROID_TOOLS_SHA256=2d2d50857e4eb553af5a6dc3ad507a17adf43d115264b1afc116f95c92e5e258
 ANDROID_SDK=/usr/local/android-sdk
 LOG_DIR=/var/log/sol-setup
 mkdir -p "$LOG_DIR"
@@ -68,6 +78,7 @@ install_go() {
   # is enough. (GOTOOLCHAIN=auto would also fetch go.mod's toolchain lazily.)
   [ "$(GOTOOLCHAIN=local /usr/local/go/bin/go env GOVERSION 2>/dev/null)" = "go${GO_VERSION}" ] && return 0
   curl -fsSL -o /tmp/go.tgz "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
+  echo "$GO_SHA256  /tmp/go.tgz" | sha256sum -c -
   rm -rf /usr/local/go
   tar -C /usr/local -xzf /tmp/go.tgz
   rm -f /tmp/go.tgz
@@ -89,6 +100,7 @@ install_fj() {
   local tmp; tmp="$(mktemp -d)"
   curl -fsSL -o "$tmp/fj.tgz" \
     "https://codeberg.org/forgejo-contrib/forgejo-cli/releases/download/v${FJ_VERSION}/forgejo-cli-x86_64-linux.tar.gz"
+  echo "$FJ_SHA256  $tmp/fj.tgz" | sha256sum -c -
   tar -xzf "$tmp/fj.tgz" -C "$tmp"
   install -D -m 0755 "$tmp/fj" /usr/local/libexec/fj
   rm -rf "$tmp"
@@ -98,8 +110,8 @@ install_android_sdk() {
   # Unit tests only (./gradlew testDebugUnitTest): platform + build-tools 34.
   if [ ! -x "$ANDROID_SDK/cmdline-tools/latest/bin/sdkmanager" ]; then
     local tmp; tmp="$(mktemp -d)"
-    curl -fsSL -o "$tmp/tools.zip" \
-      https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+    curl -fsSL -o "$tmp/tools.zip" "https://dl.google.com/android/repository/$ANDROID_TOOLS_ZIP"
+    echo "$ANDROID_TOOLS_SHA256  $tmp/tools.zip" | sha256sum -c -
     mkdir -p "$ANDROID_SDK/cmdline-tools"
     unzip -q "$tmp/tools.zip" -d "$tmp"
     rm -rf "$ANDROID_SDK/cmdline-tools/latest"

@@ -72,7 +72,7 @@ func TestPrompterInlineFlow(t *testing.T) {
 	allow := h.br.AllowAsk()
 	got := make(chan secrets.Answer, 1)
 	go func() {
-		a, _ := h.br.Ask(context.Background(), secrets.Question{Slot: secrets.SlotMinisignPassword, Label: "Password for ~/.minisign/luna.key", Secret: true, Hint: "The password you chose."})
+		a, _ := h.br.Ask(context.Background(), secrets.Question{Slot: secrets.SlotForgejoToken, Label: "Forgejo access token for gt.plainskill.net", Secret: true, Hint: "Forgejo → Settings → Applications."})
 		got <- a
 	}()
 	var ask tea_msg
@@ -92,7 +92,7 @@ func TestPrompterInlineFlow(t *testing.T) {
 		}
 	}
 	h.pump()
-	v := h.wantView("Password for ~/.minisign/luna.key", "[x] Remember", "enter use it")
+	v := h.wantView("Forgejo access token for gt.plainskill.net", "[x] Remember", "enter use it")
 	show(t, "inline question", v)
 	h.typ(secretValue)
 	v = h.wantView("•••••")

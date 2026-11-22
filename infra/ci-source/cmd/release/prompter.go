@@ -35,6 +35,16 @@ func (p *ttyPrompter) Ask(ctx context.Context, q secrets.Question) (secrets.Answ
 	}
 	fmt.Fprint(p.out, "  (leave empty to skip) > ")
 	var val string
+	if q.Slot == secrets.ReleasePassphraseSlot {
+		// The signing passphrase stays in bytes (the manager wipes them) and
+		// is never offered for storing.
+		b, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Fprintln(p.out)
+		if err != nil || len(b) == 0 {
+			return secrets.Answer{Skip: err == nil}, err
+		}
+		return secrets.Answer{Bytes: b}, nil
+	}
 	if q.Secret {
 		b, err := term.ReadPassword(int(os.Stdin.Fd()))
 		fmt.Fprintln(p.out)
@@ -53,7 +63,7 @@ func (p *ttyPrompter) Ask(ctx context.Context, q secrets.Question) (secrets.Answ
 		return secrets.Answer{Skip: true}, nil
 	}
 	ans := secrets.Answer{Value: val}
-	if q.Slot == app.KeyringPassphraseSlot {
+	if q.Slot == app.KeyringPassphraseSlot || !secrets.CanRemember(q.Slot) {
 		return ans, nil // never offered for storing
 	}
 	fmt.Fprint(p.out, "  Remember in the keyring? [y/N] ")

@@ -33,9 +33,20 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
 #   - Node 26 adds a `localStorage` global that is undefined without
 #     --localstorage-file and shadows jsdom's; each package's test setup swaps
 #     in an in-memory Storage when it doesn't work.
-RUN curl --proto '=https' --tlsv1.2 -fsSL https://deb.nodesource.com/setup_26.x | bash - \
-    && apt-get install -y -qq --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
+# The official nodejs.org tarball, pinned by version and sha256 (from the
+# release's SHASUMS256.txt), instead of piping NodeSource's setup script into
+# bash. Bump NODE_VERSION and NODE_SHA256 together.
+ARG NODE_VERSION=26.13.1
+ARG NODE_SHA256=5c063e46bab0fbc1c17cc445d7ff129cbdcd0471be6ed83b6ab864f8143bc864
+RUN curl --proto '=https' --tlsv1.2 -fsSLo /tmp/node.tar.xz \
+      "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+    && echo "${NODE_SHA256}  /tmp/node.tar.xz" | sha256sum -c - \
+    && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 --no-same-owner \
+       --exclude="node-v${NODE_VERSION}-linux-x64/CHANGELOG.md" \
+       --exclude="node-v${NODE_VERSION}-linux-x64/README.md" \
+       --exclude="node-v${NODE_VERSION}-linux-x64/LICENSE" \
+    && rm /tmp/node.tar.xz \
+    && node --version && npm --version
 
 # Rust 1.99 with rustfmt (ci.sh runs `cargo fmt --check`) and clippy.
 RUN curl --proto '=https' --tlsv1.2 -fsSLo /tmp/rustup-init https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init \

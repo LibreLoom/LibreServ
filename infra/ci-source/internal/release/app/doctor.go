@@ -135,7 +135,7 @@ func (a *App) Doctor(ctx context.Context, includeSecrets bool) *DoctorReport {
 	if includeSecrets {
 		for _, s := range a.sec.List(ctx) {
 			r.SecretsTotal++
-			if s.State == secrets.Proven {
+			if s.State == secrets.Proven || s.State == secrets.Locked {
 				r.SecretsProven++
 				r.add(sec, CheckOK, s.Label, s.Summary)
 			} else {

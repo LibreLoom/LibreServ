@@ -32,11 +32,14 @@ var mustMatch = map[secrets.ID]string{
 
 func pill(st secrets.Status) string {
 	if st.State == secrets.Failed && st.NeedsPassword {
-		return warnStyle.Render("! needs password")
+		return failStyle.Render("✗ passphrase does not open it")
 	}
 	switch st.State {
 	case secrets.Proven:
 		return okStyle.Render("✓ ready")
+	case secrets.Locked:
+		// Found and encrypted: the cut asks for the release passphrase.
+		return okStyle.Render("✓ found, locked")
 	case secrets.Failed:
 		return failStyle.Render("✗ failed")
 	case secrets.Conflict:

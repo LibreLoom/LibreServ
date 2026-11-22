@@ -93,6 +93,11 @@ type Config struct {
 	HTTP        *http.Client // feeds and Forgejo API calls: short timeout
 	Transfer    *http.Client // registry uploads and downloads: no overall timeout, aborts on a stall
 
+	// AuditFile is the release-audit marker a cut's preflight requires to
+	// name HEAD (see CheckReleaseAudit). "" skips the check (tests); the
+	// release command sets DefaultAuditFile.
+	AuditFile string
+
 	// StateDir holds resumable cut state (default publish.DefaultStateDir).
 	StateDir    string
 	PollEvery   time.Duration

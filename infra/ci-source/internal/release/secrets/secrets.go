@@ -11,6 +11,7 @@ package secrets
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -44,6 +45,9 @@ const (
 	Failed   State = "failed"   // candidates exist but none proved itself
 	Missing  State = "missing"  // nothing found
 	Conflict State = "conflict" // two different valid candidates; user must Choose
+	// Locked: an encrypted key or keystore was found and is not opened yet. It
+	// opens with the release passphrase when a cut is about to sign (Unlock).
+	Locked State = "locked"
 )
 
 // Outcome is the result for one candidate.
@@ -72,8 +76,9 @@ type Status struct {
 	State      State
 	Summary    string // one plain sentence
 	Candidates []Candidate
-	// NeedsPassword is set with State Failed when the only thing missing is a
-	// password: the file or keystore was found and just has not been opened.
+	// NeedsPassword is set (with State Locked, or Failed after a passphrase
+	// was typed) when the only thing missing is a passphrase: the file or
+	// keystore was found and has not been opened.
 	NeedsPassword bool
 }
 
@@ -91,7 +96,11 @@ type Question struct {
 
 // Answer is the user's reply.
 type Answer struct {
-	Value    string
+	Value string
+	// Bytes may carry a secret reply instead of Value (the terminal prompter
+	// does this for the release passphrase), so no string copy of it exists.
+	// The manager owns and wipes it.
+	Bytes    []byte
 	Remember bool // store in the keyring / encrypted file
 	Skip     bool // user declined
 }
@@ -144,7 +153,23 @@ type Manager struct {
 	protonSv      *Proton
 	srcNotes      []Candidate // lookup failures seen while resolving one secret
 	forceScanOnce bool
+
+	// passes are the passphrases typed this run (the release passphrase
+	// first, then any typed for one key). Never stored, never logged, never
+	// given to the Redactor (which would keep a copy); zeroed by Wipe.
+	passes []passphrase
+	// unlocking is set while Unlock runs: only then is a passphrase asked.
+	unlocking bool
 }
+
+// passphrase is one typed passphrase and what it was typed for.
+type passphrase struct {
+	Where string // "release passphrase", "passphrase typed for ~/.minisign/luna.key"
+	Value []byte
+}
+
+// maxPassphraseTries bounds how often one key's own passphrase is asked.
+const maxPassphraseTries = 3
 
 type resolved struct {
 	status Status
@@ -318,6 +343,9 @@ func (m *Manager) PinAndroidCert(fp string) error {
 // SetValue stores a pasted value in the keyring (or encrypted file). Slot is
 // one of the names from Slots().
 func (m *Manager) SetValue(slot, value string) error {
+	if IsOldPasswordSlot(slot) || slot == ReleasePassphraseSlot {
+		return ErrPasswordNotSaved
+	}
 	if m.opt.Store == nil {
 		return fmt.Errorf("no keyring available to remember %s", slot)
 	}
@@ -350,9 +378,14 @@ type SlotInfo struct {
 	Slot  string
 	Label string
 	Set   bool
+	// Old marks a password an earlier version remembered: never used, only
+	// listed so it can be forgotten.
+	Old bool
 }
 
-// Slots lists the remember-able values and whether each is set.
+// Slots lists the remember-able values and whether each is set. Passwords an
+// earlier version remembered are listed too (Set, Old), only so they can be
+// forgotten; their values are never read.
 func (m *Manager) Slots() []SlotInfo {
 	var out []SlotInfo
 	for _, s := range allSlots() {
@@ -363,6 +396,29 @@ func (m *Manager) Slots() []SlotInfo {
 		}
 		s.Set = set
 		out = append(out, s)
+	}
+	for _, slot := range m.OldPasswords() {
+		out = append(out, SlotInfo{Slot: slot, Label: "Old saved password, no longer used (forget it)", Set: true, Old: true})
+	}
+	return out
+}
+
+// OldPasswords lists the signing-key passwords an earlier version of this
+// tool remembered and that are still in the store. Only the slot names are
+// read, never the values.
+func (m *Manager) OldPasswords() []string {
+	if m.opt.Store == nil {
+		return nil
+	}
+	keys, err := m.opt.Store.Keys()
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, k := range keys {
+		if IsOldPasswordSlot(k) {
+			out = append(out, k)
+		}
 	}
 	return out
 }
@@ -392,6 +448,117 @@ func (m *Manager) Android(ctx context.Context) (*Keystore, Status) {
 	r := m.resolveLocked(ctx, AndroidKeystore)
 	k, _ := r.value.(*Keystore)
 	return k, r.status
+}
+
+// Unlock opens the given signing keys and keystore for a cut that is about
+// to sign. It asks for the release passphrase once (through the Prompter, in
+// the terminal, never remembered) and tries it on every candidate; a key it
+// does not open is asked about by name. Without a Prompter it fails: there is
+// no non-interactive way to give a signing passphrase. Call Wipe when signing
+// is done.
+func (m *Manager) Unlock(ctx context.Context, ids ...ID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.unlocking = true
+	defer func() { m.unlocking = false }()
+	// Unlocking on purpose asks again, even after an earlier skip.
+	for k := range m.skipped {
+		if strings.HasPrefix(k, ReleasePassphraseSlot+"\x00") {
+			delete(m.skipped, k)
+		}
+	}
+	var problems []string
+	for _, id := range ids {
+		if r, ok := m.memo[id]; ok && r.status.State != Proven {
+			delete(m.memo, id)
+		}
+		r := m.resolveLocked(ctx, id)
+		if r.status.State == Proven {
+			continue
+		}
+		if m.opt.Prompter == nil && r.status.State == Locked {
+			return errors.New("signing needs the release passphrase, and it can only be typed in a terminal. Run ./release in a terminal")
+		}
+		problems = append(problems, r.status.Label+": "+r.status.Summary)
+	}
+	if len(problems) > 0 {
+		return errors.New(strings.Join(problems, "; "))
+	}
+	return nil
+}
+
+// Wipe zeroes every passphrase typed this run and the opened signing keys and
+// keystore passwords, and forgets them: the next cut asks again. Go may still
+// hold short-lived copies (the strings the decryption libraries take, values a
+// prompter read); this wipes everything the manager owns.
+func (m *Manager) Wipe() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, p := range m.passes {
+		wipeBytes(p.Value)
+	}
+	m.passes = nil
+	for _, id := range []ID{SolSigning, LunaSigning, AndroidKeystore} {
+		r, ok := m.memo[id]
+		if !ok {
+			continue
+		}
+		switch v := r.value.(type) {
+		case *Signer:
+			v.wipe()
+		case *Keystore:
+			v.Wipe()
+		}
+		delete(m.memo, id)
+	}
+}
+
+func wipeBytes(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}
+
+// askReleasePassphrase asks for the release passphrase unless one was typed
+// already this run. It reports whether there is one now.
+func (m *Manager) askReleasePassphrase(ctx context.Context) bool {
+	for _, p := range m.passes {
+		if p.Where == "release passphrase" {
+			return true
+		}
+	}
+	return m.askPassphrase(ctx, "release", "release passphrase", "Release passphrase",
+		"The one passphrase that opens the release signing keys and the Android keystore. It is never saved.")
+}
+
+// askKeyPassphrase asks for the passphrase of one key the release passphrase
+// did not open. It reports whether one was typed.
+func (m *Manager) askKeyPassphrase(ctx context.Context, key, label, hint string) bool {
+	return m.askPassphrase(ctx, key, "passphrase typed for "+m.tilde(key), label, hint)
+}
+
+func (m *Manager) askPassphrase(ctx context.Context, key, where, label, hint string) bool {
+	if !m.unlocking || m.opt.Prompter == nil {
+		return false
+	}
+	skipKey := ReleasePassphraseSlot + "\x00" + key
+	if m.skipped[skipKey] {
+		return false
+	}
+	a, err := m.opt.Prompter.Ask(ctx, Question{Slot: ReleasePassphraseSlot, Key: key, Label: label, Hint: hint, Secret: true})
+	pw := a.Bytes
+	if pw == nil && a.Value != "" {
+		pw = []byte(a.Value)
+	}
+	if err != nil || a.Skip || len(pw) == 0 {
+		wipeBytes(pw)
+		if err == nil {
+			m.skipped[skipKey] = true
+		}
+		return false
+	}
+	m.passes = append(m.passes, passphrase{Where: where, Value: pw})
+	return true
 }
 
 // ---- internals ----

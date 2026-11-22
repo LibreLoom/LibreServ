@@ -111,8 +111,8 @@ func (f *fakeSecrets) SetValueOpt(slot, v string, remember bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.values = append(f.values, fmt.Sprintf("%s remember=%v len=%d", slot, remember, len(v)))
-	// A password for the Luna key proves it.
-	if slot == secrets.SlotPassword(secrets.LunaSigning) {
+	// A pasted Luna key proves it.
+	if slot == secrets.SlotKey(secrets.LunaSigning) {
 		f.status[secrets.LunaSigning] = secrets.Status{ID: secrets.LunaSigning, Label: "Luna release signing key", State: secrets.Proven, Summary: "Signs as key 4C1F."}
 	}
 	return nil
@@ -221,9 +221,9 @@ func (f *fakeBackend) NotesDraft(context.Context, string) (app.NotesDraft, error
 }
 func (f *fakeBackend) Preflight(ctx context.Context, r app.CutRequest) *app.PreflightReport {
 	if f.preflightAsk {
-		ans, _ := f.br.Ask(ctx, secrets.Question{Slot: secrets.SlotMinisignPassword, Label: "Password for ~/.minisign/luna.key", Secret: true})
+		ans, _ := f.br.Ask(ctx, secrets.Question{Slot: secrets.SlotKey(secrets.LunaSigning), Label: "Luna release signing key", Secret: true})
 		if !ans.Skip {
-			f.sec.SetValueOpt(secrets.SlotPassword(secrets.LunaSigning), ans.Value, ans.Remember)
+			f.sec.SetValueOpt(secrets.SlotKey(secrets.LunaSigning), ans.Value, ans.Remember)
 		}
 	}
 	rep := &app.PreflightReport{Unit: r.Unit, Channel: r.Channel, Current: "0.4.0", Version: "0.4.1"}

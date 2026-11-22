@@ -261,12 +261,15 @@ func (a *App) pushedBumpVersion(unit string) (string, error) {
 
 // Preflight checks everything a cut needs before it starts: version, git,
 // secrets (found and proven; missing ones are asked through the Prompter),
-// and parts. Nothing is built or pushed.
+// and parts. Nothing is built or pushed. Encrypted signing keys found but not
+// opened yet count as ready: Cut asks for the release passphrase.
 func (a *App) Preflight(ctx context.Context, req CutRequest) *PreflightReport {
-	return a.preflight(ctx, req, a.newLookup(req.Unit))
+	return a.preflight(ctx, req, a.newLookup(req.Unit), false)
 }
 
-func (a *App) preflight(ctx context.Context, req CutRequest, lk *feedLookup) *PreflightReport {
+// preflight with unlock (Cut only) also opens the signing keys: it asks for
+// the release passphrase, once every other check has passed.
+func (a *App) preflight(ctx context.Context, req CutRequest, lk *feedLookup, unlock bool) *PreflightReport {
 	rep := &PreflightReport{Unit: req.Unit, Channel: req.Channel}
 	add := func(name, state, detail string) { rep.Checks = append(rep.Checks, Check{name, state, detail}) }
 
@@ -293,6 +296,20 @@ func (a *App) preflight(ctx context.Context, req CutRequest, lk *feedLookup) *Pr
 	if st, detail := a.checkFeeds(ctx, req, next, lk); st != "" {
 		add("feeds", st, detail)
 	}
+	if a.cfg.AuditFile != "" {
+		// Release integrity gate: ordinary rows, so they block a cut like any
+		// failing check but never stop the tool from opening.
+		if err := CheckCleanTree(ctx, a.cfg.Repo); err != nil {
+			add("clean tree", CheckFail, err.Error())
+		} else {
+			add("clean tree", CheckOK, "no uncommitted or untracked changes")
+		}
+		if err := CheckAuditFile(ctx, a.cfg.Repo, a.cfg.AuditFile); err != nil {
+			add("release audit", CheckFail, err.Error())
+		} else {
+			add("release audit", CheckOK, "this commit passed /release-audit")
+		}
+	}
 	tag := publish.Tag(req.Unit, next.String())
 	switch {
 	case req.Dry:
@@ -317,22 +334,34 @@ func (a *App) preflight(ctx context.Context, req CutRequest, lk *feedLookup) *Pr
 		}
 	}
 
-	var need []secrets.ID
+	var need, keys []secrets.ID
 	if a.cfg.Signer == nil {
-		need = append(need, signingID(req.Unit))
+		keys = append(keys, signingID(req.Unit))
 	}
+	if req.Unit == "luna-android" {
+		keys = append(keys, secrets.AndroidKeystore)
+	}
+	need = append(need, keys...)
 	if !req.Dry && a.cfg.ForgeCreds == nil {
 		need = append(need, secrets.ForgejoToken)
 	}
-	if req.Unit == "luna-android" {
-		need = append(need, secrets.AndroidKeystore)
+	// The passphrase is asked only when the cut will go ahead: never while
+	// another check already stops it.
+	var unlockErr error
+	if unlock && len(keys) > 0 && rep.OK() {
+		unlockErr = a.sec.Unlock(ctx, keys...)
 	}
 	for _, id := range need {
 		st := a.sec.Status(ctx, id)
 		rep.Secrets = append(rep.Secrets, st)
-		if st.State == secrets.Proven {
+		switch {
+		case st.State == secrets.Proven:
 			add(st.Label, CheckOK, st.Summary)
-		} else {
+		case st.State == secrets.Locked && !unlock:
+			add(st.Label, CheckOK, st.Summary)
+		case st.State == secrets.Locked && unlockErr != nil:
+			add(st.Label, CheckFail, unlockErr.Error())
+		default:
 			add(st.Label, CheckFail, st.Summary)
 		}
 	}
@@ -346,7 +375,10 @@ func (a *App) Cut(ctx context.Context, req CutRequest) (*CutResult, error) {
 		return nil, errDryResume
 	}
 	lk := a.newLookup(req.Unit) // one lookup of the live feeds for preflight, build and feed step
-	rep := a.preflight(ctx, req, lk)
+	// Preflight asks for the release passphrase and opens the signing keys;
+	// once the cut has signed (or failed) they and the passphrase are wiped.
+	defer a.sec.Wipe()
+	rep := a.preflight(ctx, req, lk, true)
 	for _, c := range rep.Checks {
 		a.emit.emit(Event{Kind: EventNote, Unit: req.Unit, Message: fmt.Sprintf("preflight %s: %s %s", c.Name, c.State, c.Detail)})
 	}

@@ -418,13 +418,17 @@ func (s *cutScreen) start() tea.Cmd {
 	s.phase, s.started, s.stopping = cpRun, s.sh.now(), false
 	s.b = newBoard(s.sh)
 	s.sh.newRun()
-	// From here on a cut must never stop to ask: preflight proved everything.
+	// From here on a cut asks for one thing only: the release passphrase, as
+	// it opens the signing keys (preflight proved everything else). The cut
+	// wipes the passphrase and the opened keys when it is done.
 	ctx, cancel := context.WithCancel(s.sh.ctx)
 	s.cancel = cancel
 	sh, req := s.sh, s.req
 	req.Notes = s.req.Notes
 	return func() tea.Msg {
 		defer cancel()
+		done := sh.br.AllowPassphrase()
+		defer done()
 		res, err := sh.be.Cut(ctx, req)
 		return cutDoneMsg{res, err}
 	}

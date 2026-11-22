@@ -18,14 +18,24 @@ func TestAndroidJKS(t *testing.T) {
 	// A decoy keystore with another alias: rejected with a reason.
 	k2, c2 := selfSigned(t)
 	e.write(filepath.Join(e.home, ".android", "other.keystore"), string(buildJKS(t, "debug", "storepw", "storepw", c2, k2)))
-	e.env["LUNA_ANDROID_STORE_PASSWORD"] = "storepw"
-	e.env["LUNA_ANDROID_KEY_PASSWORD"] = "keypw"
+	// The release passphrase is the store password; the key has its own,
+	// asked by name.
+	e.pr = passphrases("storepw", "keypw")
 
 	m := e.manager(func(o *Options) { o.NoHomeScan = true })
 	ctx := context.Background()
+	if st := m.Status(ctx, AndroidKeystore); st.State != Locked || len(e.pr.asked) != 0 {
+		t.Fatalf("before unlock: %+v (asked %d)", st, len(e.pr.asked))
+	}
+	if err := m.Unlock(ctx, AndroidKeystore); err != nil {
+		t.Fatal(err)
+	}
 	ks, st := m.Android(ctx)
-	if st.State != Proven || ks == nil || ks.Alias != "luna" || ks.KeyPassword != "keypw" {
+	if st.State != Proven || ks == nil || ks.Alias != "luna" || string(ks.KeyPassword) != "keypw" || string(ks.StorePassword) != "storepw" {
 		t.Fatalf("%+v", st)
+	}
+	if qs := e.pr.passQuestions(); len(qs) != 2 || !strings.Contains(qs[1].Label, "keystore") || !strings.Contains(qs[1].Label, "release.jks") {
+		t.Fatalf("questions: %+v", qs)
 	}
 	if ks.CertSHA256 != fullHash(cert.Raw) {
 		t.Fatal("fingerprint mismatch")
@@ -55,12 +65,48 @@ func TestAndroidJKS(t *testing.T) {
 	if st := m.Status(ctx, AndroidKeystore); st.State != Failed {
 		t.Fatalf("wrong pin should fail: %+v", st)
 	}
-	// Wrong key password.
 	m.PinAndroidCert("")
-	e.env["LUNA_ANDROID_KEY_PASSWORD"] = "bad"
-	m2 := e.manager(func(o *Options) { o.NoHomeScan = true })
-	if st := m2.Status(ctx, AndroidKeystore); st.State != Failed {
-		t.Fatalf("wrong key password must fail: %+v", st)
+
+	// Wipe zeroes the keystore passwords.
+	if err := m.Unlock(ctx, AndroidKeystore); err != nil {
+		t.Fatal(err)
+	}
+	ks, _ = m.Android(ctx)
+	storeB, keyB := ks.StorePassword, ks.KeyPassword
+	m.Wipe()
+	if strings.Trim(string(storeB)+string(keyB), "\x00") != "" || ks.StorePassword != nil {
+		t.Fatalf("keystore passwords not wiped: %q %q", storeB, keyB)
+	}
+	if st := m.Status(ctx, AndroidKeystore); st.State != Locked {
+		t.Fatalf("after wipe: %+v", st)
+	}
+}
+
+func TestAndroidOnePassphraseForStoreAndKey(t *testing.T) {
+	e := newTestEnv(t)
+	key, cert := selfSigned(t)
+	e.write(filepath.Join(e.home, ".android", "r.jks"), string(buildJKS(t, "luna", "release", "release", cert, key)))
+	e.pr = passphrases("release")
+	m := e.manager(func(o *Options) { o.NoHomeScan = true })
+	if err := m.Unlock(context.Background(), AndroidKeystore); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(e.pr.passQuestions()); n != 1 {
+		t.Fatalf("asked %d times", n)
+	}
+}
+
+func TestAndroidPasswordsNeverFromEnv(t *testing.T) {
+	e := newTestEnv(t)
+	key, cert := selfSigned(t)
+	e.write(filepath.Join(e.home, ".android", "r.jks"), string(buildJKS(t, "luna", "storepw", "storepw", cert, key)))
+	e.env["LUNA_ANDROID_STORE_PASSWORD"] = "storepw"
+	e.env["LUNA_ANDROID_KEY_PASSWORD"] = "storepw"
+	store := NewMemStore()
+	store.Set("android-store-password", "storepw")
+	m := e.manager(func(o *Options) { o.NoHomeScan = true; o.Store = store })
+	if st := m.Status(context.Background(), AndroidKeystore); st.State != Locked {
+		t.Fatalf("a password came from env or the store: %+v", st)
 	}
 }
 
@@ -68,9 +114,13 @@ func TestAndroidWrongKeyPassword(t *testing.T) {
 	e := newTestEnv(t)
 	key, cert := selfSigned(t)
 	e.write(filepath.Join(e.home, ".android", "r.jks"), string(buildJKS(t, "luna", "storepw", "keypw", cert, key)))
-	e.env["LUNA_ANDROID_STORE_PASSWORD"] = "storepw"
-	e.env["LUNA_ANDROID_KEY_PASSWORD"] = "bad"
+	// The store opens with the release passphrase; the key's own is never
+	// typed (the user skips).
+	e.pr = passphrases("storepw")
 	m := e.manager(func(o *Options) { o.NoHomeScan = true })
+	if err := m.Unlock(context.Background(), AndroidKeystore); err == nil {
+		t.Fatal("unlocked without the key password")
+	}
 	st := m.Status(context.Background(), AndroidKeystore)
 	if st.State != Failed || !strings.Contains(st.Candidates[0].Reason, "key password") {
 		t.Fatalf("%+v", st)
@@ -87,11 +137,14 @@ func TestAndroidP12FromEnvB64AndPrompt(t *testing.T) {
 	e.env["LUNA_ANDROID_KEYSTORE_B64"] = base64.StdEncoding.EncodeToString(p12)
 	m := e.manager(func(o *Options) { o.NoHomeScan = true })
 	ctx := context.Background()
-	if st := m.Status(ctx, AndroidKeystore); st.State != Failed {
-		t.Fatalf("no password yet: %+v", st)
+	if st := m.Status(ctx, AndroidKeystore); st.State != Locked {
+		t.Fatalf("no passphrase yet: %+v", st)
 	}
-	e.pr = &fakePrompter{answers: map[string]Answer{SlotAndroidStorePW: {Value: "pw12"}}}
+	e.pr = passphrases("pw12")
 	m = e.manager(func(o *Options) { o.NoHomeScan = true })
+	if err := m.Unlock(ctx, AndroidKeystore); err != nil {
+		t.Fatal(err)
+	}
 	ks, st := m.Android(ctx)
 	if st.State != Proven || ks == nil || ks.Path != "" {
 		t.Fatalf("%+v", st)

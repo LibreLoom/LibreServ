@@ -28,6 +28,17 @@ func (f *field) text() string { return string(f.val) }
 func (f *field) empty() bool  { return len(f.val) == 0 }
 func (f *field) clear()       { f.val, f.cur = nil, 0 }
 
+// takeBytes returns the text as UTF-8 bytes and zeroes the field's own copy
+// (for the release passphrase, which the secrets manager wipes later).
+func (f *field) takeBytes() []byte {
+	b := []byte(string(f.val))
+	for i := range f.val {
+		f.val[i] = 0
+	}
+	f.clear()
+	return b
+}
+
 func (f *field) insert(rs []rune) {
 	if !f.multi {
 		out := rs[:0:0]

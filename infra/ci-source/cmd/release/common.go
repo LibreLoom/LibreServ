@@ -80,7 +80,8 @@ func newApp(o appOpts) (*app.App, error) {
 		return nil, err
 	}
 	registerDemo()
-	cfg := app.Config{Repo: repo, OnEvent: o.events, OutRoot: o.outRoot, NoKeyring: !o.keyring}
+	cfg := app.Config{Repo: repo, OnEvent: o.events, OutRoot: o.outRoot, NoKeyring: !o.keyring,
+		AuditFile: app.DefaultAuditFile}
 	if o.prompter != nil {
 		cfg.Prompter = o.prompter
 	} else if o.prompt {

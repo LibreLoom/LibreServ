@@ -1,22 +1,27 @@
 # Luna Android APK (android image). /src is read-only; gradle caches and the
-# build dirs are volumes. A keystore (LUNA_ANDROID_KEYSTORE=/keys/...) makes a
-# signed release build; without one the APK is debug-signed. Passwords arrive
-# in the environment, never on a command line.
+# build dirs are volumes. A release build (LUNA_ANDROID_RELEASE=1) makes an
+# UNSIGNED release APK: gradle runs plugins and dependencies from the network,
+# so it never gets a keystore or a password. android-sign.sh signs it in a
+# separate container with no network. Without it the APK is debug-signed.
+# Every dependency is checked against gradle/verification-metadata.xml.
 set -eu
 cd /src/luna/mobile
 # Persist the debug signing key, so debug APKs keep installing over each other.
 export ANDROID_USER_HOME=/root/.gradle/android
 mkdir -p "$ANDROID_USER_HOME"
-if [ -n "${LUNA_ANDROID_KEYSTORE:-}" ]; then
+if [ "${LUNA_ANDROID_RELEASE:-}" = 1 ]; then
 	task=assembleRelease
-	out=app/build/outputs/apk/release/app-release.apk
+	out=app/build/outputs/apk/release/app-release-unsigned.apk
+	dest=/out/unsigned.apk
 else
 	echo "no keystore given: building a debug-signed APK"
 	task=assembleDebug
 	out=app/build/outputs/apk/debug/app-debug.apk
+	dest=/out/luna-android.apk
 fi
+test -f gradle/verification-metadata.xml
 rm -f "$out"
-./gradlew "$task" --no-daemon --console=plain --warning-mode=summary -Dorg.gradle.jvmargs=-Xmx2g
+./gradlew "$task" --no-daemon --console=plain --warning-mode=summary --dependency-verification=strict -Dorg.gradle.jvmargs=-Xmx2g
 test -f "$out"
 # The APK must say it is the version this build is for (a stale build
 # directory or a mismatched gradle file would show up here).
@@ -29,17 +34,4 @@ if [ "$got_name" != "$EXPECT_VERSION_NAME" ] || [ "$got_code" != "$EXPECT_VERSIO
 	exit 1
 fi
 echo "APK version $got_name (code $got_code) matches"
-if [ "$task" = assembleRelease ]; then
-	apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
-	certs=$("$apksigner" verify --print-certs "$out")
-	echo "release APK signature verified"
-	if [ -n "${EXPECT_CERT_SHA256:-}" ]; then
-		got=$(printf '%s\n' "$certs" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr 'A-F' 'a-f')
-		if [ "$got" != "$EXPECT_CERT_SHA256" ]; then
-			echo "APK is signed by certificate $got, expected $EXPECT_CERT_SHA256" >&2
-			exit 1
-		fi
-		echo "signing certificate matches"
-	fi
-fi
-cp "$out" /out/luna-android.apk
+cp "$out" "$dest"

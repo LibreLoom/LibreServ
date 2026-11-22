@@ -221,6 +221,10 @@ type RunSpec struct {
 	ExtraOpts []string
 	// Network is "" (default) or "none" etc.
 	Network string
+	// Stdin is fed to the command's standard input (podman run -i). Use it
+	// for passwords: unlike Env it never touches a file or `podman inspect`.
+	// The caller owns the bytes and wipes them after Run.
+	Stdin []byte
 }
 
 // ExitError is returned when the container command exits non-zero.
@@ -259,6 +263,9 @@ func (e *Engine) Run(ctx context.Context, spec RunSpec, log LogFunc) error {
 		return cmd.Process.Signal(syscall.SIGTERM)
 	}
 	cmd.WaitDelay = 15 * time.Second
+	if len(spec.Stdin) > 0 {
+		cmd.Stdin = bytes.NewReader(spec.Stdin)
+	}
 	err = e.stream(ctx, cmd, spec.Name, log)
 	if ctx.Err() != nil {
 		exec.Command(e.cfg.Podman, "rm", "-f", "--ignore", name).Run()
@@ -342,6 +349,9 @@ func (e *Engine) runArgs(img Image, spec RunSpec, name, envFile string) []string
 	}
 	if spec.Network != "" {
 		args = append(args, "--network", spec.Network)
+	}
+	if len(spec.Stdin) > 0 {
+		args = append(args, "--interactive")
 	}
 	wd := spec.Workdir
 	if wd == "" && spec.Source != "" {

@@ -134,11 +134,15 @@ func TestSwitchStoresMigrates(t *testing.T) {
 	if sm.Mode() != ModeSystem {
 		t.Fatal("start on system")
 	}
-	vals := map[string]string{SlotForgejoToken: "tok", SlotAndroidStorePW: "pw1", SlotKey(LunaSigning): "RW" + strings.Repeat("a", 210)}
+	vals := map[string]string{SlotForgejoToken: "tok", SlotAndroidAlias: "luna", SlotKey(LunaSigning): "RW" + strings.Repeat("a", 210)}
 	for k, v := range vals {
 		if err := sm.Set(k, v); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// A password an earlier version remembered is dropped, never moved.
+	if err := sm.Set("android-store-password", "old-pw"); err != nil {
+		t.Fatal(err)
 	}
 	// Going to the vault needs a passphrase.
 	if _, err := sm.SwitchTo(ModeVault, ""); !errors.Is(err, ErrLocked) {
@@ -162,12 +166,18 @@ func TestSwitchStoresMigrates(t *testing.T) {
 	if len(redacted) == 0 || redacted[0] != "vault pass" {
 		t.Fatal("passphrase must reach the redactor")
 	}
+	if _, err := sm.Get("android-store-password"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("an old password moved into the vault (%v)", err)
+	}
 	// The old store was emptied.
 	old, _ := fileSystemStore(t, filepath.Join(d, "system"))()
 	for k := range vals {
 		if _, err := old.Get(k); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("%s still in the old store (%v)", k, err)
 		}
+	}
+	if _, err := old.Get("android-store-password"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("the old password was not removed from the old store (%v)", err)
 	}
 	// And back, with the vault already unlocked (no passphrase needed).
 	n, err = sm.SwitchTo(ModeSystem, "")

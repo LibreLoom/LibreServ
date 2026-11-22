@@ -49,13 +49,17 @@ func (b *BuildContext) Named(part string) bool {
 	return false
 }
 
-// AndroidSigning is a release keystore for the gradle job. Path is mounted
-// read-only; the passwords travel in the job's environment, never argv.
+// AndroidSigning is the release keystore for the APK signing step. The
+// gradle job never sees it: gradle builds an unsigned APK, then apksigner signs
+// it in a separate container with no network, the keystore mounted read-only
+// and the passwords on standard input (never argv, env or a file). The
+// password slices belong to the secrets manager, which wipes them once the
+// cut has signed.
 type AndroidSigning struct {
 	Path          string
 	Alias         string
-	StorePassword string
-	KeyPassword   string
+	StorePassword []byte
+	KeyPassword   []byte
 	// CertSHA256 is the certificate the APK must be signed with (hex, lower
 	// case, no colons); "" skips the check.
 	CertSHA256 string

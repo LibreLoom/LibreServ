@@ -13,15 +13,23 @@ import (
 )
 
 // Keystore is a proven Android release keystore. The engine mounts Path
-// read-only into the gradle job (Materialize writes Data out when the keystore
-// came from env or the keyring).
+// read-only into the APK signing step, never into gradle (Materialize writes
+// Data out when the keystore came from env or the keyring). The passwords are
+// the passphrases typed at Unlock; Manager.Wipe zeroes them.
 type Keystore struct {
 	Path          string // "" when the keystore only exists in memory
 	Data          []byte
 	Alias         string
-	StorePassword string
-	KeyPassword   string
+	StorePassword []byte
+	KeyPassword   []byte
 	CertSHA256    string // hex, lower case
+}
+
+// Wipe zeroes the passwords.
+func (k *Keystore) Wipe() {
+	wipeBytes(k.StorePassword)
+	wipeBytes(k.KeyPassword)
+	k.StorePassword, k.KeyPassword = nil, nil
 }
 
 // Materialize returns a file path for the keystore, writing Data into dir
@@ -88,9 +96,9 @@ func (m *Manager) keystoreCandidates(ctx context.Context, withScan bool, disc *d
 	return out
 }
 
-func (m *Manager) androidPasswords(ctx context.Context) (store, key []found, aliases []string) {
-	store = append(m.env(ctx, "LUNA_ANDROID_STORE_PASSWORD"), m.stored(ctx, SlotAndroidStorePW)...)
-	key = append(m.env(ctx, "LUNA_ANDROID_KEY_PASSWORD"), m.stored(ctx, SlotAndroidKeyPW)...)
+// androidAliases lists the key aliases to look for. The store and key
+// passwords are only ever the passphrases typed at Unlock.
+func (m *Manager) androidAliases(ctx context.Context) (aliases []string) {
 	for _, f := range m.env(ctx, "LUNA_ANDROID_KEY_ALIAS") {
 		aliases = append(aliases, f.Value)
 	}
@@ -116,18 +124,24 @@ func (m *Manager) resolveAndroid(ctx context.Context) *resolved {
 	pin := normFingerprint(cfg.AndroidCertSHA256)
 	disc := m.fastSources()
 	cands := m.keystoreCandidates(ctx, false, disc)
-	storePW, keyPW, aliases := m.androidPasswords(ctx)
+	aliases := m.androidAliases(ctx)
 
 	var results []ksResult
 	tried := map[string]bool{}
 	var needPW []*ksCand
+	why := map[string]string{} // why a keystore in needPW is still closed
 	test := func(c *ksCand) {
 		if tried[c.Hash] {
 			return
 		}
-		res, opened := m.openKeystore(c, storePW, keyPW, aliases, pin)
+		res, opened := m.openKeystore(c, aliases, pin)
 		if !opened {
-			needPW = append(needPW, c)
+			if res.c.Reason != "" {
+				why[c.Hash] = res.c.Reason
+			}
+			if !containsKS(needPW, c) {
+				needPW = append(needPW, c)
+			}
 			return
 		}
 		tried[c.Hash] = true
@@ -164,28 +178,41 @@ func (m *Manager) resolveAndroid(ctx context.Context) *resolved {
 			}
 		}
 	}
-	if proven() == 0 && m.opt.Prompter != nil {
+	if proven() == 0 && len(needPW) > 0 && m.unlocking && m.opt.Prompter != nil && m.askReleasePassphrase(ctx) {
 		for _, c := range append([]*ksCand(nil), needPW...) {
-			pw := m.ask(ctx, Question{
-				Slot: SlotAndroidStorePW, Key: coalesce(c.Path, c.Where),
-				Label: "Password for the Android release keystore (" + m.tilde(coalesce(c.Path, "from "+c.Where)) + ")", Secret: true,
-				Hint: "The password you chose when you created this keystore.",
-			})
-			if pw == "" {
-				continue
+			test(c)
+			if tried[c.Hash] {
+				needPW = removeKS(needPW, c)
 			}
-			res, opened := m.openKeystore(c, []found{{Where: "typed password", Value: pw}}, keyPW, aliases, pin)
-			if opened {
-				results = append(results, res)
-				tried[c.Hash] = true
+		}
+		for _, c := range append([]*ksCand(nil), needPW...) {
+			if proven() > 0 {
+				break
+			}
+			name := "the Android release keystore (" + m.tilde(coalesce(c.Path, "from "+c.Where)) + ")"
+			for try := 0; try < maxPassphraseTries && !tried[c.Hash]; try++ {
+				label := "The release passphrase does not open " + name + " or the key inside it. Type its passphrase"
+				if try > 0 {
+					label = "That passphrase does not open " + name + " either. Try again"
+				}
+				if !m.askKeyPassphrase(ctx, coalesce(c.Path, c.Where), label,
+					"The keystore's password (also tried as the key's own password). It is used for this run only and never saved.") {
+					break
+				}
+				test(c)
+			}
+			if tried[c.Hash] {
 				needPW = removeKS(needPW, c)
 			}
 		}
 	}
 	for _, c := range needPW {
 		if !tried[c.Hash] {
-			results = append(results, ksResult{c: Candidate{Where: c.Where, Ref: refOf(c.Hash), Outcome: Unusable,
-				Reason: noPasswordReason(len(storePW))}})
+			r := noPasswordReason(len(m.passes))
+			if why[c.Hash] != "" {
+				r = why[c.Hash]
+			}
+			results = append(results, ksResult{c: Candidate{Where: c.Where, Ref: refOf(c.Hash), Outcome: Unusable, Reason: r}})
 		}
 	}
 
@@ -232,15 +259,28 @@ func (m *Manager) resolveAndroid(ctx context.Context) *resolved {
 	case len(okIdx) > 1:
 		s.State = Conflict
 		s.Summary = fmt.Sprintf("%d different keystores all open. Choose which one releases use.", len(okIdx))
+	case len(results) > 0 && len(needPW) == len(results) && len(m.passes) == 0:
+		s.State = Locked
+		s.NeedsPassword = true
+		s.Summary = "Found the Android keystore. It is opened with the release passphrase, which is asked in the terminal when a cut is about to sign."
 	case len(results) > 0:
 		s.State = Failed
-		s.Summary = "Found keystores, but none opened with a known password, alias and certificate."
+		s.Summary = "Found keystores, but none opened with the passphrase typed, the alias and the pinned certificate."
 		s.NeedsPassword = len(needPW) > 0 && len(results) == len(needPW)
 	default:
 		s.State = Missing
 		s.Summary = "No Android keystore found. Add the folder holding the .jks file, or paste it."
 	}
 	return &resolved{status: s}
+}
+
+func containsKS(l []*ksCand, c *ksCand) bool {
+	for _, x := range l {
+		if x == c {
+			return true
+		}
+	}
+	return false
 }
 
 func removeKS(l []*ksCand, c *ksCand) []*ksCand {
@@ -260,22 +300,28 @@ func coalesce(a, b string) string {
 	return b
 }
 
-// openKeystore tries every store password. opened=false means no password
-// opened it (so a prompt may help); otherwise res says whether it fully proved.
-func (m *Manager) openKeystore(c *ksCand, storePW, keyPW []found, aliases []string, pin string) (res ksResult, opened bool) {
+// openKeystore tries every passphrase typed this run as the store password
+// (and each, plus the store password, as the key password). opened=false
+// means none opened it, or none opened the key inside (so a prompt may help);
+// otherwise res says whether it fully proved.
+func (m *Manager) openKeystore(c *ksCand, aliases []string, pin string) (res ksResult, opened bool) {
 	res.c = Candidate{Where: c.Where, Ref: refOf(c.Hash)}
 	jks := len(c.Data) >= 4 && c.Data[0] == 0xFE && c.Data[1] == 0xED && c.Data[2] == 0xFE && c.Data[3] == 0xED
-	for _, sp := range storePW {
+	for _, sp := range m.passes {
 		var (
 			cert  *x509.Certificate
 			alias string
 			err   error
-			kp    string
+			kp    []byte
 		)
 		if jks {
-			cert, alias, kp, err = tryJKS(c.Data, sp.Value, keyPW, aliases)
+			cert, alias, kp, err = tryJKS(c.Data, sp.Value, m.passes, aliases)
 		} else {
 			cert, alias, kp, err = tryP12(c.Data, sp.Value, aliases)
+		}
+		if errors.Is(err, errJKSKeyPassword) {
+			res.c.Reason = "the store opens with the " + sp.Where + ", but no passphrase typed opens the key inside it (wrong key password)"
+			continue
 		}
 		if errors.Is(err, errJKSPassword) || errors.Is(err, pkcs12.ErrIncorrectPassword) {
 			continue
@@ -288,7 +334,7 @@ func (m *Manager) openKeystore(c *ksCand, storePW, keyPW []found, aliases []stri
 				return res, true
 			}
 			res.c.Outcome = Rejected
-			res.c.Reason = "opened with " + sp.Where + ", but " + err.Error()
+			res.c.Reason = "opened with the " + sp.Where + ", but " + err.Error()
 			return res, true
 		}
 		fp := fullHash(cert.Raw)
@@ -299,6 +345,8 @@ func (m *Manager) openKeystore(c *ksCand, storePW, keyPW []found, aliases []stri
 			return res, true
 		}
 		res.ok = true
+		res.c.Reason = ""
+		// The keystore shares the typed passphrase bytes, so Wipe clears both.
 		res.value = &Keystore{Path: c.Path, Data: c.Data, Alias: alias, StorePassword: sp.Value, KeyPassword: kp, CertSHA256: fp}
 		return res, true
 	}
@@ -309,58 +357,74 @@ type notKeystoreErr struct{ error }
 
 func isNotKeystore(err error) bool { var n notKeystoreErr; return errors.As(err, &n) }
 
-func tryJKS(data []byte, storePW string, keyPW []found, aliases []string) (*x509.Certificate, string, string, error) {
-	entries, err := parseJKS(data, storePW)
+// errJKSKeyPassword: the store opened, but no passphrase opens the key.
+var errJKSKeyPassword = errors.New("wrong key password")
+
+func tryJKS(data []byte, storePW []byte, keyPW []passphrase, aliases []string) (*x509.Certificate, string, []byte, error) {
+	entries, err := parseJKS(data, string(storePW))
 	if err != nil {
-		return nil, "", "", err
+		return nil, "", nil, err
 	}
 	for _, a := range aliases {
 		for _, e := range entries {
 			if !e.IsKey || !strings.EqualFold(e.Alias, a) {
 				continue
 			}
-			var kp string
-			var kerr error = errors.New("wrong key password")
-			for _, cand := range append(keyPW, found{Value: storePW}) {
-				if kerr = jksCheckKeyPassword(e.Protected, cand.Value); kerr == nil {
-					kp = cand.Value
+			var kp []byte
+			kerr := errJKSKeyPassword
+			for _, cand := range append([][]byte{storePW}, passValues(keyPW)...) {
+				if err := jksCheckKeyPassword(e.Protected, string(cand)); err == nil {
+					kp, kerr = cand, nil
+					break
+				} else if !errors.Is(err, errJKSKeyPassword) {
+					kerr = err
 					break
 				}
 			}
 			if kerr != nil {
-				return nil, "", "", fmt.Errorf("alias %s: %w", e.Alias, kerr)
+				if errors.Is(kerr, errJKSKeyPassword) {
+					return nil, "", nil, kerr
+				}
+				return nil, "", nil, fmt.Errorf("alias %s: %w", e.Alias, kerr)
 			}
 			if len(e.Chain) == 0 {
-				return nil, "", "", fmt.Errorf("alias %s has no certificate", e.Alias)
+				return nil, "", nil, fmt.Errorf("alias %s has no certificate", e.Alias)
 			}
 			cert, err := x509.ParseCertificate(e.Chain[0])
 			if err != nil {
-				return nil, "", "", fmt.Errorf("alias %s: certificate unreadable", e.Alias)
+				return nil, "", nil, fmt.Errorf("alias %s: certificate unreadable", e.Alias)
 			}
 			return cert, e.Alias, kp, nil
 		}
 	}
-	return nil, "", "", fmt.Errorf("none of the aliases %s exists in it", strings.Join(aliases, ", "))
+	return nil, "", nil, fmt.Errorf("none of the aliases %s exists in it", strings.Join(aliases, ", "))
+}
+
+func passValues(ps []passphrase) [][]byte {
+	out := make([][]byte, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, p.Value)
+	}
+	return out
 }
 
 // tryP12 opens a PKCS#12 keystore. Go cannot read friendly names, so the
 // alias is not checked; keytool writes one key with the store password.
-func tryP12(data []byte, storePW string, aliases []string) (*x509.Certificate, string, string, error) {
-	key, cert, _, err := pkcs12.DecodeChain(data, storePW)
+func tryP12(data []byte, storePW []byte, aliases []string) (*x509.Certificate, string, []byte, error) {
+	_, cert, _, err := pkcs12.DecodeChain(data, string(storePW))
 	if err != nil {
 		if errors.Is(err, pkcs12.ErrIncorrectPassword) {
-			return nil, "", "", err
+			return nil, "", nil, err
 		}
-		return nil, "", "", notKeystoreErr{fmt.Errorf("not a readable keystore (%v)", err)}
+		return nil, "", nil, notKeystoreErr{fmt.Errorf("not a readable keystore (%v)", err)}
 	}
-	_ = key
 	return cert, aliases[0], storePW, nil
 }
 
 // noPasswordReason explains why a protected file stayed closed.
 func noPasswordReason(tried int) string {
 	if tried == 0 {
-		return "No password entered yet"
+		return "Not opened yet: the release passphrase is asked when a cut is about to sign"
 	}
-	return fmt.Sprintf("none of the %d known passwords opens it", tried)
+	return fmt.Sprintf("none of the %d passphrases typed opens it", tried)
 }
