@@ -95,6 +95,10 @@ describe("needsALook", () => {
     expect(needsALook(drive({ state: "failing", status: "source_gone" }))).toBe(false);
   });
 
+  it("flags a backup paused after it came back from a drive", () => {
+    expect(needsALook(drive({ status: "paused" }))).toBe(true);
+  });
+
   it("flags a cloud row with a check problem", () => {
     expect(needsALook(cloud({ check_problem: "The copy could not be read." }))).toBe(true);
     expect(needsALook(cloud({ check_problem: "The copy could not be read.", status: "stopped" }))).toBe(false);

@@ -92,6 +92,12 @@ describe("visibleBackupRows", () => {
 });
 
 describe("buildBackupItems", () => {
+  it("says a backup that came back from a drive is paused", () => {
+    const [item] = buildBackupItems({ backupRows: [drive({ status: "paused" })], ...ADMIN });
+    expect(item.title).toEqual([{ name: "Photos" }, " backup is paused"]);
+    expect(item.detail).toMatch(/found this backup on a drive/);
+  });
+
   it("gives an Admin one exact item for a failing drive backup", () => {
     const row = drive({ state: "failing", last_error: "The backup drive is full." });
     expect(buildBackupItems({ backupRows: [row], ...ADMIN })).toEqual([

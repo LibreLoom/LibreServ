@@ -48,6 +48,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/backups/covered", get(covered))
         .route("/api/v1/backups/{id}", delete(remove))
         .route("/api/v1/backups/{id}/run", post(run))
+        .route("/api/v1/backups/{id}/resume", post(resume))
 }
 
 /// Which backups of a larger folder already hold this one, per kind and place they go to.
@@ -284,6 +285,49 @@ async fn run(
     Ok(Json(answer))
 }
 
+/// Lets a backup rebuilt from a drive run again (see `db::PROTECTION_PAUSED`).
+/// The drive named who may see it and whose it is; resuming says a person
+/// who may manage it here has looked. Same people as delete: for a private
+/// item only its owner (or an Admin once the owner's account is gone).
+async fn resume(
+    State(state): State<AppState>,
+    Extension(user): Extension<CurrentUser>,
+    Path(id): Path<String>,
+) -> ApiResult {
+    let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+    let row = find_backup(&conn, &id)?;
+    if !can_resume(&conn, &row, &user) {
+        // Someone who can't see the backup isn't told it exists.
+        if !drive_backup::visible_to(&row, &user) {
+            return Err(not_found());
+        }
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an Admin or the person this backup belongs to can resume it.",
+        ));
+    }
+    let row = drive_backup::resume(&conn, &id)
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't resume this backup. Try again.",
+            )
+        })?
+        .ok_or_else(not_found)?;
+    Ok(Json(backup_json(
+        &state.db,
+        &conn,
+        &row,
+        &user,
+        db::now_unix(),
+    )))
+}
+
+/// Who may resume a paused backup: whoever may delete it.
+fn can_resume(conn: &Connection, row: &ProtectionRow, user: &CurrentUser) -> bool {
+    can_delete(conn, row, user)
+}
+
 /// The backup if it exists, else a plain 404.
 fn find_backup(conn: &Connection, id: &str) -> Result<ProtectionRow, ApiError> {
     db::get_protection(conn, id)
@@ -348,6 +392,7 @@ fn backup_json(
         "first_done": row.first_done,
         "created_by": row.created_by,
         "can_delete": can_delete(conn, row, user),
+        "can_resume": row.state == db::PROTECTION_PAUSED && can_resume(conn, row, user),
         "private": !row.private_owner.is_empty(),
         "running": drive_backup::is_running(db, &row.id),
         "notes": row.notes.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>(),
@@ -819,6 +864,143 @@ mod tests {
         let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
         assert!(db::get_protection(&conn, "gone-owner").unwrap().is_none());
         assert!(db::get_protection(&conn, "live-owner").unwrap().is_some());
+    }
+
+    fn pause(state: &AppState, id: &str) {
+        let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+        db::set_protection_state(
+            &conn,
+            id,
+            db::PROTECTION_PAUSED,
+            drive_backup::PAUSED_REASON,
+        )
+        .unwrap();
+    }
+
+    fn state_of(state: &AppState, id: &str) -> String {
+        let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
+        db::get_protection(&conn, id).unwrap().unwrap().state
+    }
+
+    #[tokio::test]
+    async fn a_member_who_does_not_own_a_paused_backup_cannot_resume_it() {
+        let f = fixture();
+        // Both can see it; the Admin made it.
+        let everyone = format!(r#"{{"users":["{}"],"admins":true}}"#, f.member_id);
+        seed(&f.state, "b1", "Docs", &everyone, &f.admin_id);
+        pause(&f.state, "b1");
+
+        let (_, list) = send(&f.router, "GET", "/api/v1/backups", &f.member_token, None).await;
+        assert_eq!(list[0]["status"], "paused");
+        assert_eq!(list[0]["can_resume"], false);
+        let (status, _) = send(
+            &f.router,
+            "POST",
+            "/api/v1/backups/b1/resume",
+            &f.member_token,
+            None,
+        )
+        .await;
+        assert_eq!(status, axum::http::StatusCode::FORBIDDEN);
+        assert_eq!(state_of(&f.state, "b1"), db::PROTECTION_PAUSED);
+
+        // A stranger isn't told it exists.
+        seed(
+            &f.state,
+            "b2",
+            "Hidden",
+            r#"{"users":[],"admins":true}"#,
+            &f.admin_id,
+        );
+        pause(&f.state, "b2");
+        let (status, _) = send(
+            &f.router,
+            "POST",
+            "/api/v1/backups/b2/resume",
+            &f.member_token,
+            None,
+        )
+        .await;
+        assert_eq!(status, axum::http::StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn an_admin_can_resume_a_shared_paused_backup() {
+        let f = fixture();
+        let everyone = format!(r#"{{"users":["{}"],"admins":true}}"#, f.member_id);
+        seed(&f.state, "b1", "Docs", &everyone, &f.member_id);
+        pause(&f.state, "b1");
+        let (_, list) = send(&f.router, "GET", "/api/v1/backups", &f.admin_token, None).await;
+        assert_eq!(list[0]["can_resume"], true);
+        assert_eq!(list[0]["stop_reason"], drive_backup::PAUSED_REASON);
+
+        let (status, body) = send(
+            &f.router,
+            "POST",
+            "/api/v1/backups/b1/resume",
+            &f.admin_token,
+            None,
+        )
+        .await;
+        assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+        assert_eq!(body["status"], "active");
+        assert_eq!(body["can_resume"], false);
+        assert_eq!(state_of(&f.state, "b1"), db::PROTECTION_ACTIVE);
+    }
+
+    #[tokio::test]
+    async fn the_owner_resumes_a_private_paused_backup_and_a_live_owners_admin_cannot() {
+        let f = fixture();
+        let owner_only = format!(r#"{{"users":["{}"],"admins":false}}"#, f.member_id);
+        seed_owned(
+            &f.state,
+            "mine",
+            "vault",
+            &owner_only,
+            &f.member_id,
+            &f.member_id,
+        );
+        pause(&f.state, "mine");
+
+        let (status, _) = send(
+            &f.router,
+            "POST",
+            "/api/v1/backups/mine/resume",
+            &f.admin_token,
+            None,
+        )
+        .await;
+        assert_ne!(status, axum::http::StatusCode::OK);
+        assert_eq!(state_of(&f.state, "mine"), db::PROTECTION_PAUSED);
+
+        let (status, body) = send(
+            &f.router,
+            "POST",
+            "/api/v1/backups/mine/resume",
+            &f.member_token,
+            None,
+        )
+        .await;
+        assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+        assert_eq!(state_of(&f.state, "mine"), db::PROTECTION_ACTIVE);
+    }
+
+    #[tokio::test]
+    async fn a_member_resumes_a_shared_backup_they_made() {
+        let f = fixture();
+        let both = format!(r#"{{"users":["{}"],"admins":true}}"#, f.member_id);
+        seed(&f.state, "b1", "Docs", &both, &f.member_id);
+        pause(&f.state, "b1");
+        let (status, body) = send(
+            &f.router,
+            "POST",
+            "/api/v1/backups/b1/resume",
+            &f.member_token,
+            None,
+        )
+        .await;
+        assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+        assert_eq!(state_of(&f.state, "b1"), db::PROTECTION_ACTIVE);
     }
 
     #[tokio::test]

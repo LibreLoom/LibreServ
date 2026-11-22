@@ -76,6 +76,7 @@ function stubBackupApi({
   phrase = { set: true, set_at: 1, luna_id: "luna-1", signing_public: "sig" },
   cloudCreateReply = null,
   onIdentity,
+  onResume,
 } = /** @type {{
   drives?: any[],
   backups?: any[],
@@ -97,6 +98,7 @@ function stubBackupApi({
   phrase?: any,
   cloudCreateReply?: { status: number, body: any } | null,
   onIdentity?: () => void,
+  onResume?: (url: string) => void,
 }} */ ({})) {
   // The cloud list changes when a backup is created or deleted, like the server's does.
   const cloud = cloudBackups.map((b) => ({ ...b }));
@@ -164,6 +166,10 @@ function stubBackupApi({
       if (u.includes("/api/v1/backups/") && u.endsWith("/run")) {
         onRun?.(JSON.parse(init?.body || "{}"));
         return json(runReply.body, runReply.status);
+      }
+      if (u.includes("/api/v1/backups/") && u.endsWith("/resume") && method === "POST") {
+        onResume?.(u);
+        return json({ ok: true });
       }
       if (u.includes("/api/v1/backups/") && method === "DELETE") {
         onDelete?.(u);
@@ -434,6 +440,46 @@ describe("ProtectSheet", () => {
     await user.click(within(dialog).getByRole("button", { name: "Delete backup" }));
     await waitFor(() => expect(onDelete).toHaveBeenCalledWith(expect.stringContaining("/api/v1/backups/b1")));
     expect(await screen.findByText("Backup deleted.")).toBeInTheDocument();
+  });
+
+  it("shows a backup that came back from a drive as Paused, with Resume for who may", async () => {
+    const user = userEvent.setup();
+    const onResume = vi.fn();
+    const onRun = vi.fn();
+    stubBackupApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+      ],
+      backups: [
+        backup({ id: "b1", target_drive: "d2", target_drive_name: "Backup", status: "paused", can_resume: true }),
+      ],
+      onResume,
+      onRun,
+    });
+    renderSheet();
+    expect(await screen.findByText("Paused")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Why this backup is paused" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back up now" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(onResume).toHaveBeenCalledWith(expect.stringContaining("/api/v1/backups/b1/resume")));
+    expect(await screen.findByText("Backup resumed. It runs again on its schedule.")).toBeInTheDocument();
+    expect(onRun).not.toHaveBeenCalled();
+  });
+
+  it("offers no Resume on a paused backup to someone who may not resume it", async () => {
+    stubBackupApi({
+      drives: [
+        { id: "d1", label: "Main", mount_point: "/mnt/main" },
+        { id: "d2", label: "Backup", mount_point: "/mnt/backup" },
+      ],
+      backups: [
+        backup({ id: "b1", target_drive: "d2", target_drive_name: "Backup", status: "paused", can_resume: false, can_delete: false }),
+      ],
+    });
+    renderSheet();
+    expect(await screen.findByText("Paused")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
   });
 
   it("shows a stopped backup with its reason and only Delete", async () => {

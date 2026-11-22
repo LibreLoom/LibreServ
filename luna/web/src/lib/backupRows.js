@@ -23,6 +23,7 @@ import { formatRecentAgo } from "./recentItems";
  *   hard?: boolean,
  *   paused?: "locked" | null,
  *   locked_drive_names?: string[],
+ *   can_resume?: boolean,
  * }} BackupRow
  */
 
@@ -50,12 +51,21 @@ export function buildBackupRows(driveList = [], cloudList = []) {
 }
 
 /**
- * A backup needs a look when it is still running and its last copy failed
+ * Why a backup rebuilt from a drive is paused (`status: "paused"`), for its InfoHint.
+ * lunad holds it until its owner or an Admin resumes it.
+ */
+export const PAUSED_FROM_DRIVE_HINT =
+  "Luna found this backup on a drive, not in its own records. Check it's one you want, then resume it.";
+
+/**
+ * A paused backup (rebuilt from a drive) needs a look: it doesn't run until resumed.
+ * Otherwise a backup needs a look when it is still running and its last copy failed
  * or went stale. A cloud backup also needs a look when its last check or
  * last run reported a problem. Stopped and deleted-source backups are finished, not broken.
  * @param {any} b
  */
 export function needsALook(b) {
+  if (b.status === "paused") return true;
   if (b.status !== "active") return false;
   // Waiting for a drive's password is not a fault in the backup.
   if (b.paused === "locked") return false;
@@ -66,11 +76,12 @@ export function needsALook(b) {
 /**
  * Status pill for one backup row. One vocabulary for every screen that shows a backup.
  * @param {any} b
- * @returns {{ label: string, variant: "success"|"warning"|"error"|"default" }}
+ * @returns {{ label: string, variant: "success"|"warning"|"error"|"default", hint?: string }}
  */
 export function backupStatus(b, now = Date.now()) {
   if (b.status === "stopped") return { label: "Stopped", variant: "default" };
   if (b.status === "source_gone") return { label: "Original is gone", variant: "default" };
+  if (b.status === "paused") return { label: "Paused", variant: "warning", hint: PAUSED_FROM_DRIVE_HINT };
   if (b.kind === "cloud" && b.status === "active" && b.source_missing) {
     return { label: "Original is missing", variant: "warning" };
   }

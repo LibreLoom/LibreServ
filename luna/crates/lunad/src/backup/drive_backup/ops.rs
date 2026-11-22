@@ -208,10 +208,10 @@ pub fn on_grants_changed(conn: &Connection, drive_id: &str) {
             return;
         }
     };
-    for row in rows
-        .iter()
-        .filter(|r| r.state == "active" && r.source_drive == drive_id)
-    {
+    for row in rows.iter().filter(|r| {
+        (r.state == db::PROTECTION_ACTIVE || r.state == db::PROTECTION_PAUSED)
+            && r.source_drive == drive_id
+    }) {
         if let Err(err) = refresh_access(conn, row) {
             tracing::warn!(error = %err, id = %row.id, "could not update a backup's access");
         }
@@ -264,6 +264,28 @@ pub fn rebuild_from_manifests(conn: &Connection) -> usize {
     inserted
 }
 
+/// Lets a paused backup (see [`db::PROTECTION_PAUSED`]) run again. Whoever
+/// calls this has checked it; the API decides who may. Any other state is
+/// left alone. Returns the row as it is now.
+pub fn resume(conn: &Connection, id: &str) -> anyhow::Result<Option<ProtectionRow>> {
+    let Some(row) = db::get_protection(conn, id)? else {
+        return Ok(None);
+    };
+    if row.state != db::PROTECTION_PAUSED {
+        return Ok(Some(row));
+    }
+    db::set_protection_state(conn, id, db::PROTECTION_ACTIVE, "")?;
+    // The folder may have moved somewhere a backup can't follow meanwhile.
+    if let Some(row) = db::get_protection(conn, id)? {
+        check_stop(conn, &row)?;
+    }
+    db::get_protection(conn, id)
+}
+
+/// Why a rebuilt backup waits (`stop_reason` on a paused row).
+pub const PAUSED_REASON: &str =
+    "This backup came back from a drive. Check it, then resume it to start backing up again.";
+
 /// Rebuilds one store's row. Returns true when a row was inserted.
 fn rebuild_one(conn: &Connection, drive: &DriveRow, store: &Store) -> anyhow::Result<bool> {
     let Some(manifest) = store.read_manifest()? else {
@@ -305,15 +327,24 @@ fn rebuild_one(conn: &Connection, drive: &DriveRow, store: &Store) -> anyhow::Re
     if manifest.last_ok_at > 0 {
         db::record_protection_ok(conn, &id, manifest.last_ok_at, &access_json)?;
     }
-    // An unknown source drive stays `active`: the run waits for the drive.
+    // A source that moved somewhere a backup can't follow stops it for good.
+    // An unknown source drive can't be checked yet: the run waits for it.
     if source_known && let Some(row) = db::get_protection(conn, &id)? {
         check_stop(conn, &row)?;
+    }
+    // Everything above came from the drive, which anyone can write. Hold the
+    // backup until its owner or an Admin has looked at it.
+    if let Some(row) = db::get_protection(conn, &id)?
+        && row.state == db::PROTECTION_ACTIVE
+    {
+        db::set_protection_state(conn, &id, db::PROTECTION_PAUSED, PAUSED_REASON)?;
     }
     Ok(true)
 }
 
 /// What a person sees for a backup now. Stopped and source-gone backups
-/// are final, not failures, so they never show as Stale.
+/// are final, not failures, so they never show as Stale. A paused backup
+/// shows as paused (its `status`), not as Stale.
 pub fn state(row: &ProtectionRow, now: i64) -> BackupState {
     let rec = Record {
         last_ok_at: row.last_ok_at,
@@ -323,7 +354,12 @@ pub fn state(row: &ProtectionRow, now: i64) -> BackupState {
         since: row.created_at,
     };
     match status::state(rec, now) {
-        BackupState::Stale if row.state == "stopped" || row.state == "source_gone" => {
+        BackupState::Stale
+            if matches!(
+                row.state.as_str(),
+                db::PROTECTION_STOPPED | db::PROTECTION_SOURCE_GONE | db::PROTECTION_PAUSED
+            ) =>
+        {
             BackupState::Ok
         }
         other => other,
@@ -557,7 +593,7 @@ mod tests {
     }
 
     #[test]
-    fn rebuild_with_unknown_source_drive_stays_active() {
+    fn rebuild_with_unknown_source_drive_comes_back_paused() {
         let dir = tempfile::tempdir().unwrap();
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
         let (target, root, layout) = new_drive(dir.path(), &conn);
@@ -570,7 +606,8 @@ mod tests {
         assert_eq!(rebuild_from_manifests(&conn), 1);
         let back = db::get_protection(&conn, &id).unwrap().unwrap();
         assert_eq!(back.target_drive, target);
-        assert_eq!(back.state, "active");
+        assert_eq!(back.state, db::PROTECTION_PAUSED);
+        assert_eq!(back.stop_reason, PAUSED_REASON);
     }
 
     #[test]
@@ -597,10 +634,42 @@ mod tests {
         let back = db::get_protection(&conn, &live).unwrap().unwrap();
         assert_eq!(back.target_drive, target);
         assert_eq!(back.source_path, "/Photos");
-        assert_eq!(back.state, "active");
+        assert_eq!(
+            back.state,
+            db::PROTECTION_PAUSED,
+            "a row rebuilt from a drive waits for a person"
+        );
         assert!(db::get_protection(&conn, &dead).unwrap().is_none());
         assert!(!dead_store.root().exists());
         assert_eq!(rebuild_from_manifests(&conn), 0);
+    }
+
+    #[test]
+    fn a_rebuilt_backup_that_must_stop_stays_stopped_not_paused() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let (target, root, layout) = new_drive(dir.path(), &conn);
+        let id = uuid::Uuid::new_v4().to_string();
+        let store = Store::open(&root, &layout, &id).unwrap();
+        // The source is the backup drive itself: a backup can't go there.
+        store
+            .write_manifest(&manifest(&id, &target, "/Photos", NOW - 5))
+            .unwrap();
+        assert_eq!(rebuild_from_manifests(&conn), 1);
+        let back = db::get_protection(&conn, &id).unwrap().unwrap();
+        assert_eq!(back.state, db::PROTECTION_STOPPED);
+    }
+
+    #[test]
+    fn a_paused_backup_never_shows_as_stale() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let (src, _, _) = new_drive(dir.path(), &conn);
+        let (target, _, _) = new_drive(dir.path(), &conn);
+        let row = protect(&conn, &src, "/Photos", &target);
+        db::set_protection_state(&conn, &row.id, db::PROTECTION_PAUSED, PAUSED_REASON).unwrap();
+        let paused = db::get_protection(&conn, &row.id).unwrap().unwrap();
+        assert_eq!(state(&paused, NOW + 30 * 86_400), BackupState::Ok);
     }
 
     #[test]

@@ -17,7 +17,10 @@ use crate::drives::layout::Layout;
 use crate::files;
 
 mod ops;
-pub use ops::{delete, on_grants_changed, on_moved, rebuild_from_manifests, state, visible_to};
+pub use ops::{
+    PAUSED_REASON, delete, on_grants_changed, on_moved, rebuild_from_manifests, resume, state,
+    visible_to,
+};
 
 /// Fewer deletions than this never trip the mass-delete guard.
 const MASS_DELETE_MIN: usize = 20;
@@ -1995,6 +1998,37 @@ mod tests {
         let r = run(&s.db, &id, NOW).unwrap();
         assert_eq!(r.problem.as_deref(), Some("Stopped for testing."));
         assert_eq!(row(&s, &id).state, db::PROTECTION_STOPPED);
+    }
+
+    #[test]
+    fn a_backup_rebuilt_from_its_drive_waits_until_resumed() {
+        let s = setup();
+        write(&docs(&s).join("a.txt"), "one");
+        let id = make_backup(&s);
+        run(&s.db, &id, NOW).unwrap();
+        // The database is lost; the drive still holds the backup's manifest.
+        with_conn(&s.db, |c| {
+            c.execute("DELETE FROM protections WHERE id = ?1", [&id])
+        })
+        .unwrap();
+        assert_eq!(with_conn(&s.db, rebuild_from_manifests), 1);
+        assert_eq!(row(&s, &id).state, db::PROTECTION_PAUSED);
+        write(&docs(&s).join("b.txt"), "two");
+
+        // Neither the schedule nor "Back up now" runs it.
+        run_all(&s.db, NOW + 60);
+        let manual = run(&s.db, &id, NOW + 120).unwrap();
+        assert_eq!(manual.problem.as_deref(), Some(PAUSED_REASON));
+        assert_eq!(manual.copied, 0);
+        assert_eq!(row(&s, &id).state, db::PROTECTION_PAUSED);
+
+        // Resumed once, it runs as before.
+        let resumed = with_conn(&s.db, |c| resume(c, &id)).unwrap().unwrap();
+        assert_eq!(resumed.state, db::PROTECTION_ACTIVE);
+        assert!(resumed.stop_reason.is_empty());
+        let after = run(&s.db, &id, NOW + 180).unwrap();
+        assert_eq!(after.problem, None);
+        assert_eq!(after.copied + after.unchanged, 2);
     }
 
     #[test]

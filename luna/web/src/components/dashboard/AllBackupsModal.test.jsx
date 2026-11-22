@@ -78,6 +78,7 @@ function renderModal(backups = BACKUPS, { summary = EMPTY_SUMMARY, removed = 2 }
     if (init?.method === "DELETE") return jsonResponse({ removed });
     if (path.endsWith("/api/v1/users")) return jsonResponse(USERS);
     if (path.endsWith("/api/v1/private-backups/summary")) return jsonResponse(summary);
+    if (path.endsWith("/resume") && init?.method === "POST") return jsonResponse(backup({ status: "active" }));
     return jsonResponse({}, 404);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -250,7 +251,38 @@ describe("AllBackupsModal", () => {
     expect(sorted.map((b) => b.id)).toEqual(["z", "x", "y"]);
   });
 
+  it("a backup that came back from a drive is paused, needs a look, and its owner can resume it", async () => {
+    const { fetchMock } = renderModal([
+      backup({ id: "p", source_name: "Taxes", status: "paused", stop_reason: "This backup came back from a drive.", can_resume: true }),
+    ]);
+    await screen.findByRole("heading", { name: "You" });
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Why this backup is paused" })).toBeInTheDocument();
+    // It doesn't offer to run before it's resumed.
+    expect(screen.queryByRole("button", { name: "Back up now" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("radio", { name: "Needs a look" }));
+    expect(screen.getByText("Taxes")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Resume Taxes" }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([url, init]) => String(url).endsWith("/api/v1/backups/p/resume") && init?.method === "POST"),
+      ).toBe(true),
+    );
+    expect(await screen.findByText("Backup resumed. It runs again on its schedule.")).toBeInTheDocument();
+  });
+
+  it("someone who may not resume a paused backup sees no Resume", async () => {
+    auth.user = { id: "u2", role: "user" };
+    renderModal([backup({ id: "p", source_name: "Taxes", status: "paused", can_resume: false, can_delete: false })]);
+    await screen.findByText("Taxes");
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Resume/ })).not.toBeInTheDocument();
+  });
+
   it("maps status to pills", () => {
+    expect(backupStatus(backup({ status: "paused" }))).toMatchObject({ label: "Paused", variant: "warning" });
+    expect(backupStatus(backup({ status: "paused" })).hint).toMatch(/found this backup on a drive/);
     expect(backupStatus(backup()).label).toBe("Backup successful");
     expect(backupStatus(backup({ state: "stale" })).label).toBe("Last backed up 1 h ago.");
     expect(backupStatus(backup({ status: "source_gone" })).label).toBe("Original is gone");

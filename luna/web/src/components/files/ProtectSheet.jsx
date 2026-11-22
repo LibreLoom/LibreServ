@@ -17,6 +17,7 @@ import PausedByLockNote from "../protect/PausedByLockNote.jsx";
 import { deleteJson, getDrives, getJson, postJson, apiErrorMessage } from "../../lib/api";
 import { getPhraseStatus, PHRASE_QUERY_KEY } from "../../lib/cloudPhrase";
 import { formatRecentAgo } from "../../lib/recentItems.js";
+import { PAUSED_FROM_DRIVE_HINT } from "../../lib/backupRows.js";
 import { useAnimatedHeight } from "@libreloom/ui/hooks/useAnimatedHeight.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -283,6 +284,21 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
       refreshPrivateSummary();
     },
   });
+  const resumeBackup = useMutation({
+    mutationFn: (/** @type {string} */ id) => postJson(`/api/v1/backups/${id}/resume`, {}),
+    onSuccess: () => {
+      addToast({ type: "success", message: "Backup resumed. It runs again on its schedule." });
+      setError(null);
+    },
+    onError: (err) => {
+      haptic("error");
+      setError(apiErrorMessage(err));
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["backups"] });
+      refreshPrivateSummary();
+    },
+  });
   const deleteBackup = useMutation({
     mutationFn: (/** @type {string} */ id) => deleteJson(`/api/v1/backups/${id}`),
     onSuccess: () => {
@@ -459,6 +475,11 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                                                   />
                         )}
                       </>
+                    ) : b.status === "paused" ? (
+                      <span className="flex items-center gap-1.5">
+                        <LayeredPill actionLabel={b.target_drive_name}>Paused</LayeredPill>
+                        <InfoHint content={PAUSED_FROM_DRIVE_HINT} label="Why this backup is paused" />
+                      </span>
                     ) : (
                       <>
                         <LayeredPill actionLabel={b.target_drive_name}>
@@ -470,6 +491,17 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                       </>
                     )}
                     <div className="flex flex-wrap gap-2">
+                      {b.status === "paused" && b.can_resume && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          surface="secondary"
+                          loading={resumeBackup.isPending && resumeBackup.variables === b.id}
+                          onClick={() => resumeBackup.mutate(b.id)}
+                        >
+                          Resume
+                        </Button>
+                      )}
                       {b.status === "active" && !b.covered_by && (!isOthersPrivate || b.can_delete) && (
                         <Button
                           size="sm"

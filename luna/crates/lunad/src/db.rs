@@ -150,7 +150,7 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             private_owner TEXT NOT NULL DEFAULT '', -- user id for a private item's backup
             created_by TEXT NOT NULL,
             created_at INTEGER NOT NULL,
-            state TEXT NOT NULL DEFAULT 'active',   -- 'active' | 'stopped' | 'source_gone'
+            state TEXT NOT NULL DEFAULT 'active',   -- 'active' | 'stopped' | 'source_gone' | 'paused'
             stop_reason TEXT NOT NULL DEFAULT '',   -- plain-language, shown to people
             access_json TEXT NOT NULL DEFAULT '',   -- last saved AccessList (backup::access_list) as JSON
             last_ok_at INTEGER NOT NULL DEFAULT 0,
@@ -1201,6 +1201,10 @@ pub const PROTECTION_CLOUD: &str = "cloud";
 pub const PROTECTION_ACTIVE: &str = "active";
 pub const PROTECTION_STOPPED: &str = "stopped";
 pub const PROTECTION_SOURCE_GONE: &str = "source_gone";
+/// Rebuilt from a drive's manifest: the drive said who may see it and whose
+/// it is, and nobody here has checked that yet. Runs neither on the schedule
+/// nor by hand until its owner or an Admin resumes it once.
+pub const PROTECTION_PAUSED: &str = "paused";
 
 const PROTECTION_COLUMNS: &str = "id, kind, source_drive, source_path, target_drive,
     private_owner, created_by, created_at, state, stop_reason, access_json,

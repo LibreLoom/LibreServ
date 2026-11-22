@@ -31,6 +31,18 @@ describe("BackupItem", () => {
   });
 });
 
+describe("BackupItem paused", () => {
+  it.each(["primary", "secondary"])("shows Paused with why on a %s surface", (surface) => {
+    render(
+      <div className={surface === "primary" ? "surface-secondary" : "surface-primary"}>
+        <BackupItem backup={{ ...drive, status: "paused" }} surface={/** @type {any} */ (surface)} />
+      </div>,
+    );
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Why this backup is paused" })).toBeInTheDocument();
+  });
+});
+
 describe("RestoreForm", () => {
   it("renders the phrase box and disables submit while empty", () => {
     render(

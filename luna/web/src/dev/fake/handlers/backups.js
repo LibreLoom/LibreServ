@@ -2,7 +2,8 @@
 // backup drive (api/backup_folder.rs), cloud backups (api/cloud_backups.rs) and the
 // private-item views (api/private_backups.rs). Rows are world.backups / world.cloudBackups
 // and look like lunad's protections: `state` is the health (ok / failing / stale), `status`
-// the lifecycle (active / stopped / source gone), and `private_owner` the person whose
+// the lifecycle (active / stopped / source gone / paused: rebuilt from a drive, waits for
+// a Resume), and `private_owner` the person whose
 // private item or folder-inside-one the backup holds ("" for a shared folder).
 import { del, fail, get, post } from "../engine.js";
 import { CAP_EDIT, CAP_VIEW, hasCap, isAdmin, ownerState, pathContains, privateBoundary, privateUnder } from "../policy.js";
@@ -66,7 +67,7 @@ function backupJson(world, row, user) {
     covered_by: parent ? { path: parent.source_path, name: folderName(parent.source_path, srcLabel) } : null,
     source_drive_name: row.source_drive_name ?? srcLabel,
     source_name: row.source_name ?? folderName(row.source_path, srcLabel),
-    ...(row.kind === "cloud" ? { next_check: (row.last_checked_at ? row.last_checked_at + 14 * 86400 : now), size: row.size ?? 0, old_phrase_copies: row.old_phrase_copies ?? null, moving: row.moving ?? null } : { hard: row.hard ?? false, target_drive_name: row.target_drive_name ?? label(world, row.target_drive), ...pausedBy(world, row) }),
+    ...(row.kind === "cloud" ? { next_check: (row.last_checked_at ? row.last_checked_at + 14 * 86400 : now), size: row.size ?? 0, old_phrase_copies: row.old_phrase_copies ?? null, moving: row.moving ?? null } : { hard: row.hard ?? false, target_drive_name: row.target_drive_name ?? label(world, row.target_drive), ...pausedBy(world, row), can_resume: row.status === "paused" && canDelete(world, row, user) }),
     state: row.state ?? healthOf(row, now),
     can_delete: canDelete(world, row, user),
     private: Boolean(owner),
@@ -166,6 +167,10 @@ post("/api/v1/backups/:id/run", ({ world, user, params }) => {
   const row = world.backups.find((b) => b.id === params.id);
   if (!row) throw noBackup();
   if (!visibleTo(world, row, user)) throw noBackup();
+  // Stopped and paused backups don't run (drive_backup::run_inner).
+  if (row.status && row.status !== "active" && row.status !== "source_gone") {
+    return { done: false, problem: row.stop_reason || "This backup is stopped." };
+  }
   const plaintext = plaintextRefusal(world, row.source_drive, row.target_drive);
   if (plaintext) return { done: false, problem: plaintext };
   const lockedId = [row.target_drive, row.source_drive].find((id) => driveRow(world, id)?.locked);
@@ -174,6 +179,18 @@ post("/api/v1/backups/:id/run", ({ world, user, params }) => {
   if (problem) return { done: false, problem };
   Object.assign(row, { last_ok_at: nowS(), state: "ok", first_done: true, last_error: "", hard: false });
   return { done: true };
+});
+
+// A backup rebuilt from a drive runs again once its owner or an Admin resumes it (api/backups.rs resume).
+post("/api/v1/backups/:id/resume", ({ world, user, params }) => {
+  const row = world.backups.find((b) => b.id === params.id);
+  if (!row) throw noBackup();
+  if (!canDelete(world, row, user)) {
+    if (!visibleTo(world, row, user)) throw noBackup();
+    throw fail(403, "Only an Admin or the person this backup belongs to can resume it.");
+  }
+  if (row.status === "paused") Object.assign(row, { status: "active", stop_reason: "" });
+  return backupJson(world, row, user);
 });
 
 del("/api/v1/backups/:id", ({ world, user, params }) => {

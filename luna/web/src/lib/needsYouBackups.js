@@ -1,4 +1,4 @@
-import { lastBackedUpLine, needsALook } from "./backupRows.js";
+import { PAUSED_FROM_DRIVE_HINT, lastBackedUpLine, needsALook } from "./backupRows.js";
 
 /**
  * @typedef {{
@@ -45,6 +45,7 @@ export function visibleBackupRows(backupRows, viewer = {}) {
  * @returns {NeedsYouItem["title"]}
  */
 function backupTitle(row) {
+  if (row.status === "paused") return [{ name: row.source_name }, " backup is paused"];
   if (row.state === "failing") return [{ name: row.source_name }, " backup didn't finish"];
   if (row.state === "stale") return [{ name: row.source_name }, " backup is out of date"];
   if (row.kind === "cloud" && row.source_missing) {
@@ -67,6 +68,7 @@ function plainError(error) {
  * @returns {NeedsYouItem["detail"]}
  */
 function backupDetail(row, now) {
+  if (row.status === "paused") return PAUSED_FROM_DRIVE_HINT;
   const error = row.last_error ? plainError(row.last_error) : "";
   const driveName = row.kind === "drive" ? row.destination : "";
   if (row.state === "failing" && driveName) {

@@ -69,19 +69,22 @@ function CopiesLink({ backup }) {
   );
 }
 
-function BackupRow({ backup, onOpen, onRun, running, member = false }) {
+function BackupRow({ backup, onOpen, onRun, running, onResume, resuming, member = false }) {
   const active = backup.status === "active";
+  // Paused (came back from a drive): its copies are fine, it waits for a Resume.
+  const paused = backup.status === "paused";
+  const ended = !active && !paused;
   return (
     <li>
       <BackupItem
         backup={backup}
         surface="primary"
         note={
-          (!active || backup.moving) && (
+          (ended || backup.moving) && (
             <>
               {backup.moving && <MovingNote moving={backup.moving} member={member} surface="primary" />}
-              {!active && backup.stop_reason && <p>{backup.stop_reason}</p>}
-              {!active && (
+              {ended && backup.stop_reason && <p>{backup.stop_reason}</p>}
+              {ended && (
                 <p>
                   <CopiesLink backup={backup} />
                 </p>
@@ -90,28 +93,41 @@ function BackupRow({ backup, onOpen, onRun, running, member = false }) {
           )
         }
       >
+        {paused && backup.can_resume && (
+          <Button
+            variant="outline"
+            surface="primary"
+            size="sm"
+            loading={resuming}
+            disabled={resuming}
+            aria-label={`Resume ${backup.source_name}`}
+            onClick={() => onResume(backup)}
+          >
+            Resume
+          </Button>
+        )}
         {active && (
-          <>
-            <Button
-              variant="outline"
-              surface="primary"
-              size="sm"
-              loading={running}
-              disabled={running}
-              onClick={() => onRun(backup)}
-            >
-              Back up now
-            </Button>
-            <Button
-              variant="outline"
-              surface="primary"
-              size="sm"
-              aria-label={`Details for ${backup.source_name}`}
-              onClick={() => onOpen(backup)}
-            >
-              Details
-            </Button>
-          </>
+          <Button
+            variant="outline"
+            surface="primary"
+            size="sm"
+            loading={running}
+            disabled={running}
+            onClick={() => onRun(backup)}
+          >
+            Back up now
+          </Button>
+        )}
+        {(active || paused) && (
+          <Button
+            variant="outline"
+            surface="primary"
+            size="sm"
+            aria-label={`Details for ${backup.source_name}`}
+            onClick={() => onOpen(backup)}
+          >
+            Details
+          </Button>
         )}
       </BackupItem>
     </li>
@@ -237,6 +253,21 @@ export default function AllBackupsModal({ open, onClose, backups = [] }) {
     },
   });
 
+  const resume = useMutation({
+    mutationFn: (/** @type {{ backup: any }} */ { backup }) => postJson(`/api/v1/backups/${backup.id}/resume`, {}),
+    onSuccess: () => {
+      toast.addToast({ type: "success", message: "Backup resumed. It runs again on its schedule." });
+      queryClient.invalidateQueries({ queryKey: ["backups"] });
+    },
+    onError: (err) => {
+      toast.addToast({
+        type: "error",
+        message: "Could not resume the backup",
+        description: apiErrorMessage(err, "Try again in a moment."),
+      });
+    },
+  });
+
   // Sections by creator; each owner's private items row joins the section of its owner.
   const sections = groupByCreator(filterBackups(backups, filter), users.data).map((g) => ({
     ...g,
@@ -304,6 +335,8 @@ export default function AllBackupsModal({ open, onClose, backups = [] }) {
                     onOpen={setSheet}
                     onRun={(backup) => runNow.mutate({ backup })}
                     running={runNow.isPending && runNow.variables?.backup.id === b.id}
+                    onResume={(backup) => resume.mutate({ backup })}
+                    resuming={resume.isPending && resume.variables?.backup.id === b.id}
                   />
                 ))}
               </ul>
