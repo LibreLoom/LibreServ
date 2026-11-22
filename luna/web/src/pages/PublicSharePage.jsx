@@ -354,42 +354,44 @@ function PublicShareSession() {
           {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
           {album.isLoading ? null : (
             <>
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm">
-                  {meta?.item_count ?? albumItems.length} {(meta?.item_count ?? albumItems.length) === 1 ? "item" : "items"}
-                  {canUpload ? " · You can add photos and videos" : " · View only"}
-                  {album.hasNextPage ? " · More available" : ""}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant={selection.selectMode ? "secondary" : "outline"}
-                    surface="primary"
-                    size="sm"
-                    onClick={() => (selection.selectMode ? selection.exit() : selection.enter())}
-                  >
-                    {selection.selectMode ? "Cancel" : "Select"}
-                  </Button>
-                  {selection.selectMode && selection.selectedCount > 0 && (
+              {canView && (
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm">
+                    {meta?.item_count ?? albumItems.length} {(meta?.item_count ?? albumItems.length) === 1 ? "item" : "items"}
+                    {canUpload ? " · You can add photos and videos" : " · View only"}
+                    {album.hasNextPage ? " · More available" : ""}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
                     <Button
                       type="button"
-                      variant="secondary"
+                      variant={selection.selectMode ? "secondary" : "outline"}
                       surface="primary"
                       size="sm"
-                      onClick={downloadSelected}
+                      onClick={() => (selection.selectMode ? selection.exit() : selection.enter())}
                     >
-                      <Download size={16} />
-                      Download selected ({selection.selectedCount})
+                      {selection.selectMode ? "Cancel" : "Select"}
                     </Button>
-                  )}
-                  <Button variant="secondary" surface="primary" size="sm" asChild>
-                    <a href={`/s/${token}/zip`}>
-                      <Download size={16} />
-                      Download album
-                    </a>
-                  </Button>
+                    {selection.selectMode && selection.selectedCount > 0 && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        surface="primary"
+                        size="sm"
+                        onClick={downloadSelected}
+                      >
+                        <Download size={16} />
+                        Download selected ({selection.selectedCount})
+                      </Button>
+                    )}
+                    <Button variant="secondary" surface="primary" size="sm" asChild>
+                      <a href={`/s/${token}/zip`}>
+                        <Download size={16} />
+                        Download album
+                      </a>
+                    </Button>
+                  </div>
                 </div>
-              </div>
+              )}
               {canUpload && (
                 <UploadFilesPanel
                   title="Add photos"
@@ -398,7 +400,7 @@ function PublicShareSession() {
                   error={uploadError || null}
                 />
               )}
-              {albumItems.length === 0 ? (
+              {canView && (albumItems.length === 0 ? (
                 <EmptyState
                   icon={ImageIcon}
                   title="No photos yet"
@@ -426,7 +428,7 @@ function PublicShareSession() {
                     />
                   ))}
                 </div>
-              )}
+              ))}
               <div ref={sentinel} className="h-8" aria-hidden="true" />
               {album.isFetchingNextPage && (
                 <p className="py-4 text-center font-mono text-sm">Loading more…</p>

@@ -1728,6 +1728,89 @@ async fn make_album(app: &axum::Router, cookie: &str, csrf: &str, name: &str) ->
 }
 
 #[tokio::test]
+async fn album_links_follow_file_link_permissions() {
+    let mount = tempfile::tempdir().unwrap();
+    let (_dir, app) = test_app(mount.path());
+    let (owner, csrf) = admin(&app).await;
+    let (reader, reader_csrf, reader_id) = member(&app, &owner, &csrf, "reader").await;
+    let (sharer, sharer_csrf, sharer_id) = member(&app, &owner, &csrf, "sharer").await;
+    let album_id = make_album(&app, &owner, &csrf, "Trip").await;
+    let subject_url =
+        format!("/api/v1/access/subject?kind=album&drive_id=photos&album_id={album_id}");
+    let subject_body = |caps: &str| {
+        serde_json::json!({
+            "kind": "album",
+            "drive_id": "photos",
+            "album_id": album_id,
+            "caps": caps,
+        })
+    };
+
+    for (id, caps) in [(reader_id, "view"), (sharer_id, "upload+share")] {
+        let mut body = subject_body(caps);
+        body["user_id"] = serde_json::json!(id);
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/access/members",
+                &body.to_string(),
+                Some(&owner),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+    }
+
+    let link = make_link(
+        &app,
+        &sharer,
+        &sharer_csrf,
+        &subject_body("upload").to_string(),
+    )
+    .await;
+    let id = link["id"].as_str().unwrap();
+    for (session, can_manage) in [(&reader, false), (&sharer, true), (&owner, true)] {
+        let res = call(
+            &app,
+            json_req(Method::GET, &subject_url, "", Some(session), None),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let state = body_json(res).await;
+        let row = &state["links"][0];
+        assert_eq!(row["id"], id, "{state}");
+        assert_eq!(row["caps"], "upload", "{state}");
+        assert_eq!(row["can_manage"], can_manage, "{state}");
+        assert_eq!(row["url"].is_string(), can_manage, "{state}");
+    }
+
+    for (session, token) in [(&reader, &reader_csrf), (&sharer, &sharer_csrf)] {
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/access/links",
+                &subject_body("view").to_string(),
+                Some(session),
+                Some(token),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 403);
+    }
+    assert_eq!(
+        link_call(&app, Method::DELETE, id, "", &reader, &reader_csrf).await,
+        403
+    );
+    assert_eq!(
+        link_call(&app, Method::DELETE, id, "", &owner, &csrf).await,
+        200
+    );
+}
+
+#[tokio::test]
 async fn album_link_gets_no_path_operations() {
     let mount = tempfile::tempdir().unwrap();
     std::fs::write(mount.path().join("secret.txt"), "s").unwrap();

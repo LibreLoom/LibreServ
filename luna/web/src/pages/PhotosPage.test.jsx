@@ -1568,7 +1568,11 @@ describe("PhotosPage", () => {
     ).toBe(true);
   });
 
-  it("opens the share sheet when clicking Share on an album card", async () => {
+  it.each([
+    { role: "admin", myCaps: "full+share", canMakeLink: true },
+    { role: "user", myCaps: "view+share", canMakeLink: true },
+    { role: "user", myCaps: "view", canMakeLink: false },
+  ])("opens album sharing from the card with $myCaps", async ({ role, myCaps, canMakeLink }) => {
     const album = {
       id: "alb-share",
       home_drive_id: "a",
@@ -1578,6 +1582,9 @@ describe("PhotosPage", () => {
     };
     const fetchMock = vi.fn(async (url) => {
       const u = String(url);
+      if (u.includes("/auth/me") || u.endsWith("/auth/status")) {
+        return Response.json({ id: "u1", username: "sam", role, has_admin: true });
+      }
       if (u.endsWith("/drives")) {
         return new Response(JSON.stringify([{ id: "a", label: "Drive A" }]), {
           status: 200,
@@ -1603,7 +1610,7 @@ describe("PhotosPage", () => {
               name: "Shared Moments",
               item_count: 5,
             },
-            my_caps: "full+share",
+            my_caps: myCaps,
             members: [],
             links: [
               {
@@ -1650,7 +1657,14 @@ describe("PhotosPage", () => {
     expect(await screen.findByRole("heading", { name: "Sharing" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "People" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Links" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /New link/i })).toBeInTheDocument();
+    if (canMakeLink) {
+      expect(screen.getByRole("button", { name: /New link/i })).toBeInTheDocument();
+    } else {
+      expect(screen.queryByRole("button", { name: /New link|Copy link/i })).not.toBeInTheDocument();
+    }
+    if (role === "user") {
+      expect(screen.queryByRole("button", { name: /Rename album|Delete album/i })).not.toBeInTheDocument();
+    }
     expect(await screen.findByText(/Can view \+ add photos/)).toBeInTheDocument();
   });
 

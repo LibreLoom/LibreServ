@@ -5,6 +5,7 @@
 //                         failAfter, cameras, facets, dupes }
 //   world.albums        album rows; world.albumItems[id] = photo keys in it
 import { del, fail, get, patch, post, put, raw } from "../engine.js";
+import { CAP, hasCap } from "../../../lib/access.js";
 import { nextId } from "../world.js";
 import { makePhotos, photoKey } from "../photos.js";
 
@@ -24,15 +25,23 @@ function mayFail(g) {
 }
 
 const albumOf = (w, home, id) => w.albums.find((a) => a.id === id && a.home_drive_id === home);
-const canSee = (a, u) => a.owner_user_id === u.id || u.role === "admin" || (a.shared_with || []).includes(u.id);
+const canManage = (a, u) => a.owner_user_id === u.id || u.role === "admin";
+function canSee(w, a, u) {
+  if (canManage(a, u)) return true;
+  const subject = w.sharing?.subjects.find((s) =>
+    s.kind === "album" && s.drive_id === a.home_drive_id && s.album_id === a.id);
+  const grant = subject?.members.find((m) => m.user_id === u.id);
+  return grant ? hasCap(grant.caps, CAP.VIEW) : (a.shared_with || []).includes(u.id);
+}
 
-function albumRow(w, a) {
+function albumRow(w, a, user) {
   const keys = w.albumItems[a.id] || [];
   const cover = a.cover_key ? w.photos.find((p) => photoKey(p) === a.cover_key) : w.photos.find((p) => photoKey(p) === keys[0]);
   return {
     id: a.id,
     home_drive_id: a.home_drive_id,
     name: a.name,
+    ...(canManage(a, user) ? { owner_user_id: a.owner_user_id } : {}),
     item_count: a.fakeCount ?? keys.length,
     cover_thumb: cover?.thumb || a.cover_thumb || "",
     created_at: a.created_at ?? Math.floor(Date.now() / 1000),
@@ -41,7 +50,7 @@ function albumRow(w, a) {
 
 get("/api/v1/photos/albums", ({ world, user }) => {
   state(world);
-  return world.albums.filter((a) => canSee(a, user)).map((a) => albumRow(world, a));
+  return world.albums.filter((a) => canSee(world, a, user)).map((a) => albumRow(world, a, user));
 });
 
 post("/api/v1/photos/albums", ({ world, user, body }) => {
@@ -55,7 +64,7 @@ post("/api/v1/photos/albums", ({ world, user, body }) => {
   const a = { id: nextId("al"), home_drive_id: "d1", name, owner_user_id: user.id, locked: false, created_at: Math.floor(Date.now() / 1000) };
   world.albums.push(a);
   world.albumItems[a.id] = [];
-  return albumRow(world, a);
+  return albumRow(world, a, user);
 });
 
 patch("/api/v1/photos/albums/:drive/:id", ({ world, user, params, body }) => {
@@ -65,7 +74,7 @@ patch("/api/v1/photos/albums/:drive/:id", ({ world, user, params, body }) => {
   if (a.owner_user_id !== user.id && user.role !== "admin") return fail(403, "Only the person who made this album can change it.");
   if (body.name !== undefined) a.name = String(body.name).trim() || a.name;
   if (body.cover_path) a.cover_key = `${body.cover_drive_id}\0${body.cover_path}`;
-  return albumRow(world, a);
+  return albumRow(world, a, user);
 });
 
 del("/api/v1/photos/albums/:drive/:id", ({ world, user, params }) => {
@@ -167,7 +176,7 @@ function listPhotos(world, user, query) {
   let pool = world.photos;
   if (query.album_id) {
     const a = albumOf(world, query.album_home, query.album_id);
-    if (!a || !canSee(a, user)) throw Object.assign(new Error("gone"), { gone: true });
+    if (!a || !canSee(world, a, user)) throw Object.assign(new Error("gone"), { gone: true });
     const keys = new Set(world.albumItems[a.id] || []);
     pool = pool.filter((p) => keys.has(photoKey(p)));
   }
