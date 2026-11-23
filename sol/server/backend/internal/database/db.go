@@ -202,7 +202,7 @@ func (d *DB) ReplaceFile(ctx context.Context, replacementPath string) error {
 	if err := d.Migrate(); err != nil {
 		return err
 	}
-	if err := d.HealthCheck(); err != nil {
+	if err := d.IntegrityCheck(); err != nil {
 		return err
 	}
 
@@ -215,15 +215,32 @@ func (d *DB) ReplaceFile(ctx context.Context, replacementPath string) error {
 	return nil
 }
 
-// HealthCheck performs a quick self-diagnostic
+// HealthCheck is a cheap liveness probe. It runs on every health endpoint hit
+// and on the dashboard's monitoring poll, so it must not walk the database.
+// Use IntegrityCheck for the on-disk diagnostic.
 func (d *DB) HealthCheck() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	var one int
+	if err := d.db.QueryRowContext(ctx, "SELECT 1").Scan(&one); err != nil {
+		return fmt.Errorf("database health check failed: %w", err)
+	}
+	return nil
+}
+
+// IntegrityCheck walks every page of the database. It is intentionally not
+// part of HealthCheck: probes hit that on a short interval and a full scan on
+// every request added disk IO proportional to database size. Callers that
+// need on-disk verification (restore, admin diagnostic) use this explicitly.
+func (d *DB) IntegrityCheck() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var count int
 	err := d.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master").Scan(&count)
 	if err != nil {
-		return fmt.Errorf("database health check failed: %w", err)
+		return fmt.Errorf("database integrity check failed: %w", err)
 	}
 
 	var integrityOk string

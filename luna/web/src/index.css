@@ -29,7 +29,8 @@
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url('/fonts/FreeMono.ttf') format('truetype');
+  src: url('/fonts/FreeMono.woff2') format('woff2'),
+       url('/fonts/FreeMono.ttf') format('truetype');
 }
 
 @font-face {
@@ -37,7 +38,8 @@
   font-style: italic;
   font-weight: 400;
   font-display: swap;
-  src: url('/fonts/FreeMonoOblique.ttf') format('truetype');
+  src: url('/fonts/FreeMonoOblique.woff2') format('woff2'),
+       url('/fonts/FreeMonoOblique.ttf') format('truetype');
 }
 
 @font-face {
@@ -45,7 +47,8 @@
   font-style: normal;
   font-weight: 700;
   font-display: swap;
-  src: url('/fonts/FreeMonoBold.ttf') format('truetype');
+  src: url('/fonts/FreeMonoBold.woff2') format('woff2'),
+       url('/fonts/FreeMonoBold.ttf') format('truetype');
 }
 
 @font-face {
@@ -53,7 +56,8 @@
   font-style: italic;
   font-weight: 700;
   font-display: swap;
-  src: url('/fonts/FreeMonoBoldOblique.ttf') format('truetype');
+  src: url('/fonts/FreeMonoBoldOblique.woff2') format('woff2'),
+       url('/fonts/FreeMonoBoldOblique.ttf') format('truetype');
 }
 
 @property --primary {
@@ -654,6 +658,12 @@ textarea::placeholder {
 
 .animate-cascade-in {
     animation: cascade-in 280ms var(--motion-easing-emphasized-decelerate) backwards;
+}
+
+/* PhotoThumb marks the img directly on load. A scrub paints many cells at
+   once; a state update per image re-rendered the whole cell during W8. */
+img[data-thumb-loaded] {
+    opacity: 1;
 }
 
 /* Material Design 3 Indeterminate Linear Progress Animations */
