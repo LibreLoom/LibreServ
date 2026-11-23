@@ -251,6 +251,7 @@ export function SqliteEditorSession({
     /** @type {"table" | "query"} */ ("table"),
   );
   const [tablesOpen, setTablesOpen] = useState(true);
+  const [sqlOpen, setSqlOpen] = useState(true);
   const collapseTablesRef = useRef(
     /** @type {HTMLButtonElement | null} */ (null),
   );
@@ -1259,7 +1260,11 @@ export function SqliteEditorSession({
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <section
               aria-label="SQL editor"
-              className="flex h-56 shrink-0 flex-col border-b border-secondary/15 md:h-60"
+              className={cn(
+                "flex shrink-0 flex-col overflow-hidden border-b border-secondary/15",
+                "motion-safe:transition-[height] motion-safe:duration-[var(--motion-duration-short4)] motion-safe:ease-[var(--motion-easing-emphasized-decelerate)]",
+                sqlOpen ? "h-56 md:h-60" : "h-11",
+              )}
             >
               <div className="flex h-11 shrink-0 items-center gap-2 px-4">
                 <h2 className="font-mono text-xs text-secondary">SQL</h2>
@@ -1274,39 +1279,69 @@ export function SqliteEditorSession({
                   label="About SQL"
                 />
                 <span className="min-w-0 flex-1" />
-                <span className="hidden text-xs text-secondary sm:inline">
-                  {RUN_SHORTCUT}
-                </span>
+                {sqlOpen ? (
+                  <>
+                    <span className="hidden text-xs text-secondary sm:inline">
+                      {RUN_SHORTCUT}
+                    </span>
+                    <Button
+                      variant="secondary"
+                      surface="primary"
+                      size="sm"
+                      smoothResize={false}
+                      loading={running}
+                      disabled={running || saving || working || !hasSql}
+                      onClick={() => void runSql()}
+                    >
+                      Run
+                    </Button>
+                  </>
+                ) : null}
                 <Button
-                  variant="secondary"
+                  variant="ghost"
                   surface="primary"
-                  size="sm"
+                  size="iconSm"
                   smoothResize={false}
-                  loading={running}
-                  disabled={running || saving || working || !hasSql}
-                  onClick={() => void runSql()}
+                  haptic="light"
+                  type="button"
+                  aria-label={sqlOpen ? "Hide SQL editor" : "Show SQL editor"}
+                  aria-controls="sqlite-sql-editor-body"
+                  aria-expanded={sqlOpen}
+                  tooltip={sqlOpen ? "Hide SQL editor" : "Show SQL editor"}
+                  onClick={() => setSqlOpen((open) => !open)}
                 >
-                  Run
+                  {sqlOpen ? (
+                    <ChevronUp size={ICON_SIZE.sm} aria-hidden="true" />
+                  ) : (
+                    <ChevronDown size={ICON_SIZE.sm} aria-hidden="true" />
+                  )}
                 </Button>
               </div>
-              <div className="min-h-0 flex-1 overflow-hidden border-t border-secondary/15">
-                <SqlEditor
-                  schema={schemaCompletions}
-                  onChange={(sql) => {
-                    sqlRef.current = sql;
-                    const next = sql.trim().length > 0;
-                    setHasSql((current) =>
-                      current === next ? current : next,
-                    );
-                  }}
-                  onRun={() => void runSql()}
-                />
-              </div>
-              {sqlError ? (
-                <div className="border-t border-secondary/15 px-4 py-2">
-                  <InlineError surface="primary">{sqlError}</InlineError>
+              <div
+                id="sqlite-sql-editor-body"
+                aria-hidden={sqlOpen ? undefined : true}
+                inert={sqlOpen ? undefined : true}
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                <div className="min-h-0 flex-1 overflow-hidden border-t border-secondary/15">
+                  <SqlEditor
+                    schema={schemaCompletions}
+                    onChange={(sql) => {
+                      sqlRef.current = sql;
+                      const next = sql.trim().length > 0;
+                      setHasSql((current) =>
+                        current === next ? current : next,
+                      );
+                    }}
+                    onRun={() => void runSql()}
+                  />
                 </div>
-              ) : null}
+                {sqlError ? (
+                  <div className="border-t border-secondary/15 px-4 py-2">
+                    <InlineError surface="primary">{sqlError}</InlineError>
+                  </div>
+                ) : null}
+              </div>
             </section>
 
             <section

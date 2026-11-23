@@ -104,6 +104,33 @@ describe("SqliteEditorSession table switching", () => {
     );
   });
 
+  it("collapses the SQL editor and brings it back", async () => {
+    mountSession();
+    await screen.findByText("Party");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Hide SQL editor" }),
+    );
+    const body = document.getElementById("sqlite-sql-editor-body");
+    expect(body).toHaveAttribute("aria-hidden", "true");
+    expect(body).toHaveAttribute("inert");
+    expect(
+      screen.queryByRole("button", { name: "Run" }),
+    ).not.toBeInTheDocument();
+
+    const show = screen.getByRole("button", { name: "Show SQL editor" });
+    expect(show).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(show);
+    expect(body).not.toHaveAttribute("aria-hidden");
+    expect(body).not.toHaveAttribute("inert");
+    expect(
+      screen.getByRole("button", { name: "Run" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Hide SQL editor" }),
+    ).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("explains cell editing from the table header", async () => {
     mountSession();
     await screen.findByText("Party");
