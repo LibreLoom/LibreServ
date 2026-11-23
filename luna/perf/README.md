@@ -91,7 +91,9 @@ caches) except W2 (a reload) and W16 (one session clicking the navbar).
 (`crates/lunad/web/dist`), or `LUNA_BUNDLE_REPORT=1 npm run build` writes it
 right after building. It prints gzip sizes for the initial load (what W1
 downloads), per-page chunks and the largest lazy chunks, and writes
-`perf/results/bundle-latest.json`.
+`perf/results/bundle-latest.json`. The initial-load figure includes the
+`fonts/` faces the CSS fetches; a TTF beside a WOFF2 is a fallback and is not
+counted. Excalidraw's canvas fonts are lazy assets and are not part of W1.
 
 ## lunad (crates/lunad)
 

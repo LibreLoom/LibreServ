@@ -17,6 +17,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_DIST = path.resolve(HERE, "../../crates/lunad/web/dist");
 const RESULTS_DIR = path.resolve(HERE, "../../perf/results");
 const PAGE_CHUNK = /^assets\/[A-Za-z]+Page-[\w-]+\.js$/;
+const FONT_RE = /\.(?:ttf|woff2?|otf)$/;
 
 /** @param {string} dir @returns {string[]} paths relative to `dir` */
 function walk(dir, base = dir) {
@@ -53,8 +54,17 @@ export function writeBundleReport({ distDir = DEFAULT_DIST, resultsDir = RESULTS
   if (!existsSync(indexHtml)) throw new Error(`No build at ${distDir} (index.html missing). Run npm run build first.`);
   const initial = initialFiles(readFileSync(indexHtml, "utf8"));
 
-  const files = walk(distDir)
-    .filter((f) => /\.(?:js|css)$/.test(f))
+  const all = walk(distDir);
+  // Fonts come from CSS, not index.html. A TTF next to a WOFF2 is a fallback
+  // a modern browser never downloads, so count only the preferred face.
+  for (const file of all) {
+    if (!FONT_RE.test(file) || !file.startsWith("fonts/")) continue;
+    if (/\.ttf$/.test(file) && all.includes(file.replace(/\.ttf$/, ".woff2"))) continue;
+    initial.add(file);
+  }
+
+  const files = all
+    .filter((f) => /\.(?:js|css|ttf|woff2?|otf)$/.test(f))
     .map((file) => {
       const bytes = readFileSync(path.join(distDir, file));
       // A prebuilt .gz next to the file is what lunad would serve; else compress.

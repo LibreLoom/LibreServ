@@ -10,10 +10,15 @@ lever was the four FreeMono faces: 1.6 MiB of TTF replaced with 545 KiB of
 WOFF2 carrying every glyph, with the TTFs kept as a fallback for older
 browsers. The regular face is preloaded.
 
+The two bold faces are not used by the design: no code combines `font-mono`
+with a bold weight. They keep all Latin and symbol glyphs in a ~30 KiB WOFF2
+subset each; the regular and italic faces carry every glyph.
+
 | Product | Before | After | Ratio |
 |---|---|---|---|
-| Sol initial download | 2013.9 KiB | 1029.5 KiB | 1.96x |
-| Luna font faces (shared) | 1530 KiB | 545 KiB | 2.81x |
+| Sol first-load bytes | 2013.9 KiB | 871.5 KiB | 2.31x |
+| Luna first-load bytes | 1054.2 KiB | 596.4 KiB | 1.77x |
+| Shared font faces | 1530 KiB | 388 KiB | 3.94x |
 
 Sol's dashboard ticker is a leaf component, so its once-a-second update no
 longer reconciles the health card and app list with it. Tab-focus refetches

@@ -58,7 +58,7 @@ export function writeBundleReport({ distDir = DEFAULT_DIST, resultsDir = RESULTS
   // preferred face.
   const all = walk(distDir);
   for (const file of all) {
-    if (!FONT_RE.test(file)) continue;
+    if (!FONT_RE.test(file) || !file.startsWith("fonts/")) continue;
     if (/\.ttf$/.test(file) && all.includes(file.replace(/\.ttf$/, ".woff2"))) continue;
     initial.add(file);
   }
