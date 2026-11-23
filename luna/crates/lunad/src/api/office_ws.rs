@@ -1112,11 +1112,128 @@ mod tests {
     use crate::access::{CAP_ALL, CAP_VIEW, KIND_PATH};
     use crate::drives::DriveManager;
     use crate::drives::mount::shared_mock;
+    use base64::Engine as _;
+    use sha2::Digest as _;
 
     fn test_state(dir: &tempfile::TempDir) -> AppState {
         let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
         let dm = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
         AppState::new(conn, dm, dir.path())
+    }
+
+    #[tokio::test]
+    async fn fonts_dispatch_covers_aliases_validators_and_verbs() {
+        let dir = tempfile::tempdir().unwrap();
+        let pack = dir.path().join("eurooffice");
+        std::fs::create_dir_all(pack.join("fonts")).unwrap();
+        std::fs::create_dir_all(pack.join("core-fonts")).unwrap();
+
+        let source = vec![7u8; 64];
+        let mut generated = source.clone();
+        for byte in generated.iter_mut().take(32) {
+            *byte ^= 0xA5;
+        }
+        std::fs::write(pack.join("core-fonts/real.ttf"), &source).unwrap();
+        let head = base64::engine::general_purpose::STANDARD.encode(&generated[..32]);
+        let hash = format!(
+            "\"{}\"",
+            sha2::Sha256::digest(&generated)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        );
+        std::fs::write(
+            pack.join("fonts/aliases.json"),
+            serde_json::json!({
+                "version": 1,
+                "fonts": {
+                    "024": {
+                        "src": "core-fonts/real.ttf",
+                        "head": head,
+                        "sha256": hash.trim_matches('"'),
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let state = test_state(&dir);
+        let request = |method: axum::http::Method, headers: &[(&str, &str)]| {
+            let mut builder = axum::extract::Request::builder()
+                .method(method)
+                .uri("/fonts/024");
+            for (name, value) in headers {
+                builder = builder.header(*name, *value);
+            }
+            builder.body(axum::body::Body::empty()).unwrap()
+        };
+
+        let res = fonts_dispatch(
+            State(state.clone()),
+            Path("024".to_string()),
+            request(axum::http::Method::GET, &[]),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(res.headers()[axum::http::header::ETAG], hash);
+        assert_eq!(
+            axum::body::to_bytes(res.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .as_ref(),
+            generated.as_slice()
+        );
+
+        let res = fonts_dispatch(
+            State(state.clone()),
+            Path("024".to_string()),
+            request(axum::http::Method::GET, &[("if-none-match", hash.as_str())]),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::NOT_MODIFIED);
+        assert!(
+            !res.headers()
+                .contains_key(axum::http::header::CONTENT_LENGTH)
+        );
+
+        let res = fonts_dispatch(
+            State(state.clone()),
+            Path("024".to_string()),
+            request(axum::http::Method::HEAD, &[]),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(res.headers()[axum::http::header::CONTENT_LENGTH], "64");
+        assert!(
+            axum::body::to_bytes(res.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+
+        let res = fonts_dispatch(
+            State(state.clone()),
+            Path("024".to_string()),
+            request(axum::http::Method::GET, &[("range", "bytes=0-9")]),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            axum::body::to_bytes(res.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .as_ref(),
+            &generated[..10]
+        );
+
+        let res = fonts_dispatch(
+            State(state),
+            Path("024".to_string()),
+            request(axum::http::Method::POST, &[]),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::METHOD_NOT_ALLOWED);
     }
 
     fn mount_drive(dir: &tempfile::TempDir) {

@@ -38,24 +38,31 @@ struct Entry {
 
 struct Cache {
     dir: PathBuf,
+    manifest_mtime: Option<std::time::SystemTime>,
     aliases: HashMap<String, Entry>,
 }
 
 static CACHE: OnceLock<Mutex<Option<Cache>>> = OnceLock::new();
 
-/// Look up one alias. The cache is keyed by pack directory so a dev run with
-/// `LUNA_PACK_ROOT` pointing somewhere else reloads instead of serving the
-/// previous pack's fonts.
+/// Look up one alias. The cache is keyed by pack directory and the manifest's
+/// mtime, so a dev rebuilding a pack in place reloads instead of serving a
+/// hybrid of the old header and the new source tail.
 fn alias_for(pack_dir: &Path, name: &str) -> Option<Entry> {
     let mut slot = CACHE
         .get_or_init(|| Mutex::new(None))
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    if slot.as_ref().is_none_or(|c| c.dir != pack_dir) {
+    let path = pack_dir.join("fonts").join("aliases.json");
+    let mtime = std::fs::metadata(&path)
+        .ok()
+        .and_then(|m| m.modified().ok());
+    if slot
+        .as_ref()
+        .is_none_or(|c| c.dir != pack_dir || c.manifest_mtime != mtime)
+    {
         // Cache a miss too: a pack with no aliases.json must not re-read it on
         // every font request.
         let mut aliases = HashMap::new();
-        let path = pack_dir.join("fonts").join("aliases.json");
         if let Ok(raw) = std::fs::read(&path) {
             if let Ok(manifest) = serde_json::from_slice::<Manifest>(&raw) {
                 if manifest.version == 1 {
@@ -98,6 +105,7 @@ fn alias_for(pack_dir: &Path, name: &str) -> Option<Entry> {
         }
         *slot = Some(Cache {
             dir: pack_dir.to_path_buf(),
+            manifest_mtime: mtime,
             aliases,
         });
     }
