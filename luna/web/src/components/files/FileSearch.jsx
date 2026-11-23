@@ -71,6 +71,8 @@ function usualTextSize() {
 
 /** Match ModalCard exit + FLIP morph duration. */
 const OVERLAY_EXIT_MS = 320;
+/** Panel morph duration (`--motion-duration-medium4`). The hint types after it lands. */
+const OVERLAY_OPEN_MS = 400;
 
 const KIND_OPTIONS = [
   { value: "all", label: "All" },
@@ -89,8 +91,9 @@ function prefersReducedMotion() {
 }
 
 /**
- * Apply a FLIP invert transform so `el` appears at `fromRect`, then clear it
- * on the next frame so CSS transitions morph to the natural layout.
+ * Apply a FLIP invert transform so `el` appears at `fromRect`. Opening only
+ * paints that inverted state; `playOpenFlip` starts the transition once it is
+ * on screen (see the layout effect in `FileSearch`).
  * @param {HTMLElement} el
  * @param {DOMRect} fromRect
  * @param {"open" | "close"} direction
@@ -112,14 +115,6 @@ function applyFlip(el, fromRect, direction) {
     el.style.transition = "none";
     el.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
     el.style.opacity = "0.55";
-    // Force layout so the invert sticks before we play forward.
-    void el.offsetWidth;
-    el.style.transition = [
-      "transform var(--motion-duration-medium4) var(--motion-easing-emphasized-decelerate)",
-      "opacity var(--motion-duration-medium2) var(--motion-easing-emphasized-decelerate)",
-    ].join(", ");
-    el.style.transform = "none";
-    el.style.opacity = "1";
   } else {
     el.style.transition = [
       "transform var(--motion-duration-medium2) var(--motion-easing-emphasized-accelerate)",
@@ -129,6 +124,20 @@ function applyFlip(el, fromRect, direction) {
     el.style.opacity = "0";
   }
   return true;
+}
+
+/**
+ * Play the open FLIP forward. Called after the inverted frame has painted, so
+ * a slow mount can't eat the start of the morph.
+ * @param {HTMLElement} el
+ */
+function playOpenFlip(el) {
+  el.style.transition = [
+    "transform var(--motion-duration-medium4) var(--motion-easing-emphasized-decelerate)",
+    "opacity var(--motion-duration-medium2) var(--motion-easing-emphasized-decelerate)",
+  ].join(", ");
+  el.style.transform = "none";
+  el.style.opacity = "1";
 }
 
 /** The header search icon. Opens the all-files search and is where it morphs from. */
@@ -197,9 +206,15 @@ export default function FileSearch() {
 
   const [present, setPresent] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
+  // The decorative hint types only once the panel has landed; typing during
+  // the morph re-lays out the scaled panel every 24 ms and starves the
+  // compositor on Luna's slowest hardware.
+  const [openSettled, setOpenSettled] = useState(false);
   const returnFocusRef = useRef(/** @type {HTMLElement | null} */ (null));
   const inputRef = useRef(/** @type {HTMLInputElement | null} */ (null));
+  const overlayRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const panelRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const openPlayedRef = useRef(false);
   const fromRectRef = useRef(/** @type {DOMRect | null} */ (null));
   const exitTimerRef = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
   const isClosingRef = useRef(false);
@@ -348,6 +363,13 @@ export default function FileSearch() {
 
     const trigger = searchTrigger()?.getBoundingClientRect() ?? fromRectRef.current;
     const panel = panelRef.current;
+    if (panel && !openPlayedRef.current) {
+      // Closed before the open morph started (it waits two frames): drop the
+      // inverted state first, or the close would animate the panel *up*.
+      panel.style.transition = "none";
+      panel.style.transform = "";
+      panel.style.opacity = "";
+    }
     if (panel && !(trigger && applyFlip(panel, trigger, "close"))) {
       // No header icon to shrink into (e.g. opened from Home): just fade out.
       panel.style.transition = "opacity var(--motion-duration-short4) var(--motion-easing-emphasized-accelerate)";
@@ -385,6 +407,10 @@ export default function FileSearch() {
     fromRectRef.current = searchTrigger()?.getBoundingClientRect() ?? null;
     returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setIsClosing(false);
+    setOpenSettled(false);
+    // Start from the natural height, not the last answer's: a stale fixed
+    // height would animate down as soon as the new body was measured.
+    setBodyHeight(null);
     setPresent(true);
     haptic("medium");
   }, [isClosing, present]);
@@ -396,14 +422,30 @@ export default function FileSearch() {
 
   useShortcut(["/", "Alt+/"], openOverlay, { label: "Search all your files", group: "Search" });
   // FLIP open: invert from the header button into the elevated search surface.
+  // The mount can be a long task (React, a big page behind it), and a transition
+  // started inside it is already a third done by the first painted frame. Paint
+  // the inverted state first, then start both the morph and the backdrop fade.
   useLayoutEffect(() => {
-    if (!present || isClosing) return;
+    if (!present || isClosing) return undefined;
     const panel = panelRef.current;
-    const from = fromRectRef.current;
-    if (!panel) return;
-    if (!applyFlip(panel, from, "open")) {
-      panel.classList.add("file-search-panel-enter");
-    }
+    if (!panel) return undefined;
+    const overlay = overlayRef.current;
+    overlay?.classList.remove("file-search-live");
+    const flipped = applyFlip(panel, fromRectRef.current, "open");
+    openPlayedRef.current = !flipped;
+    if (!flipped) panel.classList.add("file-search-panel-enter");
+    let inner = 0;
+    const outer = window.requestAnimationFrame(() => {
+      inner = window.requestAnimationFrame(() => {
+        overlay?.classList.add("file-search-live");
+        openPlayedRef.current = true;
+        if (flipped) playOpenFlip(panel);
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(outer);
+      window.cancelAnimationFrame(inner);
+    };
   }, [present, isClosing]);
 
   // Focus the search field once the overlay is up.
@@ -416,8 +458,20 @@ export default function FileSearch() {
     return () => window.clearTimeout(id);
   }, [present, isClosing]);
 
+  // Start the empty-state typing only after the morph has landed (+ the two
+  // frames the FLIP waits for its first paint). `openOverlay` clears the flag.
+  useEffect(() => {
+    if (!present || isClosing) return undefined;
+    const id = window.setTimeout(
+      () => setOpenSettled(true),
+      prefersReducedMotion() ? 0 : OVERLAY_OPEN_MS + 50,
+    );
+    return () => window.clearTimeout(id);
+  }, [present, isClosing]);
+
   // Track the results' natural height so the panel glides between states
-  // (hint → loading → results) instead of jumping.
+  // (hint → loading → results) instead of jumping. Before paint, so the first
+  // open frame already has this open's height (openOverlay clears the old one).
   useLayoutEffect(() => {
     const el = bodyInnerRef.current;
     if (!present || !el || typeof ResizeObserver === "undefined") return undefined;
@@ -547,19 +601,36 @@ export default function FileSearch() {
   const overlay = present
     ? createPortal(
         <div
+          ref={overlayRef}
           data-slot="file-search-overlay"
-          className={cn(
-            "fixed inset-0 z-50 flex items-start justify-center p-4 sm:p-8 pt-[max(1rem,8vh)] sm:pt-[max(2rem,12vh)]",
-            "bg-primary/60 backdrop-blur-sm",
-            isClosing
-              ? "file-search-backdrop-exit"
-              : "file-search-backdrop-enter",
-          )}
+          className="fixed inset-0 z-50 flex items-start justify-center p-4 sm:p-8 pt-[max(1rem,8vh)] sm:pt-[max(2rem,12vh)]"
           onClick={() => {
             if (actionModalOpen) return;
             beginClose();
           }}
         >
+          {/*
+            The blur is its own layer, and both backdrops only change opacity.
+            A backdrop-filter that changes shape re-blurs the whole page every
+            frame (see ModalCard); nesting the morphing panel inside it made
+            the open/close stutter.
+          */}
+          <div
+            aria-hidden="true"
+            data-slot="file-search-blur"
+            className={cn(
+              "absolute inset-0 -z-10 backdrop-blur-sm",
+              isClosing ? "file-search-backdrop-exit" : "file-search-backdrop-enter",
+            )}
+          />
+          <div
+            aria-hidden="true"
+            data-slot="file-search-scrim"
+            className={cn(
+              "absolute inset-0 -z-10 bg-primary/60",
+              isClosing ? "file-search-backdrop-exit" : "file-search-backdrop-enter",
+            )}
+          />
           <div
             ref={panelRef}
             data-slot="file-search-panel"
@@ -759,12 +830,14 @@ export default function FileSearch() {
 
               {trimmed.length === 0 && (
                 <div className="py-6 text-center font-mono text-primary">
-                  <Typewriter
-                    as="p"
-                    className="block text-sm"
-                    text="Search every file and folder you can open."
-                    cursor={false}
-                  />
+                  {openSettled && (
+                    <Typewriter
+                      as="p"
+                      className="block text-sm"
+                      text="Search every file and folder you can open."
+                      cursor={false}
+                    />
+                  )}
                   <p className="mt-2 text-xs">Press / on any page to open search.</p>
                 </div>
               )}

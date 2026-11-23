@@ -262,6 +262,19 @@ textarea::placeholder {
     animation: file-search-panel-in var(--motion-duration-medium4) var(--motion-easing-emphasized-decelerate) both;
 }
 
+/* Held at their first frame until the component adds `file-search-live`
+   after the overlay has painted: a big React mount is one long task, and an
+   animation started inside it is already part-way through by the first frame. */
+.file-search-backdrop-enter,
+.file-search-panel-enter {
+    animation-play-state: paused;
+}
+
+.file-search-live .file-search-backdrop-enter,
+.file-search-live .file-search-panel-enter {
+    animation-play-state: running;
+}
+
 /* Results slide up as they arrive; rows are keyed, so only new ones play it. */
 @keyframes file-search-row-in {
     from {
