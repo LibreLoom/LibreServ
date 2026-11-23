@@ -122,6 +122,16 @@ pub fn etag_for(pack_dir: &Path, name: &str) -> Option<String> {
     alias_for(pack_dir, name).map(|entry| entry.etag)
 }
 
+/// Length of the font an alias would serve, from the source file's metadata.
+/// A HEAD request can use this without reading the TTF from the eMMC.
+pub fn source_len_for(pack_dir: &Path, name: &str) -> Option<u64> {
+    if name.contains('/') || name.contains('\\') {
+        return None;
+    }
+    let entry = alias_for(pack_dir, name)?;
+    std::fs::metadata(entry.source).ok().map(|m| m.len())
+}
+
 /// Return the generated web font for an alias, or `None` when the name is a
 /// real file in `fonts/` (or no manifest exists). Callers fall back to the
 /// normal static-file handler in that case.

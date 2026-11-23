@@ -200,6 +200,19 @@ fn parse_byte_range(value: &str, total: usize) -> Option<(usize, usize)> {
     (start < end).then_some((start, end))
 }
 
+/// True for `If-None-Match: *`, a comma-separated list containing the ETag,
+/// or a weak form of it. Mirrors what a static file server accepts.
+fn if_none_match_matches(header: Option<&str>, etag: &str) -> bool {
+    match header {
+        Some("*") => true,
+        Some(list) => list.split(',').any(|candidate| {
+            let candidate = candidate.trim();
+            candidate == etag || candidate.strip_prefix("W/") == Some(etag)
+        }),
+        None => false,
+    }
+}
+
 /// Build the response for a synthesized font. Kept separate from the handler
 /// so the conditional, HEAD and range paths can be tested without a pack.
 fn aliased_font_response(
@@ -207,9 +220,10 @@ fn aliased_font_response(
     is_head: bool,
     if_none_match: Option<&str>,
     range_header: Option<&str>,
+    total: usize,
     body: Vec<u8>,
 ) -> Response {
-    if if_none_match == Some(etag.as_str()) {
+    if if_none_match_matches(if_none_match, &etag) {
         return axum::response::Response::builder()
             .status(StatusCode::NOT_MODIFIED)
             .header(axum::http::header::ETAG, etag)
@@ -220,7 +234,6 @@ fn aliased_font_response(
             .body(axum::body::Body::empty())
             .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
     }
-    let total = body.len();
     let range = if is_head {
         None
     } else {
@@ -302,21 +315,38 @@ pub async fn fonts_dispatch(
     if is_read {
         if let Some(etag) = crate::api::font_aliases::etag_for(&pack, &tail) {
             // A matching validator returns 304 before the font is read at all.
-            if if_none_match.as_deref() == Some(etag.as_str()) {
+            if if_none_match_matches(if_none_match.as_deref(), &etag) {
                 return aliased_font_response(
                     etag,
                     is_head,
                     if_none_match.as_deref(),
                     None,
+                    0,
                     Vec::new(),
                 );
             }
+            // HEAD needs only the would-be length: the masked prefix replaces
+            // 32 bytes in place, so the source file's size is the answer.
+            if is_head {
+                if let Some(len) = crate::api::font_aliases::source_len_for(&pack, &tail) {
+                    return aliased_font_response(
+                        etag,
+                        true,
+                        if_none_match.as_deref(),
+                        None,
+                        len as usize,
+                        Vec::new(),
+                    );
+                }
+            }
             if let Some(body) = crate::api::font_aliases::synth(&pack, &tail).await {
+                let total = body.len();
                 return aliased_font_response(
                     etag,
                     is_head,
                     if_none_match.as_deref(),
                     range_header.as_deref(),
+                    total,
                     body,
                 );
             }
@@ -1280,7 +1310,7 @@ mod tests {
         let body = vec![7u8; 64];
         let etag = "\"abc\"".to_string();
 
-        let ok = aliased_font_response(etag.clone(), false, None, None, body.clone());
+        let ok = aliased_font_response(etag.clone(), false, None, None, 64, body.clone());
         assert_eq!(ok.status(), StatusCode::OK);
         assert_eq!(ok.headers()[axum::http::header::CONTENT_LENGTH], "64");
         assert_eq!(ok.headers()[axum::http::header::ETAG], "\"abc\"");
@@ -1297,6 +1327,7 @@ mod tests {
             false,
             Some("\"abc\""),
             Some("bytes=1-2"),
+            64,
             body.clone(),
         );
         assert_eq!(not_modified.status(), StatusCode::NOT_MODIFIED);
@@ -1317,7 +1348,14 @@ mod tests {
                 .is_empty()
         );
 
-        let head = aliased_font_response(etag.clone(), true, None, Some("bytes=1-2"), body.clone());
+        let head = aliased_font_response(
+            etag.clone(),
+            true,
+            None,
+            Some("bytes=1-2"),
+            64,
+            body.clone(),
+        );
         assert_eq!(head.status(), StatusCode::OK);
         assert_eq!(head.headers()[axum::http::header::CONTENT_LENGTH], "64");
         assert!(
@@ -1332,7 +1370,8 @@ mod tests {
                 .is_empty()
         );
 
-        let partial = aliased_font_response(etag, false, None, Some("bytes=10-19"), body.clone());
+        let partial =
+            aliased_font_response(etag, false, None, Some("bytes=10-19"), 64, body.clone());
         assert_eq!(partial.status(), StatusCode::PARTIAL_CONTENT);
         assert_eq!(partial.headers()[axum::http::header::CONTENT_LENGTH], "10");
         assert_eq!(
@@ -1346,6 +1385,16 @@ mod tests {
                 .as_ref(),
             &body[10..20]
         );
+    }
+
+    #[test]
+    fn if_none_match_accepts_star_lists_and_weak_etags() {
+        let etag = "\"abc\"";
+        assert!(if_none_match_matches(Some("*"), etag));
+        assert!(if_none_match_matches(Some("\"x\", \"abc\""), etag));
+        assert!(if_none_match_matches(Some("W/\"abc\""), etag));
+        assert!(!if_none_match_matches(Some("\"other\""), etag));
+        assert!(!if_none_match_matches(None, etag));
     }
 
     #[test]
