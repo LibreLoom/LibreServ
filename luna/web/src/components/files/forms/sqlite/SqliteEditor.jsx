@@ -1220,7 +1220,7 @@ export function SqliteEditorSession({
                 <Button
                   ref={expandTablesRef}
                   variant="ghost"
-                  surface="secondary"
+                  surface="primary"
                   size="sm"
                   smoothResize={false}
                   haptic="light"
@@ -1249,7 +1249,7 @@ export function SqliteEditorSession({
                     aria-hidden="true"
                   />
                 </Button>
-                <span className="hidden text-[11px] text-secondary md:block [writing-mode:vertical-rl]">
+                <span className="hidden font-mono text-[11px] text-secondary md:block [writing-mode:vertical-rl]">
                   Tables
                 </span>
               </div>
