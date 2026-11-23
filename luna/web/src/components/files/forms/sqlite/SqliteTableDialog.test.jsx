@@ -41,9 +41,8 @@ describe("SqliteTableDialog", () => {
     fireEvent.change(screen.getByLabelText("Column 2 name"), {
       target: { value: "name" },
     });
-    fireEvent.change(screen.getByLabelText("Column 2 type"), {
-      target: { value: "TEXT" },
-    });
+    fireEvent.click(screen.getByLabelText("Column 2 type"));
+    fireEvent.click(screen.getByRole("option", { name: "Whole number" }));
     fireEvent.click(screen.getByRole("button", { name: "Create table" }));
 
     await waitFor(() =>
@@ -51,7 +50,7 @@ describe("SqliteTableDialog", () => {
         name: "members",
         columns: [
           { name: "id", type: "INTEGER", primaryKey: true, notNull: true },
-          { name: "name", type: "TEXT", primaryKey: false, notNull: false },
+          { name: "name", type: "INTEGER", primaryKey: false, notNull: false },
         ],
       }),
     );

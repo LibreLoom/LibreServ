@@ -10,6 +10,7 @@ import PropTypes from "prop-types";
 import { Plus, Trash2 } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import AnimatedCheckbox from "@libreloom/ui/components/ui/AnimatedCheckbox.jsx";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import ModalCard, {
   NESTED_OVERLAY_CLASS,
@@ -24,6 +25,11 @@ const TYPE_LABELS = {
   BLOB: "File data (blob)",
   NUMERIC: "Number",
 };
+
+const TYPE_OPTIONS = COLUMN_TYPES.map((value) => ({
+  value,
+  label: TYPE_LABELS[value],
+}));
 
 /** A fresh table starts with the id column most people want. */
 function initialColumns() {
@@ -189,20 +195,18 @@ export default function SqliteTableDialog({ open, onSubmit, onClose }) {
                   autoComplete="off"
                   spellCheck={false}
                 />
-                <select
-                  aria-label={`Column ${index + 1} type`}
-                  value={column.type}
-                  onChange={(event) =>
-                    updateColumn(column.key, { type: event.target.value })
-                  }
-                  className="w-36 rounded-pill border-2 border-secondary/30 surface-primary px-3 py-1.5 text-sm text-secondary outline-none no-focus-outline focus:border-accent"
-                >
-                  {COLUMN_TYPES.map((value) => (
-                    <option key={value} value={value}>
-                      {TYPE_LABELS[value]}
-                    </option>
-                  ))}
-                </select>
+                <div className="w-44 shrink-0">
+                  <Dropdown
+                    aria-label={`Column ${index + 1} type`}
+                    options={TYPE_OPTIONS}
+                    value={column.type}
+                    onChange={(type) => updateColumn(column.key, { type })}
+                    bg="primary"
+                    size="form"
+                    fullWidth
+                    triggerClassName="min-h-0 px-3 py-1.5"
+                  />
+                </div>
                 <Button
                   variant="ghost"
                   surface="secondary"

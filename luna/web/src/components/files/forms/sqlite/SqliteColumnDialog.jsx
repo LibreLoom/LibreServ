@@ -7,6 +7,7 @@
 import { useRef, useState } from "react";
 import PropTypes from "prop-types";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import ModalCard, {
@@ -23,6 +24,11 @@ const TYPE_LABELS = {
   BLOB: "File data (blob)",
   NUMERIC: "Number",
 };
+
+const TYPE_OPTIONS = COLUMN_TYPES.map((value) => ({
+  value,
+  label: TYPE_LABELS[value],
+}));
 
 /**
  * @param {{
@@ -131,20 +137,21 @@ export default function SqliteColumnDialog({
         </label>
 
         {mode === "add" ? (
-          <label className="mt-3 block text-sm text-primary">
+          <div className="mt-3 text-sm text-primary">
             <span className="block px-4">Type</span>
-            <select
-              value={type}
-              onChange={(event) => setType(event.target.value)}
-              className="mt-1 w-full rounded-pill border-2 border-secondary/30 surface-primary px-4 py-2 text-sm text-secondary outline-none no-focus-outline focus:border-accent"
-            >
-              {COLUMN_TYPES.map((value) => (
-                <option key={value} value={value}>
-                  {TYPE_LABELS[value]}
-                </option>
-              ))}
-            </select>
-          </label>
+            <div className="mt-1">
+              <Dropdown
+                aria-label="Type"
+                options={TYPE_OPTIONS}
+                value={type}
+                onChange={setType}
+                bg="primary"
+                size="form"
+                fullWidth
+                triggerClassName="min-h-0 px-4 py-2"
+              />
+            </div>
+          </div>
         ) : null}
 
         <PageNotice variant="warning" surface="secondary" className="mt-4">

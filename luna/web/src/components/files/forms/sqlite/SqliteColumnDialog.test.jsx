@@ -19,13 +19,20 @@ function mount(overrides = {}) {
 }
 
 describe("SqliteColumnDialog", () => {
-  it("explains the risk and offers the SQLite types", () => {
+  it("explains the risk and offers the SQLite types", async () => {
     mount();
     expect(
       screen.getByRole("heading", { name: "Add column" }),
     ).toBeInTheDocument();
     expect(screen.getByText(/Changing columns on/)).toBeInTheDocument();
-    expect(screen.getByRole("combobox")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Type" }));
+    expect(
+      screen.getByRole("option", { name: "Whole number" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: "File data (blob)" }),
+    ).toBeInTheDocument();
   });
 
   it("refuses a name that already exists", async () => {
@@ -41,12 +48,13 @@ describe("SqliteColumnDialog", () => {
   it("submits a new column name and type", async () => {
     const { props } = mount();
     await userEvent.type(screen.getByLabelText("Column name"), "phone");
-    await userEvent.selectOptions(screen.getByLabelText("Type"), "TEXT");
+    await userEvent.click(screen.getByRole("button", { name: "Type" }));
+    await userEvent.click(screen.getByRole("option", { name: "Whole number" }));
     await userEvent.click(screen.getByRole("button", { name: "Add column" }));
     await waitFor(() =>
       expect(props.onSubmit).toHaveBeenCalledWith({
         name: "phone",
-        type: "TEXT",
+        type: "INTEGER",
       }),
     );
     await waitFor(() => expect(props.onClose).toHaveBeenCalled());
@@ -55,6 +63,6 @@ describe("SqliteColumnDialog", () => {
   it("renames without asking for a type", () => {
     mount({ mode: "rename", column: { name: "email" } });
     expect(screen.getByLabelText("Column name")).toHaveValue("email");
-    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Type" })).not.toBeInTheDocument();
   });
 });
