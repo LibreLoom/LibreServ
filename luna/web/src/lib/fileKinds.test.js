@@ -66,9 +66,9 @@ describe("fileKinds", () => {
     expect(isSqliteFile("notes.sqlite.bak")).toBe(false);
     expect(openableKind("luna-demo.sqlite")).toBe("sqlite");
     expect(openableKind("luna-demo.db")).toBe("sqlite");
-    // A form's hidden answers sidecar belongs to the form builder.
-    expect(isSqliteFile(".rsvp.lunaform.responses.sqlite")).toBe(false);
-    expect(openableKind(".rsvp.lunaform.responses.sqlite")).toBeNull();
+    // A form's answers sidecar is still a real SQLite database.
+    expect(isSqliteFile(".rsvp.lunaform.responses.sqlite")).toBe(true);
+    expect(openableKind(".rsvp.lunaform.responses.sqlite")).toBe("sqlite");
   });
 
   it("classifies .lunaform files as forms, never text", () => {
@@ -77,9 +77,9 @@ describe("fileKinds", () => {
     expect(isFormFile("notes.txt")).toBe(false);
     expect(openableKind("rsvp.lunaform")).toBe("form");
     expect(isTextFile("rsvp.lunaform")).toBe(false);
-    // The answers database is binary; the form's SQL editor opens it.
+    // The answers database is binary and opens in the database editor.
     expect(isTextFile("rsvp.lunaform.responses.sqlite")).toBe(false);
-    expect(openableKind("rsvp.lunaform.responses.sqlite")).toBeNull();
+    expect(openableKind("rsvp.lunaform.responses.sqlite")).toBe("sqlite");
   });
 
   it("classifies drawio files — including the self-previewing variants — as diagrams", () => {

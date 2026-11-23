@@ -102,8 +102,9 @@ export const OFFICE_SAVE_EXT = new Set([
 // converter error screen.
 const CSV_EXT = new Set(["csv", "tsv"]);
 
-// SQLite databases open in the in-browser editor. A form's hidden answers
-// sidecar stays the form builder's business, not a generic file.
+// SQLite databases open in the in-browser editor. A form's answers sidecar
+// is a SQLite database too; the editor routes its saves through the form's
+// revisioned endpoint so live answers cannot be overwritten.
 const SQLITE_EXT = new Set(["sqlite", "sqlite3", "db"]);
 
 // Luna Forms documents — they open in the fullscreen builder, not a viewer.
@@ -236,8 +237,6 @@ export function isFormFile(name) {
 
 /** @param {string} name */
 export function isSqliteFile(name) {
-  const lower = String(name || "").toLowerCase();
-  if (lower.endsWith(".lunaform.responses.sqlite")) return false;
   return SQLITE_EXT.has(fileExtension(name));
 }
 
