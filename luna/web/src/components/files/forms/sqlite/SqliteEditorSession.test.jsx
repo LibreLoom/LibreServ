@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 import { SqliteEditorSession } from "./SqliteEditor.jsx";
@@ -83,6 +83,26 @@ describe("SqliteEditorSession table switching", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Create table" }));
     expect(await screen.findByText("Table created")).toBeInTheDocument();
+  });
+
+  it("collapses the table list and gives focus to the way back", async () => {
+    mountSession();
+    expect(await screen.findByText("Party")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide tables" }));
+    expect(
+      screen.queryByRole("button", { name: /^members,/i }),
+    ).not.toBeInTheDocument();
+    const show = screen.getByRole("button", { name: "Show tables" });
+    await waitFor(() => expect(show).toHaveFocus());
+
+    fireEvent.click(show);
+    expect(
+      await screen.findByRole("button", { name: /^members,/i }),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Hide tables" })).toHaveFocus(),
+    );
   });
 
   it("loads the table the person just chose instead of staying on the spinner", async () => {

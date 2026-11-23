@@ -9,7 +9,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import { Columns3, Plus, RefreshCw, Table2 } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Columns3,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plus,
+  RefreshCw,
+  Table2,
+} from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import CardButton from "@libreloom/ui/components/ui/CardButton.jsx";
@@ -27,6 +36,7 @@ import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { TooltipTargets } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { cn } from "@libreloom/ui/lib/utils.js";
 import { apiErrorMessage } from "../../../../lib/api.js";
 import FullscreenEditorFrame from "../../FullscreenEditorFrame.jsx";
 import EditorLoadingScreen, {
@@ -238,6 +248,20 @@ export function SqliteEditorSession({
   const [panel, setPanel] = useState(
     /** @type {"table" | "query"} */ ("table"),
   );
+  const [tablesOpen, setTablesOpen] = useState(true);
+  const collapseTablesRef = useRef(
+    /** @type {HTMLButtonElement | null} */ (null),
+  );
+  const expandTablesRef = useRef(
+    /** @type {HTMLButtonElement | null} */ (null),
+  );
+  const setTablesVisible = useCallback((open) => {
+    setTablesOpen(open);
+    requestAnimationFrame(() => {
+      if (open) collapseTablesRef.current?.focus();
+      else expandTablesRef.current?.focus();
+    });
+  }, []);
   const [grid, setGrid] = useState({ ...EMPTY_GRID });
   const [query, setQuery] = useState(/** @type {any|null} */ (null));
   const [sqlError, setSqlError] = useState("");
@@ -1056,86 +1080,168 @@ export function SqliteEditorSession({
       <EditorMountedSignal />
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-          <aside className="flex shrink-0 flex-col border-b border-secondary/15 p-2 md:w-60 md:border-b-0 md:border-r md:p-0">
-            <Card
-              as="nav"
-              noHeightAnim
-              padding={false}
-              aria-label="Tables"
-              className="flex min-h-0 flex-col gap-2 p-2 md:m-2 md:flex-1"
+          <aside
+            className={cn(
+              "relative flex shrink-0 flex-col border-b border-secondary/15 p-2 md:border-b-0 md:border-r md:overflow-hidden md:p-0",
+              "motion-safe:transition-[width] motion-safe:duration-[var(--motion-duration-short4)] motion-safe:ease-[var(--motion-easing-emphasized-decelerate)]",
+              tablesOpen ? "md:w-60" : "md:w-16",
+            )}
+          >
+            <div
+              id="sqlite-tables"
+              aria-hidden={tablesOpen ? undefined : true}
+              inert={tablesOpen ? undefined : true}
+              className={cn(
+                "flex min-h-0 flex-1 flex-col motion-safe:transition-opacity motion-safe:duration-[var(--motion-duration-short3)]",
+                tablesOpen
+                  ? "opacity-100"
+                  : "pointer-events-none opacity-0 max-md:hidden",
+              )}
             >
-              <div className="flex items-center justify-between px-2 pt-1">
-                <div className="flex min-w-0 items-center gap-2">
-                  <Table2
-                    size={ICON_SIZE.sm}
-                    className="shrink-0"
-                    aria-hidden="true"
-                  />
-                  <h2 className="font-mono text-xs text-primary">Tables</h2>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Pill className="px-2 py-0.5 text-[11px] tabular-nums text-primary">
-                    {formatCount(tables.length)}
-                  </Pill>
-                  {canWrite ? (
+              <Card
+                as="nav"
+                noHeightAnim
+                padding={false}
+                aria-label="Tables"
+                className="flex min-h-0 flex-col gap-2 p-2 md:m-2 md:min-w-[14rem] md:flex-1"
+              >
+                <div className="flex items-center justify-between px-2 pt-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Table2
+                      size={ICON_SIZE.sm}
+                      className="shrink-0"
+                      aria-hidden="true"
+                    />
+                    <h2 className="font-mono text-xs text-primary">Tables</h2>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Pill className="px-2 py-0.5 text-[11px] tabular-nums text-primary">
+                      {formatCount(tables.length)}
+                    </Pill>
+                    {canWrite ? (
+                      <Button
+                        variant="ghost"
+                        surface="secondary"
+                        size="iconSm"
+                        smoothResize={false}
+                        haptic="light"
+                        type="button"
+                        aria-label="New table"
+                        tooltip="New table"
+                        onClick={() => setTableDialogOpen(true)}
+                      >
+                        <Plus size={ICON_SIZE.sm} aria-hidden="true" />
+                      </Button>
+                    ) : null}
                     <Button
+                      ref={collapseTablesRef}
                       variant="ghost"
                       surface="secondary"
                       size="iconSm"
                       smoothResize={false}
                       haptic="light"
                       type="button"
-                      aria-label="New table"
-                      tooltip="New table"
-                      onClick={() => setTableDialogOpen(true)}
+                      aria-label="Hide tables"
+                      aria-controls="sqlite-tables"
+                      aria-expanded
+                      tooltip="Hide tables"
+                      onClick={() => setTablesVisible(false)}
                     >
-                      <Plus size={ICON_SIZE.sm} aria-hidden="true" />
+                      <PanelLeftClose
+                        size={ICON_SIZE.sm}
+                        className="hidden md:block"
+                        aria-hidden="true"
+                      />
+                      <ChevronUp
+                        size={ICON_SIZE.sm}
+                        className="md:hidden"
+                        aria-hidden="true"
+                      />
                     </Button>
-                  ) : null}
+                  </div>
                 </div>
-              </div>
-              {tables.length > 0 ? (
-                <ul className="flex scroll-p-1 flex-col gap-1 p-2 md:min-h-0 md:flex-1 md:overflow-y-auto">
-                  {tables.map((table) => {
-                    const active = table.name === selectedTable;
-                    return (
-                      <li key={table.name}>
-                        <CardButton
-                          variant="nav"
-                          active={active}
-                          align="between"
-                          actionLabel={`${table.name}, ${table.columns.length} ${
-                            table.columns.length === 1 ? "column" : "columns"
-                          }`}
-                          ariaCurrent={active ? "page" : undefined}
-                          className="gap-2 px-3 py-2"
-                          trailing={
-                            <span className="shrink-0 text-xs tabular-nums">
-                              {table.columns.length}
-                            </span>
-                          }
-                          onClick={() => {
-                            if (active) {
-                              setPanel("table");
-                              return;
+                {tables.length > 0 ? (
+                  <ul className="flex scroll-p-1 flex-col gap-1 p-2 md:min-h-0 md:flex-1 md:overflow-y-auto">
+                    {tables.map((table) => {
+                      const active = table.name === selectedTable;
+                      return (
+                        <li key={table.name}>
+                          <CardButton
+                            variant="nav"
+                            active={active}
+                            align="between"
+                            actionLabel={`${table.name}, ${table.columns.length} ${
+                              table.columns.length === 1 ? "column" : "columns"
+                            }`}
+                            ariaCurrent={active ? "page" : undefined}
+                            className="gap-2 px-3 py-2"
+                            trailing={
+                              <span className="shrink-0 text-xs tabular-nums">
+                                {table.columns.length}
+                              </span>
                             }
-                            selectTable(table.name);
-                            setPanel("table");
-                            setGridError("");
-                            setGrid({ ...EMPTY_GRID, loading: true });
-                            void loadTable(table, 1);
-                          }}
-                        >
-                          <span className="min-w-0 truncate font-mono text-xs font-normal">
-                            {table.name}
-                          </span>
-                        </CardButton>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : null}
-            </Card>
+                            onClick={() => {
+                              if (active) {
+                                setPanel("table");
+                                return;
+                              }
+                              selectTable(table.name);
+                              setPanel("table");
+                              setGridError("");
+                              setGrid({ ...EMPTY_GRID, loading: true });
+                              void loadTable(table, 1);
+                            }}
+                          >
+                            <span className="min-w-0 truncate font-mono text-xs font-normal">
+                              {table.name}
+                            </span>
+                          </CardButton>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : null}
+              </Card>
+            </div>
+            {!tablesOpen ? (
+              <div className="flex items-center md:absolute md:inset-x-0 md:top-0 md:flex-col md:gap-2 md:justify-center md:p-3">
+                <Button
+                  ref={expandTablesRef}
+                  variant="ghost"
+                  surface="secondary"
+                  size="sm"
+                  smoothResize={false}
+                  haptic="light"
+                  type="button"
+                  className="justify-start gap-2 md:h-10 md:w-10 md:justify-center md:p-2"
+                  aria-label="Show tables"
+                  aria-controls="sqlite-tables"
+                  aria-expanded={false}
+                  tooltip="Show tables"
+                  onClick={() => setTablesVisible(true)}
+                >
+                  <Table2
+                    size={ICON_SIZE.sm}
+                    className="md:hidden"
+                    aria-hidden="true"
+                  />
+                  <span className="md:hidden">Tables</span>
+                  <ChevronDown
+                    size={ICON_SIZE.sm}
+                    className="md:hidden"
+                    aria-hidden="true"
+                  />
+                  <PanelLeftOpen
+                    size={ICON_SIZE.sm}
+                    className="hidden md:block"
+                    aria-hidden="true"
+                  />
+                </Button>
+                <span className="hidden text-[11px] text-secondary md:block [writing-mode:vertical-rl]">
+                  Tables
+                </span>
+              </div>
+            ) : null}
           </aside>
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
