@@ -10,9 +10,24 @@ const CELL_BG_PRIMARY = "surface-primary";
 const CELL_BG_STRIPE = "bg-[color-mix(in_oklab,var(--secondary)_92%,var(--primary))]";
 // color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
 const CELL_BG_STRIPE_PRIMARY = "bg-[color-mix(in_oklab,var(--primary)_92%,var(--secondary))]";
-const CELL_FIRST = "pl-3 rounded-l-large-element";
-const CELL_LAST = "pr-3 rounded-r-large-element";
-const CELL_MIDDLE = "px-1";
+const CELL_FIRST = "rounded-l-large-element";
+const CELL_LAST = "rounded-r-large-element";
+
+/**
+ * Horizontal insets for one column. The first and last cells round the row
+ * pill, so only they carry the 12px outer padding; the cells between stay at
+ * 4px. Header labels use the same insets as their cells — otherwise every
+ * label sits 12px in while its values sit 4px in, and nothing lines up.
+ *
+ * @param {number} index
+ * @param {number} count
+ */
+function columnInsets(index, count) {
+  if (count <= 1) return "px-3";
+  if (index === 0) return "pl-3";
+  if (index === count - 1) return "pr-3";
+  return "px-1";
+}
 
 const ALIGN = {
   left: "text-left",
@@ -218,7 +233,7 @@ export default function Table({
           {!isDescription && (
             <thead>
               <tr>
-                {columns.map((col) => (
+                {columns.map((col, colIndex) => (
                   <th
                     key={col.key}
                     scope="col"
@@ -226,7 +241,7 @@ export default function Table({
                       // Column labels use the same eyebrow the dashboard stat
                       // cards and MfaCard sections use: mono
                       // out and quiet, so the row pills stay the loud element.
-                      `${ALIGN[col.align] || ALIGN.left} px-3 pt-0.5 pb-2.5 font-mono whitespace-nowrap text-[15px] font-normal ${headClassName}`,
+                      `${ALIGN[col.align] || ALIGN.left} ${columnInsets(colIndex, columns.length)} pt-0.5 pb-2.5 font-mono whitespace-nowrap text-[15px] font-normal ${headClassName}`,
                       col.hidden ? `hidden ${col.hidden}:table-cell` : "",
                       col.width || "",
                     )}
@@ -295,9 +310,9 @@ export default function Table({
                     const cellClasses = [
                       CELL_BASE,
                       striped && rowIndex % 2 === 1 ? CELL_BG_STRIPE : CELL_BG,
+                      columnInsets(colIndex, columns.length),
                       isFirst ? CELL_FIRST : "",
                       isLast ? CELL_LAST : "",
-                      !isFirst && !isLast ? CELL_MIDDLE : "",
                       col.hidden ? `hidden ${col.hidden}:table-cell` : "",
                       // The tint has to live on the cells — that is where
                       // bg-secondary is, and a transition on the <tr> would never
