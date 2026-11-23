@@ -55,9 +55,9 @@ func DeviceAuth(db *sql.DB) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Update last seen, but not on every request. Device endpoints are
-			// polled frequently and this write used to serialize on the same
-			// row each time. The visible value only needs to be recent.
+			// Conditional last_seen update. The statement still round-trips on
+			// every device poll, but the row is only written once per window,
+			// which removes the per-poll row lock and table bloat.
 			_, _ = db.ExecContext(r.Context(), `
 				UPDATE devices SET last_seen_at = NOW() WHERE id = $1
 				AND (last_seen_at IS NULL OR last_seen_at < NOW() - interval '90 seconds')`, deviceID)

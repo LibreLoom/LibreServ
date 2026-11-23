@@ -20,6 +20,16 @@ import (
 type DB struct {
 	db   *sql.DB
 	path string
+
+	// onReplace is called after a restore swaps the database file. Services
+	// that cache rows from this DB use it to drop stale answers.
+	onReplace func()
+}
+
+// SetOnReplace registers a hook for database restores. It is set once during
+// startup, before any restore can run.
+func (d *DB) SetOnReplace(fn func()) {
+	d.onReplace = fn
 }
 
 // Open opens or creates the SQLite database at dbPath.
@@ -197,6 +207,9 @@ func (d *DB) ReplaceFile(ctx context.Context, replacementPath string) error {
 		return fmt.Errorf("failed to reopen database after restore: %w", err)
 	}
 	d.db = newDB.db
+	if d.onReplace != nil {
+		d.onReplace()
+	}
 
 	// Ensure schema is compatible with current binary and verify integrity.
 	if err := d.Migrate(); err != nil {
@@ -216,14 +229,15 @@ func (d *DB) ReplaceFile(ctx context.Context, replacementPath string) error {
 }
 
 // HealthCheck is a cheap liveness probe. It runs on every health endpoint hit
-// and on the dashboard's monitoring poll, so it must not walk the database.
-// Use IntegrityCheck for the on-disk diagnostic.
+// and on the dashboard's monitoring poll, so it must not walk every page.
+// It does read the schema, so a missing, truncated or unreadable file is still
+// reported as unhealthy. IntegrityCheck is the full on-disk diagnostic.
 func (d *DB) HealthCheck() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	var one int
-	if err := d.db.QueryRowContext(ctx, "SELECT 1").Scan(&one); err != nil {
+	var count int
+	if err := d.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master").Scan(&count); err != nil {
 		return fmt.Errorf("database health check failed: %w", err)
 	}
 	return nil

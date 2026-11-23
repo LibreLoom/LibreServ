@@ -359,6 +359,9 @@ func main() {
 	authService := auth.NewService(db, cfg.Auth.JWTSecret, slog.Default())
 
 	setupService := setup.NewService(db)
+	// A restore swaps setup_state underneath the cached answer; invalidate it
+	// before any request can be served against the restored database.
+	db.SetOnReplace(setupService.InvalidateCompletion)
 	setupService.SetupCodePath = setup.DefaultSetupCodePath
 	if state, err := setupService.Ensure(context.Background()); err == nil && state.Status != setup.StatusComplete {
 		if state.Nonce != "" {

@@ -32,29 +32,39 @@ pub struct Layout {
 /// marker file is still there on a cache hit. `None` is not cached: a drive
 /// adopted just after a lookup must be seen on the next one.
 const DETECT_TTL: Duration = Duration::from_secs(60);
-static DETECT_CACHE: OnceLock<Mutex<HashMap<PathBuf, (Instant, String, PathBuf)>>> = OnceLock::new();
+static DETECT_CACHE: OnceLock<Mutex<HashMap<PathBuf, (Instant, String, PathBuf)>>> =
+    OnceLock::new();
 
 impl Layout {
     /// Detect this drive's prefix from its `.luna-<uuid>.sqlite3` marker.
     /// `None` when the drive is not adopted.
     pub fn detect(root: &Path) -> Option<Self> {
         let cache = DETECT_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-        let mut cache = cache.lock().unwrap_or_else(|p| p.into_inner());
 
-        if let Some((at, prefix, marker)) = cache.get(root) {
-            if at.elapsed() < DETECT_TTL && marker.is_file() {
-                return Some(Self::from_prefix(prefix.clone()));
+        // Read and release before touching the filesystem. A USB drive may be
+        // slow or may vanish mid-scan; holding a global lock across read_dir
+        // would stall every other drive's detect behind it.
+        {
+            let cache = cache.lock().unwrap_or_else(|p| p.into_inner());
+            if let Some((at, prefix, marker)) = cache.get(root) {
+                if at.elapsed() < DETECT_TTL && marker.is_file() {
+                    return Some(Self::from_prefix(prefix.clone()));
+                }
             }
-        }
-        // Ejected drives must not leave entries behind forever.
-        if cache.len() > 64 {
-            cache.retain(|_, (_, _, marker)| marker.is_file());
         }
 
         let found = crate::drives::drive_db::prefix_for(root).map(Self::from_prefix);
         if let Some(layout) = &found {
             let marker = root.join(format!("{}.sqlite3", layout.prefix));
-            cache.insert(root.to_path_buf(), (Instant::now(), layout.prefix.clone(), marker));
+            let mut cache = cache.lock().unwrap_or_else(|p| p.into_inner());
+            // Ejected drives must not leave entries behind forever.
+            if cache.len() > 64 {
+                cache.retain(|_, (_, _, marker)| marker.is_file());
+            }
+            cache.insert(
+                root.to_path_buf(),
+                (Instant::now(), layout.prefix.clone(), marker),
+            );
         }
         found
     }

@@ -124,3 +124,40 @@ func TestAPITokenLimit(t *testing.T) {
 		t.Fatalf("create after revoke: expected success, got %v", err)
 	}
 }
+
+func TestAPITokenLastUsedIsThrottled(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	svc := NewService(db, "testsecret", slog.Default())
+	user, err := svc.Register(ctx, &RegisterRequest{
+		Username: "carol", Password: "SuperSecret123", Email: "carol@example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plaintext, _, err := svc.CreateAPIToken(ctx, user.ID, "ci")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 3; i++ {
+		if _, err := svc.ValidateAPIToken(ctx, plaintext); err != nil {
+			t.Fatalf("validate %d: %v", i, err)
+		}
+	}
+	if got := svc.apiTokenWrites.Load(); got != 1 {
+		t.Fatalf("three validations should write last_used_at once, wrote %d times", got)
+	}
+
+	// Revoking drops the throttle entry, so a recreated token is not held back.
+	toks, err := svc.ListAPITokens(ctx, user.ID)
+	if err != nil || len(toks) != 1 {
+		t.Fatalf("list: err=%v len=%d", err, len(toks))
+	}
+	if err := svc.RevokeAPIToken(ctx, user.ID, toks[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(svc.apiTokenLastUsed) != 0 {
+		t.Fatalf("revoke should forget the throttle entry, got %v", svc.apiTokenLastUsed)
+	}
+}

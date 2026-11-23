@@ -5,24 +5,26 @@ in this branch. Raw reports are in the gitignored `perf/results/` directories.
 
 ## First-load bytes
 
-`npm run perf:bundle` reports what a first load actually downloads. The main
-lever was the four FreeMono faces: 1.6 MiB of TTF replaced with 545 KiB of
-WOFF2 carrying every glyph, with the TTFs kept as a fallback for older
-browsers. The regular face is preloaded.
+`npm run perf:bundle` reports the entry script, CSS and all shipped font
+faces. Fonts are an upper bound on a real first load because the browser only
+downloads the faces the page uses. The main lever was the four FreeMono faces:
+TTF replaced with WOFF2, TTF kept as a fallback for older browsers. The
+regular face is preloaded in both products.
 
 The two bold faces are not used by the design: no code combines `font-mono`
-with a bold weight. They keep all Latin and symbol glyphs in a ~30 KiB WOFF2
-subset each; the regular and italic faces carry every glyph.
+with a bold weight. They keep Latin and common symbols in a ~30 KiB WOFF2
+subset each. The regular and italic faces retain every codepoint in the
+original TTF `cmap`. The conversion commands are in `sol/perf/README.md`.
 
 | Product | Before | After | Ratio |
 |---|---|---|---|
-| Sol first-load bytes | 2013.9 KiB | 871.5 KiB | 2.31x |
-| Luna first-load bytes | 1054.2 KiB | 596.4 KiB | 1.77x |
+| Sol first-load asset bytes (all shipped faces) | 2013.9 KiB | 871.5 KiB | 2.31x |
+| Luna first-load asset bytes (all shipped faces) | 1054.2 KiB | 596.4 KiB | 1.77x |
 | Shared font faces | 1530 KiB | 388 KiB | 3.94x |
 
 Sol's dashboard ticker is a leaf component, so its once-a-second update no
-longer reconciles the health card and app list with it. Tab-focus refetches
-were turned off because the dashboard queries already poll.
+longer reconciles the health card and app list with it. The polling hooks opt
+out of refetching on tab focus; the app-wide React Query default is unchanged.
 
 ## Backend hot paths
 
@@ -30,7 +32,7 @@ Go benchmarks from `sol/server/backend`, `GOMAXPROCS=3`, three runs each:
 
 | Benchmark | Before (old behaviour) | After | Ratio |
 |---|---|---|---|
-| Database health probe | 21.4–45.4 ms (full `integrity_check`) | 10.3–11.0 us | ~2000x |
+| Database health probe | 21.4–45.4 ms (full `integrity_check`) | 22.3–23.3 us | ~1000x |
 | `IsComplete` per authenticated request | 15.8–69.8 us | 40–84 ns | ~1000x |
 
 The integrity scan still exists as `DB.IntegrityCheck()`, runs after a database

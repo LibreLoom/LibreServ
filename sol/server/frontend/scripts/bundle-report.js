@@ -1,4 +1,6 @@
-// Bundle size report for sol/perf (W1: what a first load downloads).
+// Bundle size report for sol/perf (W1 asset size: entry JS, CSS and all
+// shipped font faces). Font faces are an upper bound: the browser only
+// downloads the ones the rendered page actually uses.
 //
 //   node scripts/bundle-report.js [distDir]        (npm run perf:bundle)
 //   SOL_BUNDLE_REPORT=1 npm run build              (runs after the build)
@@ -82,7 +84,7 @@ export function writeBundleReport({ distDir = DEFAULT_DIST, resultsDir = RESULTS
   const report = {
     generated_at: new Date().toISOString(),
     dist: distDir,
-    note: "initial = entry JS, preloads, CSS and shipped fonts; lazy = route chunks. gzip for fonts is informational (WOFF2 is already compressed).",
+    note: "initial = entry JS, preloads, CSS and all shipped font faces; lazy = route chunks. The browser fetches a font face only when something uses it, so this is an upper bound on a real first load. gzip for fonts is informational (WOFF2 is already compressed).",
     totals: { initial: total("initial"), lazy: total("lazy") },
     files,
   };
@@ -95,7 +97,7 @@ export function writeBundleReport({ distDir = DEFAULT_DIST, resultsDir = RESULTS
 
   if (!quiet) {
     const t = report.totals;
-    console.log(`Bundle: initial ${kb(t.initial.bytes)} KiB raw / ${kb(t.initial.gzip)} KiB gzip in ${t.initial.files} files; lazy ${kb(t.lazy.bytes)} KiB in ${t.lazy.files} files`);
+    console.log(`Bundle (upper bound: all shipped font faces): initial ${kb(t.initial.bytes)} KiB raw / ${kb(t.initial.gzip)} KiB gzip in ${t.initial.files} files; lazy ${kb(t.lazy.bytes)} KiB in ${t.lazy.files} files`);
     for (const f of files.filter((x) => x.group === "initial")) {
       console.log(`  initial ${String(kb(f.bytes)).padStart(8)} KiB raw  ${String(kb(f.gzip)).padStart(8)} KiB gz  ${f.file}`);
     }

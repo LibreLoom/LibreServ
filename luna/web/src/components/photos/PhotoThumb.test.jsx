@@ -103,4 +103,39 @@ describe("PhotoThumb waits until it nears the screen", () => {
       vi.resetModules();
     }
   });
+
+  it("clears the loaded flag when a recycled cell asks for another photo", async () => {
+    /** @type {((entries: any[]) => void) | null} */
+    let notify = null;
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(cb, opts) {
+          if (opts?.rootMargin?.endsWith("px 0px")) notify = cb;
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    vi.resetModules();
+    try {
+      const { default: FreshThumb } = await import("./PhotoThumb.jsx");
+      const first = { ...photo, thumb: "/first.jpg" };
+      const second = { ...photo, name: "second.jpg", thumb: "/second.jpg" };
+      const view = render(<FreshThumb photo={first} />);
+      const img = view.container.querySelector("img");
+      act(() => notify?.([{ target: img, isIntersecting: true }]));
+      fireEvent.load(img);
+      expect(img.dataset.thumbLoaded).toBe("1");
+
+      view.rerender(<FreshThumb photo={second} />);
+      act(() => notify?.([{ target: img, isIntersecting: true }]));
+      expect(img.getAttribute("src")).toBe("/second.jpg");
+      expect(img.dataset.thumbLoaded).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
+  });
 });

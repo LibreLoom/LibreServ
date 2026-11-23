@@ -10,5 +10,6 @@ export function useUptime() {
       return data.uptime_seconds ?? 0;
     },
     refetchInterval: 120_000,
+    refetchOnWindowFocus: false,
   });
 }

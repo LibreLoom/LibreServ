@@ -97,16 +97,17 @@ func (s *Service) ValidateAPIToken(ctx context.Context, token string) (*models.U
 	hash := hashAPIToken(token)
 	user := &models.User{}
 	var revokedAt *time.Time
+	var tokenID string
 	// One round-trip instead of three: token lookup, revoked check and the
 	// owning user in the same statement. GetUserByID's columns are repeated
 	// here so the returned model stays identical.
 	query := `
-		SELECT u.id, u.username, u.password_hash, u.email, u.role, u.created_at, u.updated_at, u.last_login, t.revoked_at
+		SELECT u.id, u.username, u.password_hash, u.email, u.role, u.created_at, u.updated_at, u.last_login, t.revoked_at, t.id
 		FROM api_tokens t JOIN users u ON u.id = t.user_id
 		WHERE t.token_hash = ?`
 	err := s.db.QueryRowContext(ctx, query, hash).Scan(
 		&user.ID, &user.Username, &user.PasswordHash, &user.Email, &user.Role,
-		&user.CreatedAt, &user.UpdatedAt, &user.LastLogin, &revokedAt,
+		&user.CreatedAt, &user.UpdatedAt, &user.LastLogin, &revokedAt, &tokenID,
 	)
 	if err != nil {
 		return nil, ErrAPITokenNotFound
@@ -114,21 +115,54 @@ func (s *Service) ValidateAPIToken(ctx context.Context, token string) (*models.U
 	if revokedAt != nil {
 		return nil, ErrAPITokenRevoked
 	}
-	s.touchAPITokenLastUsed(ctx, hash)
+	s.touchAPITokenLastUsed(ctx, tokenID, hash)
 	return user, nil
 }
 
 // touchAPITokenLastUsed keeps last_used_at roughly current without issuing a
 // write on every request. The value is only shown in the token list, so one
 // write a minute per token is indistinguishable to a person reading it.
-func (s *Service) touchAPITokenLastUsed(ctx context.Context, hash string) {
+func (s *Service) touchAPITokenLastUsed(ctx context.Context, tokenID, hash string) {
 	now := time.Now()
-	if last, ok := s.apiTokenLastUsed.Load(hash); ok && now.Sub(last.(time.Time)) < time.Minute {
+	s.apiTokenLastUsedMu.Lock()
+	if s.apiTokenLastUsed == nil {
+		s.apiTokenLastUsed = make(map[string]time.Time)
+	}
+	if last, ok := s.apiTokenLastUsed[tokenID]; ok && now.Sub(last) < time.Minute {
+		s.apiTokenLastUsedMu.Unlock()
 		return
 	}
-	s.apiTokenLastUsed.Store(hash, now)
+	s.apiTokenLastUsedMu.Unlock()
+
 	// Best-effort: a failed bookkeeping write must not fail authentication.
-	_, _ = s.db.ExecContext(ctx, `UPDATE api_tokens SET last_used_at = ? WHERE token_hash = ?`, now, hash)
+	// Only remember the attempt after it succeeded, so a transient DB error is
+	// retried on the next request instead of silencing writes for a minute.
+	_, err := s.db.ExecContext(ctx, `UPDATE api_tokens SET last_used_at = ? WHERE token_hash = ?`, now, hash)
+	if err != nil {
+		return
+	}
+	s.apiTokenWrites.Add(1)
+
+	s.apiTokenLastUsedMu.Lock()
+	// Keep the map bounded without a separate sweeper. A revoked token is
+	// never validated again, so its entry can go as soon as the map grows.
+	if len(s.apiTokenLastUsed) > 512 {
+		for key, at := range s.apiTokenLastUsed {
+			if now.Sub(at) >= time.Minute {
+				delete(s.apiTokenLastUsed, key)
+			}
+		}
+	}
+	s.apiTokenLastUsed[tokenID] = now
+	s.apiTokenLastUsedMu.Unlock()
+}
+
+// forgetAPITokenLastUsed drops the throttle entry for a token that no longer
+// exists or can no longer be used.
+func (s *Service) forgetAPITokenLastUsed(hash string) {
+	s.apiTokenLastUsedMu.Lock()
+	delete(s.apiTokenLastUsed, hash)
+	s.apiTokenLastUsedMu.Unlock()
 }
 
 // ListAPITokens returns a user's API tokens (hashes excluded), newest first,
@@ -163,5 +197,6 @@ func (s *Service) RevokeAPIToken(ctx context.Context, userID, tokenID string) er
 	if n == 0 {
 		return ErrAPITokenNotFound
 	}
+	s.forgetAPITokenLastUsed(tokenID)
 	return nil
 }

@@ -58,3 +58,21 @@ func TestVersion(t *testing.T) {
 		t.Fatalf("version expected 200, got %d", rr.Code)
 	}
 }
+
+func TestDatabaseIntegrityEndpoint(t *testing.T) {
+	db, err := database.Open(t.TempDir() + "/health.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHealthHandler(db)
+
+	rr := httptest.NewRecorder()
+	h.DatabaseIntegrity(rr, httptest.NewRequest(http.MethodGet, "/api/v1/system/database/integrity", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("integrity expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+}

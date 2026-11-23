@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -53,8 +54,14 @@ type Service struct {
 
 	// Last time each API token's last_used_at was written. The visible value
 	// only shows in the token list, so a minute of granularity is plenty and
-	// keeps a write off every authenticated request.
-	apiTokenLastUsed sync.Map
+	// keeps a write off every authenticated request. Bounded, because revoked
+	// tokens are never validated again.
+	apiTokenLastUsedMu sync.Mutex
+	apiTokenLastUsed   map[string]time.Time
+
+	// Number of successful bookkeeping writes, used by tests to check that a
+	// burst of validations does not write on every request.
+	apiTokenWrites atomic.Int64
 }
 
 // NewService creates a new auth service

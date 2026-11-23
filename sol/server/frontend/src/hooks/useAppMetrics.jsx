@@ -11,7 +11,8 @@ export function useAppMetrics(appId) {
       return res.json();
     },
     enabled: !!appId,
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
 }
