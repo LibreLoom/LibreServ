@@ -35,6 +35,7 @@ import EditorLoadingScreen, {
 import QueryResultTable from "./QueryResultTable.jsx";
 import SqlEditor from "./SqlEditor.jsx";
 import SqliteColumnDialog from "./SqliteColumnDialog.jsx";
+import SqliteTableDialog from "./SqliteTableDialog.jsx";
 import SqliteGrid from "./SqliteGrid.jsx";
 import { createSqliteClient } from "./sqliteClient.js";
 import {
@@ -51,6 +52,7 @@ import {
 import {
   buildAddColumnSql,
   buildCountQuery,
+  buildCreateTableSql,
   buildDeleteRowSql,
   buildDropColumnSql,
   buildInsertRowSql,
@@ -240,6 +242,7 @@ export function SqliteEditorSession({
   const [columnDialog, setColumnDialog] = useState(
     /** @type {{ mode: "add"|"rename", column: any|null } | null} */ (null),
   );
+  const [tableDialogOpen, setTableDialogOpen] = useState(false);
   const [dropTarget, setDropTarget] = useState(
     /** @type {{ table: any, column: any } | null} */ (null),
   );
@@ -390,6 +393,31 @@ export function SqliteEditorSession({
       return table;
     },
     [loadTable, refreshSchema, selectTable],
+  );
+
+  const createTable = useCallback(
+    async ({ name, columns }) => {
+      const client = clientRef.current;
+      if (!client) throw new Error("The database is still opening. Try again.");
+      const built = buildCreateTableSql({ table: name, columns });
+      await client.exec(built.sql);
+      markDirty();
+      setQuery(null);
+      setPanel("table");
+      setGridError("");
+      addToast({ type: "success", message: "Table created" });
+      try {
+        await reloadTable(name, 1, client);
+      } catch (error) {
+        setGridError(
+          apiErrorMessage(
+            error,
+            "The table was added, but the list couldn't refresh. Save, then reload.",
+          ),
+        );
+      }
+    },
+    [addToast, markDirty, reloadTable],
   );
 
   const refreshAfterWrite = useCallback(
@@ -988,9 +1016,26 @@ export function SqliteEditorSession({
                   />
                   <h2 className="font-mono text-xs text-primary">Tables</h2>
                 </div>
-                <Pill className="px-2 py-0.5 text-[11px] tabular-nums text-primary">
-                  {formatCount(tables.length)}
-                </Pill>
+                <div className="flex items-center gap-1.5">
+                  <Pill className="px-2 py-0.5 text-[11px] tabular-nums text-primary">
+                    {formatCount(tables.length)}
+                  </Pill>
+                  {canWrite ? (
+                    <Button
+                      variant="ghost"
+                      surface="secondary"
+                      size="iconSm"
+                      smoothResize={false}
+                      haptic="light"
+                      type="button"
+                      aria-label="New table"
+                      tooltip="New table"
+                      onClick={() => setTableDialogOpen(true)}
+                    >
+                      <Plus size={ICON_SIZE.sm} aria-hidden="true" />
+                    </Button>
+                  ) : null}
+                </div>
               </div>
               {tables.length > 0 ? (
                 <ul className="flex scroll-p-1 flex-col gap-1 p-2 md:min-h-0 md:flex-1 md:overflow-y-auto">
@@ -1185,7 +1230,7 @@ export function SqliteEditorSession({
                       }
                       description={
                         tables.length === 0
-                          ? "Run a CREATE TABLE statement to add one."
+                          ? "Use the plus button beside Tables to add one."
                           : "Pick a table to see its rows."
                       }
                     />
@@ -1268,6 +1313,12 @@ export function SqliteEditorSession({
           </span>
         </footer>
       </div>
+
+      <SqliteTableDialog
+        open={tableDialogOpen}
+        onClose={() => setTableDialogOpen(false)}
+        onSubmit={createTable}
+      />
 
       <SqliteColumnDialog
         open={Boolean(columnDialog)}

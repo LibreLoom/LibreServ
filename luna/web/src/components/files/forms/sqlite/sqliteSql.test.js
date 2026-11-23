@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAddColumnSql,
   buildCountQuery,
+  buildCreateTableSql,
   buildDeleteRowSql,
   buildDropColumnSql,
   buildInsertRowSql,
@@ -10,6 +11,7 @@ import {
   buildUpdateCellSql,
   cleanColumnName,
   cleanColumnType,
+  cleanTableName,
   quoteIdent,
 } from "./sqliteSql.js";
 
@@ -24,6 +26,12 @@ describe("identifier quoting", () => {
     expect(() => quoteIdent("")).toThrow(/name is required/i);
     expect(() => cleanColumnName("")).toThrow(/Enter a column name/);
     expect(cleanColumnName(" email ")).toBe("email");
+  });
+
+  it("cleans table names and refuses reserved ones", () => {
+    expect(cleanTableName(" members ")).toBe("members");
+    expect(() => cleanTableName("")).toThrow(/Enter a table name/);
+    expect(() => cleanTableName("sqlite_master")).toThrow(/reserved/);
   });
 
   it("only accepts the fixed column types", () => {
@@ -60,6 +68,51 @@ describe("grid queries", () => {
       sql: 'SELECT COUNT(*) FROM "answers"',
       params: [],
     });
+  });
+
+  it("creates a table with a single inline primary key", () => {
+    expect(
+      buildCreateTableSql({
+        table: "members",
+        columns: [
+          { name: "id", type: "INTEGER", primaryKey: true, notNull: true },
+          { name: "name", type: "TEXT", notNull: true },
+        ],
+      }),
+    ).toEqual({
+      sql: 'CREATE TABLE "members" ("id" INTEGER PRIMARY KEY NOT NULL, "name" TEXT NOT NULL)',
+      params: [],
+    });
+  });
+
+  it("creates a composite primary key at the table level", () => {
+    expect(
+      buildCreateTableSql({
+        table: "answers",
+        columns: [
+          { name: "form_id", type: "INTEGER", primaryKey: true },
+          { name: "answer_no", type: "INTEGER", primaryKey: true },
+          { name: "body", type: "TEXT" },
+        ],
+      }).sql,
+    ).toBe(
+      'CREATE TABLE "answers" ("form_id" INTEGER, "answer_no" INTEGER, "body" TEXT, PRIMARY KEY ("form_id", "answer_no"))',
+    );
+  });
+
+  it("refuses duplicate column names and an empty table", () => {
+    expect(() =>
+      buildCreateTableSql({
+        table: "members",
+        columns: [
+          { name: "id", type: "INTEGER" },
+          { name: "ID", type: "TEXT" },
+        ],
+      }),
+    ).toThrow(/two columns named/);
+    expect(() => buildCreateTableSql({ table: "members", columns: [] })).toThrow(
+      /at least one column/,
+    );
   });
 
   it("updates one cell by a composite key", () => {

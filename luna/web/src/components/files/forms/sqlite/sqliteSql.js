@@ -31,6 +31,15 @@ export function cleanColumnName(name) {
   return text;
 }
 
+/** @param {unknown} name */
+export function cleanTableName(name) {
+  const text = typeof name === "string" ? name.trim() : "";
+  if (!text) throw new Error("Enter a table name.");
+  if (text.includes("\0")) throw new Error("That name contains a character SQLite can't store.");
+  if (/^sqlite_/i.test(text)) throw new Error("Names starting with sqlite_ are reserved.");
+  return text;
+}
+
 /** @param {unknown} type */
 export function cleanColumnType(type) {
   const text = typeof type === "string" ? type.trim().toUpperCase() : "";
@@ -95,6 +104,49 @@ export function buildDeleteRowSql({ table, primaryKey, keyValues }) {
   return {
     sql: `DELETE FROM ${quoteIdent(table)} WHERE ${where}`,
     params: [...keyValues],
+  };
+}
+
+/**
+ * Create a table from the New table dialog. A single primary key is inline;
+ * several become a table-level composite key.
+ * @param {{ table: string, columns: { name: string, type: string, primaryKey?: boolean, notNull?: boolean }[] }} options
+ */
+export function buildCreateTableSql({ table, columns }) {
+  const tableName = cleanTableName(table);
+  if (!Array.isArray(columns) || columns.length === 0) {
+    throw new Error("Add at least one column.");
+  }
+  const seen = new Set();
+  const cleaned = columns.map((column) => {
+    const name = cleanColumnName(column?.name);
+    if (seen.has(name.toLowerCase())) {
+      throw new Error(`There are two columns named "${name}".`);
+    }
+    seen.add(name.toLowerCase());
+    return {
+      name,
+      type: cleanColumnType(column?.type),
+      primaryKey: Boolean(column?.primaryKey),
+      notNull: Boolean(column?.notNull),
+    };
+  });
+  const keys = cleaned.filter((column) => column.primaryKey);
+  const singleKey = keys.length === 1 ? keys[0].name : "";
+  const definitions = cleaned.map((column) => {
+    let sql = `${quoteIdent(column.name)} ${column.type}`;
+    if (column.name === singleKey) sql += " PRIMARY KEY";
+    if (column.notNull) sql += " NOT NULL";
+    return sql;
+  });
+  if (keys.length > 1) {
+    definitions.push(
+      `PRIMARY KEY (${keys.map((column) => quoteIdent(column.name)).join(", ")})`,
+    );
+  }
+  return {
+    sql: `CREATE TABLE ${quoteIdent(tableName)} (${definitions.join(", ")})`,
+    params: [],
   };
 }
 

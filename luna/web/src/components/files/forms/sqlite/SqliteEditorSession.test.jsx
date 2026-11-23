@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 import { SqliteEditorSession } from "./SqliteEditor.jsx";
 
 vi.mock("./sqliteClient.js", () => {
@@ -58,6 +59,7 @@ vi.mock("./sqliteClient.js", () => {
 function mountSession() {
   return render(
     <ToastProvider>
+      <Toaster />
       <SqliteEditorSession
         canWrite
         initialBytes={new Uint8Array([1, 2, 3])}
@@ -71,6 +73,18 @@ function mountSession() {
 }
 
 describe("SqliteEditorSession table switching", () => {
+  it("opens the New table dialog from the plus button", async () => {
+    mountSession();
+    await screen.findByText("Party");
+    fireEvent.click(screen.getByRole("button", { name: "New table" }));
+    expect(await screen.findByRole("heading", { name: "New table" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Table name"), {
+      target: { value: "notes" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create table" }));
+    expect(await screen.findByText("Table created")).toBeInTheDocument();
+  });
+
   it("loads the table the person just chose instead of staying on the spinner", async () => {
     mountSession();
     expect(await screen.findByText("Party")).toBeInTheDocument();
