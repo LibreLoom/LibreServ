@@ -34,26 +34,67 @@ fn main() -> anyhow::Result<()> {
         .block_on(async_main(started))
 }
 
-/// Sleep until the system has been up for `seconds`, if it has not been yet.
-/// Returns how long it slept.
-fn wait_for_usb_to_settle(seconds: f64) -> std::time::Duration {
+/// Time left until the system has been up for `seconds`. Boot-time hardware
+/// waits are bounded in uptime rather than in sleep time, so a slow boot never
+/// waits twice.
+fn time_until_uptime(seconds: f64) -> std::time::Duration {
     let up = std::fs::read_to_string("/proc/uptime").ok().and_then(|t| {
         t.split_whitespace()
             .next()
             .and_then(|v| v.parse::<f64>().ok())
     });
-    if let Some(up) = up
-        && up < seconds
-    {
-        let wait = std::time::Duration::from_secs_f64((seconds - up).min(seconds));
-        tracing::info!(
-            seconds = wait.as_secs_f32(),
-            "waiting for USB drives to show up"
-        );
-        std::thread::sleep(wait);
-        return wait;
+    match up {
+        Some(up) if up < seconds => std::time::Duration::from_secs_f64((seconds - up).min(seconds)),
+        _ => std::time::Duration::ZERO,
     }
-    std::time::Duration::ZERO
+}
+
+/// The whole disks the kernel knows about right now, sorted.
+fn block_devices() -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir("/sys/block")
+        .map(|dir| {
+            dir.flatten()
+                .filter_map(|entry| entry.file_name().into_string().ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    names
+}
+
+/// Wait until the list of block devices holds still for `quiet`, capped by
+/// `budget`, and return how long that took.
+///
+/// A USB stick plugged in at power-on is still being enumerated while the
+/// system boots, and the password-recovery scan below is the only look at it
+/// before the network is up. Waiting for the device list to settle gives that
+/// scan the same chance a fixed sleep did, without stalling a boot where the
+/// hardware was ready all along.
+fn wait_for_block_devices_to_settle(
+    budget: std::time::Duration,
+    quiet: std::time::Duration,
+) -> std::time::Duration {
+    let start = std::time::Instant::now();
+    let mut seen = block_devices();
+    let mut last_change = start;
+    while start.elapsed() < budget {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let now = block_devices();
+        if now != seen {
+            seen = now;
+            last_change = std::time::Instant::now();
+        } else if last_change.elapsed() >= quiet {
+            break;
+        }
+    }
+    let waited = start.elapsed();
+    if waited > std::time::Duration::from_millis(200) {
+        tracing::info!(
+            seconds = waited.as_secs_f32(),
+            "waited for USB drives to show up"
+        );
+    }
+    waited
 }
 
 async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
@@ -117,9 +158,14 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
     ));
     // USB sticks need a couple of seconds after power-on to show up, and this
     // is the only look at them before the password-recovery stick scan below
-    // (it runs once, before the network is up). Starting this early on a fast
-    // boot would miss them, so give them until 8 seconds of uptime.
-    let usb_wait = wait_for_usb_to_settle(8.0);
+    // (it runs once, before the network is up). Give the kernel until 8 seconds
+    // of uptime at most, and stop as soon as the device list stops growing, so
+    // a boot whose hardware is already settled does not wait for the cap.
+    let usb_wait = wait_for_block_devices_to_settle(
+        time_until_uptime(8.0),
+        std::time::Duration::from_millis(2500),
+    );
+    tracing::debug!(?usb_wait, "USB settle wait done");
     let detected = {
         let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
         lunad::drives::detect::scan_with_dev_mocks(std::path::Path::new("/sys/block"), &mounts)
