@@ -228,7 +228,8 @@ textarea::placeholder {
     border: none !important;
 }
 
-/* File search overlay — backdrop fade; panel morph uses JS FLIP when motion is allowed. */
+/* File search overlay — the backdrops fade and the panel rises and settles,
+   every time and from every page. */
 @keyframes file-search-backdrop-in {
     from { opacity: 0; }
     to { opacity: 1; }
@@ -250,6 +251,17 @@ textarea::placeholder {
     }
 }
 
+@keyframes file-search-panel-out {
+    from {
+        opacity: 1;
+        transform: none;
+    }
+    to {
+        opacity: 0;
+        transform: translateY(10px) scale(0.96);
+    }
+}
+
 .file-search-backdrop-enter {
     animation: file-search-backdrop-in var(--motion-duration-medium2) var(--motion-easing-emphasized-decelerate) both;
 }
@@ -260,6 +272,10 @@ textarea::placeholder {
 
 .file-search-panel-enter {
     animation: file-search-panel-in var(--motion-duration-medium4) var(--motion-easing-emphasized-decelerate) both;
+}
+
+.file-search-panel-exit {
+    animation: file-search-panel-out var(--motion-duration-short4) var(--motion-easing-emphasized-accelerate) both;
 }
 
 /* Held at their first frame until the component adds `file-search-live`
@@ -295,6 +311,7 @@ textarea::placeholder {
     .file-search-backdrop-enter,
     .file-search-backdrop-exit,
     .file-search-panel-enter,
+    .file-search-panel-exit,
     .file-search-row-enter {
         animation: none;
     }
