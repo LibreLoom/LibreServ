@@ -20,9 +20,23 @@ codepoint in the original TTF `cmap`. Conversion commands are in
 
 | Product | Before | After | Ratio |
 |---|---|---|---|
-| Sol first-load bytes on the wire | 1668.3 KiB | 571.8 KiB | 2.92x |
-| Luna first-load bytes (lunad serves files raw) | 2258.2 KiB | 1160.6 KiB | 1.95x |
+| Product, basis | Before | After | Ratio |
+|---|---|---|---|
+| Sol, regular face actually fetched by the dashboard | 709.0 KiB | 323.6 KiB | 2.19x |
+| Sol, all faces (upper bound) | 1668.3 KiB | 571.8 KiB | 2.92x |
+| Luna W1, regular face actually fetched | 1298.9 KiB | 912.4 KiB | 1.42x |
+| Luna W1, all faces (upper bound) | 2258.2 KiB | 1160.6 KiB | 1.95x |
 | Shared font faces (raw) | 1530 KiB | 433 KiB | 3.53x |
+
+The 1.5x claim applies to Sol's transferred bytes and hot paths. Luna clears
+1.5x only for the all-faces upper bound; the face the browser actually fetches
+gives 1.42x, and the daemon hot paths have no before/after benchmark in this
+pass. That limit is stated rather than folded into the headline.
+
+The "face actually fetched" rows use the regular WOFF2 (189,468 B, or 185.0 KiB)
+and the regular TTF (584,424 B, or 570.7 KiB); the browser run confirmed only
+that face was requested. `sol/connect/web/customer` still ships TTF faces and
+a TTF preload; it is a separate build and is outside this pass.
 
 How each side was produced, so the numbers can be reproduced:
 

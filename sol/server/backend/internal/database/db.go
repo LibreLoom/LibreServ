@@ -383,7 +383,13 @@ func integrityCheckOn(ctx context.Context, conn *sql.DB) (bool, error) {
 	if err := conn.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrityOk); err != nil {
 		return false, integrityQueryError(err)
 	}
-	return integrityOk != "ok", nil
+	if integrityOk != "ok" {
+		// The public response carries only a verdict. Keep SQLite's detail
+		// in the server log so support can see which page or table failed.
+		slog.Warn("database integrity check found damage", "result", integrityOk)
+		return true, nil
+	}
+	return false, nil
 }
 
 // CopyFile is a helper to copy a file from src to dst.

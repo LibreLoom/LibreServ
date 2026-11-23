@@ -249,3 +249,61 @@ func TestHTTPUtilityMiddleware(t *testing.T) {
 		t.Fatalf("logout = %d, cookie=%q", logout.Code, logout.Header().Get("Set-Cookie"))
 	}
 }
+
+func TestDeviceAuthLastSeenWindow(t *testing.T) {
+	db := database.OpenTestDB(t)
+	accountID := security.GenerateID("acct")
+	deviceID := security.GenerateID("dev")
+	keyID := security.GenerateID("lic")
+	key := security.GenerateConnectKey()
+	if _, err := db.Exec(
+		`INSERT INTO customer_accounts (id, email, password_hash, plan_id) VALUES ($1, $2, 'hash', 'free')`,
+		accountID, accountID+"@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO devices (id, account_id, plan_id, is_active) VALUES ($1, $2, 'free', TRUE)`, deviceID, accountID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO connect_keys (id, key_hash, key_prefix, account_id, device_id, status)
+		 VALUES ($1, $2, $3, $4, $5, 'active')`,
+		keyID, hashToken(key), key[:8], accountID, deviceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE devices SET connect_key_id = $1 WHERE id = $2`, keyID, deviceID); err != nil {
+		t.Fatal(err)
+	}
+
+	authenticated := DeviceAuth(db)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	call := func() {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+key)
+		w := httptest.NewRecorder()
+		authenticated.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("device auth = %d: %s", w.Code, w.Body.String())
+		}
+	}
+	read := func() time.Time {
+		var seen time.Time
+		if err := db.QueryRow(`SELECT last_seen_at FROM devices WHERE id = $1`, deviceID).Scan(&seen); err != nil {
+			t.Fatal(err)
+		}
+		return seen
+	}
+
+	call()
+	first := read()
+	call()
+	if got := read(); !got.Equal(first) {
+		t.Fatalf("second poll inside the window rewrote last_seen_at: %s -> %s", first, got)
+	}
+	if _, err := db.Exec(`UPDATE devices SET last_seen_at = $1 WHERE id = $2`, time.Now().Add(-2*time.Minute), deviceID); err != nil {
+		t.Fatal(err)
+	}
+	call()
+	if got := read(); !got.After(first) {
+		t.Fatalf("poll after the window did not advance last_seen_at: %s -> %s", first, got)
+	}
+}

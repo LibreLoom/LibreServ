@@ -48,7 +48,7 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
         if (cancelled || manualStartedRef.current || !result.status || result.status === "running" || result.status === "idle") return;
         setFileResult(result.message || null);
         setFileProblem(result.status === "corrupt" || result.reason === "missing");
-        setFileChecked(result.status === "ok");
+        setFileChecked(result.status === "ok" || result.reason === "timeout" || result.reason === "error");
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -132,7 +132,7 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
           // A timeout or a locked database is not a problem with the file.
           // A check that could not run is retryable, not a damaged file.
           setFileProblem(result.status === "corrupt" || result.reason === "corrupt" || result.reason === "missing");
-          setFileChecked(result.status === "ok");
+          setFileChecked(result.status === "ok" || result.reason === "timeout" || result.reason === "error");
           setFileResult(result.message || "The database file is fine.");
           break;
         }

@@ -343,7 +343,12 @@ fonts are lazy assets and are not part of W1.
 
 | Journey | Before | After | Ratio |
 |---|---|---|---|
-| W1 first-load bytes (upper bound, all faces) | 2258.2 KiB | 1160.6 KiB | 1.95x |
+| W1 first-load bytes, regular face actually fetched | 1298.9 KiB | 912.4 KiB | 1.42x |
+| W1 first-load bytes, upper bound (all faces) | 2258.2 KiB | 1160.6 KiB | 1.95x |
+
+W1 renders only the regular mono face (189,468 B after, 584,424 B before), so
+1.42x is the journey number. The 1.95x all-faces figure is an upper bound, not
+a W1 result; the 1.5x claim in this pass applies to Sol's transferred bytes.
 
 Both sides used the current `bundle-report.js`: the before build had the font
 edits reverted, the after build is this branch. Each was rebuilt with a clean

@@ -36,8 +36,10 @@ static DETECT_CACHE: OnceLock<Mutex<HashMap<PathBuf, (Instant, String, PathBuf)>
     OnceLock::new();
 
 /// Called wherever the drive manager forgets its own marker memo (adopt,
-/// format, eject, remove, reconcile). The cached prefix must not outlive the
-/// operation that changed it.
+/// format, eject, remove, reconcile, inspect). That hook has no root argument,
+/// so this clears every drive's cached prefix: inspecting one foreign drive
+/// costs the other drives one `read_dir` on their next lookup. Broad but safe;
+/// a per-root invalidation needs the root threaded through the manager hook.
 pub fn forget_all_cached() {
     if let Some(cache) = DETECT_CACHE.get() {
         cache.lock().unwrap_or_else(|p| p.into_inner()).clear();
