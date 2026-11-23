@@ -22,7 +22,18 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
   const [fileProblem, setFileProblem] = useState(false);
   const [fileChecked, setFileChecked] = useState(false);
   const pollRef = useRef(null);
+  const lastHealthRef = useRef(data);
   useEffect(() => () => pollRef.current?.abort(), []);
+  useEffect(() => {
+    // A newer health snapshot wins. Without this, a manual "fine" would keep
+    // overriding a failed database row on every later poll.
+    if (data !== lastHealthRef.current) {
+      lastHealthRef.current = data;
+      setFileChecked(false);
+      setFileProblem(false);
+      setFileResult(null);
+    }
+  }, [data]);
 
   // Always available to an admin, even when the periodic health query fails.
   const actionRow = isAdmin && (
@@ -56,16 +67,24 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
     // A single hung request must not disable the button forever. Bound every
     // call separately; the deadline below bounds the whole poll.
     const request = async (path, options = {}) => {
+      const reqController = new AbortController();
+      const onParentAbort = () => reqController.abort();
+      controller.signal.addEventListener("abort", onParentAbort, { once: true });
       let timer;
       try {
         return await Promise.race([
-          api(path, { ...options, signal: controller.signal }),
+          api(path, { ...options, signal: reqController.signal }),
           new Promise((_, reject) => {
-            timer = setTimeout(() => reject(new Error("request-timeout")), 10_000);
+            timer = setTimeout(() => {
+              // Abort the real fetch too; the race alone leaves it running.
+              reqController.abort();
+              reject(new Error("request-timeout"));
+            }, 10_000);
           }),
         ]);
       } finally {
         clearTimeout(timer);
+        controller.signal.removeEventListener("abort", onParentAbort);
       }
     };
     try {

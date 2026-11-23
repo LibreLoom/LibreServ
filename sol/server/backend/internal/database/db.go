@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/Sol/internal/constants"
@@ -27,6 +28,9 @@ type DB struct {
 	// Services that cache rows from this DB use it to drop stale answers
 	// immediately.
 	onReplace func()
+
+	// healthWarned keeps a missing database from writing one warning per probe.
+	healthWarned atomic.Bool
 }
 
 // SetOnReplace registers a hook for database restores. It is set once during
@@ -252,8 +256,13 @@ func (d *DB) HealthCheck() error {
 	if d.path != ":memory:" {
 		if _, err := os.Stat(d.path); err != nil {
 			// These errors travel through public health endpoints. Log the
-			// path here; callers only get the sentinel.
-			slog.Warn("database file stat failed", "path", d.path, "error", err)
+			// path here; callers only get the sentinel. A missing file makes
+			// every probe fail, so only the first gets a warning.
+			if d.healthWarned.Swap(true) {
+				slog.Debug("database file stat failed", "path", d.path, "error", err)
+			} else {
+				slog.Warn("database file stat failed", "path", d.path, "error", err)
+			}
 			if errors.Is(err, fs.ErrNotExist) {
 				return ErrDatabaseFileMissing
 			}

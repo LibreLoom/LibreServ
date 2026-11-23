@@ -33,10 +33,10 @@ How each side was produced, so the numbers can be reproduced:
   (what the servers send), fonts at raw bytes (servers do not gzip fonts). The
   raw JSON is in the gitignored `*/perf/results/bundle-*.json` files.
 - Sol serves the `.gz` sibling for JS/CSS, so its wire total uses those bytes:
-  before = 138.3 KiB JS/CSS + 1530.0 KiB TTF; after = 138.2 + 424.2 KiB WOFF2.
+  before = 138.3 KiB JS/CSS + 1530.0 KiB TTF; after = 138.56 + 424.18 = 562.74 KiB (138.56 KiB JS/CSS + 424.18 KiB WOFF2).
   Lunad embeds `web/dist` and serves every file verbatim with no compression
   layer, so Luna's total is raw bytes throughout: before = 728.2 KiB JS/CSS +
-  1530.0 KiB TTF; after = 727.4 + 424.2 KiB WOFF2. Both sides were rebuilt with
+  1530.0 KiB TTF; after = 727.4 + 424.2 = 1151.6 KiB WOFF2. Both sides were rebuilt with
   a clean output directory. An earlier draft measured Luna against a server
   that does not exist; the report now uses each server's real transfer basis.
 - A browser check against the built Luna app with the luna/perf "remote"

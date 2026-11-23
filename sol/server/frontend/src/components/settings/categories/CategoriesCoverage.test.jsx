@@ -1016,16 +1016,22 @@ describe("AboutCategory database integrity action", () => {
     expect(apiMock.mock.calls.filter(([path]) => !path.endsWith("/status")).length).toBe(2);
   });
 
-  it("aborts the poll when the card unmounts", async () => {
+  it("aborts an in-flight poll when the card unmounts", async () => {
     const user = userEvent.setup();
-    apiMock.mockImplementation(async (path) => ({
-      json: async () => (path.endsWith("/status") ? { status: "running" } : { status: "running" }),
-    }));
-    const view = renderAbout();
+    /** @type {AbortSignal | null} */
+    let statusSignal = null;
+    apiMock.mockImplementation(async (path, options = {}) => {
+      if (!path.endsWith("/status")) return { json: async () => ({ status: "running" }) };
+      statusSignal = options.signal;
+      return new Promise((_, reject) => {
+        options.signal.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+    });
+    const view = render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
     await user.click(screen.getByRole("button", { name: "Check the database file" }));
-    const signal = apiMock.mock.calls[0][1].signal;
+    if (!statusSignal) throw new Error("status poll was not started");
     view.unmount();
-    expect(signal.aborted).toBe(true);
+    expect(statusSignal.aborted).toBe(true);
   });
 });
 
@@ -1162,5 +1168,33 @@ describe("AboutCategory manual check recount", () => {
     expect((await screen.findAllByText("The database file is fine.")).length).toBeGreaterThan(0);
     expect(screen.getByText("2 of 2 checks passed — everything looks good.")).toBeVisible();
     expect(screen.getByText("Healthy")).toBeVisible();
+  });
+});
+
+describe("AboutCategory fresh health snapshot", () => {
+  it("drops a manual ok when a newer health poll reports the database failed", async () => {
+    const user = userEvent.setup();
+    const okSnapshot = {
+      checks: { database: { status: "passed", message: "Ready" } },
+      summary: { passed: 1, failed: 0 },
+    };
+    healthState.data = okSnapshot;
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status")
+        ? { status: "ok", reason: "ok", corrupt: false }
+        : { status: "running" }),
+    }));
+    const view = render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect((await screen.findAllByText("The database file is fine.")).length).toBeGreaterThan(0);
+
+    const failedSnapshot = {
+      checks: { database: { status: "failed", message: "Could not reach the database" } },
+      summary: { passed: 0, failed: 1 },
+    };
+    healthState.data = failedSnapshot;
+    view.rerender(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    expect(screen.getByText("Could not reach the database")).toBeVisible();
+    expect(screen.queryByText("The database file is fine.")).not.toBeInTheDocument();
   });
 });
