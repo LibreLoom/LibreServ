@@ -34,6 +34,9 @@ const SettingsPage = lazyWithPreload(() => import("./pages/SettingsPage"));
 const FileOpsDock = lazyWithPreload(() => import("./components/files/fileOps/FileOpsDock.jsx"));
 const PublicSharePage = lazy(() => import("./pages/PublicSharePage"));
 const RecoveryWizardPage = lazy(() => import("./pages/RecoveryWizardPage"));
+// Easter eggs, kept out of the first download like the rest of the rare pages.
+const LorePage = lazy(() => import("./pages/LorePage"));
+const PigeonPage = lazy(() => import("./pages/PigeonPage"));
 // Dev only: opens flows that have no button of their own, for the state gallery.
 const FormatFlowHarness = import.meta.env.DEV ? lazy(() => import("./dev/flows/FormatFlowHarness.jsx")) : null;
 
@@ -211,6 +214,8 @@ export default function App() {
                 <Route path="/photos" element={<PhotosPage />} />
                 <Route path="/shared" element={<SharedPage />} />
                 <Route path="/gallery" element={<GalleryToPhotosRedirect />} />
+                <Route path="/lore" element={<LorePage />} />
+                <Route path="/pigeon" element={<PigeonPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 {FormatFlowHarness && <Route path="/__flow/format" element={<FormatFlowHarness />} />}
               </Route>
